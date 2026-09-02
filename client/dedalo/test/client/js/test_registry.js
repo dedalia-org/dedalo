@@ -210,6 +210,7 @@ export const tool_suites_green = [
 	'test_tool_time_machine',
 	'test_tool_tr_print',
 	'test_tool_transcription',
+	'test_tool_uca_maps',
 	'test_tool_update_cache',
 	'test_tool_upload',
 	'test_tool_user_admin',

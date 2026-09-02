@@ -29,19 +29,10 @@
   background-color: #f8d7da;
   color: #842029;
 }
-.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container > h4 {
-  margin-bottom: 0.5rem;
-}
-.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container .capabilities_list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container .capabilities_list > li {
-  padding: 0.35rem 0;
-}
-.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container .capabilities_list > li.capability_unavailable {
-  opacity: 0.65;
+.wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.activating {
+  position: relative;
+  min-height: 4.5rem;
+  padding-top: 0.75rem;
 }
 .tool_header.tool_uca_maps {
   background-color: var(--tool_uca_maps);
@@ -52,6 +43,152 @@
   font-weight: bold;
   font-size: 0.7rem;
   padding: 0.3rem 0.5rem;
-  cursor: default;
+  cursor: pointer;
+}
+.uca-maps-console {
+  position: absolute;
+  top: 5.5rem;
+  left: 4.5rem;
+  z-index: 1000;
+  width: 18rem;
+  max-width: calc(100% - 1rem);
+  max-height: 70%;
+  overflow-y: auto;
+  background: #fff;
+  color: #212529;
+  border-radius: 0.25rem;
+  box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+  font-size: 0.85rem;
+}
+.uca-maps-console[hidden] {
+  display: none;
+}
+.uca-maps-console > .uca-maps-console-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+.uca-maps-console > .uca-maps-console-header > .uca-maps-console-title {
+  font-weight: bold;
+}
+.uca-maps-console > .uca-maps-capabilities {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #dee2e6;
+}
+.uca-maps-console > .uca-maps-capabilities > summary {
+  cursor: pointer;
+}
+.uca-maps-console > .uca-maps-capabilities .capabilities_list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+.uca-maps-console > .uca-maps-capabilities .capabilities_list > li {
+  padding: 0.25rem 0;
+}
+.uca-maps-console > .uca-maps-capabilities .capabilities_list > li.capability_unavailable {
+  opacity: 0.65;
+}
+.uca-maps-console > .uca-maps-object-section {
+  padding: 0.5rem 0.75rem;
+}
+.uca-maps-console > .uca-maps-object-section > h5 {
+  margin: 0 0 0.35rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-placeholder {
+  color: #6c757d;
+  font-style: italic;
+  margin: 0;
+}
+.uca-maps-console > .uca-maps-object-section h6 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #6c757d;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-info {
+  margin: 0.35rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.3rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-field > span {
+  flex: 0 0 auto;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-field > input[type='range'] {
+  flex: 1 1 auto;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-badge {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.75rem;
+  color: #6c757d;
+  word-break: break-all;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-properties-list {
+  list-style: none;
+  margin: 0.2rem 0;
+  padding: 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-properties-list > li.uca-maps-property-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.25rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-properties-list > li.uca-maps-property-item .uca-maps-property-key {
+  flex: 0 0 auto;
+  font-weight: bold;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-properties-list > li.uca-maps-property-item .uca-maps-property-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-properties-list > li.uca-maps-property-item .uca-maps-property-delete {
+  flex: 0 0 auto;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add {
+  display: flex;
+  gap: 0.3rem;
+  margin: 0.4rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add input {
+  flex: 1 1 4rem;
+  min-width: 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-download {
+  margin-top: 0.6rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-download-button {
+  width: 100%;
+}
+.uca-maps-console > .uca-maps-object-section button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.uca-maps-console > .uca-maps-object-section button:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-delete {
+  padding: 0.2rem 0.45rem;
+  background-color: #6c757d;
 }
 /*# sourceMappingURL=tool_uca_maps.css.map */

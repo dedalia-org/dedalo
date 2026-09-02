@@ -9,11 +9,24 @@
  *
  * Native v7 port of v6 `tool_leaflet_special_tools` (Museu de Prehistòria de
  * València / hispanicode-UCA). Plan: `plan_implementacion.md` (repo root).
- * Diary: `docs/DIARY.md` (this dir, local, not committed).
+ * Per-hito dossiers: `docs/HITOS.md` index + `docs/hitos/hito_<N>.md` (this
+ * dir, local, not committed).
  *
- * HITO 1 SCOPE (vertical slice): reach the live map, prove open/close/reopen
- * adds no duplicate control, and show server capabilities. Hitos 2-7 add the
- * Leaflet/Geoman console, downloads, external services and persistence.
+ * HITO 1 SCOPE (vertical slice, closed): reach the live map, prove
+ * open/close/reopen adds no duplicate control, and show server capabilities.
+ *
+ * HITO 2 SCOPE (checkpoint 2a, this revision): the object console — see
+ * `object_console.js` for the full architecture note. Summary: `open_as:
+ * 'modal'` blocks map clicks while open (`<dd-modal>`'s full-viewport
+ * overlay), incompatible with "click a geometry on the live map while the
+ * console is available". Sergio confirmed v6/dedalo6's own real behaviour:
+ * the tool modal loads and closes itself, leaving its tools anchored to the
+ * map. So here: `edit()` attaches the console to the live map, then closes
+ * its own modal (`on_close_actions` intercepts the default destroy so the
+ * INSTANCE survives that close — the console must outlive the modal, tied
+ * instead to component_geolocation's own lifecycle). Real teardown now runs
+ * from `on_geolocation_destroyed()`. Hito 1's capabilities panel moved from
+ * the modal body into the anchored console (same server contract).
  *
  * WHY THIS FILE DOES NOT USE tool_config.ddo_map / self.main_element (unlike
  * tool_dev_template): this tool has no `ontology` entry in register.json, so
@@ -36,8 +49,22 @@
 	import {pause} from '../../../core/common/js/utils/index.js'
 	import {get_caller_by_model} from '../../../core/common/js/utils/util.js'
 	import {common} from '../../../core/common/js/common.js'
+	import {dd_request_idle_callback} from '../../../core/common/js/events.js'
 	import {tool_common, wire_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {render_tool_uca_maps} from './render_tool_uca_maps.js'
+	import {
+		attach_console,
+		detach_console,
+		compute_info,
+		RESERVED_PROPERTY_KEYS,
+		set_style_field,
+		set_property,
+		delete_property,
+		download_geojson,
+		toggle_centroid,
+		toggle_uncertainty,
+		set_hierarchy
+	} from './object_console.js'
 
 
 
@@ -68,22 +95,44 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   map_ready     - true once self.geolocation.map was found within budget
 *   map_control   - the Leaflet control this tool adds to the live map; removed
 *                   in destroy() so closing/reopening never leaves a duplicate
+*   panel_node    - the anchored object-console panel (object_console.js),
+*                   appended directly to the map's own DOM container
+*   console_visible - whether panel_node is currently shown (Show/Hide)
+*   active_console_layer - the Leaflet layer the console is currently
+*                   showing, or null before any geometry has been clicked
+*   _popupopen_handler - the map 'popupopen' listener object_console.js
+*                   subscribes for selection tracking; kept so destroy() can
+*                   unsubscribe the exact same reference
+*   _pmcreate_handler - the map 'pm:create' listener object_console.js (2b)
+*                   subscribes to re-apply style/hierarchy extras to newly
+*                   created geometry; same unsubscribe-by-reference reason
+*   _pmremove_handler - the map 'pm:remove' listener object_console.js (2b)
+*                   subscribes to clear a stale selection and unlock/remove
+*                   an orphaned centroid when a layer is deleted from the
+*                   map by some path other than this tool's own controls
+*                   (typically Geoman's delete tool); same reason
 */
 export const tool_uca_maps = function () {
 
-	this.id				= null
-	this.model			= null
-	this.mode			= null
-	this.node			= null
-	this.ar_instances	= null
-	this.events_tokens	= null
-	this.status			= null
-	this.type			= null
-	this.caller			= null
-	this.langs			= null
-	this.geolocation	= null
-	this.map_ready		= false
-	this.map_control	= null
+	this.id						= null
+	this.model						= null
+	this.mode						= null
+	this.node						= null
+	this.ar_instances				= null
+	this.events_tokens				= null
+	this.status						= null
+	this.type						= null
+	this.caller						= null
+	this.langs						= null
+	this.geolocation				= null
+	this.map_ready					= false
+	this.map_control				= null
+	this.panel_node					= null
+	this.console_visible			= false
+	this.active_console_layer		= null
+	this._popupopen_handler		= null
+	this._pmcreate_handler			= null
+	this._pmremove_handler			= null
 }//end tool_uca_maps
 
 
@@ -251,56 +300,162 @@ tool_uca_maps.prototype.get_capabilities = async function() {
 
 
 /**
-* ADD_MAP_CONTROL
-* Adds this tool's Leaflet control to the live map. Idempotent — a second call
-* while a control is already attached is a no-op, so a stray extra render pass
-* can never attach two. This is deliberately the ONLY thing hito 1 adds to the
-* shared map: it exists to PROVE the open/close/reopen contract (destroy()
-* below removes exactly what this adds) before hitos 2+ add real functionality
-* onto the same map instance.
+* ATTACH_CONSOLE
+* Thin prototype wrapper over object_console.js's attach_console (see that
+* file for the full architecture note). Idempotent — a stray extra render
+* pass never attaches a duplicate control/panel.
 *
-* @returns {L.Control|null} the attached control, or null when there is no map
+* @returns {void}
 */
-tool_uca_maps.prototype.add_map_control = function() {
+tool_uca_maps.prototype.attach_console = function() {
+	attach_console(this)
+}//end attach_console
+
+
+
+/**
+* CHECKPOINT 2B — THIN PROTOTYPE WRAPPERS OVER object_console.js's MUTATORS
+*
+* Why these exist (review-diff tripwire-integrity finding, 2026-09-02):
+* render_object_console.js needs to wire its DOM controls to these mutators,
+* but it must never import them directly FROM object_console.js — this file
+* (tool_uca_maps.js) already imports {render_console_panel,
+* render_selected_object, ...} FROM render_object_console.js (the
+* established one-directional convention across every render_X.js/X.js pair
+* in tools/: logic imports render, never the reverse), and a render→logic
+* import back would close a 2-node import cycle between the two 2b files.
+* Every render_object_console.js call site uses `self.<method>(...)` instead
+* — the same pattern `self.get_tool_label(...)`/`self.get_capabilities()`
+* already used there since hito 1 — so render_object_console.js's only
+* imports stay `ui`/`response_data` (core), no cycle.
+*
+* Each wrapper is a one-line passthrough; the real logic and its full
+* documentation live in object_console.js, which still exports every one of
+* these raw for direct testability (test_tool_uca_maps.js exercises them
+* that way, bypassing the tool_common/get_instance ceremony same as the rest
+* of that suite).
+*/
+tool_uca_maps.prototype.compute_info = function(layer) {
+	return compute_info(this, layer)
+}//end compute_info
+
+tool_uca_maps.prototype.get_reserved_property_keys = function() {
+	return RESERVED_PROPERTY_KEYS
+}//end get_reserved_property_keys
+
+tool_uca_maps.prototype.set_style_field = function(layer, field, value) {
+	return set_style_field(this, layer, field, value)
+}//end set_style_field
+
+tool_uca_maps.prototype.set_property = function(layer, key, value) {
+	return set_property(this, layer, key, value)
+}//end set_property
+
+tool_uca_maps.prototype.delete_property = function(layer, key) {
+	return delete_property(this, layer, key)
+}//end delete_property
+
+tool_uca_maps.prototype.download_geojson = function(layer) {
+	return download_geojson(layer)
+}//end download_geojson
+
+tool_uca_maps.prototype.toggle_centroid = function(layer) {
+	return toggle_centroid(this, layer)
+}//end toggle_centroid
+
+tool_uca_maps.prototype.toggle_uncertainty = function(layer) {
+	return toggle_uncertainty(this, layer)
+}//end toggle_uncertainty
+
+tool_uca_maps.prototype.set_hierarchy = function(layer, edge, checked) {
+	return set_hierarchy(this, layer, edge, checked)
+}//end set_hierarchy
+
+
+
+/**
+* ON_CLOSE_ACTIONS
+* Hook `view_modal` runs INSTEAD of its default destroy+refresh when the
+* modal closes (`client/dedalo/core/tools_common/js/tool_common.js`, the same
+* extension point `tool_export`/`tool_print`/etc. use). Deliberately does
+* NOTHING: this tool's modal is transient scaffolding — `edit()` below closes
+* it programmatically right after attaching the console — and the instance
+* must survive that close with its console still anchored to the live map
+* (file header). Real teardown fires only from on_geolocation_destroyed(),
+* when component_geolocation itself is torn down.
+*
+* view_modal always calls this with the open_as string ('modal' here); no
+* parameter is declared since nothing in this tool needs it (same pattern as
+* tool_ontology.prototype.on_close_actions).
+*
+* @returns {boolean} always true
+*/
+tool_uca_maps.prototype.on_close_actions = function() {
+	return true
+}//end on_close_actions
+
+
+
+/** How long the transient modal stays visible (spinner) before self-closing.
+* v6's own equivalent (`render_tool_leaflet_special_tools.js`) held a
+* `loading.gif` behind a hardcoded `setTimeout(…, 3000)` with no real work
+* to wait on — an artificial pause purely for perceived feedback. An instant
+* close here read as broken rather than "it worked" (Sergio, 2a validation,
+* 2026-09-02) — this constant is the deliberate replacement, chosen with
+* Sergio rather than inherited unexamined. */
+export const TRANSIENT_MODAL_VISIBLE_MS = 2000
+
+/**
+* CLOSE_TRANSIENT_MODAL
+* Schedules this tool's own modal to close itself after a deliberate visible
+* window (see TRANSIENT_MODAL_VISIBLE_MS) — file header: v6's confirmed real
+* behaviour is the tool modal loads and closes itself, spinner-first for
+* feedback. First deferred via dd_request_idle_callback rather than called
+* synchronously from edit() because `self.node.modal` is only set by
+* view_modal AFTER render() resolves (`wrapper.modal = modal`,
+* `client/dedalo/core/tools_common/js/tool_common.js`) — by the time an idle
+* callback fires, that wiring is guaranteed to have already run; the visible
+* window is then held on TOP of that with a plain setTimeout.
+*
+* `transient = true` skips <dd-modal>'s page-wide unsaved-data guard: this
+* modal owns no editable data of its own (the documented use case for the
+* flag — same as ui.confirm()'s yes/no dialogs) — a stray "unsaved changes?"
+* prompt on an auto-close the user never requested would be a bug, not a
+* safety net.
+*
+* @returns {void}
+*/
+tool_uca_maps.prototype.close_transient_modal = function() {
 
 	const self = this
 
-	if (self.map_control || !self.geolocation || !self.geolocation.map) {
-		return self.map_control
-	}
-
-	const UcaMapsControl = L.Control.extend({
-		options : { position: 'topright' },
-		onAdd : function() {
-			const container = L.DomUtil.create('div', 'leaflet-bar uca-maps-control')
-			container.title = self.get_tool_label('uca_maps_control_title') || 'UCA Maps'
-			container.textContent = 'UCA'
-			// prevent map drag/zoom/click from reaching the map through this control
-			L.DomEvent.disableClickPropagation(container)
-			L.DomEvent.disableScrollPropagation(container)
-			return container
-		}
+	dd_request_idle_callback(() => {
+		setTimeout(() => {
+			const modal = self.node && self.node.modal
+			if (modal && typeof modal.close==='function') {
+				modal.transient = true
+				modal.close()
+			}
+		}, TRANSIENT_MODAL_VISIBLE_MS)
 	})
-
-	self.map_control = new UcaMapsControl()
-	self.map_control.addTo(self.geolocation.map)
-
-	return self.map_control
-}//end add_map_control
+}//end close_transient_modal
 
 
 
 /**
 * DESTROY
-* Real teardown (CLAUDE.local.md "destrucción real"): removes the control THIS
-* tool added from the shared map — the map itself belongs to component_geolocation
-* and outlives this tool's modal close, so leaving the control behind is exactly
-* the v6 "controls stay stuck to the map" defect the plan (§7 item 7) requires
-* fixed. Guarded: the map may already be gone if component_geolocation itself
-* was destroyed first (e.g. navigating away while the tool was open).
+* Real teardown (CLAUDE.local.md "destrucción real"): removes everything
+* object_console.js anchored to the shared map — the map itself belongs to
+* component_geolocation and outlives this tool's (self-closed, see file
+* header) modal, so leaving the control/panel behind would be exactly the v6
+* "controls stay stuck to the map" defect the plan (§7 item 7) requires
+* fixed. Only reached from on_geolocation_destroyed() now (on_close_actions
+* intercepts the modal-close path) — detach_console is still internally
+* guarded for the map already being gone, matching the general "component
+* being destroyed" ordering question, not a NEW assumption this revision adds.
 *
 * self.events_tokens is unsubscribed generically by common.prototype.destroy
-* (called at the end here) — nothing else to release in hito 1.
+* (called at the end here).
 *
 * @param {boolean} [delete_self=true]
 * @param {boolean} [delete_dependencies=false]
@@ -311,15 +466,8 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 
 	const self = this
 
-	if (self.map_control && self.geolocation && self.geolocation.map) {
-		try {
-			self.geolocation.map.removeControl(self.map_control)
-		} catch (error) {
-			console.warn('tool_uca_maps destroy: error removing map control', error)
-		}
-	}
-	self.map_control	= null
-	self.geolocation	= null
+	detach_console(self)
+	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,
 	// removes self from instances_map, nullifies heavy props, DOM removal) —
@@ -332,17 +480,25 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 /**
 * ON_GEOLOCATION_DESTROYED
 * Subscribed in render (see render_tool_uca_maps.js) to 'destroy_' + geolocation.id
-* so this tool reacts if the underlying component is torn down while its modal
-* is still open (e.g. the record is closed from elsewhere) — nulls the
-* references so destroy() above does not touch a map that is already gone.
+* — the ONLY real teardown trigger since hito 2 (file header): this tool's
+* own modal already closed itself right after attaching the console, so the
+* console's lifetime is tied to component_geolocation's, not to the modal's.
+* Runs the full destroy() (control/panel removal, events_tokens unsubscribe,
+* instance removed from the registry) — nothing is left running once the map
+* itself is gone.
+*
+* `async`/`return` (not fire-and-forget): `destroy()` is itself `async` and
+* does real awaited work inside `common.prototype.destroy` (event-token
+* unsubscribe, `status` transition, paginator/services teardown) — without
+* propagating that promise, a caller (or a test) awaiting this method would
+* not actually be waiting for teardown to finish, and any rejection deep
+* inside would become an unhandled rejection instead of surfacing here
+* (review-diff correctness finding, 2026-09-02).
+*
+* @returns {Promise<Object>} same shape as destroy()/common.prototype.destroy
 */
-tool_uca_maps.prototype.on_geolocation_destroyed = function() {
-
-	const self = this
-
-	self.map_control	= null
-	self.geolocation	= null
-	self.map_ready		= false
+tool_uca_maps.prototype.on_geolocation_destroyed = async function() {
+	return this.destroy(true, true, true)
 }//end on_geolocation_destroyed
 
 

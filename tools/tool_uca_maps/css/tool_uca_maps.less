@@ -15,6 +15,13 @@
 
 // tool wrapper
 // Encapsulate all tool content to prevent core collisions
+//
+// HITO 2 (checkpoint 2a): this tool's own modal is transient — it self-closes
+// right after attaching the console to the live map (tool_uca_maps.js file
+// header). content_data below is therefore only ever the map-status notice;
+// capabilities and the object console moved to .uca-maps-console, styled
+// further down — anchored to the MAP's own DOM container, outside
+// .wrapper_tool entirely.
 .wrapper_tool.tool_uca_maps {
 
 	.spinner {
@@ -49,29 +56,19 @@
 					background-color: #f8d7da;
 					color: #842029;
 				}
-			}
-		}//end map_status_container
-
-		>.capabilities_container {
-
-			>h4 {
-				margin-bottom: 0.5rem;
-			}
-
-			.capabilities_list {
-				list-style: none;
-				margin: 0;
-				padding: 0;
-
-				>li {
-					padding: 0.35rem 0;
-
-					&.capability_unavailable {
-						opacity: 0.65;
-					}
+				// the transient modal's spinner-then-close state
+				// (close_transient_modal, tool_uca_maps.js) — .spinner (core,
+				// general.less) absolute-centers itself within the nearest
+				// positioned ancestor, so this needs both position:relative and
+				// enough reserved height to sit below the label instead of on
+				// top of it
+				&.activating {
+					position: relative;
+					min-height: 4.5rem;
+					padding-top: 0.75rem;
 				}
 			}
-		}//end capabilities_container
+		}//end map_status_container
 
 	}//end content_data
 }//end wrapper_tool
@@ -81,14 +78,219 @@
 	background-color: @tool_color;
 }
 
-// the one Leaflet control this tool attaches to the live map (hito 1) —
-// see tool_uca_maps.js add_map_control()/destroy(). Scoped to the map, not
-// to .wrapper_tool: it lives outside the tool's own DOM subtree.
+// the toggle control this tool attaches to the live map (hito 1: decorative
+// only; hito 2: shows/hides .uca-maps-console below) — see
+// tools/tool_uca_maps/js/object_console.js attach_console()/detach_console().
+// Scoped to the map, not to .wrapper_tool: it lives outside the tool's own
+// DOM subtree, and outlives the tool's modal (file header of object_console.js).
 .leaflet-control.uca-maps-control {
 	background: @tool_color;
 	color: #fff;
 	font-weight: bold;
 	font-size: 0.7rem;
 	padding: 0.3rem 0.5rem;
-	cursor: default;
+	cursor: pointer;
 }
+
+// object console panel (hito 2) — anchored directly to the live map's own
+// DOM container, NOT inside the tool's modal. See
+// tools/tool_uca_maps/js/object_console.js file header for the architecture
+// note (v6's own real behaviour, confirmed by Sergio: the tool modal loads
+// and closes itself, leaving its tools anchored to the map).
+.uca-maps-console {
+	position: absolute;
+	// left, not right: the control that opens this panel lives at 'topleft'
+	// (object_console.js — matches v6, avoids Geoman's own 'topright' draw
+	// toolbar, see hito_2.md validation notes). 7rem top clearance stacks
+	// below BOTH Leaflet's default zoom control and the UCA toggle button
+	// that now share that corner — 3rem (right-side value from when the
+	// control had that corner alone) overlapped the button itself here.
+	top: 5.5rem;
+	left: 4.5rem;
+	z-index: 1000;
+	width: 18rem;
+	max-width: calc(100% - 1rem);
+	max-height: 70%;
+	overflow-y: auto;
+	background: #fff;
+	color: #212529;
+	border-radius: 0.25rem;
+	box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+	font-size: 0.85rem;
+
+	&[hidden] {
+		display: none;
+	}
+
+	>.uca-maps-console-header {
+		// sticky, not static: the panel itself scrolls (overflow-y: auto,
+		// above) once the object section grows past max-height — without this
+		// the header (and the Show/Hide affordance it visually anchors) scrolls
+		// out of view along with the content, confirmed live by Sergio
+		// (2026-09-02) as something that should stay visible
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		padding: 0.5rem 0.75rem;
+		background-color: @tool_color;
+		color: #fff;
+		border-radius: 0.25rem 0.25rem 0 0;
+
+		>.uca-maps-console-title {
+			font-weight: bold;
+		}
+	}
+
+	>.uca-maps-capabilities {
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #dee2e6;
+
+		>summary {
+			cursor: pointer;
+		}
+
+		.capabilities_list {
+			list-style: none;
+			margin: 0.35rem 0 0;
+			padding: 0;
+
+			>li {
+				padding: 0.25rem 0;
+
+				&.capability_unavailable {
+					opacity: 0.65;
+				}
+			}
+		}
+	}//end uca-maps-capabilities
+
+	>.uca-maps-object-section {
+		padding: 0.5rem 0.75rem;
+
+		>h5 {
+			margin: 0 0 0.35rem;
+		}
+
+		.uca-maps-object-placeholder {
+			color: #6c757d;
+			font-style: italic;
+			margin: 0;
+		}
+
+		// hito 2 checkpoint 2b — style/centroid/uncertainty/hierarchy/properties/
+		// download, all built by render_object_console.js, all keyed off this
+		// same object-section container
+		h6 {
+			margin: 0.6rem 0 0.3rem;
+			font-size: 0.8rem;
+			text-transform: uppercase;
+			letter-spacing: 0.02em;
+			color: #6c757d;
+		}
+
+		.uca-maps-object-info {
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-field {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			margin: 0.3rem 0;
+
+			>span {
+				flex: 0 0 auto;
+			}
+
+			>input[type='range'] {
+				flex: 1 1 auto;
+			}
+		}
+
+		.uca-maps-uncertainty-badge {
+			margin: 0.2rem 0 0.4rem;
+			font-size: 0.75rem;
+			color: #6c757d;
+			word-break: break-all; // the preserved 1/area bug prints ~20 decimals
+		}
+
+		.uca-maps-properties-list {
+			list-style: none;
+			margin: 0.2rem 0;
+			padding: 0;
+
+			>li.uca-maps-property-item {
+				display: flex;
+				align-items: center;
+				gap: 0.3rem;
+				margin: 0.25rem 0;
+
+				.uca-maps-property-key {
+					flex: 0 0 auto;
+					font-weight: bold;
+					max-width: 40%;
+					overflow: hidden;
+					text-overflow: ellipsis;
+					white-space: nowrap;
+				}
+
+				.uca-maps-property-value {
+					flex: 1 1 auto;
+					min-width: 0;
+				}
+
+				.uca-maps-property-delete {
+					flex: 0 0 auto;
+				}
+			}
+		}//end uca-maps-properties-list
+
+		.uca-maps-property-add {
+			display: flex;
+			gap: 0.3rem;
+			margin: 0.4rem 0;
+
+			input {
+				flex: 1 1 4rem;
+				min-width: 0;
+			}
+		}
+
+		.uca-maps-download {
+			margin-top: 0.6rem;
+		}
+
+		.uca-maps-download-button {
+			width: 100%;
+		}
+
+		// every button in this section — Add, ✕ delete, Download GeoJSON.
+		// (!) flex:0 0 auto + white-space:nowrap on the buttons specifically
+		// (not just the row) is required: without it, "Add" squeezed down
+		// to single-letter-per-line inside a flex row shared with two
+		// flex:1 text inputs (confirmed live by Sergio, 2026-09-02) — a
+		// <button> can still be forced below its natural width once the
+		// row runs out of space; this opts it out of shrinking at all.
+		button {
+			flex: 0 0 auto;
+			white-space: nowrap;
+			background-color: @tool_color;
+			color: #fff;
+			border: none;
+			border-radius: 0.2rem;
+			padding: 0.3rem 0.6rem;
+			font-size: 0.8rem;
+			cursor: pointer;
+
+			&:hover {
+				filter: brightness(0.92);
+			}
+		}
+
+		.uca-maps-property-delete {
+			padding: 0.2rem 0.45rem;
+			background-color: #6c757d;
+		}
+	}//end uca-maps-object-section
+
+}//end uca-maps-console

@@ -2,8 +2,9 @@
  * tool_uca_maps server module — port of v6 `tool_leaflet_special_tools`
  * (Museu de Prehistòria de València / hispanicode-UCA), targeting v7 native.
  *
- * Plan: `plan_implementacion.md` (repo root, sibling of `dedalo/`). Diary:
- * `docs/DIARY.md` (this dir — local, never committed).
+ * Plan: `plan_implementacion.md` (repo root, sibling of `dedalo/`). Per-hito
+ * dossiers: `docs/HITOS.md` index + `docs/hitos/hito_<N>.md` (this dir — local,
+ * never committed).
  *
  * HITO 1 SCOPE (vertical slice): `get_capabilities` only. The remaining ~17
  * actions of the plan §3.2 matrix land in hitos 2-4; this file grows one

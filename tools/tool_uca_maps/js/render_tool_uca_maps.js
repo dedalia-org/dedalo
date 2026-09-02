@@ -6,22 +6,23 @@
 // imports
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {ui} from '../../../core/common/js/ui.js'
-	import {response_data} from '../../../core/common/js/api_error.js'
 
 
 
 /**
 * RENDER_TOOL_UCA_MAPS
-* Client-side render module for tool_uca_maps (hito 1 vertical slice).
+* Client-side render module for tool_uca_maps.
 *
-* Layout:
-*  1. map_status_container — reports whether the live component_geolocation map
-*     was found within budget (self.map_ready). On success, attaches this
-*     tool's single Leaflet control (self.add_map_control(), idempotent) so
-*     open/close/reopen never leaves a duplicate — the acceptance criterion for
-*     this hito.
-*  2. capabilities_container — calls the server 'get_capabilities' action and
-*     renders GDAL/ogr2ogr/gdal_translate/ImageMagick availability.
+* HITO 1 (closed): map_status_container + capabilities_container, both
+* rendered INTO the modal body.
+*
+* HITO 2 (checkpoint 2a, this revision): the modal body is now a brief
+* transient notice — the real UI (map status, capabilities, object console)
+* moves to the panel object_console.js/render_object_console.js anchor
+* directly onto the live map, and edit() closes this tool's own modal right
+* after attaching it (see tool_uca_maps.js file header for the architecture
+* note). content_data here exists only for the split second the modal is
+* visible, and for the render_level==='content' partial-refresh path.
 *
 * @module render_tool_uca_maps
 */
@@ -37,9 +38,14 @@ export const render_tool_uca_maps = function() {
 * Entry point wired onto tool_uca_maps.prototype.edit by wire_tool().
 *
 * Subscribes to the live map component's own destroy event so this tool can
-* react if the record is torn down elsewhere while its modal is still open
-* (see tool_uca_maps.prototype.on_geolocation_destroyed) — the token is pushed
-* to self.events_tokens so common.prototype.destroy unsubscribes it for free.
+* react if the record is torn down elsewhere while its console is still
+* anchored (see tool_uca_maps.prototype.on_geolocation_destroyed) — the token
+* is pushed to self.events_tokens so common.prototype.destroy unsubscribes it
+* for free.
+*
+* On a full render (not a render_level==='content' partial refresh), attaches
+* the console to the live map and schedules this tool's own modal to close
+* itself right after — see tool_uca_maps.js close_transient_modal().
 *
 * @param {Object} options
 * @param {string} [options.render_level='full']
@@ -71,6 +77,12 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			content_data : content_data
 		})
 
+	// attach the console to the live map, then self-close (file header)
+		if (self.geolocation && self.map_ready) {
+			self.attach_console()
+		}
+		self.close_transient_modal()
+
 
 	return wrapper
 }//end edit
@@ -79,7 +91,8 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 
 /**
 * GET_CONTENT_DATA
-* Builds the tool body: map status (+ control attach) and the capabilities panel.
+* Builds the tool's (transient) modal body: just the map status. Capabilities
+* and the object console now live in the anchored panel — see file header.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {HTMLElement} content_data node
@@ -88,131 +101,51 @@ const get_content_data = function(self) {
 
 	const fragment = new DocumentFragment()
 
-	// map_status_container
-		const map_status_container = ui.create_dom_element({
+	const map_status_container = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'map_status_container',
+		parent			: fragment
+	})
+
+	if (!self.geolocation) {
+		ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'map_status_container',
-			parent			: fragment
+			class_name		: 'notice notice_error',
+			text_content	: self.get_tool_label('map_not_found') || 'No map component found for this tool.',
+			parent			: map_status_container
 		})
-
-		if (!self.geolocation) {
-			ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'notice notice_error',
-				text_content	: self.get_tool_label('map_not_found') || 'No map component found for this tool.',
-				parent			: map_status_container
-			})
-		}else if (!self.map_ready) {
-			ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'notice notice_warning',
-				text_content	: self.get_tool_label('waiting_for_map') || 'Waiting for the map to finish loading…',
-				parent			: map_status_container
-			})
-		}else{
-			// attach this tool's control to the live map — idempotent, so a
-			// second render pass (e.g. a refresh) never duplicates it
-				self.add_map_control()
-			ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'notice notice_ok',
-				text_content	: '✓ ' + (self.get_tool_label('uca_maps_control_title') || 'UCA Maps'),
-				parent			: map_status_container
-			})
-		}
-
-	// capabilities_container
-		const capabilities_container = ui.create_dom_element({
+	}else if (!self.map_ready) {
+		ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'capabilities_container',
-			parent			: fragment
+			class_name		: 'notice notice_warning',
+			text_content	: self.get_tool_label('waiting_for_map') || 'Waiting for the map to finish loading…',
+			parent			: map_status_container
+		})
+	}else{
+		// visible for the deliberate window close_transient_modal() waits out
+		// (tool_uca_maps.js) — v6's own equivalent (`render_tool_leaflet_special_tools.js`)
+		// showed a loading.gif before its own setTimeout-driven self-close;
+		// Sergio confirmed during 2a validation (2026-09-02) that an instant
+		// flash reads as broken, not as "it worked" — this spinner is the fix
+		const spinner_container = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'notice notice_ok activating',
+			text_content	: self.get_tool_label('activating_console') || 'Activating UCA Maps…',
+			parent			: map_status_container
 		})
 		ui.create_dom_element({
-			element_type	: 'h4',
-			text_content	: self.get_tool_label('capabilities_title') || 'Server capabilities',
-			parent			: capabilities_container
-		})
-		const capabilities_body = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'capabilities_body',
-			parent			: capabilities_container
+			class_name		: 'spinner medium',
+			parent			: spinner_container
 		})
-		// loaded only when there is a real target to gate the action on
-		// ('record_tipo' needs section_tipo + tipo + section_id — all read from
-		// self.geolocation, so with no map component there is nothing to ask)
-		if (self.geolocation) {
-			ui.load_item_with_spinner({
-				container			: capabilities_body,
-				preserve_content	: false,
-				label				: self.get_tool_label('capabilities_title') || 'Server capabilities',
-				callback			: async () => render_capabilities(self)
-			})
-		}
+	}
 
-	// content_data
-		const content_data = ui.tool.build_content_data(self)
-		content_data.appendChild(fragment)
+	const content_data = ui.tool.build_content_data(self)
+	content_data.appendChild(fragment)
 
 
 	return content_data
 }//end get_content_data
-
-
-
-/**
-* RENDER_CAPABILITIES
-* Calls self.get_capabilities() and renders one row per probed binary.
-*
-* @param {Object} self - tool_uca_maps instance
-* @returns {Promise<HTMLElement>} node to insert (via ui.load_item_with_spinner)
-*/
-const render_capabilities = async function(self) {
-
-	const response		= await self.get_capabilities()
-	const capabilities	= response_data(response)
-
-	const node = ui.create_dom_element({ element_type: 'ul', class_name: 'capabilities_list' })
-
-	if (!capabilities) {
-		ui.create_dom_element({
-			element_type	: 'li',
-			class_name		: 'notice notice_error',
-			text_content	: response?.msg || 'Error reading server capabilities.',
-			parent			: node
-		})
-		return node
-	}
-
-	const rows = [
-		{ label: self.get_tool_label('capabilities_gdal') || 'GDAL', capability: capabilities.gdal },
-		{ label: 'ogr2ogr', capability: capabilities.ogr2ogr },
-		{ label: 'gdal_translate', capability: capabilities.gdalTranslate },
-		{
-			label		: self.get_tool_label('capabilities_imagemagick') || 'ImageMagick',
-			capability	: capabilities.imagemagick
-		}
-	]
-
-	for (const row of rows) {
-		const available	= Boolean(row.capability?.available)
-		const li = ui.create_dom_element({
-			element_type	: 'li',
-			class_name		: available ? 'capability_available' : 'capability_unavailable',
-			parent			: node
-		})
-		const status_label = available
-			? (self.get_tool_label('capability_available') || 'available')
-			: (self.get_tool_label('capability_unavailable') || 'not installed on this server')
-		ui.create_dom_element({
-			element_type	: 'span',
-			text_content	: (available ? '✓ ' : '✗ ') + row.label + ': ' + status_label,
-			parent			: li
-		})
-	}
-
-
-	return node
-}//end render_capabilities
 
 
 
