@@ -1,0 +1,45 @@
+{
+	"$schema": "../../src/core/tools/register.schema.json",
+	"name": "tool_uca_maps",
+	"version": "1.0.0",
+	"label": {
+		"lg-eng": "UCA Maps",
+		"lg-spa": "Mapas UCA"
+	},
+	"description": {
+		"lg-eng": "Cartography and geographic-data tools for the map component: basemaps, WMS layers, format conversion and external map services.",
+		"lg-spa": "Herramientas de cartografía y datos geográficos para el componente de mapa: mapas base, capas WMS, conversión de formatos y servicios externos."
+	},
+	"developer": "Universidad de Cádiz / Museu de Prehistòria de València",
+	"dedalo_version_min": "7.0.0",
+	"affected_models": ["component_geolocation"],
+	"show_in_inspector": false,
+	"show_in_component": true,
+	"active": true,
+	"properties": { "open_as": "modal", "windowFeatures": { "width": "60rem", "maxWidth": "100%" } },
+	"labels": [
+		{ "lang": "lg-eng", "name": "capabilities_title", "value": "Server capabilities" },
+		{ "lang": "lg-spa", "name": "capabilities_title", "value": "Capacidades del servidor" },
+
+		{ "lang": "lg-eng", "name": "capabilities_gdal", "value": "GDAL (vector/raster conversion)" },
+		{ "lang": "lg-spa", "name": "capabilities_gdal", "value": "GDAL (conversión vectorial/ráster)" },
+
+		{ "lang": "lg-eng", "name": "capabilities_imagemagick", "value": "ImageMagick (map image export)" },
+		{ "lang": "lg-spa", "name": "capabilities_imagemagick", "value": "ImageMagick (exportación de imagen de mapa)" },
+
+		{ "lang": "lg-eng", "name": "capability_available", "value": "available" },
+		{ "lang": "lg-spa", "name": "capability_available", "value": "disponible" },
+
+		{ "lang": "lg-eng", "name": "capability_unavailable", "value": "not installed on this server" },
+		{ "lang": "lg-spa", "name": "capability_unavailable", "value": "no instalado en este servidor" },
+
+		{ "lang": "lg-eng", "name": "waiting_for_map", "value": "Waiting for the map to finish loading…" },
+		{ "lang": "lg-spa", "name": "waiting_for_map", "value": "Esperando a que el mapa termine de cargar…" },
+
+		{ "lang": "lg-eng", "name": "map_not_found", "value": "No map component found for this tool." },
+		{ "lang": "lg-spa", "name": "map_not_found", "value": "No se ha encontrado ningún componente de mapa para esta herramienta." },
+
+		{ "lang": "lg-eng", "name": "uca_maps_control_title", "value": "UCA Maps" },
+		{ "lang": "lg-spa", "name": "uca_maps_control_title", "value": "UCA Maps" }
+	]
+}

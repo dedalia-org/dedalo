@@ -1,0 +1,57 @@
+/**
+* TOOL_UCA_MAPS
+*
+* Loaded on tool init
+*/
+:root {
+  --tool_uca_maps: #f78a1c;
+}
+.wrapper_tool.tool_uca_maps .spinner {
+  background-color: var(--tool_uca_maps);
+}
+.wrapper_tool.tool_uca_maps > .content_data > .map_status_container {
+  padding: 1rem 0;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice {
+  padding: 0.75rem 1rem;
+  border-radius: 0.25rem;
+  font-size: 1rem;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.notice_ok {
+  background-color: #d1e7dd;
+  color: #0f5132;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.notice_warning {
+  background-color: #fff3cd;
+  color: #664d03;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.notice_error {
+  background-color: #f8d7da;
+  color: #842029;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container > h4 {
+  margin-bottom: 0.5rem;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container .capabilities_list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container .capabilities_list > li {
+  padding: 0.35rem 0;
+}
+.wrapper_tool.tool_uca_maps > .content_data > .capabilities_container .capabilities_list > li.capability_unavailable {
+  opacity: 0.65;
+}
+.tool_header.tool_uca_maps {
+  background-color: var(--tool_uca_maps);
+}
+.leaflet-control.uca-maps-control {
+  background: var(--tool_uca_maps);
+  color: #fff;
+  font-weight: bold;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.5rem;
+  cursor: default;
+}
+/*# sourceMappingURL=tool_uca_maps.css.map */

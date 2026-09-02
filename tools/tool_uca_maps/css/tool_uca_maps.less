@@ -1,0 +1,94 @@
+/**
+* TOOL_UCA_MAPS
+*
+* Loaded on tool init
+*/
+
+// imports
+@import (once) '../../../client/dedalo/core/page/css/layout/vars';
+
+// local vars
+:root {
+	--tool_uca_maps: #f78a1c;
+}
+@tool_color : var(--tool_uca_maps);
+
+// tool wrapper
+// Encapsulate all tool content to prevent core collisions
+.wrapper_tool.tool_uca_maps {
+
+	.spinner {
+		background-color: @tool_color;
+	}
+
+	>.content_data {
+
+		>.map_status_container {
+			padding: 1rem 0;
+
+			>.notice {
+				padding: 0.75rem 1rem;
+				border-radius: 0.25rem;
+				font-size: 1rem;
+
+				&.notice_ok {
+					// (!) NOT fade(@tool_color, …): @tool_color resolves to
+					// var(--tool_uca_maps), a CSS custom property — LESS's
+					// color functions need a literal at COMPILE time and
+					// throw on an opaque var() (measured: build_css.ts
+					// "Argument cannot be evaluated to a color"). A fixed
+					// success tint reads correctly either way.
+					background-color: #d1e7dd;
+					color: #0f5132;
+				}
+				&.notice_warning {
+					background-color: #fff3cd;
+					color: #664d03;
+				}
+				&.notice_error {
+					background-color: #f8d7da;
+					color: #842029;
+				}
+			}
+		}//end map_status_container
+
+		>.capabilities_container {
+
+			>h4 {
+				margin-bottom: 0.5rem;
+			}
+
+			.capabilities_list {
+				list-style: none;
+				margin: 0;
+				padding: 0;
+
+				>li {
+					padding: 0.35rem 0;
+
+					&.capability_unavailable {
+						opacity: 0.65;
+					}
+				}
+			}
+		}//end capabilities_container
+
+	}//end content_data
+}//end wrapper_tool
+
+// modal and new window header tool modification
+.tool_header.tool_uca_maps {
+	background-color: @tool_color;
+}
+
+// the one Leaflet control this tool attaches to the live map (hito 1) —
+// see tool_uca_maps.js add_map_control()/destroy(). Scoped to the map, not
+// to .wrapper_tool: it lives outside the tool's own DOM subtree.
+.leaflet-control.uca-maps-control {
+	background: @tool_color;
+	color: #fff;
+	font-weight: bold;
+	font-size: 0.7rem;
+	padding: 0.3rem 0.5rem;
+	cursor: default;
+}
