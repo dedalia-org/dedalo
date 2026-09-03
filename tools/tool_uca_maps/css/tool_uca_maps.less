@@ -164,6 +164,47 @@
 		}
 	}//end uca-maps-capabilities
 
+	// hito 3b: map-wide raster export ("Download map as image") — same shell
+	// as .uca-maps-capabilities right above (padding/border/summary cursor),
+	// same select+button flex row as .uca-maps-download inside the object
+	// section (see below), because it is the same control shape reused for a
+	// map-wide action instead of a per-object one.
+	>.uca-maps-map-image-download {
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid #dee2e6;
+
+		>summary {
+			cursor: pointer;
+		}
+
+		.uca-maps-map-image-row {
+			display: flex;
+			gap: 0.3rem;
+			margin-top: 0.35rem;
+		}
+
+		.uca-maps-map-image-format {
+			flex: 1 1 4rem;
+			min-width: 0;
+		}
+
+		.uca-maps-map-image-button {
+			flex: 0 0 auto;
+			white-space: nowrap;
+			background-color: @tool_color;
+			color: #fff;
+			border: none;
+			border-radius: 0.2rem;
+			padding: 0.3rem 0.6rem;
+			font-size: 0.8rem;
+			cursor: pointer;
+
+			&:hover {
+				filter: brightness(0.92);
+			}
+		}
+	}//end uca-maps-map-image-download
+
 	>.uca-maps-object-section {
 		padding: 0.5rem 0.75rem;
 
@@ -256,15 +297,23 @@
 			}
 		}
 
+		// hito 3: a format <select> (GeoJSON/SHP/KML) joins the button that used
+		// to be alone here — same flex-row pattern as .uca-maps-property-add
+		// above (gap, select grows, button keeps its natural width via the
+		// shared button rule below — no width:100% any more, it now shares the
+		// row instead of owning it).
 		.uca-maps-download {
+			display: flex;
+			gap: 0.3rem;
 			margin-top: 0.6rem;
 		}
 
-		.uca-maps-download-button {
-			width: 100%;
+		.uca-maps-download-format {
+			flex: 1 1 4rem;
+			min-width: 0;
 		}
 
-		// every button in this section — Add, ✕ delete, Download GeoJSON.
+		// every button in this section — Add, ✕ delete, Download.
 		// (!) flex:0 0 auto + white-space:nowrap on the buttons specifically
 		// (not just the row) is required: without it, "Add" squeezed down
 		// to single-letter-per-line inside a flex row shared with two

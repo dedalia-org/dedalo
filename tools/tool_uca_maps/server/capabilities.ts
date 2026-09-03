@@ -41,8 +41,15 @@ function firstLine(text: string): string | null {
  * Resolve `name` on $PATH and confirm it actually runs `versionArgs`
  * successfully — a stale/broken binary on PATH must report unavailable, not a
  * path that later fails every real conversion.
+ *
+ * Exported for reuse by `gdal.ts`'s `resolveGdalBinary` (hito 3, review-diff
+ * finding): the actions that spawn a GDAL binary for real must apply the
+ * SAME verification this probe does, not a bare `Bun.which` — otherwise a
+ * stale/broken binary reads as "unavailable" here and "available" there,
+ * and a conversion fails as a generic `tool.action_failed` instead of the
+ * `tool.dependency_unavailable` the client already knows how to recognise.
  */
-async function probeOnPath(
+export async function probeOnPath(
 	name: string,
 	versionArgs: readonly string[],
 ): Promise<BinaryCapability> {

@@ -44,6 +44,8 @@
 
 
 import {event_manager} from '../../../core/common/js/event_manager.js'
+import {response_data, ApiError} from '../../../core/common/js/api_error.js'
+import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 
 
@@ -501,28 +503,177 @@ export const delete_property = function(self, layer, key) {
 
 
 /**
-* DOWNLOAD_GEOJSON
-* Client-side only (plan_implementacion.md: "descarga: solo GeoJSON,
-* layer.toGeoJSON() cliente, Blob download" — SHP/KML need the server's
-* `ogr2ogr`, hito 3's `vector_download` action, not yet built).
+* TRIGGER_BLOB_DOWNLOAD
+* Shared anchor-click download idiom (hito 2b's original `download_geojson`
+* body) — every vector format ends here, whether the Blob was built locally
+* (GeoJSON) or decoded from the server's base64 response (SHP/KML, hito 3).
+* Exported (hito 3b): `map_image_download.js` reuses it for the same reason —
+* one download trigger, not two copies.
 *
-* @param {Object} layer
+* @param {Blob} blob
+* @param {string} filename
 * @returns {void}
 */
-export const download_geojson = function(layer) {
+export const trigger_blob_download = function(blob, filename) {
 
-	const geojson	= layer.toGeoJSON()
-	const blob		= new Blob([JSON.stringify(geojson, null, 2)], {type: 'application/geo+json'})
 	const url		= URL.createObjectURL(blob)
 
 	const link		= document.createElement('a')
 	link.href		= url
-	link.download	= 'uca_maps_object.geojson'
+	link.download	= filename
 	document.body.appendChild(link)
 	link.click()
 	link.remove()
 	URL.revokeObjectURL(url)
-}//end download_geojson
+}//end trigger_blob_download
+
+
+
+/**
+* BASE64_TO_BLOB
+* Decodes a base64 string (as returned by the `vector_download`/
+* `raster_download` server actions) into a Blob — no server-generated file
+* ever touches a publicly-servable path (v6 wrote to a web-exposed
+* `downloads/` folder and handed back a URL; this tool has no server route of
+* its own to serve one from — CLAUDE.local.md surface rule — so the bytes
+* travel inside the API envelope instead).
+*
+* Manual `atob()`/`charCodeAt()` loop, NOT `fetch('data:...')` — review-diff
+* (hito 3b) suggested `fetch()` as the browser's own bulk decoder instead of
+* a per-character loop, and it was tried: **it fails for real**, silently, in
+* THIS app. The server's CSP (`src/core/api/static_asset.ts` `APP_CSP`)
+* declares `connect-src 'self' blob:` — no `data:` scheme — and Chrome
+* classifies a `fetch()` of a `data:` URL as a `connect-src` check, so the
+* fetch rejects under the real policy (confirmed live: every `test:client`
+* download assertion failed with a null Blob after switching to `fetch()`,
+* passed again on revert). Loosening `connect-src` is a core-file, app-wide
+* security policy edit — outside this encargo's surface (CLAUDE.local.md) —
+* so the loop stays. Kept synchronous on purpose (every caller `await`s it
+* regardless; `await` on a non-Promise is a no-op, so this cannot regress if
+* a future fix finds a CSP-safe bulk path).
+*
+* Exported (hito 3b): `map_image_download.js` reuses it for `raster_download`'s
+* response the same way.
+*
+* @param {string} base64
+* @param {string} mime
+* @returns {Blob}
+*/
+export const base64_to_blob = function(base64, mime) {
+
+	const binary	= atob(base64)
+	const bytes		= new Uint8Array(binary.length)
+
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i)
+	}
+
+	return new Blob([bytes], {type: mime})
+}//end base64_to_blob
+
+
+
+/**
+* REPORT_CLIENT_ERROR
+* Surfaces a THROWN client-side exception (never reached the server, so
+* there is no envelope for `handle_api_error` to read) through the SAME
+* global toast surface every server-reported failure uses:
+* `event_manager.publish('api_error', …)`, subscribed once in `page.js`
+* (`api_error_handler`) — the identical mechanism `data_manager.js`'s own
+* transport-layer failures publish through. `code` is namespaced `client.*`
+* on purpose — `ApiError`'s own constructor already treats that prefix as
+* the client-origin signal (`this.transport = … : code.startsWith('client.')`)
+* — and falls through `error_policy.js`'s `'*'` wildcard to a plain toast, so
+* nothing needs registering for it.
+*
+* @param {string} message
+* @returns {void}
+*/
+export const report_client_error = function(message) {
+	event_manager.publish('api_error', new ApiError({
+		code		: 'client.tool_uca_maps_failed',
+		message		: message,
+		source		: 'client',
+		// NOT a transport (network/CSRF/retry) failure — the `client.` prefix
+		// defaults `transport` to true, which is the wrong default for "a
+		// screenshot capture or a decode threw", so it is overridden explicitly.
+		transport	: false
+	}))
+}//end report_client_error
+
+
+
+/**
+* DOWNLOAD_VECTOR
+* GeoJSON stays 100% client-side (`layer.toGeoJSON()` + Blob, hito 2b's
+* original behaviour, unchanged — no server round-trip for the format the
+* browser already produces natively). SHP/KML (hito 3) call the server's
+* `vector_download` action: `ogr2ogr` runs server-side (GDAL is not a browser
+* capability), the result comes back base64 in the envelope, decoded into a
+* Blob and downloaded the same way.
+*
+* No client-side reprojection (v6 pre-reprojected to EPSG:3857 by hand with
+* `turf.toMercator` before sending — the resulting GeoJSON was no longer
+* valid WGS84 per RFC 7946). `layer.toGeoJSON()` is already valid WGS84; it
+* travels as-is, and the server assigns `-a_srs EPSG:4326` — an accurate
+* label for data already in that CRS, not a reprojection.
+*
+* Never silent (review-diff correctness finding, hito 3): a server-reported
+* failure (GDAL missing, permission denied, …) goes through the project's own
+* `handle_api_error` — the same call every other tool makes on a failed
+* `tool_request` (e.g. `tool_media_versions`/`tool_time_machine`). The WHOLE
+* function body (including `layer.toGeoJSON()` — review-diff finding, hito
+* 3b: an earlier revision called it BEFORE the try block, so a throw there
+* was not caught by this function's own handling) runs inside one try/catch;
+* an unexpected client-side exception goes through `report_client_error`
+* instead of only `console.error` (review-diff finding, hito 3b: the
+* original catch only logged, contradicting this very doc comment) — never
+* an unhandled promise rejection from the caller's un-awaited click handler
+* (`render_object_console.js`), and never a silent no-op either.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @param {'geojson'|'shp'|'kml'} format
+* @returns {Promise<void>}
+*/
+export const download_vector = async function(self, layer, format) {
+
+	try {
+
+		const geojson = layer.toGeoJSON()
+
+		if (format==='geojson') {
+			const blob = new Blob([JSON.stringify(geojson, null, 2)], {type: 'application/geo+json'})
+			trigger_blob_download(blob, 'uca_maps_object.geojson')
+			return
+		}
+
+		const response = await self.tool_request({
+			action	: 'vector_download',
+			options	: {
+				tipo			: self.geolocation.tipo,
+				section_id		: self.geolocation.section_id,
+				section_tipo	: self.geolocation.section_tipo,
+				format			: format,
+				geojson			: geojson
+			}
+		})
+
+		const data = response_data(response)
+
+		if (!data) {
+			await handle_api_error(response.error, {})
+			return
+		}
+
+		const {content_base64, filename, mime} = data
+		trigger_blob_download(await base64_to_blob(content_base64, mime), filename)
+
+	} catch (error) {
+		console.error('tool_uca_maps: vector_download failed unexpectedly', error)
+		report_client_error((error && error.message) || 'Vector download failed')
+	}
+}//end download_vector
 
 
 

@@ -6,8 +6,10 @@
  * dossiers: `docs/HITOS.md` index + `docs/hitos/hito_<N>.md` (this dir — local,
  * never committed).
  *
- * HITO 1 SCOPE (vertical slice): `get_capabilities` only. The remaining ~17
- * actions of the plan §3.2 matrix land in hitos 2-4; this file grows one
+ * HITO 1 SCOPE (vertical slice): `get_capabilities` only.
+ * HITO 3 SCOPE: `vector_download` (checkpoint 3a — SHP/KML, GeoJSON stays
+ * client-only) + `raster_download` (checkpoint 3b — "download map as image",
+ * JPG/GIF/WebP/GeoTIFF; PNG also stays client-only). This file grows one
  * apiActions entry per hito, never all at once (CLAUDE.local.md protocol).
  *
  * `get_capabilities` has no PHP oracle (plan §3.2: "nueva"). It answers ONE
@@ -17,6 +19,12 @@
  * a live component_geolocation instance bound to one record (plan §3.2 table),
  * so both halves apply — write is never asserted (minLevel 1: it changes
  * nothing, an install merely being ASKED what it has is a read).
+ *
+ * `vector_download`/`raster_download` get the SAME `record_tipo`/minLevel-1
+ * gate: neither writes section data — both transform geometry/pixels the
+ * caller's own live component_geolocation instance already holds, into a
+ * format a browser cannot produce on its own (see each action's own file for
+ * the full design).
  */
 
 import { ok } from '../../../src/core/errors/index.ts';
@@ -27,6 +35,8 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import { probeCapabilities } from './capabilities.ts';
+import { rasterDownload } from './raster_download.ts';
+import { vectorDownload } from './vector_download.ts';
 
 async function getCapabilities(context: ToolActionContext): Promise<ToolResponse> {
 	const capabilities = await probeCapabilities();
@@ -37,6 +47,8 @@ export const tool: ToolServerModule = {
 	name: 'tool_uca_maps',
 	apiActions: {
 		get_capabilities: { permission: 'record_tipo', minLevel: 1, handler: getCapabilities },
+		vector_download: { permission: 'record_tipo', minLevel: 1, handler: vectorDownload },
+		raster_download: { permission: 'record_tipo', minLevel: 1, handler: rasterDownload },
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because

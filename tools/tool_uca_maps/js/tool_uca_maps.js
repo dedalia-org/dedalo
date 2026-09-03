@@ -60,11 +60,12 @@
 		set_style_field,
 		set_property,
 		delete_property,
-		download_geojson,
+		download_vector,
 		toggle_centroid,
 		toggle_uncertainty,
 		set_hierarchy
 	} from './object_console.js'
+	import {download_map_image} from './map_image_download.js'
 
 
 
@@ -355,9 +356,18 @@ tool_uca_maps.prototype.delete_property = function(layer, key) {
 	return delete_property(this, layer, key)
 }//end delete_property
 
-tool_uca_maps.prototype.download_geojson = function(layer) {
-	return download_geojson(layer)
-}//end download_geojson
+tool_uca_maps.prototype.download_vector = function(layer, format) {
+	return download_vector(this, layer, format)
+}//end download_vector
+
+/**
+* CHECKPOINT 3B — map-wide raster download (functionality #10). Same thin-
+* wrapper reason as the block above: `render_map_image_download.js` calls
+* `self.download_map_image(...)`, never `map_image_download.js` directly.
+*/
+tool_uca_maps.prototype.download_map_image = function(format) {
+	return download_map_image(this, format)
+}//end download_map_image
 
 tool_uca_maps.prototype.toggle_centroid = function(layer) {
 	return toggle_centroid(this, layer)

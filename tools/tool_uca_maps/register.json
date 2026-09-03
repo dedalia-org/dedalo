@@ -108,7 +108,34 @@
 		{ "lang": "lg-eng", "name": "properties_add_button", "value": "Add" },
 		{ "lang": "lg-spa", "name": "properties_add_button", "value": "Añadir" },
 
-		{ "lang": "lg-eng", "name": "download_geojson_button", "value": "Download GeoJSON" },
-		{ "lang": "lg-spa", "name": "download_geojson_button", "value": "Descargar GeoJSON" }
+		{ "lang": "lg-eng", "name": "download_button", "value": "Download" },
+		{ "lang": "lg-spa", "name": "download_button", "value": "Descargar" },
+
+		{ "lang": "lg-eng", "name": "vector_format_geojson", "value": "GeoJSON" },
+		{ "lang": "lg-spa", "name": "vector_format_geojson", "value": "GeoJSON" },
+
+		{ "lang": "lg-eng", "name": "vector_format_shp", "value": "ESRI Shapefile" },
+		{ "lang": "lg-spa", "name": "vector_format_shp", "value": "ESRI Shapefile" },
+
+		{ "lang": "lg-eng", "name": "vector_format_kml", "value": "KML" },
+		{ "lang": "lg-spa", "name": "vector_format_kml", "value": "KML" },
+
+		{ "lang": "lg-eng", "name": "map_image_download_title", "value": "Download map as image" },
+		{ "lang": "lg-spa", "name": "map_image_download_title", "value": "Descargar mapa como imagen" },
+
+		{ "lang": "lg-eng", "name": "raster_format_png", "value": "PNG" },
+		{ "lang": "lg-spa", "name": "raster_format_png", "value": "PNG" },
+
+		{ "lang": "lg-eng", "name": "raster_format_jpg", "value": "JPG" },
+		{ "lang": "lg-spa", "name": "raster_format_jpg", "value": "JPG" },
+
+		{ "lang": "lg-eng", "name": "raster_format_gif", "value": "GIF" },
+		{ "lang": "lg-spa", "name": "raster_format_gif", "value": "GIF" },
+
+		{ "lang": "lg-eng", "name": "raster_format_webp", "value": "WebP" },
+		{ "lang": "lg-spa", "name": "raster_format_webp", "value": "WebP" },
+
+		{ "lang": "lg-eng", "name": "raster_format_geotiff", "value": "GeoTIFF" },
+		{ "lang": "lg-spa", "name": "raster_format_geotiff", "value": "GeoTIFF" }
 	]
 }

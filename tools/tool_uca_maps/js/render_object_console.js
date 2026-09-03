@@ -22,8 +22,14 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {response_data} from '../../../core/common/js/api_error.js'
+import {render_map_image_download_section} from './render_map_image_download.js'
 
-// (!) Deliberately NO import from './object_console.js' — object_console.js
+// (!) render → render import above (this file → render_map_image_download.js)
+// is the SAFE direction: the risk the one-directional convention guards
+// against is a render file importing back from its OWN paired logic file
+// (object_console.js), never a render file importing a DIFFERENT render
+// file. render_map_image_download.js imports nothing from this file, so no
+// cycle. Deliberately NO import from './object_console.js' — object_console.js
 // already imports {render_console_panel, render_selected_object,
 // render_placeholder} FROM this file (the established one-directional
 // convention across every render_X.js/X.js pair in tools/: logic imports
@@ -86,6 +92,11 @@ export const render_console_panel = function(self) {
 			label				: self.get_tool_label('capabilities_title') || 'Server capabilities',
 			callback			: async () => render_capabilities(self)
 		})
+
+	// download map as image (hito 3, checkpoint 3b) — a MAP-WIDE action, built
+	// once here like capabilities (never per-object-selection, unlike
+	// render_download_button below); collapsed by default for the same reason.
+		render_map_image_download_section(self, panel)
 
 	// selected-object section — populated by render_selected_object() on click
 		const object_section = ui.create_dom_element({
@@ -520,10 +531,16 @@ const render_properties_editor = function(self, layer, container) {
 
 
 
+/** Vector download formats, in menu order — GeoJSON stays client-only
+* (`object_console.js` `download_vector`); SHP/KML round-trip through the
+* server's `vector_download` action (hito 3). */
+const VECTOR_FORMATS = ['geojson', 'shp', 'kml']
+
 /**
 * RENDER_DOWNLOAD_BUTTON
-* GeoJSON only — see `object_console.js` `download_geojson` file header for
-* why SHP/KML are not offered yet (hito 3's server-side `vector_download`).
+* Format `<select>` (GeoJSON/SHP/KML, hito 3 — was a single GeoJSON-only
+* button through hito 2b) + one "Download" button reading the select's
+* current value at click time.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -533,14 +550,30 @@ const render_properties_editor = function(self, layer, container) {
 const render_download_button = function(self, layer, container) {
 
 	const row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-download', parent: container})
+
+	const select = ui.create_dom_element({
+		element_type	: 'select',
+		class_name		: 'uca-maps-download-format',
+		parent			: row
+	})
+
+	for (const format of VECTOR_FORMATS) {
+		ui.create_dom_element({
+			element_type	: 'option',
+			value			: format,
+			text_content	: self.get_tool_label('vector_format_' + format) || format,
+			parent			: select
+		})
+	}
+
 	const button = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-download-button',
-		text_content	: self.get_tool_label('download_geojson_button') || 'Download GeoJSON',
+		text_content	: self.get_tool_label('download_button') || 'Download',
 		parent			: row
 	})
 	button.type = 'button'
-	button.addEventListener('click', () => self.download_geojson(layer))
+	button.addEventListener('click', () => self.download_vector(layer, select.value))
 
 }//end render_download_button
 

@@ -40,12 +40,13 @@ import {
 	set_style_field,
 	set_property,
 	delete_property,
-	download_geojson,
+	download_vector,
 	toggle_centroid,
 	toggle_uncertainty,
 	set_hierarchy,
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
+import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 
 
 
@@ -204,6 +205,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.caller				= geolocation
 		tool.geolocation		= geolocation
 		tool.map_ready			= true
+		// tool_common.prototype.init's own default (`self.mode = options.mode ||
+		// 'edit'`), replicated here because this suite bypasses init() (file
+		// header) — without it `create_source()` (common.js) builds
+		// `source.mode: null`, which the server's rqo schema REJECTS wholesale as
+		// request.invalid_rqo (source.mode). This was a silent, undetected gap:
+		// every self.tool_request() call in this suite — including
+		// self.get_capabilities(), used since hito 1 — has been failing this way
+		// the whole time; nothing before hito 3's vector_download tests actually
+		// asserted the round-trip SUCCEEDED (the capabilities DOM assertion only
+		// checked the container renders — see render_capabilities' `!capabilities`
+		// branch, which degrades to an inline error li rather than throwing).
+		tool.mode				= 'edit'
 		tool.get_tool_label		= () => undefined // force the '||' fallback label strings
 
 	})
@@ -344,32 +357,111 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal('custom_key' in layer.feature.properties, false, 'expected the property removed')
 	})
 
-	it('download_geojson downloads the real GeoJSON of the selected layer (not just "does not throw")', async function() {
-
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-
-		// spy on URL.createObjectURL to capture the actual Blob content —
-		// review-diff tests-lens finding, 2026-09-02: a throw-only assertion
-		// would still pass for a bug that serialized {} or the wrong layer
+	/**
+	* Shared URL.createObjectURL spy — every download_vector format ends by
+	* building a Blob and handing it to this same global (review-diff
+	* tests-lens finding, 2026-09-02, against the original download_geojson: a
+	* throw-only assertion would still pass for a bug that serialized {} or
+	* the wrong layer). Restored in a `finally` so a failing assertion can
+	* never leak the spy into a later test.
+	* @param {Function} fn - runs with the spy installed
+	* @returns {Promise<Blob|null>} the captured Blob, or null if none was built
+	*/
+	const capture_download_blob = async function(fn) {
 		const original_create_object_url = URL.createObjectURL
 		let captured_blob = null
 		URL.createObjectURL = (blob) => {
 			captured_blob = blob
 			return 'blob:uca-maps-test-mock'
 		}
-
 		try {
-			download_geojson(layer)
+			await fn()
 		} finally {
 			URL.createObjectURL = original_create_object_url
 		}
+		return captured_blob
+	}//end capture_download_blob
 
-		assert.isOk(captured_blob, 'expected download_geojson to build a Blob')
+	it('download_vector(\'geojson\') stays 100% client-side and downloads the real GeoJSON', async function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		const captured_blob = await capture_download_blob(() => download_vector(tool, layer, 'geojson'))
+
+		assert.isOk(captured_blob, 'expected download_vector to build a Blob')
 		assert.equal(captured_blob.type, 'application/geo+json', 'expected the GeoJSON MIME type')
 
 		const parsed = JSON.parse(await captured_blob.text())
 		assert.equal(parsed.type, 'Feature', 'expected the serialized payload to be the layer\'s own GeoJSON Feature')
 		assert.equal(parsed.geometry.type, 'Polygon', 'expected the seeded polygon\'s own geometry type')
+	})
+
+	/**
+	* download_vector('shp'/'kml') round-trips through the REAL server action
+	* (`vector_download.ts`, hito 3) — this suite's own ephemeral server
+	* (`bun run test:client`, AGENTS.md) runs in the same container as the
+	* GDAL binaries (`tools/tool_uca_maps/dev/Dockerfile.dev`), so this is a
+	* genuine end-to-end exercise, not a mock. Tolerates GDAL being absent on
+	* whatever machine eventually runs this suite (tool.dependency_unavailable
+	* is a legitimate, gated outcome — the shape assertion only runs when the
+	* conversion actually happened), same discipline as the server-side
+	* `HAVE_GDAL`-gated native test (test/unit/tool_uca_maps_vector_download.test.ts).
+	*/
+	it('download_vector(\'shp\') downloads a real zip via the server\'s ogr2ogr, or reports GDAL unavailable', async function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		let response = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			response = await original_tool_request.call(tool, options)
+			return response
+		}
+
+		const captured_blob = await capture_download_blob(() => download_vector(tool, layer, 'shp'))
+
+		if (response && response.ok!==true) {
+			assert.equal(
+				response.error && response.error.code, 'tool.dependency_unavailable',
+				'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response)
+			)
+			return
+		}
+
+		assert.isOk(captured_blob, 'expected download_vector to build a Blob from the server response')
+		assert.equal(captured_blob.type, 'application/zip', 'expected the shapefile zip MIME type')
+
+		const bytes = new Uint8Array(await captured_blob.arrayBuffer())
+		assert.isAbove(bytes.length, 0, 'expected a non-empty zip')
+		// ZIP local-file-header magic ('PK\x03\x04') — the same real-archive
+		// proof the native test asserts server-side.
+		assert.deepEqual(Array.from(bytes.slice(0, 4)), [0x50, 0x4b, 0x03, 0x04], 'expected real ZIP magic bytes')
+	})
+
+	it('download_vector(\'kml\') downloads real WGS84 KML via the server\'s ogr2ogr, or reports GDAL unavailable', async function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		let response = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			response = await original_tool_request.call(tool, options)
+			return response
+		}
+
+		const captured_blob = await capture_download_blob(() => download_vector(tool, layer, 'kml'))
+
+		if (response && response.ok!==true) {
+			assert.equal(
+				response.error && response.error.code, 'tool.dependency_unavailable',
+				'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response)
+			)
+			return
+		}
+
+		assert.isOk(captured_blob, 'expected download_vector to build a Blob from the server response')
+		assert.equal(captured_blob.type, 'application/vnd.google-earth.kml+xml', 'expected the KML MIME type')
+
+		const text = await captured_blob.text()
+		assert.include(text, '<kml', 'expected real KML content, not an empty/garbage file')
 	})
 
 	it('toggle_centroid creates a linked marker in the same FeatureGroup, and removes it on toggle-off', function() {
@@ -458,7 +550,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(section.querySelector('.uca-maps-uncertainty'), 'expected an uncertainty checkbox for a polygon')
 		assert.isOk(section.querySelector('.uca-maps-hierarchy-controls'), 'expected hierarchy checkboxes for a polygon')
 		assert.isOk(section.querySelector('.uca-maps-properties-editor'), 'expected the properties editor')
-		assert.isOk(section.querySelector('.uca-maps-download-button'), 'expected the GeoJSON download button')
+		assert.isOk(section.querySelector('.uca-maps-download-format'), 'expected the format select (GeoJSON/SHP/KML)')
+		assert.isOk(section.querySelector('.uca-maps-download-button'), 'expected the download button')
+
+		const options = Array.from(section.querySelectorAll('.uca-maps-download-format option')).map(o => o.value)
+		assert.deepEqual(options, ['geojson', 'shp', 'kml'], 'expected the three vector formats, in menu order')
 	})
 
 
@@ -542,6 +638,103 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(wrapper, 'expected edit() to return a wrapper node')
 		assert.isOk(tool.map_control, 'expected edit()\'s gate to have called attach_console()')
 		assert.isOk(tool.panel_node, 'expected the panel built via edit()')
+	})
+
+
+
+	// hito 3, checkpoint 3b — "Download map as image" (functionality #10)
+
+	it('render_console_panel builds the map-image-download section with all 5 formats, in order', function() {
+
+		tool.attach_console()
+
+		const section = tool.panel_node.querySelector('.uca-maps-map-image-download')
+		assert.isOk(section, 'expected the map-image-download details section')
+
+		const select = section.querySelector('.uca-maps-map-image-format')
+		const options = Array.from(select.querySelectorAll('option')).map(o => o.value)
+		assert.deepEqual(options, ['png', 'jpg', 'gif', 'webp', 'geotiff'], 'expected all 5 v6 formats, in order')
+
+		assert.isOk(section.querySelector('.uca-maps-map-image-button'), 'expected the download button')
+	})
+
+	it('download_map_image(\'png\') captures the live map client-side, no server round-trip', async function() {
+
+		tool.attach_console()
+
+		let tool_request_called = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			tool_request_called = true
+			return original_tool_request.call(tool, options)
+		}
+
+		const captured_blob = await capture_download_blob(() => download_map_image(tool, 'png'))
+
+		assert.isOk(captured_blob, 'expected download_map_image to build a Blob')
+		assert.equal(captured_blob.type, 'image/png', 'expected a real PNG capture')
+		assert.isAbove(captured_blob.size, 0, 'expected a non-empty capture')
+		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format (same principle as GeoJSON, 2b/3a)')
+
+		tool.tool_request = original_tool_request
+	})
+
+	/**
+	* download_map_image('jpg'/'geotiff') round-trips through the REAL server
+	* action (`raster_download.ts`, hito 3b) — same tolerant-of-a-missing-
+	* binary discipline as 3a's SHP/KML tests (this suite's own ephemeral
+	* server runs in the same container that now has both GDAL and
+	* ImageMagick).
+	*/
+	it('download_map_image(\'jpg\') downloads a real flattened JPEG via the server\'s ImageMagick, or reports it unavailable', async function() {
+
+		tool.attach_console()
+
+		let response = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			response = await original_tool_request.call(tool, options)
+			return response
+		}
+
+		const captured_blob = await capture_download_blob(() => download_map_image(tool, 'jpg'))
+
+		if (response && response.ok!==true) {
+			assert.equal(response.error && response.error.code, 'tool.dependency_unavailable', 'expected the only acceptable failure to be a missing ImageMagick binary — full response: ' + JSON.stringify(response))
+			return
+		}
+
+		assert.isOk(captured_blob, 'expected download_map_image to build a Blob from the server response')
+		assert.equal(captured_blob.type, 'image/jpeg', 'expected the JPEG MIME type')
+		assert.isAbove(captured_blob.size, 0, 'expected a non-empty JPEG')
+	})
+
+	it('download_map_image(\'geotiff\') downloads a real georeferenced TIFF via the server\'s GDAL, or reports it unavailable', async function() {
+
+		tool.attach_console()
+
+		let response = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			response = await original_tool_request.call(tool, options)
+			return response
+		}
+
+		const captured_blob = await capture_download_blob(() => download_map_image(tool, 'geotiff'))
+
+		if (response && response.ok!==true) {
+			assert.equal(response.error && response.error.code, 'tool.dependency_unavailable', 'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response))
+			return
+		}
+
+		assert.isOk(captured_blob, 'expected download_map_image to build a Blob from the server response')
+		assert.equal(captured_blob.type, 'image/tiff', 'expected the GeoTIFF MIME type')
+
+		const bytes = new Uint8Array(await captured_blob.arrayBuffer())
+		assert.isAbove(bytes.length, 0, 'expected a non-empty GeoTIFF')
+		// TIFF magic bytes: little-endian 'II*\0' (0x49 0x49 0x2A 0x00) — GDAL's
+		// own default byte order.
+		assert.deepEqual(Array.from(bytes.slice(0, 4)), [0x49, 0x49, 0x2a, 0x00], 'expected real TIFF magic bytes')
 	})
 
 })
