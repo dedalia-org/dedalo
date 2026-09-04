@@ -17,11 +17,11 @@
 // Encapsulate all tool content to prevent core collisions
 //
 // HITO 2 (checkpoint 2a): this tool's own modal is transient — it self-closes
-// right after attaching the console to the live map (tool_uca_maps.js file
-// header). content_data below is therefore only ever the map-status notice;
-// capabilities and the object console moved to .uca-maps-console, styled
-// further down — anchored to the MAP's own DOM container, outside
-// .wrapper_tool entirely.
+// right after attaching every functionality's button+panel to the live map
+// (tool_uca_maps.js file header). content_data below is therefore only ever
+// the map-status notice; every functionality panel (.uca-maps-panel and its
+// per-functionality identity class, styled further down) is anchored to the
+// MAP's own DOM container instead, outside .wrapper_tool entirely.
 .wrapper_tool.tool_uca_maps {
 
 	.spinner {
@@ -78,12 +78,18 @@
 	background-color: @tool_color;
 }
 
-// the toggle control this tool attaches to the live map (hito 1: decorative
-// only; hito 2: shows/hides .uca-maps-console below) — see
-// tools/tool_uca_maps/js/object_console.js attach_console()/detach_console().
-// Scoped to the map, not to .wrapper_tool: it lives outside the tool's own
-// DOM subtree, and outlives the tool's modal (file header of object_console.js).
-.leaflet-control.uca-maps-control {
+// LEFT TOOLBAR (2026-09-04, before hito 4 — CLAUDE.local.md "Left toolbar:
+// un botón por funcionalidad"): every functionality this tool builds gets
+// its OWN 'topleft' toggle button + its OWN anchored panel, both built
+// through tools/tool_uca_maps/js/toolbar.js. The two classes below are the
+// SHARED chrome every button/panel pair uses; a functionality adds only its
+// own identity class (e.g. .uca-maps-control, .uca-maps-map-image-panel)
+// for content-specific rules further down this file.
+
+// shared button chrome. Scoped to the map, not to .wrapper_tool: every one
+// of these buttons lives outside the tool's own DOM subtree, and outlives
+// the tool's modal (file header of object_console.js).
+.leaflet-control.uca-maps-toolbar-button {
 	background: @tool_color;
 	color: #fff;
 	font-weight: bold;
@@ -92,21 +98,15 @@
 	cursor: pointer;
 }
 
-// object console panel (hito 2) — anchored directly to the live map's own
-// DOM container, NOT inside the tool's modal. See
-// tools/tool_uca_maps/js/object_console.js file header for the architecture
-// note (v6's own real behaviour, confirmed by Sergio: the tool modal loads
-// and closes itself, leaving its tools anchored to the map).
-.uca-maps-console {
+// shared panel chrome — anchored directly to the live map's own DOM
+// container, NOT inside the tool's modal (see tools/tool_uca_maps/js/
+// object_console.js file header: v6's own real behaviour, confirmed by
+// Sergio, is the tool modal loads and closes itself, leaving its tools
+// anchored to the map). Position (top/left) is set live in JS
+// (toolbar.js anchor_panel_to_button), anchored to the panel's OWN button —
+// never a hardcoded offset, which broke the moment a second button existed.
+.uca-maps-panel {
 	position: absolute;
-	// left, not right: the control that opens this panel lives at 'topleft'
-	// (object_console.js — matches v6, avoids Geoman's own 'topright' draw
-	// toolbar, see hito_2.md validation notes). 7rem top clearance stacks
-	// below BOTH Leaflet's default zoom control and the UCA toggle button
-	// that now share that corner — 3rem (right-side value from when the
-	// control had that corner alone) overlapped the button itself here.
-	top: 5.5rem;
-	left: 4.5rem;
 	z-index: 1000;
 	width: 18rem;
 	max-width: calc(100% - 1rem);
@@ -122,10 +122,10 @@
 		display: none;
 	}
 
-	>.uca-maps-console-header {
+	>.uca-maps-panel-header {
 		// sticky, not static: the panel itself scrolls (overflow-y: auto,
-		// above) once the object section grows past max-height — without this
-		// the header (and the Show/Hide affordance it visually anchors) scrolls
+		// above) once its content grows past max-height — without this the
+		// header (and the Show/Hide affordance it visually anchors) scrolls
 		// out of view along with the content, confirmed live by Sergio
 		// (2026-09-02) as something that should stay visible
 		position: sticky;
@@ -136,74 +136,73 @@
 		color: #fff;
 		border-radius: 0.25rem 0.25rem 0 0;
 
-		>.uca-maps-console-title {
+		>.uca-maps-panel-title {
 			font-weight: bold;
 		}
 	}
+}//end uca-maps-panel
 
-	>.uca-maps-capabilities {
+// dev-only server-capabilities diagnostic (capabilities_panel.js) — NOT one
+// of the 15 functionalities in
+// docs/Funcionalidades de tool_leaflet_special_tools.md, so it gets no
+// end-user button (SHOW_DEVELOPER-gated); its panel content, unchanged
+// since hito 1 beyond moving twice.
+.uca-maps-capabilities-panel {
+	>.uca-maps-capabilities-body {
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid #dee2e6;
+	}
 
-		>summary {
-			cursor: pointer;
-		}
+	.capabilities_list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
 
-		.capabilities_list {
-			list-style: none;
-			margin: 0.35rem 0 0;
-			padding: 0;
+		>li {
+			padding: 0.25rem 0;
 
-			>li {
-				padding: 0.25rem 0;
-
-				&.capability_unavailable {
-					opacity: 0.65;
-				}
+			&.capability_unavailable {
+				opacity: 0.65;
 			}
 		}
-	}//end uca-maps-capabilities
+	}
+}//end uca-maps-capabilities-panel
 
-	// hito 3b: map-wide raster export ("Download map as image") — same shell
-	// as .uca-maps-capabilities right above (padding/border/summary cursor),
-	// same select+button flex row as .uca-maps-download inside the object
-	// section (see below), because it is the same control shape reused for a
-	// map-wide action instead of a per-object one.
-	>.uca-maps-map-image-download {
+// "Download map as image" (functionality #10, map_image_download.js) — same
+// select+button flex row shape as .uca-maps-download inside the object
+// section below, reused for a map-wide action instead of a per-object one.
+.uca-maps-map-image-panel {
+	>.uca-maps-map-image-row {
+		display: flex;
+		gap: 0.3rem;
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid #dee2e6;
+	}
 
-		>summary {
-			cursor: pointer;
+	.uca-maps-map-image-format {
+		flex: 1 1 4rem;
+		min-width: 0;
+	}
+
+	.uca-maps-map-image-button {
+		flex: 0 0 auto;
+		white-space: nowrap;
+		background-color: @tool_color;
+		color: #fff;
+		border: none;
+		border-radius: 0.2rem;
+		padding: 0.3rem 0.6rem;
+		font-size: 0.8rem;
+		cursor: pointer;
+
+		&:hover {
+			filter: brightness(0.92);
 		}
+	}
+}//end uca-maps-map-image-panel
 
-		.uca-maps-map-image-row {
-			display: flex;
-			gap: 0.3rem;
-			margin-top: 0.35rem;
-		}
-
-		.uca-maps-map-image-format {
-			flex: 1 1 4rem;
-			min-width: 0;
-		}
-
-		.uca-maps-map-image-button {
-			flex: 0 0 auto;
-			white-space: nowrap;
-			background-color: @tool_color;
-			color: #fff;
-			border: none;
-			border-radius: 0.2rem;
-			padding: 0.3rem 0.6rem;
-			font-size: 0.8rem;
-			cursor: pointer;
-
-			&:hover {
-				filter: brightness(0.92);
-			}
-		}
-	}//end uca-maps-map-image-download
+// object console (functionality #3, object_console.js) — the "UCA" button's
+// own panel, header + selected-object section only since the toolbar
+// refactor (capabilities/map-image moved to their own panels above).
+.uca-maps-console {
 
 	>.uca-maps-object-section {
 		padding: 0.5rem 0.75rem;

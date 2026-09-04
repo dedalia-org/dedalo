@@ -39,6 +39,15 @@
 * (`self.geolocation.map`, `.FeatureGroup`, `.get_popup_content`,
 * `.update_draw_data`, the `updated_layer_data_<id_base>` event) is already
 * public on the live instance.
+*
+* TOOLBAR REFACTOR (2026-09-04, before hito 4 — see CLAUDE.local.md "Left
+* toolbar: un botón por funcionalidad"): the "UCA" button+panel built here
+* used to also carry server capabilities and the map-image-download picker
+* as collapsible sections. Sergio confirmed live that reads as an incorrect
+* approach, not as "features still landing" — the audit lists 15 SEPARATE
+* functionalities. This module now owns functionality #3 ONLY; the button/
+* panel plumbing itself moved to `toolbar.js`, shared with every other
+* functionality's own button+panel (map_image_download.js, capabilities_panel.js).
 */
 
 
@@ -47,6 +56,14 @@ import {event_manager} from '../../../core/common/js/event_manager.js'
 import {response_data, ApiError} from '../../../core/common/js/api_error.js'
 import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
+import {
+	create_toolbar_button,
+	create_toolbar_panel,
+	set_toolbar_panel_visible,
+	is_toolbar_panel_visible,
+	remove_toolbar_button,
+	remove_toolbar_panel
+} from './toolbar.js'
 
 
 
@@ -70,12 +87,12 @@ const UNCERTAINTY_TIERS = [1000, 10000, 100000, 1000000, 10000000]
 
 /**
 * ATTACH_CONSOLE
-* Builds and anchors the console UI to the live map: a toggle control (this
-* tool's existing hito-1 `L.Control`, now wired to show/hide the panel) plus
-* the panel itself, appended directly to the map's own DOM container so it
-* can hold arbitrary interactive content without fighting Leaflet's
-* control-corner layout. Idempotent — a stray second call (e.g. a refresh)
-* never attaches a duplicate control or panel.
+* Builds and anchors the console UI to the live map: a toggle button ("UCA",
+* functionality #3 ONLY — see toolbar.js file header for why this button no
+* longer also opens server capabilities or the map-image download picker)
+* plus its own panel, both built through toolbar.js so this module owns
+* nothing but functionality #3's own content. Idempotent — a stray second
+* call (e.g. a refresh) never attaches a duplicate control or panel.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -86,42 +103,15 @@ export const attach_console = function(self) {
 		return
 	}
 
-	// toggle control — 'topleft' matches v6's own special_tools control
-	// position exactly (`render_tool_leaflet_special_tools.js`, `special_tools_options
-	// = {position: "topleft"}`); 'topright' collides with Geoman's own drawing
-	// toolbar, which component_geolocation already anchors there
-	// (`component_geolocation.js` `map.pm.addControls({position: 'topright', ...})`) —
-	// confirmed live by Sergio during 2a validation (2026-09-02): the UCA control
-	// was sitting on top of the default draw icons.
-		const UcaMapsControl = L.Control.extend({
-			options : { position: 'topleft' },
-			onAdd : function() {
-				const container = L.DomUtil.create('div', 'leaflet-bar uca-maps-control')
-				container.title		= self.get_tool_label('uca_maps_control_title') || 'UCA Maps'
-				container.textContent	= 'UCA'
-				container.addEventListener('click', () => toggle_panel(self))
-				// prevent map drag/zoom/click from reaching the map through this control
-				L.DomEvent.disableClickPropagation(container)
-				L.DomEvent.disableScrollPropagation(container)
-				return container
-			}
-		})
+	self.map_control = create_toolbar_button(self, {
+		title		: self.get_tool_label('uca_maps_control_title') || 'UCA Maps',
+		text		: 'UCA',
+		class_name	: 'uca-maps-control',
+		on_click	: () => toggle_panel(self)
+	})
 
-		self.map_control = new UcaMapsControl()
-		self.map_control.addTo(self.geolocation.map)
-
-	// panel — plain DOM overlay, not another L.Control (see file header).
-	// (!) Unlike an L.Control (which Leaflet wraps with this same guard
-	// automatically via its container), a bare div appended straight to the
-	// map container needs it applied explicitly — missing here in 2a is why
-	// dragging anything inside the panel (confirmed live: the opacity range
-	// slider's thumb) panned the MAP instead of moving the control, because
-	// the mousedown/touchstart bubbled up to Leaflet's own drag handler.
-		self.panel_node = render_console_panel(self)
-		L.DomEvent.disableClickPropagation(self.panel_node)
-		L.DomEvent.disableScrollPropagation(self.panel_node)
-		self.geolocation.map.getContainer().appendChild(self.panel_node)
-		set_panel_visibility(self, false)
+	self.panel_node = create_toolbar_panel(self, {class_name: 'uca-maps-console'})
+	render_console_panel(self, self.panel_node)
 
 	hydrate(self)
 
@@ -132,12 +122,17 @@ export const attach_console = function(self) {
 /**
 * TOGGLE_PANEL
 * Show/Hide — functionality #3 of the v6 audit is literally named that.
+* Reads the panel's OWN current state (`is_toolbar_panel_visible`), never a
+* cached flag: opening a SIBLING panel (toolbar.js's mutual-exclusion,
+* 2026-09-04) can close this one without going through this module at all,
+* so `self.console_visible` alone would desync (a stray click would then
+* look like a no-op "hide" instead of the reopen the user asked for).
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 export const toggle_panel = function(self) {
-	set_panel_visibility(self, !self.console_visible)
+	set_panel_visibility(self, !is_toolbar_panel_visible(self.panel_node))
 }//end toggle_panel
 
 
@@ -145,7 +140,7 @@ export const toggle_panel = function(self) {
 const set_panel_visibility = function(self, visible) {
 	self.console_visible = visible
 	if (self.panel_node) {
-		self.panel_node.hidden = !visible
+		set_toolbar_panel_visible(self, self.panel_node, self.map_control, visible)
 	}
 }//end set_panel_visibility
 
@@ -1077,14 +1072,6 @@ export const detach_console = function(self) {
 
 	if (self.geolocation && self.geolocation.map) {
 
-		if (self.map_control) {
-			try {
-				self.geolocation.map.removeControl(self.map_control)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_console: error removing map control', error)
-			}
-		}
-
 		if (self._popupopen_handler) {
 			try {
 				self.geolocation.map.off('popupopen', self._popupopen_handler)
@@ -1110,9 +1097,8 @@ export const detach_console = function(self) {
 		}
 	}
 
-	if (self.panel_node && self.panel_node.parentNode) {
-		self.panel_node.parentNode.removeChild(self.panel_node)
-	}
+	remove_toolbar_button(self, self.map_control)
+	remove_toolbar_panel(self, self.panel_node)
 
 	self.map_control			= null
 	self.panel_node				= null

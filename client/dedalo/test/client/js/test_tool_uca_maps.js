@@ -12,6 +12,15 @@
  * attaching its console to the LIVE map; the console's lifetime is tied to
  * component_geolocation, never to the modal).
  *
+ * LEFT TOOLBAR REFACTOR (2026-09-04, before hito 4 — CLAUDE.local.md "Left
+ * toolbar: un botón por funcionalidad"): the "UCA" button's panel used to
+ * also carry server capabilities and the map-image-download picker as
+ * collapsible sections; both moved to their own button+panel
+ * (`map_image_download.js` / `capabilities_panel.js`, both built through
+ * `toolbar.js`). Assertions that used to read `.uca-maps-capabilities`/
+ * `.uca-maps-map-image-download` inside `tool.panel_node` now read
+ * `tool.capabilities_panel`/`tool.map_image_panel` instead.
+ *
  * Two layers, matching the project convention (test_tool_dev_template.js):
  *
  * 1. STRUCTURAL — module export, constructor-seeded properties, prototype
@@ -81,6 +90,13 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance._popupopen_handler, null, 'expected _popupopen_handler null')
 		assert.equal(instance._pmcreate_handler, null, 'expected _pmcreate_handler null')
 		assert.equal(instance._pmremove_handler, null, 'expected _pmremove_handler null')
+		assert.equal(instance.map_image_control, null, 'expected map_image_control null')
+		assert.equal(instance.map_image_panel, null, 'expected map_image_panel null')
+		assert.equal(instance.map_image_panel_visible, false, 'expected map_image_panel_visible false')
+		assert.equal(instance.capabilities_control, null, 'expected capabilities_control null')
+		assert.equal(instance.capabilities_panel, null, 'expected capabilities_panel null')
+		assert.equal(instance.capabilities_panel_visible, false, 'expected capabilities_panel_visible false')
+		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
 	it('prototype is wired with the lifecycle methods', function() {
@@ -96,6 +112,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.get_capabilities, 'function', 'expected get_capabilities defined')
 		// hito 2 checkpoint 2a additions
 		assert.equal(typeof tool_uca_maps.prototype.attach_console, 'function', 'expected attach_console defined')
+		// left toolbar refactor (2026-09-04) — one attach_* per functionality
+		assert.equal(typeof tool_uca_maps.prototype.attach_map_image_download_control, 'function', 'expected attach_map_image_download_control defined')
+		assert.equal(typeof tool_uca_maps.prototype.attach_capabilities_panel, 'function', 'expected attach_capabilities_panel defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
@@ -248,9 +267,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			geolocation.map.getContainer().contains(tool.panel_node), true,
 			'expected the panel appended to the map\'s own DOM container'
 		)
-		assert.isOk(
-			tool.panel_node.querySelector('.uca-maps-capabilities'),
-			'expected the relocated (hito 1) capabilities section to be built unconditionally'
+		// left toolbar refactor (2026-09-04): capabilities/map-image no longer
+		// live inside the "UCA" panel — attach_console() builds functionality
+		// #3's own content only
+		assert.isNotOk(
+			tool.panel_node.querySelector('.uca-maps-capabilities-body'),
+			'expected capabilities NOT built into the "UCA" panel any more (moved to its own panel)'
+		)
+		assert.isNotOk(
+			tool.panel_node.querySelector('.uca-maps-map-image-row'),
+			'expected map-image-download NOT built into the "UCA" panel any more (moved to its own panel)'
 		)
 	})
 
@@ -617,7 +643,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(layer.feature.properties.uca_maps.centroid_uid, undefined, 'expected the centroid cleared on toggle-off')
 	})
 
-	it('edit() (the real production entry point) attaches the console when geolocation+map_ready', async function() {
+	it('edit() (the real production entry point) attaches every functionality\'s own button+panel when geolocation+map_ready', async function() {
 
 		// this suite deliberately bypasses init()/get_instance() (file header)
 		// but edit() itself — render_tool_uca_maps.prototype.edit, wired onto
@@ -626,41 +652,67 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// through tool.attach_console() called by hand (review-diff
 		// tests-lens finding, 2026-09-02: the actual gate
 		// `if (self.geolocation && self.map_ready) { self.attach_console() }`
-		// inside edit() had no coverage of its own).
+		// inside edit() had no coverage of its own). Left toolbar refactor
+		// (2026-09-04): edit() now attaches THREE independent button+panel
+		// pairs, one per functionality (CLAUDE.local.md "Left toolbar").
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
 		tool.context	= { label: 'Mapas UCA' }
 
 		assert.isNotOk(tool.map_control, 'expected no control before edit() runs')
+		assert.isNotOk(tool.map_image_control, 'expected no map-image control before edit() runs')
 
 		const wrapper = await tool.edit({})
 
 		assert.isOk(wrapper, 'expected edit() to return a wrapper node')
 		assert.isOk(tool.map_control, 'expected edit()\'s gate to have called attach_console()')
-		assert.isOk(tool.panel_node, 'expected the panel built via edit()')
+		assert.isOk(tool.panel_node, 'expected the "UCA" panel built via edit()')
+		assert.isOk(tool.map_image_control, 'expected edit()\'s gate to have called attach_map_image_download_control()')
+		assert.isOk(tool.map_image_panel, 'expected the map-image-download panel built via edit()')
+		// capabilities_control is SHOW_DEVELOPER-gated (capabilities_panel.js) —
+		// this suite's own server always runs with DEDALO_DEV_MODE=true
+		// (scripts/client_test_server.ts), so a logged-in session here is
+		// always a dev session
+		assert.isOk(tool.capabilities_control, 'expected edit()\'s gate to have called attach_capabilities_panel() (suite runs DEDALO_DEV_MODE=true)')
+		assert.isOk(tool.capabilities_panel, 'expected the capabilities panel built via edit()')
 	})
 
 
 
-	// hito 3, checkpoint 3b — "Download map as image" (functionality #10)
+	// hito 3, checkpoint 3b — "Download map as image" (functionality #10).
+	// Left toolbar refactor (2026-09-04): its own button+panel, no longer a
+	// section inside the "UCA" panel — see map_image_download.js
+	// attach_map_image_download_control / render_map_image_download_panel.
 
-	it('render_console_panel builds the map-image-download section with all 5 formats, in order', function() {
+	it('attach_map_image_download_control builds its own button+panel with all 5 formats, in order', function() {
 
-		tool.attach_console()
+		tool.attach_map_image_download_control()
 
-		const section = tool.panel_node.querySelector('.uca-maps-map-image-download')
-		assert.isOk(section, 'expected the map-image-download details section')
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-map-image-control')
+		assert.isOk(control, 'expected the map-image-download toggle button')
+		assert.isOk(tool.map_image_panel, 'expected the map-image-download panel built')
+		assert.equal(tool.map_image_panel.hidden, true, 'expected the panel hidden by default')
+		assert.equal(
+			geolocation.map.getContainer().contains(tool.map_image_panel), true,
+			'expected the panel appended to the map\'s own DOM container'
+		)
 
-		const select = section.querySelector('.uca-maps-map-image-format')
+		const select = tool.map_image_panel.querySelector('.uca-maps-map-image-format')
 		const options = Array.from(select.querySelectorAll('option')).map(o => o.value)
 		assert.deepEqual(options, ['png', 'jpg', 'gif', 'webp', 'geotiff'], 'expected all 5 v6 formats, in order')
 
-		assert.isOk(section.querySelector('.uca-maps-map-image-button'), 'expected the download button')
+		assert.isOk(tool.map_image_panel.querySelector('.uca-maps-map-image-button'), 'expected the download button')
+
+		control.click()
+		assert.equal(tool.map_image_panel.hidden, false, 'expected the panel shown after one click')
+		control.click()
+		assert.equal(tool.map_image_panel.hidden, true, 'expected the panel hidden again after a second click')
 	})
 
 	it('download_map_image(\'png\') captures the live map client-side, no server round-trip', async function() {
 
 		tool.attach_console()
+		tool.attach_map_image_download_control()
 
 		let tool_request_called = false
 		const original_tool_request = tool.tool_request
@@ -689,6 +741,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('download_map_image(\'jpg\') downloads a real flattened JPEG via the server\'s ImageMagick, or reports it unavailable', async function() {
 
 		tool.attach_console()
+		tool.attach_map_image_download_control()
 
 		let response = null
 		const original_tool_request = tool.tool_request
@@ -712,6 +765,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('download_map_image(\'geotiff\') downloads a real georeferenced TIFF via the server\'s GDAL, or reports it unavailable', async function() {
 
 		tool.attach_console()
+		tool.attach_map_image_download_control()
 
 		let response = null
 		const original_tool_request = tool.tool_request
@@ -735,6 +789,109 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// TIFF magic bytes: little-endian 'II*\0' (0x49 0x49 0x2A 0x00) — GDAL's
 		// own default byte order.
 		assert.deepEqual(Array.from(bytes.slice(0, 4)), [0x49, 0x49, 0x2a, 0x00], 'expected real TIFF magic bytes')
+	})
+
+
+
+	// left toolbar refactor (2026-09-04) — dev-only server-capabilities
+	// diagnostic (capabilities_panel.js), NOT one of the 15 functionalities
+	// in docs/Funcionalidades de tool_leaflet_special_tools.md, so it is
+	// SHOW_DEVELOPER-gated instead of getting an end-user button (see
+	// CLAUDE.local.md "Left toolbar"). This suite's own server always runs
+	// with DEDALO_DEV_MODE=true (scripts/client_test_server.ts), so a
+	// logged-in session here is always a dev session — attach_capabilities_panel
+	// is asserted to actually build the button+panel, not merely tolerated.
+
+	it('attach_capabilities_panel builds its own dev-only button+panel (SHOW_DEVELOPER===true in this suite)', function() {
+
+		tool.attach_capabilities_panel()
+
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-capabilities-control')
+		assert.isOk(control, 'expected the capabilities toggle button (suite runs DEDALO_DEV_MODE=true)')
+		assert.isOk(tool.capabilities_panel, 'expected the capabilities panel built')
+		assert.equal(tool.capabilities_panel.hidden, true, 'expected the panel hidden by default')
+
+		control.click()
+		assert.equal(tool.capabilities_panel.hidden, false, 'expected the panel shown after one click')
+		control.click()
+		assert.equal(tool.capabilities_panel.hidden, true, 'expected the panel hidden again after a second click')
+	})
+
+	it('detach_capabilities_panel removes the dev-only control and panel', async function() {
+
+		tool.attach_capabilities_panel()
+		const map_container_node = geolocation.map.getContainer()
+		assert.isOk(tool.capabilities_control, 'expected the control attached first')
+		assert.isOk(
+			map_container_node.querySelector('.uca-maps-capabilities-control'),
+			'expected the button in the DOM before teardown'
+		)
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.capabilities_control, null, 'expected capabilities_control cleared')
+		assert.equal(tool.capabilities_panel, null, 'expected capabilities_panel cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-capabilities-control'),
+			'expected the button removed from the DOM'
+		)
+	})
+
+
+
+	// left toolbar refinements (2026-09-04, Sergio's validation feedback on
+	// hito 3c): "DEV" stacks above the two real functionalities, and opening
+	// one panel closes any other one already open.
+
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG" (attach order = corner order)', async function() {
+
+		tool.type		= 'tool'
+		tool.mode		= 'edit'
+		tool.context	= { label: 'Mapas UCA' }
+
+		await tool.edit({})
+
+		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
+		assert.isOk(corner, 'expected the "UCA" button inside Leaflet\'s topleft corner')
+
+		const buttons = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'))
+		const classes = buttons.map((button) => {
+			if (button.classList.contains('uca-maps-capabilities-control'))	return 'DEV'
+			if (button.classList.contains('uca-maps-control'))				return 'UCA'
+			if (button.classList.contains('uca-maps-map-image-control'))		return 'IMG'
+			return 'unknown'
+		})
+		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG'], 'expected DEV first (topmost), then UCA, then IMG')
+	})
+
+	it('opening one panel closes any other panel already open (only one at a time)', function() {
+
+		tool.attach_capabilities_panel()
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+
+		const dev_control	= geolocation.map.getContainer().querySelector('.uca-maps-capabilities-control')
+		const uca_control	= geolocation.map.getContainer().querySelector('.uca-maps-control')
+		const img_control	= geolocation.map.getContainer().querySelector('.uca-maps-map-image-control')
+
+		dev_control.click()
+		assert.equal(tool.capabilities_panel.hidden, false, 'expected DEV open after its own click')
+
+		uca_control.click()
+		assert.equal(tool.panel_node.hidden, false, 'expected UCA open after its own click')
+		assert.equal(tool.capabilities_panel.hidden, true, 'expected DEV closed by opening UCA')
+
+		img_control.click()
+		assert.equal(tool.map_image_panel.hidden, false, 'expected IMG open after its own click')
+		assert.equal(tool.panel_node.hidden, true, 'expected UCA closed by opening IMG')
+		assert.equal(tool.capabilities_panel.hidden, true, 'expected DEV to stay closed')
+
+		// re-clicking IMG's own button still just toggles IT — no stale flag
+		// from being force-closed by a sibling earlier (toolbar.js
+		// is_toolbar_panel_visible file comment)
+		uca_control.click()
+		assert.equal(tool.panel_node.hidden, false, 'expected UCA reopened by its own click, even though a sibling force-closed it earlier')
+		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by reopening UCA')
 	})
 
 })

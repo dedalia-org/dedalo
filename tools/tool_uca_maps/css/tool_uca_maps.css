@@ -37,7 +37,7 @@
 .tool_header.tool_uca_maps {
   background-color: var(--tool_uca_maps);
 }
-.leaflet-control.uca-maps-control {
+.leaflet-control.uca-maps-toolbar-button {
   background: var(--tool_uca_maps);
   color: #fff;
   font-weight: bold;
@@ -45,10 +45,8 @@
   padding: 0.3rem 0.5rem;
   cursor: pointer;
 }
-.uca-maps-console {
+.uca-maps-panel {
   position: absolute;
-  top: 5.5rem;
-  left: 4.5rem;
   z-index: 1000;
   width: 18rem;
   max-width: calc(100% - 1rem);
@@ -60,10 +58,10 @@
   box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
   font-size: 0.85rem;
 }
-.uca-maps-console[hidden] {
+.uca-maps-panel[hidden] {
   display: none;
 }
-.uca-maps-console > .uca-maps-console-header {
+.uca-maps-panel > .uca-maps-panel-header {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -72,44 +70,33 @@
   color: #fff;
   border-radius: 0.25rem 0.25rem 0 0;
 }
-.uca-maps-console > .uca-maps-console-header > .uca-maps-console-title {
+.uca-maps-panel > .uca-maps-panel-header > .uca-maps-panel-title {
   font-weight: bold;
 }
-.uca-maps-console > .uca-maps-capabilities {
+.uca-maps-capabilities-panel > .uca-maps-capabilities-body {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #dee2e6;
 }
-.uca-maps-console > .uca-maps-capabilities > summary {
-  cursor: pointer;
-}
-.uca-maps-console > .uca-maps-capabilities .capabilities_list {
+.uca-maps-capabilities-panel .capabilities_list {
   list-style: none;
-  margin: 0.35rem 0 0;
+  margin: 0;
   padding: 0;
 }
-.uca-maps-console > .uca-maps-capabilities .capabilities_list > li {
+.uca-maps-capabilities-panel .capabilities_list > li {
   padding: 0.25rem 0;
 }
-.uca-maps-console > .uca-maps-capabilities .capabilities_list > li.capability_unavailable {
+.uca-maps-capabilities-panel .capabilities_list > li.capability_unavailable {
   opacity: 0.65;
 }
-.uca-maps-console > .uca-maps-map-image-download {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #dee2e6;
-}
-.uca-maps-console > .uca-maps-map-image-download > summary {
-  cursor: pointer;
-}
-.uca-maps-console > .uca-maps-map-image-download .uca-maps-map-image-row {
+.uca-maps-map-image-panel > .uca-maps-map-image-row {
   display: flex;
   gap: 0.3rem;
-  margin-top: 0.35rem;
+  padding: 0.5rem 0.75rem;
 }
-.uca-maps-console > .uca-maps-map-image-download .uca-maps-map-image-format {
+.uca-maps-map-image-panel .uca-maps-map-image-format {
   flex: 1 1 4rem;
   min-width: 0;
 }
-.uca-maps-console > .uca-maps-map-image-download .uca-maps-map-image-button {
+.uca-maps-map-image-panel .uca-maps-map-image-button {
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
@@ -120,7 +107,7 @@
   font-size: 0.8rem;
   cursor: pointer;
 }
-.uca-maps-console > .uca-maps-map-image-download .uca-maps-map-image-button:hover {
+.uca-maps-map-image-panel .uca-maps-map-image-button:hover {
   filter: brightness(0.92);
 }
 .uca-maps-console > .uca-maps-object-section {

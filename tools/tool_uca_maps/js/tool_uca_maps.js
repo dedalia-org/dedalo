@@ -41,6 +41,22 @@
  * so the same code keeps working if this tool is ever opened from a portal.
  * The default ddo_map loader is therefore disabled (see build() below) rather
  * than left to build an instance nothing in this tool reads.
+ *
+ * LEFT TOOLBAR (2026-09-04, before hito 4 — see CLAUDE.local.md "Left
+ * toolbar: un botón por funcionalidad"): the top-right icon still opens this
+ * tool's own transient modal (unchanged, `render_tool_uca_maps.js`), which
+ * still self-closes onto the live map — but what it leaves behind is no
+ * longer ONE "UCA" button with a panel bundling every functionality as
+ * collapsible sections. Every functionality now gets its OWN 'topleft'
+ * button + its OWN panel, built through `toolbar.js`: "UCA" (functionality
+ * #3, the object console — `object_console.js`), "Download map as image"
+ * (functionality #10 — `map_image_download.js`), and a dev-only server-
+ * capabilities diagnostic (`capabilities_panel.js`, SHOW_DEVELOPER-gated —
+ * it is not one of the 15 functionalities in
+ * `docs/Funcionalidades de tool_leaflet_special_tools.md`, so it does not
+ * get an end-user button). Hitos 4-7 add the rest of the audit's rows the
+ * same way: a new button+panel through `toolbar.js`, never a new section
+ * inside an existing panel.
  */
 
 
@@ -65,7 +81,12 @@
 		toggle_uncertainty,
 		set_hierarchy
 	} from './object_console.js'
-	import {download_map_image} from './map_image_download.js'
+	import {
+		download_map_image,
+		attach_map_image_download_control,
+		detach_map_image_download_control
+	} from './map_image_download.js'
+	import {attach_capabilities_panel, detach_capabilities_panel} from './capabilities_panel.js'
 
 
 
@@ -94,8 +115,9 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   result); this is what get_map()/self.map belong to, NOT a
 *                   ddo_map-built clone
 *   map_ready     - true once self.geolocation.map was found within budget
-*   map_control   - the Leaflet control this tool adds to the live map; removed
-*                   in destroy() so closing/reopening never leaves a duplicate
+*   map_control   - the "UCA" toolbar button (functionality #3, object
+*                   console); removed in destroy() so closing/reopening
+*                   never leaves a duplicate
 *   panel_node    - the anchored object-console panel (object_console.js),
 *                   appended directly to the map's own DOM container
 *   console_visible - whether panel_node is currently shown (Show/Hide)
@@ -112,6 +134,18 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   an orphaned centroid when a layer is deleted from the
 *                   map by some path other than this tool's own controls
 *                   (typically Geoman's delete tool); same reason
+*   map_image_control - the "Download map as image" toolbar button
+*                   (functionality #10, map_image_download.js)
+*   map_image_panel - its anchored panel
+*   map_image_panel_visible - whether map_image_panel is currently shown
+*   capabilities_control - the dev-only server-capabilities toolbar button
+*                   (capabilities_panel.js), null unless SHOW_DEVELOPER
+*   capabilities_panel - its anchored panel, same SHOW_DEVELOPER gate
+*   capabilities_panel_visible - whether capabilities_panel is currently shown
+*   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
+*                   built (toolbar.js registers/unregisters them); the
+*                   registry map_image_download.js's screenshot capture
+*                   filters out generically, instead of naming each node
 */
 export const tool_uca_maps = function () {
 
@@ -134,6 +168,13 @@ export const tool_uca_maps = function () {
 	this._popupopen_handler		= null
 	this._pmcreate_handler			= null
 	this._pmremove_handler			= null
+	this.map_image_control			= null
+	this.map_image_panel			= null
+	this.map_image_panel_visible	= false
+	this.capabilities_control		= null
+	this.capabilities_panel		= null
+	this.capabilities_panel_visible	= false
+	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
 
@@ -315,6 +356,24 @@ tool_uca_maps.prototype.attach_console = function() {
 
 
 /**
+* ATTACH_MAP_IMAGE_DOWNLOAD_CONTROL / ATTACH_CAPABILITIES_PANEL
+* Thin prototype wrappers over map_image_download.js/capabilities_panel.js —
+* same reason as attach_console above. Called alongside it from edit()
+* (render_tool_uca_maps.js): each functionality's own button+panel, built
+* through toolbar.js (CLAUDE.local.md "Left toolbar: un botón por
+* funcionalidad").
+*/
+tool_uca_maps.prototype.attach_map_image_download_control = function() {
+	attach_map_image_download_control(this)
+}//end attach_map_image_download_control
+
+tool_uca_maps.prototype.attach_capabilities_panel = function() {
+	attach_capabilities_panel(this)
+}//end attach_capabilities_panel
+
+
+
+/**
 * CHECKPOINT 2B — THIN PROTOTYPE WRAPPERS OVER object_console.js's MUTATORS
 *
 * Why these exist (review-diff tripwire-integrity finding, 2026-09-02):
@@ -454,15 +513,18 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 
 /**
 * DESTROY
-* Real teardown (CLAUDE.local.md "destrucción real"): removes everything
-* object_console.js anchored to the shared map — the map itself belongs to
-* component_geolocation and outlives this tool's (self-closed, see file
-* header) modal, so leaving the control/panel behind would be exactly the v6
-* "controls stay stuck to the map" defect the plan (§7 item 7) requires
-* fixed. Only reached from on_geolocation_destroyed() now (on_close_actions
-* intercepts the modal-close path) — detach_console is still internally
-* guarded for the map already being gone, matching the general "component
-* being destroyed" ordering question, not a NEW assumption this revision adds.
+* Real teardown (CLAUDE.local.md "destrucción real"): removes every
+* button+panel this tool anchored to the shared map — object_console.js
+* ("UCA"), map_image_download.js ("Download map as image"),
+* capabilities_panel.js (dev-only diagnostic, a no-op if it never attached).
+* The map itself belongs to component_geolocation and outlives this tool's
+* (self-closed, see file header) modal, so leaving any control/panel behind
+* would be exactly the v6 "controls stay stuck to the map" defect the plan
+* (§7 item 7) requires fixed. Only reached from on_geolocation_destroyed()
+* now (on_close_actions intercepts the modal-close path) — every detach_*
+* is still internally guarded for the map already being gone, matching the
+* general "component being destroyed" ordering question, not a NEW
+* assumption this revision adds.
 *
 * self.events_tokens is unsubscribed generically by common.prototype.destroy
 * (called at the end here).
@@ -477,6 +539,8 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	const self = this
 
 	detach_console(self)
+	detach_map_image_download_control(self)
+	detach_capabilities_panel(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

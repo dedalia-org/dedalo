@@ -6,14 +6,16 @@
 
 /**
 * RENDER_OBJECT_CONSOLE
-* DOM for the panel object_console.js anchors to the live map. Panel shell +
-* capabilities (relocated from hito 1's modal body — same server contract,
-* `tool_uca_maps.prototype.get_capabilities`). Checkpoint 2b:
-* `render_selected_object` builds the full per-geometry-type object section
-* (style/properties/download/centroid/uncertainty/hierarchy) — every
-* mutation handler it wires lives in `object_console.js`, never here (this
-* module only builds DOM and reads state, per the project's render/logic
-* split).
+* DOM for the panel object_console.js anchors to the live map. Toolbar
+* refactor (2026-09-04, CLAUDE.local.md "Left toolbar"): this panel is now
+* functionality #3 ONLY (header + the selected-object section) — server
+* capabilities moved to `render_capabilities_panel.js` (dev-only, its own
+* button) and "Download map as image" moved to `render_map_image_download.js`
+* (its own button), both through `toolbar.js`. `render_selected_object`
+* builds the full per-geometry-type object section (style/properties/
+* download/centroid/uncertainty/hierarchy) — every mutation handler it wires
+* lives in `object_console.js`, never here (this module only builds DOM and
+* reads state, per the project's render/logic split).
 *
 * @module render_object_console
 */
@@ -21,15 +23,8 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {response_data} from '../../../core/common/js/api_error.js'
-import {render_map_image_download_section} from './render_map_image_download.js'
 
-// (!) render → render import above (this file → render_map_image_download.js)
-// is the SAFE direction: the risk the one-directional convention guards
-// against is a render file importing back from its OWN paired logic file
-// (object_console.js), never a render file importing a DIFFERENT render
-// file. render_map_image_download.js imports nothing from this file, so no
-// cycle. Deliberately NO import from './object_console.js' — object_console.js
+// Deliberately NO import from './object_console.js' — object_console.js
 // already imports {render_console_panel, render_selected_object,
 // render_placeholder} FROM this file (the established one-directional
 // convention across every render_X.js/X.js pair in tools/: logic imports
@@ -37,66 +32,34 @@ import {render_map_image_download_section} from './render_map_image_download.js'
 // cycle (review-diff tripwire-integrity finding, 2026-09-02). Every mutator
 // this file needs is called as self.<method>(...) — thin prototype wrappers
 // defined in tool_uca_maps.js, same pattern as self.get_tool_label(...)/
-// self.get_capabilities() already used below since hito 1.
+// self.get_capabilities() already used since hito 1.
 
 
 
 /**
 * RENDER_CONSOLE_PANEL
-* Builds the panel shell (not yet attached to the DOM — the caller,
-* object_console.js attach_console, appends it to the map container).
+* Populates the panel shell `toolbar.js`'s `create_toolbar_panel` already
+* built and appended to the map container — header + the selected-object
+* section only (see file header for where capabilities/map-image moved).
 *
 * @param {Object} self - tool_uca_maps instance
-* @returns {HTMLElement} panel_node
+* @param {HTMLElement} panel - the panel shell (`toolbar.js` create_toolbar_panel)
+* @returns {HTMLElement} panel
 */
-export const render_console_panel = function(self) {
-
-	const panel = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-console'
-	})
+export const render_console_panel = function(self, panel) {
 
 	// header
 		const header = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'uca-maps-console-header',
+			class_name		: 'uca-maps-panel-header',
 			parent			: panel
 		})
 		ui.create_dom_element({
 			element_type	: 'span',
-			class_name		: 'uca-maps-console-title',
+			class_name		: 'uca-maps-panel-title',
 			text_content	: self.get_tool_label('uca_maps_control_title') || 'UCA Maps',
 			parent			: header
 		})
-
-	// capabilities — relocated from hito 1's modal body; collapsed by default
-	// so the panel opens focused on the map, not on server diagnostics
-		const capabilities_section = ui.create_dom_element({
-			element_type	: 'details',
-			class_name		: 'uca-maps-capabilities',
-			parent			: panel
-		})
-		ui.create_dom_element({
-			element_type	: 'summary',
-			text_content	: self.get_tool_label('capabilities_title') || 'Server capabilities',
-			parent			: capabilities_section
-		})
-		const capabilities_body = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'uca-maps-capabilities-body',
-			parent			: capabilities_section
-		})
-		ui.load_item_with_spinner({
-			container			: capabilities_body,
-			preserve_content	: false,
-			label				: self.get_tool_label('capabilities_title') || 'Server capabilities',
-			callback			: async () => render_capabilities(self)
-		})
-
-	// download map as image (hito 3, checkpoint 3b) — a MAP-WIDE action, built
-	// once here like capabilities (never per-object-selection, unlike
-	// render_download_button below); collapsed by default for the same reason.
-		render_map_image_download_section(self, panel)
 
 	// selected-object section — populated by render_selected_object() on click
 		const object_section = ui.create_dom_element({
@@ -576,65 +539,6 @@ const render_download_button = function(self, layer, container) {
 	button.addEventListener('click', () => self.download_vector(layer, select.value))
 
 }//end render_download_button
-
-
-
-/**
-* RENDER_CAPABILITIES
-* Calls self.get_capabilities() and renders one row per probed binary.
-* Unchanged from hito 1 beyond its new home (the anchored panel instead of
-* the modal body).
-*
-* @param {Object} self - tool_uca_maps instance
-* @returns {Promise<HTMLElement>} node to insert (via ui.load_item_with_spinner)
-*/
-const render_capabilities = async function(self) {
-
-	const response		= await self.get_capabilities()
-	const capabilities	= response_data(response)
-
-	const node = ui.create_dom_element({ element_type: 'ul', class_name: 'capabilities_list' })
-
-	if (!capabilities) {
-		ui.create_dom_element({
-			element_type	: 'li',
-			class_name		: 'notice notice_error',
-			text_content	: response?.msg || 'Error reading server capabilities.',
-			parent			: node
-		})
-		return node
-	}
-
-	const rows = [
-		{ label: self.get_tool_label('capabilities_gdal') || 'GDAL', capability: capabilities.gdal },
-		{ label: 'ogr2ogr', capability: capabilities.ogr2ogr },
-		{ label: 'gdal_translate', capability: capabilities.gdalTranslate },
-		{
-			label		: self.get_tool_label('capabilities_imagemagick') || 'ImageMagick',
-			capability	: capabilities.imagemagick
-		}
-	]
-
-	for (const row of rows) {
-		const available	= Boolean(row.capability?.available)
-		const li = ui.create_dom_element({
-			element_type	: 'li',
-			class_name		: available ? 'capability_available' : 'capability_unavailable',
-			parent			: node
-		})
-		const status_label = available
-			? (self.get_tool_label('capability_available') || 'available')
-			: (self.get_tool_label('capability_unavailable') || 'not installed on this server')
-		ui.create_dom_element({
-			element_type	: 'span',
-			text_content	: (available ? '✓ ' : '✗ ') + row.label + ': ' + status_label,
-			parent			: li
-		})
-	}
-
-
-	return node
-}//end render_capabilities
 
 
 

@@ -16,13 +16,18 @@
 * HITO 1 (closed): map_status_container + capabilities_container, both
 * rendered INTO the modal body.
 *
-* HITO 2 (checkpoint 2a, this revision): the modal body is now a brief
-* transient notice — the real UI (map status, capabilities, object console)
-* moves to the panel object_console.js/render_object_console.js anchor
-* directly onto the live map, and edit() closes this tool's own modal right
-* after attaching it (see tool_uca_maps.js file header for the architecture
-* note). content_data here exists only for the split second the modal is
-* visible, and for the render_level==='content' partial-refresh path.
+* HITO 2 (checkpoint 2a): the modal body is now a brief transient notice —
+* the real UI moves to panels anchored directly onto the live map, and
+* edit() closes this tool's own modal right after attaching them (see
+* tool_uca_maps.js file header for the architecture note). content_data
+* here exists only for the split second the modal is visible, and for the
+* render_level==='content' partial-refresh path.
+*
+* LEFT TOOLBAR (2026-09-04, before hito 4 — CLAUDE.local.md "Left toolbar:
+* un botón por funcionalidad"): what edit() attaches is no longer one
+* combined panel — it is now one call per functionality (attach_console,
+* attach_map_image_download_control, attach_capabilities_panel), each
+* building its OWN button+panel through toolbar.js.
 *
 * @module render_tool_uca_maps
 */
@@ -77,9 +82,19 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			content_data : content_data
 		})
 
-	// attach the console to the live map, then self-close (file header)
+	// attach every functionality's own button+panel to the live map, then
+	// self-close (file header) — one call per functionality, per the "Left
+	// toolbar: un botón por funcionalidad" convention (tool_uca_maps.js file
+	// header, CLAUDE.local.md). ORDER MATTERS: Leaflet's 'topleft' corner
+	// stacks controls top-to-bottom in the order they are added
+	// (L.Control.addTo appends to that corner's container), so the first
+	// attach_* call here ends up as the TOPMOST button. capabilities_panel
+	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
+	// ahead of the two real functionalities.
 		if (self.geolocation && self.map_ready) {
+			self.attach_capabilities_panel()
 			self.attach_console()
+			self.attach_map_image_download_control()
 		}
 		self.close_transient_modal()
 

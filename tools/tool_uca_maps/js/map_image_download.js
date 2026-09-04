@@ -19,6 +19,14 @@
 * round-trip for a format the browser already produces natively. JPG/GIF/
 * WebP/GeoTIFF need real conversion (ImageMagick / GDAL are not a browser
 * capability) — server action `raster_download` (`server/raster_download.ts`).
+*
+* TOOLBAR REFACTOR (2026-09-04, before hito 4 — CLAUDE.local.md "Left
+* toolbar: un botón por funcionalidad"): this functionality used to be a
+* collapsed section inside the "UCA" object-console panel
+* (`object_console.js`). It now gets its OWN toggle button + OWN panel
+* (`attach_map_image_download_control`/`detach_map_image_download_control`,
+* below), built through `toolbar.js` — the same substrate every other
+* functionality's button/panel now goes through.
 */
 
 
@@ -26,6 +34,84 @@
 import {response_data} from '../../../core/common/js/api_error.js'
 import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {trigger_blob_download, base64_to_blob, report_client_error} from './object_console.js'
+import {
+	create_toolbar_button,
+	create_toolbar_panel,
+	set_toolbar_panel_visible,
+	is_toolbar_panel_visible,
+	remove_toolbar_button,
+	remove_toolbar_panel,
+	is_toolbar_node
+} from './toolbar.js'
+import {render_map_image_download_panel} from './render_map_image_download.js'
+
+
+
+/**
+* ATTACH_MAP_IMAGE_DOWNLOAD_CONTROL
+* Builds the "Download map as image" toggle button + panel (functionality
+* #10 — see file header). Idempotent — a stray second call (e.g. a refresh)
+* never attaches a duplicate control or panel.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+export const attach_map_image_download_control = function(self) {
+
+	if (self.map_image_control || !self.geolocation || !self.geolocation.map) {
+		return
+	}
+
+	self.map_image_control = create_toolbar_button(self, {
+		title		: self.get_tool_label('map_image_download_title') || 'Download map as image',
+		text		: 'IMG',
+		class_name	: 'uca-maps-map-image-control',
+		on_click	: () => toggle_map_image_panel(self)
+	})
+
+	self.map_image_panel = create_toolbar_panel(self, {class_name: 'uca-maps-map-image-panel'})
+	render_map_image_download_panel(self, self.map_image_panel)
+
+}//end attach_map_image_download_control
+
+
+
+/**
+* TOGGLE_MAP_IMAGE_PANEL
+* Reads the panel's own current state, never a cached flag — see
+* toolbar.js `is_toolbar_panel_visible` file comment: a SIBLING panel
+* opening (mutual exclusion, 2026-09-04) can close this one without going
+* through this function at all.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+const toggle_map_image_panel = function(self) {
+	self.map_image_panel_visible = !is_toolbar_panel_visible(self.map_image_panel)
+	set_toolbar_panel_visible(self, self.map_image_panel, self.map_image_control, self.map_image_panel_visible)
+}//end toggle_map_image_panel
+
+
+
+/**
+* DETACH_MAP_IMAGE_DOWNLOAD_CONTROL
+* Real teardown (CLAUDE.local.md "destrucción real") — called from
+* `tool_uca_maps.prototype.destroy()` alongside `detach_console`/
+* `detach_capabilities_panel`.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+export const detach_map_image_download_control = function(self) {
+
+	remove_toolbar_button(self, self.map_image_control)
+	remove_toolbar_panel(self, self.map_image_panel)
+
+	self.map_image_control			= null
+	self.map_image_panel			= null
+	self.map_image_panel_visible	= false
+
+}//end detach_map_image_download_control
 
 
 
@@ -110,9 +196,9 @@ const projected_bounds = function(map) {
 /**
 * DOWNLOAD_MAP_IMAGE
 * Captures the live map's container — everything visible EXCEPT this tool's
-* own UI chrome (the "UCA" toggle control and its anchored panel, `filter`
-* below). Validated live by Sergio (2026-09-03): without the filter, the
-* "UCA" panel itself was baked into the exported image — v6's own equivalent
+* own UI chrome (every toolbar button/panel this tool owns, `filter` below).
+* Validated live by Sergio (2026-09-03): without the filter, the "UCA" panel
+* itself was baked into the exported image — v6's own equivalent
 * is a small icon-only toolbar that happened not to read as intrusive in a
 * screenshot, but that is an accident of its shape, not a behaviour worth
 * porting; our panel is a large floating overlay and DOES intrude. Excluding
@@ -150,16 +236,18 @@ export const download_map_image = async function(self, format) {
 		//
 		// filter: dom-to-image-more calls this on every node in the cloned
 		// subtree (never the root) and drops a node — and everything under it
-		// — when it returns false. Excludes exactly the two DOM roots this
-		// tool itself owns (`object_console.js` `attach_console`): the toggle
-		// control and the anchored panel. Both are read fresh on every call
-		// (never cached) — either can legitimately be null (console not yet
-		// attached) or get rebuilt between calls.
+		// — when it returns false. Excludes EVERY DOM root this tool itself
+		// owns — every toolbar button and every panel, however many exist by
+		// now (`toolbar.js` `is_toolbar_node`/`self._toolbar_nodes`) — not just
+		// the two hardcoded references (`self.map_control`/`self.panel_node`)
+		// this filter checked before the toolbar refactor (2026-09-04), which
+		// would have silently stopped excluding the map-image/capabilities
+		// buttons+panels the moment they existed.
 		const capture_options	= {
 			cacheBust	: true,
 			width		: container.offsetWidth,
 			height		: container.offsetHeight,
-			filter		: (node) => node!==self.map_control && node!==self.panel_node
+			filter		: (node) => !is_toolbar_node(self, node)
 		}
 
 		if (format==='png') {

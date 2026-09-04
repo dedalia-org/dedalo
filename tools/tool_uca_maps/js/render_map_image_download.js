@@ -5,10 +5,12 @@
 
 /**
 * RENDER_MAP_IMAGE_DOWNLOAD
-* DOM for the "Download map as image" section (hito 3, checkpoint 3b) —
-* built once into the panel shell (`render_object_console.js`
-* `render_console_panel`), never per-object-selection (this is a map-wide
-* action, unlike the per-object download in `render_download_button`).
+* DOM for the "Download map as image" panel (functionality #10). Toolbar
+* refactor (2026-09-04, CLAUDE.local.md "Left toolbar: un botón por
+* funcionalidad"): this used to be a collapsed `<details>` section built
+* INTO the "UCA" object-console panel (hito 3, checkpoint 3b); it is now its
+* OWN panel behind its OWN button, both built through `toolbar.js` — see
+* `map_image_download.js`'s `attach_map_image_download_control`.
 *
 * Same render/logic split as the rest of this tool: this file only builds
 * DOM and reads state; the mutation (`download_map_image`) lives in
@@ -33,34 +35,36 @@ import {ui} from '../../../core/common/js/ui.js'
 const RASTER_FORMATS = ['png', 'jpg', 'gif', 'webp', 'geotiff']
 
 /**
-* RENDER_MAP_IMAGE_DOWNLOAD_SECTION
-* A collapsible `<details>` section (same shell as "Server capabilities"),
-* with a format `<select>` + one "Download" button — no filename input,
-* consistent with the per-object download (3a): a fixed base name
-* (`raster_download.ts`) rather than reintroducing the free-text field v6
-* had, which nothing else in this tool offers either.
+* RENDER_MAP_IMAGE_DOWNLOAD_PANEL
+* Populates the panel shell `toolbar.js`'s `create_toolbar_panel` already
+* built and appended to the map container — header + a format `<select>` +
+* one "Download" button. No filename input, consistent with the per-object
+* download (functionality #3a): a fixed base name (`raster_download.ts`)
+* rather than reintroducing the free-text field v6 had, which nothing else
+* in this tool offers either.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel - the panel shell (`render_console_panel`)
-* @returns {void}
+* @param {HTMLElement} panel - the panel shell (`toolbar.js` create_toolbar_panel)
+* @returns {HTMLElement} panel
 */
-export const render_map_image_download_section = function(self, panel) {
+export const render_map_image_download_panel = function(self, panel) {
 
-	const section = ui.create_dom_element({
-		element_type	: 'details',
-		class_name		: 'uca-maps-map-image-download',
+	const header = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-panel-header',
 		parent			: panel
 	})
 	ui.create_dom_element({
-		element_type	: 'summary',
+		element_type	: 'span',
+		class_name		: 'uca-maps-panel-title',
 		text_content	: self.get_tool_label('map_image_download_title') || 'Download map as image',
-		parent			: section
+		parent			: header
 	})
 
 	const row = ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-map-image-row',
-		parent			: section
+		parent			: panel
 	})
 
 	const select = ui.create_dom_element({
@@ -86,7 +90,9 @@ export const render_map_image_download_section = function(self, panel) {
 	button.type = 'button'
 	button.addEventListener('click', () => self.download_map_image(select.value))
 
-}//end render_map_image_download_section
+
+	return panel
+}//end render_map_image_download_panel
 
 
 
