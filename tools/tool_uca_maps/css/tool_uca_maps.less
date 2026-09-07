@@ -274,6 +274,111 @@
 
 }//end uca-maps-object-viewer-panel
 
+// "XYZ" (functionality #5, xyz_basemaps.js) — add-form + reorderable list,
+// same shapes as .uca-maps-property-add / .uca-maps-object-viewer-list
+// above, reused rather than invented fresh.
+.uca-maps-xyz-panel {
+
+	.uca-maps-xyz-add-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.5rem 0.75rem;
+
+		input {
+			min-width: 0;
+		}
+	}
+
+	// plain in-flow error line — deliberately NOT the shared ui.show_message
+	// toast (render_xyz_basemaps.js show_xyz_message docblock: that widget
+	// assumes a page-level host this floating panel does not provide)
+	.uca-maps-xyz-message {
+		background-color: #f8d7da;
+		color: #842029;
+		border-radius: 0.2rem;
+		padding: 0.35rem 0.5rem;
+		font-size: 0.8rem;
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	.uca-maps-xyz-zoom-row {
+		display: flex;
+		gap: 0.3rem;
+
+		input {
+			flex: 1 1 4rem;
+		}
+	}
+
+	.uca-maps-xyz-list-title {
+		margin: 0.3rem 0.75rem 0.2rem;
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		color: #6c757d;
+	}
+
+	.uca-maps-xyz-list {
+		list-style: none;
+		margin: 0 0 0.5rem;
+		padding: 0 0.75rem;
+
+		>.uca-maps-xyz-item {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			padding: 0.2rem 0;
+
+			.uca-maps-xyz-item-name {
+				flex: 1 1 auto;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.uca-maps-xyz-item-controls {
+				flex: 0 0 auto;
+				display: flex;
+				gap: 0.2rem;
+			}
+		}
+	}//end uca-maps-xyz-list
+
+	// every button in this panel — Add, ▲, ▼, ✕ (same shared chrome as the
+	// console section's own button rule)
+	button {
+		flex: 0 0 auto;
+		white-space: nowrap;
+		background-color: @tool_color;
+		color: #fff;
+		border: none;
+		border-radius: 0.2rem;
+		padding: 0.3rem 0.6rem;
+		font-size: 0.8rem;
+		cursor: pointer;
+
+		&:hover {
+			filter: brightness(0.92);
+		}
+		&:disabled {
+			opacity: 0.4;
+			cursor: default;
+		}
+	}
+
+	.uca-maps-xyz-move-up, .uca-maps-xyz-move-down, .uca-maps-xyz-delete {
+		padding: 0.15rem 0.4rem;
+		font-size: 0.75rem;
+		background-color: #6c757d;
+	}
+
+}//end uca-maps-xyz-panel
+
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
 // refactor (capabilities/map-image moved to their own panels above).

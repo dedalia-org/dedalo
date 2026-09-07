@@ -163,6 +163,60 @@
 		{ "lang": "lg-spa", "name": "object_viewer_center_button", "value": "Centrar" },
 
 		{ "lang": "lg-eng", "name": "onexone_control_title", "value": "Create 1x1 polygon" },
-		{ "lang": "lg-spa", "name": "onexone_control_title", "value": "Crear polígono de 1x1" }
+		{ "lang": "lg-spa", "name": "onexone_control_title", "value": "Crear polígono de 1x1" },
+
+		{ "lang": "lg-eng", "name": "xyz_control_title", "value": "XYZ basemaps" },
+		{ "lang": "lg-spa", "name": "xyz_control_title", "value": "Mapas base XYZ" },
+
+		{ "lang": "lg-eng", "name": "xyz_url_placeholder", "value": "Base map URL (required)" },
+		{ "lang": "lg-spa", "name": "xyz_url_placeholder", "value": "URL del mapa base (requerido)" },
+
+		{ "lang": "lg-eng", "name": "xyz_name_placeholder", "value": "Base map name (required)" },
+		{ "lang": "lg-spa", "name": "xyz_name_placeholder", "value": "Nombre del mapa base (requerido)" },
+
+		{ "lang": "lg-eng", "name": "xyz_attribution_placeholder", "value": "Attribution (optional)" },
+		{ "lang": "lg-spa", "name": "xyz_attribution_placeholder", "value": "Atribución (no requerido)" },
+
+		{ "lang": "lg-eng", "name": "xyz_minzoom_title", "value": "Min zoom (0-22)" },
+		{ "lang": "lg-spa", "name": "xyz_minzoom_title", "value": "Zoom mínimo (0-22)" },
+
+		{ "lang": "lg-eng", "name": "xyz_maxzoom_title", "value": "Max zoom (0-22)" },
+		{ "lang": "lg-spa", "name": "xyz_maxzoom_title", "value": "Zoom máximo (0-22)" },
+
+		{ "lang": "lg-eng", "name": "xyz_add_button", "value": "Add base map" },
+		{ "lang": "lg-spa", "name": "xyz_add_button", "value": "Añadir mapa base" },
+
+		{ "lang": "lg-eng", "name": "xyz_available_title", "value": "Available base maps" },
+		{ "lang": "lg-spa", "name": "xyz_available_title", "value": "Mapas base disponibles" },
+
+		{ "lang": "lg-eng", "name": "xyz_move_up_button", "value": "Move up" },
+		{ "lang": "lg-spa", "name": "xyz_move_up_button", "value": "Subir" },
+
+		{ "lang": "lg-eng", "name": "xyz_move_down_button", "value": "Move down" },
+		{ "lang": "lg-spa", "name": "xyz_move_down_button", "value": "Bajar" },
+
+		{ "lang": "lg-eng", "name": "xyz_delete_button", "value": "Delete" },
+		{ "lang": "lg-spa", "name": "xyz_delete_button", "value": "Eliminar" },
+
+		{ "lang": "lg-eng", "name": "xyz_error_url_required", "value": "The base map URL is required." },
+		{ "lang": "lg-spa", "name": "xyz_error_url_required", "value": "La URL del mapa base es requerida." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_url_invalid", "value": "Please enter a valid URL." },
+		{ "lang": "lg-spa", "name": "xyz_error_url_invalid", "value": "Por favor, introduzca una URL correcta." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_name_required", "value": "The base map name is required." },
+		{ "lang": "lg-spa", "name": "xyz_error_name_required", "value": "El nombre del mapa base es requerido." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_minzoom", "value": "Min zoom must be an integer between 0 and 22." },
+		{ "lang": "lg-spa", "name": "xyz_error_minzoom", "value": "El zoom mínimo debe ser un número entero entre 0 y 22." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_maxzoom", "value": "Max zoom must be an integer between 0 and 22." },
+		{ "lang": "lg-spa", "name": "xyz_error_maxzoom", "value": "El zoom máximo debe ser un número entero entre 0 y 22." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_last_basemap", "value": "At least one base map must remain." },
+		{ "lang": "lg-spa", "name": "xyz_error_last_basemap", "value": "Debe quedar al menos un mapa base." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_zoom_range", "value": "Min zoom cannot be greater than max zoom." },
+		{ "lang": "lg-spa", "name": "xyz_error_zoom_range", "value": "El zoom mínimo no puede ser mayor que el máximo." }
 	]
 }

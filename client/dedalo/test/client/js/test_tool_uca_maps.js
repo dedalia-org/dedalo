@@ -58,6 +58,7 @@ import {
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
+import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 
 
 
@@ -104,6 +105,12 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance.onexone_control, null, 'expected onexone_control null')
 		assert.equal(instance._onexone_popupopen_handler, null, 'expected _onexone_popupopen_handler null')
 		assert.equal(instance._onexone_pmremove_handler, null, 'expected _onexone_pmremove_handler null')
+		assert.equal(instance.xyz_control, null, 'expected xyz_control null')
+		assert.equal(instance.xyz_panel, null, 'expected xyz_panel null')
+		assert.equal(instance.basemaps, null, 'expected basemaps null')
+		assert.equal(instance._xyz_tile_layers, null, 'expected _xyz_tile_layers null')
+		assert.equal(instance._xyz_took_over_tiles, false, 'expected _xyz_took_over_tiles false')
+		assert.equal(instance._xyz_created_layer_control, false, 'expected _xyz_created_layer_control false')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -130,6 +137,11 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.center_on_object, 'function', 'expected center_on_object defined')
 		// hito 7 — functionality #7, "1x1"
 		assert.equal(typeof tool_uca_maps.prototype.attach_onexone, 'function', 'expected attach_onexone defined')
+		// hito 9 — functionality #5, "XYZ basemaps"
+		assert.equal(typeof tool_uca_maps.prototype.attach_xyz_basemaps, 'function', 'expected attach_xyz_basemaps defined')
+		assert.equal(typeof tool_uca_maps.prototype.add_basemap, 'function', 'expected add_basemap defined')
+		assert.equal(typeof tool_uca_maps.prototype.delete_basemap, 'function', 'expected delete_basemap defined')
+		assert.equal(typeof tool_uca_maps.prototype.move_basemap, 'function', 'expected move_basemap defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
@@ -1356,7 +1368,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1374,9 +1386,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-map-image-control'))		return 'IMG'
 			if (button.classList.contains('uca-maps-object-viewer-control'))	return 'OBJ'
 			if (button.classList.contains('uca-maps-onexone-control'))		return '1x1'
+			if (button.classList.contains('uca-maps-xyz-control'))			return 'XYZ'
 			return 'unknown'
 		})
-		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1')
+		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ')
 	})
 
 	it('opening one panel closes any other panel already open (only one at a time)', function() {
@@ -1430,6 +1443,227 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		onexone_control.click()
 		assert.equal(is_onexone_enabled(tool), true, 'expected 1x1 armed by its own click')
 		assert.equal(tool.panel_node.hidden, false, 'expected UCA to stay open — 1x1 has no panel, so it never enters the exclusivity set')
+	})
+
+
+
+	// hito 9 — functionality #5, "XYZ basemaps" (js/xyz_basemaps.js). This
+	// suite's default fixture (elements.js, no context.features.geo_provider
+	// stamped) falls to component_geolocation's own 'VARIOUS' default branch,
+	// which already builds a real layer_control seeded with arcgis+osm —
+	// exactly the "existing control" path xyz_basemaps.js must clean up
+	// (v6's real "OSM duplicated" bug, file header of xyz_basemaps.js).
+
+	it('attach_xyz_basemaps seeds the 3 v6 defaults, replaces the core\'s own arcgis/osm base layers (no duplicates), and activates the first', function() {
+
+		tool.attach_xyz_basemaps()
+
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-xyz-control')
+		assert.isOk(control, 'expected the "XYZ" toggle button')
+		assert.isOk(tool.xyz_panel, 'expected the xyz panel built')
+		assert.equal(tool.xyz_panel.hidden, true, 'expected the panel hidden by default')
+		assert.deepEqual(tool.basemaps, DEFAULT_BASEMAPS, 'expected the 3 v6 defaults seeded')
+
+		// the fix: exactly 3 tile entries in the control, no leftover
+		// arcgis/osm from the core's own VARIOUS branch, no duplicate names
+		const tile_entries = Object.values(geolocation.layer_control._layers)
+			.filter((entry) => entry.layer instanceof L.TileLayer)
+		assert.equal(tile_entries.length, 3, 'expected exactly 3 base layers registered, no leftovers/duplicates')
+		assert.deepEqual(tile_entries.map((entry) => entry.name).sort(), ['ARCGIS', 'Google Maps', 'OSM'], 'expected exactly the 3 v6 default names, no duplicate "OSM"')
+
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the first basemap (OSM) active on the map')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[1]), false, 'expected the other basemaps NOT active')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[2]), false, 'expected the other basemaps NOT active')
+	})
+
+	it('attach_xyz_basemaps takes over an OSM-provider record (no layer_control yet): builds one, drops the raw tile layer, disconnects theme_observer', function() {
+
+		// simulate component_geolocation's OSM branch (component_geolocation.js:897-907)
+		// instead of this fixture's real VARIOUS branch — geolocation.layer_control
+		// stays false, a single raw tile layer is added directly to the map.
+		// The fixture's own default (VARIOUS) control is removed for real first,
+		// not just unreferenced — else it lingers, unremovable, in the map's DOM
+		let disconnect_calls = 0
+		geolocation.map.removeControl(geolocation.layer_control)
+		const raw_tile_layer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(geolocation.map)
+		geolocation.layer_control	= false
+		geolocation.tile_layer		= raw_tile_layer
+		geolocation.theme_observer	= { disconnect: () => { disconnect_calls++ } }
+
+		tool.attach_xyz_basemaps()
+
+		assert.isOk(geolocation.layer_control, 'expected a fresh layer_control created')
+		assert.notEqual(geolocation.layer_control, false)
+		assert.equal(geolocation.map.hasLayer(raw_tile_layer), false, 'expected the raw OSM tile layer removed from the map')
+		assert.equal(disconnect_calls, 1, 'expected theme_observer.disconnect() called exactly once')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected our own first basemap active instead')
+	})
+
+	it('attach_xyz_basemaps also sweeps an UNTRACKED raw layer (GOOGLE/ARCGIS providers store no reference on geolocation at all)', function() {
+
+		// component_geolocation.js's GOOGLE/ARCGIS branches (:909-923) call
+		// `.addTo(self.map)` on an anonymous layer, never assigning it to any
+		// named property — only `map.eachLayer` can find it (review-diff
+		// correctness finding, hito 9). Real removal of the fixture's own
+		// default control first — see the OSM-takeover test above.
+		geolocation.map.removeControl(geolocation.layer_control)
+		const untracked_layer = L.tileLayer('https://server.arcgisonline.com/{z}/{y}/{x}').addTo(geolocation.map)
+		geolocation.layer_control = false
+
+		tool.attach_xyz_basemaps()
+
+		assert.equal(geolocation.map.hasLayer(untracked_layer), false, 'expected the untracked provider layer removed')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected our own first basemap active instead')
+	})
+
+	it('add_basemap validates url/name/zoom, then appends and activates the new entry', function() {
+
+		tool.attach_xyz_basemaps()
+
+		assert.deepEqual(
+			tool.add_basemap({url: '', name: 'x', minzoom: 0, maxzoom: 18}),
+			{ok: false, error: 'The base map URL is required.'}
+		)
+		assert.deepEqual(
+			tool.add_basemap({url: 'not-a-url', name: 'x', minzoom: 0, maxzoom: 18}),
+			{ok: false, error: 'Please enter a valid URL.'}
+		)
+		assert.deepEqual(
+			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: '', minzoom: 0, maxzoom: 18}),
+			{ok: false, error: 'The base map name is required.'}
+		)
+		assert.deepEqual(
+			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: -1, maxzoom: 18}),
+			{ok: false, error: 'Min zoom must be an integer between 0 and 22.'}
+		)
+		assert.deepEqual(
+			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: 0, maxzoom: 23}),
+			{ok: false, error: 'Max zoom must be an integer between 0 and 22.'}
+		)
+		assert.deepEqual(
+			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: 18, maxzoom: 2}),
+			{ok: false, error: 'Min zoom cannot be greater than max zoom.'}
+		)
+		assert.equal(tool.basemaps.length, 3, 'expected no basemap appended by any of the failed validations')
+
+		const result = tool.add_basemap({
+			url: 'https://example.com/{z}/{x}/{y}.png', name: '<b>Custom</b>', attribution: '<img src=x onerror=alert(1)>me', minzoom: '2', maxzoom: '18'
+		})
+		assert.deepEqual(result, {ok: true})
+		assert.equal(tool.basemaps.length, 4, 'expected the new basemap appended')
+		assert.deepEqual(
+			tool.basemaps[3],
+			{url: 'https://example.com/{z}/{x}/{y}.png', name: 'Custom', attribution: 'me', minzoom: 2, maxzoom: 18},
+			'expected strip_tags on both name AND attribution (Leaflet renders attribution via innerHTML), parsed integer zooms'
+		)
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[3]), true, 'expected the newly added basemap activated')
+	})
+
+	it('delete_basemap refuses to remove the last remaining basemap; removes any other and reactivates index 0', function() {
+
+		tool.attach_xyz_basemaps()
+
+		assert.deepEqual(tool.delete_basemap(1), {ok: true}) // ARCGIS gone
+		assert.equal(tool.basemaps.length, 2)
+		assert.deepEqual(tool.delete_basemap(1), {ok: true}) // Google Maps gone
+		assert.equal(tool.basemaps.length, 1)
+		assert.equal(tool.basemaps[0].name, 'OSM', 'expected OSM (index 0) the sole survivor')
+
+		const refused = tool.delete_basemap(0)
+		assert.equal(refused.ok, false)
+		assert.equal(refused.error, 'At least one base map must remain.')
+		assert.equal(tool.basemaps.length, 1, 'expected the last basemap NOT removed')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the sole remaining basemap still active')
+	})
+
+	it('move_basemap swaps two adjacent entries and reactivates whatever ends up at index 0', function() {
+
+		tool.attach_xyz_basemaps()
+
+		assert.deepEqual(tool.move_basemap(0, 1), {ok: true}) // OSM<->ARCGIS
+		assert.deepEqual(tool.basemaps.map((b) => b.name), ['ARCGIS', 'OSM', 'Google Maps'])
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the new index-0 entry (ARCGIS) active')
+
+		assert.deepEqual(tool.move_basemap(0, -1), {ok: false}, 'expected refusal moving index 0 further up')
+		assert.deepEqual(tool.move_basemap(2, 1), {ok: false}, 'expected refusal moving the last entry further down')
+	})
+
+	it('the panel form validates, adds and deletes through the real DOM (populate_xyz_basemaps)', function() {
+
+		tool.attach_xyz_basemaps()
+		const panel = tool.xyz_panel
+
+		const add_btn = panel.querySelector('.uca-maps-xyz-add-button')
+		const message = panel.querySelector('.uca-maps-xyz-message')
+
+		add_btn.click() // every field empty -> the URL error
+		assert.equal(message.hidden, false, 'expected the error message shown')
+		assert.equal(message.textContent, 'The base map URL is required.')
+		assert.equal(panel.querySelectorAll('.uca-maps-xyz-item').length, 0, 'expected the list not yet populated by a failed add')
+
+		panel.querySelector('.uca-maps-xyz-url').value			= 'https://example.com/{z}/{x}/{y}.png'
+		panel.querySelector('.uca-maps-xyz-name').value			= 'DOM basemap'
+		panel.querySelector('.uca-maps-xyz-minzoom').value		= 0
+		panel.querySelector('.uca-maps-xyz-maxzoom').value		= 18
+		add_btn.click()
+
+		assert.equal(message.hidden, true, 'expected the error message cleared on success')
+		const items = panel.querySelectorAll('.uca-maps-xyz-item')
+		assert.equal(items.length, 4, 'expected the list rebuilt with the new entry')
+		assert.equal(items[3].querySelector('.uca-maps-xyz-item-name').textContent, 'DOM basemap')
+
+		items[3].querySelector('.uca-maps-xyz-delete').click()
+		assert.equal(panel.querySelectorAll('.uca-maps-xyz-item').length, 3, 'expected the row removed from the DOM')
+	})
+
+	it('detach_xyz_basemaps removes the button/panel AND every tile layer it added from the live map', async function() {
+
+		tool.attach_xyz_basemaps()
+		const map_container_node = geolocation.map.getContainer()
+		const tile_layers = tool._xyz_tile_layers
+		assert.isOk(tool.xyz_control, 'expected the control attached first')
+
+		// this fixture's default provider (VARIOUS) already had a
+		// layer_control — attach_xyz_basemaps reused it (file header,
+		// xyz_basemaps.js), so detach must leave the control itself in
+		// place, only stripped of the tile layers THIS tool added
+		const reused_control = geolocation.layer_control
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.xyz_control, null, 'expected xyz_control cleared')
+		assert.equal(tool.xyz_panel, null, 'expected xyz_panel cleared')
+		assert.equal(tool.basemaps, null, 'expected basemaps cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-xyz-control'),
+			'expected the button removed from the DOM'
+		)
+		for (const tile_layer of tile_layers) {
+			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected every tile layer this tool added removed from the map')
+		}
+		assert.equal(geolocation.layer_control, reused_control, 'expected the REUSED core control left in place (not this tool\'s to destroy)')
+	})
+
+	it('detach_xyz_basemaps removes the layer_control ENTIRELY when this tool is the one that created it (OSM-provider takeover)', async function() {
+
+		// real removal of the fixture's own default control first — see the
+		// OSM-takeover test above (otherwise it lingers, unremovable, in the DOM)
+		geolocation.map.removeControl(geolocation.layer_control)
+		geolocation.layer_control	= false
+		geolocation.tile_layer		= L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(geolocation.map)
+
+		tool.attach_xyz_basemaps()
+		assert.equal(tool._xyz_created_layer_control, true, 'expected this tool to have created the control')
+		const map_container_node = geolocation.map.getContainer()
+		assert.isOk(map_container_node.querySelector('.leaflet-control-layers'), 'expected a real Leaflet layer_control in the DOM')
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(geolocation.layer_control, false, 'expected the control this tool created fully removed, property reset')
+		assert.isNotOk(
+			map_container_node.querySelector('.leaflet-control-layers'),
+			'expected the layer_control removed from the DOM — no control left stuck to the map'
+		)
 	})
 
 })

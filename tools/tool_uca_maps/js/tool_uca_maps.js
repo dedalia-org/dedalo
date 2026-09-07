@@ -58,7 +58,9 @@
  * read-only vector/rasterized object list — `object_viewer.js`). Hito 7 adds
  * "1x1" (functionality #7, a 1 m-radius rectangle around a clicked Marker —
  * `onexone.js`), the first of these with NO panel — v6 has none for this row
- * either, just a bare toggle button. The rest of the audit's rows land the
+ * either, just a bare toggle button. Hito 9 adds "XYZ" (functionality #5,
+ * custom base-map layers — `xyz_basemaps.js`), session-only persistence for
+ * now (`docs/PREGUNTAS_FORO.md` #7). The rest of the audit's rows land the
  * same way: a new button (+panel where the functionality actually needs
  * one), never a new section inside an existing panel.
  */
@@ -99,6 +101,13 @@
 		center_on_object
 	} from './object_viewer.js'
 	import {attach_onexone, detach_onexone} from './onexone.js'
+	import {
+		attach_xyz_basemaps,
+		detach_xyz_basemaps,
+		add_basemap,
+		delete_basemap,
+		move_basemap
+	} from './xyz_basemaps.js'
 
 
 
@@ -167,6 +176,20 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   _onexone_pmremove_handler - the map 'pm:remove' listener onexone.js
 *                   subscribes to clear a stale onexone_uid pointer when the
 *                   rectangle itself is deleted
+*   xyz_control   - the "XYZ" toolbar button (functionality #5, xyz_basemaps.js)
+*   xyz_panel     - its anchored panel
+*   basemaps      - session-only array of {url, name, attribution, minzoom,
+*                   maxzoom} (no shared/ontology persistence yet — see
+*                   docs/PREGUNTAS_FORO.md #7); resets to the 3 v6 defaults
+*                   on every attach
+*   _xyz_tile_layers - the live L.TileLayer instances mirroring `basemaps`,
+*                   1:1, rebuilt on every mutation (xyz_basemaps.js)
+*   _xyz_took_over_tiles - true once this tool has removed the map's own
+*                   raw tile layer/theme_observer (xyz_basemaps.js), so a
+*                   second rebuild never repeats that takeover
+*   _xyz_created_layer_control - true when this tool built the layer_control
+*                   itself (no provider one existed) — detach_xyz_basemaps
+*                   removes it entirely in that case, leaves a reused one
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -205,6 +228,12 @@ export const tool_uca_maps = function () {
 	this.onexone_control			= null
 	this._onexone_popupopen_handler	= null
 	this._onexone_pmremove_handler	= null
+	this.xyz_control				= null
+	this.xyz_panel					= null
+	this.basemaps					= null
+	this._xyz_tile_layers			= null
+	this._xyz_took_over_tiles		= false
+	this._xyz_created_layer_control	= false
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -420,6 +449,30 @@ tool_uca_maps.prototype.attach_onexone = function() {
 
 
 /**
+* HITO 9 (fila #5, "XYZ basemaps") — THIN PROTOTYPE WRAPPERS OVER
+* xyz_basemaps.js, same reuse reason as every other block above:
+* render_xyz_basemaps.js calls self.<method>(...), never xyz_basemaps.js
+* directly.
+*/
+tool_uca_maps.prototype.attach_xyz_basemaps = function() {
+	attach_xyz_basemaps(this)
+}//end attach_xyz_basemaps
+
+tool_uca_maps.prototype.add_basemap = function(fields) {
+	return add_basemap(this, fields)
+}//end add_basemap
+
+tool_uca_maps.prototype.delete_basemap = function(index) {
+	return delete_basemap(this, index)
+}//end delete_basemap
+
+tool_uca_maps.prototype.move_basemap = function(index, direction) {
+	return move_basemap(this, index, direction)
+}//end move_basemap
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -584,8 +637,8 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 * button+panel this tool anchored to the shared map — object_console.js
 * ("UCA"), map_image_download.js ("Download map as image"),
 * capabilities_panel.js (dev-only diagnostic, a no-op if it never attached),
-* object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel).
-* The map itself belongs to
+* object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel),
+* xyz_basemaps.js ("XYZ"). The map itself belongs to
 * component_geolocation and outlives this tool's (self-closed, see file
 * header) modal, so leaving any control/panel behind
 * would be exactly the v6 "controls stay stuck to the map" defect the plan
@@ -612,6 +665,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_capabilities_panel(self)
 	detach_object_viewer(self)
 	detach_onexone(self)
+	detach_xyz_basemaps(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

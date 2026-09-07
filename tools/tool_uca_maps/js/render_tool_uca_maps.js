@@ -92,14 +92,15 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (L.Control.addTo appends to that corner's container), so the first
 	// attach_* call here ends up as the TOPMOST button. capabilities_panel
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
-	// ahead of the real functionalities; hito 7's "1x1" attaches last, so
-	// the corner reads DEV, UCA, IMG, OBJ, 1x1 top-to-bottom.
+	// ahead of the real functionalities; hito 9's "XYZ" attaches last, so
+	// the corner reads DEV, UCA, IMG, OBJ, 1x1, XYZ top-to-bottom.
 		if (self.geolocation && self.map_ready) {
 			self.attach_capabilities_panel()
 			self.attach_console()
 			self.attach_map_image_download_control()
 			self.attach_object_viewer()
 			self.attach_onexone()
+			self.attach_xyz_basemaps()
 		}
 		self.close_transient_modal()
 
