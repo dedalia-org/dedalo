@@ -56,6 +56,7 @@ import {
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
+import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 
 
 
@@ -96,6 +97,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance.capabilities_control, null, 'expected capabilities_control null')
 		assert.equal(instance.capabilities_panel, null, 'expected capabilities_panel null')
 		assert.equal(instance.capabilities_panel_visible, false, 'expected capabilities_panel_visible false')
+		assert.equal(instance.object_viewer_control, null, 'expected object_viewer_control null')
+		assert.equal(instance.object_viewer_panel, null, 'expected object_viewer_panel null')
+		assert.equal(instance.object_viewer_panel_visible, false, 'expected object_viewer_panel_visible false')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -115,6 +119,11 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		// left toolbar refactor (2026-09-04) — one attach_* per functionality
 		assert.equal(typeof tool_uca_maps.prototype.attach_map_image_download_control, 'function', 'expected attach_map_image_download_control defined')
 		assert.equal(typeof tool_uca_maps.prototype.attach_capabilities_panel, 'function', 'expected attach_capabilities_panel defined')
+		// hito 4 — functionality #4, "Objects"
+		assert.equal(typeof tool_uca_maps.prototype.attach_object_viewer, 'function', 'expected attach_object_viewer defined')
+		assert.equal(typeof tool_uca_maps.prototype.collect_objects, 'function', 'expected collect_objects defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_object_display, 'function', 'expected set_object_display defined')
+		assert.equal(typeof tool_uca_maps.prototype.center_on_object, 'function', 'expected center_on_object defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
@@ -654,7 +663,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// `if (self.geolocation && self.map_ready) { self.attach_console() }`
 		// inside edit() had no coverage of its own). Left toolbar refactor
 		// (2026-09-04): edit() now attaches THREE independent button+panel
-		// pairs, one per functionality (CLAUDE.local.md "Left toolbar").
+		// pairs, one per functionality (CLAUDE.local.md "Left toolbar");
+		// hito 4 adds a fourth ("Objects").
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
 		tool.context	= { label: 'Mapas UCA' }
@@ -675,6 +685,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// always a dev session
 		assert.isOk(tool.capabilities_control, 'expected edit()\'s gate to have called attach_capabilities_panel() (suite runs DEDALO_DEV_MODE=true)')
 		assert.isOk(tool.capabilities_panel, 'expected the capabilities panel built via edit()')
+		assert.isOk(tool.object_viewer_control, 'expected edit()\'s gate to have called attach_object_viewer()')
+		assert.isOk(tool.object_viewer_panel, 'expected the "Objects" panel built via edit()')
 	})
 
 
@@ -793,6 +805,317 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
+	// hito 4 — functionality #4 of the audit, "Objects" (object_viewer.js):
+	// read-only vector/rasterized object lists over the ACTIVE FeatureGroup
+	// (v6 parity, object_viewer.js file header).
+	//
+	// (!) tool.geolocation.active_layer_id is NOT 1 after this suite's own
+	// beforeEach: `layers_loader({load:'full', layer_id:null})` calls the
+	// core's own `load_layer` once per seeded layer_id (1, then 2, then 3,
+	// `component_geolocation.js` array order) and `load_layer` unconditionally
+	// sets `self.active_layer_id = layer_id` at ITS OWN end — so after the
+	// 'full' load, active_layer_id is 3 (the LAST one loaded, the marker), not
+	// 1. Every test below sets `geolocation.active_layer_id` EXPLICITLY before
+	// asserting which FeatureGroup is "active", rather than relying on
+	// whatever the fixture happens to leave behind.
+
+	it('attach_object_viewer builds its own button+panel with both (empty, unpopulated) list sections', function() {
+
+		geolocation.active_layer_id = 1 // the seeded polygon
+		tool.attach_object_viewer()
+
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-object-viewer-control')
+		assert.isOk(control, 'expected the "Objects" toggle button')
+		assert.isOk(tool.object_viewer_panel, 'expected the "Objects" panel built')
+		assert.equal(tool.object_viewer_panel.hidden, true, 'expected the panel hidden by default')
+		assert.equal(
+			geolocation.map.getContainer().contains(tool.object_viewer_panel), true,
+			'expected the panel appended to the map\'s own DOM container'
+		)
+
+		const vector_list = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list')
+		const raster_list = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-raster-list')
+		assert.isOk(vector_list, 'expected the Vector Objects list')
+		assert.isOk(raster_list, 'expected the Rasterized Objects list')
+
+		// NOT populated at attach time (review-diff simplification finding,
+		// hito 4 — matches every sibling panel, which also builds its content
+		// lazily on first open, not at attach)
+		assert.equal(vector_list.children.length, 0, 'expected the Vector Objects list still empty before the first open')
+		assert.equal(raster_list.children.length, 0, 'expected the Rasterized Objects list still empty before the first open')
+
+		control.click()
+		assert.equal(tool.object_viewer_panel.hidden, false, 'expected the panel shown after one click')
+
+		// the first open is what populates it — the seeded polygon (active
+		// layer 1) is listed now
+		const vector_items = vector_list.querySelectorAll('.uca-maps-object-viewer-item')
+		assert.equal(vector_items.length, 1, 'expected the one seeded polygon in Vector Objects')
+		assert.isOk(
+			raster_list.querySelector('.uca-maps-object-viewer-placeholder'),
+			'expected Rasterized Objects to show its empty-state placeholder — no raster-overlay support ported yet (functionality #11)'
+		)
+
+		control.click()
+		assert.equal(tool.object_viewer_panel.hidden, true, 'expected the panel hidden again after a second click')
+	})
+
+	it('collect_objects reads the ACTIVE FeatureGroup only (v6 parity), with a display-only nameless fallback', function() {
+
+		geolocation.active_layer_id = 1 // the seeded polygon
+		tool.attach_object_viewer()
+
+		let {vector_objects, raster_objects} = collect_objects(tool)
+		assert.equal(vector_objects.length, 1, 'expected only the active layer\'s (1, polygon) one object')
+		assert.equal(raster_objects.length, 0, 'expected no raster objects (functionality #11 not ported)')
+		assert.equal(vector_objects[0].name, 'Untitled object', 'expected the display-only nameless fallback')
+		assert.equal(vector_objects[0].display, true, 'expected visible by default')
+		assert.equal(
+			geolocation.FeatureGroup[1].getLayers()[0].feature.properties.name, undefined,
+			'expected collect_objects to NEVER write the nameless fallback back into properties (deliberate v6 deviation, file header)'
+		)
+
+		geolocation.active_layer_id = 3 // switch to the seeded marker's FeatureGroup
+		;({vector_objects, raster_objects} = collect_objects(tool))
+		assert.equal(vector_objects.length, 1, 'expected the marker FeatureGroup\'s one object once active_layer_id changes')
+		assert.instanceOf(vector_objects[0].layer, L.Marker, 'expected the seeded marker')
+	})
+
+	it('set_object_display hides/shows a Polygon (DOM style + persisted properties.uca_maps.display) and marks the FeatureGroup dirty', function() {
+
+		tool.attach_console() // hydrate()'s reapply_all/commit plumbing lives here
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		assert.instanceOf(layer, L.Polygon, 'expected the seeded polygon')
+
+		set_object_display(tool, layer, false)
+		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected display persisted false')
+		assert.equal(layer._path.style.display, 'none', 'expected the Path DOM node hidden')
+
+		set_object_display(tool, layer, true)
+		assert.equal(layer.feature.properties.uca_maps.display, true, 'expected display persisted true again')
+		assert.notEqual(layer._path.style.display, 'none', 'expected the Path DOM node shown again')
+	})
+
+	it('set_object_display works for a Marker too (icon + shadow, not _path)', function() {
+
+		tool.attach_console()
+		geolocation.active_layer_id = 3
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[3].getLayers()[0]
+		assert.instanceOf(layer, L.Marker, 'expected the seeded marker')
+
+		set_object_display(tool, layer, false)
+		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected display persisted false')
+		assert.equal(layer._icon.style.display, 'none', 'expected the marker icon hidden')
+
+		set_object_display(tool, layer, true)
+		assert.notEqual(layer._icon.style.display, 'none', 'expected the marker icon shown again')
+	})
+
+	it('set_object_display seeds .feature on a layer freshly drawn via Geoman (pm:create never assigns one)', function() {
+
+		tool.attach_console()
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer()
+
+		// simulate a shape Geoman just created and nobody has clicked open in
+		// the "UCA" console yet — component_geolocation.js's own init_feature
+		// never assigns .feature (only the L.geoJson restore path does), so a
+		// FRESH layer genuinely reaches this module with none (review-diff
+		// correctness finding, hito 4: a bare `layer.feature.properties` read
+		// silently no-oped on exactly this layer before)
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		delete layer.feature
+		assert.isNotOk(layer.feature, 'expected the fixture layer to start with no .feature, matching a freshly-drawn one')
+
+		set_object_display(tool, layer, false)
+
+		assert.isOk(layer.feature, 'expected set_object_display to seed .feature via ensure_properties')
+		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected display persisted false even from a featureless layer')
+		assert.equal(layer._path.style.display, 'none', 'expected the Path DOM node hidden')
+	})
+
+	it('the rendered checkbox passes its OWN new .checked value, not an inversion of the stored one', function() {
+
+		tool.attach_console()
+		geolocation.active_layer_id = 1 // the seeded polygon
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		tool.object_viewer_control.getContainer().click() // show + populate
+		const checkbox = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list .uca-maps-object-viewer-checkbox')
+		assert.isOk(checkbox, 'expected the seeded polygon\'s checkbox')
+		assert.equal(checkbox.checked, true, 'expected checked (visible) by default')
+
+		checkbox.checked = false
+		checkbox.dispatchEvent(new Event('change'))
+
+		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected the checkbox change to reach set_object_display')
+		assert.equal(layer._path.style.display, 'none', 'expected the checkbox change to hide the Path DOM node too')
+
+		// re-checking it must show it again — proves the handler reads
+		// checkbox.checked itself rather than blindly inverting the stored
+		// value every time it fires (review-diff robustness finding, hito 4)
+		checkbox.checked = true
+		checkbox.dispatchEvent(new Event('change'))
+		assert.equal(layer.feature.properties.uca_maps.display, true, 'expected display persisted true again')
+		assert.notEqual(layer._path.style.display, 'none', 'expected the Path DOM node shown again')
+	})
+
+	it('the panel refreshes itself while left open, on the next updated_layer_data_<id_base> publish', function() {
+
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer()
+
+		tool.object_viewer_control.getContainer().click() // open — populates once
+		const vector_list = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list')
+		assert.equal(vector_list.querySelectorAll('.uca-maps-object-viewer-item').length, 1, 'expected the one seeded polygon')
+
+		// simulate a second object appearing in the SAME FeatureGroup while
+		// the panel is still open (a new Geoman pm:create, or an edit
+		// elsewhere) — the core's own update_draw_data is what every one of
+		// Geoman's pm:create/pm:update/pm:edit/pm:remove handlers already
+		// call (component_geolocation.js), so firing it directly here is the
+		// same signal a real draw/edit/delete would produce
+		const extra = L.circle([40.41, -3.70], {radius: 50}).addTo(geolocation.FeatureGroup[1])
+		extra.feature = extra.toGeoJSON()
+		geolocation.update_draw_data(1)
+
+		assert.equal(
+			vector_list.querySelectorAll('.uca-maps-object-viewer-item').length, 2,
+			'expected the panel to pick up the new object WITHOUT being closed and reopened'
+		)
+	})
+
+	it('the panel does NOT refresh itself while closed (no wasted rebuild)', function() {
+
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer() // never opened
+
+		const vector_list = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list')
+		assert.equal(vector_list.children.length, 0, 'expected still unpopulated (never opened)')
+
+		geolocation.update_draw_data(1)
+
+		assert.equal(vector_list.children.length, 0, 'expected the closed panel to stay untouched by the live-refresh subscription')
+	})
+
+	it('center_on_object fits the map to a Polygon\'s bounds, masked via camera_is_moving (component_geolocation.js\'s own dragend/zoomend guard)', function() {
+
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		let fit_bounds_called_with = null
+		let camera_is_moving_during_call = null
+		const original_fit_bounds = geolocation.map.fitBounds
+		geolocation.map.fitBounds = function(bounds, options) {
+			fit_bounds_called_with = bounds
+			camera_is_moving_during_call = geolocation.camera_is_moving
+			return original_fit_bounds.call(this, bounds, options)
+		}
+
+		center_on_object(tool, layer)
+
+		assert.isOk(fit_bounds_called_with, 'expected map.fitBounds to be called')
+		assert.isOk(fit_bounds_called_with.equals(layer.getBounds()), 'expected the layer\'s own bounds')
+		assert.equal(camera_is_moving_during_call, true, 'expected camera_is_moving raised DURING the move (CLAUDE.local.md "Tres leyes de component_geolocation")')
+		assert.equal(geolocation.camera_is_moving, false, 'expected camera_is_moving lowered again afterwards')
+
+		geolocation.map.fitBounds = original_fit_bounds
+	})
+
+	it('center_on_object (v6\'s "eye" icon) moves a Marker through move_camera (the single masked door), zoom 16 (v6\'s own hardcoded level)', function() {
+
+		geolocation.active_layer_id = 3
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[3].getLayers()[0]
+		const latlng = layer.getLatLng()
+
+		let move_camera_called_with = null
+		const original_move_camera = geolocation.move_camera
+		geolocation.move_camera = function(lat, lon, zoom) {
+			move_camera_called_with = {lat, lon, zoom}
+			return original_move_camera.call(this, lat, lon, zoom)
+		}
+
+		center_on_object(tool, layer)
+
+		assert.isOk(move_camera_called_with, 'expected move_camera to be called — never a bare map.setView')
+		assert.equal(move_camera_called_with.lat, latlng.lat, 'expected the marker\'s own latitude')
+		assert.equal(move_camera_called_with.lon, latlng.lng, 'expected the marker\'s own longitude')
+		assert.equal(move_camera_called_with.zoom, 16, 'expected v6\'s own hardcoded zoom level')
+
+		geolocation.move_camera = original_move_camera
+	})
+
+	it('center_on_object never marks the record dirty — a "Center" click is read-only (functionality #4 has no edit affordance)', function() {
+
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		geolocation.is_data_changed = false
+		center_on_object(tool, layer)
+		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click on a Polygon')
+
+		geolocation.active_layer_id = 3
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		geolocation.is_data_changed = false
+		center_on_object(tool, marker)
+		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click on a Marker either')
+	})
+
+	it('a hidden display state survives a reload (reapply_all/reapply_display, hydrate())', function() {
+
+		tool.attach_console() // hydrate() — the only path that subscribes updated_layer_data_<id_base>
+		geolocation.active_layer_id = 1
+		tool.attach_object_viewer()
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		set_object_display(tool, layer, false)
+		assert.equal(layer._path.style.display, 'none', 'expected hidden before the reload event')
+
+		// simulate what a real reload would trigger: the layer's own DOM node
+		// gets rebuilt (Leaflet re-adds it to the SVG renderer), losing the
+		// inline style — reapply_all (object_console.js hydrate()) is what
+		// restores it on the next updated_layer_data_<id_base> publish
+		layer._path.style.display = ''
+		geolocation.update_draw_data(1)
+
+		assert.equal(layer._path.style.display, 'none', 'expected reapply_display to re-hide the layer on the next hydration pass')
+	})
+
+	it('detach_object_viewer removes the control and panel', async function() {
+
+		tool.attach_object_viewer()
+		const map_container_node = geolocation.map.getContainer()
+		assert.isOk(tool.object_viewer_control, 'expected the control attached first')
+		assert.isOk(
+			map_container_node.querySelector('.uca-maps-object-viewer-control'),
+			'expected the button in the DOM before teardown'
+		)
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.object_viewer_control, null, 'expected object_viewer_control cleared')
+		assert.equal(tool.object_viewer_panel, null, 'expected object_viewer_panel cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-object-viewer-control'),
+			'expected the button removed from the DOM'
+		)
+	})
+
+
+
 	// left toolbar refactor (2026-09-04) — dev-only server-capabilities
 	// diagnostic (capabilities_panel.js), NOT one of the 15 functionalities
 	// in docs/Funcionalidades de tool_leaflet_special_tools.md, so it is
@@ -843,7 +1166,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -859,9 +1182,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-capabilities-control'))	return 'DEV'
 			if (button.classList.contains('uca-maps-control'))				return 'UCA'
 			if (button.classList.contains('uca-maps-map-image-control'))		return 'IMG'
+			if (button.classList.contains('uca-maps-object-viewer-control'))	return 'OBJ'
 			return 'unknown'
 		})
-		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG'], 'expected DEV first (topmost), then UCA, then IMG')
+		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ'], 'expected DEV first (topmost), then UCA, IMG, OBJ')
 	})
 
 	it('opening one panel closes any other panel already open (only one at a time)', function() {
@@ -869,10 +1193,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_capabilities_panel()
 		tool.attach_console()
 		tool.attach_map_image_download_control()
+		tool.attach_object_viewer()
 
 		const dev_control	= geolocation.map.getContainer().querySelector('.uca-maps-capabilities-control')
 		const uca_control	= geolocation.map.getContainer().querySelector('.uca-maps-control')
 		const img_control	= geolocation.map.getContainer().querySelector('.uca-maps-map-image-control')
+		const obj_control	= geolocation.map.getContainer().querySelector('.uca-maps-object-viewer-control')
 
 		dev_control.click()
 		assert.equal(tool.capabilities_panel.hidden, false, 'expected DEV open after its own click')
@@ -886,12 +1212,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.panel_node.hidden, true, 'expected UCA closed by opening IMG')
 		assert.equal(tool.capabilities_panel.hidden, true, 'expected DEV to stay closed')
 
+		obj_control.click()
+		assert.equal(tool.object_viewer_panel.hidden, false, 'expected OBJ open after its own click')
+		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by opening OBJ')
+
 		// re-clicking IMG's own button still just toggles IT — no stale flag
 		// from being force-closed by a sibling earlier (toolbar.js
 		// is_toolbar_panel_visible file comment)
 		uca_control.click()
 		assert.equal(tool.panel_node.hidden, false, 'expected UCA reopened by its own click, even though a sibling force-closed it earlier')
 		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by reopening UCA')
+		assert.equal(tool.object_viewer_panel.hidden, true, 'expected OBJ closed by reopening UCA')
 	})
 
 })

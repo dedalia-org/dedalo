@@ -199,6 +199,70 @@
 	}
 }//end uca-maps-map-image-panel
 
+// "Objects" (functionality #4, object_viewer.js) — two read-only lists,
+// v6's own two-title-two-container layout (special_tools_objects.js
+// create_containers). No style/properties/download here — this
+// functionality is view+toggle+center only (audit finding #5, "sin ninguna
+// función de edición").
+.uca-maps-object-viewer-panel {
+
+	>.uca-maps-object-viewer-title {
+		margin: 0.5rem 0.75rem 0.2rem;
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		color: #6c757d;
+	}
+
+	.uca-maps-object-viewer-list {
+		list-style: none;
+		margin: 0 0 0.5rem;
+		padding: 0 0.75rem;
+
+		>.uca-maps-object-viewer-placeholder {
+			color: #6c757d;
+			font-style: italic;
+			padding: 0.2rem 0;
+		}
+
+		>.uca-maps-object-viewer-item {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			padding: 0.2rem 0;
+
+			.uca-maps-object-viewer-checkbox {
+				flex: 0 0 auto;
+			}
+
+			.uca-maps-object-viewer-name {
+				flex: 1 1 auto;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.uca-maps-object-viewer-center {
+				flex: 0 0 auto;
+				white-space: nowrap;
+				background-color: @tool_color;
+				color: #fff;
+				border: none;
+				border-radius: 0.2rem;
+				padding: 0.15rem 0.45rem;
+				font-size: 0.75rem;
+				cursor: pointer;
+
+				&:hover {
+					filter: brightness(0.92);
+				}
+			}
+		}
+	}//end uca-maps-object-viewer-list
+
+}//end uca-maps-object-viewer-panel
+
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
 // refactor (capabilities/map-image moved to their own panels above).

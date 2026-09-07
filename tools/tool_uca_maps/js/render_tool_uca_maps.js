@@ -26,8 +26,9 @@
 * LEFT TOOLBAR (2026-09-04, before hito 4 — CLAUDE.local.md "Left toolbar:
 * un botón por funcionalidad"): what edit() attaches is no longer one
 * combined panel — it is now one call per functionality (attach_console,
-* attach_map_image_download_control, attach_capabilities_panel), each
-* building its OWN button+panel through toolbar.js.
+* attach_map_image_download_control, attach_capabilities_panel, and hito
+* 4's attach_object_viewer), each building its OWN button+panel through
+* toolbar.js.
 *
 * @module render_tool_uca_maps
 */
@@ -90,11 +91,13 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (L.Control.addTo appends to that corner's container), so the first
 	// attach_* call here ends up as the TOPMOST button. capabilities_panel
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
-	// ahead of the two real functionalities.
+	// ahead of the real functionalities; hito 4's "Objects" (OBJ) attaches
+	// last, so the corner reads DEV, UCA, IMG, OBJ top-to-bottom.
 		if (self.geolocation && self.map_ready) {
 			self.attach_capabilities_panel()
 			self.attach_console()
 			self.attach_map_image_download_control()
+			self.attach_object_viewer()
 		}
 		self.close_transient_modal()
 

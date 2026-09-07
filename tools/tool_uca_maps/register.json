@@ -136,6 +136,30 @@
 		{ "lang": "lg-spa", "name": "raster_format_webp", "value": "WebP" },
 
 		{ "lang": "lg-eng", "name": "raster_format_geotiff", "value": "GeoTIFF" },
-		{ "lang": "lg-spa", "name": "raster_format_geotiff", "value": "GeoTIFF" }
+		{ "lang": "lg-spa", "name": "raster_format_geotiff", "value": "GeoTIFF" },
+
+		{ "lang": "lg-eng", "name": "object_viewer_control_title", "value": "Objects" },
+		{ "lang": "lg-spa", "name": "object_viewer_control_title", "value": "Objetos" },
+
+		{ "lang": "lg-eng", "name": "object_viewer_vector_title", "value": "Vector Objects" },
+		{ "lang": "lg-spa", "name": "object_viewer_vector_title", "value": "Objetos Vectoriales" },
+
+		{ "lang": "lg-eng", "name": "object_viewer_raster_title", "value": "Rasterized Objects" },
+		{ "lang": "lg-spa", "name": "object_viewer_raster_title", "value": "Objetos Rasterizados" },
+
+		{ "lang": "lg-eng", "name": "object_viewer_nameless", "value": "Untitled object" },
+		{ "lang": "lg-spa", "name": "object_viewer_nameless", "value": "Objeto sin nombre" },
+
+		{ "lang": "lg-eng", "name": "object_viewer_empty_vector", "value": "No vector objects yet." },
+		{ "lang": "lg-spa", "name": "object_viewer_empty_vector", "value": "Todavía no hay objetos vectoriales." },
+
+		{ "lang": "lg-eng", "name": "object_viewer_empty_raster", "value": "No rasterized objects yet." },
+		{ "lang": "lg-spa", "name": "object_viewer_empty_raster", "value": "Todavía no hay objetos rasterizados." },
+
+		{ "lang": "lg-eng", "name": "object_viewer_display_toggle", "value": "Show/Hide" },
+		{ "lang": "lg-spa", "name": "object_viewer_display_toggle", "value": "Mostrar/Ocultar" },
+
+		{ "lang": "lg-eng", "name": "object_viewer_center_button", "value": "Center" },
+		{ "lang": "lg-spa", "name": "object_viewer_center_button", "value": "Centrar" }
 	]
 }

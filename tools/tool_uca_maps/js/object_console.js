@@ -255,10 +255,20 @@ const select_layer = function(self, layer) {
 * but a bare Leaflet layer built directly in this module (the centroid
 * marker, below, before it is handed to `pm:create`) does not have one yet.
 *
+* Exported (hito 4) so `object_viewer.js`'s `set_object_display` seeds a
+* freshly-drawn, never-yet-clicked layer the exact same way instead of
+* silently no-oping on it — a shape created via Geoman's `pm:create` reaches
+* this module with NO `.feature` at all (`init_feature`,
+* `component_geolocation.js`, never assigns one; only `L.geoJson`'s own
+* `onEachFeature` — the `load_layer`/restore path — does), so a checkbox
+* toggled before the object is ever opened in the "UCA" console needs this
+* same lazy seed, not a second, weaker guard (review-diff correctness
+* finding, hito 4).
+*
 * @param {Object} layer
 * @returns {Object} layer.feature.properties, created if missing
 */
-const ensure_properties = function(layer) {
+export const ensure_properties = function(layer) {
 	layer.feature				= layer.feature || layer.toGeoJSON()
 	layer.feature.properties	= layer.feature.properties || {}
 	return layer.feature.properties
@@ -319,11 +329,15 @@ const ensure_uid = function(layer) {
 * whatever narrower race it does not cover (review-diff correctness finding,
 * 2026-09-02 — silent data loss with no user-visible signal was the defect).
 *
+* Exported (hito 4) so `object_viewer.js`'s `set_object_display` — a
+* separate button+panel, not part of this console — funnels through the
+* exact same dirty/save-buffer entry point rather than duplicating it.
+*
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer - the mutated Leaflet layer
 * @returns {void}
 */
-const commit = function(self, layer) {
+export const commit = function(self, layer) {
 	const layer_id = find_layer_id(self, layer)
 	if (layer_id!==null) {
 		self.geolocation.update_draw_data(layer_id)
@@ -430,11 +444,84 @@ const reapply_hierarchy = function(layer) {
 
 
 /**
+* APPLY_DISPLAY
+* Show/Hide for one object (hito 4, functionality #4 — `object_viewer.js`).
+* Raw DOM visibility toggle, ported from v6's own mechanism
+* (`special_tools_objects.js` `load_modal`'s click handler:
+* `layer._path.style.display`/`layer._icon.style.display`) rather than
+* `map.removeLayer`/`addLayer` — the layer must STAY registered in its
+* FeatureGroup (Geoman's own edit/delete tools, `find_layer_id`,
+* `update_draw_data`'s own FeatureGroup walk all assume it is); only its
+* rendered DOM node hides. Exported for `object_viewer.js`'s
+* `set_object_display`; also used below by `reapply_display` so a hidden
+* state survives a map reload.
+*
+* @param {Object} layer
+* @param {boolean} visible
+* @returns {void}
+*/
+export const apply_display = function(layer, visible) {
+
+	if (layer instanceof L.Marker) {
+		set_node_display(layer._icon, visible)
+		set_node_display(layer._shadow, visible)
+		return
+	}
+
+	set_node_display(layer._path, visible)
+
+}//end apply_display
+
+
+
+/**
+* SET_NODE_DISPLAY
+* One node's worth of `apply_display`'s raw style toggle — a Marker touches
+* two DOM nodes (icon/shadow), everything else touches one (`_path`); this
+* is the single place that decides how to fail safe on either.
+*
+* @param {HTMLElement|null|undefined} node
+* @param {boolean} visible
+* @returns {void}
+*/
+const set_node_display = function(node, visible) {
+	try {
+		if (node) {
+			node.style.display = visible ? '' : 'none'
+		}
+	} catch (e) {}
+}//end set_node_display
+
+
+
+/**
+* REAPPLY_DISPLAY
+* A layer freshly loaded/rebuilt from `layer_data` starts visible — this
+* only has work to do when a previous session left it explicitly hidden
+* (`properties.uca_maps.display===false`, `object_viewer.js`
+* `set_object_display`). Called from `reapply_all`, same reason as
+* `reapply_style`/`reapply_hierarchy` above.
+*
+* @param {Object} layer
+* @returns {void}
+*/
+const reapply_display = function(layer) {
+	const properties	= layer.feature && layer.feature.properties
+	const uca_maps		= properties && properties.uca_maps
+	if (uca_maps && uca_maps.display===false) {
+		apply_display(layer, false)
+	}
+}//end reapply_display
+
+
+
+/**
 * REAPPLY_ALL
 * Walks every layer in every FeatureGroup and re-applies both 2b
-* reapplication steps. Called once from `hydrate()` (attach time) and again
-* on every `updated_layer_data_<id_base>` event, matching the plan's
-* hydration step 2 (`~/.claude/plans/ancient-watching-turing.md`).
+* reapplication steps (plus hito 4's display state). Called once from
+* `hydrate()` (attach time) and again on every `updated_layer_data_<id_base>`
+* event, matching the plan's hydration step 2
+* (`~/.claude/plans/ancient-watching-turing.md`).
 *
 * @param {Object} self
 * @returns {void}
@@ -448,6 +535,7 @@ const reapply_all = function(self) {
 		feature_groups[layer_id].eachLayer((layer) => {
 			reapply_style(layer)
 			reapply_hierarchy(layer)
+			reapply_display(layer)
 		})
 	}
 }//end reapply_all

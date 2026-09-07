@@ -54,9 +54,11 @@
  * capabilities diagnostic (`capabilities_panel.js`, SHOW_DEVELOPER-gated —
  * it is not one of the 15 functionalities in
  * `docs/Funcionalidades de tool_leaflet_special_tools.md`, so it does not
- * get an end-user button). Hitos 4-7 add the rest of the audit's rows the
- * same way: a new button+panel through `toolbar.js`, never a new section
- * inside an existing panel.
+ * get an end-user button). Hito 4 adds "Objects" (functionality #4, the
+ * read-only vector/rasterized object list — `object_viewer.js`) the same
+ * way. Hitos 5-7 add the rest of the audit's rows the same way: a new
+ * button+panel through `toolbar.js`, never a new section inside an existing
+ * panel.
  */
 
 
@@ -87,6 +89,13 @@
 		detach_map_image_download_control
 	} from './map_image_download.js'
 	import {attach_capabilities_panel, detach_capabilities_panel} from './capabilities_panel.js'
+	import {
+		attach_object_viewer,
+		detach_object_viewer,
+		collect_objects,
+		set_object_display,
+		center_on_object
+	} from './object_viewer.js'
 
 
 
@@ -142,6 +151,10 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   (capabilities_panel.js), null unless SHOW_DEVELOPER
 *   capabilities_panel - its anchored panel, same SHOW_DEVELOPER gate
 *   capabilities_panel_visible - whether capabilities_panel is currently shown
+*   object_viewer_control - the "Objects" toolbar button (functionality #4,
+*                   object_viewer.js)
+*   object_viewer_panel - its anchored panel
+*   object_viewer_panel_visible - whether object_viewer_panel is currently shown
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -174,6 +187,9 @@ export const tool_uca_maps = function () {
 	this.capabilities_control		= null
 	this.capabilities_panel		= null
 	this.capabilities_panel_visible	= false
+	this.object_viewer_control		= null
+	this.object_viewer_panel		= null
+	this.object_viewer_panel_visible	= false
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -371,6 +387,31 @@ tool_uca_maps.prototype.attach_capabilities_panel = function() {
 	attach_capabilities_panel(this)
 }//end attach_capabilities_panel
 
+tool_uca_maps.prototype.attach_object_viewer = function() {
+	attach_object_viewer(this)
+}//end attach_object_viewer
+
+
+
+/**
+* HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
+* Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
+* calls `self.collect_objects()`/`self.set_object_display(...)`/
+* `self.center_on_object(...)`, never `object_viewer.js` directly — the same
+* one-directional render/logic convention as every other functionality here.
+*/
+tool_uca_maps.prototype.collect_objects = function() {
+	return collect_objects(this)
+}//end collect_objects
+
+tool_uca_maps.prototype.set_object_display = function(layer, visible) {
+	return set_object_display(this, layer, visible)
+}//end set_object_display
+
+tool_uca_maps.prototype.center_on_object = function(layer) {
+	return center_on_object(this, layer)
+}//end center_on_object
+
 
 
 /**
@@ -516,9 +557,10 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 * Real teardown (CLAUDE.local.md "destrucción real"): removes every
 * button+panel this tool anchored to the shared map — object_console.js
 * ("UCA"), map_image_download.js ("Download map as image"),
-* capabilities_panel.js (dev-only diagnostic, a no-op if it never attached).
-* The map itself belongs to component_geolocation and outlives this tool's
-* (self-closed, see file header) modal, so leaving any control/panel behind
+* capabilities_panel.js (dev-only diagnostic, a no-op if it never attached),
+* object_viewer.js ("Objects"). The map itself belongs to
+* component_geolocation and outlives this tool's (self-closed, see file
+* header) modal, so leaving any control/panel behind
 * would be exactly the v6 "controls stay stuck to the map" defect the plan
 * (§7 item 7) requires fixed. Only reached from on_geolocation_destroyed()
 * now (on_close_actions intercepts the modal-close path) — every detach_*
@@ -541,6 +583,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_console(self)
 	detach_map_image_download_control(self)
 	detach_capabilities_panel(self)
+	detach_object_viewer(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

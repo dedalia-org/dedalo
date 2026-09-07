@@ -110,6 +110,53 @@
 .uca-maps-map-image-panel .uca-maps-map-image-button:hover {
   filter: brightness(0.92);
 }
+.uca-maps-object-viewer-panel > .uca-maps-object-viewer-title {
+  margin: 0.5rem 0.75rem 0.2rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #6c757d;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0 0.75rem;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-placeholder {
+  color: #6c757d;
+  font-style: italic;
+  padding: 0.2rem 0;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item .uca-maps-object-viewer-checkbox {
+  flex: 0 0 auto;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item .uca-maps-object-viewer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item .uca-maps-object-viewer-center {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item .uca-maps-object-viewer-center:hover {
+  filter: brightness(0.92);
+}
 .uca-maps-console > .uca-maps-object-section {
   padding: 0.5rem 0.75rem;
 }
