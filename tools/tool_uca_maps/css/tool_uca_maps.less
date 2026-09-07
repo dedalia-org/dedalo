@@ -98,6 +98,17 @@
 	cursor: pointer;
 }
 
+// "1x1" (functionality #7, onexone.js) is a TOGGLE, not an open/close panel
+// button (file header, onexone.js) — the only visual state it needs is
+// "armed", ported from v6's own enabled colour (`st-enable`,
+// `special_tools_onexone.js`/tool_leaflet_special_tools.css, #14fbcd) rather
+// than v6's full white/cyan pair: the disabled state already reads correctly
+// as the shared @tool_color chrome above, matching every sibling button.
+.uca-maps-onexone-control.uca-maps-onexone-enabled {
+	background: #14fbcd;
+	color: #212529;
+}
+
 // shared panel chrome — anchored directly to the live map's own DOM
 // container, NOT inside the tool's modal (see tools/tool_uca_maps/js/
 // object_console.js file header: v6's own real behaviour, confirmed by

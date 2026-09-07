@@ -160,6 +160,9 @@
 		{ "lang": "lg-spa", "name": "object_viewer_display_toggle", "value": "Mostrar/Ocultar" },
 
 		{ "lang": "lg-eng", "name": "object_viewer_center_button", "value": "Center" },
-		{ "lang": "lg-spa", "name": "object_viewer_center_button", "value": "Centrar" }
+		{ "lang": "lg-spa", "name": "object_viewer_center_button", "value": "Centrar" },
+
+		{ "lang": "lg-eng", "name": "onexone_control_title", "value": "Create 1x1 polygon" },
+		{ "lang": "lg-spa", "name": "onexone_control_title", "value": "Crear polígono de 1x1" }
 	]
 }

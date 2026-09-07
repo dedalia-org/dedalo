@@ -55,10 +55,12 @@
  * it is not one of the 15 functionalities in
  * `docs/Funcionalidades de tool_leaflet_special_tools.md`, so it does not
  * get an end-user button). Hito 4 adds "Objects" (functionality #4, the
- * read-only vector/rasterized object list — `object_viewer.js`) the same
- * way. Hitos 5-7 add the rest of the audit's rows the same way: a new
- * button+panel through `toolbar.js`, never a new section inside an existing
- * panel.
+ * read-only vector/rasterized object list — `object_viewer.js`). Hito 7 adds
+ * "1x1" (functionality #7, a 1 m-radius rectangle around a clicked Marker —
+ * `onexone.js`), the first of these with NO panel — v6 has none for this row
+ * either, just a bare toggle button. The rest of the audit's rows land the
+ * same way: a new button (+panel where the functionality actually needs
+ * one), never a new section inside an existing panel.
  */
 
 
@@ -96,6 +98,7 @@
 		set_object_display,
 		center_on_object
 	} from './object_viewer.js'
+	import {attach_onexone, detach_onexone} from './onexone.js'
 
 
 
@@ -155,6 +158,15 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   object_viewer.js)
 *   object_viewer_panel - its anchored panel
 *   object_viewer_panel_visible - whether object_viewer_panel is currently shown
+*   onexone_control - the "1x1" toolbar button (functionality #7, onexone.js)
+*                   — the first button with NO panel (v6 has none either;
+*                   see onexone.js file header)
+*   _onexone_popupopen_handler - the map 'popupopen' listener onexone.js
+*                   subscribes to arm a new rectangle on an eligible Marker
+*                   click while 1x1 mode is on
+*   _onexone_pmremove_handler - the map 'pm:remove' listener onexone.js
+*                   subscribes to clear a stale onexone_uid pointer when the
+*                   rectangle itself is deleted
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -190,6 +202,9 @@ export const tool_uca_maps = function () {
 	this.object_viewer_control		= null
 	this.object_viewer_panel		= null
 	this.object_viewer_panel_visible	= false
+	this.onexone_control			= null
+	this._onexone_popupopen_handler	= null
+	this._onexone_pmremove_handler	= null
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -391,6 +406,17 @@ tool_uca_maps.prototype.attach_object_viewer = function() {
 	attach_object_viewer(this)
 }//end attach_object_viewer
 
+/**
+* ATTACH_ONEXONE
+* Thin prototype wrapper over onexone.js's attach_onexone — same reuse
+* reason as the other attach_* wrappers above (functionality #7, "Create
+* 1x1 polygon"). No render_X.js counterpart: this button has no panel
+* (onexone.js file header).
+*/
+tool_uca_maps.prototype.attach_onexone = function() {
+	attach_onexone(this)
+}//end attach_onexone
+
 
 
 /**
@@ -558,7 +584,8 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 * button+panel this tool anchored to the shared map — object_console.js
 * ("UCA"), map_image_download.js ("Download map as image"),
 * capabilities_panel.js (dev-only diagnostic, a no-op if it never attached),
-* object_viewer.js ("Objects"). The map itself belongs to
+* object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel).
+* The map itself belongs to
 * component_geolocation and outlives this tool's (self-closed, see file
 * header) modal, so leaving any control/panel behind
 * would be exactly the v6 "controls stay stuck to the map" defect the plan
@@ -584,6 +611,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_map_image_download_control(self)
 	detach_capabilities_panel(self)
 	detach_object_viewer(self)
+	detach_onexone(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

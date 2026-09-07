@@ -26,8 +26,9 @@
 * LEFT TOOLBAR (2026-09-04, before hito 4 — CLAUDE.local.md "Left toolbar:
 * un botón por funcionalidad"): what edit() attaches is no longer one
 * combined panel — it is now one call per functionality (attach_console,
-* attach_map_image_download_control, attach_capabilities_panel, and hito
-* 4's attach_object_viewer), each building its OWN button+panel through
+* attach_map_image_download_control, attach_capabilities_panel, hito 4's
+* attach_object_viewer, hito 7's attach_onexone), each building its OWN
+* button (+panel, where the functionality actually needs one) through
 * toolbar.js.
 *
 * @module render_tool_uca_maps
@@ -83,7 +84,7 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			content_data : content_data
 		})
 
-	// attach every functionality's own button+panel to the live map, then
+	// attach every functionality's own button(+panel) to the live map, then
 	// self-close (file header) — one call per functionality, per the "Left
 	// toolbar: un botón por funcionalidad" convention (tool_uca_maps.js file
 	// header, CLAUDE.local.md). ORDER MATTERS: Leaflet's 'topleft' corner
@@ -91,13 +92,14 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (L.Control.addTo appends to that corner's container), so the first
 	// attach_* call here ends up as the TOPMOST button. capabilities_panel
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
-	// ahead of the real functionalities; hito 4's "Objects" (OBJ) attaches
-	// last, so the corner reads DEV, UCA, IMG, OBJ top-to-bottom.
+	// ahead of the real functionalities; hito 7's "1x1" attaches last, so
+	// the corner reads DEV, UCA, IMG, OBJ, 1x1 top-to-bottom.
 		if (self.geolocation && self.map_ready) {
 			self.attach_capabilities_panel()
 			self.attach_console()
 			self.attach_map_image_download_control()
 			self.attach_object_viewer()
+			self.attach_onexone()
 		}
 		self.close_transient_modal()
 

@@ -45,6 +45,10 @@
   padding: 0.3rem 0.5rem;
   cursor: pointer;
 }
+.uca-maps-onexone-control.uca-maps-onexone-enabled {
+  background: #14fbcd;
+  color: #212529;
+}
 .uca-maps-panel {
   position: absolute;
   z-index: 1000;

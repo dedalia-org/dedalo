@@ -57,6 +57,7 @@ import {
 } from '../../../tools/tool_uca_maps/js/object_console.js'
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
+import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
 
 
 
@@ -100,6 +101,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance.object_viewer_control, null, 'expected object_viewer_control null')
 		assert.equal(instance.object_viewer_panel, null, 'expected object_viewer_panel null')
 		assert.equal(instance.object_viewer_panel_visible, false, 'expected object_viewer_panel_visible false')
+		assert.equal(instance.onexone_control, null, 'expected onexone_control null')
+		assert.equal(instance._onexone_popupopen_handler, null, 'expected _onexone_popupopen_handler null')
+		assert.equal(instance._onexone_pmremove_handler, null, 'expected _onexone_pmremove_handler null')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -124,6 +128,8 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.collect_objects, 'function', 'expected collect_objects defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_object_display, 'function', 'expected set_object_display defined')
 		assert.equal(typeof tool_uca_maps.prototype.center_on_object, 'function', 'expected center_on_object defined')
+		// hito 7 — functionality #7, "1x1"
+		assert.equal(typeof tool_uca_maps.prototype.attach_onexone, 'function', 'expected attach_onexone defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
@@ -1116,6 +1122,190 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
+	// hito 7 — functionality #7 of the audit, "1x1" (onexone.js): a toggle
+	// button (NO panel — see onexone.js file header) that arms a mode where
+	// clicking an existing Marker creates a 1 m-radius rectangle around it,
+	// auto-flagged as uncertainty (functionality #3). layer_id 3 (the seeded
+	// marker) is this block's own subject throughout.
+
+	it('attach_onexone builds a bare toggle button (no panel), off by default; clicking flips it', function() {
+
+		tool.attach_onexone()
+
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-onexone-control')
+		assert.isOk(control, 'expected the "1x1" toggle button')
+		assert.equal(is_onexone_enabled(tool), false, 'expected 1x1 mode off by default')
+
+		control.click()
+		assert.equal(is_onexone_enabled(tool), true, 'expected 1x1 mode armed after one click')
+
+		control.click()
+		assert.equal(is_onexone_enabled(tool), false, 'expected 1x1 mode disarmed after a second click')
+	})
+
+	it('create_onexone_rectangle adds a 1 m rectangle to the marker\'s own FeatureGroup, linked by uid, auto-flagged uncertainty', function() {
+
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const layers_before = geolocation.FeatureGroup[3].getLayers().length
+
+		create_onexone_rectangle(tool, marker)
+
+		const onexone_uid = marker.feature.properties.uca_maps.onexone_uid
+		assert.isOk(onexone_uid, 'expected an onexone_uid recorded on the marker')
+
+		const layers_after = geolocation.FeatureGroup[3].getLayers()
+		assert.equal(layers_after.length, layers_before + 1, 'expected one new layer (the rectangle) added')
+
+		const rectangle = layers_after.find((candidate) =>
+			candidate.feature
+			&& candidate.feature.properties
+			&& candidate.feature.properties.uca_maps
+			&& candidate.feature.properties.uca_maps.uid===onexone_uid
+		)
+		assert.isOk(rectangle, 'expected to find the rectangle by its uid')
+		assert.instanceOf(rectangle, L.Rectangle, 'expected an L.Rectangle, matching v6\'s own L.rectangle(bounds)')
+		assert.equal(
+			rectangle.feature.properties.uca_maps.onexone_of,
+			marker.feature.properties.uca_maps.uid,
+			'expected the rectangle linked back to the marker by uid'
+		)
+		assert.isOk(
+			rectangle.feature.properties.uca_maps.uncertainty,
+			'expected row 7\'s own description honoured: "marcado automáticamente como incertidumbre"'
+		)
+	})
+
+	it('create_onexone_rectangle is idempotent — a marker that already has one does not get a second', function() {
+
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		create_onexone_rectangle(tool, marker)
+		const layers_after_first = geolocation.FeatureGroup[3].getLayers().length
+
+		create_onexone_rectangle(tool, marker)
+		assert.equal(
+			geolocation.FeatureGroup[3].getLayers().length, layers_after_first,
+			'expected the second call to no-op (onexone_uid guard, v6 parity: is_oneXone)'
+		)
+	})
+
+	it('create_onexone_rectangle skips a centroid marker — not a real drawn point a user could 1x1', function() {
+
+		const parent = geolocation.FeatureGroup[1].getLayers()[0] // seeded polygon
+		toggle_centroid(tool, parent)
+		const centroid_uid = parent.feature.properties.uca_maps.centroid_uid
+		const centroid = geolocation.FeatureGroup[1].getLayers().find((candidate) =>
+			candidate.feature && candidate.feature.properties.uca_maps
+			&& candidate.feature.properties.uca_maps.uid===centroid_uid
+		)
+		const layers_before = geolocation.FeatureGroup[1].getLayers().length
+
+		create_onexone_rectangle(tool, centroid)
+
+		assert.equal(
+			geolocation.FeatureGroup[1].getLayers().length, layers_before,
+			'expected no rectangle created for a centroid marker (centroid_of guard)'
+		)
+	})
+
+	it('create_onexone_rectangle skips a Marker while Geoman is mid-edit elsewhere on the map (v6\'s geoman_edition_mode guard)', function() {
+
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const layers_before = geolocation.FeatureGroup[3].getLayers().length
+
+		const original_global_edit_mode_enabled = geolocation.map.pm.globalEditModeEnabled
+		geolocation.map.pm.globalEditModeEnabled = () => true
+		try {
+			create_onexone_rectangle(tool, marker)
+		} finally {
+			geolocation.map.pm.globalEditModeEnabled = original_global_edit_mode_enabled
+		}
+
+		assert.equal(
+			geolocation.FeatureGroup[3].getLayers().length, layers_before,
+			'expected no rectangle created while Geoman reports a global edit in progress'
+		)
+	})
+
+	it('popupopen only arms a rectangle while 1x1 mode is on (not before, not after clicking the button)', function() {
+
+		tool.attach_onexone()
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const layers_before = geolocation.FeatureGroup[3].getLayers().length
+
+		marker.openPopup() // 1x1 mode still off
+		assert.equal(geolocation.FeatureGroup[3].getLayers().length, layers_before, 'expected no rectangle while disarmed')
+		marker.closePopup()
+
+		tool.onexone_control.getContainer().click() // arm it
+		marker.openPopup()
+		assert.equal(
+			geolocation.FeatureGroup[3].getLayers().length, layers_before + 1,
+			'expected one rectangle created once armed and the marker is clicked'
+		)
+	})
+
+	it('deleting the rectangle clears the marker\'s onexone_uid (usable again); deleting the marker does NOT cascade-delete the rectangle', function() {
+
+		tool.attach_onexone()
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		create_onexone_rectangle(tool, marker)
+
+		const onexone_uid = marker.feature.properties.uca_maps.onexone_uid
+		const rectangle = geolocation.FeatureGroup[3].getLayers().find((candidate) =>
+			candidate.feature && candidate.feature.properties.uca_maps
+			&& candidate.feature.properties.uca_maps.uid===onexone_uid
+		)
+
+		geolocation.FeatureGroup[3].removeLayer(rectangle)
+		geolocation.map.fire('pm:remove', {layer: rectangle})
+
+		assert.equal(
+			marker.feature.properties.uca_maps.onexone_uid, undefined,
+			'expected the dangling onexone_uid cleared once its rectangle is gone'
+		)
+		assert.isOk(
+			geolocation.FeatureGroup[3].hasLayer(marker),
+			'expected the marker itself untouched by its rectangle\'s own deletion'
+		)
+
+		// re-run: the marker is usable again now that onexone_uid is cleared
+		create_onexone_rectangle(tool, marker)
+		assert.isOk(marker.feature.properties.uca_maps.onexone_uid, 'expected 1x1 usable again on the same marker')
+
+		// the reverse direction: deleting the MARKER must not touch its rectangle
+		const second_uid = marker.feature.properties.uca_maps.onexone_uid
+		const second_rectangle = geolocation.FeatureGroup[3].getLayers().find((candidate) =>
+			candidate.feature && candidate.feature.properties.uca_maps
+			&& candidate.feature.properties.uca_maps.uid===second_uid
+		)
+		geolocation.FeatureGroup[3].removeLayer(marker)
+		geolocation.map.fire('pm:remove', {layer: marker})
+
+		assert.isOk(
+			geolocation.FeatureGroup[3].hasLayer(second_rectangle),
+			'expected NO cascade delete (deliberate deviation from v6, onexone.js file header): the rectangle stands alone'
+		)
+	})
+
+	it('detach_onexone removes the button and stops both map listeners', async function() {
+
+		tool.attach_onexone()
+		const map_container_node = geolocation.map.getContainer()
+		assert.isOk(tool.onexone_control, 'expected the control attached first')
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.onexone_control, null, 'expected onexone_control cleared')
+		assert.equal(tool._onexone_popupopen_handler, null, 'expected _onexone_popupopen_handler cleared')
+		assert.equal(tool._onexone_pmremove_handler, null, 'expected _onexone_pmremove_handler cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-onexone-control'),
+			'expected the button removed from the DOM'
+		)
+	})
+
+
+
 	// left toolbar refactor (2026-09-04) — dev-only server-capabilities
 	// diagnostic (capabilities_panel.js), NOT one of the 15 functionalities
 	// in docs/Funcionalidades de tool_leaflet_special_tools.md, so it is
@@ -1166,7 +1356,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1183,9 +1373,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-control'))				return 'UCA'
 			if (button.classList.contains('uca-maps-map-image-control'))		return 'IMG'
 			if (button.classList.contains('uca-maps-object-viewer-control'))	return 'OBJ'
+			if (button.classList.contains('uca-maps-onexone-control'))		return '1x1'
 			return 'unknown'
 		})
-		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ'], 'expected DEV first (topmost), then UCA, IMG, OBJ')
+		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1')
 	})
 
 	it('opening one panel closes any other panel already open (only one at a time)', function() {
@@ -1223,6 +1414,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.panel_node.hidden, false, 'expected UCA reopened by its own click, even though a sibling force-closed it earlier')
 		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by reopening UCA')
 		assert.equal(tool.object_viewer_panel.hidden, true, 'expected OBJ closed by reopening UCA')
+	})
+
+	it('"1x1" has no panel to close/be closed by — arming it does not touch an already-open panel', function() {
+
+		tool.attach_console()
+		tool.attach_onexone()
+
+		const uca_control		= geolocation.map.getContainer().querySelector('.uca-maps-control')
+		const onexone_control	= geolocation.map.getContainer().querySelector('.uca-maps-onexone-control')
+
+		uca_control.click()
+		assert.equal(tool.panel_node.hidden, false, 'expected UCA open after its own click')
+
+		onexone_control.click()
+		assert.equal(is_onexone_enabled(tool), true, 'expected 1x1 armed by its own click')
+		assert.equal(tool.panel_node.hidden, false, 'expected UCA to stay open — 1x1 has no panel, so it never enters the exclusivity set')
 	})
 
 })

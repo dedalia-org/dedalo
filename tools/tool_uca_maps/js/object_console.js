@@ -291,10 +291,14 @@ export const ensure_properties = function(layer) {
 * Mirrors v6's own `tools_id` (`special_tools.js` `make_id(20)`), same
 * purpose, ported rather than reused (v6's in-memory registry is gone).
 *
+* Exported (hito 7) so `onexone.js`'s `create_onexone_rectangle` links a
+* marker to its newly-created 1x1 rectangle the exact same way toggle_centroid
+* links a parent to its centroid, below — one uid scheme, not two.
+*
 * @param {Object} layer
 * @returns {string}
 */
-const ensure_uid = function(layer) {
+export const ensure_uid = function(layer) {
 	const properties	= ensure_properties(layer)
 	properties.uca_maps	= properties.uca_maps || {}
 	if (!properties.uca_maps.uid) {
