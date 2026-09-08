@@ -31,10 +31,15 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 
 /** Los 3 de fábrica de v6 para `section_tipo` no-numisdata (única rama que
 * aplica aquí — Mupreva es inmueble/yacimiento), byte-parity con
-* `class.tool_leaflet_special_tools.php:1181-1198`. Session-only (file header). */
+* `class.tool_leaflet_special_tools.php:1181-1198` — EXCEPTO la URL de OSM
+* (ver nota junto a esa entrada). Session-only (file header). */
 export const DEFAULT_BASEMAPS = [
 	{
-		url			: '//{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+		// v6 usa '//...' (protocolo-relativo); aquí https literal, igual que
+		// TILE_URLS del núcleo (component_geolocation.js) — un http:// de
+		// entrada + redirect forzado de OSM a https rompe CSP en dev
+		// (`docs/revisar_marte_hito_9_xyz.md`).
+		url			: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
 		name		: 'OSM',
 		attribution	: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		minzoom		: 0,
