@@ -13,6 +13,54 @@
 }
 @tool_color : var(--tool_uca_maps);
 
+// Shared per-panel action-button chrome (review-diff finding: was hand-
+// duplicated verbatim across .uca-maps-xyz-panel/.uca-maps-wms-panel — a
+// future tweak had to be applied in lockstep with no signal if one copy was
+// missed). Mixins, not a shared class: each panel still scopes `button` to
+// its own root, so a stray non-toolbar `<button>` never picks this up.
+.uca-maps-panel-action-button() {
+	flex: 0 0 auto;
+	white-space: nowrap;
+	background-color: @tool_color;
+	color: #fff;
+	border: none;
+	border-radius: 0.2rem;
+	padding: 0.3rem 0.6rem;
+	font-size: 0.8rem;
+	cursor: pointer;
+
+	&:hover {
+		filter: brightness(0.92);
+	}
+	&:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+}//end uca-maps-panel-action-button
+
+// the smaller, muted secondary variant (▲/▼/✕/Add on a list row)
+.uca-maps-panel-secondary-button() {
+	padding: 0.15rem 0.4rem;
+	font-size: 0.75rem;
+	background-color: #6c757d;
+}//end uca-maps-panel-secondary-button
+
+// the plain in-flow error/status line every session-only-persistence panel
+// uses instead of the page-level `ui.show_message` toast, which a floating
+// panel's own `overflow-y: auto` would clip (render_xyz_basemaps.js
+// show_xyz_message / render_wms_services.js show_wms_message doc comments)
+.uca-maps-panel-inline-message() {
+	background-color: #f8d7da;
+	color: #842029;
+	border-radius: 0.2rem;
+	padding: 0.35rem 0.5rem;
+	font-size: 0.8rem;
+
+	&[hidden] {
+		display: none;
+	}
+}//end uca-maps-panel-inline-message
+
 // tool wrapper
 // Encapsulate all tool content to prevent core collisions
 //
@@ -294,15 +342,7 @@
 	// toast (render_xyz_basemaps.js show_xyz_message docblock: that widget
 	// assumes a page-level host this floating panel does not provide)
 	.uca-maps-xyz-message {
-		background-color: #f8d7da;
-		color: #842029;
-		border-radius: 0.2rem;
-		padding: 0.35rem 0.5rem;
-		font-size: 0.8rem;
-
-		&[hidden] {
-			display: none;
-		}
+		.uca-maps-panel-inline-message();
 	}
 
 	.uca-maps-xyz-zoom-row {
@@ -352,32 +392,109 @@
 	// every button in this panel — Add, ▲, ▼, ✕ (same shared chrome as the
 	// console section's own button rule)
 	button {
-		flex: 0 0 auto;
-		white-space: nowrap;
-		background-color: @tool_color;
-		color: #fff;
-		border: none;
-		border-radius: 0.2rem;
-		padding: 0.3rem 0.6rem;
-		font-size: 0.8rem;
-		cursor: pointer;
-
-		&:hover {
-			filter: brightness(0.92);
-		}
-		&:disabled {
-			opacity: 0.4;
-			cursor: default;
-		}
+		.uca-maps-panel-action-button();
 	}
 
 	.uca-maps-xyz-move-up, .uca-maps-xyz-move-down, .uca-maps-xyz-delete {
-		padding: 0.15rem 0.4rem;
-		font-size: 0.75rem;
-		background-color: #6c757d;
+		.uca-maps-panel-secondary-button();
 	}
 
 }//end uca-maps-xyz-panel
+
+// "WMS" (functionality #6, wms_services.js) — search form + two lists
+// (results/added), same shapes as .uca-maps-xyz-panel above (message line,
+// button chrome), plus the checkbox+range row already established by
+// .uca-maps-object-viewer-panel/.uca-maps-xyz-item.
+.uca-maps-wms-panel {
+
+	.uca-maps-wms-search-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.5rem 0.75rem;
+
+		input {
+			min-width: 0;
+		}
+	}
+
+	// same reasoning as .uca-maps-xyz-message: a plain in-flow line, not the
+	// page-level toast this floating panel cannot host
+	.uca-maps-wms-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-wms-button-row {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.uca-maps-wms-list-title {
+		margin: 0.3rem 0.75rem 0.2rem;
+		font-size: 0.8rem;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		color: #6c757d;
+	}
+
+	.uca-maps-wms-results, .uca-maps-wms-list {
+		list-style: none;
+		margin: 0 0 0.5rem;
+		padding: 0 0.75rem;
+	}
+
+	.uca-maps-wms-results {
+		>.uca-maps-wms-result-item {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			padding: 0.2rem 0;
+
+			.uca-maps-wms-result-title {
+				flex: 1 1 auto;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+		}
+	}
+
+	.uca-maps-wms-list {
+		>.uca-maps-wms-item {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			padding: 0.2rem 0;
+
+			.uca-maps-wms-checkbox {
+				flex: 0 0 auto;
+			}
+
+			.uca-maps-wms-item-title {
+				flex: 1 1 auto;
+				min-width: 0;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.uca-maps-wms-opacity {
+				flex: 0 0 4.5rem;
+			}
+		}
+	}
+
+	// every button in this panel — Search, Clear, Add, ✕
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+	.uca-maps-wms-result-add, .uca-maps-wms-delete {
+		.uca-maps-panel-secondary-button();
+	}
+
+}//end uca-maps-wms-panel
 
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar

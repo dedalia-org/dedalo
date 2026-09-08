@@ -217,6 +217,48 @@
 		{ "lang": "lg-spa", "name": "xyz_error_last_basemap", "value": "Debe quedar al menos un mapa base." },
 
 		{ "lang": "lg-eng", "name": "xyz_error_zoom_range", "value": "Min zoom cannot be greater than max zoom." },
-		{ "lang": "lg-spa", "name": "xyz_error_zoom_range", "value": "El zoom mínimo no puede ser mayor que el máximo." }
+		{ "lang": "lg-spa", "name": "xyz_error_zoom_range", "value": "El zoom mínimo no puede ser mayor que el máximo." },
+
+		{ "lang": "lg-eng", "name": "wms_control_title", "value": "WMS services" },
+		{ "lang": "lg-spa", "name": "wms_control_title", "value": "Servicios WMS" },
+
+		{ "lang": "lg-eng", "name": "wms_url_placeholder", "value": "WMS server URL" },
+		{ "lang": "lg-spa", "name": "wms_url_placeholder", "value": "URL del servidor WMS" },
+
+		{ "lang": "lg-eng", "name": "wms_search_button", "value": "Search layers" },
+		{ "lang": "lg-spa", "name": "wms_search_button", "value": "Buscar capas" },
+
+		{ "lang": "lg-eng", "name": "wms_clear_button", "value": "Clear search" },
+		{ "lang": "lg-spa", "name": "wms_clear_button", "value": "Limpiar búsqueda" },
+
+		{ "lang": "lg-eng", "name": "wms_results_title", "value": "Available layers" },
+		{ "lang": "lg-spa", "name": "wms_results_title", "value": "Capas disponibles" },
+
+		{ "lang": "lg-eng", "name": "wms_added_title", "value": "Added layers" },
+		{ "lang": "lg-spa", "name": "wms_added_title", "value": "Capas añadidas" },
+
+		{ "lang": "lg-eng", "name": "wms_add_button", "value": "Add" },
+		{ "lang": "lg-spa", "name": "wms_add_button", "value": "Añadir" },
+
+		{ "lang": "lg-eng", "name": "wms_display_toggle", "value": "Show/Hide" },
+		{ "lang": "lg-spa", "name": "wms_display_toggle", "value": "Mostrar/Ocultar" },
+
+		{ "lang": "lg-eng", "name": "wms_opacity_title", "value": "Opacity" },
+		{ "lang": "lg-spa", "name": "wms_opacity_title", "value": "Opacidad" },
+
+		{ "lang": "lg-eng", "name": "wms_delete_button", "value": "Delete" },
+		{ "lang": "lg-spa", "name": "wms_delete_button", "value": "Eliminar" },
+
+		{ "lang": "lg-eng", "name": "wms_no_layers", "value": "No queryable layers found on this server." },
+		{ "lang": "lg-spa", "name": "wms_no_layers", "value": "No se han encontrado capas consultables en este servidor." },
+
+		{ "lang": "lg-eng", "name": "wms_error_url_required", "value": "The WMS server URL is required." },
+		{ "lang": "lg-spa", "name": "wms_error_url_required", "value": "La URL del servidor WMS es requerida." },
+
+		{ "lang": "lg-eng", "name": "wms_error_url_invalid", "value": "Please enter a valid URL." },
+		{ "lang": "lg-spa", "name": "wms_error_url_invalid", "value": "Por favor, introduzca una URL correcta." },
+
+		{ "lang": "lg-eng", "name": "wms_error_parse", "value": "Could not read the server response." },
+		{ "lang": "lg-spa", "name": "wms_error_parse", "value": "No ha sido posible interpretar la respuesta del servidor." }
 	]
 }

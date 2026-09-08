@@ -25,6 +25,12 @@
  * caller's own live component_geolocation instance already holds, into a
  * format a browser cannot produce on its own (see each action's own file for
  * the full design).
+ *
+ * `get_wms_layers` (fila #6, "WMS services") gets the SAME gate too: it reads
+ * a THIRD PARTY WMS server's own GetCapabilities document (via the SSRF-
+ * guarded `fetchGuardedText`, see `wms.ts`) — nothing this install owns is
+ * written or even read beyond the caller being a scoped, authenticated map
+ * viewer.
  */
 
 import { ok } from '../../../src/core/errors/index.ts';
@@ -37,6 +43,7 @@ import {
 import { probeCapabilities } from './capabilities.ts';
 import { rasterDownload } from './raster_download.ts';
 import { vectorDownload } from './vector_download.ts';
+import { getWmsLayers } from './wms.ts';
 
 async function getCapabilities(context: ToolActionContext): Promise<ToolResponse> {
 	const capabilities = await probeCapabilities();
@@ -49,6 +56,7 @@ export const tool: ToolServerModule = {
 		get_capabilities: { permission: 'record_tipo', minLevel: 1, handler: getCapabilities },
 		vector_download: { permission: 'record_tipo', minLevel: 1, handler: vectorDownload },
 		raster_download: { permission: 'record_tipo', minLevel: 1, handler: rasterDownload },
+		get_wms_layers: { permission: 'record_tipo', minLevel: 1, handler: getWmsLayers },
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because

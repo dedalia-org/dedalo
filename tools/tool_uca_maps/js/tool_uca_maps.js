@@ -60,9 +60,13 @@
  * `onexone.js`), the first of these with NO panel — v6 has none for this row
  * either, just a bare toggle button. Hito 9 adds "XYZ" (functionality #5,
  * custom base-map layers — `xyz_basemaps.js`), session-only persistence for
- * now (`docs/PREGUNTAS_FORO.md` #7). The rest of the audit's rows land the
- * same way: a new button (+panel where the functionality actually needs
- * one), never a new section inside an existing panel.
+ * now (`docs/PREGUNTAS_FORO.md` #7). "WMS" (functionality #6, generic WMS
+ * server layers — `wms_services.js`) adds one server action of its own
+ * (`get_wms_layers`, an SSRF-guarded GetCapabilities proxy — no browser can
+ * fetch a third-party WMS endpoint directly) but keeps the same session-only
+ * persistence as XYZ. The rest of the audit's rows land the same way: a new
+ * button (+panel where the functionality actually needs one), never a new
+ * section inside an existing panel.
  */
 
 
@@ -108,6 +112,16 @@
 		delete_basemap,
 		move_basemap
 	} from './xyz_basemaps.js'
+	import {
+		attach_wms_services,
+		detach_wms_services,
+		search_wms_layers,
+		clear_wms_search,
+		add_wms_layer,
+		toggle_wms_layer,
+		set_wms_layer_opacity,
+		delete_wms_layer
+	} from './wms_services.js'
 
 
 
@@ -190,6 +204,16 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   _xyz_created_layer_control - true when this tool built the layer_control
 *                   itself (no provider one existed) — detach_xyz_basemaps
 *                   removes it entirely in that case, leaves a reused one
+*   wms_control   - the "WMS" toolbar button (functionality #6, wms_services.js)
+*   wms_panel     - its anchored panel
+*   wms_layers    - session-only array of {url, name, title, opacity, visible}
+*                   (no shared/ontology persistence yet, same as basemaps
+*                   above); resets to an empty list on every attach
+*   _wms_tile_layers - the live L.TileLayer.WMS instances mirroring
+*                   `wms_layers`, 1:1 (wms_services.js)
+*   _wms_search_results - {base_url, layers: [{name, title}]} from the last
+*                   successful GetCapabilities search, or null before any
+*                   search/after "Clear search"
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -234,6 +258,11 @@ export const tool_uca_maps = function () {
 	this._xyz_tile_layers			= null
 	this._xyz_took_over_tiles		= false
 	this._xyz_created_layer_control	= false
+	this.wms_control				= null
+	this.wms_panel					= null
+	this.wms_layers					= null
+	this._wms_tile_layers			= null
+	this._wms_search_results		= null
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -473,6 +502,41 @@ tool_uca_maps.prototype.move_basemap = function(index, direction) {
 
 
 /**
+* "WMS" (functionality #6) — THIN PROTOTYPE WRAPPERS OVER wms_services.js,
+* same reuse reason as every other block here: render_wms_services.js calls
+* self.<method>(...), never wms_services.js directly.
+*/
+tool_uca_maps.prototype.attach_wms_services = function() {
+	attach_wms_services(this)
+}//end attach_wms_services
+
+tool_uca_maps.prototype.search_wms_layers = function(raw_url) {
+	return search_wms_layers(this, raw_url)
+}//end search_wms_layers
+
+tool_uca_maps.prototype.clear_wms_search = function() {
+	return clear_wms_search(this)
+}//end clear_wms_search
+
+tool_uca_maps.prototype.add_wms_layer = function(fields) {
+	return add_wms_layer(this, fields)
+}//end add_wms_layer
+
+tool_uca_maps.prototype.toggle_wms_layer = function(index) {
+	return toggle_wms_layer(this, index)
+}//end toggle_wms_layer
+
+tool_uca_maps.prototype.set_wms_layer_opacity = function(index, opacity) {
+	return set_wms_layer_opacity(this, index, opacity)
+}//end set_wms_layer_opacity
+
+tool_uca_maps.prototype.delete_wms_layer = function(index) {
+	return delete_wms_layer(this, index)
+}//end delete_wms_layer
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -638,7 +702,7 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 * ("UCA"), map_image_download.js ("Download map as image"),
 * capabilities_panel.js (dev-only diagnostic, a no-op if it never attached),
 * object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel),
-* xyz_basemaps.js ("XYZ"). The map itself belongs to
+* xyz_basemaps.js ("XYZ"), wms_services.js ("WMS"). The map itself belongs to
 * component_geolocation and outlives this tool's (self-closed, see file
 * header) modal, so leaving any control/panel behind
 * would be exactly the v6 "controls stay stuck to the map" defect the plan
@@ -666,6 +730,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_object_viewer(self)
 	detach_onexone(self)
 	detach_xyz_basemaps(self)
+	detach_wms_services(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

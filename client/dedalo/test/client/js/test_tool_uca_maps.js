@@ -59,6 +59,8 @@ import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_do
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
+import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
+import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 
 
 
@@ -111,6 +113,11 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance._xyz_tile_layers, null, 'expected _xyz_tile_layers null')
 		assert.equal(instance._xyz_took_over_tiles, false, 'expected _xyz_took_over_tiles false')
 		assert.equal(instance._xyz_created_layer_control, false, 'expected _xyz_created_layer_control false')
+		assert.equal(instance.wms_control, null, 'expected wms_control null')
+		assert.equal(instance.wms_panel, null, 'expected wms_panel null')
+		assert.equal(instance.wms_layers, null, 'expected wms_layers null')
+		assert.equal(instance._wms_tile_layers, null, 'expected _wms_tile_layers null')
+		assert.equal(instance._wms_search_results, null, 'expected _wms_search_results null')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -142,9 +149,86 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.add_basemap, 'function', 'expected add_basemap defined')
 		assert.equal(typeof tool_uca_maps.prototype.delete_basemap, 'function', 'expected delete_basemap defined')
 		assert.equal(typeof tool_uca_maps.prototype.move_basemap, 'function', 'expected move_basemap defined')
+		// "WMS" — functionality #6, WMS server layers
+		assert.equal(typeof tool_uca_maps.prototype.attach_wms_services, 'function', 'expected attach_wms_services defined')
+		assert.equal(typeof tool_uca_maps.prototype.search_wms_layers, 'function', 'expected search_wms_layers defined')
+		assert.equal(typeof tool_uca_maps.prototype.clear_wms_search, 'function', 'expected clear_wms_search defined')
+		assert.equal(typeof tool_uca_maps.prototype.add_wms_layer, 'function', 'expected add_wms_layer defined')
+		assert.equal(typeof tool_uca_maps.prototype.toggle_wms_layer, 'function', 'expected toggle_wms_layer defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_wms_layer_opacity, 'function', 'expected set_wms_layer_opacity defined')
+		assert.equal(typeof tool_uca_maps.prototype.delete_wms_layer, 'function', 'expected delete_wms_layer defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
+	})
+
+	// "WMS" (functionality #6, js/wms_services.js) — PURE, no network/live map:
+	// a hand-written GetCapabilities fixture proves the parsing rule (v6
+	// parity: any `queryable` attribute at all, even "0", counts — a plain
+	// `getAttribute()!==null` check — and an unnamed layer is a non-leaf
+	// grouping node, skipped).
+	it('parse_wms_capabilities_xml keeps only queryable, named layers; falls back Title to Name', function() {
+
+		const xml = `<?xml version="1.0" encoding="UTF-8"?>
+			<WMS_Capabilities xmlns="http://www.opengis.net/wms" version="1.3.0">
+				<Capability>
+					<Layer>
+						<Title>Root</Title>
+						<Layer>
+							<Name>topo:not_queryable</Name>
+							<Title>Not queryable</Title>
+						</Layer>
+						<Layer queryable="1">
+							<Name>topo:layer2</Name>
+							<Title>Layer Two</Title>
+						</Layer>
+						<Layer queryable="1">
+							<Name>topo:layer3</Name>
+						</Layer>
+					</Layer>
+				</Capability>
+			</WMS_Capabilities>`
+
+		const result = parse_wms_capabilities_xml(xml)
+
+		assert.equal(result.ok, true)
+		assert.deepEqual(result.layers, [
+			{name: 'topo:layer2', title: 'Layer Two'},
+			{name: 'topo:layer3', title: 'topo:layer3'}
+		])
+	})
+
+	it('parse_wms_capabilities_xml reports a parse failure on malformed XML', function() {
+		const result = parse_wms_capabilities_xml('<not-xml<<<')
+		assert.equal(result.ok, false)
+		assert.isOk(result.error)
+	})
+
+	// review-diff correctness finding: a queryable GROUP layer with no OWN
+	// <Name> must never inherit a nested child's <Name>/<Title> — Name/Title
+	// lookup has to stop at DIRECT children, not search the whole subtree
+	// (Element.getElementsByTagName would otherwise reach into child2 below).
+	it('parse_wms_capabilities_xml never inherits Name/Title from a NESTED child of an unnamed queryable group', function() {
+
+		const xml = `<?xml version="1.0" encoding="UTF-8"?>
+			<WMS_Capabilities xmlns="http://www.opengis.net/wms" version="1.3.0">
+				<Capability>
+					<Layer>
+						<Layer queryable="1">
+							<Title>Group (no own Name)</Title>
+							<Layer queryable="1">
+								<Name>topo:child2</Name>
+								<Title>Child Two</Title>
+							</Layer>
+						</Layer>
+					</Layer>
+				</Capability>
+			</WMS_Capabilities>`
+
+		const result = parse_wms_capabilities_xml(xml)
+
+		assert.equal(result.ok, true)
+		assert.deepEqual(result.layers, [{name: 'topo:child2', title: 'Child Two'}], 'expected only the real leaf, never a bogus entry for the unnamed group')
 	})
 
 })
@@ -1368,7 +1452,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1387,9 +1471,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-object-viewer-control'))	return 'OBJ'
 			if (button.classList.contains('uca-maps-onexone-control'))		return '1x1'
 			if (button.classList.contains('uca-maps-xyz-control'))			return 'XYZ'
+			if (button.classList.contains('uca-maps-wms-control'))			return 'WMS'
 			return 'unknown'
 		})
-		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ')
+		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS')
 	})
 
 	it('opening one panel closes any other panel already open (only one at a time)', function() {
@@ -1664,6 +1749,199 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.leaflet-control-layers'),
 			'expected the layer_control removed from the DOM — no control left stuck to the map'
 		)
+	})
+
+
+
+	// "WMS" (functionality #6, js/wms_services.js). Unlike XYZ, this
+	// functionality never touches geolocation.layer_control (v6's own
+	// equivalent doesn't either — plain L.TileLayer.WMS instances added/
+	// removed straight from the map), so there is no layer_control-takeover
+	// scenario to cover here. The GetCapabilities network call is always
+	// MOCKED (tool.tool_request stubbed) — the real SSRF-guarded proxy +
+	// XML fetch is covered server-side, hermetically, in
+	// test/unit/tool_uca_maps_get_wms_layers.test.ts; a client suite must
+	// never depend on a live third-party WMS server being reachable.
+
+	const SAMPLE_CAPABILITIES_XML = `<?xml version="1.0" encoding="UTF-8"?>
+		<WMS_Capabilities xmlns="http://www.opengis.net/wms" version="1.3.0">
+			<Capability>
+				<Layer>
+					<Layer queryable="1">
+						<Name>topo:layer1</Name>
+						<Title>Layer One</Title>
+					</Layer>
+				</Layer>
+			</Capability>
+		</WMS_Capabilities>`
+
+	it('attach_wms_services seeds an empty session-only layer list and builds the button+panel', function() {
+
+		tool.attach_wms_services()
+
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
+		assert.isOk(control, 'expected the "WMS" toggle button')
+		assert.isOk(tool.wms_panel, 'expected the wms panel built')
+		assert.equal(tool.wms_panel.hidden, true, 'expected the panel hidden by default')
+		assert.deepEqual(tool.wms_layers, [], 'expected no layers pre-added, unlike XYZ\'s 3 defaults')
+		assert.isOk(geolocation.map.getPane('wms'), 'expected the dedicated "wms" pane created')
+	})
+
+	it('search_wms_layers refuses a non-absolute-http(s) URL without touching the server', async function() {
+
+		tool.attach_wms_services()
+
+		let called = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
+
+		const result = await tool.search_wms_layers('not-a-url')
+
+		assert.equal(result.ok, false)
+		assert.equal(called, false, 'expected the server never contacted for an invalid URL')
+
+		tool.tool_request = original_tool_request
+	})
+
+	// review-diff correctness finding: an unexpected throw must resolve to a
+	// failure object, never an unhandled rejection that leaves the panel's
+	// "Search" button stuck disabled (render_wms_services.js's click handler
+	// only re-enables it after the awaited call settles).
+	it('search_wms_layers never rejects, even when tool_request throws unexpectedly', async function() {
+
+		tool.attach_wms_services()
+		tool.tool_request = async function() { throw new Error('boom') }
+
+		const result = await tool.search_wms_layers('https://example.com/geoserver/wms')
+
+		assert.equal(result.ok, false)
+		assert.isOk(result.error)
+	})
+
+	// review-diff correctness finding: a response that lands AFTER the tool
+	// was torn down (record deleted/navigated away mid-request) must not
+	// resurrect state on a dead instance.
+	it('search_wms_layers drops a response that arrives after detach_wms_services already ran', async function() {
+
+		tool.attach_wms_services()
+
+		let resolve_tool_request
+		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+
+		const pending = tool.search_wms_layers('https://example.com/geoserver/wms')
+
+		await tool.destroy(false, false, false)
+		assert.equal(tool.wms_panel, null, 'expected the panel already torn down')
+
+		resolve_tool_request({ok: true, data: {url: 'https://example.com/geoserver/wms', xml: SAMPLE_CAPABILITIES_XML}})
+		const result = await pending
+
+		assert.equal(result.ok, false)
+		assert.equal(tool._wms_search_results, null, 'expected the late response NOT to resurrect state on the torn-down instance')
+	})
+
+	it('search_wms_layers (mocked server) stores the parsed results; the panel lists them with an "Add" button', async function() {
+
+		// the network half (SSRF-guarded proxy, real GetCapabilities fetch) is
+		// covered server-side (file header above) — tool_request is stubbed
+		// here so this test stays hermetic and exercises tool_request/
+		// search_wms_layers/populate_wms_search_results/add_wms_layer
+		// DIRECTLY (awaited calls, not a real DOM click + microtask race)
+		tool.attach_wms_services()
+		const panel = tool.wms_panel
+
+		let requested_options = null
+		tool.tool_request = async function(options) {
+			requested_options = options
+			return {ok: true, data: {url: 'https://example.com/geoserver/wms', xml: SAMPLE_CAPABILITIES_XML}}
+		}
+
+		const result = await tool.search_wms_layers('https://example.com/geoserver/wms?ignored=1')
+
+		assert.equal(result.ok, true)
+		assert.equal(requested_options.action, 'get_wms_layers')
+		assert.equal(requested_options.options.url, 'https://example.com/geoserver/wms?ignored=1')
+		assert.deepEqual(tool._wms_search_results, {
+			base_url: 'https://example.com/geoserver/wms',
+			layers: [{name: 'topo:layer1', title: 'Layer One'}]
+		})
+
+		populate_wms_search_results(tool, panel)
+		const result_items = panel.querySelectorAll('.uca-maps-wms-result-item')
+		assert.equal(result_items.length, 1)
+		assert.equal(result_items[0].querySelector('.uca-maps-wms-result-title').textContent, 'Layer One')
+
+		// the "Add" button's own click handler (render_wms_services.js) is sync
+		result_items[0].querySelector('.uca-maps-wms-result-add').click()
+
+		assert.equal(tool.wms_layers.length, 1, 'expected the layer added')
+		assert.deepEqual(tool.wms_layers[0], {
+			url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', opacity: 0.7, visible: true
+		})
+		assert.equal(geolocation.map.hasLayer(tool._wms_tile_layers[0]), true, 'expected the newly added layer active on the map')
+
+		tool.clear_wms_search()
+		populate_wms_search_results(tool, panel)
+		assert.equal(tool._wms_search_results, null, 'expected clear_wms_search to drop the stored results')
+		assert.equal(panel.querySelectorAll('.uca-maps-wms-result-item').length, 0, 'expected the results list rebuilt empty')
+	})
+
+	it('toggle_wms_layer shows/hides the live layer; set_wms_layer_opacity updates it and refuses out-of-range values', function() {
+
+		tool.attach_wms_services()
+		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+
+		const tile_layer = tool._wms_tile_layers[0]
+		assert.equal(geolocation.map.hasLayer(tile_layer), true, 'expected visible right after add')
+
+		assert.deepEqual(tool.toggle_wms_layer(0), {ok: true})
+		assert.equal(tool.wms_layers[0].visible, false)
+		assert.equal(geolocation.map.hasLayer(tile_layer), false)
+
+		assert.deepEqual(tool.toggle_wms_layer(0), {ok: true})
+		assert.equal(tool.wms_layers[0].visible, true)
+		assert.equal(geolocation.map.hasLayer(tile_layer), true)
+
+		assert.deepEqual(tool.set_wms_layer_opacity(0, '0.4'), {ok: true})
+		assert.equal(tool.wms_layers[0].opacity, 0.4)
+
+		assert.deepEqual(tool.set_wms_layer_opacity(0, '1.5'), {ok: false}, 'expected an out-of-range opacity refused')
+		assert.equal(tool.wms_layers[0].opacity, 0.4, 'expected the refused value NOT applied')
+	})
+
+	it('delete_wms_layer removes the tile layer from the live map and from the list', function() {
+
+		tool.attach_wms_services()
+		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two'})
+
+		const first_tile_layer = tool._wms_tile_layers[0]
+
+		assert.deepEqual(tool.delete_wms_layer(0), {ok: true})
+		assert.equal(tool.wms_layers.length, 1)
+		assert.equal(tool.wms_layers[0].name, 'topo:layer2', 'expected the survivor to be the second-added layer')
+		assert.equal(geolocation.map.hasLayer(first_tile_layer), false, 'expected the deleted layer off the map')
+	})
+
+	it('detach_wms_services removes the button/panel AND every WMS tile layer it added from the live map', async function() {
+
+		tool.attach_wms_services()
+		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		const map_container_node = geolocation.map.getContainer()
+		const tile_layers = tool._wms_tile_layers
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.wms_control, null, 'expected wms_control cleared')
+		assert.equal(tool.wms_panel, null, 'expected wms_panel cleared')
+		assert.equal(tool.wms_layers, null, 'expected wms_layers cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-wms-control'),
+			'expected the button removed from the DOM'
+		)
+		for (const tile_layer of tile_layers) {
+			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected every WMS tile layer this tool added removed from the map')
+		}
 	})
 
 })

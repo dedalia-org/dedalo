@@ -242,6 +242,98 @@
   font-size: 0.75rem;
   background-color: #6c757d;
 }
+.uca-maps-wms-panel .uca-maps-wms-search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.75rem;
+}
+.uca-maps-wms-panel .uca-maps-wms-search-form input {
+  min-width: 0;
+}
+.uca-maps-wms-panel .uca-maps-wms-message {
+  background-color: #f8d7da;
+  color: #842029;
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+.uca-maps-wms-panel .uca-maps-wms-message[hidden] {
+  display: none;
+}
+.uca-maps-wms-panel .uca-maps-wms-button-row {
+  display: flex;
+  gap: 0.3rem;
+}
+.uca-maps-wms-panel .uca-maps-wms-list-title {
+  margin: 0.3rem 0.75rem 0.2rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #6c757d;
+}
+.uca-maps-wms-panel .uca-maps-wms-results,
+.uca-maps-wms-panel .uca-maps-wms-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0 0.75rem;
+}
+.uca-maps-wms-panel .uca-maps-wms-results > .uca-maps-wms-result-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+.uca-maps-wms-panel .uca-maps-wms-results > .uca-maps-wms-result-item .uca-maps-wms-result-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uca-maps-wms-panel .uca-maps-wms-list > .uca-maps-wms-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+.uca-maps-wms-panel .uca-maps-wms-list > .uca-maps-wms-item .uca-maps-wms-checkbox {
+  flex: 0 0 auto;
+}
+.uca-maps-wms-panel .uca-maps-wms-list > .uca-maps-wms-item .uca-maps-wms-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uca-maps-wms-panel .uca-maps-wms-list > .uca-maps-wms-item .uca-maps-wms-opacity {
+  flex: 0 0 4.5rem;
+}
+.uca-maps-wms-panel button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.uca-maps-wms-panel button:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-wms-panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.uca-maps-wms-panel .uca-maps-wms-result-add,
+.uca-maps-wms-panel .uca-maps-wms-delete {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+  background-color: #6c757d;
+}
 .uca-maps-console > .uca-maps-object-section {
   padding: 0.5rem 0.75rem;
 }
