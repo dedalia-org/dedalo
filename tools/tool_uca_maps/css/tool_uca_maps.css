@@ -334,6 +334,31 @@
   font-size: 0.75rem;
   background-color: #6c757d;
 }
+.uca-maps-catastro-control.uca-maps-catastro-enabled {
+  background: #14fbcd;
+  color: #212529;
+}
+.uca-maps-ua-panel .uca-maps-ua-message {
+  background-color: #f8d7da;
+  color: #842029;
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  margin: 0.5rem 0.75rem 0;
+}
+.uca-maps-ua-panel .uca-maps-ua-message[hidden] {
+  display: none;
+}
+.uca-maps-ua-panel .uca-maps-ua-level-select {
+  display: block;
+  width: calc(100% - 1.5rem);
+  margin: 0.5rem 0.75rem;
+}
+.uca-maps-ua-panel .uca-maps-ua-hint {
+  margin: 0 0.75rem 0.5rem;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
 .uca-maps-console > .uca-maps-object-section {
   padding: 0.5rem 0.75rem;
 }

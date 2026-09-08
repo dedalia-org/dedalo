@@ -28,9 +28,9 @@
 * combined panel — it is now one call per functionality (attach_console,
 * attach_map_image_download_control, attach_capabilities_panel, hito 4's
 * attach_object_viewer, hito 7's attach_onexone, hito 9's
-* attach_xyz_basemaps, this hito's attach_wms_services), each building its
-* OWN button (+panel, where the functionality actually needs one) through
-* toolbar.js.
+* attach_xyz_basemaps, hito 10's attach_wms_services, this hito's
+* attach_catastro/attach_administrative_units), each building its OWN button
+* (+panel, where the functionality actually needs one) through toolbar.js.
 *
 * @module render_tool_uca_maps
 */
@@ -93,8 +93,10 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (L.Control.addTo appends to that corner's container), so the first
 	// attach_* call here ends up as the TOPMOST button. capabilities_panel
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
-	// ahead of the real functionalities; "WMS" attaches last, so the corner
-	// reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS top-to-bottom.
+	// ahead of the real functionalities; "UA" attaches last, so the corner
+	// reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro, UA top-to-bottom
+	// (Catastro/UA may not appear at all — both gated on the record's
+	// language, v6 parity, catastro.js is_spanish_official_lang).
 		if (self.geolocation && self.map_ready) {
 			self.attach_capabilities_panel()
 			self.attach_console()
@@ -103,6 +105,8 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			self.attach_onexone()
 			self.attach_xyz_basemaps()
 			self.attach_wms_services()
+			self.attach_catastro()
+			self.attach_administrative_units()
 		}
 		self.close_transient_modal()
 

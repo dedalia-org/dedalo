@@ -61,6 +61,8 @@ import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/too
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
+import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
+import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 
 
 
@@ -118,6 +120,16 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance.wms_layers, null, 'expected wms_layers null')
 		assert.equal(instance._wms_tile_layers, null, 'expected _wms_tile_layers null')
 		assert.equal(instance._wms_search_results, null, 'expected _wms_search_results null')
+		assert.equal(instance.catastro_control, null, 'expected catastro_control null')
+		assert.equal(instance._catastro_tile_layer, null, 'expected _catastro_tile_layer null')
+		assert.equal(instance._catastro_click_handler, null, 'expected _catastro_click_handler null')
+		assert.equal(instance._catastro_busy, false, 'expected _catastro_busy false')
+		assert.equal(instance.ua_control, null, 'expected ua_control null')
+		assert.equal(instance.ua_panel, null, 'expected ua_panel null')
+		assert.equal(instance._ua_level, null, 'expected _ua_level null')
+		assert.equal(instance._ua_tile_layer, null, 'expected _ua_tile_layer null')
+		assert.equal(instance._ua_click_handler, null, 'expected _ua_click_handler null')
+		assert.equal(instance._ua_busy, false, 'expected _ua_busy false')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -157,6 +169,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.toggle_wms_layer, 'function', 'expected toggle_wms_layer defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_wms_layer_opacity, 'function', 'expected set_wms_layer_opacity defined')
 		assert.equal(typeof tool_uca_maps.prototype.delete_wms_layer, 'function', 'expected delete_wms_layer defined')
+		// "Catastro" (functionality #8) / "UA" (functionality #9)
+		assert.equal(typeof tool_uca_maps.prototype.attach_catastro, 'function', 'expected attach_catastro defined')
+		assert.equal(typeof tool_uca_maps.prototype.attach_administrative_units, 'function', 'expected attach_administrative_units defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
@@ -1477,6 +1492,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS')
 	})
 
+	it('edit() also stacks "Catastro"/"UA" last when section_lang gates them in', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.type		= 'tool'
+		tool.mode		= 'edit'
+		tool.context	= { label: 'Mapas UCA' }
+
+		await tool.edit({})
+
+		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
+		const buttons = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'))
+		const classes = buttons.map((button) => {
+			if (button.classList.contains('uca-maps-catastro-control'))	return 'Catastro'
+			if (button.classList.contains('uca-maps-ua-control'))			return 'UA'
+			return 'other'
+		}).filter((name) => name!=='other')
+
+		assert.deepEqual(classes, ['Catastro', 'UA'], 'expected Catastro then UA, last in the corner')
+	})
+
 	it('opening one panel closes any other panel already open (only one at a time)', function() {
 
 		tool.attach_capabilities_panel()
@@ -1942,6 +1977,349 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		for (const tile_layer of tile_layers) {
 			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected every WMS tile layer this tool added removed from the map')
 		}
+	})
+
+	// "Catastro" (functionality #8, js/catastro.js) / "UA" (functionality #9,
+	// js/administrative_units.js). Both gated on section_lang (v6 parity —
+	// es/cat/eus); the shared fixture (elements.js) sets no section_lang, so
+	// it defaults to the "not gated in" case unless a test opts in. Every
+	// outbound call is MOCKED (tool.tool_request stubbed) — the real proxies
+	// are covered hermetically server-side (test/unit/tool_uca_maps_get_
+	// catastro_parcel.test.ts / …get_administrative_unit.test.ts); a client
+	// suite must never depend on a live third-party server being reachable.
+	// Both SWAP the active basemap (v6 parity, confirmed live by Sergio,
+	// 2026-09-08 validation) — this helper reads it straight off the map,
+	// same "DOM/map is truth" law as everything else in this suite.
+	const find_active_tile_layer = function(map) {
+		let found = null
+		map.eachLayer((layer) => { if (layer instanceof L.TileLayer) found = layer })
+		return found
+	}
+
+	it('attach_catastro/attach_administrative_units are a no-op unless section_lang is es/cat/eus (v6 parity)', function() {
+
+		assert.equal(geolocation.section_lang, undefined, 'expected the shared fixture to set no section_lang')
+		assert.equal(is_spanish_official_lang(tool), false)
+
+		tool.attach_catastro()
+		tool.attach_administrative_units()
+
+		assert.equal(tool.catastro_control, null, 'expected no "Catastro" button gated out')
+		assert.equal(tool.ua_control, null, 'expected no "UA" button gated out')
+	})
+
+	it('attach_catastro builds the toggle button once section_lang is es/cat/eus', function() {
+
+		geolocation.section_lang = 'lg-cat'
+		assert.equal(is_spanish_official_lang(tool), true)
+
+		tool.attach_catastro()
+		tool.attach_catastro() // second call: must be a no-op, never a duplicate
+
+		const controls = geolocation.map.getContainer().querySelectorAll('.uca-maps-catastro-control')
+		assert.equal(controls.length, 1, 'expected exactly one "Catastro" button')
+		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro off by default')
+	})
+
+	// v6 parity, confirmed live by Sergio (2026-09-08 validation): Catastro
+	// SWAPS the active basemap (marked in the map's own layer-control) rather
+	// than adding a translucent overlay on top of it.
+	it('clicking "Catastro" swaps the active basemap for the cadastral map; a second click restores the previous one', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+
+		const previous_base_layer = find_active_tile_layer(geolocation.map)
+		assert.isOk(previous_base_layer, 'expected a basemap already on the map before arming (test fixture default)')
+
+		tool.catastro_control.getContainer().click()
+		assert.equal(is_catastro_enabled(tool), true, 'expected Catastro armed after one click')
+		assert.isOk(tool._catastro_tile_layer, 'expected the cadastral tile layer built')
+		assert.equal(geolocation.map.hasLayer(tool._catastro_tile_layer), true, 'expected the cadastral layer active on the map')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while Catastro is active — a swap, not an overlay')
+		assert.isOk(geolocation.layer_control, 'expected a layer_control to exist (created if none did)')
+		assert.isOk(Object.values(geolocation.layer_control._layers).some((entry) => entry.layer===tool._catastro_tile_layer), 'expected Catastro registered as a base layer, so the control marks it selected')
+
+		tool.catastro_control.getContainer().click()
+		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro disarmed after a second click')
+		assert.equal(tool._catastro_tile_layer, null, 'expected the cadastral tile layer cleared')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
+	})
+
+	it('check_catastro_at_point (found) creates a polygon with a visible "url" property, not hidden uca_maps bookkeeping', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click() // arm
+
+		let requested_options = null
+		tool.tool_request = async function(options) {
+			requested_options = options
+			return {ok: true, data: {found: true, refcat: '1234567AB1234C', url: 'https://example.com/parcel', points: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6], [40.1, -3.6]]}}
+		}
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+
+		assert.equal(requested_options.action, 'get_catastro_parcel')
+		assert.isOk(Array.isArray(requested_options.options.bbox) && requested_options.options.bbox.length===4, 'expected a 4-number bbox')
+
+		const layers = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers()
+		assert.equal(layers.length, before_layer_count + 1, 'expected one new polygon added to the active FeatureGroup')
+		const created = layers[layers.length - 1]
+		assert.equal(created.feature.properties.url, 'https://example.com/parcel', 'expected a REGULAR, visible "url" property (v6 parity)')
+		assert.equal(created.feature.properties.uca_maps.catastro, true)
+	})
+
+	it('check_catastro_at_point (not found) shows a message, creates nothing', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click() // arm
+
+		tool.tool_request = async () => ({ok: true, data: {found: false}})
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+
+		assert.equal(
+			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			before_layer_count,
+			'expected no polygon created on a "not found" result'
+		)
+		const banner = geolocation.node.querySelector('.uca-maps-catastro-message')
+		assert.isOk(banner, 'expected an in-component message banner')
+		assert.match(banner.textContent, /parcel/i)
+	})
+
+	it('check_catastro_at_point refuses overlapping lookups (busy guard) — only the first reaches tool_request', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click() // arm
+
+		let call_count = 0
+		let resolve_first
+		tool.tool_request = () => new Promise((resolve) => {
+			call_count++
+			resolve_first = () => resolve({ok: true, data: {found: false}})
+		})
+
+		const first = check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		const second = check_catastro_at_point(tool, L.latLng(40.16, -3.66)) // dropped: busy
+
+		resolve_first()
+		await Promise.all([first, second])
+
+		assert.equal(call_count, 1, 'expected the second, overlapping lookup never to reach tool_request')
+	})
+
+	it('detach_catastro removes the button AND restores the previous basemap on the live map', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+
+		const previous_base_layer = find_active_tile_layer(geolocation.map)
+		tool.catastro_control.getContainer().click() // arm
+		const tile_layer = tool._catastro_tile_layer
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.catastro_control, null, 'expected catastro_control cleared')
+		assert.isNotOk(map_container_node.querySelector('.uca-maps-catastro-control'), 'expected the button removed from the DOM')
+		assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the cadastral layer removed from the map')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
+	})
+
+	// review-diff finding, hito 11: a lookup in flight when the user disarms
+	// Catastro (second click) must not resurrect a parcel after the fact.
+	it('check_catastro_at_point drops a response that arrives after the user disarms Catastro mid-request', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click() // arm
+
+		let resolve_tool_request
+		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const pending = check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+
+		tool.catastro_control.getContainer().click() // disarm WHILE the request is in flight
+		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro disarmed')
+
+		resolve_tool_request({ok: true, data: {found: true, refcat: '1234567AB1234C', url: 'https://example.com/parcel', points: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6]]}})
+		await pending
+
+		assert.equal(
+			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			before_layer_count,
+			'expected the late "found" response NOT to create a parcel after Catastro was disarmed'
+		)
+	})
+
+	it('attach_administrative_units builds the button+panel (level select) once section_lang is es/cat/eus', function() {
+
+		geolocation.section_lang = 'lg-eus'
+		tool.attach_administrative_units()
+		tool.attach_administrative_units() // second call: must be a no-op
+
+		const controls = geolocation.map.getContainer().querySelectorAll('.uca-maps-ua-control')
+		assert.equal(controls.length, 1, 'expected exactly one "UA" button')
+		assert.isOk(tool.ua_panel, 'expected the UA panel built')
+		assert.equal(tool.ua_panel.hidden, true, 'expected the panel hidden by default')
+		assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-level-select'), 'expected the level select rendered')
+	})
+
+	// v6 parity, confirmed live by Sergio (2026-09-08 validation): UA SWAPS
+	// the active basemap for AU.AdministrativeUnit (same fix as Catastro).
+	it('opening the "UA" panel swaps the active basemap; closing it restores the previous one', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+
+		const previous_base_layer = find_active_tile_layer(geolocation.map)
+		assert.isOk(previous_base_layer, 'expected a basemap already on the map before arming (test fixture default)')
+
+		tool.ua_control.getContainer().click()
+		assert.equal(tool.ua_panel.hidden, false, 'expected the panel open')
+		assert.isOk(tool._ua_tile_layer, 'expected the AU.AdministrativeUnit tile layer built')
+		assert.equal(geolocation.map.hasLayer(tool._ua_tile_layer), true, 'expected it active on the map')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while UA is active — a swap, not an overlay')
+
+		tool.ua_control.getContainer().click()
+		assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
+		assert.equal(tool._ua_tile_layer, null, 'expected the tile layer cleared')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
+	})
+
+	// review-diff finding, hito 11: toolbar.js's own exclusivity (opening ANY
+	// sibling panel force-hides an already-open one) used to hide the UA
+	// panel WITHOUT disarming it — the overlay tile layer and the map 'click'
+	// listener kept running behind a panel that looked closed. Fixed via
+	// create_toolbar_panel's `on_hide` hook.
+	it('a sibling panel opening force-closes AND disarms UA — not just visually hidden', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+		tool.attach_wms_services()
+
+		tool.ua_control.getContainer().click() // arm UA
+		assert.isOk(tool._ua_tile_layer, 'expected UA armed')
+		const armed_tile_layer = tool._ua_tile_layer
+		const armed_click_handler = tool._ua_click_handler
+
+		tool.wms_control.getContainer().click() // opens a SIBLING panel — forces UA's panel shut
+
+		assert.equal(tool.ua_panel.hidden, true, 'expected the UA panel force-closed')
+		assert.equal(tool._ua_tile_layer, null, 'expected the overlay tile layer disarmed, not left running behind a closed panel')
+		assert.equal(tool._ua_click_handler, null, 'expected the map click listener disarmed too')
+		assert.equal(geolocation.map.hasLayer(armed_tile_layer), false, 'expected the overlay actually removed from the map')
+
+		// reopening UA must not leak a second, duplicate overlay/listener
+		// alongside a stale reference to the one already torn down
+		tool.ua_control.getContainer().click()
+		assert.notEqual(tool._ua_tile_layer, armed_tile_layer, 'expected a fresh overlay, not the disarmed one')
+		assert.notEqual(tool._ua_click_handler, armed_click_handler, 'expected a fresh click listener')
+	})
+
+	it('check_administrative_unit_at_point (found) builds a layer via L.geoJSON and fires pm:create', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+		tool.ua_control.getContainer().click() // arm, level defaults to 'Municipio'
+
+		let requested_options = null
+		tool.tool_request = async function(options) {
+			requested_options = options
+			return {ok: true, data: {found: true, feature: {
+				type: 'Feature',
+				geometry: {type: 'Polygon', coordinates: [[[-3.71,40.40],[-3.60,40.40],[-3.60,40.50],[-3.71,40.50],[-3.71,40.40]]]},
+				properties: {nameunit: 'Test municipality'}
+			}}}
+		}
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+
+		assert.equal(requested_options.action, 'get_administrative_unit')
+		assert.equal(requested_options.options.level, 'Municipio')
+
+		const layers = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers()
+		assert.equal(layers.length, before_layer_count + 1, 'expected one new object added to the active FeatureGroup')
+		assert.equal(layers[layers.length - 1].feature.properties.nameunit, 'Test municipality', 'expected the raw IGN properties kept, v6 parity')
+	})
+
+	it('check_administrative_unit_at_point (not found) shows an in-panel message, creates nothing', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+		tool.ua_control.getContainer().click() // arm
+
+		tool.tool_request = async () => ({ok: true, data: {found: false}})
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+
+		assert.equal(
+			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			before_layer_count,
+			'expected no object created on a "not found" result'
+		)
+		const message = tool.ua_panel.querySelector('.uca-maps-ua-message')
+		assert.equal(message.hidden, false, 'expected the in-panel message shown')
+	})
+
+	// review-diff finding, hito 11: a lookup in flight when the user closes
+	// the UA panel (own toggle, here — the sibling-panel path is covered by
+	// the toolbar-exclusivity test above) must not resurrect an object.
+	it('check_administrative_unit_at_point drops a response that arrives after the UA panel is closed mid-request', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+		tool.ua_control.getContainer().click() // arm
+
+		let resolve_tool_request
+		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const pending = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+
+		tool.ua_control.getContainer().click() // close WHILE the request is in flight
+		assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
+
+		resolve_tool_request({ok: true, data: {found: true, feature: {
+			type: 'Feature',
+			geometry: {type: 'Point', coordinates: [-3.65, 40.45]},
+			properties: {}
+		}}})
+		await pending
+
+		assert.equal(
+			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			before_layer_count,
+			'expected the late "found" response NOT to create an object after the panel was closed'
+		)
+	})
+
+	it('detach_administrative_units removes the button/panel AND restores the previous basemap', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+
+		const previous_base_layer = find_active_tile_layer(geolocation.map)
+		tool.ua_control.getContainer().click() // arm
+		const tile_layer = tool._ua_tile_layer
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.ua_control, null, 'expected ua_control cleared')
+		assert.equal(tool.ua_panel, null, 'expected ua_panel cleared')
+		assert.isNotOk(map_container_node.querySelector('.uca-maps-ua-control'), 'expected the button removed from the DOM')
+		assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the AU.AdministrativeUnit layer removed from the map')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
 	})
 
 })

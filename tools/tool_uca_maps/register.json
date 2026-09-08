@@ -259,6 +259,30 @@
 		{ "lang": "lg-spa", "name": "wms_error_url_invalid", "value": "Por favor, introduzca una URL correcta." },
 
 		{ "lang": "lg-eng", "name": "wms_error_parse", "value": "Could not read the server response." },
-		{ "lang": "lg-spa", "name": "wms_error_parse", "value": "No ha sido posible interpretar la respuesta del servidor." }
+		{ "lang": "lg-spa", "name": "wms_error_parse", "value": "No ha sido posible interpretar la respuesta del servidor." },
+
+		{ "lang": "lg-eng", "name": "catastro_control_title", "value": "Catastro" },
+		{ "lang": "lg-spa", "name": "catastro_control_title", "value": "Catastro" },
+
+		{ "lang": "lg-eng", "name": "catastro_not_found", "value": "No parcel could be found at this point." },
+		{ "lang": "lg-spa", "name": "catastro_not_found", "value": "No ha sido posible obtener la parcela en este punto." },
+
+		{ "lang": "lg-eng", "name": "ua_control_title", "value": "Administrative Units" },
+		{ "lang": "lg-spa", "name": "ua_control_title", "value": "Unidades Administrativas" },
+
+		{ "lang": "lg-eng", "name": "ua_level_municipio", "value": "Municipality" },
+		{ "lang": "lg-spa", "name": "ua_level_municipio", "value": "Municipio" },
+
+		{ "lang": "lg-eng", "name": "ua_level_provincia", "value": "Province" },
+		{ "lang": "lg-spa", "name": "ua_level_provincia", "value": "Provincia" },
+
+		{ "lang": "lg-eng", "name": "ua_level_ccaa", "value": "Autonomous community" },
+		{ "lang": "lg-spa", "name": "ua_level_ccaa", "value": "Comunidad Autónoma" },
+
+		{ "lang": "lg-eng", "name": "ua_hint", "value": "Click the map to look up the unit at that point." },
+		{ "lang": "lg-spa", "name": "ua_hint", "value": "Clica el mapa para consultar la unidad en ese punto." },
+
+		{ "lang": "lg-eng", "name": "ua_not_found", "value": "No administrative unit could be found at this point." },
+		{ "lang": "lg-spa", "name": "ua_not_found", "value": "No ha sido posible obtener la Unidad Administrativa en este punto." }
 	]
 }

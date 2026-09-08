@@ -496,6 +496,37 @@
 
 }//end uca-maps-wms-panel
 
+// "Catastro" (functionality #8, catastro.js) is a TOGGLE with no panel, same
+// shape as "1x1" above — reuses the identical enabled-state idiom instead of
+// inventing a second toggle colour.
+.uca-maps-catastro-control.uca-maps-catastro-enabled {
+	background: #14fbcd;
+	color: #212529;
+}
+
+// "UA" (functionality #9, administrative_units.js) — a single level
+// `<select>` + message line, the smallest panel shape here.
+.uca-maps-ua-panel {
+
+	.uca-maps-ua-message {
+		.uca-maps-panel-inline-message();
+		margin: 0.5rem 0.75rem 0;
+	}
+
+	.uca-maps-ua-level-select {
+		display: block;
+		width: calc(100% - 1.5rem);
+		margin: 0.5rem 0.75rem;
+	}
+
+	.uca-maps-ua-hint {
+		margin: 0 0.75rem 0.5rem;
+		font-size: 0.75rem;
+		color: #6c757d;
+	}
+
+}//end uca-maps-ua-panel
+
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
 // refactor (capabilities/map-image moved to their own panels above).

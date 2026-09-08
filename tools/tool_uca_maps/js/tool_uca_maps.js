@@ -64,9 +64,13 @@
  * server layers — `wms_services.js`) adds one server action of its own
  * (`get_wms_layers`, an SSRF-guarded GetCapabilities proxy — no browser can
  * fetch a third-party WMS endpoint directly) but keeps the same session-only
- * persistence as XYZ. The rest of the audit's rows land the same way: a new
- * button (+panel where the functionality actually needs one), never a new
- * section inside an existing panel.
+ * persistence as XYZ. "Catastro" (functionality #8) and "UA" (functionality
+ * #9, `administrative_units.js`) add the same fixed-host server proxy shape
+ * (`catastro.ts`/`administrative_units.ts` — no client-supplied URL, unlike
+ * WMS) behind the v6 record-language gate (es/cat/eus) shared by both. The
+ * rest of the audit's rows land the same way: a new button (+panel where the
+ * functionality actually needs one), never a new section inside an existing
+ * panel.
  */
 
 
@@ -122,6 +126,8 @@
 		set_wms_layer_opacity,
 		delete_wms_layer
 	} from './wms_services.js'
+	import {attach_catastro, detach_catastro} from './catastro.js'
+	import {attach_administrative_units, detach_administrative_units} from './administrative_units.js'
 
 
 
@@ -214,6 +220,34 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   _wms_search_results - {base_url, layers: [{name, title}]} from the last
 *                   successful GetCapabilities search, or null before any
 *                   search/after "Clear search"
+*   catastro_control - the "Catastro" toolbar button (functionality #8,
+*                   catastro.js), null unless the record's language gates it
+*                   in (v6 parity — es/cat/eus). No panel, same shape as
+*                   onexone_control
+*   _catastro_tile_layer - the live cadastral L.TileLayer.WMS while armed
+*                   (SWAPPED IN as the active basemap, v6 parity — not an
+*                   overlay), or null
+*   _catastro_previous_base_layers - the tile layer(s) that were active right
+*                   before arming, restored verbatim on disable
+*   _catastro_created_layer_control - true when THIS toggle created
+*                   geolocation.layer_control itself (no provider/xyz one
+*                   existed) — disable removes it entirely in that case
+*   _catastro_click_handler - the map 'click' listener while armed, or null
+*   _catastro_busy - true while a catastro lookup request is in flight (no
+*                   overlapping lookups)
+*   ua_control    - the "UA" toolbar button (functionality #9,
+*                   administrative_units.js), same language gate as Catastro
+*   ua_panel      - its anchored panel (a level select) — opening it arms the
+*                   basemap swap+click listener, closing it disarms
+*   _ua_level     - selected level ('Municipio'|'Provincia'|'CCAA'), session-only
+*   _ua_tile_layer - the live AU.AdministrativeUnit L.TileLayer.WMS while
+*                   armed (swapped in as the active basemap, v6 parity), or null
+*   _ua_previous_base_layers - the tile layer(s) active before arming,
+*                   restored verbatim on disable
+*   _ua_created_layer_control - true when THIS toggle created
+*                   geolocation.layer_control itself, same reason as Catastro
+*   _ua_click_handler - the map 'click' listener while armed, or null
+*   _ua_busy      - true while a UA lookup request is in flight
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -263,6 +297,20 @@ export const tool_uca_maps = function () {
 	this.wms_layers					= null
 	this._wms_tile_layers			= null
 	this._wms_search_results		= null
+	this.catastro_control			= null
+	this._catastro_tile_layer		= null
+	this._catastro_previous_base_layers	= null
+	this._catastro_created_layer_control	= false
+	this._catastro_click_handler	= null
+	this._catastro_busy			= false
+	this.ua_control					= null
+	this.ua_panel					= null
+	this._ua_level					= null
+	this._ua_tile_layer			= null
+	this._ua_previous_base_layers	= null
+	this._ua_created_layer_control	= false
+	this._ua_click_handler			= null
+	this._ua_busy					= false
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -537,6 +585,25 @@ tool_uca_maps.prototype.delete_wms_layer = function(index) {
 
 
 /**
+* "Catastro" (functionality #8) / "UA" (functionality #9) — THIN PROTOTYPE
+* WRAPPERS, same reuse reason as every other block here. Neither
+* catastro.js/administrative_units.js needs a self.<method> call from a
+* render_X.js of its OWN (Catastro has no panel; administrative_units.js's
+* level `<select>` writes straight to self._ua_level from
+* render_administrative_units.js) — attach_X/detach_X are the only entry
+* points tool_uca_maps.js itself needs to call.
+*/
+tool_uca_maps.prototype.attach_catastro = function() {
+	attach_catastro(this)
+}//end attach_catastro
+
+tool_uca_maps.prototype.attach_administrative_units = function() {
+	attach_administrative_units(this)
+}//end attach_administrative_units
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -702,7 +769,9 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 * ("UCA"), map_image_download.js ("Download map as image"),
 * capabilities_panel.js (dev-only diagnostic, a no-op if it never attached),
 * object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel),
-* xyz_basemaps.js ("XYZ"), wms_services.js ("WMS"). The map itself belongs to
+* xyz_basemaps.js ("XYZ"), wms_services.js ("WMS"), catastro.js ("Catastro",
+* button only, no panel — possibly a no-op if the record's language never
+* gated it in), administrative_units.js ("UA"). The map itself belongs to
 * component_geolocation and outlives this tool's (self-closed, see file
 * header) modal, so leaving any control/panel behind
 * would be exactly the v6 "controls stay stuck to the map" defect the plan
@@ -731,6 +800,8 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_onexone(self)
 	detach_xyz_basemaps(self)
 	detach_wms_services(self)
+	detach_catastro(self)
+	detach_administrative_units(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

@@ -147,13 +147,22 @@ export const create_toolbar_button = function(self, {title, text, class_name, on
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} options
 * @param {string} options.class_name - identity class, e.g. 'uca-maps-console'
+* @param {Function} [options.on_hide] - called when THIS panel is force-closed
+*   by a SIBLING panel opening (close_other_toolbar_panels, below) — never
+*   called for the panel's own toggle-off (that path already runs whatever
+*   its own toggle_X handler does). Needed by any functionality whose
+*   "armed" state is tied to panel visibility (administrative_units.js:
+*   without this, a sibling panel forcing UA's panel hidden left its overlay
+*   tile layer and map 'click' listener running with no panel visible to
+*   show for it — review-diff finding, hito 11).
 * @returns {HTMLElement} panel, already appended to the map container
 */
-export const create_toolbar_panel = function(self, {class_name}) {
+export const create_toolbar_panel = function(self, {class_name, on_hide}) {
 
 	const panel = document.createElement('div')
 	panel.className	= 'uca-maps-panel ' + class_name
 	panel.hidden	= true
+	panel._on_hide	= on_hide || null
 
 	L.DomEvent.disableClickPropagation(panel)
 	L.DomEvent.disableScrollPropagation(panel)
@@ -253,6 +262,11 @@ export const set_toolbar_panel_visible = function(self, panel, control, visible)
 
 /**
 * CLOSE_OTHER_TOOLBAR_PANELS
+* Fires each hidden panel's own `on_hide` (create_toolbar_panel option), if
+* it has one — the only way a functionality whose "armed" state is tied to
+* panel visibility (administrative_units.js) learns it was force-closed by a
+* SIBLING instead of by its own toggle.
+*
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel_to_keep_open
 * @returns {void}
@@ -260,8 +274,11 @@ export const set_toolbar_panel_visible = function(self, panel, control, visible)
 const close_other_toolbar_panels = function(self, panel_to_keep_open) {
 	const nodes = self._toolbar_nodes || []
 	for (const node of nodes) {
-		if (node!==panel_to_keep_open && node.classList && node.classList.contains('uca-maps-panel')) {
+		if (node!==panel_to_keep_open && node.classList && node.classList.contains('uca-maps-panel') && !node.hidden) {
 			node.hidden = true
+			if (typeof node._on_hide==='function') {
+				node._on_hide()
+			}
 		}
 	}
 }//end close_other_toolbar_panels

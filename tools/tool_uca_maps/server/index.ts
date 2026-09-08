@@ -31,6 +31,12 @@
  * guarded `fetchGuardedText`, see `wms.ts`) — nothing this install owns is
  * written or even read beyond the caller being a scoped, authenticated map
  * viewer.
+ *
+ * `get_catastro_parcel`/`get_administrative_unit` (filas #8/#9, "Catastro"/
+ * "UA") get the SAME gate too, one notch simpler: both hosts are FIXED
+ * literals this tool's own server files build (`catastro.ts`/
+ * `administrative_units.ts`), never a client-supplied URL, so there is no
+ * SSRF surface beyond the guarded fetch itself.
  */
 
 import { ok } from '../../../src/core/errors/index.ts';
@@ -40,7 +46,9 @@ import {
 	type ToolServerModule,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import { getAdministrativeUnit } from './administrative_units.ts';
 import { probeCapabilities } from './capabilities.ts';
+import { getCatastroParcel } from './catastro.ts';
 import { rasterDownload } from './raster_download.ts';
 import { vectorDownload } from './vector_download.ts';
 import { getWmsLayers } from './wms.ts';
@@ -57,6 +65,12 @@ export const tool: ToolServerModule = {
 		vector_download: { permission: 'record_tipo', minLevel: 1, handler: vectorDownload },
 		raster_download: { permission: 'record_tipo', minLevel: 1, handler: rasterDownload },
 		get_wms_layers: { permission: 'record_tipo', minLevel: 1, handler: getWmsLayers },
+		get_catastro_parcel: { permission: 'record_tipo', minLevel: 1, handler: getCatastroParcel },
+		get_administrative_unit: {
+			permission: 'record_tipo',
+			minLevel: 1,
+			handler: getAdministrativeUnit,
+		},
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because
