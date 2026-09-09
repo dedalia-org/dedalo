@@ -37,7 +37,7 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
-import {render_file_upload_panel} from './render_vector_upload.js'
+import {render_file_upload_panel} from './render_file_upload.js'
 import {report_client_error} from './object_console.js'
 
 

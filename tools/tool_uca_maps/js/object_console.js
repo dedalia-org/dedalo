@@ -466,6 +466,18 @@ const reapply_hierarchy = function(layer) {
 */
 export const apply_display = function(layer, visible) {
 
+	// An uploaded image (hito 13) is TWO nodes: the transparent carrier
+	// rectangle that takes the clicks, and the overlay that shows the
+	// picture. Hiding only the carrier would leave the image fully painted
+	// and no longer selectable — worse than not hiding it at all. Reached as
+	// a plain property on the layer, never by importing `image_upload.js`:
+	// that module already imports THIS one, and the pair must stay
+	// one-directional (same convention as render_X.js/X.js).
+	const overlay = layer._uca_maps_overlay
+	if (overlay) {
+		set_node_display(overlay._image, visible)
+	}
+
 	if (layer instanceof L.Marker) {
 		set_node_display(layer._icon, visible)
 		set_node_display(layer._shadow, visible)

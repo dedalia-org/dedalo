@@ -43,6 +43,7 @@
 import { elements } from './elements.js'
 import { get_instance } from '../../../core/common/js/instances.js'
 import { ui } from '../../../core/common/js/ui.js'
+import { event_manager } from '../../../core/common/js/event_manager.js'
 import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js'
 import {
 	find_layer_id,
@@ -53,10 +54,12 @@ import {
 	toggle_centroid,
 	toggle_uncertainty,
 	set_hierarchy,
+	apply_display,
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
+import { create_image_object, corners_from_viewport } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
@@ -133,6 +136,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance.upload_control, null, 'expected upload_control null')
 		assert.equal(instance.upload_panel, null, 'expected upload_panel null')
 		assert.equal(instance._upload_busy, false, 'expected _upload_busy false')
+		assert.equal(instance._image_upload_busy, false, 'expected _image_upload_busy false')
+		assert.equal(instance._image_overlays, null, 'expected _image_overlays null')
+		assert.equal(instance._image_overlay_token, null, 'expected _image_overlay_token null')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -2451,6 +2457,312 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const result = await pending
 
 		assert.equal(result.ok, false)
+	})
+
+
+	// hito 13 — functionality #11, IMAGE HALF (js/image_upload.js), inside the
+	// SAME button+panel the vector half builds.
+	//
+	// NO real end-to-end upload here, deliberately. Doing one would mint an
+	// rsc170 record + real media on every run with no id handed back to sweep
+	// it, so the suite DB would accumulate orphans run after run — the exact
+	// thing "DB writes in tests only on scratch surfaces; clean up after"
+	// forbids. The server half is pinned by
+	// test/unit/tool_uca_maps_image_overlay.test.ts (real gdalinfo), the
+	// staging transport is the same service_upload the vector tests above
+	// exercise for real, and the full round trip is a manual-validation step
+	// in the hito 13 dossier. What IS covered here is everything that lives
+	// only in the browser: the panel, the refusal, and the overlay lifecycle
+	// (hydrate / console / teardown) driven off a carrier built by hand — the
+	// same shape a saved record hands back on load.
+	const IMAGE_DESCRIPTOR = {
+		file_path		: '/image/1.5MB/rsc29_rsc170_1.jpg',
+		quality			: '1.5MB',
+		section_tipo	: 'rsc170',
+		section_id		: 1,
+		tipo			: 'rsc29',
+		corners			: {
+			top_left	: [40.46, -3.66],
+			top_right	: [40.46, -3.64],
+			bottom_left	: [40.44, -3.66]
+		},
+		opacity			: 1,
+		z_index			: 200
+	}
+
+	function add_image_carrier() {
+		const carrier = L.rectangle([[40.44, -3.66], [40.46, -3.64]], {opacity: 0, fillOpacity: 0})
+		carrier.feature = carrier.toGeoJSON()
+		// the same two properties create_image_object writes in production
+		carrier.feature.properties.uca_maps = {
+			image		: JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)),
+			is_raster	: true
+		}
+		geolocation.FeatureGroup[geolocation.active_layer_id].addLayer(carrier)
+		return carrier
+	}
+
+	it('the upload panel carries the image sub-flow as well as the vector one', function() {
+
+		tool.attach_file_upload()
+
+		assert.isOk(
+			tool.upload_panel.querySelector('.uca-maps-upload-image-file'),
+			'expected the image file input in the same panel'
+		)
+		assert.isOk(
+			tool.upload_panel.querySelector('.uca-maps-upload-image-submit'),
+			'expected the image submit button in the same panel'
+		)
+		assert.isOk(
+			tool.upload_panel.querySelector('.uca-maps-upload-file'),
+			'expected the vector file input still there — one row, one panel'
+		)
+	})
+
+	it('upload_image_file refuses without a file, never touching the network', async function() {
+
+		tool.attach_file_upload()
+
+		let called = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
+
+		const result = await tool.upload_image_file(null)
+
+		assert.equal(result.ok, false)
+		assert.equal(called, false, 'expected the server never contacted with no file selected')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('attach_image_overlays rebuilds a saved overlay from its carrier rectangle', async function() {
+
+		const carrier = add_image_carrier()
+
+		tool.attach_image_overlays()
+
+		// the plugin loads on demand (classic <script>), so the overlay
+		// appears asynchronously
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		assert.isOk(carrier._uca_maps_overlay, 'expected the overlay rebuilt from properties.uca_maps.image')
+		assert.equal(
+			geolocation.map.hasLayer(carrier._uca_maps_overlay), true,
+			'expected the overlay actually on the map'
+		)
+		assert.equal(tool._image_overlays.length, 1, 'expected the overlay tracked for teardown')
+	})
+
+	it('a coordinate-less image keeps its own aspect ratio and does not fill the viewport', function() {
+
+		// v6 stretches the image onto map.getBounds(), which distorts every
+		// image the moment the map is not square (a square plan lands as a
+		// wide rectangle) and covers the whole map with something that cannot
+		// be resized until "Activar edición" lands. Both deviations are
+		// deliberate — image_upload.js corners_from_viewport.
+		const viewport	= geolocation.map.getSize()
+		assert.isAbove(viewport.x, 0, 'expected a laid-out map — every assertion below is in its pixels')
+		assert.isAbove(viewport.y, 0, 'expected a laid-out map — every assertion below is in its pixels')
+		const map_ratio	= viewport.x / viewport.y
+
+		// a deliberately NON-square image, so a stretched result is unmissable
+		const corners = corners_from_viewport(geolocation.map, {width: 400, height: 100})
+
+		// measure back in CONTAINER PIXELS — degrees of lat and lon are not
+		// the same length on screen, so a lat/lon comparison would prove nothing
+		const to_point	= (c) => geolocation.map.latLngToContainerPoint(L.latLng(c[0], c[1]))
+		const tl		= to_point(corners.top_left)
+		const tr		= to_point(corners.top_right)
+		const bl		= to_point(corners.bottom_left)
+		const drawn_w	= tr.x - tl.x
+		const drawn_h	= bl.y - tl.y
+
+		assert.closeTo(drawn_w / drawn_h, 4, 0.05, 'expected the image\'s own 4:1 ratio preserved, not the map\'s')
+		assert.isAbove(
+			Math.abs(drawn_w / drawn_h - map_ratio), 0.05,
+			'expected the image NOT stretched to the viewport ratio (the v6 bug this replaces)'
+		)
+
+		// half the shorter side, and centred
+		assert.closeTo(drawn_w, Math.min(viewport.x, viewport.y) * 0.5, 1, 'expected half the shorter viewport side')
+		assert.closeTo((tl.x + tr.x) / 2, viewport.x / 2, 1, 'expected horizontally centred')
+		assert.closeTo((tl.y + bl.y) / 2, viewport.y / 2, 1, 'expected vertically centred')
+	})
+
+	it('create_image_object flags the object is_raster so the object viewer lists it as a raster', async function() {
+
+		// the PRODUCTION builder, not a hand-made carrier: object_viewer.js
+		// splits its two lists on properties.uca_maps.is_raster and its own
+		// header names THIS row as what fills the raster one, so the flag has
+		// to be written where the object is actually created
+		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
+
+		// create_image_object ends with map.fitBounds(), which starts a ZOOM
+		// ANIMATION. Letting the test end here hands afterEach a map with an
+		// animation frame still queued: it destroys the map, the frame then
+		// fires _move() on a pane that no longer exists and Leaflet throws
+		// "Cannot read properties of undefined (reading '_leaflet_pos')" —
+		// inside the NEXT test's beforeEach, which is where it was first seen.
+		await new Promise((resolve) => {
+			const settled = () => resolve()
+			geolocation.map.once('moveend', settled)
+			setTimeout(settled, 1000) // fitBounds on an already-matching view fires nothing
+		})
+
+		assert.equal(carrier.feature.properties.uca_maps.is_raster, true, 'expected is_raster written by the builder')
+		assert.isOk(carrier.feature.properties.uca_maps.image, 'expected the image descriptor stored on the object')
+
+		const objects = collect_objects(tool)
+
+		assert.equal(objects.raster_objects.length, 1, 'expected the image in the RASTER list')
+		assert.equal(
+			objects.vector_objects.some((el) => el.layer===carrier), false,
+			'expected the image NOT in the vector list'
+		)
+	})
+
+	it('two concurrent hydrations never paint the same image twice', async function() {
+
+		// hydrate_image_overlays runs un-serialized on every layer-data event
+		// and the plugin load suspends: without a synchronous claim on the
+		// carrier, an edit during that window starts a second rebuild that
+		// paints a duplicate only one of which anything can reach afterwards
+		const carrier = add_image_carrier()
+
+		tool.attach_image_overlays()
+		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
+		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
+
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		// let any racing rebuild finish before counting
+		await new Promise((r) => setTimeout(r, 100))
+
+		assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay, not a stacked duplicate')
+	})
+
+	it('hiding an uploaded image hides the picture, not just its carrier', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		apply_display(carrier, false)
+
+		assert.equal(
+			carrier._uca_maps_overlay._image.style.display, 'none',
+			'expected the overlay hidden too — hiding only the transparent carrier would leave the picture painted and unselectable'
+		)
+
+		apply_display(carrier, true)
+		assert.notEqual(carrier._uca_maps_overlay._image.style.display, 'none', 'expected it shown again')
+	})
+
+	it('the console shows the image controls instead of the geometry ones for a carrier', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_console()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		// the carrier is built by hand here, so it carries no popup — fire the
+		// selection event the console actually listens to (object_console.js
+		// hydrate's 'popupopen' handler reads popup._source and nothing else)
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		assert.isOk(section.querySelector('.uca-maps-image-view'), 'expected the "View image" link')
+		assert.isOk(section.querySelector('.uca-maps-image-opacity'), 'expected the opacity control')
+		assert.isOk(section.querySelector('.uca-maps-image-z-index'), 'expected the z-index control')
+		assert.isNotOk(
+			section.querySelector('.uca-maps-download-button'),
+			'expected the geometry controls NOT rendered for an image carrier'
+		)
+	})
+
+	it('set_image_display writes the live overlay AND the descriptor that gets saved', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		tool.set_image_display(carrier, {opacity: 0.4, z_index: 300}, false)
+
+		assert.equal(carrier.feature.properties.uca_maps.image.opacity, 0.4, 'expected the stored opacity updated')
+		assert.equal(carrier.feature.properties.uca_maps.image.z_index, 300, 'expected the stored z-index updated')
+		assert.equal(carrier._uca_maps_overlay.options.opacity, 0.4, 'expected the live overlay updated too')
+
+		// out-of-range input is clamped, never stored raw
+		tool.set_image_display(carrier, {opacity: 5}, false)
+		assert.equal(carrier.feature.properties.uca_maps.image.opacity, 1, 'expected opacity clamped to 1')
+	})
+
+	it('a wholesale FeatureGroup reload does not stack a second copy of every image', async function() {
+
+		// layers_loader() rebuilds a FeatureGroup from scratch on a layer
+		// switch/reload and fires NO 'pm:remove' — the carriers are simply
+		// replaced by new objects. An overlay is not a drawn object, so
+		// nothing in the engine would take the old ones off the map.
+		const stale = add_image_carrier()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !stale._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		const stale_overlay = stale._uca_maps_overlay
+		assert.equal(geolocation.map.hasLayer(stale_overlay), true, 'expected the first overlay on the map')
+
+		// the reload: the old carrier is gone from the group, a new one takes
+		// its place, and only the layer-data event announces it
+		geolocation.FeatureGroup[geolocation.active_layer_id].removeLayer(stale)
+		const fresh = add_image_carrier()
+		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
+
+		for (let i=0; i<200 && !fresh._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		assert.isOk(fresh._uca_maps_overlay, 'expected the new carrier to get its overlay')
+		assert.equal(geolocation.map.hasLayer(stale_overlay), false, 'expected the stale overlay swept off the map')
+		assert.equal(tool._image_overlays.length, 1, 'expected exactly one tracked overlay, not two stacked')
+	})
+
+	it('deleting the carrier takes its overlay off the map with it', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		const overlay = carrier._uca_maps_overlay
+
+		geolocation.map.fire('pm:remove', {layer: carrier})
+
+		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the orphaned image removed from the map')
+		assert.equal(tool._image_overlays.length, 0, 'expected the overlay untracked')
+	})
+
+	it('teardown removes every overlay the tool put on the map', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		const overlay = carrier._uca_maps_overlay
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the overlay removed on teardown')
 	})
 
 	it('detach_file_upload removes the button and panel', async function() {

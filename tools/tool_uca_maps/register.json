@@ -307,6 +307,42 @@
 		{ "lang": "lg-spa", "name": "upload_no_file", "value": "Por favor, seleccione un archivo." },
 
 		{ "lang": "lg-eng", "name": "upload_error_transport", "value": "The file could not be uploaded." },
-		{ "lang": "lg-spa", "name": "upload_error_transport", "value": "No ha sido posible subir el archivo." }
+		{ "lang": "lg-spa", "name": "upload_error_transport", "value": "No ha sido posible subir el archivo." },
+
+		{ "lang": "lg-eng", "name": "upload_image_title", "value": "Upload image" },
+		{ "lang": "lg-spa", "name": "upload_image_title", "value": "Subir imagen" },
+
+		{ "lang": "lg-eng", "name": "upload_image_extensions_hint", "value": "Allowed extensions: .tif (georeferenced), .jpg, .jpeg and .png" },
+		{ "lang": "lg-spa", "name": "upload_image_extensions_hint", "value": "Extensiones permitidas: .tif (georreferenciada), .jpg, .jpeg y .png" },
+
+		{ "lang": "lg-eng", "name": "upload_image_submit_button", "value": "Upload image" },
+		{ "lang": "lg-spa", "name": "upload_image_submit_button", "value": "Subir imagen" },
+
+		{ "lang": "lg-eng", "name": "upload_image_working", "value": "Uploading the image…" },
+		{ "lang": "lg-spa", "name": "upload_image_working", "value": "Subiendo la imagen…" },
+
+		{ "lang": "lg-eng", "name": "upload_image_success_placed", "value": "Image placed at its own coordinates." },
+		{ "lang": "lg-spa", "name": "upload_image_success_placed", "value": "Imagen situada en sus propias coordenadas." },
+
+		{ "lang": "lg-eng", "name": "upload_image_success_viewport", "value": "The image carries no coordinates: placed over the current view." },
+		{ "lang": "lg-spa", "name": "upload_image_success_viewport", "value": "La imagen no lleva coordenadas: situada sobre la vista actual." },
+
+		{ "lang": "lg-eng", "name": "upload_image_error_record", "value": "A record to hold the image could not be created." },
+		{ "lang": "lg-spa", "name": "upload_image_error_record", "value": "No se ha podido crear el registro que aloja la imagen." },
+
+		{ "lang": "lg-eng", "name": "upload_image_error_no_display", "value": "The uploaded image has no version this browser can display." },
+		{ "lang": "lg-spa", "name": "upload_image_error_no_display", "value": "La imagen subida no tiene ninguna versión que este navegador pueda mostrar." },
+
+		{ "lang": "lg-eng", "name": "upload_image_no_gdal", "value": "GDAL is not installed on this server, so the image could not be placed by its own coordinates: placed over the current view." },
+		{ "lang": "lg-spa", "name": "upload_image_no_gdal", "value": "GDAL no está instalado en este servidor, así que la imagen no ha podido situarse por sus propias coordenadas: situada sobre la vista actual." },
+
+		{ "lang": "lg-eng", "name": "image_view", "value": "View image" },
+		{ "lang": "lg-spa", "name": "image_view", "value": "Ver imagen" },
+
+		{ "lang": "lg-eng", "name": "image_opacity", "value": "Opacity" },
+		{ "lang": "lg-spa", "name": "image_opacity", "value": "Opacidad" },
+
+		{ "lang": "lg-eng", "name": "image_z_index", "value": "z-index" },
+		{ "lang": "lg-spa", "name": "image_z_index", "value": "z-index" }
 	]
 }

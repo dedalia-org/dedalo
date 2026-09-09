@@ -527,9 +527,9 @@
 
 }//end uca-maps-ua-panel
 
-// "Upload file to map" (functionality #11, vector half — vector_upload.js) —
-// file input + optional EPSG override + submit, same form shape as
-// .uca-maps-wms-search-form.
+// "Upload file to map" (functionality #11 — vector_upload.js + the image half
+// in image_upload.js). ONE panel, two sub-flows separated by a subtitle; same
+// form shape as .uca-maps-wms-search-form.
 .uca-maps-upload-panel {
 
 	.uca-maps-upload-message {
@@ -566,13 +566,42 @@
 		}
 	}
 
-	.uca-maps-upload-submit {
+	.uca-maps-upload-submit,
+	.uca-maps-upload-image-submit {
 		.uca-maps-panel-action-button();
 		display: block;
 		margin: 0 0.75rem 0.75rem;
 	}
 
+	// the image sub-flow (hito 13) reuses the vector one's spacing verbatim —
+	// same panel, same rhythm; only the separator is new
+	.uca-maps-panel-subtitle {
+		margin: 0.25rem 0.75rem 0;
+		padding-top: 0.5rem;
+		border-top: 1px solid #dee2e6;
+		font-size: 0.8rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		color: #6c757d;
+	}
+
+	.uca-maps-upload-image-file {
+		display: block;
+		width: calc(100% - 1.5rem);
+		margin: 0 0.75rem 0.5rem;
+	}
+
 }//end uca-maps-upload-panel
+
+// uploaded image overlay (functionality #11 image half, image_upload.js). The
+// overlay sits ABOVE the vector SVG in the overlay pane, so without this it
+// would swallow the click meant for its own transparent carrier rectangle —
+// the picture would be unselectable. Leaflet's `interactive:false` stops it
+// firing LAYER events; only this stops it receiving the pointer at all.
+.uca-maps-image-overlay {
+	pointer-events: none;
+}
 
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
@@ -619,6 +648,29 @@
 
 			>input[type='range'] {
 				flex: 1 1 auto;
+			}
+		}
+
+		// image-overlay branch (hito 13) — the console shows these INSTEAD of
+		// the geometry controls when the selected object carries an image
+		.uca-maps-image-view {
+			display: inline-block;
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-image-row {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			margin: 0.3rem 0;
+
+			>label {
+				flex: 0 0 auto;
+			}
+
+			>input {
+				flex: 1 1 auto;
+				min-width: 0;
 			}
 		}
 

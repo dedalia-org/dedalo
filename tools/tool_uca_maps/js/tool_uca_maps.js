@@ -72,10 +72,12 @@
  * `vector_upload.js`): the raw file is staged via the engine's own generic
  * `service_upload.js` transport, then converted server-side to WGS84 GeoJSON
  * (`upload_vector_layer` — GDAL/PROJ, no vendored shapefile/KML reader or
- * hardcoded EPSG table, unlike v6). The raster/image-overlay half of the
- * same audit row is a separate later hito; the button/panel this one builds
- * are named at the ROW level so that hito extends the same panel rather than
- * renaming anything. The rest of the audit's rows land the same way: a new
+ * hardcoded EPSG table, unlike v6). Hito 13 completes the SAME row with its
+ * IMAGE half (`image_upload.js`), inside the same button/panel — the file is
+ * ingested through the engine's own media door onto a fresh rsc170 record,
+ * and the server (which already has GDAL) reports the footprint that decides
+ * where the overlay goes, so v6's two browser-side GeoTIFF libraries are not
+ * ported at all. The rest of the audit's rows land the same way: a new
  * button (+panel where the functionality actually needs one), never a new
  * section inside an existing panel.
  */
@@ -136,6 +138,13 @@
 	import {attach_catastro, detach_catastro} from './catastro.js'
 	import {attach_administrative_units, detach_administrative_units} from './administrative_units.js'
 	import {attach_file_upload, detach_file_upload, upload_vector_file} from './vector_upload.js'
+	import {
+		attach_image_overlays,
+		detach_image_overlays,
+		upload_image_file,
+		set_image_display,
+		get_image_href
+	} from './image_upload.js'
 
 
 
@@ -261,6 +270,15 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   upload_panel  - its anchored panel (file input + optional EPSG override)
 *   _upload_busy  - true while a vector upload/conversion request is in
 *                   flight (no overlapping uploads)
+*   _image_upload_busy - the same latch for the image half (hito 13); separate
+*                   from _upload_busy because the two sub-flows share a panel
+*                   but not a request
+*   _image_overlays - every live L.ImageOverlay.Rotated this tool put on the
+*                   map. Overlays are NOT drawn objects, so nothing else in
+*                   the engine tracks them and teardown must
+*   _image_overlay_remove_handler / _image_overlay_token - the 'pm:remove'
+*                   listener and the layer-data subscription that keep those
+*                   overlays following their carrier rectangles
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -327,6 +345,10 @@ export const tool_uca_maps = function () {
 	this.upload_control				= null
 	this.upload_panel				= null
 	this._upload_busy				= false
+	this._image_upload_busy		= false
+	this._image_overlays			= null
+	this._image_overlay_remove_handler = null
+	this._image_overlay_token		= null
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -620,10 +642,10 @@ tool_uca_maps.prototype.attach_administrative_units = function() {
 
 
 /**
-* "Upload file to map" (functionality #11, vector half) — THIN PROTOTYPE
-* WRAPPERS OVER vector_upload.js, same reuse reason as every other block
-* here: render_vector_upload.js calls self.<method>(...), never
-* vector_upload.js directly.
+* "Upload file to map" (functionality #11) — THIN PROTOTYPE WRAPPERS OVER
+* vector_upload.js (vector half) and image_upload.js (image half), same reuse
+* reason as every other block here: render_file_upload.js calls
+* self.<method>(...), never either module directly.
 */
 tool_uca_maps.prototype.attach_file_upload = function() {
 	attach_file_upload(this)
@@ -632,6 +654,22 @@ tool_uca_maps.prototype.attach_file_upload = function() {
 tool_uca_maps.prototype.upload_vector_file = function(file, epsg) {
 	return upload_vector_file(this, file, epsg)
 }//end upload_vector_file
+
+tool_uca_maps.prototype.upload_image_file = function(file) {
+	return upload_image_file(this, file)
+}//end upload_image_file
+
+tool_uca_maps.prototype.attach_image_overlays = function() {
+	attach_image_overlays(this)
+}//end attach_image_overlays
+
+tool_uca_maps.prototype.set_image_display = function(layer, values, do_commit) {
+	set_image_display(this, layer, values, do_commit)
+}//end set_image_display
+
+tool_uca_maps.prototype.get_image_href = function(layer) {
+	return get_image_href(layer)
+}//end get_image_href
 
 
 
@@ -835,6 +873,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_catastro(self)
 	detach_administrative_units(self)
 	detach_file_upload(self)
+	detach_image_overlays(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

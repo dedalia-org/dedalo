@@ -31,7 +31,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DedaloError } from '../../../src/core/errors/index.ts';
 import { identifyAvailable, resolveMagick } from '../../../src/core/media/engine/binaries.ts';
-import { assertSpawnOk, runBinary } from '../../../src/core/media/engine/spawn.ts';
+import {
+	assertSpawnOk,
+	runBinary,
+	type SpawnResult,
+} from '../../../src/core/media/engine/spawn.ts';
 import { probeOnPath } from './capabilities.ts';
 
 /** Bounded — these are single-object/single-screenshot conversions, never a
@@ -52,7 +56,7 @@ const TOOL_BINARY_TIMEOUT_MS = 60_000;
  * conversion is rare enough that one probe is not a hot path.
  */
 export async function resolveGdalBinary(
-	name: 'ogr2ogr' | 'gdal_translate' | 'gdalwarp',
+	name: 'ogr2ogr' | 'gdal_translate' | 'gdalwarp' | 'gdalinfo',
 ): Promise<string> {
 	const probe = await probeOnPath(name, ['--version']);
 	if (!probe.available || probe.path === null) {
@@ -126,12 +130,17 @@ export interface RunToolBinaryOptions {
  * (review-diff finding: a caller that spawned via a bare `runBinary` instead
  * silently inherited `spawn.ts`'s 10-minute default) — not two copies, and
  * not one path with a shorter leash than the other.
+ *
+ * Returns the spawn result so a caller that needs the binary's OUTPUT rather
+ * than its side effect can read it (hito 13: `gdalinfo -json` reports a
+ * GeoTIFF's footprint on stdout and writes no file at all). Widened from
+ * `void`; the file-producing callers ignore it exactly as before.
  */
 export async function runToolBinary(
 	argv: readonly string[],
 	context: string,
 	options: RunToolBinaryOptions = {},
-): Promise<void> {
+): Promise<SpawnResult> {
 	const result = await runBinary(argv, {
 		timeoutMs: TOOL_BINARY_TIMEOUT_MS,
 		nice: false,
@@ -151,6 +160,7 @@ export async function runToolBinary(
 			message: `${context}: exit 0 but did not produce ${options.expectedOutput}`,
 		});
 	}
+	return result;
 }
 
 /** Read a file's full content and base64-encode it — the only channel a tool

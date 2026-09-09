@@ -109,6 +109,10 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			self.attach_catastro()
 			self.attach_administrative_units()
 			self.attach_file_upload()
+			// not a button: the image half's own lifecycle hook, which
+			// rebuilds the overlays already saved on this record and keeps
+			// them following their carrier objects (image_upload.js)
+			self.attach_image_overlays()
 		}
 		self.close_transient_modal()
 

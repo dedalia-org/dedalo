@@ -163,6 +163,15 @@ export const render_selected_object = function(self, layer) {
 		text_content	: self.get_tool_label('object_selected_title') || 'Selected object',
 		parent			: object_section
 	})
+
+	// An image overlay's carrier rectangle is NOT a drawn geometry the user
+	// styles or measures — it is a handle on a picture. v6 swaps the whole
+	// panel body for the image controls too (`special_tools.js:6230`,
+	// `load_overlay`), rather than showing "Area: 0.4 km²" for a photograph.
+	if (is_image_carrier(layer)) {
+		render_image_controls(self, layer, object_section)
+		return
+	}
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-object-type',
@@ -188,6 +197,108 @@ export const render_selected_object = function(self, layer) {
 	render_download_button(self, layer, object_section)
 
 }//end render_selected_object
+
+
+
+/**
+* IS_IMAGE_CARRIER
+* True for the transparent rectangle an uploaded image overlay rides on
+* (`image_upload.js` — `properties.uca_maps.image` is what the descriptor is
+* stored under, and it is the ONLY thing that distinguishes the carrier from
+* a rectangle the user drew).
+*
+* @param {Object} layer
+* @returns {boolean}
+*/
+const is_image_carrier = function(layer) {
+	const properties = layer && layer.feature && layer.feature.properties
+	return !!(properties && properties.uca_maps && properties.uca_maps.image)
+}//end is_image_carrier
+
+
+
+/**
+* RENDER_IMAGE_CONTROLS
+* The console's image branch (functionality #3's image half, v6
+* `special_tools.js:6453-6523`): open the original, and edit opacity +
+* z-index. "Activar edición" (reposition/rotate the overlay by dragging its
+* corners) is NOT here — that is its own hito; the three control points are
+* already stored, so nothing has to migrate when it lands.
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {HTMLElement} container
+* @returns {void}
+*/
+const render_image_controls = function(self, layer, container) {
+
+	const image = layer.feature.properties.uca_maps.image
+
+	const href = self.get_image_href(layer)
+	if (href) {
+		const link = ui.create_dom_element({
+			element_type	: 'a',
+			class_name		: 'uca-maps-image-view',
+			text_content	: self.get_tool_label('image_view') || 'View image',
+			parent			: container
+		})
+		link.href	= href
+		link.target	= '_blank'
+		link.rel	= 'noopener noreferrer'
+	}
+
+	const opacity_row = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-image-row',
+		parent			: container
+	})
+	ui.create_dom_element({
+		element_type	: 'label',
+		text_content	: self.get_tool_label('image_opacity') || 'Opacity',
+		parent			: opacity_row
+	})
+	const opacity_input = ui.create_dom_element({
+		element_type	: 'input',
+		class_name		: 'uca-maps-image-opacity',
+		parent			: opacity_row
+	})
+	opacity_input.type	= 'range'
+	opacity_input.min	= '0'
+	opacity_input.max	= '1'
+	opacity_input.step	= '0.05'
+	opacity_input.value	= String(typeof image.opacity==='number' ? image.opacity : 1)
+	// 'input' previews while dragging, 'change' is the one that commits — see
+	// set_image_display's own do_commit note
+	opacity_input.addEventListener('input', () => {
+		self.set_image_display(layer, {opacity: parseFloat(opacity_input.value)}, false)
+	})
+	opacity_input.addEventListener('change', () => {
+		self.set_image_display(layer, {opacity: parseFloat(opacity_input.value)}, true)
+	})
+
+	const z_row = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-image-row',
+		parent			: container
+	})
+	ui.create_dom_element({
+		element_type	: 'label',
+		text_content	: self.get_tool_label('image_z_index') || 'z-index',
+		parent			: z_row
+	})
+	const z_input = ui.create_dom_element({
+		element_type	: 'input',
+		class_name		: 'uca-maps-image-z-index',
+		parent			: z_row
+	})
+	z_input.type	= 'number'
+	z_input.step	= '1'
+	z_input.value	= String(typeof image.z_index==='number' ? image.z_index : 200)
+	z_input.addEventListener('change', () => {
+		self.set_image_display(layer, {z_index: parseInt(z_input.value, 10)}, true)
+	})
+
+}//end render_image_controls
 
 
 

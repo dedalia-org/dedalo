@@ -45,6 +45,15 @@
  * section data here either — the resulting objects only persist through the
  * geolocation component's own normal save, same as every other pm:create-
  * based action in this tool.
+ *
+ * `get_image_overlay` (fila #11, IMAGE half — hito 13) is the one action whose
+ * gate names a DIFFERENT record than the map's: its options carry the identity
+ * of the image component the client just created (rsc29/rsc170), so the
+ * `record_tipo`/minLevel-1 check asserts the caller may read THAT section —
+ * which is the right question, since the answer names a media path they will
+ * then load. It writes nothing: the file was already ingested through the
+ * engine's own door (`tool_upload::process_uploaded_file`), and this only
+ * reports where on the map it belongs (see `image_overlay.ts`).
  */
 
 import { ok } from '../../../src/core/errors/index.ts';
@@ -57,6 +66,7 @@ import {
 import { getAdministrativeUnit } from './administrative_units.ts';
 import { probeCapabilities } from './capabilities.ts';
 import { getCatastroParcel } from './catastro.ts';
+import { getImageOverlay } from './image_overlay.ts';
 import { rasterDownload } from './raster_download.ts';
 import { vectorDownload } from './vector_download.ts';
 import { uploadVectorLayer } from './vector_upload.ts';
@@ -81,6 +91,7 @@ export const tool: ToolServerModule = {
 			handler: getAdministrativeUnit,
 		},
 		upload_vector_layer: { permission: 'record_tipo', minLevel: 1, handler: uploadVectorLayer },
+		get_image_overlay: { permission: 'record_tipo', minLevel: 1, handler: getImageOverlay },
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because
