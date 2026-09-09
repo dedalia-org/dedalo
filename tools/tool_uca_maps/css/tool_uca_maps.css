@@ -359,6 +359,61 @@
   font-size: 0.75rem;
   color: #6c757d;
 }
+.uca-maps-upload-panel .uca-maps-upload-message {
+  background-color: #f8d7da;
+  color: #842029;
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  margin: 0.5rem 0.75rem 0;
+}
+.uca-maps-upload-panel .uca-maps-upload-message[hidden] {
+  display: none;
+}
+.uca-maps-upload-panel .uca-maps-upload-hint {
+  margin: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+.uca-maps-upload-panel .uca-maps-upload-file {
+  display: block;
+  width: calc(100% - 1.5rem);
+  margin: 0 0.75rem 0.5rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-epsg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0.75rem 0.5rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-epsg {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-epsg-link {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-submit {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: block;
+  margin: 0 0.75rem 0.75rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-submit:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-upload-panel .uca-maps-upload-submit:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .uca-maps-console > .uca-maps-object-section {
   padding: 0.5rem 0.75rem;
 }

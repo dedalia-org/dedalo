@@ -283,6 +283,30 @@
 		{ "lang": "lg-spa", "name": "ua_hint", "value": "Clica el mapa para consultar la unidad en ese punto." },
 
 		{ "lang": "lg-eng", "name": "ua_not_found", "value": "No administrative unit could be found at this point." },
-		{ "lang": "lg-spa", "name": "ua_not_found", "value": "No ha sido posible obtener la Unidad Administrativa en este punto." }
+		{ "lang": "lg-spa", "name": "ua_not_found", "value": "No ha sido posible obtener la Unidad Administrativa en este punto." },
+
+		{ "lang": "lg-eng", "name": "upload_control_title", "value": "Upload file to map" },
+		{ "lang": "lg-spa", "name": "upload_control_title", "value": "Subir archivo al mapa" },
+
+		{ "lang": "lg-eng", "name": "upload_vector_extensions_hint", "value": "Allowed extensions: .zip (shapefile), .geojson and .kml" },
+		{ "lang": "lg-spa", "name": "upload_vector_extensions_hint", "value": "Extensiones permitidas: .zip (shape), .geojson y .kml" },
+
+		{ "lang": "lg-eng", "name": "upload_epsg_placeholder", "value": "EPSG code (only for a file with no embedded projection)" },
+		{ "lang": "lg-spa", "name": "upload_epsg_placeholder", "value": "Código EPSG (solo si el archivo no lleva proyección)" },
+
+		{ "lang": "lg-eng", "name": "upload_submit_button", "value": "Upload vector file" },
+		{ "lang": "lg-spa", "name": "upload_submit_button", "value": "Subir archivo vectorial" },
+
+		{ "lang": "lg-eng", "name": "upload_success_message", "value": "File uploaded successfully." },
+		{ "lang": "lg-spa", "name": "upload_success_message", "value": "Archivo subido correctamente." },
+
+		{ "lang": "lg-eng", "name": "upload_no_features", "value": "No objects could be read from this file." },
+		{ "lang": "lg-spa", "name": "upload_no_features", "value": "No se ha podido leer ningún objeto de este archivo." },
+
+		{ "lang": "lg-eng", "name": "upload_no_file", "value": "Please choose a file first." },
+		{ "lang": "lg-spa", "name": "upload_no_file", "value": "Por favor, seleccione un archivo." },
+
+		{ "lang": "lg-eng", "name": "upload_error_transport", "value": "The file could not be uploaded." },
+		{ "lang": "lg-spa", "name": "upload_error_transport", "value": "No ha sido posible subir el archivo." }
 	]
 }

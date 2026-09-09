@@ -130,6 +130,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance._ua_tile_layer, null, 'expected _ua_tile_layer null')
 		assert.equal(instance._ua_click_handler, null, 'expected _ua_click_handler null')
 		assert.equal(instance._ua_busy, false, 'expected _ua_busy false')
+		assert.equal(instance.upload_control, null, 'expected upload_control null')
+		assert.equal(instance.upload_panel, null, 'expected upload_panel null')
+		assert.equal(instance._upload_busy, false, 'expected _upload_busy false')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -1467,7 +1470,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1487,9 +1490,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-onexone-control'))		return '1x1'
 			if (button.classList.contains('uca-maps-xyz-control'))			return 'XYZ'
 			if (button.classList.contains('uca-maps-wms-control'))			return 'WMS'
+			if (button.classList.contains('uca-maps-upload-control'))			return 'UP'
 			return 'unknown'
 		})
-		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS')
+		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP')
 	})
 
 	it('edit() also stacks "Catastro"/"UA" last when section_lang gates them in', async function() {
@@ -2320,6 +2324,148 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNotOk(map_container_node.querySelector('.uca-maps-ua-control'), 'expected the button removed from the DOM')
 		assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the AU.AdministrativeUnit layer removed from the map')
 		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
+	})
+
+
+
+	// hito 12 — functionality #11, "Upload file to map", VECTOR HALF ONLY
+	// (js/vector_upload.js). No language/section_tipo gate, unlike Catastro/
+	// UA. The real round-trip tests exercise BOTH the engine's own generic
+	// service_upload.js transport AND this tool's own upload_vector_layer
+	// server action — tolerant of a missing GDAL binary the same way
+	// download_vector('shp'/'kml') already are (file header above): the
+	// suite's dev container has GDAL (hito 3), so these are exercised for
+	// real there, not merely mocked.
+	const SAMPLE_UPLOAD_GEOJSON = {
+		type		: 'FeatureCollection',
+		features	: [{
+			type		: 'Feature',
+			properties	: {},
+			geometry	: { type: 'Point', coordinates: [-3.65, 40.45] }
+		}]
+	}
+
+	it('attach_file_upload builds its own button+panel', function() {
+
+		tool.attach_file_upload()
+
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-upload-control')
+		assert.isOk(control, 'expected the "Upload file to map" toggle button')
+		assert.isOk(tool.upload_panel, 'expected the upload panel built')
+		assert.equal(tool.upload_panel.hidden, true, 'expected the panel hidden by default')
+	})
+
+	it('upload_vector_file refuses without a file, never touching the network', async function() {
+
+		tool.attach_file_upload()
+
+		let called = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
+
+		const result = await tool.upload_vector_file(null, '')
+
+		assert.equal(result.ok, false)
+		assert.equal(called, false, 'expected the server never contacted with no file selected')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('upload_vector_file (real round trip) uploads a .geojson file and creates a matching object, or reports GDAL unavailable', async function() {
+
+		tool.attach_file_upload()
+
+		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+
+		const result = await tool.upload_vector_file(file, '')
+
+		if (!result.ok) {
+			assert.include(
+				result.error || '', 'GDAL',
+				'expected the only acceptable failure to mention GDAL — full result: ' + JSON.stringify(result)
+			)
+			return
+		}
+
+		assert.equal(result.feature_count, 1, 'expected exactly the one uploaded feature')
+		assert.equal(
+			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			before_layer_count + 1,
+			'expected one new object added to the active FeatureGroup via pm:create'
+		)
+	})
+
+	it('upload_vector_file (real round trip) surfaces a malformed EPSG override as a server-side request.invalid_options error, without needing GDAL', async function() {
+
+		tool.attach_file_upload()
+
+		let response = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			response = await original_tool_request.call(tool, options)
+			return response
+		}
+
+		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+
+		// the EPSG format check runs BEFORE the ogr2ogr call (vector_upload.ts),
+		// so this exercises the real staged-upload + server round trip without
+		// depending on GDAL being installed. Asserted on the RAW response's
+		// error CODE, never the rendered text: request.invalid_options carries
+		// a registered label_key (master.json error_request_invalid_options),
+		// and error_text() (render_api_error.js) always prefers that catalog
+		// label over whatever specific message/publicMessage the server set —
+		// same reason the download_vector('jpg'/'geotiff') tests above assert
+		// on response.error.code, never on rendered text.
+		const result = await tool.upload_vector_file(file, 'not-a-code')
+
+		assert.equal(result.ok, false)
+		assert.isOk(response, 'expected tool_request to have been reached')
+		assert.equal(response.error && response.error.code, 'request.invalid_options')
+	})
+
+	it('upload_vector_file drops a response that arrives after detach_file_upload already ran', async function() {
+
+		tool.attach_file_upload()
+
+		let resolve_tool_request
+		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+
+		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+		const pending = tool.upload_vector_file(file, '')
+
+		// wait for the (real) service_upload transport to finish staging the
+		// file and reach the point where it calls tool.tool_request — polling
+		// is the only signal available, tool_request itself has no "about to
+		// call" hook
+		for (let i=0; i<200 && !resolve_tool_request; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		assert.isOk(resolve_tool_request, 'expected tool_request reached within the wait budget')
+
+		await tool.destroy(false, false, false)
+		assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
+
+		resolve_tool_request({ok: true, data: {geojson: SAMPLE_UPLOAD_GEOJSON, feature_count: 1}})
+		const result = await pending
+
+		assert.equal(result.ok, false)
+	})
+
+	it('detach_file_upload removes the button and panel', async function() {
+
+		tool.attach_file_upload()
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.upload_control, null, 'expected upload_control cleared')
+		assert.equal(tool.upload_panel, null, 'expected upload_panel cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-upload-control'),
+			'expected the button removed from the DOM'
+		)
 	})
 
 })

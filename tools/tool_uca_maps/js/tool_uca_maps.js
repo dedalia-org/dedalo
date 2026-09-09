@@ -67,10 +67,17 @@
  * persistence as XYZ. "Catastro" (functionality #8) and "UA" (functionality
  * #9, `administrative_units.js`) add the same fixed-host server proxy shape
  * (`catastro.ts`/`administrative_units.ts` — no client-supplied URL, unlike
- * WMS) behind the v6 record-language gate (es/cat/eus) shared by both. The
- * rest of the audit's rows land the same way: a new button (+panel where the
- * functionality actually needs one), never a new section inside an existing
- * panel.
+ * WMS) behind the v6 record-language gate (es/cat/eus) shared by both. Hito
+ * 12 adds "Upload file to map" (functionality #11, VECTOR HALF ONLY —
+ * `vector_upload.js`): the raw file is staged via the engine's own generic
+ * `service_upload.js` transport, then converted server-side to WGS84 GeoJSON
+ * (`upload_vector_layer` — GDAL/PROJ, no vendored shapefile/KML reader or
+ * hardcoded EPSG table, unlike v6). The raster/image-overlay half of the
+ * same audit row is a separate later hito; the button/panel this one builds
+ * are named at the ROW level so that hito extends the same panel rather than
+ * renaming anything. The rest of the audit's rows land the same way: a new
+ * button (+panel where the functionality actually needs one), never a new
+ * section inside an existing panel.
  */
 
 
@@ -128,6 +135,7 @@
 	} from './wms_services.js'
 	import {attach_catastro, detach_catastro} from './catastro.js'
 	import {attach_administrative_units, detach_administrative_units} from './administrative_units.js'
+	import {attach_file_upload, detach_file_upload, upload_vector_file} from './vector_upload.js'
 
 
 
@@ -248,6 +256,11 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   geolocation.layer_control itself, same reason as Catastro
 *   _ua_click_handler - the map 'click' listener while armed, or null
 *   _ua_busy      - true while a UA lookup request is in flight
+*   upload_control - the "Upload file to map" toolbar button (functionality
+*                   #11, vector half only — hito 12, vector_upload.js)
+*   upload_panel  - its anchored panel (file input + optional EPSG override)
+*   _upload_busy  - true while a vector upload/conversion request is in
+*                   flight (no overlapping uploads)
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -311,6 +324,9 @@ export const tool_uca_maps = function () {
 	this._ua_created_layer_control	= false
 	this._ua_click_handler			= null
 	this._ua_busy					= false
+	this.upload_control				= null
+	this.upload_panel				= null
+	this._upload_busy				= false
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 
@@ -604,6 +620,22 @@ tool_uca_maps.prototype.attach_administrative_units = function() {
 
 
 /**
+* "Upload file to map" (functionality #11, vector half) — THIN PROTOTYPE
+* WRAPPERS OVER vector_upload.js, same reuse reason as every other block
+* here: render_vector_upload.js calls self.<method>(...), never
+* vector_upload.js directly.
+*/
+tool_uca_maps.prototype.attach_file_upload = function() {
+	attach_file_upload(this)
+}//end attach_file_upload
+
+tool_uca_maps.prototype.upload_vector_file = function(file, epsg) {
+	return upload_vector_file(this, file, epsg)
+}//end upload_vector_file
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -802,6 +834,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_wms_services(self)
 	detach_catastro(self)
 	detach_administrative_units(self)
+	detach_file_upload(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

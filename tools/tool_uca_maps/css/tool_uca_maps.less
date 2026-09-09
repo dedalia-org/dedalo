@@ -527,6 +527,53 @@
 
 }//end uca-maps-ua-panel
 
+// "Upload file to map" (functionality #11, vector half — vector_upload.js) —
+// file input + optional EPSG override + submit, same form shape as
+// .uca-maps-wms-search-form.
+.uca-maps-upload-panel {
+
+	.uca-maps-upload-message {
+		.uca-maps-panel-inline-message();
+		margin: 0.5rem 0.75rem 0;
+	}
+
+	.uca-maps-upload-hint {
+		margin: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		color: #6c757d;
+	}
+
+	.uca-maps-upload-file {
+		display: block;
+		width: calc(100% - 1.5rem);
+		margin: 0 0.75rem 0.5rem;
+	}
+
+	.uca-maps-upload-epsg-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin: 0 0.75rem 0.5rem;
+
+		.uca-maps-upload-epsg {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		.uca-maps-upload-epsg-link {
+			flex: 0 0 auto;
+			font-size: 0.75rem;
+		}
+	}
+
+	.uca-maps-upload-submit {
+		.uca-maps-panel-action-button();
+		display: block;
+		margin: 0 0.75rem 0.75rem;
+	}
+
+}//end uca-maps-upload-panel
+
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
 // refactor (capabilities/map-image moved to their own panels above).

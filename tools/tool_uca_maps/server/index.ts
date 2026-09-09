@@ -37,6 +37,14 @@
  * literals this tool's own server files build (`catastro.ts`/
  * `administrative_units.ts`), never a client-supplied URL, so there is no
  * SSRF surface beyond the guarded fetch itself.
+ *
+ * `upload_vector_layer` (fila #11, "Upload file to map" — vector half, hito
+ * 12) gets the SAME gate too: it converts an already-staged upload (owned by
+ * the authenticated caller, confined to their own staging dir — see
+ * `vector_upload.ts`) to GeoJSON and hands it back; nothing is written to
+ * section data here either — the resulting objects only persist through the
+ * geolocation component's own normal save, same as every other pm:create-
+ * based action in this tool.
  */
 
 import { ok } from '../../../src/core/errors/index.ts';
@@ -51,6 +59,7 @@ import { probeCapabilities } from './capabilities.ts';
 import { getCatastroParcel } from './catastro.ts';
 import { rasterDownload } from './raster_download.ts';
 import { vectorDownload } from './vector_download.ts';
+import { uploadVectorLayer } from './vector_upload.ts';
 import { getWmsLayers } from './wms.ts';
 
 async function getCapabilities(context: ToolActionContext): Promise<ToolResponse> {
@@ -71,6 +80,7 @@ export const tool: ToolServerModule = {
 			minLevel: 1,
 			handler: getAdministrativeUnit,
 		},
+		upload_vector_layer: { permission: 'record_tipo', minLevel: 1, handler: uploadVectorLayer },
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because
