@@ -603,6 +603,18 @@
 	pointer-events: none;
 }
 
+// the three draggable control points of "Activar edición" (image_edit.js,
+// hito 14). A divIcon rather than v6's `img/button.png`: one less binary to
+// ship, and it stays crisp at any zoom or pixel ratio.
+.uca-maps-image-handle {
+	box-sizing: border-box;
+	background: #fff;
+	border: 2px solid #3388ff;
+	border-radius: 50%;
+	box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+	cursor: move;
+}
+
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
 // refactor (capabilities/map-image moved to their own panels above).

@@ -221,9 +221,8 @@ const is_image_carrier = function(layer) {
 * RENDER_IMAGE_CONTROLS
 * The console's image branch (functionality #3's image half, v6
 * `special_tools.js:6453-6523`): open the original, and edit opacity +
-* z-index. "Activar edición" (reposition/rotate the overlay by dragging its
-* corners) is NOT here — that is its own hito; the three control points are
-* already stored, so nothing has to migrate when it lands.
+* z-index, and "Activar edición" — the checkbox that puts the overlay's three
+* control points on the map as draggable handles (hito 14, image_edit.js).
 *
 * @param {Object} self
 * @param {Object} layer
@@ -246,6 +245,28 @@ const render_image_controls = function(self, layer, container) {
 		link.target	= '_blank'
 		link.rel	= 'noopener noreferrer'
 	}
+
+	// v6's own order: view, edit, opacity, z-index (`special_tools.js:6453`)
+	const edit_row = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-image-row',
+		parent			: container
+	})
+	const edit_input = ui.create_dom_element({
+		element_type	: 'input',
+		class_name		: 'uca-maps-image-edit',
+		parent			: edit_row
+	})
+	edit_input.type		= 'checkbox'
+	edit_input.checked	= self.is_image_editing(layer)
+	ui.create_dom_element({
+		element_type	: 'label',
+		text_content	: self.get_tool_label('image_edit') || 'Enable editing',
+		parent			: edit_row
+	})
+	edit_input.addEventListener('change', () => {
+		self.set_image_interactive(layer, edit_input.checked)
+	})
 
 	const opacity_row = ui.create_dom_element({
 		element_type	: 'div',

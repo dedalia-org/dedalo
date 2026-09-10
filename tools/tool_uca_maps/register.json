@@ -339,6 +339,9 @@
 		{ "lang": "lg-eng", "name": "image_view", "value": "View image" },
 		{ "lang": "lg-spa", "name": "image_view", "value": "Ver imagen" },
 
+		{ "lang": "lg-eng", "name": "image_edit", "value": "Enable editing" },
+		{ "lang": "lg-spa", "name": "image_edit", "value": "Activar edición" },
+
 		{ "lang": "lg-eng", "name": "image_opacity", "value": "Opacity" },
 		{ "lang": "lg-spa", "name": "image_opacity", "value": "Opacidad" },
 

@@ -43,6 +43,7 @@ import {error_text} from '../../../core/common/js/render_api_error.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {commit, ensure_properties, report_client_error} from './object_console.js'
+import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
 
 
 
@@ -170,12 +171,11 @@ const natural_size = function(url) {
 *     ratio, computed in CONTAINER PIXELS (degrees of latitude and longitude
 *     are not the same length on screen, so doing this in lat/lon would
 *     reintroduce the distortion it is meant to remove).
-*  2. v6 fills the whole viewport. It can afford to: it also ships "Activar
-*     edición" to resize the overlay by dragging its corners. That is a
-*     LATER hito here, so a full-viewport image would cover the map with no
-*     way at all to shrink it. It gets half the shorter side instead —
+*  2. v6 fills the whole viewport. It gets half the shorter side instead —
 *     visible, obviously placed by default, and with the map still readable
-*     around it (Sergio, validación hito 13).
+*     around it to judge the placement against (Sergio, validación hito 13).
+*     Kept after "Activar edición" landed in hito 14: the handles make a
+*     full-viewport image shrinkable, but not judgeable.
 *
 * @param {Object} map - the Leaflet map
 * @param {Object} size - the image's natural {width, height} in pixels
@@ -456,6 +456,15 @@ export const create_image_object = async function(self, image) {
 	properties.color		= 'transparent'
 	properties.uca_maps		= properties.uca_maps || {}
 	properties.uca_maps.image	= image
+	// A NEW image arrives EDITABLE, as in v6: a plain image lands at an
+	// arbitrary spot, so the very next gesture is always moving it, and making
+	// the user find a checkbox first is a step v6 never asked for (Sergio,
+	// validación hito 14). Defaulted HERE and not in the upload flow because
+	// this is the one production builder — and only a new object, never a
+	// reload, comes through it, so a stored `false` is never overwritten.
+	if (typeof image.interactive!=='boolean') {
+		image.interactive = true
+	}
 	// object_viewer.js:215 splits its two lists on exactly this flag, and its
 	// own header says the "Rasterized objects" list stays empty until this
 	// row lands. This IS that landing — without it every uploaded image would
@@ -476,25 +485,9 @@ export const create_image_object = async function(self, image) {
 
 
 
-/**
-* HULL_BOUNDS
-* The axis-aligned bounds enclosing the three control points AND the inferred
-* fourth corner (top_right + bottom_left − top_left, the same inference the
-* plugin itself makes) — dropping the fourth would clip the hull of a skewed
-* raster.
-*
-* @param {Object} corners - {top_left, top_right, bottom_left}
-* @returns {Object} L.latLngBounds
-*/
-const hull_bounds = function(corners) {
-
-	const bottom_right = [
-		corners.top_right[0] + corners.bottom_left[0] - corners.top_left[0],
-		corners.top_right[1] + corners.bottom_left[1] - corners.top_left[1]
-	]
-
-	return L.latLngBounds([corners.top_left, corners.top_right, corners.bottom_left, bottom_right])
-}//end hull_bounds
+// `hull_bounds` moved to image_edit.js with the rest of the descriptor's
+// geometry when the drag handles landed (hito 14) — the import direction is
+// one-way, upload → edit, so the two files never become a cycle.
 
 
 
@@ -519,6 +512,12 @@ export const attach_overlay = async function(self, carrier) {
 	if (!image || !image.corners || carrier._uca_maps_overlay || carrier._uca_maps_overlay_pending) {
 		return null
 	}
+
+	// the ONE funnel both an upload and a reload pass through, so it is where
+	// the carrier stops being an editable polygon for Geoman and starts
+	// carrying the picture with it when dragged (image_edit.js)
+	seal_carrier_from_geoman(carrier)
+	attach_carrier_drag(self, carrier)
 
 	// CLAIM THE CARRIER BEFORE THE FIRST await. `hydrate_image_overlays` runs
 	// un-serialized on every `updated_layer_data_` event, and the plugin load
@@ -569,6 +568,12 @@ export const attach_overlay = async function(self, carrier) {
 	self._image_overlays = self._image_overlays || []
 	self._image_overlays.push({carrier, overlay})
 
+	// edit mode is stored, so an overlay rebuilt from saved data comes back
+	// with the handles the user left showing (image_edit.js)
+	if (is_image_editing(carrier)) {
+		attach_handles(self, carrier)
+	}
+
 	if(SHOW_DEVELOPER===true) {
 		console.log('-> tool_uca_maps image overlay added:', image);
 	}
@@ -589,6 +594,11 @@ export const attach_overlay = async function(self, carrier) {
 * @returns {void}
 */
 export const detach_overlay = function(self, carrier) {
+
+	// the handles come off even when there is no overlay left to move: they
+	// are markers on the map, and nothing else in the engine tracks them
+	detach_handles(self, carrier)
+	detach_carrier_drag(carrier)
 
 	const overlay = carrier && carrier._uca_maps_overlay
 	if (!overlay) {
@@ -712,6 +722,9 @@ export const hydrate_image_overlays = async function(self) {
 			if (self.geolocation && self.geolocation.map) {
 				self.geolocation.map.removeLayer(entry.overlay)
 			}
+			// the replaced carrier's handles are as orphaned as its overlay
+			detach_handles(self, entry.carrier)
+			detach_carrier_drag(entry.carrier)
 			delete entry.carrier._uca_maps_overlay
 		}
 	}
@@ -812,6 +825,8 @@ export const detach_image_overlays = function(self) {
 		if (map) {
 			map.removeLayer(entry.overlay)
 		}
+		detach_handles(self, entry.carrier)
+		detach_carrier_drag(entry.carrier)
 		delete entry.carrier._uca_maps_overlay
 	}
 	self._image_overlays = []

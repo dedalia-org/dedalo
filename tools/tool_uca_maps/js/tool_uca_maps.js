@@ -145,6 +145,7 @@
 		set_image_display,
 		get_image_href
 	} from './image_upload.js'
+	import {is_image_editing, set_image_interactive} from './image_edit.js'
 
 
 
@@ -670,6 +671,14 @@ tool_uca_maps.prototype.set_image_display = function(layer, values, do_commit) {
 tool_uca_maps.prototype.get_image_href = function(layer) {
 	return get_image_href(layer)
 }//end get_image_href
+
+tool_uca_maps.prototype.is_image_editing = function(layer) {
+	return is_image_editing(layer)
+}//end is_image_editing
+
+tool_uca_maps.prototype.set_image_interactive = function(layer, active) {
+	set_image_interactive(this, layer, active)
+}//end set_image_interactive
 
 
 

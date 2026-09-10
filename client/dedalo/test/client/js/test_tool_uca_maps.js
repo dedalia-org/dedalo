@@ -2490,6 +2490,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		z_index			: 200
 	}
 
+	// create_image_object ends in map.fitBounds(), which starts a ZOOM
+	// ANIMATION. Ending a test with the frame still queued hands afterEach a
+	// map it destroys under a pending _move(), and Leaflet throws inside the
+	// NEXT test's beforeEach. Every create_image_object test waits on this.
+	function settle_map(map) {
+		return new Promise((resolve) => {
+			const settled = () => resolve()
+			map.once('moveend', settled)
+			setTimeout(settled, 1000) // fitBounds on an already-matching view fires nothing
+		})
+	}
+
 	function add_image_carrier() {
 		const carrier = L.rectangle([[40.44, -3.66], [40.46, -3.64]], {opacity: 0, fillOpacity: 0})
 		carrier.feature = carrier.toGeoJSON()
@@ -2600,17 +2612,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// to be written where the object is actually created
 		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
 
-		// create_image_object ends with map.fitBounds(), which starts a ZOOM
-		// ANIMATION. Letting the test end here hands afterEach a map with an
-		// animation frame still queued: it destroys the map, the frame then
-		// fires _move() on a pane that no longer exists and Leaflet throws
-		// "Cannot read properties of undefined (reading '_leaflet_pos')" —
-		// inside the NEXT test's beforeEach, which is where it was first seen.
-		await new Promise((resolve) => {
-			const settled = () => resolve()
-			geolocation.map.once('moveend', settled)
-			setTimeout(settled, 1000) // fitBounds on an already-matching view fires nothing
-		})
+		await settle_map(geolocation.map)
 
 		assert.equal(carrier.feature.properties.uca_maps.is_raster, true, 'expected is_raster written by the builder')
 		assert.isOk(carrier.feature.properties.uca_maps.image, 'expected the image descriptor stored on the object')
@@ -2622,6 +2624,94 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			objects.vector_objects.some((el) => el.layer===carrier), false,
 			'expected the image NOT in the vector list'
 		)
+	})
+
+	it('create_image_object hands the carrier back ALREADY editable, as v6 does', async function() {
+
+		// a plain image lands at an arbitrary spot, so the next gesture is
+		// always moving it: v6 uploads straight into edit mode and making the
+		// user find a checkbox first is a step it never asked for
+		const descriptor = JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR))
+		delete descriptor.interactive
+
+		const carrier = await create_image_object(tool, descriptor)
+		await settle_map(geolocation.map)
+
+		assert.equal(
+			carrier.feature.properties.uca_maps.image.interactive, true,
+			'expected a new image to arrive with edit mode on'
+		)
+	})
+
+	it('create_image_object never overrides an interactive flag the descriptor already carries', async function() {
+
+		// the guard that keeps the default from becoming a rule: the builder
+		// fills a MISSING flag, it does not decide for a caller that set one
+		const descriptor = JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR))
+		descriptor.interactive = false
+
+		const carrier = await create_image_object(tool, descriptor)
+		await settle_map(geolocation.map)
+
+		assert.equal(carrier.feature.properties.uca_maps.image.interactive, false, 'expected the given flag kept')
+	})
+
+	it('the carrier is sealed from Geoman editing but still removable', async function() {
+
+		// component_geolocation.js click handler calls layer.pm.enable() on
+		// every layer of the clicked FeatureGroup — which painted four vertex
+		// circles over the image, competing with this module's three handles.
+		// Removal must survive: Geoman's remove tool is how an image is deleted
+		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
+		await settle_map(geolocation.map)
+
+		assert.equal(carrier.pm.options.allowEditing, false, 'expected Geoman editing refused on the carrier')
+		assert.notEqual(carrier.pm.options.allowRemoval, false, 'expected Geoman removal still allowed')
+
+		// and the enable() the component fires on click must be a no-op
+		carrier.pm.enable()
+		assert.equal(carrier.pm.enabled(), false, 'expected pm.enable() to leave the carrier un-edited')
+	})
+
+	it('dragging the carrier carries the picture, the handles and the stored corners with it', async function() {
+
+		// Geoman's drag mode grabs the CARRIER — a transparent rectangle. Before
+		// this the user dragged an invisible box and the image stayed behind:
+		// the two desynced and nothing appeared to move (Sergio, validación
+		// hito 14, 2ª ronda). v6 could not drag an image at all
+		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
+		await settle_map(geolocation.map)
+
+		const before	= JSON.parse(JSON.stringify(carrier.feature.properties.uca_maps.image.corners))
+		const handles	= carrier._uca_maps_handles
+		assert.equal(handles && handles.length, 3, 'expected the three handles up (a new image is editable)')
+
+		const delta_lat = 0.01
+		const delta_lng = 0.02
+
+		// what Geoman itself does: move the layer, then announce it
+		carrier.fire('pm:dragstart')
+		carrier.setLatLngs(carrier.getLatLngs()[0].map(
+			(el) => L.latLng(el.lat + delta_lat, el.lng + delta_lng)
+		))
+		carrier.fire('pm:dragend')
+
+		const after = carrier.feature.properties.uca_maps.image.corners
+		for (const key of ['top_left', 'top_right', 'bottom_left']) {
+			assert.closeTo(after[key][0], before[key][0] + delta_lat, 1e-9, key + ' lat followed the carrier')
+			assert.closeTo(after[key][1], before[key][1] + delta_lng, 1e-9, key + ' lng followed the carrier')
+		}
+
+		// TRANSLATION ONLY: the shape is the handles' job, so the drag must not
+		// have skewed or scaled anything
+		assert.closeTo(
+			after.top_right[1] - after.top_left[1],
+			before.top_right[1] - before.top_left[1], 1e-9,
+			'expected the width unchanged by a drag'
+		)
+
+		assert.closeTo(handles[0].getLatLng().lat, after.top_left[0], 1e-9, 'expected the handles moved too')
+		assert.closeTo(handles[0].getLatLng().lng, after.top_left[1], 1e-9, 'expected the handles moved too')
 	})
 
 	it('two concurrent hydrations never paint the same image twice', async function() {
@@ -2763,6 +2853,185 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		await tool.destroy(false, false, false)
 
 		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the overlay removed on teardown')
+	})
+
+	// hito 14 — "Activar edición" (js/image_edit.js): the overlay's three
+	// control points as draggable handles. Same carrier-by-hand approach as the
+	// hito 13 block above, and the same reason: the browser half is all that
+	// lives here.
+	async function add_image_carrier_with_overlay() {
+		const carrier = add_image_carrier()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		return carrier
+	}
+
+	it('the console offers "Activar edición" and it reflects the stored state', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.attach_console()
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const checkbox = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-image-edit')
+		assert.isOk(checkbox, 'expected the "Activar edición" checkbox in the image branch')
+		assert.equal(checkbox.checked, false, 'expected edit mode off for a descriptor that never stored it')
+
+		tool.set_image_interactive(carrier, true)
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		assert.equal(
+			tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-image-edit').checked, true,
+			'expected the re-rendered checkbox to read the stored flag, not a cached one'
+		)
+	})
+
+	it('set_image_interactive puts three draggable handles on the map and persists the flag', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+
+		tool.set_image_interactive(carrier, true)
+
+		assert.equal(carrier._uca_maps_handles.length, 3, 'expected one handle per stored control point')
+		for (const handle of carrier._uca_maps_handles) {
+			assert.equal(geolocation.map.hasLayer(handle), true, 'expected the handle actually on the map')
+			assert.equal(handle.options.draggable, true, 'expected the handle draggable')
+			// a handle is a control, not a drawn object: Geoman must not edit,
+			// snap to, or — worst — collect it into the component's data
+			assert.equal(handle.options.pmIgnore, true, 'expected Geoman to ignore the handle')
+		}
+		assert.equal(
+			carrier.feature.properties.uca_maps.image.interactive, true,
+			'expected the flag stored on the descriptor, which is what survives a save'
+		)
+	})
+
+	it('dragging a handle moves the overlay, the stored corners and the carrier together', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.set_image_interactive(carrier, true)
+
+		const before = JSON.parse(JSON.stringify(carrier.feature.properties.uca_maps.image.corners))
+		const handle = carrier._uca_maps_handles[1] // top_right
+		handle.setLatLng(L.latLng(40.47, -3.60))
+		handle.fire('drag')
+
+		const after = carrier.feature.properties.uca_maps.image.corners
+		assert.deepEqual(after.top_right, [40.47, -3.60], 'expected the dragged corner stored')
+		assert.deepEqual(after.top_left, before.top_left, 'expected the other two corners untouched')
+		assert.deepEqual(after.bottom_left, before.bottom_left, 'expected the other two corners untouched')
+
+		// the carrier is what can be clicked and deleted — an overlay that
+		// moved away from it would be unselectable
+		const bounds = carrier.getBounds()
+		assert.closeTo(bounds.getNorth(), 40.47, 1e-9, 'expected the carrier outline to follow the handle')
+		assert.closeTo(bounds.getEast(), -3.60, 1e-9, 'expected the carrier outline to follow the handle')
+	})
+
+	it('a drag marks the record dirty only when the gesture ends', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.set_image_interactive(carrier, true)
+
+		let commits = 0
+		const original = geolocation.update_draw_data
+		geolocation.update_draw_data = function() { commits++; return original.apply(this, arguments) }
+
+		const handle = carrier._uca_maps_handles[0]
+		handle.setLatLng(L.latLng(40.465, -3.665))
+		handle.fire('drag')
+		assert.equal(commits, 0, 'expected NO commit mid-drag — commit() re-renders the panel being dragged against')
+
+		handle.fire('dragend')
+		assert.equal(commits, 1, 'expected exactly one commit when the gesture ends')
+
+		geolocation.update_draw_data = original
+	})
+
+	it('switching edit mode off removes the handles', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.set_image_interactive(carrier, true)
+		const handles = carrier._uca_maps_handles.slice()
+
+		tool.set_image_interactive(carrier, false)
+
+		assert.isNotOk(carrier._uca_maps_handles, 'expected the handles untracked')
+		for (const handle of handles) {
+			assert.equal(geolocation.map.hasLayer(handle), false, 'expected the handle off the map')
+		}
+		assert.equal(carrier.feature.properties.uca_maps.image.interactive, false, 'expected the flag stored off')
+	})
+
+	it('an overlay rebuilt from saved data comes back with the handles the user left showing', async function() {
+
+		const carrier = add_image_carrier()
+		// exactly what a record saved with edit mode on hands back on load
+		carrier.feature.properties.uca_maps.image.interactive = true
+
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_handles; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		assert.isOk(carrier._uca_maps_handles, 'expected the stored edit mode restored, not silently dropped')
+		assert.equal(carrier._uca_maps_handles.length, 3)
+	})
+
+	it('hiding the object hides its handles, in both directions', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.set_image_interactive(carrier, true)
+
+		// hiding an object with edit mode ON must not leave three circles
+		// floating over an invisible image — still draggable, still moving it
+		apply_display(carrier, false)
+		for (const handle of carrier._uca_maps_handles) {
+			assert.equal(handle._icon.style.display, 'none', 'expected the handle hidden with its object')
+		}
+
+		apply_display(carrier, true)
+		assert.notEqual(carrier._uca_maps_handles[0]._icon.style.display, 'none', 'expected it shown again')
+
+		// and the other direction: turning edit mode ON for an already hidden
+		// object must not paint the handles either
+		tool.set_image_interactive(carrier, false)
+		apply_display(carrier, false)
+		tool.set_image_interactive(carrier, true)
+
+		for (const handle of carrier._uca_maps_handles) {
+			assert.equal(handle._icon.style.display, 'none', 'expected handles born hidden on a hidden object')
+		}
+	})
+
+	it('teardown removes the handles as well as the overlay', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.set_image_interactive(carrier, true)
+		const handles = carrier._uca_maps_handles.slice()
+
+		await tool.destroy(false, false, false)
+
+		for (const handle of handles) {
+			assert.equal(
+				geolocation.map.hasLayer(handle), false,
+				'expected the handle removed on teardown — nothing else in the engine tracks it'
+			)
+		}
+	})
+
+	it('deleting the object removes its handles too', async function() {
+
+		const carrier = await add_image_carrier_with_overlay()
+		tool.set_image_interactive(carrier, true)
+		const handles = carrier._uca_maps_handles.slice()
+
+		geolocation.map.fire('pm:remove', {layer: carrier})
+
+		for (const handle of handles) {
+			assert.equal(geolocation.map.hasLayer(handle), false, 'expected the handle removed with its object')
+		}
 	})
 
 	it('detach_file_upload removes the button and panel', async function() {

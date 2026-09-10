@@ -478,6 +478,14 @@ export const apply_display = function(layer, visible) {
 		set_node_display(overlay._image, visible)
 	}
 
+	// and its drag handles, when edit mode is on (hito 14): they are markers on
+	// the map, so hiding the picture without them would leave three circles
+	// floating over nothing — still draggable, still moving an invisible image
+	for (const handle of (layer._uca_maps_handles || [])) {
+		set_node_display(handle._icon, visible)
+		set_node_display(handle._shadow, visible)
+	}
+
 	if (layer instanceof L.Marker) {
 		set_node_display(layer._icon, visible)
 		set_node_display(layer._shadow, visible)
