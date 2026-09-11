@@ -93,6 +93,17 @@ export function placeSearchUrl(query: string): URL {
 }
 
 /**
+ * The service answered, but not with something usable. `security.outbound_failed`
+ * (503, retryable, operator disclosure) is the class the sibling proxy already
+ * uses for the same situation (administrative_units.ts) — NOT a caller fault:
+ * `request.invalid_options` would tell the user their input was wrong and leave
+ * a third-party outage unclassified in the log.
+ */
+function outboundFailure(message: string): DedaloError {
+	return new DedaloError('security.outbound_failed', { message });
+}
+
+/**
  * Reduces Nominatim's JSON array to `PlaceResult[]`. A hit with no usable
  * coordinates is DROPPED rather than returned half-built — the result list is
  * clickable, and a row that cannot move the map is worse than no row.
@@ -112,13 +123,16 @@ export function parsePlaceResults(text: string): PlaceResult[] {
 	try {
 		payload = JSON.parse(text);
 	} catch {
-		throw new DedaloError('request.invalid_options', {
-			message: 'The place-search service returned an unreadable response.',
-			publicMessage: 'The place-search service returned an unreadable response.',
-		});
+		throw outboundFailure('The place-search service returned an unreadable response.');
 	}
+	// A REFUSAL IS NOT ZERO RESULTS. Nominatim answers a rejected, rate-limited
+	// or blocked request with HTTP 200 and a JSON OBJECT (`{"error": …}`), which
+	// `fetchGuardedText` cannot catch. Returning [] here would print "No places
+	// found." — the user reads "this toponym does not exist" for what is a
+	// service outage, which is audit bug #3 (the mute failure) rebuilt one layer
+	// down. Zero hits is `[]`, and only `[]`.
 	if (!Array.isArray(payload)) {
-		return [];
+		throw outboundFailure('The place-search service refused the request.');
 	}
 
 	const results: PlaceResult[] = [];

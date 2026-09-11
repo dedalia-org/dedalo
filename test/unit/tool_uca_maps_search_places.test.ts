@@ -20,6 +20,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { DedaloError } from '../../src/core/errors/index.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
@@ -115,8 +116,19 @@ describe('parsePlaceResults — Nominatim JSON → PlaceResult[]', () => {
 		expect(parsePlaceResults('[]')).toEqual([]);
 	});
 
-	test('a non-array payload yields no results (a service error page, not hits)', () => {
-		expect(parsePlaceResults('{"error":"Bad Request"}')).toEqual([]);
+	// The distinction the whole panel rests on: "this place does not exist" and
+	// "the service did not answer me" must not reach the user as the same line.
+	test('a service error object is a refusal, not an empty result set', () => {
+		expect(() => parsePlaceResults('{"error":"Bad Request"}')).toThrow(/refused the request/);
+	});
+
+	test('a refusal carries the outbound class, not a caller fault', () => {
+		try {
+			parsePlaceResults('{"error":"Bad Request"}');
+			throw new Error('expected a refusal');
+		} catch (error) {
+			expect((error as DedaloError).code).toBe('security.outbound_failed');
+		}
 	});
 
 	test('an unparseable body is a refusal, not a silent empty list', () => {
