@@ -781,3 +781,147 @@
 	}//end uca-maps-object-section
 
 }//end uca-maps-console
+
+
+// "Search" (functionality #1, place_search.js) — a query input, two buttons
+// and a result list whose rows are BUTTONS, not bare list items (keyboard
+// reachability, render_place_search.js populate_place_search_results). Same
+// column-form shape as .uca-maps-wms-panel above; nothing new invented.
+.uca-maps-place-search-panel {
+
+	.uca-maps-place-search-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.5rem 0.75rem;
+
+		input {
+			min-width: 0;
+		}
+	}
+
+	.uca-maps-place-search-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-place-search-button-row {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.uca-maps-place-search-results {
+		list-style: none;
+		margin: 0 0 0.5rem;
+		padding: 0 0.75rem;
+
+		>.uca-maps-place-search-result-item {
+			padding: 0.1rem 0;
+
+			// a result row is a full-width text button: it must WRAP, unlike
+			// every other button in this tool (a display_name is a whole
+			// address, and truncating it to one line hides which of two
+			// same-named villages this hit is)
+			.uca-maps-place-search-result-button {
+				display: block;
+				width: 100%;
+				text-align: left;
+				white-space: normal;
+				background-color: transparent;
+				color: inherit;
+				padding: 0.25rem 0.3rem;
+
+				&:hover {
+					background-color: #e9ecef;
+					filter: none;
+				}
+			}
+		}
+	}
+
+	// Search + Clear
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+}//end uca-maps-place-search-panel
+
+// "Barra de escala" (functionality #2, scale_bar.js) — the graphic scale +
+// compass rose, bottom-right. Own markup, not the vendored leaflet-graphicscale
+// (file header).
+//
+// NO BACKGROUND, on purpose: v6 draws both pieces straight onto the map, with
+// nothing behind them (its `Leaflet.GraphicScale.min.css` sets no background
+// anywhere, and `.leaflet-control-compass` carries only the PNG). Sergio
+// confirmed that is the look to keep (2026-09-10) — the white plate the first
+// pass put behind them was mine, not v6's. Trade-off accepted with it: over a
+// very dark basemap the black ink loses contrast, exactly as it does in v6.
+.uca-maps-scale {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.25rem 0.4rem;
+	background-color: transparent;
+	color: #212529;
+	line-height: 1;
+
+	.uca-maps-scale-compass {
+		flex: 0 0 auto;
+		display: block;
+	}
+
+	.uca-maps-scale-graphic {
+		flex: 0 0 auto;
+	}
+
+	// the two offset rows are what makes this a "double line" checker bar
+	// rather than Leaflet core's single stroke (v6 `doubleLine: true`)
+	.uca-maps-scale-row {
+		display: flex;
+		height: 6px;
+
+		>.uca-maps-scale-division {
+			flex: 1 1 0;
+			border: 1px solid #212529;
+			border-right-width: 0;
+
+			// `fill: hollow` in v6: the filled divisions are inset, so the
+			// outline of every division stays visible either way
+			&.filled {
+				background-color: #212529;
+				background-clip: content-box;
+				border-color: #212529;
+			}
+		}
+
+		>.uca-maps-scale-division:last-child {
+			border-right-width: 1px;
+		}
+	}
+
+	.uca-maps-scale-row + .uca-maps-scale-row {
+		border-top: 0;
+	}
+
+	.uca-maps-scale-labels {
+		display: flex;
+		justify-content: space-between;
+		margin-top: 0.15rem;
+		font-size: 0.65rem;
+		white-space: nowrap;
+
+		// labels are aligned to the bar's ENDS, not centred on its end ticks:
+		// a centred end label hangs half its width outside the control and
+		// spills over the map (and out of the exported image). The middle
+		// label is centred by `space-between` on its own.
+	}
+
+}//end uca-maps-scale
+
+// "Geolocation" (functionality #13, geolocate.js) is a TOGGLE with no panel,
+// same shape as "1x1"/"Catastro" above — armed while the browser's own
+// position lookup is in flight, so a slow fix reads as "working", not as a
+// dead button. Same enabled colour, not a third one.
+.uca-maps-geolocate-control.uca-maps-geolocate-enabled {
+	background: #14fbcd;
+	color: #212529;
+}

@@ -561,4 +561,113 @@
   padding: 0.2rem 0.45rem;
   background-color: #6c757d;
 }
+.uca-maps-place-search-panel .uca-maps-place-search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.75rem;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-form input {
+  min-width: 0;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-message {
+  background-color: #f8d7da;
+  color: #842029;
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-message[hidden] {
+  display: none;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-button-row {
+  display: flex;
+  gap: 0.3rem;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-results {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0 0.75rem;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-results > .uca-maps-place-search-result-item {
+  padding: 0.1rem 0;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-results > .uca-maps-place-search-result-item .uca-maps-place-search-result-button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  background-color: transparent;
+  color: inherit;
+  padding: 0.25rem 0.3rem;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-results > .uca-maps-place-search-result-item .uca-maps-place-search-result-button:hover {
+  background-color: #e9ecef;
+  filter: none;
+}
+.uca-maps-place-search-panel button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.uca-maps-place-search-panel button:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-place-search-panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.uca-maps-scale {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.4rem;
+  background-color: transparent;
+  color: #212529;
+  line-height: 1;
+}
+.uca-maps-scale .uca-maps-scale-compass {
+  flex: 0 0 auto;
+  display: block;
+}
+.uca-maps-scale .uca-maps-scale-graphic {
+  flex: 0 0 auto;
+}
+.uca-maps-scale .uca-maps-scale-row {
+  display: flex;
+  height: 6px;
+}
+.uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division {
+  flex: 1 1 0;
+  border: 1px solid #212529;
+  border-right-width: 0;
+}
+.uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division.filled {
+  background-color: #212529;
+  background-clip: content-box;
+  border-color: #212529;
+}
+.uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division:last-child {
+  border-right-width: 1px;
+}
+.uca-maps-scale .uca-maps-scale-row + .uca-maps-scale-row {
+  border-top: 0;
+}
+.uca-maps-scale .uca-maps-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.15rem;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+.uca-maps-geolocate-control.uca-maps-geolocate-enabled {
+  background: #14fbcd;
+  color: #212529;
+}
 /*# sourceMappingURL=tool_uca_maps.css.map */

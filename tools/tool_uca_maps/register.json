@@ -346,6 +346,28 @@
 		{ "lang": "lg-spa", "name": "image_opacity", "value": "Opacidad" },
 
 		{ "lang": "lg-eng", "name": "image_z_index", "value": "z-index" },
-		{ "lang": "lg-spa", "name": "image_z_index", "value": "z-index" }
+		{ "lang": "lg-spa", "name": "image_z_index", "value": "z-index" },
+		{ "lang": "lg-eng", "name": "place_search_control_title", "value": "Place search" },
+		{ "lang": "lg-spa", "name": "place_search_control_title", "value": "Búsqueda de lugares" },
+		{ "lang": "lg-eng", "name": "place_search_control_text", "value": "Search" },
+		{ "lang": "lg-spa", "name": "place_search_control_text", "value": "Buscar" },
+		{ "lang": "lg-eng", "name": "place_search_placeholder", "value": "Place name" },
+		{ "lang": "lg-spa", "name": "place_search_placeholder", "value": "Nombre del lugar" },
+		{ "lang": "lg-eng", "name": "place_search_button", "value": "Search" },
+		{ "lang": "lg-spa", "name": "place_search_button", "value": "Buscar" },
+		{ "lang": "lg-eng", "name": "place_search_clear_button", "value": "Clear search" },
+		{ "lang": "lg-spa", "name": "place_search_clear_button", "value": "Limpiar búsqueda" },
+		{ "lang": "lg-eng", "name": "place_search_no_results", "value": "No places found." },
+		{ "lang": "lg-spa", "name": "place_search_no_results", "value": "No se ha encontrado ningún lugar." },
+		{ "lang": "lg-eng", "name": "place_search_error_empty", "value": "Type a place name to search." },
+		{ "lang": "lg-spa", "name": "place_search_error_empty", "value": "Escriba el nombre de un lugar para buscar." },
+		{ "lang": "lg-eng", "name": "place_search_error_failed", "value": "The place search could not be completed." },
+		{ "lang": "lg-spa", "name": "place_search_error_failed", "value": "No se ha podido completar la búsqueda de lugares." },
+		{ "lang": "lg-eng", "name": "geolocate_control_title", "value": "Geolocation" },
+		{ "lang": "lg-spa", "name": "geolocate_control_title", "value": "Geolocalización" },
+		{ "lang": "lg-eng", "name": "geolocate_error", "value": "Your location could not be determined." },
+		{ "lang": "lg-spa", "name": "geolocate_error", "value": "No ha sido posible encontrar la localización." },
+		{ "lang": "lg-eng", "name": "geolocate_no_layer", "value": "Select a map layer before using geolocation." },
+		{ "lang": "lg-spa", "name": "geolocate_no_layer", "value": "Seleccione una capa del mapa antes de usar la geolocalización." }
 	]
 }

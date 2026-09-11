@@ -94,9 +94,12 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (L.Control.addTo appends to that corner's container), so the first
 	// attach_* call here ends up as the TOPMOST button. capabilities_panel
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
-	// ahead of the real functionalities; "Upload file to map" attaches last,
-	// so the corner reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro, UA,
-	// UP top-to-bottom (Catastro/UA may not appear at all — both gated on the
+	// ahead of the real functionalities; the two hito-15 controls attach
+	// last, so the corner reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro,
+	// UA, UP, Search, GPS top-to-bottom — appended rather than slotted in at
+	// the top so the order Sergio already validated in earlier hitos does not
+	// move under him, and "Geolocation" stays last exactly as it is last in
+	// v6's own control list (Catastro/UA may not appear at all — both gated on the
 	// record's language, v6 parity, catastro.js is_spanish_official_lang).
 		if (self.geolocation && self.map_ready) {
 			self.attach_capabilities_panel()
@@ -109,6 +112,11 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			self.attach_catastro()
 			self.attach_administrative_units()
 			self.attach_file_upload()
+			self.attach_place_search()
+			self.attach_geolocate()
+			// not a button either: permanent map furniture in the
+			// bottom-right corner (scale_bar.js, functionality #2)
+			self.attach_scale_bar()
 			// not a button: the image half's own lifecycle hook, which
 			// rebuilds the overlays already saved on this record and keeps
 			// them following their carrier objects (image_upload.js)

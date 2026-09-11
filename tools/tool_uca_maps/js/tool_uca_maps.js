@@ -146,6 +146,15 @@
 		get_image_href
 	} from './image_upload.js'
 	import {is_image_editing, set_image_interactive} from './image_edit.js'
+	import {
+		attach_place_search,
+		clear_place_search,
+		detach_place_search,
+		focus_place_result,
+		search_places
+	} from './place_search.js'
+	import {attach_geolocate, detach_geolocate} from './geolocate.js'
+	import {attach_scale_bar, detach_scale_bar} from './scale_bar.js'
 
 
 
@@ -683,6 +692,39 @@ tool_uca_maps.prototype.set_image_interactive = function(layer, active) {
 
 
 /**
+* HITO 15 — THIN PROTOTYPE WRAPPERS OVER place_search.js / geolocate.js /
+* scale_bar.js (functionalities #1, #13 and #2). Same reuse reason as every
+* other block here: render_place_search.js calls self.<method>(...), never
+* place_search.js directly. The scale bar has no wrapper beyond attach: it
+* takes no user input at all.
+*/
+tool_uca_maps.prototype.attach_place_search = function() {
+	attach_place_search(this)
+}//end attach_place_search
+
+tool_uca_maps.prototype.search_places = function(raw_query) {
+	return search_places(this, raw_query)
+}//end search_places
+
+tool_uca_maps.prototype.focus_place_result = function(index) {
+	return focus_place_result(this, index)
+}//end focus_place_result
+
+tool_uca_maps.prototype.clear_place_search = function() {
+	clear_place_search(this)
+}//end clear_place_search
+
+tool_uca_maps.prototype.attach_geolocate = function() {
+	attach_geolocate(this)
+}//end attach_geolocate
+
+tool_uca_maps.prototype.attach_scale_bar = function() {
+	attach_scale_bar(this)
+}//end attach_scale_bar
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -883,6 +925,9 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_administrative_units(self)
 	detach_file_upload(self)
 	detach_image_overlays(self)
+	detach_place_search(self)
+	detach_geolocate(self)
+	detach_scale_bar(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

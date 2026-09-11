@@ -66,6 +66,10 @@ import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
+import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
+import { create_position_marker, is_geolocate_enabled, toggle_geolocate } from '../../../tools/tool_uca_maps/js/geolocate.js'
+import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/render_place_search.js'
+import { format_distance, round_distance } from '../../../tools/tool_uca_maps/js/scale_bar.js'
 
 
 
@@ -1476,7 +1480,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1497,9 +1501,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-xyz-control'))			return 'XYZ'
 			if (button.classList.contains('uca-maps-wms-control'))			return 'WMS'
 			if (button.classList.contains('uca-maps-upload-control'))			return 'UP'
+			if (button.classList.contains('uca-maps-place-search-control'))	return 'Search'
+			if (button.classList.contains('uca-maps-geolocate-control'))		return 'GPS'
 			return 'unknown'
 		})
-		assert.deepEqual(classes, ['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP'], 'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP')
+		assert.deepEqual(
+			classes,
+			['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS'],
+			'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP, Search, GPS'
+		)
 	})
 
 	it('edit() also stacks "Catastro"/"UA" last when section_lang gates them in', async function() {
@@ -3032,6 +3042,299 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		for (const handle of handles) {
 			assert.equal(geolocation.map.hasLayer(handle), false, 'expected the handle removed with its object')
 		}
+	})
+
+
+	/**
+	* HITO 15 — the three always-present controls (audit rows #1 "Buscador de
+	* lugares", #13 "Geolocation", #2 "Barra de escala").
+	*
+	* The place search NEVER reaches nominatim.openstreetmap.org from a test:
+	* `tool_request` is stubbed with a hand-written envelope, the same way the
+	* PNG capture test above stubs it to prove the opposite (no round-trip).
+	* A gate that needs a third party to be up is a gate that goes red for
+	* reasons that have nothing to do with this code.
+	*/
+
+	it('attach_place_search adds exactly one button and one hidden panel, idempotently', function() {
+
+		tool.attach_place_search()
+		tool.attach_place_search() // second call: a no-op, never a duplicate
+
+		const map_container_node = geolocation.map.getContainer()
+		const controls = map_container_node.querySelectorAll('.uca-maps-place-search-control')
+		assert.equal(controls.length, 1, 'expected exactly one button')
+		assert.isOk(tool.place_search_panel, 'expected the panel built')
+		assert.equal(tool.place_search_panel.hidden, true, 'expected the panel hidden by default')
+	})
+
+	it('search_places refuses an empty query without asking the server', async function() {
+
+		tool.attach_place_search()
+
+		let asked = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { asked = true; return {} }
+
+		const result = await search_places(tool, '   ')
+
+		assert.equal(result.ok, false, 'expected a caller-fault verdict')
+		assert.isOk(result.error, 'expected a message to show in the panel')
+		assert.equal(asked, false, 'expected NO request for an empty query')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('search_places stores the hits and the panel renders one clickable row each', async function() {
+
+		tool.attach_place_search()
+
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			assert.equal(options.action, 'search_places')
+			assert.equal(options.options.query, 'Sagunto')
+			return { ok: true, data: { results: [
+				{ name: 'Sagunt', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
+				{ name: 'Sagunto, Spain', point: [39.67, -0.28], bbox: null }
+			] } }
+		}
+
+		const result = await search_places(tool, ' Sagunto ')
+		assert.equal(result.ok, true)
+		assert.equal(result.results.length, 2)
+
+		// the panel's own render path (render_place_search.js), reached the
+		// way the Search button reaches it
+		populate_place_search_results(tool, tool.place_search_panel)
+		const rows = tool.place_search_panel.querySelectorAll('.uca-maps-place-search-result-button')
+		assert.equal(rows.length, 2, 'expected one row per hit')
+		assert.equal(rows[0].textContent, 'Sagunt')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('focus_place_result fits the bounding box, and falls back to a point zoom without one', async function() {
+
+		tool.attach_place_search()
+		tool._place_results = [
+			{ name: 'with bbox', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
+			{ name: 'no bbox', point: [40.0, -1.0], bbox: null }
+		]
+
+		assert.equal(focus_place_result(tool, 0), true)
+		const bounds = geolocation.map.getBounds()
+		assert.isTrue(bounds.contains(L.latLng(39.68, -0.27)), 'expected the map moved onto the hit')
+
+		assert.equal(focus_place_result(tool, 1), true)
+		const center = geolocation.map.getCenter()
+		assert.closeTo(center.lat, 40.0, 1e-6, 'expected the map centred on the point')
+		assert.closeTo(center.lng, -1.0, 1e-6, 'expected the map centred on the point')
+
+		assert.equal(focus_place_result(tool, 99), false, 'expected an out-of-range index to move nothing')
+	})
+
+	it('detach_place_search removes the button and panel', async function() {
+
+		tool.attach_place_search()
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.place_search_control, null, 'expected place_search_control cleared')
+		assert.equal(tool.place_search_panel, null, 'expected place_search_panel cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-place-search-control'),
+			'expected the button removed from the DOM'
+		)
+	})
+
+	it('attach_geolocate adds exactly one button and no panel, idempotently', function() {
+
+		tool.attach_geolocate()
+		tool.attach_geolocate()
+
+		const map_container_node = geolocation.map.getContainer()
+		assert.equal(map_container_node.querySelectorAll('.uca-maps-geolocate-control').length, 1)
+		assert.equal(is_geolocate_enabled(tool), false, 'expected it to start disarmed')
+	})
+
+	it('toggling geolocation arms it, and toggling again cancels the lookup', function() {
+
+		tool.attach_geolocate()
+
+		let located = 0
+		let stopped = 0
+		const original_locate		= geolocation.map.locate
+		const original_stop_locate	= geolocation.map.stopLocate
+		geolocation.map.locate		= function() { located++; return this }
+		geolocation.map.stopLocate	= function() { stopped++; return this }
+
+		toggle_geolocate(tool)
+		assert.equal(is_geolocate_enabled(tool), true, 'expected the button armed')
+		assert.equal(located, 1, 'expected the browser lookup started')
+
+		toggle_geolocate(tool)
+		assert.equal(is_geolocate_enabled(tool), false, 'expected the button disarmed')
+		assert.equal(stopped, 1, 'expected an in-flight lookup cancelled, not left running')
+
+		geolocation.map.locate		= original_locate
+		geolocation.map.stopLocate	= original_stop_locate
+	})
+
+	it('a position fix drops ONE marker in the active layer and marks the record dirty — never saves', function() {
+
+		tool.attach_geolocate()
+
+		// two dirty marks, both legitimate and neither a save: the core's own
+		// 'pm:create' handler calls update_draw_data when it adds the layer
+		// (component_geolocation.js:1958), and commit() calls it again after
+		// the tool has finished writing its own properties onto the feature.
+		// What matters is that NOTHING here reaches the save door — the user's
+		// own Save button stays the only writer (second law of
+		// component_geolocation).
+		let commits = 0
+		let saves = 0
+		const original_update	= geolocation.update_draw_data
+		const original_save		= geolocation.save
+		geolocation.update_draw_data	= function() { commits++; return original_update.apply(this, arguments) }
+		geolocation.save				= function() { saves++ }
+
+		const before = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+
+		const marker = create_position_marker(tool, L.latLng(40.44, -3.70))
+
+		assert.isOk(marker, 'expected a marker created')
+		const after = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		assert.equal(after, before + 1, 'expected exactly one new object in the active layer')
+		assert.isAbove(commits, 0, 'expected the record marked dirty')
+		assert.equal(saves, 0, 'expected NO save — nothing here writes')
+
+		geolocation.update_draw_data	= original_update
+		geolocation.save				= original_save
+	})
+
+	it('a second locationfound while disarmed drops nothing — v6 re-binds a listener per click and drops N markers', function() {
+
+		tool.attach_geolocate()
+
+		const group		= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const before	= group.getLayers().length
+
+		// armed: one fix, one marker, and the control disarms itself
+		toggle_geolocate(tool)
+		geolocation.map.fire('locationfound', {latlng: L.latLng(40.44, -3.70)})
+		assert.equal(group.getLayers().length, before + 1)
+		assert.equal(is_geolocate_enabled(tool), false, 'expected one fix per click')
+
+		// disarmed: the listener is still bound (bound once at attach), and
+		// must ignore anything the map reports
+		geolocation.map.fire('locationfound', {latlng: L.latLng(40.45, -3.71)})
+		assert.equal(group.getLayers().length, before + 1, 'expected no marker while disarmed')
+	})
+
+	it('detach_geolocate removes the button and its listeners', async function() {
+
+		tool.attach_geolocate()
+		const map_container_node	= geolocation.map.getContainer()
+		const group					= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const before				= group.getLayers().length
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.geolocate_control, null, 'expected geolocate_control cleared')
+		assert.isNotOk(map_container_node.querySelector('.uca-maps-geolocate-control'))
+
+		// destroy() nulls self.geolocation, so the handler would throw if it
+		// were still bound — firing proves it is really off the map
+		geolocation.map.fire('locationfound', {latlng: L.latLng(40.44, -3.70)})
+		assert.equal(group.getLayers().length, before, 'expected a torn-down tool to ignore the map entirely')
+	})
+
+	it('the scale rounds to a readable distance and labels it in m or km', function() {
+
+		// Leaflet's own _getRoundNum criterion: the largest 1/2/3/5/10 x 10^n
+		// that still fits under the bar's max width
+		assert.equal(round_distance(1234), 1000)
+		assert.equal(round_distance(999), 500)
+		assert.equal(round_distance(3400), 3000)
+		assert.equal(round_distance(78), 50)
+		assert.equal(round_distance(21), 20)
+
+		assert.equal(format_distance(500), '500 m')
+		assert.equal(format_distance(1000), '1 km')
+		assert.equal(format_distance(1500), '1.5 km')
+		// never "2.0 km" — a trailing zero on a map scale reads as precision
+		// the bar does not have
+		assert.equal(format_distance(2000), '2 km')
+	})
+
+	it('attach_scale_bar adds exactly one graphic scale WITH its compass rose, idempotently', function() {
+
+		tool.attach_scale_bar()
+		tool.attach_scale_bar()
+
+		const map_container_node = geolocation.map.getContainer()
+		const scales = map_container_node.querySelectorAll('.uca-maps-scale')
+		assert.equal(scales.length, 1, 'expected exactly one scale bar')
+
+		// the compass is half of what v6 draws here (its hand-patched copy of
+		// leaflet-graphicscale builds one) — a scale bar without it is the
+		// omission Sergio caught on the hito-15 validation
+		assert.isOk(scales[0].querySelector('.uca-maps-scale-compass'), 'expected the compass rose')
+
+		// two offset rows of divisions: the "double line" checker bar, not a
+		// single stroke
+		const rows = scales[0].querySelectorAll('.uca-maps-scale-row')
+		assert.equal(rows.length, 2, 'expected a double-line bar')
+		assert.isAbove(rows[0].children.length, 1, 'expected the bar split into divisions')
+		assert.equal(
+			rows[0].children.length, rows[1].children.length,
+			'expected both rows split the same way'
+		)
+		assert.notEqual(
+			rows[0].children[0].classList.contains('filled'),
+			rows[1].children[0].classList.contains('filled'),
+			'expected the second row offset by one division — that is what makes the checker'
+		)
+
+		assert.isOk(
+			scales[0].querySelector('.uca-maps-scale-labels').textContent.trim(),
+			'expected the bar labelled with a distance'
+		)
+	})
+
+	it('the scale redraws on every map move — a bar frozen at the old view lies about the map', function() {
+
+		tool.attach_scale_bar()
+
+		const labels_node = geolocation.map.getContainer().querySelector('.uca-maps-scale-labels')
+		const drawn = labels_node.textContent
+		assert.isOk(drawn, 'expected the bar drawn on attach')
+
+		// NOT driven by a zoom change: this suite's map takes its zoom bounds
+		// from its own base layer (maxZoom 11), so setView() cannot move it far
+		// enough to change the rounded distance. What matters is the listener
+		// itself — wipe what is drawn and prove a map move puts it back.
+		labels_node.replaceChildren()
+		assert.equal(labels_node.textContent, '', 'expected the wipe to take')
+
+		geolocation.map.fire('move')
+
+		assert.equal(labels_node.textContent, drawn, 'expected the bar redrawn by the map move')
+	})
+
+	it('detach removes the scale bar', async function() {
+
+		tool.attach_scale_bar()
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.scale_control, null, 'expected scale_control cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-scale'),
+			'expected the scale bar removed on teardown'
+		)
 	})
 
 	it('detach_file_upload removes the button and panel', async function() {
