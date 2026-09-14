@@ -38,19 +38,14 @@
 
 import { existsSync } from 'node:fs';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import { scanContextFromItem, scanFilesInfo } from '../../../src/core/media/files_info.ts';
 import { buildMediaLocation } from '../../../src/core/media/path.ts';
-import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import { resolveGdalBinary, runToolBinary } from './gdal.ts';
-
-/** What a browser can put in an `<img>`. The overlay is drawn from ONE of
- * these, never from the raw master (`.tif`/`.psd` render nowhere). */
-const OVERLAY_EXTENSIONS: readonly string[] = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'gif'];
+import { resolveRenderableImage } from './image_media.ts';
 
 /** Extensions worth asking GDAL about. Only a TIFF carries georeferencing
  * through Dédalo's ingest; a JPEG's EXIF GPS tag is a camera POSITION, not an
@@ -133,35 +128,13 @@ export async function readGeoreference(absolutePath: string): Promise<OverlayCor
  * right question: the answer names a media path they will then load.
  */
 export async function getImageOverlay(ctx: ToolActionContext): Promise<ToolResponse> {
-	const { spec, identity, pathOpts, items } = await resolveMediaToolContext(ctx.options);
-	if (spec.model !== 'component_image') {
-		throw new DedaloError('request.invalid_model', {
-			message: `tool_uca_maps: an image overlay needs a component_image, got '${spec.model}'`,
-			publicMessage: 'Only an image component can be placed on the map.',
-			coordinates: { component_tipo: identity.componentTipo, model: spec.model },
-		});
-	}
-
-	const files_info = scanFilesInfo(spec, identity, pathOpts, scanContextFromItem(items[0]));
-
-	// The overlay is drawn from the WEB tier when the ingest built one (the
-	// normal case: a .tif upload lands in `original/` and its jpg derivative
-	// in the default quality), and only falls back to another existing,
-	// browser-renderable tier when it did not.
-	const renderable = files_info.filter(
-		(entry) =>
-			entry.file_exist &&
-			typeof entry.file_path === 'string' &&
-			OVERLAY_EXTENSIONS.includes(String(entry.extension ?? '').toLowerCase()),
+	// WHICH file is served is `image_media.ts`'s single answer, shared with
+	// `get_image_file` (fila #3's associated image) so the two can never
+	// disagree about the tier. Only what follows — the georeference — is this
+	// action's own.
+	const { spec, identity, pathOpts, files_info, served } = await resolveRenderableImage(
+		ctx.options,
 	);
-	const served = renderable.find((entry) => entry.quality === spec.defaultQuality) ?? renderable[0];
-	if (!served || typeof served.file_path !== 'string') {
-		throw new DedaloError('tool.target_not_found', {
-			message: `tool_uca_maps: no renderable image file for ${identity.componentTipo}_${identity.sectionTipo}_${identity.sectionId}`,
-			publicMessage: 'The uploaded image has no version this browser can display.',
-			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },
-		});
-	}
 
 	// Georeference is read from the MASTER, never from the served derivative:
 	// the jpg the ingest built carries no CRS at all.

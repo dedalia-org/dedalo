@@ -189,11 +189,14 @@ export const render_selected_object = function(self, layer) {
 		})
 	}
 
+	render_elevation(self, layer, object_section)
+
 	render_style_controls(self, layer, object_section)
 	render_centroid_control(self, layer, object_section)
 	render_uncertainty_control(self, layer, object_section)
 	render_hierarchy_controls(self, layer, object_section)
 	render_properties_editor(self, layer, object_section)
+	render_object_images(self, layer, object_section)
 	render_download_button(self, layer, object_section)
 
 }//end render_selected_object
@@ -622,6 +625,32 @@ const render_properties_editor = function(self, layer, container) {
 			}
 		})
 
+	// "Exportar como PDF" — v6 puts it beside "Nueva propiedad" for the same
+	// reason it sits here: the document IS the properties, plus the geometry
+	// and the associated images (`special_tools.js` `create_pdf`).
+	const pdf_btn = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-property-pdf-button',
+		text_content	: self.get_tool_label('properties_pdf_button') || 'Export as PDF',
+		parent			: fieldset
+	})
+	pdf_btn.type = 'button'
+	pdf_btn.addEventListener('click', async function() {
+
+		// direction read off the DOM, never a cached flag (hito 3c corollary)
+		if (pdf_btn.disabled) {
+			return
+		}
+		pdf_btn.disabled = true
+		try {
+			await self.download_object_pdf(layer)
+		} finally {
+			if (pdf_btn.isConnected) {
+				pdf_btn.disabled = false
+			}
+		}
+	})
+
 }//end render_properties_editor
 
 
@@ -671,6 +700,226 @@ const render_download_button = function(self, layer, container) {
 	button.addEventListener('click', () => self.download_vector(layer, select.value))
 
 }//end render_download_button
+
+
+/**
+* RENDER_ELEVATION
+* One line — "Elevation of the centre: 412 m" — filled in when the server
+* answers (`object_console.js` `fetch_elevation`). v6 shows the same line
+* with the same two labels (`special_tools.js` `create_div_elevation`: a
+* marker gets "Elevación", everything else "Elevación del centro").
+*
+* The line is drawn IMMEDIATELY, showing a pending state, and filled in
+* later: the request is a third-party round trip and the rest of the console
+* must not wait for it. Nothing is awaited by the caller — but the panel may
+* be closed, or another object selected, before the answer lands, so the fill
+* checks that this very node is still in the document before touching it.
+* Writing into a detached node would be harmless; writing into the node of a
+* DIFFERENT object would be a lie.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @param {HTMLElement} parent
+* @returns {void}
+*/
+const render_elevation = function(self, layer, parent) {
+
+	const is_marker	= layer instanceof L.Marker
+	const label		= is_marker
+		? (self.get_tool_label('elevation') || 'Elevation')
+		: (self.get_tool_label('elevation_center') || 'Elevation of the centre')
+
+	const node = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-elevation',
+		text_content	: label + ': ' + (self.get_tool_label('elevation_pending') || '…'),
+		parent			: parent
+	})
+
+	self.fetch_elevation(layer).then(function(result) {
+
+		if (!node.isConnected) {
+			return
+		}
+		node.textContent = label + ': ' + (result.unavailable
+			? (self.get_tool_label('elevation_unavailable') || 'not available')
+			: result.elevation + ' m')
+	})
+
+}//end render_elevation
+
+
+/**
+* RENDER_OBJECT_IMAGES
+* Fila #3's associated-image block: a file picker that uploads and associates,
+* plus the gallery of what is already associated.
+*
+* v6 splits this across two modal dialogs ("Asociar imagen al objeto" and
+* "Galería", `special_tools.js:4528`/`:4717`). Here both live in the console
+* panel that is already open on that object, because there is nothing modal
+* about either: a modal would hide the very geometry the pictures belong to.
+*
+* Each thumbnail is a LINK to the full image, opened in a new tab rather than
+* through a lightbox library — v6 vendors `simpleLightbox` for this; a new tab
+* costs no dependency and gives the user the browser's own zoom, download and
+* back button.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @param {HTMLElement} parent
+* @returns {void}
+*/
+const render_object_images = function(self, layer, parent) {
+
+	const container = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-images',
+		parent			: parent
+	})
+
+	ui.create_dom_element({
+		element_type	: 'h6',
+		text_content	: self.get_tool_label('object_images_title') || 'Associated images',
+		parent			: container
+	})
+
+	const gallery = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-gallery',
+		parent			: container
+	})
+	populate_object_gallery(self, layer, gallery)
+
+	const file_input = ui.create_dom_element({
+		element_type	: 'input',
+		type			: 'file',
+		class_name		: 'uca-maps-object-image-file',
+		parent			: container
+	})
+	file_input.accept = 'image/jpeg,image/png'
+
+	const status = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-image-status',
+		parent			: container
+	})
+
+	const button = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-object-image-associate',
+		text_content	: self.get_tool_label('object_images_associate') || 'Associate image',
+		parent			: container
+	})
+
+	button.addEventListener('click', async function() {
+
+		// the direction is read off the DOM, never off a cached flag: the
+		// button is disabled for the whole round trip and re-enabled from the
+		// node itself (same law as toolbar panel visibility, hito 3c)
+		if (button.disabled) {
+			return
+		}
+		button.disabled = true
+		status.textContent = self.get_tool_label('object_images_uploading') || 'Uploading…'
+
+		const result = await self.associate_image(layer, file_input.files && file_input.files[0])
+
+		// the panel may be gone, or showing another object, by now
+		if (!status.isConnected) {
+			return
+		}
+		button.disabled = false
+
+		if (!result.ok) {
+			status.textContent = result.error || ''
+			return
+		}
+		status.textContent = ''
+		file_input.value = ''
+		// the association landed on `layer` either way; the gallery is only
+		// repainted when `layer` is still the object this panel is showing
+		if (result.still_shown) {
+			populate_object_gallery(self, layer, gallery)
+		}
+	})
+
+}//end render_object_images
+
+
+
+/**
+* POPULATE_OBJECT_GALLERY
+* Rebuilds the thumbnail list from the stored descriptors. Rebuilt whole on
+* every change rather than patched, the same criterion `populate_object_viewer`
+* uses: the list is short and bounded (30), and a patched list is where a
+* stale index silently detaches the wrong picture.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @param {HTMLElement} gallery
+* @returns {void}
+*/
+const populate_object_gallery = function(self, layer, gallery) {
+
+	gallery.replaceChildren()
+
+	const images = self.object_images(layer)
+	if (images.length===0) {
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'uca-maps-object-gallery-empty',
+			text_content	: self.get_tool_label('object_images_empty') || 'No images associated yet.',
+			parent			: gallery
+		})
+		return
+	}
+
+	images.forEach(function(image, index) {
+
+		const url = self.object_image_url(image)
+		if (!url) {
+			return
+		}
+
+		const item = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'uca-maps-object-gallery-item',
+			parent			: gallery
+		})
+
+		const link = ui.create_dom_element({
+			element_type	: 'a',
+			class_name		: 'uca-maps-object-gallery-link',
+			parent			: item
+		})
+		link.href	= url
+		link.target	= '_blank'
+		link.rel	= 'noopener noreferrer'
+		link.title	= image.name || String(image.section_id)
+
+		const thumb = ui.create_dom_element({
+			element_type	: 'img',
+			class_name		: 'uca-maps-object-gallery-thumb',
+			parent			: link
+		})
+		thumb.src = url
+		thumb.alt = image.name || ''
+
+		const remove = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'uca-maps-object-gallery-remove',
+			text_content	: '×',
+			parent			: item
+		})
+		remove.title = self.get_tool_label('object_images_remove') || 'Remove from this object'
+
+		remove.addEventListener('click', function() {
+			self.remove_object_image(layer, index)
+			populate_object_gallery(self, layer, gallery)
+		})
+	})
+
+}//end populate_object_gallery
 
 
 

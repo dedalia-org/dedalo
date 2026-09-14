@@ -464,6 +464,43 @@
 .uca-maps-console > .uca-maps-object-section .uca-maps-object-info {
   margin: 0.35rem 0;
 }
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-elevation {
+  margin: 0.35rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.35rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-item {
+  position: relative;
+  width: 4rem;
+  height: 4rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-empty,
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-image-status {
+  margin: 0.35rem 0;
+  font-style: italic;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-image-file {
+  display: block;
+  width: 100%;
+  margin: 0.35rem 0;
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-field {
   display: flex;
   align-items: center;

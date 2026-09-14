@@ -47,6 +47,9 @@ import { event_manager } from '../../../core/common/js/event_manager.js'
 import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js'
 import {
 	find_layer_id,
+	download_object_pdf,
+	layer_center,
+	fetch_elevation,
 	set_style_field,
 	set_property,
 	delete_property,
@@ -60,6 +63,13 @@ import {
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { create_image_object, corners_from_viewport } from '../../../tools/tool_uca_maps/js/image_upload.js'
+import {
+	associate_image,
+	object_images,
+	object_image_url,
+	remove_object_image,
+	MAX_OBJECT_IMAGES
+} from '../../../tools/tool_uca_maps/js/object_image.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
@@ -429,6 +439,219 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		control.click()
 		assert.equal(tool.panel_node.hidden, true, 'expected panel hidden again after a second click')
+	})
+
+
+	/**
+	* ELEVATION (fila #3, hueco portado) — `layer_center` picks the point the
+	* server is asked about, `fetch_elevation` asks it, and NEITHER writes
+	* anything into the feature: v6 saves `center_elevation` on every click,
+	* which would dirty the record just for selecting an object. That
+	* not-saving is the thing worth pinning — a regression there is invisible
+	* until a user is asked to save a record they only looked at.
+	*/
+	it('layer_center is a marker\'s own position and any other geometry\'s bounds centre', function() {
+
+		const marker	= geolocation.FeatureGroup[3].getLayers()[0]
+		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]
+
+		const marker_center = layer_center(marker)
+		assert.closeTo(marker_center.lat, 40.42, 0.0001, 'expected the marker\'s own latitude')
+		assert.closeTo(marker_center.lng, -3.68, 0.0001, 'expected the marker\'s own longitude')
+
+		const polygon_center = layer_center(polygon)
+		assert.closeTo(polygon_center.lat, 40.45, 0.0001, 'expected the polygon bounds centre latitude')
+		assert.closeTo(polygon_center.lng, -3.655, 0.0001, 'expected the polygon bounds centre longitude')
+
+		assert.equal(layer_center(null), null, 'expected null for no layer')
+		assert.equal(layer_center({}), null, 'expected null for something with no position at all')
+	})
+
+	it('fetch_elevation asks about the centre and never writes it into the feature', async function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		let asked = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			asked = options
+			return { ok:true, data:{ elevation: 412, unavailable:false } }
+		}
+
+		const result = await fetch_elevation(tool, layer)
+
+		assert.equal(asked.action, 'get_elevation', 'expected the get_elevation action')
+		assert.closeTo(asked.options.lat, 40.45, 0.0001, 'expected the bounds centre latitude')
+		assert.closeTo(asked.options.lng ?? asked.options.lon, -3.655, 0.0001, 'expected the bounds centre longitude')
+		assert.equal(result.elevation, 412, 'expected the reported elevation')
+		assert.equal(result.unavailable, false, 'expected an available verdict')
+
+		// v6 does `layer.feature.properties.center_elevation = ...; save_object()`
+		const properties = (layer.feature && layer.feature.properties) || {}
+		assert.isUndefined(properties.center_elevation, 'expected NOTHING written into the feature')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('fetch_elevation degrades to unavailable instead of throwing when the service fails', async function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() {
+			return { ok:true, data:{ elevation: null, unavailable:true } }
+		}
+
+		const degraded = await fetch_elevation(tool, layer)
+		assert.equal(degraded.elevation, null, 'expected no elevation')
+		assert.equal(degraded.unavailable, true, 'expected the degraded verdict')
+
+		tool.tool_request = async function() { throw new Error('network down') }
+		const thrown = await fetch_elevation(tool, layer)
+		assert.equal(thrown.unavailable, true, 'expected an unexpected throw to degrade, not to propagate')
+
+		tool.tool_request = original_tool_request
+	})
+
+
+	/**
+	* ASSOCIATED IMAGES + GALLERY (fila #3, hito 16). The upload pipeline
+	* itself is the one hito 13 already covers; what is pinned here is what
+	* this feature adds on top of it — WHERE the association is stored, that a
+	* RELATIVE path is stored rather than v6's absolute URL, that removing an
+	* association does not touch the media, and that the PDF export sends
+	* record identities and never a file path.
+	*/
+	it('associate_image refuses with no file and never reaches the server', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.active_console_layer = layer
+
+		let asked = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { asked = true; return {} }
+
+		const result = await associate_image(tool, layer, null)
+
+		assert.equal(result.ok, false, 'expected a caller-fault verdict')
+		assert.isOk(result.error, 'expected a message to show in the panel')
+		assert.equal(asked, false, 'expected NO request without a file')
+		assert.deepEqual(object_images(layer), [], 'expected nothing stored')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('associate_image refuses once the object already holds the maximum', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.active_console_layer = layer
+		layer.feature.properties.uca_maps = { images: Array.from(
+			{length: MAX_OBJECT_IMAGES},
+			(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'rsc170', section_id:index, tipo:'rsc29', name:null})
+		) }
+
+		let asked = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { asked = true; return {} }
+
+		const result = await associate_image(tool, layer, new File(['x'], 'x.jpg', {type:'image/jpeg'}))
+
+		assert.equal(result.ok, false, 'expected a refusal at the cap')
+		assert.isOk(result.error, 'expected a message to show')
+		assert.equal(asked, false, 'expected the cap checked BEFORE any upload')
+		assert.equal(object_images(layer).length, MAX_OBJECT_IMAGES, 'expected nothing added')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('object_images / object_image_url read the stored descriptors', function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		assert.deepEqual(object_images(layer), [], 'expected no images on a fresh object')
+		assert.deepEqual(object_images(null), [], 'expected an array, never null')
+
+		layer.feature.properties.uca_maps = { images: [
+			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
+		] }
+
+		assert.equal(object_images(layer).length, 1, 'expected the stored image')
+
+		const url = object_image_url(object_images(layer)[0])
+		assert.isOk(url, 'expected a resolvable url')
+		assert.isTrue(url.endsWith('/rsc29/1.5MB/a.jpg'), 'expected the stored RELATIVE path resolved against the media url')
+		assert.equal(object_image_url({}), null, 'expected null for a descriptor with no path')
+	})
+
+	it('a stored descriptor holds NO absolute url — v6 stores one and it breaks on a host change', function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.feature.properties.uca_maps = { images: [
+			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
+		] }
+
+		const stored = object_images(layer)[0]
+		assert.isUndefined(stored.url, 'expected NO absolute url stored')
+		assert.isTrue(stored.file_path.startsWith('/'), 'expected a media-root-relative path')
+		assert.isFalse(/^https?:/.test(stored.file_path), 'expected no scheme in the stored path')
+	})
+
+	it('remove_object_image drops the association and refuses an out-of-range index', function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.feature.properties.uca_maps = { images: [
+			{ file_path:'/a.jpg', section_tipo:'rsc170', section_id:1, tipo:'rsc29', name:'a' },
+			{ file_path:'/b.jpg', section_tipo:'rsc170', section_id:2, tipo:'rsc29', name:'b' }
+		] }
+
+		assert.equal(remove_object_image(tool, layer, 5), false, 'expected a refusal past the end')
+		assert.equal(remove_object_image(tool, layer, -1), false, 'expected a refusal below zero')
+		assert.equal(object_images(layer).length, 2, 'expected nothing removed by a bad index')
+
+		assert.equal(remove_object_image(tool, layer, 0), true, 'expected the first image removed')
+		assert.equal(object_images(layer).length, 1, 'expected one left')
+		assert.equal(object_images(layer)[0].name, 'b', 'expected the RIGHT one left')
+	})
+
+	it('the gallery cap is v6\'s own 30', function() {
+		assert.equal(MAX_OBJECT_IMAGES, 30, 'expected v6\'s documented maximum')
+	})
+
+	it('download_object_pdf sends record identities and NEVER a file path', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.feature.properties.uca_maps = { images: [
+			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
+		] }
+
+		let asked = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			asked = options
+			// a real, minimal PDF so the blob path runs for real
+			return { ok:true, data:{
+				content_base64	: btoa('%PDF-1.4\n%%EOF\n'),
+				filename		: 'uca_maps_object.pdf',
+				mime			: 'application/pdf'
+			} }
+		}
+
+		await download_object_pdf(tool, layer)
+
+		assert.equal(asked.action, 'object_pdf_report', 'expected the pdf action')
+		assert.isOk(asked.options.geojson, 'expected the object as geojson')
+		assert.equal(asked.options.images.length, 1, 'expected the associated image listed')
+
+		const sent = asked.options.images[0]
+		assert.equal(sent.section_tipo, 'rsc170', 'expected the record section')
+		assert.equal(sent.section_id, 88, 'expected the record id')
+		assert.isUndefined(sent.file_path, 'expected NO file path sent — the server re-resolves it under its own gate')
+		assert.isUndefined(sent.url, 'expected no url sent either')
+
+		tool.tool_request = original_tool_request
 	})
 
 	it('find_layer_id resolves the FeatureGroup that owns a layer', function() {

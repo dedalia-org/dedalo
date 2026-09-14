@@ -53,7 +53,7 @@
 
 
 import {event_manager} from '../../../core/common/js/event_manager.js'
-import {response_data, ApiError} from '../../../core/common/js/api_error.js'
+import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
 import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 import {
@@ -783,6 +783,80 @@ export const download_vector = async function(self, layer, format) {
 }//end download_vector
 
 
+/**
+* DOWNLOAD_OBJECT_PDF
+* Fila #3's "Exportar como PDF": the selected object's properties, geometry
+* and associated images as one document, built by the server
+* (`server/pdf_report.ts` — and see its header for why it is not built in the
+* browser the way v6 does it).
+*
+* What travels: the object as GeoJSON (same as `download_vector`), the image
+* RECORD IDENTITIES — never their paths, which is what stops the report from
+* becoming a way to read media the caller has no right to — the elevation
+* already on screen, and the tool's own labels, so the document speaks the
+* language of the record rather than the server's default.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @returns {Promise<void>}
+*/
+export const download_object_pdf = async function(self, layer) {
+
+	try {
+
+		const geojson	= layer.toGeoJSON()
+		const cached	= self._elevation
+		const elevation	= (cached && cached.layer===layer && typeof cached.elevation==='number')
+			? cached.elevation
+			: null
+
+		const images = self.object_images(layer).map(function(image) {
+			return {
+				section_tipo	: image.section_tipo,
+				section_id		: image.section_id,
+				tipo			: image.tipo,
+				name			: image.name
+			}
+		})
+
+		const response = await self.tool_request({
+			action	: 'object_pdf_report',
+			options	: {
+				tipo			: self.geolocation.tipo,
+				section_id		: self.geolocation.section_id,
+				section_tipo	: self.geolocation.section_tipo,
+				geojson			: geojson,
+				images			: images,
+				elevation		: elevation,
+				labels			: {
+					title			: self.get_tool_label('pdf_title'),
+					geometry		: self.get_tool_label('pdf_geometry'),
+					type			: self.get_tool_label('pdf_type'),
+					images			: self.get_tool_label('object_images_title'),
+					elevation		: self.get_tool_label('elevation'),
+					no_properties	: self.get_tool_label('pdf_no_properties'),
+					image_missing	: self.get_tool_label('pdf_image_missing'),
+					image_format	: self.get_tool_label('pdf_image_format'),
+					image_forbidden	: self.get_tool_label('pdf_image_forbidden')
+				}
+			}
+		})
+
+		const data = response_data(response)
+		if (!data) {
+			await handle_api_error(response.error, {})
+			return
+		}
+
+		trigger_blob_download(await base64_to_blob(data.content_base64, data.mime), data.filename)
+
+	} catch (error) {
+		console.error('tool_uca_maps: object_pdf_report failed unexpectedly', error)
+		report_client_error((error && error.message) || 'PDF export failed')
+	}
+}//end download_object_pdf
+
+
 
 /**
 * TOGGLE_CENTROID
@@ -1118,6 +1192,116 @@ export const compute_info = function(self, layer) {
 
 	return null
 }//end compute_info
+
+
+/**
+* LAYER_CENTER
+* The point an elevation is asked about: a marker's own position, anything
+* else's bounds centre — v6 verbatim (`special_tools.js` `create_div_elevation`,
+* which prints a different label for each of the two cases).
+*
+* @param {Object} layer
+* @returns {Object|null} L.LatLng
+*/
+export const layer_center = function(layer) {
+
+	if (!layer) {
+		return null
+	}
+	if (layer instanceof L.Marker) {
+		return layer.getLatLng()
+	}
+	if (typeof layer.getBounds!=='function') {
+		return null
+	}
+	const bounds = layer.getBounds()
+
+	return (bounds && bounds.isValid()) ? bounds.getCenter() : null
+}//end layer_center
+
+
+
+/**
+* FETCH_ELEVATION
+* Asks the server for the elevation of the selected object's centre
+* (`server/elevation.ts` — the outbound call is the server's, as it already
+* is in v6).
+*
+* WHAT IT DOES NOT DO: persist. v6 writes the answer into
+* `feature.properties.center_elevation` and calls `save_object()` right there
+* — so merely CLICKING an object dirties the record. That contradicts this
+* tool's own law ("nada auto-guarda: un gesto marca dirty, solo el botón
+* commitea", CLAUDE.local.md), and it stores derived third-party data as if
+* the user had typed it. Here the elevation is DISPLAYED and handed to the
+* PDF export in memory; if the user wants it stored, the properties editor
+* right below already adds any key they like.
+*
+* Never throws: the caller is a render path, and a service outage must not
+* stop the console from opening (see the server module's header).
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @returns {Promise<{elevation: number|null, unavailable: boolean}>}
+*/
+export const fetch_elevation = async function(self, layer) {
+
+	const center = layer_center(layer)
+	if (!center) {
+		return {elevation: null, unavailable: true}
+	}
+
+	// THE CACHE IS NOT AN OPTIMISATION, it is what stops a public service being
+	// hammered during ordinary editing. `render_selected_object` rebuilds the
+	// whole object section, and `commit()` calls it after EVERY mutation —
+	// each style field, property edit, property delete, centroid/uncertainty/
+	// hierarchy toggle, image associate and image remove — on top of the
+	// `updated_layer_data_*` re-render. Without this, editing five properties
+	// on one polygon fires ~10 outbound requests about a centre that never
+	// moved, and Open-Elevation rate-limits until the line reads "not
+	// available" (review finding, hito 16).
+	// Keyed on the layer AND the coordinates, so MOVING a shape does re-ask.
+	const cache_key = center.lat + ',' + center.lng
+	const cached = self._elevation
+	if (cached && cached.layer===layer && cached.key===cache_key) {
+		return {elevation: cached.elevation, unavailable: cached.elevation===null}
+	}
+
+	try {
+
+		const response = await self.tool_request({
+			action	: 'get_elevation',
+			options	: {
+				tipo			: self.geolocation.tipo,
+				section_id		: self.geolocation.section_id,
+				section_tipo	: self.geolocation.section_tipo,
+				lat				: center.lat,
+				lon				: center.lng
+			}
+		})
+
+		if (request_failed(response)) {
+			return {elevation: null, unavailable: true}
+		}
+
+		const data = response_data(response)
+
+		const result = (data && typeof data.elevation==='number')
+			? {elevation: data.elevation, unavailable: false}
+			: {elevation: null, unavailable: true}
+
+		// remembered for the re-render guard above AND for the PDF export, which
+		// must print the number the user is LOOKING AT — asking the service a
+		// second time could legitimately answer differently and make the
+		// document disagree with the panel
+		self._elevation = {layer: layer, key: cache_key, elevation: result.elevation}
+
+		return result
+
+	} catch (error) {
+		console.error('tool_uca_maps: get_elevation failed unexpectedly', error)
+		return {elevation: null, unavailable: true}
+	}
+}//end fetch_elevation
 
 
 

@@ -66,7 +66,10 @@ import {
 import { getAdministrativeUnit } from './administrative_units.ts';
 import { probeCapabilities } from './capabilities.ts';
 import { getCatastroParcel } from './catastro.ts';
+import { getElevation } from './elevation.ts';
+import { getImageFile } from './image_media.ts';
 import { getImageOverlay } from './image_overlay.ts';
+import { objectPdfReport } from './pdf_report.ts';
 import { searchPlaces } from './place_search.ts';
 import { rasterDownload } from './raster_download.ts';
 import { vectorDownload } from './vector_download.ts';
@@ -94,6 +97,9 @@ export const tool: ToolServerModule = {
 		upload_vector_layer: { permission: 'record_tipo', minLevel: 1, handler: uploadVectorLayer },
 		get_image_overlay: { permission: 'record_tipo', minLevel: 1, handler: getImageOverlay },
 		search_places: { permission: 'record_tipo', minLevel: 1, handler: searchPlaces },
+		get_elevation: { permission: 'record_tipo', minLevel: 1, handler: getElevation },
+		get_image_file: { permission: 'record_tipo', minLevel: 1, handler: getImageFile },
+		object_pdf_report: { permission: 'record_tipo', minLevel: 1, handler: objectPdfReport },
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because

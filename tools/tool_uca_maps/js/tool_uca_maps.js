@@ -95,11 +95,13 @@
 		attach_console,
 		detach_console,
 		compute_info,
+		fetch_elevation,
 		RESERVED_PROPERTY_KEYS,
 		set_style_field,
 		set_property,
 		delete_property,
 		download_vector,
+		download_object_pdf,
 		toggle_centroid,
 		toggle_uncertainty,
 		set_hierarchy
@@ -109,6 +111,12 @@
 		attach_map_image_download_control,
 		detach_map_image_download_control
 	} from './map_image_download.js'
+	import {
+		associate_image,
+		object_images,
+		object_image_url,
+		remove_object_image
+	} from './object_image.js'
 	import {attach_capabilities_panel, detach_capabilities_panel} from './capabilities_panel.js'
 	import {
 		attach_object_viewer,
@@ -771,6 +779,26 @@ tool_uca_maps.prototype.compute_info = function(layer) {
 	return compute_info(this, layer)
 }//end compute_info
 
+tool_uca_maps.prototype.fetch_elevation = function(layer) {
+	return fetch_elevation(this, layer)
+}//end fetch_elevation
+
+tool_uca_maps.prototype.associate_image = function(layer, file) {
+	return associate_image(this, layer, file)
+}//end associate_image
+
+tool_uca_maps.prototype.object_images = function(layer) {
+	return object_images(layer)
+}//end object_images
+
+tool_uca_maps.prototype.object_image_url = function(image) {
+	return object_image_url(image)
+}//end object_image_url
+
+tool_uca_maps.prototype.remove_object_image = function(layer, index) {
+	return remove_object_image(this, layer, index)
+}//end remove_object_image
+
 tool_uca_maps.prototype.get_reserved_property_keys = function() {
 	return RESERVED_PROPERTY_KEYS
 }//end get_reserved_property_keys
@@ -790,6 +818,10 @@ tool_uca_maps.prototype.delete_property = function(layer, key) {
 tool_uca_maps.prototype.download_vector = function(layer, format) {
 	return download_vector(this, layer, format)
 }//end download_vector
+
+tool_uca_maps.prototype.download_object_pdf = function(layer) {
+	return download_object_pdf(this, layer)
+}//end download_object_pdf
 
 /**
 * CHECKPOINT 3B — map-wide raster download (functionality #10). Same thin-

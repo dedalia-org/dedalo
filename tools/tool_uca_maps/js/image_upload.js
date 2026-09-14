@@ -284,6 +284,72 @@ const ingest_uploaded_file = async function(section_id, file_data) {
 
 
 /**
+* INGEST_IMAGE_UPLOAD
+* Doors 1 + 2 of the three in the file header — stage the bytes, mint the
+* record, ingest — with NOTHING about the map in them. Both callers of the
+* image pipeline share exactly this much and diverge after it: fila #11 asks
+* where the image goes and draws an overlay; fila #3 ("asociar imagen al
+* objeto", hito 16) asks only where it is served from and hangs it off a
+* geometry.
+*
+* Extracted rather than copied: the ordering decision below (bytes BEFORE the
+* record, to narrow the orphan-record window) is one rule that must hold for
+* every image this tool ingests, and a second copy would eventually stop
+* matching it.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {File} file
+* @returns {Promise<{ok: boolean, section_id?: number, error?: string}>}
+*/
+export const ingest_image_upload = async function(self, file) {
+
+	// The bytes are staged BEFORE the record is minted, deliberately —
+	// v6 does it the other way round and leaves an empty rsc170 record
+	// behind every time an upload is refused or cancelled. Nothing in the
+	// staging step needs the record (`tipo` here is the component TIPO, a
+	// constant), so the record is only created once there is a file to
+	// put in it.
+	// (!) This NARROWS the orphan-record window, it does not close it: a
+	// failure AFTER the mint (a refused ingest, a torn-down tool, a
+	// missing renderable tier) still leaves the rsc170 record behind.
+	// Cleaning that up means the tool DELETING a core-section record,
+	// which is a decision of its own — see the hito 13 dossier.
+	const upload_response = await upload({
+		id					: self.id,
+		file				: file,
+		key_dir				: IMAGE_UPLOAD_KEY_DIR,
+		allowed_extensions	: IMAGE_UPLOAD_EXTENSIONS,
+		max_size_bytes		: IMAGE_UPLOAD_MAX_BYTES,
+		tipo				: IMAGE_COMPONENT_TIPO
+	})
+
+	if (!response_data(upload_response)) {
+		const message = upload_response && upload_response.error
+			? error_text(upload_response.error)
+			: (self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.')
+		return {ok: false, error: message}
+	}
+
+	const section_id = await create_image_record()
+	if (section_id===null) {
+		return {
+			ok		: false,
+			error	: self.get_tool_label('upload_image_error_record')
+				|| 'A record to hold the image could not be created.'
+		}
+	}
+
+	const ingest_response = await ingest_uploaded_file(section_id, upload_response.file_data)
+	if (request_failed(ingest_response)) {
+		return {ok: false, error: error_text(ingest_response.error)}
+	}
+
+	return {ok: true, section_id: section_id}
+}//end ingest_image_upload
+
+
+
+/**
 * UPLOAD_IMAGE_FILE
 * The whole flow, exported taking a plain `file` (not a DOM event) so tests
 * can await it directly — same testability convention as
@@ -306,46 +372,11 @@ export const upload_image_file = async function(self, file) {
 
 	try {
 
-		// The bytes are staged BEFORE the record is minted, deliberately —
-		// v6 does it the other way round and leaves an empty rsc170 record
-		// behind every time an upload is refused or cancelled. Nothing in the
-		// staging step needs the record (`tipo` here is the component TIPO, a
-		// constant), so the record is only created once there is a file to
-		// put in it.
-		// (!) This NARROWS the orphan-record window, it does not close it: a
-		// failure AFTER the mint (a refused ingest, a torn-down tool, a
-		// missing renderable tier) still leaves the rsc170 record behind.
-		// Cleaning that up means the tool DELETING a core-section record,
-		// which is a decision of its own — see the hito 13 dossier.
-		const upload_response = await upload({
-			id					: self.id,
-			file				: file,
-			key_dir				: IMAGE_UPLOAD_KEY_DIR,
-			allowed_extensions	: IMAGE_UPLOAD_EXTENSIONS,
-			max_size_bytes		: IMAGE_UPLOAD_MAX_BYTES,
-			tipo				: IMAGE_COMPONENT_TIPO
-		})
-
-		if (!response_data(upload_response)) {
-			const message = upload_response && upload_response.error
-				? error_text(upload_response.error)
-				: (self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.')
-			return {ok: false, error: message}
+		const ingested = await ingest_image_upload(self, file)
+		if (!ingested.ok) {
+			return ingested
 		}
-
-		const section_id = await create_image_record()
-		if (section_id===null) {
-			return {
-				ok		: false,
-				error	: self.get_tool_label('upload_image_error_record')
-					|| 'A record to hold the image could not be created.'
-			}
-		}
-
-		const ingest_response = await ingest_uploaded_file(section_id, upload_response.file_data)
-		if (request_failed(ingest_response)) {
-			return {ok: false, error: error_text(ingest_response.error)}
-		}
+		const section_id = ingested.section_id
 
 		const overlay_response = await self.tool_request({
 			action	: 'get_image_overlay',

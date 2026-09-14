@@ -648,6 +648,53 @@
 			margin: 0.35rem 0;
 		}
 
+		.uca-maps-object-elevation {
+			margin: 0.35rem 0;
+		}
+
+		// Associated images (fila #3). The grid is fixed-width, not
+		// `auto-fill`: the panel itself is narrow and a thumbnail that
+		// stretches to the panel width stops being a thumbnail.
+		.uca-maps-object-gallery {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.3rem;
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-object-gallery-item {
+			position: relative;
+			width: 4rem;
+			height: 4rem;
+		}
+
+		.uca-maps-object-gallery-thumb {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			display: block;
+		}
+
+		.uca-maps-object-gallery-remove {
+			position: absolute;
+			top: 0;
+			right: 0;
+			line-height: 1;
+			padding: 0 0.2rem;
+		}
+
+		.uca-maps-object-gallery-empty,
+		.uca-maps-object-image-status {
+			margin: 0.35rem 0;
+			font-style: italic;
+		}
+
+		.uca-maps-object-image-file {
+			display: block;
+			width: 100%;
+			margin: 0.35rem 0;
+		}
+
 		.uca-maps-field {
 			display: flex;
 			align-items: center;

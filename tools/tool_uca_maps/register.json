@@ -51,6 +51,60 @@
 		{ "lang": "lg-eng", "name": "activating_console", "value": "Activating UCA Maps…" },
 		{ "lang": "lg-spa", "name": "activating_console", "value": "Activando Mapas UCA…" },
 
+		{ "lang": "lg-eng", "name": "properties_pdf_button", "value": "Export as PDF" },
+		{ "lang": "lg-spa", "name": "properties_pdf_button", "value": "Exportar como PDF" },
+
+		{ "lang": "lg-eng", "name": "pdf_title", "value": "Object properties" },
+		{ "lang": "lg-spa", "name": "pdf_title", "value": "Propiedades del objeto" },
+
+		{ "lang": "lg-eng", "name": "pdf_geometry", "value": "Geometry" },
+		{ "lang": "lg-spa", "name": "pdf_geometry", "value": "Geometría" },
+
+		{ "lang": "lg-eng", "name": "pdf_type", "value": "Type" },
+		{ "lang": "lg-spa", "name": "pdf_type", "value": "Tipo" },
+
+		{ "lang": "lg-eng", "name": "pdf_no_properties", "value": "This object has no properties." },
+		{ "lang": "lg-spa", "name": "pdf_no_properties", "value": "El objeto no tiene propiedades." },
+
+		{ "lang": "lg-eng", "name": "pdf_image_format", "value": "Not included: this image format cannot be embedded." },
+		{ "lang": "lg-spa", "name": "pdf_image_format", "value": "No incluida: este formato de imagen no se puede incrustar." },
+
+		{ "lang": "lg-eng", "name": "pdf_image_missing", "value": "Not included: this image could not be embedded." },
+		{ "lang": "lg-spa", "name": "pdf_image_missing", "value": "No incluida: esta imagen no se pudo incrustar." },
+
+		{ "lang": "lg-eng", "name": "pdf_image_forbidden", "value": "Not included: you may not read this record." },
+		{ "lang": "lg-spa", "name": "pdf_image_forbidden", "value": "No incluida: no tiene permiso de lectura sobre esta ficha." },
+
+		{ "lang": "lg-eng", "name": "object_images_title", "value": "Associated images" },
+		{ "lang": "lg-spa", "name": "object_images_title", "value": "Imágenes asociadas" },
+
+		{ "lang": "lg-eng", "name": "object_images_associate", "value": "Associate image" },
+		{ "lang": "lg-spa", "name": "object_images_associate", "value": "Asociar imagen" },
+
+		{ "lang": "lg-eng", "name": "object_images_empty", "value": "No images associated yet." },
+		{ "lang": "lg-spa", "name": "object_images_empty", "value": "El objeto no tiene imágenes asociadas." },
+
+		{ "lang": "lg-eng", "name": "object_images_uploading", "value": "Uploading…" },
+		{ "lang": "lg-spa", "name": "object_images_uploading", "value": "Subiendo…" },
+
+		{ "lang": "lg-eng", "name": "object_images_remove", "value": "Remove from this object" },
+		{ "lang": "lg-spa", "name": "object_images_remove", "value": "Quitar de este objeto" },
+
+		{ "lang": "lg-eng", "name": "object_images_full", "value": "This object already holds the maximum number of images." },
+		{ "lang": "lg-spa", "name": "object_images_full", "value": "El objeto ya tiene el máximo de imágenes." },
+
+		{ "lang": "lg-eng", "name": "elevation", "value": "Elevation" },
+		{ "lang": "lg-spa", "name": "elevation", "value": "Elevación" },
+
+		{ "lang": "lg-eng", "name": "elevation_center", "value": "Elevation of the centre" },
+		{ "lang": "lg-spa", "name": "elevation_center", "value": "Elevación del centro" },
+
+		{ "lang": "lg-eng", "name": "elevation_pending", "value": "…" },
+		{ "lang": "lg-spa", "name": "elevation_pending", "value": "…" },
+
+		{ "lang": "lg-eng", "name": "elevation_unavailable", "value": "not available" },
+		{ "lang": "lg-spa", "name": "elevation_unavailable", "value": "no disponible" },
+
 		{ "lang": "lg-eng", "name": "info_coordinates", "value": "Coordinates" },
 		{ "lang": "lg-spa", "name": "info_coordinates", "value": "Coordenadas" },
 
