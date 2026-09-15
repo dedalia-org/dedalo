@@ -80,6 +80,17 @@ import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/
 import { create_position_marker, is_geolocate_enabled, toggle_geolocate } from '../../../tools/tool_uca_maps/js/geolocate.js'
 import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/render_place_search.js'
 import { format_distance, round_distance } from '../../../tools/tool_uca_maps/js/scale_bar.js'
+import {
+	empty_legend,
+	DEFAULT_ELEMENT_ICON,
+	ALLOWED_ICON_TYPES,
+	MAX_ICON_BYTES
+} from '../../../tools/tool_uca_maps/js/legend.js'
+import {
+	populate_legend_columns,
+	show_legend_message
+} from '../../../tools/tool_uca_maps/js/render_legend.js'
+import { is_toolbar_node } from '../../../tools/tool_uca_maps/js/toolbar.js'
 
 
 
@@ -198,6 +209,40 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
 		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
 		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
+		// "Legend" — functionality #12, the manual legend editor
+		assert.equal(typeof tool_uca_maps.prototype.attach_legend, 'function', 'expected attach_legend defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_legend_title, 'function', 'expected set_legend_title defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_legend_visible, 'function', 'expected set_legend_visible defined')
+		assert.equal(typeof tool_uca_maps.prototype.add_legend_column, 'function', 'expected add_legend_column defined')
+		assert.equal(typeof tool_uca_maps.prototype.delete_legend_column, 'function', 'expected delete_legend_column defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_legend_column_name, 'function', 'expected set_legend_column_name defined')
+		assert.equal(typeof tool_uca_maps.prototype.add_legend_element, 'function', 'expected add_legend_element defined')
+		assert.equal(typeof tool_uca_maps.prototype.delete_legend_element, 'function', 'expected delete_legend_element defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_name, 'function', 'expected set_legend_element_name defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_icon, 'function', 'expected set_legend_element_icon defined')
+	})
+
+	// "Legend" (functionality #12, js/legend.js) — PURE, no live map needed.
+	// The seed shape is a CONTRACT, not decoration: it is the exact object v6
+	// writes into its per-section_tipo JSON the first time
+	// (`class.tool_leaflet_special_tools.php` legends()), so the day the foro
+	// question #7 closes, persisting is writing this object verbatim.
+	it('empty_legend seeds v6\'s own stored shape, and the default icon is self-contained', function() {
+
+		assert.deepEqual(empty_legend(), {legend: '', enable: true, columns: []})
+
+		// no asset URL to resolve: `img-src` admits `data:` (APP_CSP), a tool
+		// asset path would have to be built and served
+		assert.isTrue(
+			DEFAULT_ELEMENT_ICON.startsWith('data:image/svg+xml;base64,'),
+			'expected the default pin embedded as a data URL'
+		)
+		assert.deepEqual(
+			ALLOWED_ICON_TYPES,
+			['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'],
+			'expected v6\'s own accepted icon types'
+		)
+		assert.equal(MAX_ICON_BYTES, 2000000, 'expected v6\'s own 2 MB ceiling')
 	})
 
 	// "WMS" (functionality #6, js/wms_services.js) — PURE, no network/live map:
@@ -1703,7 +1748,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS"/"Legend" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1726,12 +1771,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-upload-control'))			return 'UP'
 			if (button.classList.contains('uca-maps-place-search-control'))	return 'Search'
 			if (button.classList.contains('uca-maps-geolocate-control'))		return 'GPS'
+			if (button.classList.contains('uca-maps-legend-control'))			return 'Legend'
 			return 'unknown'
 		})
 		assert.deepEqual(
 			classes,
-			['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS'],
-			'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP, Search, GPS'
+			['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS', 'Legend'],
+			'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP, Search, GPS, Legend'
 		)
 	})
 
@@ -3558,6 +3604,328 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.uca-maps-scale'),
 			'expected the scale bar removed on teardown'
 		)
+	})
+
+	it('attach_legend adds the button, the panel and the overlay, idempotently', function() {
+
+		tool.attach_legend()
+		tool.attach_legend()
+
+		const map_container_node = geolocation.map.getContainer()
+		assert.equal(
+			map_container_node.querySelectorAll('.uca-maps-legend-control').length, 1,
+			'expected exactly one Legend button'
+		)
+		assert.equal(
+			map_container_node.querySelectorAll('.uca-maps-legend-panel').length, 1,
+			'expected exactly one Legend panel'
+		)
+		assert.equal(
+			map_container_node.querySelectorAll('.uca-maps-legend-overlay').length, 1,
+			'expected exactly one legend overlay'
+		)
+		assert.deepEqual(tool.legend, empty_legend(), 'expected the session legend seeded empty')
+	})
+
+	it('the legend overlay is map CONTENT, not tool chrome — so it stays in the exported image', function() {
+
+		tool.attach_legend()
+
+		// `map_image_download.js` excludes every node registered through
+		// toolbar.js from the screenshot. The editing panel and its button are
+		// chrome and belong out; the legend itself is the one thing a user
+		// exports a map WITH, so it must not be registered (hito 17 decision).
+		assert.isTrue(is_toolbar_node(tool, tool.legend_panel), 'expected the panel registered as chrome')
+		assert.isTrue(
+			is_toolbar_node(tool, tool.legend_control.getContainer()),
+			'expected the button registered as chrome'
+		)
+		assert.isFalse(
+			is_toolbar_node(tool, tool.legend_overlay.getContainer()),
+			'expected the overlay NOT registered — it must survive the screenshot filter'
+		)
+	})
+
+	it('the overlay draws only what there is to draw, and the checkbox hides it', function() {
+
+		tool.attach_legend()
+		const overlay = tool.legend_overlay.getContainer()
+
+		// empty legend: nothing on the map. v6 leaves an empty box floating
+		// there, which is noise, not information
+		assert.isTrue(overlay.hidden, 'expected no overlay while the legend is empty')
+
+		// the corner itself is the decision (hito 17): 'topleft' is this tool's
+		// own button column, 'topright' Geoman's draw bar, 'bottomright' the
+		// scale bar — a legend stacked under the buttons is not the same design
+		assert.isOk(
+			overlay.closest('.leaflet-bottom.leaflet-left'),
+			'expected the overlay in Leaflet\'s bottomleft corner'
+		)
+
+		// a column just created — no name, no elements — draws nothing, so the
+		// overlay stays away: "empty" is measured in what would be DRAWN
+		tool.add_legend_column()
+		assert.isTrue(overlay.hidden, 'expected no overlay for a column with nothing in it')
+
+		// a legend with columns but NO title is still a legend — the hidden
+		// branch is "nothing at all", not "no title"
+		tool.set_legend_column_name(0, 'Periodo')
+		assert.isFalse(overlay.hidden, 'expected the overlay with columns but no title')
+		tool.delete_legend_column(0)
+		assert.isTrue(overlay.hidden, 'expected it hidden again once emptied')
+
+		tool.set_legend_title('Simbología')
+		assert.isFalse(overlay.hidden, 'expected the overlay once it has a title')
+		assert.equal(overlay.querySelector('.uca-maps-legend-overlay-title').textContent, 'Simbología')
+
+		tool.add_legend_column()
+		tool.set_legend_column_name(0, 'Periodo')
+		tool.add_legend_element(0)
+		tool.set_legend_element_name(0, 0, 'Neolítico')
+
+		assert.equal(overlay.querySelectorAll('.uca-maps-legend-overlay-column').length, 1)
+		assert.equal(overlay.querySelector('.uca-maps-legend-overlay-column-name').textContent, 'Periodo')
+		const element_node = overlay.querySelector('.uca-maps-legend-overlay-element')
+		assert.equal(element_node.querySelector('span').textContent, 'Neolítico')
+		assert.equal(element_node.querySelector('img').getAttribute('src'), DEFAULT_ELEMENT_ICON)
+
+		// "Mostrar leyenda" off hides the drawing, it does not wipe the data
+		tool.set_legend_visible(false)
+		assert.isTrue(overlay.hidden, 'expected the overlay hidden')
+		assert.equal(tool.legend.columns.length, 1, 'expected the columns kept')
+
+		tool.set_legend_visible(true)
+		assert.isFalse(overlay.hidden, 'expected the overlay back')
+	})
+
+	it('every legend text is stripped of tags, and a bad index changes nothing', function() {
+
+		tool.attach_legend()
+
+		tool.set_legend_title('<b>Leyenda</b>')
+		tool.add_legend_column()
+		tool.set_legend_column_name(0, '<i>Periodo</i>')
+		tool.add_legend_element(0)
+		tool.set_legend_element_name(0, 0, '<script>x</script>Neolítico')
+
+		assert.equal(tool.legend.legend, 'Leyenda')
+		assert.equal(tool.legend.columns[0].name, 'Periodo')
+		assert.equal(tool.legend.columns[0].elements[0].name, 'xNeolítico')
+
+		assert.deepEqual(tool.delete_legend_column(7), {ok: false})
+		assert.deepEqual(tool.delete_legend_element(0, 7), {ok: false})
+		assert.deepEqual(tool.set_legend_column_name(7, 'x'), {ok: false})
+		assert.deepEqual(tool.add_legend_element(7), {ok: false})
+		assert.equal(tool.legend.columns.length, 1, 'expected the legend untouched')
+
+		assert.deepEqual(tool.delete_legend_element(0, 0), {ok: true})
+		assert.equal(tool.legend.columns[0].elements.length, 0)
+		assert.deepEqual(tool.delete_legend_column(0), {ok: true})
+		assert.equal(tool.legend.columns.length, 0)
+	})
+
+	it('an icon must be an allowed type under 2 MB; a good one lands as a data URL', async function() {
+
+		tool.attach_legend()
+		tool.add_legend_column()
+		tool.add_legend_element(0)
+
+		const rejected_type = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array([1, 2, 3])], 'note.txt', {type: 'text/plain'})
+		)
+		assert.isFalse(rejected_type.ok, 'expected a non-image refused')
+		assert.isOk(rejected_type.error, 'expected the refusal to say why')
+
+		// checked BEFORE reading the file — the point is not loading 30 MB into
+		// memory only to throw it away afterwards
+		const rejected_size = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array(MAX_ICON_BYTES + 1)], 'big.png', {type: 'image/png'})
+		)
+		assert.isFalse(rejected_size.ok, 'expected an oversized icon refused')
+		assert.isOk(rejected_size.error, 'expected the refusal to say why')
+
+		// the ceiling is v6's, inclusive: a file AT 2 MB is accepted — without
+		// this case a `>` turned into a `>=` reads as green
+		const at_the_ceiling = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array(MAX_ICON_BYTES)], 'exact.png', {type: 'image/png'})
+		)
+		assert.isTrue(at_the_ceiling.ok, 'expected a file exactly at the 2 MB ceiling accepted')
+		tool.legend.columns[0].elements[0].icon = DEFAULT_ELEMENT_ICON
+
+		assert.equal(
+			tool.legend.columns[0].elements[0].icon, DEFAULT_ELEMENT_ICON,
+			'expected a refused icon to leave the pin in place'
+		)
+
+		const accepted = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+		)
+		assert.isTrue(accepted.ok, 'expected a small PNG accepted')
+		assert.isTrue(
+			tool.legend.columns[0].elements[0].icon.startsWith('data:image/png;base64,'),
+			'expected the icon stored as a data URL, never uploaded'
+		)
+	})
+
+	it('type and size are checked BEFORE the file is read, not after', async function() {
+
+		tool.attach_legend()
+		tool.add_legend_column()
+		tool.add_legend_element(0)
+
+		// NOT a Blob: FileReader.readAsDataURL would THROW on it. So this only
+		// returns a refusal if both checks happen before the read — a refactor
+		// that reads first (loading a 30 MB file into memory just to throw it
+		// away) turns this red instead of staying quietly green
+		const not_readable = {type: 'application/pdf', size: 10, name: 'plan.pdf'}
+		const by_type = await tool.set_legend_element_icon(0, 0, not_readable)
+		assert.isFalse(by_type.ok, 'expected the type refused without reading')
+
+		const oversized = {type: 'image/png', size: MAX_ICON_BYTES + 1, name: 'big.png'}
+		const by_size = await tool.set_legend_element_icon(0, 0, oversized)
+		assert.isFalse(by_size.ok, 'expected the size refused without reading')
+
+		assert.equal(tool.legend.columns[0].elements[0].icon, DEFAULT_ELEMENT_ICON)
+	})
+
+	it('the panel edits the same legend the overlay draws', function() {
+
+		tool.attach_legend()
+
+		// open it the way a user does — populate_legend_columns only runs on show
+		tool.legend_control.getContainer().click()
+
+		const panel = tool.legend_panel
+		assert.isFalse(panel.hidden, 'expected the panel open')
+		assert.isOk(panel.querySelector('.uca-maps-legend-empty'), 'expected the empty-state line')
+
+		const title_input = panel.querySelector('.uca-maps-legend-title-input')
+		title_input.value = 'Simbología'
+		title_input.dispatchEvent(new Event('input'))
+		assert.equal(tool.legend.legend, 'Simbología', 'expected typing to reach the legend')
+
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		assert.equal(panel.querySelectorAll('.uca-maps-legend-column').length, 1)
+		assert.isNotOk(panel.querySelector('.uca-maps-legend-empty'), 'expected the empty-state line gone')
+
+		panel.querySelector('.uca-maps-legend-add-element').click()
+		assert.equal(panel.querySelectorAll('.uca-maps-legend-element').length, 1)
+
+		const show_checkbox = panel.querySelector('.uca-maps-legend-show')
+		assert.isTrue(show_checkbox.checked, 'expected the legend shown by default, as in v6')
+		show_checkbox.checked = false
+		show_checkbox.dispatchEvent(new Event('change'))
+		assert.isFalse(tool.legend.enable, 'expected the checkbox to reach the legend')
+
+		panel.querySelector('.uca-maps-legend-delete-element').click()
+		assert.equal(panel.querySelectorAll('.uca-maps-legend-element').length, 0)
+		panel.querySelector('.uca-maps-legend-delete-column').click()
+		assert.equal(panel.querySelectorAll('.uca-maps-legend-column').length, 0)
+	})
+
+	it('the column and element name inputs write to THEIR OWN slot', function() {
+
+		tool.attach_legend()
+		tool.legend_control.getContainer().click()
+
+		const panel = tool.legend_panel
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		panel.querySelector('.uca-maps-legend-add-element').click()
+
+		// driven through the DOM on purpose: calling the prototype mutators
+		// directly (as the strip_tags/index gate above does) cannot catch a
+		// listener wired to the wrong slot, or to the wrong mutator entirely
+		const column_input = panel.querySelector('.uca-maps-legend-column-name')
+		column_input.value = 'Periodo'
+		column_input.dispatchEvent(new Event('input'))
+
+		const element_input = panel.querySelector('.uca-maps-legend-element-name')
+		element_input.value = 'Neolítico'
+		element_input.dispatchEvent(new Event('input'))
+
+		assert.equal(tool.legend.columns[0].name, 'Periodo', 'expected the column name in the column')
+		assert.equal(tool.legend.columns[0].elements[0].name, 'Neolítico', 'expected the element name in the element')
+		assert.equal(tool.legend.legend, '', 'expected the legend title untouched by either input')
+
+		// the row carries its pin and its upload button
+		const row = panel.querySelector('.uca-maps-legend-element')
+		assert.equal(row.querySelector('img').getAttribute('src'), DEFAULT_ELEMENT_ICON)
+		assert.isOk(row.querySelector('.uca-maps-legend-upload-icon'), 'expected the icon button')
+	})
+
+	it('a refused icon reaches the panel, and an accepted one repaints the row', async function() {
+
+		tool.attach_legend()
+		tool.legend_control.getContainer().click()
+
+		const panel = tool.legend_panel
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		panel.querySelector('.uca-maps-legend-add-element').click()
+
+		// the message node and show_legend_message are coupled BY CLASS across
+		// two files: renaming one side alone would throw inside the file-picker
+		// handler and swallow every icon refusal silently
+		const message = panel.querySelector('.uca-maps-legend-message')
+		assert.isOk(message, 'expected the panel to carry its message line')
+		assert.isTrue(message.hidden, 'expected it hidden while nothing failed')
+
+		show_legend_message(panel, 'nope')
+		assert.isFalse(message.hidden, 'expected a refusal shown')
+		assert.equal(message.textContent, 'nope')
+
+		const accepted = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+		)
+		assert.isTrue(accepted.ok)
+
+		// the icon path is the one mutation that repaints the LIST, not just
+		// the overlay (a new icon has to show in the row that uploaded it)
+		populate_legend_columns(tool, panel)
+		assert.isTrue(
+			panel.querySelector('.uca-maps-legend-element img').getAttribute('src').startsWith('data:image/png;base64,'),
+			'expected the row repainted with the uploaded icon'
+		)
+	})
+
+	it('the Legend toggle reads the DOM, so a sibling panel closing it never jams it shut', function() {
+
+		tool.attach_legend()
+		tool.attach_xyz_basemaps()
+
+		const button = tool.legend_control.getContainer()
+
+		button.click()
+		assert.isFalse(tool.legend_panel.hidden, 'expected the first click to open')
+		button.click()
+		assert.isTrue(tool.legend_panel.hidden, 'expected the second click to close')
+
+		// a sibling panel opening force-closes this one WITHOUT going through
+		// its own toggle (toolbar.js close_other_toolbar_panels) — a cached
+		// "is open" flag would desync here and the next click would do nothing.
+		// This is the bug CLAUDE.local.md records as already real once.
+		button.click()
+		assert.isFalse(tool.legend_panel.hidden, 'expected it open again')
+		tool.xyz_control.getContainer().click()
+		assert.isTrue(tool.legend_panel.hidden, 'expected the sibling to have closed it')
+		button.click()
+		assert.isFalse(tool.legend_panel.hidden, 'expected one click to reopen it')
+	})
+
+	it('detach removes the button, the panel and the overlay', async function() {
+
+		tool.attach_legend()
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.legend, null, 'expected the session legend cleared')
+		assert.equal(tool.legend_control, null, 'expected legend_control cleared')
+		assert.equal(tool.legend_panel, null, 'expected legend_panel cleared')
+		assert.equal(tool.legend_overlay, null, 'expected legend_overlay cleared')
+		assert.isNotOk(map_container_node.querySelector('.uca-maps-legend-control'), 'expected the button removed')
+		assert.isNotOk(map_container_node.querySelector('.uca-maps-legend-panel'), 'expected the panel removed')
+		assert.isNotOk(map_container_node.querySelector('.uca-maps-legend-overlay'), 'expected the overlay removed')
 	})
 
 	it('detach_file_upload removes the button and panel', async function() {

@@ -96,11 +96,14 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
 	// ahead of the real functionalities; the two hito-15 controls attach
 	// last, so the corner reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro,
-	// UA, UP, Search, GPS top-to-bottom — appended rather than slotted in at
+	// UA, UP, Search, GPS, Legend top-to-bottom — appended rather than slotted in at
 	// the top so the order Sergio already validated in earlier hitos does not
-	// move under him, and "Geolocation" stays last exactly as it is last in
-	// v6's own control list (Catastro/UA may not appear at all — both gated on the
-	// record's language, v6 parity, catastro.js is_spanish_official_lang).
+	// move under him — which is also the only reason hito 17's "Legend" is LAST
+	// here, while v6 lists it mid-stack (right after Geolocation, ahead of
+	// Objects/Upload — render_tool_leaflet_special_tools.js:394-436)
+	// (Catastro/UA may not appear at all —
+	// both gated on the record's language, v6 parity, catastro.js
+	// is_spanish_official_lang).
 		if (self.geolocation && self.map_ready) {
 			self.attach_capabilities_panel()
 			self.attach_console()
@@ -114,6 +117,7 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			self.attach_file_upload()
 			self.attach_place_search()
 			self.attach_geolocate()
+			self.attach_legend()
 			// not a button either: permanent map furniture in the
 			// bottom-right corner (scale_bar.js, functionality #2)
 			self.attach_scale_bar()

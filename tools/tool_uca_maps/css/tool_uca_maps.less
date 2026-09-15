@@ -972,3 +972,144 @@
 	background: #14fbcd;
 	color: #212529;
 }
+
+// "Legend" (functionality #12, legend.js / render_legend.js) — DOS piezas
+// separadas: el panel de edición (chrome del tool) y el overlay dibujado
+// sobre el mapa, que es CONTENIDO y por eso sale también en la descarga de
+// mapa como imagen (legend.js file header).
+.uca-maps-legend-panel {
+
+	.uca-maps-legend-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.5rem 0.75rem;
+
+		input {
+			min-width: 0;
+		}
+	}
+
+	.uca-maps-legend-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-legend-show-label {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.8rem;
+	}
+
+	.uca-maps-legend-empty {
+		padding: 0 0.75rem 0.5rem;
+		font-size: 0.8rem;
+		color: #6c757d;
+	}
+
+	.uca-maps-legend-columns {
+		padding: 0 0.75rem 0.5rem;
+	}
+
+	.uca-maps-legend-column {
+		border-top: 1px solid #dee2e6;
+		padding-top: 0.4rem;
+		margin-top: 0.4rem;
+	}
+
+	.uca-maps-legend-column-row {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+
+		.uca-maps-legend-column-name {
+			flex: 1 1 auto;
+		}
+	}
+
+	.uca-maps-legend-elements {
+		list-style: none;
+		margin: 0.3rem 0 0;
+		padding: 0 0 0 0.5rem;
+
+		>.uca-maps-legend-element {
+			display: flex;
+			align-items: center;
+			gap: 0.3rem;
+			padding: 0.15rem 0;
+
+			.uca-maps-legend-element-icon {
+				flex: 0 0 auto;
+				object-fit: contain;
+			}
+
+			.uca-maps-legend-element-name {
+				flex: 1 1 auto;
+				min-width: 0;
+			}
+		}
+	}//end uca-maps-legend-elements
+
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+	.uca-maps-legend-delete-column,
+	.uca-maps-legend-delete-element,
+	.uca-maps-legend-upload-icon,
+	.uca-maps-legend-add-element {
+		.uca-maps-panel-secondary-button();
+	}
+
+}//end uca-maps-legend-panel
+
+// El overlay. Ancho por porcentaje del mapa y columnas en flex-wrap, en vez
+// de los anchos fijos 200/400/600 px de v6 (que solo contemplan 1-3
+// columnas) y de su corte que escondía la leyenda entera por debajo de
+// 800 px de mapa.
+.uca-maps-legend-overlay {
+	background-color: rgba(255, 255, 255, 0.9);
+	border: 1px solid #adb5bd;
+	border-radius: 0.2rem;
+	padding: 0.4rem 0.6rem;
+	max-width: 50vw;
+	// vh, not %: this node hangs off Leaflet's own bottom-left corner, which
+	// is `position:absolute; bottom:0` with AUTO height — a percentage
+	// max-height there resolves to `none` and the scroll below never engages
+	max-height: 40vh;
+	overflow-y: auto;
+	font-size: 0.8rem;
+	color: #212529;
+
+	&[hidden] {
+		display: none;
+	}
+
+	.uca-maps-legend-overlay-title {
+		font-weight: bold;
+		margin-bottom: 0.3rem;
+	}
+
+	.uca-maps-legend-overlay-columns {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem 1rem;
+	}
+
+	.uca-maps-legend-overlay-column-name {
+		font-weight: bold;
+		margin-bottom: 0.15rem;
+	}
+
+	.uca-maps-legend-overlay-element {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+
+		img {
+			flex: 0 0 auto;
+			object-fit: contain;
+		}
+	}
+
+}//end uca-maps-legend-overlay

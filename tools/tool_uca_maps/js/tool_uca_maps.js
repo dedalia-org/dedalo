@@ -163,6 +163,19 @@
 	} from './place_search.js'
 	import {attach_geolocate, detach_geolocate} from './geolocate.js'
 	import {attach_scale_bar, detach_scale_bar} from './scale_bar.js'
+	import {
+		attach_legend,
+		detach_legend,
+		set_legend_title,
+		set_legend_visible,
+		add_legend_column,
+		delete_legend_column,
+		set_legend_column_name,
+		add_legend_element,
+		delete_legend_element,
+		set_legend_element_name,
+		set_legend_element_icon
+	} from './legend.js'
 
 
 
@@ -733,6 +746,53 @@ tool_uca_maps.prototype.attach_scale_bar = function() {
 
 
 /**
+* HITO 17 — THIN PROTOTYPE WRAPPERS OVER legend.js (functionality #12).
+* Same reuse reason as every other block here: render_legend.js calls
+* self.<method>(...), never legend.js directly.
+*/
+tool_uca_maps.prototype.attach_legend = function() {
+	attach_legend(this)
+}//end attach_legend
+
+tool_uca_maps.prototype.set_legend_title = function(text) {
+	return set_legend_title(this, text)
+}//end set_legend_title
+
+tool_uca_maps.prototype.set_legend_visible = function(visible) {
+	return set_legend_visible(this, visible)
+}//end set_legend_visible
+
+tool_uca_maps.prototype.add_legend_column = function() {
+	return add_legend_column(this)
+}//end add_legend_column
+
+tool_uca_maps.prototype.delete_legend_column = function(index) {
+	return delete_legend_column(this, index)
+}//end delete_legend_column
+
+tool_uca_maps.prototype.set_legend_column_name = function(index, text) {
+	return set_legend_column_name(this, index, text)
+}//end set_legend_column_name
+
+tool_uca_maps.prototype.add_legend_element = function(column_index) {
+	return add_legend_element(this, column_index)
+}//end add_legend_element
+
+tool_uca_maps.prototype.delete_legend_element = function(column_index, element_index) {
+	return delete_legend_element(this, column_index, element_index)
+}//end delete_legend_element
+
+tool_uca_maps.prototype.set_legend_element_name = function(column_index, element_index, text) {
+	return set_legend_element_name(this, column_index, element_index, text)
+}//end set_legend_element_name
+
+tool_uca_maps.prototype.set_legend_element_icon = function(column_index, element_index, file) {
+	return set_legend_element_icon(this, column_index, element_index, file)
+}//end set_legend_element_icon
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -960,6 +1020,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_place_search(self)
 	detach_geolocate(self)
 	detach_scale_bar(self)
+	detach_legend(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,
