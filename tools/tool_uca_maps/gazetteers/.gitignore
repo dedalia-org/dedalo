@@ -1,0 +1,5 @@
+# An install may point `gazetteer_data_path` at THIS directory (provision.ts
+# writes here by default). The data is a third party's, it is 20 MB, and the
+# tool deliberately does not ship it — so it never becomes a repo change.
+pleiades.json
+pelagios/

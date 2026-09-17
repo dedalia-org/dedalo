@@ -97,6 +97,18 @@ const render_capabilities = async function(self) {
 		{
 			label		: self.get_tool_label('capabilities_imagemagick') || 'ImageMagick',
 			capability	: capabilities.imagemagick
+		},
+		// hito 18: the gazetteer store is not a binary but the same question —
+		// what this install can serve — and this is where an admin looks to see
+		// whether `gazetteer_data_path` resolved at all
+		{
+			label		: self.get_tool_label('capabilities_gazetteer_pleiades') || 'Pleiades index',
+			capability	: { available: Boolean(capabilities.gazetteers?.pleiades) }
+		},
+		{
+			label		: (self.get_tool_label('capabilities_gazetteer_pelagios') || 'Pelagios layers')
+							+ ' (' + ((capabilities.gazetteers?.pelagios || []).length) + ')',
+			capability	: { available: (capabilities.gazetteers?.pelagios || []).length > 0 }
 		}
 	]
 

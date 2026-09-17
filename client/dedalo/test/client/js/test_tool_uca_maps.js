@@ -91,6 +91,18 @@ import {
 	show_legend_message
 } from '../../../tools/tool_uca_maps/js/render_legend.js'
 import { is_toolbar_node } from '../../../tools/tool_uca_maps/js/toolbar.js'
+import {
+	search_roman,
+	add_roman_result,
+	create_roman_objects,
+	load_roman_capabilities,
+	roman_min_query,
+	ROMAN_SOURCES
+} from '../../../tools/tool_uca_maps/js/roman_empire.js'
+import {
+	populate_roman_results,
+	refresh_roman_sources
+} from '../../../tools/tool_uca_maps/js/render_roman_empire.js'
 
 
 
@@ -220,6 +232,12 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.delete_legend_element, 'function', 'expected delete_legend_element defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_name, 'function', 'expected set_legend_element_name defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_icon, 'function', 'expected set_legend_element_icon defined')
+		// "Imperio Romano" — functionality #14, the three gazetteers
+		assert.equal(typeof tool_uca_maps.prototype.attach_roman_empire, 'function', 'expected attach_roman_empire defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_roman_source, 'function', 'expected set_roman_source defined')
+		assert.equal(typeof tool_uca_maps.prototype.search_roman, 'function', 'expected search_roman defined')
+		assert.equal(typeof tool_uca_maps.prototype.add_roman_result, 'function', 'expected add_roman_result defined')
+		assert.equal(typeof tool_uca_maps.prototype.clear_roman_search, 'function', 'expected clear_roman_search defined')
 	})
 
 	// "Legend" (functionality #12, js/legend.js) — PURE, no live map needed.
@@ -1748,7 +1766,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// hito 3c): "DEV" stacks above the two real functionalities, and opening
 	// one panel closes any other one already open.
 
-	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS"/"Legend" (attach order = corner order)', async function() {
+	it('edit() stacks the dev-only "DEV" button above "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS"/"Legend"/"Roma" (attach order = corner order)', async function() {
 
 		tool.type		= 'tool'
 		tool.mode		= 'edit'
@@ -1772,12 +1790,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (button.classList.contains('uca-maps-place-search-control'))	return 'Search'
 			if (button.classList.contains('uca-maps-geolocate-control'))		return 'GPS'
 			if (button.classList.contains('uca-maps-legend-control'))			return 'Legend'
+			if (button.classList.contains('uca-maps-roman-control'))			return 'Roma'
 			return 'unknown'
 		})
 		assert.deepEqual(
 			classes,
-			['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS', 'Legend'],
-			'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP, Search, GPS, Legend'
+			['DEV', 'UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS', 'Legend', 'Roma'],
+			'expected DEV first (topmost), then UCA, IMG, OBJ, 1x1, XYZ, WMS, UP, Search, GPS, Legend, Roma'
 		)
 	})
 
@@ -3943,6 +3962,513 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
+	/**
+	* HITO 18 — "Roma" (fila #14, roman_empire.js): one search over three
+	* gazetteers, and the hit becomes a REAL object of the record.
+	*
+	* No gazetteer is ever reached from a test: `tool_request`/
+	* `get_capabilities` are stubbed with hand-written envelopes, same as the
+	* place-search block above. A gate that needs Pleiades or Lund University
+	* to be up is a gate that goes red for reasons unrelated to this code.
+	*/
+
+	/** A one-point GeoJSON feature, the shape Pelagios/DARE hits carry. */
+	const roman_feature = function(name, lat, lon) {
+		return {
+			type		: 'Feature',
+			properties	: { name: name },
+			geometry	: { type: 'Point', coordinates: [lon, lat] }
+		}
+	}
+
+	it('attach_roman_empire adds exactly one button and one hidden panel, idempotently', function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+
+		tool.attach_roman_empire()
+		tool.attach_roman_empire() // second call: a no-op, never a duplicate
+
+		const map_container_node = geolocation.map.getContainer()
+		assert.equal(
+			map_container_node.querySelectorAll('.uca-maps-roman-control').length, 1,
+			'expected exactly one Roma button'
+		)
+		assert.isOk(tool.roman_panel, 'expected the panel built')
+		assert.equal(tool.roman_panel.hidden, true, 'expected the panel hidden by default')
+		assert.equal(tool._roman_source, ROMAN_SOURCES[0], 'expected Pleiades as the initial source')
+	})
+
+	it('search_roman refuses an empty query, and Pelagios with no layer, without asking the server', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		let asked = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() { asked = true; return {} }
+
+		const empty = await search_roman(tool, { query: '   ' })
+		assert.equal(empty.ok, false, 'expected a caller-fault verdict')
+		assert.isOk(empty.error, 'expected a message to show in the panel')
+
+		tool.set_roman_source('pelagios')
+		const no_layer = await search_roman(tool, { query: 'Gades', datasets: [] })
+		assert.equal(no_layer.ok, false, 'expected Pelagios with no layer refused')
+		assert.isOk(no_layer.error)
+
+		assert.equal(asked, false, 'expected NO request in either case')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('each source sends its OWN action and its own fields', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		const sent = []
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			sent.push(options)
+			return { ok: true, data: { results: [] } }
+		}
+
+		tool.set_roman_source('pleiades')
+		await search_roman(tool, { query: 'Gades', type: 'id' })
+		tool.set_roman_source('pelagios')
+		await search_roman(tool, { query: 'Gades', datasets: ['provinces'] })
+		tool.set_roman_source('dare')
+		await search_roman(tool, { query: 'Gades', name_type: 'ass', type_id: '11', country: 'ES' })
+
+		assert.deepEqual(sent.map((one) => one.action), ['search_pleiades', 'search_pelagios', 'search_dare'])
+		assert.equal(sent[0].options.type, 'id', 'expected the Pleiades search type forwarded')
+		assert.equal(sent[0].options.value, 'Gades')
+		assert.deepEqual(sent[1].options.datasets, ['provinces'], 'expected the chosen layers forwarded')
+		assert.equal(sent[2].options.name_type, 'ass')
+		assert.equal(sent[2].options.type_id, '11')
+		assert.equal(sent[2].options.country, 'ES')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('the hits render one clickable row each, and a row DRAWS the place on the map', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() {
+			return { ok: true, data: { results: [
+				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.53, -6.29) },
+				{ name: 'Gadir', geometry_type: 'Point', feature: roman_feature('Gadir', 36.54, -6.30) }
+			] } }
+		}
+
+		const result = await search_roman(tool, { query: 'Gad', name_type: 'mss' })
+		assert.equal(result.ok, true)
+		assert.equal(result.results.length, 2)
+
+		populate_roman_results(tool, tool.roman_panel)
+		const rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
+		assert.equal(rows.length, 2, 'expected one row per hit')
+		assert.include(rows[0].textContent, 'Gades')
+		assert.equal(tool.roman_dropdown.hidden, false, 'expected the suggestion list open')
+
+		// unlike the place search (which only moves the view), adding a hit
+		// creates a real object through the SAME pm:create door every import
+		// in this tool uses
+		const feature_group	= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const before		= feature_group.getLayers().length
+		const added			= await add_roman_result(tool, 0)
+		assert.equal(added.ok, true, 'expected the place added')
+		assert.equal(added.created, 1, 'expected exactly one layer created')
+		assert.equal(
+			feature_group.getLayers().length, before + 1,
+			'expected one more object in the active FeatureGroup'
+		)
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('a hit whose geometry Leaflet cannot build is reported, never a silent success', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		tool._roman_results = [{ name: 'no geometry', feature: { type: 'Feature', properties: {}, geometry: null } }]
+		const added = await add_roman_result(tool, 0)
+
+		assert.equal(added.ok, false, 'expected a failure verdict')
+		assert.isOk(added.error, 'expected a message for the panel')
+	})
+
+	it('a Pleiades hit carries only an id, so its geometry is fetched before drawing', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		const original_tool_request = tool.tool_request
+		let asked_action = null
+		tool.tool_request = async function(options) {
+			asked_action = options.action
+			assert.equal(options.options.id, '256135', 'expected the hit id forwarded')
+			return { ok: true, data: { place: {
+				type		: 'FeatureCollection',
+				features	: [roman_feature('Gades', 36.53, -6.29)]
+			} } }
+		}
+
+		tool._roman_results = [{ name: 'Gades', id: '256135' }]
+		const added = await add_roman_result(tool, 0)
+
+		assert.equal(asked_action, 'get_pleiades_place', 'expected the geometry fetched by id')
+		assert.equal(added.ok, true)
+		assert.equal(added.created, 1)
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('create_roman_objects fits the LARGEST geometry of a multi-part place', function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		const created = create_roman_objects(tool, { type: 'FeatureCollection', features: [
+			{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]] } },
+			{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[10, 10], [12, 10], [12, 12], [10, 12], [10, 10]]] } }
+		] })
+
+		assert.equal(created, 2, 'expected both parts created')
+		const bounds = geolocation.map.getBounds()
+		assert.isTrue(bounds.contains(L.latLng(11, 11)), 'expected the map fitted to the bigger part')
+	})
+
+	it('a source this install cannot serve is disabled, and the panel falls back to DARE', function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		tool._roman_gazetteers = { configured: false, pleiades: false, pelagios: [] }
+		refresh_roman_sources(tool, tool.roman_panel)
+
+		const select = tool.roman_panel.querySelector('.uca-maps-roman-source-select')
+		assert.equal(select.querySelector('option[value="pleiades"]').disabled, true, 'expected Pleiades disabled')
+		assert.equal(select.querySelector('option[value="pelagios"]').disabled, true, 'expected Pelagios disabled')
+		assert.equal(select.querySelector('option[value="dare"]').disabled, false, 'expected DARE always available')
+		assert.equal(tool._roman_source, 'dare', 'expected the active source moved to DARE')
+		assert.equal(
+			tool.roman_panel.querySelector('.uca-maps-roman-message').hidden, false,
+			'expected the missing-data reason shown, not silence'
+		)
+	})
+
+	it('the layer checkboxes come from the INSTALL, never from a client-side copy of the list', async function() {
+
+		tool.get_capabilities = async function() {
+			return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] } } }
+		}
+		tool.attach_roman_empire()
+
+		await load_roman_capabilities(tool)
+
+		const boxes = tool.roman_panel.querySelectorAll('.uca-maps-roman-dataset-checkbox')
+		assert.equal(boxes.length, 2, 'expected exactly the layers the install reported')
+		assert.deepEqual(Array.from(boxes).map((box) => box.value), ['provinces', 'roads_high'])
+		assert.isTrue(Array.from(boxes).every((box) => box.checked), 'expected every layer selected by default')
+		assert.equal(tool._roman_source, ROMAN_SOURCES[0], 'expected the active source untouched when everything is available')
+	})
+
+	// SUGGESTIONS AS YOU TYPE — v6 searches on every keyup in all three blocks
+	// (`special_tools_roman_empire.js:215/785/1286`). Sergio, validación
+	// 2026-09-17: el port solo buscaba con el botón/Enter.
+
+	it('each source declares the same minimum the server refuses below', function() {
+
+		assert.equal(roman_min_query('pleiades', 'name'), 3, 'Pleiades by name: 3 (v6 strlen > 2)')
+		assert.equal(roman_min_query('pleiades', 'id'), 1, 'an id is exact, one digit is a query')
+		assert.equal(roman_min_query('pelagios'), 2, 'Pelagios: 2 (v6 strlen >= 2)')
+		assert.equal(roman_min_query('dare'), 3, 'DARE: 3 (v6 strlen >= 3)')
+	})
+
+	it('typing searches by itself, and below the minimum nothing travels', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		let asked = 0
+		tool.tool_request = async function() {
+			asked++
+			return { ok: true, data: { results: [
+				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.53, -6.29) }
+			] } }
+		}
+
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-input')
+
+		// below the minimum: no request, not even after the debounce window
+		input.value = 'Ga'
+		input.dispatchEvent(new Event('input'))
+		await new Promise((resolve) => setTimeout(resolve, 400))
+		assert.equal(asked, 0, 'expected NO request for a query under the minimum')
+
+		// at the minimum: one request, and the list renders itself
+		input.value = 'Gades'
+		input.dispatchEvent(new Event('input'))
+		await new Promise((resolve) => setTimeout(resolve, 400))
+
+		assert.equal(asked, 1, 'expected exactly one request after typing')
+		assert.equal(
+			tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button').length, 1,
+			'expected the suggestion rendered without pressing anything'
+		)
+		assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open by itself')
+	})
+
+	it('a burst of keystrokes is ONE request, not one per character (v6 fires per keyup)', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		let asked = 0
+		tool.tool_request = async function() {
+			asked++
+			return { ok: true, data: { results: [] } }
+		}
+
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-input')
+		for (const value of ['Gad', 'Gade', 'Gades', 'Gadesx']) {
+			input.value = value
+			input.dispatchEvent(new Event('input'))
+			await new Promise((resolve) => setTimeout(resolve, 40))
+		}
+		await new Promise((resolve) => setTimeout(resolve, 400))
+
+		assert.equal(asked, 1, 'expected the burst collapsed into a single request')
+	})
+
+	it('a slow early search never overwrites the results of the last one typed', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		let release_first
+		let call = 0
+		tool.tool_request = function() {
+			call++
+			if (call===1) {
+				return new Promise((resolve) => { release_first = () => resolve({ ok: true, data: { results: [
+					{ name: 'STALE', geometry_type: 'Point', feature: roman_feature('STALE', 0, 0) }
+				] } }) })
+			}
+			return Promise.resolve({ ok: true, data: { results: [
+				{ name: 'FRESH', geometry_type: 'Point', feature: roman_feature('FRESH', 1, 1) }
+			] } })
+		}
+
+		const first	= search_roman(tool, { query: 'Gades', name_type: 'mss' })
+		const second	= await search_roman(tool, { query: 'Gadir', name_type: 'mss' })
+		assert.equal(second.ok, true)
+		assert.equal(second.results[0].name, 'FRESH')
+
+		release_first()
+		const stale = await first
+
+		assert.equal(stale.ok, false, 'expected the overtaken search to report nothing')
+		assert.equal(tool._roman_results[0].name, 'FRESH', 'expected the newest results kept')
+	})
+
+	// THE TYPEAHEAD ITSELF (Sergio, 2026-09-17): the hits are a list anchored to
+	// the field, not a block inside the panel — and choosing one IS adding it.
+
+	it('the suggestion list hangs from the MAP, not from the panel (the panel would clip it)', function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+
+		const map_container_node = geolocation.map.getContainer()
+		assert.isOk(tool.roman_dropdown, 'expected the list built')
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected it closed until something is typed')
+		assert.equal(tool.roman_dropdown.parentNode, map_container_node, 'expected it parented to the map container')
+		assert.isNotOk(
+			tool.roman_panel.querySelector('.uca-maps-roman-dropdown'),
+			'expected it OUTSIDE the panel, whose overflow would clip it'
+		)
+		// and the panel no longer carries a Search button or an in-flow list
+		assert.isNotOk(tool.roman_panel.querySelector('.uca-maps-roman-search-button'), 'expected no Search button')
+		assert.isNotOk(tool.roman_panel.querySelector('.uca-maps-roman-results'), 'expected no in-flow result list')
+	})
+
+	it('the arrows walk the list and Enter draws the highlighted place', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		tool.tool_request = async function() {
+			return { ok: true, data: { results: [
+				{ name: 'first', geometry_type: 'Point', feature: roman_feature('first', 36.5, -6.2) },
+				{ name: 'second', geometry_type: 'Point', feature: roman_feature('second', 39.9, -0.2) }
+			] } }
+		}
+
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-input')
+		input.value = 'Gades'
+		input.dispatchEvent(new Event('input'))
+		await new Promise((resolve) => setTimeout(resolve, 400))
+
+		const rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
+		assert.equal(rows.length, 2)
+		assert.equal(tool._roman_active_index, -1, 'expected nothing highlighted until the user walks the list')
+
+		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
+		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
+		assert.equal(tool._roman_active_index, 1, 'expected the second row highlighted')
+		assert.isTrue(rows[1].classList.contains('is-active'), 'expected the highlight in the DOM, not only in a flag')
+
+		const feature_group	= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const before		= feature_group.getLayers().length
+
+		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+		await new Promise((resolve) => setTimeout(resolve, 50))
+
+		assert.equal(feature_group.getLayers().length, before + 1, 'expected Enter to draw the highlighted place')
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list closed after choosing')
+	})
+
+	it('Escape closes the list without clearing what was typed', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		tool.tool_request = async function() {
+			return { ok: true, data: { results: [
+				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }
+			] } }
+		}
+
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-input')
+		input.value = 'Gades'
+		input.dispatchEvent(new Event('input'))
+		await new Promise((resolve) => setTimeout(resolve, 400))
+		assert.equal(tool.roman_dropdown.hidden, false)
+
+		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
+
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list closed')
+		assert.equal(input.value, 'Gades', 'expected the typed text untouched')
+		assert.equal(tool._roman_active_index, -1, 'expected the highlight forgotten')
+	})
+
+	it('a click on the map closes the list, and closing the panel takes it with it', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+		tool._roman_results = [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
+
+		const map_container_node = geolocation.map.getContainer()
+		map_container_node.querySelector('.uca-maps-roman-control').click() // open the panel, as a user would
+
+		populate_roman_results(tool, tool.roman_panel)
+		assert.equal(tool.roman_dropdown.hidden, false)
+
+		map_container_node.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected a click outside to close it')
+
+		// and a SIBLING panel forcing the Roma panel shut must close it too —
+		// that path is toolbar.js's on_hide, not the click-outside listener:
+		// Leaflet stops mousedown propagation inside its own controls, so the
+		// map-level listener never sees a click on another tool button
+		populate_roman_results(tool, tool.roman_panel)
+		assert.equal(tool.roman_dropdown.hidden, false)
+		tool.attach_object_viewer()
+		map_container_node.querySelector('.uca-maps-object-viewer-control').click()
+		assert.equal(tool.roman_panel.hidden, true, 'expected the Roma panel forced shut by its sibling')
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected the sibling panel to close the list as well')
+	})
+
+	it('teardown cancels a pending as-you-type search instead of firing it into a dead panel', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		tool.set_roman_source('dare')
+
+		let asked = 0
+		tool.tool_request = async function() { asked++; return { ok: true, data: { results: [] } } }
+
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-input')
+		input.value = 'Gades'
+		input.dispatchEvent(new Event('input'))
+
+		await tool.destroy(false, false, false) // BEFORE the debounce window elapses
+		await new Promise((resolve) => setTimeout(resolve, 400))
+
+		assert.equal(asked, 0, 'expected the pending search cancelled by teardown')
+	})
+
+	it('the twelve Pelagios layers fit in the panel WITHOUT an inner scroll', async function() {
+
+		// Sergio, validación 2026-09-17: con el cap de 9rem había que hacer
+		// scroll para ver la mitad de las capas. Esto lo mide de verdad — un
+		// retoque de CSS que vuelva a esconderlas pone el gate en rojo.
+		tool.get_capabilities = async function() {
+			return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [
+				'places_high', 'places_medium', 'places_low', 'places_subsites',
+				'fortifications', 'provinces', 'provinces_label', 'roads_high',
+				'roads_low', '10m_lakes', '10m_lakes_label', '10m_rivers_lake_centerlines'
+			] } } }
+		}
+		tool.attach_roman_empire()
+		await load_roman_capabilities(tool)
+
+		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click() // open it
+		tool.set_roman_source('pelagios')
+		const select = tool.roman_panel.querySelector('.uca-maps-roman-source-select')
+		select.value = 'pelagios'
+		select.dispatchEvent(new Event('change'))
+
+		const container	= tool.roman_panel.querySelector('.uca-maps-roman-datasets')
+		const rows		= container.querySelectorAll('.uca-maps-roman-dataset-row')
+		assert.equal(rows.length, 12, 'expected the twelve layers rendered')
+
+		assert.isAtMost(
+			container.scrollHeight, container.clientHeight + 1,
+			'expected every layer visible without scrolling inside the list'
+		)
+		// and each row on one line: a wrapped identifier reads as two layers
+		for (const row of rows) {
+			assert.isBelow(row.scrollWidth, row.clientWidth + 2, 'expected the layer name on a single line: ' + row.textContent)
+		}
+	})
+
+	it('detach_roman_empire removes the button and panel', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
+		tool.attach_roman_empire()
+		const map_container_node = geolocation.map.getContainer()
+
+		await tool.destroy(false, false, false)
+
+		assert.equal(tool.roman_control, null, 'expected roman_control cleared')
+		assert.equal(tool.roman_panel, null, 'expected roman_panel cleared')
+		assert.equal(tool.roman_dropdown, null, 'expected the suggestion list cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-roman-dropdown'),
+			'expected the suggestion list removed from the map container'
+		)
+		assert.equal(tool._roman_results, null, 'expected the session hits cleared')
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-roman-control'),
+			'expected the button removed from the DOM'
+		)
+	})
+
 })
+
 
 // @license-end

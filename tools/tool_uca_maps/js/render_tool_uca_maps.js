@@ -29,8 +29,8 @@
 * attach_map_image_download_control, attach_capabilities_panel, hito 4's
 * attach_object_viewer, hito 7's attach_onexone, hito 9's
 * attach_xyz_basemaps, hito 10's attach_wms_services, hito 11's
-* attach_catastro/attach_administrative_units, this hito's
-* attach_file_upload), each building its OWN button (+panel, where the
+* attach_catastro/attach_administrative_units, hito 12-13's
+* attach_file_upload, hito 18's attach_roman_empire), each building its OWN button (+panel, where the
 * functionality actually needs one) through toolbar.js.
 *
 * @module render_tool_uca_maps
@@ -96,7 +96,7 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
 	// ahead of the real functionalities; the two hito-15 controls attach
 	// last, so the corner reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro,
-	// UA, UP, Search, GPS, Legend top-to-bottom — appended rather than slotted in at
+	// UA, UP, Search, GPS, Legend, Roma top-to-bottom — appended rather than slotted in at
 	// the top so the order Sergio already validated in earlier hitos does not
 	// move under him — which is also the only reason hito 17's "Legend" is LAST
 	// here, while v6 lists it mid-stack (right after Geolocation, ahead of
@@ -118,6 +118,7 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			self.attach_place_search()
 			self.attach_geolocate()
 			self.attach_legend()
+			self.attach_roman_empire()
 			// not a button either: permanent map furniture in the
 			// bottom-right corner (scale_bar.js, functionality #2)
 			self.attach_scale_bar()

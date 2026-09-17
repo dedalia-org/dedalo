@@ -1113,3 +1113,165 @@
 	}
 
 }//end uca-maps-legend-overlay
+
+
+// "Roma" (functionality #14, roman_empire.js) — one search over three
+// gazetteers: a source selector, the active source's own fields, and a shared
+// result list whose rows DRAW the place (not just move the map, unlike
+// place_search). Same shell/spacing vocabulary as the other search panels.
+.uca-maps-roman-panel {
+
+	// WIDER THAN THE OTHER PANELS, and only this one: Pelagios offers twelve
+	// layers and the shared 18rem forced a scroll to see them (Sergio,
+	// validación 2026-09-17). The shared `.uca-maps-panel` rule stays
+	// untouched — it dresses the other twelve functionalities. 28rem is what
+	// two columns of the longest layer name
+	// (`10m_rivers_lake_centerlines`) need; `max-width` from the shared rule
+	// still caps it on a narrow map.
+	width: 28rem;
+
+	.uca-maps-roman-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-roman-source-select,
+	.uca-maps-roman-form,
+	.uca-maps-roman-source-form {
+		padding: 0.35rem 0.75rem;
+	}
+
+	.uca-maps-roman-source-select {
+		display: block;
+		width: calc(100% - 1.5rem);
+		margin: 0.5rem 0.75rem 0;
+		padding: 0.2rem;
+	}
+
+	.uca-maps-roman-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+
+		input {
+			min-width: 0;
+		}
+	}
+
+	.uca-maps-roman-button-row {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.uca-maps-roman-source-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	.uca-maps-roman-dataset-buttons {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	// the twelve layers of a complete install, ALL VISIBLE AT ONCE: two
+	// columns, no inner scroll (it used to cap at 9rem and hide half of them).
+	// The panel's own `max-height: 70%` still saves the day on a short map.
+	.uca-maps-roman-datasets {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.1rem 0.5rem;
+	}
+
+	.uca-maps-roman-dataset-row {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		white-space: nowrap; // a layer name is an identifier: wrapped, it reads as two
+	}
+
+	// the two layer-selection buttons (the search has no button any more: the
+	// suggestion list IS the search — see .uca-maps-roman-dropdown below)
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+}//end uca-maps-roman-panel
+
+
+
+// The typeahead list of the "Roma" panel. It hangs from the MAP container,
+// not from the panel, because every panel shares `max-height: 70%;
+// overflow-y: auto` and would clip it — so it is positioned in map
+// coordinates by render_roman_empire.js and needs its own z-index, one notch
+// above the panels (1000) it floats over.
+.uca-maps-roman-dropdown {
+	position: absolute;
+	z-index: 1001;
+	list-style: none;
+	margin: 0;
+	padding: 0.15rem 0;
+	min-width: 14rem;
+	max-height: 14rem;
+	overflow-y: auto;
+	background: #fff;
+	color: #212529;
+	border-radius: 0.25rem;
+	box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+	font-size: 0.85rem;
+
+	&[hidden] {
+		display: none;
+	}
+
+	>.uca-maps-roman-result-item {
+		padding: 0;
+
+		.uca-maps-roman-result-button {
+			display: flex;
+			align-items: baseline;
+			justify-content: space-between;
+			gap: 0.5rem;
+			width: 100%;
+			border: 0;
+			border-radius: 0;
+			text-align: left;
+			background-color: transparent;
+			color: inherit;
+			padding: 0.3rem 0.6rem;
+			font-size: inherit;
+			cursor: pointer;
+
+			// hover and keyboard highlight are the SAME state: the arrow keys
+			// move `.is-active`, the mouse sets it on enter, so there are never
+			// two rows looking chosen at once
+			&:hover,
+			&.is-active {
+				background-color: @tool_color;
+				color: #fff;
+				filter: none;
+			}
+
+			.uca-maps-roman-result-name {
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+
+			.uca-maps-roman-result-detail {
+				flex: 0 0 auto;
+				opacity: 0.7;
+				font-size: 0.9em;
+			}
+		}
+	}
+
+	>.uca-maps-roman-empty {
+		padding: 0.35rem 0.6rem;
+		opacity: 0.7;
+		font-style: italic;
+	}
+}//end uca-maps-roman-dropdown

@@ -82,5 +82,22 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 		expect(typeof imagemagick.available).toBe('boolean');
 		expect(imagemagick.path === null || typeof imagemagick.path === 'string').toBe(true);
 		expect(imagemagick.available).toBe(imagemagick.path !== null);
+
+		// hito 18 (fila #14): the local gazetteer store is reported the same
+		// way a binary is — and it NEVER names the install's own directory,
+		// only what can be served out of it
+		const gazetteers = data.gazetteers as {
+			configured: unknown;
+			pleiades: unknown;
+			pelagios: unknown;
+		};
+		expect(typeof gazetteers.configured).toBe('boolean');
+		expect(typeof gazetteers.pleiades).toBe('boolean');
+		expect(Array.isArray(gazetteers.pelagios)).toBe(true);
+		expect(Object.keys(gazetteers).sort()).toEqual(['configured', 'pelagios', 'pleiades']);
+		if (gazetteers.configured === false) {
+			expect(gazetteers.pleiades).toBe(false);
+			expect(gazetteers.pelagios).toEqual([]);
+		}
 	});
 });

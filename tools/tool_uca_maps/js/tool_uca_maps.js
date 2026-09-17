@@ -176,6 +176,16 @@
 		set_legend_element_name,
 		set_legend_element_icon
 	} from './legend.js'
+	import {
+		attach_roman_empire,
+		detach_roman_empire,
+		set_roman_source,
+		search_roman,
+		add_roman_result,
+		clear_roman_search,
+		close_roman_suggestions,
+		roman_min_query
+	} from './roman_empire.js'
 
 
 
@@ -793,6 +803,41 @@ tool_uca_maps.prototype.set_legend_element_icon = function(column_index, element
 
 
 /**
+* HITO 18 — THIN PROTOTYPE WRAPPERS OVER roman_empire.js (functionality #14).
+* Same reuse reason as every other block here: render_roman_empire.js calls
+* self.<method>(...), never roman_empire.js directly.
+*/
+tool_uca_maps.prototype.attach_roman_empire = function() {
+	attach_roman_empire(this)
+}//end attach_roman_empire
+
+tool_uca_maps.prototype.set_roman_source = function(source) {
+	return set_roman_source(this, source)
+}//end set_roman_source
+
+tool_uca_maps.prototype.search_roman = function(params) {
+	return search_roman(this, params)
+}//end search_roman
+
+tool_uca_maps.prototype.add_roman_result = function(index) {
+	return add_roman_result(this, index)
+}//end add_roman_result
+
+tool_uca_maps.prototype.clear_roman_search = function() {
+	return clear_roman_search(this)
+}//end clear_roman_search
+
+tool_uca_maps.prototype.roman_min_query = function(source, type) {
+	return roman_min_query(source, type)
+}//end roman_min_query
+
+tool_uca_maps.prototype.close_roman_suggestions = function() {
+	return close_roman_suggestions(this)
+}//end close_roman_suggestions
+
+
+
+/**
 * HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
 * Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
 * calls `self.collect_objects()`/`self.set_object_display(...)`/
@@ -1021,6 +1066,7 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_geolocate(self)
 	detach_scale_bar(self)
 	detach_legend(self)
+	detach_roman_empire(self)
 	self.geolocation = null
 
 	// delegate to the standard instance teardown (unsubscribes events_tokens,

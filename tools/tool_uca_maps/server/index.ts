@@ -46,6 +46,14 @@
  * geolocation component's own normal save, same as every other pm:create-
  * based action in this tool.
  *
+ * The four `search_pleiades`/`get_pleiades_place`/`search_pelagios`/
+ * `search_dare` actions (fila #14, "Imperio Romano" — hito 18) get the SAME
+ * gate as every other lookup here: two read a data directory this INSTALL
+ * configured (never a client path — `gazetteer_store.ts`), two read a public
+ * gazetteer through the guarded outbound door. None writes anything; a found
+ * place only persists through the geolocation component's own save, like
+ * every other pm:create-based action in this tool.
+ *
  * `get_image_overlay` (fila #11, IMAGE half — hito 13) is the one action whose
  * gate names a DIFFERENT record than the map's: its options carry the identity
  * of the image component the client just created (rsc29/rsc170), so the
@@ -72,6 +80,7 @@ import { getImageOverlay } from './image_overlay.ts';
 import { objectPdfReport } from './pdf_report.ts';
 import { searchPlaces } from './place_search.ts';
 import { rasterDownload } from './raster_download.ts';
+import { getPleiadesPlace, searchDare, searchPelagios, searchPleiades } from './roman_empire.ts';
 import { vectorDownload } from './vector_download.ts';
 import { uploadVectorLayer } from './vector_upload.ts';
 import { getWmsLayers } from './wms.ts';
@@ -100,6 +109,10 @@ export const tool: ToolServerModule = {
 		get_elevation: { permission: 'record_tipo', minLevel: 1, handler: getElevation },
 		get_image_file: { permission: 'record_tipo', minLevel: 1, handler: getImageFile },
 		object_pdf_report: { permission: 'record_tipo', minLevel: 1, handler: objectPdfReport },
+		search_pleiades: { permission: 'record_tipo', minLevel: 1, handler: searchPleiades },
+		get_pleiades_place: { permission: 'record_tipo', minLevel: 1, handler: getPleiadesPlace },
+		search_pelagios: { permission: 'record_tipo', minLevel: 1, handler: searchPelagios },
+		search_dare: { permission: 'record_tipo', minLevel: 1, handler: searchDare },
 	},
 	// Only meaningful on a component_geolocation caller — matches the tool's
 	// affected_models declaration in register.json; belt-and-braces because

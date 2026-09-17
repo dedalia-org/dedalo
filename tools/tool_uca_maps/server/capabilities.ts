@@ -23,6 +23,7 @@
 
 import { identifyAvailable, resolveIdentify } from '../../../src/core/media/engine/binaries.ts';
 import { runBinary } from '../../../src/core/media/engine/spawn.ts';
+import { type GazetteerCapability, probeGazetteers } from './gazetteer_store.ts';
 
 /** One external binary's availability, resolved path and self-reported version. */
 export interface BinaryCapability {
@@ -75,14 +76,22 @@ export interface UcaMapsCapabilities {
 	gdalTranslate: BinaryCapability;
 	/** Core-resolved ImageMagick (PNG/JPEG map-image export, hito 3). */
 	imagemagick: { available: boolean; path: string | null };
+	/**
+	 * The local gazetteer store (hito 18, fila #14). Not a binary: a data
+	 * directory an install configures, absent from the repo by design — see
+	 * `gazetteer_store.ts`. The client greys out the searches it cannot serve
+	 * instead of failing them one by one.
+	 */
+	gazetteers: GazetteerCapability;
 }
 
 /** Probe every binary `get_capabilities` needs to answer. Never throws. */
 export async function probeCapabilities(): Promise<UcaMapsCapabilities> {
-	const [gdal, ogr2ogr, gdalTranslate] = await Promise.all([
+	const [gdal, ogr2ogr, gdalTranslate, gazetteers] = await Promise.all([
 		probeOnPath('gdalinfo', ['--version']),
 		probeOnPath('ogr2ogr', ['--version']),
 		probeOnPath('gdal_translate', ['--version']),
+		probeGazetteers(),
 	]);
 	// resolve once: identifyAvailable() itself calls resolveIdentify() + existsSync,
 	// so calling either twice redoes the same filesystem checks for nothing.
@@ -95,5 +104,6 @@ export async function probeCapabilities(): Promise<UcaMapsCapabilities> {
 			available,
 			path: available ? (resolveIdentify()[0] as string) : null,
 		},
+		gazetteers,
 	};
 }

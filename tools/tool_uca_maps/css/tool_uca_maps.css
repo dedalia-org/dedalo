@@ -834,4 +834,138 @@
   flex: 0 0 auto;
   object-fit: contain;
 }
+.uca-maps-roman-panel {
+  width: 28rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-message {
+  background-color: #f8d7da;
+  color: #842029;
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-message[hidden] {
+  display: none;
+}
+.uca-maps-roman-panel .uca-maps-roman-source-select,
+.uca-maps-roman-panel .uca-maps-roman-form,
+.uca-maps-roman-panel .uca-maps-roman-source-form {
+  padding: 0.35rem 0.75rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-source-select {
+  display: block;
+  width: calc(100% - 1.5rem);
+  margin: 0.5rem 0.75rem 0;
+  padding: 0.2rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-form input {
+  min-width: 0;
+}
+.uca-maps-roman-panel .uca-maps-roman-button-row {
+  display: flex;
+  gap: 0.3rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-source-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-source-form[hidden] {
+  display: none;
+}
+.uca-maps-roman-panel .uca-maps-roman-dataset-buttons {
+  display: flex;
+  gap: 0.3rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-datasets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.1rem 0.5rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-dataset-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+.uca-maps-roman-panel button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.uca-maps-roman-panel button:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-roman-panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.uca-maps-roman-dropdown {
+  position: absolute;
+  z-index: 1001;
+  list-style: none;
+  margin: 0;
+  padding: 0.15rem 0;
+  min-width: 14rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  background: #fff;
+  color: #212529;
+  border-radius: 0.25rem;
+  box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+  font-size: 0.85rem;
+}
+.uca-maps-roman-dropdown[hidden] {
+  display: none;
+}
+.uca-maps-roman-dropdown > .uca-maps-roman-result-item {
+  padding: 0;
+}
+.uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  background-color: transparent;
+  color: inherit;
+  padding: 0.3rem 0.6rem;
+  font-size: inherit;
+  cursor: pointer;
+}
+.uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button:hover,
+.uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button.is-active {
+  background-color: var(--tool_uca_maps);
+  color: #fff;
+  filter: none;
+}
+.uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button .uca-maps-roman-result-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button .uca-maps-roman-result-detail {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+.uca-maps-roman-dropdown > .uca-maps-roman-empty {
+  padding: 0.35rem 0.6rem;
+  opacity: 0.7;
+  font-style: italic;
+}
 /*# sourceMappingURL=tool_uca_maps.css.map */
