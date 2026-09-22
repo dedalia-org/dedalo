@@ -44,6 +44,11 @@ import {
 	is_toolbar_node
 } from './toolbar.js'
 import {render_map_image_download_panel} from './render_map_image_download.js'
+import {
+	DEFAULT_MAP_IMAGE_NAME,
+	sanitize_download_name,
+	with_extension
+} from './download_filename.js'
 
 
 
@@ -216,11 +221,21 @@ const projected_bounds = function(map) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {'png'|'jpg'|'gif'|'webp'|'geotiff'} format
+* @param {string} [file_name] - the user's own name for the file (panel
+*   field, v6 parity). OMITTED and EMPTY are different: a caller that passes
+*   nothing gets the default base name, an empty field is refused the way v6
+*   refuses it ("Por favor, indique un nombre para el archivo").
 * @returns {Promise<void>}
 */
-export const download_map_image = async function(self, format) {
+export const download_map_image = async function(self, format, file_name=DEFAULT_MAP_IMAGE_NAME) {
 
 	if (!self.geolocation || !self.geolocation.map) {
+		return
+	}
+
+	const base_name = sanitize_download_name(file_name)
+	if (base_name==='') {
+		report_client_error(self.get_tool_label('map_image_name_required') || 'Please enter a name for the file')
 		return
 	}
 
@@ -252,7 +267,7 @@ export const download_map_image = async function(self, format) {
 
 		if (format==='png') {
 			const blob = await domtoimage.toBlob(container, capture_options)
-			trigger_blob_download(blob, 'uca_maps_map.png')
+			trigger_blob_download(blob, with_extension(base_name, 'png'))
 			return
 		}
 
@@ -268,6 +283,7 @@ export const download_map_image = async function(self, format) {
 				section_id		: self.geolocation.section_id,
 				section_tipo	: self.geolocation.section_tipo,
 				format			: format,
+				file_name		: base_name,
 				image_base64	: image_base64,
 				bounds			: format==='geotiff' ? projected_bounds(self.geolocation.map) : undefined
 			}

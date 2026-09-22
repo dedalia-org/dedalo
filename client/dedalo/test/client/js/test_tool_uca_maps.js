@@ -61,6 +61,7 @@ import {
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
+import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { create_image_object, corners_from_viewport } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
@@ -833,6 +834,32 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* @param {Function} fn - runs with the spy installed
 	* @returns {Promise<Blob|null>} the captured Blob, or null if none was built
 	*/
+	/**
+	* Like `capture_download_blob`, but also reads the name
+	* `trigger_blob_download` put on the anchor — the only place the user's
+	* typed name is observable on the client-only PNG branch. Stubbing
+	* `click` also keeps the headless browser from actually downloading.
+	*/
+	const capture_download = async function(fn) {
+		const original_create_object_url	= URL.createObjectURL
+		const original_click				= HTMLAnchorElement.prototype.click
+		let captured = {blob: null, name: null}
+		URL.createObjectURL = (blob) => {
+			captured.blob = blob
+			return 'blob:uca-maps-test-mock'
+		}
+		HTMLAnchorElement.prototype.click = function() {
+			captured.name = this.download
+		}
+		try {
+			await fn()
+		} finally {
+			URL.createObjectURL					= original_create_object_url
+			HTMLAnchorElement.prototype.click	= original_click
+		}
+		return captured
+	}//end capture_download
+
 	const capture_download_blob = async function(fn) {
 		const original_create_object_url = URL.createObjectURL
 		let captured_blob = null
@@ -1364,6 +1391,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.isOk(tool.map_image_panel.querySelector('.uca-maps-map-image-button'), 'expected the download button')
 
+		// audit row #10, H-04 (2026-09-22): v6's own name field, restored.
+		const name_input = tool.map_image_panel.querySelector('.uca-maps-map-image-name')
+		assert.isOk(name_input, 'expected the file-name field')
+		assert.equal(name_input.value, DEFAULT_MAP_IMAGE_NAME, 'expected it pre-filled with the base name the panel used before it had a field, so leaving it alone reproduces the old behaviour')
+		assert.isOk(tool.map_image_panel.querySelector('.uca-maps-map-image-name-label'), 'expected the field labelled')
+
 		control.click()
 		assert.equal(tool.map_image_panel.hidden, false, 'expected the panel shown after one click')
 		control.click()
@@ -1392,6 +1425,79 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.tool_request = original_tool_request
 	})
 
+	it('download_map_image names the PNG with what the user typed, sanitized', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+
+		const captured = await capture_download(() => download_map_image(tool, 'png', '../Necrópolis de Cádiz'))
+
+		assert.isOk(captured.blob, 'expected a Blob')
+		assert.equal(captured.name, 'Necrópolis de Cádiz.png', 'expected the typed name, separators stripped and the extension appended once')
+	})
+
+	it('download_map_image refuses an EMPTY name (v6 parity) without capturing or calling the server', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+
+		let tool_request_called = false
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			tool_request_called = true
+			return original_tool_request.call(tool, options)
+		}
+
+		// The refusal has to be VISIBLE, not just "nothing happened": the toast
+		// is the whole difference between refusing and failing silently
+		// (review-diff, 2026-09-22).
+		const errors = []
+		const token = event_manager.subscribe('api_error', (error) => errors.push(error))
+
+		// A name that sanitizes to nothing is a refusal, never a silent
+		// fallback to the default (download_filename.js).
+		const captured = await capture_download(() => download_map_image(tool, 'png', '   '))
+
+		event_manager.unsubscribe(token)
+
+		assert.isNotOk(captured.blob, 'expected no capture at all')
+		assert.isNotOk(captured.name, 'expected no download triggered')
+		assert.equal(tool_request_called, false, 'expected no server round-trip either')
+		assert.equal(errors.length, 1, 'expected exactly one api_error toast telling the user why')
+		assert.equal(errors[0].code, 'client.tool_uca_maps_failed', 'expected the tool\'s own client-origin error code')
+
+		tool.tool_request = original_tool_request
+	})
+
+	it('download_map_image with NO name argument keeps the default — omitted and empty are different', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+
+		const captured = await capture_download(() => download_map_image(tool, 'png'))
+
+		assert.equal(captured.name, `${DEFAULT_MAP_IMAGE_NAME}.png`, 'expected the default base name when the caller passes nothing')
+	})
+
+	it('the panel\'s Download button passes its own field to download_map_image', async function() {
+
+		tool.attach_map_image_download_control()
+
+		const calls = []
+		const original = tool.download_map_image
+		tool.download_map_image = function(format, file_name) {
+			calls.push([format, file_name])
+		}
+
+		tool.map_image_panel.querySelector('.uca-maps-map-image-name').value = 'plano general'
+		tool.map_image_panel.querySelector('.uca-maps-map-image-format').value = 'jpg'
+		tool.map_image_panel.querySelector('.uca-maps-map-image-button').click()
+
+		assert.deepEqual(calls, [['jpg', 'plano general']], 'expected the click to carry BOTH the format and the field\'s current value')
+
+		tool.download_map_image = original
+	})
+
 	/**
 	* download_map_image('jpg'/'geotiff') round-trips through the REAL server
 	* action (`raster_download.ts`, hito 3b) — same tolerant-of-a-missing-
@@ -1399,6 +1505,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* server runs in the same container that now has both GDAL and
 	* ImageMagick).
 	*/
+	it('download_map_image SENDS the typed name to the server for a server-side format', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+
+		// The only path the name takes to the server is `options.file_name`;
+		// nothing gated that it travels at all (review-diff, 2026-09-22). The
+		// REAL request still runs — same tolerant shape as the two tests below,
+		// so a container without ImageMagick fails the conversion, not this.
+		let sent = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function(options) {
+			sent = options
+			return original_tool_request.call(tool, options)
+		}
+
+		await capture_download(() => download_map_image(tool, 'jpg', '../Necrópolis de Cádiz'))
+
+		assert.isOk(sent, 'expected a server round-trip for a non-PNG format')
+		assert.equal(sent.action, 'raster_download', 'expected the raster_download action')
+		assert.equal(sent.options.file_name, 'Necrópolis de Cádiz', 'expected the SANITIZED name to travel in options.file_name')
+
+		tool.tool_request = original_tool_request
+	})
+
 	it('download_map_image(\'jpg\') downloads a real flattened JPEG via the server\'s ImageMagick, or reports it unavailable', async function() {
 
 		tool.attach_console()

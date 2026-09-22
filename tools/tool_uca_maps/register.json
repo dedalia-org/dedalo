@@ -176,6 +176,12 @@
 		{ "lang": "lg-eng", "name": "map_image_download_title", "value": "Download map as image" },
 		{ "lang": "lg-spa", "name": "map_image_download_title", "value": "Descargar mapa como imagen" },
 
+		{ "lang": "lg-eng", "name": "map_image_name_label", "value": "Name" },
+		{ "lang": "lg-spa", "name": "map_image_name_label", "value": "Nombre" },
+
+		{ "lang": "lg-eng", "name": "map_image_name_required", "value": "Please enter a name for the file" },
+		{ "lang": "lg-spa", "name": "map_image_name_required", "value": "Por favor, indique un nombre para el archivo" },
+
 		{ "lang": "lg-eng", "name": "raster_format_png", "value": "PNG" },
 		{ "lang": "lg-spa", "name": "raster_format_png", "value": "PNG" },
 

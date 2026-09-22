@@ -942,8 +942,8 @@ tool_uca_maps.prototype.download_object_pdf = function(layer) {
 * wrapper reason as the block above: `render_map_image_download.js` calls
 * `self.download_map_image(...)`, never `map_image_download.js` directly.
 */
-tool_uca_maps.prototype.download_map_image = function(format) {
-	return download_map_image(this, format)
+tool_uca_maps.prototype.download_map_image = function(format, file_name) {
+	return download_map_image(this, format, file_name)
 }//end download_map_image
 
 tool_uca_maps.prototype.toggle_centroid = function(layer) {

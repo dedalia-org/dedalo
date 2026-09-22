@@ -59,6 +59,11 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import {
+	DEFAULT_MAP_IMAGE_NAME,
+	sanitize_download_name,
+	with_extension,
+} from '../js/download_filename.js';
+import {
 	readFileBase64,
 	resolveGdalBinary,
 	resolveMagickBinary,
@@ -112,10 +117,32 @@ function parseBounds(value: unknown): RasterBounds {
 	return bounds;
 }
 
-/** One converted file, base64-encoded, ready for the envelope. */
+/** One converted file, base64-encoded, ready for the envelope. It carries the
+ * EXTENSION, not a name: the download name is the user's (`options.file_name`)
+ * and is built once, in `rasterDownload`. */
 interface RasterDownloadResult {
-	fileName: string;
+	extension: string;
 	content: string;
+}
+
+/**
+ * The download name, sanitized HERE whatever the client did with it
+ * (`js/download_filename.js` is the one rule both sides run). Absent means
+ * "no name supplied" and takes the default; a supplied name that survives
+ * sanitizing as nothing is a caller fault, refused rather than quietly
+ * renamed. It never becomes a path — the scratch file below keeps its own
+ * fixed name, so nothing user-typed reaches `join()`.
+ */
+function downloadBaseName(value: unknown): string {
+	if (value === undefined || value === null) return DEFAULT_MAP_IMAGE_NAME;
+	if (typeof value !== 'string') {
+		throw invalidRasterRequest('file_name must be a string');
+	}
+	const base = sanitize_download_name(value);
+	if (base === '') {
+		throw invalidRasterRequest('file_name has no usable characters');
+	}
+	return base;
 }
 
 /** JPG/GIF/WebP via ImageMagick. Deliberately SIMPLER than
@@ -143,7 +170,7 @@ async function convertWithImageMagick(
 		env: magickPolicyEnv(),
 		expectedOutput: outputFile,
 	});
-	return { fileName: `uca_maps_map.${format}`, content: await readFileBase64(outputFile) };
+	return { extension: format, content: await readFileBase64(outputFile) };
 }
 
 /** GeoTIFF — see the module header for why a single `-a_srs EPSG:3857
@@ -175,7 +202,7 @@ async function convertToGeotiff(
 		'raster_download (geotiff)',
 		{ expectedOutput: outputFile },
 	);
-	return { fileName: 'uca_maps_map.tif', content: await readFileBase64(outputFile) };
+	return { extension: 'tif', content: await readFileBase64(outputFile) };
 }
 
 export async function rasterDownload(ctx: ToolActionContext): Promise<ToolResponse> {
@@ -192,6 +219,7 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 	// Validated BEFORE any file touches disk: a bad bounds object should never
 	// spend a GDAL invocation to discover it was invalid.
 	const bounds = format === 'geotiff' ? parseBounds(ctx.options.bounds) : null;
+	const baseName = downloadBaseName(ctx.options.file_name);
 
 	const result = await withScratchDir(async (dir) => {
 		const inputFile = join(dir, 'uca_maps_map.png');
@@ -202,7 +230,11 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 	});
 
 	return ok(
-		{ content_base64: result.content, filename: result.fileName, mime: RASTER_MIME[format] },
+		{
+			content_base64: result.content,
+			filename: with_extension(baseName, result.extension),
+			mime: RASTER_MIME[format],
+		},
 		{ requestId: toolRequestId(ctx) },
 	);
 }

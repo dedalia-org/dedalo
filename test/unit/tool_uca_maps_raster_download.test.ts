@@ -11,6 +11,10 @@
  *    (`media/engine/binaries.ts` — ImageMagick's own install probe, reused
  *    rather than reinvented), GeoTIFF gated on `Bun.which('gdal_translate')`
  *    (same idiom as `tool_uca_maps_vector_download.test.ts`'s HAVE_GDAL);
+ *  - the download NAME (audit row #10, H-04, 2026-09-22): the user's
+ *    `file_name` is re-sanitized SERVER-SIDE whatever the client did with it,
+ *    absent means the default, and a name that sanitizes to nothing is a
+ *    refusal rather than a quiet rename;
  *  - the CRS decision (`raster_download.ts` file header): the GeoTIFF's
  *    `-a_srs EPSG:3857` corners are asserted to be the REAL Mercator meters
  *    passed in `bounds` (via `gdalinfo`'s reported corner coordinates), never
@@ -100,6 +104,22 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 		).rejects.toThrow(/finite number/);
 	});
 
+	test('a non-string file_name is refused', async () => {
+		const action = await loadAction();
+		await expect(
+			action.handler(contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64, file_name: 42 })),
+		).rejects.toThrow(/file_name must be a string/);
+	});
+
+	test('a file_name with nothing usable in it is refused, never quietly renamed', async () => {
+		const action = await loadAction();
+		for (const file_name of ['', '   ', '/\\', '...']) {
+			await expect(
+				action.handler(contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64, file_name })),
+			).rejects.toThrow(/file_name has no usable characters/);
+		}
+	});
+
 	test('geotiff with a degenerate box (west>=east) is refused', async () => {
 		const action = await loadAction();
 		await expect(
@@ -133,6 +153,32 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 		expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8');
 	});
 
+	test("jpg: the user's own file_name is honoured, sanitized here and not trusted", async () => {
+		const action = await loadAction();
+		const response: ToolResponse = await action.handler(
+			contextOf({
+				format: 'jpg',
+				image_base64: SAMPLE_PNG_BASE64,
+				// A traversal attempt AND a name the user could plausibly type.
+				file_name: '../../Necrópolis de Cádiz',
+			}),
+		);
+
+		expect(response.ok).toBe(true);
+		const data = (response as { data: Record<string, unknown> }).data;
+		// Separators gone, no basename reduction, extension appended once.
+		expect(data.filename).toBe('Necrópolis de Cádiz.jpg');
+	});
+
+	test('jpg: a file_name that already carries the extension is not doubled', async () => {
+		const action = await loadAction();
+		const response: ToolResponse = await action.handler(
+			contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64, file_name: 'mapa.jpg' }),
+		);
+		const data = (response as { data: Record<string, unknown> }).data;
+		expect(data.filename).toBe('mapa.jpg');
+	});
+
 	test('gif and webp: real, non-empty conversions', async () => {
 		const action = await loadAction();
 		for (const [format, filename, mime] of [
@@ -162,6 +208,8 @@ describe.if(HAVE_GDAL)('tool_uca_maps raster_download — real GeoTIFF georefere
 		const data = (response as { data: Record<string, unknown> }).data;
 		expect(data.filename).toBe('uca_maps_map.tif');
 		expect(data.mime).toBe('image/tiff');
+		// The extension follows the FORMAT, not the format's menu name: a
+		// geotiff is '.tif', whatever the user called the file.
 
 		// Round-trip the produced GeoTIFF through `gdalinfo -json` and check the
 		// corner coordinates are the SAME Mercator meters that were sent — the
@@ -182,5 +230,19 @@ describe.if(HAVE_GDAL)('tool_uca_maps raster_download — real GeoTIFF georefere
 		} finally {
 			rmSync(tmpFile, { force: true });
 		}
+	});
+
+	test("geotiff: a named file still gets '.tif', the format's extension, not 'geotiff'", async () => {
+		const action = await loadAction();
+		const response: ToolResponse = await action.handler(
+			contextOf({
+				format: 'geotiff',
+				image_base64: SAMPLE_PNG_BASE64,
+				bounds: SAMPLE_BOUNDS,
+				file_name: 'mapa',
+			}),
+		);
+		const data = (response as { data: Record<string, unknown> }).data;
+		expect(data.filename).toBe('mapa.tif');
 	});
 });

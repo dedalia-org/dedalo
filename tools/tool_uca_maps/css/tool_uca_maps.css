@@ -96,6 +96,18 @@
   gap: 0.3rem;
   padding: 0.5rem 0.75rem;
 }
+.uca-maps-map-image-panel > .uca-maps-map-image-row + .uca-maps-map-image-row {
+  padding-top: 0;
+}
+.uca-maps-map-image-panel .uca-maps-map-image-name-label {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 0.8rem;
+}
+.uca-maps-map-image-panel .uca-maps-map-image-name {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
 .uca-maps-map-image-panel .uca-maps-map-image-format {
   flex: 1 1 4rem;
   min-width: 0;

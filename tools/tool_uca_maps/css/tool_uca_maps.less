@@ -236,6 +236,23 @@
 		padding: 0.5rem 0.75rem;
 	}
 
+	// Name row and format row are the same flex-row shape; the second one
+	// drops its top padding so the pair reads as one block.
+	>.uca-maps-map-image-row + .uca-maps-map-image-row {
+		padding-top: 0;
+	}
+
+	.uca-maps-map-image-name-label {
+		flex: 0 0 auto;
+		align-self: center;
+		font-size: 0.8rem;
+	}
+
+	.uca-maps-map-image-name {
+		flex: 1 1 6rem;
+		min-width: 0;
+	}
+
 	.uca-maps-map-image-format {
 		flex: 1 1 4rem;
 		min-width: 0;
