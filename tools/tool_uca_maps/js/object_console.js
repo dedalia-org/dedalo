@@ -56,6 +56,7 @@ import {event_manager} from '../../../core/common/js/event_manager.js'
 import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
 import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
+import {is_onexone_rectangle} from './onexone_flags.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -187,6 +188,7 @@ const hydrate = function(self) {
 	// (plan hydration step 2; reapply_style/reapply_hierarchy above)
 	self._pmcreate_handler = (event) => {
 		if (event.layer) {
+			default_geoman_off(self, event.layer)
 			reapply_style(event.layer)
 			reapply_hierarchy(event.layer)
 			apply_geoman(event.layer)
@@ -430,6 +432,9 @@ export const sync_measurements = function(self, layer) {
 	if (layer instanceof L.Circle) {
 		value = (2 * Math.PI * layer.getRadius()).toFixed(2) + ' m'
 	} else if (layer instanceof L.Polygon) {
+		if (is_onexone_rectangle(layer)) {
+			return false // v6 saves no area for a 1x1 — see compute_info
+		}
 		value = format_polygon_area(turf.area(layer.toGeoJSON()))
 	} else {
 		return false
@@ -644,8 +649,16 @@ const apply_geoman = function(layer) {
 		return
 	}
 
+	// (!) NEVER RE-ASSERT A STATE THAT ALREADY HOLDS. `pm.disable()` makes
+	// Geoman fire `pm:edit` ("leaving edit mode"), the core turns that into
+	// `update_draw_data` (`component_geolocation.js:1525`), which publishes
+	// `updated_layer_data_*`, which lands back in this very re-assert: an
+	// endless loop that buries the page in `get_elevation` requests
+	// (functional audit, row #7, 2026-09-22).
+	const enabled = typeof layer.pm.enabled==='function' ? layer.pm.enabled() : null
+
 	if (is_geoman_edition(layer)) {
-		if (typeof layer.pm.enable==='function') {
+		if (enabled!==true && typeof layer.pm.enable==='function') {
 			layer.pm.enable({
 				allowSelfIntersection	: true,
 				allowEditing			: true,
@@ -653,10 +666,49 @@ const apply_geoman = function(layer) {
 				snappable				: true
 			})
 		}
-	} else if (typeof layer.pm.disable==='function') {
+	} else if (enabled!==false && typeof layer.pm.disable==='function') {
 		layer.pm.disable()
 	}
 }//end apply_geoman
+
+
+/**
+* DEFAULT_GEOMAN_OFF
+* A geometry the user has just created is born with the edit handles OFF and
+* SAYS so — v6's own default (`special_tools_onexone.js:107` writes
+* `geoman_edition = false` on creation, and `check_geoman_edition_mode`
+* disables anything without a true flag). Without this the core's click sweep
+* paints vertex handles over a shape whose checkbox reads "off", and only a
+* tick+untick clears them (functional audit, row #7).
+*
+* Only at creation: an object already in the record keeps "no opinion", so
+* this never turns the core's behaviour off across an existing map (the
+* reason `is_geoman_edition` reads an EXPLICIT state, C-04/H-01). Markers are
+* left alone — they carry no vertex handles — and so is an image carrier,
+* which `image_edit.js` already seals its own way (`seal_carrier_from_geoman`,
+* hito 14) and drags through Geoman.
+*
+* @param {Object} self
+* @param {Object} layer
+* @returns {void}
+*/
+const default_geoman_off = function(self, layer) {
+
+	if (layer instanceof L.Marker || has_geoman_edition(layer)) {
+		return
+	}
+
+	const properties = ensure_properties(layer)
+	properties.uca_maps = properties.uca_maps || {}
+	if (properties.uca_maps.image) {
+		return
+	}
+
+	properties.uca_maps.geoman_edition = false
+
+	mark_dirty(self, layer)
+}//end default_geoman_off
+
 
 
 /**
@@ -1410,6 +1462,12 @@ export const compute_info = function(self, layer) {
 	}
 
 	if (layer instanceof L.Polygon) {
+		// A 1x1 prints its NOMINAL area and v6 never measures it
+		// (`create_div_polygon_area`, the is_oneXone branch): the rectangle
+		// is a 1 m² reference around a point, not a shape the user drew.
+		if (is_onexone_rectangle(layer)) {
+			return {label_key: 'area', label: 'Area', value: '1 m²'}
+		}
 		const area_m2 = turf.area(layer.toGeoJSON())
 		return {label_key: 'area', label: 'Area', value: format_polygon_area(area_m2)}
 	}

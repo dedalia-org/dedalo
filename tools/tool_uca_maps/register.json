@@ -224,6 +224,9 @@
 		{ "lang": "lg-eng", "name": "onexone_control_title", "value": "Create 1x1 polygon" },
 		{ "lang": "lg-spa", "name": "onexone_control_title", "value": "Crear polígono de 1x1" },
 
+		{ "lang": "lg-eng", "name": "onexone_point_reference", "value": "Reference point of a 1 m² polygon" },
+		{ "lang": "lg-spa", "name": "onexone_point_reference", "value": "Punto de referencia de polígono de 1 m²" },
+
 		{ "lang": "lg-eng", "name": "xyz_control_title", "value": "XYZ basemaps" },
 		{ "lang": "lg-spa", "name": "xyz_control_title", "value": "Mapas base XYZ" },
 

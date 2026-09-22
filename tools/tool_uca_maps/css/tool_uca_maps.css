@@ -548,6 +548,21 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale {
+  margin: 0.25rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale > svg {
+  display: block;
+  width: 60%;
+  height: auto;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-onexone-reference {
+  margin: 0.35rem 0 0.2rem;
+  font-weight: 700;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-onexone-uncertainty-label {
+  font-weight: 700;
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-badge {
   margin: 0.2rem 0 0.4rem;
   font-size: 0.75rem;

@@ -2061,6 +2061,172 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
+	/**
+	* FUNCTIONAL AUDIT, 2026-09-22 — row #7 walked against v6. All of it was
+	* green before: no gate looked at what the console says about a 1x1, nor
+	* at the handles a geometry is born with.
+	*/
+
+	it('a geometry created on the map is born with the Geoman handles off and says so; a marker and an image carrier are left alone', async function() {
+
+		tool.attach_console()
+		geolocation.active_layer_id = 1
+
+		const polygon = L.polygon([[40.40, -3.71], [40.40, -3.60], [40.50, -3.60]])
+		geolocation.map.fire('pm:create', {layer: polygon})
+		assert.equal(
+			polygon.feature.properties.uca_maps.geoman_edition, false,
+			'expected the explicit stored false v6 writes on creation (special_tools_onexone.js)'
+		)
+		// the stored flag alone would pass on a layer Geoman never touched:
+		// reproduce the core's own click sweep (`component_geolocation.js`
+		// init_feature runs pm.enable() over every layer of the group) and
+		// check the deferred re-assert takes the handles off again — with
+		// either half of the fix removed, this goes red
+		assert.equal(polygon.pm.enabled(), false, 'expected no vertex handles on a shape nobody asked to edit')
+		polygon.pm.enable()
+		assert.equal(polygon.pm.enabled(), true, 'expected the simulated core sweep to paint the handles')
+		polygon.openPopup()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		assert.equal(polygon.pm.enabled(), false, 'expected the stored false to clear the handles the core sweep painted')
+
+		const marker = L.marker([40.42, -3.68])
+		geolocation.map.fire('pm:create', {layer: marker})
+		const marker_uca = marker.feature && marker.feature.properties && marker.feature.properties.uca_maps
+		assert.isNotOk(
+			marker_uca && typeof marker_uca.geoman_edition==='boolean',
+			'expected a marker left with no opinion — it carries no vertex handles'
+		)
+
+		const carrier = L.rectangle([[40.40, -3.71], [40.50, -3.60]])
+		carrier.feature = carrier.toGeoJSON()
+		carrier.feature.properties.uca_maps = {image: {id: 'x'}}
+		geolocation.map.fire('pm:create', {layer: carrier})
+		assert.isNotOk(
+			typeof carrier.feature.properties.uca_maps.geoman_edition==='boolean',
+			'expected an image carrier left to image_edit.js own seal (hito 14): a new image arrives editable'
+		)
+	})
+
+	it('re-asserting a stored geoman state that already holds touches nothing — the loop guard', function() {
+
+		tool.attach_console()
+		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+
+		// an object with the handles explicitly off, already applied
+		tool.set_geoman_edition(polygon, false)
+
+		let disables	= 0
+		let enables		= 0
+		const real_disable	= polygon.pm.disable.bind(polygon.pm)
+		const real_enable	= polygon.pm.enable.bind(polygon.pm)
+		polygon.pm.disable	= function() { disables++; return real_disable() }
+		polygon.pm.enable	= function(options) { enables++; return real_enable(options) }
+
+		// the core's own republish (update_draw_data fires this on every
+		// serialisation) runs reapply_all over every layer
+		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
+
+		assert.equal(
+			disables, 0,
+			'expected NO pm.disable() on a layer already disabled: Geoman answers it with pm:edit, '
+			+ 'the core answers pm:edit with another update_draw_data, and the publish comes straight back here'
+		)
+		assert.equal(enables, 0, 'expected no pm.enable() either — the stored state is off')
+
+		// and the counters are not silent because the re-assert never got
+		// here: put the layer INTO edit mode behind the stored state's back —
+		// which is exactly what the core's click sweep does — and the same
+		// publish must now disable it, once
+		real_enable()
+		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
+		assert.equal(disables, 1, 'expected the re-assert to reach this layer and clear a state that disagrees')
+
+		polygon.pm.disable	= real_disable
+		polygon.pm.enable	= real_enable
+	})
+
+	it('the 1x1 marker console carries v6\'s reference-point line and the uncertainty scale', function() {
+
+		tool.attach_console()
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		create_onexone_rectangle(tool, marker)
+
+		marker.openPopup()
+		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+
+		assert.isOk(
+			section.querySelector('.uca-maps-onexone-reference'),
+			'expected v6 create_div_oneXone\'s own line: the marker says what it now is'
+		)
+		const svg = section.querySelector('.uca-maps-uncertainty-scale svg')
+		assert.isOk(svg, 'expected the scale bar v6 draws as img/escala-1.png')
+		assert.equal(svg.querySelectorAll('rect').length, 6, 'expected v6\'s six bands')
+	})
+
+	it('the 1x1 rectangle console prints the nominal area, stores none, and hides the centroid box', function() {
+
+		tool.attach_console()
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		create_onexone_rectangle(tool, marker)
+
+		const onexone_uid	= marker.feature.properties.uca_maps.onexone_uid
+		const rectangle		= geolocation.FeatureGroup[3].getLayers().find((candidate) =>
+			candidate.feature
+			&& candidate.feature.properties.uca_maps
+			&& candidate.feature.properties.uca_maps.uid===onexone_uid
+		)
+
+		assert.equal(
+			tool.compute_info(rectangle).value, '1 m²',
+			'expected v6\'s nominal area (create_div_polygon_area, is_oneXone branch), not turf\'s measurement'
+		)
+		assert.equal(
+			rectangle.feature.properties.uca_maps.geoman_edition, false,
+			'expected the 1x1 rectangle born with the handles off, like any other new geometry'
+		)
+
+		// AFTER the render: `render_selected_object` calls sync_measurements,
+		// which is the writer the 1x1 guard has to stop — asserted before the
+		// render, this could not fail
+		rectangle.openPopup()
+		assert.equal(
+			rectangle.feature.properties.area, undefined,
+			'expected no stored area: v6 saves one only in its non-1x1 branch'
+		)
+
+		const plain_polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		plain_polygon.openPopup()
+		assert.isOk(
+			plain_polygon.feature.properties.area,
+			'expected the guard to be narrow: a plain polygon still stores its measured area'
+		)
+
+		rectangle.openPopup()
+		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		assert.isNotOk(section.querySelector('.uca-maps-centroid'), 'expected NO centroid checkbox on a 1x1 (v6 create_div_centroid)')
+		assert.isOk(section.querySelector('.uca-maps-uncertainty-scale svg'), 'expected the scale bar beside the checked box')
+	})
+
+	it('the uncertainty scale rings the STORED tier, on any polygon, not only on a 1x1', function() {
+
+		tool.attach_console()
+		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		toggle_uncertainty(tool, polygon)
+
+		polygon.openPopup()
+		const section	= tool.panel_node.querySelector('.uca-maps-object-section')
+		const svg		= section.querySelector('.uca-maps-uncertainty-scale svg')
+		assert.isOk(svg, 'expected the scale bar on a plain polygon too (v6 create_div_incertidumbre)')
+
+		const tier = polygon.feature.properties.uca_maps.uncertainty.scale_tier
+		assert.equal(
+			svg.querySelectorAll('circle')[0].getAttribute('cx'),
+			String(((tier - 1) * 40) + 20),
+			'expected the ring on the band of the stored tier, as v6 picks escala-<tier>.png'
+		)
+	})
+
 	it('detach_onexone removes the button and stops both map listeners', async function() {
 
 		tool.attach_onexone()

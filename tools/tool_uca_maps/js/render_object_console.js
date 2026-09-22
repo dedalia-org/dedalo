@@ -23,6 +23,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
 
 // Deliberately NO import from './object_console.js' — object_console.js
 // already imports {render_console_panel, render_selected_object,
@@ -114,6 +115,90 @@ const GEOMETRY_LABELS = {
 	unknown		: 'Object'
 }
 
+/** v6's `img/escala-<tier>.png` bands, sampled from the binaries themselves
+* (240x32, six 40px bands). Six PNGs became one inline SVG for the reason
+* C-01 and the compass give: no binary to serve, and it scales. */
+const UNCERTAINTY_BANDS = ['#4A7440', '#5AB845', '#31F705', '#F7F005', '#F79805', '#F76C05']
+
+
+
+/**
+* RENDER_UNCERTAINTY_SCALE
+* The green-to-red band strip with the ring on the current tier — v6 draws
+* it in BOTH consoles it appears in (`create_div_incertidumbre` for the
+* polygon, `create_div_oneXone` for the 1x1 marker), so it is built once
+* here. `title` carries the stored value, as v6's `img.title` did.
+*
+* @param {number} tier - 1..6
+* @param {string|null} title
+* @param {HTMLElement} container
+* @returns {HTMLElement}
+*/
+const render_uncertainty_scale = function(tier, title, container) {
+
+	const index	= Math.min(Math.max(parseInt(tier, 10) || 1, 1), UNCERTAINTY_BANDS.length) - 1
+	const cx	= (index * 40) + 20
+	const bands	= UNCERTAINTY_BANDS
+		.map((color, i) => '<rect x="' + (i * 40) + '" y="0" width="40" height="32" fill="' + color + '"/>')
+		.join('')
+
+	const node = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-uncertainty-scale',
+		inner_html		: '<svg viewBox="0 0 240 32" aria-hidden="true" focusable="false">'
+			+ bands
+			+ '<circle cx="' + cx + '" cy="16" r="7" fill="none" stroke="#000" stroke-width="3"/>'
+			+ '<circle cx="' + cx + '" cy="16" r="2.5" fill="#000"/>'
+			+ '</svg>',
+		parent			: container
+	})
+	// set, never interpolated into the markup above: the value is data
+	if (title) {
+		node.setAttribute('title', title)
+	}
+
+	return node
+}//end render_uncertainty_scale
+
+
+
+/**
+* RENDER_ONEXONE_REFERENCE
+* v6's `create_div_oneXone` (`special_tools.js:5200`, called from the marker
+* branch of its console): the marker a 1x1 was built around says what it is
+* and shows the scale of the rectangle it anchors. The tier is hardcoded 1,
+* as in v6 — a 1 m² polygon can fall in no other band.
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {HTMLElement} container
+* @returns {void}
+*/
+const render_onexone_reference = function(self, layer, container) {
+
+	if (!is_onexone_marker(layer)) {
+		return
+	}
+
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-onexone-reference',
+		text_content	: self.get_tool_label('onexone_point_reference')
+			|| 'Reference point of a 1 m² polygon',
+		parent			: container
+	})
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-onexone-uncertainty-label',
+		text_content	: (self.get_tool_label('uncertainty_label') || 'Uncertainty') + ':',
+		parent			: container
+	})
+	render_uncertainty_scale(1, '1', container)
+
+}//end render_onexone_reference
+
+
+
 /**
 * GET_GEOMETRY_KIND
 * Order matters: L.Polygon extends L.Polyline, so it must be checked first.
@@ -183,6 +268,8 @@ export const render_selected_object = function(self, layer) {
 		text_content	: GEOMETRY_LABELS[kind],
 		parent			: object_section
 	})
+
+	render_onexone_reference(self, layer, object_section)
 
 	const info = self.compute_info(layer)
 	if (info) {
@@ -512,7 +599,9 @@ const render_style_controls = function(self, layer, container) {
 */
 const render_centroid_control = function(self, layer, container) {
 
-	if (!(layer instanceof L.Circle) && !(layer instanceof L.Polygon)) {
+	// v6 hides it on a 1x1 (`create_div_centroid`'s own `!is_oneXone` guard):
+	// the rectangle already IS the reference around a point.
+	if ((!(layer instanceof L.Circle) && !(layer instanceof L.Polygon)) || is_onexone_rectangle(layer)) {
 		return
 	}
 
@@ -566,6 +655,7 @@ const render_uncertainty_control = function(self, layer, container) {
 	input.addEventListener('change', () => self.toggle_uncertainty(layer))
 
 	if (uncertainty) {
+		render_uncertainty_scale(uncertainty.scale_tier, uncertainty.value, container)
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'uca-maps-uncertainty-badge',
