@@ -98,13 +98,18 @@
 		fetch_elevation,
 		RESERVED_PROPERTY_KEYS,
 		set_style_field,
+		set_object_color,
 		set_property,
 		delete_property,
 		download_vector,
 		download_object_pdf,
 		toggle_centroid,
 		toggle_uncertainty,
-		set_hierarchy
+		set_hierarchy,
+		sync_measurements,
+		is_geoman_edition,
+		has_geoman_edition,
+		set_geoman_edition
 	} from './object_console.js'
 	import {
 		download_map_image,
@@ -912,6 +917,10 @@ tool_uca_maps.prototype.set_style_field = function(layer, field, value) {
 	return set_style_field(this, layer, field, value)
 }//end set_style_field
 
+tool_uca_maps.prototype.set_object_color = function(layer, value) {
+	return set_object_color(this, layer, value)
+}//end set_object_color
+
 tool_uca_maps.prototype.set_property = function(layer, key, value) {
 	return set_property(this, layer, key, value)
 }//end set_property
@@ -948,6 +957,22 @@ tool_uca_maps.prototype.toggle_uncertainty = function(layer) {
 tool_uca_maps.prototype.set_hierarchy = function(layer, edge, checked) {
 	return set_hierarchy(this, layer, edge, checked)
 }//end set_hierarchy
+
+tool_uca_maps.prototype.sync_measurements = function(layer) {
+	return sync_measurements(this, layer)
+}//end sync_measurements
+
+tool_uca_maps.prototype.is_geoman_edition = function(layer) {
+	return is_geoman_edition(layer)
+}//end is_geoman_edition
+
+tool_uca_maps.prototype.has_geoman_edition = function(layer) {
+	return has_geoman_edition(layer)
+}//end has_geoman_edition
+
+tool_uca_maps.prototype.set_geoman_edition = function(layer, enabled) {
+	return set_geoman_edition(this, layer, enabled)
+}//end set_geoman_edition
 
 
 

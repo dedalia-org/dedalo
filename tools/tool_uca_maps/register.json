@@ -45,8 +45,6 @@
 		{ "lang": "lg-eng", "name": "no_object_selected", "value": "Click a drawn geometry to inspect it." },
 		{ "lang": "lg-spa", "name": "no_object_selected", "value": "Clica una geometría dibujada para inspeccionarla." },
 
-		{ "lang": "lg-eng", "name": "object_selected_title", "value": "Selected object" },
-		{ "lang": "lg-spa", "name": "object_selected_title", "value": "Objeto seleccionado" },
 
 		{ "lang": "lg-eng", "name": "activating_console", "value": "Activating UCA Maps…" },
 		{ "lang": "lg-spa", "name": "activating_console", "value": "Activando Mapas UCA…" },
@@ -75,11 +73,10 @@
 		{ "lang": "lg-eng", "name": "pdf_image_forbidden", "value": "Not included: you may not read this record." },
 		{ "lang": "lg-spa", "name": "pdf_image_forbidden", "value": "No incluida: no tiene permiso de lectura sobre esta ficha." },
 
-		{ "lang": "lg-eng", "name": "object_images_title", "value": "Associated images" },
-		{ "lang": "lg-spa", "name": "object_images_title", "value": "Imágenes asociadas" },
-
-		{ "lang": "lg-eng", "name": "object_images_associate", "value": "Associate image" },
-		{ "lang": "lg-spa", "name": "object_images_associate", "value": "Asociar imagen" },
+		{ "lang": "lg-eng", "name": "object_images_title", "value": "Associate image" },
+		{ "lang": "lg-spa", "name": "object_images_title", "value": "Asociar imagen" },
+		{ "lang": "lg-eng", "name": "object_images_gallery_title", "value": "Gallery" },
+		{ "lang": "lg-spa", "name": "object_images_gallery_title", "value": "Galería" },
 
 		{ "lang": "lg-eng", "name": "object_images_empty", "value": "No images associated yet." },
 		{ "lang": "lg-spa", "name": "object_images_empty", "value": "El objeto no tiene imágenes asociadas." },
@@ -99,12 +96,6 @@
 		{ "lang": "lg-eng", "name": "elevation_center", "value": "Elevation of the centre" },
 		{ "lang": "lg-spa", "name": "elevation_center", "value": "Elevación del centro" },
 
-		{ "lang": "lg-eng", "name": "elevation_pending", "value": "…" },
-		{ "lang": "lg-spa", "name": "elevation_pending", "value": "…" },
-
-		{ "lang": "lg-eng", "name": "elevation_unavailable", "value": "not available" },
-		{ "lang": "lg-spa", "name": "elevation_unavailable", "value": "no disponible" },
-
 		{ "lang": "lg-eng", "name": "info_coordinates", "value": "Coordinates" },
 		{ "lang": "lg-spa", "name": "info_coordinates", "value": "Coordenadas" },
 
@@ -120,14 +111,18 @@
 		{ "lang": "lg-eng", "name": "style_title", "value": "Style" },
 		{ "lang": "lg-spa", "name": "style_title", "value": "Estilo" },
 
-		{ "lang": "lg-eng", "name": "style_fill_color", "value": "Fill color" },
-		{ "lang": "lg-spa", "name": "style_fill_color", "value": "Color de relleno" },
+		{ "lang": "lg-eng", "name": "style_color", "value": "Color" },
+		{ "lang": "lg-spa", "name": "style_color", "value": "Color" },
 
 		{ "lang": "lg-eng", "name": "style_fill_opacity", "value": "Fill opacity" },
 		{ "lang": "lg-spa", "name": "style_fill_opacity", "value": "Opacidad de relleno" },
 
 		{ "lang": "lg-eng", "name": "style_weight", "value": "Stroke weight" },
-		{ "lang": "lg-spa", "name": "style_weight", "value": "Grosor de línea" },
+		{ "lang": "lg-spa", "name": "style_weight", "value": "Ancho del borde" },
+		{ "lang": "lg-eng", "name": "style_stroke_opacity", "value": "Stroke opacity" },
+		{ "lang": "lg-spa", "name": "style_stroke_opacity", "value": "Opacidad del borde" },
+		{ "lang": "lg-eng", "name": "style_dash", "value": "Dashed border" },
+		{ "lang": "lg-spa", "name": "style_dash", "value": "Borde discontinuo" },
 
 		{ "lang": "lg-eng", "name": "centroid_label", "value": "Centroid" },
 		{ "lang": "lg-spa", "name": "centroid_label", "value": "Centroide" },
@@ -138,8 +133,8 @@
 		{ "lang": "lg-eng", "name": "uncertainty_scale_tier", "value": "Scale tier" },
 		{ "lang": "lg-spa", "name": "uncertainty_scale_tier", "value": "Nivel de escala" },
 
-		{ "lang": "lg-eng", "name": "hierarchy_title", "value": "Hierarchy" },
-		{ "lang": "lg-spa", "name": "hierarchy_title", "value": "Jerarquía" },
+		{ "lang": "lg-eng", "name": "hierarchy_title", "value": "Hierarchy of the object" },
+		{ "lang": "lg-spa", "name": "hierarchy_title", "value": "Jerarquía del objeto" },
 
 		{ "lang": "lg-eng", "name": "hierarchy_front", "value": "Front" },
 		{ "lang": "lg-spa", "name": "hierarchy_front", "value": "Delante" },
@@ -162,8 +157,12 @@
 		{ "lang": "lg-eng", "name": "properties_add_button", "value": "Add" },
 		{ "lang": "lg-spa", "name": "properties_add_button", "value": "Añadir" },
 
+		{ "lang": "lg-eng", "name": "download_title", "value": "Vector download" },
+		{ "lang": "lg-spa", "name": "download_title", "value": "Descarga vectorial" },
 		{ "lang": "lg-eng", "name": "download_button", "value": "Download" },
 		{ "lang": "lg-spa", "name": "download_button", "value": "Descargar" },
+		{ "lang": "lg-eng", "name": "geoman_edition_label", "value": "Geoman editing active" },
+		{ "lang": "lg-spa", "name": "geoman_edition_label", "value": "Edición Geoman activa" },
 
 		{ "lang": "lg-eng", "name": "vector_format_geojson", "value": "GeoJSON" },
 		{ "lang": "lg-spa", "name": "vector_format_geojson", "value": "GeoJSON" },

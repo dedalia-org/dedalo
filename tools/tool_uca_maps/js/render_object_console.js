@@ -150,6 +150,17 @@ export const render_selected_object = function(self, layer) {
 	if (!self.panel_node) {
 		return
 	}
+
+	// BEFORE the container is cleared, never during the build: writing the
+	// measurement marks the record dirty, and `update_draw_data`'s own
+	// `updated_layer_data_*` publish re-enters this very function. Doing it
+	// first means the re-entrant pass finishes before this one starts
+	// clearing and appending, instead of interleaving two builds in one
+	// container.
+	if (!is_image_carrier(layer)) {
+		self.sync_measurements(layer)
+	}
+
 	const object_section = self.panel_node.querySelector('.uca-maps-object-section')
 	if (!object_section) {
 		return
@@ -157,12 +168,6 @@ export const render_selected_object = function(self, layer) {
 	object_section.replaceChildren()
 
 	const kind = get_geometry_kind(layer)
-
-	ui.create_dom_element({
-		element_type	: 'h5',
-		text_content	: self.get_tool_label('object_selected_title') || 'Selected object',
-		parent			: object_section
-	})
 
 	// An image overlay's carrier rectangle is NOT a drawn geometry the user
 	// styles or measures — it is a handle on a picture. v6 swaps the whole
@@ -189,17 +194,64 @@ export const render_selected_object = function(self, layer) {
 		})
 	}
 
-	render_elevation(self, layer, object_section)
+	// ORDER IS v6's (`special_tools.js` `set_info_console`, the polygon
+	// branch): type → measurement → elevation → the three checkboxes that
+	// belong under it (Geoman edition, centroid, uncertainty) → hierarchy →
+	// the action sections → properties LAST. Restored 2026-09-21 (functional
+	// audit): style used to sit between the elevation and the checkboxes,
+	// and properties above the images and the download.
+	// The elevation line is the HEADING of the block the three checkboxes
+	// live in, not a line of its own above them (functional audit,
+	// 2026-09-22) — and the PDF export rides inside the properties
+	// section, because what it exports is the properties.
+	const elevation_section = render_elevation(self, layer, object_section)
+
+	render_geoman_control(self, layer, elevation_section)
+	render_centroid_control(self, layer, elevation_section)
+	render_uncertainty_control(self, layer, elevation_section)
 
 	render_style_controls(self, layer, object_section)
-	render_centroid_control(self, layer, object_section)
-	render_uncertainty_control(self, layer, object_section)
 	render_hierarchy_controls(self, layer, object_section)
-	render_properties_editor(self, layer, object_section)
-	render_object_images(self, layer, object_section)
 	render_download_button(self, layer, object_section)
+	render_object_images(self, layer, object_section)
+	render_properties_editor(self, layer, object_section)
 
 }//end render_selected_object
+
+
+
+/**
+* RENDER_GEOMAN_CONTROL
+* v6's "Edición Geoman activa" checkbox, directly under the elevation line
+* (`special_tools.js` `create_div_geoman_edition_mode`). Ported 2026-09-21.
+*
+* The box shows the object's stored state when it has one, and otherwise
+* whatever the CORE currently has on that layer — an object nobody has
+* ticked is not lying about being editable just because this tool has no
+* opinion on it yet (see `object_console.js` `is_geoman_edition` for why
+* this tool only overrides explicit states).
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {HTMLElement} container
+* @returns {void}
+*/
+const render_geoman_control = function(self, layer, container) {
+
+	const row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field uca-maps-checkbox uca-maps-geoman', parent: container})
+	const input = ui.create_dom_element({element_type: 'input', parent: row})
+	input.type		= 'checkbox'
+	input.checked	= self.has_geoman_edition(layer)
+		? self.is_geoman_edition(layer)
+		: Boolean(layer.pm && typeof layer.pm.enabled==='function' && layer.pm.enabled())
+	ui.create_dom_element({
+		element_type	: 'span',
+		text_content	: self.get_tool_label('geoman_edition_label') || 'Geoman editing active',
+		parent			: row
+	})
+	input.addEventListener('change', () => self.set_geoman_edition(layer, input.checked))
+
+}//end render_geoman_control
 
 
 
@@ -328,10 +380,18 @@ const render_image_controls = function(self, layer, container) {
 
 /**
 * RENDER_STYLE_CONTROLS
-* Fill colour, fill opacity, stroke weight — every `L.Path` (circle/polygon/
-* polyline; NOT `L.Marker`, which has no fill/stroke to speak of). Stroke
-* COLOUR is deliberately absent: the core's own native popup already edits
-* it for free (`object_console.js` `set_style_field` file header).
+* Every `L.Path` (circle/polygon/polyline; NOT `L.Marker`, which has no
+* fill/stroke to speak of).
+*
+* The fields and their ranges are v6's, from the modal its "Editar estilos"
+* button opens (`special_tools.js` `polygon_circle_style`): width 1..100
+* step 1, both opacities 0..1 step 0.1, dash 0..100 step 2. Stroke opacity
+* and dashed border were missing until 2026-09-21, and the width was a
+* number box rather than the slider v6 gives it (functional audit).
+* ONE colour field paints border and body alike, which is v6's own model
+* (`polygon_circle_style` has a single wheel). This port started with a fill
+* colour only — the core's popup edits the stroke for free — then briefly
+* had two fields; the audit settled on v6's single colour on 2026-09-22.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -347,24 +407,26 @@ const render_style_controls = function(self, layer, container) {
 	const properties	= layer.feature && layer.feature.properties || {}
 	const style			= (properties.uca_maps && properties.uca_maps.style) || {}
 
-	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-style-controls', parent: container})
+	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-style-controls', parent: container})
 	ui.create_dom_element({
 		element_type	: 'h6',
 		text_content	: self.get_tool_label('style_title') || 'Style',
 		parent			: fieldset
 	})
 
-	// fill colour
-		const fill_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
+	// ONE colour for the whole object — border and body, as in v6. The stored
+	// stroke colour may carry alpha, so it is cut to the 7 characters an
+	// `input type=color` accepts, exactly as v6 does.
+		const color_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
 		ui.create_dom_element({
 			element_type	: 'span',
-			text_content	: self.get_tool_label('style_fill_color') || 'Fill color',
-			parent			: fill_row
+			text_content	: self.get_tool_label('style_color') || 'Color',
+			parent			: color_row
 		})
-		const fill_input = ui.create_dom_element({element_type: 'input', parent: fill_row})
-		fill_input.type	 = 'color'
-		fill_input.value = style.fillColor || layer.options.fillColor || '#3388ff'
-		fill_input.addEventListener('change', () => self.set_style_field(layer, 'fillColor', fill_input.value))
+		const color_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-color', parent: color_row})
+		color_input.type  = 'color'
+		color_input.value = String(properties.color || layer.options.color || style.fillColor || '#3388ff').substr(0, 7)
+		color_input.addEventListener('change', () => self.set_object_color(layer, color_input.value))
 
 	// fill opacity
 		const opacity_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
@@ -377,7 +439,7 @@ const render_style_controls = function(self, layer, container) {
 		opacity_input.type	= 'range'
 		opacity_input.min	= '0'
 		opacity_input.max	= '1'
-		opacity_input.step	= '0.05'
+		opacity_input.step	= '0.1'
 		opacity_input.value = style.fillOpacity!=null
 			? style.fillOpacity
 			: (layer.options.fillOpacity!=null ? layer.options.fillOpacity : 0.2)
@@ -390,12 +452,49 @@ const render_style_controls = function(self, layer, container) {
 			text_content	: self.get_tool_label('style_weight') || 'Stroke weight',
 			parent			: weight_row
 		})
-		const weight_input = ui.create_dom_element({element_type: 'input', parent: weight_row})
-		weight_input.type	= 'number'
+		const weight_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-weight', parent: weight_row})
+		weight_input.type	= 'range'
 		weight_input.min	= '1'
+		weight_input.max	= '100'
 		weight_input.step	= '1'
 		weight_input.value = style.weight!=null ? style.weight : (layer.options.weight!=null ? layer.options.weight : 3)
 		weight_input.addEventListener('change', () => self.set_style_field(layer, 'weight', Number(weight_input.value)))
+
+	// stroke opacity
+		const stroke_opacity_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
+		ui.create_dom_element({
+			element_type	: 'span',
+			text_content	: self.get_tool_label('style_stroke_opacity') || 'Stroke opacity',
+			parent			: stroke_opacity_row
+		})
+		const stroke_opacity_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-stroke-opacity', parent: stroke_opacity_row})
+		stroke_opacity_input.type	= 'range'
+		stroke_opacity_input.min	= '0'
+		stroke_opacity_input.max	= '1'
+		stroke_opacity_input.step	= '0.1'
+		stroke_opacity_input.value	= style.opacity!=null
+			? style.opacity
+			: (layer.options.opacity!=null ? layer.options.opacity : 1)
+		stroke_opacity_input.addEventListener('change', () => self.set_style_field(layer, 'opacity', Number(stroke_opacity_input.value)))
+
+	// dashed border — 0 means solid, and is stored as a cleared field rather
+	// than the string '0' so `layer.options.dashArray` goes back to null
+		const dash_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
+		ui.create_dom_element({
+			element_type	: 'span',
+			text_content	: self.get_tool_label('style_dash') || 'Dashed border',
+			parent			: dash_row
+		})
+		const dash_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-dash', parent: dash_row})
+		dash_input.type		= 'range'
+		dash_input.min		= '0'
+		dash_input.max		= '100'
+		dash_input.step		= '2'
+		dash_input.value	= style.dashArray!=null ? parseInt(style.dashArray, 10) : 0
+		dash_input.addEventListener('change', () => {
+			const dash = parseInt(dash_input.value, 10)
+			self.set_style_field(layer, 'dashArray', dash>0 ? String(dash) : null)
+		})
 
 }//end render_style_controls
 
@@ -503,7 +602,7 @@ const render_hierarchy_controls = function(self, layer, container) {
 	const properties	= layer.feature && layer.feature.properties || {}
 	const hierarchy		= (properties.uca_maps && properties.uca_maps.hierarchy) || {}
 
-	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-hierarchy-controls', parent: container})
+	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-hierarchy-controls', parent: container})
 	ui.create_dom_element({
 		element_type	: 'h6',
 		text_content	: self.get_tool_label('hierarchy_title') || 'Hierarchy',
@@ -565,7 +664,7 @@ const render_properties_editor = function(self, layer, container) {
 
 	const properties = layer.feature && layer.feature.properties || {}
 
-	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-properties-editor', parent: container})
+	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-properties-editor', parent: container})
 	ui.create_dom_element({
 		element_type	: 'h6',
 		text_content	: self.get_tool_label('properties_title') || 'Properties',
@@ -625,14 +724,32 @@ const render_properties_editor = function(self, layer, container) {
 			}
 		})
 
-	// "Exportar como PDF" — v6 puts it beside "Nueva propiedad" for the same
-	// reason it sits here: the document IS the properties, plus the geometry
-	// and the associated images (`special_tools.js` `create_pdf`).
+	render_pdf_export(self, layer, fieldset)
+
+}//end render_properties_editor
+
+
+
+/**
+* RENDER_PDF_EXPORT
+* One button at the foot of the PROPERTIES section, because what the
+* document carries is the properties (plus the geometry and the associated
+* images) — which is where v6 puts it too (`special_tools.js` `create_pdf`).
+* It spent 2026-09-21 as a titled section of its own; the audit undid that
+* the next day.
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {HTMLElement} container - the properties section
+* @returns {void}
+*/
+const render_pdf_export = function(self, layer, container) {
+
 	const pdf_btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-property-pdf-button',
 		text_content	: self.get_tool_label('properties_pdf_button') || 'Export as PDF',
-		parent			: fieldset
+		parent			: container
 	})
 	pdf_btn.type = 'button'
 	pdf_btn.addEventListener('click', async function() {
@@ -651,7 +768,7 @@ const render_properties_editor = function(self, layer, container) {
 		}
 	})
 
-}//end render_properties_editor
+}//end render_pdf_export
 
 
 
@@ -666,6 +783,12 @@ const VECTOR_FORMATS = ['geojson', 'shp', 'kml']
 * button through hito 2b) + one "Download" button reading the select's
 * current value at click time.
 *
+* Titled since 2026-09-21 (functional audit): a bare "Download" next to a
+* format list does not say WHAT is downloaded. v6 names it on the button
+* itself — "Descargar Vectorial" (`special_tools.js`
+* `create_div_options_buttons`) — which it can afford because it has no
+* format picker beside it.
+*
 * @param {Object} self
 * @param {Object} layer
 * @param {HTMLElement} container
@@ -673,7 +796,14 @@ const VECTOR_FORMATS = ['geojson', 'shp', 'kml']
 */
 const render_download_button = function(self, layer, container) {
 
-	const row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-download', parent: container})
+	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-download-section', parent: container})
+	ui.create_dom_element({
+		element_type	: 'h6',
+		text_content	: self.get_tool_label('download_title') || 'Vector download',
+		parent			: fieldset
+	})
+
+	const row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-download', parent: fieldset})
 
 	const select = ui.create_dom_element({
 		element_type	: 'select',
@@ -704,23 +834,30 @@ const render_download_button = function(self, layer, container) {
 
 /**
 * RENDER_ELEVATION
-* One line — "Elevation of the centre: 412 m" — filled in when the server
-* answers (`object_console.js` `fetch_elevation`). v6 shows the same line
-* with the same two labels (`special_tools.js` `create_div_elevation`: a
-* marker gets "Elevación", everything else "Elevación del centro").
+* The section heading the three checkboxes hang from, and the altitude at
+* the same time: "Elevation of the centre" while nothing is known,
+* "Elevation of the centre: 412 m" once the server answers
+* (`object_console.js` `fetch_elevation`). The two labels are v6's
+* (`special_tools.js` `create_div_elevation`: a marker gets "Elevación",
+* everything else "Elevación del centro").
 *
-* The line is drawn IMMEDIATELY, showing a pending state, and filled in
-* later: the request is a third-party round trip and the rest of the console
-* must not wait for it. Nothing is awaited by the caller — but the panel may
-* be closed, or another object selected, before the answer lands, so the fill
-* checks that this very node is still in the document before touching it.
-* Writing into a detached node would be harmless; writing into the node of a
-* DIFFERENT object would be a lie.
+* A FAILED lookup leaves the bare heading — no "not available" (functional
+* audit, 2026-09-22): the service is third-party and can be down for days
+* (its TLS certificate expired on 2026-09-20), and a heading that accuses
+* itself on every click is noise. v6 leaves the line blank for the same
+* outcome, having no error branch at all.
+*
+* The heading is drawn IMMEDIATELY and completed later: the request is a
+* third-party round trip and the rest of the console must not wait for it.
+* The panel may be closed, or another object selected, before the answer
+* lands, so the fill checks that this very node is still in the document —
+* writing into a detached node would be harmless; writing into the node of
+* a DIFFERENT object would be a lie.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
 * @param {HTMLElement} parent
-* @returns {void}
+* @returns {HTMLElement} the section the checkboxes are appended to
 */
 const render_elevation = function(self, layer, parent) {
 
@@ -729,35 +866,43 @@ const render_elevation = function(self, layer, parent) {
 		? (self.get_tool_label('elevation') || 'Elevation')
 		: (self.get_tool_label('elevation_center') || 'Elevation of the centre')
 
-	const node = ui.create_dom_element({
+	const fieldset = ui.create_dom_element({
 		element_type	: 'div',
-		class_name		: 'uca-maps-object-elevation',
-		text_content	: label + ': ' + (self.get_tool_label('elevation_pending') || '…'),
+		class_name		: 'uca-maps-section uca-maps-elevation-section',
 		parent			: parent
+	})
+	const node = ui.create_dom_element({
+		element_type	: 'h6',
+		class_name		: 'uca-maps-object-elevation',
+		text_content	: label,
+		parent			: fieldset
 	})
 
 	self.fetch_elevation(layer).then(function(result) {
 
-		if (!node.isConnected) {
+		if (!node.isConnected || result.unavailable) {
 			return
 		}
-		node.textContent = label + ': ' + (result.unavailable
-			? (self.get_tool_label('elevation_unavailable') || 'not available')
-			: result.elevation + ' m')
+		node.textContent = label + ': ' + result.elevation + ' m'
 	})
 
+	return fieldset
 }//end render_elevation
 
 
 /**
 * RENDER_OBJECT_IMAGES
-* Fila #3's associated-image block: a file picker that uploads and associates,
-* plus the gallery of what is already associated.
+* Fila #3's associated-image block: a file picker that uploads and associates
+* in ONE gesture, then, under its own subtitle, the gallery of what is
+* already associated. Nothing is saved to the record behind the user's back —
+* the association marks it dirty, exactly as drawing a shape does, and the
+* component's own save button is still what commits it.
 *
 * v6 splits this across two modal dialogs ("Asociar imagen al objeto" and
-* "Galería", `special_tools.js:4528`/`:4717`). Here both live in the console
-* panel that is already open on that object, because there is nothing modal
-* about either: a modal would hide the very geometry the pictures belong to.
+* "Galería", `special_tools.js:4528`/`:4717`), and asks for a confirming
+* click inside the first. Here both live in the console panel that is already
+* open on that object, because there is nothing modal about either: a modal
+* would hide the very geometry the pictures belong to.
 *
 * Each thumbnail is a LINK to the full image, opened in a new tab rather than
 * through a lightbox library — v6 vendors `simpleLightbox` for this; a new tab
@@ -773,23 +918,23 @@ const render_object_images = function(self, layer, parent) {
 
 	const container = ui.create_dom_element({
 		element_type	: 'div',
-		class_name		: 'uca-maps-object-images',
+		class_name		: 'uca-maps-section uca-maps-object-images',
 		parent			: parent
 	})
 
 	ui.create_dom_element({
 		element_type	: 'h6',
-		text_content	: self.get_tool_label('object_images_title') || 'Associated images',
+		text_content	: self.get_tool_label('object_images_title') || 'Associate image',
 		parent			: container
 	})
 
-	const gallery = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-object-gallery',
-		parent			: container
-	})
-	populate_object_gallery(self, layer, gallery)
-
+	// ORDER: the action first, what it produced second (2026-09-21,
+	// functional audit). The gallery used to be built here, ABOVE the file
+	// picker, so associating a picture pushed the picker and its button down
+	// the panel — the control moved every time it was used. v6 does not have
+	// the problem because they are two separate buttons/modals, "Asociar
+	// imagen" and "Galería" (`special_tools.js` `info_console_load_properties`),
+	// which is also where the subtitle below comes from.
 	const file_input = ui.create_dom_element({
 		element_type	: 'input',
 		type			: 'file',
@@ -804,22 +949,33 @@ const render_object_images = function(self, layer, parent) {
 		parent			: container
 	})
 
-	const button = ui.create_dom_element({
-		element_type	: 'button',
-		class_name		: 'uca-maps-object-image-associate',
-		text_content	: self.get_tool_label('object_images_associate') || 'Associate image',
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-gallery-title',
+		text_content	: self.get_tool_label('object_images_gallery_title') || 'Gallery',
 		parent			: container
 	})
 
-	button.addEventListener('click', async function() {
+	const gallery = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-gallery',
+		parent			: container
+	})
+	populate_object_gallery(self, layer, gallery)
+
+	// CHOOSING THE FILE IS THE WHOLE GESTURE (2026-09-22, functional audit):
+	// there is no second "Associate" button. Picking a picture for an object
+	// means associating it, and a confirm button that can only ever be
+	// pressed once, right after, is a step that asks nothing.
+	file_input.addEventListener('change', async function() {
 
 		// the direction is read off the DOM, never off a cached flag: the
-		// button is disabled for the whole round trip and re-enabled from the
+		// picker is disabled for the whole round trip and re-enabled from the
 		// node itself (same law as toolbar panel visibility, hito 3c)
-		if (button.disabled) {
+		if (file_input.disabled) {
 			return
 		}
-		button.disabled = true
+		file_input.disabled = true
 		status.textContent = self.get_tool_label('object_images_uploading') || 'Uploading…'
 
 		const result = await self.associate_image(layer, file_input.files && file_input.files[0])
@@ -828,7 +984,7 @@ const render_object_images = function(self, layer, parent) {
 		if (!status.isConnected) {
 			return
 		}
-		button.disabled = false
+		file_input.disabled = false
 
 		if (!result.ok) {
 			status.textContent = result.error || ''

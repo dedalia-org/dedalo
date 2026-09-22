@@ -455,16 +455,23 @@
   margin: 0;
 }
 .uca-maps-console > .uca-maps-object-section h6 {
-  margin: 0.6rem 0 0.3rem;
-  font-size: 0.8rem;
-  text-transform: uppercase;
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
   letter-spacing: 0.02em;
-  color: #6c757d;
+  color: inherit;
+}
+.uca-maps-console > .uca-maps-object-section > .uca-maps-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  margin-top: 0.7rem;
+  padding-top: 0.55rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-title {
+  margin: 0.6rem 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-object-info {
-  margin: 0.35rem 0;
-}
-.uca-maps-console > .uca-maps-object-section .uca-maps-object-elevation {
   margin: 0.35rem 0;
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery {

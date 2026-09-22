@@ -730,7 +730,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(find_layer_id(tool, {}), null, 'expected null for a layer owned by no FeatureGroup')
 	})
 
-	it('opening a drawn layer\'s popup selects it in the console', function() {
+	/**
+	* Selecting is not opening (Sergio, 2026-09-21, functional audit). The
+	* panel used to fly open on any click on any geometry — and, through
+	* toolbar.js's one-panel-at-a-time rule, shut whatever the user had open.
+	* v6 does not do that either: a click only replaces the console's
+	* content. Pinned in both directions, because the regression is invisible
+	* to a test that only checks the content changed.
+	*/
+	it('opening a drawn layer\'s popup selects it in the console WITHOUT opening the panel', function() {
 
 		tool.attach_console()
 
@@ -738,11 +746,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		layer.openPopup()
 
 		assert.strictEqual(tool.active_console_layer, layer, 'expected the clicked layer selected')
-		assert.equal(tool.panel_node.hidden, false, 'expected the panel shown once a geometry is selected')
+		assert.equal(tool.panel_node.hidden, true, 'expected the panel to stay closed when a geometry is selected')
 		assert.isOk(
 			tool.panel_node.querySelector('.uca-maps-object-section').textContent.includes('Polygon'),
 			'expected the object section to name the geometry type'
 		)
+
+		// and the content keeps tracking the selection while it IS open
+		// (`map_control` is the L.Control; the clickable node is its container)
+		geolocation.map.getContainer().querySelector('.uca-maps-control').click()
+		assert.equal(tool.panel_node.hidden, false, 'expected the UCA button to open it')
+		geolocation.FeatureGroup[3].getLayers()[0].openPopup()
+		assert.equal(tool.panel_node.hidden, false, 'expected a selection not to close an open panel either')
 	})
 
 	it('on_close_actions keeps the console alive; on_geolocation_destroyed is the real teardown', async function() {
@@ -1006,6 +1021,224 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const options = Array.from(section.querySelectorAll('.uca-maps-download-format option')).map(o => o.value)
 		assert.deepEqual(options, ['geojson', 'shp', 'kml'], 'expected the three vector formats, in menu order')
+	})
+
+
+	/**
+	* FUNCTIONAL AUDIT, 2026-09-21 — the console's SHAPE, not its plumbing.
+	* Each of these pins one thing Sergio found by walking row #3 against v6
+	* in the browser; every one of them was green before, because no gate
+	* looked at the order of the sections, the heading of one, or the kind of
+	* widget a field uses.
+	*/
+	it('the object section follows v6\'s order: the checkboxes hang from the elevation heading, properties LAST', function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.openPopup()
+
+		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+
+		// no "Selected object" heading any more — the panel header names it
+		assert.isNotOk(section.querySelector('h5'), 'expected no heading above the geometry type')
+
+		const order = Array.from(section.children).map(function(node) {
+			for (const name of [
+				'uca-maps-object-type', 'uca-maps-object-info', 'uca-maps-elevation-section',
+				'uca-maps-style-controls', 'uca-maps-hierarchy-controls',
+				'uca-maps-download-section',
+				'uca-maps-object-images', 'uca-maps-properties-editor'
+			]) {
+				if (node.classList.contains(name)) return name
+			}
+			return null
+		}).filter(Boolean)
+
+		assert.deepEqual(order, [
+			'uca-maps-object-type', 'uca-maps-object-info', 'uca-maps-elevation-section',
+			'uca-maps-style-controls', 'uca-maps-hierarchy-controls',
+			'uca-maps-download-section',
+			'uca-maps-object-images', 'uca-maps-properties-editor'
+		], 'expected v6\'s own order (special_tools.js set_info_console, polygon branch)')
+
+		// the elevation is the SECTION HEADING the three checkboxes belong to,
+		// not a line above them (2026-09-22)
+		const elevation_section = section.querySelector('.uca-maps-elevation-section')
+		const heading = elevation_section.firstElementChild
+		assert.equal(heading.tagName, 'H6', 'expected the elevation to be the section heading')
+		assert.isOk(heading.classList.contains('uca-maps-object-elevation'))
+		assert.equal(
+			heading.textContent, 'Elevation of the centre',
+			'expected the bare heading: no pending "…" and no "not available"'
+		)
+
+		const nested = Array.from(elevation_section.children).slice(1).map(node => node.className)
+		assert.deepEqual(
+			nested.map(name => name.split(' ').pop()),
+			['uca-maps-geoman', 'uca-maps-centroid', 'uca-maps-uncertainty'],
+			'expected the three checkboxes INSIDE the elevation section'
+		)
+
+		// and the PDF button exports the properties, so it lives with them
+		const pdf_btn = section.querySelector('.uca-maps-property-pdf-button')
+		assert.isOk(pdf_btn, 'expected the PDF export button')
+		assert.isOk(
+			pdf_btn.closest('.uca-maps-properties-editor'),
+			'expected the PDF button at the foot of the properties section, not in one of its own'
+		)
+		assert.equal(pdf_btn.textContent, 'Export as PDF', 'expected the button to name what it does')
+	})
+
+	it('style offers v6\'s fields, with v6\'s own ranges, and paints border and body with ONE colour', function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.openPopup()
+
+		const controls = tool.panel_node.querySelector('.uca-maps-style-controls')
+
+		const weight = controls.querySelector('.uca-maps-style-weight')
+		assert.equal(weight.type, 'range', 'expected the stroke width to be a slider, as in v6')
+		assert.equal(weight.min, '1')
+		assert.equal(weight.max, '100')
+
+		const stroke_opacity = controls.querySelector('.uca-maps-style-stroke-opacity')
+		assert.isOk(stroke_opacity, 'expected a stroke-opacity slider (v6 polygon_circle_style)')
+		assert.equal(stroke_opacity.max, '1')
+
+		const dash = controls.querySelector('.uca-maps-style-dash')
+		assert.isOk(dash, 'expected a dashed-border slider (v6 polygon_circle_style)')
+		assert.equal(dash.max, '100')
+		assert.equal(dash.step, '2')
+
+		// and the two new fields reach the layer through the same one writer
+		dash.value = '10'
+		dash.dispatchEvent(new Event('change'))
+		assert.equal(layer.feature.properties.uca_maps.style.dashArray, '10', 'expected the dash stored')
+		assert.equal(layer.options.dashArray, '10', 'expected setStyle applied live')
+
+		dash.value = '0'
+		dash.dispatchEvent(new Event('change'))
+		assert.equal(layer.feature.properties.uca_maps.style.dashArray, undefined, 'expected 0 to clear the field, not store "0"')
+
+		// ONE colour for border and body (v6's own model, 2026-09-22), and the
+		// only style value with a split home: the stroke half is the core's
+		// `properties.color`, the fill half nobody restores but this tool
+		const color = tool.panel_node.querySelector('.uca-maps-style-color')
+		assert.isOk(color, 'expected a single colour field (v6 polygon_circle_style)')
+		assert.equal(color.type, 'color')
+		assert.isNotOk(
+			tool.panel_node.querySelector('.uca-maps-style-stroke-color'),
+			'expected NO separate stroke-colour field'
+		)
+
+		color.value = '#ff0000'
+		color.dispatchEvent(new Event('change'))
+		assert.equal(layer.options.color, '#ff0000', 'expected the border painted live')
+		assert.equal(layer.options.fillColor, '#ff0000', 'expected the body painted live, with the same colour')
+		assert.equal(
+			layer.feature.properties.uca_maps.style.fillColor, '#ff0000',
+			'expected the fill half stored in this tool\'s namespace, which is the only thing that restores it'
+		)
+		assert.isUndefined(
+			layer.feature.properties.uca_maps.style.color,
+			'expected the stroke half NOT duplicated here: the core owns properties.color'
+		)
+	})
+
+	it('the measurement is an ordinary property: listed, editable, deletable', function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[2].getLayers()[0] // circle: shape + radius come from the core
+		layer.openPopup()
+
+		assert.isOk(layer.feature.properties.area, 'expected the area written into the feature, as v6 does')
+
+		const listed = Array.from(
+			tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-key')
+		).map(node => node.textContent.replace(':', ''))
+
+		for (const key of ['shape', 'radius', 'area']) {
+			assert.include(listed, key, 'expected "' + key + '" offered in the properties list (v6 modal_properties)')
+		}
+
+		// idempotent: a second pass must not rewrite and re-dirty the record
+		const before = layer.feature.properties.area
+		assert.equal(tool.sync_measurements(layer), false, 'expected no write when the measurement has not changed')
+		assert.equal(layer.feature.properties.area, before, 'expected the same value')
+	})
+
+	it('the associate-image picker stays above the gallery it fills, and is the ONLY step', function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.openPopup()
+
+		const images = tool.panel_node.querySelector('.uca-maps-object-images')
+		const nodes = Array.from(images.children)
+		const index = selector => nodes.findIndex(node => node.matches(selector))
+
+		assert.isBelow(
+			index('.uca-maps-object-image-file'), index('.uca-maps-object-gallery'),
+			'expected the picker above the gallery: a growing gallery must not push the control down the panel'
+		)
+		assert.isNotOk(
+			images.querySelector('.uca-maps-object-image-associate'),
+			'expected NO confirm button: choosing the file associates it (2026-09-22)'
+		)
+		assert.isOk(images.querySelector('.uca-maps-object-gallery-title'), 'expected the gallery subtitle (v6 "Galería")')
+	})
+
+	it('choosing a file is what associates it: the picker\'s own change event runs the upload', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.openPopup()
+
+		const picker = tool.panel_node.querySelector('.uca-maps-object-image-file')
+
+		let asked_for	= undefined
+		let disabled_during = null
+		tool.associate_image = async function(asked_layer, file) {
+			asked_for			= asked_layer
+			disabled_during	= picker.disabled
+			return {ok: true, still_shown: true}
+		}
+
+		try {
+			picker.dispatchEvent(new Event('change'))
+			await new Promise(resolve => setTimeout(resolve, 0))
+
+			assert.equal(asked_for, layer, 'expected the association fired for the selected object, with no second click')
+			assert.equal(disabled_during, true, 'expected the picker disabled for the round trip')
+		} finally {
+			delete tool.associate_image
+		}
+	})
+
+	it('the Geoman checkbox is per object and only overrides an explicit state', function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.openPopup()
+
+		assert.equal(tool.has_geoman_edition(layer), false, 'expected no stored state before anyone ticks it')
+
+		const box = tool.panel_node.querySelector('.uca-maps-geoman input')
+		assert.isOk(box, 'expected the "Geoman editing active" checkbox (v6 create_div_geoman_edition_mode)')
+
+		tool.set_geoman_edition(layer, false)
+		assert.equal(tool.has_geoman_edition(layer), true, 'expected the state stored once ticked')
+		assert.equal(tool.is_geoman_edition(layer), false, 'expected editing off for THIS object')
+		assert.equal(layer.pm.enabled(), false, 'expected geoman actually disabled on the layer')
+
+		tool.set_geoman_edition(layer, true)
+		assert.equal(tool.is_geoman_edition(layer), true, 'expected editing on for THIS object')
+		assert.equal(layer.pm.enabled(), true, 'expected geoman actually enabled on the layer')
+
+		// a sibling in another FeatureGroup is untouched: no stored state, no override
+		const other = geolocation.FeatureGroup[2].getLayers()[0]
+		assert.equal(tool.has_geoman_edition(other), false, 'expected the state to be per object, not per map')
 	})
 
 

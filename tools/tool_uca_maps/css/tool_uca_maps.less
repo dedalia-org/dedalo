@@ -635,20 +635,33 @@
 
 		// hito 2 checkpoint 2b — style/centroid/uncertainty/hierarchy/properties/
 		// download, all built by render_object_console.js, all keyed off this
-		// same object-section container
+		// same object-section container.
+		// Sentence case and BOLD since 2026-09-21 (functional audit): grey
+		// small-caps read as disabled labels, not as the headings of the
+		// sections they open. v6 draws each one bold and rules a line above
+		// the block (`special_tools.js` `info_console_load_properties`,
+		// `create_div_hierarchy`) — `.uca-maps-section`, below, is that line.
 		h6 {
-			margin: 0.6rem 0 0.3rem;
-			font-size: 0.8rem;
-			text-transform: uppercase;
+			margin: 0 0 0.35rem;
+			font-size: 0.85rem;
+			font-weight: 700;
 			letter-spacing: 0.02em;
-			color: #6c757d;
+			color: inherit;
+		}
+
+		>.uca-maps-section {
+			border-top: 1px solid rgba(0, 0, 0, 0.15);
+			margin-top: 0.7rem;
+			padding-top: 0.55rem;
+		}
+
+		.uca-maps-object-gallery-title {
+			margin: 0.6rem 0 0.35rem;
+			font-size: 0.85rem;
+			font-weight: 700;
 		}
 
 		.uca-maps-object-info {
-			margin: 0.35rem 0;
-		}
-
-		.uca-maps-object-elevation {
 			margin: 0.35rem 0;
 		}
 

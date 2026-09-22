@@ -67,17 +67,20 @@ import {
 
 
 
-/** Property keys the CORE already manages on every feature
-* (`component_geolocation.prototype.update_draw_data`, which additively
-* stamps `layer_id`/`color`, plus `shape`/`radius` for circles) or that this
-* tool itself owns (`uca_maps`, below) — never offered through the generic
-* custom-properties CRUD in checkpoint 2b (`set_property`/`delete_property`,
-* `render_object_console.js`'s properties editor). v6's own equivalent loop
-* (`special_tools.js` `modal_properties`) only excludes `color`/`layer_id`;
-* this list is deliberately more complete — a fresh CRUD UI we are building,
-* not a literal port of that DOM, so there is no v6 behaviour to preserve
-* here (unlike the uncertainty/hierarchy bugs below, which ARE preserved). */
-export const RESERVED_PROPERTY_KEYS = ['color', 'layer_id', 'shape', 'radius', 'uca_maps']
+/** Property keys never offered through the generic custom-properties CRUD
+* (`set_property`/`delete_property`, `render_object_console.js`'s properties
+* editor): the core's own bookkeeping plus this tool's namespace.
+*
+* EXACTLY v6's own filter (`special_tools.js` `modal_properties`: `color` and
+* `layer_id`; `uca_maps` is an object, which v6's own `typeof!=='object'`
+* test drops anyway). `shape`/`radius` were reserved here too until
+* 2026-09-21 — hito 2 chose a deliberately wider list; the functional audit
+* reverted it, because in v6 the measurements ARE ordinary properties the
+* user reads, edits and deletes, and that is the behaviour being ported.
+* Deleting one is cosmetic in both engines: the core re-stamps `shape`/
+* `radius` on the next `update_draw_data`, exactly as v6's own
+* `create_div_radius` rewrote it on every click. */
+export const RESERVED_PROPERTY_KEYS = ['color', 'layer_id', 'uca_maps']
 
 /** v6's exact `get_incertidumbre` thresholds (`special_tools.js:397`), in m²
 * as returned by `turf.area`. Ported verbatim. */
@@ -171,6 +174,10 @@ const hydrate = function(self) {
 		const layer = event.popup && event.popup._source
 		if (layer) {
 			select_layer(self, layer)
+			// AFTER the core's own click sweep, never during it — see
+			// is_geoman_edition/apply_geoman for why this cannot be
+			// synchronous. Only objects with an explicit stored state move.
+			self._geoman_reassert = setTimeout(() => reapply_geoman_all(self), 0)
 		}
 	}
 	self.geolocation.map.on('popupopen', self._popupopen_handler)
@@ -182,6 +189,7 @@ const hydrate = function(self) {
 		if (event.layer) {
 			reapply_style(event.layer)
 			reapply_hierarchy(event.layer)
+			apply_geoman(event.layer)
 		}
 	}
 	self.geolocation.map.on('pm:create', self._pmcreate_handler)
@@ -228,10 +236,17 @@ const hydrate = function(self) {
 
 /**
 * SELECT_LAYER
-* Marks `layer` as the console's current subject, reveals the panel, and
-* renders its object section. 2a shows geometry type + the FeatureGroup id
-* it belongs to only — style/properties/download/centroid/uncertainty/
-* hierarchy land in 2b, over this same selection.
+* Marks `layer` as the console's current subject and renders its object
+* section — WITHOUT opening the panel.
+*
+* (!) Selecting is not opening (Sergio, 2026-09-21, functional audit). This
+* used to call `set_panel_visibility(self, true)`, so any click on any
+* geometry flung the console open — and, through toolbar.js's one-panel-at-a-
+* time rule, shut whatever the user actually had open. v6 never did that
+* either: its console is visible by default and toggled by its own
+* "Mostrar-Ocultar" button (`special_tools.js` `special_tools_panel_show_hide_events`);
+* a click on a layer only REPLACES the content. The panel is opened and
+* closed by the UCA button, and by nothing else.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer - Leaflet layer (Marker/Circle/Polygon/Polyline)
@@ -240,7 +255,6 @@ const hydrate = function(self) {
 const select_layer = function(self, layer) {
 
 	self.active_console_layer = layer
-	set_panel_visibility(self, true)
 	render_selected_object(self, layer)
 
 }//end select_layer
@@ -342,6 +356,26 @@ export const ensure_uid = function(layer) {
 * @returns {void}
 */
 export const commit = function(self, layer) {
+	mark_dirty(self, layer)
+	if (self.active_console_layer===layer) {
+		render_selected_object(self, layer)
+	}
+}//end commit
+
+
+
+/**
+* MARK_DIRTY
+* `commit()` without the re-render — the half a writer that runs DURING a
+* render needs (`sync_measurements`, below). Re-rendering from inside the
+* render that called it would recurse; the `updated_layer_data_<id_base>`
+* event `update_draw_data` publishes repaints the panel anyway.
+*
+* @param {Object} self
+* @param {Object} layer
+* @returns {void}
+*/
+const mark_dirty = function(self, layer) {
 	const layer_id = find_layer_id(self, layer)
 	if (layer_id!==null) {
 		self.geolocation.update_draw_data(layer_id)
@@ -353,19 +387,72 @@ export const commit = function(self, layer) {
 			layer
 		)
 	}
-	if (self.active_console_layer===layer) {
-		render_selected_object(self, layer)
+}//end mark_dirty
+
+
+
+/**
+* SYNC_MEASUREMENTS
+* Writes the geometry's own measurement into `feature.properties` so it
+* shows up — editable and deletable — in the properties list, which is what
+* v6 does (`special_tools.js` `create_div_radius`/`create_div_circle_area`/
+* `create_div_polygon_area`, each `properties.<key> = …; save_object()`).
+* Ported 2026-09-21 (functional audit).
+*
+* Only `area` is written here. `shape` and `radius` are NOT: the core
+* already stamps both on every `update_draw_data`
+* (`component_geolocation.js`, "GeoJSON has no native circle type"), and
+* since `layer.toGeoJSON()` shallow-copies the feature, that stamp lands on
+* this very `properties` object. Writing a FORMATTED radius on top of the
+* core's NUMBER would make the two writers overwrite each other on every
+* pass — a dirty loop, not a disagreement about style.
+*
+* The value is the one the panel prints, deliberately: for a circle both
+* come from `2·π·r` — the CIRCUMFERENCE, labelled "Area", wrong in v6
+* (`special_tools.js:5690`) and wrong the same way in the core's own popup
+* (`component_geolocation.js` `get_popup_content`). Fixing it here alone
+* would make the property disagree with the popup the user reads on the same
+* object; the formula is the core's to fix (audit ledger + PREGUNTAS_FORO).
+*
+* Dirty is marked ONLY when the value actually changed, so merely selecting
+* an object does not dirty a record the user has not touched (the same
+* criterion hito 16 applied to elevation) and the re-render the event
+* triggers finds nothing to write and stops.
+*
+* @param {Object} self
+* @param {Object} layer
+* @returns {boolean} true when something was written
+*/
+export const sync_measurements = function(self, layer) {
+
+	let value = null
+
+	if (layer instanceof L.Circle) {
+		value = (2 * Math.PI * layer.getRadius()).toFixed(2) + ' m'
+	} else if (layer instanceof L.Polygon) {
+		value = format_polygon_area(turf.area(layer.toGeoJSON()))
+	} else {
+		return false
 	}
-}//end commit
+
+	const properties = ensure_properties(layer)
+	if (properties.area===value) {
+		return false
+	}
+
+	properties.area = value
+	mark_dirty(self, layer)
+
+	return true
+}//end sync_measurements
 
 
 
 /**
 * SET_STYLE_FIELD
-* Fill colour/opacity/stroke weight — deliberately NOT stroke colour, which
-* the core's own popup already edits for free via `render_color_picker` +
-* `properties.color` (plan_implementacion.md: "el color de trazo YA
-* funciona gratis vía el popup nativo del núcleo"). Stored under
+* Fill colour/opacity, stroke weight/opacity/dash — every style field
+* except the object's COLOUR, which is half the core's and is written by
+* `set_object_color` below. Stored under
 * `properties.uca_maps.style` (this tool's own namespace — the core never
 * reads fill/opacity/weight back on load, so re-applying it after every map
 * load is this tool's own job; see `hydrate()`/`reapply_style` below) and
@@ -374,7 +461,7 @@ export const commit = function(self, layer) {
 *
 * @param {Object} self
 * @param {Object} layer
-* @param {'fillColor'|'fillOpacity'|'weight'} field
+* @param {'fillColor'|'fillOpacity'|'weight'|'opacity'|'dashArray'} field
 * @param {string|number|null} value - null/'' clears the field
 * @returns {void}
 */
@@ -396,6 +483,39 @@ export const set_style_field = function(self, layer, field, value) {
 
 	commit(self, layer)
 }//end set_style_field
+
+
+
+/**
+* SET_OBJECT_COLOR
+* ONE colour for border and body, as v6 paints them (`special_tools.js`
+* `polygon_circle_style`), and the only style value with a split home. The
+* STROKE half is the core's: `update_draw_data` copies `layer.options.color`
+* into `properties.color` and `init_feature` re-applies it on load
+* (`component_geolocation.js`), so storing it here too would give one value
+* two homes, free to disagree. The FILL half nobody restores but this tool,
+* so that one is written into its own namespace.
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {string} value - '#rrggbb'
+* @returns {void}
+*/
+export const set_object_color = function(self, layer, value) {
+
+	if (!value || typeof layer.setStyle!=='function') {
+		return
+	}
+
+	const properties	= ensure_properties(layer)
+	properties.uca_maps	= properties.uca_maps || {}
+	const style			= properties.uca_maps.style = properties.uca_maps.style || {}
+	style.fillColor		= value
+
+	layer.setStyle({color: value, fillColor: value})
+
+	commit(self, layer)
+}//end set_object_color
 
 
 
@@ -444,6 +564,118 @@ const reapply_hierarchy = function(layer) {
 		layer.bringToFront()
 	}
 }//end reapply_hierarchy
+
+
+
+/**
+* IS_GEOMAN_EDITION / SET_GEOMAN_EDITION / REAPPLY_GEOMAN
+* v6's "Edición Geoman activa" checkbox, per object
+* (`special_tools.js` `create_div_geoman_edition_mode`, `pm_enable`,
+* `pm_disable`, `check_geoman_edition_mode`, `feature.special_tools.
+* geoman_edition`). Ported 2026-09-21 (functional audit; H-01 in the
+* ledger, which hito 2 had left out of scope).
+*
+* (!) THIS FIGHTS THE CORE, AND HAS TO. The core has no per-object notion of
+* editability: its own click handler (`component_geolocation.js`
+* `init_feature`) calls `pm.enable()` on EVERY layer of the clicked
+* FeatureGroup and `pm.disable()` on every layer of all the others. That
+* handler is registered after `bindPopup`'s, so it runs AFTER the
+* 'popupopen' this module selects on — a state written from here during the
+* same click would be overwritten microseconds later. Hence the deferred
+* re-assert in `hydrate()`: the stored per-object state is re-applied once
+* the core's own sweep has finished.
+*
+* Only an object with an EXPLICITLY stored flag is re-asserted. An object
+* nobody has ticked keeps the core's behaviour untouched — porting v6's
+* "default false" literally would silently kill the edit handles every user
+* of every map gets today on a plain click, which is a change to the core's
+* feel, not to this tool's.
+*
+* v6's own `pm_disable` is `pm.enable({allowEditing:false, draggable:false…})`
+* rather than `pm.disable()`; this port uses `pm.disable()`, the same call
+* the core uses for the same intent.
+*
+* @param {Object} layer
+* @returns {boolean}
+*/
+export const is_geoman_edition = function(layer) {
+	const properties = layer && layer.feature && layer.feature.properties
+	const uca_maps = properties && properties.uca_maps
+	return Boolean(uca_maps && uca_maps.geoman_edition)
+}//end is_geoman_edition
+
+
+/**
+* @param {Object} layer
+* @returns {boolean} true when the object carries an explicit stored state
+*/
+export const has_geoman_edition = function(layer) {
+	const properties = layer && layer.feature && layer.feature.properties
+	const uca_maps = properties && properties.uca_maps
+	return Boolean(uca_maps && typeof uca_maps.geoman_edition==='boolean')
+}//end has_geoman_edition
+
+
+/**
+* @param {Object} self
+* @param {Object} layer
+* @param {boolean} enabled
+* @returns {void}
+*/
+export const set_geoman_edition = function(self, layer, enabled) {
+
+	const properties	= ensure_properties(layer)
+	properties.uca_maps	= properties.uca_maps || {}
+	properties.uca_maps.geoman_edition = Boolean(enabled)
+
+	apply_geoman(layer)
+
+	commit(self, layer)
+}//end set_geoman_edition
+
+
+/**
+* @param {Object} layer
+* @returns {void}
+*/
+const apply_geoman = function(layer) {
+
+	if (!has_geoman_edition(layer) || !layer.pm) {
+		return
+	}
+
+	if (is_geoman_edition(layer)) {
+		if (typeof layer.pm.enable==='function') {
+			layer.pm.enable({
+				allowSelfIntersection	: true,
+				allowEditing			: true,
+				draggable				: true,
+				snappable				: true
+			})
+		}
+	} else if (typeof layer.pm.disable==='function') {
+		layer.pm.disable()
+	}
+}//end apply_geoman
+
+
+/**
+* REAPPLY_GEOMAN_ALL
+* Re-asserts every stored per-object state across every FeatureGroup. Called
+* from `reapply_all` (load/hydration) and, deferred, after each click.
+*
+* @param {Object} self
+* @returns {void}
+*/
+const reapply_geoman_all = function(self) {
+	const feature_groups = self.geolocation && self.geolocation.FeatureGroup
+	if (!feature_groups) {
+		return
+	}
+	for (const layer_id in feature_groups) {
+		feature_groups[layer_id].eachLayer(apply_geoman)
+	}
+}//end reapply_geoman_all
 
 
 
@@ -560,6 +792,7 @@ const reapply_all = function(self) {
 			reapply_style(layer)
 			reapply_hierarchy(layer)
 			reapply_display(layer)
+			apply_geoman(layer)
 		})
 	}
 }//end reapply_all
@@ -1391,6 +1624,13 @@ export const detach_console = function(self) {
 				console.warn('tool_uca_maps detach_console: error removing pm:remove listener', error)
 			}
 		}
+	}
+
+	// the deferred geoman re-assert may still be queued — a timer that fires
+	// after teardown would touch a map this tool no longer owns
+	if (self._geoman_reassert) {
+		clearTimeout(self._geoman_reassert)
+		self._geoman_reassert = null
 	}
 
 	remove_toolbar_button(self, self.map_control)
