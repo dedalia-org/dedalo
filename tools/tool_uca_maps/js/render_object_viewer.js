@@ -142,13 +142,30 @@ export const populate_object_viewer = function(self, panel) {
 
 
 /**
+* EYE_SVG
+* v6 draws this affordance as `<img src="img/view.png">`
+* (`special_tools_objects.js:170`); inline SVG instead, same call as the
+* compass (`scale_bar.js`) and the legend's default pin — one less binary to
+* serve, and `currentColor` hands the colour to the stylesheet.
+*/
+const EYE_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"'
+	+ ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+	+ '<path d="M1.5 12S5 5.5 12 5.5 22.5 12 22.5 12 19 18.5 12 18.5 1.5 12 1.5 12z"/>'
+	+ '<circle cx="12" cy="12" r="3"/>'
+	+ '</svg>'
+
+
+
+/**
 * RENDER_LIST
 * One `<ul>`'s worth of rows: a show/hide checkbox, the object's name
 * (ellipsis via CSS rather than v6's `max_length_str` JS truncation — no
 * behaviour to preserve there, the audit's own row 3 note already
 * established this tool builds fresh UI rather than porting v6's DOM
-* verbatim wherever nothing else depends on the exact markup), and a
-* "Center" button (v6's "eye" icon, `icon-view-object`).
+* verbatim wherever nothing else depends on the exact markup), and the
+* "eye" button that centers the map on it — v6's own affordance
+* (`icon-view-object`), as an icon rather than the text button this used
+* to render.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} list - the `<ul>` to (re)fill
@@ -169,6 +186,8 @@ const render_list = function(self, list, objects, empty_label) {
 		})
 		return
 	}
+
+	const center_label = self.get_tool_label('object_viewer_center_button') || 'Center'
 
 	for (const {layer, name, display} of objects) {
 
@@ -195,10 +214,12 @@ const render_list = function(self, list, objects, empty_label) {
 		const center_btn = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'uca-maps-object-viewer-center',
-			text_content	: self.get_tool_label('object_viewer_center_button') || 'Center',
+			title			: center_label,
+			inner_html		: EYE_SVG,
 			parent			: item
 		})
 		center_btn.type = 'button'
+		center_btn.setAttribute('aria-label', center_label) // icon-only: title alone is not an accessible name
 		center_btn.addEventListener('click', () => self.center_on_object(layer))
 
 	}

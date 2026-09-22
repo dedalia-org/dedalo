@@ -161,13 +161,12 @@
 }
 .uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item .uca-maps-object-viewer-center {
   flex: 0 0 auto;
-  white-space: nowrap;
-  background-color: var(--tool_uca_maps);
-  color: #fff;
+  display: flex;
+  align-items: center;
+  background: none;
   border: none;
-  border-radius: 0.2rem;
-  padding: 0.15rem 0.45rem;
-  font-size: 0.75rem;
+  padding: 0 0.15rem;
+  color: var(--tool_uca_maps);
   cursor: pointer;
 }
 .uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-item .uca-maps-object-viewer-center:hover {

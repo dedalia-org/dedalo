@@ -319,15 +319,17 @@
 				white-space: nowrap;
 			}
 
+			// v6 puts a bare <img img/view.png> with a pointer cursor here, not a
+			// labelled button: the eye carries the meaning, so nothing frames it.
+			// The colour lives here and the inline SVG inherits it (currentColor).
 			.uca-maps-object-viewer-center {
 				flex: 0 0 auto;
-				white-space: nowrap;
-				background-color: @tool_color;
-				color: #fff;
+				display: flex;
+				align-items: center;
+				background: none;
 				border: none;
-				border-radius: 0.2rem;
-				padding: 0.15rem 0.45rem;
-				font-size: 0.75rem;
+				padding: 0 0.15rem;
+				color: @tool_color;
 				cursor: pointer;
 
 				&:hover {
