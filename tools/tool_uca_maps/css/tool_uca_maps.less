@@ -125,6 +125,24 @@
 	color: var(--fg_inverse);
 }//end uca-maps-panel-secondary-button
 
+// a bare icon as a button (v6's `<img>` with a pointer cursor): the eye of
+// .uca-maps-object-viewer-center and .uca-maps-wms-eye. The colour lives here
+// and the inline SVG inherits it (currentColor).
+.uca-maps-panel-icon-button() {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	background: none;
+	border: none;
+	padding: 0 0.15rem;
+	color: @tool_color;
+	cursor: pointer;
+
+	&:hover {
+		filter: brightness(0.92);
+	}
+}//end uca-maps-panel-icon-button
+
 // the plain in-flow error/status line every session-only-persistence panel
 // uses instead of the page-level `ui.show_message` toast, which a floating
 // panel's own `overflow-y: auto` would clip (render_xyz_basemaps.js
@@ -279,6 +297,41 @@
 			font-weight: bold;
 		}
 	}
+
+	// toolbar.js `centered`: v6's modal box — 600 px wide, centred across the
+	// map, 80 px below its top edge (`new_modal`) — never beside its button.
+	// A fixed top, not a vertical centre: a growing list then extends
+	// downward instead of moving the whole panel. No backdrop: the map stays live.
+	&.uca-maps-panel-centered {
+		top: 5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 37.5rem;
+		max-width: calc(100% - 2rem);
+		max-height: calc(100% - 6rem);
+
+		>.uca-maps-panel-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.5rem;
+
+			>.uca-maps-panel-close {
+				flex: 0 0 auto;
+				background: none;
+				border: none;
+				padding: 0 0.2rem;
+				color: inherit;
+				font-size: 1.3rem;
+				line-height: 1;
+				cursor: pointer;
+
+				&:hover {
+					opacity: 0.75;
+				}
+			}
+		}
+	}
 }//end uca-maps-panel
 
 // dev-only server-capabilities diagnostic (capabilities_panel.js) — NOT one
@@ -401,20 +454,8 @@
 
 			// v6 puts a bare <img img/view.png> with a pointer cursor here, not a
 			// labelled button: the eye carries the meaning, so nothing frames it.
-			// The colour lives here and the inline SVG inherits it (currentColor).
 			.uca-maps-object-viewer-center {
-				flex: 0 0 auto;
-				display: flex;
-				align-items: center;
-				background: none;
-				border: none;
-				padding: 0 0.15rem;
-				color: @tool_color;
-				cursor: pointer;
-
-				&:hover {
-					filter: brightness(0.92);
-				}
+				.uca-maps-panel-icon-button();
 			}
 		}
 	}//end uca-maps-object-viewer-list
@@ -566,8 +607,8 @@
 			gap: 0.4rem;
 			padding: 0.2rem 0;
 
-			.uca-maps-wms-checkbox {
-				flex: 0 0 auto;
+			.uca-maps-wms-eye {
+				.uca-maps-panel-icon-button();
 			}
 
 			.uca-maps-wms-item-title {
@@ -578,13 +619,18 @@
 				white-space: nowrap;
 			}
 
+			// min-width:0 too: a range's automatic minimum is its default
+			// intrinsic width, which beat the basis and squeezed the name out
 			.uca-maps-wms-opacity {
-				flex: 0 0 4.5rem;
+				flex: 0 0 6rem;
+				width: 6rem;
+				min-width: 0;
 			}
 		}
 	}
 
-	// every button in this panel — Search, Clear, Add, ✕
+	// every button in this panel — Search, Clear, Add, ✕ (the eye and the
+	// header's × override it with a more specific rule)
 	button {
 		.uca-maps-panel-action-button();
 	}

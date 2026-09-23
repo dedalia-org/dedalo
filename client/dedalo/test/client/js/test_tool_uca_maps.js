@@ -91,7 +91,7 @@ import {
 	populate_legend_columns,
 	show_legend_message
 } from '../../../tools/tool_uca_maps/js/render_legend.js'
-import { is_toolbar_node } from '../../../tools/tool_uca_maps/js/toolbar.js'
+import { is_toolbar_node, create_toolbar_panel, remove_toolbar_panel } from '../../../tools/tool_uca_maps/js/toolbar.js'
 import {
 	search_roman,
 	add_roman_result,
@@ -2802,6 +2802,171 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.wms_layers.length, 1)
 		assert.equal(tool.wms_layers[0].name, 'topo:layer2', 'expected the survivor to be the second-added layer')
 		assert.equal(geolocation.map.hasLayer(first_tile_layer), false, 'expected the deleted layer off the map')
+	})
+
+	// Row #6 audit (2026-09-23): the panel opens centred with a ×, and
+	// show/hide is v6's eye drawing the STATE. The suite loads no tool CSS, so
+	// "centered" is asserted as what toolbar.js does (class, never anchored),
+	// not as measured geometry.
+	it('the WMS panel opens centered — never anchored to its button — and its × closes it', function() {
+
+		tool.attach_wms_services()
+		const panel		= tool.wms_panel
+		const control	= geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
+
+		assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the centered variant')
+		const title = panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-title')
+		assert.equal(title.textContent, 'WMS services', 'expected toolbar.js to build the header title')
+		assert.equal(panel.querySelectorAll('.uca-maps-panel-header').length, 1, 'expected ONE header — render_wms_services no longer builds its own')
+
+		control.click()
+		assert.equal(panel.hidden, false, 'expected the panel open after its own click')
+		assert.equal(panel.style.top, '', 'expected no inline top: anchor_panel_to_button must not run')
+		assert.equal(panel.style.left, '', 'expected no inline left: anchor_panel_to_button must not run')
+
+		const close = panel.querySelector('.uca-maps-panel-header > .uca-maps-panel-close')
+		assert.isOk(close, 'expected the × in the header')
+		assert.isOk(close.getAttribute('aria-label'), 'expected the × to carry an accessible name')
+
+		close.click()
+		assert.equal(panel.hidden, true, 'expected the × to close the panel')
+
+		// the toggle reads the DOM, so the next click on the button reopens it
+		control.click()
+		assert.equal(panel.hidden, false, 'expected the button to reopen a panel its × closed')
+	})
+
+	it('a centered panel\'s × fires on_hide, like being closed by a sibling', function() {
+
+		let hidden_calls = 0
+		const panel = create_toolbar_panel(tool, {
+			class_name	: 'uca-maps-test-centered-panel',
+			centered	: true,
+			title		: 'Test',
+			on_hide		: () => { hidden_calls++ }
+		})
+		try {
+			panel.hidden = false
+			panel.querySelector('.uca-maps-panel-close').click()
+			assert.equal(panel.hidden, true)
+			assert.equal(hidden_calls, 1, 'expected on_hide fired by the ×')
+
+			panel.querySelector('.uca-maps-panel-close').click()
+			assert.equal(hidden_calls, 1, 'expected no second on_hide for a panel already closed')
+		} finally {
+			remove_toolbar_panel(tool, panel)
+		}
+	})
+
+	it('the eye shows the layer\'s state and toggles it in place', function() {
+
+		tool.attach_wms_services()
+		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click()
+
+		const panel			= tool.wms_panel
+		const tile_layer	= tool._wms_tile_layers[0]
+		const eye			= panel.querySelector('.uca-maps-wms-list .uca-maps-wms-eye')
+
+		assert.isNotOk(panel.querySelector('.uca-maps-wms-checkbox'), 'expected the checkbox gone')
+		assert.isOk(eye.getAttribute('aria-label'), 'expected the eye to carry an accessible name')
+		// eye_node draws one path; eye_off_node adds the strike as a second one
+		assert.equal(eye.getAttribute('aria-pressed'), 'true', 'expected a new layer shown (added visible)')
+		assert.equal(eye.querySelectorAll('svg path').length, 1, 'expected the open eye on a visible layer')
+
+		eye.click()
+		assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the eye to take the layer off the map')
+		assert.equal(eye.getAttribute('aria-pressed'), 'false')
+		assert.equal(eye.querySelectorAll('svg path').length, 2, 'expected the struck eye on a hidden layer')
+		assert.equal(panel.querySelector('.uca-maps-wms-list .uca-maps-wms-eye'), eye, 'expected the SAME button, updated in place (keyboard focus survives)')
+
+		eye.click()
+		assert.equal(geolocation.map.hasLayer(tile_layer), true, 'expected the eye to put the layer back')
+		assert.equal(eye.getAttribute('aria-pressed'), 'true')
+		assert.equal(eye.querySelectorAll('svg path').length, 1)
+
+		// a rebuild (close + reopen runs populate_wms_layers) draws from the
+		// stored state, not from a default
+		eye.click()
+		const control = geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
+		control.click()
+		control.click()
+		const rebuilt_eye = panel.querySelector('.uca-maps-wms-list .uca-maps-wms-eye')
+		assert.notEqual(rebuilt_eye, eye, 'expected a fresh node from the rebuild')
+		assert.equal(rebuilt_eye.getAttribute('aria-pressed'), 'false', 'expected the hidden state to survive the rebuild')
+		assert.equal(rebuilt_eye.querySelectorAll('svg path').length, 2, 'expected the struck eye after the rebuild')
+	})
+
+	// H-11: the value was set before type='range', so the range sanitized it
+	// against its default 0..100 step 1 and a 0.7 layer showed its slider at 1
+	it('the opacity slider shows the layer\'s stored opacity, when added and after a rebuild', function() {
+
+		tool.attach_wms_services()
+		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		const control	= geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
+		const panel		= tool.wms_panel
+		control.click()
+
+		const slider = panel.querySelector('.uca-maps-wms-list .uca-maps-wms-opacity')
+		assert.equal(slider.value, '0.7', 'expected the slider at the new layer\'s 0.7, not rounded to 1')
+
+		tool.set_wms_layer_opacity(0, '0.3')
+		control.click()
+		control.click()
+		assert.equal(
+			panel.querySelector('.uca-maps-wms-list .uca-maps-wms-opacity').value,
+			'0.3',
+			'expected the rebuilt slider at the stored 0.3'
+		)
+	})
+
+	// The fix Sergio asked for is layout, so this one loads the tool's own
+	// stylesheet (the suite otherwise has none) and measures it: with several
+	// long names added, each name keeps most of its row, and the panel sits
+	// centred across the map, 5rem below its top (v6's modal box), rather
+	// than at the 18rem anchored default.
+	it('with the tool CSS, a WMS layer name keeps its width and the panel sits centred near the map top', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			tool.attach_wms_services()
+			for (let i = 1; i <= 3; i++) {
+				tool.add_wms_layer({
+					url		: 'https://example.com/geoserver/wms',
+					name	: 'topo:layer' + i,
+					title	: 'Límites administrativos históricos del municipio, capa ' + i
+				})
+			}
+			geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click()
+
+			const panel = tool.wms_panel
+			const rem	= parseFloat(getComputedStyle(document.documentElement).fontSize)
+
+			for (const item of panel.querySelectorAll('.uca-maps-wms-list .uca-maps-wms-item')) {
+				const item_width	= item.getBoundingClientRect().width
+				const title_width	= item.querySelector('.uca-maps-wms-item-title').getBoundingClientRect().width
+				const range_width	= item.querySelector('.uca-maps-wms-opacity').getBoundingClientRect().width
+				assert.isAbove(title_width / item_width, 0.5, `expected the name to keep most of its row (name ${title_width}px of ${item_width}px)`)
+				assert.isAtMost(range_width, 6 * rem + 1, `expected the opacity range held at 6rem (${range_width}px)`)
+			}
+
+			const panel_rect	= panel.getBoundingClientRect()
+			const map_rect		= geolocation.map.getContainer().getBoundingClientRect()
+			const dx = (panel_rect.left + panel_rect.width / 2) - (map_rect.left + map_rect.width / 2)
+			const dy = (panel_rect.top - map_rect.top) - 5 * rem
+			assert.isAtMost(Math.abs(dx), 2, `expected the panel centred horizontally on the map (off by ${dx}px)`)
+			assert.isAtMost(Math.abs(dy), 2, `expected the panel 5rem below the map top (off by ${dy}px)`)
+		} finally {
+			link.remove()
+		}
 	})
 
 	it('detach_wms_services removes the button/panel AND every WMS tile layer it added from the live map', async function() {

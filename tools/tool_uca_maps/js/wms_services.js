@@ -68,7 +68,11 @@ export const attach_wms_services = function(self) {
 		on_click	: () => toggle_wms_panel(self)
 	})
 
-	self.wms_panel = create_toolbar_panel(self, {class_name: 'uca-maps-wms-panel'})
+	self.wms_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-wms-panel',
+		centered	: true,
+		title		: self.get_tool_label('wms_control_title') || 'WMS services'
+	})
 	render_wms_services_panel(self, self.wms_panel)
 
 }//end attach_wms_services
@@ -242,11 +246,10 @@ export const clear_wms_search = function(self) {
 /**
 * ADD_WMS_LAYER
 * Builds the live `L.TileLayer.WMS` and appends the session-only entry,
-* immediately visible — v6's own `wms_search_event` does the same
-* (`wms_layer.addTo(self.map)` runs unconditionally right after a successful
-* `create_wms`, regardless of the `view:false` it persists server-side; here
-* there is no persisted flag to contradict, so `visible:true` on add is the
-* honest read of what the user just saw happen, not a departure from v6).
+* immediately visible. A DEPARTURE from v6, decided (Sergio, 2026-09-23): v6
+* files the layer with `view:false` and leaves it off the map until its eye is
+* clicked (`special_tools_wms.js` wms_search_event) — its list is a saved
+* catalogue, this one lives only for the session.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} fields - {url, name, title}

@@ -7,8 +7,8 @@
 * SVG
 *
 * The tool draws its own vector chrome — the compass rose (`scale_bar.js`),
-* the uncertainty band strip (`render_object_console.js`) and the "centre on
-* this" eye (`render_object_viewer.js`). All three were built as HTML STRINGS
+* the uncertainty band strip (`render_object_console.js`) and the eye
+* (`icons.js`). All three were built as HTML STRINGS
 * handed to `inner_html` / `innerHTML`, i.e. an HTML-parsing sink. A node
 * built through a factory is inert — there is no parse to subvert — so the
 * sink stops existing instead of being escaped or excused.

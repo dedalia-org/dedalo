@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global L */
+/*global L, get_label */
 /*eslint no-undef: "error"*/
 
 
@@ -31,6 +31,11 @@
 * and teardown. What does NOT live here: a panel's actual content — that
 * stays in each functionality's own render_X.js, exactly like
 * render_object_console.js / render_map_image_download.js already did.
+*
+* A panel can instead open CENTERED across the map, near its top, with a × to
+* close it (`centered: true`, Sergio 2026-09-23, first used by "WMS" and meant
+* for the rest): v6's own modals sat there, and a list row needs more width
+* than a column beside the buttons leaves.
 *
 * Every node this module builds is also pushed onto `self._toolbar_nodes` —
 * the ONE registry `map_image_download.js`'s screenshot capture filters out
@@ -154,15 +159,25 @@ export const create_toolbar_button = function(self, {title, text, class_name, on
 *   "armed" state is tied to panel visibility (administrative_units.js:
 *   without this, a sibling panel forcing UA's panel hidden left its overlay
 *   tile layer and map 'click' listener running with no panel visible to
-*   show for it — review-diff finding, hito 11).
+*   show for it — review-diff finding, hito 11). A centered panel's × is
+*   the same kind of close and fires it too.
+* @param {boolean} [options.centered] - open centred across the map near its
+*   top, not beside the button;
+*   toolbar.js then builds the header itself (title + ×)
+* @param {string} [options.title] - the header title of a centered panel
 * @returns {HTMLElement} panel, already appended to the map container
 */
-export const create_toolbar_panel = function(self, {class_name, on_hide}) {
+export const create_toolbar_panel = function(self, {class_name, on_hide, centered, title}) {
 
 	const panel = document.createElement('div')
 	panel.className	= 'uca-maps-panel ' + class_name
 	panel.hidden	= true
 	panel._on_hide	= on_hide || null
+
+	if (centered) {
+		panel.classList.add('uca-maps-panel-centered')
+		render_centered_panel_header(panel, title)
+	}
 
 	L.DomEvent.disableClickPropagation(panel)
 	L.DomEvent.disableScrollPropagation(panel)
@@ -172,6 +187,39 @@ export const create_toolbar_panel = function(self, {class_name, on_hide}) {
 
 	return panel
 }//end create_toolbar_panel
+
+
+
+/**
+* RENDER_CENTERED_PANEL_HEADER
+* Same header shape every render_X.js builds for itself, plus the ×. Built
+* here so the × cannot differ between centered panels.
+*
+* @param {HTMLElement} panel
+* @param {string} title
+* @returns {void}
+*/
+const render_centered_panel_header = function(panel, title) {
+
+	const header = document.createElement('div')
+	header.className = 'uca-maps-panel-header'
+
+	const title_node = document.createElement('span')
+	title_node.className	= 'uca-maps-panel-title'
+	title_node.textContent	= title
+
+	const close_label = get_label.close || 'Close'
+	const close_button = document.createElement('button')
+	close_button.type			= 'button'
+	close_button.className		= 'uca-maps-panel-close'
+	close_button.textContent	= '×'
+	close_button.title			= close_label
+	close_button.setAttribute('aria-label', close_label)
+	close_button.addEventListener('click', () => close_toolbar_panel(panel))
+
+	header.append(title_node, close_button)
+	panel.appendChild(header)
+}//end render_centered_panel_header
 
 
 
@@ -253,7 +301,10 @@ export const is_toolbar_panel_visible = function(panel) {
 export const set_toolbar_panel_visible = function(self, panel, control, visible) {
 	if (visible) {
 		close_other_toolbar_panels(self, panel)
-		anchor_panel_to_button(panel, control)
+		// a centered panel is placed by CSS alone
+		if (!panel.classList.contains('uca-maps-panel-centered')) {
+			anchor_panel_to_button(panel, control)
+		}
 	}
 	panel.hidden = !visible
 }//end set_toolbar_panel_visible
@@ -274,14 +325,31 @@ export const set_toolbar_panel_visible = function(self, panel, control, visible)
 const close_other_toolbar_panels = function(self, panel_to_keep_open) {
 	const nodes = self._toolbar_nodes || []
 	for (const node of nodes) {
-		if (node!==panel_to_keep_open && node.classList && node.classList.contains('uca-maps-panel') && !node.hidden) {
-			node.hidden = true
-			if (typeof node._on_hide==='function') {
-				node._on_hide()
-			}
+		if (node!==panel_to_keep_open && node.classList && node.classList.contains('uca-maps-panel')) {
+			close_toolbar_panel(node)
 		}
 	}
 }//end close_other_toolbar_panels
+
+
+
+/**
+* CLOSE_TOOLBAR_PANEL
+* Every close that is not the panel's own toggle — a sibling opening, or a
+* centered panel's × — so `on_hide` fires on each of them alike.
+*
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const close_toolbar_panel = function(panel) {
+	if (panel.hidden) {
+		return
+	}
+	panel.hidden = true
+	if (typeof panel._on_hide==='function') {
+		panel._on_hide()
+	}
+}//end close_toolbar_panel
 
 
 

@@ -5,8 +5,9 @@
 
 /**
 * RENDER_WMS_SERVICES
-* DOM for the "WMS" panel (functionality #6). Shell (header + search form +
-* both list containers) built once at attach — the URL input must survive a
+* DOM for the "WMS" panel (functionality #6). Shell (search form + both list
+* containers; the header is toolbar.js's, this is a centered panel) built
+* once at attach — the URL input must survive a
 * reopen mid-typing; both lists rebuild from `self._wms_search_results`/
 * `self.wms_layers` on every search/mutation (same split as
 * `render_xyz_basemaps.js`). Mutations reach `self.<method>(...)`, never
@@ -18,6 +19,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {eye_node, eye_off_node} from './icons.js'
 
 
 
@@ -28,18 +30,6 @@ import {ui} from '../../../core/common/js/ui.js'
 * @returns {HTMLElement} panel
 */
 export const render_wms_services_panel = function(self, panel) {
-
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('wms_control_title') || 'WMS services',
-		parent			: header
-	})
 
 	render_search_form(self, panel)
 
@@ -201,11 +191,24 @@ export const populate_wms_search_results = function(self, panel) {
 
 
 /**
+* PAINT_EYE
+* @param {HTMLElement} eye_btn
+* @param {boolean} visible
+* @returns {void}
+*/
+const paint_eye = function(eye_btn, visible) {
+	eye_btn.setAttribute('aria-pressed', String(visible))
+	eye_btn.replaceChildren(visible ? eye_node() : eye_off_node())
+}//end paint_eye
+
+
+
+/**
 * POPULATE_WMS_LAYERS
 * Rebuilds the "Added layers" `<ul>` from `self.wms_layers` — called on every
-* open and after every mutation (add/toggle/opacity/delete). Show/hide is a
-* checkbox, same convention as `render_object_viewer.js` (functionality #4),
-* not v6's own icon-swap button (this port has no view.png/hide.png asset).
+* open and after every mutation (add/toggle/opacity/delete). Show/hide is
+* v6's eye button, but drawing the STATE (open = on the map) where v6 draws
+* the action (Sergio, 2026-09-23); `aria-pressed` says the same to a reader.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -220,11 +223,18 @@ export const populate_wms_layers = function(self, panel) {
 
 		const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-wms-item', parent: list})
 
-		const checkbox = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-wms-checkbox', parent: item})
-		checkbox.type		= 'checkbox'
-		checkbox.checked	= layer.visible
-		checkbox.title		= self.get_tool_label('wms_display_toggle') || 'Show/Hide'
-		checkbox.addEventListener('change', () => self.toggle_wms_layer(index))
+		const display_label = self.get_tool_label('wms_display_toggle') || 'Show/Hide'
+		const eye_btn = ui.create_dom_element({element_type: 'button', class_name: 'uca-maps-wms-eye', parent: item})
+		eye_btn.type	= 'button'
+		eye_btn.title	= display_label
+		eye_btn.setAttribute('aria-label', display_label)
+		paint_eye(eye_btn, layer.visible)
+		// updated in place, not by rebuilding the list: a rebuild would drop
+		// keyboard focus off the button just pressed
+		eye_btn.addEventListener('click', () => {
+			self.toggle_wms_layer(index)
+			paint_eye(eye_btn, self.wms_layers[index].visible)
+		})
 
 		ui.create_dom_element({
 			element_type	: 'span',
@@ -235,12 +245,15 @@ export const populate_wms_layers = function(self, panel) {
 		})
 
 		const opacity_input = ui.create_dom_element({
-			element_type: 'input', class_name: 'uca-maps-wms-opacity', value: layer.opacity, parent: item
+			element_type: 'input', class_name: 'uca-maps-wms-opacity', parent: item
 		})
 		opacity_input.type		= 'range'
 		opacity_input.min		= 0
 		opacity_input.max		= 1
 		opacity_input.step		= 0.1
+		// value LAST: set earlier, the range sanitizes it against its default
+		// 0..100 step 1, and 0.7 lands on 1
+		opacity_input.value		= String(layer.opacity)
 		opacity_input.title		= self.get_tool_label('wms_opacity_title') || 'Opacity'
 		opacity_input.addEventListener('input', () => self.set_wms_layer_opacity(index, opacity_input.value))
 
