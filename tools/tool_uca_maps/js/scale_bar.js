@@ -2,6 +2,8 @@
 /*global L */
 /*eslint no-undef: "error"*/
 
+import { svg_node } from './svg.js'
+
 
 
 /**
@@ -60,7 +62,7 @@ export const attach_scale_bar = function(self) {
 		onAdd : function(map) {
 
 			const container = L.DomUtil.create('div', 'uca-maps-scale')
-			container.innerHTML = compass_svg()
+			container.appendChild(compass_node())
 
 			const scale = L.DomUtil.create('div', 'uca-maps-scale-graphic', container)
 			L.DomUtil.create('div', 'uca-maps-scale-rows', scale)
@@ -207,28 +209,46 @@ const render_scale = function(map, scale_node) {
 * binary asset to keep in step with the CSS, sharp on a retina screen, and it
 * takes its colour from the control (so the exported map image gets it too).
 *
-* @returns {string} SVG markup
+* @returns {SVGElement}
 */
-const compass_svg = function() {
-	return '<svg class="uca-maps-scale-compass" viewBox="0 0 100 100" width="46" height="46"'
-		+ ' aria-hidden="true" focusable="false">'
-		+ '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">'
-		// diagonal kites (shorter), drawn first so the cardinal ones read on top
-		+ '<polygon points="71,29 53.5,53.5 29,71 46.5,46.5"/>'
-		+ '<polygon points="29,29 46.5,53.5 71,71 53.5,46.5"/>'
+const compass_node = function() {
+
+	const strokes = svg_node('g', {
+		fill				: 'none',
+		stroke				: 'currentColor',
+		'stroke-width'		: 2,
+		'stroke-linejoin'	: 'round'
+	}, [
+		// diagonal kites (shorter), built first so the cardinal ones read on top
+		svg_node('polygon', {points: '71,29 53.5,53.5 29,71 46.5,46.5'}),
+		svg_node('polygon', {points: '29,29 46.5,53.5 71,71 53.5,46.5'}),
 		// cardinal kites
-		+ '<polygon points="50,14 56,50 50,86 44,50"/>'
-		+ '<polygon points="86,50 50,56 14,50 50,44"/>'
-		+ '<circle cx="50" cy="50" r="5"/>'
-		+ '</g>'
-		+ '<g fill="currentColor" font-size="15" font-family="sans-serif" text-anchor="middle">'
-		+ '<text x="50" y="11">N</text>'
-		+ '<text x="50" y="98">S</text>'
-		+ '<text x="95" y="55">E</text>'
-		+ '<text x="5" y="55">W</text>'
-		+ '</g>'
-		+ '</svg>'
-}//end compass_svg
+		svg_node('polygon', {points: '50,14 56,50 50,86 44,50'}),
+		svg_node('polygon', {points: '86,50 50,56 14,50 50,44'}),
+		svg_node('circle', {cx: 50, cy: 50, r: 5})
+	])
+
+	const letters = svg_node('g', {
+		fill			: 'currentColor',
+		'font-size'		: 15,
+		'font-family'	: 'sans-serif',
+		'text-anchor'	: 'middle'
+	}, [
+		svg_node('text', {x: 50, y: 11}, ['N']),
+		svg_node('text', {x: 50, y: 98}, ['S']),
+		svg_node('text', {x: 95, y: 55}, ['E']),
+		svg_node('text', {x: 5, y: 55}, ['W'])
+	])
+
+	return svg_node('svg', {
+		class			: 'uca-maps-scale-compass',
+		viewBox			: '0 0 100 100',
+		width			: 46,
+		height			: 46,
+		'aria-hidden'	: 'true',
+		focusable		: 'false'
+	}, [strokes, letters])
+}//end compass_node
 
 
 

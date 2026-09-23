@@ -4,7 +4,51 @@
 * Loaded on tool init
 */
 :root {
-  --tool_uca_maps: #f78a1c;
+  --tool_uca_maps: var(--color_orange_dedalo);
+  --uca_maps_toggle_on: #14fbcd;
+  --uca_maps_toggle_on_fg: #212529;
+  --uca_maps_map_chrome_bg: #ffffff;
+  --uca_maps_map_chrome_fg: #212529;
+  --uca_maps_map_chrome_border: #adb5bd;
+  --uca_maps_legend_overlay_bg: rgba(255, 255, 255, 0.9);
+  --uca_maps_handle_border: #3388ff;
+  --uca_maps_handle_shadow: rgba(0, 0, 0, 0.5);
+  --uca_maps_uncertainty_1: #4A7440;
+  --uca_maps_uncertainty_2: #5AB845;
+  --uca_maps_uncertainty_3: #31F705;
+  --uca_maps_uncertainty_4: #F7F005;
+  --uca_maps_uncertainty_5: #F79805;
+  --uca_maps_uncertainty_6: #F76C05;
+  --uca_maps_uncertainty_ring: #16181b;
+  --uca_maps_msg_ok_bg: #d1e7dd;
+  --uca_maps_msg_ok_fg: #0f5132;
+  --uca_maps_msg_warning_bg: #fff3cd;
+  --uca_maps_msg_warning_fg: #664d03;
+  --uca_maps_msg_error_bg: #f8d7da;
+  --uca_maps_msg_error_fg: #842029;
+}
+:root[data-theme="dark"] {
+  --uca_maps_toggle_on: #14fbcd;
+  --uca_maps_toggle_on_fg: #212529;
+  --uca_maps_map_chrome_bg: #ffffff;
+  --uca_maps_map_chrome_fg: #212529;
+  --uca_maps_map_chrome_border: #adb5bd;
+  --uca_maps_legend_overlay_bg: rgba(255, 255, 255, 0.9);
+  --uca_maps_handle_border: #3388ff;
+  --uca_maps_handle_shadow: rgba(0, 0, 0, 0.5);
+  --uca_maps_uncertainty_1: #4A7440;
+  --uca_maps_uncertainty_2: #5AB845;
+  --uca_maps_uncertainty_3: #31F705;
+  --uca_maps_uncertainty_4: #F7F005;
+  --uca_maps_uncertainty_5: #F79805;
+  --uca_maps_uncertainty_6: #F76C05;
+  --uca_maps_uncertainty_ring: #16181b;
+  --uca_maps_msg_ok_bg: #1f3a2c;
+  --uca_maps_msg_ok_fg: #b7e4c7;
+  --uca_maps_msg_warning_bg: #3d3016;
+  --uca_maps_msg_warning_fg: #ffe08a;
+  --uca_maps_msg_error_bg: #4a1f24;
+  --uca_maps_msg_error_fg: #f5b7bd;
 }
 .wrapper_tool.tool_uca_maps .spinner {
   background-color: var(--tool_uca_maps);
@@ -18,16 +62,16 @@
   font-size: 1rem;
 }
 .wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.notice_ok {
-  background-color: #d1e7dd;
-  color: #0f5132;
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
 }
 .wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.notice_warning {
-  background-color: #fff3cd;
-  color: #664d03;
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
 }
 .wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.notice_error {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
 }
 .wrapper_tool.tool_uca_maps > .content_data > .map_status_container > .notice.activating {
   position: relative;
@@ -39,15 +83,15 @@
 }
 .leaflet-control.uca-maps-toolbar-button {
   background: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   font-weight: bold;
   font-size: 0.7rem;
   padding: 0.3rem 0.5rem;
   cursor: pointer;
 }
 .uca-maps-onexone-control.uca-maps-onexone-enabled {
-  background: #14fbcd;
-  color: #212529;
+  background: var(--uca_maps_toggle_on);
+  color: var(--uca_maps_toggle_on_fg);
 }
 .uca-maps-panel {
   position: absolute;
@@ -56,10 +100,10 @@
   max-width: calc(100% - 1rem);
   max-height: 70%;
   overflow-y: auto;
-  background: #fff;
-  color: #212529;
+  background: var(--bg_elevated);
+  color: var(--fg_default);
   border-radius: 0.25rem;
-  box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
   font-size: 0.85rem;
 }
 .uca-maps-panel[hidden] {
@@ -71,7 +115,7 @@
   z-index: 1;
   padding: 0.5rem 0.75rem;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border-radius: 0.25rem 0.25rem 0 0;
 }
 .uca-maps-panel > .uca-maps-panel-header > .uca-maps-panel-title {
@@ -116,7 +160,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -131,7 +175,7 @@
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-object-viewer-panel .uca-maps-object-viewer-list {
   list-style: none;
@@ -139,7 +183,7 @@
   padding: 0 0.75rem;
 }
 .uca-maps-object-viewer-panel .uca-maps-object-viewer-list > .uca-maps-object-viewer-placeholder {
-  color: #6c757d;
+  color: var(--fg_muted);
   font-style: italic;
   padding: 0.2rem 0;
 }
@@ -182,8 +226,8 @@
   min-width: 0;
 }
 .uca-maps-xyz-panel .uca-maps-xyz-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -203,7 +247,7 @@
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-xyz-panel .uca-maps-xyz-list {
   list-style: none;
@@ -232,7 +276,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -251,7 +295,8 @@
 .uca-maps-xyz-panel .uca-maps-xyz-delete {
   padding: 0.15rem 0.4rem;
   font-size: 0.75rem;
-  background-color: #6c757d;
+  background-color: var(--bg_fill_inverse);
+  color: var(--fg_inverse);
 }
 .uca-maps-wms-panel .uca-maps-wms-search-form {
   display: flex;
@@ -263,8 +308,8 @@
   min-width: 0;
 }
 .uca-maps-wms-panel .uca-maps-wms-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -281,7 +326,7 @@
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-wms-panel .uca-maps-wms-results,
 .uca-maps-wms-panel .uca-maps-wms-list {
@@ -325,7 +370,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -343,15 +388,16 @@
 .uca-maps-wms-panel .uca-maps-wms-delete {
   padding: 0.15rem 0.4rem;
   font-size: 0.75rem;
-  background-color: #6c757d;
+  background-color: var(--bg_fill_inverse);
+  color: var(--fg_inverse);
 }
 .uca-maps-catastro-control.uca-maps-catastro-enabled {
-  background: #14fbcd;
-  color: #212529;
+  background: var(--uca_maps_toggle_on);
+  color: var(--uca_maps_toggle_on_fg);
 }
 .uca-maps-ua-panel .uca-maps-ua-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -368,11 +414,11 @@
 .uca-maps-ua-panel .uca-maps-ua-hint {
   margin: 0 0.75rem 0.5rem;
   font-size: 0.75rem;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-upload-panel .uca-maps-upload-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -384,7 +430,7 @@
 .uca-maps-upload-panel .uca-maps-upload-hint {
   margin: 0.5rem 0.75rem;
   font-size: 0.75rem;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-upload-panel .uca-maps-upload-file {
   display: block;
@@ -410,7 +456,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -431,12 +477,12 @@
 .uca-maps-upload-panel .uca-maps-panel-subtitle {
   margin: 0.25rem 0.75rem 0;
   padding-top: 0.5rem;
-  border-top: 1px solid #dee2e6;
+  border-top: 1px solid var(--border_default);
   font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-upload-panel .uca-maps-upload-image-file {
   display: block;
@@ -448,10 +494,10 @@
 }
 .uca-maps-image-handle {
   box-sizing: border-box;
-  background: #fff;
-  border: 2px solid #3388ff;
+  background: var(--uca_maps_map_chrome_bg);
+  border: 2px solid var(--uca_maps_handle_border);
   border-radius: 50%;
-  box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 3px var(--uca_maps_handle_shadow);
   cursor: move;
 }
 .uca-maps-console > .uca-maps-object-section {
@@ -461,7 +507,7 @@
   margin: 0 0 0.35rem;
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-object-placeholder {
-  color: #6c757d;
+  color: var(--fg_muted);
   font-style: italic;
   margin: 0;
 }
@@ -473,7 +519,7 @@
   color: inherit;
 }
 .uca-maps-console > .uca-maps-object-section > .uca-maps-section {
-  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border_default);
   margin-top: 0.7rem;
   padding-top: 0.55rem;
 }
@@ -556,6 +602,32 @@
   width: 60%;
   height: auto;
 }
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-band-1 {
+  fill: var(--uca_maps_uncertainty_1);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-band-2 {
+  fill: var(--uca_maps_uncertainty_2);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-band-3 {
+  fill: var(--uca_maps_uncertainty_3);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-band-4 {
+  fill: var(--uca_maps_uncertainty_4);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-band-5 {
+  fill: var(--uca_maps_uncertainty_5);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-band-6 {
+  fill: var(--uca_maps_uncertainty_6);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-ring {
+  fill: none;
+  stroke: var(--uca_maps_uncertainty_ring);
+  stroke-width: 3;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-scale .uca-maps-uncertainty-pip {
+  fill: var(--uca_maps_uncertainty_ring);
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-onexone-reference {
   margin: 0.35rem 0 0.2rem;
   font-weight: 700;
@@ -566,7 +638,7 @@
 .uca-maps-console > .uca-maps-object-section .uca-maps-uncertainty-badge {
   margin: 0.2rem 0 0.4rem;
   font-size: 0.75rem;
-  color: #6c757d;
+  color: var(--fg_muted);
   word-break: break-all;
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-properties-list {
@@ -617,7 +689,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -629,7 +701,8 @@
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-property-delete {
   padding: 0.2rem 0.45rem;
-  background-color: #6c757d;
+  background-color: var(--bg_fill_inverse);
+  color: var(--fg_inverse);
 }
 .uca-maps-place-search-panel .uca-maps-place-search-form {
   display: flex;
@@ -641,8 +714,8 @@
   min-width: 0;
 }
 .uca-maps-place-search-panel .uca-maps-place-search-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -672,14 +745,14 @@
   padding: 0.25rem 0.3rem;
 }
 .uca-maps-place-search-panel .uca-maps-place-search-results > .uca-maps-place-search-result-item .uca-maps-place-search-result-button:hover {
-  background-color: #e9ecef;
+  background-color: var(--bg_surface_alt);
   filter: none;
 }
 .uca-maps-place-search-panel button {
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -699,7 +772,7 @@
   gap: 0.4rem;
   padding: 0.25rem 0.4rem;
   background-color: transparent;
-  color: #212529;
+  color: var(--uca_maps_map_chrome_fg);
   line-height: 1;
 }
 .uca-maps-scale .uca-maps-scale-compass {
@@ -715,13 +788,13 @@
 }
 .uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division {
   flex: 1 1 0;
-  border: 1px solid #212529;
+  border: 1px solid var(--uca_maps_map_chrome_fg);
   border-right-width: 0;
 }
 .uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division.filled {
-  background-color: #212529;
+  background-color: var(--uca_maps_map_chrome_fg);
   background-clip: content-box;
-  border-color: #212529;
+  border-color: var(--uca_maps_map_chrome_fg);
 }
 .uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division:last-child {
   border-right-width: 1px;
@@ -737,8 +810,8 @@
   white-space: nowrap;
 }
 .uca-maps-geolocate-control.uca-maps-geolocate-enabled {
-  background: #14fbcd;
-  color: #212529;
+  background: var(--uca_maps_toggle_on);
+  color: var(--uca_maps_toggle_on_fg);
 }
 .uca-maps-legend-panel .uca-maps-legend-form {
   display: flex;
@@ -750,8 +823,8 @@
   min-width: 0;
 }
 .uca-maps-legend-panel .uca-maps-legend-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -768,13 +841,13 @@
 .uca-maps-legend-panel .uca-maps-legend-empty {
   padding: 0 0.75rem 0.5rem;
   font-size: 0.8rem;
-  color: #6c757d;
+  color: var(--fg_muted);
 }
 .uca-maps-legend-panel .uca-maps-legend-columns {
   padding: 0 0.75rem 0.5rem;
 }
 .uca-maps-legend-panel .uca-maps-legend-column {
-  border-top: 1px solid #dee2e6;
+  border-top: 1px solid var(--border_default);
   padding-top: 0.4rem;
   margin-top: 0.4rem;
 }
@@ -809,7 +882,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -829,18 +902,19 @@
 .uca-maps-legend-panel .uca-maps-legend-add-element {
   padding: 0.15rem 0.4rem;
   font-size: 0.75rem;
-  background-color: #6c757d;
+  background-color: var(--bg_fill_inverse);
+  color: var(--fg_inverse);
 }
 .uca-maps-legend-overlay {
-  background-color: rgba(255, 255, 255, 0.9);
-  border: 1px solid #adb5bd;
+  background-color: var(--uca_maps_legend_overlay_bg);
+  border: 1px solid var(--uca_maps_map_chrome_border);
   border-radius: 0.2rem;
   padding: 0.4rem 0.6rem;
   max-width: 50vw;
   max-height: 40vh;
   overflow-y: auto;
   font-size: 0.8rem;
-  color: #212529;
+  color: var(--uca_maps_map_chrome_fg);
 }
 .uca-maps-legend-overlay[hidden] {
   display: none;
@@ -871,8 +945,8 @@
   width: 28rem;
 }
 .uca-maps-roman-panel .uca-maps-roman-message {
-  background-color: #f8d7da;
-  color: #842029;
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
@@ -930,7 +1004,7 @@
   flex: 0 0 auto;
   white-space: nowrap;
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   border: none;
   border-radius: 0.2rem;
   padding: 0.3rem 0.6rem;
@@ -953,10 +1027,10 @@
   min-width: 14rem;
   max-height: 14rem;
   overflow-y: auto;
-  background: #fff;
-  color: #212529;
+  background: var(--bg_elevated);
+  color: var(--fg_default);
   border-radius: 0.25rem;
-  box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
   font-size: 0.85rem;
 }
 .uca-maps-roman-dropdown[hidden] {
@@ -983,7 +1057,7 @@
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button:hover,
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button.is-active {
   background-color: var(--tool_uca_maps);
-  color: #fff;
+  color: var(--fg_on_brand);
   filter: none;
 }
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button .uca-maps-roman-result-name {

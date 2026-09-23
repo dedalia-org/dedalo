@@ -24,6 +24,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
+import {svg_node} from './svg.js'
 
 // Deliberately NO import from './object_console.js' — object_console.js
 // already imports {render_console_panel, render_selected_object,
@@ -117,8 +118,14 @@ const GEOMETRY_LABELS = {
 
 /** v6's `img/escala-<tier>.png` bands, sampled from the binaries themselves
 * (240x32, six 40px bands). Six PNGs became one inline SVG for the reason
-* C-01 and the compass give: no binary to serve, and it scales. */
-const UNCERTAINTY_BANDS = ['#4A7440', '#5AB845', '#31F705', '#F7F005', '#F79805', '#F76C05']
+* C-01 and the compass give: no binary to serve, and it scales.
+*
+* The six hues live in the stylesheet (`--uca_maps_uncertainty_1..6`), not
+* here: a data ramp is a paint like any other, and a paint spelled in JS is
+* one the palette cannot reach (colour_literal_ratchet_tripwire). They are
+* theme-INVARIANT on purpose — the strip means the same thing in both themes,
+* so its dark twins carry the same values. */
+const UNCERTAINTY_TIERS = 6
 
 
 
@@ -136,23 +143,34 @@ const UNCERTAINTY_BANDS = ['#4A7440', '#5AB845', '#31F705', '#F7F005', '#F79805'
 */
 const render_uncertainty_scale = function(tier, title, container) {
 
-	const index	= Math.min(Math.max(parseInt(tier, 10) || 1, 1), UNCERTAINTY_BANDS.length) - 1
+	const index	= Math.min(Math.max(parseInt(tier, 10) || 1, 1), UNCERTAINTY_TIERS) - 1
 	const cx	= (index * 40) + 20
-	const bands	= UNCERTAINTY_BANDS
-		.map((color, i) => '<rect x="' + (i * 40) + '" y="0" width="40" height="32" fill="' + color + '"/>')
-		.join('')
+
+	const children = []
+	for (let i = 0; i < UNCERTAINTY_TIERS; i++) {
+		children.push(svg_node('rect', {
+			class	: 'uca-maps-uncertainty-band uca-maps-uncertainty-band-' + (i + 1),
+			x		: i * 40,
+			y		: 0,
+			width	: 40,
+			height	: 32
+		}))
+	}
+	// the ring marking the current tier: two circles, painted by the sheet
+	children.push(svg_node('circle', {class: 'uca-maps-uncertainty-ring', cx: cx, cy: 16, r: 7}))
+	children.push(svg_node('circle', {class: 'uca-maps-uncertainty-pip', cx: cx, cy: 16, r: 2.5}))
 
 	const node = ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-uncertainty-scale',
-		inner_html		: '<svg viewBox="0 0 240 32" aria-hidden="true" focusable="false">'
-			+ bands
-			+ '<circle cx="' + cx + '" cy="16" r="7" fill="none" stroke="#000" stroke-width="3"/>'
-			+ '<circle cx="' + cx + '" cy="16" r="2.5" fill="#000"/>'
-			+ '</svg>',
 		parent			: container
 	})
-	// set, never interpolated into the markup above: the value is data
+	node.appendChild(svg_node('svg', {
+		viewBox			: '0 0 240 32',
+		'aria-hidden'	: 'true',
+		focusable		: 'false'
+	}, children))
+	// an attribute, never markup: the stored value is data
 	if (title) {
 		node.setAttribute('title', title)
 	}

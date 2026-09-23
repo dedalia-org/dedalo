@@ -32,6 +32,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {svg_node} from './svg.js'
 
 
 
@@ -142,17 +143,34 @@ export const populate_object_viewer = function(self, panel) {
 
 
 /**
-* EYE_SVG
+* EYE_NODE
 * v6 draws this affordance as `<img src="img/view.png">`
 * (`special_tools_objects.js:170`); inline SVG instead, same call as the
 * compass (`scale_bar.js`) and the legend's default pin — one less binary to
 * serve, and `currentColor` hands the colour to the stylesheet.
+*
+* A fresh subtree per call: a single shared node would move to whichever row
+* was rendered last, because appending a node RE-PARENTS it.
+*
+* @returns {SVGElement}
 */
-const EYE_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"'
-	+ ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
-	+ '<path d="M1.5 12S5 5.5 12 5.5 22.5 12 22.5 12 19 18.5 12 18.5 1.5 12 1.5 12z"/>'
-	+ '<circle cx="12" cy="12" r="3"/>'
-	+ '</svg>'
+const eye_node = function() {
+	return svg_node('svg', {
+		viewBox				: '0 0 24 24',
+		width				: 16,
+		height				: 16,
+		fill				: 'none',
+		stroke				: 'currentColor',
+		'stroke-width'		: 2,
+		'stroke-linecap'	: 'round',
+		'stroke-linejoin'	: 'round',
+		'aria-hidden'		: 'true',
+		focusable			: 'false'
+	}, [
+		svg_node('path', {d: 'M1.5 12S5 5.5 12 5.5 22.5 12 22.5 12 19 18.5 12 18.5 1.5 12 1.5 12z'}),
+		svg_node('circle', {cx: 12, cy: 12, r: 3})
+	])
+}//end eye_node
 
 
 
@@ -215,9 +233,9 @@ const render_list = function(self, list, objects, empty_label) {
 			element_type	: 'button',
 			class_name		: 'uca-maps-object-viewer-center',
 			title			: center_label,
-			inner_html		: EYE_SVG,
 			parent			: item
 		})
+		center_btn.appendChild(eye_node())
 		center_btn.type = 'button'
 		center_btn.setAttribute('aria-label', center_label) // icon-only: title alone is not an accessible name
 		center_btn.addEventListener('click', () => self.center_on_object(layer))

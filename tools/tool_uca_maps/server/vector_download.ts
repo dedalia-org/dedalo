@@ -40,7 +40,7 @@ import {
 } from '../../../src/core/tools/module.ts';
 import { readFileBase64, resolveGdalBinary, runToolBinary, withScratchDir } from './gdal.ts';
 
-const VECTOR_FORMATS = new Set(['shp', 'kml']);
+const VECTOR_FORMATS: ReadonlySet<string> = new Set(['shp', 'kml']);
 
 const VECTOR_MIME: Readonly<Record<string, string>> = {
 	shp: 'application/zip',

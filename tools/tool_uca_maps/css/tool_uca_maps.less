@@ -8,8 +8,85 @@
 @import (once) '../../../client/dedalo/core/page/css/layout/vars';
 
 // local vars
+//
+// THE TOOL'S PALETTE. Every paint this sheet applies comes from a token:
+// a colour spelled in a rule is one the palette cannot reach, so it survives
+// a retune as a second, private brand (colour_literal_ratchet_tripwire). Two
+// families, and the difference is WHAT THE PAINT SITS ON:
+//
+//  - APP CHROME (panels, headers, buttons, messages) reads the core semantic
+//    tokens directly — --bg_elevated, --fg_default, --fg_muted,
+//    --border_default. It lives inside the application window, so it follows
+//    the theme like everything else around it;
+//  - MAP CHROME (the image handle, the legend overlay, the scale bar and its
+//    compass, the enabled-toggle hue) sits on the BASEMAP, not on an
+//    application surface. A basemap does not darken when the UI does, so this
+//    half is theme-INVARIANT on purpose: the dark twins below carry the same
+//    values, which states the invariance instead of leaving it to the absence
+//    of a dark block (palette_axis_parity_tripwire leg 1).
 :root {
-	--tool_uca_maps: #f78a1c;
+	// the tool's identity hue IS the brand orange: read it from the palette so
+	// a retune moves this with it (--color_orange_dedalo is FILL ONLY; its ink
+	// is --fg_on_brand, never white — vars_tokens.less)
+	--tool_uca_maps: var(--color_orange_dedalo);
+
+	// --- map chrome (theme-invariant) ---
+	// v6's enabled-toggle cyan (`special_tools_onexone.js`), kept verbatim
+	--uca_maps_toggle_on: #14fbcd;
+	--uca_maps_toggle_on_fg: #212529;
+	--uca_maps_map_chrome_bg: #ffffff;
+	--uca_maps_map_chrome_fg: #212529;
+	--uca_maps_map_chrome_border: #adb5bd;
+	--uca_maps_legend_overlay_bg: rgba(255, 255, 255, 0.9);
+	// Leaflet's own selection blue: the handle reads as part of the editor it
+	// belongs to, so it tracks the library, not this palette
+	--uca_maps_handle_border: #3388ff;
+	--uca_maps_handle_shadow: rgba(0, 0, 0, 0.5);
+	// v6's `img/escala-<tier>.png` ramp, sampled from the binaries (six 40px
+	// bands). A data scale means the same thing in both themes.
+	--uca_maps_uncertainty_1: #4A7440;
+	--uca_maps_uncertainty_2: #5AB845;
+	--uca_maps_uncertainty_3: #31F705;
+	--uca_maps_uncertainty_4: #F7F005;
+	--uca_maps_uncertainty_5: #F79805;
+	--uca_maps_uncertainty_6: #F76C05;
+	--uca_maps_uncertainty_ring: #16181b;
+
+	// --- inline panel messages (app chrome: these DO flip) ---
+	--uca_maps_msg_ok_bg: #d1e7dd;
+	--uca_maps_msg_ok_fg: #0f5132;
+	--uca_maps_msg_warning_bg: #fff3cd;
+	--uca_maps_msg_warning_fg: #664d03;
+	--uca_maps_msg_error_bg: #f8d7da;
+	--uca_maps_msg_error_fg: #842029;
+}
+:root[data-theme="dark"] {
+	// map chrome: the SAME values. A basemap is lit the same way in both
+	// themes, so this is a twin that states invariance, not a copy-paste.
+	--uca_maps_toggle_on: #14fbcd;
+	--uca_maps_toggle_on_fg: #212529;
+	--uca_maps_map_chrome_bg: #ffffff;
+	--uca_maps_map_chrome_fg: #212529;
+	--uca_maps_map_chrome_border: #adb5bd;
+	--uca_maps_legend_overlay_bg: rgba(255, 255, 255, 0.9);
+	--uca_maps_handle_border: #3388ff;
+	--uca_maps_handle_shadow: rgba(0, 0, 0, 0.5);
+	--uca_maps_uncertainty_1: #4A7440;
+	--uca_maps_uncertainty_2: #5AB845;
+	--uca_maps_uncertainty_3: #31F705;
+	--uca_maps_uncertainty_4: #F7F005;
+	--uca_maps_uncertainty_5: #F79805;
+	--uca_maps_uncertainty_6: #F76C05;
+	--uca_maps_uncertainty_ring: #16181b;
+
+	// the message tints ARE app chrome: a pale pastel under near-white ink is
+	// the "paired-but-unreadable" shape, so dark gets its own deep tint
+	--uca_maps_msg_ok_bg: #1f3a2c;
+	--uca_maps_msg_ok_fg: #b7e4c7;
+	--uca_maps_msg_warning_bg: #3d3016;
+	--uca_maps_msg_warning_fg: #ffe08a;
+	--uca_maps_msg_error_bg: #4a1f24;
+	--uca_maps_msg_error_fg: #f5b7bd;
 }
 @tool_color : var(--tool_uca_maps);
 
@@ -22,7 +99,7 @@
 	flex: 0 0 auto;
 	white-space: nowrap;
 	background-color: @tool_color;
-	color: #fff;
+	color: var(--fg_on_brand);
 	border: none;
 	border-radius: 0.2rem;
 	padding: 0.3rem 0.6rem;
@@ -38,11 +115,14 @@
 	}
 }//end uca-maps-panel-action-button
 
-// the smaller, muted secondary variant (▲/▼/✕/Add on a list row)
+// the smaller, muted secondary variant (▲/▼/✕/Add on a list row). The fill is
+// --bg_fill_inverse, the neutral built to carry inverse ink at AA in both
+// themes, so the ink is named here instead of inherited from the panel.
 .uca-maps-panel-secondary-button() {
 	padding: 0.15rem 0.4rem;
 	font-size: 0.75rem;
-	background-color: #6c757d;
+	background-color: var(--bg_fill_inverse);
+	color: var(--fg_inverse);
 }//end uca-maps-panel-secondary-button
 
 // the plain in-flow error/status line every session-only-persistence panel
@@ -50,8 +130,8 @@
 // panel's own `overflow-y: auto` would clip (render_xyz_basemaps.js
 // show_xyz_message / render_wms_services.js show_wms_message doc comments)
 .uca-maps-panel-inline-message() {
-	background-color: #f8d7da;
-	color: #842029;
+	background-color: var(--uca_maps_msg_error_bg);
+	color: var(--uca_maps_msg_error_fg);
 	border-radius: 0.2rem;
 	padding: 0.35rem 0.5rem;
 	font-size: 0.8rem;
@@ -93,16 +173,16 @@
 					// throw on an opaque var() (measured: build_css.ts
 					// "Argument cannot be evaluated to a color"). A fixed
 					// success tint reads correctly either way.
-					background-color: #d1e7dd;
-					color: #0f5132;
+					background-color: var(--uca_maps_msg_ok_bg);
+					color: var(--uca_maps_msg_ok_fg);
 				}
 				&.notice_warning {
-					background-color: #fff3cd;
-					color: #664d03;
+					background-color: var(--uca_maps_msg_warning_bg);
+					color: var(--uca_maps_msg_warning_fg);
 				}
 				&.notice_error {
-					background-color: #f8d7da;
-					color: #842029;
+					background-color: var(--uca_maps_msg_error_bg);
+					color: var(--uca_maps_msg_error_fg);
 				}
 				// the transient modal's spinner-then-close state
 				// (close_transient_modal, tool_uca_maps.js) — .spinner (core,
@@ -139,7 +219,7 @@
 // the tool's modal (file header of object_console.js).
 .leaflet-control.uca-maps-toolbar-button {
 	background: @tool_color;
-	color: #fff;
+	color: var(--fg_on_brand);
 	font-weight: bold;
 	font-size: 0.7rem;
 	padding: 0.3rem 0.5rem;
@@ -153,8 +233,8 @@
 // than v6's full white/cyan pair: the disabled state already reads correctly
 // as the shared @tool_color chrome above, matching every sibling button.
 .uca-maps-onexone-control.uca-maps-onexone-enabled {
-	background: #14fbcd;
-	color: #212529;
+	background: var(--uca_maps_toggle_on);
+	color: var(--uca_maps_toggle_on_fg);
 }
 
 // shared panel chrome — anchored directly to the live map's own DOM
@@ -171,10 +251,10 @@
 	max-width: calc(100% - 1rem);
 	max-height: 70%;
 	overflow-y: auto;
-	background: #fff;
-	color: #212529;
+	background: var(--bg_elevated);
+	color: var(--fg_default);
 	border-radius: 0.25rem;
-	box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+	box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
 	font-size: 0.85rem;
 
 	&[hidden] {
@@ -192,7 +272,7 @@
 		z-index: 1;
 		padding: 0.5rem 0.75rem;
 		background-color: @tool_color;
-		color: #fff;
+		color: var(--fg_on_brand);
 		border-radius: 0.25rem 0.25rem 0 0;
 
 		>.uca-maps-panel-title {
@@ -262,7 +342,7 @@
 		flex: 0 0 auto;
 		white-space: nowrap;
 		background-color: @tool_color;
-		color: #fff;
+		color: var(--fg_on_brand);
 		border: none;
 		border-radius: 0.2rem;
 		padding: 0.3rem 0.6rem;
@@ -287,7 +367,7 @@
 		font-size: 0.8rem;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 	.uca-maps-object-viewer-list {
@@ -296,7 +376,7 @@
 		padding: 0 0.75rem;
 
 		>.uca-maps-object-viewer-placeholder {
-			color: #6c757d;
+			color: var(--fg_muted);
 			font-style: italic;
 			padding: 0.2rem 0;
 		}
@@ -378,7 +458,7 @@
 		font-size: 0.8rem;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 	.uca-maps-xyz-list {
@@ -453,7 +533,7 @@
 		font-size: 0.8rem;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 	.uca-maps-wms-results, .uca-maps-wms-list {
@@ -519,8 +599,8 @@
 // shape as "1x1" above — reuses the identical enabled-state idiom instead of
 // inventing a second toggle colour.
 .uca-maps-catastro-control.uca-maps-catastro-enabled {
-	background: #14fbcd;
-	color: #212529;
+	background: var(--uca_maps_toggle_on);
+	color: var(--uca_maps_toggle_on_fg);
 }
 
 // "UA" (functionality #9, administrative_units.js) — a single level
@@ -541,7 +621,7 @@
 	.uca-maps-ua-hint {
 		margin: 0 0.75rem 0.5rem;
 		font-size: 0.75rem;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 }//end uca-maps-ua-panel
@@ -559,7 +639,7 @@
 	.uca-maps-upload-hint {
 		margin: 0.5rem 0.75rem;
 		font-size: 0.75rem;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 	.uca-maps-upload-file {
@@ -597,12 +677,12 @@
 	.uca-maps-panel-subtitle {
 		margin: 0.25rem 0.75rem 0;
 		padding-top: 0.5rem;
-		border-top: 1px solid #dee2e6;
+		border-top: 1px solid var(--border_default);
 		font-size: 0.8rem;
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 	.uca-maps-upload-image-file {
@@ -627,10 +707,10 @@
 // ship, and it stays crisp at any zoom or pixel ratio.
 .uca-maps-image-handle {
 	box-sizing: border-box;
-	background: #fff;
-	border: 2px solid #3388ff;
+	background: var(--uca_maps_map_chrome_bg);
+	border: 2px solid var(--uca_maps_handle_border);
 	border-radius: 50%;
-	box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+	box-shadow: 0 0 3px var(--uca_maps_handle_shadow);
 	cursor: move;
 }
 
@@ -647,7 +727,7 @@
 		}
 
 		.uca-maps-object-placeholder {
-			color: #6c757d;
+			color: var(--fg_muted);
 			font-style: italic;
 			margin: 0;
 		}
@@ -669,7 +749,7 @@
 		}
 
 		>.uca-maps-section {
-			border-top: 1px solid rgba(0, 0, 0, 0.15);
+			border-top: 1px solid var(--border_default);
 			margin-top: 0.7rem;
 			padding-top: 0.55rem;
 		}
@@ -776,6 +856,26 @@
 				width: 60%;
 				height: auto;
 			}
+
+			// the ramp is painted HERE, not by a fill attribute in the
+			// builder: a paint spelled in JS is one the palette cannot reach
+			.uca-maps-uncertainty-band-1 { fill: var(--uca_maps_uncertainty_1); }
+			.uca-maps-uncertainty-band-2 { fill: var(--uca_maps_uncertainty_2); }
+			.uca-maps-uncertainty-band-3 { fill: var(--uca_maps_uncertainty_3); }
+			.uca-maps-uncertainty-band-4 { fill: var(--uca_maps_uncertainty_4); }
+			.uca-maps-uncertainty-band-5 { fill: var(--uca_maps_uncertainty_5); }
+			.uca-maps-uncertainty-band-6 { fill: var(--uca_maps_uncertainty_6); }
+
+			// the marker on the current tier: a hollow ring plus a solid pip,
+			// dark in both themes because it sits on the ramp, not on a surface
+			.uca-maps-uncertainty-ring {
+				fill: none;
+				stroke: var(--uca_maps_uncertainty_ring);
+				stroke-width: 3;
+			}
+			.uca-maps-uncertainty-pip {
+				fill: var(--uca_maps_uncertainty_ring);
+			}
 		}
 
 		.uca-maps-onexone-reference {
@@ -790,7 +890,7 @@
 		.uca-maps-uncertainty-badge {
 			margin: 0.2rem 0 0.4rem;
 			font-size: 0.75rem;
-			color: #6c757d;
+			color: var(--fg_muted);
 			word-break: break-all; // the preserved 1/area bug prints ~20 decimals
 		}
 
@@ -863,7 +963,7 @@
 			flex: 0 0 auto;
 			white-space: nowrap;
 			background-color: @tool_color;
-			color: #fff;
+			color: var(--fg_on_brand);
 			border: none;
 			border-radius: 0.2rem;
 			padding: 0.3rem 0.6rem;
@@ -877,7 +977,8 @@
 
 		.uca-maps-property-delete {
 			padding: 0.2rem 0.45rem;
-			background-color: #6c757d;
+			background-color: var(--bg_fill_inverse);
+			color: var(--fg_inverse);
 		}
 	}//end uca-maps-object-section
 
@@ -932,7 +1033,7 @@
 				padding: 0.25rem 0.3rem;
 
 				&:hover {
-					background-color: #e9ecef;
+					background-color: var(--bg_surface_alt);
 					filter: none;
 				}
 			}
@@ -962,7 +1063,7 @@
 	gap: 0.4rem;
 	padding: 0.25rem 0.4rem;
 	background-color: transparent;
-	color: #212529;
+	color: var(--uca_maps_map_chrome_fg);
 	line-height: 1;
 
 	.uca-maps-scale-compass {
@@ -982,15 +1083,15 @@
 
 		>.uca-maps-scale-division {
 			flex: 1 1 0;
-			border: 1px solid #212529;
+			border: 1px solid var(--uca_maps_map_chrome_fg);
 			border-right-width: 0;
 
 			// `fill: hollow` in v6: the filled divisions are inset, so the
 			// outline of every division stays visible either way
 			&.filled {
-				background-color: #212529;
+				background-color: var(--uca_maps_map_chrome_fg);
 				background-clip: content-box;
-				border-color: #212529;
+				border-color: var(--uca_maps_map_chrome_fg);
 			}
 		}
 
@@ -1023,8 +1124,8 @@
 // position lookup is in flight, so a slow fix reads as "working", not as a
 // dead button. Same enabled colour, not a third one.
 .uca-maps-geolocate-control.uca-maps-geolocate-enabled {
-	background: #14fbcd;
-	color: #212529;
+	background: var(--uca_maps_toggle_on);
+	color: var(--uca_maps_toggle_on_fg);
 }
 
 // "Legend" (functionality #12, legend.js / render_legend.js) — DOS piezas
@@ -1058,7 +1159,7 @@
 	.uca-maps-legend-empty {
 		padding: 0 0.75rem 0.5rem;
 		font-size: 0.8rem;
-		color: #6c757d;
+		color: var(--fg_muted);
 	}
 
 	.uca-maps-legend-columns {
@@ -1066,7 +1167,7 @@
 	}
 
 	.uca-maps-legend-column {
-		border-top: 1px solid #dee2e6;
+		border-top: 1px solid var(--border_default);
 		padding-top: 0.4rem;
 		margin-top: 0.4rem;
 	}
@@ -1122,8 +1223,8 @@
 // columnas) y de su corte que escondía la leyenda entera por debajo de
 // 800 px de mapa.
 .uca-maps-legend-overlay {
-	background-color: rgba(255, 255, 255, 0.9);
-	border: 1px solid #adb5bd;
+	background-color: var(--uca_maps_legend_overlay_bg);
+	border: 1px solid var(--uca_maps_map_chrome_border);
 	border-radius: 0.2rem;
 	padding: 0.4rem 0.6rem;
 	max-width: 50vw;
@@ -1133,7 +1234,7 @@
 	max-height: 40vh;
 	overflow-y: auto;
 	font-size: 0.8rem;
-	color: #212529;
+	color: var(--uca_maps_map_chrome_fg);
 
 	&[hidden] {
 		display: none;
@@ -1271,10 +1372,10 @@
 	min-width: 14rem;
 	max-height: 14rem;
 	overflow-y: auto;
-	background: #fff;
-	color: #212529;
+	background: var(--bg_elevated);
+	color: var(--fg_default);
 	border-radius: 0.25rem;
-	box-shadow: 0 0.1rem 0.5rem rgba(0, 0, 0, 0.3);
+	box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
 	font-size: 0.85rem;
 
 	&[hidden] {
@@ -1305,7 +1406,7 @@
 			&:hover,
 			&.is-active {
 				background-color: @tool_color;
-				color: #fff;
+				color: var(--fg_on_brand);
 				filter: none;
 			}
 

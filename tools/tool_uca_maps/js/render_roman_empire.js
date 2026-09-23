@@ -20,6 +20,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {a11y} from '../../../core/common/js/a11y.js'
 
 
 
@@ -664,10 +665,16 @@ export const populate_roman_results = function(self, panel) {
 
 		// mousedown, not click: the field keeps the focus (and the caret)
 		// through the whole gesture, so choosing never closes the list by
-		// blurring it first
-		add_btn.addEventListener('mousedown', (event) => {
-			event.preventDefault()
-			choose_suggestion(self, panel, index)
+		// blurring it first. Through a11y because a pointer event that is not
+		// `click` is never dispatched by a keyboard, so the row was reachable
+		// by Tab and dead on Enter — the helper wires both to ONE callback
+		// (client_keyboard_activation_tripwire).
+		a11y.make_activable(add_btn, {
+			pointer_event	: 'mousedown',
+			on_activate		: (event) => {
+				event.preventDefault()
+				choose_suggestion(self, panel, index)
+			}
 		})
 		add_btn.addEventListener('mouseenter', () => set_active_suggestion(self, index))
 	})

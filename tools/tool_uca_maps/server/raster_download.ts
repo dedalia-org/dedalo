@@ -72,8 +72,8 @@ import {
 	writeFileBase64,
 } from './gdal.ts';
 
-const IMAGEMAGICK_FORMATS = new Set(['jpg', 'gif', 'webp']);
-const RASTER_FORMATS = new Set(['jpg', 'gif', 'webp', 'geotiff']);
+const IMAGEMAGICK_FORMATS: ReadonlySet<string> = new Set(['jpg', 'gif', 'webp']);
+const RASTER_FORMATS: ReadonlySet<string> = new Set(['jpg', 'gif', 'webp', 'geotiff']);
 
 const RASTER_MIME: Readonly<Record<string, string>> = {
 	jpg: 'image/jpeg',
@@ -148,9 +148,12 @@ function downloadBaseName(value: unknown): string {
 /** JPG/GIF/WebP via ImageMagick. Deliberately SIMPLER than
  * `media/engine/imagemagick.ts`'s internal `runMagickTo` (multi-scene
  * verification, resize budgets, CMYK profiles) — a screenshot is always one
- * scene and needs none of that; the SECURITY-CRITICAL half
- * (`resolveMagickBinary`/`magickPolicyEnv`) is reused verbatim, the rest is
- * not, on purpose. */
+ * scene and needs none of that; `resolveMagickBinary`/`magickPolicyEnv` are
+ * reused verbatim, the rest is not, on purpose.
+ * (!) MEDIA-01 has TWO halves and this path carries only one: the hardened
+ * policy env, never the operating `-limit` argv (`magickResourceLimitArgs`).
+ * `magick_policy_tripwire`'s census walks `src/core/media/` only, so nothing
+ * goes red about it — which is precisely why it is written here. */
 async function convertWithImageMagick(
 	dir: string,
 	inputFile: string,
@@ -166,8 +169,15 @@ async function convertWithImageMagick(
 		format === 'jpg'
 			? [magick, inputFile, '-background', 'white', '-flatten', outputFile]
 			: [magick, inputFile, outputFile];
+	// `dir` is this action's scratch directory, so the pixel cache spills inside
+	// the tree `withScratchDir` sweeps rather than loose in the OS temp root.
+	// (!) It does NOT satisfy what `magickPolicyEnv` asks for: `withScratchDir`
+	// mkdtemps under `tmpdir()` (gdal.ts), so the spill still lands on the OS
+	// temp VOLUME — on both shipped compose stacks, the database's. Moving the
+	// tool's scratch root under the media root is the real fix and is not this
+	// change's scope; recorded in the tool's ledger, not hidden here.
 	await runToolBinary(argv, `raster_download (${format})`, {
-		env: magickPolicyEnv(),
+		env: magickPolicyEnv(dir),
 		expectedOutput: outputFile,
 	});
 	return { extension: format, content: await readFileBase64(outputFile) };

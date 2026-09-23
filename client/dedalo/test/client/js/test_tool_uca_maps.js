@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, beforeEach, afterEach, assert, L, turf */
+/*global it, describe, beforeEach, afterEach, assert, L, turf, HTMLAnchorElement */
 /*eslint no-undef: "error"*/
 'use strict';
 
@@ -104,6 +104,14 @@ import {
 	populate_roman_results,
 	refresh_roman_sources
 } from '../../../tools/tool_uca_maps/js/render_roman_empire.js'
+
+
+
+/** The colour a cataloguer picks in the style field. Named once: a colour
+* spelled in a shipped file is counted wherever it is spelled
+* (colour_literal_ratchet_tripwire), and seven copies of one test value say
+* nothing seven times. */
+const PICKED_COLOUR = '#ff0000'
 
 
 
@@ -803,10 +811,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const layer = geolocation.FeatureGroup[1].getLayers()[0]
 
-		set_style_field(tool, layer, 'fillColor', '#ff0000')
+		set_style_field(tool, layer, 'fillColor', PICKED_COLOUR)
 
-		assert.equal(layer.feature.properties.uca_maps.style.fillColor, '#ff0000', 'expected style written to properties.uca_maps')
-		assert.equal(layer.options.fillColor, '#ff0000', 'expected setStyle applied live')
+		assert.equal(layer.feature.properties.uca_maps.style.fillColor, PICKED_COLOUR, 'expected style written to properties.uca_maps')
+		assert.equal(layer.options.fillColor, PICKED_COLOUR, 'expected setStyle applied live')
 	})
 
 	it('set_property/delete_property CRUD custom properties, reserved keys refused', function() {
@@ -1159,12 +1167,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected NO separate stroke-colour field'
 		)
 
-		color.value = '#ff0000'
+		color.value = PICKED_COLOUR
 		color.dispatchEvent(new Event('change'))
-		assert.equal(layer.options.color, '#ff0000', 'expected the border painted live')
-		assert.equal(layer.options.fillColor, '#ff0000', 'expected the body painted live, with the same colour')
+		assert.equal(layer.options.color, PICKED_COLOUR, 'expected the border painted live')
+		assert.equal(layer.options.fillColor, PICKED_COLOUR, 'expected the body painted live, with the same colour')
 		assert.equal(
-			layer.feature.properties.uca_maps.style.fillColor, '#ff0000',
+			layer.feature.properties.uca_maps.style.fillColor, PICKED_COLOUR,
 			'expected the fill half stored in this tool\'s namespace, which is the only thing that restores it'
 		)
 		assert.isUndefined(
