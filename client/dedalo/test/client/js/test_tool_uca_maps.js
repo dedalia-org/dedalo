@@ -1402,7 +1402,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// audit row #10, H-04 (2026-09-22): v6's own name field, restored.
 		const name_input = tool.map_image_panel.querySelector('.uca-maps-map-image-name')
 		assert.isOk(name_input, 'expected the file-name field')
-		assert.equal(name_input.value, DEFAULT_MAP_IMAGE_NAME, 'expected it pre-filled with the base name the panel used before it had a field, so leaving it alone reproduces the old behaviour')
+		assert.equal(name_input.value, 'map', 'expected it pre-filled with "map", the initial value chosen for this field (v6 opens with "archivo")')
 		assert.isOk(tool.map_image_panel.querySelector('.uca-maps-map-image-name-label'), 'expected the field labelled')
 
 		control.click()

@@ -145,7 +145,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 		expect('result' in response).toBe(false); // forbidden PHP-era mirror key
 
 		const data = (response as { data: Record<string, unknown> }).data;
-		expect(data.filename).toBe('uca_maps_map.jpg');
+		expect(data.filename).toBe('map.jpg');
 		expect(data.mime).toBe('image/jpeg');
 		const bytes = Buffer.from(data.content_base64 as string, 'base64');
 		expect(bytes.length).toBeGreaterThan(0);
@@ -182,8 +182,8 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 	test('gif and webp: real, non-empty conversions', async () => {
 		const action = await loadAction();
 		for (const [format, filename, mime] of [
-			['gif', 'uca_maps_map.gif', 'image/gif'],
-			['webp', 'uca_maps_map.webp', 'image/webp'],
+			['gif', 'map.gif', 'image/gif'],
+			['webp', 'map.webp', 'image/webp'],
 		] as const) {
 			const response: ToolResponse = await action.handler(
 				contextOf({ format, image_base64: SAMPLE_PNG_BASE64 }),
@@ -206,7 +206,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps raster_download — real GeoTIFF georefere
 
 		expect(response.ok).toBe(true);
 		const data = (response as { data: Record<string, unknown> }).data;
-		expect(data.filename).toBe('uca_maps_map.tif');
+		expect(data.filename).toBe('map.tif');
 		expect(data.mime).toBe('image/tiff');
 		// The extension follows the FORMAT, not the format's menu name: a
 		// geotiff is '.tif', whatever the user called the file.

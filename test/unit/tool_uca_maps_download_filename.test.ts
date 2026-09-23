@@ -90,7 +90,10 @@ describe('tool_uca_maps download_filename — with_extension', () => {
 		expect(with_extension('mapa.v2', 'png')).toBe('mapa.v2.png');
 	});
 
-	test('the default base name is a usable one', () => {
+	test("the default base name is 'map', and a usable one", () => {
+		// Literal on purpose: the raster tests that also pin it skip without
+		// ImageMagick/GDAL, so this is the one pin that runs on every host.
+		expect(DEFAULT_MAP_IMAGE_NAME).toBe('map');
 		expect(sanitize_download_name(DEFAULT_MAP_IMAGE_NAME)).toBe(DEFAULT_MAP_IMAGE_NAME);
 	});
 });

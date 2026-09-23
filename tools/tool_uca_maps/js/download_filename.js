@@ -26,9 +26,10 @@
 
 
 
-/** Base name used when no name was supplied at all (NOT when an empty one
-* was: see `download_map_image`, which refuses that the way v6 does). */
-export const DEFAULT_MAP_IMAGE_NAME = 'uca_maps_map'
+/** Base name the name field opens with, and the one used when no name was
+* supplied at all (NOT when an empty one was: see `download_map_image`, which
+* refuses that the way v6 does). v6 opens with its translated `archivo`. */
+export const DEFAULT_MAP_IMAGE_NAME = 'map'
 
 /** Longest base name kept. Well under every filesystem's own limit, so the
 * extension a caller appends can never be what pushes it over. */
