@@ -31,6 +31,10 @@
 * refuses that the way v6 does). v6 opens with its translated `archivo`. */
 export const DEFAULT_MAP_IMAGE_NAME = 'map'
 
+/** The same, for "Download image" in an uploaded image's console. v6 opens
+* that field with its translated `imagen`; literal English, as `map` above. */
+export const DEFAULT_IMAGE_DOWNLOAD_NAME = 'image'
+
 /** Longest base name kept. Well under every filesystem's own limit, so the
 * extension a caller appends can never be what pushes it over. */
 const MAX_LENGTH = 100

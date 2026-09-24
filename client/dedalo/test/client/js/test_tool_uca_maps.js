@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, beforeEach, afterEach, assert, L, turf, HTMLAnchorElement */
+/*global it, describe, beforeEach, afterEach, assert, L, turf, HTMLAnchorElement, DEDALO_CORE_URL */
 /*eslint no-undef: "error"*/
 'use strict';
 
@@ -63,7 +63,7 @@ import {
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
-import { create_image_object, corners_from_viewport } from '../../../tools/tool_uca_maps/js/image_upload.js'
+import { create_image_object, corners_from_viewport, image_download_width } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
 	associate_image,
 	object_images,
@@ -75,6 +75,7 @@ import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/too
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
+import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
@@ -3579,13 +3580,203 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the image file input in the same panel'
 		)
 		assert.isOk(
-			tool.upload_panel.querySelector('.uca-maps-upload-image-submit'),
-			'expected the image submit button in the same panel'
-		)
-		assert.isOk(
 			tool.upload_panel.querySelector('.uca-maps-upload-file'),
 			'expected the vector file input still there — one row, one panel'
 		)
+		assert.equal(
+			tool.upload_panel.querySelectorAll('button').length, 0,
+			'expected NO upload button in either half: choosing the file uploads it (2026-09-24)'
+		)
+	})
+
+	// hand the picker a real FileList, then fire what the browser fires
+	function pick_file(input, file) {
+		const transfer = new DataTransfer()
+		transfer.items.add(file)
+		input.files = transfer.files
+		input.dispatchEvent(new Event('change'))
+	}
+
+	it('each half owns its status line, right under its own picker', function() {
+
+		tool.attach_file_upload()
+
+		const children	= Array.from(tool.upload_panel.children)
+		const index		= (selector) => children.indexOf(tool.upload_panel.querySelector(selector))
+		const messages	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')
+
+		assert.equal(messages.length, 2, 'expected one status line per sub-flow')
+		assert.equal(children.indexOf(messages[0]), index('.uca-maps-upload-file') + 1, 'expected the vector line under the vector picker')
+		assert.equal(children.indexOf(messages[1]), index('.uca-maps-upload-image-file') + 1, 'expected the image line under the image picker')
+		assert.isBelow(
+			index('.uca-maps-upload-epsg-row'), index('.uca-maps-upload-file'),
+			'expected the EPSG field ABOVE the picker: picking is what reads it now'
+		)
+	})
+
+	it('choosing an image uploads it, and its result lands in the image half only', async function() {
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-image-file')
+		const messages	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')
+		const file		= new File(['x'], 'plan.png', {type: 'image/png'})
+
+		let asked_for		= null
+		let disabled_during	= null
+		tool.upload_image_file = async function(given) {
+			asked_for		= given
+			disabled_during	= picker.disabled
+			return {ok: true, georeferenced: true}
+		}
+
+		try {
+			pick_file(picker, file)
+			await new Promise(resolve => setTimeout(resolve, 0))
+
+			assert.equal(asked_for, file, 'expected the upload fired by the pick, with no second click')
+			assert.equal(disabled_during, true, 'expected the picker disabled for the round trip')
+			assert.equal(picker.disabled, false, 'expected the picker enabled again afterwards')
+			assert.equal(picker.value, '', 'expected the picker emptied, so the same file can be picked again')
+			assert.equal(messages[0].hidden, true, 'expected the vector half\'s line untouched')
+			assert.equal(messages[1].hidden, false, 'expected the result in the image half')
+			assert.equal(messages[1].textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
+		} finally {
+			delete tool.upload_image_file
+		}
+	})
+
+	it('the vector half says how many objects a pick created, or that it read none', async function() {
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
+		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+
+		let answer = {ok: true, feature_count: 0}
+		tool.upload_vector_file = async function() { return answer }
+
+		try {
+			pick_file(picker, file)
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.textContent, tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.')
+
+			answer = {ok: true, feature_count: 3}
+			pick_file(picker, file)
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (3)')
+		} finally {
+			delete tool.upload_vector_file
+		}
+	})
+
+	it('a pick whose upload outlives the panel writes nothing to it', async function() {
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
+
+		let settle = null
+		tool.upload_vector_file = function() {
+			return new Promise((resolve) => { settle = resolve })
+		}
+
+		try {
+			pick_file(picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.isOk(settle, 'expected the upload in flight')
+
+			await tool.destroy(false, false, false)
+			assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
+			settle({ok: false, error: 'late answer'})
+			await new Promise(resolve => setTimeout(resolve, 0))
+
+			assert.equal(message.isConnected, false, 'expected the panel gone')
+			assert.equal(message.hidden, true, 'expected the late answer never written')
+			assert.equal(picker.disabled, true, 'expected the detached picker left as it was')
+		} finally {
+			delete tool.upload_vector_file
+		}
+	})
+
+	it('an image placement message goes away by itself; an upload error stays', async function() {
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-image-file')
+		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[1]
+		const file		= new File(['x'], 'plan.png', {type: 'image/png'})
+
+		let answer = {ok: true, georeferenced: false}
+		tool.upload_image_file = async function() { return answer }
+
+		try {
+			pick_file(picker, file)
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.hidden, false, 'expected the placement message shown first')
+			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
+			assert.equal(message.hidden, true, 'expected it gone after a couple of seconds')
+
+			answer = {ok: false, error: 'the ingest refused it'}
+			pick_file(picker, file)
+			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
+			assert.equal(message.hidden, false, 'expected an error to stay until the next attempt')
+			assert.equal(message.textContent, 'the ingest refused it')
+		} finally {
+			delete tool.upload_image_file
+		}
+	})
+
+	it('the teardown cancels a pending hide timer', async function() {
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-image-file')
+		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[1]
+		tool.upload_image_file = async function() { return {ok: true, georeferenced: true} }
+
+		try {
+			pick_file(picker, new File(['x'], 'plan.png', {type: 'image/png'}))
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.isOk(message._uca_maps_hide_timer, 'expected a hide timer armed')
+
+			await tool.destroy(false, false, false)
+			assert.equal(message._uca_maps_hide_timer, null, 'expected the timer cancelled with the panel')
+		} finally {
+			delete tool.upload_image_file
+		}
+	})
+
+	it('choosing a vector file uploads it with the EPSG typed above, and a failure empties the picker', async function() {
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const messages	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')
+		tool.upload_panel.querySelector('.uca-maps-upload-epsg').value = '25830'
+
+		let asked_for = null
+		tool.upload_vector_file = async function(file, epsg) {
+			asked_for = {file, epsg}
+			return {ok: false, error: 'no coordinate system'}
+		}
+
+		try {
+			const file = new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+			pick_file(picker, file)
+			await new Promise(resolve => setTimeout(resolve, 0))
+
+			assert.deepEqual(asked_for, {file, epsg: '25830'}, 'expected the pick to upload with the EPSG field\'s value')
+			// the failure that asks for an EPSG code is retried by picking the
+			// SAME file again, which only fires `change` on an emptied picker
+			assert.equal(picker.value, '', 'expected the picker emptied after a failure too')
+			assert.equal(messages[0].textContent, 'no coordinate system', 'expected the error in the vector half')
+			assert.equal(messages[1].hidden, true, 'expected the image half\'s line untouched')
+		} finally {
+			delete tool.upload_vector_file
+		}
 	})
 
 	it('upload_image_file refuses without a file, never touching the network', async function() {
@@ -3810,7 +4001,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notEqual(carrier._uca_maps_overlay._image.style.display, 'none', 'expected it shown again')
 	})
 
-	it('the console shows the image controls instead of the geometry ones for a carrier', async function() {
+	it('the console shows an image carrier v6\'s sections: image controls, downloads and the properties block, never the geometry ones', async function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_console()
@@ -3828,10 +4019,231 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(section.querySelector('.uca-maps-image-view'), 'expected the "View image" link')
 		assert.isOk(section.querySelector('.uca-maps-image-opacity'), 'expected the opacity control')
 		assert.isOk(section.querySelector('.uca-maps-image-z-index'), 'expected the z-index control')
-		assert.isNotOk(
-			section.querySelector('.uca-maps-download-button'),
-			'expected the geometry controls NOT rendered for an image carrier'
-		)
+
+		// what v6 adds after them (special_tools.js:6526-6568 + info_console_load_properties)
+		const order = ['.uca-maps-image-view', '.uca-maps-download-section', '.uca-maps-object-images', '.uca-maps-properties-editor']
+			.map((selector) => {
+				const node = section.querySelector(selector)
+				assert.isOk(node, 'expected ' + selector + ' for an image carrier')
+				return Array.from(section.children).indexOf(node)
+			})
+		assert.deepEqual(order, [...order].sort((a, b) => a - b), 'expected image controls, download, images, properties — in that order')
+		assert.isOk(section.querySelector('.uca-maps-property-pdf-button'), 'expected the PDF export, which rides in the properties block')
+
+		// and what v6 never shows for a picture
+		for (const selector of ['.uca-maps-object-type', '.uca-maps-object-info', '.uca-maps-elevation-section', '.uca-maps-geoman',
+			'.uca-maps-centroid', '.uca-maps-uncertainty', '.uca-maps-style-controls', '.uca-maps-hierarchy-controls']) {
+			assert.isNotOk(section.querySelector(selector), 'expected NO ' + selector + ' for an image carrier')
+		}
+	})
+
+	it('"Download image" is v6\'s form: GeoTIFF/png/jpg, seven qualities at 0.8, a name — right after the image controls', function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_console()
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const section	= tool.panel_node.querySelector('.uca-maps-object-section')
+		const download	= section.querySelector('.uca-maps-image-download-section')
+		assert.isOk(download, 'expected the image download section')
+
+		const format = download.querySelector('.uca-maps-image-download-format')
+		assert.deepEqual(Array.from(format.options).map(o => o.value), ['geotiff', 'png', 'jpg'])
+		assert.equal(format.value, 'geotiff', 'expected v6\'s first format selected')
+
+		const quality = download.querySelector('.uca-maps-image-download-quality')
+		assert.deepEqual(Array.from(quality.options).map(o => o.value), ['0.4', '0.6', '0.8', '0.9', '1', '1.5', '2'])
+		assert.equal(quality.value, '0.8', 'expected v6\'s "medium" selected')
+
+		assert.equal(download.querySelector('.uca-maps-image-download-name').value, 'image')
+
+		const children = Array.from(section.children)
+		assert.isBelow(children.indexOf(download), children.indexOf(section.querySelector('.uca-maps-download-section')),
+			'expected the image download before the vector one, as v6')
+	})
+
+	it('"Download image" sends the CURRENT corners and v6\'s quality as a width — never the opacity', async function() {
+
+		const carrier = add_image_carrier()
+		const image = carrier.feature.properties.uca_maps.image
+		image.opacity = 0.3
+		tool.attach_console()
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		// a handle drag that nobody saved yet: the download must follow it
+		image.corners.top_right = [40.47, -3.63]
+
+		let sent = null
+		const original = tool.tool_request
+		tool.tool_request = async function(request) {
+			sent = request
+			return {ok: false, error: {code: 'request.invalid_options'}}
+		}
+
+		try {
+			const download = tool.panel_node.querySelector('.uca-maps-image-download-section')
+			download.querySelector('.uca-maps-image-download-quality').value = '2'
+			download.querySelector('.uca-maps-image-download-format').value = 'jpg'
+			download.querySelector('.uca-maps-image-download-button').click()
+			for (let i=0; i<100 && !sent; i++) {
+				await new Promise(r => setTimeout(r, 10))
+			}
+
+			assert.equal(sent.action, 'image_download')
+			assert.equal(sent.options.section_tipo, IMAGE_DESCRIPTOR.section_tipo)
+			assert.equal(sent.options.section_id, IMAGE_DESCRIPTOR.section_id)
+			assert.equal(sent.options.tipo, IMAGE_DESCRIPTOR.tipo)
+			assert.equal(sent.options.file_path, IMAGE_DESCRIPTOR.file_path, 'expected the file the map shows named, for the server to match')
+			assert.deepEqual(sent.options.corners.top_right, [40.47, -3.63], 'expected the live corners, not the uploaded ones')
+			assert.equal(sent.options.format, 'jpg')
+			assert.equal(sent.options.width, image_download_width(geolocation.map, image.corners, 2))
+			assert.equal(sent.options.file_name, 'image')
+			assert.notProperty(sent.options, 'opacity', 'expected opacity left out: it is how the map shows the picture')
+		} finally {
+			tool.tool_request = original
+		}
+	})
+
+	it('"Download image" saves what the server sends, under its name and type', async function() {
+
+		const carrier = add_image_carrier()
+		const original = tool.tool_request
+		tool.tool_request = async function() {
+			return {ok: true, data: {content_base64: btoa('x'), mime: 'image/png', filename: 'plan.png'}}
+		}
+		try {
+			const captured = await capture_download(() => tool.download_image(carrier, 'png', 0.8, 'plan'))
+			assert.equal(captured.name, 'plan.png', 'expected the server\'s file name on the anchor')
+			assert.equal(captured.blob && captured.blob.type, 'image/png', 'expected the server\'s mime on the blob')
+		} finally {
+			tool.tool_request = original
+		}
+	})
+
+	it('image_download_width is v6\'s quality over the fitted on-screen size, and never moves the map', function() {
+
+		const map		= geolocation.map
+		const corners	= JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR.corners))
+		const center	= map.getCenter()
+		const zoom		= map.getZoom()
+
+		const one = image_download_width(map, corners, 1)
+		assert.isAbove(one, 1)
+		assert.closeTo(image_download_width(map, corners, 2), one * 2, 1, 'expected twice the pixels at "Excelente"')
+		assert.closeTo(image_download_width(map, corners, 0.4), one * 0.4, 1)
+
+		// fitted, not "as seen now": zooming the map changes nothing
+		map.setZoom(zoom - 2, {animate: false})
+		assert.equal(image_download_width(map, corners, 1), one, 'expected the same width at any current zoom')
+		map.setView(center, zoom, {animate: false})
+		assert.equal(map.getCenter().lat, center.lat, 'expected the map left where it was')
+	})
+
+	it('"Download image" with an empty name is refused without asking the server', async function() {
+
+		const carrier = add_image_carrier()
+		let asked = false
+		const original = tool.tool_request
+		tool.tool_request = async function() { asked = true; return {ok: false} }
+		try {
+			await tool.download_image(carrier, 'png', 0.8, '   ')
+			assert.equal(asked, false, 'expected no request for an empty name')
+		} finally {
+			tool.tool_request = original
+		}
+	})
+
+	it('"View image" is left out, not pointed at the bare file, when the descriptor names no record', function() {
+
+		tool.attach_console()
+
+		for (const missing of ['section_id', 'section_tipo']) {
+			const carrier = add_image_carrier()
+			delete carrier.feature.properties.uca_maps.image[missing]
+			geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+			assert.equal(tool.get_image_href(carrier), null, 'expected no target without ' + missing)
+			assert.isNotOk(tool.panel_node.querySelector('.uca-maps-image-view'), 'expected no link without ' + missing)
+			assert.isOk(tool.panel_node.querySelector('.uca-maps-image-z-index'), 'expected the rest of the image controls still there')
+		}
+
+		const zero = add_image_carrier()
+		zero.feature.properties.uca_maps.image.section_id = 0
+		assert.equal(tool.get_image_href(zero), null, 'expected no target for section_id 0')
+	})
+
+	it('"View image" opens the Images record the upload created, as v6, not the bare file', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_console()
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const link = tool.panel_node.querySelector('.uca-maps-image-view')
+		const url = new URL(link.href, window.location.href)
+		assert.equal(url.pathname, new URL(DEDALO_CORE_URL + '/page/', window.location.href).pathname, 'expected the core page, not the media tree')
+		assert.equal(url.searchParams.get('tipo'), IMAGE_DESCRIPTOR.section_tipo)
+		assert.equal(url.searchParams.get('id'), String(IMAGE_DESCRIPTOR.section_id))
+		assert.equal(url.searchParams.get('mode'), 'edit')
+		assert.equal(url.searchParams.get('menu'), 'true', 'expected v6\'s menu=true')
+		assert.equal(url.searchParams.get('session_save'), 'false', 'expected this window\'s navigation left alone')
+		assert.equal(link.target, '_blank')
+	})
+
+	it('the z-index is v6\'s 0..1000 slider: showing the stored value, previewing on input, committing on release', async function() {
+
+		const carrier = add_image_carrier()
+		carrier.feature.properties.uca_maps.image.z_index = 640
+		tool.attach_console()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const slider = tool.panel_node.querySelector('.uca-maps-image-z-index')
+		assert.equal(slider.type, 'range', 'expected a slider, as v6, not a number box')
+		assert.equal(slider.min, '0')
+		assert.equal(slider.max, '1000')
+		// above 100 on purpose: with `value` set before `max` it would read 100
+		assert.equal(slider.value, '640', 'expected the stored z-index, not a clamped one')
+
+		let commits = 0
+		const original = geolocation.update_draw_data
+		geolocation.update_draw_data = function() { commits++; return original.apply(this, arguments) }
+
+		try {
+			slider.value = '850'
+			slider.dispatchEvent(new Event('input'))
+			assert.equal(carrier.feature.properties.uca_maps.image.z_index, 850, 'expected the preview written while dragging')
+			assert.equal(carrier._uca_maps_overlay.options.zIndex, 850, 'expected the live overlay restacked while dragging')
+			assert.equal(commits, 0, 'expected NO commit mid-drag')
+
+			slider.dispatchEvent(new Event('change'))
+			assert.equal(commits, 1, 'expected exactly one commit on release')
+		} finally {
+			geolocation.update_draw_data = original
+		}
+	})
+
+	it('a z-index outside 0..1000 is bounded where it is used, so the slider and the overlay agree', async function() {
+
+		// the old number box could store anything; nothing validated it
+		const carrier = add_image_carrier()
+		carrier.feature.properties.uca_maps.image.z_index = 1500
+		tool.attach_console()
+		tool.attach_image_overlays()
+		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const slider = tool.panel_node.querySelector('.uca-maps-image-z-index')
+		assert.equal(slider.value, '1000', 'expected the slider at its top')
+		assert.equal(carrier._uca_maps_overlay.options.zIndex, 1000, 'expected the overlay stacked where the slider says')
+		assert.equal(carrier.feature.properties.uca_maps.image.z_index, 1500, 'expected NO silent rewrite just for showing it')
+
+		tool.set_image_display(carrier, {z_index: -5}, false)
+		assert.equal(carrier.feature.properties.uca_maps.image.z_index, 0, 'expected a write bounded too')
 	})
 
 	it('set_image_display writes the live overlay AND the descriptor that gets saved', async function() {

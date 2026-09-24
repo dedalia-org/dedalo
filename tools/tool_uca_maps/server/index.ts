@@ -75,6 +75,7 @@ import { getAdministrativeUnit } from './administrative_units.ts';
 import { probeCapabilities } from './capabilities.ts';
 import { getCatastroParcel } from './catastro.ts';
 import { getElevation } from './elevation.ts';
+import { imageDownload } from './image_download.ts';
 import { getImageFile } from './image_media.ts';
 import { getImageOverlay } from './image_overlay.ts';
 import { objectPdfReport } from './pdf_report.ts';
@@ -105,6 +106,8 @@ export const tool: ToolServerModule = {
 		},
 		upload_vector_layer: { permission: 'record_tipo', minLevel: 1, handler: uploadVectorLayer },
 		get_image_overlay: { permission: 'record_tipo', minLevel: 1, handler: getImageOverlay },
+		// options name the IMAGE record, as get_image_overlay's do
+		image_download: { permission: 'record_tipo', minLevel: 1, handler: imageDownload },
 		search_places: { permission: 'record_tipo', minLevel: 1, handler: searchPlaces },
 		get_elevation: { permission: 'record_tipo', minLevel: 1, handler: getElevation },
 		get_image_file: { permission: 'record_tipo', minLevel: 1, handler: getImageFile },

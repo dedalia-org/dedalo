@@ -25,6 +25,7 @@
 import {ui} from '../../../core/common/js/ui.js'
 import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
 import {svg_node} from './svg.js'
+import {DEFAULT_IMAGE_DOWNLOAD_NAME} from './download_filename.js'
 
 // Deliberately NO import from './object_console.js' — object_console.js
 // already imports {render_console_panel, render_selected_object,
@@ -272,12 +273,17 @@ export const render_selected_object = function(self, layer) {
 
 	const kind = get_geometry_kind(layer)
 
-	// An image overlay's carrier rectangle is NOT a drawn geometry the user
-	// styles or measures — it is a handle on a picture. v6 swaps the whole
-	// panel body for the image controls too (`special_tools.js:6230`,
-	// `load_overlay`), rather than showing "Area: 0.4 km²" for a photograph.
+	// An image's carrier is not measured or styled — v6 shows no area,
+	// elevation, centroid or style for it — but it IS an object of the
+	// record: v6 follows its image controls with the downloads and the whole
+	// properties block (`special_tools.js:6526-6568`, then
+	// `info_console_load_properties`). Same sections here, polygon order.
 	if (is_image_carrier(layer)) {
 		render_image_controls(self, layer, object_section)
+		render_image_download(self, layer, object_section)
+		render_download_button(self, layer, object_section)
+		render_object_images(self, layer, object_section)
+		render_properties_editor(self, layer, object_section)
 		return
 	}
 	ui.create_dom_element({
@@ -472,14 +478,131 @@ const render_image_controls = function(self, layer, container) {
 		class_name		: 'uca-maps-image-z-index',
 		parent			: z_row
 	})
-	z_input.type	= 'number'
+	// v6's own slider, 0..1000 (`special_tools.js:6517`). `value` goes LAST:
+	// set before `max`, the browser clamps it to the default 0..100
+	z_input.type	= 'range'
+	z_input.min		= '0'
+	z_input.max		= '1000'
 	z_input.step	= '1'
 	z_input.value	= String(typeof image.z_index==='number' ? image.z_index : 200)
+	// same preview/commit split as the opacity slider above
+	z_input.addEventListener('input', () => {
+		self.set_image_display(layer, {z_index: parseInt(z_input.value, 10)}, false)
+	})
 	z_input.addEventListener('change', () => {
 		self.set_image_display(layer, {z_index: parseInt(z_input.value, 10)}, true)
 	})
 
 }//end render_image_controls
+
+
+
+/** v6's formats, in its order, the first one selected (`special_tools.js`
+* `show_modal_raster_download`). */
+const IMAGE_DOWNLOAD_FORMATS = ['geotiff', 'png', 'jpg']
+
+/** v6's seven quality steps and their names; 0.8 ("media") is its default.
+* A factor over the on-screen size — see `image_upload.js` image_download_width. */
+const IMAGE_DOWNLOAD_QUALITIES = [
+	{value: 0.4, key: 'very_low'},
+	{value: 0.6, key: 'low'},
+	{value: 0.8, key: 'medium', selected: true},
+	{value: 0.9, key: 'medium_high'},
+	{value: 1, key: 'high'},
+	{value: 1.5, key: 'very_high'},
+	{value: 2, key: 'excellent'}
+]
+
+/**
+* RENDER_IMAGE_DOWNLOAD
+* v6's "Descargar Imagen" (`special_tools.js:1217`), inline like the vector
+* download beside it instead of v6's modal: format, quality, name, button.
+*
+* @param {Object} self
+* @param {Object} layer - the image carrier
+* @param {HTMLElement} container
+* @returns {void}
+*/
+const render_image_download = function(self, layer, container) {
+
+	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-image-download-section', parent: container})
+	ui.create_dom_element({
+		element_type	: 'h6',
+		text_content	: self.get_tool_label('image_download_title') || 'Image download',
+		parent			: fieldset
+	})
+
+	const options_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-download', parent: fieldset})
+
+	const format_select = ui.create_dom_element({
+		element_type	: 'select',
+		class_name		: 'uca-maps-download-format uca-maps-image-download-format',
+		parent			: options_row
+	})
+	format_select.title = self.get_tool_label('image_download_format_label') || 'Export as'
+	format_select.setAttribute('aria-label', format_select.title)
+	for (const format of IMAGE_DOWNLOAD_FORMATS) {
+		ui.create_dom_element({
+			element_type	: 'option',
+			value			: format,
+			text_content	: self.get_tool_label('raster_format_' + format) || format,
+			parent			: format_select
+		})
+	}
+
+	const quality_select = ui.create_dom_element({
+		element_type	: 'select',
+		class_name		: 'uca-maps-download-format uca-maps-image-download-quality',
+		parent			: options_row
+	})
+	quality_select.title = self.get_tool_label('image_download_quality_label') || 'Quality'
+	quality_select.setAttribute('aria-label', quality_select.title)
+	for (const quality of IMAGE_DOWNLOAD_QUALITIES) {
+		const option = ui.create_dom_element({
+			element_type	: 'option',
+			value			: String(quality.value),
+			text_content	: self.get_tool_label('image_quality_' + quality.key) || quality.key,
+			parent			: quality_select
+		})
+		option.selected = quality.selected===true
+	}
+
+	const name_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-download', parent: fieldset})
+
+	const name_input = ui.create_dom_element({
+		element_type	: 'input',
+		class_name		: 'uca-maps-image-download-name',
+		parent			: name_row
+	})
+	name_input.type			= 'text'
+	name_input.value		= DEFAULT_IMAGE_DOWNLOAD_NAME
+	name_input.placeholder	= DEFAULT_IMAGE_DOWNLOAD_NAME
+	name_input.title		= self.get_tool_label('map_image_name_label') || 'Name'
+	name_input.setAttribute('aria-label', name_input.title)
+
+	const button = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-image-download-button',
+		text_content	: self.get_tool_label('download_button') || 'Download',
+		parent			: name_row
+	})
+	button.type = 'button'
+	button.addEventListener('click', async () => {
+		// direction read off the DOM, never a cached flag (hito 3c corollary)
+		if (button.disabled) {
+			return
+		}
+		button.disabled = true
+		try {
+			await self.download_image(layer, format_select.value, parseFloat(quality_select.value), name_input.value)
+		} finally {
+			if (button.isConnected) {
+				button.disabled = false
+			}
+		}
+	})
+
+}//end render_image_download
 
 
 

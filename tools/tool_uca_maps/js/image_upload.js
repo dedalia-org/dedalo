@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global L, DEDALO_MEDIA_URL, SHOW_DEVELOPER */
+/*global L, DEDALO_MEDIA_URL, DEDALO_CORE_URL, SHOW_DEVELOPER */
 /*eslint no-undef: "error"*/
 
 
@@ -40,9 +40,12 @@
 import {upload} from '../../../core/services/service_upload/js/service_upload.js'
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
 import {error_text} from '../../../core/common/js/render_api_error.js'
+import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
-import {commit, ensure_properties, report_client_error} from './object_console.js'
+import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
+import {commit, ensure_properties, report_client_error, trigger_blob_download, base64_to_blob} from './object_console.js'
+import {DEFAULT_IMAGE_DOWNLOAD_NAME, sanitize_download_name} from './download_filename.js'
 import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
 
 
@@ -66,6 +69,26 @@ const IMAGE_UPLOAD_KEY_DIR		= 'image'
  * 200) — kept so a map built in v6 and one built here stack the same way. */
 const DEFAULT_IMAGE_OPACITY	= 1
 const DEFAULT_IMAGE_Z_INDEX	= 200
+/** v6's slider range (`special_tools.js:6517`), and the console's. */
+const MAX_IMAGE_Z_INDEX		= 1000
+
+
+
+/**
+* IMAGE_Z_INDEX
+* The stacking value actually used, bounded to the slider's 0..1000 on read
+* AND on write: a value saved by the old number box (1500, -5) would
+* otherwise sit where the slider cannot show it, and the first nudge would
+* silently rewrite it.
+*
+* @param {*} value
+* @returns {number}
+*/
+const image_z_index = function(value) {
+	return (typeof value==='number' && Number.isFinite(value))
+		? Math.min(MAX_IMAGE_Z_INDEX, Math.max(0, Math.trunc(value)))
+		: DEFAULT_IMAGE_Z_INDEX
+}//end image_z_index
 
 
 
@@ -578,7 +601,7 @@ export const attach_overlay = async function(self, carrier) {
 		image.corners.bottom_left,
 		{
 			opacity		: typeof image.opacity==='number' ? image.opacity : DEFAULT_IMAGE_OPACITY,
-			zIndex		: typeof image.z_index==='number' ? image.z_index : DEFAULT_IMAGE_Z_INDEX,
+			zIndex		: image_z_index(image.z_index),
 			// the CARRIER takes the clicks; two interactive stacked targets
 			// would fight over them. `interactive:false` stops Leaflet firing
 			// LAYER events but does not stop the div receiving the pointer at
@@ -679,7 +702,7 @@ export const set_image_display = function(self, carrier, values, do_commit) {
 	}
 
 	if (typeof values.z_index==='number' && Number.isFinite(values.z_index)) {
-		image.z_index = Math.trunc(values.z_index)
+		image.z_index = image_z_index(values.z_index)
 		if (overlay) {
 			overlay.setZIndex(image.z_index)
 		}
@@ -695,8 +718,10 @@ export const set_image_display = function(self, carrier, values, do_commit) {
 
 /**
 * GET_IMAGE_HREF
-* The "Ver imagen" target (v6 `special_tools.js:6453`). Exported rather than
-* inlined in the renderer so the URL is built in exactly one place.
+* The "Ver imagen" target: the Images RECORD the upload created, in edit mode,
+* as v6 does (`special_tools.js:6446`) — not the bare derivative, which skips
+* the record where the picture is catalogued. Same URL shape as the core's
+* `edit_relation` (render_relation_list.js), but `menu=true`, v6's choice.
 *
 * @param {Object} carrier
 * @returns {string|null}
@@ -709,8 +734,106 @@ export const get_image_href = function(carrier) {
 		&& carrier.feature.properties.uca_maps
 		&& carrier.feature.properties.uca_maps.image
 
-	return image ? image_url(image) : null
+	if (!image || !image.section_tipo || !(image.section_id > 0)) {
+		return null
+	}
+
+	return DEDALO_CORE_URL + '/page/?' + object_to_url_vars({
+		tipo			: image.section_tipo,
+		id				: image.section_id,
+		mode			: 'edit',
+		menu			: true,
+		// the new tab must not overwrite this window's section navigation
+		session_save	: false
+	})
 }//end get_image_href
+
+
+
+/**
+* IMAGE_DOWNLOAD_WIDTH
+* v6's "quality", kept: a factor over the width the image takes on screen with
+* the map fitted to it (v6 `fitBounds`, then `getBoundingClientRect()` x
+* scale). Computed at the zoom a fit WOULD pick, so the user's map never moves.
+*
+* @param {Object} map - the Leaflet map
+* @param {Object} corners - {top_left, top_right, bottom_left}
+* @param {number} quality - v6's factor, 0.4 … 2
+* @returns {number} output width in pixels, at least 1
+*/
+export const image_download_width = function(map, corners, quality) {
+
+	const zoom	= map.getBoundsZoom(hull_bounds(corners))
+	const top_left		= map.project(L.latLng(corners.top_left), zoom)
+	const top_right		= map.project(L.latLng(corners.top_right), zoom)
+	const bottom_left	= map.project(L.latLng(corners.bottom_left), zoom)
+	const bottom_right	= top_right.add(bottom_left).subtract(top_left)
+
+	const xs = [top_left.x, top_right.x, bottom_left.x, bottom_right.x]
+
+	return Math.max(1, Math.round((Math.max(...xs) - Math.min(...xs)) * quality))
+}//end image_download_width
+
+
+
+/**
+* DOWNLOAD_IMAGE
+* "Descargar Imagen": the picture in its CURRENT shape — the live corners,
+* saved or not — rendered by the server from the file the map shows
+* (`image_download.ts`).
+* Opacity is not sent: it is how the image is seen on the map, not the image.
+* An empty name is refused the way v6 refuses it.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} carrier
+* @param {string} format - 'geotiff' | 'png' | 'jpg'
+* @param {number} quality - v6's factor
+* @param {string} [file_name]
+* @returns {Promise<void>}
+*/
+export const download_image = async function(self, carrier, format, quality, file_name=DEFAULT_IMAGE_DOWNLOAD_NAME) {
+
+	const image = carrier && carrier.feature && carrier.feature.properties
+		&& carrier.feature.properties.uca_maps && carrier.feature.properties.uca_maps.image
+	if (!image || !self.geolocation || !self.geolocation.map) {
+		return
+	}
+
+	const base_name = sanitize_download_name(file_name)
+	if (base_name==='') {
+		report_client_error(self.get_tool_label('map_image_name_required') || 'Please enter a name for the file')
+		return
+	}
+
+	try {
+
+		const response = await self.tool_request({
+			action	: 'image_download',
+			options	: {
+				tipo			: image.tipo,
+				section_tipo	: image.section_tipo,
+				section_id		: image.section_id,
+				file_path		: image.file_path,
+				corners			: image.corners,
+				format			: format,
+				width			: image_download_width(self.geolocation.map, image.corners, quality),
+				file_name		: base_name
+			}
+		})
+
+		const data = response_data(response)
+		if (!data) {
+			await handle_api_error(response.error, {})
+			return
+		}
+
+		trigger_blob_download(await base64_to_blob(data.content_base64, data.mime), data.filename)
+
+	} catch (error) {
+		console.error('tool_uca_maps: download_image failed unexpectedly', error)
+		report_client_error((error && error.message) || 'Image download failed')
+	}
+}//end download_image
 
 
 

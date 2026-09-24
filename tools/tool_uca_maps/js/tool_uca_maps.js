@@ -156,7 +156,8 @@
 		detach_image_overlays,
 		upload_image_file,
 		set_image_display,
-		get_image_href
+		get_image_href,
+		download_image
 	} from './image_upload.js'
 	import {is_image_editing, set_image_interactive} from './image_edit.js'
 	import {
@@ -716,6 +717,10 @@ tool_uca_maps.prototype.set_image_display = function(layer, values, do_commit) {
 tool_uca_maps.prototype.get_image_href = function(layer) {
 	return get_image_href(layer)
 }//end get_image_href
+
+tool_uca_maps.prototype.download_image = function(layer, format, quality, file_name) {
+	return download_image(this, layer, format, quality, file_name)
+}//end download_image
 
 tool_uca_maps.prototype.is_image_editing = function(layer) {
 	return is_image_editing(layer)

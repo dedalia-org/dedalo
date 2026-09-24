@@ -157,6 +157,36 @@
 		{ "lang": "lg-eng", "name": "properties_add_button", "value": "Add" },
 		{ "lang": "lg-spa", "name": "properties_add_button", "value": "Añadir" },
 
+		{ "lang": "lg-eng", "name": "image_download_title", "value": "Image download" },
+		{ "lang": "lg-spa", "name": "image_download_title", "value": "Descarga de imagen" },
+
+		{ "lang": "lg-eng", "name": "image_download_format_label", "value": "Export as" },
+		{ "lang": "lg-spa", "name": "image_download_format_label", "value": "Exportar como" },
+
+		{ "lang": "lg-eng", "name": "image_download_quality_label", "value": "Quality" },
+		{ "lang": "lg-spa", "name": "image_download_quality_label", "value": "Calidad" },
+
+		{ "lang": "lg-eng", "name": "image_quality_very_low", "value": "Very low quality" },
+		{ "lang": "lg-spa", "name": "image_quality_very_low", "value": "Calidad muy baja" },
+
+		{ "lang": "lg-eng", "name": "image_quality_low", "value": "Low quality" },
+		{ "lang": "lg-spa", "name": "image_quality_low", "value": "Calidad baja" },
+
+		{ "lang": "lg-eng", "name": "image_quality_medium", "value": "Medium quality" },
+		{ "lang": "lg-spa", "name": "image_quality_medium", "value": "Calidad media" },
+
+		{ "lang": "lg-eng", "name": "image_quality_medium_high", "value": "Medium-high quality" },
+		{ "lang": "lg-spa", "name": "image_quality_medium_high", "value": "Calidad media-alta" },
+
+		{ "lang": "lg-eng", "name": "image_quality_high", "value": "High quality" },
+		{ "lang": "lg-spa", "name": "image_quality_high", "value": "Calidad alta" },
+
+		{ "lang": "lg-eng", "name": "image_quality_very_high", "value": "Very high quality" },
+		{ "lang": "lg-spa", "name": "image_quality_very_high", "value": "Calidad muy alta" },
+
+		{ "lang": "lg-eng", "name": "image_quality_excellent", "value": "Excellent" },
+		{ "lang": "lg-spa", "name": "image_quality_excellent", "value": "Excelente" },
+
 		{ "lang": "lg-eng", "name": "download_title", "value": "Vector download" },
 		{ "lang": "lg-spa", "name": "download_title", "value": "Descarga vectorial" },
 		{ "lang": "lg-eng", "name": "download_button", "value": "Download" },
@@ -356,9 +386,6 @@
 		{ "lang": "lg-eng", "name": "upload_epsg_placeholder", "value": "EPSG code (only for a file with no embedded projection)" },
 		{ "lang": "lg-spa", "name": "upload_epsg_placeholder", "value": "Código EPSG (solo si el archivo no lleva proyección)" },
 
-		{ "lang": "lg-eng", "name": "upload_submit_button", "value": "Upload vector file" },
-		{ "lang": "lg-spa", "name": "upload_submit_button", "value": "Subir archivo vectorial" },
-
 		{ "lang": "lg-eng", "name": "upload_success_message", "value": "File uploaded successfully." },
 		{ "lang": "lg-spa", "name": "upload_success_message", "value": "Archivo subido correctamente." },
 
@@ -376,9 +403,6 @@
 
 		{ "lang": "lg-eng", "name": "upload_image_extensions_hint", "value": "Allowed extensions: .tif (georeferenced), .jpg, .jpeg and .png" },
 		{ "lang": "lg-spa", "name": "upload_image_extensions_hint", "value": "Extensiones permitidas: .tif (georreferenciada), .jpg, .jpeg y .png" },
-
-		{ "lang": "lg-eng", "name": "upload_image_submit_button", "value": "Upload image" },
-		{ "lang": "lg-spa", "name": "upload_image_submit_button", "value": "Subir imagen" },
 
 		{ "lang": "lg-eng", "name": "upload_image_working", "value": "Uploading the image…" },
 		{ "lang": "lg-spa", "name": "upload_image_working", "value": "Subiendo la imagen…" },

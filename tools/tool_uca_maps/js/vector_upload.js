@@ -37,7 +37,7 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
-import {render_file_upload_panel} from './render_file_upload.js'
+import {render_file_upload_panel, clear_upload_messages} from './render_file_upload.js'
 import {report_client_error} from './object_console.js'
 
 
@@ -222,13 +222,14 @@ const create_features_from_geojson = function(self, geojson) {
 /**
 * DETACH_FILE_UPLOAD
 * Real teardown (CLAUDE.local.md) — no map listener/overlay to reverse
-* (unlike Catastro/UA), just the button+panel themselves.
+* (unlike Catastro/UA): the button+panel, and any pending hide timer.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 export const detach_file_upload = function(self) {
 
+	clear_upload_messages(self.upload_panel)
 	remove_toolbar_button(self, self.upload_control)
 	remove_toolbar_panel(self, self.upload_panel)
 

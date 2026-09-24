@@ -677,9 +677,10 @@
 // form shape as .uca-maps-wms-search-form.
 .uca-maps-upload-panel {
 
+	// one per sub-flow, right under its own picker (render_file_upload.js)
 	.uca-maps-upload-message {
 		.uca-maps-panel-inline-message();
-		margin: 0.5rem 0.75rem 0;
+		margin: 0 0.75rem 0.75rem;
 	}
 
 	.uca-maps-upload-hint {
@@ -688,10 +689,13 @@
 		color: var(--fg_muted);
 	}
 
-	.uca-maps-upload-file {
+	// no submit button any more: choosing the file uploads it, so the
+	// picker closes its sub-flow and takes the button's bottom margin
+	.uca-maps-upload-file,
+	.uca-maps-upload-image-file {
 		display: block;
 		width: calc(100% - 1.5rem);
-		margin: 0 0.75rem 0.5rem;
+		margin: 0 0.75rem 0.75rem;
 	}
 
 	.uca-maps-upload-epsg-row {
@@ -711,13 +715,6 @@
 		}
 	}
 
-	.uca-maps-upload-submit,
-	.uca-maps-upload-image-submit {
-		.uca-maps-panel-action-button();
-		display: block;
-		margin: 0 0.75rem 0.75rem;
-	}
-
 	// the image sub-flow (hito 13) reuses the vector one's spacing verbatim —
 	// same panel, same rhythm; only the separator is new
 	.uca-maps-panel-subtitle {
@@ -729,12 +726,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
 		color: var(--fg_muted);
-	}
-
-	.uca-maps-upload-image-file {
-		display: block;
-		width: calc(100% - 1.5rem);
-		margin: 0 0.75rem 0.5rem;
 	}
 
 }//end uca-maps-upload-panel
@@ -994,7 +985,8 @@
 			margin-top: 0.6rem;
 		}
 
-		.uca-maps-download-format {
+		.uca-maps-download-format,
+		.uca-maps-image-download-name {
 			flex: 1 1 4rem;
 			min-width: 0;
 		}
