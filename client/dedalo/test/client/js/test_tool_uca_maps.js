@@ -3082,6 +3082,61 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(created.feature.properties.uca_maps.catastro, true)
 	})
 
+	// v6 prints any URL-valued property as a "Más información" link; here only
+	// the parcel's own url, titled "Catastro" (Sergio, 2026-09-24).
+	it('the console shows a parcel\'s url as a read-only "Catastro" link; the same key typed by hand stays editable text', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		tool.attach_console()
+		tool.catastro_control.getContainer().click() // arm
+		tool.tool_request = async function() {
+			return {ok: true, data: {found: true, refcat: '1234567AB1234C', url: 'https://example.com/parcel?rc1=1&rc2=2', points: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6], [40.1, -3.6]]}}
+		}
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+
+		const layers	= geolocation.FeatureGroup[geolocation.active_layer_id].getLayers()
+		const parcel	= layers[layers.length - 1]
+		parcel.openPopup()
+
+		const find_url_row = () => Array.from(tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'))
+			.find(item => item.querySelector('.uca-maps-property-link') || (item.querySelector('.uca-maps-property-key') || {}).textContent==='url:')
+
+		const row	= find_url_row()
+		const link	= row && row.querySelector('a.uca-maps-property-link')
+		assert.isOk(link, 'expected the parcel url rendered as a link')
+		assert.equal(link.textContent, 'Catastro', 'expected the link titled "Catastro", not v6\'s "Más información"')
+		assert.equal(link.getAttribute('href'), 'https://example.com/parcel?rc1=1&rc2=2')
+		assert.equal(link.target, '_blank')
+		assert.include(link.rel, 'noopener', 'expected no window.opener handed to the third-party page')
+		assert.isNotOk(row.querySelector('input'), 'expected no editable input for the parcel url')
+		assert.isOk(row.querySelector('.uca-maps-property-delete'), 'expected it still deletable, like every property')
+
+		// a non-http(s) value never becomes an href, parcel or not
+		parcel.feature.properties.url = 'javascript:alert(1)'
+		parcel.closePopup() // a popup already open fires no second popupopen
+		parcel.openPopup()
+		assert.isNotOk(tool.panel_node.querySelector('.uca-maps-property-link'), 'expected a javascript: url kept out of any href')
+		const fallback = find_url_row() && find_url_row().querySelector('input.uca-maps-property-value')
+		assert.isOk(fallback, 'expected the row still there, falling back to editable text')
+		assert.equal(fallback.value, 'javascript:alert(1)')
+
+		// the same key on an ordinary polygon is plain editable text
+		parcel.feature.properties.url = 'https://example.com/parcel'
+		delete parcel.feature.properties.uca_maps.catastro
+		parcel.closePopup()
+		parcel.openPopup()
+		assert.isNotOk(tool.panel_node.querySelector('.uca-maps-property-link'), 'expected no link without the catastro mark')
+		assert.isOk(find_url_row().querySelector('input.uca-maps-property-value'), 'expected the url editable text on a non-parcel')
+
+		// the link row's ✕ really deletes the property
+		parcel.feature.properties.uca_maps.catastro = true
+		parcel.closePopup()
+		parcel.openPopup()
+		find_url_row().querySelector('.uca-maps-property-delete').click()
+		assert.notProperty(parcel.feature.properties, 'url', 'expected the ✕ on the link row to delete the url')
+	})
+
 	it('check_catastro_at_point (not found) shows a message, creates nothing', async function() {
 
 		geolocation.section_lang = 'lg-spa'

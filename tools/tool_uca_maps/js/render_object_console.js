@@ -792,6 +792,12 @@ const render_properties_editor = function(self, layer, container) {
 
 		const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-property-item', parent: list})
 
+		const href = catastro_link_href(properties, key, value)
+		if (href) {
+			render_property_link(self, layer, key, href, item)
+			continue
+		}
+
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'uca-maps-property-key',
@@ -835,6 +841,65 @@ const render_properties_editor = function(self, layer, container) {
 	render_pdf_export(self, layer, fieldset)
 
 }//end render_properties_editor
+
+
+
+/**
+* CATASTRO_LINK_HREF
+* The parcel's record URL (`catastro.js` create_catastro_parcel) reads as a
+* link, like v6's `is_url` branch in `special_tools.js`, but only on a parcel
+* this tool drew: a free-typed property stays text. Only http(s) — the value
+* is stored data, and an `href` must never carry a `javascript:` URL.
+*
+* @param {Object} properties
+* @param {string} key
+* @param {*} value
+* @returns {string|null} the href, or null to render the plain editor
+*/
+const catastro_link_href = function(properties, key, value) {
+	if (key!=='url' || !(properties.uca_maps && properties.uca_maps.catastro===true)) {
+		return null
+	}
+	try {
+		const url = new URL(String(value))
+		return (url.protocol==='https:' || url.protocol==='http:') ? url.href : null
+	} catch {
+		return null
+	}
+}//end catastro_link_href
+
+
+
+/**
+* RENDER_PROPERTY_LINK
+* Read-only row: the link, titled "Catastro" instead of v6's "Más
+* información", plus the same delete button every property has.
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {string} key
+* @param {string} href
+* @param {HTMLElement} item - the list row
+* @returns {void}
+*/
+const render_property_link = function(self, layer, key, href, item) {
+
+	const link = ui.create_dom_element({
+		element_type	: 'a',
+		class_name		: 'uca-maps-property-link',
+		text_content	: self.get_tool_label('catastro_control_title') || 'Catastro',
+		parent			: item
+	})
+	link.href	= href
+	link.target	= '_blank'
+	link.rel	= 'noopener noreferrer'
+
+	const delete_btn = ui.create_dom_element({element_type: 'button', class_name: 'uca-maps-property-delete', text_content: '✕', parent: item})
+	delete_btn.type	= 'button'
+	delete_btn.title	= self.get_tool_label('properties_delete_button') || 'Delete'
+	delete_btn.addEventListener('click', () => self.delete_property(layer, key))
+
+}//end render_property_link
 
 
 
