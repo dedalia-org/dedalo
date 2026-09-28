@@ -4898,6 +4898,85 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(focus_place_result(tool, 99), false, 'expected an out-of-range index to move nothing')
 	})
 
+	it('Search reopens from zero: field, hits and message, also when a SIBLING closed it', async function() {
+
+		tool.attach_place_search()
+		tool.attach_map_image_download_control()
+
+		const panel		= tool.place_search_panel
+		const toggle	= () => tool.place_search_control.getContainer().click()
+		const input		= panel.querySelector('.uca-maps-place-search-input')
+		const message	= panel.querySelector('.uca-maps-place-search-message')
+		const rows		= () => panel.querySelectorAll('.uca-maps-place-search-result-button').length
+
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() {
+			return { ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } }
+		}
+
+		try {
+			const search = async (text) => {
+				input.value = text
+				panel.querySelector('.uca-maps-place-search-button').click()
+				await new Promise(resolve => setTimeout(resolve, 0))
+			}
+
+			toggle()
+			await search('Sagunto')
+			assert.equal(rows(), 1, 'expected the hit listed')
+			toggle()
+			toggle()
+			assert.equal(input.value, '', 'expected the field emptied on reopen')
+			assert.equal(rows(), 0, 'expected no hits on reopen')
+			assert.equal(tool._place_results, null, 'expected the stored hits dropped')
+
+			await search('   ')
+			assert.equal(message.hidden, false, 'expected the empty-query message shown')
+			// closed by toolbar.js close_other_toolbar_panels, never by Search's own toggle
+			tool.map_image_control.getContainer().click()
+			assert.equal(panel.hidden, true, 'expected Search closed by the sibling')
+			toggle()
+			assert.equal(message.hidden, true, 'expected no message on reopen')
+		} finally {
+			tool.tool_request = original_tool_request
+		}
+	})
+
+	it('reopening Search mid-search keeps its query, and the answer still lands', async function() {
+
+		tool.attach_place_search()
+
+		const panel		= tool.place_search_panel
+		const toggle	= () => tool.place_search_control.getContainer().click()
+		const input		= panel.querySelector('.uca-maps-place-search-input')
+		const button	= panel.querySelector('.uca-maps-place-search-button')
+
+		let settle = null
+		const original_tool_request = tool.tool_request
+		tool.tool_request = function() {
+			return new Promise((resolve) => { settle = resolve })
+		}
+
+		try {
+			toggle()
+			input.value = 'Sagunto'
+			button.click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.isOk(settle, 'expected the search in flight')
+
+			toggle()
+			toggle()
+			assert.equal(input.value, 'Sagunto', 'expected the query kept while the search runs')
+
+			settle({ ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } })
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(panel.querySelectorAll('.uca-maps-place-search-result-button').length, 1, 'expected the late hit listed')
+			assert.equal(button.disabled, false)
+		} finally {
+			tool.tool_request = original_tool_request
+		}
+	})
+
 	it('detach_place_search removes the button and panel', async function() {
 
 		tool.attach_place_search()

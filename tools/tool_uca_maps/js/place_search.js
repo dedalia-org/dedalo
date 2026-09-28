@@ -46,7 +46,7 @@ import {
 	set_toolbar_panel_visible
 } from './toolbar.js'
 import {report_client_error} from './object_console.js'
-import {render_place_search_panel} from './render_place_search.js'
+import {render_place_search_panel, reset_place_search_panel} from './render_place_search.js'
 
 
 
@@ -87,7 +87,8 @@ export const attach_place_search = function(self) {
 /**
 * TOGGLE_PLACE_SEARCH_PANEL
 * Same "read the DOM, never a cached flag" law as every other panel here
-* (toolbar.js file header).
+* (toolbar.js file header). Resets on OPEN, not on close: a sibling panel can
+* close this one without passing through here (close_other_toolbar_panels).
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -95,6 +96,9 @@ export const attach_place_search = function(self) {
 const toggle_place_search_panel = function(self) {
 
 	const next_visible = !is_toolbar_panel_visible(self.place_search_panel)
+	if (next_visible) {
+		reset_place_search_panel(self, self.place_search_panel)
+	}
 
 	set_toolbar_panel_visible(self, self.place_search_panel, self.place_search_control, next_visible)
 

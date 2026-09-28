@@ -6,8 +6,8 @@
 /**
 * RENDER_PLACE_SEARCH
 * DOM for the "Search" panel (functionality #1). Shell (header + search form
-* + result list container) built once at attach — the query input must
-* survive a reopen mid-typing; the list rebuilds from `self._place_results`
+* + result list container) built once at attach and reset on every open
+* (`reset_place_search_panel`); the list rebuilds from `self._place_results`
 * on every search/clear (same split as `render_wms_services.js`). Everything
 * it triggers reaches `self.<method>(...)`, never `place_search.js` directly.
 *
@@ -140,14 +140,49 @@ const render_search_form = function(self, panel) {
 		parent			: button_row
 	})
 	clear_btn.type = 'button'
-	clear_btn.addEventListener('click', () => {
-		self.clear_place_search()
-		message.hidden		= true
-		query_input.value	= ''
-		populate_place_search_results(self, panel)
-	})
+	clear_btn.addEventListener('click', () => clear_place_search_form(self, panel))
 
 }//end render_search_form
+
+
+
+/**
+* CLEAR_PLACE_SEARCH_FORM
+* Empty field, no hits, no message — the "Clear" button, and every open.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const clear_place_search_form = function(self, panel) {
+	self.clear_place_search()
+	panel.querySelector('.uca-maps-place-search-message').hidden	= true
+	panel.querySelector('.uca-maps-place-search-input').value		= ''
+	populate_place_search_results(self, panel)
+}//end clear_place_search_form
+
+
+
+/**
+* RESET_PLACE_SEARCH_PANEL
+* Opening Search starts it from zero, as UP does (render_file_upload.js
+* reset_file_upload_panel); v6's geocoder keeps the typed text. A search in
+* flight (its button locked) keeps its query: its answer lands after this.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement|null} panel
+* @returns {void}
+*/
+export const reset_place_search_panel = function(self, panel) {
+	if (!panel) {
+		return
+	}
+	const search_btn = panel.querySelector('.uca-maps-place-search-button')
+	if (search_btn && search_btn.disabled) {
+		return
+	}
+	clear_place_search_form(self, panel)
+}//end reset_place_search_panel
 
 
 
