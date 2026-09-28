@@ -314,7 +314,7 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   _ua_busy      - true while a UA lookup request is in flight
 *   upload_control - the "Upload file to map" toolbar button (functionality
 *                   #11, vector half only — hito 12, vector_upload.js)
-*   upload_panel  - its anchored panel (file input + optional EPSG override)
+*   upload_panel  - its anchored panel (file input + v6's EPSG/zone/band projection)
 *   _upload_busy  - true while a vector upload/conversion request is in
 *                   flight (no overlapping uploads)
 *   _image_upload_busy - the same latch for the image half (hito 13); separate
@@ -698,8 +698,8 @@ tool_uca_maps.prototype.attach_file_upload = function() {
 	attach_file_upload(this)
 }//end attach_file_upload
 
-tool_uca_maps.prototype.upload_vector_file = function(file, epsg) {
-	return upload_vector_file(this, file, epsg)
+tool_uca_maps.prototype.upload_vector_file = function(file, projection) {
+	return upload_vector_file(this, file, projection)
 }//end upload_vector_file
 
 tool_uca_maps.prototype.upload_image_file = function(file) {

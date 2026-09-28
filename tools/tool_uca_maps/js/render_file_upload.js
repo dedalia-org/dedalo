@@ -25,13 +25,25 @@ import {ui} from '../../../core/common/js/ui.js'
 
 
 
+const EPSG_IO_URL = 'https://epsg.io/'
+
+// v6's list, verbatim (`special_tools_upload.js:307`): GDAL reads every EPSG
+// code, these are just the ones v6 knew without being told
+const DEFAULT_PROJECTIONS = [
+	'EPSG:4230', 'EPSG:4326', 'EPSG:4258', 'EPSG:3857', 'EPSG:32628', 'EPSG:32629',
+	'EPSG:32630', 'EPSG:32631', 'EPSG:25828', 'EPSG:25829', 'EPSG:25830', 'EPSG:25831',
+	'EPSG:23028', 'EPSG:23029', 'EPSG:23030', 'EPSG:23031', 'EPSG:4082', 'EPSG:4083'
+]
+
+
+
 /**
 * RENDER_FILE_UPLOAD_PANEL
-* CHOOSING THE FILE IS THE WHOLE GESTURE, in both sub-flows (functional
-* audit, 2026-09-24): v6 uploads on selection, and a confirm button that can
-* only ever be pressed right after asks nothing — the same call already made
-* for "Associate image" in the object console. Each sub-flow owns its status
-* line, under its own picker, so an image result never lands in the vector half.
+* The two halves upload differently (functional audit, 2026-09-28). An image
+* uploads as soon as it is chosen, as in v6. A vector file has its own Upload
+* button, because the projection fields under the picker have to be filled
+* in first, and uploading on pick would skip them. Each half has its own
+* status line, so an image result never lands in the vector half.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
@@ -51,6 +63,19 @@ export const render_file_upload_panel = function(self, panel) {
 		parent			: header
 	})
 
+	// v6's "Subir archivo vectorial" modal, in its order: picker first, the
+	// manual projection after it, then the button that reads both
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-panel-subtitle uca-maps-upload-vector-title',
+		text_content	: self.get_tool_label('upload_vector_title') || 'Upload vector file',
+		parent			: panel
+	})
+
+	const file_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-upload-file', parent: panel})
+	file_input.type	= 'file'
+	file_input.accept	= '.zip,.geojson,.kml'
+
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-upload-hint',
@@ -59,49 +84,107 @@ export const render_file_upload_panel = function(self, panel) {
 		parent			: panel
 	})
 
-	// ABOVE the picker: with no confirm button, picking the file is what
-	// reads this field, so it has to be filled in before, not after
-	const epsg_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-upload-epsg-row', parent: panel})
+	const projection = render_projection_fields(self, panel)
 
-	const epsg_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-upload-epsg', parent: epsg_row})
-	epsg_input.type			= 'text'
-	epsg_input.placeholder	= self.get_tool_label('upload_epsg_placeholder')
-		|| 'EPSG code (only for a file with no embedded projection)'
-
-	const epsg_link = ui.create_dom_element({
-		element_type	: 'a',
-		class_name		: 'uca-maps-upload-epsg-link',
-		text_content	: 'https://epsg.io/',
-		parent			: epsg_row
+	const submit_button = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-upload-submit',
+		text_content	: self.get_tool_label('upload_submit_button') || 'Upload',
+		parent			: panel
 	})
-	epsg_link.href		= 'https://epsg.io/'
-	epsg_link.target	= '_blank'
-	epsg_link.rel		= 'noopener noreferrer'
-
-	const file_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-upload-file', parent: panel})
-	file_input.type	= 'file'
-	file_input.accept	= '.zip,.geojson,.kml'
+	submit_button.type = 'button'
 
 	const message = render_upload_message(panel)
 
-	bind_upload_on_pick(file_input, message, async (file) => {
-
-		const result = await self.upload_vector_file(file, epsg_input.value)
-
-		if (!result.ok) {
-			return result.error || null
-		}
-		if (result.feature_count===0) {
-			return self.get_tool_label('upload_no_features') || 'No objects could be read from this file.'
-		}
-		return (self.get_tool_label('upload_success_message') || 'File uploaded successfully.')
-			+ ' (' + result.feature_count + ')'
-	})
+	bind_vector_upload(self, file_input, submit_button, message, projection)
 
 	render_image_section(self, panel)
 
 	return panel
 }//end render_file_upload_panel
+
+
+
+/**
+* RENDER_PROJECTION_FIELDS
+* v6's manual UTM projection: the "default projections" toggle, its
+* explanation, EPSG + zone + band and the epsg.io link that follows the typed
+* code (`special_tools_upload.js:188-368`). The field names stay literal, as
+* in v6; the server decides what a set of three means (vector_upload.ts).
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {{read: function(): {epsg: string, zone: string, band: string}}}
+*/
+const render_projection_fields = function(self, panel) {
+
+	const list_button = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-upload-projections-button',
+		text_content	: self.get_tool_label('upload_projections_button') || 'Default projections',
+		parent			: panel
+	})
+	list_button.type = 'button'
+	list_button.setAttribute('aria-expanded', 'false')
+
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-upload-hint',
+		text_content	: self.get_tool_label('upload_projection_info')
+			|| 'Include a UTM (Universal Transverse Mercator) projection if it is not among the default projections (make sure the file you are uploading is projected. For example: urn:ogc:def:crs:EPSG::32619)',
+		parent			: panel
+	})
+
+	const row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-upload-epsg-row', parent: panel})
+
+	const field = function(label, class_name, placeholder) {
+		ui.create_dom_element({element_type: 'span', text_content: label + ': ', parent: row})
+		const input = ui.create_dom_element({element_type: 'input', class_name, parent: row})
+		input.type			= 'text'
+		input.placeholder	= placeholder
+		input.setAttribute('aria-label', label)
+		return input
+	}
+	const epsg_input = field('EPSG', 'uca-maps-upload-epsg', '32619')
+	const zone_input = field('zone', 'uca-maps-upload-zone', '19')
+	const band_input = field('band', 'uca-maps-upload-band', 'N')
+
+	const epsg_link = ui.create_dom_element({
+		element_type	: 'a',
+		class_name		: 'uca-maps-upload-epsg-link',
+		text_content	: EPSG_IO_URL,
+		parent			: row
+	})
+	epsg_link.href		= EPSG_IO_URL
+	epsg_link.target	= '_blank'
+	epsg_link.rel		= 'noopener noreferrer'
+
+	// `input`, not v6's keyup: a pasted code has to move the link too
+	epsg_input.addEventListener('input', () => {
+		const url = EPSG_IO_URL + encodeURIComponent(epsg_input.value.trim())
+		epsg_link.href			= url
+		epsg_link.textContent	= url
+	})
+
+	const list = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-upload-hint uca-maps-upload-projections-list',
+		text_content	: (self.get_tool_label('upload_projections_list_intro')
+			|| 'The default projections are listed below:') + ' ' + DEFAULT_PROJECTIONS.join(' '),
+		parent			: panel
+	})
+	list.hidden = true
+
+	// the direction is read off the DOM, never a cached flag (hito 3c law)
+	list_button.addEventListener('click', () => {
+		list.hidden = !list.hidden
+		list_button.setAttribute('aria-expanded', String(!list.hidden))
+	})
+
+	return {
+		read : () => ({epsg: epsg_input.value, zone: zone_input.value, band: band_input.value})
+	}
+}//end render_projection_fields
 
 
 
@@ -166,7 +249,7 @@ const render_image_section = function(self, panel) {
 					|| 'The image carries no coordinates: placed over the current view.')
 		// the image is on the map, which is the real confirmation: the line
 		// only has to be read once, not greet every later reopening of the panel
-		return {text, transient: true}
+		return {text, hide_after_ms: UPLOAD_MESSAGE_MS}
 	})
 
 }//end render_image_section
@@ -174,16 +257,79 @@ const render_image_section = function(self, panel) {
 
 
 /**
+* BIND_VECTOR_UPLOAD
+* The vector half's Upload button. The chosen file stays in the picker after
+* a failure, so correcting EPSG/zone/band and pressing Upload again is the
+* whole retry. Only a success empties it. Every line hides itself: a
+* success after UPLOAD_MESSAGE_MS, an error after UPLOAD_ERROR_MESSAGE_MS.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLInputElement} file_input
+* @param {HTMLButtonElement} submit_button
+* @param {HTMLElement} message - the vector half's status line
+* @param {{read: function(): Object}} projection - render_projection_fields
+* @returns {void}
+*/
+const bind_vector_upload = function(self, file_input, submit_button, message, projection) {
+
+	submit_button.addEventListener('click', async () => {
+
+		if (submit_button.disabled) {
+			return
+		}
+
+		clear_upload_message(message)
+		submit_button.disabled	= true
+		file_input.disabled		= true
+
+		const file		= file_input.files && file_input.files[0]
+		const result	= await self.upload_vector_file(file, projection.read())
+
+		// the panel may be gone (tool closed mid-upload) — nothing to update
+		if (!message.isConnected) {
+			return
+		}
+		submit_button.disabled	= false
+		file_input.disabled		= false
+
+		if (!result.ok) {
+			if (result.error) {
+				show_upload_message(message, result.error, UPLOAD_ERROR_MESSAGE_MS)
+			}
+			return
+		}
+		if (result.feature_count===0) {
+			show_upload_message(
+				message,
+				self.get_tool_label('upload_no_features') || 'No objects could be read from this file.',
+				UPLOAD_ERROR_MESSAGE_MS
+			)
+			return
+		}
+
+		file_input.value = ''
+		show_upload_message(
+			message,
+			(self.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (' + result.feature_count + ')',
+			UPLOAD_MESSAGE_MS
+		)
+	})
+
+}//end bind_vector_upload
+
+
+
+/**
 * BIND_UPLOAD_ON_PICK
-* One upload per pick. The picker is disabled for the round trip and its
-* direction read off the DOM, never a cached flag (hito 3c law). It is
-* emptied after every attempt, failed ones too: re-picking the SAME file —
-* e.g. after typing the EPSG code a failure asked for — must fire `change`.
+* The image half: one upload per pick. The picker is disabled for the round
+* trip and its direction read off the DOM, never a cached flag (hito 3c law).
+* It is emptied after every attempt, failed ones too, so that choosing the
+* SAME file again still fires `change`.
 *
 * @param {HTMLInputElement} file_input
 * @param {HTMLElement} message - this sub-flow's own status line
-* @param {function(File): Promise<string|{text: string, transient: boolean}|null>} run
-*	resolves what to show; a `transient` answer hides itself after UPLOAD_MESSAGE_MS
+* @param {function(File): Promise<string|{text: string, hide_after_ms: number}|null>} run
+*	resolves what to show; a bare string is an error (UPLOAD_ERROR_MESSAGE_MS)
 * @returns {void}
 */
 const bind_upload_on_pick = function(file_input, message, run) {
@@ -209,9 +355,9 @@ const bind_upload_on_pick = function(file_input, message, run) {
 		file_input.value	= ''
 
 		clear_upload_message(message)
-		const answer = (text && typeof text==='object') ? text : {text, transient: false}
+		const answer = (text && typeof text==='object') ? text : {text, hide_after_ms: UPLOAD_ERROR_MESSAGE_MS}
 		if (answer.text) {
-			show_upload_message(message, answer.text, answer.transient)
+			show_upload_message(message, answer.text, answer.hide_after_ms)
 		}
 	})
 
@@ -236,6 +382,10 @@ const render_upload_message = function(parent) {
  * the self-closing "UCA Maps" modal (`tool_uca_maps.js`). */
 export const UPLOAD_MESSAGE_MS = 2000
 
+/** An error stays longer, v6's own default for every message
+ * (`special_tools.js:3473` modal_message): it has to be read, not glimpsed. */
+export const UPLOAD_ERROR_MESSAGE_MS = 3500
+
 /**
 * SHOW_UPLOAD_MESSAGE
 * Plain in-flow status/error line — same reasoning as `render_wms_services.js`
@@ -245,15 +395,15 @@ export const UPLOAD_MESSAGE_MS = 2000
 *
 * @param {HTMLElement} message
 * @param {string} text
-* @param {boolean} [transient=false]
+* @param {number} [hide_after_ms] - omitted: the line stays (the "working" one)
 * @returns {void}
 */
-const show_upload_message = function(message, text, transient) {
+const show_upload_message = function(message, text, hide_after_ms) {
 	clear_upload_message(message)
 	message.textContent	= text
 	message.hidden		= false
-	if (transient===true) {
-		message._uca_maps_hide_timer = setTimeout(() => clear_upload_message(message), UPLOAD_MESSAGE_MS)
+	if (typeof hide_after_ms==='number') {
+		message._uca_maps_hide_timer = setTimeout(() => clear_upload_message(message), hide_after_ms)
 	}
 }//end show_upload_message
 
@@ -287,6 +437,68 @@ export const clear_upload_messages = function(panel) {
 	}
 	panel.querySelectorAll('.uca-maps-upload-message').forEach(clear_upload_message)
 }//end clear_upload_messages
+
+
+
+/**
+* RESET_FILE_UPLOAD_PANEL
+* What v6 gets by rebuilding its modal on every open: no message, no file
+* chosen, empty EPSG/zone/band, the projections list closed. Called on OPEN,
+* not on close: a sibling panel can close this one without going through
+* this module (toolbar.js close_other_toolbar_panels). A half whose upload is
+* still in flight (its picker disabled) is left alone, file and line included.
+*
+* @param {HTMLElement|null} panel
+* @returns {void}
+*/
+export const reset_file_upload_panel = function(panel) {
+	if (!panel) {
+		return
+	}
+
+	const messages		= panel.querySelectorAll('.uca-maps-upload-message')
+	const vector_picker	= panel.querySelector('.uca-maps-upload-file')
+	const image_picker	= panel.querySelector('.uca-maps-upload-image-file')
+
+	if (vector_picker && !vector_picker.disabled) {
+		reset_picker(vector_picker, messages[0])
+
+		const epsg_input = panel.querySelector('.uca-maps-upload-epsg')
+		panel.querySelectorAll('.uca-maps-upload-epsg-row input').forEach((input) => {
+			input.value = ''
+		})
+		// the epsg.io link follows this field (render_projection_fields)
+		if (epsg_input) {
+			epsg_input.dispatchEvent(new Event('input'))
+		}
+
+		const list			= panel.querySelector('.uca-maps-upload-projections-list')
+		const list_button	= panel.querySelector('.uca-maps-upload-projections-button')
+		if (list && list_button) {
+			list.hidden = true
+			list_button.setAttribute('aria-expanded', 'false')
+		}
+	}
+
+	if (image_picker && !image_picker.disabled) {
+		reset_picker(image_picker, messages[1])
+	}
+}//end reset_file_upload_panel
+
+
+
+/**
+* RESET_PICKER
+* @param {HTMLInputElement} picker
+* @param {HTMLElement|undefined} message - the same half's status line
+* @returns {void}
+*/
+const reset_picker = function(picker, message) {
+	picker.value = ''
+	if (message) {
+		clear_upload_message(message)
+	}
+}//end reset_picker
 
 
 

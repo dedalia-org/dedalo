@@ -37,7 +37,7 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
-import {render_file_upload_panel, clear_upload_messages} from './render_file_upload.js'
+import {render_file_upload_panel, clear_upload_messages, reset_file_upload_panel} from './render_file_upload.js'
 import {report_client_error} from './object_console.js'
 
 
@@ -78,11 +78,9 @@ export const attach_file_upload = function(self) {
 
 /**
 * TOGGLE_UPLOAD_PANEL
-* Plain show/hide — unlike Catastro/UA, nothing is "armed" by opening this
-* panel (no map click listener, no basemap swap): every upload is one
-* explicit file-picker + button gesture, so there is no state to disarm on
-* close beyond hiding the DOM (toolbar.js's own exclusivity already handles
-* a sibling panel forcing this one shut).
+* Nothing is "armed" by opening this panel, unlike Catastro/UA (no map click
+* listener, no basemap swap). Every open starts clean, as v6's rebuilt modal
+* does: an old message, chosen file or typed projection never greets it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -90,6 +88,9 @@ export const attach_file_upload = function(self) {
 const toggle_upload_panel = function(self) {
 
 	const next_visible = !is_toolbar_panel_visible(self.upload_panel)
+	if (next_visible) {
+		reset_file_upload_panel(self.upload_panel)
+	}
 
 	set_toolbar_panel_visible(self, self.upload_panel, self.upload_control, next_visible)
 
@@ -101,16 +102,17 @@ const toggle_upload_panel = function(self) {
 * UPLOAD_VECTOR_FILE
 * Two-step flow: (1) `service_upload.js`'s generic transport stages the raw
 * file, (2) `upload_vector_layer` (server) converts the staged file to WGS84
-* GeoJSON. EXPORTED (takes plain `file`/`epsg` args, not a DOM event) so
+* GeoJSON. EXPORTED (takes plain `file`/`projection` args, not a DOM event) so
 * tests can await it directly — same testability convention as
 * `wms_services.js`'s `search_wms_layers`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {File} file - the browser File object chosen by the user
-* @param {string} epsg - optional EPSG code override (digits only, or '')
+* @param {{epsg?: string, zone?: string, band?: string}} [projection] - v6's
+*	manual UTM projection, all three or none (checked server-side)
 * @returns {Promise<{ok: boolean, error?: string, feature_count?: number}>}
 */
-export const upload_vector_file = async function(self, file, epsg) {
+export const upload_vector_file = async function(self, file, projection = {}) {
 
 	if (self._upload_busy) {
 		return {ok: false}
@@ -146,7 +148,9 @@ export const upload_vector_file = async function(self, file, epsg) {
 				section_id		: self.geolocation.section_id,
 				section_tipo	: self.geolocation.section_tipo,
 				file_data		: upload_response.file_data,
-				epsg			: String(epsg || '').trim()
+				epsg			: String(projection.epsg || '').trim(),
+				zone			: String(projection.zone || '').trim(),
+				band			: String(projection.band || '').trim()
 			}
 		})
 

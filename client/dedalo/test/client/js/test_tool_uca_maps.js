@@ -75,7 +75,7 @@ import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/too
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
-import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
+import { UPLOAD_MESSAGE_MS, UPLOAD_ERROR_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
@@ -3426,7 +3426,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original_tool_request = tool.tool_request
 		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
 
-		const result = await tool.upload_vector_file(null, '')
+		const result = await tool.upload_vector_file(null, {})
 
 		assert.equal(result.ok, false)
 		assert.equal(called, false, 'expected the server never contacted with no file selected')
@@ -3441,7 +3441,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
 		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
 
-		const result = await tool.upload_vector_file(file, '')
+		const result = await tool.upload_vector_file(file, {})
 
 		if (!result.ok) {
 			assert.include(
@@ -3459,14 +3459,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('upload_vector_file (real round trip) surfaces a malformed EPSG override as a server-side request.invalid_options error, without needing GDAL', async function() {
+	it('upload_vector_file (real round trip) surfaces a malformed EPSG code as a server-side request.invalid_options error, without needing GDAL', async function() {
 
 		tool.attach_file_upload()
 
-		let response = null
+		let response	= null
+		let sent		= null
 		const original_tool_request = tool.tool_request
 		tool.tool_request = async function(options) {
-			response = await original_tool_request.call(tool, options)
+			sent		= options
+			response	= await original_tool_request.call(tool, options)
 			return response
 		}
 
@@ -3481,11 +3483,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// label over whatever specific message/publicMessage the server set —
 		// same reason the download_vector('jpg'/'geotiff') tests above assert
 		// on response.error.code, never on rendered text.
-		const result = await tool.upload_vector_file(file, 'not-a-code')
+		const result = await tool.upload_vector_file(file, {epsg: 'not-a-code', zone: '30', band: 'N'})
 
 		assert.equal(result.ok, false)
 		assert.isOk(response, 'expected tool_request to have been reached')
 		assert.equal(response.error && response.error.code, 'request.invalid_options')
+		// all three reach the wire: a dropped zone or band would make the server
+		// refuse every UTM projection, and nothing else here would notice
+		assert.deepInclude(sent.options, {epsg: 'not-a-code', zone: '30', band: 'N'})
 	})
 
 	it('upload_vector_file drops a response that arrives after detach_file_upload already ran', async function() {
@@ -3496,7 +3501,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
 
 		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
-		const pending = tool.upload_vector_file(file, '')
+		const pending = tool.upload_vector_file(file, {})
 
 		// wait for the (real) service_upload transport to finish staging the
 		// file and reach the point where it calls tool.tool_request — polling
@@ -3583,9 +3588,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.upload_panel.querySelector('.uca-maps-upload-file'),
 			'expected the vector file input still there — one row, one panel'
 		)
-		assert.equal(
-			tool.upload_panel.querySelectorAll('button').length, 0,
-			'expected NO upload button in either half: choosing the file uploads it (2026-09-24)'
+		// the vector half uploads from its own button (2026-09-28); the image
+		// half still uploads on pick, so it has none
+		assert.deepEqual(
+			Array.from(tool.upload_panel.querySelectorAll('button')).map(b => b.className),
+			['uca-maps-upload-projections-button', 'uca-maps-upload-submit'],
+			'expected v6\'s projections toggle and the vector Upload button, nothing in the image half'
 		)
 	})
 
@@ -3597,7 +3605,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		input.dispatchEvent(new Event('change'))
 	}
 
-	it('each half owns its status line, right under its own picker', function() {
+	it('each half owns its status line: under the vector Upload button, under the image picker', function() {
 
 		tool.attach_file_upload()
 
@@ -3606,12 +3614,88 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const messages	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')
 
 		assert.equal(messages.length, 2, 'expected one status line per sub-flow')
-		assert.equal(children.indexOf(messages[0]), index('.uca-maps-upload-file') + 1, 'expected the vector line under the vector picker')
+		assert.equal(children.indexOf(messages[0]), index('.uca-maps-upload-submit') + 1, 'expected the vector line under its Upload button')
 		assert.equal(children.indexOf(messages[1]), index('.uca-maps-upload-image-file') + 1, 'expected the image line under the image picker')
-		assert.isBelow(
+		assert.isAbove(
 			index('.uca-maps-upload-epsg-row'), index('.uca-maps-upload-file'),
-			'expected the EPSG field ABOVE the picker: picking is what reads it now'
+			'expected the projection fields BELOW the picker, in v6\'s order'
 		)
+		assert.isAbove(
+			index('.uca-maps-upload-submit'), index('.uca-maps-upload-epsg-row'),
+			'expected the Upload button after the fields it reads'
+		)
+	})
+
+	it('the vector half is v6\'s modal: title, picker, extensions, projections toggle, explanation, EPSG/zone/band, epsg.io, then Upload', function() {
+
+		tool.attach_file_upload()
+
+		const panel		= tool.upload_panel
+		const children	= Array.from(panel.children)
+		const index		= (selector) => children.indexOf(panel.querySelector(selector))
+
+		const title = panel.querySelector('.uca-maps-upload-vector-title')
+		assert.isOk(title, 'expected the vector half titled, as the image half is')
+		assert.equal(title.textContent, tool.get_tool_label('upload_vector_title') || 'Upload vector file')
+
+		const order = [
+			'.uca-maps-upload-vector-title', '.uca-maps-upload-file', '.uca-maps-upload-projections-button',
+			'.uca-maps-upload-epsg-row', '.uca-maps-upload-projections-list', '.uca-maps-upload-submit',
+			'.uca-maps-upload-message'
+		].map(index)
+		assert.deepEqual(order, [...order].sort((a, b) => a - b), 'expected v6\'s order, got ' + order)
+		assert.notInclude(order, -1)
+
+		const row		= panel.querySelector('.uca-maps-upload-epsg-row')
+		const inputs	= Array.from(row.querySelectorAll('input'))
+		assert.deepEqual(inputs.map(i => i.placeholder), ['32619', '19', 'N'], 'expected v6\'s three fields and placeholders')
+		assert.deepEqual(inputs.map(i => i.getAttribute('aria-label')), ['EPSG', 'zone', 'band'])
+		assert.deepEqual(
+			Array.from(row.querySelectorAll('span')).map(s => s.textContent),
+			['EPSG: ', 'zone: ', 'band: ']
+		)
+	})
+
+	it('"Default projections" shows and hides v6\'s 18 codes', function() {
+
+		tool.attach_file_upload()
+
+		const button	= tool.upload_panel.querySelector('.uca-maps-upload-projections-button')
+		const list		= tool.upload_panel.querySelector('.uca-maps-upload-projections-list')
+
+		assert.equal(button.type, 'button')
+		assert.equal(list.hidden, true, 'expected the list closed at first, as in v6')
+		assert.equal(button.getAttribute('aria-expanded'), 'false')
+		assert.equal((list.textContent.match(/EPSG:\d+/g) || []).length, 18)
+		assert.include(list.textContent, 'EPSG:25830')
+
+		button.click()
+		assert.equal(list.hidden, false)
+		assert.equal(button.getAttribute('aria-expanded'), 'true')
+
+		button.click()
+		assert.equal(list.hidden, true)
+		assert.equal(button.getAttribute('aria-expanded'), 'false')
+	})
+
+	it('the epsg.io link follows the typed EPSG code, escaped', function() {
+
+		tool.attach_file_upload()
+
+		const input	= tool.upload_panel.querySelector('.uca-maps-upload-epsg')
+		const link	= tool.upload_panel.querySelector('.uca-maps-upload-epsg-link')
+		assert.equal(link.getAttribute('href'), 'https://epsg.io/')
+		assert.equal(link.rel, 'noopener noreferrer')
+
+		input.value = '25830'
+		input.dispatchEvent(new Event('input'))
+		assert.equal(link.getAttribute('href'), 'https://epsg.io/25830')
+		assert.equal(link.textContent, 'https://epsg.io/25830')
+
+		input.value = '"><b>x'
+		input.dispatchEvent(new Event('input'))
+		assert.equal(link.getAttribute('href'), 'https://epsg.io/' + encodeURIComponent('"><b>x'))
+		assert.equal(link.children.length, 0, 'expected text only, never markup')
 	})
 
 	it('choosing an image uploads it, and its result lands in the image half only', async function() {
@@ -3646,11 +3730,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('the vector half says how many objects a pick created, or that it read none', async function() {
+	// load the picker without firing anything: the vector half uploads on click
+	function load_file(input, file) {
+		const transfer = new DataTransfer()
+		transfer.items.add(file)
+		input.files = transfer.files
+	}
+
+	it('the vector half says how many objects an upload created, or that it read none', async function() {
 
 		tool.attach_file_upload()
 
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
 		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
 		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
 
@@ -3658,24 +3750,27 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.upload_vector_file = async function() { return answer }
 
 		try {
-			pick_file(picker, file)
+			load_file(picker, file)
+			submit.click()
 			await new Promise(resolve => setTimeout(resolve, 0))
 			assert.equal(message.textContent, tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.')
 
 			answer = {ok: true, feature_count: 3}
-			pick_file(picker, file)
+			submit.click()
 			await new Promise(resolve => setTimeout(resolve, 0))
 			assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (3)')
+			assert.equal(picker.value, '', 'expected the picker emptied after a success')
 		} finally {
 			delete tool.upload_vector_file
 		}
 	})
 
-	it('a pick whose upload outlives the panel writes nothing to it', async function() {
+	it('an upload that outlives the panel writes nothing to it', async function() {
 
 		tool.attach_file_upload()
 
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
 		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
 
 		let settle = null
@@ -3684,7 +3779,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 
 		try {
-			pick_file(picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
+			load_file(picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
+			submit.click()
 			await new Promise(resolve => setTimeout(resolve, 0))
 			assert.isOk(settle, 'expected the upload in flight')
 
@@ -3696,12 +3792,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(message.isConnected, false, 'expected the panel gone')
 			assert.equal(message.hidden, true, 'expected the late answer never written')
 			assert.equal(picker.disabled, true, 'expected the detached picker left as it was')
+			assert.equal(submit.disabled, true, 'expected the detached button left as it was')
 		} finally {
 			delete tool.upload_vector_file
 		}
 	})
 
-	it('an image placement message goes away by itself; an upload error stays', async function() {
+	it('an image placement message goes away by itself; an upload error too, later (v6\'s 3.5 s)', async function() {
+
+		this.timeout(UPLOAD_MESSAGE_MS + UPLOAD_ERROR_MESSAGE_MS + 2000)
 
 		tool.attach_file_upload()
 
@@ -3722,10 +3821,208 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			answer = {ok: false, error: 'the ingest refused it'}
 			pick_file(picker, file)
 			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
-			assert.equal(message.hidden, false, 'expected an error to stay until the next attempt')
+			assert.equal(message.hidden, false, 'expected an error still there after the success window')
 			assert.equal(message.textContent, 'the ingest refused it')
+			await new Promise(resolve => setTimeout(resolve, UPLOAD_ERROR_MESSAGE_MS - UPLOAD_MESSAGE_MS))
+			assert.equal(message.hidden, true, 'expected the error gone after UPLOAD_ERROR_MESSAGE_MS')
 		} finally {
 			delete tool.upload_image_file
+		}
+	})
+
+	it('a vector success goes away by itself, as the image one does; a vector error too, later', async function() {
+
+		this.timeout(UPLOAD_MESSAGE_MS + UPLOAD_ERROR_MESSAGE_MS + 2000)
+
+		tool.attach_file_upload()
+
+		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
+		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
+		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+
+		let answer = {ok: true, feature_count: 2}
+		tool.upload_vector_file = async function() { return answer }
+
+		try {
+			load_file(picker, file)
+			submit.click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.hidden, false, 'expected the success shown first')
+			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
+			assert.equal(message.hidden, true, 'expected it gone after the image message\'s window')
+
+			answer = {ok: false, error: 'zone and band do not match'}
+			load_file(picker, file)
+			submit.click()
+			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
+			assert.equal(message.hidden, false, 'expected an error still there after the success window')
+			assert.equal(message.textContent, 'zone and band do not match')
+			await new Promise(resolve => setTimeout(resolve, UPLOAD_ERROR_MESSAGE_MS - UPLOAD_MESSAGE_MS))
+			assert.equal(message.hidden, true, 'expected the error gone after UPLOAD_ERROR_MESSAGE_MS')
+		} finally {
+			delete tool.upload_vector_file
+		}
+	})
+
+	it('UP closed by a SIBLING panel reopens clean too, in both halves', async function() {
+
+		tool.attach_file_upload()
+		tool.attach_map_image_download_control()
+
+		const panel			= tool.upload_panel
+		const messages		= panel.querySelectorAll('.uca-maps-upload-message')
+		const vector_picker	= panel.querySelector('.uca-maps-upload-file')
+		const image_picker	= panel.querySelector('.uca-maps-upload-image-file')
+		tool.upload_vector_file	= async function() { return {ok: false, error: 'vector refused'} }
+		tool.upload_image_file	= async function() { return {ok: false, error: 'image refused'} }
+
+		try {
+			tool.upload_control.getContainer().click()
+
+			load_file(vector_picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
+			panel.querySelector('.uca-maps-upload-epsg').value = '25830'
+			panel.querySelector('.uca-maps-upload-submit').click()
+			pick_file(image_picker, new File(['x'], 'plan.png', {type: 'image/png'}))
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(messages[0].hidden, false, 'expected the vector error shown')
+			assert.equal(messages[1].hidden, false, 'expected the image error shown')
+
+			// closed by toolbar.js close_other_toolbar_panels, never by UP's own toggle
+			tool.map_image_control.getContainer().click()
+			assert.equal(panel.hidden, true, 'expected UP closed by the sibling')
+			tool.upload_control.getContainer().click()
+
+			assert.equal(messages[0].hidden, true, 'expected no vector message')
+			assert.equal(messages[1].hidden, true, 'expected no image message')
+			assert.equal(vector_picker.files.length, 0, 'expected no vector file chosen')
+			assert.equal(image_picker.value, '', 'expected no image file chosen')
+			assert.equal(panel.querySelector('.uca-maps-upload-epsg').value, '', 'expected EPSG empty')
+		} finally {
+			delete tool.upload_vector_file
+			delete tool.upload_image_file
+		}
+	})
+
+	it('reopening UP mid-upload leaves that half\'s file and working line alone', async function() {
+
+		tool.attach_file_upload()
+
+		const panel		= tool.upload_panel
+		const toggle	= () => tool.upload_control.getContainer().click()
+		const picker	= panel.querySelector('.uca-maps-upload-image-file')
+		const message	= panel.querySelectorAll('.uca-maps-upload-message')[1]
+
+		let settle = null
+		tool.upload_image_file = function() {
+			return new Promise((resolve) => { settle = resolve })
+		}
+
+		try {
+			toggle()
+			pick_file(picker, new File(['x'], 'plan.png', {type: 'image/png'}))
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.isOk(settle, 'expected the upload in flight')
+			assert.equal(message.hidden, false, 'expected the working line shown')
+
+			toggle()
+			toggle()
+			assert.equal(message.hidden, false, 'expected the working line kept while the upload runs')
+			assert.equal(picker.disabled, true, 'expected the picker still locked')
+
+			settle({ok: true, georeferenced: true})
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
+			assert.equal(picker.disabled, false)
+		} finally {
+			delete tool.upload_image_file
+		}
+	})
+
+	it('reopening UP mid vector upload leaves its file, fields and controls alone', async function() {
+
+		tool.attach_file_upload()
+
+		const panel		= tool.upload_panel
+		const toggle	= () => tool.upload_control.getContainer().click()
+		const picker	= panel.querySelector('.uca-maps-upload-file')
+		const submit	= panel.querySelector('.uca-maps-upload-submit')
+		const message	= panel.querySelectorAll('.uca-maps-upload-message')[0]
+		const inputs	= Array.from(panel.querySelectorAll('.uca-maps-upload-epsg-row input'))
+		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+
+		let settle = null
+		tool.upload_vector_file = function() {
+			return new Promise((resolve) => { settle = resolve })
+		}
+
+		try {
+			toggle()
+			load_file(picker, file)
+			inputs[0].value = '25830'
+			inputs[1].value = '30'
+			inputs[2].value = 'N'
+			submit.click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.isOk(settle, 'expected the upload in flight')
+
+			toggle()
+			toggle()
+			assert.equal(picker.files[0], file, 'expected the file kept while the upload runs')
+			assert.deepEqual(inputs.map(i => i.value), ['25830', '30', 'N'], 'expected the fields kept')
+			assert.equal(picker.disabled, true, 'expected the picker still locked')
+			assert.equal(submit.disabled, true, 'expected Upload still locked')
+
+			settle({ok: true, feature_count: 1})
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (1)')
+			assert.equal(submit.disabled, false)
+		} finally {
+			delete tool.upload_vector_file
+		}
+	})
+
+	it('reopening UP starts clean, as v6\'s rebuilt modal: no message, no file, no projection', async function() {
+
+		tool.attach_file_upload()
+
+		const panel		= tool.upload_panel
+		const toggle	= () => tool.upload_control.getContainer().click()
+		const picker	= panel.querySelector('.uca-maps-upload-file')
+		const epsg		= panel.querySelector('.uca-maps-upload-epsg')
+		const link		= panel.querySelector('.uca-maps-upload-epsg-link')
+		const list		= panel.querySelector('.uca-maps-upload-projections-list')
+		const message	= panel.querySelectorAll('.uca-maps-upload-message')[0]
+		tool.upload_vector_file = async function() { return {ok: false, error: 'Please choose a file first.'} }
+
+		try {
+			toggle()
+			assert.equal(panel.hidden, false, 'expected UP open')
+
+			load_file(picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
+			epsg.value = '25830'
+			epsg.dispatchEvent(new Event('input'))
+			panel.querySelector('.uca-maps-upload-zone').value = '30'
+			panel.querySelector('.uca-maps-upload-band').value = 'N'
+			panel.querySelector('.uca-maps-upload-projections-button').click()
+			panel.querySelector('.uca-maps-upload-submit').click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(message.hidden, false, 'expected the error shown')
+
+			toggle()
+			assert.equal(panel.hidden, true, 'expected UP closed')
+			toggle()
+
+			assert.equal(message.hidden, true, 'expected no message on reopening')
+			assert.equal(picker.files.length, 0, 'expected no file chosen')
+			assert.deepEqual(
+				Array.from(panel.querySelectorAll('.uca-maps-upload-epsg-row input')).map(i => i.value),
+				['', '', ''], 'expected EPSG, zone and band empty'
+			)
+			assert.equal(link.getAttribute('href'), 'https://epsg.io/', 'expected the epsg.io link back to its base')
+			assert.equal(list.hidden, true, 'expected the projections list closed')
+		} finally {
+			delete tool.upload_vector_file
 		}
 	})
 
@@ -3749,17 +4046,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('choosing a vector file uploads it with the EPSG typed above, and a failure empties the picker', async function() {
+	it('choosing a vector file uploads nothing; Upload sends it with the EPSG, zone and band typed, and a failure keeps it', async function() {
 
 		tool.attach_file_upload()
 
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
+		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
 		const messages	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')
 		tool.upload_panel.querySelector('.uca-maps-upload-epsg').value = '25830'
+		tool.upload_panel.querySelector('.uca-maps-upload-zone').value = '30'
+		tool.upload_panel.querySelector('.uca-maps-upload-band').value = 'N'
 
 		let asked_for = null
-		tool.upload_vector_file = async function(file, epsg) {
-			asked_for = {file, epsg}
+		tool.upload_vector_file = async function(file, projection) {
+			asked_for = {file, projection}
 			return {ok: false, error: 'no coordinate system'}
 		}
 
@@ -3767,11 +4067,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const file = new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
 			pick_file(picker, file)
 			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(asked_for, null, 'expected choosing the file to upload nothing')
 
-			assert.deepEqual(asked_for, {file, epsg: '25830'}, 'expected the pick to upload with the EPSG field\'s value')
-			// the failure that asks for an EPSG code is retried by picking the
-			// SAME file again, which only fires `change` on an emptied picker
-			assert.equal(picker.value, '', 'expected the picker emptied after a failure too')
+			submit.click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+
+			assert.deepEqual(
+				asked_for, {file, projection: {epsg: '25830', zone: '30', band: 'N'}},
+				'expected Upload to send the chosen file with the three fields\' values'
+			)
+			// the retry is: correct the fields, press Upload again
+			assert.equal(picker.files[0], file, 'expected the file kept after a failure')
+			assert.equal(submit.disabled, false, 'expected Upload enabled again')
 			assert.equal(messages[0].textContent, 'no coordinate system', 'expected the error in the vector half')
 			assert.equal(messages[1].hidden, true, 'expected the image half\'s line untouched')
 		} finally {

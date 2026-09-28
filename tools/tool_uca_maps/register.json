@@ -383,8 +383,20 @@
 		{ "lang": "lg-eng", "name": "upload_vector_extensions_hint", "value": "Allowed extensions: .zip (shapefile), .geojson and .kml" },
 		{ "lang": "lg-spa", "name": "upload_vector_extensions_hint", "value": "Extensiones permitidas: .zip (shape), .geojson y .kml" },
 
-		{ "lang": "lg-eng", "name": "upload_epsg_placeholder", "value": "EPSG code (only for a file with no embedded projection)" },
-		{ "lang": "lg-spa", "name": "upload_epsg_placeholder", "value": "Código EPSG (solo si el archivo no lleva proyección)" },
+		{ "lang": "lg-eng", "name": "upload_vector_title", "value": "Upload vector file" },
+		{ "lang": "lg-spa", "name": "upload_vector_title", "value": "Subir archivo vectorial" },
+
+		{ "lang": "lg-eng", "name": "upload_projections_button", "value": "Default projections" },
+		{ "lang": "lg-spa", "name": "upload_projections_button", "value": "Proyecciones por defecto" },
+
+		{ "lang": "lg-eng", "name": "upload_projection_info", "value": "Include a UTM (Universal Transverse Mercator) projection if it is not among the default projections (make sure the file you are uploading is projected. For example: urn:ogc:def:crs:EPSG::32619)" },
+		{ "lang": "lg-spa", "name": "upload_projection_info", "value": "Incluir proyección para UTM (Universal Transverse Mercator) en el caso de que no se encuentre entre las proyecciones por defecto (Asegúrese de que el archivo que va a subir viene proyectado. Por ejemplo: urn:ogc:def:crs:EPSG::32619)" },
+
+		{ "lang": "lg-eng", "name": "upload_projections_list_intro", "value": "The default projections are listed below:" },
+		{ "lang": "lg-spa", "name": "upload_projections_list_intro", "value": "A continuación se listan las proyecciones por defecto:" },
+
+		{ "lang": "lg-eng", "name": "upload_submit_button", "value": "Upload" },
+		{ "lang": "lg-spa", "name": "upload_submit_button", "value": "Subir" },
 
 		{ "lang": "lg-eng", "name": "upload_success_message", "value": "File uploaded successfully." },
 		{ "lang": "lg-spa", "name": "upload_success_message", "value": "Archivo subido correctamente." },

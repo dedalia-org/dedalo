@@ -15,10 +15,11 @@
  * so a `.prj` sidecar inside the shapefile zip or a legacy GeoJSON `crs`
  * member reprojects automatically with NO lookup table; the one case GDAL
  * cannot solve alone — a source with NO embedded CRS at all (bare UTM
- * numbers) — keeps a single optional EPSG-code override, verified live
- * against GDAL 3.13.2 in the dev container (see hito 12 dossier): omitting it
- * on a CRS-less file fails cleanly ("no coordinate system … use -s_srs"),
- * supplying one fixes the reprojection.
+ * numbers) — takes a manual projection, verified live against GDAL 3.13.2 in
+ * the dev container (see hito 12 dossier): omitting it on a CRS-less file
+ * fails cleanly ("no coordinate system … use -s_srs"), supplying one fixes
+ * the reprojection. The manual projection is v6's fields (EPSG, plus zone
+ * and band for a UTM code) — see `parseManualProjection`.
  *
  * Confirmed live: GDAL's shapefile-in-zip driver keys off the LITERAL
  * `.shp.zip` extension, not a plain `.zip` — a bare `.zip` (any content)
@@ -54,6 +55,144 @@ const MAX_UPLOAD_BYTES = 10_000_000;
 
 function invalidVectorUpload(message: string): DedaloError {
 	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+}
+
+/** v6's manual projection: GDAL applies the EPSG; zone+band describe a UTM one. */
+export interface ManualProjection {
+	epsg: string;
+	utm: { zone: number; south: boolean } | null;
+}
+
+// MGRS latitude bands (no I, no O); v6 reads them through Leaflet.UTM, where
+// a band before N is the southern hemisphere (`L.LatLng.UTM.js:604`)
+const UTM_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
+
+/**
+ * v6's fields, format only (no GDAL). v6's table gives non-UTM codes no zone
+ * or band (`special_tools_upload.js:402-406`), so the EPSG may come alone and
+ * `assertProjectionMatches` decides per code. A partial set is refused where
+ * v6 drops it without a word: a typed field that silently does nothing is
+ * the failure these fields exist to prevent.
+ */
+export function parseManualProjection(options: Record<string, unknown>): ManualProjection | null {
+	const epsg = String(options.epsg ?? '').trim();
+	const zone = String(options.zone ?? '').trim();
+	const band = String(options.band ?? '')
+		.trim()
+		.toUpperCase();
+	if (epsg === '' && zone === '' && band === '') return null;
+	if (epsg === '') {
+		throw invalidVectorUpload('Zone and band describe an EPSG code: fill in the EPSG too');
+	}
+	if ((zone === '') !== (band === '')) {
+		throw invalidVectorUpload('Zone and band go together: fill in both, or neither');
+	}
+	if (!/^[0-9]{4,6}$/.test(epsg)) throw invalidVectorUpload(`Invalid EPSG code '${epsg}'`);
+	if (zone === '') return { epsg, utm: null };
+	const zoneNumber = /^[0-9]{1,2}$/.test(zone) ? Number(zone) : 0;
+	if (zoneNumber < 1 || zoneNumber > 60) {
+		throw invalidVectorUpload(`Invalid UTM zone '${zone}' (expected 1 to 60)`);
+	}
+	if (band.length !== 1 || !UTM_BANDS.includes(band)) {
+		throw invalidVectorUpload(`Invalid UTM band '${band}' (expected one letter, C to X)`);
+	}
+	return {
+		epsg,
+		utm: { zone: zoneNumber, south: UTM_BANDS.indexOf(band) < UTM_BANDS.indexOf('N') },
+	};
+}
+
+/**
+ * The EPSG's own PROJ string (`gdalsrsinfo -o proj4`) decides: a UTM code
+ * needs the zone and band that describe it (v6's "include projection for
+ * UTM"), any other code takes neither — either way no field is decoration.
+ */
+export function assertProjectionMatches(projection: ManualProjection, proj4: string): void {
+	const zone = /\+proj=utm\b/.test(proj4) ? /\+zone=([0-9]+)/.exec(proj4) : null;
+	if (zone === null) {
+		if (projection.utm !== null) {
+			throw invalidVectorUpload(
+				`EPSG:${projection.epsg} is not a UTM projection: leave zone and band empty`,
+			);
+		}
+		return;
+	}
+	const south = /\+south\b/.test(proj4);
+	// in the band's own terms: an MGRS "S" is northern, so "19S" would mislead
+	const actual = `UTM zone ${zone[1]}, ${south ? 'southern hemisphere (band C to M)' : 'northern hemisphere (band N to X)'}`;
+	if (projection.utm === null) {
+		throw invalidVectorUpload(
+			`EPSG:${projection.epsg} is ${actual}: fill in its zone and band too`,
+		);
+	}
+	if (Number(zone[1]) !== projection.utm.zone || south !== projection.utm.south) {
+		throw invalidVectorUpload(
+			`EPSG:${projection.epsg} is ${actual}, not the zone and band given ` +
+				`(zone ${projection.utm.zone}, ${projection.utm.south ? 'southern' : 'northern'} hemisphere)`,
+		);
+	}
+}
+
+/**
+ * Only PROJ's own "crs not found" is the caller's; a timeout or a broken PROJ
+ * install stays the server fault it is (tool.action_failed), rethrown as is.
+ */
+export function classifyProjectionLookupError(error: unknown, epsg: string): unknown {
+	if (error instanceof Error && /crs not found/i.test(error.message)) {
+		return invalidVectorUpload(`Unknown EPSG code '${epsg}'`);
+	}
+	return error;
+}
+
+async function checkManualProjection(projection: ManualProjection): Promise<void> {
+	const gdalsrsinfo = await resolveGdalBinary('gdalsrsinfo');
+	let proj4: string;
+	try {
+		const result = await runToolBinary(
+			[gdalsrsinfo, '-o', 'proj4', `EPSG:${projection.epsg}`],
+			'vector_upload (projection lookup)',
+		);
+		proj4 = result.stdout;
+	} catch (error) {
+		throw classifyProjectionLookupError(error, projection.epsg);
+	}
+	assertProjectionMatches(projection, proj4);
+}
+
+/**
+ * Whether the file names its own CRS. In v6 the file's `crs` always wins and
+ * a typed code only matters when it equals it (`projections.js:31-46`); here
+ * `-s_srs` would override it silently, so a declaring file refuses the fields
+ * instead. A GeoJSON without `crs` counts as undeclared although GDAL reads it
+ * as WGS84 (RFC 7946): legacy UTM files without it are what the fields are for.
+ */
+export async function declaresOwnCrs(inputFile: string, extension: string): Promise<boolean> {
+	if (extension === 'kml') return true; // WGS84 by definition
+	if (extension === 'geojson') {
+		const parsed = (await Bun.file(inputFile)
+			.json()
+			.catch(() => null)) as { crs?: unknown } | null;
+		// fail closed: GDAL's parser accepts what strict JSON refuses, so an
+		// unreadable file may still carry a crs that -s_srs would override
+		if (parsed === null) {
+			throw invalidVectorUpload(
+				'This GeoJSON is not strict JSON, so its own projection cannot be checked: ' +
+					'leave EPSG, zone and band empty',
+			);
+		}
+		return typeof parsed.crs === 'object' && parsed.crs !== null;
+	}
+	const ogrinfo = await resolveGdalBinary('ogrinfo');
+	const result = await runToolBinary(
+		[ogrinfo, '-json', '-so', '-ro', inputFile],
+		`vector_upload (${extension} crs probe)`,
+	);
+	const info = JSON.parse(result.stdout) as {
+		layers?: { geometryFields?: { coordinateSystem?: unknown }[] }[];
+	};
+	return (info.layers ?? []).some((layer) =>
+		(layer.geometryFields ?? []).some((field) => field.coordinateSystem != null),
+	);
 }
 
 /**
@@ -114,10 +253,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		);
 	}
 
-	const epsgOption = String(ctx.options.epsg ?? '').trim();
-	if (epsgOption !== '' && !/^[0-9]{4,6}$/.test(epsgOption)) {
-		throw invalidVectorUpload(`Invalid EPSG code '${epsgOption}'`);
-	}
+	const projection = parseManualProjection(ctx.options);
 
 	const staged = resolveStagedUpload(
 		ctx.userId,
@@ -140,9 +276,19 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		await Bun.write(inputFile, Bun.file(staged));
 		const outputFile = join(dir, 'uca_maps_upload_out.geojson');
 
+		// the declared-CRS refusal goes BEFORE the EPSG lookup: on a file that
+		// declares its own, "fill in its zone and band" would send the user to
+		// fill in fields that must end up empty
+		if (projection !== null && (await declaresOwnCrs(inputFile, extension))) {
+			throw invalidVectorUpload(
+				'This file already declares its own projection: leave EPSG, zone and band empty',
+			);
+		}
+		if (projection !== null) await checkManualProjection(projection);
+
 		const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 		const argv = [ogr2ogr, '-f', 'GeoJSON', '-t_srs', 'EPSG:4326'];
-		if (epsgOption !== '') argv.push('-s_srs', `EPSG:${epsgOption}`);
+		if (projection !== null) argv.push('-s_srs', `EPSG:${projection.epsg}`);
 		argv.push(outputFile, inputFile);
 
 		try {
@@ -152,14 +298,14 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 			// no embedded CRS and no override given — ogr2ogr's own stderr names
 			// it exactly ("has no coordinate system … Use -s_srs", verified live
 			// against GDAL 3.13.2, see module doc comment). Matched on the actual
-			// message rather than assumed from `epsgOption === ''`: a WRONG
+			// message rather than assumed from `projection === null`: a WRONG
 			// override (a real CRS, just not this file's) fails differently and
 			// must keep its own generic error, not this one.
 			const message = error instanceof Error ? error.message : String(error);
-			if (epsgOption === '' && /coordinate system/i.test(message)) {
+			if (projection === null && /coordinate system/i.test(message)) {
 				throw invalidVectorUpload(
 					'This file has no embedded coordinate system (no .prj / crs member) — ' +
-						'provide an EPSG code to reproject it',
+						'provide its EPSG code (and, for a UTM one, its zone and band) to reproject it',
 				);
 			}
 			throw error;

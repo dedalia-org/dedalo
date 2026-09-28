@@ -677,7 +677,7 @@
 // form shape as .uca-maps-wms-search-form.
 .uca-maps-upload-panel {
 
-	// one per sub-flow, right under its own picker (render_file_upload.js)
+	// one per sub-flow: under the Upload button (vector), under the picker (image)
 	.uca-maps-upload-message {
 		.uca-maps-panel-inline-message();
 		margin: 0 0.75rem 0.75rem;
@@ -689,8 +689,8 @@
 		color: var(--fg_muted);
 	}
 
-	// no submit button any more: choosing the file uploads it, so the
-	// picker closes its sub-flow and takes the button's bottom margin
+	// the image picker closes its sub-flow (choosing the file uploads it),
+	// so both pickers keep the bottom margin a button would otherwise take
 	.uca-maps-upload-file,
 	.uca-maps-upload-image-file {
 		display: block;
@@ -705,14 +705,40 @@
 		margin: 0 0.75rem 0.5rem;
 
 		.uca-maps-upload-epsg {
-			flex: 1 1 auto;
+			flex: 0 1 5rem;
+			min-width: 0;
+		}
+
+		// v6's st-input-25 against the EPSG field's st-input-50
+		.uca-maps-upload-zone,
+		.uca-maps-upload-band {
+			flex: 0 1 2.5rem;
 			min-width: 0;
 		}
 
 		.uca-maps-upload-epsg-link {
-			flex: 0 0 auto;
+			flex: 1 1 auto;
+			min-width: 0;
+			overflow-wrap: anywhere;
 			font-size: 0.75rem;
 		}
+	}
+
+	// v6's small st-btn-info (9 px): a toggle, not the panel's main action
+	.uca-maps-upload-projections-button {
+		.uca-maps-panel-action-button();
+		display: block;
+		margin: 0 0.75rem;
+		padding: 0.2rem 0.5rem;
+		font-size: 0.7rem;
+	}
+
+	// the vector half's only upload trigger: it comes after the projection
+	// fields, which have to be filled in before it is pressed
+	.uca-maps-upload-submit {
+		.uca-maps-panel-action-button();
+		display: block;
+		margin: 0.25rem 0.75rem 0.75rem;
 	}
 
 	// the image sub-flow (hito 13) reuses the vector one's spacing verbatim —
@@ -726,6 +752,13 @@
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
 		color: var(--fg_muted);
+	}
+
+	// the vector half opens the panel: nothing above it to separate from
+	.uca-maps-upload-vector-title {
+		margin-top: 0.5rem;
+		padding-top: 0;
+		border-top: none;
 	}
 
 }//end uca-maps-upload-panel

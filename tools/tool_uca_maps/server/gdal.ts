@@ -56,7 +56,7 @@ const TOOL_BINARY_TIMEOUT_MS = 60_000;
  * conversion is rare enough that one probe is not a hot path.
  */
 export async function resolveGdalBinary(
-	name: 'ogr2ogr' | 'gdal_translate' | 'gdalwarp' | 'gdalinfo',
+	name: 'ogr2ogr' | 'ogrinfo' | 'gdal_translate' | 'gdalwarp' | 'gdalinfo' | 'gdalsrsinfo',
 ): Promise<string> {
 	const probe = await probeOnPath(name, ['--version']);
 	if (!probe.available || probe.path === null) {

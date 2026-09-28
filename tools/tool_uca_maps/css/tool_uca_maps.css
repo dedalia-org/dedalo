@@ -484,12 +484,61 @@
   margin: 0 0.75rem 0.5rem;
 }
 .uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-epsg {
-  flex: 1 1 auto;
+  flex: 0 1 5rem;
+  min-width: 0;
+}
+.uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-zone,
+.uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-band {
+  flex: 0 1 2.5rem;
   min-width: 0;
 }
 .uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-epsg-link {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 0.75rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-projections-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: var(--fg_on_brand);
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: block;
+  margin: 0 0.75rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-projections-button:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-upload-panel .uca-maps-upload-projections-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.uca-maps-upload-panel .uca-maps-upload-submit {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background-color: var(--tool_uca_maps);
+  color: var(--fg_on_brand);
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: block;
+  margin: 0.25rem 0.75rem 0.75rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-submit:hover {
+  filter: brightness(0.92);
+}
+.uca-maps-upload-panel .uca-maps-upload-submit:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .uca-maps-upload-panel .uca-maps-panel-subtitle {
   margin: 0.25rem 0.75rem 0;
@@ -500,6 +549,11 @@
   text-transform: uppercase;
   letter-spacing: 0.02em;
   color: var(--fg_muted);
+}
+.uca-maps-upload-panel .uca-maps-upload-vector-title {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: none;
 }
 .uca-maps-image-overlay {
   pointer-events: none;
