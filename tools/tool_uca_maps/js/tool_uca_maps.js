@@ -180,7 +180,10 @@
 		add_legend_element,
 		delete_legend_element,
 		set_legend_element_name,
-		set_legend_element_icon
+		set_legend_element_icon,
+		set_legend_element_symbol,
+		move_legend_column,
+		move_legend_element
 	} from './legend.js'
 	import {
 		attach_roman_empire,
@@ -809,6 +812,18 @@ tool_uca_maps.prototype.set_legend_element_name = function(column_index, element
 tool_uca_maps.prototype.set_legend_element_icon = function(column_index, element_index, file) {
 	return set_legend_element_icon(this, column_index, element_index, file)
 }//end set_legend_element_icon
+
+tool_uca_maps.prototype.set_legend_element_symbol = function(column_index, element_index, symbol) {
+	return set_legend_element_symbol(this, column_index, element_index, symbol)
+}//end set_legend_element_symbol
+
+tool_uca_maps.prototype.move_legend_column = function(index, offset) {
+	return move_legend_column(this, index, offset)
+}//end move_legend_column
+
+tool_uca_maps.prototype.move_legend_element = function(column_index, element_index, offset) {
+	return move_legend_element(this, column_index, element_index, offset)
+}//end move_legend_element
 
 
 

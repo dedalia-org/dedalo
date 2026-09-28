@@ -1211,17 +1211,45 @@
 		flex-direction: column;
 		gap: 0.3rem;
 		padding: 0.5rem 0.75rem;
-
-		input {
-			min-width: 0;
-		}
 	}
 
 	.uca-maps-legend-message {
 		.uca-maps-panel-inline-message();
 	}
 
+	// a visible label before every name field: a placeholder alone is gone
+	// once the field is filled, and a group then reads like an element
+	.uca-maps-legend-field {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex: 1 1 auto;
+		min-width: 0;
+
+		>.uca-maps-legend-field-label {
+			flex: 0 0 auto;
+			font-size: 0.8rem;
+			font-weight: bold;
+		}
+
+		>input[type="text"] {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	.uca-maps-legend-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
 	.uca-maps-legend-show-label {
+		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
@@ -1229,46 +1257,54 @@
 	}
 
 	.uca-maps-legend-empty {
-		padding: 0 0.75rem 0.5rem;
+		padding: 0 0 0.5rem;
 		font-size: 0.8rem;
 		color: var(--fg_muted);
 	}
 
 	.uca-maps-legend-columns {
-		padding: 0 0.75rem 0.5rem;
+		padding: 0 0.75rem;
 	}
 
+	// one card per group
 	.uca-maps-legend-column {
-		border-top: 1px solid var(--border_default);
-		padding-top: 0.4rem;
-		margin-top: 0.4rem;
+		border: 1px solid var(--border_default);
+		border-radius: 0.25rem;
+		padding: 0.4rem 0.5rem;
+		margin-bottom: 0.5rem;
 	}
 
-	.uca-maps-legend-column-row {
+	.uca-maps-legend-column-row,
+	.uca-maps-legend-element-row {
 		display: flex;
 		align-items: center;
 		gap: 0.3rem;
+	}
 
-		.uca-maps-legend-column-name {
-			flex: 1 1 auto;
+	.uca-maps-legend-confirm {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.4rem;
+		padding: 0.35rem 0.5rem;
+		border-radius: 0.2rem;
+		background-color: var(--uca_maps_msg_warning_bg);
+		color: var(--uca_maps_msg_warning_fg);
+		font-size: 0.8rem;
+
+		&[hidden] {
+			display: none;
 		}
 	}
 
 	.uca-maps-legend-elements {
 		list-style: none;
-		margin: 0.3rem 0 0;
-		padding: 0 0 0 0.5rem;
+		margin: 0.4rem 0 0.3rem;
+		padding: 0 0 0 1rem;
 
 		>.uca-maps-legend-element {
-			display: flex;
-			align-items: center;
-			gap: 0.3rem;
 			padding: 0.15rem 0;
-
-			.uca-maps-legend-element-icon {
-				flex: 0 0 auto;
-				object-fit: contain;
-			}
 
 			.uca-maps-legend-element-name {
 				flex: 1 1 auto;
@@ -1277,15 +1313,95 @@
 		}
 	}//end uca-maps-legend-elements
 
+	// the symbol IS the button that changes it
+	.uca-maps-legend-symbol-button {
+		flex: 0 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.15rem;
+		background: none;
+		border: 1px solid var(--border_default);
+		border-radius: 0.2rem;
+		cursor: pointer;
+
+		&:hover,
+		&[aria-expanded="true"] {
+			border-color: @tool_color;
+		}
+
+		>.uca-maps-legend-element-icon {
+			object-fit: contain;
+		}
+	}
+
+	.uca-maps-legend-symbol-editor {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem 0.75rem;
+		margin: 0.3rem 0 0.2rem 0.2rem;
+		padding: 0.3rem 0 0.3rem 0.6rem;
+		border-left: 2px solid @tool_color;
+
+		&[hidden] {
+			display: none;
+		}
+
+		.uca-maps-legend-field {
+			flex: 0 0 auto;
+		}
+
+		input[type="color"] {
+			width: 2rem;
+			height: 1.5rem;
+			padding: 0;
+			border: 1px solid var(--border_default);
+			cursor: pointer;
+		}
+	}
+
+	.uca-maps-legend-symbol-shapes {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.uca-maps-legend-symbol-shape {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.15rem 0.4rem;
+		font-size: 0.75rem;
+		background: none;
+		color: var(--fg_default);
+		border: 1px solid var(--border_default);
+
+		>svg {
+			width: 1rem;
+			height: 1rem;
+		}
+
+		&[aria-pressed="true"] {
+			border-color: @tool_color;
+			box-shadow: inset 0 0 0 1px @tool_color;
+		}
+	}
+
 	button {
 		.uca-maps-panel-action-button();
 	}
 
+	.uca-maps-legend-move,
 	.uca-maps-legend-delete-column,
 	.uca-maps-legend-delete-element,
 	.uca-maps-legend-upload-icon,
-	.uca-maps-legend-add-element {
+	.uca-maps-legend-add-element,
+	.uca-maps-legend-confirm-cancel {
 		.uca-maps-panel-secondary-button();
+	}
+
+	>.uca-maps-legend-add-column {
+		margin: 0 0.75rem 0.75rem;
 	}
 
 }//end uca-maps-legend-panel

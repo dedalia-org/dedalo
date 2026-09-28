@@ -9,12 +9,13 @@
 * DOM de la fila #12 en sus DOS mitades, que son cosas distintas:
 *
 * - el PANEL de edición (chrome del tool, excluido de la descarga de mapa
-*   como imagen): cabecera + formulario construidos una sola vez en attach
-*   —los inputs tienen que sobrevivir a un reabrir a medio teclear— y la
-*   lista de columnas, que se reconstruye entera en cada mutación
-*   ESTRUCTURAL (mismo reparto que `render_xyz_basemaps.js`). Teclear NO la
-*   reconstruye: perdería el foco a cada pulsación, así que un `input` de
-*   nombre solo repinta el overlay.
+*   como imagen): formulario construido una sola vez en attach —los inputs
+*   tienen que sobrevivir a un reabrir a medio teclear— y la lista de
+*   columnas, que se reconstruye entera en cada mutación ESTRUCTURAL.
+*   Teclear o tocar un color NO la reconstruye: perdería el foco, o cerraría
+*   el selector de color abierto, así que solo repinta el overlay.
+*   Una "columna" del dato se llama "grupo" en la interfaz: en el overlay
+*   los grupos envuelven, no son columnas fijas.
 * - el OVERLAY, la leyenda dibujada sobre el mapa, que es CONTENIDO y por
 *   eso no se registra como toolbar node (ver `legend.js` file header).
 *
@@ -27,38 +28,42 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {
+	LEGEND_SYMBOL_SHAPES,
+	default_legend_symbol,
+	legend_symbol_node
+} from './legend_symbol.js'
 
 
 
 /**
 * RENDER_LEGEND_PANEL
+* La cabecera (título + ×) la pone `toolbar.js`: es un panel centrado.
+*
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
 * @returns {HTMLElement} panel
 */
 export const render_legend_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('legend_control_title') || 'Legend',
-		parent			: header
-	})
-
 	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-form', parent: panel})
 
 	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-message', parent: form})
 	message.hidden = true
 
+	const title_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-title-row', parent: form})
+
+	const title_field = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-field', parent: title_row})
+	ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'uca-maps-legend-field-label',
+		text_content	: self.get_tool_label('legend_title_label') || 'Title',
+		parent			: title_field
+	})
 	const title_input = ui.create_dom_element({
 		element_type	: 'input',
 		class_name		: 'uca-maps-legend-input uca-maps-legend-title-input',
-		parent			: form
+		parent			: title_field
 	})
 	title_input.type		= 'text'
 	title_input.placeholder	= self.get_tool_label('legend_title_placeholder') || 'Legend title'
@@ -67,7 +72,7 @@ export const render_legend_panel = function(self, panel) {
 		self.set_legend_title(title_input.value)
 	})
 
-	const show_label = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-show-label', parent: form})
+	const show_label = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-show-label', parent: title_row})
 	const show_checkbox = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-legend-show', parent: show_label})
 	show_checkbox.type		= 'checkbox'
 	show_checkbox.checked	= self.legend.enable
@@ -80,19 +85,21 @@ export const render_legend_panel = function(self, panel) {
 		parent			: show_label
 	})
 
+	ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-columns', parent: panel})
+
+	// after the list, where the new group appears
 	const add_column_btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-legend-add-column',
-		text_content	: self.get_tool_label('legend_add_column') || 'Add column',
-		parent			: form
+		text_content	: '+ ' + (self.get_tool_label('legend_add_column') || 'Add group'),
+		parent			: panel
 	})
 	add_column_btn.type = 'button'
 	add_column_btn.addEventListener('click', () => {
-		self.add_legend_column()
+		const result = self.add_legend_column()
 		populate_legend_columns(self, panel)
+		focus_in_list(panel, result.index, null, '.uca-maps-legend-column-name')
 	})
-
-	ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-columns', parent: panel})
 
 	return panel
 }//end render_legend_panel
@@ -141,7 +148,7 @@ export const clear_legend_message = function(panel) {
 
 /**
 * POPULATE_LEGEND_COLUMNS
-* Reconstruye la lista de columnas desde `self.legend.columns` — en cada
+* Reconstruye la lista de grupos desde `self.legend.columns` — en cada
 * apertura del panel y tras cada mutación estructural.
 *
 * @param {Object} self - tool_uca_maps instance
@@ -157,11 +164,13 @@ export const populate_legend_columns = function(self, panel) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'uca-maps-legend-empty',
-			text_content	: self.get_tool_label('legend_empty') || 'The legend has no columns yet.',
+			text_content	: self.get_tool_label('legend_empty') || 'The legend has no groups yet.',
 			parent			: list
 		})
 		return
 	}
+
+	const column_count = self.legend.columns.length
 
 	self.legend.columns.forEach((column, column_index) => {
 
@@ -169,29 +178,34 @@ export const populate_legend_columns = function(self, panel) {
 
 		const column_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-column-row', parent: column_node})
 
+		const name_field = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-field', parent: column_row})
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'uca-maps-legend-field-label',
+			text_content	: self.get_tool_label('legend_column_label') || 'Group',
+			parent			: name_field
+		})
 		const name_input = ui.create_dom_element({
 			element_type	: 'input',
 			class_name		: 'uca-maps-legend-input uca-maps-legend-column-name',
-			parent			: column_row
+			parent			: name_field
 		})
 		name_input.type			= 'text'
-		name_input.placeholder	= self.get_tool_label('legend_column_placeholder') || 'Column name'
+		name_input.placeholder	= self.get_tool_label('legend_column_placeholder') || 'Group name'
 		name_input.value			= column.name
 		name_input.addEventListener('input', () => {
 			self.set_legend_column_name(column_index, name_input.value)
 		})
 
-		const add_element_btn = ui.create_dom_element({
-			element_type	: 'button',
-			class_name		: 'uca-maps-legend-add-element',
-			text_content	: self.get_tool_label('legend_add_element') || 'Add element',
-			parent			: column_row
+		render_move_buttons(self, column_row, column_index, column_count, (offset) => {
+			const result = self.move_legend_column(column_index, offset)
+			if (result.ok) {
+				populate_legend_columns(self, panel)
+				focus_move_button(panel, result.index, null, offset)
+			}
 		})
-		add_element_btn.type = 'button'
-		add_element_btn.addEventListener('click', () => {
-			self.add_legend_element(column_index)
-			populate_legend_columns(self, panel)
-		})
+
+		const confirm_node = render_delete_column_confirm(self, panel, column_node, column_index)
 
 		const delete_column_btn = ui.create_dom_element({
 			element_type	: 'button',
@@ -200,16 +214,38 @@ export const populate_legend_columns = function(self, panel) {
 			parent			: column_row
 		})
 		delete_column_btn.type	= 'button'
-		delete_column_btn.title	= self.get_tool_label('legend_delete_column') || 'Delete column'
+		delete_column_btn.title	= self.get_tool_label('legend_delete_column') || 'Delete group'
+		delete_column_btn.setAttribute('aria-label', delete_column_btn.title)
 		delete_column_btn.addEventListener('click', () => {
-			self.delete_legend_column(column_index)
-			populate_legend_columns(self, panel)
+			// an empty group goes at once; one with elements asks first, in
+			// the panel — a page dialog would not show over a fullscreen map
+			if (!column.elements.length) {
+				self.delete_legend_column(column_index)
+				populate_legend_columns(self, panel)
+				return
+			}
+			confirm_node.hidden = false
+			confirm_node.querySelector('.uca-maps-legend-confirm-cancel').focus()
 		})
 
 		const elements_list = ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-legend-elements', parent: column_node})
 
 		column.elements.forEach((element, element_index) => {
 			render_element_row(self, panel, elements_list, column_index, element_index, element)
+		})
+
+		// after the elements, where the new one appears
+		const add_element_btn = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'uca-maps-legend-add-element',
+			text_content	: '+ ' + (self.get_tool_label('legend_add_element') || 'Add element'),
+			parent			: column_node
+		})
+		add_element_btn.type = 'button'
+		add_element_btn.addEventListener('click', () => {
+			const result = self.add_legend_element(column_index)
+			populate_legend_columns(self, panel)
+			focus_in_list(panel, column_index, result.index, '.uca-maps-legend-element-name')
 		})
 
 	})
@@ -219,27 +255,177 @@ export const populate_legend_columns = function(self, panel) {
 
 
 /**
+* RENDER_DELETE_COLUMN_CONFIRM
+* The in-panel "are you sure" of a group that still has elements: deleting
+* it takes all of them.
+*
+* @param {Object} self
+* @param {HTMLElement} panel
+* @param {HTMLElement} column_node
+* @param {number} column_index
+* @returns {HTMLElement} the confirm line, hidden
+*/
+const render_delete_column_confirm = function(self, panel, column_node, column_index) {
+
+	const confirm_node = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-confirm', parent: column_node})
+	confirm_node.hidden = true
+
+	ui.create_dom_element({
+		element_type	: 'span',
+		text_content	: self.get_tool_label('legend_confirm_delete_column') || 'Delete this group and all its elements?',
+		parent			: confirm_node
+	})
+
+	const accept_btn = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-legend-confirm-delete',
+		text_content	: self.get_tool_label('legend_confirm_delete') || 'Delete',
+		parent			: confirm_node
+	})
+	accept_btn.type = 'button'
+	accept_btn.addEventListener('click', () => {
+		self.delete_legend_column(column_index)
+		populate_legend_columns(self, panel)
+	})
+
+	const cancel_btn = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-legend-confirm-cancel',
+		text_content	: self.get_tool_label('legend_confirm_cancel') || 'Cancel',
+		parent			: confirm_node
+	})
+	cancel_btn.type = 'button'
+	cancel_btn.addEventListener('click', () => {
+		confirm_node.hidden = true
+	})
+
+	return confirm_node
+}//end render_delete_column_confirm
+
+
+
+/**
+* RENDER_MOVE_BUTTONS
+* ↑ / ↓, disabled at the ends of their list.
+*
+* @param {Object} self
+* @param {HTMLElement} parent
+* @param {number} index
+* @param {number} count
+* @param {function(number): void} on_move - receives -1 or +1
+* @returns {void}
+*/
+const render_move_buttons = function(self, parent, index, count, on_move) {
+
+	const buttons = [
+		{offset: -1, glyph: '↑', class_name: 'uca-maps-legend-move-up', title: self.get_tool_label('legend_move_up') || 'Move up'},
+		{offset: 1, glyph: '↓', class_name: 'uca-maps-legend-move-down', title: self.get_tool_label('legend_move_down') || 'Move down'}
+	]
+
+	for (const item of buttons) {
+		const button = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'uca-maps-legend-move ' + item.class_name,
+			text_content	: item.glyph,
+			parent			: parent
+		})
+		button.type		= 'button'
+		button.title	= item.title
+		button.setAttribute('aria-label', item.title)
+		button.disabled	= index + item.offset < 0 || index + item.offset >= count
+		button.addEventListener('click', () => on_move(item.offset))
+	}
+
+}//end render_move_buttons
+
+
+
+/**
+* FOCUS_IN_LIST
+* The list is rebuilt on every structural change, so the node that had focus
+* is gone: put it back on the equivalent node of the new list.
+*
+* @param {HTMLElement} panel
+* @param {number} column_index
+* @param {number|null} element_index - null for the group's own row
+* @param {string} selector
+* @returns {HTMLElement|null} the node focused
+*/
+const focus_in_list = function(panel, column_index, element_index, selector) {
+
+	const column_node	= panel.querySelectorAll('.uca-maps-legend-column')[column_index]
+	const scope			= column_node && element_index!==null
+		? column_node.querySelectorAll('.uca-maps-legend-element')[element_index]
+		: column_node && column_node.querySelector('.uca-maps-legend-column-row')
+	const node			= scope && scope.querySelector(selector)
+	if (node) {
+		node.focus()
+	}
+
+	return node || null
+}//end focus_in_list
+
+
+
+/**
+* FOCUS_MOVE_BUTTON
+* Keyboard users keep moving the same item; at the end of the list the
+* button in that direction is disabled, so focus goes to its twin.
+*
+* @param {HTMLElement} panel
+* @param {number} column_index
+* @param {number|null} element_index
+* @param {number} offset
+* @returns {void}
+*/
+const focus_move_button = function(panel, column_index, element_index, offset) {
+
+	const selector	= offset<0 ? '.uca-maps-legend-move-up' : '.uca-maps-legend-move-down'
+	const twin		= offset<0 ? '.uca-maps-legend-move-down' : '.uca-maps-legend-move-up'
+	const node		= focus_in_list(panel, column_index, element_index, selector)
+	if (node && node.disabled) {
+		focus_in_list(panel, column_index, element_index, twin)
+	}
+
+}//end focus_move_button
+
+
+
+/**
 * RENDER_ELEMENT_ROW
-* Una fila icono + nombre + "Subir icono" + borrar, dentro de su columna.
+* Símbolo (botón que abre su editor) + nombre + ↑/↓ + borrar, y debajo el
+* editor del símbolo, cerrado.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
 * @param {HTMLElement} elements_list
 * @param {number} column_index
 * @param {number} element_index
-* @param {Object} element - {name, icon}
+* @param {Object} element - {name, icon, symbol?}
 * @returns {void}
 */
 const render_element_row = function(self, panel, elements_list, column_index, element_index, element) {
 
 	const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-legend-element', parent: elements_list})
 
+	const row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-element-row', parent: item})
+
+	const symbol_btn = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-legend-symbol-button',
+		parent			: row
+	})
+	symbol_btn.type		= 'button'
+	symbol_btn.title	= self.get_tool_label('legend_symbol_button') || 'Change symbol'
+	symbol_btn.setAttribute('aria-label', symbol_btn.title)
+	symbol_btn.setAttribute('aria-expanded', 'false')
+
 	// `src` assigned AFTER creation on purpose: ui.create_dom_element routes
 	// options.src through safe_url, which refuses `data:` — and every icon here
-	// is a data URL this browser just minted (the embedded pin, or a FileReader
-	// result). If legends ever persist (a stored value arriving from the wire),
-	// THIS line and its twin in the overlay are what must be re-guarded.
-	const icon = ui.create_dom_element({element_type: 'img', class_name: 'uca-maps-legend-element-icon', parent: item})
+	// is a data URL this browser just minted (the pin, a drawn symbol or a
+	// FileReader result). If legends ever persist (a stored value arriving from
+	// the wire), THIS line and its twins are what must be re-guarded.
+	const icon = ui.create_dom_element({element_type: 'img', class_name: 'uca-maps-legend-element-icon', parent: symbol_btn})
 	icon.src	= element.icon
 	icon.width	= 18
 	icon.height	= 18
@@ -248,41 +434,173 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	const name_input = ui.create_dom_element({
 		element_type	: 'input',
 		class_name		: 'uca-maps-legend-input uca-maps-legend-element-name',
-		parent			: item
+		parent			: row
 	})
 	name_input.type			= 'text'
 	name_input.placeholder	= self.get_tool_label('legend_element_placeholder') || 'Element name'
+	name_input.setAttribute('aria-label', name_input.placeholder)
 	name_input.value			= element.name
 	name_input.addEventListener('input', () => {
 		self.set_legend_element_name(column_index, element_index, name_input.value)
 	})
 
-	const upload_btn = ui.create_dom_element({
-		element_type	: 'button',
-		class_name		: 'uca-maps-legend-upload-icon',
-		text_content	: self.get_tool_label('legend_upload_icon') || 'Icon',
-		parent			: item
-	})
-	upload_btn.type	= 'button'
-	upload_btn.title	= self.get_tool_label('legend_upload_icon_title') || 'Recommended size 36x36'
-	upload_btn.addEventListener('click', () => {
-		pick_icon_file(self, panel, column_index, element_index)
+	const element_count = self.legend.columns[column_index].elements.length
+	render_move_buttons(self, row, element_index, element_count, (offset) => {
+		const result = self.move_legend_element(column_index, element_index, offset)
+		if (result.ok) {
+			populate_legend_columns(self, panel)
+			focus_move_button(panel, column_index, result.index, offset)
+		}
 	})
 
 	const delete_btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-legend-delete-element',
 		text_content	: '✕',
-		parent			: item
+		parent			: row
 	})
 	delete_btn.type	= 'button'
 	delete_btn.title	= self.get_tool_label('legend_delete_element') || 'Delete element'
+	delete_btn.setAttribute('aria-label', delete_btn.title)
 	delete_btn.addEventListener('click', () => {
 		self.delete_legend_element(column_index, element_index)
 		populate_legend_columns(self, panel)
 	})
 
+	const editor = render_symbol_editor(self, panel, item, icon, column_index, element_index, element)
+
+	symbol_btn.addEventListener('click', () => {
+		editor.hidden = !editor.hidden
+		symbol_btn.setAttribute('aria-expanded', String(!editor.hidden))
+	})
+
 }//end render_element_row
+
+
+
+/**
+* RENDER_SYMBOL_EDITOR
+* Forma + relleno + borde, o subir una imagen. Cada gesto aplica el símbolo
+* entero en el acto; nada reconstruye la lista, así que el selector de
+* color nativo sigue abierto mientras se arrastra.
+*
+* @param {Object} self
+* @param {HTMLElement} panel
+* @param {HTMLElement} item - the element's <li>
+* @param {HTMLImageElement} row_icon - the row's own symbol image, repainted in place
+* @param {number} column_index
+* @param {number} element_index
+* @param {Object} element
+* @returns {HTMLElement} the editor, hidden
+*/
+const render_symbol_editor = function(self, panel, item, row_icon, column_index, element_index, element) {
+
+	// an element still on the pin, or on an uploaded image, opens on the defaults
+	const current = Object.assign({}, element.symbol || default_legend_symbol())
+
+	const editor = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-symbol-editor', parent: item})
+	editor.hidden = true
+
+	const shapes = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-symbol-shapes', parent: editor})
+	const shape_labels = {
+		point	: self.get_tool_label('legend_symbol_point') || 'Point',
+		line	: self.get_tool_label('legend_symbol_line') || 'Line',
+		area	: self.get_tool_label('legend_symbol_area') || 'Area'
+	}
+	const shape_buttons = LEGEND_SYMBOL_SHAPES.map((shape) => {
+		const button = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'uca-maps-legend-symbol-shape',
+			parent			: shapes
+		})
+		button.type				= 'button'
+		button.dataset.shape	= shape
+		button.addEventListener('click', () => {
+			current.shape = shape
+			apply()
+		})
+		return button
+	})
+
+	const fill_field = render_colour_field(editor, 'uca-maps-legend-symbol-fill', self.get_tool_label('legend_symbol_fill') || 'Fill', current.fill, (value) => {
+		current.fill = value
+		apply()
+	})
+	const stroke_field = render_colour_field(editor, 'uca-maps-legend-symbol-stroke', '', current.stroke, (value) => {
+		current.stroke = value
+		apply()
+	})
+	const stroke_text = stroke_field.querySelector('.uca-maps-legend-field-label')
+
+	const upload_btn = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-legend-upload-icon',
+		text_content	: self.get_tool_label('legend_upload_icon') || 'Upload image',
+		parent			: editor
+	})
+	upload_btn.type	= 'button'
+	upload_btn.title	= self.get_tool_label('legend_upload_icon_title') || 'Upload an image as the symbol (recommended size 36x36)'
+	upload_btn.addEventListener('click', () => {
+		pick_icon_file(self, panel, column_index, element_index)
+	})
+
+	// the editor's own look follows `current`, applied or not yet
+	const paint = function() {
+		for (const button of shape_buttons) {
+			const shape = button.dataset.shape
+			button.setAttribute('aria-pressed', String(Boolean(element.symbol) && shape===current.shape))
+			button.replaceChildren(
+				legend_symbol_node(Object.assign({}, current, {shape: shape})),
+				document.createTextNode(shape_labels[shape])
+			)
+		}
+		// a line is one colour: the stroke
+		fill_field.hidden		= current.shape==='line'
+		stroke_text.textContent	= current.shape==='line'
+			? (self.get_tool_label('legend_symbol_line_colour') || 'Colour')
+			: (self.get_tool_label('legend_symbol_stroke') || 'Border')
+	}
+
+	const apply = function() {
+		const result = self.set_legend_element_symbol(column_index, element_index, current)
+		if (result.ok) {
+			row_icon.src = element.icon
+		}
+		paint()
+	}
+
+	paint()
+
+	return editor
+}//end render_symbol_editor
+
+
+
+/**
+* RENDER_COLOUR_FIELD
+* @param {HTMLElement} parent
+* @param {string} class_name - the input's class
+* @param {string} text - the visible label ('' to fill in later)
+* @param {string} value - #rrggbb
+* @param {function(string): void} on_input
+* @returns {HTMLElement} the <label>
+*/
+const render_colour_field = function(parent, class_name, text, value, on_input) {
+
+	const field = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-field', parent: parent})
+	ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'uca-maps-legend-field-label',
+		text_content	: text,
+		parent			: field
+	})
+	const input = ui.create_dom_element({element_type: 'input', class_name: class_name, parent: field})
+	input.type	= 'color'
+	input.value	= value
+	input.addEventListener('input', () => on_input(input.value))
+
+	return field
+}//end render_colour_field
 
 
 

@@ -92,6 +92,7 @@ import {
 	populate_legend_columns,
 	show_legend_message
 } from '../../../tools/tool_uca_maps/js/render_legend.js'
+import { DEFAULT_SYMBOL_COLOUR } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
 import { is_toolbar_node, create_toolbar_panel, remove_toolbar_panel } from '../../../tools/tool_uca_maps/js/toolbar.js'
 import {
 	search_roman,
@@ -242,6 +243,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(typeof tool_uca_maps.prototype.delete_legend_element, 'function', 'expected delete_legend_element defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_name, 'function', 'expected set_legend_element_name defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_icon, 'function', 'expected set_legend_element_icon defined')
+		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_symbol, 'function', 'expected set_legend_element_symbol defined')
+		assert.equal(typeof tool_uca_maps.prototype.move_legend_column, 'function', 'expected move_legend_column defined')
+		assert.equal(typeof tool_uca_maps.prototype.move_legend_element, 'function', 'expected move_legend_element defined')
 		// "Imperio Romano" — functionality #14, the three gazetteers
 		assert.equal(typeof tool_uca_maps.prototype.attach_roman_empire, 'function', 'expected attach_roman_empire defined')
 		assert.equal(typeof tool_uca_maps.prototype.set_roman_source, 'function', 'expected set_roman_source defined')
@@ -5485,6 +5489,216 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(tool.legend_panel.hidden, 'expected the sibling to have closed it')
 		button.click()
 		assert.isFalse(tool.legend_panel.hidden, 'expected one click to reopen it')
+	})
+
+	/** The SVG a drawn legend symbol stores in `icon` (a base64 `data:` URL). */
+	const decode_symbol = function(icon) {
+		const prefix = 'data:image/svg+xml;base64,'
+		assert.isTrue(icon.startsWith(prefix), 'expected a drawn symbol stored as an SVG data URL')
+		return new DOMParser().parseFromString(atob(icon.slice(prefix.length)), 'image/svg+xml').documentElement
+	}
+
+	it('the Legend panel is centered, labels its fields, and adds where the new item appears', function() {
+
+		tool.attach_legend()
+		tool.legend_control.getContainer().click()
+
+		const panel = tool.legend_panel
+		assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the wide centered variant')
+		assert.equal(panel.querySelectorAll('.uca-maps-panel-header').length, 1, 'expected toolbar.js\'s header only')
+		assert.isOk(panel.querySelector('.uca-maps-panel-close'), 'expected the × to close it')
+
+		const title_input = panel.querySelector('.uca-maps-legend-title-input')
+		assert.isOk(title_input.closest('label').querySelector('.uca-maps-legend-field-label').textContent, 'expected a visible title label')
+
+		// "+ Add group" sits AFTER the list: the new group appears right above it
+		const list		= panel.querySelector('.uca-maps-legend-columns')
+		const add_group	= panel.querySelector('.uca-maps-legend-add-column')
+		assert.isTrue(Boolean(list.compareDocumentPosition(add_group) & Node.DOCUMENT_POSITION_FOLLOWING), 'expected Add group after the list')
+
+		add_group.click()
+		const card = panel.querySelector('.uca-maps-legend-column')
+		const group_input = card.querySelector('.uca-maps-legend-column-name')
+		assert.isOk(group_input.closest('label').querySelector('.uca-maps-legend-field-label').textContent, 'expected a visible group label')
+		assert.equal(document.activeElement, group_input, 'expected the new group\'s name focused')
+
+		const elements_list	= card.querySelector('.uca-maps-legend-elements')
+		const add_element	= card.querySelector('.uca-maps-legend-add-element')
+		assert.isTrue(Boolean(elements_list.compareDocumentPosition(add_element) & Node.DOCUMENT_POSITION_FOLLOWING), 'expected Add element after its elements')
+
+		add_element.click()
+		const element_input = panel.querySelector('.uca-maps-legend-element-name')
+		assert.equal(document.activeElement, element_input, 'expected the new element\'s name focused')
+		assert.isOk(element_input.getAttribute('aria-label'), 'expected the element name to carry an accessible name')
+	})
+
+	it('deleting a group that has elements asks first, in the panel; an empty group goes at once', function() {
+
+		tool.attach_legend()
+		tool.legend_control.getContainer().click()
+		const panel = tool.legend_panel
+
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		panel.querySelector('.uca-maps-legend-delete-column').click()
+		assert.equal(tool.legend.columns.length, 0, 'expected an empty group deleted without asking')
+
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		panel.querySelector('.uca-maps-legend-add-element').click()
+
+		const confirm_node = panel.querySelector('.uca-maps-legend-confirm')
+		assert.isTrue(confirm_node.hidden, 'expected no question before the click')
+
+		panel.querySelector('.uca-maps-legend-delete-column').click()
+		assert.isFalse(confirm_node.hidden, 'expected the question shown')
+		assert.equal(tool.legend.columns.length, 1, 'expected nothing deleted yet')
+		assert.equal(document.activeElement, confirm_node.querySelector('.uca-maps-legend-confirm-cancel'), 'expected Cancel focused, the safe answer')
+
+		confirm_node.querySelector('.uca-maps-legend-confirm-cancel').click()
+		assert.isTrue(confirm_node.hidden, 'expected Cancel to close the question')
+		assert.equal(tool.legend.columns[0].elements.length, 1, 'expected the group and its element kept')
+
+		panel.querySelector('.uca-maps-legend-delete-column').click()
+		panel.querySelector('.uca-maps-legend-confirm-delete').click()
+		assert.equal(tool.legend.columns.length, 0, 'expected the group deleted on Delete')
+		assert.isOk(panel.querySelector('.uca-maps-legend-empty'), 'expected the list rebuilt empty')
+	})
+
+	it('↑/↓ reorder groups and elements, are disabled at the ends, and keep focus on the moved item', function() {
+
+		tool.attach_legend()
+		tool.add_legend_column()
+		tool.set_legend_column_name(0, 'A')
+		tool.add_legend_column()
+		tool.set_legend_column_name(1, 'B')
+		tool.add_legend_element(1)
+		tool.set_legend_element_name(1, 0, 'x')
+		tool.add_legend_element(1)
+		tool.set_legend_element_name(1, 1, 'y')
+		tool.legend_control.getContainer().click()
+		const panel = tool.legend_panel
+
+		const rows = () => panel.querySelectorAll('.uca-maps-legend-column-row')
+		assert.isTrue(rows()[0].querySelector('.uca-maps-legend-move-up').disabled, 'expected the first group unable to go up')
+		assert.isTrue(rows()[1].querySelector('.uca-maps-legend-move-down').disabled, 'expected the last group unable to go down')
+
+		rows()[1].querySelector('.uca-maps-legend-move-up').click()
+		assert.deepEqual(tool.legend.columns.map((column) => column.name), ['B', 'A'], 'expected the groups swapped')
+		assert.equal(panel.querySelectorAll('.uca-maps-legend-column-name')[0].value, 'B', 'expected the list rebuilt in the new order')
+		// B is now first: its ↑ is disabled, so focus lands on its ↓
+		assert.equal(document.activeElement, rows()[0].querySelector('.uca-maps-legend-move-down'), 'expected focus kept on the moved group')
+
+		const element_rows = () => panel.querySelectorAll('.uca-maps-legend-column')[0].querySelectorAll('.uca-maps-legend-element-row')
+		element_rows()[0].querySelector('.uca-maps-legend-move-down').click()
+		assert.deepEqual(tool.legend.columns[0].elements.map((element) => element.name), ['y', 'x'], 'expected the elements swapped')
+		assert.equal(document.activeElement, element_rows()[1].querySelector('.uca-maps-legend-move-up'), 'expected focus kept on the moved element')
+
+		const overlay_names = [...tool.legend_overlay.getContainer().querySelectorAll('.uca-maps-legend-overlay-column-name')].map((node) => node.textContent)
+		assert.deepEqual(overlay_names, ['B', 'A'], 'expected the overlay redrawn in the new order')
+
+		assert.deepEqual(tool.move_legend_column(0, -1), {ok: false}, 'expected no move past the top')
+		assert.deepEqual(tool.move_legend_column(0, 2), {ok: false}, 'expected only a one-step move')
+		assert.deepEqual(tool.move_legend_element(0, 1, 1), {ok: false}, 'expected no move past the bottom')
+		assert.deepEqual(tool.move_legend_element(7, 0, 1), {ok: false}, 'expected a bad group refused')
+	})
+
+	it('set_legend_element_symbol draws a valid symbol and refuses anything else', async function() {
+
+		tool.attach_legend()
+		tool.add_legend_column()
+		tool.add_legend_element(0)
+		const element = tool.legend.columns[0].elements[0]
+
+		for (const bad of [
+			{shape: 'star', fill: PICKED_COLOUR, stroke: PICKED_COLOUR},
+			{shape: 'area', fill: PICKED_COLOUR.slice(1), stroke: PICKED_COLOUR},
+			{shape: 'area', fill: PICKED_COLOUR, stroke: '"/><script>x</script>'},
+			// String([x]) === x: a coercing check would pass it and then throw
+			{shape: 'area', fill: [PICKED_COLOUR], stroke: PICKED_COLOUR},
+			null
+		]) {
+			assert.deepEqual(tool.set_legend_element_symbol(0, 0, bad), {ok: false})
+		}
+		assert.equal(element.icon, DEFAULT_ELEMENT_ICON, 'expected a refused symbol to leave the pin')
+		assert.notProperty(element, 'symbol')
+		assert.deepEqual(tool.set_legend_element_symbol(0, 7, {shape: 'area', fill: PICKED_COLOUR, stroke: PICKED_COLOUR}), {ok: false})
+
+		assert.deepEqual(tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: PICKED_COLOUR, stroke: DEFAULT_SYMBOL_COLOUR}), {ok: true})
+		const rect = decode_symbol(element.icon).querySelector('rect')
+		assert.isOk(rect, 'expected an area drawn as a rectangle')
+		assert.equal(rect.getAttribute('fill'), PICKED_COLOUR)
+		assert.equal(rect.getAttribute('stroke'), DEFAULT_SYMBOL_COLOUR)
+		assert.deepEqual(element.symbol, {shape: 'area', fill: PICKED_COLOUR, stroke: DEFAULT_SYMBOL_COLOUR}, 'expected the values kept to reopen the editor')
+		assert.equal(tool.legend_overlay.getContainer().querySelector('.uca-maps-legend-overlay-element img').getAttribute('src'), element.icon, 'expected the overlay to draw it')
+
+		tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: PICKED_COLOUR.toUpperCase(), stroke: PICKED_COLOUR})
+		assert.equal(element.symbol.fill, PICKED_COLOUR, 'expected the colour stored lowercase')
+
+		tool.set_legend_element_symbol(0, 0, {shape: 'line', fill: PICKED_COLOUR, stroke: PICKED_COLOUR})
+		const line = decode_symbol(element.icon).querySelector('line')
+		assert.isOk(line, 'expected a line drawn as a line')
+		assert.isNull(line.getAttribute('fill'), 'expected a line with no fill')
+
+		tool.set_legend_element_symbol(0, 0, {shape: 'point', fill: PICKED_COLOUR, stroke: PICKED_COLOUR})
+		assert.isOk(decode_symbol(element.icon).querySelector('circle'), 'expected a point drawn as a circle')
+
+		// an uploaded image replaces the drawn symbol
+		const uploaded = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+		)
+		assert.isTrue(uploaded.ok)
+		assert.notProperty(element, 'symbol', 'expected the symbol dropped once an image replaces it')
+	})
+
+	it('the symbol opens its own editor, and each gesture repaints the row in place', function() {
+
+		tool.attach_legend()
+		tool.legend_control.getContainer().click()
+		const panel = tool.legend_panel
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		panel.querySelector('.uca-maps-legend-add-element').click()
+
+		const symbol_btn	= panel.querySelector('.uca-maps-legend-symbol-button')
+		const row_icon		= symbol_btn.querySelector('img')
+		const editor		= panel.querySelector('.uca-maps-legend-symbol-editor')
+		assert.equal(row_icon.getAttribute('src'), DEFAULT_ELEMENT_ICON, 'expected the pin inside the symbol button')
+		assert.isTrue(editor.hidden, 'expected the editor closed')
+		assert.equal(symbol_btn.getAttribute('aria-expanded'), 'false')
+
+		symbol_btn.click()
+		assert.isFalse(editor.hidden, 'expected the symbol to open its editor')
+		assert.equal(symbol_btn.getAttribute('aria-expanded'), 'true')
+		assert.isNotOk(editor.querySelector('[aria-pressed="true"]'), 'expected no shape pressed while the pin is shown')
+		assert.isOk(editor.querySelector('.uca-maps-legend-upload-icon'), 'expected image upload offered in the editor')
+
+		editor.querySelector('[data-shape="area"]').click()
+		const element = tool.legend.columns[0].elements[0]
+		assert.equal(element.symbol.shape, 'area')
+		assert.equal(row_icon.getAttribute('src'), element.icon, 'expected the row repainted')
+		assert.isTrue(row_icon.isConnected, 'expected the row repainted IN PLACE, the list not rebuilt')
+		assert.equal(editor.querySelector('[data-shape="area"]').getAttribute('aria-pressed'), 'true')
+
+		// the colour input survives its own input event: a rebuild would close the native picker
+		const fill_input = editor.querySelector('.uca-maps-legend-symbol-fill')
+		fill_input.value = PICKED_COLOUR
+		fill_input.dispatchEvent(new Event('input'))
+		assert.equal(element.symbol.fill, PICKED_COLOUR, 'expected the fill to reach the symbol')
+		assert.isTrue(fill_input.isConnected, 'expected the colour input kept')
+		assert.isFalse(editor.hidden, 'expected the editor still open')
+		assert.equal(decode_symbol(row_icon.getAttribute('src')).querySelector('rect').getAttribute('fill'), PICKED_COLOUR)
+
+		const stroke_label = editor.querySelector('.uca-maps-legend-symbol-stroke').closest('label').querySelector('.uca-maps-legend-field-label')
+		const border_text = stroke_label.textContent
+		editor.querySelector('[data-shape="line"]').click()
+		assert.isTrue(fill_input.closest('label').hidden, 'expected no fill for a line')
+		assert.notEqual(stroke_label.textContent, border_text, 'expected the one line colour not called a border')
+		assert.equal(element.symbol.fill, PICKED_COLOUR, 'expected the fill kept for a later area or point')
+
+		// a rebuilt list reopens the editor on the STORED symbol, not the defaults
+		populate_legend_columns(tool, panel)
+		const rebuilt = panel.querySelector('.uca-maps-legend-symbol-editor')
+		assert.notEqual(rebuilt, editor, 'expected a fresh editor')
+		assert.equal(rebuilt.querySelector('[data-shape="line"]').getAttribute('aria-pressed'), 'true', 'expected the stored shape pressed')
+		assert.equal(rebuilt.querySelector('.uca-maps-legend-symbol-fill').value, PICKED_COLOUR, 'expected the stored fill')
 	})
 
 	it('detach removes the button, the panel and the overlay', async function() {

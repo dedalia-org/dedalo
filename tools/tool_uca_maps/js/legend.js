@@ -46,6 +46,11 @@ import {
 	render_legend_overlay,
 	remove_legend_overlay
 } from './render_legend.js'
+import {
+	DEFAULT_SYMBOL_COLOUR,
+	is_legend_symbol,
+	legend_symbol_data_url
+} from './legend_symbol.js'
 
 
 
@@ -63,7 +68,7 @@ export const MAX_ICON_BYTES = 2000000
 * asset (`img-src` ya admite `data:`, `static_asset.ts` APP_CSP). */
 export const DEFAULT_ELEMENT_ICON = 'data:image/svg+xml;base64,' + btoa(
 	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">' +
-	'<path fill="#1a73e8" d="M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5' +
+	'<path fill="' + DEFAULT_SYMBOL_COLOUR + '" d="M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5' +
 	'a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>'
 )
 
@@ -109,7 +114,13 @@ export const attach_legend = function(self) {
 		on_click	: () => toggle_legend_panel(self)
 	})
 
-	self.legend_panel = create_toolbar_panel(self, {class_name: 'uca-maps-legend-panel'})
+	// centered and wide (the WMS variant): three nesting levels do not fit
+	// the 18rem anchored panel, and the overlay stays in view as a preview
+	self.legend_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-legend-panel',
+		centered	: true,
+		title		: self.get_tool_label('legend_control_title') || 'Legend'
+	})
 	render_legend_panel(self, self.legend_panel)
 
 	create_legend_overlay(self)
@@ -233,6 +244,25 @@ export const set_legend_column_name = function(self, index, text) {
 
 
 /**
+* MOVE_LEGEND_COLUMN
+* @param {Object} self
+* @param {number} index
+* @param {number} offset - -1 up, +1 down
+* @returns {{ok: boolean, index?: number}}
+*/
+export const move_legend_column = function(self, index, offset) {
+
+	const result = move_item(self.legend.columns, index, offset)
+	if (result.ok) {
+		render_legend_overlay(self)
+	}
+
+	return result
+}//end move_legend_column
+
+
+
+/**
 * ADD_LEGEND_ELEMENT
 * @param {Object} self
 * @param {number} column_index
@@ -276,6 +306,58 @@ export const delete_legend_element = function(self, column_index, element_index)
 
 
 /**
+* MOVE_LEGEND_ELEMENT
+* Within its own group only.
+*
+* @param {Object} self
+* @param {number} column_index
+* @param {number} element_index
+* @param {number} offset - -1 up, +1 down
+* @returns {{ok: boolean, index?: number}}
+*/
+export const move_legend_element = function(self, column_index, element_index, offset) {
+
+	const column = self.legend.columns[column_index]
+	if (!column) {
+		return {ok: false}
+	}
+
+	const result = move_item(column.elements, element_index, offset)
+	if (result.ok) {
+		render_legend_overlay(self)
+	}
+
+	return result
+}//end move_legend_element
+
+
+
+/**
+* MOVE_ITEM
+* @param {Array} list - mutated in place
+* @param {number} index
+* @param {number} offset
+* @returns {{ok: boolean, index?: number}}
+*/
+const move_item = function(list, index, offset) {
+
+	const target = index + offset
+	if (offset!==-1 && offset!==1) {
+		return {ok: false}
+	}
+	if (index<0 || index>=list.length || target<0 || target>=list.length) {
+		return {ok: false}
+	}
+
+	const [item] = list.splice(index, 1)
+	list.splice(target, 0, item)
+
+	return {ok: true, index: target}
+}//end move_item
+
+
+
+/**
 * SET_LEGEND_ELEMENT_NAME
 * @param {Object} self
 * @param {number} column_index
@@ -296,6 +378,39 @@ export const set_legend_element_name = function(self, column_index, element_inde
 
 	return {ok: true}
 }//end set_legend_element_name
+
+
+
+/**
+* SET_LEGEND_ELEMENT_SYMBOL
+* A drawn symbol (`legend_symbol.js`). The element keeps v6's `icon` as the
+* thing drawn — a `data:` URL like an upload — and `symbol` only so the
+* editor can reopen on its values. An invalid symbol changes nothing.
+*
+* @param {Object} self
+* @param {number} column_index
+* @param {number} element_index
+* @param {{shape: string, fill: string, stroke: string}} symbol
+* @returns {{ok: boolean}}
+*/
+export const set_legend_element_symbol = function(self, column_index, element_index, symbol) {
+
+	const column	= self.legend.columns[column_index]
+	const element	= column && column.elements[element_index]
+	if (!element || !is_legend_symbol(symbol)) {
+		return {ok: false}
+	}
+
+	element.symbol	= {
+		shape	: symbol.shape,
+		fill	: symbol.fill.toLowerCase(),
+		stroke	: symbol.stroke.toLowerCase()
+	}
+	element.icon	= legend_symbol_data_url(element.symbol)
+	render_legend_overlay(self)
+
+	return {ok: true}
+}//end set_legend_element_symbol
 
 
 
@@ -352,6 +467,8 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 	}
 
 	element.icon = data_url
+	// an uploaded image replaces the drawn symbol: nothing left to reopen
+	delete element.symbol
 	render_legend_overlay(self)
 
 	return {ok: true}
