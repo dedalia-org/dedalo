@@ -5,10 +5,11 @@
 
 /**
 * RENDER_ROMAN_EMPIRE
-* DOM for the "Roma" panel (fila #14). Shell built once at attach: a source
-* selector, the three sources' own form fields (only the active one visible)
-* and a shared result list. Everything it triggers reaches `self.<method>(...)`,
-* never `roman_empire.js` directly.
+* DOM for the "Roma" panel (fila #14). Shell built once at attach: the three
+* sources stacked, as in v6's modal, each with its own field, filters and
+* status line, and ONE floating result list anchored to whichever field
+* searched. Everything it triggers reaches `self.<method>(...)`, never
+* `roman_empire.js` directly.
 *
 * The Pelagios dataset checkboxes are built from what `get_capabilities`
 * reports as PRESENT, never from a client-side copy of the list — the server's
@@ -63,34 +64,73 @@ const DARE_COUNTRIES = [
 
 /**
 * RENDER_ROMAN_EMPIRE_PANEL
+* The centred shell (toolbar.js) already carries the title and the ×.
+*
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
 * @returns {HTMLElement} panel
 */
 export const render_roman_empire_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
+	const titles = {
+		pleiades	: self.get_tool_label('roman_source_pleiades') || 'Pleiades',
+		pelagios	: self.get_tool_label('roman_source_pelagios') || 'Pelagios',
+		dare		: self.get_tool_label('roman_source_dare') || 'DARE (imperium.ahlfeldt.se)'
+	}
+	const render_filters = {
+		pleiades	: render_pleiades_filters,
+		pelagios	: render_pelagios_filters,
+		dare		: render_dare_filters
+	}
+
+	for (const source of ROMAN_SOURCE_ORDER) {
+
+		const block = ui.create_dom_element({
+			element_type	: 'section',
+			class_name		: 'uca-maps-roman-source uca-maps-roman-' + source,
+			parent			: panel
+		})
+		block.dataset.source = source
+
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'uca-maps-panel-subtitle',
+			text_content	: titles[source],
+			parent			: block
+		})
+
+		const unavailable = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'uca-maps-roman-unavailable',
+			text_content	: self.get_tool_label('roman_source_unavailable') || 'Not available: this install has no local data for this gazetteer.',
+			parent			: block
+		})
+		unavailable.hidden = true
+
+		render_query_input(self, panel, block)
+		render_filters[source](self, block)
+
+		const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-message', parent: block})
+		message.hidden = true
+	}
+
+	// the list follows its field when the panel scrolls, and closes only once
+	// the field leaves the panel's view. Never close on any scroll: hiding a
+	// message at the bottom makes the browser clamp scrollTop and fire one
+	panel.addEventListener('scroll', () => {
+		if (self.roman_dropdown && !self.roman_dropdown.hidden) {
+			place_roman_list(self, panel)
+		}
 	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('roman_control_title') || 'Roman Empire',
-		parent			: header
-	})
 
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-message', parent: panel})
-	message.hidden = true
+	// pointer and keyboard ways of going elsewhere, one rule. CAPTURE on the
+	// map container: the panel stops mousedown bubbling
+	// (disableClickPropagation). Detach removes it; focusin dies with the panel.
+	self._roman_outside_handler = (event) => leave_roman_list_if_elsewhere(self, panel, event.target)
+	self.geolocation.map.getContainer().addEventListener('mousedown', self._roman_outside_handler, true)
+	panel.addEventListener('focusin', (event) => leave_roman_list_if_elsewhere(self, panel, event.target))
 
-	render_source_selector(self, panel)
-	render_query_row(self, panel)
-	render_pleiades_form(self, panel)
-	render_pelagios_form(self, panel)
-	render_dare_form(self, panel)
-
-	show_active_source_form(self, panel)
+	wire_list_keyboard(self, panel)
 
 	return panel
 }//end render_roman_empire_panel
@@ -98,111 +138,182 @@ export const render_roman_empire_panel = function(self, panel) {
 
 
 /**
-* SHOW_ROMAN_MESSAGE / CLEAR_ROMAN_MESSAGE
-* Plain in-flow status line, same reasoning as every other panel here.
+* WHOSE IS THE LIST
+* ONE list serves three fields, and `self._roman_source` says whose it is from
+* the moment a field ARMS a search — waiting out the debounce, in flight or
+* showing hits. Three doors decide everything about it; no handler reasons on
+* its own about "open" vs "pending" (every earlier bug lived in that gap).
+*/
+
+/**
+* CLAIM_ROMAN_LIST
+* A field arms a search: another field's list, and its search, go.
 *
+* @param {Object} self - tool_uca_maps instance
+* @param {string} source
+* @returns {void}
+*/
+const claim_roman_list = function(self, source) {
+	if (self._roman_source!==source) {
+		self.close_roman_suggestions()
+		self._roman_source = source
+	}
+}//end claim_roman_list
+
+/**
+* LEAVE_ROMAN_LIST_IF_ELSEWHERE
+* A press or a focus anywhere but the owning field or the list closes the list
+* and voids its search. The panel's own box is not "elsewhere": Chrome targets
+* the element when its scrollbar is pressed, and every control is a descendant.
+*
+* @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
+* @param {EventTarget} target
+* @returns {void}
+*/
+const leave_roman_list_if_elsewhere = function(self, panel, target) {
+	if (!self._roman_source || target===panel) {
+		return
+	}
+	if (target===source_input(panel, self._roman_source)) {
+		return
+	}
+	if (self.roman_dropdown && self.roman_dropdown.contains(target)) {
+		return
+	}
+	self.close_roman_suggestions()
+}//end leave_roman_list_if_elsewhere
+
+/**
+* PLACE_ROMAN_LIST
+* Anchors the list under its field, or closes it when that field is not fully
+* inside the panel's view (below the sticky header) — on a scroll AND when hits
+* arrive, so a late answer never opens under a field scrolled away.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {boolean} whether the list may show
+*/
+const place_roman_list = function(self, panel) {
+
+	const input = source_input(panel, self._roman_source)
+	if (!input || panel.hidden) {
+		self.close_roman_suggestions()
+		return false
+	}
+
+	const panel_rect	= panel.getBoundingClientRect()
+	const header		= panel.querySelector(':scope > .uca-maps-panel-header')
+	const view_top		= panel_rect.top + panel.clientTop + (header ? header.offsetHeight : 0)
+	const view_bottom	= panel_rect.top + panel.clientTop + panel.clientHeight
+	const input_rect	= input.getBoundingClientRect()
+
+	if (input_rect.top < view_top || input_rect.bottom > view_bottom) {
+		self.close_roman_suggestions()
+		return false
+	}
+	anchor_suggestions_to_input(self, panel)
+	return true
+
+}//end place_roman_list
+
+
+
+/** v6's own order (`special_tools_roman_empire.js:73-75`). */
+const ROMAN_SOURCE_ORDER = ['pleiades', 'pelagios', 'dare']
+
+/** Radio groups need a name unique per page: two maps may be open at once. */
+let pleiades_radio_seq = 0
+
+
+
+/**
+* SOURCE_BLOCK / SOURCE_INPUT
+* @param {HTMLElement} panel
+* @param {string|null} source
+* @returns {HTMLElement|null}
+*/
+const source_block = function(panel, source) {
+	return source ? panel.querySelector('.uca-maps-roman-' + source) : null
+}//end source_block
+
+const source_input = function(panel, source) {
+	const block = source_block(panel, source)
+	return block ? block.querySelector('.uca-maps-roman-input') : null
+}//end source_input
+
+
+
+/**
+* SHOW_ROMAN_MESSAGE / CLEAR_ROMAN_MESSAGE
+* Plain in-flow status line, one per source: an error belongs under the field
+* that caused it.
+*
+* @param {HTMLElement} block - a source's own section
 * @param {string} text
 * @returns {void}
 */
-const show_roman_message = function(panel, text) {
-	const message = panel.querySelector('.uca-maps-roman-message')
+const show_roman_message = function(block, text) {
+	const message = block.querySelector('.uca-maps-roman-message')
 	message.textContent	= text
 	message.hidden		= false
 }//end show_roman_message
 
-const clear_roman_message = function(panel) {
-	panel.querySelector('.uca-maps-roman-message').hidden = true
+const clear_roman_message = function(block) {
+	block.querySelector('.uca-maps-roman-message').hidden = true
 }//end clear_roman_message
 
 
 
 /**
-* RENDER_SOURCE_SELECTOR
-* The three gazetteers under their REAL names (audit correction #2). Changing
-* the source drops the previous hits: they belong to the source that found
-* them.
+* RENDER_QUERY_INPUT
+* A source's own search field. There is no Search button and no in-flow result
+* list (Sergio, 2026-09-17): the hits arrive as a TYPEAHEAD anchored to the
+* field — typing opens it, ↑/↓ walk it, Enter or a click draws the place on
+* the map, Esc closes it. v6's three blocks search on every keyup; this keeps
+* that immediacy with the keyboard contract of core `service_autocomplete`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
+* @param {HTMLElement} block - the source's own section
 * @returns {void}
 */
-const render_source_selector = function(self, panel) {
+const render_query_input = function(self, panel, block) {
 
-	const select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-source-select', parent: panel})
+	const source = block.dataset.source
 
-	const sources = [
-		['pleiades', self.get_tool_label('roman_source_pleiades') || 'Pleiades'],
-		['pelagios', self.get_tool_label('roman_source_pelagios') || 'Pelagios'],
-		['dare', self.get_tool_label('roman_source_dare') || 'DARE (imperium.ahlfeldt.se)']
-	]
-	for (const [value, text] of sources) {
-		const option = ui.create_dom_element({element_type: 'option', text_content: text, parent: select})
-		option.value = value
-	}
-	select.value = self._roman_source
-
-	select.addEventListener('change', () => {
-		self.set_roman_source(select.value)
-		clear_roman_message(panel)
-		show_active_source_form(self, panel)
-		populate_roman_results(self, panel)
-	})
-
-}//end render_source_selector
-
-
-
-/**
-* RENDER_QUERY_ROW
-* The one search field every source shares. There is no Search button and no
-* in-flow result list any more (Sergio, 2026-09-17): the hits arrive as a
-* TYPEAHEAD anchored to the field — typing opens it, ↑/↓ walk it, Enter or a
-* click draws the place on the map, Esc closes it. v6's own three blocks
-* search on every keyup; this keeps that immediacy and adds the keyboard
-* contract the rest of Dédalo already has (core `service_autocomplete`).
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
-* @returns {void}
-*/
-const render_query_row = function(self, panel) {
-
-	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-form', parent: panel})
-
-	const query_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-roman-input', parent: form})
-	query_input.type		= 'text'
-	query_input.placeholder	= self.get_tool_label('roman_placeholder') || 'Place name'
+	const query_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-roman-input', parent: block})
+	query_input.type			= 'text'
+	query_input.placeholder		= self.get_tool_label('roman_placeholder') || 'Place name'
 	query_input.autocomplete	= 'off'
 
 	/**
-	* Runs the active source's search and opens the suggestion list with what
-	* comes back. `live` is the as-you-type path: it stays quiet about an empty
-	* box, which is a state you pass THROUGH while typing, not an error.
+	* Runs this source's search and opens the suggestion list with what comes
+	* back. `live` is the as-you-type path: it stays quiet about an empty box,
+	* which is a state you pass THROUGH while typing, not an error.
 	*/
 	const run_search = async (live) => {
 
-		const result = await self.search_roman(collect_roman_params(self, panel, query_input.value))
+		const result = await self.search_roman(source, collect_roman_params(block, query_input.value))
 
 		if (!result.ok) {
 			// a torn-down tool — or a search overtaken by a later keystroke —
 			// answers {ok:false} with no error text
 			if (result.error && !live) {
-				show_roman_message(panel, result.error)
+				show_roman_message(block, result.error)
 			}
 			return
 		}
 
-		clear_roman_message(panel)
+		clear_roman_message(block)
 		populate_roman_results(self, panel)
 	}
 
 	// Enter with the list closed (or nothing chosen yet) searches NOW, without
-	// waiting out the debounce; with a row active it draws that row — see
-	// the keydown handler below.
+	// waiting out the debounce; with a row active it draws that row.
 	query_input.addEventListener('keydown', (event) => {
 
-		const rows = suggestion_rows(self)
+		const rows = suggestion_rows(self, source)
 
 		if (event.key==='ArrowDown' || event.key==='ArrowUp') {
 			if (rows.length===0) {
@@ -212,6 +323,14 @@ const render_query_row = function(self, panel) {
 			const step	= event.key==='ArrowDown' ? 1 : -1
 			const next	= self._roman_active_index + step
 			set_active_suggestion(self, Math.max(0, Math.min(rows.length - 1, next)))
+			return
+		}
+
+		// Sergio, 2026-09-30: an open list sits "right after" its field, so Tab
+		// walks into it instead of leaving for the panel's next control
+		if (event.key==='Tab' && !event.shiftKey && rows.length > 0) {
+			event.preventDefault()
+			rows[Math.max(0, self._roman_active_index)].focus()
 			return
 		}
 
@@ -233,6 +352,7 @@ const render_query_row = function(self, panel) {
 				clearTimeout(self._roman_search_timer)
 				self._roman_search_timer = null
 			}
+			claim_roman_list(self, source)
 			run_search(false)
 		}
 	})
@@ -247,43 +367,35 @@ const render_query_row = function(self, panel) {
 			self._roman_search_timer = null
 		}
 
-		const params	= collect_roman_params(self, panel, query_input.value)
-		const minimum	= self.roman_min_query(self._roman_source, params.type)
+		const params	= collect_roman_params(block, query_input.value)
+		const minimum	= self.roman_min_query(source, params.type)
 		if (String(params.query || '').trim().length < minimum) {
 			self.close_roman_suggestions()
 			return
 		}
 
+		claim_roman_list(self, source)
 		self._roman_search_timer = setTimeout(() => {
 			self._roman_search_timer = null
 			run_search(true)
 		}, LIVE_SEARCH_DELAY_MS)
 	})
 
-	// clicking anywhere that is not the field or the list closes it — the
-	// listener is on the MAP container, which is also what the list hangs
-	// from, and it is removed with the map itself on teardown
-	self._roman_outside_handler = (event) => {
-		if (!self.roman_dropdown || self.roman_dropdown.hidden) {
-			return
-		}
-		if (event.target!==query_input && !self.roman_dropdown.contains(event.target)) {
-			self.close_roman_suggestions()
-		}
-	}
-	self.geolocation.map.getContainer().addEventListener('mousedown', self._roman_outside_handler)
-
-}//end render_query_row
+}//end render_query_input
 
 
 
 /**
 * SUGGESTION_ROWS
+* The open list's rows, but only for the field it belongs to: ↑/↓ in one
+* source's field never walk another source's hits.
+*
 * @param {Object} self - tool_uca_maps instance
+* @param {string} source - the field's source
 * @returns {Array<HTMLElement>}
 */
-const suggestion_rows = function(self) {
-	return self.roman_dropdown && !self.roman_dropdown.hidden
+const suggestion_rows = function(self, source) {
+	return self.roman_dropdown && !self.roman_dropdown.hidden && self._roman_source===source
 		? Array.from(self.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button'))
 		: []
 }//end suggestion_rows
@@ -301,7 +413,7 @@ const suggestion_rows = function(self) {
 */
 const set_active_suggestion = function(self, index) {
 
-	const rows = suggestion_rows(self)
+	const rows = suggestion_rows(self, self._roman_source)
 	rows.forEach((row, position) => {
 		row.classList.toggle('is-active', position===index)
 	})
@@ -313,6 +425,104 @@ const set_active_suggestion = function(self, index) {
 	}
 
 }//end set_active_suggestion
+
+
+
+/**
+* WIRE_LIST_KEYBOARD
+* Keyboard inside the list, once its rows have the focus: Tab / Shift+Tab and
+* ↓ / ↑ walk the rows (the focused row IS the highlight); before the first row
+* is the field, past the last one Tab leaves the list as an inline list would
+* be left — to the control after the field. Esc closes it back to the field.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const wire_list_keyboard = function(self, panel) {
+
+	const list = self.roman_dropdown
+
+	// entering the rows freezes them: a search still waiting or in flight would
+	// rebuild the list under the focused row and drop the focus to <body>
+	list.addEventListener('focusin', (event) => {
+		const at = suggestion_rows(self, self._roman_source).indexOf(event.target)
+		if (at < 0) {
+			return
+		}
+		self.hold_roman_suggestions()
+		if (at!==self._roman_active_index) {
+			set_active_suggestion(self, at)
+		}
+	})
+
+	list.addEventListener('keydown', (event) => {
+
+		const rows	= suggestion_rows(self, self._roman_source)
+		const at	= rows.indexOf(event.target)
+		const input	= source_input(panel, self._roman_source)
+		if (at < 0 || !input) {
+			return
+		}
+
+		if (event.key==='Escape') {
+			event.preventDefault()
+			self.close_roman_suggestions()
+			input.focus()
+			return
+		}
+
+		const walks = event.key==='Tab' || event.key==='ArrowDown' || event.key==='ArrowUp'
+		if (!walks) {
+			return // Enter / Space: a11y.make_activable chooses the row
+		}
+		event.preventDefault()
+
+		const back	= event.key==='ArrowUp' || (event.key==='Tab' && event.shiftKey)
+		const next	= at + (back ? -1 : 1)
+		if (next < 0) {
+			input.focus()
+		} else if (next < rows.length) {
+			rows[next].focus()
+		} else if (event.key==='Tab') {
+			self.close_roman_suggestions()
+			const after = control_after(panel, input)
+			if (after) {
+				after.focus()
+			}
+		}
+	})
+
+}//end wire_list_keyboard
+
+
+
+/**
+* CONTROL_AFTER
+* The first enabled, focusable control after `node` in the panel's DOM order.
+* A radio group is entered at its CHECKED radio, as native Tab does: its first
+* radio, unchecked, would take a Space and switch the search type silently.
+*
+* @param {HTMLElement} panel
+* @param {HTMLElement} node
+* @returns {HTMLElement|null}
+*/
+const control_after = function(panel, node) {
+	const controls = panel.querySelectorAll('input, select, button, textarea, a[href], [tabindex]:not([tabindex="-1"])')
+	for (const control of controls) {
+		if (control.disabled || !(node.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+			continue
+		}
+		if (control.type==='radio' && !control.checked && control.name) {
+			const checked = panel.querySelector('input[type="radio"][name="' + CSS.escape(control.name) + '"]:checked')
+			if (checked) {
+				return checked
+			}
+		}
+		return control
+	}
+	return null
+}//end control_after
 
 
 
@@ -329,11 +539,21 @@ const set_active_suggestion = function(self, index) {
 */
 const choose_suggestion = async function(self, panel, index) {
 
+	// read before the await: a later search may hand the list to another source,
+	// and a reopening wipes the panel — an error from before it is not news
+	const block		= source_block(panel, self._roman_source)
+	const opening	= self._roman_panel_opening
+	const input		= source_input(panel, self._roman_source)
+	const from_list	= Boolean(self.roman_dropdown && self.roman_dropdown.contains(document.activeElement))
+
 	self.close_roman_suggestions()
+	if (from_list && input) {
+		input.focus() // the focused row is now hidden: the focus would fall to <body>
+	}
 
 	const added = await self.add_roman_result(index)
-	if (!added.ok && added.error) {
-		show_roman_message(panel, added.error)
+	if (!added.ok && added.error && block && opening===self._roman_panel_opening) {
+		show_roman_message(block, added.error)
 	}
 
 }//end choose_suggestion
@@ -341,46 +561,50 @@ const choose_suggestion = async function(self, panel, index) {
 
 
 /**
-* RENDER_PLEIADES_FORM
-* v6's own two radio options, as a select: search the index by place name or
-* by Pleiades id.
+* RENDER_PLEIADES_FILTERS
+* v6's own two radio options (`special_tools_roman_empire.js:155/174`): search
+* the index by place name or by Pleiades id.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
+* @param {HTMLElement} block - the source's own section
 * @returns {void}
 */
-const render_pleiades_form = function(self, panel) {
+const render_pleiades_filters = function(self, block) {
 
-	const box = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-source-form uca-maps-roman-pleiades-form', parent: panel})
+	const group = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-pleiades-type', parent: block})
+	group.setAttribute('role', 'radiogroup')
 
-	const select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-pleiades-type', parent: box})
-	const options = [
+	const name		= 'uca-maps-roman-pleiades-type-' + (++pleiades_radio_seq)
+	const options	= [
 		['name', self.get_tool_label('roman_pleiades_by_name') || 'By place name'],
 		['id', self.get_tool_label('roman_pleiades_by_id') || 'By Pleiades id']
 	]
 	for (const [value, text] of options) {
-		const option = ui.create_dom_element({element_type: 'option', text_content: text, parent: select})
-		option.value = value
+		const label = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-roman-radio', parent: group})
+		const radio = ui.create_dom_element({element_type: 'input', parent: label})
+		radio.type		= 'radio'
+		radio.name		= name
+		radio.value		= value
+		radio.checked	= value==='name'
+		ui.create_dom_element({element_type: 'span', text_content: text, parent: label})
 	}
 
-}//end render_pleiades_form
+}//end render_pleiades_filters
 
 
 
 /**
-* RENDER_PELAGIOS_FORM
+* RENDER_PELAGIOS_FILTERS
 * The dataset checkbox list — EMPTY until `refresh_roman_sources` fills it
 * from what the install actually has (file header).
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
+* @param {HTMLElement} block - the source's own section
 * @returns {void}
 */
-const render_pelagios_form = function(self, panel) {
+const render_pelagios_filters = function(self, block) {
 
-	const box = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-source-form uca-maps-roman-pelagios-form', parent: panel})
-
-	const button_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-dataset-buttons', parent: box})
+	const button_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-dataset-buttons', parent: block})
 
 	const all_btn = ui.create_dom_element({
 		element_type	: 'button',
@@ -389,7 +613,7 @@ const render_pelagios_form = function(self, panel) {
 		parent			: button_row
 	})
 	all_btn.type = 'button'
-	all_btn.addEventListener('click', () => set_all_datasets(panel, true))
+	all_btn.addEventListener('click', () => set_all_datasets(block, true))
 
 	const none_btn = ui.create_dom_element({
 		element_type	: 'button',
@@ -398,22 +622,22 @@ const render_pelagios_form = function(self, panel) {
 		parent			: button_row
 	})
 	none_btn.type = 'button'
-	none_btn.addEventListener('click', () => set_all_datasets(panel, false))
+	none_btn.addEventListener('click', () => set_all_datasets(block, false))
 
-	ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-datasets', parent: box})
+	ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-datasets', parent: block})
 
-}//end render_pelagios_form
+}//end render_pelagios_filters
 
 
 
 /**
 * SET_ALL_DATASETS
-* @param {HTMLElement} panel
+* @param {HTMLElement} block - the Pelagios section
 * @param {boolean} checked
 * @returns {void}
 */
-const set_all_datasets = function(panel, checked) {
-	const boxes = panel.querySelectorAll('.uca-maps-roman-dataset-checkbox')
+const set_all_datasets = function(block, checked) {
+	const boxes = block.querySelectorAll('.uca-maps-roman-dataset-checkbox')
 	for (const box of boxes) {
 		box.checked = checked
 	}
@@ -422,18 +646,18 @@ const set_all_datasets = function(panel, checked) {
 
 
 /**
-* RENDER_DARE_FORM
+* RENDER_DARE_FILTERS
 * v6's own three filters: which name is searched (modern/ancient), the site
 * type and the country. The two vocabularies are DARE's own — kept in its
 * language, like any other third-party service's data.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
+* @param {HTMLElement} block - the source's own section
 * @returns {void}
 */
-const render_dare_form = function(self, panel) {
+const render_dare_filters = function(self, block) {
 
-	const box = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-source-form uca-maps-roman-dare-form', parent: panel})
+	const box = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-dare-filters', parent: block})
 
 	const name_select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-dare-name-type', parent: box})
 	const name_options = [
@@ -457,41 +681,16 @@ const render_dare_form = function(self, panel) {
 		option.value = value
 	}
 
-}//end render_dare_form
-
-
-
-/**
-* SHOW_ACTIVE_SOURCE_FORM
-* Only the active source's own fields are in the panel — the other two are
-* `hidden`, never a collapsible section of their own (toolbar law, hito 3c).
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
-* @returns {void}
-*/
-const show_active_source_form = function(self, panel) {
-
-	const forms = {
-		pleiades	: panel.querySelector('.uca-maps-roman-pleiades-form'),
-		pelagios	: panel.querySelector('.uca-maps-roman-pelagios-form'),
-		dare		: panel.querySelector('.uca-maps-roman-dare-form')
-	}
-	for (const source of Object.keys(forms)) {
-		forms[source].hidden = source!==self._roman_source
-	}
-
-}//end show_active_source_form
+}//end render_dare_filters
 
 
 
 /**
 * REFRESH_ROMAN_SOURCES
 * Applies the gazetteer capability: a local source this install cannot serve
-* is DISABLED in the selector with a reason, instead of offering a search that
-* always answers "unavailable". DARE needs no local data, so it is never
-* disabled — and it is what the selector falls back to when the active source
-* turns out to be unavailable.
+* keeps its section, disabled and saying why, instead of offering a search
+* that always answers "unavailable". DARE needs no local data, so it is never
+* disabled.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -507,25 +706,66 @@ export const refresh_roman_sources = function(self, panel) {
 		dare		: true
 	}
 
-	const select = panel.querySelector('.uca-maps-roman-source-select')
-	for (const option of select.options) {
-		option.disabled = !available[option.value]
+	const pelagios_block = source_block(panel, 'pelagios')
+	if (pelagios_block) {
+		render_dataset_checkboxes(self, pelagios_block, datasets)
 	}
 
-	render_dataset_checkboxes(self, panel, datasets)
+	for (const source of ROMAN_SOURCE_ORDER) {
+		const block = source_block(panel, source)
+		if (!block) {
+			continue
+		}
+		block.classList.toggle('is-unavailable', !available[source])
+		block.querySelector('.uca-maps-roman-unavailable').hidden = available[source]
+		for (const control of block.querySelectorAll('input, select, button')) {
+			control.disabled = !available[source]
+		}
+	}
 
-	if (!available[self._roman_source]) {
-		self.set_roman_source('dare')
-		select.value = 'dare'
-		show_active_source_form(self, panel)
-		populate_roman_results(self, panel)
-		show_roman_message(
-			panel,
-			self.get_tool_label('roman_local_data_missing') || 'This install has no local gazetteer data; only DARE is available.'
-		)
+	// a list of hits from a source that just turned out unavailable goes too
+	if (self._roman_source && !available[self._roman_source]) {
+		self.clear_roman_search()
+		self.close_roman_suggestions()
 	}
 
 }//end refresh_roman_sources
+
+
+
+/**
+* RESET_ROMAN_PANEL
+* Every open starts clean, as in v6, whose `load_modal` rebuilds the whole
+* modal on each click (`special_tools_roman_empire.js:61-77`): empty fields,
+* no messages, no list, filters back to their defaults. What the capability
+* disabled stays disabled — that is the install, not the user's input.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+export const reset_roman_panel = function(self, panel) {
+
+	self._roman_panel_opening = (self._roman_panel_opening || 0) + 1
+	self.clear_roman_search()
+	self.close_roman_suggestions() // also cancels a keystroke still waiting
+
+	for (const block of panel.querySelectorAll('.uca-maps-roman-source')) {
+		block.querySelector('.uca-maps-roman-input').value = ''
+		clear_roman_message(block)
+	}
+	for (const radio of panel.querySelectorAll('.uca-maps-roman-pleiades-type input')) {
+		radio.checked = radio.value==='name'
+	}
+	for (const select of panel.querySelectorAll('.uca-maps-roman-dare-filters select')) {
+		select.selectedIndex = 0
+	}
+	const pelagios_block = source_block(panel, 'pelagios')
+	if (pelagios_block) {
+		set_all_datasets(pelagios_block, true)
+	}
+
+}//end reset_roman_panel
 
 
 
@@ -535,13 +775,13 @@ export const refresh_roman_sources = function(self, panel) {
 * default: every layer selected).
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
+* @param {HTMLElement} block - the Pelagios section
 * @param {Array<string>} datasets
 * @returns {void}
 */
-const render_dataset_checkboxes = function(self, panel, datasets) {
+const render_dataset_checkboxes = function(self, block, datasets) {
 
-	const container = panel.querySelector('.uca-maps-roman-datasets')
+	const container = block.querySelector('.uca-maps-roman-datasets')
 	container.replaceChildren()
 
 	for (const dataset of datasets) {
@@ -562,32 +802,33 @@ const render_dataset_checkboxes = function(self, panel, datasets) {
 
 /**
 * COLLECT_ROMAN_PARAMS
-* Reads the active source's own fields out of the panel — the ONE place the
-* DOM is turned into a search request.
+* Reads one source's own fields out of its section — the ONE place the DOM is
+* turned into a search request.
 *
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
+* @param {HTMLElement} block - the source's own section
 * @param {string} query
 * @returns {Object}
 */
-const collect_roman_params = function(self, panel, query) {
+const collect_roman_params = function(block, query) {
 
+	const source = block.dataset.source
 	const params = {query: query}
 
-	if (self._roman_source==='pleiades') {
-		params.type = panel.querySelector('.uca-maps-roman-pleiades-type').value
+	if (source==='pleiades') {
+		const checked = block.querySelector('.uca-maps-roman-pleiades-type input:checked')
+		params.type = checked ? checked.value : 'name'
 	}
 
-	if (self._roman_source==='pelagios') {
-		params.datasets = Array.from(panel.querySelectorAll('.uca-maps-roman-dataset-checkbox'))
+	if (source==='pelagios') {
+		params.datasets = Array.from(block.querySelectorAll('.uca-maps-roman-dataset-checkbox'))
 			.filter((box) => box.checked)
 			.map((box) => box.value)
 	}
 
-	if (self._roman_source==='dare') {
-		params.name_type	= panel.querySelector('.uca-maps-roman-dare-name-type').value
-		params.type_id		= panel.querySelector('.uca-maps-roman-dare-type').value
-		params.country		= panel.querySelector('.uca-maps-roman-dare-country').value
+	if (source==='dare') {
+		params.name_type	= block.querySelector('.uca-maps-roman-dare-name-type').value
+		params.type_id		= block.querySelector('.uca-maps-roman-dare-type').value
+		params.country		= block.querySelector('.uca-maps-roman-dare-country').value
 	}
 
 	return params
@@ -676,11 +917,20 @@ export const populate_roman_results = function(self, panel) {
 				choose_suggestion(self, panel, index)
 			}
 		})
-		add_btn.addEventListener('mouseenter', () => set_active_suggestion(self, index))
+		// the focused row IS the highlight: while the keyboard is in the list the
+		// pointer moves the focus too, or Enter draws a row other than the lit one
+		add_btn.addEventListener('mouseenter', () => {
+			if (list.contains(document.activeElement)) {
+				add_btn.focus({preventScroll: true})
+			} else {
+				set_active_suggestion(self, index)
+			}
+		})
 	})
 
-	anchor_suggestions_to_input(self, panel)
-	list.hidden = false
+	if (place_roman_list(self, panel)) {
+		list.hidden = false
+	}
 
 }//end populate_roman_results
 
@@ -688,7 +938,7 @@ export const populate_roman_results = function(self, panel) {
 
 /**
 * ANCHOR_SUGGESTIONS_TO_INPUT
-* Positions the list right under the field, in the map container's own
+* Positions the list right under its source's field, in the map container's own
 * coordinates — measured live, same approach (and the same accepted "not
 * recalculated on resize" gap) as toolbar.js's anchor_panel_to_button.
 *
@@ -698,7 +948,7 @@ export const populate_roman_results = function(self, panel) {
 */
 const anchor_suggestions_to_input = function(self, panel) {
 
-	const input		= panel.querySelector('.uca-maps-roman-input')
+	const input		= source_input(panel, self._roman_source)
 	const container	= self.roman_dropdown && self.roman_dropdown.parentNode
 	if (!input || !container) {
 		return

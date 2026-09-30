@@ -565,8 +565,8 @@
 		{ "lang": "lg-spa", "name": "capabilities_gazetteer_pleiades", "value": "Índice de Pleiades" },
 		{ "lang": "lg-eng", "name": "capabilities_gazetteer_pelagios", "value": "Pelagios layers" },
 		{ "lang": "lg-spa", "name": "capabilities_gazetteer_pelagios", "value": "Capas de Pelagios" },
-		{ "lang": "lg-eng", "name": "roman_local_data_missing", "value": "This install has no local gazetteer data; only DARE is available." },
-		{ "lang": "lg-spa", "name": "roman_local_data_missing", "value": "Esta instalación no tiene datos locales de gacetero; solo DARE está disponible." }
+		{ "lang": "lg-eng", "name": "roman_source_unavailable", "value": "Not available: this install has no local data for this gazetteer." },
+		{ "lang": "lg-spa", "name": "roman_source_unavailable", "value": "No disponible: esta instalación no tiene datos locales de este gacetero." }
 	],
 	"default_config": {
 		"gazetteer_data_path": ""

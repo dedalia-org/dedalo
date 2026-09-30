@@ -9,10 +9,11 @@
 * Hito 18, fila #14 del audit ("Imperio Romano"): search the Roman world's
 * gazetteers and bring a place onto the map as a real object.
 *
-* ONE BUTTON, ONE PANEL, THREE SOURCES (Sergio, 2026-09-16): the row of the
-* audit is one functionality — "find an ancient place and draw it" — served by
-* three gazetteers, so the panel carries a source selector, not three stacked
-* sections (which is what the toolbar law of hito 3c forbids).
+* ONE BUTTON, ONE CENTRED PANEL, THE THREE SOURCES AT ONCE (Sergio,
+* 2026-09-28, reverting the source selector of 2026-09-16): v6's own modal
+* stacks Pleiades, Pelagios and DARE, each with its own field and filters.
+* They are always visible, never collapsible — one functionality served by
+* three gazetteers, so the toolbar law of hito 3c still holds.
 *
 * The three keep their REAL names, which closes audit correction #2: v6 titles
 * one panel "Pelagios D.A.R.E" although it only searches Pelagios, while the
@@ -49,7 +50,7 @@ import {
 	set_toolbar_panel_visible
 } from './toolbar.js'
 import {report_client_error} from './object_console.js'
-import {render_roman_empire_panel, refresh_roman_sources} from './render_roman_empire.js'
+import {render_roman_empire_panel, refresh_roman_sources, reset_roman_panel} from './render_roman_empire.js'
 
 
 
@@ -101,12 +102,16 @@ export const attach_roman_empire = function(self) {
 		return
 	}
 
+	// the ONE suggestion list serves the three fields; `_roman_source` is whose
+	// it is, from the moment a field arms a search (render_roman_empire.js
+	// "WHOSE IS THE LIST"), and the source of `_roman_results` once they arrive
 	self._roman_results			= null
-	self._roman_source			= ROMAN_SOURCES[0]
+	self._roman_source			= null
 	self._roman_gazetteers		= null
 	self._roman_search_token	= 0
 	self._roman_search_timer	= null
 	self._roman_active_index	= -1
+	self._roman_panel_opening	= 0 // bumped by every reset: a late answer knows it is late
 
 	self.roman_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('roman_control_title') || 'Roman Empire',
@@ -117,18 +122,18 @@ export const attach_roman_empire = function(self) {
 
 	// on_hide: a SIBLING panel forcing this one shut must take the floating
 	// suggestion list with it — it lives OUTSIDE the panel (see below)
+	// centred like Legend and WMS: three stacked sources need the width
 	self.roman_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-roman-panel',
+		centered	: true,
+		title		: self.get_tool_label('roman_control_title') || 'Roman Empire',
 		on_hide		: () => close_roman_suggestions(self)
 	})
 
-	// THE SUGGESTION LIST HANGS FROM THE MAP, NOT FROM THE PANEL. Every panel
-	// of this tool shares `.uca-maps-panel`'s `max-height: 70%; overflow-y:
-	// auto`, so a dropdown absolutely positioned inside it would be clipped at
-	// the panel's edge and scroll away with the content — and that CSS is
-	// common to the other twelve functionalities, not this hito's to change.
-	// Anchored to the input on every open, same approach (and same accepted
-	// resize gap) as toolbar.js's own anchor_panel_to_button.
+	// THE SUGGESTION LIST HANGS FROM THE MAP, NOT FROM THE PANEL: the shared
+	// `.uca-maps-panel` scrolls (`overflow-y: auto`) and would clip it. It is
+	// anchored to its field, follows it when the panel scrolls, and closes once
+	// the field leaves the panel's view (render_roman_empire.js place_roman_list).
 	self.roman_dropdown			= document.createElement('ul')
 	self.roman_dropdown.className	= 'uca-maps-roman-dropdown'
 	self.roman_dropdown.hidden		= true
@@ -158,6 +163,9 @@ export const attach_roman_empire = function(self) {
 const toggle_roman_panel = function(self) {
 
 	const next_visible = !is_toolbar_panel_visible(self.roman_panel)
+	if (next_visible) {
+		reset_roman_panel(self, self.roman_panel)
+	}
 
 	set_toolbar_panel_visible(self, self.roman_panel, self.roman_control, next_visible)
 
@@ -166,7 +174,7 @@ const toggle_roman_panel = function(self) {
 	}
 
 	if (next_visible) {
-		const input = self.roman_panel.querySelector('.uca-maps-roman-input')
+		const input = self.roman_panel.querySelector('.uca-maps-roman-input:not(:disabled)')
 		if (input) {
 			input.focus()
 		}
@@ -180,17 +188,43 @@ const toggle_roman_panel = function(self) {
 * CLOSE_ROMAN_SUGGESTIONS
 * Hides the floating list and forgets which row was keyboard-active. The ONE
 * place that closes it, so every path (Esc, choosing, clicking outside, the
-* panel closing, teardown) leaves the same state behind.
+* panel closing, teardown) leaves the same state behind. It also voids any
+* search still in flight AND the keystroke still waiting out the debounce:
+* either would reopen a closed list, the timer with a token newer than ours.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 export const close_roman_suggestions = function(self) {
+	if (self._roman_search_timer) {
+		clearTimeout(self._roman_search_timer)
+		self._roman_search_timer = null
+	}
 	if (self.roman_dropdown) {
 		self.roman_dropdown.hidden = true
 	}
-	self._roman_active_index = -1
+	self._roman_active_index	= -1
+	self._roman_search_token	= (self._roman_search_token || 0) + 1
 }//end close_roman_suggestions
+
+
+
+/**
+* HOLD_ROMAN_SUGGESTIONS
+* Freezes the open list while the keyboard walks it: voids the waiting
+* keystroke and the search in flight, as closing does, but leaves the list
+* shown. A late answer would rebuild the rows and drop the focused one.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+export const hold_roman_suggestions = function(self) {
+	if (self._roman_search_timer) {
+		clearTimeout(self._roman_search_timer)
+		self._roman_search_timer = null
+	}
+	self._roman_search_token = (self._roman_search_token || 0) + 1
+}//end hold_roman_suggestions
 
 
 
@@ -233,41 +267,29 @@ export const load_roman_capabilities = async function(self) {
 
 
 /**
-* SET_ROMAN_SOURCE
-* @param {Object} self - tool_uca_maps instance
-* @param {string} source - one of ROMAN_SOURCES
-* @returns {void}
-*/
-export const set_roman_source = function(self, source) {
-
-	if (!ROMAN_SOURCES.includes(source)) {
-		return
-	}
-	self._roman_source	= source
-	self._roman_results	= null
-	close_roman_suggestions(self)
-
-}//end set_roman_source
-
-
-
-/**
 * SEARCH_ROMAN
-* Runs the active source's search and stores the hits for the panel to
-* render. Returns a plain verdict, never throws at the DOM handler that
-* called it (same contract as place_search.js search_places).
+* Runs one source's search and stores the hits, with their source, for the
+* panel to render. Returns a plain verdict, never throws at the DOM handler
+* that called it (same contract as place_search.js search_places).
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {Object} params - the active source's own form values
+* @param {string} source - one of ROMAN_SOURCES
+* @param {Object} params - that source's own form values
 * @returns {Promise<{ok: boolean, error?: string, results?: Array<Object>}>}
 */
-export const search_roman = async function(self, params) {
+export const search_roman = async function(self, source, params) {
 
-	const source = self._roman_source
 	const action = SEARCH_ACTION[source]
 	if (!action || !self.geolocation) {
 		return {ok: false}
 	}
+
+	// as-you-type means several searches can be in flight at once, now across
+	// three fields: only the NEWEST may write the list, or a slow early
+	// keystroke overwrites the results of the word the user finished typing.
+	// Taken BEFORE validating: a refused search still outdates older ones.
+	const token = (self._roman_search_token || 0) + 1
+	self._roman_search_token = token
 
 	const query = String((params && params.query) || '').trim()
 	if (!query) {
@@ -276,12 +298,6 @@ export const search_roman = async function(self, params) {
 	if (source==='pelagios' && (!params.datasets || params.datasets.length===0)) {
 		return {ok: false, error: self.get_tool_label('roman_error_no_dataset') || 'Select at least one dataset.'}
 	}
-
-	// as-you-type means several searches can be in flight at once: only the
-	// NEWEST may write the list, or a slow early keystroke overwrites the
-	// results of the word the user actually finished typing
-	const token = (self._roman_search_token || 0) + 1
-	self._roman_search_token = token
 
 	try {
 
@@ -320,7 +336,8 @@ export const search_roman = async function(self, params) {
 		const data		= response_data(response)
 		const results	= (data && Array.isArray(data.results)) ? data.results : []
 
-		self._roman_results = results
+		self._roman_results	= results
+		self._roman_source	= source
 
 		return {ok: true, results: results}
 
@@ -484,7 +501,8 @@ const bounds_area = function(bounds) {
 * @returns {void}
 */
 export const clear_roman_search = function(self) {
-	self._roman_results = null
+	self._roman_results	= null
+	self._roman_source	= null
 }//end clear_roman_search
 
 
@@ -507,7 +525,7 @@ export const detach_roman_empire = function(self) {
 	// the "click outside closes the list" listener lives on the MAP container,
 	// which belongs to component_geolocation and outlives this tool
 	if (self._roman_outside_handler && self.geolocation && self.geolocation.map) {
-		self.geolocation.map.getContainer().removeEventListener('mousedown', self._roman_outside_handler)
+		self.geolocation.map.getContainer().removeEventListener('mousedown', self._roman_outside_handler, true)
 	}
 	self._roman_outside_handler = null
 
@@ -522,9 +540,11 @@ export const detach_roman_empire = function(self) {
 	self.roman_panel		= null
 	self.roman_control		= null
 	self._roman_results			= null
+	self._roman_source			= null
 	self._roman_gazetteers		= null
 	self._roman_search_token	= 0
 	self._roman_active_index	= -1
+	self._roman_panel_opening	= 0
 
 }//end detach_roman_empire
 

@@ -188,11 +188,11 @@
 	import {
 		attach_roman_empire,
 		detach_roman_empire,
-		set_roman_source,
 		search_roman,
 		add_roman_result,
 		clear_roman_search,
 		close_roman_suggestions,
+		hold_roman_suggestions,
 		roman_min_query
 	} from './roman_empire.js'
 
@@ -836,12 +836,8 @@ tool_uca_maps.prototype.attach_roman_empire = function() {
 	attach_roman_empire(this)
 }//end attach_roman_empire
 
-tool_uca_maps.prototype.set_roman_source = function(source) {
-	return set_roman_source(this, source)
-}//end set_roman_source
-
-tool_uca_maps.prototype.search_roman = function(params) {
-	return search_roman(this, params)
+tool_uca_maps.prototype.search_roman = function(source, params) {
+	return search_roman(this, source, params)
 }//end search_roman
 
 tool_uca_maps.prototype.add_roman_result = function(index) {
@@ -859,6 +855,10 @@ tool_uca_maps.prototype.roman_min_query = function(source, type) {
 tool_uca_maps.prototype.close_roman_suggestions = function() {
 	return close_roman_suggestions(this)
 }//end close_roman_suggestions
+
+tool_uca_maps.prototype.hold_roman_suggestions = function() {
+	return hold_roman_suggestions(this)
+}//end hold_roman_suggestions
 
 
 
