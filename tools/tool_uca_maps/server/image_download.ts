@@ -22,7 +22,14 @@ import {
 	sanitize_download_name,
 	with_extension,
 } from '../js/download_filename.js';
-import { readFileBase64, resolveGdalBinary, runToolBinary, withScratchDir } from './gdal.ts';
+import {
+	inputDrivers,
+	rasterDriverOf,
+	readFileBase64,
+	resolveGdalBinary,
+	runToolBinary,
+	withScratchDir,
+} from './gdal.ts';
 import { OVERLAY_EXTENSIONS, resolveRenderableImage } from './image_media.ts';
 
 export const IMAGE_DOWNLOAD_FORMATS: readonly string[] = ['geotiff', 'png', 'jpg'];
@@ -172,7 +179,10 @@ interface RasterShape {
 
 async function readRasterShape(path: string): Promise<RasterShape> {
 	const gdalinfo = await resolveGdalBinary('gdalinfo');
-	const result = await runToolBinary([gdalinfo, '-json', path], 'gdalinfo (image download)');
+	const result = await runToolBinary(
+		[gdalinfo, ...inputDrivers(rasterDriverOf(path)), '-json', path],
+		'gdalinfo (image download)',
+	);
 	let info: {
 		size?: unknown;
 		bands?: Array<{ type?: string; colorInterpretation?: string }>;
@@ -242,6 +252,7 @@ export async function renderImageDownload(
 	await runToolBinary(
 		[
 			gdalTranslate,
+			...inputDrivers(rasterDriverOf(sourcePath)),
 			'-of',
 			'VRT',
 			'-a_srs',
@@ -264,6 +275,7 @@ export async function renderImageDownload(
 	await runToolBinary(
 		[
 			gdalwarp,
+			...inputDrivers('VRT'),
 			'-q',
 			'-order',
 			'1',
@@ -297,6 +309,7 @@ export async function renderImageDownload(
 	await runToolBinary(
 		[
 			gdalTranslate,
+			...inputDrivers('GTiff'),
 			'-of',
 			format === 'jpg' ? 'JPEG' : 'PNG',
 			...bandArgs,

@@ -38,7 +38,14 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import { readFileBase64, resolveGdalBinary, runToolBinary, withScratchDir } from './gdal.ts';
+import {
+	assertOfflineGeoJsonCrs,
+	inputDrivers,
+	readFileBase64,
+	resolveGdalBinary,
+	runToolBinary,
+	withScratchDir,
+} from './gdal.ts';
 
 const VECTOR_FORMATS: ReadonlySet<string> = new Set(['shp', 'kml']);
 
@@ -73,7 +80,16 @@ async function convertWithOgr2Ogr(
 ): Promise<VectorDownloadResult> {
 	const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 	await runToolBinary(
-		[ogr2ogr, '-f', driverName, '-a_srs', 'EPSG:4326', outputFile, inputFile],
+		[
+			ogr2ogr,
+			...inputDrivers('GeoJSON'),
+			'-f',
+			driverName,
+			'-a_srs',
+			'EPSG:4326',
+			outputFile,
+			inputFile,
+		],
 		`vector_download (${fileName})`,
 		{ expectedOutput: outputFile },
 	);
@@ -89,6 +105,8 @@ export async function vectorDownload(ctx: ToolActionContext): Promise<ToolRespon
 	if (geojson === null || typeof geojson !== 'object') {
 		throw invalidVectorRequest('Missing or invalid geojson');
 	}
+	// `-a_srs` replaces the CRS only after GDAL has read the one the file names
+	assertOfflineGeoJsonCrs(geojson);
 
 	const result = await withScratchDir(async (dir) => {
 		// Named `uca_maps_object`, not `input`: ogr2ogr's GeoJSON driver names its

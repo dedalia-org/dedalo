@@ -39,15 +39,24 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import { resolveGdalBinary, runToolBinary, withScratchDir } from './gdal.ts';
+import {
+	assertOfflineGeoJsonCrs,
+	inputDrivers,
+	resolveGdalBinary,
+	runToolBinary,
+	withScratchDir,
+} from './gdal.ts';
 
-// client extension -> the scratch-file extension ogr2ogr needs to pick the
-// right driver by name (the shapefile-in-zip case is the one that does NOT
-// match its own client extension — see module doc comment).
-const VECTOR_UPLOAD_SCRATCH_EXTENSION: Readonly<Record<string, string>> = {
-	zip: 'shp.zip',
-	geojson: 'geojson',
-	kml: 'kml',
+// client extension -> the scratch-file extension ogr2ogr needs (the
+// shapefile-in-zip case does NOT match its client extension — see module doc
+// comment) and the only drivers GDAL may open it with (KML: whichever of the
+// two the install has, as before the pin)
+const VECTOR_UPLOAD_FORMATS: Readonly<
+	Record<string, { scratchExtension: string; drivers: readonly string[] }>
+> = {
+	zip: { scratchExtension: 'shp.zip', drivers: ['ESRI Shapefile'] },
+	geojson: { scratchExtension: 'geojson', drivers: ['GeoJSON'] },
+	kml: { scratchExtension: 'kml', drivers: ['LIBKML', 'KML'] },
 };
 
 // v6 parity (`process_uploaded_vector`'s own $response->size check).
@@ -165,30 +174,42 @@ async function checkManualProjection(projection: ManualProjection): Promise<void
 }
 
 /**
- * Whether the file names its own CRS; null when that cannot be told. In v6
+ * GDAL gets the GeoJSON the tool read, reserialized: its parser accepts what
+ * strict JSON refuses (and duplicate keys), so a lenient file could carry a
+ * `crs` the check never saw. A UTF-8 BOM is the one leniency kept.
+ */
+export function parseStrictGeoJson(text: string): unknown {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text.replace(/^\uFEFF/, ''));
+	} catch {
+		throw invalidVectorUpload('This GeoJSON is not strict JSON: save it as strict JSON');
+	}
+	assertOfflineGeoJsonCrs(parsed);
+	return parsed;
+}
+
+/**
+ * Whether the file names its own CRS. In v6
  * the file's `crs` always wins and a typed code only matters when it equals it
  * (`projections.js:31-46`); here `-s_srs` would override it silently, so a
  * declaring file refuses the fields instead. A GeoJSON without `crs` counts as
  * undeclared although GDAL reads it as WGS84 (RFC 7946): legacy UTM files
  * without it are what the fields are for.
  */
-export async function declaresOwnCrs(
-	inputFile: string,
-	extension: string,
-): Promise<boolean | null> {
+export async function declaresOwnCrs(inputFile: string, extension: string): Promise<boolean> {
 	if (extension === 'kml') return true; // WGS84 by definition
 	if (extension === 'geojson') {
-		const parsed = (await Bun.file(inputFile)
-			.json()
-			.catch(() => null)) as { crs?: unknown } | null;
-		// GDAL's parser accepts what strict JSON refuses, so an unreadable file
-		// may still carry a crs: neither answer would be true
-		if (parsed === null) return null;
-		return typeof parsed.crs === 'object' && parsed.crs !== null;
+		const parsed = parseStrictGeoJson(await Bun.file(inputFile).text());
+		// any case: GDAL matches member names case-insensitively
+		return Object.entries((parsed ?? {}) as object).some(
+			([key, value]) => key.toLowerCase() === 'crs' && typeof value === 'object' && value !== null,
+		);
 	}
 	const ogrinfo = await resolveGdalBinary('ogrinfo');
+	const drivers = VECTOR_UPLOAD_FORMATS[extension]?.drivers ?? [];
 	const result = await runToolBinary(
-		[ogrinfo, '-json', '-so', '-ro', inputFile],
+		[ogrinfo, ...inputDrivers(...drivers), '-json', '-so', '-ro', inputFile],
 		`vector_upload (${extension} crs probe)`,
 	);
 	const info = JSON.parse(result.stdout) as {
@@ -301,16 +322,10 @@ async function outsideLonLatRefusal(
 		);
 	}
 	const declares = await declaresOwnCrs(inputFile, extension);
-	if (declares === true) {
+	if (declares) {
 		return invalidVectorUpload(
 			`The coordinates do not fit the projection this file declares (${at} is not ` +
 				"longitude/latitude): correct the file's projection",
-		);
-	}
-	if (declares === null) {
-		return invalidVectorUpload(
-			`The coordinates are not longitude/latitude (${at}) and this GeoJSON is not strict ` +
-				'JSON, so its own projection cannot be checked: save it as strict JSON',
 		);
 	}
 	return invalidVectorUpload(
@@ -329,8 +344,8 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 	const extension = String(fileData.extension ?? '')
 		.toLowerCase()
 		.replace(/^\./, '');
-	const scratchExtension = VECTOR_UPLOAD_SCRATCH_EXTENSION[extension];
-	if (scratchExtension === undefined) {
+	const format = VECTOR_UPLOAD_FORMATS[extension];
+	if (format === undefined) {
 		throw invalidVectorUpload(
 			`Unsupported vector file extension '${extension}' (expected zip, geojson or kml)`,
 		);
@@ -355,8 +370,13 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		// collide (scratchExtension IS 'geojson' there) and ogr2ogr refuses with
 		// "Source and destination datasets must be different in non-update
 		// mode" — caught live against GDAL 3.13.2 (hito 12 dossier).
-		const inputFile = join(dir, `uca_maps_upload_in.${scratchExtension}`);
-		await Bun.write(inputFile, Bun.file(staged));
+		const inputFile = join(dir, `uca_maps_upload_in.${format.scratchExtension}`);
+		await Bun.write(
+			inputFile,
+			extension === 'geojson'
+				? JSON.stringify(parseStrictGeoJson(await Bun.file(staged).text()))
+				: Bun.file(staged),
+		);
 		const outputFile = join(dir, 'uca_maps_upload_out.geojson');
 
 		// the declared-CRS refusal goes BEFORE the fields are judged: on a file
@@ -364,16 +384,9 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		// and band" would send the user to fill in fields that must end up empty
 		if (typed) {
 			const declares = await declaresOwnCrs(inputFile, extension);
-			if (declares === true) {
+			if (declares) {
 				throw invalidVectorUpload(
 					'This file already declares its own projection: leave EPSG, zone and band empty',
-				);
-			}
-			// fail closed: a crs hidden behind lenient JSON is what -s_srs would override
-			if (declares === null) {
-				throw invalidVectorUpload(
-					'This GeoJSON is not strict JSON, so its own projection cannot be checked: ' +
-						'leave EPSG, zone and band empty',
 				);
 			}
 		}
@@ -381,7 +394,14 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		if (projection !== null) await checkManualProjection(projection);
 
 		const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-		const argv = [ogr2ogr, '-f', 'GeoJSON', '-t_srs', 'EPSG:4326'];
+		const argv = [
+			ogr2ogr,
+			...inputDrivers(...format.drivers),
+			'-f',
+			'GeoJSON',
+			'-t_srs',
+			'EPSG:4326',
+		];
 		if (projection !== null) argv.push('-s_srs', `EPSG:${projection.epsg}`);
 		argv.push(outputFile, inputFile);
 

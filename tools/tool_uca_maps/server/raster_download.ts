@@ -64,6 +64,7 @@ import {
 	with_extension,
 } from '../js/download_filename.js';
 import {
+	inputDrivers,
 	readFileBase64,
 	resolveGdalBinary,
 	resolveMagickBinary,
@@ -197,6 +198,7 @@ async function convertToGeotiff(
 	await runToolBinary(
 		[
 			gdalTranslate,
+			...inputDrivers('PNG'),
 			'-a_srs',
 			'EPSG:3857',
 			'-a_ullr',

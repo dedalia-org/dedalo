@@ -44,7 +44,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import { resolveGdalBinary, runToolBinary } from './gdal.ts';
+import { inputDrivers, rasterDriverOf, resolveGdalBinary, runToolBinary } from './gdal.ts';
 import { resolveRenderableImage } from './image_media.ts';
 
 /** Extensions worth asking GDAL about. Only a TIFF carries georeferencing
@@ -102,7 +102,7 @@ export function cornersFromWgs84Extent(extent: unknown): OverlayCorners | null {
 export async function readGeoreference(absolutePath: string): Promise<OverlayCorners | null> {
 	const gdalinfo = await resolveGdalBinary('gdalinfo');
 	const result = await runToolBinary(
-		[gdalinfo, '-json', absolutePath],
+		[gdalinfo, ...inputDrivers(rasterDriverOf(absolutePath)), '-json', absolutePath],
 		'gdalinfo (image overlay georeference)',
 	);
 	let parsed: unknown;

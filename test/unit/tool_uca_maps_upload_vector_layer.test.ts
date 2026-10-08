@@ -349,7 +349,7 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 // The KML and GeoJSON branches read no binary, so they are gated where CI has
 // no GDAL; only the shapefile's ogrinfo probe stays behind HAVE_GDAL.
 describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
-	async function probe(name: string, text: string): Promise<boolean | null> {
+	async function probe(name: string, text: string): Promise<boolean> {
 		return withScratchDir(async (dir) => {
 			const file = resolve(dir, name);
 			writeFileSync(file, text);
@@ -371,8 +371,13 @@ describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
 		);
 	});
 
-	test('a GeoJSON that is not strict JSON is null, never read as undeclared', async () => {
-		expect(await probe('loose.geojson', '{"type":"FeatureCollection","features":[],}')).toBeNull();
+	test('a GeoJSON that is not strict JSON is refused, never read as undeclared', async () => {
+		const error = await probe('loose.geojson', '{"type":"FeatureCollection","features":[],}').catch(
+			(caught: unknown) => caught,
+		);
+		expect(error).toBeInstanceOf(DedaloError);
+		expect((error as DedaloError).code).toBe('request.invalid_options');
+		expect((error as DedaloError).message).toMatch(/not strict JSON/);
 	});
 });
 
@@ -504,9 +509,13 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			writeFileSync(src, SOURCE_GEOJSON);
 			const out = resolve(dir, 'src.kml');
 			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-			await runToolBinary([ogr2ogr, '-f', 'KML', out, src], 'test fixture (kml)', {
-				expectedOutput: out,
-			});
+			await runToolBinary(
+				[ogr2ogr, '-if', 'GeoJSON', '-f', 'KML', out, src],
+				'test fixture (kml)',
+				{
+					expectedOutput: out,
+				},
+			);
 			return Bun.file(out).text();
 		});
 		await stage('plain.kml', kmlBytes);
@@ -532,7 +541,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			const out = resolve(dir, 'utm.shp.zip');
 			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 			await runToolBinary(
-				[ogr2ogr, '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', out, src],
+				[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', out, src],
 				'test fixture (utm shp.zip)',
 				{ expectedOutput: out },
 			);
@@ -586,7 +595,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			const utm = resolve(dir, 'utm.shp');
 			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 			await runToolBinary(
-				[ogr2ogr, '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', utm, src],
+				[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', utm, src],
 				'test fixture (utm shp, unzipped)',
 				{ expectedOutput: utm },
 			);
@@ -601,7 +610,15 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			}
 			const out = resolve(dir, 'noprj.shp.zip');
 			await runToolBinary(
-				[ogr2ogr, '-f', 'ESRI Shapefile', out, resolve(noPrjDir, 'noprj.shp')],
+				[
+					ogr2ogr,
+					'-if',
+					'ESRI Shapefile',
+					'-f',
+					'ESRI Shapefile',
+					out,
+					resolve(noPrjDir, 'noprj.shp'),
+				],
 				'test fixture (noprj shp.zip)',
 				{ expectedOutput: out },
 			);
@@ -655,7 +672,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			const shp = resolve(dir, 'lonlat.shp');
 			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 			await runToolBinary(
-				[ogr2ogr, '-f', 'ESRI Shapefile', shp, src],
+				[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', shp, src],
 				'test fixture (lonlat shp)',
 				{
 					expectedOutput: shp,
@@ -664,7 +681,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			rmSync(resolve(dir, 'lonlat.prj'));
 			const out = resolve(dir, 'lonlat.shp.zip');
 			await runToolBinary(
-				[ogr2ogr, '-f', 'ESRI Shapefile', out, shp],
+				[ogr2ogr, '-if', 'ESRI Shapefile', '-f', 'ESRI Shapefile', out, shp],
 				'test fixture (lonlat noprj shp.zip)',
 				{ expectedOutput: out },
 			);
@@ -696,7 +713,19 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			const out = resolve(dir, 'utm.geojson');
 			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 			await runToolBinary(
-				[ogr2ogr, '-f', 'GeoJSON', '-lco', 'RFC7946=NO', '-t_srs', 'EPSG:25830', out, src],
+				[
+					ogr2ogr,
+					'-if',
+					'GeoJSON',
+					'-f',
+					'GeoJSON',
+					'-lco',
+					'RFC7946=NO',
+					'-t_srs',
+					'EPSG:25830',
+					out,
+					src,
+				],
 				'test fixture (utm geojson)',
 				{ expectedOutput: out },
 			);
@@ -733,7 +762,6 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			'declared.geojson',
 			`{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::4326"}},${features}}`,
 		);
-		await stage('lenient.geojson', `{"type":"FeatureCollection",${features},}`);
 		try {
 			// GDAL reads a CRS-less GeoJSON as WGS84 and writes its metres through unchanged
 			await expect(
@@ -750,11 +778,6 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			await expect(
 				callUpload({ tmp_name: 'declared.geojson', extension: 'geojson' }),
 			).rejects.toThrow(/do not fit the projection this file declares/);
-			await expect(
-				callUpload({ tmp_name: 'lenient.geojson', extension: 'geojson' }),
-			).rejects.toThrow(
-				/not strict JSON, so its own projection cannot be checked: save it as strict JSON/,
-			);
 
 			// the same metres with their projection land in Valencia
 			const response = await callUpload(

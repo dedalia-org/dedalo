@@ -28,7 +28,7 @@
 
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import { DedaloError } from '../../../src/core/errors/index.ts';
 import { identifyAvailable, resolveMagick } from '../../../src/core/media/engine/binaries.ts';
 import {
@@ -42,6 +42,95 @@ import { probeOnPath } from './capabilities.ts';
  * multi-GB media transcode; a stuck GDAL/ImageMagick process must not hold
  * the request open indefinitely. */
 const TOOL_BINARY_TIMEOUT_MS = 60_000;
+
+/**
+ * Every spawn runs offline. GDAL fetches on its own (a GeoJSON `crs` link, a
+ * VRT's `/vsicurl/`) through libcurl, which no engine guard sees; a proxy with
+ * a scheme libcurl does not know fails before any socket opens, and `NO_PROXY`
+ * is emptied so no host skips it. `PROJ_NETWORK` is PROJ's own grid download.
+ */
+export const OFFLINE_ENV: Readonly<Record<string, string>> = {
+	GDAL_HTTP_PROXY: 'dedalo-offline://refused',
+	GDAL_HTTPS_PROXY: 'dedalo-offline://refused',
+	NO_PROXY: '',
+	no_proxy: '',
+	PROJ_NETWORK: 'OFF',
+};
+
+/** GDAL binaries that open a file: each picks its driver by CONTENT unless
+ * `-if` names it, so a `.kml` that is really a VRT would read any path. */
+const GDAL_FILE_READERS: ReadonlySet<string> = new Set([
+	'ogr2ogr',
+	'ogrinfo',
+	'gdalinfo',
+	'gdal_translate',
+	'gdalwarp',
+]);
+
+/** `-if` for each driver GDAL may open the input with, and no other. */
+export function inputDrivers(...drivers: readonly string[]): string[] {
+	return drivers.flatMap((driver) => ['-if', driver]);
+}
+
+const RASTER_DRIVER_BY_EXTENSION: Readonly<Record<string, string>> = {
+	tif: 'GTiff',
+	tiff: 'GTiff',
+	jpg: 'JPEG',
+	jpeg: 'JPEG',
+	png: 'PNG',
+	webp: 'WEBP',
+	avif: 'AVIF',
+	gif: 'GIF',
+};
+
+/** The one raster driver a file's extension stands for. */
+export function rasterDriverOf(path: string): string {
+	const driver = RASTER_DRIVER_BY_EXTENSION[extname(path).slice(1).toLowerCase()];
+	if (driver === undefined) {
+		throw new DedaloError('internal.invariant', {
+			message: `tool_uca_maps: no raster driver for ${basename(path)}`,
+		});
+	}
+	return driver;
+}
+
+// GDAL's GeoJSON reader, case-insensitive: `link` and `URL` fetch the CRS
+// they point to; `name` is read with network and file access off
+const OFFLINE_GEOJSON_CRS_TYPES: ReadonlySet<string> = new Set(['name', 'epsg', 'ogc']);
+
+/**
+ * A GeoJSON reaches GDAL only with every `crs` resolvable offline. GDAL matches
+ * member names in any case and reads a `crs` on the root and on each geometry,
+ * so every object is walked except attribute values (`properties`). The offline
+ * env already stops the fetch; this refuses the file with a reason.
+ */
+export function assertOfflineGeoJsonCrs(geojson: unknown): void {
+	if (Array.isArray(geojson)) {
+		for (const item of geojson) assertOfflineGeoJsonCrs(item);
+		return;
+	}
+	if (geojson === null || typeof geojson !== 'object') return;
+	for (const [key, value] of Object.entries(geojson)) {
+		const name = key.toLowerCase();
+		if (name === 'crs') assertOfflineCrs(value);
+		else if (name !== 'properties') assertOfflineGeoJsonCrs(value);
+	}
+}
+
+function assertOfflineCrs(crs: unknown): void {
+	if (crs === null || crs === undefined) return;
+	// one `type` member only: with two spellings, which one GDAL takes is not ours to guess
+	const types =
+		typeof crs === 'object'
+			? Object.entries(crs).filter(([key]) => key.toLowerCase() === 'type')
+			: [];
+	const type = types.length === 1 ? types[0]?.[1] : undefined;
+	if (typeof type === 'string' && OFFLINE_GEOJSON_CRS_TYPES.has(type.toLowerCase())) return;
+	const message =
+		"This GeoJSON's crs is a link, which is never followed: name its projection " +
+		'instead (for example "EPSG:25830")';
+	throw new DedaloError('request.invalid_options', { message, publicMessage: message });
+}
 
 /**
  * Resolve a GDAL/OGR binary, or throw the tool's own "not installed" error —
@@ -141,10 +230,15 @@ export async function runToolBinary(
 	context: string,
 	options: RunToolBinaryOptions = {},
 ): Promise<SpawnResult> {
+	if (GDAL_FILE_READERS.has(basename(argv[0] ?? '')) && !argv.includes('-if')) {
+		throw new DedaloError('internal.invariant', {
+			message: `${context}: a GDAL input is opened only with its driver named (-if)`,
+		});
+	}
 	const result = await runBinary(argv, {
 		timeoutMs: TOOL_BINARY_TIMEOUT_MS,
 		nice: false,
-		env: options.env,
+		env: { ...options.env, ...OFFLINE_ENV },
 	});
 	try {
 		assertSpawnOk(result, context);
