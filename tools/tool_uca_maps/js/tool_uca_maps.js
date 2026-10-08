@@ -234,6 +234,9 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   _popupopen_handler - the map 'popupopen' listener object_console.js
 *                   subscribes for selection tracking; kept so destroy() can
 *                   unsubscribe the exact same reference
+*   _popupclose_handler - the map 'popupclose' listener object_console.js
+*                   subscribes to re-assert the stored Geoman state after a
+*                   click that closes a popup; same unsubscribe-by-reference reason
 *   _pmcreate_handler - the map 'pm:create' listener object_console.js (2b)
 *                   subscribes to re-apply style/hierarchy extras to newly
 *                   created geometry; same unsubscribe-by-reference reason
@@ -353,6 +356,7 @@ export const tool_uca_maps = function () {
 	this.console_visible			= false
 	this.active_console_layer		= null
 	this._popupopen_handler		= null
+	this._popupclose_handler		= null
 	this._pmcreate_handler			= null
 	this._pmremove_handler			= null
 	this.map_image_control			= null

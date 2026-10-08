@@ -150,6 +150,12 @@ export const create_onexone_rectangle = function(self, marker) {
 
 	properties.uca_maps.onexone_uid = ensure_uid(rectangle) // one uid scheme (ensure_uid), not two
 
+	// The marker is locked, as v6 does (`special_tools_onexone.js`): the core's
+	// click sweep would make it draggable, and a drag would leave its uncertainty
+	// box behind. The stored false is what the console's deferred re-assert
+	// keeps; moving the point stays possible, on purpose, from its checkbox.
+	properties.uca_maps.geoman_edition = false
+
 	toggle_uncertainty(self, rectangle) // auto-uncertainty (row 7) + commit()
 
 }//end create_onexone_rectangle

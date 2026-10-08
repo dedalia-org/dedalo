@@ -2220,6 +2220,68 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(section.querySelector('.uca-maps-uncertainty-scale svg'), 'expected the scale bar beside the checked box')
 	})
 
+	it('the 1x1 marker is born locked, as v6, and stays locked whatever a real click does to its popup', async function() {
+
+		tool.attach_console()
+		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		create_onexone_rectangle(tool, marker)
+
+		assert.equal(
+			marker.feature.properties.uca_maps.geoman_edition, false,
+			'expected the explicit stored false v6 writes on the 1x1 marker (special_tools_onexone.js)'
+		)
+
+		// REAL clicks on the icon, so bindPopup's opener and the core's
+		// init_feature sweep (pm.enable() over the whole group) run in their own
+		// order; counting the sweep's enables proves each click reached it
+		assert.isOk(marker._icon, 'expected the marker drawn on the map')
+		let sweeps = 0
+		const real_enable = marker.pm.enable.bind(marker.pm)
+		marker.pm.enable = function(options) { sweeps++; return real_enable(options) }
+		const click = async () => {
+			marker._icon.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
+			await new Promise((resolve) => setTimeout(resolve, 0))
+		}
+
+		await click()
+		assert.equal(sweeps, 1, 'expected the first click to reach the core sweep')
+		assert.isTrue(marker.isPopupOpen(), 'expected the first click to open the popup')
+		assert.equal(marker.pm.enabled(), false, 'expected the re-assert to lock the marker after the sweep')
+
+		const box = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-geoman input')
+		assert.isOk(box, 'expected the "Geoman editing active" checkbox on the marker console')
+		assert.equal(box.checked, false, 'expected the checkbox to say the marker is locked')
+
+		// a second click CLOSES a marker's popup (Leaflet's toggle; the open popup
+		// swallows that click's 'preclick') and fires no 'popupopen', yet the
+		// core sweep still enables the marker
+		await click()
+		assert.equal(sweeps, 2, 'expected the second click to reach the core sweep')
+		assert.isFalse(marker.isPopupOpen(), 'expected the second click to close the popup')
+		assert.equal(marker.pm.enabled(), false, 'expected the marker still locked after the closing click')
+
+		marker.pm.enable = real_enable
+	})
+
+	it('a click on the empty map stops editing a ticked object even with its popup open, as v6', async function() {
+
+		tool.attach_console()
+		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.set_geoman_edition(polygon, true)
+		polygon.openPopup()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		assert.equal(polygon.pm.enabled(), true, 'expected the ticked object in edit mode, its popup open')
+
+		// a REAL click on the empty map: the open popup closes on that click's
+		// 'preclick' ('popupclose'), then the core's map click turns editing off
+		// for every layer; the popupclose re-assert must not turn it back on
+		geolocation.map.getContainer().dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
+		assert.isFalse(polygon.isPopupOpen(), 'expected the click to close the popup')
+		assert.equal(polygon.pm.enabled(), false, 'expected the core map click to stop editing')
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		assert.equal(polygon.pm.enabled(), false, 'expected the object still off after the deferred re-assert')
+	})
+
 	it('the uncertainty scale rings the STORED tier, on any polygon, not only on a 1x1', function() {
 
 		tool.attach_console()

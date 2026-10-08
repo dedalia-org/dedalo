@@ -157,6 +157,8 @@ const set_panel_visibility = function(self, visible) {
 * double-subscribes.
 *
 * - 'popupopen' — selection (see file header).
+* - 'popupclose' — re-locks (never re-enables) after a click that closes a
+*   marker's popup instead of opening it.
 * - 'updated_layer_data_<id_base>' — already published by
 *   `component_geolocation.prototype.update_draw_data` on every geometry
 *   create/edit/style change; keeps an open console in sync with the object
@@ -178,10 +180,18 @@ const hydrate = function(self) {
 			// AFTER the core's own click sweep, never during it — see
 			// is_geoman_edition/apply_geoman for why this cannot be
 			// synchronous. Only objects with an explicit stored state move.
-			self._geoman_reassert = setTimeout(() => reapply_geoman_all(self), 0)
+			schedule_geoman_reassert(self)
 		}
 	}
 	self.geolocation.map.on('popupopen', self._popupopen_handler)
+
+	// A second click on a marker CLOSES its popup (Leaflet's toggle; the open
+	// popup also swallows that click's 'preclick') and fires no 'popupopen', yet
+	// the core sweep still enables the marker. Its 'popupclose' fires before the
+	// sweep, so a deferred re-assert lands after it — LOCK-ONLY: a click on the
+	// empty map closes a popup too, and there the core turns editing off for all.
+	self._popupclose_handler = () => schedule_geoman_reassert(self, true)
+	self.geolocation.map.on('popupclose', self._popupclose_handler)
 
 	// 2b: re-apply this tool's own style/hierarchy extras — the core never
 	// reads properties.uca_maps back on load, so this module has to
@@ -641,9 +651,11 @@ export const set_geoman_edition = function(self, layer, enabled) {
 
 /**
 * @param {Object} layer
+* @param {boolean} [lock_only=false] - only take edit mode OFF where the stored
+*   state says off; never turn it on
 * @returns {void}
 */
-const apply_geoman = function(layer) {
+const apply_geoman = function(layer, lock_only=false) {
 
 	if (!has_geoman_edition(layer) || !layer.pm) {
 		return
@@ -658,7 +670,7 @@ const apply_geoman = function(layer) {
 	const enabled = typeof layer.pm.enabled==='function' ? layer.pm.enabled() : null
 
 	if (is_geoman_edition(layer)) {
-		if (enabled!==true && typeof layer.pm.enable==='function') {
+		if (!lock_only && enabled!==true && typeof layer.pm.enable==='function') {
 			layer.pm.enable({
 				allowSelfIntersection	: true,
 				allowEditing			: true,
@@ -717,17 +729,43 @@ const default_geoman_off = function(self, layer) {
 * from `reapply_all` (load/hydration) and, deferred, after each click.
 *
 * @param {Object} self
+* @param {boolean} [lock_only=false] - see `apply_geoman`
 * @returns {void}
 */
-const reapply_geoman_all = function(self) {
+const reapply_geoman_all = function(self, lock_only=false) {
 	const feature_groups = self.geolocation && self.geolocation.FeatureGroup
 	if (!feature_groups) {
 		return
 	}
 	for (const layer_id in feature_groups) {
-		feature_groups[layer_id].eachLayer(apply_geoman)
+		feature_groups[layer_id].eachLayer((layer) => apply_geoman(layer, lock_only))
 	}
 }//end reapply_geoman_all
+
+
+/**
+* SCHEDULE_GEOMAN_REASSERT
+* One pending re-assert at a time: one click can fire both 'popupclose' and
+* 'popupopen', and teardown can only cancel the timer it still holds. A full
+* pass replaces a pending lock-only one; a lock-only request leaves any pending
+* pass alone, since every pass locks.
+*
+* @param {Object} self
+* @param {boolean} [lock_only=false] - see `apply_geoman`
+* @returns {void}
+*/
+const schedule_geoman_reassert = function(self, lock_only=false) {
+	if (self._geoman_reassert) {
+		if (lock_only) {
+			return
+		}
+		clearTimeout(self._geoman_reassert)
+	}
+	self._geoman_reassert = setTimeout(() => {
+		self._geoman_reassert = null
+		reapply_geoman_all(self, lock_only)
+	}, 0)
+}//end schedule_geoman_reassert
 
 
 
@@ -1667,6 +1705,14 @@ export const detach_console = function(self) {
 			}
 		}
 
+		if (self._popupclose_handler) {
+			try {
+				self.geolocation.map.off('popupclose', self._popupclose_handler)
+			} catch (error) {
+				console.warn('tool_uca_maps detach_console: error removing popupclose listener', error)
+			}
+		}
+
 		if (self._pmcreate_handler) {
 			try {
 				self.geolocation.map.off('pm:create', self._pmcreate_handler)
@@ -1697,6 +1743,7 @@ export const detach_console = function(self) {
 	self.map_control			= null
 	self.panel_node				= null
 	self._popupopen_handler	= null
+	self._popupclose_handler	= null
 	self._pmcreate_handler		= null
 	self._pmremove_handler		= null
 	self.active_console_layer	= null
