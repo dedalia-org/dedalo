@@ -22,6 +22,7 @@
 
 import { existsSync, mkdirSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { DedaloError } from '../../../src/core/errors/index.ts';
 
 const PLEIADES_DUMPS = [
 	'https://atlantides.org/downloads/pleiades/dumps/pleiades-places-latest.csv.gz',
@@ -82,7 +83,9 @@ async function readDump(url: string): Promise<[string, string][]> {
 	console.log(`fetching ${basename(url)}…`);
 	const response = await fetch(url);
 	if (!response.ok) {
-		throw new Error(`${url} answered ${response.status}`);
+		throw new DedaloError('security.outbound_failed', {
+			message: `${url} answered ${response.status}`,
+		});
 	}
 	const csv = new TextDecoder().decode(
 		Bun.gunzipSync(new Uint8Array(await response.arrayBuffer())),
@@ -95,7 +98,7 @@ async function readDump(url: string): Promise<[string, string][]> {
 	const pidIndex = columns.indexOf('pid');
 	const pathIndex = columns.indexOf('path');
 	if (titleIndex === -1 || (pidIndex === -1 && pathIndex === -1)) {
-		throw new Error(`${url}: unexpected columns`);
+		throw new DedaloError('security.outbound_failed', { message: `${url}: unexpected columns` });
 	}
 
 	const pairs: [string, string][] = [];
@@ -130,7 +133,9 @@ async function buildPleiadesIndex(outDir: string): Promise<void> {
 async function copyPelagiosLayers(outDir: string, v6Dir: string): Promise<void> {
 	const source = join(v6Dir, 'services', 'pelagios', 'data');
 	if (!existsSync(source)) {
-		throw new Error(`no Pelagios data under ${source}`);
+		throw new DedaloError('request.invalid_options', {
+			message: `no Pelagios data under ${source}`,
+		});
 	}
 	const target = join(outDir, 'pelagios');
 	mkdirSync(target, { recursive: true });
