@@ -29,10 +29,11 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 
 
 
-/** Los 3 de fábrica de v6 para `section_tipo` no-numisdata (única rama que
-* aplica aquí — Mupreva es inmueble/yacimiento), byte-parity con
+/** Los de fábrica de v6 para `section_tipo` no-numisdata, byte-parity con
 * `class.tool_leaflet_special_tools.php:1181-1198` — EXCEPTO la URL de OSM
-* (ver nota junto a esa entrada). Session-only (file header). */
+* (nota junto a esa entrada) y SIN Google Maps: `mt1.google.com` no es un
+* endpoint documentado y pedirle teselas salta la Map Tiles API oficial, que
+* sus términos prohíben. Session-only (file header). */
 export const DEFAULT_BASEMAPS = [
 	{
 		// v6 usa '//...' (protocolo-relativo); aquí https literal, igual que
@@ -51,13 +52,6 @@ export const DEFAULT_BASEMAPS = [
 		attribution	: 'Tiles &copy; Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
 		minzoom		: 0,
 		maxzoom		: 19
-	},
-	{
-		url			: 'https://mt1.google.com/vt/lyrs=r&x={x}&y={y}&z={z}',
-		name		: 'Google Maps',
-		attribution	: '@copy Google Maps',
-		minzoom		: 0,
-		maxzoom		: 22
 	}
 ]
 

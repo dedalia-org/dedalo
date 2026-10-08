@@ -2424,7 +2424,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// exactly the "existing control" path xyz_basemaps.js must clean up
 	// (v6's real "OSM duplicated" bug, file header of xyz_basemaps.js).
 
-	it('attach_xyz_basemaps seeds the 3 v6 defaults, replaces the core\'s own arcgis/osm base layers (no duplicates), and activates the first', function() {
+	it('attach_xyz_basemaps seeds the v6 defaults minus Google Maps, replaces the core\'s own arcgis/osm base layers (no duplicates), and activates the first', function() {
 
 		tool.attach_xyz_basemaps()
 
@@ -2432,18 +2432,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(control, 'expected the "XYZ" toggle button')
 		assert.isOk(tool.xyz_panel, 'expected the xyz panel built')
 		assert.equal(tool.xyz_panel.hidden, true, 'expected the panel hidden by default')
-		assert.deepEqual(tool.basemaps, DEFAULT_BASEMAPS, 'expected the 3 v6 defaults seeded')
+		assert.deepEqual(tool.basemaps, DEFAULT_BASEMAPS, 'expected the defaults seeded')
 
-		// the fix: exactly 3 tile entries in the control, no leftover
+		// the fix: exactly 2 tile entries in the control, no leftover
 		// arcgis/osm from the core's own VARIOUS branch, no duplicate names
 		const tile_entries = Object.values(geolocation.layer_control._layers)
 			.filter((entry) => entry.layer instanceof L.TileLayer)
-		assert.equal(tile_entries.length, 3, 'expected exactly 3 base layers registered, no leftovers/duplicates')
-		assert.deepEqual(tile_entries.map((entry) => entry.name).sort(), ['ARCGIS', 'Google Maps', 'OSM'], 'expected exactly the 3 v6 default names, no duplicate "OSM"')
+		assert.equal(tile_entries.length, 2, 'expected exactly 2 base layers registered, no leftovers/duplicates')
+		assert.deepEqual(tile_entries.map((entry) => entry.name).sort(), ['ARCGIS', 'OSM'], 'expected exactly the default names, no duplicate "OSM"')
+
+		// v6 shipped a third default fetched from mt1.google.com, an
+		// undocumented endpoint whose use Google's terms prohibit
+		assert.isFalse(
+			DEFAULT_BASEMAPS.some((basemap) => /google/i.test(basemap.url) || /google/i.test(basemap.name)),
+			'expected no Google Maps default basemap'
+		)
 
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the first basemap (OSM) active on the map')
-		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[1]), false, 'expected the other basemaps NOT active')
-		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[2]), false, 'expected the other basemaps NOT active')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[1]), false, 'expected the other basemap NOT active')
 	})
 
 	it('attach_xyz_basemaps takes over an OSM-provider record (no layer_control yet): builds one, drops the raw tile layer, disconnects theme_observer', function() {
@@ -2514,19 +2520,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: 18, maxzoom: 2}),
 			{ok: false, error: 'Min zoom cannot be greater than max zoom.'}
 		)
-		assert.equal(tool.basemaps.length, 3, 'expected no basemap appended by any of the failed validations')
+		assert.equal(tool.basemaps.length, 2, 'expected no basemap appended by any of the failed validations')
 
 		const result = tool.add_basemap({
 			url: 'https://example.com/{z}/{x}/{y}.png', name: '<b>Custom</b>', attribution: '<img src=x onerror=alert(1)>me', minzoom: '2', maxzoom: '18'
 		})
 		assert.deepEqual(result, {ok: true})
-		assert.equal(tool.basemaps.length, 4, 'expected the new basemap appended')
+		assert.equal(tool.basemaps.length, 3, 'expected the new basemap appended')
 		assert.deepEqual(
-			tool.basemaps[3],
+			tool.basemaps[2],
 			{url: 'https://example.com/{z}/{x}/{y}.png', name: 'Custom', attribution: 'me', minzoom: 2, maxzoom: 18},
 			'expected strip_tags on both name AND attribution (Leaflet renders attribution via innerHTML), parsed integer zooms'
 		)
-		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[3]), true, 'expected the newly added basemap activated')
+		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[2]), true, 'expected the newly added basemap activated')
 	})
 
 	it('delete_basemap refuses to remove the last remaining basemap; removes any other and reactivates index 0', function() {
@@ -2534,8 +2540,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_xyz_basemaps()
 
 		assert.deepEqual(tool.delete_basemap(1), {ok: true}) // ARCGIS gone
-		assert.equal(tool.basemaps.length, 2)
-		assert.deepEqual(tool.delete_basemap(1), {ok: true}) // Google Maps gone
 		assert.equal(tool.basemaps.length, 1)
 		assert.equal(tool.basemaps[0].name, 'OSM', 'expected OSM (index 0) the sole survivor')
 
@@ -2551,11 +2555,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_xyz_basemaps()
 
 		assert.deepEqual(tool.move_basemap(0, 1), {ok: true}) // OSM<->ARCGIS
-		assert.deepEqual(tool.basemaps.map((b) => b.name), ['ARCGIS', 'OSM', 'Google Maps'])
+		assert.deepEqual(tool.basemaps.map((b) => b.name), ['ARCGIS', 'OSM'])
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the new index-0 entry (ARCGIS) active')
 
 		assert.deepEqual(tool.move_basemap(0, -1), {ok: false}, 'expected refusal moving index 0 further up')
-		assert.deepEqual(tool.move_basemap(2, 1), {ok: false}, 'expected refusal moving the last entry further down')
+		assert.deepEqual(tool.move_basemap(1, 1), {ok: false}, 'expected refusal moving the last entry further down')
 	})
 
 	it('the panel form validates, adds and deletes through the real DOM (populate_xyz_basemaps)', function() {
@@ -2579,11 +2583,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.equal(message.hidden, true, 'expected the error message cleared on success')
 		const items = panel.querySelectorAll('.uca-maps-xyz-item')
-		assert.equal(items.length, 4, 'expected the list rebuilt with the new entry')
-		assert.equal(items[3].querySelector('.uca-maps-xyz-item-name').textContent, 'DOM basemap')
+		assert.equal(items.length, 3, 'expected the list rebuilt with the new entry')
+		assert.equal(items[2].querySelector('.uca-maps-xyz-item-name').textContent, 'DOM basemap')
 
-		items[3].querySelector('.uca-maps-xyz-delete').click()
-		assert.equal(panel.querySelectorAll('.uca-maps-xyz-item').length, 3, 'expected the row removed from the DOM')
+		items[2].querySelector('.uca-maps-xyz-delete').click()
+		assert.equal(panel.querySelectorAll('.uca-maps-xyz-item').length, 2, 'expected the row removed from the DOM')
 	})
 
 	it('detach_xyz_basemaps removes the button/panel AND every tile layer it added from the live map', async function() {
