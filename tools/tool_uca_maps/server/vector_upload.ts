@@ -67,6 +67,11 @@ export interface ManualProjection {
 // a band before N is the southern hemisphere (`L.LatLng.UTM.js:604`)
 const UTM_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
 
+/** Whether any of v6's three fields was typed, before judging their format. */
+export function typesManualProjection(options: Record<string, unknown>): boolean {
+	return ['epsg', 'zone', 'band'].some((key) => String(options[key] ?? '').trim() !== '');
+}
+
 /**
  * v6's fields, format only (no GDAL). v6's table gives non-UTM codes no zone
  * or band (`special_tools_upload.js:402-406`), so the EPSG may come alone and
@@ -75,12 +80,12 @@ const UTM_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
  * the failure these fields exist to prevent.
  */
 export function parseManualProjection(options: Record<string, unknown>): ManualProjection | null {
+	if (!typesManualProjection(options)) return null;
 	const epsg = String(options.epsg ?? '').trim();
 	const zone = String(options.zone ?? '').trim();
 	const band = String(options.band ?? '')
 		.trim()
 		.toUpperCase();
-	if (epsg === '' && zone === '' && band === '') return null;
 	if (epsg === '') {
 		throw invalidVectorUpload('Zone and band describe an EPSG code: fill in the EPSG too');
 	}
@@ -160,26 +165,25 @@ async function checkManualProjection(projection: ManualProjection): Promise<void
 }
 
 /**
- * Whether the file names its own CRS. In v6 the file's `crs` always wins and
- * a typed code only matters when it equals it (`projections.js:31-46`); here
- * `-s_srs` would override it silently, so a declaring file refuses the fields
- * instead. A GeoJSON without `crs` counts as undeclared although GDAL reads it
- * as WGS84 (RFC 7946): legacy UTM files without it are what the fields are for.
+ * Whether the file names its own CRS; null when that cannot be told. In v6
+ * the file's `crs` always wins and a typed code only matters when it equals it
+ * (`projections.js:31-46`); here `-s_srs` would override it silently, so a
+ * declaring file refuses the fields instead. A GeoJSON without `crs` counts as
+ * undeclared although GDAL reads it as WGS84 (RFC 7946): legacy UTM files
+ * without it are what the fields are for.
  */
-export async function declaresOwnCrs(inputFile: string, extension: string): Promise<boolean> {
+export async function declaresOwnCrs(
+	inputFile: string,
+	extension: string,
+): Promise<boolean | null> {
 	if (extension === 'kml') return true; // WGS84 by definition
 	if (extension === 'geojson') {
 		const parsed = (await Bun.file(inputFile)
 			.json()
 			.catch(() => null)) as { crs?: unknown } | null;
-		// fail closed: GDAL's parser accepts what strict JSON refuses, so an
-		// unreadable file may still carry a crs that -s_srs would override
-		if (parsed === null) {
-			throw invalidVectorUpload(
-				'This GeoJSON is not strict JSON, so its own projection cannot be checked: ' +
-					'leave EPSG, zone and band empty',
-			);
-		}
+		// GDAL's parser accepts what strict JSON refuses, so an unreadable file
+		// may still carry a crs: neither answer would be true
+		if (parsed === null) return null;
 		return typeof parsed.crs === 'object' && parsed.crs !== null;
 	}
 	const ogrinfo = await resolveGdalBinary('ogrinfo');
@@ -231,10 +235,89 @@ function resolveStagedUpload(userId: number, rawKeyDir: string, rawTmpName: stri
 
 /** A parsed GeoJSON FeatureCollection, loosely typed — the client is the one
  * that walks `features` to build Leaflet layers. */
-interface GeoJsonFeatureCollection {
+export interface GeoJsonFeatureCollection {
 	type: 'FeatureCollection';
 	features: unknown[];
 	[key: string]: unknown;
+}
+
+/**
+ * The first position that is not longitude/latitude, or null. A GeoJSON with
+ * no `crs` is WGS84 to GDAL (RFC 7946), so its UTM metres come out of ogr2ogr
+ * unchanged and would land on the map as degrees.
+ */
+export function findPositionOutsideLonLat(
+	collection: GeoJsonFeatureCollection,
+): [number, number] | null {
+	for (const feature of collection.features) {
+		const outside = outsideInGeometry((feature as { geometry?: unknown } | null)?.geometry);
+		if (outside !== null) return outside;
+	}
+	return null;
+}
+
+function outsideInGeometry(geometry: unknown): [number, number] | null {
+	if (geometry === null || typeof geometry !== 'object') return null;
+	const { geometries, coordinates } = geometry as { geometries?: unknown; coordinates?: unknown };
+	if (Array.isArray(geometries)) {
+		for (const member of geometries) {
+			const outside = outsideInGeometry(member);
+			if (outside !== null) return outside;
+		}
+		return null;
+	}
+	return outsideInCoordinates(coordinates);
+}
+
+function outsideInCoordinates(coordinates: unknown): [number, number] | null {
+	if (!Array.isArray(coordinates)) return null;
+	if (typeof coordinates[0] === 'number') {
+		const x = Number(coordinates[0]);
+		const y = Number(coordinates[1]);
+		const inside =
+			Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 180 && Math.abs(y) <= 90;
+		return inside ? null : [x, y];
+	}
+	for (const child of coordinates) {
+		const outside = outsideInCoordinates(child);
+		if (outside !== null) return outside;
+	}
+	return null;
+}
+
+/** Each refusal names the one correction that applies: a field to fill in only
+ * where the file has no projection of its own, which is when they are taken. */
+async function outsideLonLatRefusal(
+	position: [number, number],
+	projection: ManualProjection | null,
+	inputFile: string,
+	extension: string,
+): Promise<DedaloError> {
+	const at = position.map((value) => Number(value.toFixed(2))).join(', ');
+	if (projection !== null) {
+		return invalidVectorUpload(
+			`With EPSG:${projection.epsg} the coordinates are not longitude/latitude (${at}): ` +
+				"it is not this file's projection",
+		);
+	}
+	const declares = await declaresOwnCrs(inputFile, extension);
+	if (declares === true) {
+		return invalidVectorUpload(
+			`The coordinates do not fit the projection this file declares (${at} is not ` +
+				"longitude/latitude): correct the file's projection",
+		);
+	}
+	if (declares === null) {
+		return invalidVectorUpload(
+			`The coordinates are not longitude/latitude (${at}) and this GeoJSON is not strict ` +
+				'JSON, so its own projection cannot be checked: save it as strict JSON',
+		);
+	}
+	return invalidVectorUpload(
+		`This file does not declare its projection and its coordinates are not ` +
+			`longitude/latitude (${at}): provide its EPSG code (and, for a UTM one, its zone ` +
+			'and band) to reproject it',
+	);
 }
 
 export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolResponse> {
@@ -253,7 +336,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		);
 	}
 
-	const projection = parseManualProjection(ctx.options);
+	const typed = typesManualProjection(ctx.options);
 
 	const staged = resolveStagedUpload(
 		ctx.userId,
@@ -276,14 +359,25 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		await Bun.write(inputFile, Bun.file(staged));
 		const outputFile = join(dir, 'uca_maps_upload_out.geojson');
 
-		// the declared-CRS refusal goes BEFORE the EPSG lookup: on a file that
-		// declares its own, "fill in its zone and band" would send the user to
-		// fill in fields that must end up empty
-		if (projection !== null && (await declaresOwnCrs(inputFile, extension))) {
-			throw invalidVectorUpload(
-				'This file already declares its own projection: leave EPSG, zone and band empty',
-			);
+		// the declared-CRS refusal goes BEFORE the fields are judged: on a file
+		// that declares its own, "zone and band go together" or "fill in its zone
+		// and band" would send the user to fill in fields that must end up empty
+		if (typed) {
+			const declares = await declaresOwnCrs(inputFile, extension);
+			if (declares === true) {
+				throw invalidVectorUpload(
+					'This file already declares its own projection: leave EPSG, zone and band empty',
+				);
+			}
+			// fail closed: a crs hidden behind lenient JSON is what -s_srs would override
+			if (declares === null) {
+				throw invalidVectorUpload(
+					'This GeoJSON is not strict JSON, so its own projection cannot be checked: ' +
+						'leave EPSG, zone and band empty',
+				);
+			}
 		}
+		const projection = parseManualProjection(ctx.options);
 		if (projection !== null) await checkManualProjection(projection);
 
 		const ogr2ogr = await resolveGdalBinary('ogr2ogr');
@@ -319,6 +413,10 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 				coordinates: { tool: 'tool_uca_maps' },
 				message: 'vector_upload: ogr2ogr produced no usable GeoJSON',
 			});
+		}
+		const outside = findPositionOutsideLonLat(parsed);
+		if (outside !== null) {
+			throw await outsideLonLatRefusal(outside, projection, inputFile, extension);
 		}
 		return parsed;
 	});

@@ -8,11 +8,13 @@
  *    get_catastro_parcel, vector_download…) — nothing is written to section
  *    data here either, the resulting objects only persist through the
  *    geolocation component's own normal save;
- *  - caller-fault validation (unsupported extension, a partial or malformed
- *    EPSG/zone/band set, missing tmp_name) THROWS `request.invalid_options`,
- *    unconditionally — no GDAL
- *    and no staged file involved, so this runs even without `ogr2ogr`
- *    installed (same split as `tool_uca_maps_vector_download.test.ts`);
+ *  - caller-fault validation (unsupported extension, missing tmp_name) THROWS
+ *    `request.invalid_options` with no GDAL and no staged file; a partial or
+ *    malformed EPSG/zone/band set is judged only after the staged file says
+ *    whether it declares its own projection (a declaring file refuses the
+ *    fields first) — still no GDAL for GeoJSON and KML;
+ *  - a conversion whose coordinates are not longitude/latitude (a CRS-less
+ *    UTM GeoJSON, which GDAL reads as WGS84) is refused, never returned;
  *  - staged-path confinement (SEC parity w/ `tool_import_dedalo_csv`'s
  *    `processUploadedFile`): a traversal in `tmp_name`/`key_dir`, or
  *    `key_dir='../<other_uid>'` claiming another user's staged upload, is
@@ -47,6 +49,8 @@ import {
 	assertProjectionMatches,
 	classifyProjectionLookupError,
 	declaresOwnCrs,
+	findPositionOutsideLonLat,
+	type GeoJsonFeatureCollection,
 	parseManualProjection,
 } from '../../tools/tool_uca_maps/server/vector_upload.ts';
 import { mustGet } from '../helpers/assert.ts';
@@ -96,32 +100,137 @@ describe('tool_uca_maps upload_vector_layer — caller-fault validation (no GDAL
 			action.handler(contextOf(-1, { file_data: { extension: 'geojson' } })),
 		).rejects.toThrow(/Missing staged file/);
 	});
+});
 
-	test('a malformed EPSG code is refused', async () => {
-		const action = await loadAction();
-		await expect(
-			action.handler(
-				contextOf(-1, {
-					file_data: { key_dir: '', tmp_name: 'x', extension: 'geojson' },
-					epsg: 'EPSG:4326',
-					zone: '30',
-					band: 'N',
+// GeoJSON and KML say whether they declare a projection without any binary,
+// and every refusal here comes before the EPSG lookup and ogr2ogr
+describe('tool_uca_maps upload_vector_layer — the fields are judged after the file (no GDAL needed)', () => {
+	const SCRATCH_USER = 987659;
+	const userStaging = resolve(
+		config.media.rootPath ?? '',
+		config.media.upload.tmpSubdir,
+		String(SCRATCH_USER),
+	);
+	const UNDECLARED = '{"type":"FeatureCollection","features":[]}';
+	const DECLARED =
+		'{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::25830"}},"features":[]}';
+
+	async function upload(
+		tmpName: string,
+		bytes: string,
+		fields: Record<string, string>,
+	): Promise<ToolResponse> {
+		mkdirSync(userStaging, { recursive: true });
+		writeFileSync(resolve(userStaging, tmpName), bytes);
+		try {
+			const action = await loadAction();
+			return await action.handler(
+				contextOf(SCRATCH_USER, {
+					file_data: { key_dir: '', tmp_name: tmpName, extension: tmpName.split('.').pop() },
+					...fields,
 				}),
-			),
+			);
+		} finally {
+			rmSync(userStaging, { recursive: true, force: true });
+		}
+	}
+
+	test('on a file without its own projection, a malformed EPSG code is refused', async () => {
+		await expect(
+			upload('undeclared.geojson', UNDECLARED, { epsg: 'EPSG:4326', zone: '30', band: 'N' }),
 		).rejects.toThrow(/Invalid EPSG code/);
 	});
 
-	test('a zone and band without their EPSG are refused, not silently dropped as in v6', async () => {
-		const action = await loadAction();
+	test('on a file without its own projection, zone and band without their EPSG are refused, not silently dropped as in v6', async () => {
 		await expect(
-			action.handler(
-				contextOf(-1, {
-					file_data: { key_dir: '', tmp_name: 'x', extension: 'geojson' },
-					zone: '30',
-					band: 'N',
+			upload('undeclared.geojson', UNDECLARED, { zone: '30', band: 'N' }),
+		).rejects.toThrow(/fill in the EPSG too/);
+	});
+
+	test('a declaring file refuses the fields before their format is judged', async () => {
+		const malformed: Record<string, string>[] = [
+			{ zone: '30' },
+			{ epsg: 'EPSG:4326' },
+			{ epsg: '25830', band: 'N' },
+		];
+		for (const fields of malformed) {
+			await expect(upload('declared.geojson', DECLARED, fields)).rejects.toThrow(
+				/already declares its own projection/,
+			);
+			await expect(upload('plain.kml', '<?xml version="1.0"?><kml/>', fields)).rejects.toThrow(
+				/already declares its own projection/,
+			);
+		}
+	});
+
+	test('a GeoJSON strict JSON refuses cannot take the fields, however malformed they are', async () => {
+		await expect(
+			upload('lenient.geojson', '{"type":"FeatureCollection","features":[],}', { zone: '30' }),
+		).rejects.toThrow(/not strict JSON/);
+	});
+});
+
+describe('tool_uca_maps findPositionOutsideLonLat (pure)', () => {
+	const collection = (...geometries: unknown[]): GeoJsonFeatureCollection => ({
+		type: 'FeatureCollection',
+		features: geometries.map((geometry) => ({ type: 'Feature', properties: {}, geometry })),
+	});
+
+	test('longitude/latitude everywhere, edges included, is null; so is a feature without geometry', () => {
+		expect(
+			findPositionOutsideLonLat(
+				collection(
+					{ type: 'Point', coordinates: [-0.375, 39.47, 12] },
+					{
+						type: 'LineString',
+						coordinates: [
+							[-180, -90],
+							[180, 90],
+						],
+					},
+					null,
+				),
+			),
+		).toBeNull();
+		expect(findPositionOutsideLonLat(collection())).toBeNull();
+	});
+
+	test('UTM metres are found at any depth, GeometryCollection included', () => {
+		const utm = [725695.71, 4372210.14];
+		expect(findPositionOutsideLonLat(collection({ type: 'Point', coordinates: utm }))).toEqual([
+			725695.71, 4372210.14,
+		]);
+		expect(
+			findPositionOutsideLonLat(
+				collection(
+					{ type: 'Point', coordinates: [-0.375, 39.47] },
+					{
+						type: 'MultiPolygon',
+						coordinates: [[[[-0.4, 39.4], [-0.3, 39.4], utm, [-0.4, 39.4]]]],
+					},
+				),
+			),
+		).toEqual([725695.71, 4372210.14]);
+		expect(
+			findPositionOutsideLonLat(
+				collection({
+					type: 'GeometryCollection',
+					geometries: [
+						{ type: 'Point', coordinates: [-0.375, 39.47] },
+						{ type: 'Point', coordinates: utm },
+					],
 				}),
 			),
-		).rejects.toThrow(/fill in the EPSG too/);
+		).toEqual([725695.71, 4372210.14]);
+	});
+
+	test('a latitude beyond 90 alone is enough, and a non-number position is never inside', () => {
+		expect(
+			findPositionOutsideLonLat(collection({ type: 'Point', coordinates: [10, 90.5] })),
+		).toEqual([10, 90.5]);
+		expect(
+			findPositionOutsideLonLat(collection({ type: 'Point', coordinates: [10] })),
+		).not.toBeNull();
 	});
 });
 
@@ -240,7 +349,7 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 // The KML and GeoJSON branches read no binary, so they are gated where CI has
 // no GDAL; only the shapefile's ogrinfo probe stays behind HAVE_GDAL.
 describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
-	async function probe(name: string, text: string): Promise<boolean> {
+	async function probe(name: string, text: string): Promise<boolean | null> {
 		return withScratchDir(async (dir) => {
 			const file = resolve(dir, name);
 			writeFileSync(file, text);
@@ -262,15 +371,8 @@ describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
 		);
 	});
 
-	test('a GeoJSON that is not strict JSON is refused, never read as undeclared', async () => {
-		let caught: unknown = null;
-		try {
-			await probe('loose.geojson', '{"type":"FeatureCollection","features":[],}');
-		} catch (error) {
-			caught = error;
-		}
-		expect(caught).toBeInstanceOf(DedaloError);
-		expect((caught as DedaloError).code).toBe('request.invalid_options');
+	test('a GeoJSON that is not strict JSON is null, never read as undeclared', async () => {
+		expect(await probe('loose.geojson', '{"type":"FeatureCollection","features":[],}')).toBeNull();
 	});
 });
 
@@ -618,6 +720,51 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 				.coordinates;
 			expect(lon).toBeCloseTo(-0.375, 3);
 			expect(lat).toBeCloseTo(39.47, 3);
+		} finally {
+			rmSync(userStaging, { recursive: true, force: true });
+		}
+	});
+
+	test('coordinates that come out of ogr2ogr as no longitude/latitude are refused, each with the one correction that applies', async () => {
+		const features =
+			'"features":[{"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[725695.71,4372210.14]}}]';
+		await stage('undeclared.geojson', `{"type":"FeatureCollection",${features}}`);
+		await stage(
+			'declared.geojson',
+			`{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::4326"}},${features}}`,
+		);
+		await stage('lenient.geojson', `{"type":"FeatureCollection",${features},}`);
+		try {
+			// GDAL reads a CRS-less GeoJSON as WGS84 and writes its metres through unchanged
+			await expect(
+				callUpload({ tmp_name: 'undeclared.geojson', extension: 'geojson' }),
+			).rejects.toThrow(
+				/does not declare its projection and its coordinates are not longitude\/latitude \(725695\.71, 4372210\.14\): provide its EPSG code/,
+			);
+			await expect(
+				callUpload({ tmp_name: 'undeclared.geojson', extension: 'geojson' }, { epsg: '4326' }),
+			).rejects.toThrow(
+				/With EPSG:4326 the coordinates are not longitude\/latitude .*not this file's projection/,
+			);
+			// the fields would be refused on this file: only the file itself can be corrected
+			await expect(
+				callUpload({ tmp_name: 'declared.geojson', extension: 'geojson' }),
+			).rejects.toThrow(/do not fit the projection this file declares/);
+			await expect(
+				callUpload({ tmp_name: 'lenient.geojson', extension: 'geojson' }),
+			).rejects.toThrow(
+				/not strict JSON, so its own projection cannot be checked: save it as strict JSON/,
+			);
+
+			// the same metres with their projection land in Valencia
+			const response = await callUpload(
+				{ tmp_name: 'undeclared.geojson', extension: 'geojson' },
+				{ epsg: '25830', zone: '30', band: 'S' },
+			);
+			const [lon, lat] = mustGet(dataOf(response).geojson.features[0], 'features[0]').geometry
+				.coordinates;
+			expect(lon).toBeCloseTo(-0.375, 1);
+			expect(lat).toBeCloseTo(39.47, 1);
 		} finally {
 			rmSync(userStaging, { recursive: true, force: true });
 		}
