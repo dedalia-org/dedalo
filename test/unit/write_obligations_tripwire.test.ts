@@ -191,8 +191,8 @@ const RAW_CALLER_EXEMPT: Record<string, string> = {
 	'src/core/relations/parent.ts#sortChildren': 'thesaurus tree engine — see setChildOrder.',
 	'src/core/ts_object/ts_api.ts#addChild':
 		'PENDING (Step 5 tree-move obligation) — see parent.ts#setChildOrder: PHP dd_ts_api::add_child saved the parent/children slots through component->save(); the raw write here is held by leg B’s PENDING change detector.',
-	'src/core/install/hierarchy_activate.ts#activateHierarchy':
-		'installer hierarchy ACTIVATION (system provisioning at install time, no principal, no curated content).',
+	'src/core/install/hierarchy_activate.ts#createRegistryRow':
+		'installer hierarchy ACTIVATION — the registry row CREATED from the hierarchy.json manifest entry (system provisioning at install time, no principal, no curated content; one transaction).',
 	'src/core/tools/register.ts#writeRegistryRecord':
 		'tools REGISTRY import (dd1324 rows written from the tools’ register.json at boot/import): system rows; it invalidates the tool caches for itself (tools_cache_invalidation gate).',
 	'src/core/update/transform/portalize.ts#applyPortalizeRow':
@@ -210,7 +210,7 @@ const RAW_CALLER_EXEMPT: Record<string, string> = {
 const NON_DERIVED_RAW_WRITERS: Readonly<Record<string, string>> = {
 	'src/core/retention/prune.ts#registerRetentionCatalog': 'retention',
 	'src/core/relations/dataframe.ts#fixDataframeOrphanEntries': 'maintenance fix',
-	'src/core/install/hierarchy_activate.ts#activateHierarchy': 'installer',
+	'src/core/install/hierarchy_activate.ts#createRegistryRow': 'installer',
 	'src/core/tools/register.ts#writeRegistryRecord': 'registry import',
 	'src/core/update/transform/portalize.ts#applyPortalizeRow': 'update transform',
 	'scripts/repair_geolocation_studio_default.ts#repairUnit': 'operator repair script',

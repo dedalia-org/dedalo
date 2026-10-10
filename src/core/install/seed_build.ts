@@ -23,7 +23,8 @@
  *      langs + registry, writes the canonical records + the data version; then
  *      CLUSTERs every table on its primary key and restarts idle sequences
  *      (a deterministic dump);
- *      the registry must be activatable (provisionBlocker) and inactive;
+ *      the registry must be the CORE rows only (nonCoreRegistryRows),
+ *      activatable (provisionBlocker) and inactive;
  *   5. pg_dump → `<out>.part`;
  *   6. VERIFIED BY A REAL INSTALL: the VERIFY child restores `.part` into a
  *      second marked database through installDbFromSeed (the whole fresh
@@ -62,6 +63,7 @@ import {
 } from '../ontology/ontology_dependencies.ts';
 import { gzipStreamToFile } from '../ontology/recovery_file.ts';
 import { DEDALO_VERSION } from '../update/version.ts';
+import { isCoreHierarchyTld } from './hierarchy_meta.ts';
 import { SEED_DUMP_PATH, SEED_MANIFEST_PATH } from './paths.ts';
 import { resolvePgBinary } from './pg_bin.ts';
 import {
@@ -842,6 +844,25 @@ export function registryBlockers(inputs: readonly RegistryProvisionInput[]): str
 	return lines;
 }
 
+/**
+ * The shipped registry records that are NOT a core hierarchy, one line each.
+ * Pure. The seed ships the CORE registry rows only (hierarchy_meta.ts
+ * CORE_HIERARCHIES — `lg`, whose terms are the seed's own matrix_langs): an
+ * optional thesaurus's row is written at ACTIVATION from its
+ * install/import/hierarchy/hierarchy.json entry
+ * (WC-2026-10-10-hierarchy-json-manifest), so a second, frozen copy here would
+ * be the metadata the manifest replaced — and the seed promises the core.
+ */
+export function nonCoreRegistryRows(inputs: readonly RegistryProvisionInput[]): string[] {
+	const lines: string[] = [];
+	for (const input of inputs) {
+		const tld = String(input.string?.hierarchy6?.[0]?.value ?? '');
+		if (isCoreHierarchyTld(tld)) continue;
+		lines.push(`hierarchy1/${input.section_id} (${tld === '' ? '?' : tld})`);
+	}
+	return lines;
+}
+
 /** Records whose active (hierarchy4) or active-in-thesaurus (hierarchy125) flag is not NO (dd64/2, int or legacy string). */
 export const ACTIVE_REGISTRY_SQL = `SELECT lower(string->'hierarchy6'->0->>'value') FROM matrix_hierarchy_main
 	WHERE NOT (COALESCE(relation->'hierarchy4', '[]'::jsonb) @> '[{"section_id":2,"section_tipo":"dd64"}]'
@@ -857,7 +878,7 @@ function allowedExtensions(): Set<string> {
 	return new Set(['plpgsql', ...names.filter((name) => name !== '')]);
 }
 
-/** Refuse a registry an install could not activate, an active hierarchy, or a foreign extension. */
+/** Refuse a non-core registry row, a registry an install could not activate, an active hierarchy, or a foreign extension. */
 async function assertShippable(conn: DbConnDescriptor, database: string): Promise<number> {
 	const [json = '[]'] = await psqlColumn(
 		conn,
@@ -866,6 +887,12 @@ async function assertShippable(conn: DbConnDescriptor, database: string): Promis
 		'read the hierarchy registry',
 	);
 	const inputs = JSON.parse(json) as RegistryProvisionInput[];
+	const foreign = nonCoreRegistryRows(inputs);
+	if (foreign.length > 0) {
+		fail(
+			`${displayPath(SEED_REGISTRY_PATH)} must hold the CORE hierarchy registry rows only (optional thesauri are activated from hierarchy.json); not core: ${foreign.slice(0, 20).join('; ')}`,
+		);
+	}
 	const blocked = registryBlockers(inputs);
 	if (blocked.length > 0) {
 		fail(

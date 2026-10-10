@@ -847,10 +847,12 @@ const get_content_data = function(self) {
 		})
 		const hierarchies_import_options = {
 			hierarchies				: properties.hierarchies,
-			default_checked			: properties.install_checked_default,
 			hierarchy_typologies	: properties.hierarchy_typologies,
 			// core hierarchies (lg) are activated with the seed restore — shown, not offered
 			core_hierarchies		: properties.core_hierarchies,
+			// NO country is ever pre-ticked: the toponymy group carries a SUGGESTION to
+			// import the operator's own country instead (hierarchy.json manifest, 2026-10-10)
+			toponymy_typology		: properties.toponymy_typology,
 			// optional thesauri are optional: an empty selection is a valid answer here
 			allow_empty				: true,
 			// On a successful import, reveal the Register tools step.
@@ -862,17 +864,19 @@ const get_content_data = function(self) {
 		// The thesauri the saved plan's ontologies declare (persist_config's
 		// `hierarchy_dependencies`, kept in self._hierarchy_dependencies) are only
 		// known after the Save step, so the list is (re)built each time the step
-		// appears: mandatory ones checked and locked, optional ones pre-ticked.
+		// appears: every one pre-ticked (a mandatory one marked "strongly
+		// recommended" and still EDITABLE — owner decision 2026-10-10: a thesaurus
+		// never blocks an install) — and NOTHING else pre-ticked (the declared dependencies are the ONLY
+		// pre-selection; the old per-descriptor default list is gone, 2026-10-10).
 		const render_hierarchies_step = function() {
 			const declared = Array.isArray(self._hierarchy_dependencies) ? self._hierarchy_dependencies : []
-			const defaults = Array.isArray(properties.install_checked_default) ? properties.install_checked_default : []
 			hierarchies.content_div.replaceChildren(
 				render_hierarchies_import_block({
 					...hierarchies_import_options,
 					// a fresh array per render (the block sorts its input in place)
 					hierarchies				: [...(properties.hierarchies || [])],
 					hierarchy_typologies	: [...(properties.hierarchy_typologies || [])],
-					default_checked			: [...new Set([...defaults, ...declared.map(el => el.tld)])],
+					default_checked			: [...new Set(declared.map(el => el.tld))],
 					required_hierarchies	: declared.filter(el => el.mandatory===true)
 				})
 			)
@@ -1909,9 +1913,12 @@ const is_fixed_dependency = function(dependency, core_ontologies, core_hierarchi
 /**
 * RENDER_DEPENDENCY_ROW
 * One DECLARED dependency of a ticked ontology (hierarchy60): a checkbox that is
-* checked and LOCKED when the dependency is mandatory (it is always installed),
-* checked but EDITABLE when it is optional (unticking declines it — the token
-* travels as `cfg.declined_dependencies`). `main: hierarchy1` rows are thesauri
+* checked and LOCKED when it is a mandatory ONTOLOGY (always installed), checked
+* but EDITABLE otherwise (unticking declines it — the token travels as
+* `cfg.declined_dependencies`). A MANDATORY THESAURUS (`main: hierarchy1`) is
+* checked, EDITABLE and marked "strongly recommended" (owner decision
+* 2026-10-10: a thesaurus never blocks an install); unticking it shows the
+* warning that it can be installed later. `main: hierarchy1` rows are thesauri
 * (installed at the "Install hierarchies" step), `main: ontology35` rows are
 * ontologies. A FIXED dependency (a core ontology / core thesaurus: the seed
 * always installs it — see is_fixed_dependency) is checked and LOCKED too,
@@ -1926,10 +1933,13 @@ const is_fixed_dependency = function(dependency, core_ontologies, core_hierarchi
 const render_dependency_row = function(dependency, declined, on_change, fixed) {
 
 	const token = dependency_decline_token(dependency)
-	const locked = fixed===true || dependency.mandatory===true
+	const is_thesaurus = dependency.main==='hierarchy1'
+	// a mandatory THESAURUS is a strong recommendation, never a lock
+	const recommended = fixed!==true && dependency.mandatory===true && is_thesaurus
+	const locked = fixed===true || (dependency.mandatory===true && !is_thesaurus)
 	const li = ui.create_dom_element({
 		element_type	: 'li',
-		class_name		: 'ontology_dependency' + (locked ? ' mandatory' : ' optional')
+		class_name		: 'ontology_dependency' + (locked ? ' mandatory' : (recommended ? ' recommended' : ' optional'))
 	})
 	const label = ui.create_dom_element({
 		element_type	: 'label',
@@ -1950,14 +1960,31 @@ const render_dependency_row = function(dependency, declined, on_change, fixed) {
 		: (get_label.installation_dependency_ontology || 'ontology')
 	const status_text = fixed===true
 		? (get_label.installation_dependency_core || 'core — always installed')
-		: dependency.mandatory===true
-			? (get_label.installation_dependency_required || 'required — always installed')
-			: (get_label.installation_dependency_optional || 'optional — untick to skip it')
+		: recommended
+			? (get_label.installation_dependency_recommended || 'strongly recommended — untick only to install it later')
+			: dependency.mandatory===true
+				? (get_label.installation_dependency_required || 'required — always installed')
+				: (get_label.installation_dependency_optional || 'optional — untick to skip it')
 	ui.create_dom_element({
 		element_type	: 'span',
 		text_content	: dependency.tld + ' (' + kind + ', ' + status_text + ')',
 		parent			: label
 	})
+	// declining a strongly recommended thesaurus: say so, and where to install it later
+	const warning_node = recommended
+		? ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'installer_field_help warning recommended_declined',
+			text_content	: get_label.installation_dependency_recommended_warning || 'Not installed now. This thesaurus is strongly recommended: you can install it later from Maintenance › Install hierarchies.',
+			parent			: li
+		  })
+		: null
+	const sync_warning = function() {
+		if (warning_node) {
+			warning_node.classList.toggle('hide', checkbox.checked)
+		}
+	}
+	sync_warning()
 
 	if (!locked) {
 		checkbox.addEventListener('change', function() {
@@ -1966,6 +1993,7 @@ const render_dependency_row = function(dependency, declined, on_change, fixed) {
 			}else{
 				declined.add(token)
 			}
+			sync_warning()
 			on_change()
 		})
 	}
@@ -1978,8 +2006,8 @@ const render_dependency_row = function(dependency, declined, on_change, fixed) {
 /**
 * RENDER_ONTOLOGY_ENTRY
 * One catalog row: checkbox + name, the explanatory note (when the server names
-* one), the dependency line and the declared-dependency rows (mandatory locked,
-* optional pre-ticked — render_dependency_row), shown only while the row is
+* one), the dependency line and the declared-dependency rows (a mandatory
+* ontology locked, everything else pre-ticked and editable — render_dependency_row), shown only while the row is
 * ticked. Every server-supplied string goes through text_content (SEC-032).
 * @param object entry (OntologyCatalogView entry)
 * @param Set selected the ticked TLDs (mutated on change)
@@ -2037,8 +2065,9 @@ const render_ontology_entry = function(entry, selected, declined, on_change, is_
 			parent			: li
 		  })
 		: null
-	// declared dependencies: mandatory and FIXED (core — the seed always installs
-	// it) locked, optional pre-ticked and editable
+	// declared dependencies: a mandatory ONTOLOGY and FIXED (core — the seed always
+	// installs it) locked; thesauri (mandatory = strongly recommended) and optional
+	// ontologies pre-ticked and editable
 	const declared = Array.isArray(entry.dependencies) ? entry.dependencies : []
 	const dependencies_node = declared.length>0
 		? ui.create_dom_element({
@@ -2157,8 +2186,9 @@ const render_ontology_group = function(group, selected, declined, on_change, is_
 *  - `properties.ontologies.default` (oh) is pre-ticked; tch carries its note but
 *    is not; a ticked entry shows what it also installs (the DECLARED dependencies)
 *    or the not-declared warning, and one row per declared dependency
-*    (hierarchy60): MANDATORY rows checked and locked, OPTIONAL rows pre-ticked —
-*    unticking one declines it (`cfg.declined_dependencies`, `<tld>:<main>`);
+*    (hierarchy60): a MANDATORY ONTOLOGY checked and locked; every other row
+*    pre-ticked (a mandatory THESAURUS marked strongly recommended) — unticking
+*    one declines it (`cfg.declined_dependencies`, `<tld>:<main>`);
 *  - at least one domain ontology is required. The choice travels as
 *    `cfg.ontologies` with persist_config — only TLDs the current catalog offers.
 * @param {Object} self
@@ -2178,7 +2208,7 @@ const render_ontologies_block = function(self) {
 
 	// the ticked TLDs — kept across catalog reloads; only the offered ones are posted
 	const selected = new Set(Array.isArray(context.default) ? context.default : [])
-	// the declined OPTIONAL dependency tokens (`<tld>:<main>`) — kept across reloads
+	// the declined dependency tokens (optional ones, and recommended thesauri) (`<tld>:<main>`) — kept across reloads
 	const declined = new Set()
 	let offered = []
 
@@ -2533,7 +2563,7 @@ const render_persist_block = function(self) {
 		}
 		render_ontology_plan(plan_box, api_response)
 		// the thesauri the saved plan's ontologies declare: the "Install hierarchies"
-		// step locks the mandatory ones and pre-ticks the optional ones
+		// step pre-ticks them all (a mandatory one marked strongly recommended)
 		const hierarchy_dependencies = response_extension(api_response, 'hierarchy_dependencies')
 		self._hierarchy_dependencies = Array.isArray(hierarchy_dependencies) ? hierarchy_dependencies : []
 		// show generated secrets ONCE
@@ -3210,16 +3240,26 @@ const render_login_block = async function(self) {
 * Hierarchies are grouped by typology and sorted alphabetically (reversed, because the
 * render loops iterate from last to first — the visual order is therefore A→Z top-to-bottom).
 * Each hierarchy is rendered as a labelled checkbox. Pre-checked items come from
-* options.default_checked (an array of TLD strings). Already-active hierarchies show an
-* '[active]' badge but can still be selected for re-import.
+* options.default_checked (an array of TLD strings — in the install wizard ONLY the
+* declared thesaurus dependencies; no country is ever pre-checked). Already-active
+* hierarchies show an '[active]' badge but can still be selected for re-import.
 *
-* Hierarchy objects shape (element of options.hierarchies):
+* Hierarchy objects shape (element of options.hierarchies — the server's client view of
+* install/import/hierarchy/hierarchy.json, hierarchy_meta.ts hierarchyChoiceView):
 *   {
 *     label    : {string},  // human-readable name
 *     tld      : {string},  // top-level domain identifier, e.g. 'es', 'ca'
-*     typology : {string},  // groups the entry under a typology header
+*     typology : {number},  // groups the entry under a typology header
+*     has_data : {boolean}, // false = an EMPTY thesaurus by design (installs with no terms)
+*     dependencies : {Array}, // the THESAURI it declares ({tld, mandatory}); ticking it pre-ticks them
 *     type     : {string}   // 'model' entries are skipped (they are definition templates)
 *   }
+*
+* DECLARED THESAURI ARE A RECOMMENDATION, NEVER A LOCK (owner decision 2026-10-10):
+* ticking an entry pre-ticks the thesauri it declares; a row some ticked entry (or an
+* installed ontology — options.required_hierarchies) declares MANDATORY is marked
+* "strongly recommended by: …" and stays editable; unticking it shows the warning that
+* it can be installed later. The server never adds one the operator unticked.
 *
 * On "Import hierarchies" click the function calls the 'install_hierarchies' API action with
 * the collected TLD list. A partial failure (some items result===false) shows the first
@@ -3239,7 +3279,8 @@ const render_login_block = async function(self) {
 * @param {Object} [options.reset_request]          - Endpoint ({dd_api, action, source}) for a destructive "Reset to seed" button (maintenance widget only)
 * @param {Array}  [options.core_hierarchies=[]]    - Always-installed core hierarchies ({tld, label}); shown as a fixed note, never offered (install wizard)
 * @param {boolean} [options.allow_empty=false]     - When true, an empty selection is confirmed and posted as `hierarchies: []` (install wizard); false keeps the "Select one or more items" refusal (maintenance widget)
-* @param {Array}  [options.required_hierarchies=[]] - Thesauri the installed ontologies declare MANDATORY ({tld, dependants}); rendered checked and LOCKED (install wizard — the server adds them whatever is posted)
+* @param {Array}  [options.required_hierarchies=[]] - Thesauri the installed ontologies declare MANDATORY ({tld, dependants}); rendered checked, EDITABLE, marked strongly recommended (install wizard — unticking declines with a warning)
+* @param {number} [options.toponymy_typology]     - The Toponymy typology id; when given, its group shows the suggestion to import the operator's OWN country (install wizard) — a suggestion, never a pre-checked box
 * @returns {DocumentFragment} Fragment with description, optional filter, grouped hierarchy checkboxes, import button, optional reset button, and status div
 */
 export const render_hierarchies_import_block = function(options) {
@@ -3270,10 +3311,13 @@ export const render_hierarchies_import_block = function(options) {
 		// then posted as `hierarchies: []`). Default false keeps the maintenance refusal.
 		const allow_empty				= options.allow_empty===true
 		// Install wizard only: the MANDATORY declared thesauri (hierarchy60) — checked,
-		// disabled, with the ontologies that require them. The server unions them in
-		// at install_hierarchies whatever is posted; the lock only shows that truth.
+		// EDITABLE, marked strongly recommended with the ontologies that declare them.
+		// Unticking declines (a warning here and in the server's answer), never refused.
 		const required_hierarchies		= Array.isArray(options.required_hierarchies) ? options.required_hierarchies : []
 		const required_by				= new Map(required_hierarchies.map(el => [el.tld, el.dependants || []]))
+		// Install wizard only: the Toponymy typology id. Its group carries a visible
+		// suggestion to import the operator's own country — never a pre-checked box.
+		const toponymy_typology			= options.toponymy_typology ?? null
 
 	// DocumentFragment
 		const fragment = new DocumentFragment();
@@ -3346,10 +3390,14 @@ export const render_hierarchies_import_block = function(options) {
 			parent			: fragment
 		})
 
+		// tld → {hierarchy, checkbox, recommend_node, warning_node}: the declared-thesaurus
+		// wiring (pre-tick on tick, "strongly recommended" marks) runs over it after the loop.
+		const row_by_tld = new Map()
+
 		// Accumulates the TLD strings for all checked checkboxes.
 		// Pre-populated with default_checked items during the initial loop, then kept
 		// in sync by checkbox change handlers (push on check, splice on uncheck).
-		const hierarchies_to_install = []
+		const selected_hierarchies = []
 		// Count of importable rows actually rendered — the filter's "of N" denominator.
 		let total_hierarchies = 0
 		const hierarchy_typologies_length = hierarchy_typologies.length
@@ -3372,6 +3420,16 @@ export const render_hierarchies_import_block = function(options) {
 				parent			: hierarchy_container
 			})
 
+			// toponymy suggestion (install wizard): import YOUR country — advice only
+			if (toponymy_typology!==null && current_hierarchy_typology.typology===toponymy_typology) {
+				ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'description info toponymy_suggestion',
+					text_content	: get_label.install_toponymy_suggestion || 'Tip: import the toponymy of your own country (e.g. Nepal for an installation in Nepal). No country is selected by default.',
+					parent			: hierarchy_container
+				})
+			}
+
 			// list of hierarchies
 			const hierarchy_ul = ui.create_dom_element({
 				element_type	: 'ul',
@@ -3389,7 +3447,7 @@ export const render_hierarchies_import_block = function(options) {
 						continue
 					}
 
-				// is_default check (a required thesaurus is always checked)
+				// is_default check (a recommended thesaurus is pre-checked, never locked)
 					const is_required			= required_by.has(current_hierarchy.tld)
 					const is_default_checked	= default_checked.find(el => el===current_hierarchy.tld)
 					const checked				= (is_default_checked || is_required) ? true : false
@@ -3413,6 +3471,15 @@ export const render_hierarchies_import_block = function(options) {
 						text_content	: current_hierarchy.label + ' [' + current_hierarchy.tld + ']',
 						parent			: hierarchy_li
 					})
+					// an EMPTY thesaurus by design (no data files): it installs with no terms
+					if (current_hierarchy.has_data===false) {
+						ui.create_dom_element({
+							element_type	: 'span',
+							class_name		: 'empty_hierarchy dd_badge',
+							text_content	: ' ' + (get_label.empty || 'Empty'),
+							parent			: hierarchy_label
+						})
+					}
 					if (installed_hierarchies.includes( current_hierarchy.tld.toLowerCase() )) {
 						ui.create_dom_element({
 							element_type	: 'span',
@@ -3430,32 +3497,91 @@ export const render_hierarchies_import_block = function(options) {
 					})
 					hierarchy_label.prepend(hierarchy_checkbox)
 					hierarchy_checkbox.checked = checked ? 'checked' : ''
-					if (is_required) {
-						hierarchy_checkbox.disabled = true
-						ui.create_dom_element({
-							element_type	: 'span',
-							class_name		: 'required_hierarchy',
-							text_content	: ' — ' + (get_label.installation_hierarchy_required_by || 'required by:') + ' ' + required_by.get(current_hierarchy.tld).join(', '),
-							parent			: hierarchy_label
-						})
-					}
+					// "strongly recommended by: …" + the declined warning — filled by
+					// refresh_recommendations (never a lock: a thesaurus never blocks)
+					const recommend_node = ui.create_dom_element({
+						element_type	: 'span',
+						class_name		: 'required_hierarchy recommended_hierarchy',
+						parent			: hierarchy_label
+					})
+					const warning_node = ui.create_dom_element({
+						element_type	: 'div',
+						class_name		: 'installer_field_help warning recommended_declined',
+						text_content	: get_label.installation_dependency_recommended_warning || 'Not installed now. This thesaurus is strongly recommended: you can install it later from Maintenance › Install hierarchies.',
+						parent			: hierarchy_li
+					})
+					// `hidden`, not a class: the block also renders in the maintenance widget
+					warning_node.hidden = true
+					row_by_tld.set(current_hierarchy.tld, {
+						hierarchy		: current_hierarchy,
+						checkbox		: hierarchy_checkbox,
+						recommend_node	: recommend_node,
+						warning_node	: warning_node
+					})
 					hierarchy_checkbox.addEventListener('change', function() {
 						if(hierarchy_checkbox.checked){
-							hierarchies_to_install.push(current_hierarchy.tld)
+							selected_hierarchies.push(current_hierarchy.tld)
+							// pre-tick the thesauri this one declares (still editable)
+							tick_declared(current_hierarchy)
 						}else{
-							const index = hierarchies_to_install.indexOf(current_hierarchy.tld)
-							if (index !== -1) hierarchies_to_install.splice(index, 1);
+							const index = selected_hierarchies.indexOf(current_hierarchy.tld)
+							if (index !== -1) selected_hierarchies.splice(index, 1);
 						}
+						refresh_recommendations()
 					})
 
-				// add checked to hierarchies_to_install
+				// add checked to selected_hierarchies
 				// Seed the array on initial render so that default-checked items are
 				// included without requiring the user to interact with the checkbox.
 					if(checked){
-						hierarchies_to_install.push(current_hierarchy.tld)
+						selected_hierarchies.push(current_hierarchy.tld)
 					}
 			}
 		}
+
+	// declared thesauri wiring (hierarchy60 `main: hierarchy1`, owner decision 2026-10-10)
+		// The thesauri an entry declares, as the server's view lists them ({tld, mandatory}).
+		function declared_of(hierarchy) {
+			return Array.isArray(hierarchy.dependencies) ? hierarchy.dependencies : []
+		}
+		// Ticking an entry PRE-TICKS what it declares (mandatory and optional alike —
+		// transitively, through each row's own change handler). Never a lock.
+		function tick_declared(hierarchy) {
+			for (const dependency of declared_of(hierarchy)) {
+				const row = row_by_tld.get(dependency.tld)
+				if (row && !row.checkbox.checked) {
+					row.checkbox.checked = true
+					row.checkbox.dispatchEvent(new Event('change'))
+				}
+			}
+		}
+		// Who declares `tld` MANDATORY right now: the installed ontologies
+		// (required_hierarchies) and every TICKED entry.
+		function recommenders_of(tld) {
+			const by = [...(required_by.get(tld) || [])]
+			for (const [other_tld, row] of row_by_tld) {
+				if (!row.checkbox.checked) continue
+				const declares = declared_of(row.hierarchy).some(el => el.tld===tld && el.mandatory===true)
+				if (declares && !by.includes(other_tld)) by.push(other_tld)
+			}
+			return by
+		}
+		// The "strongly recommended by: …" mark of every row, and its declined warning
+		// (shown while a recommended row is unticked). Server strings → text_content.
+		function refresh_recommendations() {
+			for (const [tld, row] of row_by_tld) {
+				const by = recommenders_of(tld)
+				row.recommend_node.textContent = by.length>0
+					? ' — ' + (get_label.installation_hierarchy_recommended_by || 'strongly recommended by:') + ' ' + by.join(', ')
+					: ''
+				row.warning_node.hidden = by.length===0 || row.checkbox.checked
+			}
+		}
+		// initial state: what the pre-ticked rows declare is pre-ticked too
+		for (const row of [...row_by_tld.values()]) {
+			if (row.checkbox.checked) tick_declared(row.hierarchy)
+		}
+		refresh_recommendations()
 
 	// filter wiring (opt-in). Substring-matches each row's data-search (name + tld);
 	// hides non-matching rows and any typology group left empty, updates the "X of N"
@@ -3525,7 +3651,7 @@ export const render_hierarchies_import_block = function(options) {
 
 			// empty selection: refused (maintenance) or confirmed as a valid answer (install wizard,
 			// allow_empty) — the server answers `hierarchies: []` with ok:true.
-				const is_empty = hierarchies_to_install.length<1
+				const is_empty = selected_hierarchies.length<1
 				if (is_empty && !allow_empty) {
 					alert( get_label.select_a_file || 'Select one or more items' );
 					return
@@ -3534,7 +3660,7 @@ export const render_hierarchies_import_block = function(options) {
 			// confirm action
 				const confirm_text = is_empty
 					? (get_label.no_optional_hierarchies_confirm || 'No optional thesaurus will be installed (you can add them later from Maintenance › Add hierarchy). Continue?')
-					: hierarchies_to_install.length + ' ' + get_label.hierarchies +'. '+ get_label.sure
+					: selected_hierarchies.length + ' ' + get_label.hierarchies +'. '+ get_label.sure
 				if (!confirm( confirm_text )) {
 					return false
 				}
@@ -3558,11 +3684,11 @@ export const render_hierarchies_import_block = function(options) {
 						action			: import_request.action,
 						prevent_lock	: true,
 						source			: import_request.source,
-						options			: { hierarchies: hierarchies_to_install }
+						options			: { hierarchies: selected_hierarchies }
 					}
 				} else {
 					call_options.action			= 'install_hierarchies'
-					call_options.body_options	= { hierarchies: hierarchies_to_install }
+					call_options.body_options	= { hierarchies: selected_hierarchies }
 				}
 				const api_response = await api_call_with_spinner(call_options)
 				console.log('install_hierarchies response: ', api_response);
@@ -3615,7 +3741,7 @@ export const render_hierarchies_import_block = function(options) {
 			async function fn_reset_hierarchies(){
 
 				// only ticked hierarchies that are ALREADY installed can be reset
-					const to_reset = hierarchies_to_install.filter(tld => installed_hierarchies.includes(tld.toLowerCase()))
+					const to_reset = selected_hierarchies.filter(tld => installed_hierarchies.includes(tld.toLowerCase()))
 					if (to_reset.length<1) {
 						alert( get_label.reset_pick_installed || 'Tick one or more already-installed hierarchies to reset.' )
 						return

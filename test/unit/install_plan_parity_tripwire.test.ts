@@ -32,8 +32,8 @@
  *      answer) yields to an official re-run;
  *  (e) every plan step is an action the wizard router serves;
  *  (f) unknown flags (`--yes`) and value flags without a value are errors and
- *      the spawned CLI exits 1; `lg` is dropped with a note; an unvendored tld
- *      is an error;
+ *      the spawned CLI exits 1; `lg` is dropped with a note; a tld hierarchy.json
+ *      does not list is an error;
  *  (g) no plan, whatever the answers, owns DEDALO_SUPERVISED — supervision is
  *      declared by the process manager, never by ../private/.env;
  *  (h) DOMAIN ONTOLOGIES (A4/A5/A6, 2026-10-09): the default (no flag ≡ the
@@ -47,6 +47,10 @@
  *      same ACTIVE_ONTOLOGY_TLDS, and that written list maps back
  *      (ontologyRequestFromActive — the wizard's restarted process) to the very
  *      request the CLI plan stages.
+ *  (i) DECLARED DEPENDENCIES (hierarchy60): every declared one pre-ticked;
+ *      a mandatory ONTOLOGY never declinable; a THESAURUS never blocks (owner
+ *      decision 2026-10-10) — a declined mandatory one, or one with no
+ *      hierarchy.json entry, is a WARNING on both sides, never a plan error.
  *
  * persistConfig runs in CHILD processes (scratch DEDALO_INSTALL_PRIVATE_DIR +
  * DEDALO_TS_STATE_PATH in the child's env), so this gate never mutates its own
@@ -66,6 +70,11 @@ import { parseEnvFile } from '../../src/config/env.ts';
 import { buildInstallContext } from '../../src/core/install/context.ts';
 import { INSTALL_ROUTER_ACTIONS } from '../../src/core/install/engine.ts';
 import {
+	CORE_HIERARCHIES,
+	offeredHierarchies,
+	TOPONYMY_TYPOLOGY_ID,
+} from '../../src/core/install/hierarchy_meta.ts';
+import {
 	answersFromCliArgs,
 	buildInstallPlan,
 	INSTALL_CLI_FLAGS,
@@ -74,6 +83,7 @@ import {
 	type InstallStepId,
 	OFFICIAL_CODE_SERVER,
 	OFFICIAL_ONTOLOGY_SERVER,
+	TOPONYMY_SUGGESTION,
 } from '../../src/core/install/install_plan.ts';
 import { resolveOntologyCatalog } from '../../src/core/install/ontology_catalog.ts';
 import {
@@ -91,12 +101,18 @@ const CONFIG_PERSIST = join(ROOT, 'src/core/install/config_persist.ts');
 const scratchRoot = mkdtempSync(join(tmpdir(), 'dedalo_install_plan_parity_'));
 afterAll(() => rmSync(scratchRoot, { recursive: true, force: true }));
 
-const WIZARD_PROPERTIES = buildInstallContext().properties as {
-	install_checked_default: string[];
+const WIZARD_PROPERTIES = buildInstallContext().properties as Record<string, unknown> & {
+	hierarchies: { tld: string }[];
+	toponymy_typology: number;
 	ontologies: { default: string[] };
 };
-/** The thesauri the WIZARD pre-ticks — read from the context it is served, not re-typed. */
-const WIZARD_DEFAULT_THESAURI = WIZARD_PROPERTIES.install_checked_default;
+/**
+ * The thesauri the WIZARD pre-ticks before any declaration is known: NONE
+ * (2026-10-10 — pre-selection comes only from the declared dependencies, which
+ * the wizard learns from persist_config's plan). Its context carries no default
+ * list at all (pinned below), so the empty post IS its default answer.
+ */
+const WIZARD_DEFAULT_THESAURI: string[] = [];
 /** The domain ontologies the WIZARD pre-ticks (its context, not a re-typed list). */
 const WIZARD_DEFAULT_ONTOLOGIES = WIZARD_PROPERTIES.ontologies.default;
 
@@ -143,7 +159,7 @@ const [THESAURUS_REQUIRED, THESAURUS_OPTIONAL] = [...offeredHierarchyTlds()] as 
  * A LOCAL source whose entries declare hierarchy60 OBJECTS (2026-10-10): zzqc
  * declares the ontology zzqd OPTIONAL, THESAURUS_REQUIRED mandatory and
  * THESAURUS_OPTIONAL optional; zzqe declares the thesaurus zzqx MANDATORY —
- * never vendored, so choosing zzqe refuses the plan.
+ * no hierarchy.json entry, so choosing zzqe WARNS (a thesaurus never refuses the plan).
  */
 const DECLARED_SOURCE = (() => {
 	const dir = mkdtempSync(join(scratchRoot, 'ontology_source_declared_'));
@@ -362,6 +378,7 @@ function decided(plan: InstallPlan) {
 		steps: plan.steps,
 		hierarchies: plan.hierarchies,
 		hierarchyDependencies: plan.hierarchyDependencies,
+		suggestions: plan.suggestions,
 		ontologies: plan.ontologies,
 		ontologySource: plan.ontologySource,
 		ontologyRequest: plan.ontologyRequest,
@@ -383,7 +400,7 @@ function cliPlan(argv: readonly string[]): InstallPlan {
 /** Spawn the real CLI in --plan mode (touches nothing; an empty prior .env). */
 function spawnPlan(
 	argv: readonly string[],
-	mode: '--plan' | '--list-ontologies' = '--plan',
+	mode: '--plan' | '--list-ontologies' | '--list-hierarchies' = '--plan',
 ): { exitCode: number; stdout: string; stderr: string } {
 	const proc = Bun.spawnSync([process.execPath, 'run', CLI, mode, ...argv], {
 		cwd: ROOT,
@@ -437,8 +454,10 @@ function catalogExample(key: 'ONTOLOGY_SERVERS' | 'CODE_SERVERS'): unknown {
 // ── (a) CLI ≡ wizard ─────────────────────────────────────────────────────────
 
 describe('install plan — CLI ≡ wizard (a)', () => {
-	test('the wizard really pre-ticks a non-empty default (the matrix is not vacuous)', () => {
-		expect(WIZARD_DEFAULT_THESAURI.length).toBeGreaterThan(0);
+	test('the wizard pre-ticks NO thesaurus by default — no default list is served, the offer is real (the matrix is not vacuous)', () => {
+		expect('install_checked_default' in WIZARD_PROPERTIES).toBe(false);
+		expect(WIZARD_PROPERTIES.hierarchies.length).toBeGreaterThan(0);
+		expect(WIZARD_PROPERTIES.toponymy_typology).toBe(TOPONYMY_TYPOLOGY_ID);
 		expect(CASES.length).toBeGreaterThanOrEqual(8);
 	});
 
@@ -464,6 +483,9 @@ describe('install plan — CLI ≡ wizard (a)', () => {
 		expect(cliPlan(CASES[3]?.argv ?? []).envKeys).toContain('SERVER_UNIX_SOCKET');
 		expect(cliPlan(CASES[5]?.argv ?? []).hierarchies).toEqual([]);
 		expect(base.hierarchies).toEqual(WIZARD_DEFAULT_THESAURI);
+		// No toponymy chosen → the SUGGESTION (never a pre-selection); one chosen → none.
+		expect([...base.suggestions]).toEqual([TOPONYMY_SUGGESTION]);
+		expect(cliPlan(CASES[6]?.argv ?? []).suggestions).toHaveLength(0);
 	});
 });
 
@@ -476,6 +498,7 @@ function printedPlan(plan: InstallPlan, errors: string[]) {
 		steps: [...plan.steps],
 		hierarchies: [...plan.hierarchies],
 		hierarchy_dependencies: [...plan.hierarchyDependencies],
+		suggestions: [...plan.suggestions],
 		ontologies: [...plan.ontologies],
 		declined_dependencies: [...plan.answers.declined_dependencies],
 		ontology_source: plan.ontologySource,
@@ -496,6 +519,26 @@ describe('install plan — the CLI runs the module (b)', () => {
 		const local = cliPlan(argv);
 		expect(printed).toEqual(printedPlan(local, []));
 		expect((printed.notes as string[]).length).toBe(1);
+	});
+
+	test('`scripts/install.ts --list-hierarchies` prints the manifest offer (core apart, no default) and the toponymy suggestion', () => {
+		const listed = spawnPlan([], '--list-hierarchies');
+		expect(listed.exitCode, listed.stderr).toBe(0);
+		const printed = JSON.parse(listed.stdout.trim()) as {
+			core: string[];
+			entries: { tld: string; has_data: boolean; typology_id: number }[];
+			suggestion: string;
+			errors: string[];
+		};
+		const offer = offeredHierarchies();
+		expect(offer.length).toBeGreaterThan(0);
+		expect(printed.core).toEqual(CORE_HIERARCHIES.map((item) => item.tld));
+		expect(printed.entries.map((entry) => entry.tld)).toEqual(offer.map((entry) => entry.tld));
+		expect(printed.entries.map((entry) => entry.has_data)).toEqual(
+			offer.map((entry) => entry.data_files.length > 0),
+		);
+		expect(printed.suggestion).toBe(TOPONYMY_SUGGESTION);
+		expect(printed.errors).toHaveLength(0);
 	});
 });
 
@@ -682,14 +725,14 @@ describe('install plan — domain ontologies (h)', () => {
 	});
 });
 
-describe('install plan — declared dependencies: mandatory locked, optional pre-ticked (i)', () => {
+describe('install plan — declared dependencies: all pre-ticked; a thesaurus never blocks (i)', () => {
 	test('vendored thesauri for the test exist (anti-vacuity)', () => {
 		expect(THESAURUS_REQUIRED).toMatch(/^[a-z]+$/);
 		expect(THESAURUS_OPTIONAL).toMatch(/^[a-z]+$/);
 		expect(THESAURUS_OPTIONAL).not.toBe(THESAURUS_REQUIRED);
 	});
 
-	test('optional ontology + thesauri installed by default; declining leaves the mandatory one', async () => {
+	test('optional ontology + thesauri installed by default; a MANDATORY thesaurus is declinable (warned)', async () => {
 		const resolved = await resolveOntologyCatalog(
 			{ kind: 'local', path: DECLARED_SOURCE },
 			{ allowedServers: [] },
@@ -716,7 +759,8 @@ describe('install plan — declared dependencies: mandatory locked, optional pre
 			]);
 
 			// The operator declines everything optional — AND the mandatory thesaurus:
-			// the mandatory one stays (locked), the rest is gone, each decline noted.
+			// all of them leave (owner decision 2026-10-10 — a thesaurus never blocks
+			// nor is forced), the optional ones noted, the mandatory one WARNED.
 			const declineArgv = [
 				...base,
 				'--decline-dependencies',
@@ -733,9 +777,12 @@ describe('install plan — declared dependencies: mandatory locked, optional pre
 			]);
 			expect(cli.ontologyRequest?.items.map((item) => item.tld)).toEqual(['zzqc']);
 			expect(cli.activeOntologyTlds).toEqual([...CORE_ONTOLOGY_TLDS, 'zzqc']);
-			expect(cli.hierarchies).toEqual([THESAURUS_REQUIRED]);
+			expect(cli.hierarchies).toEqual([]);
 			expect(cli.notes).toContain(
 				"the ontology 'zzqd' (an optional dependency of 'zzqc') is declined — not installed",
+			);
+			expect(cli.warnings).toContain(
+				`the thesaurus '${THESAURUS_REQUIRED}' (declared mandatory by 'zzqc') is declined — not installed; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`,
 			);
 			// the wizard posts the same answer as a list: the same plan
 			const wizard = buildInstallPlan(
@@ -759,7 +806,7 @@ describe('install plan — declared dependencies: mandatory locked, optional pre
 		}
 	});
 
-	test('a mandatory thesaurus that is not vendored refuses the plan; a malformed decline too', async () => {
+	test('a mandatory thesaurus that is not vendored WARNS (never refuses the plan); a malformed decline refuses', async () => {
 		const resolved = await resolveOntologyCatalog(
 			{ kind: 'local', path: DECLARED_SOURCE },
 			{ allowedServers: [] },
@@ -769,9 +816,16 @@ describe('install plan — declared dependencies: mandatory locked, optional pre
 			const plan = buildInstallPlan(answersFromCliArgs(argv).raw, {
 				ontologyCatalog: resolved.catalog,
 			});
-			expect(plan.errors).toContain(
-				"the thesaurus 'zzqx', a mandatory dependency of 'zzqe', is not vendored (no zzqx1.copy.gz) — it cannot be installed",
+			expect(plan.errors).toEqual([]);
+			expect(plan.ontologyRequest).not.toBeNull();
+			expect(plan.hierarchies).not.toContain('zzqx');
+			expect(plan.warnings).toContain(
+				"the thesaurus 'zzqx' (declared mandatory by 'zzqe') has no entry in hierarchy.json — skipped; it is strongly recommended and can be installed later from Maintenance › Install hierarchies",
 			);
+			// the spawned CLI agrees: exit 0, the same warning printed
+			const spawned = spawnPlan(argv);
+			expect(spawned.exitCode, spawned.stderr).toBe(0);
+			expect(JSON.parse(spawned.stdout.trim())).toEqual(printedPlan(plan, []));
 			expect(cliPlan([...BASE_ARGV, '--decline-dependencies', 'zz-x']).errors).toContain(
 				"declined_dependencies: 'zz-x' is not a TLD or <tld>:ontology35|hierarchy1",
 			);
@@ -825,7 +879,7 @@ describe('install plan — refusals and notes (f)', () => {
 		expect(withLg.notes.some((note) => note.startsWith('lg is a core hierarchy'))).toBe(true);
 		expect(withLg.errors).toEqual([]);
 		const unknown = buildInstallPlan({ ...BASE_WIZARD, hierarchies: ['zzipv'] });
-		expect(unknown.errors).toContain("unknown hierarchy 'zzipv' (not vendored)");
+		expect(unknown.errors).toContain("unknown hierarchy 'zzipv' (no entry in hierarchy.json)");
 	});
 
 	test('every documented flag maps (the table is complete for the plan answers it names)', () => {

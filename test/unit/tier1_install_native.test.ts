@@ -17,23 +17,28 @@
  *    "newest first" and "configured dir wins" are the difference between a
  *    working backup/restore and an install that dies at the psql step.
  *  - hierarchy_meta: the wizard's checkbox list and the activator read the SAME
- *    descriptors; a reader that offers a tld with no vendored data file ships an
- *    install step that cannot run.
+ *    vendored manifest (hierarchy.json); a reader that fails soft on a missing
+ *    manifest ships an install that silently offers no thesaurus, one that
+ *    offers a core tld ships an import of terms the seed already carries.
  *
  * Pure: no DB, no server. `DEDALO_INSTALL_ALLOWED_IPS` is set/cleared on
  * process.env (readEnv resolves per call and process env wins) and restored.
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { readEnv } from '../../src/config/env.ts';
+import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { installIpAllowed } from '../../src/core/install/gate.ts';
 import {
-	availableHierarchyTlds,
 	CORE_HIERARCHIES,
+	hierarchyChoiceView,
 	hierarchyMetaByTld,
 	isCoreHierarchyTld,
 	offeredHierarchies,
-	readHierarchyJson,
+	readHierarchyManifest,
 } from '../../src/core/install/hierarchy_meta.ts';
 import { deriveLangConfig } from '../../src/core/install/lang_catalog.ts';
 import { pgBinaryCandidates } from '../../src/core/install/pg_bin.ts';
@@ -109,34 +114,156 @@ describe('pgBinaryCandidates — probe ORDER (§4.1.9)', () => {
 	});
 });
 
-describe('hierarchy_meta — the vendored descriptor readers (§4.1.9)', () => {
-	test('a missing JSON file yields the FALLBACK, never a throw', () => {
-		expect(readHierarchyJson('does_not_exist_zzbk.json', [])).toEqual([]);
-		expect(readHierarchyJson('does_not_exist_zzbk.json', { k: 1 })).toEqual({ k: 1 });
+describe('hierarchy_meta — the vendored thesaurus manifest reader (§4.1.9)', () => {
+	test('a MISSING manifest is refused (install.manifest_invalid), never an empty offer', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-hierarchy-meta-'));
+		try {
+			let refusal: unknown = null;
+			try {
+				readHierarchyManifest(dir);
+			} catch (error) {
+				refusal = error;
+			}
+			expect(refusal).toBeInstanceOf(DedaloError);
+			expect((refusal as DedaloError).code).toBe('install.manifest_invalid');
+			expect((refusal as DedaloError).publicMessage).toContain('hierarchy.json: missing');
+			// The public sentence never names the server path.
+			expect((refusal as DedaloError).publicMessage).not.toContain(dir);
+			expect(() => offeredHierarchies(dir)).toThrow(DedaloError);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
-	test('availableHierarchyTlds strips the `<tld>1.copy.gz` suffix (tlds, not filenames)', () => {
-		const available = availableHierarchyTlds();
-		expect(available.size).toBeGreaterThan(0);
-		for (const tld of available) expect(tld).toMatch(/^[a-z]+$/);
-		expect(available.has('ad')).toBe(true);
-		expect(available.has('ad1.copy.gz')).toBe(false);
+	test('offeredHierarchies = every NON-CORE entry, with or without data files', () => {
+		const manifest = readHierarchyManifest();
+		const offered = offeredHierarchies();
+		expect(offered.length).toBeGreaterThan(0);
+		expect(offered.map((entry) => entry.tld)).toEqual(
+			manifest.active_hierarchies
+				.filter((entry) => !isCoreHierarchyTld(entry.tld))
+				.map((entry) => entry.tld),
+		);
 	});
 
 	test('hierarchyMetaByTld normalizes case and whitespace; an unknown tld is null', () => {
 		const found = hierarchyMetaByTld('  AF  ');
 		expect(found?.tld).toBe('af');
-		expect(typeof found?.label).toBe('string');
+		expect(typeof found?.name).toBe('string');
+		expect(Number.isInteger(found?.lang.section_id)).toBe(true);
 		expect(hierarchyMetaByTld('zzbk')).toBeNull();
 	});
 
-	test('offeredHierarchies is the INTERSECTION — never a descriptor without its data file', () => {
+	test('a vendored entry lists its own data file by NAME (a file name, never a bare tld)', () => {
+		// `ad` = the smallest vendored thesaurus (also install_hierarchy_tools' subject).
+		const files = hierarchyMetaByTld('ad')?.data_files ?? [];
+		expect(files.map((item) => item.file)).toEqual(['ad1.copy.gz']);
+		expect(files[0]?.sha256).toMatch(/^[0-9a-f]{64}$/);
+	});
+
+	test('the client view is {tld,label,typology,has_data,dependencies} / {typology,label}, derived from the manifest', () => {
+		const view = hierarchyChoiceView('lg-eng');
 		const offered = offeredHierarchies();
-		const available = availableHierarchyTlds();
-		expect(offered.length).toBeGreaterThan(0);
-		for (const entry of offered) expect(available.has(entry.tld)).toBe(true);
-		// And it is a real filter: the vendored set is LARGER than the described set.
-		expect(offered.length).toBeLessThanOrEqual(available.size);
+		expect(view.hierarchies.length).toBeGreaterThan(0);
+		expect(view.hierarchies).toHaveLength(offered.length);
+		for (const [index, entry] of offered.entries()) {
+			expect(view.hierarchies[index]).toEqual({
+				tld: entry.tld,
+				label: expect.any(String),
+				typology: entry.typology_id,
+				has_data: entry.data_files.length > 0,
+				// the declared THESAURI only (core excluded) — the client pre-ticks them
+				dependencies: (entry.dependencies ?? [])
+					.filter((item) => item.main === 'hierarchy1' && item.tld !== 'lg')
+					.map((item) => ({ tld: item.tld, mandatory: item.mandatory })),
+			});
+		}
+		expect(view.hierarchy_typologies.length).toBeGreaterThan(0);
+		for (const item of view.hierarchy_typologies) {
+			expect(Object.keys(item).sort()).toEqual(['label', 'typology']);
+		}
+	});
+
+	test("labels are picked in the READER's language from name_data, never frozen in the exporter's", () => {
+		// The exporter picked `name` in ITS application language (here: Spanish).
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-hierarchy-view-'));
+		try {
+			const spa = (value: string) => ({ id: 1, lang: 'lg-spa', value });
+			const eng = (value: string) => ({ id: 1, lang: 'lg-eng', value });
+			const entry = (tld: string, name: string, nameData: unknown[], dependencies?: unknown[]) => ({
+				tld,
+				name,
+				name_data: nameData,
+				typology_id: 2,
+				typology_name: 'Toponimia',
+				lang: { section_id: 17344, label: null },
+				real_section_tipo: null,
+				active_in_thesaurus: true,
+				scope_note_data: [],
+				data_files: [],
+				...(dependencies === undefined ? {} : { dependencies }),
+			});
+			writeFileSync(
+				join(dir, 'hierarchy.json'),
+				JSON.stringify({
+					version: 'scratch',
+					date: 'scratch',
+					entity_id: null,
+					entity: null,
+					entity_label: null,
+					host: null,
+					typologies: [
+						{ typology_id: 2, name: 'Toponimia', name_data: [spa('Toponimia'), eng('Toponymy')] },
+					],
+					active_hierarchies: [
+						// zza declares thesauri (one mandatory, one optional), a core one and an ontology
+						entry(
+							'zza',
+							'Afganistán',
+							[spa('Afganistán'), eng('Afghanistan')],
+							[
+								{ tld: 'zzb', main: 'hierarchy1', mandatory: true },
+								{ tld: 'zzc', main: 'hierarchy1', mandatory: false },
+								{ tld: 'lg', main: 'hierarchy1', mandatory: true },
+								{ tld: 'zzonto', main: 'ontology35', mandatory: true },
+							],
+						),
+						// Only a Spanish item: the any-language fallback, never the tld.
+						entry('zzb', 'Bután', [spa('Bután')]),
+						// No item at all: the export-time name, then the tld.
+						entry('zzc', 'Chad', []),
+					],
+				}),
+			);
+			const english = hierarchyChoiceView('lg-eng', dir);
+			expect(english.hierarchies.map((item) => item.label)).toEqual([
+				'Afghanistan',
+				'Bután',
+				'Chad',
+			]);
+			expect(english.hierarchy_typologies).toEqual([{ typology: 2, label: 'Toponymy' }]);
+			// the view carries ONLY the declared non-core THESAURI (what the client pre-ticks)
+			expect(english.hierarchies.map((item) => [item.tld, item.dependencies])).toEqual([
+				[
+					'zza',
+					[
+						{ tld: 'zzb', mandatory: true },
+						{ tld: 'zzc', mandatory: false },
+					],
+				],
+				['zzb', []],
+				['zzc', []],
+			]);
+			const spanish = hierarchyChoiceView('lg-spa', dir);
+			expect(spanish.hierarchies.map((item) => item.label)).toEqual([
+				'Afganistán',
+				'Bután',
+				'Chad',
+			]);
+			expect(spanish.hierarchy_typologies).toEqual([{ typology: 2, label: 'Toponimia' }]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test('a CORE hierarchy (lg) is described by the engine, never offered as a choice', () => {
@@ -146,12 +273,16 @@ describe('hierarchy_meta — the vendored descriptor readers (§4.1.9)', () => {
 		expect(CORE_HIERARCHIES.length).toBeGreaterThan(0);
 		expect(isCoreHierarchyTld('  LG ')).toBe(true);
 		expect(isCoreHierarchyTld('af')).toBe(false);
-		const lg = hierarchyMetaByTld('Lg');
-		expect(lg).toEqual({ tld: 'lg', label: 'Languages', typology: 3, active_in_thesaurus: true });
+		expect(CORE_HIERARCHIES).toEqual([
+			{ tld: 'lg', label: 'Languages', active_in_thesaurus: true },
+		]);
+		// The manifest lists lg as METADATA only (never a data file).
+		expect(hierarchyMetaByTld('Lg')?.data_files).toEqual([]);
 		const offered = new Set(offeredHierarchies().map((meta) => meta.tld));
+		const viewed = new Set(hierarchyChoiceView('lg-eng').hierarchies.map((item) => item.tld));
 		for (const core of CORE_HIERARCHIES) {
 			expect(offered.has(core.tld)).toBe(false);
-			expect(availableHierarchyTlds().has(core.tld)).toBe(false);
+			expect(viewed.has(core.tld)).toBe(false);
 		}
 	});
 });

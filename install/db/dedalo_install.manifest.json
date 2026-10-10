@@ -3,9 +3,9 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1816582,
-		"sha256": "0f0c1e02ad571c375b09613d9e05cff44c08b272e9bfd455ce5a5e61254f753e",
-		"content_sha256": "c134c0f996f5583ea5fcd9476052f9ab3a75c8b92ee72d4ac5a03f1d044c1628",
+		"bytes": 1807879,
+		"sha256": "422866db546d3465fc25921be9810e35fffcecbb5a4363c4bb7b6efd961294f0",
+		"content_sha256": "d58ff94d4445ef790aadfc37912d2c938b9b5392f78227c87b28bc6ac5b4c289",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
 	"sources": {
@@ -23,7 +23,7 @@
 		"install/db/migrations/0012_tm_history_visible_index.sql": "ab17d41ded9cc933f261b0e66d52d62f236d7c44a465b70b355fc4a64520510b",
 		"install/db/migrations/0013_dd_ontology_identifier_grammar.sql": "ad59ab164eec61101dea095138b8b77083817a91d6adc7a9d7222c054d6c64d7",
 		"install/db/seed/dd_ontology_scaffold.copy.gz": "604fd78b7799aa22079a8f7d07405e4c631495faa0bcb1e55a88bc3c40565427",
-		"install/db/seed/matrix_hierarchy_main.copy.gz": "dcd8b68e07d83428d945d65e801f7749e8ee70c66ce6962a7af96fbad304c806",
+		"install/db/seed/matrix_hierarchy_main.copy.gz": "428a17df3cd241164b21af50d0f2bded6ed8677014853329182c554a655b1336",
 		"install/db/seed/matrix_langs.copy.gz": "ba220588e8405426180997c285c1aa685022c8818ed77f29379a624f9f73a908",
 		"install/db/seed/schema.sql": "cfa2b61a4ccbb34c92a6cd9ff0e49da9672a4fb53c85240a9289c95c3dbf1efe",
 		"install/import/ontology/7.0/dd.copy.gz": "e5e2a79673e120d1c3763b9c5883d4796c4b349c7dea2cd84de1677a827fb7cc",
@@ -35,10 +35,10 @@
 		"install/import/ontology/7.0/ontologytype.copy.gz": "8bb30e62229bdffe079d22be5e5748a0990d5dad915b2a47804c56bcf961414e",
 		"install/import/ontology/7.0/rsc.copy.gz": "32f748cd3490fb9ddf53aa124f622fd9dee98d049e74a464fe0dad6b674d06db",
 		"scripts/seed_build_child.ts": "97e9caa5785d2fca86fd692fa468800d1f63c4b22b39798496d1705142471513",
-		"src/core/install/seed_build.ts": "cbe1db3283c233a6ea3e346a4d0edb0e3eced37a8f83344402d61db00e9db863",
-		"src/core/install/seed_sources.ts": "3806d735015cb252d9495af0d3985fa00f669d16268a5189ecd757d35cd0431f"
+		"src/core/install/seed_build.ts": "4f6a737d23916c46e079e50bc22572de39b5f201033294e5e748453a9965681c",
+		"src/core/install/seed_sources.ts": "82dba447d36a6aad67cb5598dd073717e53d28a764d339cc3dc22e15750374aa"
 	},
-	"rules_digest": "9253980c9760bc24802ac9acd3fd4374e41b1d4419173a5a1837901298bf1717",
+	"rules_digest": "73f6bf38eb1287a68306fb043e66a920f139e429e56c9a55c0bcd975e0fa87ee",
 	"ontology_release": {
 		"version": "7.0.0",
 		"date": "2026-07-14T16:08:54+02:00"
@@ -56,7 +56,7 @@
 		"matrix_dataframe": 0,
 		"matrix_dd": 426,
 		"matrix_hierarchy": 0,
-		"matrix_hierarchy_main": 150,
+		"matrix_hierarchy_main": 1,
 		"matrix_indexations": 0,
 		"matrix_langs": 21706,
 		"matrix_layout": 0,
@@ -89,8 +89,8 @@
 			"ontology ontologytype in sync (14 nodes)",
 			"ontology hierarchy in sync (137 nodes)",
 			"ontology lg in sync (9 nodes)",
-			"matrix_string_search filled by the boot self-heal (74042 rows)",
-			"matrix_relation_index filled by the boot self-heal (172373 rows)",
+			"matrix_string_search filled by the boot self-heal (73132 rows)",
+			"matrix_relation_index filled by the boot self-heal (171419 rows)",
 			"lg (Languages) active",
 			"root password set and verified"
 		]

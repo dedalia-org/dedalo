@@ -12,13 +12,18 @@
  * configured server MUST reach the importer through this widget action.
  *
  * get_value shape: {hierarchies, installed_hierarchies (each {tld}),
- * hierarchy_files_dir_path, hierarchy_typologies}.
+ * hierarchy_files_dir_path, hierarchy_typologies}. `hierarchies` /
+ * `hierarchy_typologies` are THE client view of the vendored thesaurus manifest
+ * (hierarchy.json — install/hierarchy_meta.ts hierarchyChoiceView, the same the
+ * wizard renders): `{tld, label, typology, has_data}` / `{typology, label}`.
  */
 
 import { sql } from '../../db/postgres.ts';
-import { offeredHierarchies, readHierarchyJson } from '../../install/hierarchy_meta.ts';
+import { hierarchyChoiceView } from '../../install/hierarchy_meta.ts';
 import { HIERARCHY_IMPORT_DIR } from '../../install/paths.ts';
+import { currentApplicationLang } from '../../resolve/request_lang.ts';
 import type { Principal } from '../../security/permissions.ts';
+import { activeHierarchyRows } from './export_hierarchy.ts';
 import { fromOutcome, type WidgetModule, type WidgetResponse } from './support.ts';
 
 /**
@@ -58,27 +63,59 @@ export function installedTldFromSectionTipo(sectionTipo: string): string | null 
 }
 
 /**
- * The hierarchies actually INSTALLED, as unique {tld} objects — a tld is installed
- * when its `<tld>1` term section has rows in matrix_hierarchy. This is the SAME signal
- * the importer keys on (hierarchy_import.ts hierarchyRowsPresent), so the client marker
- * agrees with skip/reset behaviour.
+ * The INSTALLED set, pure: a tld is installed when its `<tld>1` term section has
+ * rows (`termSectionTipos`), OR (2026-10-10) when it is an EMPTY thesaurus by
+ * design (its manifest entry lists no data files — `emptyByDesign`) whose
+ * registry row is ACTIVE (`activeRegistryTlds`). The second arm is not the
+ * common case: an activation MINTS the General Term root in the term section
+ * (hierarchy_state.ts ensureRootTerm), so an empty thesaurus activated into
+ * `<tld>1` already has a row there. It covers the row whose hierarchy53 names
+ * another section, where `<tld>1` stays empty and the marker would otherwise
+ * offer the install forever. An active row of a thesaurus that HAS data files is
+ * NOT installed by its flag alone — its terms are what count. Note the marker is
+ * a hint: the importer decides on the LISTED sections' rows
+ * (hierarchy_import.ts classifyListedSections), and a term section holding only
+ * that minted root while the release now ships data is refused there naming
+ * Reset. Unique, in first-seen order.
+ */
+export function mergeInstalledTlds(
+	termSectionTipos: readonly string[],
+	activeRegistryTlds: readonly string[],
+	emptyByDesign: ReadonlySet<string>,
+): string[] {
+	const tlds = new Set<string>();
+	for (const sectionTipo of termSectionTipos) {
+		const tld = installedTldFromSectionTipo(sectionTipo);
+		if (tld !== null) tlds.add(tld);
+	}
+	for (const raw of activeRegistryTlds) {
+		const tld = raw.trim().toLowerCase();
+		if (emptyByDesign.has(tld)) tlds.add(tld);
+	}
+	return [...tlds];
+}
+
+/**
+ * The hierarchies actually INSTALLED, as unique {tld} objects ({@link mergeInstalledTlds}).
  *
- * (Earlier this read the hierarchy1 REGISTRY instead — but a seed declares a registry
+ * (Earlier this read the hierarchy1 REGISTRY alone — but a seed declared a registry
  * record for ~every country whether its terms were imported or not, so it marked all
  * ~269 declared hierarchies "installed" when only ~14 actually were.) Fail-soft: a read
  * error must not break the panel.
  */
-async function installedHierarchies(): Promise<{ tld: string }[]> {
+async function installedHierarchies(
+	emptyByDesign: ReadonlySet<string>,
+): Promise<{ tld: string }[]> {
 	try {
 		const rows = (await sql.unsafe(`SELECT DISTINCT section_tipo FROM matrix_hierarchy`, [])) as {
 			section_tipo: string | null;
 		}[];
-		const tlds: { tld: string }[] = [];
-		for (const row of rows) {
-			const tld = installedTldFromSectionTipo(String(row.section_tipo ?? ''));
-			if (tld !== null) tlds.push({ tld });
-		}
-		return tlds;
+		const active = emptyByDesign.size === 0 ? [] : await activeHierarchyRows();
+		return mergeInstalledTlds(
+			rows.map((row) => String(row.section_tipo ?? '')),
+			active.map((row) => String(row.tld ?? '')),
+			emptyByDesign,
+		).map((tld) => ({ tld }));
 	} catch (error) {
 		console.error('add_hierarchy: installed_hierarchies read failed:', error);
 		return [];
@@ -86,11 +123,15 @@ async function installedHierarchies(): Promise<{ tld: string }[]> {
 }
 
 async function addHierarchyGetValue(): Promise<WidgetResponse> {
+	const view = hierarchyChoiceView(currentApplicationLang());
+	const emptyByDesign = new Set(
+		view.hierarchies.filter((item) => !item.has_data).map((item) => item.tld),
+	);
 	return {
 		data: {
-			hierarchies: offeredHierarchies(),
-			installed_hierarchies: await installedHierarchies(),
-			hierarchy_typologies: readHierarchyJson('hierarchies_typologies.json', []),
+			hierarchies: view.hierarchies,
+			installed_hierarchies: await installedHierarchies(emptyByDesign),
+			hierarchy_typologies: view.hierarchy_typologies,
 			hierarchy_files_dir_path: HIERARCHY_IMPORT_DIR,
 		},
 	};
@@ -101,7 +142,10 @@ async function addHierarchyGetValue(): Promise<WidgetResponse> {
  * → matrix_hierarchy → consolidate counter → activate). Native to the engine:
  * the writes land in the CONFIGURED database through the runtime connection,
  * audited to the acting admin. An already-installed tld is SKIPPED (the import is
- * additive; `replace` stays false). ENGINE_NATIVE in update_ownership_tripwire.
+ * additive; `replace` stays false) — and the importer closes the selection over
+ * the chosen thesauri's own MANDATORY declared dependencies (hierarchy.json)
+ * first, exactly as the wizard and the CLI do. ENGINE_NATIVE in
+ * update_ownership_tripwire.
  */
 export async function addHierarchyInstall(
 	options: Record<string, unknown>,

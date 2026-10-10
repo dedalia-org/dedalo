@@ -221,3 +221,55 @@ others, so there is one behaviour and no master/client split.
   census or the update/installer responses, so no re-harvest is needed and no
   fixture changes. With `ddengine11` gone, the `ontology35` / `hierarchy1`
   edit structure context is back to its pre-2026-10-09 shape.
+
+## Addendum 2026-10-10 — a THESAURUS dependency never blocks an install (owner decision)
+
+**Decision (owner, 2026-10-10):** a `main: 'hierarchy1'` dependency — declared
+on an `ontology35` registry row OR on a `hierarchy1` row / `hierarchy.json`
+entry (one component, one law) — must NEVER block an install. `mandatory: true`
+on a thesaurus is a STRONG RECOMMENDATION: users can work without it, define a
+thesaurus of their own under another name, and install it any time later.
+ONTOLOGY dependencies (`main: 'ontology35'`) keep the rule above unchanged
+(mandatory = always installed, an unoffered mandatory one is an error).
+
+**Shape before (TS, this entry):** a mandatory thesaurus was always installed
+and could not be unticked; the wizard locked its row and `install_hierarchies`
+unioned it into the posted list; one with no vendored entry refused the plan /
+the step (`install.invalid_input`) / the batch.
+
+**Shape after (TS):**
+- Every declared thesaurus, mandatory or optional, is offered PRE-TICKED and is
+  DECLINABLE (`declined_dependencies`, `<tld>` or `<tld>:hierarchy1`; the
+  wizard's ontology step and its "Install hierarchies" step both leave the row
+  editable, marked "strongly recommended").
+- Declining a MANDATORY thesaurus is a WARNING (plan `warnings`, the CLI `⚠`
+  lines, the step's `msg`), one text from ONE function
+  (`ontology_choice.ts recommendedThesaurusWarning`):
+  `the thesaurus '<tld>' (declared mandatory by '<dependant>'[, …]) is declined — not installed; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`.
+  Declining an optional one is the unchanged note.
+- A thesaurus with NO hierarchy.json entry is a warning and is skipped,
+  mandatory or not — never an error, never a refusal:
+  `the thesaurus '<tld>' (declared mandatory by …) has no entry in hierarchy.json — skipped; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`.
+- The wizard's `install_hierarchies` step adds NOTHING to the posted list
+  (`withMandatoryHierarchies` is replaced by `unmetHierarchyDependencies`,
+  which only warns); `hierarchyDependencyPlan` answers `{install, warnings}`
+  (its `errors` key is gone).
+- `persist_config`'s `hierarchy_dependencies` keeps its shape: every entry is
+  pre-ticked by the client, `mandatory` now only drives the "strongly
+  recommended" mark.
+
+**Reason:** the premise — a heritage install must never be blocked by an
+optional-in-practice vocabulary; refusing an install because a release lacks a
+thesaurus (or because the operator keeps their own) protected nothing.
+
+**Gate reconciliation:** `install_ontology_choice` (declined mandatory → warning
+text, TLD and TLD:main, chosen-anyway never warned, no-entry → warning,
+`unmetHierarchyDependencies`), `install_plan_parity_tripwire` (i) (CLI ≡
+wizard: a declined mandatory thesaurus leaves the plan with the warning; an
+unvendored one warns, exit 0), `vendored_ontology_closure_tripwire` (a release
+still must not ship a declaration without an entry — now measured as an empty
+warning list), `install_hierarchy_dependencies_native` (the real step: a
+posted `[]` declines a vendored mandatory thesaurus — ok, nothing imported,
+warning in `msg`; no entry → the same, never `install.invalid_input`;
+mutation-checked by re-adding the union → red). No fixture changes, no
+re-harvest.

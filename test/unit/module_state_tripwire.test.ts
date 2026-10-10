@@ -978,6 +978,14 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 			},
 		],
 		[
+			'src/core/ontology/hierarchy_census.ts',
+			{
+				count: 1,
+				reason:
+					'The thesaurus CENSUS labels of hierarchy.json (buildHierarchyManifest) — an install-wide export file, the ontology.json twin; name_data/scope_note_data carry every lang item, the pick is only the human label. Nothing is written to storage.',
+			},
+		],
+		[
 			'src/core/section/record/create_record.ts',
 			{
 				count: 1,

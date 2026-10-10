@@ -86,7 +86,9 @@ import { activateHierarchy } from '../install/hierarchy_activate.ts';
 import { clearOntologyDerivedCaches } from '../ontology/cache_invalidation.ts';
 import { deleteOntologyByTld } from '../ontology/ontology_delete.ts';
 import { RELATION_TYPE_PARENT } from '../ontology/ontology_tipos.ts';
+import { resolveRegistryLangId } from '../ontology/ontology_write.ts';
 import { deleteSectionRecord } from '../section/record/delete_record.ts';
+import { scratchHierarchyEntry } from './hierarchy_entry_fixture.ts';
 import {
 	SYNTHETIC_B_ROW_COUNT,
 	SYNTHETIC_HIERARCHY_A_TLD,
@@ -109,20 +111,12 @@ const USER_ID = -1;
 const BUILD_DATE = '2026-08-25 00:00:00';
 
 /** Typology 2 = toponymy — what the replaced geographic thesauri were, and the
- * typology the General Term roots are gated on (install_hierarchy_activate_native). */
-const HIERARCHY_METAS = [
-	{
-		tld: SYNTHETIC_HIERARCHY_A_TLD,
-		label: 'Synthetic geography A',
-		typology: 2,
-		active_in_thesaurus: true,
-	},
-	{
-		tld: SYNTHETIC_HIERARCHY_B_TLD,
-		label: 'Synthetic geography B',
-		typology: 2,
-		active_in_thesaurus: true,
-	},
+ * typology the General Term roots are gated on (install_hierarchy_activate_native).
+ * The manifest entries are built at run time (hierarchy_entry_fixture.ts): the
+ * row's language is the installation's own lg-eng record, resolved — never an id. */
+const HIERARCHY_NAMES = [
+	{ tld: SYNTHETIC_HIERARCHY_A_TLD, name: 'Synthetic geography A' },
+	{ tld: SYNTHETIC_HIERARCHY_B_TLD, name: 'Synthetic geography B' },
 ] as const;
 
 function refuse(message: string, coordinates: Record<string, string | number> = {}): never {
@@ -235,7 +229,11 @@ export async function ensureSyntheticHierarchies(): Promise<SyntheticHierarchySu
 	// Before ANY write: the database itself must declare it is the suite's.
 	await assertTestDatabase('ensureSyntheticHierarchies');
 
-	for (const meta of HIERARCHY_METAS) {
+	const langSectionId = await resolveRegistryLangId('lg-eng');
+	const metas = HIERARCHY_NAMES.map((item) =>
+		scratchHierarchyEntry({ tld: item.tld, name: item.name, langSectionId }),
+	);
+	for (const meta of metas) {
 		const outcome = await activateHierarchy(meta, USER_ID);
 		if (!outcome.ok) {
 			refuse(`activateHierarchy('${meta.tld}') did not converge: ${outcome.errors.join('; ')}`, {

@@ -22,7 +22,10 @@
 // ship with every installation.
 
 import { describe, expect, test } from 'bun:test';
-import { installedTldFromSectionTipo } from '../../src/core/area_maintenance/widgets/add_hierarchy.ts';
+import {
+	installedTldFromSectionTipo,
+	mergeInstalledTlds,
+} from '../../src/core/area_maintenance/widgets/add_hierarchy.ts';
 
 /** Seed-shipped tipo, spelled so the census sees a reference, not a binding. */
 const seed = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;
@@ -77,22 +80,37 @@ describe('installedTldFromSectionTipo — what is a term section', () => {
 });
 
 describe('the extraction is REWIRED, not duplicated', () => {
-	test('the SQL no longer carries the rule, and the reader calls the extraction', async () => {
+	test('the SQL no longer carries the rule, and the rule exists exactly once in the file', async () => {
 		const source = await Bun.file(SOURCE_FILE).text();
 		// The SQL copies are gone: no substring() extraction, no `~` filter.
 		expect(source).not.toContain('substring(section_tipo from');
 		expect(source).not.toContain("~ '^[a-z]+1$'");
-		// The call site reads the raw tipo and maps it through the extraction.
-		expect(source).toContain('SELECT DISTINCT section_tipo FROM matrix_hierarchy');
-		expect(source).toContain('installedTldFromSectionTipo(String(row.section_tipo ??');
-		// and the rule exists exactly once in the file
 		expect(source.split('/^([a-z]+)1$/').length - 1).toBe(1);
 	});
+});
 
-	test('a non-matching tipo is DROPPED by the caller, not emitted as null', async () => {
-		// The wire shape is {tld: string}[]; a null tld would render an empty
-		// installed-marker chip in the panel.
-		const source = await Bun.file(SOURCE_FILE).text();
-		expect(source).toContain('if (tld !== null) tlds.push({ tld });');
+describe('mergeInstalledTlds — what the panel marks installed', () => {
+	test('term rows count through THE extraction; a non-term tipo is DROPPED, never emitted as null', () => {
+		// The wire shape is {tld: string}[]; a null tld would render an empty chip.
+		expect(
+			mergeInstalledTlds(
+				['testgeoa1', 'testgeoa2', 'hierarchy125', '', 'testgeoa1'],
+				[],
+				new Set(),
+			),
+		).toEqual(['testgeoa']);
+	});
+
+	test('an ACTIVE empty-by-design thesaurus is installed; an active one WITH data files is not, by its flag alone', () => {
+		// zzinstempty: no data files in the manifest + an active registry row → installed
+		// (it never gets term rows). zzdata: active but its terms are not in → NOT installed.
+		const installed = mergeInstalledTlds(
+			['testgeoa1'],
+			[' ZZINSTEMPTY ', 'zzdata'],
+			new Set(['zzinstempty']),
+		);
+		expect(installed).toEqual(['testgeoa', 'zzinstempty']);
+		// An empty-by-design thesaurus whose row is NOT active is not installed.
+		expect(mergeInstalledTlds([], [], new Set(['zzinstempty']))).toHaveLength(0);
 	});
 });

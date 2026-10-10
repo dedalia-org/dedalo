@@ -88,9 +88,13 @@ The declaration is ordinary Dédalo data on the master:
       **ontology**. `hierarchy1` means that TLD's **thesaurus** (its hierarchy,
       with its terms, installed and active). A TLD may appear twice, once with
       each value.
-    * `mandatory: true` means the requirement is always installed and cannot be
-      unticked. With `mandatory: false`, the installer offers it already ticked
-      and the operator may untick it.
+    * `mandatory: true` on an **ontology** (`ontology35`) means it is always
+      installed and cannot be unticked. On a **thesaurus** (`hierarchy1`) it is
+      a strong recommendation: the installer offers it ticked and marked
+      *strongly recommended*, and the operator may still untick it (a warning
+      says it can be installed later) — a thesaurus never blocks an install.
+      With `mandatory: false`, the installer offers it already ticked and the
+      operator may untick it.
 
     Include the core ontologies the ontology uses (every domain ontology takes
     its models from `dd`). An installer skips core ontologies, because every

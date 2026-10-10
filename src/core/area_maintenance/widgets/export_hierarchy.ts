@@ -1,6 +1,8 @@
 /**
- * export_hierarchy widget — thesaurus registry sync + the psql dump of one or
- * more hierarchy sections into the engine's own hierarchy import directory.
+ * export_hierarchy widget — thesaurus registry sync, the psql dump of an
+ * EXPLICIT list of active hierarchy sections, and the `hierarchy.json`
+ * manifest (WC-2026-10-10-hierarchy-json-manifest), all into the engine's own
+ * hierarchy import directory.
  *
  * WHERE THE FILES GO (2026-08-19). PHP took the destination from an operator
  * constant, `EXPORT_HIERARCHY_PATH`, which was never carried into the TS engine.
@@ -15,11 +17,21 @@
  */
 
 import { existsSync, statSync } from 'node:fs';
+import { rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MATRIX_COPY_COLUMNS } from '../../db/matrix_write.ts';
 import { sql } from '../../db/postgres.ts';
+import { isCoreHierarchyTld } from '../../install/hierarchy_meta.ts';
 import { HIERARCHY_IMPORT_DIR } from '../../install/paths.ts';
 import { connFromConfig, type DbConnDescriptor, runPsql } from '../../install/pg_exec.ts';
+import { buildHierarchyManifest } from '../../ontology/hierarchy_census.ts';
+import {
+	HIERARCHY_MANIFEST_FILE,
+	type HierarchyManifest,
+	hierarchyDataFileNames,
+	serializeHierarchyManifest,
+} from '../../ontology/hierarchy_manifest_format.ts';
+import { HIERARCHY_MAIN_SECTION } from '../../ontology/ontology_tipos.ts';
 import { composeContains, locatorJsonVariants } from '../../search/containment.ts';
 import type { WidgetModule, WidgetResponse } from './support.ts';
 
@@ -30,17 +42,22 @@ export const HIERARCHY_EXPORT_URL_PREFIX = '/dedalo/install/import/hierarchy/';
  * One row of the hierarchy REGISTRY (`hierarchy1`) that is currently ACTIVE —
  * `relation->'hierarchy4'` carrying the dd64/1 "yes" locator.
  *
- * `active_ts` is the 'active in thesaurus' flag (hierarchy125) and `target` the
- * hierarchy's target section tipo (hierarchy53). Both consumers of this list
- * want a subset of the same three columns, which is exactly why it is ONE
- * function: the sync action reconciles `active_ts` per row, the export action
- * maps `target`. Two copies of this query would be two chances to lose the
+ * `active_ts` is the 'active in thesaurus' flag (hierarchy125), `target` the
+ * hierarchy's target section tipo (hierarchy53), `model` its model section tipo
+ * (hierarchy58) and `tld` its hierarchy6. Both consumers of this list want a
+ * subset of the same columns, which is exactly why it is ONE function: the sync
+ * action reconciles `active_ts` per row, the export action admits only the
+ * `target`/`model` tipos of these rows. Two copies of this query would be two chances to lose the
  * dual-typed section_id probe below.
  */
 export interface ActiveHierarchyRow {
 	section_id: number;
 	active_ts: string | null;
 	target: string | null;
+	/** hierarchy58 — the target MODEL section tipo (`<tld>2`), when the row names one. */
+	model: string | null;
+	/** hierarchy6 — the row's TLD as stored (the seed stores it uppercase). */
+	tld: string | null;
 }
 
 /**
@@ -66,7 +83,9 @@ export async function activeHierarchyRows(): Promise<ActiveHierarchyRow[]> {
 	return (await sql.unsafe(
 		`SELECT section_id,
 		        relation->'hierarchy125'->0->>'section_id' AS active_ts,
-		        COALESCE(data->'hierarchy53', string->'hierarchy53')->0->>'value' AS target
+		        COALESCE(data->'hierarchy53', string->'hierarchy53')->0->>'value' AS target,
+		        COALESCE(data->'hierarchy58', string->'hierarchy58')->0->>'value' AS model,
+		        COALESCE(data->'hierarchy6', string->'hierarchy6')->0->>'value' AS tld
 		 FROM matrix_hierarchy_main
 		 WHERE section_tipo = 'hierarchy1'
 		   AND ${activeClause}
@@ -156,6 +175,20 @@ async function exportHierarchySyncActiveStatus(): Promise<WidgetResponse> {
 
 // ---------------------------------------------------------------------------
 // EXPORT — pure decisions first, so each is reachable without touching psql.
+//
+// AN EXPLICIT LIST ONLY (WC-2026-10-10-hierarchy-json-manifest). The PHP-era
+// `'*'` (every active hierarchy) and `'all'` (the whole matrix_hierarchy table
+// into one timestamped file) scopes are GONE: what a master ships is a choice
+// made per hierarchy, `'*'` dumped every active thesaurus whether or not it was
+// meant to be vendored, and the `all_…` file was read by no importer at all.
+// Each requested tipo must be the thesaurus (hierarchy53) or model
+// (hierarchy58) section of an ACTIVE hierarchy1 row — anything else is its own
+// error line and writes nothing.
+//
+// THE CORE `lg` IS NEVER EXPORTED. Its terms live in matrix_langs and ship in
+// the install seed (install/db/seed/matrix_langs.copy.gz); the installer
+// imports dumps into matrix_hierarchy, so an `lg1.copy.gz` would only be noise
+// there. lg keeps its own path entirely; this module never reads matrix_langs.
 // ---------------------------------------------------------------------------
 
 /**
@@ -171,44 +204,31 @@ export function safeExportTipo(sectionTipo: string): boolean {
 }
 
 /**
- * The matrix table a section tipo's rows live in. The two LANGUAGE sections are
- * stored apart from the rest of the thesaurus; everything else is hierarchy.
+ * The ONE table a dump is read from: the installer's import forces the same
+ * table (hierarchy_import.ts), so export and import agree by construction.
  */
-export function tableForTipo(sectionTipo: string): 'matrix_langs' | 'matrix_hierarchy' {
-	return sectionTipo === 'lg1' || sectionTipo === 'lg2' ? 'matrix_langs' : 'matrix_hierarchy';
+export const HIERARCHY_EXPORT_TABLE = 'matrix_hierarchy';
+
+/** The TLD namespace of a (safeExportTipo-valid) section tipo: `es1` → `es`, `lg2` → `lg`. */
+export function tipoTld(sectionTipo: string): string {
+	return sectionTipo.replace(/[0-9]+$/, '');
 }
 
-/** What the operator asked to export. */
-export type ExportScope = { kind: 'active' } | { kind: 'all' } | { kind: 'list'; tipos: string[] };
+/** What the operator asked to export: an explicit section tipo list. */
+export type ExportScope = string[];
 
 /**
- * Parse the panel's single free-text input (PHP's three accepted forms):
- * `'*'` = every currently active hierarchy, one file each; `'all'` = every
- * matrix_hierarchy row into ONE timestamped file; anything else = a
- * comma-separated tipo list. Empty entries are dropped here; INVALID ones are
- * NOT — they must survive to the run so each gets its own error line rather
- * than vanishing silently.
+ * Parse the panel's single free-text input: a comma-separated section tipo
+ * list. Empty entries are dropped here; INVALID ones are NOT — they must
+ * survive to the plan so each gets its own error line rather than vanishing
+ * silently (a retired `'*'` / `'all'` included: it earns a line saying so).
  */
 export function parseExportScope(raw: unknown): ExportScope {
 	const text = typeof raw === 'string' ? raw.trim() : '';
-	if (text === '*') return { kind: 'active' };
-	if (text === 'all') return { kind: 'all' };
-	return {
-		kind: 'list',
-		tipos: text
-			.split(',')
-			.map((entry) => entry.trim())
-			.filter((entry) => entry !== ''),
-	};
-}
-
-/** `all_2026-08-19_142530.copy.gz` — the whole-table scope's timestamped name. */
-export function allScopeFileName(when: Date): string {
-	const pad = (value: number): string => String(value).padStart(2, '0');
-	const stamp =
-		`${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}` +
-		`_${pad(when.getHours())}${pad(when.getMinutes())}${pad(when.getSeconds())}`;
-	return `all_${stamp}.copy.gz`;
+	return text
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter((entry) => entry !== '');
 }
 
 /**
@@ -235,12 +255,12 @@ export function exportCopyCommand(
 }
 
 /** The copy-pasteable re-import command the panel prints under the file list. */
-export function importHint(table: string): string {
+export function importHint(): string {
 	const columns = MATRIX_COPY_COLUMNS.join(',');
 	return (
 		`SECTION_TIPO='us1' ; gunzip -c \${SECTION_TIPO}.copy.gz` +
 		` | psql dedalo_myentity -U mydbuser -h localhost` +
-		` -c "\\copy ${table}(${columns}) from STDIN"`
+		` -c "\\copy ${HIERARCHY_EXPORT_TABLE}(${columns}) from STDIN"`
 	);
 }
 
@@ -290,7 +310,7 @@ export interface ExportHierarchyDeps {
 	conn?: DbConnDescriptor;
 	/** Destination directory; defaults to the fixed HIERARCHY_IMPORT_DIR. */
 	outDir?: string;
-	/** Clock for the 'all' scope's file name. */
+	/** Clock for hierarchy.json's envelope `date`. */
 	now?: Date;
 }
 
@@ -303,35 +323,75 @@ export interface ExportEntry {
 	fileName: string;
 }
 
-/** One produced file, as the client's `render_export_response` reads it. */
-export interface ExportedFile {
-	section_tipo: string;
-	table: string;
-	file_name: string;
-	bytes: number | null;
-	url: string;
-}
-
 /** The entry for one requested section tipo (caller has validated the tipo). */
 export function listEntry(sectionTipo: string): ExportEntry {
 	return {
 		sectionTipo,
-		table: tableForTipo(sectionTipo),
+		table: HIERARCHY_EXPORT_TABLE,
 		where: `section_tipo = '${sectionTipo}'`,
 		order: 'section_id ASC',
 		fileName: `${sectionTipo}.copy.gz`,
 	};
 }
 
-/** The whole-table entry: every matrix_hierarchy row into ONE timestamped file. */
-export function allEntry(when: Date): ExportEntry {
-	return {
-		sectionTipo: 'all',
-		table: 'matrix_hierarchy',
-		where: 'section_tipo IS NOT NULL',
-		order: 'section_tipo, section_id ASC',
-		fileName: allScopeFileName(when),
-	};
+/**
+ * The tipos an export may name: the hierarchy53 (thesaurus) and hierarchy58
+ * (model) section of every ACTIVE registry row, each mapped to that row's
+ * lowercased hierarchy6 TLD (PURE — the rows come from activeHierarchyRows).
+ */
+export function exportableTipos(
+	rows: readonly Pick<ActiveHierarchyRow, 'target' | 'model' | 'tld'>[],
+): Map<string, string> {
+	const exportable = new Map<string, string>();
+	for (const row of rows) {
+		const tld = (row.tld ?? '').trim().toLowerCase();
+		for (const tipo of [row.target, row.model]) {
+			if (typeof tipo === 'string' && tipo !== '') exportable.set(tipo, tld);
+		}
+	}
+	return exportable;
+}
+
+/** The PHP-era scopes this export no longer accepts (WC-2026-10-10). */
+const RETIRED_SCOPES: ReadonlySet<string> = new Set(['*', 'all']);
+
+/**
+ * Is this tipo a CORE hierarchy's section? Checked BOTH by the tipo's own TLD
+ * namespace (`lg2`, which no row may name) and by the TLD of the active row
+ * that names it — so neither a renamed target nor a missing row lets lg out.
+ */
+function isCoreTipo(sectionTipo: string, exportable: ReadonlyMap<string, string>): boolean {
+	return (
+		isCoreHierarchyTld(tipoTld(sectionTipo)) ||
+		isCoreHierarchyTld(exportable.get(sectionTipo) ?? '')
+	);
+}
+
+/** Why ONE requested tipo is refused, or null when it may be dumped. */
+export function exportTipoRefusal(
+	sectionTipo: string,
+	exportable: ReadonlyMap<string, string>,
+): string | null {
+	if (RETIRED_SCOPES.has(sectionTipo)) {
+		return `Ignored '${sectionTipo}': the export takes an explicit list of section tipos, e.g. es1,fr1`;
+	}
+	if (!safeExportTipo(sectionTipo)) {
+		return `Ignored invalid section tipo: ${sectionTipo} . Use section tipos, e.g. es1,fr1`;
+	}
+	if (isCoreTipo(sectionTipo, exportable)) {
+		return `Refused ${sectionTipo}: a CORE hierarchy (lg) is never exported — its terms live in matrix_langs and ship in the install seed`;
+	}
+	const tld = exportable.get(sectionTipo);
+	if (tld === undefined) {
+		return `Refused ${sectionTipo}: not the thesaurus (hierarchy53) or model (hierarchy58) section of an active hierarchy`;
+	}
+	// hierarchy.json carries ONLY `<tld>1|2.copy.gz` (the format's data-file names, which
+	// the census digests and the installer imports): a dump of any other section — a row
+	// whose hierarchy53 names `rsc197`, `mht72`… — would be a file no entry ever lists.
+	if (!hierarchyDataFileNames(tld).includes(`${sectionTipo}.copy.gz`)) {
+		return `Refused ${sectionTipo}: only a hierarchy's own ${tld}1 / ${tld}2 sections can be vendored (hierarchy.json lists no other data file)`;
+	}
+	return null;
 }
 
 /**
@@ -339,40 +399,31 @@ export function allEntry(when: Date): ExportEntry {
  *
  * Pure, and separate from the run for one reason: an invalid tipo must produce
  * an error LINE, never abort the batch. Deciding that here means the runner has
- * no "is this safe" arm left to get wrong.
+ * no "is this allowed" arm left to get wrong. A tipo listed twice is dumped
+ * once (it is the same file).
  */
-export function planListEntries(tipos: readonly string[]): {
-	entries: ExportEntry[];
-	errors: string[];
-} {
+export function planListEntries(
+	tipos: readonly string[],
+	exportable: ReadonlyMap<string, string>,
+): { entries: ExportEntry[]; errors: string[] } {
 	const entries: ExportEntry[] = [];
 	const errors: string[] = [];
-	for (const sectionTipo of tipos) {
-		if (safeExportTipo(sectionTipo)) entries.push(listEntry(sectionTipo));
-		else errors.push(`Ignored invalid section tipo: ${sectionTipo} . Use format like "es1"`);
+	for (const sectionTipo of new Set(tipos)) {
+		const refusal = exportTipoRefusal(sectionTipo, exportable);
+		if (refusal === null) entries.push(listEntry(sectionTipo));
+		else errors.push(refusal);
 	}
-	if (entries.length === 0 && errors.length === 0) {
-		errors.push('No section tipo requested. Use a list like "es1,ts1", "*" or "all"');
+	if (tipos.length === 0) {
+		errors.push('No section tipo requested. List section tipos, e.g. es1,fr1');
 	}
 	return { entries, errors };
-}
-
-/** The distinct target section tipos of the ACTIVE hierarchies (the '*' scope). */
-async function activeTargets(): Promise<string[]> {
-	const targets = (await activeHierarchyRows())
-		.map((row) => row.target)
-		.filter((target): target is string => typeof target === 'string' && target !== '');
-	return [...new Set(targets)];
 }
 
 /** Turn a parsed scope into the files to produce plus the refusals it earned. */
 async function planEntries(
 	scope: ExportScope,
-	when: Date,
 ): Promise<{ entries: ExportEntry[]; errors: string[] }> {
-	if (scope.kind === 'all') return { entries: [allEntry(when)], errors: [] };
-	const tipos = scope.kind === 'active' ? await activeTargets() : scope.tipos;
-	return planListEntries(tipos);
+	return planListEntries(scope, exportableTipos(await activeHierarchyRows()));
 }
 
 /** Dump ONE entry to its file. Returns the record, or the error sentence. */
@@ -414,23 +465,17 @@ function fileBytes(path: string): number | null {
 /**
  * Assemble the panel response. `data` is true when at least one file landed;
  * `files` and `import_hint` are top-level extension keys the client reads by
- * name (render_export_response). PHP prints the hint for the LAST table it
- * touched — matrix_hierarchy when nothing was planned.
+ * name (render_export_response).
  */
-function exportResponse(
-	files: ExportedFile[],
-	errors: string[],
-	entries: readonly ExportEntry[],
-): WidgetResponse {
+function exportResponse(files: ExportedFile[], errors: string[]): WidgetResponse {
 	const exported = files.length > 0;
-	const lastTable = entries[entries.length - 1]?.table ?? 'matrix_hierarchy';
 	return {
 		data: exported,
 		msg: exported
-			? `OK. ${files.length} hierarchy file(s) exported`
+			? `OK. ${files.length} hierarchy file(s) exported. Export hierarchy.json again so its checksums cover them`
 			: 'Error. No hierarchy files were exported',
 		...(errors.length > 0 ? { errors } : {}),
-		extend: { files, import_hint: importHint(lastTable) },
+		extend: { files, import_hint: importHint() },
 	};
 }
 
@@ -456,7 +501,7 @@ function resolveExportDeps(deps: ExportHierarchyDeps): {
 
 /**
  * Dump hierarchy sections to gzip-compressed psql COPY files (PHP
- * hierarchy::export_hierarchy).
+ * hierarchy::export_hierarchy, list scope only).
  *
  * A per-entry failure is an ERROR LINE, never a thrown refusal: the panel runs
  * over a list, and one bad tipo must not discard the files the others produced.
@@ -465,11 +510,11 @@ export async function exportHierarchy(
 	options: Record<string, unknown>,
 	deps: ExportHierarchyDeps = {},
 ): Promise<WidgetResponse> {
-	const { conn, outDir, now } = resolveExportDeps(deps);
+	const { conn, outDir } = resolveExportDeps(deps);
 	const refusal = exportDirRefusal(outDir);
-	if (refusal !== null) return exportResponse([], [refusal], []);
+	if (refusal !== null) return exportResponse([], [refusal]);
 
-	const { entries, errors } = await planEntries(parseExportScope(options.section_tipo), now);
+	const { entries, errors } = await planEntries(parseExportScope(options.section_tipo));
 
 	const files: ExportedFile[] = [];
 	for (const entry of entries) {
@@ -477,7 +522,101 @@ export async function exportHierarchy(
 		if ('error' in result) errors.push(result.error);
 		else files.push(result.file);
 	}
-	return exportResponse(files, errors, entries);
+	return exportResponse(files, errors);
+}
+
+// ---------------------------------------------------------------------------
+// hierarchy.json — the thesaurus manifest (WC-2026-10-10-hierarchy-json-manifest).
+//
+// The census (ontology/hierarchy_census.ts) reads every ACTIVE hierarchy1 row
+// and digests the `<tld>1|2.copy.gz` files present in the export directory AT
+// THIS MOMENT; the result is validated by the format's own reader before it is
+// written. So the order an operator follows is: export the data files first,
+// then hierarchy.json — a dump written after it is not covered by its
+// checksums, and the installer refuses a mismatch.
+// ---------------------------------------------------------------------------
+
+/**
+ * Write `text` to `target` ATOMICALLY: a sibling temp file, then a rename. The
+ * installer reads this file; a half-written manifest would refuse every
+ * install until re-exported.
+ */
+async function writeAtomically(target: string, text: string): Promise<number> {
+	const temp = `${target}.${process.pid}.tmp`;
+	try {
+		const bytes = await Bun.write(temp, text);
+		await rename(temp, target);
+		return bytes;
+	} catch (error) {
+		await rm(temp, { force: true });
+		throw error;
+	}
+}
+
+/** The non-core entries that list no data file: activated EMPTY at install time. */
+function emptyThesauri(manifest: HierarchyManifest): string[] {
+	return manifest.active_hierarchies
+		.filter((entry) => entry.data_files.length === 0 && !isCoreHierarchyTld(entry.tld))
+		.map((entry) => entry.tld);
+}
+
+/**
+ * Assemble the hierarchy.json panel response. `files` reuses the data export's
+ * file record (the client renders both through render_export_response);
+ * `active_hierarchies`, `data_files` and `empty_hierarchies` are the counts and
+ * names an operator checks before vendoring the file. Census errors (rows
+ * skipped or degraded) ride as `errors` — the file is still written, without
+ * those rows, and the panel shows why each is missing.
+ */
+function manifestResponse(
+	written: { manifest: HierarchyManifest; bytes: number } | null,
+	errors: string[],
+): WidgetResponse {
+	if (written === null) {
+		return { data: false, msg: `Error. ${HIERARCHY_MANIFEST_FILE} was not written`, errors };
+	}
+	const { manifest, bytes } = written;
+	const dataFiles = manifest.active_hierarchies.reduce(
+		(sum, entry) => sum + entry.data_files.length,
+		0,
+	);
+	return {
+		data: true,
+		msg: `OK. ${HIERARCHY_MANIFEST_FILE} written: ${manifest.active_hierarchies.length} active hierarchies, ${dataFiles} data file(s)`,
+		...(errors.length > 0 ? { errors } : {}),
+		extend: {
+			files: [
+				{
+					section_tipo: HIERARCHY_MAIN_SECTION,
+					table: 'matrix_hierarchy_main',
+					file_name: HIERARCHY_MANIFEST_FILE,
+					bytes,
+					url: HIERARCHY_EXPORT_URL_PREFIX + HIERARCHY_MANIFEST_FILE,
+				},
+			],
+			active_hierarchies: manifest.active_hierarchies.length,
+			data_files: dataFiles,
+			empty_hierarchies: emptyThesauri(manifest),
+		},
+	};
+}
+
+/**
+ * Export `hierarchy.json` into the hierarchy directory: the census of the
+ * active registry plus the digests of the data files present now. A census
+ * bug (an output its own reader refuses) THROWS `install.manifest_invalid`
+ * rather than writing a file the installer would refuse.
+ */
+export async function exportHierarchyJson(deps: ExportHierarchyDeps = {}): Promise<WidgetResponse> {
+	const { outDir, now } = resolveExportDeps(deps);
+	const refusal = exportDirRefusal(outDir);
+	if (refusal !== null) return manifestResponse(null, [refusal]);
+	const { manifest, errors } = await buildHierarchyManifest({ dataDir: outDir, now });
+	const bytes = await writeAtomically(
+		join(outDir, HIERARCHY_MANIFEST_FILE),
+		serializeHierarchyManifest(manifest),
+	);
+	return manifestResponse({ manifest, bytes }, errors);
 }
 
 /**
@@ -499,6 +638,7 @@ async function exportHierarchyGetValue(): Promise<WidgetResponse> {
 
 export const widget: WidgetModule = {
 	// An export walks every term of every chosen hierarchy: maintenance (PERF-11).
+	// export_hierarchy_json is registry-sized (one row per hierarchy) — bounded.
 	unboundedActions: ['export_hierarchy'],
 	getValue: exportHierarchyGetValue,
 	spec: {
@@ -510,5 +650,6 @@ export const widget: WidgetModule = {
 	apiActions: {
 		sync_hierarchy_active_status: exportHierarchySyncActiveStatus,
 		export_hierarchy: (options) => exportHierarchy(options),
+		export_hierarchy_json: () => exportHierarchyJson(),
 	},
 };

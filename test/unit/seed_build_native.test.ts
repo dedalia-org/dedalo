@@ -34,6 +34,7 @@ import { connArgs, type DbConnDescriptor, pgClientEnv } from '../../src/core/ins
 import {
 	buildInstallVersion,
 	childEnv,
+	nonCoreRegistryRows,
 	type RegistryProvisionInput,
 	registryBlockers,
 	releaseDependencies,
@@ -213,6 +214,23 @@ describe('seed compiler — pure halves', () => {
 		expect(
 			registryBlockers([{ ...record(5, 'hierarchy20', 'section'), relation: {} }])[0],
 		).toContain('no typology (hierarchy9)');
+	});
+
+	test('the registry ships the CORE rows only: a non-core (optional thesaurus) row is named', () => {
+		// Optional thesauri are activated from hierarchy.json
+		// (WC-2026-10-10-hierarchy-json-manifest); a frozen registry row in the
+		// seed would be the metadata the manifest replaced.
+		const row = (sectionId: number, tld: string | null): RegistryProvisionInput => ({
+			section_id: sectionId,
+			source_model: 'section',
+			string: tld === null ? {} : { hierarchy6: [{ value: tld }] },
+			relation: { hierarchy9: [{ section_id: 3, section_tipo: 'hierarchy13' }] },
+		});
+		expect(nonCoreRegistryRows([row(244, 'LG'), row(245, 'lg')])).toEqual([]);
+		expect(nonCoreRegistryRows([row(244, 'LG'), row(1, 'es'), row(2, null)])).toEqual([
+			'hierarchy1/1 (es)',
+			'hierarchy1/2 (?)',
+		]);
 	});
 
 	test("a release entry's declared dependencies reach the package normalized; a malformed one refuses the compile", () => {

@@ -465,7 +465,7 @@ const FAILURE_LITERAL_BASELINE: Readonly<Record<string, number>> = {
 	'src/core/geoip/download.ts': 6,
 	'src/core/install/config_persist.ts': 4,
 	'src/core/install/hierarchy_activate.ts': 1,
-	'src/core/install/hierarchy_import.ts': 3,
+	'src/core/install/hierarchy_import.ts': 2,
 	'src/core/install/mailer_probe.ts': 2,
 	'src/core/mailer/mailer.ts': 4,
 	'src/core/media/tools/versions.ts': 1,

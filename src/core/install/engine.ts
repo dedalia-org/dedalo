@@ -159,28 +159,35 @@ const STEP_HANDLERS: Readonly<Record<string, StepHandler>> = Object.freeze({
 		// The posted list goes through THE PLAN's thesaurus normalization — the one
 		// the CLI's answer took (install_plan_parity_tripwire): a core tld (lg) is
 		// dropped with a note (the seed restore already activated it,
-		// db_restore.ts), an unvendored one refuses BEFORE any write. [] (or no
-		// list) is a valid answer: no optional thesaurus.
+		// db_restore.ts), one hierarchy.json does not list refuses BEFORE any write.
+		// [] (or no list) is a valid answer: no optional thesaurus.
 		const choice = normalizeHierarchyChoice(
 			Array.isArray(options.hierarchies) ? options.hierarchies : 'none',
 		);
-		// The MANDATORY thesauri the installed ontologies declare (hierarchy60
-		// `main: 'hierarchy1'`, read back from their registry rows — this process
-		// has no plan) are added whatever was posted: unticking one in the client
-		// cannot decline it. A mandatory one that is not vendored refuses here,
-		// before any write. Optional ones follow the posted list.
-		const { installedHierarchyDependencies } = await import('./hierarchy_dependencies.ts');
-		const { withMandatoryHierarchies } = await import('./ontology_choice.ts');
-		const declared = await installedHierarchyDependencies();
-		const required = withMandatoryHierarchies(choice.hierarchies, declared.dependencies);
-		const errors = [...choice.errors, ...required.errors];
-		if (errors.length > 0) {
-			refuseInstall('install.invalid_input', `Install answers invalid: ${errors.join('; ')}`);
+		if (choice.errors.length > 0) {
+			refuseInstall(
+				'install.invalid_input',
+				`Install answers invalid: ${choice.errors.join('; ')}`,
+			);
 		}
+		// The thesauri the installed ontologies declare (hierarchy60 `main:
+		// 'hierarchy1'`, read back from their registry rows — this process has no
+		// plan). The posted list IS the operator's answer on every one of them
+		// (owner decision 2026-10-10: a thesaurus never blocks an install): the
+		// client pre-ticks them, unticking declines. NOTHING is added and nothing
+		// refuses — a MANDATORY one left out (declined, or without a hierarchy.json
+		// entry) is a warning naming dependant + dependency (strongly recommended,
+		// installable later from Maintenance › Install hierarchies).
+		const { installedHierarchyDependencies } = await import('./hierarchy_dependencies.ts');
+		const { unmetHierarchyDependencies } = await import('./ontology_choice.ts');
+		const declared = await installedHierarchyDependencies();
+		const unmet = unmetHierarchyDependencies(choice.hierarchies, declared.dependencies);
 		// The in-wizard root session owns the activation writes (registry flags,
 		// the provisioned ontology records) — audited to a real actor, not to -1.
-		const result = await installHierarchies(required.hierarchies, undefined, session.userId);
-		const notes = [...choice.notes, ...required.notes, ...declared.warnings];
+		// installHierarchies itself checks the list against the CHOSEN thesauri's
+		// own declared dependencies (hierarchy.json) before anything is written.
+		const result = await installHierarchies(choice.hierarchies, undefined, session.userId);
+		const notes = [...choice.notes, ...unmet.warnings, ...declared.warnings];
 		if (notes.length > 0) result.msg = `${result.msg} (${notes.join('; ')})`;
 		return stepResult(context, result);
 	},

@@ -43,6 +43,7 @@ import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
 import { sql } from '../db/postgres.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
 import { DEDALO_VERSION, DEDALO_VERSION_MAJOR_MINOR } from '../update/version.ts';
+import { pickLangValue } from './manifest_lang_pick.ts';
 import {
 	normalizeOntologyDependencies,
 	type OntologyDependency,
@@ -172,23 +173,22 @@ export interface ActiveOntologyInfo {
 	dependencies?: OntologyDependency[];
 }
 
-/** app-lang value of a string component's items, with any-non-empty fallback. */
-function pickLangValue(
-	items: { lang?: string; value?: unknown }[] | undefined,
-	lang: string,
-): string {
-	if (items === undefined) return '';
-	const preferred = items.find((item) => item.lang === lang)?.value;
-	if (preferred !== undefined && preferred !== null && preferred !== '') return String(preferred);
-	for (const item of items) {
-		if (item.value !== undefined && item.value !== null && item.value !== '')
-			return String(item.value);
-	}
-	return '';
-}
+/**
+ * app-lang value of a string component's items, with any-non-empty fallback.
+ * THE rule lives in the pure leaf manifest_lang_pick.ts (the installer's
+ * thesaurus list re-picks with it before config may load); re-exported here
+ * for the ontology and thesaurus censuses.
+ */
+export { pickLangValue };
 
-/** Resolve the display name of a typology record (hierarchy16 off hierarchy13/id). */
-async function resolveTypologyName(typologyId: number, lang: string): Promise<string | null> {
+/**
+ * Resolve the display name of a typology record (hierarchy16 off hierarchy13/id).
+ * Shared with the thesaurus census (hierarchy_census.ts).
+ */
+export async function resolveTypologyName(
+	typologyId: number,
+	lang: string,
+): Promise<string | null> {
 	const table = await getMatrixTableFromTipo(HIERARCHY_TYPES_SECTION);
 	if (table === null) return null;
 	const record = await readMatrixRecord(table, HIERARCHY_TYPES_SECTION, typologyId);
@@ -203,12 +203,15 @@ async function resolveTypologyName(typologyId: number, lang: string): Promise<st
  * The declared dependencies of one registry row (`misc.hierarchy60[0].value`)
  * through THE shared normalizer; undefined when the row declares nothing (or
  * declares a non-list — warned). Every normalizer warning becomes a census
- * error line naming the row: invalid items are dropped, never fatal.
+ * error line naming the row (`<registrySectionTipo>/<section_id>`): invalid
+ * items are dropped, never fatal. Shared by both registries — ontology35 here,
+ * hierarchy1 in the thesaurus census (hierarchy_census.ts).
  */
-function declaredDependencies(
-	row: RegistryRow,
+export function declaredDependencies(
+	row: { section_id: number; misc: Record<string, unknown> | null },
 	ownTld: string,
 	errors: string[],
+	registrySectionTipo: string = ONTOLOGY_MAIN_SECTION,
 ): OntologyDependency[] | undefined {
 	const warnings: string[] = [];
 	const dependencies = normalizeOntologyDependencies(
@@ -217,13 +220,29 @@ function declaredDependencies(
 		warnings,
 	);
 	for (const warning of warnings) {
-		errors.push(`${ONTOLOGY_MAIN_SECTION}/${row.section_id}: ${warning}`);
+		errors.push(`${registrySectionTipo}/${row.section_id}: ${warning}`);
 	}
 	return dependencies ?? undefined;
 }
 
+/**
+ * Does a radio-button relation (hierarchy4 active, hierarchy125 active in
+ * thesaurus) hold `yes` — its FIRST locator pointing at dd64/1? Locator
+ * equality goes through the ONE law (compareLocators — PHP-loose section_id),
+ * never an inline compare. Shared by both registry censuses.
+ */
+export function isYesLocator(items: unknown[] | undefined): boolean {
+	const first = items?.[0];
+	if (first === undefined || first === null || typeof first !== 'object') return false;
+	return compareLocators(
+		first as Locator,
+		{ section_tipo: YES_NO_SECTION, section_id: SI_NO_YES } as Locator,
+		['section_tipo', 'section_id'],
+	);
+}
+
 /** `entry` with `dependencies` attached only when declared (absent ≠ empty). */
-function withDependencies<T extends object>(
+export function withDependencies<T extends object>(
 	entry: T,
 	dependencies: OntologyDependency[] | undefined,
 ): T & { dependencies?: OntologyDependency[] } {
@@ -257,24 +276,9 @@ export async function getActiveOntologies(
 		const stringCol = row.string ?? {};
 		const relationCol = row.relation ?? {};
 
-		if (activeOnly) {
-			// PHP get_active_elements filter: hierarchy4 first locator must point
-			// at dd64/1 ('yes'). Locator equality goes through the ONE law
-			// (compareLocators — PHP-loose section_id), never an inline compare.
-			const activeLocator = (
-				relationCol[HIERARCHY_ACTIVE] as
-					| { section_tipo?: unknown; section_id?: unknown }[]
-					| undefined
-			)?.[0];
-			const isActive =
-				activeLocator !== undefined &&
-				compareLocators(
-					activeLocator as Locator,
-					{ section_tipo: YES_NO_SECTION, section_id: SI_NO_YES } as Locator,
-					['section_tipo', 'section_id'],
-				);
-			if (!isActive) continue;
-		}
+		// PHP get_active_elements filter: hierarchy4 first locator must point
+		// at dd64/1 ('yes') — isYesLocator, the ONE locator-equality law.
+		if (activeOnly && !isYesLocator(relationCol[HIERARCHY_ACTIVE])) continue;
 
 		const targetSectionTipo = pickLangValue(stringCol[HIERARCHY_TARGET_SECTION] as never, appLang);
 		if (targetSectionTipo === '') {
@@ -360,7 +364,7 @@ const isoFormatter = new Intl.DateTimeFormat('en-CA', {
 	timeZoneName: 'longOffset',
 });
 
-function isoTimestampNow(now: Date = new Date()): string {
+export function isoTimestampNow(now: Date = new Date()): string {
 	const parts: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
 	for (const part of isoFormatter.formatToParts(now)) {
 		parts[part.type] = part.value;
@@ -369,6 +373,34 @@ function isoTimestampNow(now: Date = new Date()): string {
 	const rawOffset = parts.timeZoneName ?? 'GMT';
 	const offset = rawOffset === 'GMT' ? '+00:00' : rawOffset.replace('GMT', '');
 	return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${offset}`;
+}
+
+/**
+ * The installation ENVELOPE every exported manifest opens with — ontology.json
+ * (updateOntologyInfo below) and the thesaurus manifest hierarchy.json
+ * (hierarchy_census.ts buildHierarchyManifest). ONE builder, so the two files
+ * can never disagree on who exported them and when.
+ */
+export interface ManifestEnvelope {
+	version: string;
+	date: string;
+	entity_id: number;
+	entity: string;
+	entity_label: string;
+	host: string;
+}
+
+export function manifestEnvelope(now: Date = new Date()): ManifestEnvelope {
+	return {
+		version: DEDALO_VERSION,
+		date: isoTimestampNow(now),
+		entity_id: config.identity.entityId,
+		entity: config.entity,
+		entity_label: config.identity.entityLabel,
+		// PHP DEDALO_HOST (public hostname). Call-time shadow key, PHP key name
+		// (same posture as the sessions/diffusion readers — no config.* field yet).
+		host: readString('DEDALO_HOST'),
+	};
 }
 
 /**
@@ -409,14 +441,7 @@ export async function updateOntologyInfo(userId: number): Promise<boolean> {
 	const activeOntologies = activeOntologiesInfo(census.ontologies);
 
 	const value = {
-		version: DEDALO_VERSION,
-		date: isoTimestampNow(),
-		entity_id: config.identity.entityId,
-		entity: config.entity,
-		entity_label: config.identity.entityLabel,
-		// PHP DEDALO_HOST (public hostname). Call-time shadow key, PHP key name
-		// (same posture as the sessions/diffusion readers — no config.* field yet).
-		host: readString('DEDALO_HOST'),
+		...manifestEnvelope(),
 		active_ontologies: activeOntologies,
 	};
 

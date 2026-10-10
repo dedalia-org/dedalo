@@ -20,8 +20,12 @@
  *    ontology warned and an unoffered mandatory one refused; `main: hierarchy1`
  *    into the thesaurus set (core lg never, mandatory wins, a TLD declared under
  *    both mains lands in both sets, a self-declared thesaurus kept); a
- *    thesaurus that is not vendored — mandatory refused, optional warned; the
- *    wizard's mandatory union (withMandatoryHierarchies);
+ *    THESAURUS NEVER BLOCKS (owner decision 2026-10-10): a mandatory one is
+ *    pre-ticked AND declinable — declining it is a WARNING naming dependant +
+ *    dependency + where to install it later; one with no hierarchy.json entry
+ *    is a warning, mandatory or not (an entry WITHOUT data files is
+ *    installable: an empty thesaurus); the wizard step's check
+ *    (unmetHierarchyDependencies) adds nothing and refuses nothing;
  *  - the vendored catalog is exactly `oh`, its declared dependencies are the
  *    vendored ontology.json entry's (never hard-coded), and the offline default
  *    request installs it alone.
@@ -29,11 +33,13 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	activeOntologyTldsOf,
 	closeOntologyChoice,
+	closeThesaurusChoice,
 	collectHierarchyDependencies,
 	DEFAULT_DOMAIN_ONTOLOGIES,
 	declinePolicy,
@@ -41,6 +47,7 @@ import {
 	describeOntologyCatalog,
 	hierarchyDependencyPlan,
 	listedPolicy,
+	mergeHierarchyDependencyLists,
 	mergeOntologyCatalogs,
 	normalizeDeclinedDependencies,
 	normalizeOntologyChoice,
@@ -51,19 +58,23 @@ import {
 	ontologyCatalogNeeded,
 	ontologyInstallRequest,
 	ontologyRequestFromActive,
+	recommendedThesaurusWarning,
+	THESAURUS_INSTALL_LATER,
+	unmetHierarchyDependencies,
 	VENDORED_DOMAIN_TLDS,
 	vendoredCoreDeclarers,
 	vendoredInfoFrom,
 	vendoredOntologyCatalog,
-	withMandatoryHierarchies,
 } from '../../src/core/install/ontology_choice.ts';
 import { VENDORED_ONTOLOGY_DIR } from '../../src/core/install/paths.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
 import { ENGINE_TLD } from '../../src/core/ontology/engine_ontology.ts';
+import { serializeHierarchyManifest } from '../../src/core/ontology/hierarchy_manifest_format.ts';
 import {
 	normalizeOntologyDependencies,
 	type OntologyDependency,
 } from '../../src/core/ontology/ontology_dependencies.ts';
+import { scratchHierarchyEntry } from '../../src/core/test_data/hierarchy_entry_fixture.ts';
 
 const SERVER = {
 	kind: 'server' as const,
@@ -360,7 +371,9 @@ describe('the vendored catalog', () => {
 		const plan = hierarchyDependencyPlan(collected.dependencies);
 		expect(plan.install).toEqual([thesaurus]);
 		expect(plan.warnings.join('\n')).toContain("'zzvdo'");
-		expect(plan.errors.join('\n')).toContain("the thesaurus 'zzvdc', a mandatory dependency of");
+		// a mandatory thesaurus with no entry is a WARNING (strongly recommended), never an error
+		expect(plan).not.toHaveProperty('errors');
+		expect(plan.warnings).toContain(recommendedThesaurusWarning('zzvdc', ['dd'], 'no_entry'));
 	});
 
 	test('the offline default request installs the vendored oh alone', () => {
@@ -416,20 +429,26 @@ describe('the closure over hierarchy60 objects', () => {
 		]);
 	});
 
-	test('an optional dependency is declined by TLD or by TLD:main; a mandatory one never', () => {
+	test('declined by TLD or TLD:main: a mandatory ONTOLOGY never; ANY thesaurus — a mandatory one with a warning', () => {
 		const byTld = closeOntologyChoice(
 			['zzoda'],
 			DECLARED,
 			declinePolicy(['zzodc', 'zzodt', 'zzodb', 'zzodh']),
 		);
-		// zzodb + zzodh are mandatory: declining them changes nothing
+		// zzodb is a mandatory ONTOLOGY: declining it changes nothing (the ontology law)
 		expect(byTld.order).toEqual(['zzodb', 'zzoda']);
-		// zzodh: zzodb's OPTIONAL declaration is declined, zzoda's MANDATORY one still installs it
+		expect(byTld.errors).toEqual([]);
+		// zzodh is a mandatory THESAURUS: declined — left out, never forced in
 		expect(byTld.hierarchies.map((item) => [item.tld, item.mandatory, item.dependants])).toEqual([
 			['zzodv', false, ['zzodb']],
-			['zzodh', true, ['zzoda']],
 			['zzoda', false, ['zzoda']],
 		]);
+		// ONE warning naming dependency + its mandatory dependant + where to install it later
+		const recommended = byTld.warnings.filter((line) => line.includes("'zzodh'"));
+		expect(recommended).toEqual([
+			`the thesaurus 'zzodh' (declared mandatory by 'zzoda') is declined — not installed; it is strongly recommended and can be installed later from ${THESAURUS_INSTALL_LATER}`,
+		]);
+		expect(THESAURUS_INSTALL_LATER).toBe('Maintenance › Install hierarchies');
 		expect(byTld.notes.filter((note) => note.includes("'zzodh'"))).toEqual([]);
 		expect(byTld.notes).toContain(
 			"the ontology 'zzodc' (an optional dependency of 'zzoda') is declined — not installed",
@@ -440,6 +459,43 @@ describe('the closure over hierarchy60 objects', () => {
 		const byMain = closeOntologyChoice(['zzoda'], DECLARED, declinePolicy(['zzodt:hierarchy1']));
 		expect(byMain.order).toContain('zzodt'); // its ONTOLOGY is still installed
 		expect(byMain.hierarchies.map((item) => item.tld)).not.toContain('zzodt');
+		// a mandatory thesaurus declined by TLD:main too
+		const mandatoryByMain = closeOntologyChoice(
+			['zzoda'],
+			DECLARED,
+			declinePolicy(['zzodh:hierarchy1']),
+		);
+		expect(mandatoryByMain.hierarchies.map((item) => item.tld)).not.toContain('zzodh');
+		expect(mandatoryByMain.warnings.some((line) => line.includes("'zzodh'"))).toBe(true);
+		// not declined (the default): pre-ticked, no warning
+		const ticked = closeOntologyChoice(['zzoda'], DECLARED);
+		expect(ticked.hierarchies.map((item) => item.tld)).toContain('zzodh');
+		expect(ticked.warnings.some((line) => line.includes("'zzodh'"))).toBe(false);
+	});
+
+	test('a declined thesaurus the answer installs anyway is never warned "declined"', () => {
+		const closure = closeOntologyChoice(['zzoda'], DECLARED, declinePolicy(['zzodh', 'zzodt']), {
+			chosenThesauri: ['zzodh', 'zzodt'],
+		});
+		expect(closure.warnings.some((line) => line.includes("'zzodh'"))).toBe(false);
+		expect(closure.notes.some((line) => line.includes("the thesaurus 'zzodt'"))).toBe(false);
+		// its ONTOLOGY half is really declined (and noted) — the answer only installs the thesaurus
+		expect(closure.notes.some((line) => line.includes("the ontology 'zzodt'"))).toBe(true);
+	});
+
+	test('core declarers join the thesaurus set (ONE collection — mandatory wins)', () => {
+		const closure = closeOntologyChoice(
+			['zzodb'],
+			DECLARED,
+			{},
+			{
+				coreDeclarers: [{ tld: 'dd', dependencies: [dep('zzodv', 'hierarchy1', true)] }],
+			},
+		);
+		expect(closure.hierarchies).toEqual([
+			{ tld: 'zzodv', mandatory: true, dependants: ['dd', 'zzodb'] },
+			{ tld: 'zzodh', mandatory: false, dependants: ['zzodb'] },
+		]);
 	});
 
 	test('a FIXED (core / engine-owned) optional dependency is never declined nor noted', () => {
@@ -543,34 +599,160 @@ describe('the thesaurus set → install_hierarchies', () => {
 		{ tld: 'zzodc', dependencies: [dep('zzodx', 'hierarchy1', true)] },
 	]).dependencies;
 
-	test('vendored → installed; not vendored: mandatory refused, optional warned + skipped', () => {
+	test('an entry WITHOUT data files is installable (2026-10-10 rule)', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ontology-choice-'));
+		try {
+			const manifest = {
+				version: 'scratch',
+				date: 'scratch',
+				entity_id: null,
+				entity: null,
+				entity_label: null,
+				host: null,
+				typologies: [{ typology_id: 2, name: 'Toponymy', name_data: [] }],
+				active_hierarchies: [
+					scratchHierarchyEntry({ tld: 'zzode', name: 'ZZ empty', langSectionId: 1 }),
+				],
+			};
+			writeFileSync(join(dir, 'hierarchy.json'), serializeHierarchyManifest(manifest));
+			const offered = offeredHierarchyTlds(dir);
+			expect([...offered]).toEqual(['zzode']);
+			const plan = hierarchyDependencyPlan(
+				collectHierarchyDependencies([
+					{ tld: 'zzoda', dependencies: [dep('zzode', 'hierarchy1', true)] },
+				]).dependencies,
+				offered,
+			);
+			expect(plan).toEqual({ install: ['zzode'], warnings: [] });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('listed → installed; no entry → a warning + skipped, mandatory or not (never an error)', () => {
 		expect(vendored).toMatch(/^[a-z]+$/);
 		const plan = hierarchyDependencyPlan(declared);
 		expect(plan.install).toEqual([vendored]);
 		expect(plan.warnings).toEqual([
-			"the thesaurus 'zzodw', an optional dependency of 'zzodb', is not vendored (no zzodw1.copy.gz) — skipped",
+			"the thesaurus 'zzodw', an optional dependency of 'zzodb', has no entry in hierarchy.json — skipped",
+			`the thesaurus 'zzodx' (declared mandatory by 'zzodc') has no entry in hierarchy.json — skipped; it is strongly recommended and can be installed later from ${THESAURUS_INSTALL_LATER}`,
 		]);
-		expect(plan.errors).toEqual([
-			"the thesaurus 'zzodx', a mandatory dependency of 'zzodc', is not vendored (no zzodx1.copy.gz) — it cannot be installed",
-		]);
+		expect(plan).not.toHaveProperty('errors');
 	});
 
-	test('the wizard step: mandatory ones unioned into the posted list, optional ones left to it', () => {
+	test('the wizard step: the posted list is the answer — nothing added, a mandatory one left out warned', () => {
 		const offered = new Set([vendored, 'zzodw']);
 		const optionalOnly = collectHierarchyDependencies([
 			{ tld: 'zzodb', dependencies: [dep('zzodw', 'hierarchy1', false)] },
 		]).dependencies;
-		expect(withMandatoryHierarchies([], optionalOnly, offered)).toEqual({
-			hierarchies: [],
+		// an optional one left out: silent (the posted list answered it)
+		expect(unmetHierarchyDependencies([], optionalOnly, offered)).toEqual({ warnings: [] });
+		// a mandatory one ticked: nothing to say
+		expect(unmetHierarchyDependencies([vendored], declared.slice(0, 1), offered)).toEqual({
+			warnings: [],
+		});
+		// a mandatory one unticked (declined): a warning, never added
+		expect(unmetHierarchyDependencies(['zzodw'], declared.slice(0, 1), offered)).toEqual({
+			warnings: [recommendedThesaurusWarning(vendored, ['zzoda'], 'declined')],
+		});
+		// a mandatory one with no entry: the no-entry warning, never a refusal
+		expect(unmetHierarchyDependencies([vendored], declared, offered)).toEqual({
+			warnings: [recommendedThesaurusWarning('zzodx', ['zzodc'], 'no_entry')],
+		});
+	});
+});
+
+describe('the thesauri a THESAURUS declares (closeThesaurusChoice)', () => {
+	// hierarchy.json entries as declarers: zzta needs zztb (mandatory) and zztc
+	// (optional); zztb needs zztd (mandatory, TRANSITIVE); zzte declares an ontology.
+	const h = (tld: string, mandatory: boolean) => ({ tld, main: 'hierarchy1' as const, mandatory });
+	const o = (tld: string, mandatory: boolean) => ({ tld, main: 'ontology35' as const, mandatory });
+	const entries = [
+		{ tld: 'zzta', dependencies: [h('zztb', true), h('zztc', false), h('lg', true)] },
+		{ tld: 'zztb', dependencies: [h('zztd', true)] },
+		{ tld: 'zztc', dependencies: null },
+		{ tld: 'zztd', dependencies: [] },
+		{ tld: 'zzte', dependencies: [o('zzonto', true), o('zzopt', false), o('dd', true)] },
+		{ tld: 'zztf', dependencies: [h('zzmissing', true), h('zzgone', false)] },
+	];
+	const none = new Set<string>();
+
+	test('a mandatory dependency is added TRANSITIVELY, an optional one pre-ticked, core never', () => {
+		const closure = closeThesaurusChoice(['zzta'], entries, none);
+		expect(closure.hierarchies).toEqual(['zzta', 'zztb', 'zztc', 'zztd']);
+		expect(closure.errors).toEqual([]);
+		expect(closure.warnings).toEqual([]);
+		expect(closure.notes).toEqual([
+			"the thesaurus 'zztb' is a mandatory dependency of 'zzta' — installed",
+			"the thesaurus 'zztc' is an optional dependency of 'zzta' — installed",
+			"the thesaurus 'zztd' is a mandatory dependency of 'zztb' — installed",
+		]);
+		expect(closure.dependencies.map((item) => [item.tld, item.mandatory])).toEqual([
+			['zztb', true],
+			['zztc', false],
+			['zztd', true],
+		]);
+	});
+
+	test('declined: an optional one stays out silently, a MANDATORY one stays out with a warning — never forced', () => {
+		const declined = closeThesaurusChoice(['zzta'], entries, none, {
+			accept: () => false,
+		});
+		expect(declined.hierarchies).toEqual(['zzta']);
+		expect(declined.errors).toEqual([]);
+		expect(declined.notes).toEqual([]);
+		expect(declined.warnings).toEqual([recommendedThesaurusWarning('zztb', ['zzta'], 'declined')]);
+		// declining only zztd: zztb (mandatory) is pre-ticked in, its zztd declined + warned
+		const deep = closeThesaurusChoice(['zzta'], entries, none, declinePolicy(['zztd']));
+		expect(deep.hierarchies).toEqual(['zzta', 'zztb', 'zztc']);
+		expect(deep.warnings).toEqual([recommendedThesaurusWarning('zztd', ['zztb'], 'declined')]);
+	});
+
+	test('a dependency with no entry → a warning, mandatory or not (THE entry rule) — never an error', () => {
+		const closure = closeThesaurusChoice(['zztf'], entries, none);
+		expect(closure.hierarchies).toEqual(['zztf']);
+		expect(closure.errors).toEqual([]);
+		expect(closure.warnings).toEqual([
+			recommendedThesaurusWarning('zzmissing', ['zztf'], 'no_entry'),
+			"the thesaurus 'zzgone', an optional dependency of 'zztf', has no entry in hierarchy.json — skipped",
+		]);
+	});
+
+	test('a declared ONTOLOGY must be part of the install (core always is)', () => {
+		const missing = closeThesaurusChoice(['zzte'], entries, none);
+		expect(missing.errors).toEqual([
+			"the ontology 'zzonto', a mandatory dependency of the thesaurus 'zzte', is not part of this install — add it to the ontologies",
+		]);
+		expect(missing.warnings).toEqual([
+			"the ontology 'zzopt', an optional dependency of the thesaurus 'zzte', is not part of this install — skipped",
+		]);
+		const installed = closeThesaurusChoice(['zzte'], entries, new Set(['zzonto', 'zzopt']));
+		expect(installed.errors).toEqual([]);
+		expect(installed.warnings).toEqual([]);
+	});
+
+	test('an unlisted chosen tld declares nothing (its own refusal is the importer’s)', () => {
+		expect(closeThesaurusChoice(['zzunknown'], entries, none)).toEqual({
+			hierarchies: ['zzunknown'],
+			dependencies: [],
 			notes: [],
+			warnings: [],
 			errors: [],
 		});
-		const required = withMandatoryHierarchies(['zzodw'], declared.slice(0, 1), offered);
-		expect(required.hierarchies).toEqual(['zzodw', vendored]);
-		expect(required.notes).toEqual([
-			`the thesaurus '${vendored}' is a mandatory dependency of 'zzoda' — installed`,
+	});
+
+	test('mergeHierarchyDependencyLists: per tld, mandatory wins, dependants accumulate', () => {
+		expect(
+			mergeHierarchyDependencyLists(
+				[{ tld: 'zztb', mandatory: false, dependants: ['oh'] }],
+				[
+					{ tld: 'zztb', mandatory: true, dependants: ['zzta'] },
+					{ tld: 'zztc', mandatory: false, dependants: ['zzta'] },
+				],
+			),
+		).toEqual([
+			{ tld: 'zztb', mandatory: true, dependants: ['oh', 'zzta'] },
+			{ tld: 'zztc', mandatory: false, dependants: ['zzta'] },
 		]);
-		expect(withMandatoryHierarchies([vendored], declared.slice(0, 1), offered).notes).toEqual([]);
-		expect(withMandatoryHierarchies([], declared, offered).errors).toHaveLength(1);
 	});
 });

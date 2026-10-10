@@ -767,6 +767,22 @@ describe('add_hierarchy (panel value + import/reset routing)', () => {
 		expect(Array.isArray(result.hierarchies)).toBe(true);
 		expect((result.hierarchies?.length ?? 0) > 0).toBe(true);
 		expect(Array.isArray(result.hierarchy_typologies)).toBe(true);
+		// THE client view of hierarchy.json (hierarchy_meta.ts hierarchyChoiceView).
+		for (const item of result.hierarchies ?? []) {
+			expect(Object.keys(item).sort()).toEqual([
+				'dependencies',
+				'has_data',
+				'label',
+				'tld',
+				'typology',
+			]);
+			// the declared THESAURI only (pre-ticked by the client, never locked)
+			const declared = (item as { dependencies?: unknown }).dependencies;
+			expect(Array.isArray(declared)).toBe(true);
+			for (const dependency of declared as Record<string, unknown>[]) {
+				expect(Object.keys(dependency).sort()).toEqual(['mandatory', 'tld']);
+			}
+		}
 		expect(String(result.hierarchy_files_dir_path ?? '').replaceAll('\\', '/')).toContain(
 			'install/import/hierarchy',
 		);
@@ -774,6 +790,9 @@ describe('add_hierarchy (panel value + import/reset routing)', () => {
 		// The marker is renamed AND re-sourced: no stale active_hierarchies key, and the
 		// installed set EQUALS the tlds with actual `<tld>1` term rows in matrix_hierarchy
 		// (the reported bug marked ~all declared hierarchies because it read the registry).
+		// The empty-by-design half (an active row of a manifest entry with no data files)
+		// adds nothing while the vendored manifest lists none — its rule is pinned
+		// purely by installed_tld_native (mergeInstalledTlds).
 		expect('active_hierarchies' in result).toBe(false);
 		expect(Array.isArray(result.installed_hierarchies)).toBe(true);
 		const widgetTlds = (result.installed_hierarchies ?? []).map((h) => h.tld).sort();

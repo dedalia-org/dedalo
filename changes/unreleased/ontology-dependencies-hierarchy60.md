@@ -14,10 +14,13 @@ must declare them again in *Dependencies*.
 Each dependency names a TLD and says whether its **ontology** or its **thesaurus** is
 needed, and whether it is **mandatory**.
 
-* **Installing.** The installer always installs mandatory dependencies. It offers
-  optional ones already ticked, and you may untick them, in the wizard or with
-  `--decline-dependencies`. A required thesaurus that the release does not ship stops
-  the install before anything is written.
+* **Installing.** The installer always installs mandatory **ontologies**. It offers
+  every other dependency already ticked, and you may untick it, in the wizard or with
+  `--decline-dependencies`. **A thesaurus never blocks an install:** a mandatory
+  thesaurus is a strong recommendation, marked *strongly recommended* in the wizard.
+  Leaving it out, or a release that does not ship it, gives a warning that names it
+  and says it can be installed later from *Maintenance › Install hierarchies*. You
+  can also keep a thesaurus of your own under another name.
 * **Updating.** An update reports each missing mandatory dependency under *Import
   warnings*, together with how to provide it. It never installs one on its own.
 

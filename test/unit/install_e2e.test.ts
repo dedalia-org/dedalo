@@ -13,8 +13,11 @@
  *  - Languages (lg) is ACTIVE (hierarchy4 → dd64/1) with ZERO lg rows in
  *    matrix_hierarchy — activated against the seed's matrix_langs terms, never
  *    imported;
- *  - the shared default thesaurus set reached the CLI (no --hierarchies given):
- *    every default tld is registered active and its terms are in;
+ *  - the chosen thesaurus (2026-10-10: there is NO default thesaurus set — the
+ *    gate picks the smallest data-carrying entry of the vendored hierarchy.json
+ *    at run time) is imported checksum-verified, its registry row CREATED from
+ *    the manifest entry (the seed ships only lg's): active, hierarchy8 =
+ *    lg1/<lang.section_id>, hierarchy109 as the entry names it, terms in;
  *  - the written .env carries the official ONTOLOGY_SERVERS / CODE_SERVERS
  *    and no DEDALO_SUPERVISED.
  * And, since the core-only seed + domain ontology choice (2026-10-09):
@@ -27,9 +30,8 @@
  *  - the written ACTIVE_ONTOLOGY_TLDS is core + default, in that order;
  *  - the derived relation index is FILLED (the seed ships it empty, the restore
  *    door refills it) and the ontology staging dir is gone (success cleans up).
- * The default thesaurus import (tens of thousands of rows) is why the first
- * case's timeout is generous — measured, never narrowed by passing
- * `--hierarchies none`.
+ * The thesaurus import is why the first case's timeout is generous — measured,
+ * never narrowed by passing `--hierarchies none`.
  *
  * Skips loudly when no admin Postgres connection is available.
  *
@@ -50,13 +52,14 @@ import { join, relative, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { config } from '../../src/config/config.ts';
 import { parseEnvFile } from '../../src/config/env.ts';
-import { defaultOptionalHierarchies } from '../../src/core/install/hierarchy_meta.ts';
+import { offeredHierarchies } from '../../src/core/install/hierarchy_meta.ts';
 import {
 	OFFICIAL_CODE_SERVER,
 	OFFICIAL_ONTOLOGY_SERVER,
 } from '../../src/core/install/install_plan.ts';
 import { DEFAULT_DOMAIN_ONTOLOGIES } from '../../src/core/install/ontology_choice.ts';
 import {
+	HIERARCHY_IMPORT_DIR,
 	installOntologyStagingDir,
 	installPrivateDir,
 	VENDORED_ONTOLOGY_DIR,
@@ -122,9 +125,29 @@ afterAll(async () => {
 	rmSync(scratchDir, { recursive: true, force: true });
 });
 
-/** The answers every run gives (no --hierarchies: the shared default applies). */
+/**
+ * The thesaurus every run installs: the vendored entry with the SMALLEST data
+ * file (read from the release at run time, never a spelled tld) — enough to
+ * prove the checksum-verified import and the creation of its registry row.
+ */
+const CHOSEN_THESAURUS = (() => {
+	const withData = offeredHierarchies().filter((entry) => entry.data_files.length > 0);
+	const sized = withData.map((entry) => ({
+		entry,
+		bytes: entry.data_files.reduce(
+			(sum, item) => sum + Bun.file(join(HIERARCHY_IMPORT_DIR, item.file)).size,
+			0,
+		),
+	}));
+	sized.sort((a, b) => a.bytes - b.bytes || a.entry.tld.localeCompare(b.entry.tld));
+	return sized[0]?.entry;
+})();
+
+/** The answers every run gives. */
 function cliArgs(): string[] {
 	return [
+		'--hierarchies',
+		CHOSEN_THESAURUS?.tld ?? 'none',
 		'--db-name',
 		SCRATCH_DB,
 		'--db-user',
@@ -284,11 +307,24 @@ describe('TS-native install e2e (P5)', () => {
 				),
 			).toBe('0');
 
-			// The shared default thesauri reached the CLI: registered active, terms in.
-			const defaults = defaultOptionalHierarchies();
-			expect(defaults.length).toBeGreaterThan(0);
-			expect(plan.hierarchies).toEqual(defaults);
-			for (const tld of defaults) {
+			// The chosen thesaurus reached the CLI: its registry row CREATED from the
+			// manifest entry (the seed ships only lg's), active, terms in.
+			const chosen = CHOSEN_THESAURUS;
+			expect(chosen, 'the vendored manifest lists a data-carrying thesaurus').toBeDefined();
+			expect(plan.hierarchies).toEqual([chosen?.tld ?? '(none)']);
+			expect(
+				await scratchScalar(
+					`SELECT relation->'hierarchy8'->0->>'section_id' FROM matrix_hierarchy_main
+					  WHERE section_tipo = 'hierarchy1' AND lower(string->'hierarchy6'->0->>'value') = '${chosen?.tld}'`,
+				),
+			).toBe(String(chosen?.lang.section_id));
+			expect(
+				await scratchScalar(
+					`SELECT string->'hierarchy109'->0->>'value' FROM matrix_hierarchy_main
+					  WHERE section_tipo = 'hierarchy1' AND lower(string->'hierarchy6'->0->>'value') = '${chosen?.tld}'`,
+				),
+			).toBe(chosen?.real_section_tipo ?? 'hierarchy20');
+			for (const tld of plan.hierarchies) {
 				expect(await scratchScalar(registryActiveSql(tld)), `${tld} active`).toBe('1');
 				// The section tipo is BUILT (`${tld}1`), never spelled: a literal would
 				// feed the suite-fixture allowlist scan (scripts/lib/hierarchy_allowlist.ts).

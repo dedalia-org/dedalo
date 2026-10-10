@@ -1,36 +1,39 @@
 /**
- * THE WIZARD'S MANDATORY THESAURI (src/core/install/hierarchy_dependencies.ts +
- * ontology_choice.ts withMandatoryHierarchies; 2026-10-10,
+ * THE WIZARD'S DECLARED THESAURI (src/core/install/hierarchy_dependencies.ts +
+ * ontology_choice.ts unmetHierarchyDependencies; 2026-10-10,
  * WC-2026-10-10-ontology-dependencies-hierarchy60) — measured on registry rows
  * the engine's own door wrote.
  *
  * install_hierarchies runs in the process restarted after persist_config, with
- * no plan: the thesauri it MUST install are read back from the registry rows
- * (misc.hierarchy60) of the installed ontologies. This gate builds those rows
+ * no plan: the thesauri the installed ontologies declare are read back from
+ * the registry rows (misc.hierarchy60). OWNER DECISION 2026-10-10: a thesaurus
+ * dependency NEVER blocks an install — the posted list is the operator's
+ * answer on every one (the client pre-ticks them; unticking declines), a
+ * mandatory one is STRONGLY RECOMMENDED. This gate builds those rows
  * through createMainSection — the creation door every import uses — and reads
  * them with the step's own reader:
  *  - every `main: 'hierarchy1'` item is collected (mandatory and optional; an
  *    ontology35 item never; a core hierarchy never), merged per TLD with
  *    mandatory winning, dependants in order; a TLD with no row declares nothing;
  *  - a malformed stored item is dropped with a warning, never thrown;
- *  - the step's union: a mandatory vendored thesaurus is added to an empty
- *    posted list; a mandatory one that is not vendored refuses (an error line);
- *    an optional one is left to the posted list.
+ *  - the step's check: a mandatory thesaurus left out of the posted list is a
+ *    WARNING naming dependant + dependency (declined, or no hierarchy.json
+ *    entry) — never added, never an error; an optional one is silent.
  *
  *  - THE STEP ITSELF (runInstallStep → install_hierarchies, the wizard's
  *    route): with the core `lg` row declaring thesauri (the step reads the
- *    configured ACTIVE set, which always holds core), a posted [] cannot decline
- *    a mandatory one — a vendored mandatory thesaurus is put in the step's own
- *    install list, and a mandatory one that is not vendored refuses
- *    (install.invalid_input). Both legs post [] so that a BROKEN step has
- *    nothing to import: the gate goes red without writing a thesaurus.
+ *    configured ACTIVE set, which always holds core), a posted [] DECLINES a
+ *    mandatory one — answered ok, NOTHING imported, the warning in the message
+ *    — and a mandatory one with no hierarchy.json entry is the same warning,
+ *    never install.invalid_input. Both legs post [] and assert nothing was
+ *    imported: a step that still force-added the thesaurus goes red.
  *
  * SCRATCH: registry rows of `zzhda` / `zzhdb` (`zzhdq` never created), swept
  * with their TM + activity rows; residue asserted zero. The step legs plant a
  * declaration on the suite's real `lg` registry row — its `misc` SNAPSHOTTED
  * first and RESTORED in `finally` (asserted equal) — and one stand-in
  * `<tld>1` row in matrix_hierarchy for a vendored thesaurus the suite does not
- * hold, so the importer SKIPS it (nothing imported, nothing activated); the
+ * hold, so the importer REFUSES it as root-only (nothing imported, nothing activated); the
  * stand-in is deleted after. Suite database only.
  */
 
@@ -43,7 +46,8 @@ import { runInstallStep } from '../../src/core/install/engine.ts';
 import { installedHierarchyDependencies } from '../../src/core/install/hierarchy_dependencies.ts';
 import {
 	offeredHierarchyTlds,
-	withMandatoryHierarchies,
+	recommendedThesaurusWarning,
+	unmetHierarchyDependencies,
 } from '../../src/core/install/ontology_choice.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
 import { createMainSection } from '../../src/core/ontology/ontology_write.ts';
@@ -160,19 +164,21 @@ describe('installedHierarchyDependencies (the step reads the registry rows)', ()
 		]);
 	});
 
-	test('the step union: mandatory vendored added, mandatory unvendored refused, optional left alone', async () => {
+	test('the step check: a mandatory one left out is WARNED (declined / no entry), never added nor refused', async () => {
 		const read = await installedHierarchyDependencies([TLD_A]);
 		const onlyVendored = read.dependencies.filter((item) => item.tld !== 'zzhdx');
-		const added = withMandatoryHierarchies([], onlyVendored);
-		expect(added.hierarchies).toEqual([VENDORED]);
-		expect(added.errors).toEqual([]);
-		expect(added.notes).toEqual([
-			`the thesaurus '${VENDORED}' is a mandatory dependency of '${TLD_A}' — installed`,
-		]);
+		// unticked = declined: one warning, naming dependency + dependant + where to install later
+		expect(unmetHierarchyDependencies([], onlyVendored)).toEqual({
+			warnings: [
+				`the thesaurus '${VENDORED}' (declared mandatory by '${TLD_A}') is declined — not installed; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`,
+			],
+		});
+		// ticked: nothing to say (the optional self-declared zzhda is silent either way)
+		expect(unmetHierarchyDependencies([VENDORED], onlyVendored)).toEqual({ warnings: [] });
 		const both = await installedHierarchyDependencies([TLD_A, TLD_B]);
-		expect(withMandatoryHierarchies([], both.dependencies).errors).toEqual([
-			`the thesaurus 'zzhdx', a mandatory dependency of '${TLD_A}', '${TLD_B}', is not vendored (no zzhdx1.copy.gz) — it cannot be installed`,
-		]);
+		expect(unmetHierarchyDependencies([VENDORED], both.dependencies)).toEqual({
+			warnings: [recommendedThesaurusWarning('zzhdx', [TLD_A, TLD_B], 'no_entry')],
+		});
 	});
 
 	test('a malformed stored item is dropped with a warning, never thrown', async () => {
@@ -256,52 +262,50 @@ async function withLgDeclaring(dependencies: unknown[], body: () => Promise<void
 	expect(await lgRow()).toEqual(snapshot);
 }
 
-describe('the install_hierarchies STEP adds the declared mandatory thesauri itself', () => {
-	test("a posted [] still installs a vendored MANDATORY thesaurus (the step's own list)", async () => {
+/** The step's answer body (the wizard's route). */
+interface StepBody {
+	msg: string;
+	responses: { tld: string; ok: boolean; msg: string }[];
+}
+
+/** Run the step on `posted`; a refusal is returned (never thrown) so a leg can assert there was none. */
+async function runStep(
+	posted: string[],
+): Promise<{ body: StepBody | null; refusal: { code: string; message: string } | null }> {
+	try {
+		const result = await runInstallStep(stepRqo(posted), sessionContext());
+		return { body: result.body as unknown as StepBody, refusal: null };
+	} catch (error) {
+		if (isDedaloError(error))
+			return { body: null, refusal: { code: error.code, message: error.message } };
+		throw error;
+	}
+}
+
+describe('the install_hierarchies STEP: a declared thesaurus never blocks, never is forced', () => {
+	test('a posted [] DECLINES a vendored MANDATORY thesaurus — ok, nothing imported, the warning shown', async () => {
+		// A step that still force-added the thesaurus would import it here: the
+		// row count + the empty responses go red WITHOUT the gate having to undo
+		// a real thesaurus (the fresh vendored tld is absent from the suite DB).
 		const fresh = await absentVendored();
-		// Stand-in row: the importer finds `<fresh>1` present and SKIPS it, so the
-		// step's install list is measured without importing a real thesaurus.
-		await sql.unsafe(
-			`INSERT INTO matrix_hierarchy (section_id, section_tipo, data) VALUES (1, $1, '{}'::jsonb)`,
-			[`${fresh}1`],
-		);
-		try {
-			await withLgDeclaring([{ tld: fresh, main: 'hierarchy1', mandatory: true }], async () => {
-				const result = await runInstallStep(stepRqo([]), sessionContext());
-				const body = result.body as unknown as {
-					data: unknown;
-					msg: string;
-					responses: { tld: string; skipped?: boolean }[];
-				};
-				expect(body.responses.map((item) => [item.tld, item.skipped === true])).toEqual([
-					[fresh, true],
-				]);
-				expect(body.msg).toContain(
-					`the thesaurus '${fresh}' is a mandatory dependency of 'lg' — installed`,
-				);
-			});
-		} finally {
-			await sql.unsafe('DELETE FROM matrix_hierarchy WHERE section_tipo = $1', [`${fresh}1`]);
-		}
+		await withLgDeclaring([{ tld: fresh, main: 'hierarchy1', mandatory: true }], async () => {
+			const { body, refusal } = await runStep([]);
+			expect(refusal).toBeNull();
+			expect(body?.responses).toEqual([]);
+			expect(body?.msg).toContain(
+				`the thesaurus '${fresh}' (declared mandatory by 'lg') is declined — not installed; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`,
+			);
+		});
 		expect(await hierarchyRowCount(fresh)).toBe(0);
 	});
 
-	test('a MANDATORY thesaurus that is not vendored refuses a posted []', async () => {
-		// Posted [] on purpose: a step that dropped the refusal would then have
-		// nothing to import either — a broken door fails this gate WITHOUT
-		// writing a real thesaurus into the suite database.
+	test('a MANDATORY thesaurus with no hierarchy.json entry is a WARNING — never install.invalid_input', async () => {
 		const fresh = await absentVendored();
 		await withLgDeclaring([{ tld: 'zzhdx', main: 'hierarchy1', mandatory: true }], async () => {
-			let refusal: { code: string; message: string } | null = null;
-			try {
-				await runInstallStep(stepRqo([]), sessionContext());
-			} catch (error) {
-				if (isDedaloError(error)) refusal = { code: error.code, message: error.message };
-			}
-			expect(refusal?.code).toBe('install.invalid_input');
-			expect(refusal?.message).toContain(
-				"the thesaurus 'zzhdx', a mandatory dependency of 'lg', is not vendored",
-			);
+			const { body, refusal } = await runStep([]);
+			expect(refusal).toBeNull();
+			expect(body?.responses).toEqual([]);
+			expect(body?.msg).toContain(recommendedThesaurusWarning('zzhdx', ['lg'], 'no_entry'));
 		});
 		expect(await hierarchyRowCount(fresh)).toBe(0);
 	});

@@ -18,6 +18,7 @@ import { gunzipSync } from 'node:zlib';
 import { type DbConnDescriptor, runPsql } from '../../src/core/install/pg_exec.ts';
 import {
 	ACTIVE_REGISTRY_SQL,
+	nonCoreRegistryRows,
 	type RegistryProvisionInput,
 	registryBlockers,
 	SEED_EMPTY_STORES,
@@ -93,13 +94,17 @@ export async function assertSeedContract(conn: DbConnDescriptor): Promise<void> 
 		),
 	).toEqual([...SEED_ONTOLOGY_TLDS].sort());
 
-	// Languages + hierarchy registry: every source row, every hierarchy activatable and inactive.
+	// Languages + hierarchy registry: every source row, the CORE rows only (lg —
+	// optional thesauri are activated from hierarchy.json), each activatable and inactive.
 	expect(await count(conn, 'SELECT count(*) FROM matrix_langs')).toBe(sourceRows(SEED_LANGS_PATH));
 	expect(await count(conn, 'SELECT count(*) FROM matrix_hierarchy_main')).toBe(
 		sourceRows(SEED_REGISTRY_PATH),
 	);
 	const [registry = '[]'] = await column(conn, REGISTRY_PROVISION_INPUTS_SQL);
-	expect(registryBlockers(JSON.parse(registry) as RegistryProvisionInput[])).toEqual([]);
+	const registryInputs = JSON.parse(registry) as RegistryProvisionInput[];
+	expect(registryInputs.length, 'the core registry rows ship').toBeGreaterThan(0);
+	expect(nonCoreRegistryRows(registryInputs)).toEqual([]);
+	expect(registryBlockers(registryInputs)).toEqual([]);
 	expect(await column(conn, ACTIVE_REGISTRY_SQL)).toEqual([]);
 
 	// The canonical records, column for column, and nothing else in their tables.

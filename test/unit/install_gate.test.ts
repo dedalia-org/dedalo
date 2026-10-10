@@ -40,8 +40,8 @@ describe('install window gate (P1)', () => {
 		);
 		// This test owns the GATE contract: a reachable install window serves the
 		// synthetic installer element pre-auth. The installer PAYLOAD details
-		// (init_test, hierarchies, install_checked_default — a filesystem probe of
-		// installable tld data files, environment-dependent) are the handler's
+		// (init_test, hierarchies — the vendored hierarchy.json manifest read
+		// through hierarchy_meta.ts, environment-dependent) are the handler's
 		// concern, exercised against a fresh temp DB in install_e2e.
 		expect(res.status).toBe(200);
 		const result = res.body.data as { model: string; properties: Record<string, unknown> }[];

@@ -274,8 +274,10 @@ build_database_version.prototype.restore_dd_ontology_recovery_from_file = async 
 
 /**
 * BUILD_MATRIX_HIERARCHY_MAIN_SQL
-* Re-creates the seed file 'install/import/matrix_hierarchy_main.sql' in server, filtered by
-* the to_install TLD allow-list and with every hierarchy inactive.
+* RETIRED server action (refused by the engine). The hierarchy registry seed is
+* install/db/seed/matrix_hierarchy_main.copy.gz (core rows only, compiled by
+* `bun run seed:build`); optional thesauri are described by
+* install/import/hierarchy/hierarchy.json (WC-2026-10-10-hierarchy-json-manifest).
 * @return object api_response
 */
 build_database_version.prototype.build_matrix_hierarchy_main_sql = async function () {

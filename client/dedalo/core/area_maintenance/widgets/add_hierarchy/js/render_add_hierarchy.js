@@ -105,10 +105,10 @@ render_add_hierarchy.prototype.list = async function(options) {
 *
 * Data shape expected in `self.value`:
 *   {
-*     hierarchies              : Array<{label:string, tld:string, typology:string, type:string}>
-*     installed_hierarchies    : Array<{tld:string, ...}>  // <tld>1 term data present
+*     hierarchies              : Array<{label:string, tld:string, typology:number, has_data:boolean}>  // hierarchy.json client view
+*     installed_hierarchies    : Array<{tld:string, ...}>  // <tld>1 term data present, or an active empty-by-design thesaurus
 *     hierarchy_files_dir_path : string
-*     hierarchy_typologies     : Array<{label:string, typology:string}>
+*     hierarchy_typologies     : Array<{label:string, typology:number}>
 *   }
 *
 * (!) `fn_callback` closes over `body_response`, which is only appended to

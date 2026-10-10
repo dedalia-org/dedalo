@@ -24,7 +24,7 @@ src/core/ontology/hierarchy_provision.ts  # generateVirtualSection (ONE tx; refu
 src/core/ontology/hierarchy_state.ts     # ⭐ THE hierarchy invariant + THE only writer: inspectHierarchy / ensureHierarchy / rebuildHierarchy / inspectAllHierarchies
 src/core/ontology/ontology_state.ts      # ⭐ THE dd_ontology reconcile authority: inspectOntology (drift: missing/stale/orphaned/foreign) / rebuildOntology (transactional wipe-and-rebuild). No incremental ensureOntology (removed 2026-08-11 — see its header). regenerateRecordsInDdOntology is RETIRED onto this.
 src/core/ontology/ontology_delete.ts     # deleteOntologyByTld (ontology only — TERMS survive) + deleteOntologyMain (that + the caller's registry record: the dd_core_api delete cascade)
-src/core/install/hierarchy_activate.ts   # install-time activation: find-or-create the registry record from hierarchies.json, then ensureHierarchy
+src/core/install/hierarchy_activate.ts   # install-time activation: find-or-create the registry record from the hierarchy.json manifest entry (hierarchy_meta.ts), then ensureHierarchy
 tools/tool_{ontology,ontology_parser,hierarchy}/server/*.ts  # tool handlers (self-contained tool packages; import the core drivers above)
 ```
 

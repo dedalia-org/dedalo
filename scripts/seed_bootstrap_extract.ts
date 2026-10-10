@@ -19,10 +19,14 @@
  *  - matrix_langs.copy.gz — the Languages terms (MATRIX_COPY_COLUMNS, id order);
  *  - dd_ontology_scaffold.copy.gz — the parser scaffold (seed_sources.ts
  *    SEED_SCAFFOLD_PATH): the ontology TLD's nodes + the model nodes;
- *  - matrix_hierarchy_main.copy.gz — the hierarchy registry cut to
- *    install/import/hierarchy/hierarchies_to_install.json, every record set
+ *  - matrix_hierarchy_main.copy.gz — the hierarchy registry cut to the CORE
+ *    hierarchies (hierarchy_meta.ts CORE_HIERARCHIES: `lg`), every record set
  *    INACTIVE (hierarchy4/hierarchy125 → dd64/2, minted INT), and refused if any
- *    record fails the activation rule (provisionBlocker).
+ *    record fails the activation rule (provisionBlocker). Until 2026-10-10 the
+ *    cut was the 150 TLDs of a retired hand-written list; since
+ *    then an optional thesaurus's registry row is written at activation from
+ *    its install/import/hierarchy/hierarchy.json entry
+ *    (WC-2026-10-10-hierarchy-json-manifest), so the seed ships the core only.
  * The work happens in a scratch database it creates and marks
  * (`dedalo_seed_extract_<pid>`), dropped at the end; no installation's
  * database is read.
@@ -35,7 +39,7 @@ import { gunzipSync } from 'node:zlib';
 import { projectRoot } from '../src/config/env.ts';
 import { ddOntologyScaffoldQuery } from '../src/core/db/dd_ontology.ts';
 import { MATRIX_COPY_COLUMNS } from '../src/core/db/matrix_write.ts';
-import { readHierarchyJson } from '../src/core/install/hierarchy_meta.ts';
+import { CORE_HIERARCHIES } from '../src/core/install/hierarchy_meta.ts';
 import { resolvePgBinary } from '../src/core/install/pg_bin.ts';
 import { connArgs, connFromConfig, pgClientEnv, runPsql } from '../src/core/install/pg_exec.ts';
 import {
@@ -158,11 +162,9 @@ try {
 	}
 	console.log(`dropped ${orphans.length} orphan sequence(s): ${orphans.join(', ')}`);
 
-	const allowed = readHierarchyJson<string[]>('hierarchies_to_install.json', []).map((tld) =>
-		tld.toLowerCase(),
-	);
+	const allowed = CORE_HIERARCHIES.map((meta) => meta.tld.toLowerCase());
 	if (allowed.length === 0 || allowed.some((tld) => !/^[a-z]+$/.test(tld))) {
-		throw new Error('hierarchies_to_install.json is missing, empty or not bare TLDs');
+		throw new Error('CORE_HIERARCHIES is empty or not bare TLDs');
 	}
 	await psql(scratch.name, [
 		'-1',

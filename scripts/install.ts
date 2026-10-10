@@ -29,12 +29,16 @@
  *          --smtp-user ... --smtp-password ... --smtp-from ... --smtp-from-name ...] \
  *       [--media-path /srv/dedalo/media] [--socket /run/dedalo/dedalo_ts.sock] \
  *       [--media-access-mode publication] \
- *       [--no-update-servers] [--skip-tools] [--plan] [--list-ontologies]
+ *       [--no-update-servers] [--skip-tools] [--plan] [--list-ontologies] [--list-hierarchies]
  *
- * Defaults live in the plan, not here: --hierarchies omitted = the shared
- * default set (hierarchies.json install_checked_default — the wizard pre-ticks
- * the same); Languages (lg) is ALWAYS activated by the seed restore and is not
- * a choice. The official update server is written unless --no-update-servers
+ * Defaults live in the plan, not here: --hierarchies omitted (or `default`) =
+ * NO optional thesaurus beyond the ones the chosen ontologies DECLARE
+ * (hierarchy60 — the same boxes the wizard pre-ticks; 2026-10-10). The offer is
+ * every entry of the vendored thesaurus manifest (install/import/hierarchy/
+ * hierarchy.json), with or without data files (one without installs as an empty
+ * thesaurus). No toponymy is ever a default: a plan without one prints a
+ * SUGGESTION to import the operator's own country. Languages (lg) is ALWAYS
+ * activated by the seed restore and is not a choice. The official update server is written unless --no-update-servers
  * (air-gapped: ONTOLOGY_SERVERS / CODE_SERVERS = []). An unknown flag is an
  * error, never ignored.
  *
@@ -45,15 +49,17 @@
  * [+ matrix_dd.copy.gz] — or a .tar/.tar.gz/.tgz of one: a fully offline
  * install). The DECLARED dependencies of the chosen TLDs (hierarchy60) are
  * installed with them: ontologies (`main: ontology35`) deps first, thesauri
- * (`main: hierarchy1`) added to --hierarchies. A MANDATORY one cannot be
- * declined (a mandatory thesaurus that is not vendored refuses the plan); an
- * OPTIONAL one is installed unless --decline-dependencies names it (a TLD, or
- * `<tld>:ontology35|hierarchy1`). The catalog is resolved ONCE, before anything is written; the files
+ * (`main: hierarchy1`) added to --hierarchies. A MANDATORY ONTOLOGY cannot be
+ * declined; an OPTIONAL ontology and EVERY thesaurus are installed unless
+ * --decline-dependencies names them (a TLD, or `<tld>:ontology35|hierarchy1`).
+ * A thesaurus never blocks the install (owner decision 2026-10-10): declining a
+ * MANDATORY one, or one with no hierarchy.json entry, is a warning — strongly
+ * recommended, installable later from Maintenance › Install hierarchies. The catalog is resolved ONCE, before anything is written; the files
  * are staged and verified before the database is touched (stage_ontologies) and
  * imported right after the seed restore (install_ontologies).
  *
  * --plan prints ONE JSON line (env_keys, steps, hierarchies,
- * hierarchy_dependencies, ontologies, declined_dependencies, ontology_source,
+ * hierarchy_dependencies, suggestions, ontologies, declined_dependencies, ontology_source,
  * ontology_install, active_ontology_tlds, notes, warnings,
  * errors) and exits — 0 when the answers are valid, 1 otherwise — touching no
  * database and no file (a non-vendored choice reads the source's manifest), no
@@ -65,11 +71,17 @@
  * the other answers select (--ontology-source, --no-update-servers, or the
  * configured server), and exits. It needs no other answer.
  *
+ * --list-hierarchies prints ONE JSON line — the thesaurus offer of the vendored
+ * manifest (core, typologies, entries {tld, name, typology_id, typology_name,
+ * has_data}, the toponymy suggestion) + errors — and exits. It needs no other
+ * answer.
+ *
  * Secrets: --root-password or DEDALO_INSTALL_ROOT_PASSWORD (never echoed).
  */
 
 // All config-free — safe to import BEFORE the environment is seeded.
 import { processEnvValue, seedProcessEnv } from '../src/config/env.ts';
+import { CORE_HIERARCHIES } from '../src/core/install/hierarchy_meta.ts';
 import {
 	answersFromCliArgs,
 	buildInstallPlan,
@@ -77,9 +89,11 @@ import {
 	type InstallPlan,
 	type InstallStepId,
 	normalizeInstallAnswers,
+	offeredThesauri,
 	ontologyServersFor,
 	ontologySourceFor,
 	planCatalogNeeded,
+	TOPONYMY_SUGGESTION,
 } from '../src/core/install/install_plan.ts';
 import {
 	describeOntologyCatalog,
@@ -144,6 +158,29 @@ async function listOntologies(): Promise<never> {
 
 if (invocation.listOntologies) await listOntologies();
 
+/** --list-hierarchies: the vendored thesaurus offer, then exit (config-free: the manifest only). */
+function listHierarchies(): never {
+	const errors = [...invocation.errors];
+	const offer = offeredThesauri(errors);
+	console.log(
+		JSON.stringify({
+			core: CORE_HIERARCHIES.map((item) => item.tld),
+			entries: offer.map((entry) => ({
+				tld: entry.tld,
+				name: entry.name,
+				typology_id: entry.typology_id,
+				typology_name: entry.typology_name,
+				has_data: entry.data_files.length > 0,
+			})),
+			suggestion: TOPONYMY_SUGGESTION,
+			errors,
+		}),
+	);
+	process.exit(errors.length === 0 ? 0 : 1);
+}
+
+if (invocation.listHierarchies) listHierarchies();
+
 // The answers alone (no catalog yet): enough for the boot environment.
 const preliminary = buildInstallPlan(invocation.raw, { priorEnv });
 const answerErrors = [...invocation.errors, ...normalizeInstallAnswers(invocation.raw).errors];
@@ -167,6 +204,7 @@ if (invocation.planOnly) {
 			steps: [...plan.steps],
 			hierarchies: [...plan.hierarchies],
 			hierarchy_dependencies: [...plan.hierarchyDependencies],
+			suggestions: [...plan.suggestions],
 			ontologies: [...plan.ontologies],
 			declined_dependencies: [...plan.answers.declined_dependencies],
 			ontology_source: plan.ontologySource,
@@ -187,12 +225,14 @@ if (!rootPassword) fail('--root-password (or DEDALO_INSTALL_ROOT_PASSWORD) is re
 /** The engine's step functions take the wizard's posted record — the plan's answers ARE it. */
 const posted: Record<string, unknown> = { ...plan.answers };
 
-/** The thesauri the installed ontologies make mandatory (they cannot be declined). */
+/** The installed thesauri declared mandatory (strongly recommended — declinable with a warning). */
 function requiredThesauriText(): string {
 	const required = plan.hierarchyDependencies
 		.filter((item) => item.mandatory && plan.hierarchies.includes(item.tld))
 		.map((item) => item.tld);
-	return required.length === 0 ? '' : ` (required by the ontologies: ${required.join(', ')})`;
+	return required.length === 0
+		? ''
+		: ` (strongly recommended by the declarations: ${required.join(', ')})`;
 }
 
 /** Human text for each step line (`→ [<step id>] <text>`). */
@@ -357,6 +397,7 @@ async function main(installPlan: InstallPlan): Promise<void> {
 	console.log(`\nDédalo TS install — entity '${answers.entity}', db '${answers.db_database}'\n`);
 	for (const note of installPlan.notes) console.log(`  note: ${note}`);
 	for (const warning of installPlan.warnings) console.warn(`  ⚠ ${warning}`);
+	for (const suggestion of installPlan.suggestions) console.log(`  suggestion: ${suggestion}`);
 
 	// Front-end affordance, not a plan step (the wizard shows the same report on load).
 	const { runInitTest } = await import('../src/core/install/init_test.ts');

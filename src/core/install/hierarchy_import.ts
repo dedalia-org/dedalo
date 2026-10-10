@@ -1,8 +1,50 @@
 /**
- * install_hierarchies — the wizard's hierarchy step. For each selected OPTIONAL TLD: import
- * its vendored `<tld>1.copy.gz` (thesaurus terms) and optional `<tld>2.copy.gz` (models)
- * into matrix_hierarchy, re-consolidate the counter, then ACTIVATE it
- * (./hierarchy_activate.ts).
+ * install_hierarchies — the wizard's hierarchy step. For each selected OPTIONAL TLD: look
+ * up its entry in the vendored thesaurus manifest (hierarchy.json, hierarchy_meta.ts —
+ * WC-2026-10-10-hierarchy-json-manifest), import the data files the entry lists
+ * (`<tld>1.copy.gz` terms, `<tld>2.copy.gz` models) into matrix_hierarchy, re-consolidate
+ * the counter, then ACTIVATE it (./hierarchy_activate.ts — the registry row is created from
+ * the entry).
+ *
+ * VERIFIED BEFORE WRITTEN. Every listed data file must exist in the vendored dir AND its
+ * bytes must hash to the entry's `sha256` before anything of the tld is written; a missing
+ * file or a mismatch is a loud refusal for that tld (its own error line), never a partial
+ * import. Only the LISTED files are imported — a file on disk the entry does not list is
+ * not this release's data. An entry with NO data files is an EMPTY thesaurus by design:
+ * no import, activation only (and a reset is refused — there is nothing to reset from).
+ * A tld the manifest does not list is refused (nothing imported).
+ *
+ * ACTIVATABLE BEFORE IMPORTED (2026-10-10 review). The entry was exported by
+ * ANOTHER installation, so what it references must resolve HERE before a term
+ * is copied: hierarchy_activate.ts `activationBlocker` (the lg1 language
+ * record, the hierarchy13 typology record, a real section that is a `section`)
+ * runs FIRST. It used to run after the `\copy` had committed: a refused entry
+ * left thousands of unreachable terms, and every later run saw them and
+ * answered "already installed — skipped", ok, never activating.
+ *
+ * THE CHOSEN THESAURI'S OWN DECLARATIONS. A hierarchy.json entry carries its
+ * registry row's hierarchy60, and the hierarchy60 law binds whoever declares:
+ * before the batch runs, the selection is checked against the chosen entries'
+ * declared dependencies, transitively (hierarchy_dependencies.ts
+ * withThesaurusDependencies → ontology_choice.ts closeThesaurusChoice — the rule
+ * the CLI plan applies too). A THESAURUS dependency never blocks (owner
+ * decision 2026-10-10): the batch is exactly the selection — the front ends
+ * pre-tick the declared thesauri — and a MANDATORY one left out (declined, or
+ * with no entry) is a warning in the batch message (strongly recommended,
+ * installable later from Maintenance › Install hierarchies). Only a declared
+ * MANDATORY ONTOLOGY this installation lacks (the ontology law) refuses the
+ * WHOLE batch before anything is written. ONE door: the wizard step, the CLI
+ * and the add_hierarchy widget all come through here.
+ *
+ * ALREADY IMPORTED CONVERGES. A tld whose LISTED sections already hold its
+ * rows is not re-copied (the raw `\copy` is insert-only) but is still
+ * ACTIVATED (idempotent) — a run interrupted between import and activation is
+ * finished by the next one, never reported as installed while unreachable.
+ * The probe covers every section the entry lists (an entry may list only its
+ * `<tld>2` models). A listed section that holds ONLY the General Term root an
+ * activation minted (an empty thesaurus activated before the release shipped
+ * its data) is not "installed": the terms are available but cannot be copied
+ * additively — refused with its own line naming Reset, never a silent skip.
  *
  * A CORE tld (hierarchy_meta.ts CORE_HIERARCHIES — `lg`) is NEVER imported: its terms ship
  * in the seed, in their own table, and the seed restore already activates it. Asked for
@@ -36,8 +78,19 @@ import { gunzipSync } from 'node:zlib';
 import { config } from '../../config/config.ts';
 import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
 import { safeTld } from '../ontology/data_io.ts';
-import { activateHierarchy } from './hierarchy_activate.ts';
-import { type HierarchyMeta, hierarchyMetaByTld, isCoreHierarchyTld } from './hierarchy_meta.ts';
+import { type HierarchyDataFile, sha256Hex } from '../ontology/hierarchy_manifest_format.ts';
+import {
+	activateCoreHierarchy,
+	activateHierarchy,
+	activationBlocker,
+} from './hierarchy_activate.ts';
+import { withThesaurusDependencies } from './hierarchy_dependencies.ts';
+import {
+	CORE_HIERARCHIES,
+	type HierarchyMeta,
+	hierarchyMetaByTld,
+	isCoreHierarchyTld,
+} from './hierarchy_meta.ts';
 import { HIERARCHY_IMPORT_DIR } from './paths.ts';
 import { connFromConfig, type DbConnDescriptor, type PsqlRunResult, runPsql } from './pg_exec.ts';
 
@@ -76,6 +129,12 @@ export interface InstallHierarchiesOptions {
 	 * only reached through the explicit, confirmed "Reset to seed" widget action.
 	 */
 	replace?: boolean;
+	/**
+	 * The vendored hierarchy dir — the manifest AND the data files are read from
+	 * it. Default HIERARCHY_IMPORT_DIR (the release's); a gate passes its own
+	 * scratch dir (a manifest it built) — never a production code path.
+	 */
+	importDir?: string;
 }
 
 /**
@@ -104,28 +163,108 @@ function consolidateCounterSql(tld: string): string {
 }
 
 /**
- * Is this tld already imported? True when the `<tld>1` term section has any row in
- * matrix_hierarchy. `tld` is safeTld-validated before this runs, so the quoted literal
- * is safe. A probe failure (e.g. connection issue) returns false → the caller falls
- * through to the normal copy, whose own error is reported honestly.
+ * The row count of each LISTED section (`<tld>1` / `<tld>2`, from the data
+ * file names) in matrix_hierarchy — 0 for a section with none. The names are
+ * the format's own `<tld>1|2.copy.gz` (the reader pinned them to the entry's
+ * safeTld-valid tld), so the quoted literals are safe. A probe failure answers
+ * null → the caller falls through to the normal copy, whose own error is
+ * reported honestly.
  */
-async function hierarchyRowsPresent(conn: DbConnDescriptor, tld: string): Promise<boolean> {
+async function listedSectionCounts(
+	conn: DbConnDescriptor,
+	sections: readonly string[],
+): Promise<Map<string, number> | null> {
+	const list = sections.map((tipo) => `'${tipo}'`).join(', ');
 	const res = await runPsql(conn, [
-		'-tAc',
-		`SELECT 1 FROM ${HIERARCHY_TABLE} WHERE section_tipo = '${tld}1' LIMIT 1`,
+		'-tAF',
+		'\t',
+		'-c',
+		`SELECT section_tipo, count(*) FROM ${HIERARCHY_TABLE} WHERE section_tipo IN (${list}) GROUP BY section_tipo`,
 	]).catch(() => null);
-	return res !== null && res.exitCode === 0 && res.stdout === '1';
+	if (res === null || res.exitCode !== 0) return null;
+	const counts = new Map(sections.map((tipo) => [tipo, 0]));
+	for (const line of res.stdout.split('\n')) {
+		const [tipo, count] = line.split('\t');
+		if (tipo !== undefined && counts.has(tipo)) counts.set(tipo, Number(count));
+	}
+	return counts;
 }
 
-/** One seed file, decompressed: its COPY text, or the problem that kept it unread. */
+/** What is already in matrix_hierarchy of the sections a tld's data files fill. */
+export type ListedSectionsState =
+	/** None of the listed sections has a row: copy. */
+	| { kind: 'absent' }
+	/** The data is there (at least one listed section populated, none root-only): skip the copy. */
+	| { kind: 'imported' }
+	/** A listed section holds only a minted root while its file carries more: Reset is the way. */
+	| { kind: 'root_only'; sections: string[] };
+
+/**
+ * PURE: classify the listed sections (`counts` — rows now; `dataRows` — rows
+ * in each verified file). A section with at most ONE row whose file carries
+ * more is ROOT-ONLY: the General Term root an empty activation mints
+ * (hierarchy_state.ts ensureRootTerm), not this release's data. A file of one
+ * row is indistinguishable from its own root, so it counts as imported.
+ */
+export function classifyListedSections(
+	counts: ReadonlyMap<string, number>,
+	dataRows: ReadonlyMap<string, number>,
+): ListedSectionsState {
+	const present = [...counts].filter(([, count]) => count > 0);
+	if (present.length === 0) return { kind: 'absent' };
+	const rootOnly = present
+		.filter(([section, count]) => holdsOnlyARoot(count, dataRows.get(section) ?? 0))
+		.map(([section]) => section);
+	return rootOnly.length > 0 ? { kind: 'root_only', sections: rootOnly } : { kind: 'imported' };
+}
+
+/** A section of `count` rows whose file carries `fileRows`: only a minted root (see above)? */
+function holdsOnlyARoot(count: number, fileRows: number): boolean {
+	return count <= 1 && fileRows > 1;
+}
+
+/** The data rows of one COPY text (one per line; a last line without its newline counts). */
+function copyRowCount(text: Uint8Array): number {
+	let rows = 0;
+	for (const byte of text) if (byte === 0x0a) rows++;
+	return text.length > 0 && text[text.length - 1] !== 0x0a ? rows + 1 : rows;
+}
+
+/** The section tipo a listed data file fills (`es1.copy.gz` → `es1`). */
+function listedSection(file: string): string {
+	return file.replace(/\.copy\.gz$/, '');
+}
+
+/**
+ * One LISTED data file: read, its bytes checked against the manifest's sha256,
+ * then decompressed — its COPY text, or the problem that kept it unread. The
+ * digest is checked BEFORE decompression and before anything is written.
+ */
 function readSeedFile(
 	importDir: string,
-	fileName: string,
+	listed: HierarchyDataFile,
 ): { text: Uint8Array } | { problem: string } {
+	const fileName = listed.file;
 	const path = join(importDir, fileName);
-	if (!existsSync(path)) return { problem: `missing import file ${fileName}` };
+	if (!existsSync(path)) {
+		return {
+			problem: `missing data file ${fileName} (listed in hierarchy.json) — nothing imported`,
+		};
+	}
+	let bytes: Uint8Array;
 	try {
-		return { text: gunzipSync(readFileSync(path)) };
+		bytes = readFileSync(path);
+	} catch (error) {
+		console.error(`[install:hierarchy_import] read failed: ${fileName}`, error);
+		return { problem: `read failed (${fileName}) — see the server log; nothing imported` };
+	}
+	if (sha256Hex(bytes) !== listed.sha256) {
+		return {
+			problem: `checksum mismatch for ${fileName}: its sha256 is not the one hierarchy.json lists — nothing imported`,
+		};
+	}
+	try {
+		return { text: gunzipSync(bytes) };
 	} catch (error) {
 		// The raw zlib/fs text names absolute paths (SEC-17): it goes to the server log;
 		// the report carries a deliberate sentence naming the file.
@@ -155,30 +294,68 @@ function inlineCopy(text: Uint8Array): Buffer[] {
  * `--single-transaction` + `ON_ERROR_STOP`, so it applies whole or not at all:
  *   (replace) the scoped DELETE of every `<tld>N` section (the PHP pre-delete,
  *   backup::import_from_copy_file — destructive by design, the caller confirmed
- *   it), the terms `\copy` (`<tld>1.copy.gz`, required), the models `\copy`
- *   (`<tld>2.copy.gz`, when the file exists) and the counter realignment.
+ *   it), the `\copy` of each LISTED data file (`dataFiles` — the manifest
+ *   entry's, terms then models; at least one) and the counter realignment.
  * Each used to be its own psql call: a terms file that failed to load left the
  * hierarchy DELETED (operator edits and additions gone, the seed not restored),
  * a failed models file and a failed counter were ignored and the tld reported
- * imported. Both seed files are read and decompressed BEFORE anything is sent.
- * Without `replace`, a tld whose `<tld>1` rows exist is skipped (the raw `\copy`
- * is insert-only). Table FORCED to matrix_hierarchy (PHP parity), explicit
- * column order. Gate: test/unit/hierarchy_import_atomic_native.test.ts.
+ * imported. Every listed file is read, CHECKSUM-VERIFIED against the manifest
+ * and decompressed BEFORE anything is sent (a missing file or a mismatch:
+ * nothing written).
+ * Without `replace`, a tld whose LISTED sections already hold its rows is
+ * skipped (the raw `\copy` is insert-only), and one whose listed section holds
+ * only a minted root is refused naming Reset (classifyListedSections). Table
+ * FORCED to matrix_hierarchy (PHP parity), explicit column order. Gate:
+ * test/unit/hierarchy_import_atomic_native.test.ts.
  */
 export async function importHierarchyRows(
 	conn: DbConnDescriptor,
 	tld: string,
-	options: { replace?: boolean; importDir?: string } = {},
-): Promise<{ ok: boolean; msg: string; skipped?: boolean }> {
+	options: {
+		/** The manifest entry's data files (verified here); [] is refused — nothing to import. */
+		dataFiles: readonly HierarchyDataFile[];
+		replace?: boolean;
+		importDir?: string;
+	},
+): Promise<ImportOutcome> {
 	const replace = options.replace === true;
-	if (!replace && (await hierarchyRowsPresent(conn, tld))) {
-		return { ok: true, msg: 'already installed — skipped', skipped: true };
-	}
-	const seeds = readSeedFiles(options.importDir ?? HIERARCHY_IMPORT_DIR, tld);
-	if ('problem' in seeds) return { ok: false, msg: seeds.problem };
+	const seeds = readSeedFiles(options.importDir ?? HIERARCHY_IMPORT_DIR, options.dataFiles);
+	if ('problem' in seeds) return importRefused(seeds.problem);
+	const present = replace ? null : await presentRowsOutcome(conn, seeds);
+	if (present !== null) return present;
 	const res = await runImportUnit(conn, tld, replace, seeds);
-	if (res.exitCode === 0) return { ok: true, msg: 'copied' };
-	return { ok: false, msg: failedImportMessage(replace, res) };
+	return res.exitCode === 0
+		? { ok: true, msg: 'copied' }
+		: importRefused(failedImportMessage(replace, res));
+}
+
+/** What importing one tld's rows answered (an internal outcome — the batch report reads it). */
+type ImportOutcome = { ok: boolean; msg: string; skipped?: boolean };
+
+/** The one refusal shape of {@link importHierarchyRows}: nothing of the tld was written. */
+function importRefused(msg: string): ImportOutcome {
+	return { ok: false, msg };
+}
+
+/**
+ * Without `replace`: the outcome when the LISTED sections already hold rows —
+ * skipped (the data is there) or refused naming Reset (only a minted root,
+ * classifyListedSections) — or null when there is nothing there: copy.
+ */
+async function presentRowsOutcome(
+	conn: DbConnDescriptor,
+	seeds: SeedFiles,
+): Promise<ImportOutcome | null> {
+	const counts = await listedSectionCounts(conn, [...seeds.dataRows.keys()]);
+	if (counts === null) return null;
+	const state = classifyListedSections(counts, seeds.dataRows);
+	if (state.kind === 'imported') {
+		return { ok: true, msg: 'already installed — import skipped', skipped: true };
+	}
+	if (state.kind === 'absent') return null;
+	return importRefused(
+		`data available, not imported: ${state.sections.join(', ')} hold(s) only the root an earlier activation created (it was installed as an empty thesaurus) — use "Reset to seed" to import its terms; nothing imported`,
+	);
 }
 
 /**
@@ -195,11 +372,9 @@ function runImportUnit(
 	const reset = replace
 		? [Buffer.from(`DELETE FROM ${HIERARCHY_TABLE} WHERE section_tipo ~ '^${tld}[0-9]+$';\n`)]
 		: [];
-	const models = seeds.models === null ? [] : inlineCopy(seeds.models);
 	const script = Buffer.concat([
 		...reset,
-		...inlineCopy(seeds.terms),
-		...models,
+		...seeds.texts.flatMap((text) => inlineCopy(text)),
 		Buffer.from(`${consolidateCounterSql(tld)}\n`),
 	]);
 	return runPsql(conn, ['-v', 'ON_ERROR_STOP=1', '--single-transaction', '--quiet', '-f', '-'], {
@@ -207,19 +382,34 @@ function runImportUnit(
 	});
 }
 
-/** The decompressed seeds of a tld (models optional). */
+/** The decompressed, verified data files of a tld, in COPY order (terms, then models). */
 interface SeedFiles {
-	terms: Uint8Array;
-	models: Uint8Array | null;
+	texts: Uint8Array[];
+	/** The data rows each file carries, by the section it fills. */
+	dataRows: Map<string, number>;
 }
 
-/** Both seed files of a tld, read and decompressed, or the problem that kept one unread. */
-function readSeedFiles(importDir: string, tld: string): SeedFiles | { problem: string } {
-	const terms = readSeedFile(importDir, `${tld}1.copy.gz`);
-	if ('problem' in terms) return terms;
-	if (!existsSync(join(importDir, `${tld}2.copy.gz`))) return { terms: terms.text, models: null };
-	const models = readSeedFile(importDir, `${tld}2.copy.gz`);
-	return 'problem' in models ? models : { terms: terms.text, models: models.text };
+/**
+ * Every listed data file of a tld — verified and decompressed — terms
+ * (`<tld>1`) before models (`<tld>2`), or the FIRST problem that kept one
+ * unread (then nothing is written). The format reader already pinned each
+ * name to the entry's own `<tld>1|2.copy.gz`.
+ */
+function readSeedFiles(
+	importDir: string,
+	dataFiles: readonly HierarchyDataFile[],
+): SeedFiles | { problem: string } {
+	if (dataFiles.length === 0) return { problem: 'no data files listed — nothing to import' };
+	const ordered = [...dataFiles].sort((a, b) => a.file.localeCompare(b.file));
+	const texts: Uint8Array[] = [];
+	const dataRows = new Map<string, number>();
+	for (const listed of ordered) {
+		const read = readSeedFile(importDir, listed);
+		if ('problem' in read) return read;
+		texts.push(read.text);
+		dataRows.set(listedSection(listed.file), copyRowCount(read.text));
+	}
+	return { texts, dataRows };
 }
 
 /** A failed import unit rolled back whole: nothing of the tld changed. */
@@ -261,7 +451,9 @@ async function coreHierarchyOutcome(
 			`core hierarchy — NOT activated: the engine writes to '${config.db.database}'`,
 		);
 	}
-	const activation = await activateHierarchy(hierarchyMetaByTld(tld) as HierarchyMeta, userId);
+	const core = CORE_HIERARCHIES.find((item) => item.tld === tld);
+	if (core === undefined) return failedTld(tld, 'not a core hierarchy');
+	const activation = await activateCoreHierarchy(core, userId);
 	if (!activation.ok) {
 		return failedTld(tld, `core hierarchy — activation failed: ${activation.errors.join('; ')}`);
 	}
@@ -270,58 +462,116 @@ async function coreHierarchyOutcome(
 }
 
 /**
- * ACTIVATION of a freshly imported tld (installer_hierarchy_manager::activate_hierarchy):
- * flag the hierarchy active and provision its ontology, so it is usable at the first
- * login. The descriptor drives it; an unregistered tld has no typology to provision with.
+ * ACTIVATION of a tld (installer_hierarchy_manager::activate_hierarchy): create its
+ * registry row from the manifest entry when it has none, flag it active and provision
+ * its ontology, so it is usable at the first login.
  */
-async function activateImported(
-	tld: string,
-	replace: boolean,
+async function activateEntry(
+	meta: HierarchyMeta,
+	done: string,
 	userId: number,
+	skipped = false,
 ): Promise<TldOutcome> {
-	const meta = hierarchyMetaByTld(tld);
-	if (meta === null) {
-		return failedTld(tld, 'imported, but not registered in hierarchies.json — not activated', [
-			'not registered in hierarchies.json; activation skipped',
-		]);
-	}
 	const activation = await activateHierarchy(meta, userId);
 	if (!activation.ok) {
 		return failedTld(
-			tld,
-			`imported, activation failed: ${activation.errors.join('; ')}`,
+			meta.tld,
+			`${done}, activation failed: ${activation.errors.join('; ')}`,
 			activation.errors,
 		);
 	}
-	const msg = replace ? 'reset and activated' : 'imported and activated';
-	return { response: { tld, ok: true, msg }, findings: [] };
+	const response: HierarchyImportResponse = {
+		tld: meta.tld,
+		ok: true,
+		msg: `${done} and activated`,
+	};
+	return { response: skipped ? { ...response, skipped } : response, findings: [] };
 }
 
-/** An OPTIONAL tld: import (or skip / reset), then activate. */
-async function optionalHierarchyOutcome(
+/** The refusal of an activation whose target is not the engine's database. */
+function foreignTarget(tld: string, connection: DbConnDescriptor, done: string): TldOutcome {
+	return failedTld(
+		tld,
+		`${done} into '${connection.database}', NOT activated: the engine writes to '${config.db.database}'`,
+		[
+			`activation skipped — the import target '${connection.database}' is not the engine's database ('${config.db.database}')`,
+		],
+	);
+}
+
+/**
+ * An EMPTY thesaurus by design (its entry lists no data files): nothing to
+ * import — activation only. A reset is refused: there is no data to reset from.
+ */
+async function emptyHierarchyOutcome(
+	meta: HierarchyMeta,
 	connection: DbConnDescriptor,
-	tld: string,
 	replace: boolean,
 	engineOwnsTarget: boolean,
 	userId: number,
 ): Promise<TldOutcome> {
-	const imported = await importHierarchyRows(connection, tld, { replace });
-	if (imported.skipped === true) {
-		return { response: { tld, ok: true, msg: imported.msg, skipped: true }, findings: [] };
-	}
-	if (!imported.ok) return failedTld(tld, imported.msg);
-	// The engine's writes land in the CONFIGURED database. When the import target is a
-	// different one, activating would write into the wrong DB — refuse, loudly.
-	if (!engineOwnsTarget) {
+	if (replace) {
 		return failedTld(
-			tld,
-			`imported into '${connection.database}', NOT activated: the engine writes to '${config.db.database}'`,
-			[
-				`activation skipped — the import target '${connection.database}' is not the engine's database ('${config.db.database}')`,
-			],
+			meta.tld,
+			'empty thesaurus by design (hierarchy.json lists no data files) — nothing to reset from',
 		);
 	}
-	return activateImported(tld, replace, userId);
+	if (!engineOwnsTarget)
+		return foreignTarget(meta.tld, connection, 'empty thesaurus (nothing imported)');
+	return activateEntry(meta, 'empty thesaurus (no data files — nothing imported)', userId);
+}
+
+/** A tld WITH data files: the verified import (or skip / reset), then activation. */
+async function importedHierarchyOutcome(
+	meta: HierarchyMeta,
+	connection: DbConnDescriptor,
+	options: { replace: boolean; importDir: string },
+	engineOwnsTarget: boolean,
+	userId: number,
+): Promise<TldOutcome> {
+	const { tld } = meta;
+	const imported = await importHierarchyRows(connection, tld, {
+		replace: options.replace,
+		importDir: options.importDir,
+		dataFiles: meta.data_files,
+	});
+	if (!imported.ok) return failedTld(tld, imported.msg);
+	const skipped = imported.skipped === true;
+	// The engine's writes land in the CONFIGURED database. When the import target is a
+	// different one, activating would write into the wrong DB — refuse, loudly (a skip
+	// there stays a plain skip: nothing of ours to converge).
+	if (!engineOwnsTarget) {
+		if (skipped) return { response: { tld, ok: true, msg: imported.msg, skipped }, findings: [] };
+		return foreignTarget(tld, connection, 'imported');
+	}
+	// An already-imported tld CONVERGES (see the header): activation is idempotent.
+	if (skipped) return activateEntry(meta, imported.msg, userId, true);
+	return activateEntry(meta, options.replace ? 'reset' : 'imported', userId);
+}
+
+/** An OPTIONAL tld: its manifest entry, then (empty → activation only | import + activate). */
+async function optionalHierarchyOutcome(
+	connection: DbConnDescriptor,
+	tld: string,
+	options: { replace: boolean; importDir: string },
+	engineOwnsTarget: boolean,
+	userId: number,
+): Promise<TldOutcome> {
+	const meta = hierarchyMetaByTld(tld, options.importDir);
+	if (meta === null) {
+		return failedTld(tld, 'not listed in hierarchy.json — nothing imported, not activated');
+	}
+	// THE PREFLIGHT (see the header): what the entry references must resolve HERE before
+	// anything of the tld is written. Against the engine's own database only — a foreign
+	// target is refused activation anyway, and this check reads the engine pool.
+	if (engineOwnsTarget) {
+		const blocker = await activationBlocker(meta);
+		if (blocker !== null) return failedTld(tld, `${blocker}; nothing imported`);
+	}
+	if (meta.data_files.length === 0) {
+		return emptyHierarchyOutcome(meta, connection, options.replace, engineOwnsTarget, userId);
+	}
+	return importedHierarchyOutcome(meta, connection, options, engineOwnsTarget, userId);
 }
 
 /** The batch sentence the wizard shows. */
@@ -366,27 +616,78 @@ export async function installHierarchies(
 	options: InstallHierarchiesOptions = {},
 ): Promise<InstallHierarchiesResult> {
 	const connection = conn ?? connFromConfig();
-	const replace = options.replace === true;
+	const run: BatchRun = {
+		connection,
+		replace: options.replace === true,
+		importDir: options.importDir ?? HIERARCHY_IMPORT_DIR,
+		engineOwnsTarget: connection.database === config.db.database,
+		userId,
+	};
+	const selection = closedSelection(tlds, run);
 	const responses: HierarchyImportResponse[] = [];
-	const errors: string[] = [];
-	const engineOwnsTarget = connection.database === config.db.database;
-
-	for (const tld of tlds) {
-		let outcome: TldOutcome;
-		if (!safeTld(tld)) outcome = failedTld(tld, 'invalid tld');
-		else if (isCoreHierarchyTld(tld)) {
-			outcome = await coreHierarchyOutcome(tld, replace, engineOwnsTarget, userId);
-		} else {
-			outcome = await optionalHierarchyOutcome(connection, tld, replace, engineOwnsTarget, userId);
-		}
+	const errors: string[] = [...selection.refusals];
+	for (const tld of selection.batch) {
+		const outcome = await tldOutcome(tld, run);
 		responses.push(outcome.response);
 		errors.push(...outcome.findings.map((error) => `${tld}: ${error}`));
 	}
+	const msg =
+		selection.refusals.length > 0
+			? 'Nothing installed: a selected thesaurus declares an ontology this installation does not have'
+			: withNotes(
+					batchMessage(selection.batch.length, responses, errors.length, run.replace),
+					selection.notes,
+				);
+	return { ok: errors.length === 0, msg, errors, responses };
+}
 
+/** What every tld of one batch shares. */
+interface BatchRun {
+	connection: DbConnDescriptor;
+	replace: boolean;
+	importDir: string;
+	engineOwnsTarget: boolean;
+	userId: number;
+}
+
+/**
+ * THE CHOSEN THESAURI'S OWN DECLARATIONS (see the header): the batch an install
+ * runs, checked against them before anything is written — the batch is the
+ * selection (nothing added; a mandatory thesaurus left out is a warning note),
+ * a declared mandatory ONTOLOGY this installation lacks REFUSES it whole
+ * (`refusals`, empty `batch`). A reset re-seeds exactly what was selected (it
+ * installs nothing new).
+ */
+function closedSelection(
+	tlds: string[],
+	run: BatchRun,
+): { batch: string[]; notes: string[]; refusals: string[] } {
+	if (run.replace) return { batch: tlds, notes: [], refusals: [] };
+	const closure = withThesaurusDependencies(tlds, { dir: run.importDir });
+	if (closure.errors.length > 0) return { batch: [], notes: [], refusals: closure.errors };
 	return {
-		ok: errors.length === 0,
-		msg: batchMessage(tlds.length, responses, errors.length, replace),
-		errors,
-		responses,
+		batch: closure.hierarchies,
+		notes: [...closure.notes, ...closure.warnings],
+		refusals: [],
 	};
+}
+
+/** One tld of the batch: refused (invalid), core (activation only) or optional. */
+async function tldOutcome(tld: string, run: BatchRun): Promise<TldOutcome> {
+	if (!safeTld(tld)) return failedTld(tld, 'invalid tld');
+	if (isCoreHierarchyTld(tld)) {
+		return coreHierarchyOutcome(tld, run.replace, run.engineOwnsTarget, run.userId);
+	}
+	return optionalHierarchyOutcome(
+		run.connection,
+		tld,
+		{ replace: run.replace, importDir: run.importDir },
+		run.engineOwnsTarget,
+		run.userId,
+	);
+}
+
+/** `msg (note; note)` — or `msg` alone. */
+function withNotes(msg: string, notes: readonly string[]): string {
+	return notes.length > 0 ? `${msg} (${notes.join('; ')})` : msg;
 }

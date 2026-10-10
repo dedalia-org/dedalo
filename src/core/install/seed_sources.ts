@@ -20,7 +20,12 @@ import { SEED_SOURCES_DIR } from './paths.ts';
 export const SEED_SCHEMA_PATH: string = join(SEED_SOURCES_DIR, 'schema.sql');
 /** Languages thesaurus terms (matrix_langs, MATRIX_COPY_COLUMNS COPY text, gzip). */
 export const SEED_LANGS_PATH: string = join(SEED_SOURCES_DIR, 'matrix_langs.copy.gz');
-/** Hierarchy registry records (matrix_hierarchy_main, every one inactive). */
+/**
+ * Hierarchy registry records (matrix_hierarchy_main): the CORE hierarchies only
+ * (`lg`, section_id 244), shipped inactive and activated by the install. Every
+ * optional thesaurus's row is written at activation from its
+ * install/import/hierarchy/hierarchy.json entry (WC-2026-10-10-hierarchy-json-manifest).
+ */
 export const SEED_REGISTRY_PATH: string = join(SEED_SOURCES_DIR, 'matrix_hierarchy_main.copy.gz');
 /**
  * The parser's SCAFFOLD (dd_ontology rows, DD_ONTOLOGY_SCAFFOLD_COLUMNS): the
@@ -79,7 +84,7 @@ export const SEED_SHIPPED_TABLES: Readonly<Record<string, string>> = Object.free
 	matrix_ontology_main: 'the release manifest active_ontologies (syncMainSectionFromDefinition)',
 	matrix_dd: 'the matrix_dd package (private lists)',
 	matrix_langs: 'install/db/seed/matrix_langs.copy.gz',
-	matrix_hierarchy_main: 'install/db/seed/matrix_hierarchy_main.copy.gz',
+	matrix_hierarchy_main: 'install/db/seed/matrix_hierarchy_main.copy.gz (the core lg row only)',
 	matrix_users: 'SEED_RECORDS',
 	matrix_projects: 'SEED_RECORDS',
 	matrix_profiles: 'SEED_RECORDS',

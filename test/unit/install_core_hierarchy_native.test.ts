@@ -34,7 +34,7 @@ import { toErrorBody } from '../../src/core/errors/convert.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import {
 	activateCoreHierarchies,
-	activateHierarchy,
+	activateCoreHierarchy,
 } from '../../src/core/install/hierarchy_activate.ts';
 import { installHierarchies } from '../../src/core/install/hierarchy_import.ts';
 import { CORE_HIERARCHIES } from '../../src/core/install/hierarchy_meta.ts';
@@ -202,7 +202,7 @@ describe.if(DB_READY)(
 				expect(await lgRowsInMatrixHierarchy()).toBe(lgRowsBefore);
 
 				// Idempotent: a converged hierarchy needs nothing applied.
-				const again = await activateHierarchy(LG as (typeof CORE_HIERARCHIES)[number], -1);
+				const again = await activateCoreHierarchy(LG as (typeof CORE_HIERARCHIES)[number], -1);
 				expect(again.ok).toBe(true);
 				expect(again.applied).toEqual([]);
 

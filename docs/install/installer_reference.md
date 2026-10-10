@@ -67,7 +67,7 @@ bun run scripts/install.ts \
   [--media-path /srv/dedalo/media] [--socket /run/dedalo/dedalo_ts.sock] [--media-access-mode publication] \
   [--diffusion --mysql-name web_dedalo --mysql-user d --mysql-password '…'] \
   [--mailer --smtp-host smtp.example.org --smtp-user dedalo@example.org --smtp-password '…'] \
-  [--no-update-servers] [--skip-tools] [--plan | --list-ontologies]
+  [--no-update-servers] [--skip-tools] [--plan | --list-ontologies | --list-hierarchies]
 ```
 
 An **unknown flag is refused** (`unknown flag --x`) and so is a value flag with no
@@ -91,9 +91,9 @@ meaning.)
 | `--langs` | no | `lg-eng,lg-spa` (the other catalogue languages are optional) | the installation's languages — interface **and** data — comma list, e.g. `lg-eng,lg-spa` |
 | `--app-lang` | no | first of `--langs` | the default interface language |
 | `--data-lang` | no | first of `--langs` | the default data language |
-| `--hierarchies` | no | `default` | the **optional** thesauri: `default` (the shared default set — today `es`), `none`, or a comma list of vendored codes, e.g. `es,fr`. Languages (`lg`) is a **core** thesaurus, activated with the database on every install: naming it here is dropped with a note. An unknown (not vendored) code is refused. The thesauri the chosen ontologies **declare** are added to this list: mandatory ones always (even with `none`), optional ones unless `--decline-dependencies` names them — see [Dependencies are declared, never guessed](#dependencies-are-declared-never-guessed) |
+| `--hierarchies` | no | `default` | the **optional** thesauri: `default` (nothing beyond the thesauri the chosen ontologies declare), `none`, or a comma list of codes from the release's thesaurus manifest, e.g. `es,fr` (`--list-hierarchies` prints them). No thesaurus — and no country's toponymy — is ever pre-selected; a plan with no toponymy prints a suggestion to import your own country's. Languages (`lg`) is a **core** thesaurus, activated with the database on every install: naming it here is dropped with a note. A code the manifest does not list is refused. The thesauri the chosen ontologies **declare** are added to this list (even with `none`) unless `--decline-dependencies` names them — a mandatory one is strongly recommended, and declining it is a warning, never an error — see [Dependencies are declared, never guessed](#dependencies-are-declared-never-guessed) |
 | `--ontologies` | no | `default` (= `oh`) | the **domain** ontologies, a comma list of TLDs — at least one. `default` is Oral history (`oh`), built into the release. Any other TLD comes from the ontology source, together with the ontologies it **declares** as dependencies. A core TLD is dropped with a note; `none` and an unknown TLD are refused. See [Domain ontologies](#domain-ontologies) |
-| `--decline-dependencies` | no | *(none)* | the **optional** declared dependencies you do not want, a comma list. Each item is a TLD (declines it as an ontology and as a thesaurus) or `<tld>:ontology35` / `<tld>:hierarchy1` (declines only one of the two). A mandatory dependency cannot be declined: naming one has no effect, and it is installed. A malformed item is refused |
+| `--decline-dependencies` | no | *(none)* | the declared dependencies you do not want, a comma list. Each item is a TLD (declines it as an ontology and as a thesaurus) or `<tld>:ontology35` / `<tld>:hierarchy1` (declines only one of the two). Any **thesaurus** can be declined; declining a mandatory one prints a warning (strongly recommended, installable later). A mandatory **ontology** cannot be declined: naming one has no effect, and it is installed. A malformed item is refused |
 | `--ontology-source` | no | *(unset)* | a local directory, or a `.tar` / `.tar.gz` / `.tgz` archive of one, in the ontology server's export layout. The non-built-in ontologies come from it instead of the update server — a fully [offline install](#offline-installs-ontology-source) |
 | `--media-path` | no | *(unset)* | the media root; write-probed during install **and persisted** to `.env` as `MEDIA_PATH` (replaces the old `MEDIA_PATH=…` env prefix) |
 | `--socket` | no | `/tmp/dedalo_ts.sock` | persisted as `SERVER_UNIX_SOCKET`; set `/run/dedalo/dedalo_ts.sock` for a systemd + reverse-proxy deploy (the default does not match that layout) |
@@ -102,8 +102,9 @@ meaning.)
 | `--mailer` | no | off | writes the outbound-email (SMTP) keys, enabling [password recovery](../management/password_recovery.md); requires `--smtp-host`, pair with `--smtp-port` (587), `--smtp-secure` (`tls`\|`ssl`\|`none`), `--smtp-user`, `--smtp-password`, `--smtp-from`, `--smtp-from-name`. The relay is probed (connection + auth, no email sent); a failure warns but does not stop the install |
 | `--no-update-servers` | no | off | air-gapped install: writes `ONTOLOGY_SERVERS=[]` and `CODE_SERVERS=[]`, so no ontology or code update is ever offered. Without it, both name the official Dédalo master (see below) |
 | `--skip-tools` | no | off | skips tool registration (register them later from the Development Area) |
-| `--plan` | no | off | dry run: prints ONE JSON line — `env_keys`, `steps`, `hierarchies`, `hierarchy_dependencies`, `ontologies`, `declined_dependencies`, `ontology_source`, `ontology_install`, `active_ontology_tlds`, `notes`, `warnings`, `errors` — and exits `0` (valid) or `1`. It touches no database and no file and needs no root password. A choice beyond `oh` reads the source's catalog (one request to the update server, or the `--ontology-source` files) |
+| `--plan` | no | off | dry run: prints ONE JSON line — `env_keys`, `steps`, `hierarchies`, `hierarchy_dependencies`, `suggestions`, `ontologies`, `declined_dependencies`, `ontology_source`, `ontology_install`, `active_ontology_tlds`, `notes`, `warnings`, `errors` — and exits `0` (valid) or `1`. It touches no database and no file and needs no root password. A choice beyond `oh` reads the source's catalog (one request to the update server, or the `--ontology-source` files) |
 | `--list-ontologies` | no | off | prints ONE JSON line — the ontology catalog of the selected source, exactly what the wizard's *Ontologies* step shows — and exits. It needs no other answer. See [Listing the catalog](#listing-the-catalog) |
+| `--list-hierarchies` | no | off | prints ONE JSON line — the thesaurus offer of the release's manifest (`core`, `entries` of `{tld, name, typology_id, typology_name, has_data}`, the toponymy `suggestion`, `errors`) — and exits. It needs no other answer. See [The thesaurus manifest](#the-thesaurus-manifest-hierarchyjson) |
 | `--information`, `--info-key` | no | `ts-install`, `ts` | free-text install provenance, recorded in the state file |
 
 !!! danger "The root password never belongs on the command line"
@@ -162,11 +163,12 @@ affordances (the wizard has its *Verify* screen and in-wizard login instead).
    references (see [Domain ontologies](#domain-ontologies)). An import failure
    **fails the install**.
 9. **`set_root_pw`** — the root password, hashed with Argon2id.
-10. **`install_hierarchies`** — imports and activates the **optional** thesauri (the
-   shared default set unless `--hierarchies` says otherwise; `none` makes it a
-   no-op), plus the thesauri the installed ontologies declare: the mandatory
-   ones always, the optional ones unless declined. Each selected TLD has its vendored term data copied in, **and is then
-   activated**: the hierarchy is flagged active, its virtual ontology sections
+10. **`install_hierarchies`** — imports and activates the **optional** thesauri you
+   chose (`none`, or nothing chosen, adds none), plus the thesauri the installed
+   ontologies declare, unless declined. A declined mandatory thesaurus is a
+   warning, never a failure. Each selected TLD has its listed term files verified against their
+   checksums and copied in (a thesaurus the manifest lists without files is
+   created empty), **and is then activated**: the hierarchy is flagged active, its virtual ontology sections
    (`<tld>0`/`<tld>1`/`<tld>2`) are provisioned, and its thesaurus tree is rooted —
    so the hierarchies you selected are browseable at the first login. Importing
    without activating leaves the terms in the database but unreachable (the section
@@ -181,12 +183,42 @@ affordances (the wizard has its *Verify* screen and in-wizard login instead).
     database. This is the end-to-end proof, and it is why the CLI prints
     `✔ install complete — root login verified`.
 
-!!! note "One default thesaurus set"
-    Which optional thesauri are pre-selected is data, not code: the vendored
-    descriptors in `install/import/hierarchy/hierarchies.json` flagged
-    `install_checked_default`. Today that is **Spain (`es`)** alone. The CLI's
-    default, `install.sh`'s `default` answer and the wizard's pre-ticked boxes all
-    read that one list.
+!!! note "Only declared thesauri are pre-selected"
+    The CLI's default, `install.sh`'s `default` answer and the wizard's
+    pre-ticked boxes are the same set: the thesauri the chosen ontologies
+    **declare**, all ticked (a mandatory one marked strongly recommended, but
+    still editable). Nothing else is
+    pre-selected — in particular **no country's toponymy**. When the install
+    adds no toponymy thesaurus, the CLI prints a suggestion (and the wizard shows
+    one) to import your own country's, e.g. `--hierarchies np` for an
+    installation in Nepal.
+
+### The thesaurus manifest (`hierarchy.json`)
+
+The thesauri a release offers are listed in ONE file,
+`install/import/hierarchy/hierarchy.json`, exported from the Dédalo master by
+*Maintenance › Export hierarchy* (see
+[Install new hierarchies](../management/install_new_hierarchies.md)). It has the
+same envelope as the ontology catalog (`version`, `date`, `entity_id`, `entity`,
+`entity_label`, `host`), a `typologies` list, and one `active_hierarchies` entry
+per thesaurus: its `tld`, name, typology, default language, real section, scope
+note, declared `dependencies` and `data_files` — each `{file, sha256}` of a
+`<tld>1.copy.gz` / `<tld>2.copy.gz` beside it.
+
+- **Every entry is offered**, with or without data files. An entry with no data
+  files is installed as an **empty** thesaurus (activated, nothing imported).
+- Before anything of a thesaurus is written, each listed file must exist and
+  match its `sha256`. A missing or changed file refuses that thesaurus, and the
+  install fails.
+- The installer refuses a manifest it cannot read or that is malformed
+  (`install.manifest_invalid`) rather than offering nothing.
+- When a thesaurus is activated for the first time, its registry record is
+  written from the entry: code, name, typology, default language (which must
+  already exist in the Languages thesaurus — otherwise the activation is
+  refused), real section, scope note and dependencies. An existing record is
+  never overwritten.
+- Languages (`lg`) is listed for reference only: it has no data files, its
+  terms ship in the database seed, and it is never offered as a choice.
 
 ## What the seed installs
 
@@ -289,19 +321,27 @@ both. Each one is **mandatory** or **optional**.
 - The declared **thesauri** are added to the
   [`install_hierarchies`](#what-the-installer-does-in-order) step. The core Languages
   thesaurus (`lg`) is never listed, because every install activates it.
-- A **mandatory** dependency is always installed. It cannot be unticked in the
+- A **mandatory ontology** is always installed. It cannot be unticked in the
   wizard, and `--decline-dependencies` has no effect on it.
 - An **optional** dependency is offered already ticked. Untick it in the wizard,
   or name it in `--decline-dependencies`, to leave it out:
   `the ontology 'x' (an optional dependency of 'y') is declined — not installed`.
+- **A thesaurus dependency never blocks an install.** A **mandatory thesaurus**
+  is a strong recommendation, not a requirement: you can work without it,
+  keep a thesaurus of your own under another name, or install it any time
+  later. It is offered ticked and marked *strongly recommended*; untick it in
+  the wizard, or name it in `--decline-dependencies`, to leave it out. The
+  install continues with a warning:
+  `the thesaurus 'x' (declared mandatory by 'y') is declined — not installed; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`.
 - A mandatory ontology the source does not offer is refused before anything is
   written: `'x', declared as a dependency of 'y', is not offered by the ontology server '…'`.
   An optional one is skipped with a warning.
-- A thesaurus is installed from the release's own files
-  (`install/import/hierarchy/<tld>1.copy.gz`). A **mandatory** thesaurus the
-  release does not ship refuses the install before anything is written:
-  `the thesaurus 'x', a mandatory dependency of 'y', is not vendored (no x1.copy.gz) — it cannot be installed`.
-  An optional one is skipped with a warning.
+- A thesaurus is installed from the release's
+  [thesaurus manifest](#the-thesaurus-manifest-hierarchyjson). A thesaurus with
+  no entry there is skipped with a warning — mandatory or not, never an error:
+  `the thesaurus 'x' (declared mandatory by 'y') has no entry in hierarchy.json — skipped; it is strongly recommended and can be installed later from Maintenance › Install hierarchies`.
+  An entry without data files is not an error either: the thesaurus is created
+  empty.
 - **An older ontology server publishes no dependencies.** The installer then
   warns, names the ontology, and installs exactly what you chose — it never works
   out dependencies on its own:
@@ -352,7 +392,15 @@ they are not a choice. The source follows the other flags: `--ontology-source`,
 `--no-update-servers`, or the configured server. `--plan` shows the outcome for a
 given answer: `ontology_install` is the install order,
 `active_ontology_tlds` what will be written, `hierarchy_dependencies` the
-declared thesauri and `hierarchies` every thesaurus the install will add.
+declared thesauri, `hierarchies` every thesaurus the install will add and
+`suggestions` the toponymy hint when none of them is a toponymy.
+
+`--list-hierarchies` does the same for the thesauri — the release's manifest,
+core apart, each entry with `has_data` (false = it installs empty):
+
+```shell
+bun run scripts/install.ts --list-hierarchies
+```
 
 ### Offline installs (`--ontology-source`)
 
@@ -496,8 +544,10 @@ the update server is in use, the step also reads the server's catalog and adds
 its ontologies, grouped by typology; without it (or when the server cannot be
 reached) only the built-in `oh` is offered. A short note describes `oh` and
 `tch`. Under each ticked ontology the step lists its declared dependencies, each
-with a checkbox: mandatory ones are ticked and locked, optional ones are ticked
-and can be unticked. A dependency on a core ontology or thesaurus is always
+with a checkbox: a mandatory ontology is ticked and locked; everything else is
+ticked and can be unticked. A mandatory thesaurus is marked *strongly
+recommended*: unticking it shows a warning that it can be installed later from
+Maintenance › Install hierarchies, and the install goes on without it. A dependency on a core ontology or thesaurus is always
 installed, so it is shown ticked and locked as well. When the source declares nothing for it, the step warns
 instead. At least one must be ticked.
 The choice is saved with the configuration (`ACTIVE_ONTOLOGY_TLDS`), and after
@@ -506,10 +556,15 @@ the restart the **Install database** step runs three actions in a row:
 with its own status line. It stops at the first failure; reference warnings
 are shown but do not block.
 
-The **Hierarchies** step lists the optional thesauri with the shared default
-pre-ticked. The thesauri the installed ontologies declare are ticked too: a
-mandatory one is locked and names the ontologies that require it. The server
-adds the mandatory ones even if the page does not send them. Languages is not
+The **Hierarchies** step lists every thesaurus of the release's manifest,
+grouped by typology; one without data files is marked *Empty*. Only the
+thesauri the installed ontologies declare are ticked, and every one can be
+unticked: a mandatory one is marked *strongly recommended by* the ontologies
+that declare it, and unticking it shows the warning that it can be installed
+later. Ticking a thesaurus also ticks the thesauri its own entry declares.
+Nothing else is pre-ticked; the toponymy group shows a suggestion to import
+your own country's. The server installs exactly what the page sends; a
+mandatory thesaurus left out is reported as a warning, never refused. Languages is not
 among them — it was activated with the database — and submitting the step with
 nothing ticked is valid.
 

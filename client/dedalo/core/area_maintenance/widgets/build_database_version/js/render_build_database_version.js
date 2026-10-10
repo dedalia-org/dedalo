@@ -512,7 +512,7 @@ const render_build_matrix_hierarchy_main_sql = function (self, value) {
 	const fragment = new DocumentFragment()
 
 	// info
-		const text = `Re-creates the file 'install/import/matrix_hierarchy_main.sql' from the current database, filtered by the 'to_install' TLD list (install/import/hierarchy/hierarchies_to_install.json). All hierarchies are written inactive.`
+		const text = `Retired (the engine refuses it): the thesaurus registry no longer ships as a SQL file. Optional thesauri are described by 'install/import/hierarchy/hierarchy.json' (Export hierarchy panel → Export hierarchy.json) and their registry rows are created from it at activation; the install seed carries only the core Languages row.`
 		ui.create_dom_element({
 			element_type	: 'div',
 			inner_html		: text,

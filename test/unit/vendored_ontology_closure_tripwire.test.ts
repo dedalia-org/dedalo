@@ -25,6 +25,27 @@
  *  - the installer reads only `oh` from that dir (VENDORED_DOMAIN_TLDS).
  * ANTI-VACUITY: > 400 references measured, both soft classes observed, and a
  * planted node whose model lives in a non-core TLD flips the verdict red.
+ *
+ * THE THESAURUS HALF (2026-10-10, WC-2026-10-10-hierarchy-json-manifest). The
+ * release also vendors install/import/hierarchy/hierarchy.json — the one
+ * thesaurus manifest the installer offers from. A thesaurus is installable
+ * when it has an ENTRY there (data files or not: no data = an empty thesaurus),
+ * so every `main: 'hierarchy1'` dependency the release declares — in ANY
+ * vendored ontology.json entry or any hierarchy.json entry, mandatory or
+ * optional — must name an entry (or a CORE hierarchy, which the seed always
+ * activates), or an install of the declaring ontology is thinner than its
+ * declaration says — a warning the operator cannot act on (a thesaurus never
+ * blocks an install, owner decision 2026-10-10: a mandatory one without an
+ * entry is a "strongly recommended" warning, an optional one a skip warning).
+ * The release itself must not ship that warning. Every declaration must also survive THE
+ * shared normalizer intact: an item it would drop is a dependency the
+ * installer never sees. Measured through the installer's own collector +
+ * plan (`collectHierarchyDependencies`, `hierarchyDependencyPlan`). The vendored
+ * release declares no hierarchy1 dependency today (it predates hierarchy60),
+ * so the floors count DECLARERS read, and planted declarations — one with an
+ * entry, a mandatory and an optional one without — prove the verdict moves.
+ * The manifest's own integrity (reader, digests, no lg data file, the retired
+ * files absent, seed registry = CORE) is install_seed_drift_tripwire's.
  * Works on the current seed and on a core-only rebuild (only core-TLD rows of
  * the seed are counted as present). Hermetic: no database, no network.
  */
@@ -34,12 +55,26 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { copyBlockRecords, copyBlocks } from '../../src/core/db/copy_text.ts';
+import { CORE_HIERARCHIES } from '../../src/core/install/hierarchy_meta.ts';
 import {
+	collectHierarchyDependencies,
+	type DependencyDeclarer,
+	hierarchyDependencyPlan,
 	VENDORED_DOMAIN_TLDS,
+	vendoredInfoFrom,
 	vendoredOntologyCatalog,
 } from '../../src/core/install/ontology_choice.ts';
-import { SEED_DUMP_PATH, VENDORED_ONTOLOGY_DIR } from '../../src/core/install/paths.ts';
+import {
+	HIERARCHY_IMPORT_DIR,
+	SEED_DUMP_PATH,
+	VENDORED_ONTOLOGY_DIR,
+} from '../../src/core/install/paths.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
+import {
+	HIERARCHY_MANIFEST_FILE,
+	parseHierarchyManifestText,
+} from '../../src/core/ontology/hierarchy_manifest_format.ts';
+import { normalizeOntologyDependencies } from '../../src/core/ontology/ontology_dependencies.ts';
 import {
 	classifyReference,
 	danglingDependencies,
@@ -138,5 +173,98 @@ describe('vendored ontology closure', () => {
 		const red = verdict([...packageLines, planted]);
 		expect(red.dangling.map((ref) => ref.to)).toEqual(['zzvq9']);
 		expect(red.foreign).toContain('zzvq');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The thesaurus half: every declared hierarchy1 dependency has a manifest entry.
+// ---------------------------------------------------------------------------
+
+/** The vendored thesaurus manifest, through THE reader (a refusal reds the file). */
+const hierarchyManifest = parseHierarchyManifestText(
+	readFileSync(join(HIERARCHY_IMPORT_DIR, HIERARCHY_MANIFEST_FILE), 'utf8'),
+);
+
+/** The TLDs an install can activate: every manifest entry (data or not) — the offer. */
+const listedThesauri: ReadonlySet<string> = new Set(
+	hierarchyManifest.active_hierarchies.map((entry) => entry.tld),
+);
+
+/** Every vendored ontology.json entry's raw declaration, by TLD. */
+const vendoredOntologyInfo = vendoredInfoFrom(
+	JSON.parse(readFileSync(join(VENDORED_ONTOLOGY_DIR, 'ontology.json'), 'utf8')),
+);
+
+/**
+ * Every declarer of the release — each vendored ontology.json entry and each
+ * hierarchy.json entry — normalized through THE shared normalizer; a dropped
+ * item lands in `dropped` (it would be invisible to the installer).
+ */
+function releaseDeclarers(dropped: string[]): DependencyDeclarer[] {
+	const fromOntologies = [...vendoredOntologyInfo].map(([tld, entry]) => ({
+		tld,
+		dependencies: normalizeOntologyDependencies(tld, entry.dependencies, dropped),
+	}));
+	const fromThesauri = hierarchyManifest.active_hierarchies.map((entry) => ({
+		tld: entry.tld,
+		dependencies: entry.dependencies ?? null,
+	}));
+	return [...fromOntologies, ...fromThesauri];
+}
+
+/** The installer's verdict over a declarer set: what installs, what warns (a thesaurus never refuses). */
+function thesaurusVerdict(declarers: readonly DependencyDeclarer[]) {
+	const { dependencies } = collectHierarchyDependencies(declarers);
+	return hierarchyDependencyPlan(dependencies, listedThesauri);
+}
+
+describe('vendored thesaurus closure', () => {
+	const dropped: string[] = [];
+	const declarers = releaseDeclarers(dropped);
+
+	test('the measurement reads the whole release (both files, every entry)', () => {
+		expect(vendoredOntologyInfo.size).toBeGreaterThan(100);
+		expect(hierarchyManifest.active_hierarchies.length).toBeGreaterThan(100);
+		expect(declarers.length).toBe(
+			vendoredOntologyInfo.size + hierarchyManifest.active_hierarchies.length,
+		);
+	});
+
+	test('every declaration survives the shared normalizer intact', () => {
+		expect(dropped).toEqual([]);
+	});
+
+	test('every declared hierarchy1 dependency names a manifest entry (or a core hierarchy)', () => {
+		const verdict = thesaurusVerdict(declarers);
+		expect(verdict.warnings, 'declared thesauri without an entry').toEqual([]);
+	});
+
+	test('planted declarations move the verdict (entry → install; none → warned, mandatory or not)', () => {
+		const withEntry = [...listedThesauri].find(
+			(tld) => !CORE_HIERARCHIES.some((c) => c.tld === tld),
+		);
+		expect(withEntry).toBeDefined();
+		const planted: DependencyDeclarer = {
+			tld: 'zzvt',
+			dependencies: [
+				{ tld: withEntry ?? '', main: 'hierarchy1', mandatory: true },
+				{ tld: 'zzvtmissing', main: 'hierarchy1', mandatory: true },
+				{ tld: 'zzvtoptional', main: 'hierarchy1', mandatory: false },
+			],
+		};
+		const red = thesaurusVerdict([...declarers, planted]);
+		expect(red.install).toContain(withEntry ?? '');
+		expect(red).not.toHaveProperty('errors');
+		expect(red.warnings.length).toBe(2);
+		expect(red.warnings[0]).toContain("'zzvtmissing' (declared mandatory by 'zzvt')");
+		expect(red.warnings[0]).toContain('strongly recommended');
+		expect(red.warnings[1]).toContain('zzvtoptional');
+		const malformed: string[] = [];
+		normalizeOntologyDependencies(
+			'zzvt',
+			[{ tld: 'zzvq', main: 'nope', mandatory: true }],
+			malformed,
+		);
+		expect(malformed.length).toBe(1);
 	});
 });

@@ -4,9 +4,9 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 648,
-		"functions": 8795,
-		"functionsOverCap": 675,
+		"files": 652,
+		"functions": 8904,
+		"functionsOverCap": 674,
 		"filesOverCap": 259
 	},
 	"ledger": [
@@ -123,6 +123,11 @@
 		{
 			"generated": "2026-10-10",
 			"functionsOverCap": 675,
+			"filesOverCap": 259
+		},
+		{
+			"generated": "2026-10-10",
+			"functionsOverCap": 674,
 			"filesOverCap": 259
 		}
 	],
@@ -261,7 +266,7 @@
 		"src/core/media/tools/subtitles.ts": 16,
 		"src/core/media/tools/timecode.ts": 12,
 		"src/core/media/tools/versions.ts": 12,
-		"src/core/ontology/data_io.ts": 14,
+		"src/core/ontology/data_io.ts": 13,
 		"src/core/ontology/data_io_import.ts": 18,
 		"src/core/ontology/hierarchy_provision.ts": 20,
 		"src/core/ontology/hierarchy_state.ts": 22,

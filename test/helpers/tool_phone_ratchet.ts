@@ -129,7 +129,7 @@ export const PHONE_CASES: Record<string, ToolPhoneProbe> = {
 	tool_hierarchy: {
 		// hierarchy1/244 = `lg`, the CORE hierarchy every install seed ships (its registry
 		// record is in install/db/seed/matrix_hierarchy_main.copy.gz; install_seed_drift
-		// _tripwire keeps CORE ⊆ hierarchies_to_install). Was /1 (`ts`), which the compiled
+		// _tripwire keeps that registry = CORE exactly). Was /1 (`ts`), which the compiled
 		// seed no longer ships: it has no installable data file (2026-10-09).
 		caller: {
 			tipo: 'hierarchy1',

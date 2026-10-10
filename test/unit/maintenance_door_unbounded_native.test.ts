@@ -631,6 +631,8 @@ const REQUEST_BOUNDED: Readonly<Record<string, string>> = {
 	'update_code.cancel_image_update_request': 'removes one request file; no statement',
 	'export_hierarchy.sync_hierarchy_active_status':
 		'one component save per ACTIVE hierarchy row (hierarchy-count-sized, each a request-sized write)',
+	'export_hierarchy.export_hierarchy_json':
+		'one registry read (hierarchy-count rows) + one lg1 record read per ACTIVE hierarchy; the data-file digests are disk IO, not statements',
 	'diffusion_server_control.get_value': 'job-queue status reads (ops-sized tables)',
 	'diffusion_server_control.cancel_process': 'one job-row update',
 	'diffusion_server_control.requeue_job': 'one job-row update',

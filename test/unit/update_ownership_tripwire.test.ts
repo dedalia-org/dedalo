@@ -58,6 +58,8 @@ const ENGINE_NATIVE: Record<string, string> = {
 		'hierarchy active-status sync through the TS write path',
 	'export_hierarchy.export_hierarchy':
 		'psql dump of hierarchy sections into the ENGINE-owned install/import/hierarchy dir (the same directory add_hierarchy imports from) — no PHP-tree surface is written',
+	'export_hierarchy.export_hierarchy_json':
+		'writes the hierarchy.json manifest (registry census + data-file digests) into the ENGINE-owned install/import/hierarchy dir — no PHP-tree surface is written',
 	'add_hierarchy.install_hierarchies':
 		'imports + activates vendored hierarchy files into the engine-owned (configured) database — the wizard EXECUTE path, reachable post-seal only through this widget',
 	'add_hierarchy.reset_hierarchies':

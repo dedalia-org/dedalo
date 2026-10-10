@@ -108,7 +108,7 @@ leaf first:
 
 | Module | Role |
 |---|---|
-| `src/core/install/ontology_choice.ts` | PURE, config-free. The answer (`normalizeOntologyChoice`: default `DEFAULT_DOMAIN_ONTOLOGIES` = `oh`, core dropped with a note, `none` refused), the built-in catalog (`vendoredOntologyCatalog`: `oh` only — `VENDORED_DOMAIN_TLDS` — its dependencies READ from the vendored `ontology.json` entry, absent = not declared), the merge (precedence local > vendored > server), the closure (`closeOntologyChoice`: `main: ontology35` dependencies depth-first, `main: hierarchy1` ones into the thesaurus set; mandatory always, optional unless `declined_dependencies`), the request, `activeOntologyTldsOf`, the round trip from a written list (`ontologyRequestFromActive`) and the ONE view (`describeOntologyCatalog`) both front ends show |
+| `src/core/install/ontology_choice.ts` | PURE, config-free. The answer (`normalizeOntologyChoice`: default `DEFAULT_DOMAIN_ONTOLOGIES` = `oh`, core dropped with a note, `none` refused), the built-in catalog (`vendoredOntologyCatalog`: `oh` only — `VENDORED_DOMAIN_TLDS` — its dependencies READ from the vendored `ontology.json` entry, absent = not declared), the merge (precedence local > vendored > server), the closure (`closeOntologyChoice`: `main: ontology35` dependencies depth-first, `main: hierarchy1` ones into the thesaurus set; a mandatory ontology always, an optional one and EVERY thesaurus unless `declined_dependencies` — a declined mandatory thesaurus is a warning, `recommendedThesaurusWarning`), the request, `activeOntologyTldsOf`, the round trip from a written list (`ontologyRequestFromActive`) and the ONE view (`describeOntologyCatalog`) both front ends show |
 | `src/core/install/ontology_catalog.ts` | `resolveOntologyCatalog(source, {allowedServers})` — the one place a source is read: `none` → built-in only; `local` → a directory or an extracted archive, its `ontology.json` version must equal this engine's `major.minor`; `server` → `fetchOntologyManifest`. Refuses `install.invalid_input` (operator path) or `install.step_failed` (server) |
 | `src/core/install/ontology_archive.ts` | `extractOntologyArchive` — a pure tar walk (no `tar` binary): regular files named `ontology.json` / `<tld>.copy.gz` at the root or under one top directory, through `confinedPath`; links, devices, absolute or `..` paths, > 256 entries or > 512 MiB refused |
 | `src/core/install/hierarchy_dependencies.ts` | `installedHierarchyDependencies()` — the wizard's `install_hierarchies` step reads the thesauri the registry rows of `ACTIVE_ONTOLOGY_TLDS` declare (`misc.hierarchy60`, read-only), with the plan's own collector |
@@ -143,16 +143,25 @@ seed compiler passes each release entry's declaration through the import door
 so the seed's core registry rows hold the same `hierarchy60` the plan reads —
 `install_seed_drift_tripwire` checks the committed seed against the release.
 The result goes into `InstallPlan.hierarchyDependencies`,
-and adds them to `plan.hierarchies`: mandatory ones always (even with
-`--hierarchies none`), optional ones unless declined. `hierarchyDependencyPlan`
-checks each against the vendored thesauri (`offeredHierarchyTlds()` — `hierarchies.json` ∩ the `<tld>1.copy.gz` files): a mandatory
-thesaurus with no `<tld>1.copy.gz` is a plan error before any write, an optional
-one a warning. The wizard's `install_hierarchies` step runs in the restarted
-process with no plan, so it re-derives the set from the installed registry rows
-(`installedHierarchyDependencies`) and unions the mandatory ones into the posted
-list (`withMandatoryHierarchies`); a mandatory one that is not vendored is
-refused `install.invalid_input` before any write. The posted list is never
-trusted to carry them.
+and adds them to `plan.hierarchies` (even with `--hierarchies none`) unless
+declined. **A thesaurus dependency never blocks an install** (owner decision
+2026-10-10, `WC-2026-10-10-ontology-dependencies-hierarchy60` addendum):
+`mandatory: true` on a `main: hierarchy1` item is a STRONG RECOMMENDATION —
+pre-ticked like an optional one and declinable; declining it is a WARNING from
+ONE function, `recommendedThesaurusWarning` (dependency, dependants, and
+`THESAURUS_INSTALL_LATER` = *Maintenance › Install hierarchies*).
+`hierarchyDependencyPlan` checks each against the thesaurus manifest
+(`offeredHierarchyTlds()` — every non-core entry of `hierarchy.json`, with or
+without data files) and answers `{install, warnings}`: a thesaurus with no
+entry is a warning and skipped, mandatory or not. An entry without data files
+is installable — it is created empty. The wizard's `install_hierarchies` step
+runs in the restarted process with no plan, so it re-derives the set from the
+installed registry rows (`installedHierarchyDependencies`) and only CHECKS the
+posted list against it (`unmetHierarchyDependencies`): the posted list is the
+operator's answer (the client pre-ticks every declared thesaurus), nothing is
+added, and a mandatory one left out — declined or without an entry — is a
+warning in the step's `msg`. Mandatory ONTOLOGY dependencies keep their rule
+(always installed; unoffered → error).
 
 **The source.** `ontologySourceFor(answers, priorEnv)` (in the plan): a local
 `ontology_source` wins; else the first entry of `ontologyServersFor` (a prior
@@ -343,8 +352,9 @@ restart crash-loops.
 
 `hierarchy_meta.ts` `CORE_HIERARCHIES` names the thesauri every install has —
 today only `lg` (Languages). Its terms ship **in the seed**, in `matrix_langs`
-(the table `lg1`/`lg2` resolve to), so it is never imported: there is no
-`lg1.copy.gz` and no `lg` descriptor in `hierarchies.json`. It only needs
+(the table `lg1`/`lg2` resolve to), so it is never imported: `hierarchy.json`
+lists it for reference with `data_files: []`, no `lg1.copy.gz` is ever vendored,
+and its registry row is the only one the seed ships. It only needs
 activating — flag active, active in thesaurus, link the root — which
 `activateCoreHierarchies()` (`hierarchy_activate.ts`) does inside
 `install_db_from_default_file`, so every surface that restores the seed (CLI,
@@ -352,11 +362,75 @@ wizard, `install.sh`) gets it with no separate step. `installHierarchies` answer
 a core TLD with activation only (`replace` is refused: its terms cannot be
 re-imported), and a front end that lists `lg` gets it dropped with a note.
 
-The optional thesauri pre-selected by default are data, not code:
-`defaultOptionalHierarchies()` reads the descriptors flagged
-`install_checked_default` in `hierarchies.json` (today `es`). The CLI default,
-`install.sh`'s `default` answer and the wizard's `install_checked_default`
-context property all come from it.
+## The thesaurus manifest (`hierarchy.json`)
+
+The thesauri a release offers are ONE exported file,
+`install/import/hierarchy/hierarchy.json`, written on the master by the
+*Export hierarchy* widget (`export_hierarchy_json`, census
+`src/core/ontology/hierarchy_census.ts`) and read back through ONE strict reader
+(`src/core/ontology/hierarchy_manifest_format.ts`, a pure leaf both sides
+import; `readHierarchyManifest()` in `hierarchy_meta.ts` is the installer's
+door). Shape: the ontology.json envelope (`version`, `date`, `entity_id`,
+`entity`, `entity_label`, `host` — `manifestEnvelope()` in
+`src/core/ontology/data_io.ts`, shared), `typologies` `[{typology_id, name,
+name_data}]` (the `hierarchy13` records), and `active_hierarchies`, one entry per
+ACTIVE `hierarchy1` row: `tld` (`hierarchy6`), `name`/`name_data`
+(`hierarchy5`), `typology_id`/`typology_name` (`hierarchy9`), `lang:
+{section_id, label}` (`hierarchy8` → an `lg1` record; the import uses the int
+`section_id`), `real_section_tipo` (`hierarchy109`, null = the provisioning
+default), `active_in_thesaurus` (`hierarchy125`), `scope_note_data`
+(`hierarchy61`, `[]` when empty), `dependencies` (`misc.hierarchy60` through the
+shared normalizer; absent = not declared) and `data_files` `[{file, sha256}]`
+(the `<tld>1|2.copy.gz` files beside it at export time; `[]` = an empty
+thesaurus; always `[]` for a core hierarchy). A malformed file refuses
+(`install.manifest_invalid`) — it is never read as an empty offer. The census
+writes record by record: each entry is checked alone (`validateHierarchyEntry`,
+plus a set `real_section_tipo` must be a `section`), and a row that fails is one
+`Skipped hierarchy1/<id>` error line, never a failed export. The data export
+admits only an active row's own `<tld>1`/`<tld>2`. Contract:
+`engineering/wire_contract/WC-2026-10-10-hierarchy-json-manifest.md`.
+
+- **Offer** — `offeredHierarchies()`: every non-core entry, data or not; the
+  wizard and the add_hierarchy widget get the same view from
+  `hierarchyChoiceView(lang)` (`{tld, label, typology, has_data,
+  dependencies}` — `dependencies` = the entry's declared non-core thesauri
+  `{tld, mandatory}`, pre-ticked by the client when the entry is ticked; labels
+  picked from `name_data` in the requesting user's language through
+  `ontology/manifest_lang_pick.ts`).
+- **Pre-selection** — ONLY the declared dependencies: the CLI default,
+  `install.sh`'s `default` answer and the wizard's ticked boxes are the plan's
+  `hierarchyDependencies` (all ticked, a mandatory one marked strongly
+  recommended — never locked). No toponymy is
+  ever a default; a plan with no toponymy thesaurus (typology
+  `TOPONYMY_TYPOLOGY_ID`) carries `suggestions` = `TOPONYMY_SUGGESTION`
+  (`install_plan.ts`), and the wizard shows the label
+  `install_toponymy_suggestion`.
+- **The chosen thesauri's own declarations** (`installHierarchies` →
+  `hierarchy_dependencies.ts` `withThesaurusDependencies` →
+  `ontology_choice.ts` `closeThesaurusChoice`) — before anything is written,
+  the batch is checked transitively against the chosen entries'
+  `dependencies`: NOTHING is added (the front ends pre-tick declared thesauri);
+  a mandatory thesaurus left out, or one with no entry, is a warning in `msg`;
+  only a mandatory `ontology35` not installed refuses the whole batch. The CLI
+  plan runs the same closure with the decline policy — a declared thesaurus is
+  added pre-ticked unless declined (`--plan` shows it). A reset is not closed.
+- **Preflight** (`activationBlocker`, `hierarchy_activate.ts`) — for a TLD with
+  no registry row yet, before its terms are copied: the `lg1/<lang.section_id>`
+  and `hierarchy13/<typology_id>` records exist, and `provisionBlocker` accepts
+  the entry (a set `real_section_tipo` names a `section`). A refusal writes
+  nothing.
+- **Import** (`hierarchy_import.ts`) — for each listed data file: exists AND
+  sha256 matches, verified before any write; a failure refuses that TLD with
+  nothing written. No data files = activation only. Without reset, the sections
+  the entry LISTS are counted (`classifyListedSections`): data present → no copy,
+  but activation still runs (an interrupted run converges); a section holding
+  only the root an empty activation minted while its file carries more → refused
+  naming Reset.
+- **Activation of a new row** (`activateHierarchy`, `hierarchy_activate.ts`) — the
+  registry row is written from the entry in one transaction: `hierarchy6`,
+  `hierarchy5`, `hierarchy9`, `hierarchy8` = `lg1/<lang.section_id>`,
+  `hierarchy109`, `hierarchy61`, `misc.hierarchy60`; then `ensureHierarchy`
+  provisions. An existing row is never re-described.
 
 ## The install seed
 
@@ -370,7 +444,7 @@ created but ship EMPTY: the relation-index reader refuses an empty store while
 relation data exists, so `completeFreshInstall` (`db_restore.ts`) runs
 `ensureSearchStores()` FIRST, before any engine read or write. Optional hierarchy
 import files are vendored under `install/import/hierarchy/` (`<tld>1`/`<tld>2`
-`.copy.gz` files + three metadata JSONs).
+`.copy.gz` files + the manifest `hierarchy.json`, above).
 
 The seed is **compiled, never hand-edited and never built from a database**:
 `bun run seed:build` (the same compiler as Maintenance → *Build database version* →
@@ -383,7 +457,7 @@ Its sources:
 | Schema (tables, functions, triggers, indexes, extensions) | `install/db/seed/schema.sql` plus every file in `install/db/migrations/` |
 | Core ontology (`CORE_ONTOLOGY_TLDS`: `dd`, `rsc`, `ontology`, `ontologytype`, `hierarchy`, `lg` — `seed_sources.ts` reads that one list) and private lists | the ontology release `install/import/ontology/<major.minor>/` — the packages every ontology update downloads — applied through the update's own per-package door |
 | Languages terms (`matrix_langs`) | `install/db/seed/matrix_langs.copy.gz` |
-| Hierarchy registry (`matrix_hierarchy_main`, every hierarchy inactive) | `install/db/seed/matrix_hierarchy_main.copy.gz` |
+| Hierarchy registry (`matrix_hierarchy_main`): the CORE rows only (`lg`), shipped inactive — the restore activates them; every other thesaurus's row is written at activation from its `hierarchy.json` entry | `install/db/seed/matrix_hierarchy_main.copy.gz` |
 | Root user (no password), General project, Admin/User profiles | `SEED_RECORDS` in `src/core/install/seed_sources.ts` |
 | Data version | generated: the engine's version |
 
@@ -403,7 +477,7 @@ the second scratch database through the installer's own restore — search store
 engine ontology, Languages activation — the boot migrations run over it, and the
 core ontology, Languages and root password are checked. It checks what the seed
 promises (the core), never a domain ontology. A registry record the activation
-would refuse, an active hierarchy, an ontology row of another TLD or an undeclared
+would refuse, an active hierarchy, a registry row of a non-core hierarchy, an ontology row of another TLD or an undeclared
 extension refuses the compile. The database user needs `CREATEDB`.
 
 The seed is committed with `install/db/dedalo_install.manifest.json`: the seed's
@@ -423,18 +497,28 @@ holds the compiler's TLDs = `CORE_ONTOLOGY_TLDS` = the catalog default of
 pre-auth gate + reload-resume + verify-await regressions, the `.env` write
 contract, the seed restore + Argon2id root pw + login (real scratch DB), the
 hierarchy import, the seed drift tripwire, and the full CLI **e2e ending in a
-verified root login** (and asserting `lg` active with zero `matrix_hierarchy`
-rows). `install_plan_parity_tripwire` holds CLI and wizard to one plan;
+verified root login** (asserting `lg` active with zero `lg` rows in
+`matrix_hierarchy`, and one data-carrying manifest entry installed with its
+registry row written from the entry). The thesaurus manifest:
+`hierarchy_manifest_format` (the strict reader, hermetic), `hierarchy_census_native`
+(the export census, on the suite database), `install_seed_drift_tripwire` (the
+vendored `hierarchy.json` parses, every listed file matches its sha256, every
+vendored file is listed, no `lg` data file, the retired files absent, the seed
+registry = the core rows), `install_hierarchy_activate_native` and
+`hierarchy_import_atomic_native` (a row written from the entry, a bad language
+id, a checksum mismatch, an empty thesaurus — each refused or applied with
+nothing partial). `install_plan_parity_tripwire` holds CLI and wizard to one plan;
 `install_core_hierarchy_native` proves the core activation needs no import;
 `install_sh_portability` runs `install.sh`'s answer-to-flag block through the
 plan's own parser. The ontology half: `install_ontology_choice` (the closure,
 hermetic), `install_hierarchy_dependencies_native` (the step's reader and its
-mandatory union over real registry rows, on the suite database),
+never-blocking check over real registry rows, on the suite database),
 `ontology_references_native` (the classifier and codec, hermetic),
 `ontology_manifest_native` (the manifest client against a loopback stand-in
 master, hermetic), `ontology_dependencies_native` (`hierarchy60` → census →
 manifest, on the suite database), `vendored_ontology_closure_tripwire` (the built-in `oh` is
-installable alone over the core seed, hermetic) and
+installable alone over the core seed, and every declared thesaurus dependency
+names a `hierarchy.json` entry, hermetic) and
 `install_ontology_door_native` (both steps driven for real on the suite database
 against a loopback master: closure order, undeclared warning, local
 directory/archive, preflight refusals with the database untouched, tampered

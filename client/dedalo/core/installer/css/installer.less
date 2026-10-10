@@ -640,7 +640,8 @@
 				font-size: 0.75rem;
 				font-weight: 600;
 			}
-			// a thesaurus an installed ontology declares MANDATORY: locked, explained
+			// a thesaurus declared MANDATORY (by an installed ontology or a ticked
+			// thesaurus): STRONGLY RECOMMENDED — a mark, never a lock (2026-10-10)
 			.required_hierarchy {
 				color: var(--ut_text_muted);
 				font-size: 0.75rem;
@@ -648,6 +649,13 @@
 			>.hierarchy_checkbox:disabled {
 				cursor: not-allowed;
 			}
+		}
+		// unticking a strongly recommended thesaurus: where to install it later
+		.recommended_declined {
+			padding-left: 1.6rem;
+			font-size: 0.78rem;
+			line-height: 1.35;
+			color: var(--ut_run);
 		}
 
 	}//end .hierarchies_import_block

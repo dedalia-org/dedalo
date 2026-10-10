@@ -10,19 +10,23 @@
 * and synchronises thesaurus active-status flags for those hierarchies.
 *
 * This widget is rendered inside the system-administrator maintenance area
-* (area_maintenance) and provides two long-running administrative operations:
+* (area_maintenance) and provides three long-running administrative operations:
 *
 *   1. Export hierarchies — fires `exec_export_hierarchy` which triggers the
 *      server to produce `.copy.gz` files in the engine's own hierarchy import
 *      directory (`install/import/hierarchy/`).  The caller
-*      supplies a comma-separated list of section tipos (e.g. `"es1,es2"`) or
-*      `"*"` for all active sections.
+*      supplies an explicit comma-separated list of section tipos of ACTIVE
+*      hierarchies (e.g. `"es1,fr1"`); the core `lg` is never exported.
 *
-*   2. Sync hierarchy active-status — fires `sync_hierarchy_active_status` to
+*   2. Export hierarchy.json — fires `exec_export_hierarchy_json`, which writes
+*      the thesaurus manifest the installer reads (every active hierarchy +
+*      the sha256 of the data files present in that directory).
+*
+*   3. Sync hierarchy active-status — fires `sync_hierarchy_active_status` to
 *      reconcile the `Active` flag stored in hierarchy records against the
 *      corresponding `Active in thesaurus` flag.
 *
-* Both API calls route through `dd_area_maintenance_api::widget_request` with
+* All API calls route through `dd_area_maintenance_api::widget_request` with
 * a one-hour timeout and no retry on failure (retries=1 means a single attempt).
 *
 * Lifecycle follows the standard Dédalo widget pattern:
@@ -201,7 +205,10 @@ export_hierarchy.prototype.build = async function(autoload=false) {
 *     section_tipo argument.  This is intentional: the operation is stateless.
 *
 * @param {string} section_tipo - Comma-separated section tipo codes to export,
-*   e.g. `"es1"`, `"es1,es2"`, or `"*"` for all active sections.
+*   e.g. `"es1"` or `"es1,fr1"`. An explicit list ONLY (2026-10-10): each tipo
+*   must be the thesaurus or model section of an ACTIVE hierarchy; the core
+*   `lg` is refused (its terms ship in the seed). Each refusal is one line of
+*   the response's `errors`.
 * @returns {Promise<Object>} Resolves to the raw API response object:
 *   {
 *     result   : boolean,    // true on success
@@ -225,7 +232,7 @@ export_hierarchy.prototype.exec_export_hierarchy = async (section_tipo) => {
 				action	: 'export_hierarchy'
 			},
 			options : {
-				section_tipo : section_tipo // string like '*' or 'es1,es2'
+				section_tipo : section_tipo // string like 'es1,fr1'
 			}
 		},
 		retries : 1, // one try only
@@ -238,6 +245,56 @@ export_hierarchy.prototype.exec_export_hierarchy = async (section_tipo) => {
 
 	return api_response
 }//end exec_export_hierarchy
+
+
+
+/**
+* EXEC_EXPORT_HIERARCHY_JSON
+* Fires the server-side `export_hierarchy_json` action: writes
+* `hierarchy.json` in `install/import/hierarchy/` — every ACTIVE hierarchy with its
+* metadata, declared dependencies and the sha256 of the data files present in
+* that directory NOW (WC-2026-10-10-hierarchy-json-manifest). Export the data
+* files first: a dump written later is not covered by the manifest's checksums.
+*
+* Same transport as exec_export_hierarchy (worker, unlocked session, one try).
+*
+* @returns {Promise<Object>} Resolves to the raw API response object:
+*   {
+*     result             : boolean,  // true when the file was written
+*     errors             : Array,    // census lines (rows skipped / degraded)
+*     msg                : string,
+*     files              : Array,    // [{section_tipo,table,file_name,bytes,url}]
+*     active_hierarchies : number,
+*     data_files         : number,
+*     empty_hierarchies  : Array     // tlds activated EMPTY at install time
+*   }
+*/
+export_hierarchy.prototype.exec_export_hierarchy_json = async () => {
+
+	// get value from API
+	const api_response = await data_manager.request({
+		use_worker	: true,
+		body		: {
+			dd_api			: 'dd_area_maintenance_api',
+			action			: 'widget_request',
+			prevent_lock	: true,
+			source			: {
+				type	: 'widget',
+				model	: 'export_hierarchy',
+				action	: 'export_hierarchy_json'
+			},
+			options : {}
+		},
+		retries : 1, // one try only
+		timeout : 3600 * 1000 // 1 hour waiting response
+	})
+	if(SHOW_DEBUG===true) {
+		console.log('))) exec_export_hierarchy_json api_response:', api_response);
+	}
+
+
+	return api_response
+}//end exec_export_hierarchy_json
 
 
 

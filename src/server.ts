@@ -77,6 +77,7 @@ import { toErrorEnvelope } from './core/errors/convert.ts';
 import { DedaloError } from './core/errors/dedalo_error.ts';
 import { describeInstallAllowPolicy, installInProgress } from './core/install/gate.ts';
 import { HIERARCHY_IMPORT_DIR } from './core/install/paths.ts';
+import { HIERARCHY_MANIFEST_FILE } from './core/ontology/hierarchy_manifest_format.ts';
 import { corsPreflightResponse, corsResponseHeaders } from './core/security/cors.ts';
 import { globalAdminSessionFromCookie } from './core/security/session_gate.ts';
 import {
@@ -656,10 +657,12 @@ async function serveClientAsset(
  * exists.
  *
  * Basenames are allowlisted to exactly the two shapes the exporter produces
- * (`<tipo>.copy.gz` with safeExportTipo's tipo grammar, and the timestamped
- * `all_…` whole-table dump), and the resolved path is confined under the
- * directory — the vendored SEED files share those names, which is correct: they
- * are the same kind of artifact, offered by the same panel.
+ * (`<tipo>.copy.gz` with safeExportTipo's tipo grammar, and the `hierarchy.json`
+ * manifest — WC-2026-10-10-hierarchy-json-manifest; the retired `all_…`
+ * whole-table dump is no longer produced, so no longer served), and the
+ * resolved path is confined under the directory — the vendored SEED files share
+ * those names, which is correct: they are the same kind of artifact, offered by
+ * the same panel.
  */
 async function serveHierarchyExportFile(pathname: string, request: Request, requestId: string) {
 	const notFound = () => notFoundResponse(requestId);
@@ -668,16 +671,15 @@ async function serveHierarchyExportFile(pathname: string, request: Request, requ
 	const session = await globalAdminSessionFromCookie(request.headers.get('cookie'));
 	if (session === null) return notFound();
 	const fileName = pathname.slice(HIERARCHY_EXPORT_URL_PREFIX.length);
-	if (!/^[a-z]{2,}[0-9]+\.copy\.gz$/.test(fileName) && !/^all_[0-9_-]+\.copy\.gz$/.test(fileName)) {
-		return notFound();
-	}
+	const isManifest = fileName === HIERARCHY_MANIFEST_FILE;
+	if (!isManifest && !/^[a-z]{2,}[0-9]+\.copy\.gz$/.test(fileName)) return notFound();
 	const fullPath = resolve(HIERARCHY_IMPORT_DIR, fileName);
 	if (!fullPath.startsWith(HIERARCHY_IMPORT_DIR + sep)) return notFound();
 	const file = Bun.file(fullPath);
 	if (!(await file.exists())) return notFound();
 	return new Response(file, {
 		headers: {
-			'Content-Type': 'application/gzip',
+			'Content-Type': isManifest ? 'application/json; charset=utf-8' : 'application/gzip',
 			'Content-Disposition': `attachment; filename="${fileName}"`,
 			'Cache-Control': 'no-store',
 			...SECURITY_HEADERS,

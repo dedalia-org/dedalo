@@ -654,10 +654,12 @@ ask ENTITY_LABEL  'Full name, as shown on the login screen'                     
 ask LANGS         'Languages, interface and data (comma-separated Dédalo codes, or "default" = lg-eng,lg-spa)' 'default'
 APP_LANG="${LANGS%%,*}"
 # Languages (lg) is a CORE thesaurus: it is activated with the database whatever
-# is answered here, so it is never asked. "default" omits the flag and takes the
-# shared default set (the thesauri hierarchies.json marks install_checked_default
-# — the same boxes the wizard pre-ticks); "none" opts out of the optional ones.
-ask HIERARCHIES   'Optional thesauri to install now (comma-separated codes, "default", or "none") — Languages is always installed' 'default'
+# is answered here, so it is never asked. "default" omits the flag: NO optional
+# thesaurus beyond the ones the chosen ontologies declare (hierarchy60 — the
+# same boxes the wizard pre-ticks); "none" is the same today. No country is ever
+# pre-selected: import your own country's toponymy (e.g. "np" for an install in
+# Nepal) — `bun run scripts/install.ts --list-hierarchies` lists the codes.
+ask HIERARCHIES   'Optional thesauri to install now (comma-separated codes, "default" = only the declared dependencies, or "none") — tip: your own country, e.g. np for Nepal; Languages is always installed' 'default'
 ask LOCALE        'Locale'                                                      'es-ES'
 ask TIMEZONE      'Time zone (stamps every record timestamp)'                   'Europe/Madrid'
 echo

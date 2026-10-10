@@ -1,0 +1,4187 @@
+{
+    "version": "7.0.0",
+    "date": "2026-10-10T00:00:00+02:00",
+    "entity_id": null,
+    "entity": null,
+    "entity_label": null,
+    "host": null,
+    "typologies": [
+        {
+            "typology_id": 1,
+            "name": "Thematic",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Thematic"
+                }
+            ]
+        },
+        {
+            "typology_id": 2,
+            "name": "Toponymy",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Toponymy"
+                }
+            ]
+        },
+        {
+            "typology_id": 3,
+            "name": "Languages",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Languages"
+                }
+            ]
+        },
+        {
+            "typology_id": 4,
+            "name": "Semantics",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Semantics"
+                }
+            ]
+        },
+        {
+            "typology_id": 5,
+            "name": "Special",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Special"
+                }
+            ]
+        },
+        {
+            "typology_id": 6,
+            "name": "Web sites",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Web sites"
+                }
+            ]
+        },
+        {
+            "typology_id": 7,
+            "name": "Epigraphy",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Epigraphy"
+                }
+            ]
+        },
+        {
+            "typology_id": 8,
+            "name": "Catalog",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Catalog"
+                }
+            ]
+        },
+        {
+            "typology_id": 9,
+            "name": "Ubications",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Ubications"
+                }
+            ]
+        },
+        {
+            "typology_id": 10,
+            "name": "Restoration",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Restoration"
+                }
+            ]
+        },
+        {
+            "typology_id": 11,
+            "name": "Typology",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Typology"
+                }
+            ]
+        },
+        {
+            "typology_id": 12,
+            "name": "Activities",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Activities"
+                }
+            ]
+        },
+        {
+            "typology_id": 13,
+            "name": "Onomastics",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Onomastics"
+                }
+            ]
+        },
+        {
+            "typology_id": 14,
+            "name": "Core",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Core"
+                }
+            ]
+        },
+        {
+            "typology_id": 15,
+            "name": "Others",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Others"
+                }
+            ]
+        }
+    ],
+    "active_hierarchies": [
+        {
+            "tld": "ad",
+            "name": "Andorra",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Andorra",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Andorra",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 3032,
+                "label": "Catalan"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ad1.copy.gz",
+                    "sha256": "39f15e9de06778c354143745a839f447c4a3671fd8bfdcbd7bc35735673d52f0"
+                }
+            ]
+        },
+        {
+            "tld": "af",
+            "name": "Islamic Republic of Afghanistan",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Islamic Republic of Afghanistan",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "República Islámica de Afganistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "af1.copy.gz",
+                    "sha256": "85c7c55de9e6e28c3b5a465ffd11bec56749dc96aefcfe9bffb8f036c9eb3937"
+                }
+            ]
+        },
+        {
+            "tld": "al",
+            "name": "Albania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Albania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "al1.copy.gz",
+                    "sha256": "2a3d640dfed96e8d65e5034caba5e86901a45a6d2ed08a1cc2392a54d623c91f"
+                }
+            ]
+        },
+        {
+            "tld": "am",
+            "name": "Armenia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Armenia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "am1.copy.gz",
+                    "sha256": "3530472e3652a008e59c989529dc519210ef10506ca408373847af874f3c93d2"
+                }
+            ]
+        },
+        {
+            "tld": "ao",
+            "name": "Angola",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Angola",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ao1.copy.gz",
+                    "sha256": "1a6e724ced850b275f9078ee7a066bd8eede08778e7801fb0bd44b74038d6349"
+                }
+            ]
+        },
+        {
+            "tld": "ar",
+            "name": "Argentina",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Argentina",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ar1.copy.gz",
+                    "sha256": "fb84f63c63a906ba8a0324a7af4ae71aecfacd375eb65322c1f0fd431f4b5883"
+                }
+            ]
+        },
+        {
+            "tld": "at",
+            "name": "Austria",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Austria",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "at1.copy.gz",
+                    "sha256": "9ac3aa79c94ad50264fc9a550a131b3c956dffa2f8737c0a467b81dc8689fe14"
+                }
+            ]
+        },
+        {
+            "tld": "au",
+            "name": "Australia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Australia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "au1.copy.gz",
+                    "sha256": "cd41a2599216d28ce42efa5f2e4d66513e0627b38f0a20c74b91e729e53a435a"
+                }
+            ]
+        },
+        {
+            "tld": "az",
+            "name": "Azerbaiyán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Azerbaiyán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "az1.copy.gz",
+                    "sha256": "779382c73f64aae0ec9b3c17193d101f343803a2000f767cf7bc8bb71e4d07f4"
+                }
+            ]
+        },
+        {
+            "tld": "ba",
+            "name": "Bosnia y Herzegovina",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Bosnia y Herzegovina",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ba1.copy.gz",
+                    "sha256": "8f070d13acce430f733157b4d22c035fc4ddd847d91a21672036f4f83f5ece64"
+                }
+            ]
+        },
+        {
+            "tld": "be",
+            "name": "Bélgica",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Bélgica",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "be1.copy.gz",
+                    "sha256": "467b36647f1dcbb8e6ed32cf925b92114ce7d1d5c3d36776ebde114fe53cf411"
+                }
+            ]
+        },
+        {
+            "tld": "bg",
+            "name": "Bulgaria",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Bulgaria",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bg1.copy.gz",
+                    "sha256": "22920cc1a3f459e6e344b2ecc1c944c0d04d02b0c8568f7d9cb18a003f98e8f0"
+                }
+            ]
+        },
+        {
+            "tld": "bh",
+            "name": "Bahréin",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Bahréin",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bh1.copy.gz",
+                    "sha256": "0ef94935fa83f6cdc38073b1b3069e47d95144104ce15fb836aa9d1884c7b8d1"
+                }
+            ]
+        },
+        {
+            "tld": "bi",
+            "name": "Burundi",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Burundi",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bi1.copy.gz",
+                    "sha256": "e92ed5c4bff9f2cce4abefab242fb37f0aaea07165e8618aeb6f8cef1cf01de2"
+                }
+            ]
+        },
+        {
+            "tld": "bj",
+            "name": "Benín",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Benín",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bj1.copy.gz",
+                    "sha256": "c9501d703526a06dbea379ed3e7959def7b42d629fa7cf8bfbf69537437c4d39"
+                }
+            ]
+        },
+        {
+            "tld": "bo",
+            "name": "Bolivia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Bolivia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bo1.copy.gz",
+                    "sha256": "4bce990671681e830e60b3c760553f974b194c02318b28c48f47b86783124897"
+                }
+            ]
+        },
+        {
+            "tld": "br",
+            "name": "Brasil",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Brasil",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "br1.copy.gz",
+                    "sha256": "0c4d58dcb43117a1cc978febfcf18cbe29618727534bc1f80b7311126d07e461"
+                }
+            ]
+        },
+        {
+            "tld": "bw",
+            "name": "Botsuana",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Botsuana",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bw1.copy.gz",
+                    "sha256": "53c65d7f6ce604fa7113e0a5657272de2e6eb95ef56ce7a9c3e5171c92875612"
+                }
+            ]
+        },
+        {
+            "tld": "by",
+            "name": "Belarus",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Belarus",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Bielorusia",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Bielorrusia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "by1.copy.gz",
+                    "sha256": "8eac039719e377aae435e1db7249f75b2b7df7f6d60515637580fe46580212e6"
+                }
+            ]
+        },
+        {
+            "tld": "bz",
+            "name": "Belice",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Belice",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "bz1.copy.gz",
+                    "sha256": "6d9a58c5345d292b2630ff1a181f0d3d7f65d5304ad84a06786a1df11f726a69"
+                }
+            ]
+        },
+        {
+            "tld": "ca",
+            "name": "Canada",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Canada",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Canadá",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Canadá",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ca1.copy.gz",
+                    "sha256": "446fb5f28542bd01f2cd070c1a1345c05732aa1babfca536166a132c93d6c0c4"
+                }
+            ]
+        },
+        {
+            "tld": "cd",
+            "name": "República Democrática del Congo",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "República Democrática del Congo",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cd1.copy.gz",
+                    "sha256": "f8fcd0ad876f42e1b1649b4b2f83a2c48b55ffcbc19ec1b43e3bd957865ca99c"
+                }
+            ]
+        },
+        {
+            "tld": "cg",
+            "name": "República del Congo",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "República del Congo",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cg1.copy.gz",
+                    "sha256": "a744d6a944c4e3b52b0054dd50e3beb274949699b4c7e6b5274d740c706de5d7"
+                }
+            ]
+        },
+        {
+            "tld": "ch",
+            "name": "Suiza",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Suiza",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ch1.copy.gz",
+                    "sha256": "cdc804834282b17922d6508c0aba3eaa8096e1ff3a898316050c53333d7b316b"
+                }
+            ]
+        },
+        {
+            "tld": "ci",
+            "name": "Costa de Marfil",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Costa de Marfil",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ci1.copy.gz",
+                    "sha256": "edd0edc9009efec877144aad12145f4235aa44415e8e41678aa7bb1fbf07d760"
+                }
+            ]
+        },
+        {
+            "tld": "cl",
+            "name": "Chile",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Chile",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cl1.copy.gz",
+                    "sha256": "dac6ab7de2bcc005aeca6169b843ab736a5ee6d5cbd0fe5eedbc95f9e43082ef"
+                }
+            ]
+        },
+        {
+            "tld": "cm",
+            "name": "Camerún",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Camerún",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cm1.copy.gz",
+                    "sha256": "7223bbb71544822dcd52e8194b361142de132847925db0e975abe5faf59d423a"
+                }
+            ]
+        },
+        {
+            "tld": "co",
+            "name": "Colombia",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Colombia",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Colombia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "co1.copy.gz",
+                    "sha256": "e333c2ba662368f45d7c61f6b8305e57b96de6b69d5a2979a94307ee86695d2b"
+                }
+            ]
+        },
+        {
+            "tld": "cr",
+            "name": "Costa Rica",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Costa Rica",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cr1.copy.gz",
+                    "sha256": "aed8313b7d2b52333c64420733a8b3df96b6ea0d0d271ea7e7579fbcffc11e1e"
+                }
+            ]
+        },
+        {
+            "tld": "cu",
+            "name": "Cuba",
+            "name_data": [
+                {
+                    "lang": "lg-spa",
+                    "value": "Cuba",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Cuba",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cu1.copy.gz",
+                    "sha256": "266486a446a601516991302c47c96a651b79d5462effe021b985b335b02f5dc3"
+                }
+            ]
+        },
+        {
+            "tld": "cy",
+            "name": "Chipre",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Chipre",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cy1.copy.gz",
+                    "sha256": "3da28928a7d26388b1dbf79d4a5ae864be2cd7cd5aabb83b633d0f847f832ae3"
+                }
+            ]
+        },
+        {
+            "tld": "cz",
+            "name": "República Checa",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "República Checa",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "cz1.copy.gz",
+                    "sha256": "54f45ff4df7b6075e9855c6ae0398c19b5d8fcb493da24ce2aa26a6db32efe51"
+                }
+            ]
+        },
+        {
+            "tld": "de",
+            "name": "Alemania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Alemania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "de1.copy.gz",
+                    "sha256": "5dd35deaed61bf5c3d79b4a1e5c090c16efcd56778356554499acd02ad55935c"
+                }
+            ]
+        },
+        {
+            "tld": "dj",
+            "name": "Yibuti",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Yibuti",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "dj1.copy.gz",
+                    "sha256": "4f4b67d58cb6cf6ff74dc6071268fbc46fb69b6be46f0a0e86a3e2695f81ba94"
+                }
+            ]
+        },
+        {
+            "tld": "dk",
+            "name": "Denmark",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Denmark",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Dinamarca",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "dk1.copy.gz",
+                    "sha256": "0e562f5ae3cc56b76a7715e29c16270aa6f7b201eae6a6bca91bf87d23018923"
+                }
+            ]
+        },
+        {
+            "tld": "dz",
+            "name": "Argelia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Argelia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5450,
+                "label": "French"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "dz1.copy.gz",
+                    "sha256": "717ad96a2b4c590348f503b2057cf5c3474cf254b0b9b7b9f49aefd222e3d3cb"
+                }
+            ]
+        },
+        {
+            "tld": "ec",
+            "name": "Ecuador",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Ecuador",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ec1.copy.gz",
+                    "sha256": "a768f0ac4b63e522e3ad033a98309d01d0a2e959840bcdbf1aef0fc7496c08c4"
+                }
+            ]
+        },
+        {
+            "tld": "ee",
+            "name": "Estonia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Estonia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ee1.copy.gz",
+                    "sha256": "d63da2beb9c6be87d3ae6ce979d33b5b83a1ad45f0e67cece8647e88d6fcfc0a"
+                }
+            ]
+        },
+        {
+            "tld": "eg",
+            "name": "Egipto",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Egipto",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "eg1.copy.gz",
+                    "sha256": "9a7a33d16d2d7c98b13ddf8c90f0f08e5cff516842d331dd1da9193312e92313"
+                }
+            ]
+        },
+        {
+            "tld": "eh",
+            "name": "Sahara Occidental",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Sahara Occidental",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "eh1.copy.gz",
+                    "sha256": "80061c7f9157de5d5c0889e5731dc90f74691c8d2c468b6ba2d6caecb14f3169"
+                }
+            ]
+        },
+        {
+            "tld": "er",
+            "name": "Eritrea",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Eritrea",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "er1.copy.gz",
+                    "sha256": "93e07126b9fbca6612f5ec51ff1e08f2e374dfab7a6e5f001853e4c505d61eb7"
+                }
+            ]
+        },
+        {
+            "tld": "es",
+            "name": "Spain",
+            "name_data": [
+                {
+                    "lang": "lg-cat",
+                    "value": "Espanya",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-eng",
+                    "value": "Spain",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "España",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "España",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "es1.copy.gz",
+                    "sha256": "6e3d0659c0473ad7f1c3abca28e4e40c13f2add4ef1e097d00226867766100df"
+                }
+            ]
+        },
+        {
+            "tld": "et",
+            "name": "Etiopía",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Etiopía",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "et1.copy.gz",
+                    "sha256": "46e44efa72cd4e698c45e8c2283b38930bd6f94f52b3512d2ca50ed767e53e3b"
+                }
+            ]
+        },
+        {
+            "tld": "fj",
+            "name": "Fiyi",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Fiyi",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "fj1.copy.gz",
+                    "sha256": "2ff2d559aa8ac4e75c3eebf48669f3cd6170a6457200285b1807119bb604e272"
+                }
+            ]
+        },
+        {
+            "tld": "fr",
+            "name": "France",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "France",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-fra",
+                    "value": "France",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Francia",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Francia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5450,
+                "label": "French"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "fr1.copy.gz",
+                    "sha256": "ae9d81459a43969b71af9cf8a227d3cc1d99eb6c67758067fe2c38802ec9aeff"
+                }
+            ]
+        },
+        {
+            "tld": "ga",
+            "name": "Gabón",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Gabón",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ga1.copy.gz",
+                    "sha256": "60719446d107e6f5cff36ef29572f581db73a0b3130d1069de25d90197b612af"
+                }
+            ]
+        },
+        {
+            "tld": "gb",
+            "name": "Reino Unido",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Reino Unido",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gb1.copy.gz",
+                    "sha256": "0fd628dc859fdeb1256bebcfad7d5a74ceb1d80c305e4a4786a66455e002b65c"
+                }
+            ]
+        },
+        {
+            "tld": "ge",
+            "name": "Georgia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Georgia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ge1.copy.gz",
+                    "sha256": "f46458bf11b0a00c54c638cdf1defab4efec9deb6d75919ff45bd7148adbe9f6"
+                }
+            ]
+        },
+        {
+            "tld": "gi",
+            "name": "Gibraltar",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Gibraltar",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gi1.copy.gz",
+                    "sha256": "7061b079ac719d01fcb8898ccbb688b4e1769de510a495f59e6d0cd77960c5f2"
+                }
+            ]
+        },
+        {
+            "tld": "gm",
+            "name": "Gambia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Gambia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gm1.copy.gz",
+                    "sha256": "a93d7cca3dd08bf2de074613e7ff9b7087d7348280994eb470d9cdfbb30ce318"
+                }
+            ]
+        },
+        {
+            "tld": "gn",
+            "name": "Guinea",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Guinea",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gn1.copy.gz",
+                    "sha256": "5e70d759b54e191620060c37ba2eec5ef9d4e45f15e25912246938be4b0ae2b0"
+                }
+            ]
+        },
+        {
+            "tld": "gq",
+            "name": "Guinea Ecuatorial",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Guinea Ecuatorial",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gq1.copy.gz",
+                    "sha256": "66f0437ad7b309b3fb4819df76f82400f6cc1d6ef48664588143f16066519176"
+                }
+            ]
+        },
+        {
+            "tld": "gr",
+            "name": "Greece",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Greece",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Grecia",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Grecia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gr1.copy.gz",
+                    "sha256": "6565a041d1a765639a1d733981d66d83f0df7a932dffc5c61583739578832af3"
+                }
+            ]
+        },
+        {
+            "tld": "gt",
+            "name": "Guatemala",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Guatemala",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Guatemala",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "gt1.copy.gz",
+                    "sha256": "d3af98ca15ef795d6a70e8abf79a10535c16756cdea6e2b975c02f942cc0e707"
+                }
+            ]
+        },
+        {
+            "tld": "hn",
+            "name": "Honduras",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Honduras",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "hn1.copy.gz",
+                    "sha256": "b049a0c4e66cc67c463293a47dfe3e6f31682ed58e8a2edaf7f1af4c4c453791"
+                }
+            ]
+        },
+        {
+            "tld": "hr",
+            "name": "Croacia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Croacia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "hr1.copy.gz",
+                    "sha256": "dabc6e1cd4ffbbbef4990cac18c05abcb784cbb685232360d0f6164da5a9f445"
+                }
+            ]
+        },
+        {
+            "tld": "hu",
+            "name": "Hungría",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Hungría",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "hu1.copy.gz",
+                    "sha256": "c9f3d03f6eac262a3b9965afad85acb15338adc12f26c870358fd77388784259"
+                }
+            ]
+        },
+        {
+            "tld": "id",
+            "name": "Indonesia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Indonesia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "id1.copy.gz",
+                    "sha256": "449ec90b46ca00689ad23218233a9c3671a256e4ec5fbd425a75ecb05861a618"
+                }
+            ]
+        },
+        {
+            "tld": "ie",
+            "name": "Irlanda",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Irlanda",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ie1.copy.gz",
+                    "sha256": "6086fff08fe0065d45d39508e5f50714c5567691483522f70ace64699e7c2c4f"
+                }
+            ]
+        },
+        {
+            "tld": "il",
+            "name": "Israel",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Israel",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "il1.copy.gz",
+                    "sha256": "1cbb84693c8a3ef139377dcb653959413562b9c5891220a703edd7dcfc54a2f4"
+                }
+            ]
+        },
+        {
+            "tld": "in",
+            "name": "India",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "India",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "in1.copy.gz",
+                    "sha256": "41e14ce6655a1537292c54dfa440a10745659f98416654a78a357f84b20a5860"
+                }
+            ]
+        },
+        {
+            "tld": "iq",
+            "name": "Iraq",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Iraq",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "iq1.copy.gz",
+                    "sha256": "ea64353f88fd1000509a0c0326da208f1e7026f14e43a24acc2129080713a9d6"
+                }
+            ]
+        },
+        {
+            "tld": "ir",
+            "name": "Irán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Irán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ir1.copy.gz",
+                    "sha256": "dfe95c92331f0a82ad1669f5f35044fa8963a10a0e9526db664c247d10140ac3"
+                }
+            ]
+        },
+        {
+            "tld": "it",
+            "name": "Italia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Italia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "it1.copy.gz",
+                    "sha256": "a9559f65101cb579246a7356a62318d4a3f6efc766f15e2c53de69fc0a7f195e"
+                }
+            ]
+        },
+        {
+            "tld": "jo",
+            "name": "Jordania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Jordania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "jo1.copy.gz",
+                    "sha256": "ba7e007a081dd2c362487c51566e5000eba2ef798b016a52296f9e9fe3d186f6"
+                }
+            ]
+        },
+        {
+            "tld": "jp",
+            "name": "Japón",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Japón",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "jp1.copy.gz",
+                    "sha256": "badda178bd7e45a6e0c9279835928fc8a580183bcfba2161c8fb6067423e3727"
+                }
+            ]
+        },
+        {
+            "tld": "ke",
+            "name": "Kenia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Kenia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ke1.copy.gz",
+                    "sha256": "475235aba6256367e7966c7e437c9c953a97b6d512d5c7259953794e638c7951"
+                }
+            ]
+        },
+        {
+            "tld": "kg",
+            "name": "Kirguistán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Kirguistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "kg1.copy.gz",
+                    "sha256": "0b5090ecea0f3556808b03703e0b0051bac89068fae5bd1f0a5f846860057b5d"
+                }
+            ]
+        },
+        {
+            "tld": "kh",
+            "name": "Camboya",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Camboya",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "kh1.copy.gz",
+                    "sha256": "fef11db09265122390d6ac1b786577f883f30a6b9ef4a7f1285c441c38e4fe4f"
+                }
+            ]
+        },
+        {
+            "tld": "ki",
+            "name": "Kiribati",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Kiribati",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ki1.copy.gz",
+                    "sha256": "5bcda0e9ebfa2edca2abf6a5d55dee43f8f2a1c00b3d5f99eaaeaaed436da7af"
+                }
+            ]
+        },
+        {
+            "tld": "kw",
+            "name": "Kuwait",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Kuwait",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "kw1.copy.gz",
+                    "sha256": "21699e1128a149aa42504d9f264227368725c0ecc7c13849371c5410374127a8"
+                }
+            ]
+        },
+        {
+            "tld": "kz",
+            "name": "Kazajistán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Kazajistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "kz1.copy.gz",
+                    "sha256": "24f8a103d587d23c0fe9f30d26bf9925edd4d0a893e9d89c3b5b7b0f91e23eb0"
+                }
+            ]
+        },
+        {
+            "tld": "la",
+            "name": "Laos",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Laos",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "la1.copy.gz",
+                    "sha256": "3163361160708f7974048ee895096a2bc44c534530e33b77e1b8d02a90dce96c"
+                }
+            ]
+        },
+        {
+            "tld": "lb",
+            "name": "Líbano",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Líbano",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "lb1.copy.gz",
+                    "sha256": "01eb9b550c9bc9f3778baa4112e3d94fd39aa635eee012639a081f3be809ee7c"
+                }
+            ]
+        },
+        {
+            "tld": "lg",
+            "name": "Languages",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Languages",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Langs",
+                    "id": 1
+                }
+            ],
+            "typology_id": 3,
+            "typology_name": "Languages",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": []
+        },
+        {
+            "tld": "li",
+            "name": "Liechtenstein",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Liechtenstein",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "li1.copy.gz",
+                    "sha256": "bdd522efa7f13679d31c686fadd6ff7bbcc02077bffa27c005f9bb32e9cad3a2"
+                }
+            ]
+        },
+        {
+            "tld": "lt",
+            "name": "Lituania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Lituania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "lt1.copy.gz",
+                    "sha256": "53ad03abba6eb1b6894078d88844b807256db0673359802fadb26bc13c1e3312"
+                }
+            ]
+        },
+        {
+            "tld": "lu",
+            "name": "Luxemburgo",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Luxemburgo",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "lu1.copy.gz",
+                    "sha256": "de2f90ec99ebb0f97fd22ded012449578da9b3dff2d0dfd9f7d8b28fad9ff78f"
+                }
+            ]
+        },
+        {
+            "tld": "lv",
+            "name": "Letonia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Letonia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "lv1.copy.gz",
+                    "sha256": "246cf598f8dd4e915fee62a3d441cffb47193cbf44303c15242864a6fb307952"
+                }
+            ]
+        },
+        {
+            "tld": "ly",
+            "name": "Libia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Libia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ly1.copy.gz",
+                    "sha256": "0088a41f3821961bb619bd147d0c74baf9e956957ffdc625a376a6436c386b96"
+                }
+            ]
+        },
+        {
+            "tld": "ma",
+            "name": "Marruecos",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Marruecos",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5450,
+                "label": "French"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ma1.copy.gz",
+                    "sha256": "710a282cca91d095950d96626edbc2e0e91c210508462fdc8561430eb54fbd4f"
+                }
+            ]
+        },
+        {
+            "tld": "md",
+            "name": "Moldavia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Moldavia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "md1.copy.gz",
+                    "sha256": "948b3059b96c01d4aaaec951e709585941fe5c83f5da8499e3339420f8e2f096"
+                }
+            ]
+        },
+        {
+            "tld": "me",
+            "name": "Montenegro",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Montenegro",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "me1.copy.gz",
+                    "sha256": "05f0932e3beabddd9b83607a32c798b2e8be82c3a7007a097d917b66d2cff630"
+                }
+            ]
+        },
+        {
+            "tld": "mk",
+            "name": "ARY Macedonia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "ARY Macedonia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "mk1.copy.gz",
+                    "sha256": "da04a1cc126730bf6df086a361a0123c2120eabffb9d4455bf874a5eec0a3635"
+                }
+            ]
+        },
+        {
+            "tld": "ml",
+            "name": "Malí",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Malí",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ml1.copy.gz",
+                    "sha256": "0cd8837f17397d8fbd99a8c5cb2837c281dfcf6201eef727b0e364357443c31e"
+                }
+            ]
+        },
+        {
+            "tld": "mm",
+            "name": "Myanmar",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Myanmar",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "mm1.copy.gz",
+                    "sha256": "2095b5a64e6bba46da338ca14a2006316908b9fbc641b70b9c1c0f1512a4807e"
+                }
+            ]
+        },
+        {
+            "tld": "mr",
+            "name": "Mauritania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Mauritania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "mr1.copy.gz",
+                    "sha256": "7d8d697c4cf1c6b5a18aa4bd5135b60bc1bc7e2c7900ecd0fee314e44b604db3"
+                }
+            ]
+        },
+        {
+            "tld": "mw",
+            "name": "Malawi",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Malawi",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "mw1.copy.gz",
+                    "sha256": "af1f141e464bbe0daa49ad2a98df4c2f8858877b427dbeec008caf08368847c1"
+                }
+            ]
+        },
+        {
+            "tld": "mx",
+            "name": "México",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "México",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "mx1.copy.gz",
+                    "sha256": "4fa77bceee03e5e52d196adaff32224ad84499e17966e06f8a5d251f9cb6a1c6"
+                }
+            ]
+        },
+        {
+            "tld": "my",
+            "name": "Malasia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Malasia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "my1.copy.gz",
+                    "sha256": "01831291ca365bfc6f44163b8f18e0727e4c76bbb670c371eff2f267aadbef6f"
+                }
+            ]
+        },
+        {
+            "tld": "mz",
+            "name": "Mozambique",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Mozambique",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "mz1.copy.gz",
+                    "sha256": "e5e243b00d0ca424409f6ca726589c72f3cae2045d8691c9280fa6a84f2135fe"
+                }
+            ]
+        },
+        {
+            "tld": "na",
+            "name": "Namibia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Namibia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "na1.copy.gz",
+                    "sha256": "9b2972184e92d154c40bc182df2fe1cfec27e2d341a038361a32464dc3c6f920"
+                }
+            ]
+        },
+        {
+            "tld": "ne",
+            "name": "Níger",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Níger",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ne1.copy.gz",
+                    "sha256": "f2df7c92c6c8e5d6e3c6bc50daffd7ce13b7a001ee750a20e852e31ec3959404"
+                }
+            ]
+        },
+        {
+            "tld": "ng",
+            "name": "Nigeria",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Nigeria",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ng1.copy.gz",
+                    "sha256": "408c751c19ad9f90cdc18740cc30285815e8a1a1dc9ba964dcc2afd90cd575b3"
+                }
+            ]
+        },
+        {
+            "tld": "ni",
+            "name": "Nicaragua",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Nicaragua",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ni1.copy.gz",
+                    "sha256": "23b675ca0aec456deeb073df8c8d34830da12c0fe59e9ffd1db4598b04a5d1a7"
+                }
+            ]
+        },
+        {
+            "tld": "nl",
+            "name": "Países Bajos",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Países Bajos",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "nl1.copy.gz",
+                    "sha256": "208dde1a1b0620b988a15398a8aae1de744c7172481b93ecf815a5c3aa02abb2"
+                }
+            ]
+        },
+        {
+            "tld": "no",
+            "name": "Noruega",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Noruega",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "no1.copy.gz",
+                    "sha256": "8ddd98ed71ae11a6030ec8c107c76ce2d9cd76a74b1ac491d55bc47373c26308"
+                }
+            ]
+        },
+        {
+            "tld": "np",
+            "name": "Nepal",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Nepal",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "np1.copy.gz",
+                    "sha256": "9a6e8f2ca437e0359697b7636e1a0d39a8e603b4b6682eba713651224435bb39"
+                }
+            ]
+        },
+        {
+            "tld": "om",
+            "name": "Omán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Omán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "om1.copy.gz",
+                    "sha256": "c33bf758c3a536e9852fbf86116f50cb1b48d7bd7809af8cedf45a4211631118"
+                }
+            ]
+        },
+        {
+            "tld": "pa",
+            "name": "Panamá",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Panamá",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pa1.copy.gz",
+                    "sha256": "3a48c1743940a816adfe8b869ced0c45e8b2661ce591ad62d5a48521f1c09813"
+                }
+            ]
+        },
+        {
+            "tld": "pe",
+            "name": "Perú",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Perú",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pe1.copy.gz",
+                    "sha256": "a55df835ce2ee7c27d062bad893c9fe660ce559a9b12d44c1a56d14c5e07fbfd"
+                }
+            ]
+        },
+        {
+            "tld": "pg",
+            "name": "Papúa Nueva Guinea",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Papúa Nueva Guinea",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pg1.copy.gz",
+                    "sha256": "a69d0fd28b6fbc7714335eb60702c597fbf5ee0d453b3c4c459ec9a7fb0590c3"
+                }
+            ]
+        },
+        {
+            "tld": "ph",
+            "name": "Filipinas",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Filipinas",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ph1.copy.gz",
+                    "sha256": "1012465c363ab2976f5b5af60b509e71ff5e3a1be364cba33dc27cc1f478f2d0"
+                }
+            ]
+        },
+        {
+            "tld": "pk",
+            "name": "Pakistán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Pakistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pk1.copy.gz",
+                    "sha256": "ac95c4fa6983e171cd9abbfd7c31f83e0146f284f4cbba8a10c73d9366123c63"
+                }
+            ]
+        },
+        {
+            "tld": "pl",
+            "name": "Polonia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Polonia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pl1.copy.gz",
+                    "sha256": "6898212c5302e7275d7b32d7e8f71c05653a68a93772a53fc46b2cb81e941fba"
+                }
+            ]
+        },
+        {
+            "tld": "pr",
+            "name": "Puerto Rico",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Puerto Rico",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pr1.copy.gz",
+                    "sha256": "99111c13149a2e269a54b10987edf62d2d08790a4f2528e5dc9b36585d02c70f"
+                }
+            ]
+        },
+        {
+            "tld": "ps",
+            "name": "Palestina",
+            "name_data": [
+                {
+                    "lang": "lg-spa",
+                    "value": "Palestina",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Palestina (ANP)",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ps1.copy.gz",
+                    "sha256": "76a27befa05dc8fe1a3b6ef9a46b71d1283aa0f0abe84c11d54f780ff50f1cf7"
+                }
+            ]
+        },
+        {
+            "tld": "pt",
+            "name": "Portugal",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Portugal",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 14895,
+                "label": "Portuguese"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "pt1.copy.gz",
+                    "sha256": "dd79bf8662edf4207db50bebead22903b02a875b0721f740f7c6f1c07e41405b"
+                }
+            ]
+        },
+        {
+            "tld": "py",
+            "name": "Paraguay",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Paraguay",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "py1.copy.gz",
+                    "sha256": "a603a0bc4c6d71230746db30b40b02d43f06bad30ae5295700a937db1a09fa6c"
+                }
+            ]
+        },
+        {
+            "tld": "qa",
+            "name": "Qatar",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Qatar",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "qa1.copy.gz",
+                    "sha256": "1719b951c68274efc10c2aa7519107595407bd3207a9bd9f13435a98b43593de"
+                }
+            ]
+        },
+        {
+            "tld": "ro",
+            "name": "Rumania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Rumania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ro1.copy.gz",
+                    "sha256": "25e836641bd10c9b37a8d7513bcf72a35252ff92354e706083402d77c8085b2d"
+                }
+            ]
+        },
+        {
+            "tld": "rs",
+            "name": "Serbia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Serbia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "rs1.copy.gz",
+                    "sha256": "2699a1facac20425414e7b2fde0d5cde325461fdd8daae5aa737e9909dba246a"
+                }
+            ]
+        },
+        {
+            "tld": "ru",
+            "name": "Russia",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Russia",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Rusia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ru1.copy.gz",
+                    "sha256": "ef8d111ff48090c0b2d5ff7d136c4412d433a3ccd1ec3c4cc041f0b6bec81129"
+                }
+            ]
+        },
+        {
+            "tld": "rw",
+            "name": "Ruanda",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Ruanda",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "rw1.copy.gz",
+                    "sha256": "36d613762e44fa8a05accfe6b6b193a31f9ae313b4094d5bae5cdf304afbedb0"
+                }
+            ]
+        },
+        {
+            "tld": "sa",
+            "name": "Arabia Saudita",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Arabia Saudita",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sa1.copy.gz",
+                    "sha256": "d7454a0adcc8c12c6361ce2604582365c7910a85a2ae1866b179150264efcde1"
+                }
+            ]
+        },
+        {
+            "tld": "sb",
+            "name": "Islas Salomón",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Islas Salomón",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sb1.copy.gz",
+                    "sha256": "ede850d1aeaa519979909db1dec52ee927c6b652370307aad772b3c2fbccb35d"
+                }
+            ]
+        },
+        {
+            "tld": "sd",
+            "name": "Sudán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Sudán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sd1.copy.gz",
+                    "sha256": "a033bad9995090448c416d9ac0653921165ed3fb2180d85511d259025e8f1c76"
+                }
+            ]
+        },
+        {
+            "tld": "se",
+            "name": "Suecia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Suecia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "se1.copy.gz",
+                    "sha256": "b0362de428d6765441460d8a2d3e7b80b029c65e52d831fd21edbe53fafabeec"
+                }
+            ]
+        },
+        {
+            "tld": "sg",
+            "name": "Singapur",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Singapur",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sg1.copy.gz",
+                    "sha256": "3f7b95353f1195f5c7d4617651b6933408b4fc6984b0dfaa281cab638337ee4d"
+                }
+            ]
+        },
+        {
+            "tld": "si",
+            "name": "Eslovenia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Eslovenia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "si1.copy.gz",
+                    "sha256": "988b82b8998397082982d47ea8792662131382a7577e2f808395167ba4714ae4"
+                }
+            ]
+        },
+        {
+            "tld": "sk",
+            "name": "Eslovaquia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Eslovaquia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sk1.copy.gz",
+                    "sha256": "d9b2b34a8287fd4fec31b4c8f18175dc427b0bc4f8a1f7c9210424d8e29b1e4e"
+                }
+            ]
+        },
+        {
+            "tld": "sn",
+            "name": "Senegal",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Senegal",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sn1.copy.gz",
+                    "sha256": "959d4bb859917b56c8d43b48c7fc6c41a7aa9ffd7e512c928894b7f195c71cde"
+                }
+            ]
+        },
+        {
+            "tld": "so",
+            "name": "Somalia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Somalia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "so1.copy.gz",
+                    "sha256": "d2a778227c1f3e267bd4a9718d0791f0881e2d72692ac7a0c538c5f5beedbc27"
+                }
+            ]
+        },
+        {
+            "tld": "st",
+            "name": "Santo Tomé y Príncipe",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Santo Tomé y Príncipe",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "st1.copy.gz",
+                    "sha256": "a120622203cbf732968b26b263c0f0e0200a9cc7791a5c77f96e73bb39949be6"
+                }
+            ]
+        },
+        {
+            "tld": "sv",
+            "name": "El Salvador",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "El Salvador",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "El Salvador",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sv1.copy.gz",
+                    "sha256": "c07b31d45739aae4628912cc864bf1158442ac12a2163898f2c510f4e5e4439b"
+                }
+            ]
+        },
+        {
+            "tld": "sy",
+            "name": "Siria",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Siria",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sy1.copy.gz",
+                    "sha256": "a35582c396df3c57495788c719b615e40c7bcc94980e1e945246143990d43a7a"
+                }
+            ]
+        },
+        {
+            "tld": "sz",
+            "name": "Suazilandia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Suazilandia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "sz1.copy.gz",
+                    "sha256": "1503db64c8246009011610b41f187ba6cd10d7650de36a26118e3cbcb76f2cbb"
+                }
+            ]
+        },
+        {
+            "tld": "td",
+            "name": "Chad",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Chad",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "td1.copy.gz",
+                    "sha256": "4c2c6001da023fc68579d15cd78313cbe1df4ab78c06e5597eaf85647d32051f"
+                }
+            ]
+        },
+        {
+            "tld": "th",
+            "name": "Tailandia",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Tailandia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "th1.copy.gz",
+                    "sha256": "6505d324c786f3e7dcad2955f265c0358a6e321cc74592c429c24e9da7df6241"
+                }
+            ]
+        },
+        {
+            "tld": "tj",
+            "name": "Tayikistán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Tayikistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "tj1.copy.gz",
+                    "sha256": "6e7bfee4a1e3d96090ff2c2f58da28737578283a06b1edfa98d87bceb092ba74"
+                }
+            ]
+        },
+        {
+            "tld": "tm",
+            "name": "Turkmenistán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Turkmenistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "tm1.copy.gz",
+                    "sha256": "f291e853b3c8890297b1b370cb45436ce3c382ed456030fc1e3a2d250ed49485"
+                }
+            ]
+        },
+        {
+            "tld": "tn",
+            "name": "Túnez",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Túnez",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "tn1.copy.gz",
+                    "sha256": "2018094c3eb8555715fc33cc2372ea772b17536ffbaf34630c8a16ddb61b739e"
+                }
+            ]
+        },
+        {
+            "tld": "to",
+            "name": "Tonga",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Tonga",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "to1.copy.gz",
+                    "sha256": "eeaa264bce11e3b536aa5f4569c7c2fae12141e7d48527bed33b43c7a510c8c7"
+                }
+            ]
+        },
+        {
+            "tld": "tr",
+            "name": "Turquía",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Turquía",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "tr1.copy.gz",
+                    "sha256": "45cc5884461d47d13b5274f0a9df83c62bef2cfff1036b4876df5173e396e8d9"
+                }
+            ]
+        },
+        {
+            "tld": "tv",
+            "name": "Tuvalu",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Tuvalu",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "tv1.copy.gz",
+                    "sha256": "19560d28c80019fabb6f36d9a22b866776237b6808c7811969a4628d27d7ce30"
+                }
+            ]
+        },
+        {
+            "tld": "tz",
+            "name": "Tanzania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Tanzania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "tz1.copy.gz",
+                    "sha256": "8e025d6aced37f5cc3885c09aac3679fedc410b984c6e8bdcfdff3c1e66c9d59"
+                }
+            ]
+        },
+        {
+            "tld": "ua",
+            "name": "Ucrania",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Ucrania",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ua1.copy.gz",
+                    "sha256": "e75a1fe90ed4cda6a0ad0932bda1140cc65c27a77d0ec1f460682f9e16dd7bdb"
+                }
+            ]
+        },
+        {
+            "tld": "ug",
+            "name": "Uganda",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Uganda",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ug1.copy.gz",
+                    "sha256": "e768e0d06f3c29507c14e9b30238afebca0ffe745b654b53887b5123e137944f"
+                }
+            ]
+        },
+        {
+            "tld": "us",
+            "name": "Estats Units",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Estats Units",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "EEUU",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Estados Unidos",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": null,
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "us1.copy.gz",
+                    "sha256": "b1b398fae4427e31a0c19f543bc63d7533a2d746e2ae3229e470875dba84337b"
+                }
+            ]
+        },
+        {
+            "tld": "uy",
+            "name": "Uruguay",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Uruguay",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "uy1.copy.gz",
+                    "sha256": "71f75d6820a867a40e0d2e27dd261c3b1bed7ae73f5fee55bf52630baa1abed2"
+                }
+            ]
+        },
+        {
+            "tld": "uz",
+            "name": "Uzbekistán",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Uzbekistán",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "uz1.copy.gz",
+                    "sha256": "3bc3a5d7d7a7bc0d5f784b81f4fde20074a09207152a3219afdc4561e2218397"
+                }
+            ]
+        },
+        {
+            "tld": "ve",
+            "name": "Venezuela",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Venezuela",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ve1.copy.gz",
+                    "sha256": "e81568bb58b72812ba07764849ae5dbae542de2ef97f6279a6f008db109af5eb"
+                }
+            ]
+        },
+        {
+            "tld": "vn",
+            "name": "Vietnam",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Vietnam",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "vn1.copy.gz",
+                    "sha256": "1ecb263e3cf8a10c18d443470ad48d00a409552b3fb65284db34baeb98190c25"
+                }
+            ]
+        },
+        {
+            "tld": "vu",
+            "name": "Vanuatu",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Vanuatu",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "vu1.copy.gz",
+                    "sha256": "009274c770015abd6c770c4abf2adc673d124b083c49d3a0b73e406cf468f4be"
+                }
+            ]
+        },
+        {
+            "tld": "ws",
+            "name": "Samoa",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Samoa",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ws1.copy.gz",
+                    "sha256": "88622bcce86a241977ffed3ed924d13b4ac93a6c8d33614e0a292e46013a8af5"
+                }
+            ]
+        },
+        {
+            "tld": "xk",
+            "name": "Kosovo",
+            "name_data": [
+                {
+                    "lang": "lg-eng",
+                    "value": "Kosovo",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-spa",
+                    "value": "Kosovo",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "xk1.copy.gz",
+                    "sha256": "d6db27a0650cb00691082ffd1678701bb73112c1e1017e6acd362e7acf11fe8a"
+                }
+            ]
+        },
+        {
+            "tld": "ye",
+            "name": "Yemen",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Yemen",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "ye1.copy.gz",
+                    "sha256": "f33f824f7da5ab4abb59e04fedf689610a7f37c65a8c55665021f66dd6b68d4b"
+                }
+            ]
+        },
+        {
+            "tld": "za",
+            "name": "Sudáfrica",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Sudáfrica",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "za1.copy.gz",
+                    "sha256": "0ce629d246b7173bbd077f64d81da072c5e6afdb5de8d8f9002e2f4dc6353ed5"
+                }
+            ]
+        },
+        {
+            "tld": "zm",
+            "name": "Zambia",
+            "name_data": [
+                {
+                    "lang": "lg-spa",
+                    "value": "Zambia",
+                    "id": 1
+                },
+                {
+                    "lang": "lg-nolan",
+                    "value": "Zambia",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "zm1.copy.gz",
+                    "sha256": "1fea8386c1af0a3c03596d9fb0eda859f12d0fc6d1188b81054b0314ae29d949"
+                }
+            ]
+        },
+        {
+            "tld": "zw",
+            "name": "Zimbabue",
+            "name_data": [
+                {
+                    "lang": "lg-nolan",
+                    "value": "Zimbabue",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponymy",
+            "lang": {
+                "section_id": 17344,
+                "label": "Spanish"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": [
+                {
+                    "file": "zw1.copy.gz",
+                    "sha256": "a06f72515008fc3d75af0428a3f342a9577bd67b8b491675a7698a379a1fc56c"
+                }
+            ]
+        }
+    ]
+}

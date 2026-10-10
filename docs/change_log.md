@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Thesauri are offered from one exported manifest, hierarchy.json, and nothing but declared dependencies is pre-selected.
     - The PostgreSQL socket you give the installer is now the one the server connects through (`DB_SOCKET`).
     - Docker installations now pull a published, signed Dédalo image, or build it locally if you prefer, and record the choice in `.dedalo.env`.
     - Installations now choose their domain ontologies (Oral history by default) and install what each one declares it depends on; the install database carries only the core ontologies and no test data.
@@ -1025,6 +1026,24 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Thesauri are offered from one exported manifest, hierarchy.json, and nothing but declared dependencies is pre-selected.** *(action needed)*
+
+    The thesauri a release offers at install time, and in *Maintenance › Install hierarchies*, are now listed in one file, `install/import/hierarchy/hierarchy.json`. It is exported from a master installation with the new **Export hierarchy.json** button of *Maintenance › Export hierarchy*. It replaces the three hand-written files `hierarchies.json`, `hierarchies_typologies.json` and `hierarchies_to_install.json`, which are deleted. Each entry describes the thesaurus completely (name, typology, default language, real section, scope note, declared dependencies) and lists its data files with their sha256 checksums.
+
+    - **Every listed thesaurus is offered**, with or without data files. One without data files is installed as an empty thesaurus, ready for your editors.
+    - **Data files are verified before anything is written.** A missing file, or one whose checksum does not match, refuses that thesaurus, and the install reports it. A malformed `hierarchy.json` is refused as a whole rather than offering a shorter list.
+    - **An entry must fit this installation before its terms are copied.** If its language or typology record does not exist here, or its real section is not a section here, the thesaurus is refused and nothing is imported. An install that was interrupted after the import is finished by the next run. If a thesaurus was installed empty and a later release ships its terms, the install says to use *Reset to seed*; it does not skip it silently.
+    - **A thesaurus's own dependencies are suggested with it.** Ticking a thesaurus ticks the thesauri its entry declares; you can untick any of them. A thesaurus dependency never stops an install: one you leave out, or one `hierarchy.json` has no entry for, gives a warning that it is strongly recommended and can be installed later. Only a declared mandatory **ontology** this installation lacks stops the import, and the installer says why.
+    - **Only declared dependencies are pre-selected.** The installers no longer pre-tick Spain or any other thesaurus. Every declared thesaurus is ticked — a mandatory one marked *strongly recommended*, never locked — and nothing else is selected. Both installers suggest importing your own country's toponymy (for example `--hierarchies np` for an installation in Nepal); `--list-hierarchies` prints the codes.
+    - **A missing data file is no longer an error**, because the thesaurus is created empty.
+    - **The data export takes an explicit list only.** The `*` (every active hierarchy) and `all` (the whole table) forms are gone. Each tipo must be the thesaurus or model section (`<tld>1` or `<tld>2`) of an active hierarchy. Languages (`lg1`, `lg2`) is refused, because its terms ship in the database seed. **Export hierarchy.json** skips a malformed registry record and names it, and still writes the file for every other thesaurus.
+    - Thesaurus names in the installers appear in your interface language.
+    - The install seed now carries only the Languages registry record. Every other thesaurus's record is written from its `hierarchy.json` entry the first time it is activated.
+
+    **Action needed** if you added your own hierarchies to `install/import/hierarchy/` and listed them in the old `hierarchies.json`: add their entries to `hierarchy.json`, copied from the source installation's exported `hierarchy.json`. See [Install new hierarchies](./management/install_new_hierarchies.md).
+
+    Wire contract: `WC-2026-10-10-hierarchy-json-manifest`.
+
 - **Ontology dependencies are declared in the master's *Dependencies* field, say whether an ontology or a thesaurus is needed, and can be optional.**
 
     An ontology master now declares what each ontology needs in the *Dependencies* field
@@ -1036,10 +1055,13 @@ Merged since the last release; these ship with the next one.
     Each dependency names a TLD and says whether its **ontology** or its **thesaurus** is
     needed, and whether it is **mandatory**.
 
-    * **Installing.** The installer always installs mandatory dependencies. It offers
-      optional ones already ticked, and you may untick them, in the wizard or with
-      `--decline-dependencies`. A required thesaurus that the release does not ship stops
-      the install before anything is written.
+    * **Installing.** The installer always installs mandatory **ontologies**. It offers
+      every other dependency already ticked, and you may untick it, in the wizard or with
+      `--decline-dependencies`. **A thesaurus never blocks an install:** a mandatory
+      thesaurus is a strong recommendation, marked *strongly recommended* in the wizard.
+      Leaving it out, or a release that does not ship it, gives a warning that names it
+      and says it can be installed later from *Maintenance › Install hierarchies*. You
+      can also keep a thesaurus of your own under another name.
     * **Updating.** An update reports each missing mandatory dependency under *Import
       warnings*, together with how to provide it. It never installs one on its own.
 
@@ -2112,7 +2134,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-09-23-relation-q-is-a-locator`.
 
-??? note "Wire contract — 112 entries"
+??? note "Wire contract — 113 entries"
 
     - `WC-2026-08-24-install-ip-gate-fail-closed`
     - `WC-2026-08-24-media-auth-session-scoped`
@@ -2224,6 +2246,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-09-publication-host-panel-setup`
     - `WC-2026-10-09-publication-host-v2-only-site`
     - `WC-2026-10-09-update-code-image-channel`
+    - `WC-2026-10-10-hierarchy-json-manifest`
     - `WC-2026-10-10-ontology-dependencies-hierarchy60`
     - `WC-2026-10-10-update-ontology-confirm-text`
 

@@ -91,6 +91,8 @@ export const HIERARCHY_GENERAL_TERM_MODEL = 'hierarchy59';
 export const HIERARCHY_SOURCE_REAL_SECTION = 'hierarchy109';
 /** hierarchy125 — active-in-thesaurus flag (DEDALO_HIERARCHY_ACTIVE_IN_THESAURUS_TIPO). */
 export const HIERARCHY_ACTIVE_IN_THESAURUS = 'hierarchy125';
+/** hierarchy61 — scope note of the registry row (component_input_text_large, `string` column). */
+export const HIERARCHY_SCOPE_NOTE = 'hierarchy61';
 /**
  * hierarchy60 — declared dependencies (component_json, raw `misc` key of the
  * registry row). Defined in the leaf ontology_dependencies.ts (the installer

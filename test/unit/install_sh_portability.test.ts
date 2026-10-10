@@ -35,13 +35,13 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { defaultOptionalHierarchies } from '../../src/core/install/hierarchy_meta.ts';
 import {
 	answersFromCliArgs,
 	buildInstallPlan,
 	normalizeInstallAnswers,
 	OFFICIAL_ONTOLOGY_SERVER,
 	ontologySourceFor,
+	TOPONYMY_SUGGESTION,
 } from '../../src/core/install/install_plan.ts';
 import {
 	DEFAULT_DOMAIN_ONTOLOGIES,
@@ -170,7 +170,7 @@ describe('install.sh answers reach the shared install plan', () => {
 		expect(ask('confirm', 'Yes')).toBe(0);
 	});
 
-	test('all defaults: no language or thesaurus flag, official update servers, the shared thesaurus default', () => {
+	test('all defaults: no language or thesaurus flag, official update servers, NO default thesaurus (a toponymy suggestion instead)', () => {
 		const argv = buildArgs({
 			LANGS: 'default',
 			HIERARCHIES: 'default',
@@ -191,7 +191,11 @@ describe('install.sh answers reach the shared install plan', () => {
 		const plan = buildInstallPlan(invocation.raw);
 		expect([...invocation.errors, ...plan.errors]).toEqual([]);
 		expect(plan.answers.update_servers).toBe('official');
-		expect([...plan.hierarchies]).toEqual(defaultOptionalHierarchies());
+		// 2026-10-10: the default selects nothing beyond the declared dependencies
+		// (the vendored oh declares none) — and no toponymy is ever pre-selected:
+		// the plan SUGGESTS one instead.
+		expect(plan.hierarchies).toHaveLength(0);
+		expect([...plan.suggestions]).toEqual([TOPONYMY_SUGGESTION]);
 		expect(plan.answers.langs).toBeUndefined();
 		// the shared ontology default (oh, vendored): nothing to fetch, ACTIVE = core + it
 		expect([...plan.ontologies]).toEqual([...DEFAULT_DOMAIN_ONTOLOGIES]);

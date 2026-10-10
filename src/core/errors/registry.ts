@@ -2046,6 +2046,22 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: true,
 	},
+	// The vendored thesaurus manifest (install/import/hierarchy/hierarchy.json —
+	// src/core/ontology/hierarchy_manifest_format.ts) is malformed or a data
+	// file does not match its declared digest. The REQUEST was fine, the release
+	// (or the operator's replacement file) behind it is not — same posture as
+	// ontology.invalid_node. Public: the refusing reader names the JSON path and
+	// the rule it broke (never a secret: the file is a vendored release asset),
+	// and the wizard renders that sentence verbatim.
+	'install.manifest_invalid': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_install_manifest_invalid',
+		message: 'The vendored hierarchy manifest is malformed or does not match its data files',
+		severity: 'error',
+		disclosure: 'public',
+		retryable: false,
+	},
 
 	// Update (data migration + code update). `refused` is a STATE refusal the
 	// operator can act on (not owned, not supervised, not linear, checksum

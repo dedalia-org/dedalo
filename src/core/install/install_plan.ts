@@ -21,9 +21,14 @@
  *    (engine.ts INSTALL_ROUTER_ACTIONS — gated: every plan step is routable);
  *  - the update-server choice (A3): the official master by default, `[]` only
  *    on an explicit air-gapped answer;
- *  - the optional-thesaurus choice (A7): the shared default is
- *    defaultOptionalHierarchies(); a CORE tld (`lg`) is dropped with a note —
- *    the seed restore always activates it;
+ *  - the optional-thesaurus choice (A7; 2026-10-10): the offer is every
+ *    non-core entry of the vendored thesaurus manifest (hierarchy.json, read
+ *    through hierarchy_meta.ts), with or without data files; the DEFAULT answer
+ *    is NO optional thesaurus — what is pre-selected comes only from the
+ *    declared dependencies below. A CORE tld (`lg`) is dropped with a note —
+ *    the seed restore always activates it. No toponymy is ever a default: a
+ *    plan without one carries a SUGGESTION (`suggestions`) to import the
+ *    operator's own country;
  *  - the domain-ontology choice (A4/A5/A6, 2026-10-09): `ontologies` (>= 1,
  *    default `oh`), the SOURCE the non-vendored ones come from (the first
  *    configured ontology server — official by default — or `ontology_source`, a
@@ -34,10 +39,12 @@
  *    the network) and handed in; the plan itself never fetches.
  *  - the DECLARED THESAURUS dependencies (hierarchy60 `main: 'hierarchy1'`,
  *    2026-10-10): the thesauri the installed ontologies (and the vendored core)
- *    declare join the thesaurus set — a MANDATORY one always (a mandatory one
- *    that is not vendored refuses the plan), an OPTIONAL one unless the
- *    operator declines it (`declined_dependencies`, which also declines
- *    optional ONTOLOGY dependencies).
+ *    declare join the thesaurus set PRE-TICKED, mandatory and optional alike,
+ *    unless the operator declines them (`declined_dependencies`, which also
+ *    declines optional ONTOLOGY dependencies). A thesaurus NEVER blocks the
+ *    plan (owner decision 2026-10-10): a declined mandatory one, or one with
+ *    no hierarchy.json entry, is a WARNING — strongly recommended, installable
+ *    later from Maintenance › Install hierarchies.
  *
  * WHAT IT NEVER CONTAINS: DEDALO_SUPERVISED. Supervision is declared by the
  * process manager that restarts the server (systemd unit, compose service,
@@ -56,20 +63,22 @@
 
 import { resolve } from 'node:path';
 import { pgSocketProblem } from '../../config/pg_transport.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import {
-	defaultOptionalHierarchies,
+	type HierarchyMeta,
 	isCoreHierarchyTld,
 	offeredHierarchies,
+	TOPONYMY_TYPOLOGY_ID,
 } from './hierarchy_meta.ts';
 import { deriveLangConfig } from './lang_catalog.ts';
 import {
 	activeOntologyTldsOf,
 	closeOntologyChoice,
-	collectHierarchyDependencies,
-	declarersOf,
+	closeThesaurusChoice,
 	declinePolicy,
 	type HierarchyDependency,
 	hierarchyDependencyPlan,
+	mergeHierarchyDependencyLists,
 	mergeOntologyCatalogs,
 	normalizeDeclinedDependencies,
 	normalizeOntologyChoice,
@@ -81,6 +90,7 @@ import {
 	ontologyInstallRequest,
 	ontologySourceLabel,
 	ontologySourceView,
+	type ThesaurusChoiceClosure,
 	vendoredCoreDeclarers,
 	vendoredOntologyCatalog,
 } from './ontology_choice.ts';
@@ -210,8 +220,17 @@ export interface InstallPlan {
 	 * installable declared thesaurus dependency not already in it.
 	 */
 	readonly hierarchies: readonly string[];
-	/** The thesauri the installed ontologies declare (mandatory ones cannot be declined). */
+	/**
+	 * The thesauri the installed ontologies and the chosen thesauri declare and
+	 * the answers do not decline (mandatory = strongly recommended, declinable).
+	 */
 	readonly hierarchyDependencies: readonly HierarchyDependency[];
+	/**
+	 * Advice shown to the operator, never a choice made for them — today the
+	 * toponymy suggestion ({@link TOPONYMY_SUGGESTION}) when the plan installs
+	 * no toponymy thesaurus.
+	 */
+	readonly suggestions: readonly string[];
 	/** The chosen domain ontologies (before their dependency closure). */
 	readonly ontologies: readonly string[];
 	/** Where the non-vendored ontologies come from (never the access code). */
@@ -268,24 +287,46 @@ function parseUpdateServers(value: unknown, errors: string[]): UpdateServersChoi
 	return 'official';
 }
 
-/** The requested thesauri before the core/vendored filter. */
-function requestedHierarchies(value: unknown): string[] {
-	if (value === undefined || value === null || value === 'default') {
-		return defaultOptionalHierarchies();
+/**
+ * The vendored thesaurus offer (every non-core hierarchy.json entry), or `[]`
+ * plus the reader's refusal sentence in `errors` — the plan REPORTS a missing
+ * or invalid manifest (the CLI prints it, --plan exits 1) instead of throwing
+ * out of a pure function.
+ */
+export function offeredThesauri(errors: string[]): HierarchyMeta[] {
+	try {
+		return offeredHierarchies();
+	} catch (error) {
+		if (!(error instanceof DedaloError)) throw error;
+		const sentence = error.publicMessage ?? error.message;
+		if (!errors.includes(sentence)) errors.push(sentence);
+		return [];
 	}
-	if (value === 'none') return [];
+}
+
+/**
+ * The requested thesauri before the core/offered filter. Absent or `default`
+ * = NONE (2026-10-10): the only pre-selection is the declared dependencies,
+ * which the plan adds itself (buildInstallPlan `hierarchies`). `none` = none.
+ */
+function requestedHierarchies(value: unknown): string[] {
+	if (value === undefined || value === null || value === 'default' || value === 'none') {
+		return [];
+	}
 	return listOf(value).map((tld) => tld.toLowerCase());
 }
 
-/** Drop core tlds (noted) and refuse unvendored ones; de-duplicated, order kept. */
+/** Drop core tlds (noted) and refuse ones hierarchy.json does not list; de-duplicated, order kept. */
 function parseHierarchies(value: unknown, notes: string[], errors: string[]): string[] {
-	const offered = new Set(offeredHierarchies().map((meta) => meta.tld));
+	const requested = requestedHierarchies(value);
+	if (requested.length === 0) return [];
+	const offered = new Set(offeredThesauri(errors).map((meta) => meta.tld));
 	const picked: string[] = [];
-	for (const tld of requestedHierarchies(value)) {
+	for (const tld of requested) {
 		if (isCoreHierarchyTld(tld)) {
 			notes.push(`${tld} is a core hierarchy (always activated) — dropped from the list`);
 		} else if (!offered.has(tld)) {
-			errors.push(`unknown hierarchy '${tld}' (not vendored)`);
+			errors.push(`unknown hierarchy '${tld}' (no entry in hierarchy.json)`);
 		} else if (!picked.includes(tld)) {
 			picked.push(tld);
 		}
@@ -294,9 +335,27 @@ function parseHierarchies(value: unknown, notes: string[], errors: string[]): st
 }
 
 /**
+ * THE toponymy suggestion — advice, never a default (owner decision
+ * 2026-10-10: no country is ever pre-selected). The wizard shows its label
+ * (`install_toponymy_suggestion`); the CLI prints this sentence.
+ */
+export const TOPONYMY_SUGGESTION =
+	"No toponymy thesaurus is selected (none is ever pre-selected): consider importing your own country's toponymy — e.g. --hierarchies np for an install in Nepal. --list-hierarchies lists the codes.";
+
+/** The suggestion when `hierarchies` holds no toponymy thesaurus of the offer; else none. */
+function thesaurusSuggestions(hierarchies: readonly string[], errors: string[]): string[] {
+	const offer = offeredThesauri(errors);
+	const toponymy = new Set(
+		offer.filter((meta) => meta.typology_id === TOPONYMY_TYPOLOGY_ID).map((meta) => meta.tld),
+	);
+	if (toponymy.size === 0) return [];
+	return hierarchies.some((tld) => toponymy.has(tld)) ? [] : [TOPONYMY_SUGGESTION];
+}
+
+/**
  * The thesaurus answer ALONE, normalized exactly as buildInstallPlan does —
- * lowercased, de-duplicated, a core tld dropped with a note, an unvendored one
- * an error. The wizard's install_hierarchies step posts its own ticked list
+ * lowercased, de-duplicated, a core tld dropped with a note, one hierarchy.json
+ * does not list an error. The wizard's install_hierarchies step posts its own ticked list
  * AFTER persist_config (engine.ts), so it runs this on that post: the same answer
  * reaches the same thesauri through the CLI and the wizard.
  */
@@ -691,38 +750,32 @@ export function planCatalogNeeded(answers: InstallAnswers, source: OntologySourc
 	);
 }
 
-/**
- * The thesauri the plan declares: the vendored CORE entries' (the seed is
- * compiled from that release, so its core registry rows hold the same
- * declaration) followed by the install order's — ONE collection, so a thesaurus
- * any of them makes mandatory is mandatory.
- */
-function plannedHierarchies(
-	answers: InstallAnswers,
-	order: readonly string[],
-	catalog: OntologyCatalog,
-	warnings: string[],
-): HierarchyDependency[] {
-	return collectHierarchyDependencies(
-		[...vendoredCoreDeclarers(warnings), ...declarersOf(order, catalog)],
-		declinePolicy(answers.declined_dependencies),
-	).dependencies;
-}
-
 /** The closure of the chosen ontologies over the (merged) catalog. */
 function closedOntologies(
 	answers: InstallAnswers,
 	source: OntologySource,
 	catalog: OntologyCatalog,
 ): PlannedOntologies {
+	// The thesauri the plan declares: the vendored CORE entries' (the seed is
+	// compiled from that release, so its core registry rows hold the same
+	// declaration) followed by the install order's — ONE collection, so a
+	// thesaurus any of them makes mandatory is mandatory.
+	const coreWarnings: string[] = [];
 	const closure = closeOntologyChoice(
 		answers.ontologies,
 		catalog,
 		declinePolicy(answers.declined_dependencies),
+		{ coreDeclarers: vendoredCoreDeclarers(coreWarnings), chosenThesauri: answers.hierarchies },
 	);
-	const coreWarnings: string[] = [];
-	const hierarchyDependencies = plannedHierarchies(answers, closure.order, catalog, coreWarnings);
-	const thesauri = hierarchyDependencyPlan(hierarchyDependencies);
+	const hierarchyDependencies = closure.hierarchies;
+	// The offer is read only when something is declared (an empty declaration
+	// never touches the manifest); a broken manifest is reported, not thrown.
+	const manifestErrors: string[] = [];
+	const offered =
+		hierarchyDependencies.length === 0
+			? new Set<string>()
+			: new Set(offeredThesauri(manifestErrors).map((meta) => meta.tld));
+	const thesauri = hierarchyDependencyPlan(hierarchyDependencies, offered);
 	const usable = closure.errors.length === 0 && closure.order.length > 0;
 	return {
 		source,
@@ -732,7 +785,7 @@ function closedOntologies(
 		hierarchyInstall: thesauri.install,
 		notes: closure.notes,
 		warnings: [...catalog.warnings, ...closure.warnings, ...coreWarnings, ...thesauri.warnings],
-		errors: [...closure.errors, ...thesauri.errors],
+		errors: [...closure.errors, ...manifestErrors],
 	};
 }
 
@@ -763,6 +816,36 @@ function planOntologies(
 }
 
 /**
+ * The thesaurus set closed over the CHOSEN thesauri's own declarations
+ * (hierarchy.json entry.dependencies — ontology_choice.ts closeThesaurusChoice):
+ * a declared thesaurus is added pre-ticked unless the answers decline it (a
+ * declined mandatory one is a warning, never an error), a declared ontology
+ * must be in the install. The manifest is read only when there is a choice to
+ * close.
+ */
+function closedThesauri(
+	chosen: readonly string[],
+	answers: InstallAnswers,
+	activeOntologyTlds: readonly string[],
+): ThesaurusChoiceClosure {
+	if (chosen.length === 0) {
+		return { hierarchies: [], dependencies: [], notes: [], warnings: [], errors: [] };
+	}
+	const manifestErrors: string[] = [];
+	const declarers = offeredThesauri(manifestErrors).map((meta) => ({
+		tld: meta.tld,
+		dependencies: meta.dependencies ?? null,
+	}));
+	const closure = closeThesaurusChoice(
+		chosen,
+		declarers,
+		new Set(activeOntologyTlds),
+		declinePolicy(answers.declined_dependencies),
+	);
+	return { ...closure, errors: [...manifestErrors, ...closure.errors] };
+}
+
+/**
  * Answers → the whole plan. `salt` defaults to '' (the CLI's `--plan` has none);
  * `ontologyCatalog` is the resolved source catalog when the choice needs one
  * (ontology_catalog.ts resolveOntologyCatalog / resolvePlanCatalog).
@@ -790,26 +873,37 @@ export function buildInstallPlan(
 		prior,
 		ontologies.activeOntologyTlds,
 	);
+	const thesauri = closedThesauri(
+		[
+			...answers.hierarchies,
+			...ontologies.hierarchyInstall.filter((tld) => !answers.hierarchies.includes(tld)),
+		],
+		answers,
+		ontologies.activeOntologyTlds,
+	);
+	const hierarchies = thesauri.hierarchies;
+	const suggestionErrors: string[] = [];
+	const suggestions = thesaurusSuggestions(hierarchies, suggestionErrors);
 	return {
 		answers,
 		langConfig,
 		env,
 		envKeys: env.flatMap((section) => section.entries.map((item) => item.key)),
 		steps: installSteps(answers),
-		hierarchies: [
-			...answers.hierarchies,
-			...ontologies.hierarchyInstall.filter((tld) => !answers.hierarchies.includes(tld)),
-		],
-		hierarchyDependencies: ontologies.hierarchyDependencies,
+		hierarchies,
+		hierarchyDependencies: mergeHierarchyDependencyLists(
+			ontologies.hierarchyDependencies,
+			thesauri.dependencies,
+		),
+		suggestions,
 		ontologies: answers.ontologies,
 		ontologySource: ontologySourceView(ontologies.source),
 		ontologyRequest: ontologies.request,
 		activeOntologyTlds: ontologies.activeOntologyTlds,
-		notes: [...notes, ...ontologies.notes],
-		warnings: ontologies.warnings,
+		notes: [...notes, ...ontologies.notes, ...thesauri.notes],
+		warnings: [...ontologies.warnings, ...thesauri.warnings],
 		errors: [
-			...errors,
-			...ontologies.errors,
+			...new Set([...errors, ...ontologies.errors, ...thesauri.errors, ...suggestionErrors]),
 			...langConfig.errors.map((error) => `languages: ${error}`),
 			...controlCharacterErrors(env),
 		],
@@ -903,6 +997,7 @@ export const INSTALL_CLI_FLAGS: readonly {
 	{ flag: '--skip-tools', key: 'register_tools', kind: 'bool' },
 	{ flag: '--plan', key: null, kind: 'bool' },
 	{ flag: '--list-ontologies', key: null, kind: 'bool' },
+	{ flag: '--list-hierarchies', key: null, kind: 'bool' },
 ]);
 
 const FLAGS_BY_NAME: ReadonlyMap<string, (typeof INSTALL_CLI_FLAGS)[number]> = new Map(
@@ -915,6 +1010,8 @@ export interface CliInstallInvocation {
 	planOnly: boolean;
 	/** --list-ontologies: print the catalog view and exit (wins over --plan). */
 	listOntologies: boolean;
+	/** --list-hierarchies: print the thesaurus offer and exit (wins over --plan). */
+	listHierarchies: boolean;
 	errors: string[];
 }
 
@@ -937,6 +1034,7 @@ function applyFlag(
 	if (spec.flag === '--root-password') invocation.rootPassword = value;
 	else if (spec.flag === '--plan') invocation.planOnly = true;
 	else if (spec.flag === '--list-ontologies') invocation.listOntologies = true;
+	else if (spec.flag === '--list-hierarchies') invocation.listHierarchies = true;
 	else if (spec.kind === 'value') invocation.raw[spec.key as string] = value;
 	else invocation.raw[spec.key as string] = !/^--(no|skip)-/.test(spec.flag);
 }
@@ -979,6 +1077,7 @@ export function answersFromCliArgs(argv: readonly string[]): CliInstallInvocatio
 		rootPassword: undefined,
 		planOnly: false,
 		listOntologies: false,
+		listHierarchies: false,
 		errors: [],
 	};
 	for (let index = 0; index < argv.length; ) {

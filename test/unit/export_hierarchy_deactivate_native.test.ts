@@ -120,9 +120,10 @@ describe('the panel value', () => {
 		expect(response?.data).toEqual({ export_hierarchy_path: HIERARCHY_IMPORT_DIR });
 	});
 
-	test('the panel offers both operations, and export is a real handler', () => {
+	test('the panel offers its three operations, and export is a real handler', () => {
 		expect(Object.keys(widget.apiActions ?? {}).sort()).toEqual([
 			'export_hierarchy',
+			'export_hierarchy_json',
 			'sync_hierarchy_active_status',
 		]);
 		// Not a denial stub: the ported action is a live function. (A denied action

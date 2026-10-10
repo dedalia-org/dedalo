@@ -10,7 +10,8 @@
  * the modern collect/persist flow), `init_test` (the progression GATE),
  * `server_info` (cosmetic grid), `db_config` prefill, `db_data_version` ([] hides
  * the unsupported v5/v6 "To update" button), `target_file_path`(+`_exists`),
- * `hierarchies`/`hierarchy_typologies`/`install_checked_default`/`core_hierarchies`,
+ * `hierarchies`/`hierarchy_typologies` (the manifest's client view,
+ * hierarchy_meta.ts hierarchyChoiceView)/`core_hierarchies`/`toponymy_typology`,
  * `update_servers`, `ontologies` (the domain-ontology screen: default, core, and
  * the OFFLINE catalog view — the server's is fetched by get_ontology_catalog).
  */
@@ -19,12 +20,7 @@ import { existsSync } from 'node:fs';
 import { CORE_ONTOLOGY_TLDS } from '../ontology/core_tlds.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
 import { DEDALO_VERSION } from '../update/version.ts';
-import {
-	CORE_HIERARCHIES,
-	defaultOptionalHierarchies,
-	offeredHierarchies,
-	readHierarchyJson,
-} from './hierarchy_meta.ts';
+import { CORE_HIERARCHIES, hierarchyChoiceView, TOPONYMY_TYPOLOGY_ID } from './hierarchy_meta.ts';
 import { runInitTest } from './init_test.ts';
 import { OFFICIAL_CODE_SERVER, OFFICIAL_ONTOLOGY_SERVER } from './install_plan.ts';
 import { INSTALL_DEFAULT_LANG_CODES, INSTALL_LANG_CATALOG } from './lang_catalog.ts';
@@ -42,6 +38,9 @@ export const INSTALLER_TIPO = 'dd1590';
 /** The full synthetic installer element the client mounts and renders from. */
 export function buildInstallContext(): Record<string, unknown> {
 	const lang = currentApplicationLang();
+	// THE vendored thesaurus manifest (hierarchy.json), read once; a missing or
+	// invalid one refuses (install.manifest_invalid) — never an empty offer.
+	const thesauri = hierarchyChoiceView(lang);
 	return {
 		model: 'installer',
 		tipo: INSTALLER_TIPO,
@@ -60,11 +59,13 @@ export function buildInstallContext(): Record<string, unknown> {
 			db_data_version: [],
 			target_file_path: SEED_DUMP_PATH,
 			target_file_path_exists: existsSync(SEED_DUMP_PATH),
-			hierarchies: offeredHierarchies(),
-			hierarchy_typologies: readHierarchyJson('hierarchies_typologies.json', []),
-			// THE shared default (hierarchies.json install_checked_default ∩ vendored)
-			// — the CLI's default reads the same function (install_plan.ts).
-			install_checked_default: defaultOptionalHierarchies(),
+			hierarchies: thesauri.hierarchies,
+			hierarchy_typologies: thesauri.hierarchy_typologies,
+			// NO default selection (2026-10-10): the wizard pre-ticks ONLY the declared
+			// thesaurus dependencies (persist_config's hierarchy_dependencies). The
+			// toponymy group carries a SUGGESTION to import the operator's own country
+			// — never a pre-ticked box (WC-2026-10-10-hierarchy-json-manifest).
+			toponymy_typology: TOPONYMY_TYPOLOGY_ID,
 			// Always activated by the seed restore, never a choice: the client shows
 			// them as fixed rows, not checkboxes (A7, WC-2026-10-08-install-plan-update-servers-core-lg).
 			core_hierarchies: CORE_HIERARCHIES.map(({ tld, label }) => ({ tld, label })),

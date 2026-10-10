@@ -113,7 +113,7 @@ function sessionContext(): ApiRequestContext {
 describe('runInstallStep — install_hierarchies takes the PLAN normalization', () => {
 	// The wizard posts its own ticked list AFTER persist_config, so the router —
 	// not persist_config — is where the CLI ≡ wizard thesaurus rule must hold.
-	test('an unvendored tld refuses install.invalid_input BEFORE any import', async () => {
+	test('a tld hierarchy.json does not list refuses install.invalid_input BEFORE any import', async () => {
 		let refusal: { code: string; message: string } | null = null;
 		try {
 			await runInstallStep(
@@ -124,7 +124,7 @@ describe('runInstallStep — install_hierarchies takes the PLAN normalization', 
 			if (isDedaloError(error)) refusal = { code: error.code, message: error.message };
 		}
 		expect(refusal?.code).toBe('install.invalid_input');
-		expect(refusal?.message).toContain("unknown hierarchy 'zzibogus' (not vendored)");
+		expect(refusal?.message).toContain("unknown hierarchy 'zzibogus' (no entry in hierarchy.json)");
 	});
 
 	test('a core tld, in any case and repeated, is dropped with the note — nothing is imported', async () => {

@@ -62,10 +62,12 @@ lookup inside `getMainLang()`, the active-hierarchy sweep in the
   the section→children schema under `<private>/backups/ontology/changes/`, as
   part of the ontology update flow. Only a filesystem failure fails it; the diff
   itself always succeeds.
-- **Export** — the `export_hierarchy` action of the `export_hierarchy` widget is
-  **deliberately refused** (`engineDenied`,
-  `src/core/area_maintenance/widgets/export_hierarchy.ts`): a boundary, not a
-  missing wire-up. The widget's live action is the status sync below.
+- **Export** — the `export_hierarchy` widget
+  (`src/core/area_maintenance/widgets/export_hierarchy.ts`) dumps an explicit
+  list of section tipos. Each one must be the `hierarchy53` or `hierarchy58`
+  section of an active `hierarchy1` row; the core `lg` is refused. It also
+  writes the `hierarchy.json` manifest, which comes from the census in
+  `src/core/ontology/hierarchy_census.ts`, into `install/import/hierarchy/`.
 - **Status sync** — the widget's `sync_hierarchy_active_status` action
   propagates "Active in thesaurus" (`hierarchy125`) to "Active" (`hierarchy4`),
   deactivating hierarchies not in the thesaurus (the 'People'/`rsc197` hierarchy
@@ -237,7 +239,8 @@ makes it safe to run on every `ensureHierarchy` and lets it backfill roots creat
 | action | module | purpose |
 | --- | --- | --- |
 | `sync_hierarchy_active_status` | `area_maintenance/widgets/export_hierarchy.ts` | Deactivates every active hierarchy whose "active in thesaurus" flag is not yes (People/`rsc197` exempt), writing through the standard component save path (Time Machine row included). |
-| `export_hierarchy` | `area_maintenance/widgets/export_hierarchy.ts` | **Deliberately refused** (`engineDenied`). The bulk toponymy export is not an engine action. |
+| `export_hierarchy` | `area_maintenance/widgets/export_hierarchy.ts` | Dumps the listed section tipos (each the `hierarchy53`/`hierarchy58` section of an ACTIVE hierarchy; `lg` refused) to `<tipo>.copy.gz` in `install/import/hierarchy/`. One error line per refused tipo. |
+| `export_hierarchy_json` | `area_maintenance/widgets/export_hierarchy.ts` | Writes `install/import/hierarchy/hierarchy.json`: the census of the active registry (`ontology/hierarchy_census.ts`) plus the sha256 of the data files present. The installer reads this manifest. |
 
 ## How it fits with the rest of Dédalo
 

@@ -98,9 +98,10 @@ function ontologyOutcome(
 	return {
 		ontology_install: (plan.ontologyRequest?.items ?? []).map((item) => item.tld),
 		active_ontology_tlds: [...plan.activeOntologyTlds],
-		// Only the installable ones: the wizard's thesaurus step locks the
-		// mandatory rows and pre-ticks the optional ones (a non-vendored optional
-		// one is already a plan warning; a non-vendored mandatory one refused).
+		// Only the installable ones: the wizard's thesaurus step pre-ticks them all
+		// (a mandatory one marked strongly recommended, still declinable — owner
+		// decision 2026-10-10); one without a hierarchy.json entry is already a
+		// plan warning, never a refusal.
 		hierarchy_dependencies: plan.hierarchyDependencies.filter((item) =>
 			plan.hierarchies.includes(item.tld),
 		),
@@ -140,8 +141,8 @@ export interface PersistConfigResult {
 	active_ontology_tlds: string[];
 	/**
 	 * The vendored thesauri the installed ontologies declare (hierarchy60
-	 * `main: 'hierarchy1'`): `mandatory` ones cannot be declined at
-	 * install_hierarchies, optional ones are offered pre-ticked.
+	 * `main: 'hierarchy1'`), every one offered pre-ticked at install_hierarchies;
+	 * a `mandatory` one is strongly recommended — declining it is a warning.
 	 */
 	hierarchy_dependencies: HierarchyDependency[];
 	/** Non-blocking plan warnings (e.g. an ontology whose dependencies are not declared). */

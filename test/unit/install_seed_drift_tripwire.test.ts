@@ -1,27 +1,30 @@
 /**
- * Install seed integrity — the vendored hierarchy seed under
+ * Install seed integrity — the vendored thesaurus directory
  * install/import/hierarchy/ must be INTERNALLY COHERENT, because that directory
  * is the only thing the install wizard has before an ontology exists.
  *
- * WHAT THIS GATE USED TO BE, AND WHY IT CHANGED (2026-08-22). It asserted the
- * three metadata JSONs were byte-identical to copies under
- * client/dedalo/core/installer/, on the rationale "a client re-sync must not
- * silently diverge them". That rationale died at the cutover: scripts/sync_client.sh
- * is retired, client/ is primary, and NOTHING read the client copies — the wizard
- * renders from `properties.hierarchies` the server delivers (src/core/install/context.ts).
- * They were dead duplicated data, and the byte-mirror froze them at their v6-era
- * content while the server copies were deliberately re-vendored (dc44aba484,
- * 07e1fcfa34). A gate that fails BECAUSE the real data was corrected is measuring
- * the fork, not the engine. The copies are deleted; the anti-fork assertion now
- * points the other way (no copy may come back).
+ * WHAT THIS GATE USED TO BE, AND WHY IT CHANGED.
+ *  - 2026-08-22: it asserted the three metadata JSONs were byte-identical to
+ *    copies under client/dedalo/core/installer/. Nothing read the client copies
+ *    (the wizard renders what src/core/install/context.ts serves); they were
+ *    deleted and the anti-fork assertion points the other way (no copy may
+ *    come back).
+ *  - 2026-10-10 (WC-2026-10-10-hierarchy-json-manifest): the three hand-written
+ *    files (hierarchies.json, hierarchies_typologies.json,
+ *    hierarchies_to_install.json) are DELETED, replaced by ONE exported
+ *    manifest, hierarchy.json, read through THE strict reader
+ *    (src/core/ontology/hierarchy_manifest_format.ts). The seed registry no
+ *    longer carries the optional thesauri: their rows are written at
+ *    activation from the manifest entry, so the seed ships the CORE rows only.
  *
  * The invariants below are the ones whose violation actually breaks something:
- * a descriptor with no data file cannot be installed, a data file with no
- * descriptor is never offered (hierarchy_activate then falls back to a
- * placeholder typology), an unknown typology number renders an empty panel, an
- * empty pre-checked set is a wizard that offers nothing, and a CORE hierarchy
- * (lg — activated by the seed restore, never imported) that came back as a
- * vendored optional one would duplicate its terms where nothing reads them.
+ * a manifest the reader refuses is an install that cannot start; a listed data
+ * file that is missing or whose bytes do not match its digest is a thesaurus
+ * the importer must refuse; a data file no entry lists is never offered nor
+ * verified; a CORE hierarchy (lg — activated by the seed restore, its terms the
+ * seed's own matrix_langs, never imported) with a data file would duplicate its
+ * terms into matrix_hierarchy where nothing reads them; a non-core seed
+ * registry row is a frozen second copy of the manifest's metadata.
  *
  * THE SEED DUMP ITSELF (installer unification A2, 2026-10-09; reconciled with
  * the seed COMPILER the same day). The seed is CORE-ONLY and COMPILED from repo
@@ -54,11 +57,23 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { DEFAULTS_KEYS } from '../../src/config/catalog/defaults.ts';
-import { copyBlockRecords, copyBlocks } from '../../src/core/db/copy_text.ts';
+import { copyBlockRecords, copyBlocks, splitCopyRow } from '../../src/core/db/copy_text.ts';
+import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
+import { CORE_HIERARCHIES } from '../../src/core/install/hierarchy_meta.ts';
 import { SEED_DUMP_PATH } from '../../src/core/install/paths.ts';
 import { type ReleaseOntology, releaseDependencies } from '../../src/core/install/seed_build.ts';
-import { ONTOLOGY_RELEASE_DIR, SEED_ONTOLOGY_TLDS } from '../../src/core/install/seed_sources.ts';
+import {
+	ONTOLOGY_RELEASE_DIR,
+	SEED_ONTOLOGY_TLDS,
+	SEED_REGISTRY_PATH,
+} from '../../src/core/install/seed_sources.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
+import {
+	HIERARCHY_MANIFEST_FILE,
+	hierarchyDataFileNames,
+	parseHierarchyManifestText,
+	sha256Hex,
+} from '../../src/core/ontology/hierarchy_manifest_format.ts';
 import {
 	danglingDependencies,
 	diffusionModelSet,
@@ -70,98 +85,83 @@ const ROOT = resolve(import.meta.dir, '../..');
 const SERVER_DIR = join(ROOT, 'install/import/hierarchy');
 const CLIENT_INSTALLER_DIR = join(ROOT, 'client/dedalo/core/installer');
 
-interface HierarchyMeta {
-	tld: string;
-	label: string;
-	typology: number;
-	active_in_thesaurus?: boolean;
-}
+/** The vendored manifest, through THE reader (a refusal fails the whole gate, loudly). */
+const manifest = parseHierarchyManifestText(
+	readFileSync(join(SERVER_DIR, HIERARCHY_MANIFEST_FILE), 'utf8'),
+);
+const entries = manifest.active_hierarchies;
 
-const readJson = <T>(name: string): T =>
-	JSON.parse(readFileSync(join(SERVER_DIR, name), 'utf8')) as T;
-
-const descriptors = readJson<HierarchyMeta[]>('hierarchies.json');
-const typologies = readJson<{ typology: number; label: string }[]>('hierarchies_typologies.json');
-const toInstall = readJson<string[]>('hierarchies_to_install.json');
-
-/** The tlds that actually ship data — the same rule as availableHierarchyTlds(). */
-const dataFileTlds = new Set(
-	readdirSync(SERVER_DIR)
-		.filter((name) => /^[a-z]+1\.copy\.gz$/.test(name))
-		.map((name) => name.replace(/1\.copy\.gz$/, '')),
+/** Every vendored `<tld>1|2.copy.gz` file name. */
+const vendoredDataFiles = readdirSync(SERVER_DIR).filter((name) =>
+	/^[a-z]+[12]\.copy\.gz$/.test(name),
 );
 
-describe('install seed tripwire', () => {
-	test('the scan sees a real seed (a zero-length pass is not a pass)', () => {
-		expect(descriptors.length).toBeGreaterThan(100);
-		expect(dataFileTlds.size).toBeGreaterThan(100);
-		expect(typologies.length).toBeGreaterThan(0);
+/** The tld of each seed registry row (install/db/seed/matrix_hierarchy_main.copy.gz). */
+const seedRegistryTlds = gunzipSync(readFileSync(SEED_REGISTRY_PATH))
+	.toString('utf8')
+	.split('\n')
+	.filter((line) => line !== '')
+	.map((line) => {
+		const cell = splitCopyRow(line)[MATRIX_COPY_COLUMNS.indexOf('string')] ?? null;
+		const strings =
+			cell === null ? {} : (JSON.parse(cell) as Record<string, { value?: unknown }[]>);
+		return String(strings.hierarchy6?.[0]?.value ?? '').toLowerCase();
 	});
 
-	test('every descriptor ships a data file', () => {
-		const missing = descriptors.map((d) => d.tld).filter((tld) => !dataFileTlds.has(tld));
-		expect(missing, 'descriptors the wizard offers but cannot install').toEqual([]);
+describe('install seed tripwire — the vendored thesaurus manifest', () => {
+	test('the scan sees a real manifest (a zero-length pass is not a pass)', () => {
+		expect(entries.length).toBeGreaterThan(100);
+		expect(vendoredDataFiles.length).toBeGreaterThan(100);
+		expect(manifest.typologies.length).toBeGreaterThan(0);
+		expect(seedRegistryTlds.length).toBeGreaterThan(0);
 	});
 
-	test('every data file has a descriptor', () => {
-		// Without one the tld is never offered, and hierarchy_activate falls back
-		// to a placeholder typology (src/core/install/hierarchy_activate.ts:73).
-		const known = new Set(descriptors.map((d) => d.tld));
-		const orphans = [...dataFileTlds].filter((tld) => !known.has(tld)).sort();
-		expect(orphans, 'vendored hierarchy data with no descriptor row').toEqual([]);
-	});
-
-	test('every descriptor typology is defined in hierarchies_typologies.json', () => {
-		// An unknown number groups the hierarchy under a nonexistent header and
-		// the install panel renders nothing (docs/management/install_new_hierarchies.md).
-		const known = new Set(typologies.map((t) => t.typology));
-		const unknown = [...new Set(descriptors.map((d) => d.typology))]
-			.filter((n) => !known.has(n))
-			.sort((a, b) => a - b);
-		expect(unknown).toEqual([]);
-	});
-
-	test('the ONE optional-thesaurus default is the descriptors flagged install_checked_default — all offered', async () => {
-		// ASK THE ENGINE, do not re-implement it: defaultOptionalHierarchies() is
-		// what BOTH front ends read (the wizard's pre-ticked boxes via context.ts,
-		// the CLI's omitted --hierarchies via install_plan.ts). The gate holds it
-		// equal to the DATA — the descriptors flagged in hierarchies.json — so a
-		// second list (the retired INSTALL_CHECKED_DEFAULT literal) cannot return
-		// unnoticed, and a flagged descriptor without its data file reddens.
-		const { defaultOptionalHierarchies } = await import('../../src/core/install/hierarchy_meta.ts');
-		const flagged = descriptors
-			.filter((d) => (d as { install_checked_default?: boolean }).install_checked_default === true)
-			.map((d) => d.tld);
-		const served = defaultOptionalHierarchies();
-		expect(served.length, 'an empty default set is a wizard that offers nothing').toBeGreaterThan(
-			0,
+	test('the three retired hand-written files are absent', () => {
+		const retired = [
+			'hierarchies.json',
+			'hierarchies_typologies.json',
+			'hierarchies_to_install.json',
+		].filter((name) => existsSync(join(SERVER_DIR, name)));
+		expect(retired, 'replaced by hierarchy.json (WC-2026-10-10-hierarchy-json-manifest)').toEqual(
+			[],
 		);
-		expect(served).toEqual(flagged);
-		expect(served.filter((tld) => !dataFileTlds.has(tld))).toEqual([]);
 	});
 
-	test('no CORE hierarchy is vendored as an optional one (descriptor or <tld>1.copy.gz)', async () => {
-		// A core tld (lg) is ACTIVATED by the seed restore against the terms the
-		// seed ships in its own table; a descriptor would offer it as a choice and
-		// a data file would let the importer write unread duplicates into
-		// matrix_hierarchy (the defect retired 2026-10-08).
-		const { CORE_HIERARCHIES } = await import('../../src/core/install/hierarchy_meta.ts');
+	test('every listed data file is vendored and its bytes match the digest', () => {
+		let checked = 0;
+		const broken: string[] = [];
+		for (const entry of entries) {
+			for (const item of entry.data_files) {
+				const path = join(SERVER_DIR, item.file);
+				if (!existsSync(path)) broken.push(`${entry.tld}: ${item.file} missing`);
+				else if (sha256Hex(readFileSync(path)) !== item.sha256)
+					broken.push(`${entry.tld}: ${item.file} sha256 mismatch`);
+				checked++;
+			}
+		}
+		expect(checked, 'the digest scan saw the data files').toBeGreaterThan(100);
+		expect(broken).toEqual([]);
+	});
+
+	test('every vendored data file is listed by an entry (never offered, never verified otherwise)', () => {
+		const listed = new Set(entries.flatMap((entry) => entry.data_files.map((item) => item.file)));
+		expect(vendoredDataFiles.filter((name) => !listed.has(name)).sort()).toEqual([]);
+	});
+
+	test('a CORE hierarchy is listed as metadata, with no data file (its terms are matrix_langs)', () => {
 		expect(CORE_HIERARCHIES.length).toBeGreaterThan(0);
-		const core = CORE_HIERARCHIES.map((meta) => meta.tld);
-		expect(core.filter((tld) => descriptors.some((d) => d.tld === tld))).toEqual([]);
-		expect(core.filter((tld) => dataFileTlds.has(tld))).toEqual([]);
-		expect(core.filter((tld) => existsSync(join(SERVER_DIR, `${tld}1.copy.gz`)))).toEqual([]);
+		for (const { tld } of CORE_HIERARCHIES) {
+			const entry = entries.find((candidate) => candidate.tld === tld);
+			expect(entry, `${tld} has a manifest entry`).toBeDefined();
+			expect(entry?.data_files, `${tld} data_files`).toEqual([]);
+			for (const name of hierarchyDataFileNames(tld)) {
+				expect(existsSync(join(SERVER_DIR, name)), `${name} is not vendored`).toBe(false);
+			}
+		}
 	});
 
-	test('hierarchies_to_install ⊆ descriptors ∪ CORE, and ⊇ CORE (the seed registry keeps them)', async () => {
-		// hierarchies_to_install lists the registry records the seed builder ships;
-		// a core tld's record (hierarchy1 for lg) must survive or there is nothing
-		// for the seed restore to activate.
-		const { CORE_HIERARCHIES } = await import('../../src/core/install/hierarchy_meta.ts');
-		const core = CORE_HIERARCHIES.map((meta) => meta.tld);
-		const known = new Set([...descriptors.map((d) => d.tld), ...core]);
-		expect(toInstall.filter((tld) => !known.has(tld))).toEqual([]);
-		expect(core.filter((tld) => !toInstall.includes(tld))).toEqual([]);
+	test('the seed registry ships the CORE rows exactly (optional thesauri activate from the manifest)', () => {
+		expect([...seedRegistryTlds].sort()).toEqual(CORE_HIERARCHIES.map((meta) => meta.tld).sort());
 	});
 
 	test('the seed dump is vendored', () => {

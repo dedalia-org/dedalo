@@ -142,35 +142,61 @@ Both, common and private, hierarchies has the same process to be created.
 #### Toponyms or other standardized hierarchies
 
 Dédalo ships around 150 standardized hierarchies — the ISO country toponymies and
-the common thematic ones — as vendored dump files in `install/import/hierarchy/`.
-You do not create these by hand:
+the common thematic ones — in `install/import/hierarchy/`: one manifest,
+`hierarchy.json`, that lists every hierarchy the release offers, and the dump
+files of their terms. You do not create these by hand:
 
 - **During the install**, every installer asks: the browser wizard's
   *Hierarchies* step as a checkbox list, the command-line installer as
   `--hierarchies <codes>|default|none`
   ([command-line flags](../install/installer_reference.md#command-line-flags)),
-  and `install.sh` as its *Optional thesauri* question. All three start from the
-  same default set, the entries of `hierarchies.json` flagged
-  `install_checked_default` (today only `es`), which the wizard pre-ticks and the
-  command line installs when it gets no answer. `none` is a valid answer. The
-  Languages thesaurus (`lg`) is not a choice: it is active on every install, and
-  naming it is dropped with a note. A thesaurus that an installed ontology
-  declares as a dependency is added to this set: always when it is mandatory
-  (locked in the wizard), and pre-ticked when it is optional
+  and `install.sh` as its *Optional thesauri* question. All three offer every
+  entry of `hierarchy.json` and pre-select **only** the thesauri an installed
+  ontology declares as a dependency, mandatory or optional — all pre-ticked, and
+  you can untick any of them. A mandatory one is marked **strongly recommended**;
+  leaving it out never stops the install, it only gives a warning that you can
+  install it later from Maintenance → **Install hierarchies**
   ([dependencies](../install/installer_reference.md#dependencies-are-declared-never-guessed)).
+  Nothing else is pre-selected — no country's toponymy either. Each installer
+  suggests importing **your own country's** toponymy (for example Nepal, `np`,
+  for an installation in Nepal); that is advice, never a default. `none` is a
+  valid answer. The Languages thesaurus (`lg`) is not a choice: it is active on
+  every install, and naming it is dropped with a note.
 - **Afterwards**, Maintenance → **Install hierarchies** (`add_hierarchy`) offers
-  the same list, minus the ones already installed, and imports on demand.
+  the same list, marking the ones already installed, and imports on demand.
 
-Either way the import is the same operation: the terms are copied into
+Either way the import is the same operation. First, the entry must fit this
+installation: its language must already exist in the Languages thesaurus, its
+typology must be a record here, and a real section it names must be a section
+here. Otherwise the hierarchy is refused and nothing is written. Then every data
+file the entry lists is checked against its sha256 (a missing or changed file
+refuses that hierarchy, with nothing written). Then the terms are copied into
 `matrix_hierarchy`, the record counter is re-consolidated, and the hierarchy is
-**activated**. Activation is not optional — imported terms with no ontology and no
+**activated**. A hierarchy listed without data files is activated as an
+**empty** thesaurus, ready for your editors. The first activation writes the
+hierarchy's registry record from its manifest entry — name, typology, default
+language, real section, scope note and dependencies. Activation is not optional — imported terms with no ontology and no
 active registry record are unreachable, so an import whose activation fails is
 reported as a failure for that TLD, not as a partial success.
 
-A hierarchy already present is **skipped**, never merged: the import is additive and
-will not touch a TLD that has rows. To replace one with the shipped version, use the
-panel's **reset** action — it deletes that TLD's rows first, so anything your
-editors added to it is lost.
+A thesaurus's own **dependencies** are suggested with it: if its entry declares
+other thesauri, ticking it ticks them too, and a mandatory one is marked
+**strongly recommended**. You can untick any of them. A thesaurus dependency
+never stops an import: what you leave out, or what has no entry in
+`hierarchy.json`, is installed without it, and the result warns that it is
+strongly recommended and can be installed later from this same panel. You may
+also keep a thesaurus of your own under another name instead. Only a declared
+mandatory **ontology** that this installation does not have stops the import:
+nothing is installed, and the reason is reported.
+
+A hierarchy whose terms are already present is **not copied again**, never merged:
+the import is additive. It is still activated, so a run that was interrupted after
+the import is finished by the next one. To replace one with the shipped version, use
+the panel's **reset** action — it deletes that TLD's rows first, so anything your
+editors added to it is lost. The same applies when a hierarchy was installed
+**empty** and a later release ships its terms: the install refuses it and tells you
+to use reset, because the only row it holds is the root created when it was
+activated.
 
 ## Moving a hierarchy between installations
 
@@ -187,10 +213,10 @@ exported on a machine is immediately offered by that machine's own import panel.
 !!! warning "Nothing you put in `install/import/hierarchy/` survives a code update"
     The directory is part of the code tree. A [code update](updates/updating_code.md)
     from the panel moves the whole tree aside, files you added and your edits to
-    `hierarchies.json` included, and the new release brings its own
-    `hierarchies.json`. A `git pull` stops on the edited `hierarchies.json` as a
+    `hierarchy.json` included, and the new release brings its own
+    `hierarchy.json`. A `git pull` stops on the edited `hierarchy.json` as a
     conflict. Import the hierarchies you carried over **before** updating the
-    code, or copy the files and the descriptor entries in again afterwards. The
+    code, or copy the files and the manifest entries in again afterwards. The
     exports you need to keep belong in your own archive, not in this directory.
 
 !!! note "Coming from v6"
@@ -200,59 +226,72 @@ exported on a machine is immediately offered by that machine's own import panel.
 
 ### 1. Export, on the source install
 
-Maintenance → **Export hierarchy**. Two scopes:
+Maintenance → **Export hierarchy**. The panel has two exports, run in this order.
 
-| Scope | Produces | Use it for |
-| --- | --- | --- |
-| A list of section tipos (`es1`, `ts1`, …) | one `<section_tipo>.copy.gz` per tipo | moving specific hierarchies — **this is the importable form** |
-| Everything | one timestamped `all_2026-08-22_142530.copy.gz` | a whole-thesaurus snapshot, for archive or manual restore |
+**Data files.** List the section tipos to dump, comma-separated, for example
+`es1,fr1`. Each one must be the thesaurus section (`hierarchy53`) or the model
+section (`hierarchy58`) of an **active** hierarchy, and it must be that
+hierarchy's own `<tld>1` or `<tld>2`: `hierarchy.json` lists no other data file. Each accepted tipo produces
+one `<section_tipo>.copy.gz`: a gzip-compressed psql `COPY` of that section's
+rows in `matrix_hierarchy`. Anything else gets its own error line and nothing is
+written for it. That includes a tipo of an inactive hierarchy, an unknown tipo,
+and the old `*` (every active hierarchy) and `all` (the whole table) forms, which
+are no longer accepted. The panel lists the files it produced, with a download
+link for each (`/dedalo/install/import/hierarchy/<file>`), and prints the manual
+re-import command underneath.
 
-Each file is a gzip-compressed psql `COPY` of the hierarchy rows. The panel lists
-what it produced, with a download link per file
-(`/dedalo/install/import/hierarchy/<file>`), and prints the manual re-import
-command underneath.
+!!! note "Languages (`lg`) are never exported"
+    `lg1` and `lg2` are refused. The language thesaurus is a core hierarchy:
+    its terms live in `matrix_langs` and ship in the install seed
+    (`install/db/seed/matrix_langs.copy.gz`). Every installation already has
+    them, and importing them into `matrix_hierarchy` would only add noise.
 
-!!! warning "The `all_…` file is not importable by the panel"
-    The import side recognises `<tld>1.copy.gz` and nothing else. A whole-table
-    snapshot has to be restored with the manual `psql` command the panel prints —
-    and that command loads *every* hierarchy in the file, which is rarely what you
-    want on a populated install.
+**`hierarchy.json`.** The **Export hierarchy.json** button writes
+`install/import/hierarchy/hierarchy.json`. That is the manifest the installer
+reads. It lists every active hierarchy with its name, typology, language, real
+section, scope note and declared dependencies. For each one it also lists the
+data files present in the directory **at that moment**, with the sha256 of
+their bytes. Run it **after** the data export. A data file written later is not
+covered by the manifest's checksums, and the installer refuses a file whose
+checksum does not match. An active hierarchy with no data file is listed with
+`data_files: []`: it is installed as an empty thesaurus. The panel names these
+hierarchies under the result. If a registry row cannot be described (no valid
+TLD, no typology, no integer language id, a real section that is not a section,
+or a stored value the format does not accept, such as a language code in
+capitals), it is left out and named in the panel's error lines. The file is still
+written for every other hierarchy.
 
 ### 2. Carry the files across
 
-Copy the `.copy.gz` files into the target install's `install/import/hierarchy/`
-directory, as the service user. A hierarchy is at most two files:
+Copy the data files into the target install's `install/import/hierarchy/`
+directory, as the service user. A hierarchy is at most two files, and may have
+none (an empty thesaurus):
 
 | File | Holds |
 | --- | --- |
-| `<tld>1.copy.gz` | the thesaurus terms — **required** |
-| `<tld>2.copy.gz` | the hierarchy's models, when it has them — optional |
+| `<tld>1.copy.gz` | the thesaurus terms |
+| `<tld>2.copy.gz` | the hierarchy's models, when it has them |
 
-### 3. Declare it, or the panel will not offer it
+### 3. List it in the target's `hierarchy.json`, or the panel will not offer it
 
-The import panel offers **the intersection** of the data files present and the
-descriptors in `install/import/hierarchy/hierarchies.json`. A `.copy.gz` with no
-descriptor entry is invisible — the panel does not guess a label or a typology.
-Add one entry per TLD you carried over:
+The import panel offers exactly the entries of the target's
+`install/import/hierarchy/hierarchy.json`. A `.copy.gz` that no entry lists is
+never offered. Take each hierarchy's entry from the **source's** exported
+`hierarchy.json` — the whole object from `active_hierarchies`, with its
+`data_files` checksums unchanged — and add it to the target's
+`active_hierarchies`. If its `typology_id` is not yet in the target's
+`typologies`, copy that typology too. Do not retype an entry: the checksums are
+what proves the files you carried are the ones that were exported.
 
-```json
-{
-	"tld": "mytld",
-	"label": "My hierarchy",
-	"typology": 1,
-	"active_in_thesaurus": true
-}
-```
+To move a whole installation's set, copy the source's `hierarchy.json` over the
+target's instead: it then offers exactly the source's active hierarchies.
 
-The typology numbers are the ones in the table above (`1` thematic, `2` toponymy,
-`3` languages, `4` semantic, …); the full list the panel renders lives in
-`hierarchies_typologies.json` beside it.
-
-!!! danger "An empty *Install hierarchies* list means a missing descriptor"
-    Files present and nothing offered is almost always `hierarchies.json` — a
-    missing entry, a TLD spelled differently there than in the file name, or
-    invalid JSON, which is read fail-soft and yields an empty list rather than an
-    error. Check the file before suspecting the import.
+!!! danger "A malformed `hierarchy.json` stops the installer and the panel"
+    The manifest is read strictly. A missing required field, a wrong type, a
+    duplicated TLD, a typology that is not listed or a data file that is not the
+    entry's own refuses the whole file (`install.manifest_invalid`), and the
+    error names the place in the file. Nothing is offered until it is fixed —
+    never a silently shorter list.
 
 ### 4. Import and activate, on the target install
 

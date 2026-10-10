@@ -8045,6 +8045,12 @@ body:has(.component_av.view_viewer) {
 .installer.wrapper .hierarchies_import_block .hierarchy_label > .hierarchy_checkbox:disabled {
   cursor: not-allowed;
 }
+.installer.wrapper .hierarchies_import_block .recommended_declined {
+  padding-left: 1.6rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--ut_run);
+}
 .installer.wrapper .ontologies_block .ontology_group {
   margin-bottom: 0.25rem;
 }

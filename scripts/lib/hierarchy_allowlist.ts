@@ -10,8 +10,7 @@
  * derived 13.9M matrix_relation_index rows (1368 MB) and 5.6M
  * matrix_string_search rows (691 MB) on top of 2,267,790 geo hierarchy rows
  * (5370 MB). Meanwhile the tests only ever NAME a handful of those TLDs, and
- * most references are NAME-ONLY string work (safeExportTipo('es1'),
- * tableForTipo('es1')); exactly one gate declares itself volume-bound
+ * most references are NAME-ONLY string work (safeExportTipo('es1')); exactly one gate declares itself volume-bound
  * (test/unit/search_late_row_lookup.test.ts — es1, "thousands of records").
  * Installing 136 hierarchies no test can name is not coverage, it is a
  * ~7.4 GiB tax on every rebuild of a disposable fixture.
