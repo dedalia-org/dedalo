@@ -48,7 +48,7 @@ export function supervisionDeclaredOnlyInPrivateEnv(): boolean {
 /** The text a code update refuses with when no supervisor is declared. */
 export function supervisorRefusalMessage(): string {
 	const base =
-		'Error. No supervisor declared; the server would not restart onto the new tree. Declare DEDALO_SUPERVISED=true in the process manager that restarts it (systemd unit Environment=, compose environment:, or the start:supervised / dev / dev:server scripts).';
+		'Error. No supervisor declared; the server would not restart onto the new tree. Declare DEDALO_SUPERVISED=true in the process manager that restarts it (systemd unit Environment=, compose environment:, or the start:supervised / dev / dev:server scripts) — see docs/install/production.md, "Mandatory: a supervisor that declares itself".';
 	if (!supervisionDeclaredOnlyInPrivateEnv()) return base;
 	return `${base} DEDALO_SUPERVISED in ../private/.env is IGNORED — that file is read by every launch method, including the unsupervised \`bun run start\`.`;
 }

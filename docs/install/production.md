@@ -8,6 +8,19 @@ This is the main bare-metal guide: fifteen steps from a clean Ubuntu 24.04 LTS s
 
 The engine is a single long-lived **Bun** process. It listens on a **unix socket**; a reverse proxy owns TCP, TLS, the client static files and the media bytes. PostgreSQL is the system of record.
 
+### Mandatory: a supervisor that declares itself
+
+Dédalo must run under a process manager that **restarts it** and **declares `DEDALO_SUPERVISED=true` in the process environment**. A code update replaces the tree and then exits the server (exit code 75) so the supervisor boots the new code; without a declared supervisor the [code update panel](../management/updates/updating_code.md) refuses every update (*No supervisor declared*) rather than leave the server dead.
+
+| Launch method | Where the declaration goes |
+| --- | --- |
+| systemd (this guide) | the unit: `Environment=DEDALO_SUPERVISED=true`, with `Restart=always` and `SuccessExitStatus=75` — the shipped `deploy/dedalo-ts.service` already has all three |
+| Docker compose | the `dedalo` service's `environment:` — `DEDALO_SUPERVISED: "true"` (both shipped compose files have it) |
+| by hand / development | `bun run start:supervised` (or `bun run dev`); plain `bun run start` is unsupervised |
+
+!!! danger "Not in `../private/.env`"
+    A `DEDALO_SUPERVISED` line in `/opt/dedalo/private/.env` is **ignored**: that file is read by every launch method, the unsupervised `bun run start` included. A unit written before 2026-10-08, or a hand-written one, lacks the line — check it with `systemctl cat dedalo-ts | grep DEDALO_SUPERVISED` and add it as in [Upgrading › Check that the unit declares supervision](upgrading.md#3-check-that-the-unit-declares-supervision).
+
 !!! info "Other distributions"
     RHEL, Rocky, AlmaLinux and Fedora follow the same fifteen steps with different package names, a different PostgreSQL repository, SELinux and firewalld. The deltas are in **[RHEL-based systems](install_rhel.md)** — read this page first, then that one.
 

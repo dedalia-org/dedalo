@@ -36,6 +36,7 @@ Everything else, publication to a public website, semantic search, the AI assist
 | **Media tools** | `ffmpeg` (with `qt-faststart`), ImageMagick, poppler, optionally `ocrmypdf` | without them, uploads produce no derivatives |
 | **Base tools** | `git`, `unzip`, `gzip`, `file`, `curl`, `ca-certificates` | the code-update subsystem shells out to some of these |
 | **Filesystem** | the directory **above** the repo must be writable by the service user | the installer creates `../private/` there, holding every secret |
+| **Process supervisor** | **mandatory**: the process manager restarts the server and declares `DEDALO_SUPERVISED=true` in the process environment | systemd `Environment=DEDALO_SUPERVISED=true` (the shipped `dedalo-ts.service` has it), compose `environment:`, or `bun run start:supervised`. Without it every code update is refused. Never in `../private/.env` — ignored there. See [Production](production.md#mandatory-a-supervisor-that-declares-itself) |
 | **Optional** | MariaDB (publication), pgvector (semantic search) | you create the target databases; the engine never does |
 
 !!! note "A clone is self-contained"
