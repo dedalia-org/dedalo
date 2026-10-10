@@ -310,7 +310,8 @@ function bareFor(n: number, remote: string): string {
 /** The REAL hook's identity of a remote URL (`--remote-id`). */
 function remoteId(url: string): string {
 	const r = run(['sh', HOOK_PATH, '--remote-id', url], scratch);
-	if (r.code !== 0 || !/^[0-9a-f]{40}\n?$/.test(r.out)) throw new Error(`--remote-id ${url}: ${r.err}`);
+	if (r.code !== 0 || !/^[0-9a-f]{40}\n?$/.test(r.out))
+		throw new Error(`--remote-id ${url}: ${r.err}`);
 	return r.out.trim();
 }
 
@@ -323,7 +324,10 @@ function remoteClass(url: string, hookPath = HOOK_PATH): string {
 
 /** The hook text with INTERNAL_REMOTE_IDS replaced (a control must APPLY). */
 function withInternalIds(hook: string, ids: string[]): string {
-	const out = hook.replace(/^INTERNAL_REMOTE_IDS='[^']*'$/m, `INTERNAL_REMOTE_IDS='${ids.join(' ')}'`);
+	const out = hook.replace(
+		/^INTERNAL_REMOTE_IDS='[^']*'$/m,
+		`INTERNAL_REMOTE_IDS='${ids.join(' ')}'`,
+	);
 	if (out === hook) throw new Error(`${HOOK_REL}: no INTERNAL_REMOTE_IDS='…' line to replace`);
 	return out;
 }
@@ -344,10 +348,7 @@ function freshRepo(remotes: string[] = ['origin'], internal: string[] = []): str
 	// in the repository, so the policy is exercised on a stand-in identity.
 	const hook = readFileSync(HOOK_PATH, 'utf8');
 	const ids = internal.map((remote) => remoteId(bareFor(repoCounter, remote)));
-	writeFileSync(
-		join(repo, HOOK_REL),
-		internal.length === 0 ? hook : withInternalIds(hook, ids),
-	);
+	writeFileSync(join(repo, HOOK_REL), internal.length === 0 ? hook : withInternalIds(hook, ids));
 	chmodSync(join(repo, HOOK_REL), 0o755);
 	copyFileSync(PUSH_PATH, join(repo, 'scripts/push.ts'));
 	write(
@@ -897,7 +898,8 @@ describe('pre-push gate: remotes are classified by URL — internal hermetic-onl
 		expect(ids.length).toBeGreaterThanOrEqual(1);
 		for (const id of ids) expect(id).toMatch(/^[0-9a-f]{40}$/);
 		const publicIds = new Set([...PUBLIC_SPELLINGS, ...LOOKALIKES].map(remoteId));
-		for (const id of ids) expect(publicIds.has(id), `internal id ${id} is a public URL`).toBe(false);
+		for (const id of ids)
+			expect(publicIds.has(id), `internal id ${id} is a public URL`).toBe(false);
 	});
 
 	test('a stand-in internal identity matches its own spellings only (port, path, host all count)', () => {
