@@ -42,11 +42,9 @@ export const CI_IMAGE_NAME = 'ghcr.io/dedalia-org/dedalo-ci';
  * names it any more — then set this to null (and delete the old package): the
  * removal is mechanical because nothing else spells the old name.
  */
-export const CI_IMAGE_LEGACY: { name: string; reason: string } | null = {
-	name: 'ghcr.io/renderpci/dedalo-ci',
-	reason:
-		'repo transferred renderpci/dedalo → dedalia-org/dedalo (2026-10-09); the user-owned package does not move, so the current pins keep pulling it until ci-image.yml has published under dedalia-org and `bun run ci:image:pin` rewrote them',
-};
+// Move DONE 2026-10-10: the pin names dedalia-org. `as` keeps the union type, so the
+// readers below stay compiled for the next repository move (a literal null narrows).
+export const CI_IMAGE_LEGACY = null as { name: string; reason: string } | null;
 
 /** Every name a pin may carry: the publishing repository, plus the legacy one while it lives. */
 export const CI_IMAGE_ACCEPTED_NAMES: readonly string[] = [

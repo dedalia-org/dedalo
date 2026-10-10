@@ -1,5 +1,5 @@
 {
-	"image": "ghcr.io/renderpci/dedalo-ci",
-	"digest": "sha256:6fe7ddcece0956736be5215ab3d120c783d09b5c3d05b11e3bce848d798ffa32",
-	"fingerprint": "f91da265fbec09c8694358bdaaba637c426bb199f9fab895c1508345e6ff8dfa"
+	"image": "ghcr.io/dedalia-org/dedalo-ci",
+	"digest": "sha256:24295d498923e0403b36409e4ad4ba961bd6f8d534463bc9c2db0bc81f70f759",
+	"fingerprint": "c07879b311095ccc110b00bf4d821669d663a6215b0ccd769108606e5ad4b821"
 }
