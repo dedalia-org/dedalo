@@ -9699,6 +9699,7 @@ body:has(.component_av.view_viewer) {
   position: -webkit-sticky;
   position: -moz-sticky;
   position: sticky;
+  padding-left: 0.18rem;
 }
 @media screen and (max-width: 1024px) {
   .wrapper_search > .search_global_container > .search_container_selection .search_group_container {
@@ -9742,7 +9743,7 @@ body:has(.component_av.view_viewer) {
   margin: 0px;
   padding: 0.5rem 0;
   text-align: center;
-  width: 28px;
+  width: 22px;
   writing-mode: vertical-lr;
   text-transform: uppercase;
   cursor: pointer;
