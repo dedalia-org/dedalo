@@ -47,6 +47,10 @@
  *   6. `prepare` — installs core.hooksPath once, is silent the second time, is a no-op
  *      under CI / in the CI image / outside a git checkout, and never overrides a
  *      foreign hooksPath.
+ *   5e. PER REMOTE — the remote is classified by URL identity: internal → hermetic only,
+ *      public / unknown → as above; a rename never changes it; a release tag needs a FULL
+ *      green for its commit on any remote (on a stand-in internal identity: the real
+ *      internal URL is named nowhere in the repository).
  *   7. push.ts — fast-forwards the stale branch by compare-and-swap, gates once, pushes
  *      both branches to all three remotes; refuses diverged branches with nothing
  *      pushed; after a bank commit (hook exit 3) re-aligns and pushes the NEW sha.
@@ -1223,6 +1227,27 @@ describe('scripts/push.ts', () => {
 			expect(remoteTip(repo, remote, 'v7')).toBe(sha);
 			expect(remoteTip(repo, remote, 'master')).toBe(sha);
 		}
+	});
+
+	test('--internal lands on gitdedalo ONLY, gated hermetic (an internal URL); the mirrors are untouched', () => {
+		const repo = freshRepo(REMOTES, ['gitdedalo']);
+		const mirrors = ['github', 'gitlab'].map((remote) => remoteTip(repo, remote, 'master'));
+		write(repo, 'src/a.ts', 'export const a = 42;\n');
+		const sha = commitAll(repo, 'daily');
+		const r = run(['bun', 'run', 'scripts/push.ts', '--internal'], repo);
+		expect(r.code, r.out + r.err).toBe(0);
+		expect(ciCalls()).toEqual([expect.stringMatching(/^ci --docker --hermetic --ref /)]);
+		expect(remoteTip(repo, 'gitdedalo', 'v7')).toBe(sha);
+		expect(remoteTip(repo, 'gitdedalo', 'master')).toBe(sha);
+		expect(['github', 'gitlab'].map((remote) => remoteTip(repo, remote, 'master'))).toEqual(
+			mirrors,
+		);
+		// The plain form then publishes to the mirrors at the FULL level (hermetic green not reused).
+		resetLog();
+		const all = run(['bun', 'run', 'scripts/push.ts'], repo);
+		expect(all.code, all.out + all.err).toBe(0);
+		expect(ciCalls()).toEqual([expect.stringMatching(/^ci --docker --hermetic --db --instance /)]);
+		for (const remote of REMOTES) expect(remoteTip(repo, remote, 'master')).toBe(sha);
 	});
 
 	test('DIVERGED branches are refused and nothing is gated or pushed', () => {

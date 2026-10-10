@@ -3,7 +3,14 @@
  * PUBLISH `v7` + `master` TO EVERY REMOTE — gated once, pushed everywhere.
  *
  *   bun run push              # align, gate, push v7 + master to all remotes
+ *   bun run push --internal   # the same, to the internal remote (gitdedalo) ONLY
  *   bun run push --dry-run    # print the plan (alignment, remote tips); change nothing
+ *
+ * --internal (2026-10-10) is the day-to-day landing: the hook gates a push to the
+ * internal remote HERMETIC-ONLY (~3 min) and the nightly full gate runs db/instance on
+ * gitdedalo/master. The plain form publishes to the public mirrors too, which the hook
+ * gates FULL. The hook decides the level by the remote's URL, not by this list — a
+ * `gitdedalo` remote pointing anywhere else is gated full.
  *
  * WHY THIS EXISTS. The landing ritual was manual: commit on one branch,
  * `git checkout` the other, `git merge` it fast-forward, then `git push` to
@@ -44,7 +51,11 @@ import { join } from 'node:path';
 const REPO_ROOT = join(import.meta.dir, '..');
 
 /** The landing remotes, in push order. gitdedalo first: it is the primary. */
-const REMOTES = ['gitdedalo', 'github', 'gitlab'] as const;
+const ALL_REMOTES = ['gitdedalo', 'github', 'gitlab'] as const;
+/** `--internal`: the day-to-day remote only. */
+const INTERNAL_REMOTES = ['gitdedalo'] as const;
+/** The remotes THIS run lands on (set once in main, from the arguments). */
+let REMOTES: readonly string[] = ALL_REMOTES;
 
 /** The branches published together. Both must name the same commit. */
 const BRANCHES = ['v7', 'master'] as const;
@@ -275,16 +286,19 @@ function runGate(remote: string, localSha: string): number {
 
 function main(): void {
 	const args = process.argv.slice(2);
-	const unknown = args.filter((arg) => arg !== '--dry-run' && arg !== '--help' && arg !== '-h');
+	const known = ['--dry-run', '--internal', '--help', '-h'];
+	const unknown = args.filter((arg) => !known.includes(arg));
 	if (unknown.length > 0 || args.includes('--help') || args.includes('-h')) {
 		console.log(
-			'bun run push [--dry-run]\n\n' +
+			'bun run push [--internal] [--dry-run]\n\n' +
 				`Fast-forwards ${BRANCHES.join('/')} to each other, runs the pre-push gate once, then pushes both\n` +
-				`branches to ${REMOTES.join(', ')} with --no-verify. There is no gate-skipping flag.`,
+				`branches to ${ALL_REMOTES.join(', ')} (--internal: ${INTERNAL_REMOTES.join(', ')} only) with --no-verify.\n` +
+				'There is no gate-skipping flag: the hook picks the level from each remote URL.',
 		);
 		process.exit(unknown.length > 0 ? 2 : 0);
 	}
 	const dryRun = args.includes('--dry-run');
+	if (args.includes('--internal')) REMOTES = INTERNAL_REMOTES;
 
 	assertPreconditions();
 
