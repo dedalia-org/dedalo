@@ -12,7 +12,7 @@
 	import {a11y} from '../../common/js/a11y.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {set_element_css} from '../../page/js/css.js'
-	import {no_records_node, NON_EDITABLE_SECTION_TIPOS} from './render_common_section.js'
+	import {no_records_node, is_non_tools_section} from './render_common_section.js'
 	import {
 		build_semantic_quick_input,
 		build_pinned_chip
@@ -598,13 +598,15 @@ const get_buttons = function(self) {
 			buttons_container.appendChild(pinned_chip)
 		}
 
-	// non_editable_sections. Read-only log sections + registered tools: they
-	// carry no action buttons and no section tools (consultation-only, WC-010 +
-	// WC-2026-10-06-consultation-only-no-section-tools), so the other-buttons
-	// drawer and its toggle are omitted — only the search controls remain.
-	// Activity (dd542) and Time machine (dd15) MUST behave identically; the list
-	// is shared with view_graph_list_section (render_common_section).
-		if (NON_EDITABLE_SECTION_TIPOS.includes(self.tipo)) {
+	// non_editable_sections. Read-only log sections + registered tools + every
+	// section_tool "process" page (oh81 …): they carry no action buttons and no
+	// section tools (consultation-only, WC-010 + WC-2026-10-06-consultation-only-no-section-tools;
+	// section_tool pages drive their content through config.tool_context, not the
+	// target section's toolbar), so the other-buttons drawer and its toggle are
+	// omitted — only the search controls remain. Activity (dd542) and Time machine
+	// (dd15) MUST behave identically; the rule is shared with
+	// view_graph_list_section (render_common_section.is_non_tools_section).
+		if (is_non_tools_section(self)) {
 			return fragment
 		}
 

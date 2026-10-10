@@ -60,7 +60,7 @@
 	import {
 		render_column_id
 	} from './render_list_section.js'
-	import {NON_EDITABLE_SECTION_TIPOS} from './render_common_section.js'
+	import {is_non_tools_section} from './render_common_section.js'
 
 
 
@@ -435,13 +435,15 @@ const get_buttons = function(self) {
 			event_manager.publish('toggle_search_panel_'+self.id)
 		})
 
-	// non_editable_sections. Read-only log sections + registered tools: they
-	// carry no action buttons and no section tools (consultation-only, WC-010 +
-	// WC-2026-10-06-consultation-only-no-section-tools), so only the search
-	// controls render — no other-buttons drawer, no toggle. Activity (dd542) and
-	// Time machine (dd15) MUST behave identically; the list is shared with
-	// view_default_list_section (render_common_section).
-		if (NON_EDITABLE_SECTION_TIPOS.includes(self.tipo)) {
+	// non_editable_sections. Read-only log sections + registered tools + every
+	// section_tool "process" page (oh81 …): they carry no action buttons and no
+	// section tools (consultation-only, WC-010 + WC-2026-10-06-consultation-only-no-section-tools;
+	// section_tool pages drive their content through config.tool_context, not the
+	// target section's toolbar), so only the search controls render — no
+	// other-buttons drawer, no toggle. Activity (dd542) and Time machine (dd15)
+	// MUST behave identically; the rule is shared with view_default_list_section
+	// (render_common_section.is_non_tools_section).
+		if (is_non_tools_section(self)) {
 			return fragment
 		}
 

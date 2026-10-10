@@ -634,6 +634,15 @@ interception (PHP `dd_core_api` model overwrite) is not reachable via the reques
 shapes tested (PHP returns false/errors for naive get_element_context/read on a
 section_tool node) — ledgered.
 
+A section_tool page carries **no section toolbar**: it reroutes to its target
+section, so its section instance holds the TARGET's tipo and `getSectionTools`
+would stamp the target's ordinary tools, which act on the wrong surface. The
+client's two list views drop the whole other-buttons drawer for it via ONE shared
+predicate `is_non_tools_section(self)` (`render_common_section.js`), keyed on
+`self.config.source_model === 'section_tool'` (the only surviving marker) — the
+same treatment the consultation-only logs get. CLIENT-SIDE ONLY (no wire change);
+TODO-041, gate `consultation_only_sections_tripwire`.
+
 ## Tool element context (open_tool string branch)
 
 When the client's `open_tool` receives a tool NAME string (not a full context

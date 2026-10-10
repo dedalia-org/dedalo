@@ -62,6 +62,30 @@ export const NON_EDITABLE_SECTION_TIPOS = [
 ]
 
 
+/**
+* IS_NON_TOOLS_SECTION
+* True when a section list view must render ONLY the search controls — no
+* other-buttons drawer, no section-tools popover.
+*
+* Two independent cases, ONE decision:
+*   1. The consultation-only / registered-tools tipos above (by tipo).
+*   2. A section_tool "process" page (oh81 Transcription, oh83 Indexation, …).
+*      The node is a virtual alias: `start` reroutes it to its target section
+*      (config.target_section_tipo) and the menu rewrites tipo->target, so the
+*      section instance carries the TARGET's tipo while `self.config.source_model
+*      === 'section_tool'` is the only surviving marker. Its content is driven by
+*      the tool config (config.tool_context), not the target section's own
+*      toolbar, so the toolbar's tools would act on the wrong surface.
+*
+* A helper (not another literal) so both list views share the rule and a
+* section_tool can never be suppressed in one view and shown in the other.
+*/
+export const is_non_tools_section = function(self) {
+	return NON_EDITABLE_SECTION_TIPOS.includes(self.tipo)
+		|| self?.config?.source_model === 'section_tool'
+}
+
+
 
 /**
 * RENDER_DELETE_RECORD_DIALOG

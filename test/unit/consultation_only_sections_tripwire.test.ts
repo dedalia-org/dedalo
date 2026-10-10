@@ -230,14 +230,27 @@ describe('consultation-only sections carry no other-buttons toggle (client list 
 		}
 	});
 
-	test('both list views read the shared list and never re-inline one', () => {
+	test('the shared predicate also drops the toolbar for section_tool process pages (TODO-041)', () => {
+		// A section_tool page (oh81 Transcription, …) reroutes to its target
+		// section, so its section instance carries the TARGET's tipo — a tipo
+		// list can never match. `is_non_tools_section` keys the second case on
+		// `config.source_model === 'section_tool'`, the only surviving marker.
+		const src = read('render_common_section.js');
+		const block = src.slice(src.indexOf('export const is_non_tools_section'));
+		const fn = block.slice(0, block.indexOf('\n}'));
+		expect(fn, 'the section_tool marker must be in is_non_tools_section').toContain(
+			"self?.config?.source_model === 'section_tool'",
+		);
+	});
+
+	test('both list views read the shared predicate and never re-inline a list', () => {
 		// The toggle creation site (the class string appears only there, never in
 		// the surrounding prose), and the guard that must run before it.
 		const TOGGLE = 'icon_arrow show_other_buttons_button';
-		const GUARD = 'NON_EDITABLE_SECTION_TIPOS.includes(self.tipo)';
+		const GUARD = 'is_non_tools_section(self)';
 		for (const name of ['view_default_list_section.js', 'view_graph_list_section.js']) {
 			const src = read(name);
-			expect(src, `${name} must import the shared list`).toContain('NON_EDITABLE_SECTION_TIPOS');
+			expect(src, `${name} must import the shared predicate`).toContain('is_non_tools_section');
 			expect(src, `${name} must not re-inline the list`).not.toContain(
 				'const non_editable_sections',
 			);
