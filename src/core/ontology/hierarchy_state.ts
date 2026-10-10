@@ -80,9 +80,9 @@ import {
 	RELATION_TYPE_CHILDREN,
 	RELATION_TYPE_LINK,
 	SI_NO_NO,
-	YES_NO_SECTION,
 	SI_NO_YES,
 	THESAURUS_SECTION,
+	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
 import { getSectionMapValue } from './section_map.ts';
