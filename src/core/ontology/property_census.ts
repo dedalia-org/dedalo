@@ -182,11 +182,6 @@ export const RETIRED_PROPERTY_KEYS: Readonly<Record<string, RetiredPropertyKey>>
 		reason: 'An install-specific v6 tool flag (tool_numisdata_order_coins); no engine reader.',
 		replacement: null,
 	},
-	children_search: {
-		reason:
-			'v6 thesaurus children-search switch — already commented out in the PHP oracle (area_thesaurus, dd_ts_api).',
-		replacement: null,
-	},
 	multiple_value: {
 		reason: 'A one-node misspelling of the retired multi_value flag; inert twice over.',
 		replacement:
@@ -291,6 +286,7 @@ export const HONOURED_PROPERTY_KEYS: readonly string[] = [
 	'external_source',
 	'fields_map',
 	'fields_separator',
+	'global_table_maps',
 	'head',
 	'host',
 	'identifying_image',
@@ -298,10 +294,12 @@ export const HONOURED_PROPERTY_KEYS: readonly string[] = [
 	'info',
 	'into',
 	'inverse_relations',
+	'is_publishable',
 	'js',
 	'key',
 	'label',
 	'layout',
+	'length',
 	'limit',
 	'list_show_key',
 	'main_tld',
