@@ -20,7 +20,9 @@
  * them under `set -euo pipefail` with the operator's answers, and feeds the argv
  * they produce through the installer's own parser (`answersFromCliArgs` +
  * `buildInstallPlan`, src/core/install/install_plan.ts): "default" must reach the
- * shared default (no flag), "none" must reach an empty thesaurus list, and
+ * shared default (no flag), "none" must reach the same plan — only the
+ * release-declared thesauri, nothing more (2026-10-10: a declared dependency is
+ * pre-ticked in every plan; none/default never add one) — and
  * declining the update server must reach an air-gapped plan — with no parse error.
  *
  * THE ONTOLOGIES (2026-10-09, A4). The Ontologies answer joins the same block:
@@ -44,16 +46,33 @@ import {
 	TOPONYMY_SUGGESTION,
 } from '../../src/core/install/install_plan.ts';
 import {
+	collectHierarchyDependencies,
 	DEFAULT_DOMAIN_ONTOLOGIES,
+	declarersOf,
+	hierarchyDependencyPlan,
 	mergeOntologyCatalogs,
 	type OntologyCatalog,
 	ontologyCatalogNeeded,
+	vendoredCoreDeclarers,
 	vendoredOntologyCatalog,
 } from '../../src/core/install/ontology_choice.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const INSTALL_SH = readFileSync(join(REPO_ROOT, 'install.sh'), 'utf8');
+
+/**
+ * The thesauri the RELEASE declares for the default install (the core TLDs'
+ * declarations — part of EVERY plan — then the default domain ontologies'),
+ * in the plan's order: derived through the production functions, never a
+ * hand-typed list (the install_plan_parity_tripwire approach).
+ */
+const DEFAULT_DECLARED_THESAURI = hierarchyDependencyPlan(
+	collectHierarchyDependencies([
+		...vendoredCoreDeclarers(),
+		...declarersOf(DEFAULT_DOMAIN_ONTOLOGIES, vendoredOntologyCatalog()),
+	]).dependencies,
+).install;
 
 /** The `docker_free_gib` function, verbatim from install.sh. */
 function probeFunction(): string {
@@ -170,7 +189,7 @@ describe('install.sh answers reach the shared install plan', () => {
 		expect(ask('confirm', 'Yes')).toBe(0);
 	});
 
-	test('all defaults: no language or thesaurus flag, official update servers, NO default thesaurus (a toponymy suggestion instead)', () => {
+	test('all defaults: no language or thesaurus flag, official update servers, only the declared thesauri (a toponymy suggestion instead)', () => {
 		const argv = buildArgs({
 			LANGS: 'default',
 			HIERARCHIES: 'default',
@@ -192,9 +211,10 @@ describe('install.sh answers reach the shared install plan', () => {
 		expect([...invocation.errors, ...plan.errors]).toEqual([]);
 		expect(plan.answers.update_servers).toBe('official');
 		// 2026-10-10: the default selects nothing beyond the declared dependencies
-		// (the vendored oh declares none) — and no toponymy is ever pre-selected:
-		// the plan SUGGESTS one instead.
-		expect(plan.hierarchies).toHaveLength(0);
+		// (the release's core TLDs declare some) — and no toponymy is ever
+		// pre-selected: the plan SUGGESTS one instead.
+		expect(DEFAULT_DECLARED_THESAURI.length, 'the release declares thesauri').toBeGreaterThan(0);
+		expect([...plan.hierarchies]).toEqual(DEFAULT_DECLARED_THESAURI);
 		expect([...plan.suggestions]).toEqual([TOPONYMY_SUGGESTION]);
 		expect(plan.answers.langs).toBeUndefined();
 		// the shared ontology default (oh, vendored): nothing to fetch, ACTIVE = core + it
@@ -227,7 +247,8 @@ describe('install.sh answers reach the shared install plan', () => {
 		expect(plan.ontologyRequest?.items.map((item) => item.tld)).toEqual([
 			...DEFAULT_DOMAIN_ONTOLOGIES,
 		]);
-		expect([...plan.hierarchies]).toEqual([]);
+		// "none" adds nothing — the declared thesauri stay (vendored, air-gap safe)
+		expect([...plan.hierarchies]).toEqual(DEFAULT_DECLARED_THESAURI);
 		expect(plan.answers.update_servers).toBe('none');
 		expect(plan.answers.langs).toEqual(['lg-spa', 'lg-eng']);
 		expect(plan.answers.app_lang_default).toBe('lg-spa');
@@ -267,7 +288,11 @@ describe('install.sh answers reach the shared install plan', () => {
 		]);
 		const plan = buildInstallPlan(answersFromCliArgs(argv).raw);
 		expect(plan.errors).toEqual([]);
-		expect([...plan.hierarchies]).toEqual(['es']);
+		// the answer first, then the release's declared thesauri
+		expect([...plan.hierarchies]).toEqual([
+			'es',
+			...DEFAULT_DECLARED_THESAURI.filter((tld) => tld !== 'es'),
+		]);
 	});
 });
 

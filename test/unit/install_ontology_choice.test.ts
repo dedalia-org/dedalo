@@ -663,70 +663,72 @@ describe('the thesaurus set → install_hierarchies', () => {
 });
 
 describe('the thesauri a THESAURUS declares (closeThesaurusChoice)', () => {
-	// hierarchy.json entries as declarers: zzta needs zztb (mandatory) and zztc
-	// (optional); zztb needs zztd (mandatory, TRANSITIVE); zzte declares an ontology.
+	// hierarchy.json entries as declarers: zzica needs zzicb (mandatory) and zzicc
+	// (optional); zzicb needs zzicd (mandatory, TRANSITIVE); zzice declares an ontology.
 	const h = (tld: string, mandatory: boolean) => ({ tld, main: 'hierarchy1' as const, mandatory });
 	const o = (tld: string, mandatory: boolean) => ({ tld, main: 'ontology35' as const, mandatory });
 	const entries = [
-		{ tld: 'zzta', dependencies: [h('zztb', true), h('zztc', false), h('lg', true)] },
-		{ tld: 'zztb', dependencies: [h('zztd', true)] },
-		{ tld: 'zztc', dependencies: null },
-		{ tld: 'zztd', dependencies: [] },
-		{ tld: 'zzte', dependencies: [o('zzonto', true), o('zzopt', false), o('dd', true)] },
-		{ tld: 'zztf', dependencies: [h('zzmissing', true), h('zzgone', false)] },
+		{ tld: 'zzica', dependencies: [h('zzicb', true), h('zzicc', false), h('lg', true)] },
+		{ tld: 'zzicb', dependencies: [h('zzicd', true)] },
+		{ tld: 'zzicc', dependencies: null },
+		{ tld: 'zzicd', dependencies: [] },
+		{ tld: 'zzice', dependencies: [o('zzicont', true), o('zzopt', false), o('dd', true)] },
+		{ tld: 'zzicf', dependencies: [h('zzmissing', true), h('zzgone', false)] },
 	];
 	const none = new Set<string>();
 
 	test('a mandatory dependency is added TRANSITIVELY, an optional one pre-ticked, core never', () => {
-		const closure = closeThesaurusChoice(['zzta'], entries, none);
-		expect(closure.hierarchies).toEqual(['zzta', 'zztb', 'zztc', 'zztd']);
+		const closure = closeThesaurusChoice(['zzica'], entries, none);
+		expect(closure.hierarchies).toEqual(['zzica', 'zzicb', 'zzicc', 'zzicd']);
 		expect(closure.errors).toEqual([]);
 		expect(closure.warnings).toEqual([]);
 		expect(closure.notes).toEqual([
-			"the thesaurus 'zztb' is a mandatory dependency of 'zzta' — installed",
-			"the thesaurus 'zztc' is an optional dependency of 'zzta' — installed",
-			"the thesaurus 'zztd' is a mandatory dependency of 'zztb' — installed",
+			"the thesaurus 'zzicb' is a mandatory dependency of 'zzica' — installed",
+			"the thesaurus 'zzicc' is an optional dependency of 'zzica' — installed",
+			"the thesaurus 'zzicd' is a mandatory dependency of 'zzicb' — installed",
 		]);
 		expect(closure.dependencies.map((item) => [item.tld, item.mandatory])).toEqual([
-			['zztb', true],
-			['zztc', false],
-			['zztd', true],
+			['zzicb', true],
+			['zzicc', false],
+			['zzicd', true],
 		]);
 	});
 
 	test('declined: an optional one stays out silently, a MANDATORY one stays out with a warning — never forced', () => {
-		const declined = closeThesaurusChoice(['zzta'], entries, none, {
+		const declined = closeThesaurusChoice(['zzica'], entries, none, {
 			accept: () => false,
 		});
-		expect(declined.hierarchies).toEqual(['zzta']);
+		expect(declined.hierarchies).toEqual(['zzica']);
 		expect(declined.errors).toEqual([]);
 		expect(declined.notes).toEqual([]);
-		expect(declined.warnings).toEqual([recommendedThesaurusWarning('zztb', ['zzta'], 'declined')]);
-		// declining only zztd: zztb (mandatory) is pre-ticked in, its zztd declined + warned
-		const deep = closeThesaurusChoice(['zzta'], entries, none, declinePolicy(['zztd']));
-		expect(deep.hierarchies).toEqual(['zzta', 'zztb', 'zztc']);
-		expect(deep.warnings).toEqual([recommendedThesaurusWarning('zztd', ['zztb'], 'declined')]);
+		expect(declined.warnings).toEqual([
+			recommendedThesaurusWarning('zzicb', ['zzica'], 'declined'),
+		]);
+		// declining only zzicd: zzicb (mandatory) is pre-ticked in, its zzicd declined + warned
+		const deep = closeThesaurusChoice(['zzica'], entries, none, declinePolicy(['zzicd']));
+		expect(deep.hierarchies).toEqual(['zzica', 'zzicb', 'zzicc']);
+		expect(deep.warnings).toEqual([recommendedThesaurusWarning('zzicd', ['zzicb'], 'declined')]);
 	});
 
 	test('a dependency with no entry → a warning, mandatory or not (THE entry rule) — never an error', () => {
-		const closure = closeThesaurusChoice(['zztf'], entries, none);
-		expect(closure.hierarchies).toEqual(['zztf']);
+		const closure = closeThesaurusChoice(['zzicf'], entries, none);
+		expect(closure.hierarchies).toEqual(['zzicf']);
 		expect(closure.errors).toEqual([]);
 		expect(closure.warnings).toEqual([
-			recommendedThesaurusWarning('zzmissing', ['zztf'], 'no_entry'),
-			"the thesaurus 'zzgone', an optional dependency of 'zztf', has no entry in hierarchy.json — skipped",
+			recommendedThesaurusWarning('zzmissing', ['zzicf'], 'no_entry'),
+			"the thesaurus 'zzgone', an optional dependency of 'zzicf', has no entry in hierarchy.json — skipped",
 		]);
 	});
 
 	test('a declared ONTOLOGY must be part of the install (core always is)', () => {
-		const missing = closeThesaurusChoice(['zzte'], entries, none);
+		const missing = closeThesaurusChoice(['zzice'], entries, none);
 		expect(missing.errors).toEqual([
-			"the ontology 'zzonto', a mandatory dependency of the thesaurus 'zzte', is not part of this install — add it to the ontologies",
+			"the ontology 'zzicont', a mandatory dependency of the thesaurus 'zzice', is not part of this install — add it to the ontologies",
 		]);
 		expect(missing.warnings).toEqual([
-			"the ontology 'zzopt', an optional dependency of the thesaurus 'zzte', is not part of this install — skipped",
+			"the ontology 'zzopt', an optional dependency of the thesaurus 'zzice', is not part of this install — skipped",
 		]);
-		const installed = closeThesaurusChoice(['zzte'], entries, new Set(['zzonto', 'zzopt']));
+		const installed = closeThesaurusChoice(['zzice'], entries, new Set(['zzicont', 'zzopt']));
 		expect(installed.errors).toEqual([]);
 		expect(installed.warnings).toEqual([]);
 	});
@@ -744,15 +746,15 @@ describe('the thesauri a THESAURUS declares (closeThesaurusChoice)', () => {
 	test('mergeHierarchyDependencyLists: per tld, mandatory wins, dependants accumulate', () => {
 		expect(
 			mergeHierarchyDependencyLists(
-				[{ tld: 'zztb', mandatory: false, dependants: ['oh'] }],
+				[{ tld: 'zzicb', mandatory: false, dependants: ['oh'] }],
 				[
-					{ tld: 'zztb', mandatory: true, dependants: ['zzta'] },
-					{ tld: 'zztc', mandatory: false, dependants: ['zzta'] },
+					{ tld: 'zzicb', mandatory: true, dependants: ['zzica'] },
+					{ tld: 'zzicc', mandatory: false, dependants: ['zzica'] },
 				],
 			),
 		).toEqual([
-			{ tld: 'zztb', mandatory: true, dependants: ['oh', 'zzta'] },
-			{ tld: 'zztc', mandatory: false, dependants: ['zzta'] },
+			{ tld: 'zzicb', mandatory: true, dependants: ['oh', 'zzica'] },
+			{ tld: 'zzicc', mandatory: false, dependants: ['zzica'] },
 		]);
 	});
 });

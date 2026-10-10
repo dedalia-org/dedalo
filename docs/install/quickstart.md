@@ -88,7 +88,7 @@ Then it asks for:
 | Short code for your institution | an internal identifier, letters and digits | `dedalo` |
 | Full name | shown on the login screen | your institution's name |
 | Languages (interface and data) | Dédalo language codes, comma-separated, or `default` | `default` — `lg-eng,lg-spa`, the same pair the browser wizard pre-ticks; the other languages are optional |
-| Optional thesauri to install now | controlled vocabularies to load: codes, `default` or `none` | `default` — today Spain (`es`); you can add others later |
+| Optional thesauri to install now | controlled vocabularies to load: codes, `default` or `none` | `default` (same as `none`) — only the thesauri your ontologies declare, which are always installed; no toponymy is pre-selected, so name your own country (e.g. `np` for Nepal) or add it later |
 | Locale, time zone | the time zone stamps every record | your own |
 | Use the official update server | where ontology updates and release information come from (`v7.master.dedalo.dev`) | `Y` (the default). Answer `n` for an air-gapped install: the installer writes `ONTOLOGY_SERVERS=[]` and `CODE_SERVERS=[]` to `/private/.env`, and no updates are offered until you replace those `[]` values with a server list and restart the server |
 | Domain ontologies to install | the heritage domains you catalogue: ontology codes, comma-separated, or `default` | `default` — Oral history (`oh`), built in, installs without a network. `tch` (Tangible cultural heritage) is the general inventory model for objects and collections; it and any other code the update server offers are downloaded, with the ontologies they depend on. Air-gapped, only `oh` is possible |

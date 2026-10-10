@@ -223,7 +223,7 @@ describe('hierarchy_meta — the vendored thesaurus manifest reader (§4.1.9)', 
 							[spa('Afganistán'), eng('Afghanistan')],
 							[
 								{ tld: 'zzb', main: 'hierarchy1', mandatory: true },
-								{ tld: 'zzc', main: 'hierarchy1', mandatory: false },
+								{ tld: 'zzch', main: 'hierarchy1', mandatory: false },
 								{ tld: 'lg', main: 'hierarchy1', mandatory: true },
 								{ tld: 'zzonto', main: 'ontology35', mandatory: true },
 							],
@@ -231,7 +231,7 @@ describe('hierarchy_meta — the vendored thesaurus manifest reader (§4.1.9)', 
 						// Only a Spanish item: the any-language fallback, never the tld.
 						entry('zzb', 'Bután', [spa('Bután')]),
 						// No item at all: the export-time name, then the tld.
-						entry('zzc', 'Chad', []),
+						entry('zzch', 'Chad', []),
 					],
 				}),
 			);
@@ -248,11 +248,11 @@ describe('hierarchy_meta — the vendored thesaurus manifest reader (§4.1.9)', 
 					'zza',
 					[
 						{ tld: 'zzb', mandatory: true },
-						{ tld: 'zzc', mandatory: false },
+						{ tld: 'zzch', mandatory: false },
 					],
 				],
 				['zzb', []],
-				['zzc', []],
+				['zzch', []],
 			]);
 			const spanish = hierarchyChoiceView('lg-spa', dir);
 			expect(spanish.hierarchies.map((item) => item.label)).toEqual([

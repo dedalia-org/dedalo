@@ -659,7 +659,7 @@ APP_LANG="${LANGS%%,*}"
 # same boxes the wizard pre-ticks); "none" is the same today. No country is ever
 # pre-selected: import your own country's toponymy (e.g. "np" for an install in
 # Nepal) — `bun run scripts/install.ts --list-hierarchies` lists the codes.
-ask HIERARCHIES   'Optional thesauri to install now (comma-separated codes, "default" = only the declared dependencies, or "none") — tip: your own country, e.g. np for Nepal; Languages is always installed' 'default'
+ask HIERARCHIES   'Optional thesauri to install now (comma-separated codes, or "default" / "none" = none beyond the declared dependencies, which are always installed) — tip: your own country, e.g. np for Nepal; Languages is always installed' 'default'
 ask LOCALE        'Locale'                                                      'es-ES'
 ask TIMEZONE      'Time zone (stamps every record timestamp)'                   'Europe/Madrid'
 echo

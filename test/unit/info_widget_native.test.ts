@@ -105,7 +105,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ApiRequestContext, dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { deleteTldNodes, upsertDdOntologyNode } from '../../src/core/db/dd_ontology.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { getMatrixTableFromTipo, getNode } from '../../src/core/ontology/resolver.ts';
+import { getSectionMapValue } from '../../src/core/ontology/section_map.ts';
+import { resolveSqoSectionTipos } from '../../src/core/relations/request_config/explicit.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import cloneMapJson from '../../src/core/test_data/test_tld_tipo_map.json';
@@ -538,7 +540,7 @@ function translatableTokens(json: string): string[] {
 }
 
 /**
- * THE ONE DECLARED CARVE-OUT, and it is a translation rule rather than a
+ * THE FIRST DECLARED CARVE-OUT (the second: ONTOLOGY DRIFT below), a translation rule rather than a
  * normalization: nothing is blurred, both sides are still compared verbatim.
  *
  * A media_icons tool column emits the section_tool node's `tool_config` ddo_map
@@ -690,6 +692,113 @@ function stripStateTotalItems(entries: unknown[]): number {
 	return stripped;
 }
 
+/**
+ * ONTOLOGY DRIFT SINCE THE CAPTURE — the second declared carve-out, and like the
+ * first it is DERIVED, never typed. The 2026-07-10 capture saw INDEXATION
+ * (seed-shipped `rsc`, so no twin) declare ONE sqo.section_tipo source,
+ * `hierarchy_types`. Master's ontology has since added further sources (the
+ * 2026-10-10 vendored release: an explicit `{source:'section'}` naming the
+ * people section), and the engine — correctly, PHP resolve_get_ddo_map union —
+ * appends each new target section's section_map thesaurus.term as extra grid
+ * columns, AFTER the capture-era ones. The golden is the oracle record of the
+ * capture-era ontology and is never regenerated, so those columns are removed
+ * from the ENGINE side here, exactly: the drifted tipos are the term components
+ * of the sections the live post-capture sources resolve to (production
+ * resolveSqoSectionTipos + getSectionMapValue) MINUS the terms the capture-era
+ * source still contributes, and only cells keyed `<host>_<INDEXATION>_…_<tipo>`
+ * go. Every other byte of the grid is still compared verbatim, and the caller
+ * asserts the strip is non-vacuous — when the drift is gone (or the release
+ * reverts it) this carve-out goes red and must be deleted, not widened.
+ */
+const CAPTURE_INDEXATION_SQO_SOURCES: ReadonlySet<string> = new Set(['hierarchy_types']);
+
+async function termTiposOf(sections: readonly string[]): Promise<Set<string>> {
+	const tipos = new Set<string>();
+	for (const section of sections) {
+		const value = await getSectionMapValue(section, 'thesaurus', 'term');
+		for (const tipo of Array.isArray(value) ? value : [value]) {
+			if (typeof tipo === 'string' && tipo !== '') tipos.add(tipo);
+		}
+	}
+	return tipos;
+}
+
+/** The grid column tipos the post-capture INDEXATION sources add (see above). */
+async function postCaptureIndexationColumnTipos(hostSectionTipo: string): Promise<Set<string>> {
+	const node = await getNode(INDEXATION);
+	const config = (
+		node?.properties as { source?: { request_config?: { sqo?: { section_tipo?: unknown } }[] } }
+	)?.source?.request_config?.[0];
+	const entries = Array.isArray(config?.sqo?.section_tipo) ? config.sqo.section_tipo : [];
+	const isCaptureEra = (entry: unknown): boolean =>
+		CAPTURE_INDEXATION_SQO_SOURCES.has(String((entry as { source?: unknown })?.source));
+	const context = {
+		ownerTipo: INDEXATION,
+		ownerSectionTipo: hostSectionTipo,
+		mode: 'edit',
+		ownerIsSection: false,
+	} as const;
+	const captureTerms = await termTiposOf(
+		await resolveSqoSectionTipos(entries.filter(isCaptureEra), context),
+	);
+	const driftTerms = await termTiposOf(
+		await resolveSqoSectionTipos(
+			entries.filter((entry: unknown) => !isCaptureEra(entry)),
+			context,
+		),
+	);
+	return new Set([...driftTerms].filter((tipo) => !captureTerms.has(tipo)));
+}
+
+/** Remove the drifted columns from the engine's entries; returns how many cells went. */
+function stripPostCaptureColumns(
+	node: unknown,
+	hostSectionTipo: string,
+	driftTipos: ReadonlySet<string>,
+): number {
+	const prefix = `${hostSectionTipo}_${INDEXATION}_`;
+	const isDrift = (column: unknown): boolean => {
+		const id = (column as { id?: unknown })?.id;
+		if (typeof id !== 'string' || !id.startsWith(prefix)) return false;
+		return [...driftTipos].some((tipo) => id.endsWith(`_${tipo}`));
+	};
+	let removed = 0;
+	const walk = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (let index = value.length - 1; index >= 0; index--) {
+				const cell = value[index] as { type?: unknown; ar_columns_obj?: unknown };
+				const columns = cell?.ar_columns_obj;
+				if (
+					cell?.type === 'column' &&
+					Array.isArray(columns) &&
+					columns.length === 1 &&
+					isDrift(columns[0])
+				) {
+					value.splice(index, 1);
+					removed++;
+				} else {
+					walk(cell);
+				}
+			}
+			return;
+		}
+		if (value === null || typeof value !== 'object') return;
+		const cell = value as { ar_columns_obj?: unknown; column_count?: unknown };
+		if (Array.isArray(cell.ar_columns_obj) && cell.ar_columns_obj.length > 1) {
+			const kept = cell.ar_columns_obj.filter((column) => !isDrift(column));
+			const dropped = cell.ar_columns_obj.length - kept.length;
+			if (dropped > 0) {
+				cell.ar_columns_obj = kept;
+				if (typeof cell.column_count === 'number') cell.column_count -= dropped;
+				removed += dropped;
+			}
+		}
+		for (const child of Object.values(value)) walk(child);
+	};
+	walk(node);
+	return removed;
+}
+
 /** Deep-equal BOTH modes of one component read against the case golden. */
 async function expectCaseGolden(
 	caseName: keyof typeof golden.cases,
@@ -700,11 +809,21 @@ async function expectCaseGolden(
 		expectStateItems?: boolean;
 		expectPreservedToolScope?: boolean;
 		expectGridCells?: boolean;
+		/** the INDEXATION grid's host section: strip + assert the post-capture drift */
+		postCaptureGridHost?: string;
 	} = {},
 ): Promise<void> {
 	let renderClasses = 0;
+	let driftCells = 0;
+	const driftTipos =
+		options.postCaptureGridHost === undefined
+			? null
+			: await postCaptureIndexationColumnTipos(options.postCaptureGridHost);
 	for (const mode of ['list', 'edit'] as const) {
 		const entries = await tsEntries(readRqo(sectionTipo, sectionId, componentTipo, mode));
+		if (driftTipos !== null && options.postCaptureGridHost !== undefined) {
+			driftCells += stripPostCaptureColumns(entries, options.postCaptureGridHost, driftTipos);
+		}
 		const stripped = stripStateTotalItems(entries);
 		if (options.expectStateItems === true) {
 			expect(stripped).toBeGreaterThan(0);
@@ -715,6 +834,13 @@ async function expectCaseGolden(
 				expectPreserved: options.expectPreservedToolScope,
 			}) as never,
 		);
+	}
+	if (driftTipos !== null) {
+		expect(
+			driftTipos.size,
+			'the post-capture INDEXATION drift is gone — delete the carve-out',
+		).toBeGreaterThan(0);
+		expect(driftCells, `${caseName}: the drifted columns were really emitted`).toBeGreaterThan(0);
 	}
 	if (options.expectGridCells === true) {
 		expect(renderClasses, `${caseName}: the additive render_class key was there`).toBeGreaterThan(
@@ -850,6 +976,8 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 			expectPreservedToolScope: true,
 			// the descriptors term grid carries the additive render_class per cell
 			expectGridCells: true,
+			// master's INDEXATION gained grid sources after the capture (see above)
+			postCaptureGridHost: TAPE,
 		});
 	}, 60000);
 

@@ -77,19 +77,19 @@ const EMPTY_TLD = 'zzhe';
 /** An entry whose data file does not hash to its listed sha256. */
 const MISMATCH_TLD = 'zzhm';
 /** A NON-default real section (test3, model `section`), not active in the thesaurus, multilingual. */
-const REAL_TLD = 'zzhr';
+const REAL_TLD = 'zzhrl';
 /** Data-bearing entries the PREFLIGHT must refuse before a term is copied. */
 const PRE_LANG_TLD = 'zzhl';
-const PRE_TYPOLOGY_TLD = 'zzht';
+const PRE_TYPOLOGY_TLD = 'zzhty';
 const PRE_SOURCE_TLD = 'zzhs';
 /** Terms already imported, no registry row (an interrupted run): the next run converges. */
 const CONVERGE_TLD = 'zzhc';
 /**
- * DECLARING thesauri: zzda needs zzdb (mandatory); zzdc needs a thesaurus with
+ * DECLARING thesauri: zzda needs zzdab (mandatory); zzdc needs a thesaurus with
  * no entry; zzdo needs an ONTOLOGY this installation does not have (mandatory).
  */
 const DECLARER_TLD = 'zzda';
-const DECLARED_TLD = 'zzdb';
+const DECLARED_TLD = 'zzdab';
 const UNSATISFIABLE_TLD = 'zzdc';
 const ONTOLOGY_DECLARER_TLD = 'zzdo';
 const SCRATCH_TLDS = [
