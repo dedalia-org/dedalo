@@ -85,8 +85,18 @@ const ACQUIRE_TIMEOUT_MS = config.ops.dbAcquireTimeoutMs;
 const DB_STATEMENT_TIMEOUT_MS = config.ops.dbStatementTimeoutMs;
 const MAINTENANCE_POOL_MAX = config.ops.dbMaintenancePoolMax;
 
-/** Seconds an idle maintenance connection lingers (maintenance is bursty). */
-const MAINTENANCE_IDLE_TIMEOUT_S = 30;
+/*
+ * NO `idleTimeout` on any pool (measured 2026-10-10, Bun 1.4.2): Bun's SQL
+ * `idleTimeout` is NOT an idle-CONNECTION reaper — it fires on a connection
+ * that has been silent on the wire for N seconds, a statement STILL RUNNING
+ * included, and kills it with ERR_POSTGRES_IDLE_TIMEOUT. The maintenance lanes
+ * exist precisely for long statements (CREATE INDEX on matrix_time_machine,
+ * REINDEX, VACUUM), so the former 30 s value rolled back every index rebuild
+ * longer than 30 s. Idle maintenance sockets are bounded by
+ * DB_MAINTENANCE_POOL_MAX instead (connection_budget.ts counts them). Gate:
+ * test/unit/sql_idle_timeout_canary.test.ts (goes red when Bun changes the
+ * semantics, so the choice can be revisited).
+ */
 
 /**
  * The maintenance pool's `application_name`, UNIQUE PER PROCESS BOOT: shutdown
@@ -368,7 +378,6 @@ function getMaintenanceLane(): PoolLane {
 				MAINTENANCE_APPLICATION_NAME,
 				MAINTENANCE_LOCK_TIMEOUT,
 			),
-			idleTimeout: MAINTENANCE_IDLE_TIMEOUT_S,
 		} as ConstructorParameters<typeof SQL>[0]),
 		gate: makeSlotGate('maintenance', MAINTENANCE_POOL_MAX),
 		ceilingMs: 0,
@@ -403,7 +412,6 @@ function getNonTransactionalLane(): PoolLane {
 		name: 'maintenance',
 		pool: new SQL({
 			...buildSqlOptions(MAINTENANCE_POOL_MAX, 0, NON_TRANSACTIONAL_APPLICATION_NAME),
-			idleTimeout: MAINTENANCE_IDLE_TIMEOUT_S,
 		} as ConstructorParameters<typeof SQL>[0]),
 		gate: getMaintenanceLane().gate,
 		ceilingMs: 0,
@@ -535,6 +543,22 @@ export function getPoolStats(): {
 			inUse: 0,
 			waiters: 0,
 		},
+	};
+}
+
+/**
+ * The `idleTimeout` each pool was actually built with, read back from the Bun
+ * pool's own options (undefined = none). Builds the lazy maintenance lanes. The
+ * evidence of the no-idleTimeout rule (see the note above the pool constants):
+ * test/unit/sql_idle_timeout_canary.test.ts. Holds no handle, no identity.
+ */
+export function poolIdleTimeouts(): Record<'main' | 'maintenance' | 'nonTransactional', unknown> {
+	const idleOf = (lane: PoolLane): unknown =>
+		(lane.pool as unknown as { options?: { idleTimeout?: unknown } }).options?.idleTimeout;
+	return {
+		main: idleOf(mainLane),
+		maintenance: idleOf(getMaintenanceLane()),
+		nonTransactional: idleOf(getNonTransactionalLane()),
 	};
 }
 
