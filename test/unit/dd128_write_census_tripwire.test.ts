@@ -799,6 +799,8 @@ const REACH_EXEMPT: Record<string, string> = {
 		'its only caller-owned delete is applyDataframeDeletePolicy’s `delete_target` policy, which empties (never removes) the dataframe FRAME TARGET records a dd490 pairing addresses (an ontology-declared frame section, never the users section), after asking the write grant on that section — the slot-policy applier every delete door calls (removeDataframeDataById in relations/save.ts, the direct frame remove in save_component.ts, both record-delete modes in delete_record.ts).',
 	'src/core/section/record/delete_record.ts':
 		'the delete ENGINE — it DEFINES both primitives, holds no principal and no component tipo, and its own docblock puts authorization on the caller. Putting the seam here would revoke on an ontology delete too.',
+	'src/core/ontology/engine_ontology.ts':
+		'its only caller-owned delete is pruneRetired: deleteSectionRecord on the HARD-BOUND engine main section MAIN_SECTION_TIPO (ddengine0, never the users section), removing the source record of a node the shipped engine_ontology.json lists as `retired` — assertRetiredNode checks the tipo is an engine-owned, non-main, no-longer-declared ddengine tipo before any write.',
 	'src/core/test_data/synthetic_hierarchy_fixture.ts':
 		'a repo-owned test fixture builder that deletes its own scratch hierarchy records under the test-database marker guard; it names no users section.',
 	'tools/tool_hierarchy/server/tool_hierarchy.ts':

@@ -44,6 +44,11 @@ import { sql } from '../db/postgres.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
 import { DEDALO_VERSION, DEDALO_VERSION_MAJOR_MINOR } from '../update/version.ts';
 import {
+	normalizeOntologyDependencies,
+	type OntologyDependency,
+	storedDependenciesValue,
+} from './ontology_dependencies.ts';
+import {
 	DATA_NOLAN,
 	HIERARCHY_ACTIVE,
 	HIERARCHY_TARGET_SECTION,
@@ -52,11 +57,10 @@ import {
 	HIERARCHY_TYPES_NAME,
 	HIERARCHY_TYPES_SECTION,
 	HIERARCHY_TYPOLOGY,
-	ONTOLOGY_DEPENDENCIES,
 	ONTOLOGY_MAIN_SECTION,
 	ONTOLOGY_PROPERTIES,
-	YES_NO_SECTION,
 	SI_NO_YES,
+	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
 
@@ -137,14 +141,16 @@ export interface OntologyCensusEntry {
 	typology_id: number | null;
 	typology_name: string | null;
 	/**
-	 * The DECLARED dependencies (component ddengine11 "Required ontologies",
-	 * ONTOLOGY_DEPENDENCIES): the TLDs of the ontology35 records it points at, in
-	 * declared order, deduplicated, the entry's own TLD dropped. The key is
-	 * PRESENT only when at least one locator resolves — absent = NOT DECLARED (an
-	 * empty component, or a registry that predates the component). Core TLDs are
-	 * kept: a complete declaration names them too.
+	 * The DECLARED dependencies (hierarchy60 "Dependencies", the row's
+	 * `misc.hierarchy60[0].value`), normalized by THE shared normalizer
+	 * (ontology_dependencies.ts normalizeOntologyDependencies — the same one the
+	 * importer applies): `{tld, main, mandatory}` objects, `(tld, main)`
+	 * deduplicated, invalid items dropped into the census `errors`. The key is
+	 * PRESENT only when the row declares (a stored `[]` is declared: needs
+	 * nothing); absent = NOT DECLARED
+	 * (WC-2026-10-10-ontology-dependencies-hierarchy60).
 	 */
-	dependencies?: string[];
+	dependencies?: OntologyDependency[];
 }
 
 /** One matrix_ontology_main row as the census reads it. */
@@ -152,12 +158,7 @@ interface RegistryRow {
 	section_id: number;
 	string: Record<string, unknown[]> | null;
 	relation: Record<string, unknown[]> | null;
-}
-
-/** A stored locator, as far as the census reads one. */
-interface RegistryLocator {
-	section_tipo?: unknown;
-	section_id?: unknown;
+	misc: Record<string, unknown> | null;
 }
 
 /** One `ontology.json` active_ontologies item (the export's wire shape). */
@@ -168,7 +169,7 @@ export interface ActiveOntologyInfo {
 	typology_id: number | null;
 	typology_name: string | null;
 	/** Present only when declared (see OntologyCensusEntry.dependencies). */
-	dependencies?: string[];
+	dependencies?: OntologyDependency[];
 }
 
 /** app-lang value of a string component's items, with any-non-empty fallback. */
@@ -199,66 +200,33 @@ async function resolveTypologyName(typologyId: number, lang: string): Promise<st
 }
 
 /**
- * section_id → TLD (lowercased) over ALL registry rows, active or not: a
- * declared dependency may name an ontology this server does not serve as active.
- */
-function registryTldMap(rows: readonly RegistryRow[], lang: string): Map<number, string> {
-	const tldBySectionId = new Map<number, string>();
-	for (const row of rows) {
-		const tld = pickLangValue(row.string?.[HIERARCHY_TLD] as never, lang)
-			.trim()
-			.toLowerCase();
-		if (tld !== '') tldBySectionId.set(Number(row.section_id), tld);
-	}
-	return tldBySectionId;
-}
-
-/** The TLD one dependency locator points at; null when it is not a resolvable ontology35 record. */
-function dependencyTld(
-	locator: RegistryLocator,
-	tldBySectionId: ReadonlyMap<number, string>,
-): string | null {
-	if (locator.section_tipo !== ONTOLOGY_MAIN_SECTION) return null;
-	return tldBySectionId.get(Number(locator.section_id)) ?? null;
-}
-
-/**
- * The declared dependencies of one registry row (ddengine11 locators → TLDs), in
- * declared order, deduplicated, `ownTld` dropped; undefined when none resolves
- * (= not declared). An unresolvable locator is skipped into `errors`, never fatal.
+ * The declared dependencies of one registry row (`misc.hierarchy60[0].value`)
+ * through THE shared normalizer; undefined when the row declares nothing (or
+ * declares a non-list — warned). Every normalizer warning becomes a census
+ * error line naming the row: invalid items are dropped, never fatal.
  */
 function declaredDependencies(
 	row: RegistryRow,
 	ownTld: string,
-	tldBySectionId: ReadonlyMap<number, string>,
 	errors: string[],
-): string[] | undefined {
-	// A Set keeps first-insertion order: declared order, deduplicated.
-	const found = new Set<string>();
-	for (const locator of dependencyLocators(row)) {
-		const tld = dependencyTld(locator, tldBySectionId);
-		if (tld === null) errors.push(unresolvedDependencyLine(row, locator));
-		else found.add(tld);
+): OntologyDependency[] | undefined {
+	const warnings: string[] = [];
+	const dependencies = normalizeOntologyDependencies(
+		ownTld,
+		storedDependenciesValue(row.misc),
+		warnings,
+	);
+	for (const warning of warnings) {
+		errors.push(`${ONTOLOGY_MAIN_SECTION}/${row.section_id}: ${warning}`);
 	}
-	found.delete(ownTld);
-	return found.size > 0 ? [...found] : undefined;
-}
-
-/** The stored ddengine11 locators of one registry row (none = []). */
-function dependencyLocators(row: RegistryRow): RegistryLocator[] {
-	return (row.relation?.[ONTOLOGY_DEPENDENCIES] ?? []) as RegistryLocator[];
-}
-
-/** The census error line of a dependency locator that names no TLD. */
-function unresolvedDependencyLine(row: RegistryRow, locator: RegistryLocator): string {
-	return `${ONTOLOGY_MAIN_SECTION}/${row.section_id}: dependency ${String(locator.section_tipo)}/${String(locator.section_id)} has no tld — skipped`;
+	return dependencies ?? undefined;
 }
 
 /** `entry` with `dependencies` attached only when declared (absent ≠ empty). */
 function withDependencies<T extends object>(
 	entry: T,
-	dependencies: string[] | undefined,
-): T & { dependencies?: string[] } {
+	dependencies: OntologyDependency[] | undefined,
+): T & { dependencies?: OntologyDependency[] } {
 	return dependencies === undefined ? entry : { ...entry, dependencies };
 }
 
@@ -269,8 +237,8 @@ function withDependencies<T extends object>(
  * updateOntologyInfo consumes the `activeOnly` subset (PHP
  * ontology::get_active_elements — hierarchy4 locator → dd64/1 'yes').
  * Records missing target/tld are skipped NON-fatally into `errors`.
- * Each entry also carries its DECLARED dependencies when there are any
- * (`dependencies`, resolved against ALL registry rows — see declaredDependencies).
+ * Each entry also carries its DECLARED dependencies when the row declares them
+ * (`dependencies` — hierarchy60 in `misc`, see declaredDependencies).
  */
 export async function getActiveOntologies(
 	options: { activeOnly?: boolean } = {},
@@ -280,10 +248,9 @@ export async function getActiveOntologies(
 	const errors: string[] = [];
 
 	const rows = (await sql.unsafe(
-		`SELECT section_id, string, relation FROM "matrix_ontology_main" WHERE section_tipo = $1 ORDER BY section_id ASC`,
+		`SELECT section_id, string, relation, misc FROM "matrix_ontology_main" WHERE section_tipo = $1 ORDER BY section_id ASC`,
 		[ONTOLOGY_MAIN_SECTION],
 	)) as RegistryRow[];
-	const tldBySectionId = registryTldMap(rows, appLang);
 
 	const ontologies: OntologyCensusEntry[] = [];
 	for (const row of rows) {
@@ -333,7 +300,7 @@ export async function getActiveOntologies(
 		const typologyName =
 			typologyId !== null ? await resolveTypologyName(typologyId, appLang) : null;
 
-		const dependencies = declaredDependencies(row, tld.toLowerCase(), tldBySectionId, errors);
+		const dependencies = declaredDependencies(row, tld.toLowerCase(), errors);
 
 		ontologies.push(
 			withDependencies(
@@ -357,7 +324,7 @@ export async function getActiveOntologies(
  * The census → `ontology.json` active_ontologies mapping (PURE): the TLD
  * lowercased, the five metadata fields, and `dependencies` copied ONLY when the
  * entry declares them (absent = not declared — the manifest wire contract,
- * WC-2026-10-09-ontology-manifest-dependencies).
+ * WC-2026-10-10-ontology-dependencies-hierarchy60).
  */
 export function activeOntologiesInfo(
 	entries: readonly OntologyCensusEntry[],

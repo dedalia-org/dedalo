@@ -36,8 +36,8 @@ import {
 	ONTOLOGY_TLD,
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
-	YES_NO_SECTION,
 	SI_NO_YES,
+	YES_NO_SECTION,
 } from '../ontology/ontology_tipos.ts';
 import { getSectionIdFromTipo, getTldFromTipo } from '../ontology/tld.ts';
 import { DEDALO_VERSION } from '../update/version.ts';
@@ -63,8 +63,12 @@ export interface FixtureOntologyTld {
 	name: string;
 	typologyId: number;
 	typologyName?: string | null;
-	/** Declared dependencies; OMITTED = not declared (the older-server case). */
-	dependencies?: string[];
+	/**
+	 * Declared dependencies, written VERBATIM into the active_ontologies entry
+	 * (`{tld, main, mandatory}` objects — or a deliberately malformed value, so a
+	 * gate can plant one); OMITTED = not declared (the older-server case).
+	 */
+	dependencies?: unknown;
 	nodes: FixtureOntologyNode[];
 }
 

@@ -19,6 +19,10 @@ import {
 	OFFICIAL_CODE_SERVER,
 	OFFICIAL_ONTOLOGY_SERVER,
 } from '../../src/core/install/install_plan.ts';
+import {
+	closeOntologyChoice,
+	vendoredOntologyCatalog,
+} from '../../src/core/install/ontology_choice.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
 import { getServerState, setServerState } from '../../src/core/resolve/server_state.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
@@ -489,7 +493,13 @@ describe('persist_config (P2)', () => {
 			const result = await persistConfig({ ...BASE_CFG });
 			expect(result.ontology_install).toEqual(['oh']);
 			expect(result.active_ontology_tlds).toEqual([...CORE_ONTOLOGY_TLDS, 'oh']);
-			expect(result.warnings).toEqual([]);
+			// The vendored oh's declaration is the vendored ontology.json entry's:
+			// declared → no warning; absent (a release predating hierarchy60) → the
+			// not-declared warning, oh installed alone — never an error.
+			expect(result.warnings).toEqual(
+				closeOntologyChoice(['oh'], vendoredOntologyCatalog()).warnings,
+			);
+			expect(result.hierarchy_dependencies).toEqual([]);
 			const body = readFileSync(join(own, '.env'), 'utf8');
 			const lines = body.split('\n').filter((line) => line.startsWith('ACTIVE_ONTOLOGY_TLDS='));
 			expect(lines).toEqual([

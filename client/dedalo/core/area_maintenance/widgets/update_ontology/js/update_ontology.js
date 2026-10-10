@@ -175,13 +175,17 @@ update_ontology.prototype.supported_code_version = (required_version) => {
 *     operator in the servers list; shape: `{ name, url, code, active }`.
 *   @param {Array}    options.files  - Filtered list of file descriptors to
 *     import, each: `{ section_tipo, tld, url, typology_id?, name_data?,
-*     dependencies? }` (`dependencies` only when the master declares them).
+*     dependencies? }` (`dependencies` — `{tld, main, mandatory}` objects —
+*     only when the master declares them).
 *     Always includes `matrix_dd` first (shared private-list table).
 *   @param {Object}   options.info   - Remote ontology metadata returned by
 *     the prior `get_ontology_update_info` call; forwarded so the server can
 *     record provenance.
 * @returns {Promise<Object>} Resolves to the raw API response object:
-*   `{ result: boolean, msg: string, errors: string[], root_info?: Object }`.
+*   `{ result: boolean, msg: string, errors: string[], root_info?: Object,
+*   missing_dependencies?: Object[] }` — `missing_dependencies` lists the
+*   declared dependencies this server lacks (report only; the mandatory ones
+*   also arrive as `errors` lines, the optional ones as `msg` log notes).
 *   `root_info.properties.version` is used by the caller to run the version
 *   compatibility check via `supported_code_version`.
 */

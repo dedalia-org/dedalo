@@ -410,8 +410,9 @@ unique institutional prefix (e.g. `mupreva`); never reuse a shared TLD.
 The lifecycle functions in `src/core/ontology/ontology_write.ts` run in
 sequence:
 
-1. **`addMainSection(fileItem)`** — create/update the `matrix_ontology_main`
-   record for the TLD: project filter, active flags, main language (defaults to
+1. **`createMainSection(fileItem)`** — create the `matrix_ontology_main`
+   record for the TLD (only when it has none): project filter, active flags
+   (active = yes), main language (the `lg1` record of the structure language,
    `lg-spa`), name/term, the TLD string, the `target_section_tipo` (`<tld>0`),
    and typology. `active_in_thesaurus` defaults to **yes only for `dd`**; other
    TLDs are off by default and the admin turns them on manually.

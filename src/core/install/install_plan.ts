@@ -32,6 +32,12 @@
  *    ACTIVE_ONTOLOGY_TLDS it writes (core + that order). A catalog beyond the
  *    vendored `oh` is resolved by the CALLER (ontology_catalog.ts — it may reach
  *    the network) and handed in; the plan itself never fetches.
+ *  - the DECLARED THESAURUS dependencies (hierarchy60 `main: 'hierarchy1'`,
+ *    2026-10-10): the thesauri the installed ontologies (and the vendored core)
+ *    declare join the thesaurus set — a MANDATORY one always (a mandatory one
+ *    that is not vendored refuses the plan), an OPTIONAL one unless the
+ *    operator declines it (`declined_dependencies`, which also declines
+ *    optional ONTOLOGY dependencies).
  *
  * WHAT IT NEVER CONTAINS: DEDALO_SUPERVISED. Supervision is declared by the
  * process manager that restarts the server (systemd unit, compose service,
@@ -59,7 +65,13 @@ import { deriveLangConfig } from './lang_catalog.ts';
 import {
 	activeOntologyTldsOf,
 	closeOntologyChoice,
+	collectHierarchyDependencies,
+	declarersOf,
+	declinePolicy,
+	type HierarchyDependency,
+	hierarchyDependencyPlan,
 	mergeOntologyCatalogs,
+	normalizeDeclinedDependencies,
 	normalizeOntologyChoice,
 	type OntologyCatalog,
 	type OntologyInstallRequest,
@@ -69,6 +81,7 @@ import {
 	ontologyInstallRequest,
 	ontologySourceLabel,
 	ontologySourceView,
+	vendoredCoreDeclarers,
 	vendoredOntologyCatalog,
 } from './ontology_choice.ts';
 
@@ -161,6 +174,11 @@ export interface InstallAnswers {
 	/** The chosen DOMAIN ontologies (core removed, with a note); >= 1. */
 	ontologies: string[];
 	/**
+	 * The OPTIONAL declared dependencies the operator declines (a TLD, or
+	 * `<tld>:ontology35|hierarchy1`); [] = every optional dependency installed.
+	 */
+	declined_dependencies: string[];
+	/**
 	 * A local ontology source (dir or archive); '' = none. CLI-ONLY, enforced at
 	 * the wizard door (config_persist.ts refuseWizardOnlyCliAnswers): it is a
 	 * server filesystem path.
@@ -187,7 +205,13 @@ export interface InstallPlan {
 	/** Every key the plan OWNS, in file order (DEDALO_SALT_STRING included). */
 	readonly envKeys: readonly string[];
 	readonly steps: readonly InstallStepId[];
+	/**
+	 * The thesauri install_hierarchies imports: the answer's, then every
+	 * installable declared thesaurus dependency not already in it.
+	 */
 	readonly hierarchies: readonly string[];
+	/** The thesauri the installed ontologies declare (mandatory ones cannot be declined). */
+	readonly hierarchyDependencies: readonly HierarchyDependency[];
 	/** The chosen domain ontologies (before their dependency closure). */
 	readonly ontologies: readonly string[];
 	/** Where the non-vendored ontologies come from (never the access code). */
@@ -354,6 +378,7 @@ export function normalizeInstallAnswers(raw: RawAnswers): {
 	const notes: string[] = [];
 	const errors: string[] = [];
 	const ontologyChoice = normalizeOntologyChoice(raw.ontologies);
+	const declinedChoice = normalizeDeclinedDependencies(raw.declined_dependencies);
 	const answers: InstallAnswers = {
 		...coreAnswers(raw),
 		...serviceAnswers(raw),
@@ -361,13 +386,14 @@ export function normalizeInstallAnswers(raw: RawAnswers): {
 		hierarchies: parseHierarchies(raw.hierarchies, notes, errors),
 		register_tools: raw.register_tools !== false,
 		ontologies: ontologyChoice.ontologies,
+		declined_dependencies: declinedChoice.declined,
 		ontology_source: text(raw, 'ontology_source'),
 	};
 	requireAnswers(answers, errors);
 	return {
 		answers,
 		notes: [...notes, ...ontologyChoice.notes],
-		errors: [...errors, ...ontologyChoice.errors],
+		errors: [...errors, ...ontologyChoice.errors, ...declinedChoice.errors],
 	};
 }
 
@@ -643,9 +669,44 @@ interface PlannedOntologies {
 	source: OntologySource;
 	request: OntologyInstallRequest | null;
 	activeOntologyTlds: string[];
+	/** The declared thesauri (core declarers + the install order). */
+	hierarchyDependencies: HierarchyDependency[];
+	/** The vendored ones among them — what install_hierarchies adds. */
+	hierarchyInstall: string[];
 	notes: string[];
 	warnings: string[];
 	errors: string[];
+}
+
+/**
+ * Whether the answers need a catalog resolved beyond the vendored one (the one
+ * decision the CLI, persist_config and the plan share — a declined optional
+ * dependency never makes a fetch necessary).
+ */
+export function planCatalogNeeded(answers: InstallAnswers, source: OntologySource): boolean {
+	return ontologyCatalogNeeded(
+		answers.ontologies,
+		source,
+		declinePolicy(answers.declined_dependencies),
+	);
+}
+
+/**
+ * The thesauri the plan declares: the vendored CORE entries' (the seed is
+ * compiled from that release, so its core registry rows hold the same
+ * declaration) followed by the install order's — ONE collection, so a thesaurus
+ * any of them makes mandatory is mandatory.
+ */
+function plannedHierarchies(
+	answers: InstallAnswers,
+	order: readonly string[],
+	catalog: OntologyCatalog,
+	warnings: string[],
+): HierarchyDependency[] {
+	return collectHierarchyDependencies(
+		[...vendoredCoreDeclarers(warnings), ...declarersOf(order, catalog)],
+		declinePolicy(answers.declined_dependencies),
+	).dependencies;
 }
 
 /** The closure of the chosen ontologies over the (merged) catalog. */
@@ -654,15 +715,24 @@ function closedOntologies(
 	source: OntologySource,
 	catalog: OntologyCatalog,
 ): PlannedOntologies {
-	const closure = closeOntologyChoice(answers.ontologies, catalog);
+	const closure = closeOntologyChoice(
+		answers.ontologies,
+		catalog,
+		declinePolicy(answers.declined_dependencies),
+	);
+	const coreWarnings: string[] = [];
+	const hierarchyDependencies = plannedHierarchies(answers, closure.order, catalog, coreWarnings);
+	const thesauri = hierarchyDependencyPlan(hierarchyDependencies);
 	const usable = closure.errors.length === 0 && closure.order.length > 0;
 	return {
 		source,
 		request: usable ? ontologyInstallRequest(closure.order, catalog) : null,
 		activeOntologyTlds: activeOntologyTldsOf(closure.order),
+		hierarchyDependencies,
+		hierarchyInstall: thesauri.install,
 		notes: closure.notes,
-		warnings: [...catalog.warnings, ...closure.warnings],
-		errors: closure.errors,
+		warnings: [...catalog.warnings, ...closure.warnings, ...coreWarnings, ...thesauri.warnings],
+		errors: [...closure.errors, ...thesauri.errors],
 	};
 }
 
@@ -682,7 +752,7 @@ function planOntologies(
 	given: OntologyCatalog | undefined,
 ): PlannedOntologies {
 	const source = ontologySourceFor(answers, prior);
-	if (given === undefined && ontologyCatalogNeeded(answers.ontologies, source)) {
+	if (given === undefined && planCatalogNeeded(answers, source)) {
 		return {
 			...closedOntologies(answers, source, vendoredOntologyCatalog()),
 			request: null,
@@ -726,7 +796,11 @@ export function buildInstallPlan(
 		env,
 		envKeys: env.flatMap((section) => section.entries.map((item) => item.key)),
 		steps: installSteps(answers),
-		hierarchies: answers.hierarchies,
+		hierarchies: [
+			...answers.hierarchies,
+			...ontologies.hierarchyInstall.filter((tld) => !answers.hierarchies.includes(tld)),
+		],
+		hierarchyDependencies: ontologies.hierarchyDependencies,
 		ontologies: answers.ontologies,
 		ontologySource: ontologySourceView(ontologies.source),
 		ontologyRequest: ontologies.request,
@@ -821,6 +895,7 @@ export const INSTALL_CLI_FLAGS: readonly {
 	{ flag: '--hierarchies', key: 'hierarchies', kind: 'value' },
 	{ flag: '--ontologies', key: 'ontologies', kind: 'value' },
 	{ flag: '--ontology-source', key: 'ontology_source', kind: 'value' },
+	{ flag: '--decline-dependencies', key: 'declined_dependencies', kind: 'value' },
 	{ flag: '--root-password', key: null, kind: 'value' },
 	{ flag: '--diffusion', key: 'diffusion', kind: 'bool' },
 	{ flag: '--mailer', key: 'mailer', kind: 'bool' },

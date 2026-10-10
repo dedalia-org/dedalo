@@ -30,7 +30,8 @@
  *   | order_number      | ontology41 | number        |                           |
  *
  * PURE except `provisionOntologyMainRegistry`, which writes through
- * `addMainSection` (the registry's own idempotent door). No guard lives here:
+ * `syncMainSectionFromDefinition` (the registry's IMPORT door — a JSON node is
+ * an ontology definition). No guard lives here:
  * each door owns its own (the test door's marker check, the engine door's
  * "only its own TLD" rule).
  */
@@ -57,10 +58,10 @@ import {
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
 	SI_NO_NO,
-	YES_NO_SECTION,
 	SI_NO_YES,
+	YES_NO_SECTION,
 } from './ontology_tipos.ts';
-import { addMainSection } from './ontology_write.ts';
+import { syncMainSectionFromDefinition } from './ontology_write.ts';
 import { getSectionIdFromTipo, getTldFromTipo, safeTld } from './tld.ts';
 
 /** The jsonb columns of one materialized record — what the parser reads back. */
@@ -258,8 +259,10 @@ export function ontologyRecordFromNode(node: DdOntologyNode): OntologyRecordColu
  *                                         the grouper the rebuild re-derives)
  *
  * Everything else the registry carries (project filter, language, active flags,
- * target section) is `addMainSection`'s own contract and is left to it —
- * IDEMPOTENT, reusing the row whose `hierarchy6` already names this TLD.
+ * target section) is the registry-row law's (ontology_write.ts): a JSON node
+ * is a DEFINITION, so this is `syncMainSectionFromDefinition` — it mints the
+ * row when missing and otherwise replaces only the definition's keys (name,
+ * typology), reusing the row whose `hierarchy6` already names this TLD.
  *
  * The inverse is `createDdOntologyRootNode`: it builds `<tld>0` with
  * `parent = ontologytype<typology_id>` and `term = termFromNameData(name_data)`.
@@ -280,7 +283,7 @@ export async function provisionOntologyMainRegistry(mainNode: DdOntologyNode): P
 		value: String(value),
 	}));
 	await withTransaction(async () => {
-		await addMainSection({
+		await syncMainSectionFromDefinition({
 			tld,
 			typology_id: typology === null ? null : Number(typology[1]),
 			name_data: nameData.length > 0 ? nameData : null,

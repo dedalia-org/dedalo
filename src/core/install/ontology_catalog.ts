@@ -34,6 +34,7 @@ import {
 	normalizeInstallAnswers,
 	ontologyServersFor,
 	ontologySourceFor,
+	planCatalogNeeded,
 } from './install_plan.ts';
 import { extractOntologyArchive } from './ontology_archive.ts';
 import {
@@ -44,7 +45,6 @@ import {
 	type OntologyCatalogView,
 	type OntologyOrigin,
 	type OntologySource,
-	ontologyCatalogNeeded,
 	ontologySourceLabel,
 	vendoredOntologyCatalog,
 } from './ontology_choice.ts';
@@ -192,7 +192,7 @@ export async function resolvePlanCatalog(
 ): Promise<OntologyCatalog | undefined> {
 	const answers: InstallAnswers = normalizeInstallAnswers(raw).answers;
 	const source = ontologySourceFor(answers, priorEnv);
-	if (!ontologyCatalogNeeded(answers.ontologies, source)) return undefined;
+	if (!planCatalogNeeded(answers, source)) return undefined;
 	const resolved = await resolveOntologyCatalog(source, {
 		allowedServers: ontologyServersFor(answers, priorEnv),
 	});

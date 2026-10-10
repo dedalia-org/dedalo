@@ -40,6 +40,11 @@
  *    derived from the seed's own model rows) equal
  *    engineering/install_seed_contract.json EXACTLY, every reason non-empty.
  *    Graft and diffusion references are soft by rule and never listed.
+ *  - every core ontology35 registry row's misc.hierarchy60 equals the release
+ *    entry's declaration through the compiler's own releaseDependencies
+ *    (absent ⇔ not declared): the seed is compiled through the import door, and
+ *    the installer's CLI plan (vendored ontology.json) and wizard step (these
+ *    rows) must read ONE truth (WC-2026-10-10-ontology-dependencies-hierarchy60).
  * Anti-vacuity: floors on rows/references, and a planted dangling dependency
  * must be reported.
  */
@@ -51,7 +56,8 @@ import { gunzipSync } from 'node:zlib';
 import { DEFAULTS_KEYS } from '../../src/config/catalog/defaults.ts';
 import { copyBlockRecords, copyBlocks } from '../../src/core/db/copy_text.ts';
 import { SEED_DUMP_PATH } from '../../src/core/install/paths.ts';
-import { SEED_ONTOLOGY_TLDS } from '../../src/core/install/seed_sources.ts';
+import { type ReleaseOntology, releaseDependencies } from '../../src/core/install/seed_build.ts';
+import { ONTOLOGY_RELEASE_DIR, SEED_ONTOLOGY_TLDS } from '../../src/core/install/seed_sources.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
 import {
 	danglingDependencies,
@@ -283,5 +289,43 @@ describe('install seed dump — core-only, one core list', () => {
 		expect(danglingKeys([...ontologyRows, planted], presentTipos)).toContain(
 			'dd999999 relations zzseedplant1',
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The seed's core REGISTRY rows carry the release's declared dependencies.
+// ---------------------------------------------------------------------------
+
+const releaseEntries =
+	(
+		JSON.parse(readFileSync(join(ONTOLOGY_RELEASE_DIR, 'ontology.json'), 'utf8')) as {
+			active_ontologies?: ReleaseOntology[];
+		}
+	).active_ontologies ?? [];
+
+/** tld → the stored misc.hierarchy60 value of its ontology35 row (undefined = no key). */
+function seedRegistryDeclarations(): Map<string, unknown> {
+	const declared = new Map<string, unknown>();
+	for (const row of blockRecords('matrix_ontology_main')) {
+		if (row.section_tipo !== 'ontology35') continue;
+		const strings = JSON.parse(row.string ?? '{}') as Record<string, { value?: unknown }[]>;
+		const tld = strings.hierarchy6?.[0]?.value;
+		if (typeof tld !== 'string') continue;
+		const misc = JSON.parse(row.misc ?? 'null') as Record<string, { value?: unknown }[]> | null;
+		declared.set(tld, misc?.hierarchy60?.[0]?.value);
+	}
+	return declared;
+}
+
+describe('install seed dump — core registry rows carry the release declarations', () => {
+	test("each core row's misc.hierarchy60 = releaseDependencies(its release entry); absent ⇔ not declared", () => {
+		const declared = seedRegistryDeclarations();
+		for (const tld of CORE_ONTOLOGY_TLDS) {
+			expect(declared.has(tld), `the seed holds the ${tld} registry row`).toBe(true);
+			const entry = releaseEntries.find((candidate) => candidate.tld === tld);
+			expect(entry, `the release has a ${tld} entry`).toBeDefined();
+			const expected = releaseDependencies(entry as ReleaseOntology);
+			expect(declared.get(tld) ?? null, `${tld} hierarchy60`).toEqual(expected);
+		}
 	});
 });

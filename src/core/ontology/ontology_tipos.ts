@@ -53,16 +53,6 @@ export const ONTOLOGY_CHILDREN = 'ontology14';
 export const ONTOLOGY_TYPE_GROUP = 'ontology40';
 /** The grouper TLD namespace for ontology typologies. */
 export const ONTOLOGY_TYPE_TLD = 'ontologytype';
-/**
- * ddengine11 — "Required ontologies": the DECLARED dependencies of an ontology
- * (component_portal → ontology35 registry records), filled on the ontology
- * master in the Ontologies-main edit form. ENGINE-OWNED (engine_ontology.json):
- * the master ontology cannot carry a component the engine reads for a wire
- * contract (an update replaces its TLD wholesale). The export emits it as
- * `active_ontologies[i].dependencies` (data_io.ts getActiveOntologies →
- * ontology.json → the update manifest); an empty component = NOT declared.
- */
-export const ONTOLOGY_DEPENDENCIES = 'ddengine11';
 
 // --- Hierarchy registry components (read off a hierarchy1 / matrix_hierarchy_main record) ---
 /** hierarchy1 — the hierarchy main (thesaurus definitions) section. */
@@ -101,6 +91,12 @@ export const HIERARCHY_GENERAL_TERM_MODEL = 'hierarchy59';
 export const HIERARCHY_SOURCE_REAL_SECTION = 'hierarchy109';
 /** hierarchy125 — active-in-thesaurus flag (DEDALO_HIERARCHY_ACTIVE_IN_THESAURUS_TIPO). */
 export const HIERARCHY_ACTIVE_IN_THESAURUS = 'hierarchy125';
+/**
+ * hierarchy60 — declared dependencies (component_json, raw `misc` key of the
+ * registry row). Defined in the leaf ontology_dependencies.ts (the installer
+ * closure imports it config-free); re-exported here with its siblings.
+ */
+export { HIERARCHY_DEPENDENCIES } from './ontology_dependencies.ts';
 /** hierarchytype — grouper TLD namespace for hierarchy typologies. */
 export const HIERARCHY_TYPE_TLD = 'hierarchytype';
 /** hierarchymtype — grouper TLD namespace for hierarchy model typologies. */

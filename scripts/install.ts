@@ -22,6 +22,7 @@
  *       [--langs lg-eng,lg-spa] [--app-lang lg-eng] [--data-lang lg-eng] \
  *       [--hierarchies es,fr | default | none] \
  *       [--ontologies oh,tch | default] [--ontology-source <dir|archive>] \
+ *       [--decline-dependencies tchi,ts:hierarchy1] \
  *       [--diffusion --mysql-host ... --mysql-port ... --mysql-socket ... \
  *          --mysql-name ... --mysql-user ... --mysql-password ...] \
  *       [--mailer --smtp-host smtp.example.org --smtp-port 587 --smtp-secure tls \
@@ -42,13 +43,18 @@
  * server (the official master by default) or from --ontology-source (a
  * directory in the server export layout — ontology.json + <tld>.copy.gz
  * [+ matrix_dd.copy.gz] — or a .tar/.tar.gz/.tgz of one: a fully offline
- * install). The DECLARED dependencies of the chosen TLDs are installed with them,
- * deps first. The catalog is resolved ONCE, before anything is written; the files
+ * install). The DECLARED dependencies of the chosen TLDs (hierarchy60) are
+ * installed with them: ontologies (`main: ontology35`) deps first, thesauri
+ * (`main: hierarchy1`) added to --hierarchies. A MANDATORY one cannot be
+ * declined (a mandatory thesaurus that is not vendored refuses the plan); an
+ * OPTIONAL one is installed unless --decline-dependencies names it (a TLD, or
+ * `<tld>:ontology35|hierarchy1`). The catalog is resolved ONCE, before anything is written; the files
  * are staged and verified before the database is touched (stage_ontologies) and
  * imported right after the seed restore (install_ontologies).
  *
- * --plan prints ONE JSON line (env_keys, steps, hierarchies, ontologies,
- * ontology_source, ontology_install, active_ontology_tlds, notes, warnings,
+ * --plan prints ONE JSON line (env_keys, steps, hierarchies,
+ * hierarchy_dependencies, ontologies, declined_dependencies, ontology_source,
+ * ontology_install, active_ontology_tlds, notes, warnings,
  * errors) and exits — 0 when the answers are valid, 1 otherwise — touching no
  * database and no file (a non-vendored choice reads the source's manifest), no
  * root password needed.
@@ -73,11 +79,11 @@ import {
 	normalizeInstallAnswers,
 	ontologyServersFor,
 	ontologySourceFor,
+	planCatalogNeeded,
 } from '../src/core/install/install_plan.ts';
 import {
 	describeOntologyCatalog,
 	type OntologyCatalog,
-	ontologyCatalogNeeded,
 	vendoredOntologyCatalog,
 } from '../src/core/install/ontology_choice.ts';
 import { readPriorEnv } from '../src/core/install/prior_env.ts';
@@ -103,7 +109,7 @@ async function resolveCatalogOf(
 ): Promise<{ catalog: OntologyCatalog | undefined; errors: string[] }> {
 	const { answers } = normalizeInstallAnswers(raw);
 	const source = ontologySourceFor(answers, priorEnv);
-	if (!ontologyCatalogNeeded(answers.ontologies, source)) return { catalog: undefined, errors: [] };
+	if (!planCatalogNeeded(answers, source)) return { catalog: undefined, errors: [] };
 	const { resolveOntologyCatalog } = await import('../src/core/install/ontology_catalog.ts');
 	try {
 		const resolved = await resolveOntologyCatalog(source, {
@@ -160,7 +166,9 @@ if (invocation.planOnly) {
 			env_keys: [...plan.envKeys],
 			steps: [...plan.steps],
 			hierarchies: [...plan.hierarchies],
+			hierarchy_dependencies: [...plan.hierarchyDependencies],
 			ontologies: [...plan.ontologies],
+			declined_dependencies: [...plan.answers.declined_dependencies],
 			ontology_source: plan.ontologySource,
 			ontology_install: (plan.ontologyRequest?.items ?? []).map((item) => item.tld),
 			active_ontology_tlds: [...plan.activeOntologyTlds],
@@ -179,6 +187,14 @@ if (!rootPassword) fail('--root-password (or DEDALO_INSTALL_ROOT_PASSWORD) is re
 /** The engine's step functions take the wizard's posted record — the plan's answers ARE it. */
 const posted: Record<string, unknown> = { ...plan.answers };
 
+/** The thesauri the installed ontologies make mandatory (they cannot be declined). */
+function requiredThesauriText(): string {
+	const required = plan.hierarchyDependencies
+		.filter((item) => item.mandatory && plan.hierarchies.includes(item.tld))
+		.map((item) => item.tld);
+	return required.length === 0 ? '' : ` (required by the ontologies: ${required.join(', ')})`;
+}
+
 /** Human text for each step line (`→ [<step id>] <text>`). */
 const STEP_TEXT: Readonly<Record<InstallStepId, string>> = {
 	test_db_connection: 'database connection',
@@ -190,7 +206,7 @@ const STEP_TEXT: Readonly<Record<InstallStepId, string>> = {
 	install_db_from_default_file: 'restore database from seed (+ activate core hierarchies)',
 	install_ontologies: `domain ontologies: ${(plan.ontologyRequest?.items ?? []).map((item) => item.tld).join(', ')}`,
 	set_root_pw: 'set root password',
-	install_hierarchies: `optional hierarchies: ${plan.hierarchies.join(', ') || 'none'}`,
+	install_hierarchies: `hierarchies: ${plan.hierarchies.join(', ') || 'none'}${requiredThesauriText()}`,
 	register_tools: 'register tools',
 	install_finish: 'seal install',
 };

@@ -63,6 +63,7 @@ bun run scripts/install.ts \
   [--langs lg-eng,lg-spa] [--app-lang lg-eng] [--data-lang lg-eng] \
   [--hierarchies default|none|es,fr] \
   [--ontologies default|oh,tch] [--ontology-source <dir|archive>] \
+  [--decline-dependencies tchi,ts:hierarchy1] \
   [--media-path /srv/dedalo/media] [--socket /run/dedalo/dedalo_ts.sock] [--media-access-mode publication] \
   [--diffusion --mysql-name web_dedalo --mysql-user d --mysql-password '…'] \
   [--mailer --smtp-host smtp.example.org --smtp-user dedalo@example.org --smtp-password '…'] \
@@ -90,8 +91,9 @@ meaning.)
 | `--langs` | no | `lg-eng,lg-spa` (the other catalogue languages are optional) | the installation's languages — interface **and** data — comma list, e.g. `lg-eng,lg-spa` |
 | `--app-lang` | no | first of `--langs` | the default interface language |
 | `--data-lang` | no | first of `--langs` | the default data language |
-| `--hierarchies` | no | `default` | the **optional** thesauri: `default` (the shared default set — today `es`), `none`, or a comma list of vendored codes, e.g. `es,fr`. Languages (`lg`) is a **core** thesaurus, activated with the database on every install: naming it here is dropped with a note. An unknown (not vendored) code is refused |
+| `--hierarchies` | no | `default` | the **optional** thesauri: `default` (the shared default set — today `es`), `none`, or a comma list of vendored codes, e.g. `es,fr`. Languages (`lg`) is a **core** thesaurus, activated with the database on every install: naming it here is dropped with a note. An unknown (not vendored) code is refused. The thesauri the chosen ontologies **declare** are added to this list: mandatory ones always (even with `none`), optional ones unless `--decline-dependencies` names them — see [Dependencies are declared, never guessed](#dependencies-are-declared-never-guessed) |
 | `--ontologies` | no | `default` (= `oh`) | the **domain** ontologies, a comma list of TLDs — at least one. `default` is Oral history (`oh`), built into the release. Any other TLD comes from the ontology source, together with the ontologies it **declares** as dependencies. A core TLD is dropped with a note; `none` and an unknown TLD are refused. See [Domain ontologies](#domain-ontologies) |
+| `--decline-dependencies` | no | *(none)* | the **optional** declared dependencies you do not want, a comma list. Each item is a TLD (declines it as an ontology and as a thesaurus) or `<tld>:ontology35` / `<tld>:hierarchy1` (declines only one of the two). A mandatory dependency cannot be declined: naming one has no effect, and it is installed. A malformed item is refused |
 | `--ontology-source` | no | *(unset)* | a local directory, or a `.tar` / `.tar.gz` / `.tgz` archive of one, in the ontology server's export layout. The non-built-in ontologies come from it instead of the update server — a fully [offline install](#offline-installs-ontology-source) |
 | `--media-path` | no | *(unset)* | the media root; write-probed during install **and persisted** to `.env` as `MEDIA_PATH` (replaces the old `MEDIA_PATH=…` env prefix) |
 | `--socket` | no | `/tmp/dedalo_ts.sock` | persisted as `SERVER_UNIX_SOCKET`; set `/run/dedalo/dedalo_ts.sock` for a systemd + reverse-proxy deploy (the default does not match that layout) |
@@ -100,7 +102,7 @@ meaning.)
 | `--mailer` | no | off | writes the outbound-email (SMTP) keys, enabling [password recovery](../management/password_recovery.md); requires `--smtp-host`, pair with `--smtp-port` (587), `--smtp-secure` (`tls`\|`ssl`\|`none`), `--smtp-user`, `--smtp-password`, `--smtp-from`, `--smtp-from-name`. The relay is probed (connection + auth, no email sent); a failure warns but does not stop the install |
 | `--no-update-servers` | no | off | air-gapped install: writes `ONTOLOGY_SERVERS=[]` and `CODE_SERVERS=[]`, so no ontology or code update is ever offered. Without it, both name the official Dédalo master (see below) |
 | `--skip-tools` | no | off | skips tool registration (register them later from the Development Area) |
-| `--plan` | no | off | dry run: prints ONE JSON line — `env_keys`, `steps`, `hierarchies`, `ontologies`, `ontology_source`, `ontology_install`, `active_ontology_tlds`, `notes`, `warnings`, `errors` — and exits `0` (valid) or `1`. It touches no database and no file and needs no root password. A choice beyond `oh` reads the source's catalog (one request to the update server, or the `--ontology-source` files) |
+| `--plan` | no | off | dry run: prints ONE JSON line — `env_keys`, `steps`, `hierarchies`, `hierarchy_dependencies`, `ontologies`, `declined_dependencies`, `ontology_source`, `ontology_install`, `active_ontology_tlds`, `notes`, `warnings`, `errors` — and exits `0` (valid) or `1`. It touches no database and no file and needs no root password. A choice beyond `oh` reads the source's catalog (one request to the update server, or the `--ontology-source` files) |
 | `--list-ontologies` | no | off | prints ONE JSON line — the ontology catalog of the selected source, exactly what the wizard's *Ontologies* step shows — and exits. It needs no other answer. See [Listing the catalog](#listing-the-catalog) |
 | `--information`, `--info-key` | no | `ts-install`, `ts` | free-text install provenance, recorded in the state file |
 
@@ -162,7 +164,8 @@ affordances (the wizard has its *Verify* screen and in-wizard login instead).
 9. **`set_root_pw`** — the root password, hashed with Argon2id.
 10. **`install_hierarchies`** — imports and activates the **optional** thesauri (the
    shared default set unless `--hierarchies` says otherwise; `none` makes it a
-   no-op). Each selected TLD has its vendored term data copied in, **and is then
+   no-op), plus the thesauri the installed ontologies declare: the mandatory
+   ones always, the optional ones unless declined. Each selected TLD has its vendored term data copied in, **and is then
    activated**: the hierarchy is flagged active, its virtual ontology sections
    (`<tld>0`/`<tld>1`/`<tld>2`) are provisioned, and its thesaurus tree is rooted —
    so the hierarchies you selected are browseable at the first login. Importing
@@ -274,18 +277,40 @@ ontology server **declares** these dependencies for each ontology in its
 catalog (an editor fills them in on the master — see
 [Declaring what an ontology requires](../management/updates/updating_ontology.md#declaring-what-an-ontology-requires)).
 
-- The installer installs the chosen ontologies **plus everything they declare**,
-  transitively, each dependency before the ontology that needs it. It says so
-  before it starts: `tch also installs: …`. Core ontologies in a declaration
-  are already installed and are skipped.
-- A dependency the source does not offer is refused before anything is written:
-  `'x', declared as a dependency of 'y', is not offered by the ontology server '…'`.
+Each declared dependency names a TLD and what is needed from it: its
+**ontology** (`main: ontology35`) or its **thesaurus** (`main: hierarchy1`, the
+hierarchy with its terms, installed and activated). A TLD may be declared under
+both. Each one is **mandatory** or **optional**.
+
+- The installer installs the chosen ontologies **plus the ontologies they
+  declare**, transitively, each dependency before the ontology that needs it. It
+  says so before it starts: `tch also installs: …`. Core ontologies in a
+  declaration are already installed and are skipped.
+- The declared **thesauri** are added to the
+  [`install_hierarchies`](#what-the-installer-does-in-order) step. The core Languages
+  thesaurus (`lg`) is never listed, because every install activates it.
+- A **mandatory** dependency is always installed. It cannot be unticked in the
+  wizard, and `--decline-dependencies` has no effect on it.
+- An **optional** dependency is offered already ticked. Untick it in the wizard,
+  or name it in `--decline-dependencies`, to leave it out:
+  `the ontology 'x' (an optional dependency of 'y') is declined — not installed`.
+- A mandatory ontology the source does not offer is refused before anything is
+  written: `'x', declared as a dependency of 'y', is not offered by the ontology server '…'`.
+  An optional one is skipped with a warning.
+- A thesaurus is installed from the release's own files
+  (`install/import/hierarchy/<tld>1.copy.gz`). A **mandatory** thesaurus the
+  release does not ship refuses the install before anything is written:
+  `the thesaurus 'x', a mandatory dependency of 'y', is not vendored (no x1.copy.gz) — it cannot be installed`.
+  An optional one is skipped with a warning.
 - **An older ontology server publishes no dependencies.** The installer then
   warns, names the ontology, and installs exactly what you chose — it never works
   out dependencies on its own:
   `the ontology source declares no dependencies for 'tch' (an older ontology server) — 'tch' is installed alone; anything it references in other ontologies stays unresolved`.
   Name the missing ontologies yourself (`--ontologies tch,crm,…`), or install
-  them later from the update panel.
+  them later from the update panel. The built-in `oh` of this release declares
+  none yet either, so a default install warns
+  `the built-in ontology.json declares no dependencies for 'oh' (a release that predates them) — …`
+  and installs `oh` alone.
 
 **After the import, the installer checks the references.** For every node of
 the installed ontologies it follows the parent, the model and the related nodes.
@@ -315,16 +340,19 @@ bun run scripts/install.ts --list-ontologies --no-update-servers
 ```
 
 ```json
-{"source":{"kind":"none"},"default":["oh"],"core":["dd","rsc","ontology","ontologytype","hierarchy","lg"],"entries":[{"tld":"oh","name":"Oral History | oh","typology_id":"8","typology_name":"Catalog","origin":"vendored","is_default":true,"note_key":"installation_ontology_note_oh","dependencies":["dd","rsc","ontology","ontologytype","hierarchy","lg"],"also_installs":[]}],"warnings":[],"errors":[]}
+{"source":{"kind":"none"},"default":["oh"],"core":["dd","rsc","ontology","ontologytype","hierarchy","lg"],"entries":[{"tld":"oh","name":"Oral History | oh","typology_id":"8","typology_name":"Catalog","origin":"vendored","is_default":true,"note_key":"installation_ontology_note_oh","dependencies":null,"also_installs":[],"hierarchy_dependencies":[]}],"warnings":[],"errors":[]}
 ```
 
 Each entry carries its `origin` (`vendored`, `local` or `server`), its declared
-`dependencies` (`null` when the source declares none) and `also_installs` — the
-non-core ontologies a choice of it would add. Core ontologies are never listed:
+`dependencies` (a list of `{tld, main, mandatory}`, or `null` when the source
+declares none), `also_installs` — the non-core ontologies a choice of it would
+add — and `hierarchy_dependencies` — the thesauri it would add, each
+`{tld, mandatory, dependants}`. Core ontologies are never listed:
 they are not a choice. The source follows the other flags: `--ontology-source`,
 `--no-update-servers`, or the configured server. `--plan` shows the outcome for a
-given answer: `ontology_install` is the install order and
-`active_ontology_tlds` what will be written.
+given answer: `ontology_install` is the install order,
+`active_ontology_tlds` what will be written, `hierarchy_dependencies` the
+declared thesauri and `hierarchies` every thesaurus the install will add.
 
 ### Offline installs (`--ontology-source`)
 
@@ -383,7 +411,7 @@ owns are these:
 | Languages | `DEDALO_APPLICATION_LANGS`, `PROJECTS_DEFAULT_LANGS`, `DEDALO_APPLICATION_LANGS_DEFAULT`, `DEDALO_DATA_LANG_DEFAULT`, `APPLICATION_LANG`, `DATA_LANG`, `DEDALO_STRUCTURE_LANG` |
 | Secret | one generated secret, printed once |
 | Update servers | `ONTOLOGY_SERVERS`, `CODE_SERVERS` — the official master by default, `[]` with `--no-update-servers` |
-| Ontologies | `ACTIVE_ONTOLOGY_TLDS` — the core, the chosen domain ontologies and their declared dependencies, in install order; rewritten on every run |
+| Ontologies | `ACTIVE_ONTOLOGY_TLDS` — the core, the chosen domain ontologies and the ontologies they declare (minus declined optional ones), in install order; rewritten on every run |
 | Serving / media *(only with `--media-path` / `--socket` / `--media-access-mode`)* | `MEDIA_PATH`, `SERVER_UNIX_SOCKET`, `DEDALO_MEDIA_ACCESS_MODE` |
 | Diffusion *(only with `--diffusion`)* | `DEDALO_DIFFUSION_NATIVE`, `DEDALO_DIFFUSION_DB_*` |
 | Outbound email *(only with `--mailer`, or the wizard's optional step)* | `DEDALO_SMTP_HOST`, `DEDALO_SMTP_PORT`, `DEDALO_SMTP_SECURE`, `DEDALO_SMTP_USER`, `DEDALO_SMTP_PASS`, `DEDALO_SMTP_FROM`, `DEDALO_SMTP_FROM_NAME` |
@@ -467,8 +495,11 @@ ontologies on offer, with `oh` pre-ticked. The built-in list shows at once. When
 the update server is in use, the step also reads the server's catalog and adds
 its ontologies, grouped by typology; without it (or when the server cannot be
 reached) only the built-in `oh` is offered. A short note describes `oh` and
-`tch`. Under each ticked ontology the step lists what it also installs, or warns
-that the server declares no dependencies for it. At least one must be ticked.
+`tch`. Under each ticked ontology the step lists its declared dependencies, each
+with a checkbox: mandatory ones are ticked and locked, optional ones are ticked
+and can be unticked. A dependency on a core ontology or thesaurus is always
+installed, so it is shown ticked and locked as well. When the source declares nothing for it, the step warns
+instead. At least one must be ticked.
 The choice is saved with the configuration (`ACTIVE_ONTOLOGY_TLDS`), and after
 the restart the **Install database** step runs three actions in a row:
 `stage_ontologies`, `install_db_from_default_file` and `install_ontologies`, each
@@ -476,8 +507,11 @@ with its own status line. It stops at the first failure; reference warnings
 are shown but do not block.
 
 The **Hierarchies** step lists the optional thesauri with the shared default
-pre-ticked. Languages is not among them — it was activated with the database —
-and submitting the step with nothing ticked is valid.
+pre-ticked. The thesauri the installed ontologies declare are ticked too: a
+mandatory one is locked and names the ontologies that require it. The server
+adds the mandatory ones even if the page does not send them. Languages is not
+among them — it was activated with the database — and submitting the step with
+nothing ticked is valid.
 
 The **Outbound email** step asks whether this installation will send email —
 which is what enables the login screen's

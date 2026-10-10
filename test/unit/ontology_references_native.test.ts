@@ -142,7 +142,7 @@ const DOMAIN: FixtureOntologyTld = {
 	tld: 'zzra',
 	name: 'zz domain',
 	typologyId: 15,
-	dependencies: ['zzrm'],
+	dependencies: [{ tld: 'zzrm', main: 'ontology35', mandatory: true }],
 	nodes: [
 		{ id: 1, parent: 'zzra0', model: 'zzrm3', term: 'zz section', relations: ['zzra2', 'zzrb5'] },
 		{ id: 2, parent: 'zzra1', model: 'zzrm2', term: 'zz alias', relations: ['zzrx7'] },

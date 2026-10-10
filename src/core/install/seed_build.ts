@@ -56,6 +56,10 @@ import {
 	REGISTRY_PROVISION_INPUTS_SQL,
 	type RegistryRow,
 } from '../ontology/hierarchy_state.ts';
+import {
+	normalizeOntologyDependencies,
+	type OntologyDependency,
+} from '../ontology/ontology_dependencies.ts';
 import { gzipStreamToFile } from '../ontology/recovery_file.ts';
 import { DEDALO_VERSION } from '../update/version.ts';
 import { SEED_DUMP_PATH, SEED_MANIFEST_PATH } from './paths.ts';
@@ -120,6 +124,8 @@ export interface ReleaseOntology {
 	tld: string;
 	name_data?: unknown;
 	typology_id?: number | string | null;
+	/** hierarchy60 declaration (raw; normalized by releaseDependencies). Absent = not declared. */
+	dependencies?: unknown;
 }
 
 /** One package staged (decompressed, sanity-checked) for the compile child. */
@@ -129,6 +135,12 @@ export interface StagedPackage {
 	stagedPath: string;
 	typologyId?: number | string | null;
 	nameData?: unknown;
+	/**
+	 * The release entry's declared dependencies (normalized) — the import door
+	 * (syncMainSectionFromDefinition) writes them as the core row's hierarchy60;
+	 * null = the release declares nothing (no key written).
+	 */
+	dependencies: OntologyDependency[] | null;
 }
 
 /** What the compile child is told to do (JSON, through a file). */
@@ -471,6 +483,24 @@ function releaseEntry(entries: readonly ReleaseOntology[], tld: string): Release
 	return entry;
 }
 
+/**
+ * A release entry's declared dependencies, normalized by THE shared normalizer
+ * (ontology_dependencies.ts) — the seed is compiled through the import door, so
+ * its core registry rows carry the release's hierarchy60 exactly as an ontology
+ * update would write it (the installer's CLI plan reads the same declaration
+ * from the vendored ontology.json, the wizard's install_hierarchies step from
+ * those rows: one truth). The seed must be EXACT: any normalizer warning (a
+ * malformed item, a non-list) refuses the compile instead of dropping it.
+ */
+export function releaseDependencies(entry: ReleaseOntology): OntologyDependency[] | null {
+	const warnings: string[] = [];
+	const dependencies = normalizeOntologyDependencies(entry.tld, entry.dependencies, warnings);
+	if (warnings.length > 0) {
+		fail(`the ontology release declares invalid dependencies: ${warnings.join('; ')}`);
+	}
+	return dependencies;
+}
+
 /** Every ontology package, staged with its release entry. */
 async function stagePackages(
 	stagingDir: string,
@@ -485,6 +515,7 @@ async function stagePackages(
 			stagedPath: await stageCopy(join(ONTOLOGY_RELEASE_DIR, `${tld}.copy.gz`), stagingDir, tld),
 			typologyId: entry.typology_id ?? null,
 			nameData: entry.name_data,
+			dependencies: releaseDependencies(entry),
 		});
 	}
 	return staged;
@@ -616,12 +647,19 @@ async function scratchTables(conn: DbConnDescriptor, database: string): Promise<
 	return tables.filter((table) => !table.startsWith('dedalo_') && IDENTIFIER.test(table));
 }
 
-/** The tables the compile child wrote, which the data script keeps. */
+/**
+ * The tables the data script keeps: what the compile child wrote, plus the
+ * langs, loaded ONCE before the compile (compile(): the registry door resolves
+ * STRUCTURE_LANG's lg1 record from them). Loaded once, never reloaded: the
+ * langs id sequence is not OWNED by its column, so a TRUNCATE … RESTART
+ * IDENTITY would not reset it and a reload would ship shifted ids.
+ */
 const CHILD_WRITTEN: ReadonlySet<string> = new Set([
 	'dd_ontology',
 	'matrix_ontology',
 	'matrix_ontology_main',
 	'matrix_dd',
+	'matrix_langs',
 ]);
 
 /**
@@ -677,7 +715,6 @@ function recordInserts(releaseDate: string): string[] {
  */
 export function seedDataSql(input: {
 	tables: readonly string[];
-	langsPath: string;
 	registryPath: string;
 	releaseDate: string;
 }): string {
@@ -687,7 +724,6 @@ export function seedDataSql(input: {
 		...(emptied.length === 0
 			? []
 			: [`TRUNCATE ${emptied.map((table) => `"${table}"`).join(', ')} RESTART IDENTITY;`]),
-		`\\copy matrix_langs (${columns}) FROM '${safePath(input.langsPath)}'`,
 		`\\copy matrix_hierarchy_main (${columns}) FROM '${safePath(input.registryPath)}'`,
 		...recordInserts(input.releaseDate),
 	];
@@ -951,10 +987,21 @@ async function compile(build: SeedBuild, release: OntologyRelease): Promise<void
 		['-c', `\\copy dd_ontology (${DD_ONTOLOGY_SCAFFOLD_COLUMNS.join(', ')}) FROM '${scaffold}'`],
 		'load the dd_ontology scaffold',
 	);
+	// The langs BEFORE the compile: the registry door files every ontology35 row
+	// under STRUCTURE_LANG's lg1 record, RESOLVED from matrix_langs (no
+	// hard-coded id — ontology_write.ts resolveRegistryLangId), so an empty
+	// langs table would refuse the first package. Loaded once: the data script
+	// keeps them (CHILD_WRITTEN).
+	const langsPath = await stageCopy(SEED_LANGS_PATH, build.stagingDir, 'matrix_langs');
+	await psqlOk(
+		build.conn,
+		scratch.name,
+		['-c', `\\copy matrix_langs (${MATRIX_COPY_COLUMNS.join(', ')}) FROM '${safePath(langsPath)}'`],
+		'load the langs the registry rows are filed under',
+	);
 	await compileOntology(build, scratch.name, release);
 	const sql = seedDataSql({
 		tables: await scratchTables(build.conn, scratch.name),
-		langsPath: await stageCopy(SEED_LANGS_PATH, build.stagingDir, 'matrix_langs'),
 		registryPath: await stageCopy(SEED_REGISTRY_PATH, build.stagingDir, 'matrix_hierarchy_main'),
 		releaseDate: release.date,
 	});

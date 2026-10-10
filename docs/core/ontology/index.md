@@ -184,8 +184,8 @@ place where you want it to act.
     them: the main features — login, profiles, tables, tools, media (image,
     audiovisual, PDF, SVG, 3D, …), people and entities, the ontology definition and
     the multi-language features — are defined by these TLDs. A new TLD builds on
-    them, so on an ontology master, declare in its *Required ontologies* field the
-    core and domain ontologies it uses (see
+    them, so on an ontology master, declare in its *Dependencies* field
+    (`hierarchy60`) the core and domain ontologies, and the thesauri, it uses (see
     [Declaring what an ontology requires](../../management/updates/updating_ontology.md#declaring-what-an-ontology-requires)).
 
 #### Creating the first node

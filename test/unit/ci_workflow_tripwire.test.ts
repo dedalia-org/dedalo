@@ -790,6 +790,22 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		"It materializes the engine ontology into the suite database's dd_ontology, reserves and settles against the shipped ledger section's rows (concurrent reservations racing on its row locks) and drives the metered doors as fixture users resolved from the suite database, so it cannot run without a live suite Postgres.",
 	],
 	[
+		'test/unit/engine_ontology_retired_native.test.ts',
+		"It plants a retired engine node's source record, dd_ontology row and registry value in the suite database and runs the engine-ontology door to prune them (a scratch ontology35 registry row minted by createMainSection), so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/ontology_registry_row_native.test.ts',
+		"It mints scratch ontology35 registry rows through the engine's registry doors on the suite database, runs the import and rebuild doors over them (and over the suite's real lg row, snapshotted and restored) and reads every column back, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/ontology_dependencies_native.test.ts',
+		"It writes scratch ontology35 registry rows and their stored hierarchy60 declarations on the suite database, then reads them back through the census, the manifest builder and the update's missing-dependency report, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/install_hierarchy_dependencies_native.test.ts',
+		"It writes scratch ontology35 registry rows declaring thesauri on the suite database and reads them back through the wizard's install_hierarchies reader, so it cannot run without a live suite Postgres.",
+	],
+	[
 		'test/unit/change_plan_write_door_native.test.ts',
 		"It installs the authz door fixture's scratch projects, profiles and users on the suite database, creates the record its plans address, and validates every plan through the write door's real permission and scope resolution, so it cannot run without a live suite Postgres.",
 	],

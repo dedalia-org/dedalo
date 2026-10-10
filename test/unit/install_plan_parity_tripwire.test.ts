@@ -78,6 +78,7 @@ import {
 import { resolveOntologyCatalog } from '../../src/core/install/ontology_catalog.ts';
 import {
 	describeOntologyCatalog,
+	offeredHierarchyTlds,
 	ontologyRequestFromActive,
 	vendoredOntologyCatalog,
 } from '../../src/core/install/ontology_choice.ts';
@@ -115,7 +116,10 @@ const FIXTURE_SOURCE = (() => {
 			name: 'zz parity A',
 			typologyId: 8,
 			typologyName: 'Catalog',
-			dependencies: ['dd', 'zzpb'],
+			dependencies: [
+				{ tld: 'dd', main: 'ontology35', mandatory: true },
+				{ tld: 'zzpb', main: 'ontology35', mandatory: true },
+			],
 			nodes: [{ id: 1, parent: 'zzpa0', model: 'dd6', term: 'A root' }],
 		},
 		{
@@ -123,11 +127,56 @@ const FIXTURE_SOURCE = (() => {
 			name: 'zz parity B',
 			typologyId: 8,
 			typologyName: 'Catalog',
-			dependencies: ['dd'],
+			dependencies: [{ tld: 'dd', main: 'ontology35', mandatory: true }],
 			nodes: [{ id: 1, parent: 'zzpb0', model: 'dd6', term: 'B root' }],
 		},
 	]);
 	mkdirSync(dir, { recursive: true });
+	for (const [name, bytes] of files) writeFileSync(join(dir, name), bytes);
+	return dir;
+})();
+
+/** Two real VENDORED thesauri (installer data read at run time, never records). */
+const [THESAURUS_REQUIRED, THESAURUS_OPTIONAL] = [...offeredHierarchyTlds()] as [string, string];
+
+/**
+ * A LOCAL source whose entries declare hierarchy60 OBJECTS (2026-10-10): zzqc
+ * declares the ontology zzqd OPTIONAL, THESAURUS_REQUIRED mandatory and
+ * THESAURUS_OPTIONAL optional; zzqe declares the thesaurus zzqx MANDATORY —
+ * never vendored, so choosing zzqe refuses the plan.
+ */
+const DECLARED_SOURCE = (() => {
+	const dir = mkdtempSync(join(scratchRoot, 'ontology_source_declared_'));
+	const files = buildOntologyPackage([
+		{
+			tld: 'zzqc',
+			name: 'zz parity C',
+			typologyId: 8,
+			typologyName: 'Catalog',
+			dependencies: [
+				{ tld: 'zzqd', main: 'ontology35', mandatory: false },
+				{ tld: THESAURUS_REQUIRED, main: 'hierarchy1', mandatory: true },
+				{ tld: THESAURUS_OPTIONAL, main: 'hierarchy1', mandatory: false },
+			],
+			nodes: [{ id: 1, parent: 'zzqc0', model: 'dd6', term: 'C root' }],
+		},
+		{
+			tld: 'zzqd',
+			name: 'zz parity D',
+			typologyId: 8,
+			typologyName: 'Catalog',
+			dependencies: [],
+			nodes: [{ id: 1, parent: 'zzqd0', model: 'dd6', term: 'D root' }],
+		},
+		{
+			tld: 'zzqe',
+			name: 'zz parity E',
+			typologyId: 8,
+			typologyName: 'Catalog',
+			dependencies: [{ tld: 'zzqx', main: 'hierarchy1', mandatory: true }],
+			nodes: [{ id: 1, parent: 'zzqe0', model: 'dd6', term: 'E root' }],
+		},
+	]);
 	for (const [name, bytes] of files) writeFileSync(join(dir, name), bytes);
 	return dir;
 })();
@@ -312,6 +361,7 @@ function decided(plan: InstallPlan) {
 		envKeys: plan.envKeys,
 		steps: plan.steps,
 		hierarchies: plan.hierarchies,
+		hierarchyDependencies: plan.hierarchyDependencies,
 		ontologies: plan.ontologies,
 		ontologySource: plan.ontologySource,
 		ontologyRequest: plan.ontologyRequest,
@@ -425,7 +475,9 @@ function printedPlan(plan: InstallPlan, errors: string[]) {
 		env_keys: [...plan.envKeys],
 		steps: [...plan.steps],
 		hierarchies: [...plan.hierarchies],
+		hierarchy_dependencies: [...plan.hierarchyDependencies],
 		ontologies: [...plan.ontologies],
+		declined_dependencies: [...plan.answers.declined_dependencies],
 		ontology_source: plan.ontologySource,
 		ontology_install: (plan.ontologyRequest?.items ?? []).map((item) => item.tld),
 		active_ontology_tlds: [...plan.activeOntologyTlds],
@@ -627,6 +679,105 @@ describe('install plan — domain ontologies (h)', () => {
 		expect(back.errors).toEqual([]);
 		expect(back.request).toEqual(local.ontologyRequest);
 		resolved.cleanup();
+	});
+});
+
+describe('install plan — declared dependencies: mandatory locked, optional pre-ticked (i)', () => {
+	test('vendored thesauri for the test exist (anti-vacuity)', () => {
+		expect(THESAURUS_REQUIRED).toMatch(/^[a-z]+$/);
+		expect(THESAURUS_OPTIONAL).toMatch(/^[a-z]+$/);
+		expect(THESAURUS_OPTIONAL).not.toBe(THESAURUS_REQUIRED);
+	});
+
+	test('optional ontology + thesauri installed by default; declining leaves the mandatory one', async () => {
+		const resolved = await resolveOntologyCatalog(
+			{ kind: 'local', path: DECLARED_SOURCE },
+			{ allowedServers: [] },
+		);
+		try {
+			const base = [
+				...BASE_ARGV,
+				'--ontology-source',
+				DECLARED_SOURCE,
+				'--ontologies',
+				'zzqc',
+				'--hierarchies',
+				'none',
+			];
+			const ticked = buildInstallPlan(answersFromCliArgs(base).raw, {
+				ontologyCatalog: resolved.catalog,
+			});
+			expect(ticked.errors).toEqual([]);
+			expect(ticked.ontologyRequest?.items.map((item) => item.tld)).toEqual(['zzqd', 'zzqc']);
+			expect(ticked.hierarchies).toEqual([THESAURUS_REQUIRED, THESAURUS_OPTIONAL]);
+			expect(ticked.hierarchyDependencies).toEqual([
+				{ tld: THESAURUS_REQUIRED, mandatory: true, dependants: ['zzqc'] },
+				{ tld: THESAURUS_OPTIONAL, mandatory: false, dependants: ['zzqc'] },
+			]);
+
+			// The operator declines everything optional — AND the mandatory thesaurus:
+			// the mandatory one stays (locked), the rest is gone, each decline noted.
+			const declineArgv = [
+				...base,
+				'--decline-dependencies',
+				`zzqd,${THESAURUS_REQUIRED},${THESAURUS_OPTIONAL}:hierarchy1`,
+			];
+			const cli = buildInstallPlan(answersFromCliArgs(declineArgv).raw, {
+				ontologyCatalog: resolved.catalog,
+			});
+			expect(cli.errors).toEqual([]);
+			expect(cli.answers.declined_dependencies).toEqual([
+				'zzqd',
+				THESAURUS_REQUIRED,
+				`${THESAURUS_OPTIONAL}:hierarchy1`,
+			]);
+			expect(cli.ontologyRequest?.items.map((item) => item.tld)).toEqual(['zzqc']);
+			expect(cli.activeOntologyTlds).toEqual([...CORE_ONTOLOGY_TLDS, 'zzqc']);
+			expect(cli.hierarchies).toEqual([THESAURUS_REQUIRED]);
+			expect(cli.notes).toContain(
+				"the ontology 'zzqd' (an optional dependency of 'zzqc') is declined — not installed",
+			);
+			// the wizard posts the same answer as a list: the same plan
+			const wizard = buildInstallPlan(
+				{
+					...answersFromCliArgs(declineArgv).raw,
+					declined_dependencies: ['zzqd', THESAURUS_REQUIRED, `${THESAURUS_OPTIONAL}:hierarchy1`],
+				},
+				{ ontologyCatalog: resolved.catalog },
+			);
+			expect(decided(wizard)).toEqual(decided(cli));
+			// the spawned CLI prints that plan
+			const spawned = spawnPlan(declineArgv);
+			expect(spawned.exitCode, spawned.stderr).toBe(0);
+			expect(JSON.parse(spawned.stdout.trim())).toEqual(printedPlan(cli, []));
+			// the written ACTIVE list maps back without the declined optional ontology
+			const back = ontologyRequestFromActive([...cli.activeOntologyTlds], resolved.catalog);
+			expect(back.errors).toEqual([]);
+			expect(back.request).toEqual(cli.ontologyRequest);
+		} finally {
+			resolved.cleanup();
+		}
+	});
+
+	test('a mandatory thesaurus that is not vendored refuses the plan; a malformed decline too', async () => {
+		const resolved = await resolveOntologyCatalog(
+			{ kind: 'local', path: DECLARED_SOURCE },
+			{ allowedServers: [] },
+		);
+		try {
+			const argv = [...BASE_ARGV, '--ontology-source', DECLARED_SOURCE, '--ontologies', 'zzqe'];
+			const plan = buildInstallPlan(answersFromCliArgs(argv).raw, {
+				ontologyCatalog: resolved.catalog,
+			});
+			expect(plan.errors).toContain(
+				"the thesaurus 'zzqx', a mandatory dependency of 'zzqe', is not vendored (no zzqx1.copy.gz) — it cannot be installed",
+			);
+			expect(cliPlan([...BASE_ARGV, '--decline-dependencies', 'zz-x']).errors).toContain(
+				"declined_dependencies: 'zz-x' is not a TLD or <tld>:ontology35|hierarchy1",
+			);
+		} finally {
+			resolved.cleanup();
+		}
 	});
 });
 

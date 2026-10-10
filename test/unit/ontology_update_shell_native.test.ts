@@ -63,7 +63,7 @@
  *     still claims "matrix rows restored". Case 5 seeds a pre-existing row
  *     precisely so the restore it asserts is a real one.
  *   - The `matrix_ontology_main` counter (`ontology35`) consumed by
- *     `addMainSection` is a shared monotonic sequence; the sweep removes the
+ *     `createMainSection` is a shared monotonic sequence; the sweep removes the
  *     minted row but cannot give the id back.
  */
 
@@ -708,5 +708,73 @@ describe('SURF-1 identifier-grammar tail step', () => {
 		expect(await grammarStates()).toEqual(
 			Object.fromEntries(GRAMMAR_CONSTRAINTS.map((name) => [name, 'valid'])),
 		);
+	}, 120_000);
+});
+
+// ---------------------------------------------------------------------------
+// 7. Declared dependencies — stored on the registry row, missing ones REPORTED
+//    (WC-2026-10-10-ontology-dependencies-hierarchy60: report only, never installed)
+// ---------------------------------------------------------------------------
+
+describe('declared dependencies of an updated ontology', () => {
+	test('stored as hierarchy60 on its registry row; a missing MANDATORY one is a warning line, an optional one a log note, nothing installed', async () => {
+		const { ioBaseDir, changesDir } = makeDirs();
+		const fixture = serveFiles({ 'zzd.copy.gz': validPayload('zzd0') });
+		const declared = [
+			{ tld: 'dd', main: 'ontology35', mandatory: true }, // core: present
+			{ tld: 'zzdq', main: 'ontology35', mandatory: true }, // nowhere: missing, mandatory
+			{ tld: 'zzdq', main: 'hierarchy1', mandatory: false }, // nowhere: missing, optional
+		];
+		const options = optionsFor(fixture.origin, [TLD]) as { files: Record<string, unknown>[] };
+		(options.files[0] as Record<string, unknown>).dependencies = declared;
+
+		await assertScratchOnly(async () => {
+			const out = await updateOntology(options, -1, {
+				catalog: remoteCatalog(fixture.origin),
+				ioBaseDir,
+				changesDir,
+			});
+			fixture.stop();
+
+			// still a successful update: the report never fails it
+			expect(out.ok).toBe(true);
+			expect(out.msg.startsWith('Warning! Request done with errors')).toBe(true);
+			expect(out.errors).toEqual([
+				"'zzd' requires the 'zzdq' ontology, which is not installed on this server — add 'zzdq' to the ontologies to update (ACTIVE_ONTOLOGY_TLDS) and run the update again to install it",
+			]);
+			expect(out.msg).toContain("'zzd' can use (optional) the 'zzdq' thesaurus");
+			expect(out.missing_dependencies).toEqual([
+				{
+					dependant: 'zzd',
+					tld: 'zzdq',
+					main: 'ontology35',
+					mandatory: true,
+					reason: 'not_installed',
+				},
+				{
+					dependant: 'zzd',
+					tld: 'zzdq',
+					main: 'hierarchy1',
+					mandatory: false,
+					reason: 'no_active_hierarchy',
+				},
+			]);
+
+			// the declaration landed on the registry row, in the component_json shape
+			const rows = (await sql`SELECT misc FROM matrix_ontology_main
+			                         WHERE section_tipo = 'ontology35'
+			                           AND string->'hierarchy6' @> ${JSON.stringify([{ value: TLD }])}::text::jsonb`) as unknown as {
+				misc: Record<string, unknown> | null;
+			}[];
+			expect(rows.map((row) => row.misc?.hierarchy60)).toEqual([[{ id: 1, value: declared }]]);
+			// and nothing was installed for it
+			const installed = (await sql`SELECT count(*)::int AS c FROM matrix_ontology_main
+			                              WHERE section_tipo = 'ontology35'
+			                                AND string->'hierarchy6' @> ${JSON.stringify([{ value: 'zzdq' }])}::text::jsonb`) as unknown as {
+				c: number;
+			}[];
+			expect(installed[0]?.c).toBe(0);
+		});
+		await sweepScratch(true);
 	}, 120_000);
 });

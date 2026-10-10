@@ -640,6 +640,14 @@
 				font-size: 0.75rem;
 				font-weight: 600;
 			}
+			// a thesaurus an installed ontology declares MANDATORY: locked, explained
+			.required_hierarchy {
+				color: var(--ut_text_muted);
+				font-size: 0.75rem;
+			}
+			>.hierarchy_checkbox:disabled {
+				cursor: not-allowed;
+			}
 		}
 
 	}//end .hierarchies_import_block
@@ -710,6 +718,30 @@
 		}
 		.ontology_airgapped {
 			padding-left: 0;
+		}
+
+		// the declared dependencies of a ticked entry (hierarchy60): mandatory rows
+		// locked, optional rows editable — indented under the name like the help lines
+		.ontology_dependency_list {
+			list-style: none;
+			margin: 0;
+			padding: 0 0 0 2.05rem;
+
+			.ontology_dependency_label {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.4rem;
+				font-size: 0.8rem;
+				color: var(--ut_text_secondary);
+
+				>.hierarchy_checkbox {
+					accent-color: var(--ut_accent);
+					margin: 0;
+				}
+				>.hierarchy_checkbox:disabled {
+					cursor: not-allowed;
+				}
+			}
 		}
 	}//end .ontologies_block
 

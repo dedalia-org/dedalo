@@ -23,7 +23,7 @@ import { DedaloError } from '../errors/index.ts';
 import { setServerState } from '../resolve/server_state.ts';
 import { buildInstallPlan } from './install_plan.ts';
 import { resolvePlanCatalog } from './ontology_catalog.ts';
-import type { OntologyCatalog } from './ontology_choice.ts';
+import type { HierarchyDependency, OntologyCatalog } from './ontology_choice.ts';
 import { installPrivateDir, SAMPLE_ENV_PATH } from './paths.ts';
 import { connFromConfig, psqlSelect1 } from './pg_exec.ts';
 import { readPriorEnv } from './prior_env.ts';
@@ -91,10 +91,19 @@ function planCatalog(
 /** The ontology extension keys of the step's answer. */
 function ontologyOutcome(
 	plan: ReturnType<typeof buildInstallPlan>,
-): Pick<PersistConfigResult, 'ontology_install' | 'active_ontology_tlds' | 'warnings'> {
+): Pick<
+	PersistConfigResult,
+	'ontology_install' | 'active_ontology_tlds' | 'hierarchy_dependencies' | 'warnings'
+> {
 	return {
 		ontology_install: (plan.ontologyRequest?.items ?? []).map((item) => item.tld),
 		active_ontology_tlds: [...plan.activeOntologyTlds],
+		// Only the installable ones: the wizard's thesaurus step locks the
+		// mandatory rows and pre-ticks the optional ones (a non-vendored optional
+		// one is already a plan warning; a non-vendored mandatory one refused).
+		hierarchy_dependencies: plan.hierarchyDependencies.filter((item) =>
+			plan.hierarchies.includes(item.tld),
+		),
 		warnings: [...plan.warnings],
 	};
 }
@@ -129,6 +138,12 @@ export interface PersistConfigResult {
 	ontology_install: string[];
 	/** The ACTIVE_ONTOLOGY_TLDS written (core + that order). */
 	active_ontology_tlds: string[];
+	/**
+	 * The vendored thesauri the installed ontologies declare (hierarchy60
+	 * `main: 'hierarchy1'`): `mandatory` ones cannot be declined at
+	 * install_hierarchies, optional ones are offered pre-ticked.
+	 */
+	hierarchy_dependencies: HierarchyDependency[];
 	/** Non-blocking plan warnings (e.g. an ontology whose dependencies are not declared). */
 	warnings: string[];
 }

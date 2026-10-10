@@ -76,7 +76,7 @@ export const SEED_ONTOLOGY_TLDS: readonly string[] = CORE_ONTOLOGY_TLDS;
 export const SEED_SHIPPED_TABLES: Readonly<Record<string, string>> = Object.freeze({
 	dd_ontology: 'derived from the ontology packages (setRecordsInDdOntology)',
 	matrix_ontology: 'the ontology packages',
-	matrix_ontology_main: 'the release manifest active_ontologies (addMainSection)',
+	matrix_ontology_main: 'the release manifest active_ontologies (syncMainSectionFromDefinition)',
 	matrix_dd: 'the matrix_dd package (private lists)',
 	matrix_langs: 'install/db/seed/matrix_langs.copy.gz',
 	matrix_hierarchy_main: 'install/db/seed/matrix_hierarchy_main.copy.gz',

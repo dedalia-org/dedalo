@@ -2,7 +2,8 @@
  * HERMETIC gate of the ontology manifest CLIENT (src/core/ontology/ontology_manifest.ts):
  * how the installer reads an ontology source's catalog — which TLDs, their
  * metadata, and their DECLARED dependencies
- * (WC-2026-10-09-ontology-manifest-dependencies).
+ * (WC-2026-10-10-ontology-dependencies-hierarchy60: `{tld, main, mandatory}`
+ * objects, normalized by the shared ontology_dependencies.ts normalizer).
  *
  * The network arm runs against a LOOPBACK `Bun.serve` stand-in that answers
  * like a master's `dd_utils_api.get_ontology_update_info` — never the official
@@ -10,8 +11,10 @@
  * fills from the package fixture (src/core/test_data/ontology_package_fixture.ts).
  * Scratch `zz…` TLDs only. No database.
  *
- * Legs: envelope ok → parsed (dependencies normalized: trimmed, lowercased,
- * deduplicated, self dropped, a bad item warned); envelope ok:false → the
+ * Legs: envelope ok → parsed (dependencies normalized: tld trimmed +
+ * lowercased, `(tld, main)` deduplicated first-wins, an ontology35
+ * self-reference dropped, a hierarchy1 one kept, a TLD twice under two mains
+ * kept, a bad item — string shape, bad main, non-boolean mandatory — warned); envelope ok:false → the
  * server's reason; HTTP 403 → the access-code/version reason; any other status
  * and an oversize body → `unreachable (…)` with no address in it; a body that
  * is not JSON / not an envelope; a URL that is not EXACTLY a configured master
@@ -45,14 +48,26 @@ const DOMAIN: FixtureOntologyTld = {
 	name: 'zz manifest domain',
 	typologyId: 15,
 	typologyName: 'Others',
-	dependencies: ['dd', ' ZZMB ', 'zzmb', 'zzma', 'not a tld', 'zzmf'],
+	dependencies: [
+		{ tld: 'dd', main: 'ontology35', mandatory: true },
+		{ tld: ' ZZMB ', main: 'ontology35', mandatory: true },
+		{ tld: 'zzmb', main: 'ontology35', mandatory: false }, // duplicate (tld, main)
+		{ tld: 'zzmb', main: 'hierarchy1', mandatory: false }, // same TLD, other main: kept
+		{ tld: 'zzma', main: 'ontology35', mandatory: true }, // ontology self-reference
+		{ tld: 'zzma', main: 'hierarchy1', mandatory: true }, // own thesaurus: kept
+		{ tld: 'not a tld', main: 'ontology35', mandatory: true },
+		{ tld: 'dd', main: 'thesaurus', mandatory: true },
+		{ tld: 'dd', main: 'hierarchy1', mandatory: 'yes' },
+		'zzmf', // the retired string shape
+		{ tld: 'zzmf', main: 'ontology35', mandatory: false },
+	],
 	nodes: [{ id: 1, parent: 'zzma0', model: 'zzmb1', term: 'zz section' }],
 };
 const PROVIDER: FixtureOntologyTld = {
 	tld: 'zzmb',
 	name: 'zz manifest models',
 	typologyId: 15,
-	dependencies: ['dd'],
+	dependencies: [{ tld: 'dd', main: 'ontology35', mandatory: true }],
 	nodes: [{ id: 1, parent: 'zzmb0', model: 'zzmb1', term: 'zz model', isModel: true }],
 };
 /** No `dependencies` key: the older-server case. */
@@ -163,8 +178,17 @@ describe('fetchOntologyManifest — a configured master, through the bounded tra
 		if (!result.ok) throw new Error(result.reason);
 		expect(result.version).toBe(DEDALO_VERSION);
 		expect(result.ontologies.map((entry) => [entry.tld, entry.dependencies])).toEqual([
-			['zzma', ['dd', 'zzmb', 'zzmf']], // trimmed, lowercased, deduplicated, self dropped, order kept
-			['zzmb', ['dd']],
+			[
+				'zzma',
+				[
+					{ tld: 'dd', main: 'ontology35', mandatory: true },
+					{ tld: 'zzmb', main: 'ontology35', mandatory: true },
+					{ tld: 'zzmb', main: 'hierarchy1', mandatory: false },
+					{ tld: 'zzma', main: 'hierarchy1', mandatory: true },
+					{ tld: 'zzmf', main: 'ontology35', mandatory: false },
+				],
+			], // declared order kept
+			['zzmb', [{ tld: 'dd', main: 'ontology35', mandatory: true }]],
 			['zzmf', null], // NOT declared — never mistaken for "needs nothing"
 		]);
 		expect(result.ontologies[0]).toMatchObject({
@@ -175,7 +199,12 @@ describe('fetchOntologyManifest — a configured master, through the bounded tra
 		});
 		expect(result.matrixDdUrl).toBe(`${origin}/files/matrix_dd.copy.gz`);
 		expect(result.warnings).toEqual([
-			`'zzma' declares a dependency that is not a TLD ("not a tld") — ignored`,
+			"'zzma' declares 'zzmb' (ontology35) more than once — the first declaration wins",
+			"'zzma' declares its own ontology as a dependency — ignored",
+			`'zzma' declares a dependency whose tld is not a TLD ({"tld":"not a tld","main":"ontology35","mandatory":true}) — ignored`,
+			`'zzma' declares a dependency whose main is not one of ontology35/hierarchy1 ({"tld":"dd","main":"thesaurus","mandatory":true}) — ignored`,
+			`'zzma' declares a dependency whose mandatory is not a boolean ({"tld":"dd","main":"hierarchy1","mandatory":"yes"}) — ignored`,
+			`'zzma' declares a dependency that is not an object ("zzmf") — ignored`,
 		]);
 		// what the master was asked
 		expect(received.length).toBe(before + 1);

@@ -1875,6 +1875,9 @@ export async function startServer() {
 					`[boot] engine ontology materialized (${engine.written} records; drift was: ${engine.drift.join('; ')})`,
 				);
 			}
+			if (engine.pruned.length > 0) {
+				console.warn(`[boot] engine ontology: retired nodes pruned: ${engine.pruned.join('; ')}`);
+			}
 			if (engine.strays.length > 0) {
 				console.warn(
 					`[boot] engine ontology: records the definitions do not declare (left in place): ${engine.strays.join(', ')}`,

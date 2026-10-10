@@ -216,24 +216,47 @@ describe('stageOntologyFiles (local master)', () => {
 
 	test('declared dependencies are carried normalized; absent stays NOT declared (null)', async () => {
 		const dirs = makeDirs();
-		for (const tld of ['es', 'fr', 'matrix_dd']) writeLocalPackage(dirs.ioPath, tld);
+		for (const tld of ['es', 'fr', 'pt', 'matrix_dd']) writeLocalPackage(dirs.ioPath, tld);
 		// what the update panel posts: the manifest's own field, through the options schema
 		const options = updateOntologyOptionsSchema.parse({
 			server: { name: 'zz', url: 'https://zz.invalid/api/', code: 'zz' },
 			files: [
 				fileEntry({ tld: 'matrix_dd' }),
-				{ ...fileEntry({ tld: 'es' }), dependencies: [' DD ', 'es', 'fr', 'dd', 7] },
-				fileEntry({ tld: 'fr' }),
+				{
+					...fileEntry({ tld: 'es' }),
+					dependencies: [
+						{ tld: ' DD ', main: 'ontology35', mandatory: true }, // trimmed + lowercased
+						{ tld: 'es', main: 'ontology35', mandatory: true }, // ontology self-reference: dropped
+						{ tld: 'es', main: 'hierarchy1', mandatory: false }, // own thesaurus: kept
+						{ tld: 'fr', main: 'ontology35', mandatory: false },
+						{ tld: 'dd', main: 'ontology35', mandatory: false }, // duplicate (tld, main): first wins
+						7, // not an object
+					],
+				},
+				{ ...fileEntry({ tld: 'fr' }), dependencies: [] }, // declared: needs nothing
+				fileEntry({ tld: 'pt' }),
 			],
 		});
 		const out = await stageOntologyFiles(options.files, local, dirs);
 		if ('errors' in out) throw new Error(`unexpected staging failure: ${out.errors.join('; ')}`);
 		expect(out.staged.map((file) => [file.tld, file.dependencies])).toEqual([
 			['matrix_dd', null],
-			['es', ['dd', 'fr']],
-			['fr', null],
+			[
+				'es',
+				[
+					{ tld: 'dd', main: 'ontology35', mandatory: true },
+					{ tld: 'es', main: 'hierarchy1', mandatory: false },
+					{ tld: 'fr', main: 'ontology35', mandatory: false },
+				],
+			],
+			['fr', []],
+			['pt', null], // absent: NOT declared — never mistaken for "needs nothing"
 		]);
-		expect(out.messages).toEqual(["'es' declares a dependency that is not a TLD (7) — ignored"]);
+		expect(out.messages).toEqual([
+			"'es' declares its own ontology as a dependency — ignored",
+			"'es' declares 'dd' (ontology35) more than once — the first declaration wins",
+			"'es' declares a dependency that is not an object (7) — ignored",
+		]);
 	});
 
 	test('a missing local package refuses with its own msg and stages nothing', async () => {

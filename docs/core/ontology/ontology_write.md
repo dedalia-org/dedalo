@@ -93,7 +93,8 @@ flowchart LR
   `getMainOrder()` helper local to `src/core/ts_object/search.ts`, where the
   thesaurus search needs it.
 - **Lifecycle of a whole ontology (TLD).** Create the main section + parent
-  grouper + ontology-section node (`addMainSection()`, `createParentGrouper()`,
+  grouper + ontology-section node (`createMainSection()` /
+  `syncMainSectionFromDefinition()` / `ensureMainSection()`, `createParentGrouper()`,
   `createDdOntologyRootNode()`); cascade-delete a TLD (`deleteOntologyMain()`,
   `src/core/ontology/ontology_delete.ts`).
 - **Thesaurus/tree roots.** The children that seed a tree view are folded into
@@ -223,7 +224,9 @@ module, `src/core/ontology/ontology_state.ts`. Nothing else wipe-and-rebuilds a 
 
 | function | module | purpose |
 | --- | --- | --- |
-| `addMainSection(fileItem, userId?)` | `ontology/ontology_write.ts` | Idempotently create/update the `matrix_ontology_main` record for a TLD from a parsed file item (`{tld, section_tipo?, typology_id?, name_data?}`). Reuses the existing row (matched by TLD) or creates a new `ontology35` record. Returns the main `section_id`. |
+| `createMainSection(fileItem, userId?)` | `ontology/ontology_write.ts` | Mint the `matrix_ontology_main` (`ontology35`) record of a TLD that has none (refused when one exists): active (`hierarchy4`) yes, active-in-thesaurus (`hierarchy125`) yes only for `dd`, language (`hierarchy8`) = the `lg1` record of the structure language (resolved, never a fixed id), project filter `dd153`/1, name, TLD, target section, typology, declared dependencies (`hierarchy60`). Returns the new `section_id`. |
+| `syncMainSectionFromDefinition(fileItem, userId?)` | `ontology/ontology_write.ts` | The IMPORT door (package install, ontology update, seed compile). Creates when missing; on an existing record writes only `hierarchy5` / `hierarchy9` / `hierarchy60` from the definition (each only when stated), switches `hierarchy4` on for a core TLD only, and re-applies the `hierarchy125` / `hierarchy8` rules — the project filter and every other key are the installation's. |
+| `ensureMainSection(fileItem, userId?)` | `ontology/ontology_write.ts` | Create-if-missing, otherwise no write — the rebuild and provisioning doors build `<tld>0` from what the record holds. |
 | `createDdOntologyRootNode(fileItem, userId?)` | `ontology/ontology_write.ts` | Create/UPSERT the `dd_ontology` node that *represents the ontology section itself* (`<tld>0`) so the TLD appears in the tree/menu. Returns the tipo. |
 | `createParentGrouper(parentGroup, tld, typologyId, userId?)` | `ontology/ontology_write.ts` | Ensure the grouper node that organizes a TLD under its typology in the menu exists (creating the mandatory main grouper in matrix on the fly during a partial bootstrap). Returns the grouper tipo. |
 | `deleteOntologyMain(sectionTipo, sectionId, deleteRecord)` | `ontology/ontology_delete.ts` | Cascade-delete a whole TLD, but **trigger-based**: it fires when a `hierarchy1`/`ontology35` registry record is deleted. Purges every `dd_ontology` node of the TLD (parameterized, refusing on an empty/unsafe TLD), the registry record itself, then every node record of the `<tld>0` section (through the normal per-record delete pipeline, Time Machine included). |

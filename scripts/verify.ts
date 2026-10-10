@@ -335,6 +335,12 @@ const TRIPWIRES = [
 	'test/unit/portal_locator_door_native.test.ts',
 	// TOOLS-4 budget half — the AI spend ledger (closure Step 3, 2026-10-01).
 	'test/unit/ai_spend_budget_native.test.ts',
+	// 2026-10-10 — retired engine nodes are pruned (ddengine11 → hierarchy60).
+	'test/unit/engine_ontology_retired_native.test.ts',
+	// 2026-10-10 — the registry-row law, declared dependencies (hierarchy60) end to end, the wizard's mandatory thesauri.
+	'test/unit/ontology_registry_row_native.test.ts',
+	'test/unit/ontology_dependencies_native.test.ts',
+	'test/unit/install_hierarchy_dependencies_native.test.ts',
 	// Closure Step 3 req 7 — the change-plan validator asks the write door (2026-10-01).
 	'test/unit/change_plan_write_door_native.test.ts',
 	// Closure Step 3 req 10 residual — the importers' create door + legacy frame slots (2026-10-01).

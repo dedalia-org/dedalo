@@ -47,6 +47,7 @@ import {
 	downloadRemoteOntologyFile,
 	gunzipWithCaps,
 } from '../ontology/data_io_import.ts';
+import type { OntologyDependency } from '../ontology/ontology_dependencies.ts';
 import {
 	danglingDependencies,
 	diffusionModelSet,
@@ -64,12 +65,14 @@ import { getTldFromTipo } from '../ontology/tld.ts';
 import { DEDALO_VERSION, DEDALO_VERSION_MAJOR_MINOR } from '../update/version.ts';
 import { resolveOntologyCatalog } from './ontology_catalog.ts';
 import {
+	listedPolicy,
 	type OntologyInstallRequest,
 	type OntologyOrigin,
 	type OntologySource,
 	type OntologySourceView,
 	ontologyCatalogNeeded,
 	ontologyRequestFromActive,
+	undeclaredWarning,
 	vendoredOntologyCatalog,
 } from './ontology_choice.ts';
 import { installOntologyStagingDir } from './paths.ts';
@@ -84,7 +87,7 @@ interface StagedRecord {
 	origin: OntologyOrigin;
 	typology_id: number | string | null;
 	name_data: unknown;
-	dependencies: string[] | null;
+	dependencies: OntologyDependency[] | null;
 	/** Relative to the staging dir. */
 	file: string;
 	sha256: string;
@@ -260,12 +263,7 @@ export async function stageOntologies(
 
 /** The undeclared-dependency warnings the request carries forward. */
 function stagedWarnings(request: OntologyInstallRequest): string[] {
-	return request.items
-		.filter((item) => item.dependencies === null)
-		.map(
-			(item) =>
-				`the ontology source declares no dependencies for '${item.tld}' (an older ontology server) — '${item.tld}' is installed alone; anything it references in other ontologies stays unresolved`,
-		);
+	return request.items.filter((item) => item.dependencies === null).map(undeclaredWarning);
 }
 
 // ── install ──────────────────────────────────────────────────────────────────
@@ -308,7 +306,7 @@ function updateFilesOf(stagingDir: string, manifest: StagedManifest) {
 			typology_id: item.typology_id,
 			name_data: item.name_data,
 			// The declaration travels into the import: the registry record keeps it
-			// (ddengine11), so a re-export of this install re-serves it.
+			// (hierarchy60), so a re-export of this install re-serves it.
 			dependencies: item.dependencies,
 		})),
 	];
@@ -486,7 +484,7 @@ export async function ontologyRequestFromConfig(): Promise<OntologyInstallReques
 	const active = config.ontologyIo.activeOntologyTlds;
 	const source = configuredSource();
 	const domain = active.filter((tld) => !isCoreOntologyTld(tld));
-	const catalog = ontologyCatalogNeeded(domain, source)
+	const catalog = ontologyCatalogNeeded(domain, source, listedPolicy(domain))
 		? (await resolveOntologyCatalog(source, { allowedServers: config.ontologyIo.servers })).catalog
 		: vendoredOntologyCatalog();
 	const { request, errors } = ontologyRequestFromActive(active, catalog);
