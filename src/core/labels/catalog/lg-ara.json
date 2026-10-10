@@ -536,6 +536,7 @@
 	"search_failed": "تعذّر إكمال البحث",
 	"search_in_all_langs": "البحث في جميع اللغات",
 	"search_in_current_lang": "البحث في اللغة الحالية",
+	"search_operator": "معامل البحث",
 	"search_operators": "معاملات البحث",
 	"search_options": "خيارات البحث",
 	"search_presets": "إعداد بحث المستخدم المسبق",

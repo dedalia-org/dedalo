@@ -760,6 +760,7 @@
 	"search_failed": "The search could not be completed",
 	"search_in_all_langs": "Search in all langs",
 	"search_in_current_lang": "Search in current lang",
+	"search_operator": "Search operator",
 	"search_operators": "Search operators",
 	"search_options": "Search options",
 	"search_presets": "User search preset",

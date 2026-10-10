@@ -192,6 +192,12 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The search group operator (AND / OR) now shows a "Search operator" tooltip on hover.**
+
+    When you hover the AND / OR button at the top of a search group, a tooltip now reads
+    *Search operator*, so the control is identifiable without guessing from its colour
+    alone.
+
 - **A new tool imports journal articles from any OAI-PMH/OJS source directly into Publication records.**
 
     Paste a journal's OAI-PMH URL (or a normal OJS article/journal URL) and the tool lists

@@ -768,6 +768,7 @@ render_search.prototype.render_search_group = function(parent_div, options={}) {
 			parent			: search_group,
 			// operator word + group number chip (see operator_inner_html)
 			inner_html		: operator_inner_html(operator, counter),
+			title			: get_label.search_operator || 'Search operator',
 			data_set		: { value : operator, counter : counter },
 			class_name		: "operator search_group_operator" + (operator==="$and" ? " and" : " or")
 		})

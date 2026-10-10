@@ -536,6 +536,7 @@
 	"search_failed": "无法完成搜索",
 	"search_in_all_langs": "在所有语言中搜索",
 	"search_in_current_lang": "在当前语言中搜索",
+	"search_operator": "搜索运算符",
 	"search_operators": "搜索运算符",
 	"search_options": "搜索选项",
 	"search_presets": "用户搜索预设",

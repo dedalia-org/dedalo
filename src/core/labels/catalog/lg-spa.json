@@ -546,6 +546,7 @@
 	"search_failed": "No se ha podido completar la búsqueda",
 	"search_in_all_langs": "Buscar en todos los idiomas",
 	"search_in_current_lang": "Buscar en el idioma actual",
+	"search_operator": "Operador de búsqueda",
 	"search_operators": "Operadores de búsqueda",
 	"search_options": "Opciones de búsqueda",
 	"search_presets": "Preajuste de búsqueda de usuario",

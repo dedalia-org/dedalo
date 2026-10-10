@@ -545,6 +545,7 @@
 	"search_failed": "No s'ha pogut completar la cerca",
 	"search_in_all_langs": "Cerca en tots els idiomes",
 	"search_in_current_lang": "Cerca en l'idioma actual",
+	"search_operator": "Operador de cerca",
 	"search_operators": "Operadors de cerca",
 	"search_options": "Opcions de cerca",
 	"search_presets": "Preajust de cerca d'usuari",

@@ -536,6 +536,7 @@
 	"search_failed": "검색을 완료할 수 없습니다",
 	"search_in_all_langs": "모든 언어에서 검색",
 	"search_in_current_lang": "현재 언어에서 검색",
+	"search_operator": "검색 연산자",
 	"search_operators": "검색 연산자",
 	"search_options": "검색 옵션",
 	"search_presets": "사용자 검색 프리셋",
