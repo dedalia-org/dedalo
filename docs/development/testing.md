@@ -347,7 +347,12 @@ workflow: every stage it reports has a hosted twin. The CI-environment gate on t
 `bun run ci:local --docker` — the same tier scripts in CI's own image — and the
 `scripts/hooks/pre-push` hook runs it (after banking ratchet improvements) before every
 push — every stage of the tiers it selects, the db tier's unit stage included, because
-that stage is blocking on the runner too; see `engineering/CI.md`, "The local gate".
+that stage is blocking on the runner too; see `engineering/CI.md`, "The local gate". The
+tiers it selects depend on WHERE the push goes, judged by the remote's URL: a push to the
+internal day-to-day remote runs the hermetic tier only (the db and instance tiers run every
+night against that remote's `master`, and a red opens the `ci-nightly` issue), a push to a
+public mirror runs all three, and a release tag `vX.Y.Z` needs all three green on its commit
+(`engineering/CI.md`, "The push policy — per remote").
 
 The script stubs **every** required-no-default key in `src/config/config.ts`. That list is
 pinned by a rule of `ci_workflow_tripwire`, for a reason worth internalising: the first
