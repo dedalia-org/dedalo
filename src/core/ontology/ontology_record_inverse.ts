@@ -57,7 +57,7 @@ import {
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
 	SI_NO_NO,
-	SI_NO_SECTION,
+	YES_NO_SECTION,
 	SI_NO_YES,
 } from './ontology_tipos.ts';
 import { addMainSection } from './ontology_write.ts';
@@ -112,7 +112,7 @@ function yesNoLocator(value: boolean, fromComponentTipo: string): Record<string,
 		id: 1,
 		type: RELATION_TYPE_LINK,
 		section_id: canonicalizeStoredSectionId(value ? SI_NO_YES : SI_NO_NO),
-		section_tipo: SI_NO_SECTION,
+		section_tipo: YES_NO_SECTION,
 		from_component_tipo: fromComponentTipo,
 	};
 }

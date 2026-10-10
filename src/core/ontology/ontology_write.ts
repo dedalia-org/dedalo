@@ -69,9 +69,9 @@ import {
 	RELATION_TYPE_PARENT,
 	SECTION_MODEL_TIPO,
 	SI_NO_NO,
-	SI_NO_SECTION,
 	SI_NO_YES,
 	STRUCTURE_LANG,
+	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import { getTermIdFromLocator, parseSectionRecordToOntologyNode } from './parser.ts';
 import { getMatrixTableFromTipo } from './resolver.ts';
@@ -388,6 +388,7 @@ export async function addMainSection(fileItem: FileItem, userId = -1): Promise<n
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
+			section_tipo: YES_NO_SECTION,
 			section_tipo: SI_NO_SECTION,
 			section_id: tld === 'dd' ? SI_NO_YES : SI_NO_NO,
 			from_component_tipo: HIERARCHY_ACTIVE_IN_THESAURUS,
@@ -600,7 +601,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_PUBLICATION,
 		}),
@@ -610,7 +611,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_IS_DESCRIPTOR,
 		}),
@@ -630,7 +631,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_NO,
 			from_component_tipo: ONTOLOGY_TRANSLATABLE,
 		}),
@@ -640,7 +641,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_NO,
 			from_component_tipo: ONTOLOGY_IS_MODEL,
 		}),

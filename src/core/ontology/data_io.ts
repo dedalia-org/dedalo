@@ -55,7 +55,7 @@ import {
 	ONTOLOGY_DEPENDENCIES,
 	ONTOLOGY_MAIN_SECTION,
 	ONTOLOGY_PROPERTIES,
-	SI_NO_SECTION,
+	YES_NO_SECTION,
 	SI_NO_YES,
 } from './ontology_tipos.ts';
 import { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
@@ -303,7 +303,7 @@ export async function getActiveOntologies(
 				activeLocator !== undefined &&
 				compareLocators(
 					activeLocator as Locator,
-					{ section_tipo: SI_NO_SECTION, section_id: SI_NO_YES } as Locator,
+					{ section_tipo: YES_NO_SECTION, section_id: SI_NO_YES } as Locator,
 					['section_tipo', 'section_id'],
 				);
 			if (!isActive) continue;

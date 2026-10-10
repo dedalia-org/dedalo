@@ -36,7 +36,7 @@ import {
 	ONTOLOGY_TLD,
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
-	SI_NO_SECTION,
+	YES_NO_SECTION,
 	SI_NO_YES,
 } from '../ontology/ontology_tipos.ts';
 import { getSectionIdFromTipo, getTldFromTipo } from '../ontology/tld.ts';
@@ -115,7 +115,7 @@ function isModelLocator(): Record<string, unknown> {
 		id: 1,
 		type: RELATION_TYPE_LINK,
 		section_id: SI_NO_YES,
-		section_tipo: SI_NO_SECTION,
+		section_tipo: YES_NO_SECTION,
 		from_component_tipo: ONTOLOGY_IS_MODEL,
 	};
 }

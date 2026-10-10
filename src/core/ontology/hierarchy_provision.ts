@@ -64,7 +64,7 @@ import {
 	ONTOLOGY_TRANSLATABLE,
 	RELATION_TYPE_LINK,
 	SI_NO_NO,
-	SI_NO_SECTION,
+	YES_NO_SECTION,
 	SI_NO_YES,
 	STRUCTURE_LANG,
 } from './ontology_tipos.ts';
@@ -155,7 +155,7 @@ export async function generateVirtualSection(
 	)?.[0];
 	if (
 		activeLocator === undefined ||
-		activeLocator.section_tipo !== SI_NO_SECTION ||
+		activeLocator.section_tipo !== YES_NO_SECTION ||
 		Number(activeLocator.section_id) !== SI_NO_YES
 	) {
 		response.msg += 'Current hierarchy is not active';
@@ -322,7 +322,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_PUBLICATION,
 		}),
@@ -331,7 +331,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_IS_DESCRIPTOR,
 		}),
@@ -350,7 +350,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_NO,
 			from_component_tipo: ONTOLOGY_TRANSLATABLE,
 		}),
@@ -419,7 +419,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_IS_MODEL,
 		}),

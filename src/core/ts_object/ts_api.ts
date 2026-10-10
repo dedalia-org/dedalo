@@ -28,7 +28,7 @@ import { DedaloError, isDedaloError, SectionIdRefused } from '../errors/index.ts
 import {
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
-	SI_NO_SECTION,
+	YES_NO_SECTION,
 } from '../ontology/ontology_tipos.ts';
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
@@ -279,7 +279,7 @@ function siNoYesLocator(componentTipo: string): Record<string, unknown> {
 		id: 1,
 		type: RELATION_TYPE_LINK,
 		section_id: '1',
-		section_tipo: SI_NO_SECTION,
+		section_tipo: YES_NO_SECTION,
 		from_component_tipo: componentTipo,
 	};
 }

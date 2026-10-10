@@ -80,7 +80,7 @@ import {
 	RELATION_TYPE_CHILDREN,
 	RELATION_TYPE_LINK,
 	SI_NO_NO,
-	SI_NO_SECTION,
+	YES_NO_SECTION,
 	SI_NO_YES,
 	THESAURUS_SECTION,
 } from './ontology_tipos.ts';
@@ -281,7 +281,7 @@ const siNoIsYes = (candidate: Record<string, unknown> | null, yes: boolean): boo
 	candidate !== null &&
 	compareLocators(
 		candidate as never,
-		{ section_tipo: SI_NO_SECTION, section_id: yes ? SI_NO_YES : SI_NO_NO } as never,
+		{ section_tipo: YES_NO_SECTION, section_id: yes ? SI_NO_YES : SI_NO_NO } as never,
 		['section_tipo', 'section_id'],
 	);
 
@@ -439,7 +439,7 @@ const siNoLocator = (componentTipo: string, yes: boolean) => [
 		id: 1,
 		type: RELATION_TYPE_LINK,
 		section_id: yes ? SI_NO_YES : SI_NO_NO,
-		section_tipo: SI_NO_SECTION,
+		section_tipo: YES_NO_SECTION,
 		from_component_tipo: componentTipo,
 	},
 ];

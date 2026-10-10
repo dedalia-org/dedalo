@@ -130,7 +130,7 @@ export const SECTION_MODEL_TIPO = 'dd6';
  */
 export const DIFFUSION_MODEL_ROOT = 'dd1226';
 /** dd64 — the si/no (yes/no) section (DEDALO_SECTION_SI_NO_TIPO). */
-export const SI_NO_SECTION = 'dd64';
+export const YES_NO_SECTION = 'dd64';
 /** The si/no record ids: 1 = yes, 2 = no. */
 export const SI_NO_YES = 1;
 export const SI_NO_NO = 2;
