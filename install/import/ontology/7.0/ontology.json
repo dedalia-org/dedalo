@@ -1,10 +1,10 @@
 {
+    "date": "2026-10-10T22:59:50+02:00",
+    "host": "v7.master.dedalo.dev",
+    "entity": "master",
     "version": "7.0.0",
-    "date": "2026-07-14T16:08:54+02:00",
     "entity_id": 0,
-    "entity": "development",
-    "entity_label": "Development entity defined in env localhost",
-    "host": "localhost:7070",
+    "entity_label": "master",
     "active_ontologies": [
         {
             "tld": "dd",
@@ -41,12 +41,12 @@
                     "value": "Dédalo | dd"
                 }
             ],
-            "typology_id": "14",
-            "typology_name": "Core"
+            "typology_id": 14,
+            "typology_name": "Núcleo"
         },
         {
             "tld": "ontology",
-            "name": "Ontology | ontology",
+            "name": "Ontología | ontology",
             "name_data": [
                 {
                     "id": 1,
@@ -59,32 +59,27 @@
                     "value": "Ontología | ontology"
                 }
             ],
-            "typology_id": "14",
-            "typology_name": "Core"
+            "typology_id": 14,
+            "typology_name": "Núcleo"
         },
         {
             "tld": "ontologytype",
-            "name": "Ontology typologies | ontologytype",
+            "name": "Tipologías de ontología | ontologytype",
             "name_data": [
                 {
                     "id": 1,
-                    "lang": "lg-cat",
-                    "value": "Tipus d'ontologia | ontologytype"
-                },
-                {
-                    "id": 1,
-                    "lang": "lg-deu",
-                    "value": "Ontologie-Typen | ontologytype"
-                },
-                {
-                    "id": 1,
-                    "lang": "lg-ell",
-                    "value": "Τύποι οντολογίας | ontologytype"
+                    "lang": "lg-spa",
+                    "value": "Tipologías de ontología | ontologytype"
                 },
                 {
                     "id": 1,
                     "lang": "lg-eng",
                     "value": "Ontology typologies | ontologytype"
+                },
+                {
+                    "id": 1,
+                    "lang": "lg-deu",
+                    "value": "Ontologie-Typen | ontologytype"
                 },
                 {
                     "id": 1,
@@ -98,16 +93,21 @@
                 },
                 {
                     "id": 1,
-                    "lang": "lg-spa",
-                    "value": "Tipologías de ontología | ontologytype"
+                    "lang": "lg-cat",
+                    "value": "Tipus d'ontologia | ontologytype"
+                },
+                {
+                    "id": 1,
+                    "lang": "lg-ell",
+                    "value": "Τύποι οντολογίας | ontologytype"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 14,
+            "typology_name": "Núcleo"
         },
         {
             "tld": "hierarchy",
-            "name": "Hierarchy | hierarchy",
+            "name": "Jerarquía | hierarchy",
             "name_data": [
                 {
                     "id": 1,
@@ -120,12 +120,12 @@
                     "value": "Jerarquía | hierarchy"
                 }
             ],
-            "typology_id": "14",
-            "typology_name": "Core"
+            "typology_id": 14,
+            "typology_name": "Núcleo"
         },
         {
             "tld": "lg",
-            "name": "Languages | lg",
+            "name": "Lenguajes | lg",
             "name_data": [
                 {
                     "id": 1,
@@ -138,12 +138,12 @@
                     "value": "Lenguajes | lg"
                 }
             ],
-            "typology_id": "3",
-            "typology_name": "Languages"
+            "typology_id": 3,
+            "typology_name": "Lenguajes"
         },
         {
             "tld": "rsc",
-            "name": "Resource | rsc",
+            "name": "Recurso | rsc",
             "name_data": [
                 {
                     "id": 1,
@@ -156,12 +156,54 @@
                     "value": "Recurso | rsc"
                 }
             ],
-            "typology_id": "14",
-            "typology_name": "Core"
+            "typology_id": 14,
+            "dependencies": [
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "special",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                }
+            ],
+            "typology_name": "Núcleo"
         },
         {
             "tld": "nexus",
-            "name": "Nexus | nexus",
+            "name": "Nexo | nexus",
             "name_data": [
                 {
                     "id": 1,
@@ -174,12 +216,12 @@
                     "value": "Nexo | nexus"
                 }
             ],
-            "typology_id": "14",
-            "typology_name": "Core"
+            "typology_id": 14,
+            "typology_name": "Núcleo"
         },
         {
             "tld": "oh",
-            "name": "Oral History | oh",
+            "name": "Historia Oral | oh",
             "name_data": [
                 {
                     "id": 1,
@@ -192,12 +234,54 @@
                     "value": "Historia Oral | oh"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "special",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "dmm",
-            "name": "Democratic memory | dmm",
+            "name": "Memoria democrática | dmm",
             "name_data": [
                 {
                     "id": 1,
@@ -210,12 +294,64 @@
                     "value": "Memoria democrática | dmm"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "isad",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "special",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "htoponymy",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "tch",
-            "name": "Tangible cultural heritage | tch",
+            "name": "Patrimonio cultural material | tch",
             "name_data": [
                 {
                     "id": 1,
@@ -228,12 +364,149 @@
                     "value": "Patrimonio cultural material | tch"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "style",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "culture",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "pieces",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "icon",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "ontology35",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "material",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "technique",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ceramic",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "object",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "flora",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "fauna",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "numismatic",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ubication",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "htoponymy",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "labanalysis",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rescause",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "resmaterial",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "respathology",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "restreatment",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "tchi",
-            "name": "Tangible cultural heritage, Immovable | tchi",
+            "name": "Patrimonio cultural material inmueble | tchi",
             "name_data": [
                 {
                     "id": 1,
@@ -246,12 +519,154 @@
                     "value": "Patrimonio cultural material inmueble | tchi"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "style",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "culture",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "pieces",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "icon",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "material",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchicategory",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchicontext",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "technique",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ceramic",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "object",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "flora",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "fauna",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "numismatic",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ubication",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "htoponymy",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "labanalysis",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rescause",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "resmaterial",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "respathology",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "restreatment",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "ich",
-            "name": "Intangible cultural heritage | ich",
+            "name": "Patrimonio cultural inmaterial | ich",
             "name_data": [
                 {
                     "id": 1,
@@ -264,8 +679,120 @@
                     "value": "Patrimonio cultural inmaterial | ich"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "style",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "culture",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "pieces",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "icon",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "ontology35",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "material",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "technique",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ceramic",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "object",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "flora",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "fauna",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "numismatic",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ubication",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "htoponymy",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "test",
@@ -282,12 +809,12 @@
                     "value": "Test | test"
                 }
             ],
-            "typology_id": "5",
-            "typology_name": "Special"
+            "typology_id": 5,
+            "typology_name": "Especial"
         },
         {
             "tld": "numisdata",
-            "name": "Numismatic heritage | numisdata",
+            "name": "Patrimonio numismático | numisdata",
             "name_data": [
                 {
                     "id": 1,
@@ -300,12 +827,149 @@
                     "value": "Patrimonio numismático | numisdata"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "culture",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "depositiontype",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "icon",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "ontology35",
+                    "mandatory": true
+                },
+                {
+                    "tld": "tchi",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "material",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "technique",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "object",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "flora",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "fauna",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ubication",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "htoponymy",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "sccmk",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "scell",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "sclat",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "scxibo",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "scxpu",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "scxibm",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "sctxr",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "scsym",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "numisdatacatalog",
-            "name": "Catalogo numismatico | numisdatacatalog",
+            "name": "Numismatic catalog | numisdatacatalog",
             "name_data": [
                 {
                     "id": 1,
@@ -318,8 +982,8 @@
                     "value": "Numismatic catalog | numisdatacatalog"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "typology_name": "Catálogo"
         },
         {
             "tld": "zenon",
@@ -336,8 +1000,8 @@
                     "value": "Zenon | zenon"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "typology_name": "Catálogo"
         },
         {
             "tld": "isad",
@@ -354,12 +1018,64 @@
                     "value": "ISAD(g) | isad"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "dependencies": [
+                {
+                    "tld": "dc",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "on",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "ts",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "isad",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolejob",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "rolepos",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "ds",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "roleusr",
+                    "main": "hierarchy1",
+                    "mandatory": true
+                },
+                {
+                    "tld": "special",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                },
+                {
+                    "tld": "htoponymy",
+                    "main": "hierarchy1",
+                    "mandatory": false
+                }
+            ],
+            "typology_name": "Catálogo"
         },
         {
             "tld": "actv",
-            "name": "Activity | actv",
+            "name": "Actividad | actv",
             "name_data": [
                 {
                     "id": 1,
@@ -372,8 +1088,8 @@
                     "value": "Actividad | actv"
                 }
             ],
-            "typology_id": "12",
-            "typology_name": "Activities"
+            "typology_id": 12,
+            "typology_name": "Actividades"
         },
         {
             "tld": "ww",
@@ -390,12 +1106,12 @@
                     "value": "Web | ww"
                 }
             ],
-            "typology_id": "5",
-            "typology_name": "Special"
+            "typology_id": 5,
+            "typology_name": "Especial"
         },
         {
             "tld": "ts",
-            "name": "Thematic | ts",
+            "name": "Temático | ts",
             "name_data": [
                 {
                     "id": 1,
@@ -408,12 +1124,12 @@
                     "value": "Temático | ts"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "on",
-            "name": "Onomastic | on",
+            "name": "Onomástico | on",
             "name_data": [
                 {
                     "id": 1,
@@ -426,12 +1142,12 @@
                     "value": "Onomástico | on"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "dc",
-            "name": "Chronology | dc",
+            "name": "Cronología | dc",
             "name_data": [
                 {
                     "id": 1,
@@ -444,12 +1160,12 @@
                     "value": "Cronología | dc"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "object",
-            "name": "Object | object",
+            "name": "Objecto | object",
             "name_data": [
                 {
                     "id": 1,
@@ -462,8 +1178,8 @@
                     "value": "Objecto | object"
                 }
             ],
-            "typology_id": "11",
-            "typology_name": "Typology"
+            "typology_id": 11,
+            "typology_name": "Tipología"
         },
         {
             "tld": "material",
@@ -480,12 +1196,12 @@
                     "value": "Material | material"
                 }
             ],
-            "typology_id": "11",
-            "typology_name": "Typology"
+            "typology_id": 11,
+            "typology_name": "Tipología"
         },
         {
             "tld": "technique",
-            "name": "Technique | technique",
+            "name": "Técnica | technique",
             "name_data": [
                 {
                     "id": 1,
@@ -498,12 +1214,12 @@
                     "value": "Técnica | technique"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "utoponymy",
-            "name": "Unofficial toponymy | utoponymy",
+            "name": "Toponímia no oficial | utoponymy",
             "name_data": [
                 {
                     "id": 1,
@@ -516,12 +1232,12 @@
                     "value": "Toponímia no oficial | utoponymy"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ubication",
-            "name": "Location | ubication",
+            "name": "Ubicación | ubication",
             "name_data": [
                 {
                     "id": 1,
@@ -534,12 +1250,12 @@
                     "value": "Ubicación | ubication"
                 }
             ],
-            "typology_id": "9",
-            "typology_name": "Locations"
+            "typology_id": 9,
+            "typology_name": "Ubicaciones"
         },
         {
             "tld": "ceramics",
-            "name": "Ceramics | ceramics",
+            "name": "Cerámica | ceramics",
             "name_data": [
                 {
                     "id": 1,
@@ -552,8 +1268,8 @@
                     "value": "Cerámica | ceramics"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "fauna",
@@ -565,8 +1281,8 @@
                     "value": "Fauna"
                 }
             ],
-            "typology_id": "12",
-            "typology_name": "Activities"
+            "typology_id": 12,
+            "typology_name": "Actividades"
         },
         {
             "tld": "flora",
@@ -583,12 +1299,12 @@
                     "value": "Flora | flora"
                 }
             ],
-            "typology_id": "11",
-            "typology_name": "Typology"
+            "typology_id": 11,
+            "typology_name": "Tipología"
         },
         {
             "tld": "ds",
-            "name": "Role | ds",
+            "name": "Rol | ds",
             "name_data": [
                 {
                     "id": 1,
@@ -601,12 +1317,12 @@
                     "value": "Rol | ds"
                 }
             ],
-            "typology_id": "4",
-            "typology_name": "Semantics"
+            "typology_id": 4,
+            "typology_name": "Semánticas"
         },
         {
             "tld": "rolepos",
-            "name": "Position roles | rolepos",
+            "name": "Roles de posición | rolepos",
             "name_data": [
                 {
                     "id": 1,
@@ -619,12 +1335,12 @@
                     "value": "Roles de posición | rolepos"
                 }
             ],
-            "typology_id": "4",
-            "typology_name": "Semantics"
+            "typology_id": 4,
+            "typology_name": "Semánticas"
         },
         {
             "tld": "roleusr",
-            "name": "User roles | roleusr",
+            "name": "Roles de usuario | roleusr",
             "name_data": [
                 {
                     "id": 1,
@@ -637,12 +1353,12 @@
                     "value": "Roles de usuario | roleusr"
                 }
             ],
-            "typology_id": "4",
-            "typology_name": "Semantics"
+            "typology_id": 4,
+            "typology_name": "Semánticas"
         },
         {
             "tld": "rolejob",
-            "name": "Role jobs | rolejob",
+            "name": "Roles de trabajo | rolejob",
             "name_data": [
                 {
                     "id": 1,
@@ -655,12 +1371,12 @@
                     "value": "Roles de trabajo | rolejob"
                 }
             ],
-            "typology_id": "4",
-            "typology_name": "Semantics"
+            "typology_id": 4,
+            "typology_name": "Semánticas"
         },
         {
             "tld": "special",
-            "name": "Special | special",
+            "name": "Especial | special",
             "name_data": [
                 {
                     "id": 1,
@@ -673,12 +1389,12 @@
                     "value": "Especial | special"
                 }
             ],
-            "typology_id": "5",
-            "typology_name": "Special"
+            "typology_id": 5,
+            "typology_name": "Especial"
         },
         {
             "tld": "resanalysis",
-            "name": "Restoration analysis | resanalysis",
+            "name": "Análisis de restauración | resanalysis",
             "name_data": [
                 {
                     "id": 1,
@@ -691,12 +1407,12 @@
                     "value": "Análisis de restauración | resanalysis"
                 }
             ],
-            "typology_id": "10",
-            "typology_name": "Laboratory | Restoration"
+            "typology_id": 10,
+            "typology_name": "Laboratorio | Restauración"
         },
         {
             "tld": "rescause",
-            "name": "Restoration causes | rescause",
+            "name": "Causas de restauración | rescause",
             "name_data": [
                 {
                     "id": 1,
@@ -709,12 +1425,12 @@
                     "value": "Causas de restauración | rescause"
                 }
             ],
-            "typology_id": "10",
-            "typology_name": "Laboratory | Restoration"
+            "typology_id": 10,
+            "typology_name": "Laboratorio | Restauración"
         },
         {
             "tld": "category",
-            "name": "Category | category",
+            "name": "Categoría | category",
             "name_data": [
                 {
                     "id": 1,
@@ -727,8 +1443,8 @@
                     "value": "Categoría | category"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "ad",
@@ -750,12 +1466,12 @@
                     "value": "Andorra | ad"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "af",
-            "name": "Afghanistan | af",
+            "name": "Afganistán | af",
             "name_data": [
                 {
                     "id": 1,
@@ -773,8 +1489,8 @@
                     "value": "Afganistán | af"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "al",
@@ -796,8 +1512,8 @@
                     "value": "Albania | al"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "am",
@@ -819,8 +1535,8 @@
                     "value": "Armenia | am"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ao",
@@ -842,8 +1558,8 @@
                     "value": "Angola | ao"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ar",
@@ -865,8 +1581,8 @@
                     "value": "Argentina | ar"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "at",
@@ -888,8 +1604,8 @@
                     "value": "Austria | at"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "au",
@@ -911,12 +1627,12 @@
                     "value": "Australia | au"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "az",
-            "name": "Azerbaijan | az",
+            "name": "Azerbaiyán | az",
             "name_data": [
                 {
                     "id": 1,
@@ -934,12 +1650,12 @@
                     "value": "Azerbaiyán | az"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ba",
-            "name": "Bosnia and Herzegovina | ba",
+            "name": "Bosnia y Herzegovina | ba",
             "name_data": [
                 {
                     "id": 1,
@@ -957,12 +1673,12 @@
                     "value": "Bosnia y Herzegovina | ba"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "be",
-            "name": "Belgium | be",
+            "name": "Bélgica | be",
             "name_data": [
                 {
                     "id": 1,
@@ -980,8 +1696,8 @@
                     "value": "Bélgica | be"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bg",
@@ -1003,12 +1719,12 @@
                     "value": "Bulgaria | bg"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bh",
-            "name": "Bahrain | bh",
+            "name": "Bahréin | bh",
             "name_data": [
                 {
                     "id": 1,
@@ -1026,8 +1742,8 @@
                     "value": "Bahréin | bh"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bi",
@@ -1049,12 +1765,12 @@
                     "value": "Burundi | bi"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bj",
-            "name": "Benin | bj",
+            "name": "Benín | bj",
             "name_data": [
                 {
                     "id": 1,
@@ -1072,8 +1788,8 @@
                     "value": "Benín | bj"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bo",
@@ -1095,12 +1811,12 @@
                     "value": "Bolivia | bo"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "br",
-            "name": "Brazil | br",
+            "name": "Brasil | br",
             "name_data": [
                 {
                     "id": 1,
@@ -1118,12 +1834,12 @@
                     "value": "Brasil | br"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bw",
-            "name": "Botswana | bw",
+            "name": "Botsuana | bw",
             "name_data": [
                 {
                     "id": 1,
@@ -1141,12 +1857,12 @@
                     "value": "Botsuana | bw"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "by",
-            "name": "Belarus | by",
+            "name": "Bielorrusia | by",
             "name_data": [
                 {
                     "id": 1,
@@ -1159,12 +1875,12 @@
                     "value": "Bielorrusia | by"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "bz",
-            "name": "Belize | bz",
+            "name": "Belice | bz",
             "name_data": [
                 {
                     "id": 1,
@@ -1182,12 +1898,12 @@
                     "value": "Belice | bz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ca",
-            "name": "Canada | ca",
+            "name": "Canadá | ca",
             "name_data": [
                 {
                     "id": 1,
@@ -1205,12 +1921,12 @@
                     "value": "Canadá | ca"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cd",
-            "name": "Democratic Republic of the Congo | cd",
+            "name": "República Democrática del Congo | cd",
             "name_data": [
                 {
                     "id": 1,
@@ -1228,12 +1944,12 @@
                     "value": "República Democrática del Congo | cd"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cg",
-            "name": "Republic of the Congo | cg",
+            "name": "República del Congo | cg",
             "name_data": [
                 {
                     "id": 1,
@@ -1251,12 +1967,12 @@
                     "value": "República del Congo | cg"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ch",
-            "name": "Switzerland | ch",
+            "name": "Suiza | ch",
             "name_data": [
                 {
                     "id": 1,
@@ -1274,12 +1990,12 @@
                     "value": "Suiza | ch"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ci",
-            "name": "Ivory Coast | ci",
+            "name": "Costa de Marfil | ci",
             "name_data": [
                 {
                     "id": 1,
@@ -1297,8 +2013,8 @@
                     "value": "Costa de Marfil | ci"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cl",
@@ -1320,12 +2036,12 @@
                     "value": "Chile | cl"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cm",
-            "name": "Cameroon | cm",
+            "name": "Camerún | cm",
             "name_data": [
                 {
                     "id": 1,
@@ -1343,8 +2059,8 @@
                     "value": "Camerún | cm"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "co",
@@ -1366,8 +2082,8 @@
                     "value": "Colombia | co"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cr",
@@ -1389,8 +2105,8 @@
                     "value": "Costa Rica | cr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cu",
@@ -1412,12 +2128,12 @@
                     "value": "Cuba | cu"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cy",
-            "name": "Cyprus | cy",
+            "name": "Chipre | cy",
             "name_data": [
                 {
                     "id": 1,
@@ -1435,12 +2151,12 @@
                     "value": "Chipre | cy"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "cz",
-            "name": "Czech Republic | cz",
+            "name": "República Checa | cz",
             "name_data": [
                 {
                     "id": 1,
@@ -1453,12 +2169,12 @@
                     "value": "República Checa | cz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "de",
-            "name": "Germany | de",
+            "name": "Alemania | de",
             "name_data": [
                 {
                     "id": 1,
@@ -1476,12 +2192,12 @@
                     "value": "Alemania | de"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "dj",
-            "name": "Djibouti | dj",
+            "name": "Yibuti | dj",
             "name_data": [
                 {
                     "id": 1,
@@ -1499,12 +2215,12 @@
                     "value": "Yibuti | dj"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "dk",
-            "name": "Denmark | dk",
+            "name": "Dinamarca | dk",
             "name_data": [
                 {
                     "id": 1,
@@ -1517,12 +2233,12 @@
                     "value": "Dinamarca | dk"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "dz",
-            "name": "Algeria | dz",
+            "name": "Argelia | dz",
             "name_data": [
                 {
                     "id": 1,
@@ -1540,8 +2256,8 @@
                     "value": "Argelia | dz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ec",
@@ -1563,8 +2279,8 @@
                     "value": "Ecuador | ec"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ee",
@@ -1581,12 +2297,12 @@
                     "value": "Estonia | ee"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "eg",
-            "name": "Egypt | eg",
+            "name": "Egipto | eg",
             "name_data": [
                 {
                     "id": 1,
@@ -1604,12 +2320,12 @@
                     "value": "Egipto | eg"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "eh",
-            "name": "Sahrawi Arab Democratic Republic | eh",
+            "name": "República Árabe Saharaui Democrática | eh",
             "name_data": [
                 {
                     "id": 1,
@@ -1627,8 +2343,8 @@
                     "value": "República Árabe Saharaui Democrática | eh"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "er",
@@ -1650,12 +2366,12 @@
                     "value": "Eritrea | er"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "es",
-            "name": "Spain  | es",
+            "name": "España | es",
             "name_data": [
                 {
                     "id": 1,
@@ -1673,12 +2389,12 @@
                     "value": "España | es"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "et",
-            "name": "Ethiopia | et",
+            "name": "Etiopía | et",
             "name_data": [
                 {
                     "id": 1,
@@ -1696,12 +2412,12 @@
                     "value": "Etiopía | et"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "fj",
-            "name": "Fiji | fj",
+            "name": "Fiyi | fj",
             "name_data": [
                 {
                     "id": 1,
@@ -1719,12 +2435,12 @@
                     "value": "Fiyi | fj"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "fr",
-            "name": "France | fr",
+            "name": "Francia | fr",
             "name_data": [
                 {
                     "id": 1,
@@ -1737,12 +2453,12 @@
                     "value": "Francia | fr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ga",
-            "name": "Gabon | ga",
+            "name": "Gabón | ga",
             "name_data": [
                 {
                     "id": 1,
@@ -1760,12 +2476,12 @@
                     "value": "Gabón | ga"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "gb",
-            "name": "United Kingdom | gb",
+            "name": "Reino Unido | gb",
             "name_data": [
                 {
                     "id": 1,
@@ -1778,8 +2494,8 @@
                     "value": "Reino Unido | gb"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ge",
@@ -1796,8 +2512,8 @@
                     "value": "Georgia | ge"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "gm",
@@ -1819,8 +2535,8 @@
                     "value": "Gambia | gm"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "gn",
@@ -1842,12 +2558,12 @@
                     "value": "Guinea | gn"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "gq",
-            "name": "Equatorial Guinea | gq",
+            "name": "Guinea Ecuatorial | gq",
             "name_data": [
                 {
                     "id": 1,
@@ -1865,12 +2581,12 @@
                     "value": "Guinea Ecuatorial | gq"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "gr",
-            "name": "Greece | gr",
+            "name": "Grecia | gr",
             "name_data": [
                 {
                     "id": 1,
@@ -1888,8 +2604,8 @@
                     "value": "Grecia | gr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "gt",
@@ -1911,8 +2627,8 @@
                     "value": "Guatemala | gt"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "hn",
@@ -1934,12 +2650,12 @@
                     "value": "Honduras | hn"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "hr",
-            "name": "Croatia | hr",
+            "name": "Croacia | hr",
             "name_data": [
                 {
                     "id": 1,
@@ -1952,12 +2668,12 @@
                     "value": "Croacia | hr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "hu",
-            "name": "Hungary | hu",
+            "name": "Hungría | hu",
             "name_data": [
                 {
                     "id": 1,
@@ -1970,8 +2686,8 @@
                     "value": "Hungría | hu"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "id",
@@ -1993,12 +2709,12 @@
                     "value": "Indonesia | id"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ie",
-            "name": "Ireland | ie",
+            "name": "Irlanda | ie",
             "name_data": [
                 {
                     "id": 1,
@@ -2011,8 +2727,8 @@
                     "value": "Irlanda | ie"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "il",
@@ -2034,8 +2750,8 @@
                     "value": "Israel | il"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "in",
@@ -2057,8 +2773,8 @@
                     "value": "India | in"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "iq",
@@ -2080,12 +2796,12 @@
                     "value": "Iraq | iq"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ir",
-            "name": "Iran | ir",
+            "name": "Irán | ir",
             "name_data": [
                 {
                     "id": 1,
@@ -2103,12 +2819,12 @@
                     "value": "Irán | ir"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "it",
-            "name": "Italy | it",
+            "name": "Italia | it",
             "name_data": [
                 {
                     "id": 1,
@@ -2121,12 +2837,12 @@
                     "value": "Italia | it"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "jo",
-            "name": "Jordan | jo",
+            "name": "Jordania | jo",
             "name_data": [
                 {
                     "id": 1,
@@ -2144,12 +2860,12 @@
                     "value": "Jordania | jo"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "jp",
-            "name": "Japan | jp",
+            "name": "Japón | jp",
             "name_data": [
                 {
                     "id": 1,
@@ -2167,12 +2883,12 @@
                     "value": "Japón | jp"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ke",
-            "name": "Kenya | ke",
+            "name": "Kenia | ke",
             "name_data": [
                 {
                     "id": 1,
@@ -2190,12 +2906,12 @@
                     "value": "Kenia | ke"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "kg",
-            "name": "Kyrgyz Republic | kg",
+            "name": "Kirguistán | kg",
             "name_data": [
                 {
                     "id": 1,
@@ -2208,12 +2924,12 @@
                     "value": "Kirguistán | kg"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "kh",
-            "name": "Cambodia | kh",
+            "name": "Camboya | kh",
             "name_data": [
                 {
                     "id": 1,
@@ -2231,8 +2947,8 @@
                     "value": "Camboya | kh"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ki",
@@ -2254,8 +2970,8 @@
                     "value": "Kiribati | ki"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "kw",
@@ -2277,12 +2993,12 @@
                     "value": "Kuwait | kw"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "kz",
-            "name": "Kazakhstan  | kz",
+            "name": "Kazajistán | kz",
             "name_data": [
                 {
                     "id": 1,
@@ -2295,8 +3011,8 @@
                     "value": "Kazajistán | kz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "la",
@@ -2318,12 +3034,12 @@
                     "value": "Laos | la"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "lb",
-            "name": "Lebanon | lb",
+            "name": "Líbano | lb",
             "name_data": [
                 {
                     "id": 1,
@@ -2341,8 +3057,8 @@
                     "value": "Líbano | lb"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "li",
@@ -2359,12 +3075,12 @@
                     "value": "Liechtenstein | li"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "lt",
-            "name": "Lithuania | lt",
+            "name": "Lituania | lt",
             "name_data": [
                 {
                     "id": 1,
@@ -2377,12 +3093,12 @@
                     "value": "Lituania | lt"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "lu",
-            "name": "Luxembourg | lu",
+            "name": "Luxemburgo | lu",
             "name_data": [
                 {
                     "id": 1,
@@ -2395,12 +3111,12 @@
                     "value": "Luxemburgo | lu"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "lv",
-            "name": "Latvia | lv",
+            "name": "Letonia | lv",
             "name_data": [
                 {
                     "id": 1,
@@ -2413,12 +3129,12 @@
                     "value": "Letonia | lv"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ly",
-            "name": "Libya | ly",
+            "name": "Libia | ly",
             "name_data": [
                 {
                     "id": 1,
@@ -2431,12 +3147,12 @@
                     "value": "Libia | ly"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ma",
-            "name": "Morocco | ma",
+            "name": "Marruecos | ma",
             "name_data": [
                 {
                     "id": 1,
@@ -2454,12 +3170,12 @@
                     "value": "Marruecos | ma"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "md",
-            "name": "Moldova | md",
+            "name": "Moldavia | md",
             "name_data": [
                 {
                     "id": 1,
@@ -2472,8 +3188,8 @@
                     "value": "Moldavia | md"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "me",
@@ -2490,12 +3206,12 @@
                     "value": "Montenegro | me"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mk",
-            "name": "Macedonia | mk",
+            "name": "ARY Macedonia | mk",
             "name_data": [
                 {
                     "id": 1,
@@ -2508,12 +3224,12 @@
                     "value": "ARY Macedonia | mk"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ml",
-            "name": "Mali | ml",
+            "name": "Malí | ml",
             "name_data": [
                 {
                     "id": 1,
@@ -2531,8 +3247,8 @@
                     "value": "Malí | ml"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mm",
@@ -2554,8 +3270,8 @@
                     "value": "Myanmar | mm"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mr",
@@ -2577,8 +3293,8 @@
                     "value": "Mauritania | mr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mw",
@@ -2600,12 +3316,12 @@
                     "value": "Malawi | mw"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mx",
-            "name": "Mexico | mx",
+            "name": "México | mx",
             "name_data": [
                 {
                     "id": 1,
@@ -2623,12 +3339,12 @@
                     "value": "México | mx"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "my",
-            "name": "Malaysia | my",
+            "name": "Malasia | my",
             "name_data": [
                 {
                     "id": 1,
@@ -2646,8 +3362,8 @@
                     "value": "Malasia | my"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mz",
@@ -2669,8 +3385,8 @@
                     "value": "Mozambique | mz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "na",
@@ -2692,12 +3408,12 @@
                     "value": "Namibia | na"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ne",
-            "name": "Niger | ne",
+            "name": "Níger | ne",
             "name_data": [
                 {
                     "id": 1,
@@ -2715,8 +3431,8 @@
                     "value": "Níger | ne"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ng",
@@ -2738,8 +3454,8 @@
                     "value": "Nigeria | ng"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ni",
@@ -2761,12 +3477,12 @@
                     "value": "Nicaragua | ni"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "nl",
-            "name": "Netherlands | nl",
+            "name": "Países Bajos | nl",
             "name_data": [
                 {
                     "id": 1,
@@ -2779,12 +3495,12 @@
                     "value": "Países Bajos | nl"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "no",
-            "name": "Norway | no",
+            "name": "Noruega | no",
             "name_data": [
                 {
                     "id": 1,
@@ -2797,8 +3513,8 @@
                     "value": "Noruega | no"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "np",
@@ -2820,12 +3536,12 @@
                     "value": "Nepal | np"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "om",
-            "name": "Oman | om",
+            "name": "Omán | om",
             "name_data": [
                 {
                     "id": 1,
@@ -2843,12 +3559,12 @@
                     "value": "Omán | om"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pa",
-            "name": "Panama | pa",
+            "name": "Panamá | pa",
             "name_data": [
                 {
                     "id": 1,
@@ -2866,12 +3582,12 @@
                     "value": "Panamá | pa"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pe",
-            "name": "Peru | pe",
+            "name": "Perú | pe",
             "name_data": [
                 {
                     "id": 1,
@@ -2889,12 +3605,12 @@
                     "value": "Perú | pe"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pg",
-            "name": "Papua New Guinea | pg",
+            "name": "Papúa Nueva Guinea | pg",
             "name_data": [
                 {
                     "id": 1,
@@ -2912,12 +3628,12 @@
                     "value": "Papúa Nueva Guinea | pg"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ph",
-            "name": "Philippines | ph",
+            "name": "Filipinas | ph",
             "name_data": [
                 {
                     "id": 1,
@@ -2935,12 +3651,12 @@
                     "value": "Filipinas | ph"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pk",
-            "name": "Pakistan | pk",
+            "name": "Pakistán | pk",
             "name_data": [
                 {
                     "id": 1,
@@ -2958,12 +3674,12 @@
                     "value": "Pakistán | pk"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pl",
-            "name": "Poland | pl",
+            "name": "Polonia | pl",
             "name_data": [
                 {
                     "id": 1,
@@ -2981,8 +3697,8 @@
                     "value": "Polonia | pl"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pr",
@@ -3004,12 +3720,12 @@
                     "value": "Puerto Rico | pr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ps",
-            "name": "Palestine | ps",
+            "name": "Palestina (ANP) | ps",
             "name_data": [
                 {
                     "id": 1,
@@ -3027,8 +3743,8 @@
                     "value": "Palestina (ANP) | ps"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "pt",
@@ -3050,8 +3766,8 @@
                     "value": "Portugal | pt"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "py",
@@ -3073,8 +3789,8 @@
                     "value": "Paraguay | py"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "qa",
@@ -3096,12 +3812,12 @@
                     "value": "Qatar | qa"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ro",
-            "name": "Romania | ro",
+            "name": "Rumania | ro",
             "name_data": [
                 {
                     "id": 1,
@@ -3119,8 +3835,8 @@
                     "value": "Rumania | ro"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "rs",
@@ -3142,12 +3858,12 @@
                     "value": "Serbia | rs"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ru",
-            "name": "Russia | ru",
+            "name": "Rusia | ru",
             "name_data": [
                 {
                     "id": 1,
@@ -3160,12 +3876,12 @@
                     "value": "Rusia | ru"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "rw",
-            "name": "Rwanda | rw",
+            "name": "Ruanda | rw",
             "name_data": [
                 {
                     "id": 1,
@@ -3183,12 +3899,12 @@
                     "value": "Ruanda | rw"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sa",
-            "name": "Saudi Arabia | sa",
+            "name": "Arabia Saudita | sa",
             "name_data": [
                 {
                     "id": 1,
@@ -3206,12 +3922,12 @@
                     "value": "Arabia Saudita | sa"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sb",
-            "name": "Solomon Islands | sb",
+            "name": "Islas Salomón | sb",
             "name_data": [
                 {
                     "id": 1,
@@ -3229,12 +3945,12 @@
                     "value": "Islas Salomón | sb"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sd",
-            "name": "Sudan | sd",
+            "name": "Sudán | sd",
             "name_data": [
                 {
                     "id": 1,
@@ -3252,12 +3968,12 @@
                     "value": "Sudán | sd"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "se",
-            "name": "Sweden | se",
+            "name": "Suecia | se",
             "name_data": [
                 {
                     "id": 1,
@@ -3270,12 +3986,12 @@
                     "value": "Suecia | se"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sg",
-            "name": "Singapore | sg",
+            "name": "Singapur | sg",
             "name_data": [
                 {
                     "id": 1,
@@ -3293,12 +4009,12 @@
                     "value": "Singapur | sg"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "si",
-            "name": "Slovenia | si",
+            "name": "Eslovenia | si",
             "name_data": [
                 {
                     "id": 1,
@@ -3316,12 +4032,12 @@
                     "value": "Eslovenia | si"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sk",
-            "name": "Slovakia | sk",
+            "name": "Eslovaquia | sk",
             "name_data": [
                 {
                     "id": 1,
@@ -3334,8 +4050,8 @@
                     "value": "Eslovaquia | sk"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sn",
@@ -3357,8 +4073,8 @@
                     "value": "Senegal | sn"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "so",
@@ -3380,12 +4096,12 @@
                     "value": "Somalia | so"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "st",
-            "name": "São Tomé and Príncipe | st",
+            "name": "Santo Tomé y Príncipe | st",
             "name_data": [
                 {
                     "id": 1,
@@ -3403,8 +4119,8 @@
                     "value": "Santo Tomé y Príncipe | st"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sv",
@@ -3421,12 +4137,12 @@
                     "value": "El Salvador | sv"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sy",
-            "name": "Syria | sy",
+            "name": "Siria | sy",
             "name_data": [
                 {
                     "id": 1,
@@ -3444,12 +4160,12 @@
                     "value": "Siria | sy"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "sz",
-            "name": "Swaziland | sz",
+            "name": "Suazilandia | sz",
             "name_data": [
                 {
                     "id": 1,
@@ -3467,8 +4183,8 @@
                     "value": "Suazilandia | sz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "td",
@@ -3490,12 +4206,12 @@
                     "value": "Chad | td"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "th",
-            "name": "Thailand | th",
+            "name": "Tailandia | th",
             "name_data": [
                 {
                     "id": 1,
@@ -3513,12 +4229,12 @@
                     "value": "Tailandia | th"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "tj",
-            "name": "Tajikistan | tj",
+            "name": "Tayikistán | tj",
             "name_data": [
                 {
                     "id": 1,
@@ -3531,12 +4247,12 @@
                     "value": "Tayikistán | tj"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "tm",
-            "name": "Turkmenistan | tm",
+            "name": "Turkmenistán | tm",
             "name_data": [
                 {
                     "id": 1,
@@ -3549,12 +4265,12 @@
                     "value": "Turkmenistán | tm"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "tn",
-            "name": "Tunisia | tn",
+            "name": "Túnez | tn",
             "name_data": [
                 {
                     "id": 1,
@@ -3572,8 +4288,8 @@
                     "value": "Túnez | tn"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "to",
@@ -3595,12 +4311,12 @@
                     "value": "Tonga | to"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "tr",
-            "name": "Turkey | tr",
+            "name": "Turquía | tr",
             "name_data": [
                 {
                     "id": 1,
@@ -3618,8 +4334,8 @@
                     "value": "Turquía | tr"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "tv",
@@ -3641,8 +4357,8 @@
                     "value": "Tuvalu | tv"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "tz",
@@ -3664,12 +4380,12 @@
                     "value": "Tanzania | tz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ua",
-            "name": "Ukraine | ua",
+            "name": "Ucrania | ua",
             "name_data": [
                 {
                     "id": 1,
@@ -3682,8 +4398,8 @@
                     "value": "Ucrania | ua"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ug",
@@ -3705,12 +4421,12 @@
                     "value": "Uganda | ug"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "us",
-            "name": "United States | us",
+            "name": "Estados Unidos | us",
             "name_data": [
                 {
                     "id": 1,
@@ -3723,8 +4439,8 @@
                     "value": "Estados Unidos | us"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "uy",
@@ -3741,12 +4457,12 @@
                     "value": "Uruguay | uy"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "uz",
-            "name": "Uzbekistan | uz",
+            "name": "Uzbekistán | uz",
             "name_data": [
                 {
                     "id": 1,
@@ -3759,8 +4475,8 @@
                     "value": "Uzbekistán | uz"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ve",
@@ -3782,8 +4498,8 @@
                     "value": "Venezuela | ve"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "vn",
@@ -3805,8 +4521,8 @@
                     "value": "Vietnam | vn"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "vu",
@@ -3828,8 +4544,8 @@
                     "value": "Vanuatu | vu"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ws",
@@ -3851,8 +4567,8 @@
                     "value": "Samoa | ws"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "xk",
@@ -3869,8 +4585,8 @@
                     "value": "Kosovo | xk"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "ye",
@@ -3892,12 +4608,12 @@
                     "value": "Yemen | ye"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "za",
-            "name": "South Africa | za",
+            "name": "Sudáfrica | za",
             "name_data": [
                 {
                     "id": 1,
@@ -3915,8 +4631,8 @@
                     "value": "Sudáfrica | za"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "zm",
@@ -3938,12 +4654,12 @@
                     "value": "Zambia | zm"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "zw",
-            "name": "Zimbabwe | zw",
+            "name": "Zimbabue | zw",
             "name_data": [
                 {
                     "id": 1,
@@ -3961,8 +4677,8 @@
                     "value": "Zimbabue | zw"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "mdcat",
@@ -3979,12 +4695,12 @@
                     "value": "Memorial Democràtic de Catalunya | mdcat"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "typology_name": "Catálogo"
         },
         {
             "tld": "mht",
-            "name": "Woman and Memory | mht",
+            "name": "Mujer y Memoria | mht",
             "name_data": [
                 {
                     "id": 1,
@@ -3997,8 +4713,8 @@
                     "value": "Mujer y Memoria | mht"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "typology_name": "Catálogo"
         },
         {
             "tld": "render",
@@ -4010,8 +4726,8 @@
                     "value": "render | render"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 15,
+            "typology_name": "Otros"
         },
         {
             "tld": "navarra",
@@ -4023,8 +4739,8 @@
                     "value": "navarra | navarra"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 15,
+            "typology_name": "Otros"
         },
         {
             "tld": "murapa",
@@ -4036,8 +4752,8 @@
                     "value": "Museu de la Rajoleria de Paiporta | murapa"
                 }
             ],
-            "typology_id": "8",
-            "typology_name": "Catalog"
+            "typology_id": 8,
+            "typology_name": "Catálogo"
         },
         {
             "tld": "emakumeak",
@@ -4049,12 +4765,12 @@
                     "value": "Centro de documentación Maite Albiz | emakumeak"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 15,
+            "typology_name": "Otros"
         },
         {
             "tld": "qdp",
-            "name": "Quart de Poblet virtual museum | qdp",
+            "name": "Museu virtual de Quart de Poblet | qdp",
             "name_data": [
                 {
                     "id": 1,
@@ -4067,8 +4783,8 @@
                     "value": "Museu virtual de Quart de Poblet | qdp"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 15,
+            "typology_name": "Otros"
         },
         {
             "tld": "depositiontype",
@@ -4080,12 +4796,12 @@
                     "value": "Deposition type"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "hierarchytype",
-            "name": "Hierarchy typologies | hierarchytype",
+            "name": "Tipologías de jerarquía | hierarchytype",
             "name_data": [
                 {
                     "id": 1,
@@ -4123,12 +4839,12 @@
                     "value": "Tipologías de jerarquía | hierarchytype"
                 }
             ],
-            "typology_id": "12",
-            "typology_name": "Activities"
+            "typology_id": 12,
+            "typology_name": "Actividades"
         },
         {
             "tld": "hierarchymtype",
-            "name": "Hierarchy typologies [m] | hierarchymtype",
+            "name": "Tipologías de jerarquía [m] | hierarchymtype",
             "name_data": [
                 {
                     "id": 1,
@@ -4166,8 +4882,8 @@
                     "value": "Tipologías de jerarquía [m] | hierarchymtype"
                 }
             ],
-            "typology_id": "12",
-            "typology_name": "Activities"
+            "typology_id": 12,
+            "typology_name": "Actividades"
         },
         {
             "tld": "tchicontext",
@@ -4179,8 +4895,8 @@
                     "value": "Site context"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "tchicategory",
@@ -4192,8 +4908,8 @@
                     "value": "Site category"
                 }
             ],
-            "typology_id": "1",
-            "typology_name": "Thematic"
+            "typology_id": 1,
+            "typology_name": "Temáticas"
         },
         {
             "tld": "crm",
@@ -4205,8 +4921,8 @@
                     "value": "CIDOC CRM"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 15,
+            "typology_name": "Otros"
         },
         {
             "tld": "gi",
@@ -4223,8 +4939,8 @@
                     "value": "Gibraltar"
                 }
             ],
-            "typology_id": "2",
-            "typology_name": "Toponymy"
+            "typology_id": 2,
+            "typology_name": "Toponimias"
         },
         {
             "tld": "nohce",
@@ -4236,8 +4952,26 @@
                     "value": "Network for Oral History Collections in Europe"
                 }
             ],
-            "typology_id": "15",
-            "typology_name": "Others"
+            "typology_id": 15,
+            "typology_name": "Otros"
+        },
+        {
+            "tld": "ddengine",
+            "name": "Motor | ddengine",
+            "name_data": [
+                {
+                    "id": 1,
+                    "lang": "lg-eng",
+                    "value": "Engine | ddengine"
+                },
+                {
+                    "id": 1,
+                    "lang": "lg-spa",
+                    "value": "Motor | ddengine"
+                }
+            ],
+            "typology_id": 5,
+            "typology_name": "Especial"
         }
     ]
 }

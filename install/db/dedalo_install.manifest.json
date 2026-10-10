@@ -3,9 +3,9 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1807887,
-		"sha256": "36fa2cf74ecf6292892d88cb2df2c6dc7c2bfc3a26e98e240aef052cf2c345a1",
-		"content_sha256": "d58ff94d4445ef790aadfc37912d2c938b9b5392f78227c87b28bc6ac5b4c289",
+		"bytes": 1823026,
+		"sha256": "488e73de7daf1b77c656f4b87594565a9221c80c750844009bfb59f7f9a7e355",
+		"content_sha256": "6bc550b8f4019fb1927550168de19b525ce3da67cc2609e537f3c6c078460393",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
 	"sources": {
@@ -26,14 +26,14 @@
 		"install/db/seed/matrix_hierarchy_main.copy.gz": "428a17df3cd241164b21af50d0f2bded6ed8677014853329182c554a655b1336",
 		"install/db/seed/matrix_langs.copy.gz": "ba220588e8405426180997c285c1aa685022c8818ed77f29379a624f9f73a908",
 		"install/db/seed/schema.sql": "cfa2b61a4ccbb34c92a6cd9ff0e49da9672a4fb53c85240a9289c95c3dbf1efe",
-		"install/import/ontology/7.0/dd.copy.gz": "e5e2a79673e120d1c3763b9c5883d4796c4b349c7dea2cd84de1677a827fb7cc",
-		"install/import/ontology/7.0/hierarchy.copy.gz": "ad6fcb91791a264f4318723171e6c8c86aaed7eae96a8c68199fb87be377eb38",
-		"install/import/ontology/7.0/lg.copy.gz": "07728cad25296080ac528113c13b332c9df3ce1050c64297b47b71c99d068acb",
-		"install/import/ontology/7.0/matrix_dd.copy.gz": "f95a31c667516d1f5aeb80f2d50c95f233a517a25507de2fd4e9763826ab1b01",
-		"install/import/ontology/7.0/ontology.copy.gz": "82f23b5f7ff44b319e390f4473ef3d9156b6758d7bb11cf64f5d626a42044b4d",
-		"install/import/ontology/7.0/ontology.json": "80776ca41a5dc696cb5a67b49a8353cbbb46f3293256e3a20ef3c14f632f0c65",
-		"install/import/ontology/7.0/ontologytype.copy.gz": "8bb30e62229bdffe079d22be5e5748a0990d5dad915b2a47804c56bcf961414e",
-		"install/import/ontology/7.0/rsc.copy.gz": "32f748cd3490fb9ddf53aa124f622fd9dee98d049e74a464fe0dad6b674d06db",
+		"install/import/ontology/7.0/dd.copy.gz": "31a73f49a5822380ef1bcfd5b52c80e5ad08f3d23c71bd249a87a4d692f29489",
+		"install/import/ontology/7.0/hierarchy.copy.gz": "f228e71e9d3eede3f8ce569e189201431820388e81fa88b9e2cc8cc5d51b5fef",
+		"install/import/ontology/7.0/lg.copy.gz": "4c4e955478b26a0854900e23aa39eaf1a8ce1ca878c5f34993de075f9a9f6724",
+		"install/import/ontology/7.0/matrix_dd.copy.gz": "604ba1afb7e3f203c6bfd66314406ed98207ba133cbdca7c3ba400c5c4a31920",
+		"install/import/ontology/7.0/ontology.copy.gz": "89f05c4ca06367a195fe98486ba88857028bf2d33f78afa5d98f18cfdcb2d339",
+		"install/import/ontology/7.0/ontology.json": "062ea3aa3f27267bcaf40626f2d4d14bb2d18f7832d1d15a61eeb6795ae9a7d9",
+		"install/import/ontology/7.0/ontologytype.copy.gz": "4d5f0094242446284555024b8cf967ce45abad03da9a7e709f2b911d91cf9fb9",
+		"install/import/ontology/7.0/rsc.copy.gz": "644ee2261ac624986b62b125f4773cdb735e99bcbb368052a07eda9a84b73414",
 		"scripts/seed_build_child.ts": "97e9caa5785d2fca86fd692fa468800d1f63c4b22b39798496d1705142471513",
 		"src/core/install/seed_build.ts": "4f6a737d23916c46e079e50bc22572de39b5f201033294e5e748453a9965681c",
 		"src/core/install/seed_sources.ts": "82dba447d36a6aad67cb5598dd073717e53d28a764d339cc3dc22e15750374aa"
@@ -41,10 +41,10 @@
 	"rules_digest": "73f6bf38eb1287a68306fb043e66a920f139e429e56c9a55c0bcd975e0fa87ee",
 	"ontology_release": {
 		"version": "7.0.0",
-		"date": "2026-07-14T16:08:54+02:00"
+		"date": "2026-10-10T22:59:50+02:00"
 	},
 	"tables": {
-		"dd_ontology": 3473,
+		"dd_ontology": 3493,
 		"dd_ontology_recovery": 0,
 		"main_dd": 0,
 		"matrix": 0,
@@ -54,7 +54,7 @@
 		"matrix_counter": 0,
 		"matrix_counter_dd": 0,
 		"matrix_dataframe": 0,
-		"matrix_dd": 426,
+		"matrix_dd": 419,
 		"matrix_hierarchy": 0,
 		"matrix_hierarchy_main": 1,
 		"matrix_indexations": 0,
@@ -66,7 +66,7 @@
 		"matrix_nexus_main": 0,
 		"matrix_notes": 0,
 		"matrix_notifications": 0,
-		"matrix_ontology": 3467,
+		"matrix_ontology": 3487,
 		"matrix_ontology_main": 6,
 		"matrix_profiles": 2,
 		"matrix_projects": 1,
@@ -83,14 +83,14 @@
 		"checks": [
 			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores + engine ontology (10 records) + core hierarchies activated (lg) — OK",
 			"boot migrations: 11 applied, 0 skipped; online: 2 applied",
-			"ontology dd in sync (1727 nodes)",
-			"ontology rsc in sync (1544 nodes)",
+			"ontology dd in sync (1731 nodes)",
+			"ontology rsc in sync (1560 nodes)",
 			"ontology ontology in sync (42 nodes)",
 			"ontology ontologytype in sync (14 nodes)",
 			"ontology hierarchy in sync (137 nodes)",
 			"ontology lg in sync (9 nodes)",
-			"matrix_string_search filled by the boot self-heal (73132 rows)",
-			"matrix_relation_index filled by the boot self-heal (171419 rows)",
+			"matrix_string_search filled by the boot self-heal (73289 rows)",
+			"matrix_relation_index filled by the boot self-heal (171599 rows)",
 			"lg (Languages) active",
 			"root password set and verified"
 		]

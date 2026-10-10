@@ -21,6 +21,10 @@ import {
 } from '../../src/core/install/install_plan.ts';
 import {
 	closeOntologyChoice,
+	collectHierarchyDependencies,
+	declarersOf,
+	hierarchyDependencyPlan,
+	vendoredCoreDeclarers,
 	vendoredOntologyCatalog,
 } from '../../src/core/install/ontology_choice.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
@@ -499,7 +503,18 @@ describe('persist_config (P2)', () => {
 			expect(result.warnings).toEqual(
 				closeOntologyChoice(['oh'], vendoredOntologyCatalog()).warnings,
 			);
-			expect(result.hierarchy_dependencies).toEqual([]);
+			// The thesauri the wizard pre-ticks: what the release DECLARES — the core
+			// TLDs' (every plan) then oh's — the vendored (installable) ones, derived
+			// through the production functions, never a hand-typed list.
+			const { dependencies } = collectHierarchyDependencies([
+				...vendoredCoreDeclarers(),
+				...declarersOf(['oh'], vendoredOntologyCatalog()),
+			]);
+			const installable = hierarchyDependencyPlan(dependencies).install;
+			expect(installable.length, 'the release declares thesauri').toBeGreaterThan(0);
+			expect(result.hierarchy_dependencies).toEqual(
+				dependencies.filter((item) => installable.includes(item.tld)),
+			);
 			const body = readFileSync(join(own, '.env'), 'utf8');
 			const lines = body.split('\n').filter((line) => line.startsWith('ACTIVE_ONTOLOGY_TLDS='));
 			expect(lines).toEqual([

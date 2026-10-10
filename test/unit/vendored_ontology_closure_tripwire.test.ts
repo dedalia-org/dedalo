@@ -234,9 +234,15 @@ describe('vendored thesaurus closure', () => {
 		expect(dropped).toEqual([]);
 	});
 
-	test('every declared hierarchy1 dependency names a manifest entry (or a core hierarchy)', () => {
+	// A thesaurus never blocks an install (owner, 2026-10-10), so an OPTIONAL
+	// declaration without an entry is legitimate in a release — e.g. a thesaurus
+	// still in development (inactive) on the master. A MANDATORY one without an
+	// entry is a release mistake on the master: the installer would only warn,
+	// so this gate is where it is caught.
+	test('every MANDATORY declared hierarchy1 dependency names a manifest entry (or a core hierarchy)', () => {
 		const verdict = thesaurusVerdict(declarers);
-		expect(verdict.warnings, 'declared thesauri without an entry').toEqual([]);
+		const mandatoryMissing = verdict.warnings.filter((line) => line.includes('declared mandatory'));
+		expect(mandatoryMissing, 'mandatory thesauri without an entry').toEqual([]);
 	});
 
 	test('planted declarations move the verdict (entry → install; none → warned, mandatory or not)', () => {
@@ -252,13 +258,17 @@ describe('vendored thesaurus closure', () => {
 				{ tld: 'zzvtoptional', main: 'hierarchy1', mandatory: false },
 			],
 		};
+		// Measured RELATIVE to the release's own verdict: the release may already
+		// carry optional declarations without an entry (see the gate above).
+		const base = thesaurusVerdict(declarers);
 		const red = thesaurusVerdict([...declarers, planted]);
 		expect(red.install).toContain(withEntry ?? '');
 		expect(red).not.toHaveProperty('errors');
-		expect(red.warnings.length).toBe(2);
-		expect(red.warnings[0]).toContain("'zzvtmissing' (declared mandatory by 'zzvt')");
-		expect(red.warnings[0]).toContain('strongly recommended');
-		expect(red.warnings[1]).toContain('zzvtoptional');
+		const added = red.warnings.filter((line) => !base.warnings.includes(line));
+		expect(added.length).toBe(2);
+		expect(added[0]).toContain("'zzvtmissing' (declared mandatory by 'zzvt')");
+		expect(added[0]).toContain('strongly recommended');
+		expect(added[1]).toContain('zzvtoptional');
 		const malformed: string[] = [];
 		normalizeOntologyDependencies(
 			'zzvt',

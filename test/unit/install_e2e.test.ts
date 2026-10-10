@@ -18,6 +18,9 @@
  *    at run time) is imported checksum-verified, its registry row CREATED from
  *    the manifest entry (the seed ships only lg's): active, hierarchy8 =
  *    lg1/<lang.section_id>, hierarchy109 as the entry names it, terms in;
+ *  - the thesauri the release DECLARES (the core TLDs' + the default domain
+ *    ontology's — derived through the production functions) follow it in the
+ *    plan and are active too: a data-less entry as an EMPTY thesaurus (its root);
  *  - the written .env carries the official ONTOLOGY_SERVERS / CODE_SERVERS
  *    and no DEDALO_SUPERVISED.
  * And, since the core-only seed + domain ontology choice (2026-10-09):
@@ -57,7 +60,14 @@ import {
 	OFFICIAL_CODE_SERVER,
 	OFFICIAL_ONTOLOGY_SERVER,
 } from '../../src/core/install/install_plan.ts';
-import { DEFAULT_DOMAIN_ONTOLOGIES } from '../../src/core/install/ontology_choice.ts';
+import {
+	collectHierarchyDependencies,
+	DEFAULT_DOMAIN_ONTOLOGIES,
+	declarersOf,
+	hierarchyDependencyPlan,
+	vendoredCoreDeclarers,
+	vendoredOntologyCatalog,
+} from '../../src/core/install/ontology_choice.ts';
 import {
 	HIERARCHY_IMPORT_DIR,
 	installOntologyStagingDir,
@@ -142,6 +152,18 @@ const CHOSEN_THESAURUS = (() => {
 	sized.sort((a, b) => a.bytes - b.bytes || a.entry.tld.localeCompare(b.entry.tld));
 	return sized[0]?.entry;
 })();
+
+/**
+ * The thesauri the RELEASE declares for the default install — the core TLDs'
+ * (every plan) then the default domain ontologies' — the vendored ones the plan
+ * pre-ticks, derived through the production functions (never a spelled list).
+ */
+const DECLARED_THESAURI = hierarchyDependencyPlan(
+	collectHierarchyDependencies([
+		...vendoredCoreDeclarers(),
+		...declarersOf(DEFAULT_DOMAIN_ONTOLOGIES, vendoredOntologyCatalog()),
+	]).dependencies,
+).install;
 
 /** The answers every run gives. */
 function cliArgs(): string[] {
@@ -311,7 +333,11 @@ describe('TS-native install e2e (P5)', () => {
 			// manifest entry (the seed ships only lg's), active, terms in.
 			const chosen = CHOSEN_THESAURUS;
 			expect(chosen, 'the vendored manifest lists a data-carrying thesaurus').toBeDefined();
-			expect(plan.hierarchies).toEqual([chosen?.tld ?? '(none)']);
+			// The answer first, then every declared thesaurus (pre-ticked, not declined).
+			expect(plan.hierarchies).toEqual([
+				chosen?.tld ?? '(none)',
+				...DECLARED_THESAURI.filter((tld) => tld !== chosen?.tld),
+			]);
 			expect(
 				await scratchScalar(
 					`SELECT relation->'hierarchy8'->0->>'section_id' FROM matrix_hierarchy_main
@@ -333,7 +359,14 @@ describe('TS-native install e2e (P5)', () => {
 						`SELECT count(*) FROM matrix_hierarchy WHERE section_tipo = '${tld}${1}'`,
 					),
 				);
-				expect(terms, `${tld} terms imported`).toBeGreaterThan(0);
+				// A data-carrying entry brings its terms; one without data files is an
+				// EMPTY thesaurus by design — only the General Term root its activation
+				// mints (hierarchy_import.ts).
+				const carriesData = offeredHierarchies().some(
+					(entry) => entry.tld === tld && entry.data_files.length > 0,
+				);
+				if (carriesData) expect(terms, `${tld} terms imported`).toBeGreaterThan(0);
+				else expect(terms, `${tld} empty thesaurus: its root only`).toBe(1);
 			}
 
 			// The written .env: the official update servers, never DEDALO_SUPERVISED.

@@ -47,7 +47,9 @@
  *      same ACTIVE_ONTOLOGY_TLDS, and that written list maps back
  *      (ontologyRequestFromActive — the wizard's restarted process) to the very
  *      request the CLI plan stages.
- *  (i) DECLARED DEPENDENCIES (hierarchy60): every declared one pre-ticked;
+ *  (i) DECLARED DEPENDENCIES (hierarchy60): every declared one pre-ticked —
+ *      the core TLDs' declarations (vendoredCoreDeclarers) in EVERY plan, then
+ *      the install order's, derived through the production functions;
  *      a mandatory ONTOLOGY never declinable; a THESAURUS never blocks (owner
  *      decision 2026-10-10) — a declined mandatory one, or one with no
  *      hierarchy.json entry, is a WARNING on both sides, never a plan error.
@@ -87,9 +89,15 @@ import {
 } from '../../src/core/install/install_plan.ts';
 import { resolveOntologyCatalog } from '../../src/core/install/ontology_catalog.ts';
 import {
+	collectHierarchyDependencies,
+	declarersOf,
 	describeOntologyCatalog,
+	type HierarchyDependency,
+	hierarchyDependencyPlan,
+	type OntologyCatalog,
 	offeredHierarchyTlds,
 	ontologyRequestFromActive,
+	vendoredCoreDeclarers,
 	vendoredOntologyCatalog,
 } from '../../src/core/install/ontology_choice.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
@@ -107,14 +115,37 @@ const WIZARD_PROPERTIES = buildInstallContext().properties as Record<string, unk
 	ontologies: { default: string[] };
 };
 /**
- * The thesauri the WIZARD pre-ticks before any declaration is known: NONE
+ * The thesauri the WIZARD POSTS before any declaration is known: NONE
  * (2026-10-10 — pre-selection comes only from the declared dependencies, which
- * the wizard learns from persist_config's plan). Its context carries no default
- * list at all (pinned below), so the empty post IS its default answer.
+ * the plan adds itself and the wizard learns from persist_config's plan). Its
+ * context carries no default list at all (pinned below), so the empty post IS
+ * its default answer.
  */
 const WIZARD_DEFAULT_THESAURI: string[] = [];
 /** The domain ontologies the WIZARD pre-ticks (its context, not a re-typed list). */
 const WIZARD_DEFAULT_ONTOLOGIES = WIZARD_PROPERTIES.ontologies.default;
+
+/**
+ * The thesauri the RELEASE declares for an install order — the core TLDs'
+ * declarations (vendoredCoreDeclarers: part of EVERY plan) followed by the
+ * order's — derived through the production functions, never a hand-typed list:
+ * `dependencies` as the plan reports them, `install` the vendored ones the plan
+ * pre-ticks, in the plan's order.
+ */
+function declaredThesauri(
+	order: readonly string[],
+	catalog: OntologyCatalog = vendoredOntologyCatalog(),
+): { dependencies: HierarchyDependency[]; install: string[] } {
+	const { dependencies } = collectHierarchyDependencies([
+		...vendoredCoreDeclarers(),
+		...declarersOf(order, catalog),
+	]);
+	return { dependencies, install: hierarchyDependencyPlan(dependencies).install };
+}
+/** What the core TLDs alone declare (every plan carries it). */
+const CORE_DECLARED = declaredThesauri([]);
+/** What the DEFAULT install (core + the default domain ontologies) declares. */
+const DEFAULT_DECLARED = declaredThesauri(WIZARD_DEFAULT_ONTOLOGIES);
 
 /** An empty private dir: the spawned CLI's prior .env (none). */
 const EMPTY_PRIVATE = mkdtempSync(join(scratchRoot, 'empty_private_'));
@@ -152,8 +183,14 @@ const FIXTURE_SOURCE = (() => {
 	return dir;
 })();
 
-/** Two real VENDORED thesauri (installer data read at run time, never records). */
-const [THESAURUS_REQUIRED, THESAURUS_OPTIONAL] = [...offeredHierarchyTlds()] as [string, string];
+/**
+ * Two real VENDORED thesauri (installer data read at run time, never records)
+ * the core TLDs do NOT declare — so what the fixture declares is told apart
+ * from what every plan carries.
+ */
+const [THESAURUS_REQUIRED, THESAURUS_OPTIONAL] = [...offeredHierarchyTlds()].filter(
+	(tld) => !CORE_DECLARED.install.includes(tld),
+) as [string, string];
 
 /**
  * A LOCAL source whose entries declare hierarchy60 OBJECTS (2026-10-10): zzqc
@@ -481,8 +518,13 @@ describe('install plan — CLI ≡ wizard (a)', () => {
 		expect(diffusion.envKeys).toContain('DEDALO_DIFFUSION_NATIVE');
 		expect(mailer.envKeys).toContain('DEDALO_SMTP_HOST');
 		expect(cliPlan(CASES[3]?.argv ?? []).envKeys).toContain('SERVER_UNIX_SOCKET');
-		expect(cliPlan(CASES[5]?.argv ?? []).hierarchies).toEqual([]);
-		expect(base.hierarchies).toEqual(WIZARD_DEFAULT_THESAURI);
+		// The ONLY pre-selection is the release's declared thesauri (core + oh):
+		// the default (the wizard's empty post) and `none` alike — never anything else.
+		expect(DEFAULT_DECLARED.install.length, 'the release declares thesauri').toBeGreaterThan(0);
+		expect(base.hierarchies).toEqual(DEFAULT_DECLARED.install);
+		expect(base.hierarchyDependencies).toEqual(DEFAULT_DECLARED.dependencies);
+		expect(cliPlan(CASES[5]?.argv ?? []).hierarchies).toEqual(DEFAULT_DECLARED.install);
+		expect(buildInstallPlan(BASE_WIZARD).hierarchies).toEqual(DEFAULT_DECLARED.install);
 		// No toponymy chosen → the SUGGESTION (never a pre-selection); one chosen → none.
 		expect([...base.suggestions]).toEqual([TOPONYMY_SUGGESTION]);
 		expect(cliPlan(CASES[6]?.argv ?? []).suggestions).toHaveLength(0);
@@ -752,11 +794,19 @@ describe('install plan — declared dependencies: all pre-ticked; a thesaurus ne
 			});
 			expect(ticked.errors).toEqual([]);
 			expect(ticked.ontologyRequest?.items.map((item) => item.tld)).toEqual(['zzqd', 'zzqc']);
-			expect(ticked.hierarchies).toEqual([THESAURUS_REQUIRED, THESAURUS_OPTIONAL]);
-			expect(ticked.hierarchyDependencies).toEqual([
+			// The core TLDs' declared thesauri (every plan), then the fixture's.
+			const declared = declaredThesauri(['zzqd', 'zzqc'], resolved.catalog);
+			expect(declared.dependencies).toEqual([
+				...CORE_DECLARED.dependencies,
 				{ tld: THESAURUS_REQUIRED, mandatory: true, dependants: ['zzqc'] },
 				{ tld: THESAURUS_OPTIONAL, mandatory: false, dependants: ['zzqc'] },
 			]);
+			expect(ticked.hierarchies).toEqual([
+				...CORE_DECLARED.install,
+				THESAURUS_REQUIRED,
+				THESAURUS_OPTIONAL,
+			]);
+			expect(ticked.hierarchyDependencies).toEqual(declared.dependencies);
 
 			// The operator declines everything optional — AND the mandatory thesaurus:
 			// all of them leave (owner decision 2026-10-10 — a thesaurus never blocks
@@ -777,7 +827,8 @@ describe('install plan — declared dependencies: all pre-ticked; a thesaurus ne
 			]);
 			expect(cli.ontologyRequest?.items.map((item) => item.tld)).toEqual(['zzqc']);
 			expect(cli.activeOntologyTlds).toEqual([...CORE_ONTOLOGY_TLDS, 'zzqc']);
-			expect(cli.hierarchies).toEqual([]);
+			// only the core TLDs' declared thesauri remain (none of them declined)
+			expect(cli.hierarchies).toEqual(CORE_DECLARED.install);
 			expect(cli.notes).toContain(
 				"the ontology 'zzqd' (an optional dependency of 'zzqc') is declined — not installed",
 			);
@@ -875,7 +926,11 @@ describe('install plan — refusals and notes (f)', () => {
 
 	test('lg is dropped from the thesauri with a note; an unvendored tld is an error', () => {
 		const withLg = cliPlan([...BASE_ARGV, '--hierarchies', 'lg,fr']);
-		expect(withLg.hierarchies).toEqual(['fr']);
+		// the answer first, then the release's declared thesauri
+		expect(withLg.hierarchies).toEqual([
+			'fr',
+			...DEFAULT_DECLARED.install.filter((tld) => tld !== 'fr'),
+		]);
 		expect(withLg.notes.some((note) => note.startsWith('lg is a core hierarchy'))).toBe(true);
 		expect(withLg.errors).toEqual([]);
 		const unknown = buildInstallPlan({ ...BASE_WIZARD, hierarchies: ['zzipv'] });

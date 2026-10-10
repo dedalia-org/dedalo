@@ -1,6 +1,6 @@
 {
     "version": "7.0.0",
-    "date": "2026-10-10T22:47:38+02:00",
+    "date": "2026-10-10T23:07:05+02:00",
     "entity_id": 0,
     "entity": "master",
     "entity_label": "master",
@@ -3208,6 +3208,27 @@
                     "sha256": "dabc6e1cd4ffbbbef4990cac18c05abcb784cbb685232360d0f6164da5a9f445"
                 }
             ]
+        },
+        {
+            "tld": "htoponymy",
+            "name": "Historical toponymy",
+            "name_data": [
+                {
+                    "lang": "lg-spa",
+                    "value": "Historical toponymy",
+                    "id": 1
+                }
+            ],
+            "typology_id": 2,
+            "typology_name": "Toponimias",
+            "lang": {
+                "section_id": 5101,
+                "label": "English"
+            },
+            "real_section_tipo": "hierarchy20",
+            "active_in_thesaurus": true,
+            "scope_note_data": [],
+            "data_files": []
         },
         {
             "tld": "hu",
