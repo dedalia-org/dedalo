@@ -1846,6 +1846,11 @@
 			"skipped": 0,
 			"assertions": 8
 		},
+		"test/unit/hierarchy_census_native.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 44
+		},
 		"test/unit/hierarchy_generate_native.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -1855,6 +1860,11 @@
 			"tests": 5,
 			"skipped": 0,
 			"assertions": 15
+		},
+		"test/unit/hierarchy_manifest_format.test.ts": {
+			"tests": 20,
+			"skipped": 0,
+			"assertions": 114
 		},
 		"test/unit/hierarchy_provision_native.test.ts": {
 			"tests": 14,
@@ -4370,6 +4380,11 @@
 			"tests": 27,
 			"skipped": 0,
 			"assertions": 86
+		},
+		"test/unit/sql_idle_timeout_canary.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 4
 		},
 		"test/unit/sqo_client_nulls.test.ts": {
 			"tests": 12,

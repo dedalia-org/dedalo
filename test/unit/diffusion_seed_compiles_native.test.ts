@@ -33,14 +33,16 @@
  * an installation's).
  *
  * WHAT IS ASSERTED, per shipped element:
- *   - `validateElementPlan` answers errors [] and degradations [] — with two
- *     ENUMERATED, shrink-only exemptions carrying their reason:
+ *   - `validateElementPlan` answers errors [] and degradations [] — with
+ *     ENUMERATED, shrink-only exemptions carrying their reason (today only dd60;
+ *     dd1099's left 2026-10-10, see its history note below):
  *       · dd60 (`diffusion_section_stats`, domain `dedalo`): a v6 renderer with
  *         no v7 format. The migration lane is UPDATE-only and cannot retire the
  *         node, so it stays and must fail with EXACTLY the loud format error —
  *         it is the shipped POSITIVE CONTROL of the branch every other element
  *         used to die in.
- *       · dd1099 (`Web pública Dédalo`, domain `dedalo_dev`): its dd1192 table
+ *       · HISTORY — dd1099 (`Web pública Dédalo`, domain `dedalo_dev`), exempt
+ *         until the 2026-10-10 release, when the master ported the fields: its dd1192 table
  *         fields carry the v5 `process_dato` string-fn directive
  *         (`diffusion_sql::resolve_value`, `map_locator_to_terminoID`…) with no
  *         mechanical v7 translation. It must compile (errors []) AND report
@@ -109,16 +111,11 @@ const EXEMPT_ERRORS: ReadonlyMap<string, { reason: string; errors: string[] }> =
 	],
 ]);
 
-const EXEMPT_DEGRADATIONS: ReadonlyMap<string, { reason: string; fieldIds: string[] }> = new Map([
-	[
-		'dd1099',
-		{
-			reason:
-				'dd1192 (ts_web) fields carry the v5 `process_dato` string-fn directive (diffusion_sql::resolve_value / map_*_terminoID) with no mechanical v7 translation; reported as retired_parser_spelling (PUB-08, un-masked), semantic port to process.ddo_map/parser is the maintainer’s per field',
-			fieldIds: ['dd1419', 'dd1423', 'dd1424', 'dd1427', 'dd1433', 'dd1467', 'dd1508', 'dd1509'],
-		},
-	],
-]);
+// EMPTY since 2026-10-10: the master ported dd1099's eight dd1192 fields to v7
+// `process`/`parser` (ontology18), released in the 7.0 refresh — the former
+// exemption's degradations are gone. Shrink-only: an entry comes back only with
+// a measured degradation and its reason.
+const EXEMPT_DEGRADATIONS: ReadonlyMap<string, { reason: string; fieldIds: string[] }> = new Map();
 
 const WARNING_CLASSES = /^(uninstalled-tld|rewriter):/;
 
