@@ -630,8 +630,8 @@ render_search.prototype.render_search_buttons = function(){
 			// Close search div
 			toggle_search_panel(self) // toggle to open from default state close
 		}
-		// v6 parity: a plain text button (no icon). The .show_all icon class is
-		// neutralized inside .reset_group (search.less) so only the text shows.
+		// Labelled button with the list glyph, matching the reset_search icon
+		// beside it and the section list-mode show_all button.
 		const show_all_button = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'button show_all',

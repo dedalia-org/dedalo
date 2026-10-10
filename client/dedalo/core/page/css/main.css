@@ -9940,11 +9940,18 @@ body:has(.component_av.view_viewer) {
   mask: url(../../themes/default/icons/reload.svg) center / contain no-repeat;
 }
 .wrapper_search > .search_global_container > .search_container_selection .search_group_container > .search_buttons_container > .reset_group .button.show_all {
+  gap: 0.25rem;
   -webkit-mask-image: none;
   mask-image: none;
 }
 .wrapper_search > .search_global_container > .search_container_selection .search_group_container > .search_buttons_container > .reset_group .button.show_all:before {
-  content: none;
+  content: '';
+  flex: none;
+  width: 1em;
+  height: 1em;
+  background-color: currentColor;
+  -webkit-mask: url(../../themes/default/icons/list.svg) center / contain no-repeat;
+  mask: url(../../themes/default/icons/list.svg) center / contain no-repeat;
 }
 .wrapper_search > .search_global_container > .search_container_selection .search_group_container > .search_buttons_container > .button.submit {
   min-height: 2.75rem;

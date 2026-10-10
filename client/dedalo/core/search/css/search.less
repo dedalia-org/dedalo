@@ -801,15 +801,24 @@
 								}
 							}
 
-							// v6 parity: text-only "Show all". The generic .show_all icon
-							// class masks the box (.button&) and prepends a glyph (button&);
-							// both are dropped here so the label is what renders.
+							// "Show all" carries the same list glyph as its sibling
+							// reset_search icon AND the section list-mode button
+							// (.warning.show_all). The generic .show_all class masks
+							// the whole box (.button&) — drop that, then draw the glyph
+							// as a :before like .reset_search does.
 							.button.show_all {
+								gap: @space_s;
 								-webkit-mask-image: none;
 										mask-image: none;
 
 								&:before {
-									content: none;
+									content: '';
+									flex: none;
+									width: 1em;
+									height: 1em;
+									background-color: currentColor;
+									-webkit-mask: url(../../themes/default/icons/list.svg) center / contain no-repeat;
+											mask: url(../../themes/default/icons/list.svg) center / contain no-repeat;
 								}
 							}
 						}
