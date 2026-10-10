@@ -15,6 +15,14 @@
  * `DEV_REF`), imported, never restated; a prerelease tag never publishes, and no image
  * is ever tagged `latest`.
  *
+ * A RELEASE NEEDS THE FULL GATE GREEN ON ITS COMMIT (2026-10-10). `plan` refuses a
+ * release whose commit has no SUCCESSFUL `push` run of BOTH ci.yml (hermetic) and db.yml
+ * (db + instance) — the full gate, as GitHub ran it — read through the Actions API
+ * (`gh api`, the run's own read-only token, `actions: read`). The pre-push hook holds the
+ * same rule at the desk (a release tag needs a FULL green); this is the half no
+ * `--no-verify` reaches. An unreadable API refuses too: fail closed. The developer
+ * channel is not held (a mutable `-dev` build of the master tip, like `<v>-dev.zip`).
+ *
  * THE BUILD CONTEXT IS A GIT ARCHIVE of the release commit — the code server's own
  * mechanism — so `build_info.txt` is expanded exactly as in the release zip, and the
  * image reports the commit it was built from. The sha256 of that tar stream is the
@@ -204,6 +212,58 @@ export function resolvePlan(facts: PlanFacts, git: PlanGit, staging: string): Re
 	if (facts.inputChannel === 'dev') return devPlanFor(facts, git, staging);
 	if (facts.inputChannel === 'release') return dispatchedReleasePlan(facts, git, staging);
 	throw new Refusal(`channel must be dev or release (got '${facts.inputChannel}')`);
+}
+
+/** The workflows whose green push runs ARE the full gate on GitHub: hermetic; db + instance. */
+export const FULL_GATE_WORKFLOWS = ['ci.yml', 'db.yml'] as const;
+
+/**
+ * The refusal for a release commit whose full gate is not green, or null. `greens` maps each
+ * workflow to its count of SUCCESSFUL push runs at the commit — null when it could not be read.
+ * Pure.
+ */
+export function fullGateFault(
+	sha: string,
+	greens: ReadonlyMap<string, number | null>,
+): string | null {
+	const missing: string[] = [];
+	for (const workflow of FULL_GATE_WORKFLOWS) {
+		const count = greens.get(workflow);
+		if (count === null || count === undefined) missing.push(`${workflow} (runs unreadable)`);
+		else if (count < 1) missing.push(`${workflow} (no successful push run)`);
+	}
+	if (missing.length === 0) return null;
+	return `release commit ${sha} has no green FULL gate: ${missing.join(', ')} — push the commit to master (or v7) on GitHub and let ci.yml + db.yml pass, then re-run (a release is cut only from a commit the full gate passed)`;
+}
+
+/** Successful `push` runs of each FULL_GATE_WORKFLOWS workflow at `sha`, via `gh api`. */
+export function fullGateGreens(env: Env, run: Runner, sha: string): Map<string, number | null> {
+	const repo = env.GITHUB_REPOSITORY ?? '';
+	const greens = new Map<string, number | null>();
+	for (const workflow of FULL_GATE_WORKFLOWS) {
+		if (repo === '') {
+			greens.set(workflow, null);
+			continue;
+		}
+		const result = run([
+			'gh',
+			'api',
+			'-X',
+			'GET',
+			`repos/${repo}/actions/workflows/${workflow}/runs`,
+			'-f',
+			`head_sha=${sha}`,
+			'-f',
+			'event=push',
+			'-f',
+			'status=success',
+			'--jq',
+			'.total_count',
+		]);
+		const count = Number.parseInt(result.stdout.trim(), 10);
+		greens.set(workflow, result.code === 0 && Number.isFinite(count) ? count : null);
+	}
+	return greens;
 }
 
 /** The real git lookups, in the checkout this program runs from. */
@@ -800,6 +860,11 @@ function planVerb(env: Env, run: Runner): number {
 	const cwd = process.cwd();
 	const list = registriesOf(env);
 	const plan = resolvePlan(planFactsOf(env), gitLookups(run, cwd), list.ci.staging_repository);
+	if (plan.channel === 'master') {
+		const fault = fullGateFault(plan.source_sha, fullGateGreens(env, run, plan.source_sha));
+		if (fault !== null) throw new Refusal(fault);
+		console.log(`plan: full gate green on ${plan.source_sha} (${FULL_GATE_WORKFLOWS.join(' + ')})`);
+	}
 	const tmp = requireEnv(env, ['RUNNER_TEMP']).RUNNER_TEMP as string;
 	const archive = archiveTree(run, cwd, plan.source_sha, join(tmp, 'plan-source.tar'));
 	writeOutputs(env, { ...plan, archive_sha256: archive, created: new Date().toISOString() });

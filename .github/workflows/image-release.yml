@@ -16,7 +16,9 @@
 # `:X.Y.Z-dev` (mutable, like the code server's on-demand `<v>-dev.zip`). Never `latest`.
 # Prerelease tags (v7.0.0-beta.N) do not match the trigger and are refused by `plan`.
 #
-# HOW. `plan` resolves the release (code_build_plan.ts's own rules). `build` runs per arch
+# HOW. `plan` resolves the release (code_build_plan.ts's own rules) and REFUSES a release
+# whose commit has no successful push run of ci.yml AND db.yml — a release is cut only from
+# a commit the full gate passed (2026-10-10; the pre-push hook holds the same at the desk). `build` runs per arch
 # on NATIVE runners (amd64 / arm64, no QEMU — the ci-image.yml precedent): the context is
 # a `git archive` of the release commit (the code server's mechanism, so build_info.txt is
 # expanded and the image reports its commit), the Dockerfile's provenance step stamps the
@@ -93,8 +95,11 @@ jobs:
   plan:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # actions: read — plan refuses a release whose commit has no green push run of ci.yml
+    # AND db.yml (the full gate, as GitHub ran it; scripts/ci/image_release.ts fullGateFault).
     permissions:
       contents: read
+      actions: read
     outputs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
@@ -116,6 +121,7 @@ jobs:
         env:
           INPUT_CHANNEL: ${{ inputs.channel }}
           INPUT_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           bun run scripts/ci/image_release.ts plan
 

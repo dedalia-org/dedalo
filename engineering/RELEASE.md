@@ -34,7 +34,15 @@ minor within the major, no skipping).
 
 3. **Verify the gates.** `DEDALO_DATABASE_CONN=<suite db> bun test
    test/unit/…` for the touched surfaces, `bunx tsc --noEmit` (zero NEW
-   errors), `bun run lint` on the touched files. **Tag the release commit**
+   errors), `bun run lint` on the touched files. **The release commit must
+   have passed the FULL gate** (hermetic + db + instance): push it to a public
+   mirror first (`bun run push`, or `git push github master` — public pushes are
+   gated full) and let ci.yml + db.yml go green on GitHub. Two gates hold this:
+   the pre-push hook refuses a `vX.Y.Z` tag whose commit has no FULL green on
+   the desk (it gates it full when the tag names HEAD), and image-release.yml's
+   `plan` refuses a tag whose commit has no successful push run of BOTH ci.yml
+   and db.yml. A push to the internal remote alone (gitdedalo — hermetic only)
+   never qualifies a commit. **Tag the release commit**
    (`git tag v7.0.1 && git push <remote> v7.0.1`). The tag IS the release: its
    name and the commit's `version.ts` must agree (the build refuses a
    `v7.0.1` tag whose tree declares another version), and prerelease tags
