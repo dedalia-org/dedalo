@@ -79,6 +79,27 @@ async function probeOntologyServers(): Promise<Record<string, unknown>[]> {
 }
 
 /**
+ * Installed-snapshot metadata from the dd1 root node properties. Its five
+ * null-coalescing reads are the branchiness the panel fold once carried;
+ * extracted from updateOntologyGetValue (extract-AND-rewire, the CRAP program's
+ * law) so that fold stays under the ratchet's frozen max.
+ */
+async function readInstalledOntologyMetadata(): Promise<Record<string, unknown>> {
+	const { readDdOntologyRow } = await import('../../db/dd_ontology.ts');
+	const rootRow = (await readDdOntologyRow('dd1')) as {
+		properties?: Record<string, unknown>;
+	} | null;
+	const properties = rootRow?.properties ?? {};
+	return {
+		date: properties.date ?? null,
+		host: properties.host ?? null,
+		entity: properties.entity ?? null,
+		entity_label: properties.entity_label ?? null,
+		version: properties.version ?? null,
+	};
+}
+
+/**
  * update_ontology panel (PHP get_value — response bytes preserved; the
  * legacy STRUCTURE_SERVER_URL/CODE fallback is not carried: TS installs are
  * v7-configured).
@@ -90,11 +111,11 @@ async function probeOntologyServers(): Promise<Record<string, unknown>[]> {
  * so a second direct gate would assert the same fold twice.
  */
 async function updateOntologyGetValue(): Promise<WidgetResponse> {
-	const { readDdOntologyRow } = await import('../../db/dd_ontology.ts');
 	const { getLabels } = await import('../../labels/catalog.ts');
 	const { currentApplicationLang } = await import('../../resolve/request_lang.ts');
 
 	const servers = await probeOntologyServers();
+	const currentOntology = await readInstalledOntologyMetadata();
 
 	// TLD list: the configured active TLDs, always unioned with the core pair.
 	// `..._configured` tells the panel whether ACTIVE_ONTOLOGY_TLDS was set at all
@@ -103,19 +124,6 @@ async function updateOntologyGetValue(): Promise<WidgetResponse> {
 	const activeOntologyTlds = [
 		...new Set([...config.ontologyIo.activeOntologyTlds, 'ontology', 'ontologytype']),
 	];
-
-	// Installed-snapshot metadata from the dd1 root node properties.
-	const rootRow = (await readDdOntologyRow('dd1')) as {
-		properties?: Record<string, unknown>;
-	} | null;
-	const properties = rootRow?.properties ?? {};
-	const currentOntology = {
-		date: properties.date ?? null,
-		host: properties.host ?? null,
-		entity: properties.entity ?? null,
-		entity_label: properties.entity_label ?? null,
-		version: properties.version ?? null,
-	};
 
 	const labels = await getLabels(currentApplicationLang());
 

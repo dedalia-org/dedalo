@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 645,
-		"functions": 8721,
+		"functions": 8722,
 		"functionsOverCap": 676,
 		"filesOverCap": 259
 	},
@@ -162,7 +162,7 @@
 		"src/core/area_maintenance/widgets/sequences_status.ts": 10,
 		"src/core/area_maintenance/widgets/site_builder_status.ts": 8,
 		"src/core/area_maintenance/widgets/system_info.ts": 7,
-		"src/core/area_maintenance/widgets/update_ontology.ts": 8,
+		"src/core/area_maintenance/widgets/update_ontology.ts": 7,
 		"src/core/client_libs/serving.ts": 11,
 		"src/core/components/component_date/date_value.ts": 20,
 		"src/core/components/component_external/value.ts": 12,
