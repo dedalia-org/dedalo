@@ -3,8 +3,8 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1807879,
-		"sha256": "422866db546d3465fc25921be9810e35fffcecbb5a4363c4bb7b6efd961294f0",
+		"bytes": 1807887,
+		"sha256": "36fa2cf74ecf6292892d88cb2df2c6dc7c2bfc3a26e98e240aef052cf2c345a1",
 		"content_sha256": "d58ff94d4445ef790aadfc37912d2c938b9b5392f78227c87b28bc6ac5b4c289",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
