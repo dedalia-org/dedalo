@@ -302,18 +302,52 @@ function ciCalls(): string[] {
 
 let repoCounter = 0;
 
+/** The bare remote `freshRepo` creates for `remote` in repo number `n`. */
+function bareFor(n: number, remote: string): string {
+	return join(scratch, `remote${n}_${remote}.git`);
+}
+
+/** The REAL hook's identity of a remote URL (`--remote-id`). */
+function remoteId(url: string): string {
+	const r = run(['sh', HOOK_PATH, '--remote-id', url], scratch);
+	if (r.code !== 0 || !/^[0-9a-f]{40}\n?$/.test(r.out)) throw new Error(`--remote-id ${url}: ${r.err}`);
+	return r.out.trim();
+}
+
+/** The REAL hook's class of a remote URL (`--remote-class`). */
+function remoteClass(url: string, hookPath = HOOK_PATH): string {
+	const r = run(['sh', hookPath, '--remote-class', url], scratch);
+	if (r.code !== 0) throw new Error(`--remote-class ${url}: ${r.err}`);
+	return r.out.trim();
+}
+
+/** The hook text with INTERNAL_REMOTE_IDS replaced (a control must APPLY). */
+function withInternalIds(hook: string, ids: string[]): string {
+	const out = hook.replace(/^INTERNAL_REMOTE_IDS='[^']*'$/m, `INTERNAL_REMOTE_IDS='${ids.join(' ')}'`);
+	if (out === hook) throw new Error(`${HOOK_REL}: no INTERNAL_REMOTE_IDS='…' line to replace`);
+	return out;
+}
+
 /**
  * A fresh developer repo on branch v7 (+ master at the same commit) with the real hook
  * and push.ts, stubbed package.json scripts, and `remotes` bare remotes that already
  * hold the initial commit (pushed with --no-verify, tracking refs fetched).
  */
-function freshRepo(remotes: string[] = ['origin']): string {
+function freshRepo(remotes: string[] = ['origin'], internal: string[] = []): string {
 	repoCounter++;
 	const repo = join(scratch, `work${repoCounter}`);
 	mkdirSync(repo, { recursive: true });
 	git(repo, 'init', '-q', '-b', 'v7');
 	mkdirSync(join(repo, 'scripts/hooks'), { recursive: true });
-	copyFileSync(HOOK_PATH, join(repo, HOOK_REL));
+	// `internal` remotes: their bare-repo URL's identity REPLACES the hook's
+	// INTERNAL_REMOTE_IDS in this scratch copy — the real internal URL is named nowhere
+	// in the repository, so the policy is exercised on a stand-in identity.
+	const hook = readFileSync(HOOK_PATH, 'utf8');
+	const ids = internal.map((remote) => remoteId(bareFor(repoCounter, remote)));
+	writeFileSync(
+		join(repo, HOOK_REL),
+		internal.length === 0 ? hook : withInternalIds(hook, ids),
+	);
 	chmodSync(join(repo, HOOK_REL), 0o755);
 	copyFileSync(PUSH_PATH, join(repo, 'scripts/push.ts'));
 	write(
@@ -346,7 +380,7 @@ function freshRepo(remotes: string[] = ['origin']): string {
 	git(repo, 'branch', 'master');
 	git(repo, 'config', 'core.hooksPath', 'scripts/hooks');
 	for (const remote of remotes) {
-		const bare = join(scratch, `remote${repoCounter}_${remote}.git`);
+		const bare = bareFor(repoCounter, remote);
 		git(scratch, 'init', '-q', '--bare', bare);
 		git(repo, 'remote', 'add', remote, bare);
 		git(repo, 'push', '-q', '--no-verify', remote, 'v7', 'master');
@@ -824,6 +858,180 @@ describe('pre-push gate: the audit base is the remote sha, and the green cache k
 		writeFileSync(join(repo, '.git', 'dedalo-prepush-green'), `${sha} full\n`);
 		expect(run(['git', 'push', 'origin', 'v7'], repo).code).toBe(0);
 		expect(ciCalls().length).toBe(1);
+	});
+});
+
+// ─────────────────────────────────────────────── 5e. the gate is per remote (2026-10-10)
+
+describe('pre-push gate: remotes are classified by URL — internal hermetic-only, public/unknown full', () => {
+	const PUBLIC_SPELLINGS = [
+		'https://github.com/dedalia-org/dedalo.git',
+		'https://github.com/dedalia-org/dedalo',
+		'git@github.com:dedalia-org/dedalo.git',
+		'ssh://git@github.com/dedalia-org/dedalo.git',
+		'ssh://git@github.com:22/dedalia-org/dedalo/',
+		'https://GitHub.com/dedalia-org/dedalo.git',
+		'https://gitlab.com/dedalia/dedalo.git',
+		'https://oauth2:token@gitlab.com:443/dedalia/dedalo',
+		'git@gitlab.com:dedalia/dedalo.git',
+	];
+	const LOOKALIKES = [
+		'https://github.com/dedalia-org/dedalo-fork.git',
+		'https://github.com/someone/dedalo.git',
+		'https://github.com.evil.example/dedalia-org/dedalo.git',
+		'https://evil.example/github.com/dedalia-org/dedalo.git',
+		'/srv/git/dedalo.git',
+		'file:///srv/git/dedalo.git',
+		'',
+	];
+
+	test('every spelling of the public mirrors is public; a look-alike or a local path is unknown', () => {
+		for (const url of PUBLIC_SPELLINGS) expect(remoteClass(url), url).toBe('public');
+		for (const url of LOOKALIKES) expect(remoteClass(url), url).toBe('unknown');
+	});
+
+	test('the real INTERNAL_REMOTE_IDS are identities (40-hex), and none is a public mirror', () => {
+		const line = readFileSync(HOOK_PATH, 'utf8').match(/^INTERNAL_REMOTE_IDS='([^']*)'$/m);
+		expect(line, `${HOOK_REL}: no INTERNAL_REMOTE_IDS line`).not.toBeNull();
+		const ids = (line?.[1] ?? '').split(/\s+/).filter((id) => id !== '');
+		expect(ids.length).toBeGreaterThanOrEqual(1);
+		for (const id of ids) expect(id).toMatch(/^[0-9a-f]{40}$/);
+		const publicIds = new Set([...PUBLIC_SPELLINGS, ...LOOKALIKES].map(remoteId));
+		for (const id of ids) expect(publicIds.has(id), `internal id ${id} is a public URL`).toBe(false);
+	});
+
+	test('a stand-in internal identity matches its own spellings only (port, path, host all count)', () => {
+		const url = 'ssh://git@internal.example:2222/srv/repo.git';
+		const hook = join(scratch, 'pre-push-internal');
+		writeFileSync(hook, withInternalIds(readFileSync(HOOK_PATH, 'utf8'), [remoteId(url)]));
+		for (const same of [
+			url,
+			'ssh://other@INTERNAL.example:2222/srv/repo',
+			'ssh://git@internal.example:2222//srv/repo.git/',
+		])
+			expect(remoteClass(same, hook), same).toBe('internal');
+		for (const other of [
+			'ssh://git@internal.example/srv/repo.git', // port 22: another server
+			'ssh://git@internal.example:2222/srv/repo2.git',
+			'ssh://git@internal.example.evil:2222/srv/repo.git',
+			'https://github.com/dedalia-org/dedalo.git',
+		])
+			expect(remoteClass(other, hook), other).not.toBe('internal');
+	});
+
+	test('an INTERNAL push of a src/ change runs --hermetic only, says so, and a public-class push of the same sha re-gates full', () => {
+		const repo = freshRepo(['gitdedalo', 'mirror'], ['gitdedalo']);
+		write(repo, 'src/a.ts', 'export const a = 2;\n');
+		const sha = commitAll(repo, 'src change');
+		const r = run(['git', 'push', 'gitdedalo', 'v7'], repo);
+		expect(r.code, r.err).toBe(0);
+		expect(r.err).toContain('internal push: hermetic only; db/instance run nightly');
+		expect(ciCalls()).toEqual([expect.stringMatching(/^ci --docker --hermetic --ref /)]);
+		expect(remoteTip(repo, 'gitdedalo', 'v7')).toBe(sha);
+		// The hermetic green never answers for a remote that needs the full gate.
+		const second = run(['git', 'push', 'mirror', 'v7'], repo);
+		expect(second.code, second.err).toBe(0);
+		expect(second.err).toContain('remote: unknown');
+		expect(ciCalls()[1]).toMatch(/^ci --docker --hermetic --db --instance --ref /);
+	});
+
+	test('the URL decides, not the name: a RENAMED internal remote stays hermetic; a remote NAMED gitdedalo elsewhere is full', () => {
+		const repo = freshRepo(['gitdedalo', 'other'], ['gitdedalo']);
+		git(repo, 'remote', 'rename', 'gitdedalo', 'github');
+		write(repo, 'src/a.ts', 'export const a = 3;\n');
+		commitAll(repo, 'one');
+		expect(run(['git', 'push', 'github', 'v7'], repo).code).toBe(0);
+		expect(ciCalls()).toEqual([expect.stringMatching(/^ci --docker --hermetic --ref /)]);
+		resetLog();
+		git(repo, 'remote', 'rename', 'other', 'gitdedalo');
+		write(repo, 'src/a.ts', 'export const a = 4;\n');
+		commitAll(repo, 'two');
+		const r = run(['git', 'push', 'gitdedalo', 'v7'], repo);
+		expect(r.code, r.err).toBe(0);
+		expect(ciCalls()).toEqual([expect.stringMatching(/^ci --docker --hermetic --db --instance /)]);
+	});
+
+	test('DEDALO_PREPUSH=full forces the full gate on an internal push', () => {
+		const repo = freshRepo(['gitdedalo'], ['gitdedalo']);
+		write(repo, 'src/a.ts', 'export const a = 5;\n');
+		commitAll(repo, 'src');
+		expect(run(['git', 'push', 'gitdedalo', 'v7'], repo, { DEDALO_PREPUSH: 'full' }).code).toBe(0);
+		expect(ciCalls()).toEqual([expect.stringMatching(/^ci --docker --hermetic --db --instance /)]);
+	});
+
+	test('a red internal push says honestly that no CI runs there after --no-verify', () => {
+		const repo = freshRepo(['gitdedalo'], ['gitdedalo']);
+		write(repo, 'src/a.ts', 'export const a = 6;\n');
+		commitAll(repo, 'src');
+		const r = run(['git', 'push', 'gitdedalo', 'v7'], repo, { STUB_CI_CODE: '1' });
+		expect(r.code).not.toBe(0);
+		expect(r.err).toContain('no CI runs on the internal remote');
+		expect(r.err).not.toContain('CI still runs');
+	});
+});
+
+describe('pre-push gate: a release tag needs a FULL green for its commit, on any remote', () => {
+	test('a release tag at HEAD whose commit is already on the internal remote is gated FULL (audit forced)', () => {
+		const repo = freshRepo(['gitdedalo'], ['gitdedalo']);
+		write(repo, 'src/a.ts', 'export const a = 7;\n');
+		const sha = commitAll(repo, 'release');
+		expect(run(['git', 'push', 'gitdedalo', 'v7'], repo).code).toBe(0);
+		resetLog();
+		git(repo, 'tag', '-a', '-m', 'release', 'v7.0.1');
+		const r = run(['git', 'push', 'gitdedalo', 'v7.0.1'], repo);
+		expect(r.code, r.err).toBe(0);
+		expect(r.err).toContain('release tag v7.0.1 names HEAD');
+		expect(ciCalls()).toEqual([
+			expect.stringMatching(
+				new RegExp(`^ci --docker --hermetic --db --instance --ref ${sha} --audit-base 0{40} `),
+			),
+		]);
+		expect(git(repo, 'ls-remote', 'gitdedalo', 'refs/tags/v7.0.1^{}').split('\t')[0]).toBe(sha);
+	});
+
+	test('a release tag on a commit with no FULL green (not HEAD) is refused — nothing gated, nothing pushed', () => {
+		const repo = freshRepo(['gitdedalo'], ['gitdedalo']);
+		const old = git(repo, 'rev-parse', 'HEAD');
+		write(repo, 'src/a.ts', 'export const a = 8;\n');
+		commitAll(repo, 'later');
+		git(repo, 'tag', 'v7.0.2', old);
+		const r = run(['git', 'push', 'gitdedalo', 'v7.0.2'], repo);
+		expect(r.code).not.toBe(0);
+		expect(r.err).toContain(`REFUSED — release tag v7.0.2 names ${old}, which has no FULL green`);
+		expect(ciCalls()).toEqual([]);
+		expect(git(repo, 'ls-remote', 'gitdedalo', 'refs/tags/v7.0.2')).toBe('');
+		// A HERMETIC green is not enough: gate the commit internally, then tag it.
+		write(repo, 'src/a.ts', 'export const a = 9;\n');
+		const sha = commitAll(repo, 'hermetic only');
+		expect(run(['git', 'push', 'gitdedalo', 'v7'], repo).code).toBe(0);
+		write(repo, 'src/a.ts', 'export const a = 10;\n');
+		commitAll(repo, 'moved on');
+		git(repo, 'tag', 'v7.0.3', sha);
+		expect(run(['git', 'push', 'gitdedalo', 'v7.0.3'], repo).code).not.toBe(0);
+	});
+
+	test('a release tag on a commit the FULL gate passed is accepted without re-gating, even off HEAD', () => {
+		const repo = freshRepo(['gitdedalo', 'mirror'], ['gitdedalo']);
+		write(repo, 'src/a.ts', 'export const a = 11;\n');
+		const sha = commitAll(repo, 'gated full on the mirror');
+		expect(run(['git', 'push', 'mirror', 'v7'], repo).code).toBe(0); // unknown → full
+		git(repo, 'push', '-q', '--no-verify', 'gitdedalo', 'v7');
+		write(repo, 'src/a.ts', 'export const a = 12;\n');
+		commitAll(repo, 'moved on');
+		resetLog();
+		git(repo, 'tag', 'v7.0.4', sha);
+		const r = run(['git', 'push', 'gitdedalo', 'v7.0.4'], repo);
+		expect(r.code, r.err).toBe(0);
+		expect(r.err).toContain('already gated green at the FULL level');
+		expect(ciCalls()).toEqual([]);
+	});
+
+	test('a PRERELEASE tag (never published) needs no full green', () => {
+		const repo = freshRepo(['gitdedalo'], ['gitdedalo']);
+		git(repo, 'tag', 'v7.0.5-beta.1');
+		const r = run(['git', 'push', 'gitdedalo', 'v7.0.5-beta.1'], repo);
+		expect(r.code, r.err).toBe(0);
+		expect(ciCalls()).toEqual([]);
 	});
 });
 

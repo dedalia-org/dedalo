@@ -41,12 +41,43 @@
 #      --fail-fast a red hermetic hid db/instance, and each run peeled ONE layer: ten
 #      15-minute runs on 2026-10-01 to see what one would have shown).
 #   3. `--db --instance` too, UNLESS every file the pushed range touches is
-#      in HERMETIC_ONLY_PATHS below — or always, with DEDALO_PREPUSH=full. CI
+#      in HERMETIC_ONLY_PATHS below, or the remote is INTERNAL (see "THE GATE IS
+#      PER REMOTE") — or always, with DEDALO_PREPUSH=full. CI
 #      itself runs them on every push; skipping them here is a desk-time trade,
 #      and it is only taken where it is PROVABLY not a hole (see the list).
 #      The db tier runs WHOLE, its unit stage included (~5 min): that stage is
 #      blocking on the runner (2026-10-02), so a desk that skipped it would pass
 #      what the runner refuses.
+#
+# THE GATE IS PER REMOTE (policy 2026-10-10 — the full gate is ~46 min, too long
+# for every day-to-day push). The remote is CLASSIFIED BY ITS URL, never by its
+# name (a renamed remote must not change the gate), normalized first
+# (`normalize_remote_url`: scheme, user, default port, trailing `/` and `.git`
+# dropped; host lowercased — so the ssh://, scp-like and https spellings of one
+# repository agree):
+#   internal — the URL's identity is in INTERNAL_REMOTE_IDS (the day-to-day
+#              remote, gitdedalo): HERMETIC ONLY, whatever the range touches.
+#              The db and instance tiers run NIGHTLY on GitHub against
+#              gitdedalo/master (.github/workflows/nightly.yml, job full_gate),
+#              which is what makes the downgrade honest — a red there lands in
+#              the ci-nightly issue with the gitdedalo sha.
+#   public   — PUBLIC_REMOTES (the github / gitlab mirrors): steps 1-3 as above.
+#   unknown  — anything else (a local path, a fork, an ssh alias): the SAME as
+#              public. A URL the hook cannot place never selects less.
+# The internal identity is `git hash-object` of the normalized URL, not the URL:
+# this file ships in the public mirrors, and the internal host is named nowhere in
+# the repository. To print a remote's identity:
+#   sh scripts/hooks/pre-push --remote-id "$(git remote get-url --push gitdedalo)"
+# DEDALO_PREPUSH=full forces the full gate on an internal push too.
+#
+# A RELEASE TAG NEEDS A FULL GREEN, TO ANY REMOTE. A pushed ref landing on
+# `refs/tags/vX.Y.Z` (the stable-release shape image-release.yml and the code
+# server publish) requires a FULL green for the tag's commit: remembered in the
+# green file below, or gated full now when the tag names HEAD — even when the
+# commit itself is already on the remote (a tag push carries no new commit, so
+# nothing else would gate it). A tag on any other commit without a full green is
+# REFUSED. On GitHub the tag is held again, unbypassably: image-release.yml's plan
+# refuses a tag whose commit has no green push run of ci.yml AND db.yml.
 #
 # THE GATED TREE IS THE PUSHED COMMIT. ci:local gets `--ref <HEAD sha>`: the
 # container checks out exactly that commit, no working-tree overlay; and the
@@ -86,13 +117,86 @@
 # EXIT CODES: 0 push proceeds · 1 red / precondition failed · 3 improvements
 # banked into a new commit, re-run the push (`bun run push` retries by itself).
 #
-# Environment: DEDALO_PREPUSH=full forces the db + instance tiers.
+# Environment: DEDALO_PREPUSH=full forces the db + instance tiers (any remote).
 
 set -u
 
-remote_name="${1:-}"
-
 ZERO_SHA_RE='^0*$'
+
+# The stable release tag (image-release.yml's trigger, code_build_plan's rule):
+# prerelease tags (v7.0.0-beta.1) are never published, so they need no full green.
+RELEASE_TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+# INTERNAL remotes, by IDENTITY: `git hash-object` of the normalized URL (see
+# "THE GATE IS PER REMOTE" above). Space-separated; one entry today — gitdedalo.
+INTERNAL_REMOTE_IDS='a878a072c74ed35494ae44763bee530384b9604c'
+# PUBLIC remotes, by normalized URL. Informational: an unknown remote is gated
+# exactly like these — the list only names them in the messages.
+PUBLIC_REMOTES='github.com/dedalia-org/dedalo gitlab.com/dedalia/dedalo'
+
+# A remote URL → `host[:port]/path`: no scheme, no user, no default port (22, 443,
+# 80, 9418), no repeated or trailing `/`, no trailing `.git`, the host lowercased.
+# scp-like `user@host:path` becomes `host/path`. A local path stays a path.
+normalize_remote_url() {
+	nu_url="$1"
+	nu_scheme=0
+	case "$nu_url" in *://*) nu_url="${nu_url#*://}"; nu_scheme=1 ;; esac
+	case "${nu_url%%/*}" in *@*) nu_url="${nu_url#*@}" ;; esac
+	if [ "$nu_scheme" -eq 0 ]; then
+		case "${nu_url%%/*}" in
+			*:*) nu_url="${nu_url%%:*}/${nu_url#*:}" ;; # scp-like host:path
+			*) printf '%s\n' "$nu_url"; return 0 ;;     # a local path
+		esac
+	fi
+	nu_host="$(printf '%s' "${nu_url%%/*}" | tr '[:upper:]' '[:lower:]')"
+	case "$nu_url" in */*) nu_path="/${nu_url#*/}" ;; *) nu_path='' ;; esac
+	case "$nu_host" in *:22 | *:443 | *:80 | *:9418) nu_host="${nu_host%:*}" ;; esac
+	nu_path="$(printf '%s' "$nu_path" | sed -e 's#//*#/#g' -e 's#/*$##' -e 's#\.git$##' -e 's#/*$##')"
+	printf '%s\n' "$nu_host$nu_path"
+}
+
+# A remote URL → internal | public | unknown.
+classify_remote_url() {
+	cr_norm="$(normalize_remote_url "$1")"
+	cr_id="$(printf '%s' "$cr_norm" | git hash-object --stdin)" || cr_id=''
+	for cr_entry in $INTERNAL_REMOTE_IDS; do
+		[ -n "$cr_id" ] && [ "$cr_id" = "$cr_entry" ] && {
+			echo internal
+			return 0
+		}
+	done
+	for cr_entry in $PUBLIC_REMOTES; do
+		[ "$cr_norm" = "$cr_entry" ] && {
+			echo public
+			return 0
+		}
+	done
+	echo unknown
+}
+
+# `--remote-id <url>` / `--remote-class <url>`: print and exit — for registering a
+# remote in INTERNAL_REMOTE_IDS, and for the gate's own tests. Never a push.
+case "${1:-}" in
+	--remote-id)
+		printf '%s' "$(normalize_remote_url "${2:-}")" | git hash-object --stdin
+		exit $?
+		;;
+	--remote-class)
+		classify_remote_url "${2:-}"
+		exit 0
+		;;
+esac
+
+remote_name="${1:-}"
+remote_url="${2:-}"
+remote_class="$(classify_remote_url "$remote_url")"
+# What still checks the commit after a `--no-verify` — said honestly per remote:
+# gitdedalo has no CI of its own; only the nightly full_gate sees its master.
+if [ "$remote_class" = internal ]; then
+	ci_after_bypass='no CI runs on the internal remote; only the nightly full_gate sees its master'
+else
+	ci_after_bypass='CI still runs on the public mirrors'
+fi
 
 # The paths whose change CANNOT alter a db- or instance-tier verdict. It is an
 # ALLOW-list for skipping, not a list of what the tiers read: anything not
@@ -178,12 +282,22 @@ gated_any=0
 # new branch (`before` = 000…). Never left to ci:local's upstream fallback.
 audit_key=''
 gated_refs=''
-while read -r local_ref local_sha _remote_ref remote_sha; do
+# `<remote ref> <commit>` per release tag in this push (see "A RELEASE TAG NEEDS A FULL GREEN").
+release_tags=''
+while read -r local_ref local_sha remote_ref remote_sha; do
 	[ -n "${local_sha:-}" ] || continue
 	# A deletion carries no code.
 	if printf '%s' "$local_sha" | grep -Eq "$ZERO_SHA_RE"; then continue; fi
 	# A tag at a blob/tree, or anything that is not a commit: nothing to test.
 	commit="$(git rev-parse --verify -q "${local_sha}^{commit}")" || continue
+	# The name it LANDS under on the remote decides (`git push r HEAD:refs/tags/v7.0.1`).
+	case "${remote_ref:-}" in
+		refs/tags/*)
+			if printf '%s' "${remote_ref#refs/tags/}" | grep -Eq "$RELEASE_TAG_RE"; then
+				release_tags="$release_tags ${remote_ref#refs/tags/}=$commit"
+			fi
+			;;
+	esac
 
 	if ! printf '%s' "$remote_sha" | grep -Eq "$ZERO_SHA_RE" &&
 		git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
@@ -226,13 +340,48 @@ while read -r local_ref local_sha _remote_ref remote_sha; do
 	fi
 done <"$refs_file"
 
-if [ "$gated_any" -eq 0 ]; then
+green_file="$(git rev-parse --git-path dedalo-prepush-green)"
+
+# ── release tags: a FULL green for the tag's commit, or gate it full now ────
+release_needs_gate=0
+for entry in $release_tags; do
+	tag="${entry%%=*}"
+	tag_sha="${entry#*=}"
+	if [ -f "$green_file" ] && grep -Eq "^$tag_sha full " "$green_file"; then
+		say "release tag $tag: $tag_sha already gated green at the FULL level."
+	elif [ "$tag_sha" = "$head_sha" ]; then
+		release_needs_gate=1
+		say "release tag $tag names HEAD: gating $tag_sha at the FULL level (a release needs it, whatever the remote)."
+	else
+		rule
+		say "REFUSED — release tag $tag names $tag_sha, which has no FULL green on this desk."
+		say 'A release is cut only from a commit the FULL gate (hermetic + db + instance) passed.'
+		say "Check out $tag_sha and push the tag again (it is gated full), or push that commit"
+		say 'to a public remote first (github/gitlab gate full). Bypass: git push --no-verify'
+		say '(image-release.yml still refuses a tag whose commit has no green ci.yml + db.yml push run).'
+		rule
+		exit 1
+	fi
+done
+
+if [ "$gated_any" -eq 0 ] && [ "$release_needs_gate" -eq 0 ]; then
 	say 'no new commits in this push (deletions / already-published refs only); nothing to gate.'
 	exit 0
 fi
+# A release gated with no new commit has no remote range: the audit runs.
+[ -n "$audit_key" ] || audit_key=forced
 
-if [ "${DEDALO_PREPUSH:-}" = full ]; then
+case "$remote_class" in
+	internal) say "remote: internal (${remote_name:-?})." ;;
+	public) say "remote: public mirror (${remote_name:-?}) — the full gate applies." ;;
+	*) say "remote: unknown (${remote_name:-?}, not a known internal or public URL) — gated like a public mirror." ;;
+esac
+if [ "${DEDALO_PREPUSH:-}" = full ] || [ "$release_needs_gate" -eq 1 ]; then
 	needs_full=1
+elif [ "$remote_class" = internal ]; then
+	needs_full=0
+	say 'internal push: hermetic only; db/instance run nightly (.github/workflows/nightly.yml full_gate,'
+	say 'against gitdedalo/master; a red lands in the ci-nightly issue). DEDALO_PREPUSH=full runs them now.'
 elif [ "$needs_full" -eq 0 ]; then
 	# The first touched path that is NOT hermetic-only, or nothing. awk splits
 	# the list itself, so no pattern is ever glob-expanded against the checkout.
@@ -273,7 +422,6 @@ say "dependency audit base: $([ "$audit_key" = forced ] && echo '<none — the a
 # from a `forced` run (the audit ran whatever the base). A verdict that skipped
 # the audit against base A never answers for a push whose range from base B
 # carries a lockfile bump. Lines without the audit field (older hook) never match.
-green_file="$(git rev-parse --git-path dedalo-prepush-green)"
 if [ "$level" = hermetic ]; then levels='(full|hermetic)'; else levels='full'; fi
 if [ -f "$green_file" ]; then
 	if grep -Eq "^$head_sha $levels audit:(forced|$audit_key)\$" "$green_file"; then
@@ -338,7 +486,7 @@ if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
 	rule
 	say 'REFUSED — Docker is not available, and the gate runs in the CI image.'
 	say '  Start Docker Desktop (or the docker daemon) and push again.'
-	say '  Bypass, visibly (CI still runs):  git push --no-verify'
+	say "  Bypass, visibly ($ci_after_bypass):  git push --no-verify"
 	rule
 	exit 1
 fi
@@ -510,7 +658,7 @@ case "$bank_code" in
 			say "REFUSED — baselines:bank exited 1 on $head_sha with no ERROR or REGRESSED line;"
 			say 'see its output above.'
 		fi
-		say 'Bypass (CI will still go red): git push --no-verify'
+		say "Bypass ($ci_after_bypass): git push --no-verify"
 		rule
 		exit 1
 		;;
@@ -544,7 +692,7 @@ if [ "$ci_code" -ne 0 ]; then
 					console.error(`    ✗ ${t.tier} › ${st.name}${st.fix_hint ? ` — ${st.fix_hint}` : ""}`);
 		' "$summary_file" || true
 	fi
-	say 'Bypass (CI will still run): git push --no-verify'
+	say "Bypass ($ci_after_bypass): git push --no-verify"
 	rule
 	exit 1
 fi
