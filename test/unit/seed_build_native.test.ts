@@ -36,6 +36,7 @@ import {
 	childEnv,
 	type RegistryProvisionInput,
 	registryBlockers,
+	releaseDependencies,
 	SEED_CHILD_CONFIG,
 	type SeedBuildResult,
 	seedDataSql,
@@ -214,23 +215,54 @@ describe('seed compiler — pure halves', () => {
 		).toContain('no typology (hierarchy9)');
 	});
 
+	test("a release entry's declared dependencies reach the package normalized; a malformed one refuses the compile", () => {
+		// What stagePackages hands the import door (→ the core row's hierarchy60).
+		expect(releaseDependencies({ tld: 'dd' })).toBeNull();
+		expect(releaseDependencies({ tld: 'dd', dependencies: [] })).toEqual([]);
+		expect(
+			releaseDependencies({
+				tld: 'dd',
+				dependencies: [
+					{ tld: ' TS ', main: 'ontology35', mandatory: true },
+					{ tld: 'ts', main: 'hierarchy1', mandatory: false },
+					{ tld: 'dd', main: 'hierarchy1', mandatory: true },
+				],
+			}),
+		).toEqual([
+			{ tld: 'ts', main: 'ontology35', mandatory: true },
+			{ tld: 'ts', main: 'hierarchy1', mandatory: false },
+			{ tld: 'dd', main: 'hierarchy1', mandatory: true },
+		]);
+		// The seed must be exact: nothing is silently dropped.
+		for (const dependencies of [
+			[{ tld: 'ts', main: 'ontology35', mandatory: 'yes' }],
+			[{ tld: 'dd', main: 'ontology35', mandatory: true }],
+			'ts',
+		]) {
+			expect(() => releaseDependencies({ tld: 'dd', dependencies })).toThrow(
+				expect.objectContaining({
+					publicMessage: expect.stringContaining('declares invalid dependencies'),
+				}),
+			);
+		}
+	});
+
 	test('the data script empties what the compile child did not write, and refuses a path psql would quote', () => {
 		const sql = seedDataSql({
 			tables: ['dd_ontology', 'matrix', 'matrix_langs', 'matrix_ontology', 'matrix_time_machine'],
-			langsPath: '/tmp/langs.copy',
 			registryPath: '/tmp/registry.copy',
 			releaseDate: '2026-07-14T16:08:54+02:00',
 		});
-		expect(sql).toContain(
-			'TRUNCATE "matrix", "matrix_langs", "matrix_time_machine" RESTART IDENTITY;',
-		);
-		expect(sql).toContain('\\copy matrix_langs (section_id, section_tipo,');
+		// matrix_langs is loaded ONCE, before the compile (the registry door
+		// resolves STRUCTURE_LANG from it) — kept, never truncated nor reloaded.
+		expect(sql).toContain('TRUNCATE "matrix", "matrix_time_machine" RESTART IDENTITY;');
+		expect(sql).not.toContain('matrix_langs');
+		expect(sql).toContain('\\copy matrix_hierarchy_main (section_id, section_tipo,');
 		expect(sql).toContain('INSERT INTO matrix_updates (data)');
 		expect(() =>
 			seedDataSql({
 				tables: [],
-				langsPath: "/tmp/x'; DROP",
-				registryPath: '/tmp/r',
+				registryPath: "/tmp/x'; DROP",
 				releaseDate: 'x',
 			}),
 		).toThrow(

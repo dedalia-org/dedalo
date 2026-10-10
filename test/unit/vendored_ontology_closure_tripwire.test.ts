@@ -16,9 +16,13 @@
  *    diffusion-model set built from the SEED's own dd_ontology model rows;
  *  - every DEPENDENCY-class reference resolves within oh ∪ the seed's core-TLD
  *    tipos (grafts and diffusion relations are soft BY RULE);
- *  - the TLDs oh depends on ⊆ CORE, and ⊆ the dependencies the installer
- *    DECLARES for it (ontology_choice.ts VENDORED_DOMAIN_ONTOLOGIES);
- *  - the installer reads only `oh` from that dir (the vendored list).
+ *  - the TLDs oh depends on ⊆ CORE (always installed), so oh installs alone
+ *    over the core even while the vendored ontology.json declares no
+ *    dependencies for it (a release that predates hierarchy60); and when it does
+ *    declare them (the entry the installer reads, ontology_choice.ts
+ *    vendoredOntologyCatalog), no MANDATORY ontology outside the core — an
+ *    offline install could not serve it;
+ *  - the installer reads only `oh` from that dir (VENDORED_DOMAIN_TLDS).
  * ANTI-VACUITY: > 400 references measured, both soft classes observed, and a
  * planted node whose model lives in a non-core TLD flips the verdict red.
  * Works on the current seed and on a core-only rebuild (only core-TLD rows of
@@ -30,7 +34,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { copyBlockRecords, copyBlocks } from '../../src/core/db/copy_text.ts';
-import { VENDORED_DOMAIN_ONTOLOGIES } from '../../src/core/install/ontology_choice.ts';
+import {
+	VENDORED_DOMAIN_TLDS,
+	vendoredOntologyCatalog,
+} from '../../src/core/install/ontology_choice.ts';
 import { SEED_DUMP_PATH, VENDORED_ONTOLOGY_DIR } from '../../src/core/install/paths.ts';
 import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
 import {
@@ -43,7 +50,7 @@ import {
 } from '../../src/core/ontology/ontology_references.ts';
 import { ontologyCopyRow } from '../../src/core/test_data/ontology_package_fixture.ts';
 
-const VENDORED_TLD = VENDORED_DOMAIN_ONTOLOGIES[0]?.tld ?? '';
+const VENDORED_TLD = VENDORED_DOMAIN_TLDS[0] ?? '';
 const OWN = new Set([VENDORED_TLD]);
 const CORE = new Set(CORE_ONTOLOGY_TLDS);
 
@@ -87,7 +94,8 @@ const measured = verdict(packageLines);
 
 describe('vendored ontology closure', () => {
 	test('the installer reads exactly one vendored domain file', () => {
-		expect(VENDORED_DOMAIN_ONTOLOGIES.map((item) => item.tld)).toEqual(['oh']);
+		expect([...VENDORED_DOMAIN_TLDS]).toEqual(['oh']);
+		expect(vendoredOntologyCatalog().entries.map((item) => item.tld)).toEqual(['oh']);
 	});
 
 	test('the measurement is not vacuous', () => {
@@ -105,11 +113,18 @@ describe('vendored ontology closure', () => {
 		expect(measured.dangling.map((ref) => `${ref.from} ${ref.field}→${ref.to}`)).toEqual([]);
 	});
 
-	test('it depends only on core TLDs, all of them declared by the installer', () => {
-		const declared = new Set(VENDORED_DOMAIN_ONTOLOGIES[0]?.dependencies ?? []);
+	test('it depends only on core TLDs, and declares no ontology the offline set lacks', () => {
 		expect(measured.foreign.length).toBeGreaterThan(0);
 		expect(measured.foreign.filter((tld) => !CORE.has(tld))).toEqual([]);
-		expect(measured.foreign.filter((tld) => !declared.has(tld))).toEqual([]);
+		// A vendored declaration (absent until the release carries hierarchy60 —
+		// then oh is installed alone, which the verdict above keeps safe) may not
+		// make an offline install need an ontology only a server offers.
+		const declared = vendoredOntologyCatalog().entries[0]?.dependencies ?? [];
+		expect(
+			declared
+				.filter((item) => item.main === 'ontology35' && item.mandatory && !CORE.has(item.tld))
+				.map((item) => item.tld),
+		).toEqual([]);
 	});
 
 	test('a planted node whose model lives in a non-core TLD flips the verdict', () => {

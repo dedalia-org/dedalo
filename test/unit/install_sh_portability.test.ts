@@ -282,7 +282,9 @@ function standInServerCatalog(tld: string): OntologyCatalog {
 				name_data: null,
 				typology_id: null,
 				typology_name: null,
-				dependencies: [CORE_ONTOLOGY_TLDS[0] as string],
+				dependencies: [
+					{ tld: CORE_ONTOLOGY_TLDS[0] as string, main: 'ontology35', mandatory: true },
+				],
 				origin: 'server',
 				file: `https://stand-in.invalid/${tld}.copy.gz`,
 			},

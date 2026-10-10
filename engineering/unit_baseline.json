@@ -1501,6 +1501,11 @@
 			"skipped": 0,
 			"assertions": 12
 		},
+		"test/unit/engine_ontology_retired_native.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 20
+		},
 		"test/unit/engineering_currency_tripwire.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -2110,6 +2115,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 16
+		},
+		"test/unit/install_hierarchy_dependencies_native.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 11
 		},
 		"test/unit/install_hierarchy_tools.test.ts": {
 			"tests": 5,
@@ -2916,6 +2926,11 @@
 			"skipped": 0,
 			"assertions": 18
 		},
+		"test/unit/ontology_dependencies_normalizer.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 35
+		},
 		"test/unit/ontology_ingest.test.ts": {
 			"tests": 20,
 			"skipped": 0,
@@ -2960,6 +2975,11 @@
 			"tests": 12,
 			"skipped": 0,
 			"assertions": 63
+		},
+		"test/unit/ontology_registry_row_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 41
 		},
 		"test/unit/ontology_root_node_typology_native.test.ts": {
 			"tests": 1,

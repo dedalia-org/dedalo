@@ -164,16 +164,24 @@ const STEP_HANDLERS: Readonly<Record<string, StepHandler>> = Object.freeze({
 		const choice = normalizeHierarchyChoice(
 			Array.isArray(options.hierarchies) ? options.hierarchies : 'none',
 		);
-		if (choice.errors.length > 0) {
-			refuseInstall(
-				'install.invalid_input',
-				`Install answers invalid: ${choice.errors.join('; ')}`,
-			);
+		// The MANDATORY thesauri the installed ontologies declare (hierarchy60
+		// `main: 'hierarchy1'`, read back from their registry rows — this process
+		// has no plan) are added whatever was posted: unticking one in the client
+		// cannot decline it. A mandatory one that is not vendored refuses here,
+		// before any write. Optional ones follow the posted list.
+		const { installedHierarchyDependencies } = await import('./hierarchy_dependencies.ts');
+		const { withMandatoryHierarchies } = await import('./ontology_choice.ts');
+		const declared = await installedHierarchyDependencies();
+		const required = withMandatoryHierarchies(choice.hierarchies, declared.dependencies);
+		const errors = [...choice.errors, ...required.errors];
+		if (errors.length > 0) {
+			refuseInstall('install.invalid_input', `Install answers invalid: ${errors.join('; ')}`);
 		}
 		// The in-wizard root session owns the activation writes (registry flags,
 		// the provisioned ontology records) — audited to a real actor, not to -1.
-		const result = await installHierarchies(choice.hierarchies, undefined, session.userId);
-		if (choice.notes.length > 0) result.msg = `${result.msg} (${choice.notes.join('; ')})`;
+		const result = await installHierarchies(required.hierarchies, undefined, session.userId);
+		const notes = [...choice.notes, ...required.notes, ...declared.warnings];
+		if (notes.length > 0) result.msg = `${result.msg} (${notes.join('; ')})`;
 		return stepResult(context, result);
 	},
 

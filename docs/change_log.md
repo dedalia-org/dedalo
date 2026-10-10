@@ -1025,13 +1025,39 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Ontology dependencies are declared in the master's *Dependencies* field, say whether an ontology or a thesaurus is needed, and can be optional.**
+
+    An ontology master now declares what each ontology needs in the *Dependencies* field
+    (`hierarchy60`) of its *Ontologies main* record. This replaces the *Required ontologies*
+    field from the previous build. That field is removed automatically from every
+    installation at its next start. Its values are not converted, so a master that filled it
+    must declare them again in *Dependencies*.
+
+    Each dependency names a TLD and says whether its **ontology** or its **thesaurus** is
+    needed, and whether it is **mandatory**.
+
+    * **Installing.** The installer always installs mandatory dependencies. It offers
+      optional ones already ticked, and you may untick them, in the wizard or with
+      `--decline-dependencies`. A required thesaurus that the release does not ship stops
+      the install before anything is written.
+    * **Updating.** An update reports each missing mandatory dependency under *Import
+      warnings*, together with how to provide it. It never installs one on its own.
+
+    The ontology registry also keeps local decisions through imports and rebuilds. A
+    domain ontology you switched off stays off, and its project filter is kept. Each
+    ontology is filed under the installation's own structure language, not a fixed one.
+
+    See [Declaring what an ontology requires](./management/updates/updating_ontology.md#declaring-what-an-ontology-requires).
+
+    Wire contract: `WC-2026-10-10-ontology-dependencies-hierarchy60`.
+
 - **Installations now choose their domain ontologies (Oral history by default) and install what each one declares it depends on; the install database carries only the core ontologies and no test data.** *(action needed)*
 
     Until now every installation got the same ontologies, whatever it was for: the install database carried Oral history (`oh`) and the developers' test ontology, and nothing asked which heritage domains the institution catalogues. The command-line installer, the browser wizard and `install.sh` now ask ([installer reference](./install/installer_reference.md#domain-ontologies)).
 
     - **The install database is core-only.** It carries the core ontologies (`dd`, `rsc`, `ontology`, `ontologytype`, `hierarchy`, `lg`) and nothing else. The developers' `test` ontology and the *test3* playground records are no longer installed; they exist only in the developers' test database.
     - **At least one domain ontology is installed.** The default is Oral history (`oh`). It is built into the release, so it installs without a network. Any other ontology the update server offers can be chosen by its code. For example, `tch` (Tangible cultural heritage) is the general inventory model for objects and collections. The wizard has a new *Ontologies* step. The command line takes `--ontologies oh,tch` and lists the server's catalog with `--list-ontologies`. `install.sh` asks one more question.
-    - **Dependencies come with the choice.** An ontology server now publishes, for each ontology, the ontologies it needs. The installer installs them too, before the ontology that needs them, and says so ("tch also installs: …"). An older server that does not publish them gets a clear warning: the chosen ontology is installed alone, and nothing is guessed. After the import, the installer checks that every node of the installed ontologies can find the nodes it refers to. Anything missing is reported as a warning that names the ontology to add. On an ontology master, an editor declares the dependencies in the new *Required ontologies* field of each ontology's record (Ontology › Ontologies main), and they are published with the next export ([updating the ontology](./management/updates/updating_ontology.md#declaring-what-an-ontology-requires)). Importing an ontology (at install time or with the update panel) keeps its declaration in that field, so a master that imports its ontologies from another master publishes them too.
+    - **Dependencies come with the choice.** An ontology server now publishes, for each ontology, the ontologies it needs. The installer installs them too, before the ontology that needs them, and says so ("tch also installs: …"). An older server that does not publish them gets a clear warning: the chosen ontology is installed alone, and nothing is guessed. After the import, the installer checks that every node of the installed ontologies can find the nodes it refers to. Anything missing is reported as a warning that names the ontology to add. On an ontology master, an editor declares the dependencies in the *Dependencies* field of each ontology's record (Ontology › Ontologies main), and they are published with the next export ([updating the ontology](./management/updates/updating_ontology.md#declaring-what-an-ontology-requires)); see the separate note on that field for mandatory and optional dependencies and required thesauri. Importing an ontology (at install time or with the update panel) keeps its declaration in that field, so a master that imports its ontologies from another master publishes them too.
     - **Fully offline installs.** `--ontology-source <dir|archive>` installs from a directory (or a `.tar`/`.tar.gz`/`.tgz`) laid out like an ontology server's export. It is a command-line option only: the browser wizard installs from the configured ontology server or the built-in ontologies. An air-gapped install (`--no-update-servers`) is offered only the built-in `oh`.
     - **Nothing is half-installed.** The ontology files are downloaded and checked *before* the database is touched. If an import fails, the install stops and is not sealed. Recreate the database and run the installer again.
     - **`ACTIVE_ONTOLOGY_TLDS` is written by the installer** (the core, the chosen ontologies and their dependencies), so the ontology update panel refreshes exactly what the installation carries. When the key is unset, the engine's fallback is now the core list alone: `utoponymy` and `nexus` are no longer in it. **Action needed: if your `/private/.env` has no `ACTIVE_ONTOLOGY_TLDS` and your installation uses `utoponymy` or `nexus`, add the key with them** (for example `ACTIVE_ONTOLOGY_TLDS=["dd","rsc","ontology","ontologytype","hierarchy","lg","oh","utoponymy","nexus"]`), or the update panel stops refreshing them.
@@ -2086,7 +2112,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-09-23-relation-q-is-a-locator`.
 
-??? note "Wire contract — 111 entries"
+??? note "Wire contract — 112 entries"
 
     - `WC-2026-08-24-install-ip-gate-fail-closed`
     - `WC-2026-08-24-media-auth-session-scoped`
@@ -2198,6 +2224,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-09-publication-host-panel-setup`
     - `WC-2026-10-09-publication-host-v2-only-site`
     - `WC-2026-10-09-update-code-image-channel`
+    - `WC-2026-10-10-ontology-dependencies-hierarchy60`
     - `WC-2026-10-10-update-ontology-confirm-text`
 
 ## 7.0.0-beta.4 — 2026-08-24

@@ -678,10 +678,8 @@ const LOCAL_ONLY_SCRIPTS: ReadonlyMap<string, string> = new Map([
 		'test:client:server',
 		'Keeps the client suite server alive for BROWSING a page by hand (scripts/client_test_serve.ts); the suite that asserts is test:client, which the instance tier runs.',
 	],
-	[
-		'ci:local',
-		'IS the local reproduction of the CI tiers (scripts/ci_local.ts): it runs the tier scripts this gate holds; running it from CI would run CI inside CI.',
-	],
+	// 'ci:local' left this map 2026-10-10: nightly.yml's full_gate job runs it by name — the
+	// full gate of the internal remote (gitdedalo/master), ci_workflow_tripwire rule 20.
 	[
 		'test:pubhost:init',
 		'The Debian provision-init drill creates accounts, runs systemd as PID 1, polkit and a real web/FPM reload, and kill -9s a root process, so it needs a PRIVILEGED container with a writable cgroup2. Every hosted tier job already runs INSIDE the CI image as a `container:` with no Docker daemon and no privilege, and handing a pull request one would give it root on the runner (engineering/CI.md, Local-only drills of the guided install).',

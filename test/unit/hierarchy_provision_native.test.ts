@@ -26,6 +26,14 @@
  * afterAll teardown is UNCONDITIONAL (runs the full purge even on partial
  * failure) and also runs defensively in beforeAll against a crashed prior run.
  *
+ * THE REGISTRY-ROW LAW at this door (WC-2026-10-10-ontology-dependencies-hierarchy60):
+ * provisionVirtualSections CREATES the ontology35 row when the TLD has none,
+ * and never writes an EXISTING one. A second scratch TLD ('zznu') gets its row
+ * minted first (createMainSection) with the operator's own name, typology,
+ * switched-off hierarchy4 and filter; provisioning it from a hierarchy carrying
+ * a DIFFERENT name and typology must leave the row byte-equal and build `zznu0`
+ * from what the row holds.
+ *
  * Shared-surface note (same blast radius as the differential): provisioning
  * re-derives the ontologytype/hierarchytype/hierarchymtype grouper registrations
  * idempotently — those are canonical rows both engines rebuild the same way.
@@ -47,11 +55,14 @@ import {
 	type GenerateVirtualSectionResponse,
 	generateVirtualSection,
 } from '../../src/core/ontology/hierarchy_provision.ts';
+import { createMainSection } from '../../src/core/ontology/ontology_write.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 
 const TLD = 'zznt'; // synthetic scratch TLD — swept by the zz% hygiene query
+/** The TLD whose ontology35 row EXISTS before provisioning (the no-rewrite leg). */
+const TLD_PRE = 'zznu';
 const REAL_SECTION = 'test3'; // model 'section' (same source the differential uses)
 const NAME = `${TLD} native`;
 
@@ -108,7 +119,7 @@ async function granteeGrants(): Promise<{ tipo: string; section_tipo: string; va
 }
 
 /** Same hierarchy1 registry fixture the differential seeds (typology 1). */
-async function buildHierarchyFixture(): Promise<number> {
+async function buildHierarchyFixture(tld: string = TLD, name: string = NAME): Promise<number> {
 	const hid = await createSectionRecord('hierarchy1', -1);
 	const w = (col: 'relation' | 'string', tipo: string, v: unknown): Promise<void> =>
 		updateMatrixKeyData('matrix_hierarchy_main', 'hierarchy1', hid, col, tipo, v);
@@ -121,7 +132,7 @@ async function buildHierarchyFixture(): Promise<number> {
 			from_component_tipo: 'hierarchy4',
 		},
 	]);
-	await w('string', 'hierarchy6', [{ id: 1, lang: 'lg-nolan', value: TLD }]);
+	await w('string', 'hierarchy6', [{ id: 1, lang: 'lg-nolan', value: tld }]);
 	await w('string', 'hierarchy109', [{ id: 1, lang: 'lg-nolan', value: REAL_SECTION }]);
 	await w('relation', 'hierarchy9', [
 		{
@@ -131,7 +142,7 @@ async function buildHierarchyFixture(): Promise<number> {
 			from_component_tipo: 'hierarchy9',
 		},
 	]);
-	await w('string', 'hierarchy5', [{ id: 1, lang: 'lg-spa', value: NAME }]);
+	await w('string', 'hierarchy5', [{ id: 1, lang: 'lg-spa', value: name }]);
 	return hid;
 }
 
@@ -179,35 +190,77 @@ function ontologyKeys(obj: Record<string, unknown> | null): string[] {
 		.sort();
 }
 
-/** Unconditional purge of every surface this file can touch (also run pre-flight). */
-async function purgeScratch(): Promise<void> {
-	await deleteTldNodes(TLD);
-	await sql.unsafe('DELETE FROM matrix_ontology WHERE section_tipo = $1', [`${TLD}0`]);
+/** The scratch hierarchy1 record ids this run created (both TLDs). */
+const hierarchyIds = new Set<number>();
+/**
+ * The scratch ontology35 registry row ids this run saw — recorded while the rows
+ * exist, because the delete leg removes zznt's row through the dispatch before
+ * the purge can find it by TLD.
+ */
+const ontologyMainIds = new Set<number>();
+
+async function recordOntologyMainIds(tld: string): Promise<void> {
+	const rows = (await sql.unsafe(
+		`SELECT section_id FROM matrix_ontology_main WHERE section_tipo = 'ontology35' AND string @> $1::text::jsonb`,
+		[JSON.stringify({ hierarchy6: [{ value: tld }] })],
+	)) as { section_id: number }[];
+	for (const row of rows) ontologyMainIds.add(Number(row.section_id));
+}
+
+/** Delete one record's TM rows and its activity rows (addressed in misc->'dd551'). */
+async function purgeRecordTrail(sectionTipo: string, sectionId: number): Promise<void> {
+	await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2', [
+		sectionTipo,
+		sectionId,
+	]);
+	await sql.unsafe(
+		`DELETE FROM matrix_activity WHERE section_tipo = 'dd542'
+		    AND misc->'dd551'->0->'value'->>'section_tipo' = $1
+		    AND misc->'dd551'->0->'value'->>'section_id' = $2`,
+		[sectionTipo, String(sectionId)],
+	);
+}
+
+/** Purge one scratch TLD: nodes, node records, ontology35 + hierarchy1 rows and their trails. */
+async function purgeTld(tld: string): Promise<void> {
+	const tldFilter = JSON.stringify({ hierarchy6: [{ value: tld }] });
+	await deleteTldNodes(tld);
+	await sql.unsafe('DELETE FROM matrix_ontology WHERE section_tipo = $1', [`${tld}0`]);
+	await recordOntologyMainIds(tld);
 	await sql.unsafe(
 		`DELETE FROM matrix_ontology_main WHERE section_tipo = 'ontology35' AND string @> $1::text::jsonb`,
-		[JSON.stringify({ hierarchy6: [{ value: TLD }] })],
+		[tldFilter],
 	);
 	// Registry rows of the scratch TLD (also catches strays from a crashed run).
 	const registry = (await sql.unsafe(
 		`SELECT section_id FROM matrix_hierarchy_main WHERE section_tipo = 'hierarchy1' AND string @> $1::text::jsonb`,
-		[JSON.stringify({ hierarchy6: [{ value: TLD }] })],
+		[tldFilter],
 	)) as { section_id: number }[];
-	const registryIds = new Set(registry.map((row) => Number(row.section_id)));
-	if (hierarchyId !== undefined) registryIds.add(hierarchyId);
-	for (const rid of registryIds) {
+	for (const row of registry) hierarchyIds.add(Number(row.section_id));
+	// TM snapshots + activity rows of the scratch node records.
+	await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [`${tld}0`]);
+	await sql.unsafe(
+		`DELETE FROM matrix_activity WHERE section_tipo = 'dd542'
+		    AND misc->'dd551'->0->'value'->>'section_tipo' = $1`,
+		[`${tld}0`],
+	);
+	// The scratch section's counter row (PHP resets it in delete_ontology step 4).
+	await sql.unsafe('DELETE FROM matrix_counter WHERE tipo = $1', [`${tld}0`]);
+}
+
+/** Unconditional purge of every surface this file can touch (also run pre-flight). */
+async function purgeScratch(): Promise<void> {
+	await purgeTld(TLD);
+	await purgeTld(TLD_PRE);
+	for (const id of ontologyMainIds) await purgeRecordTrail('ontology35', id);
+	if (hierarchyId !== undefined) hierarchyIds.add(hierarchyId);
+	for (const rid of hierarchyIds) {
 		await sql.unsafe(
 			`DELETE FROM matrix_hierarchy_main WHERE section_tipo = 'hierarchy1' AND section_id = $1`,
 			[rid],
 		);
-		await sql.unsafe(
-			`DELETE FROM matrix_time_machine WHERE section_tipo = 'hierarchy1' AND section_id = $1`,
-			[rid],
-		);
+		await purgeRecordTrail('hierarchy1', rid);
 	}
-	// TM snapshots of the scratch node records (delete pipeline writes them).
-	await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [`${TLD}0`]);
-	// The scratch section's counter row (PHP resets it in delete_ontology step 4).
-	await sql.unsafe('DELETE FROM matrix_counter WHERE tipo = $1', [`${TLD}0`]);
 
 	// The throwaway grantee: profile (+ its dd774 grants), user, and the TM rows
 	// the grant's save chokepoint wrote. Real users/profiles are never touched —
@@ -245,10 +298,27 @@ beforeAll(async () => {
 		section_tipo: 'hierarchy1',
 		userId: granteeUserId,
 	});
+	await recordOntologyMainIds(TLD);
 }, 120000);
 
 afterAll(async () => {
 	await purgeScratch();
+	// Residue: no node, node record, registry row, or activity trail survives.
+	const ids = JSON.stringify([...ontologyMainIds].map(String));
+	const tlds = JSON.stringify([TLD, TLD_PRE]);
+	const residue = (await sql.unsafe(
+		`SELECT (SELECT count(*)::int FROM dd_ontology WHERE tld IN (SELECT jsonb_array_elements_text($1::text::jsonb)))
+		      + (SELECT count(*)::int FROM matrix_ontology
+		           WHERE section_tipo IN (SELECT jsonb_array_elements_text($1::text::jsonb) || '0'))
+		      + (SELECT count(*)::int FROM matrix_activity WHERE section_tipo = 'dd542'
+		           AND (misc->'dd551'->0->'value'->>'section_tipo' IN (SELECT jsonb_array_elements_text($1::text::jsonb) || '0')
+		             OR (misc->'dd551'->0->'value'->>'section_tipo' = 'ontology35'
+		                 AND misc->'dd551'->0->'value'->>'section_id' IN (SELECT jsonb_array_elements_text($2::text::jsonb)))))
+		        AS n`,
+		[tlds, ids],
+	)) as { n: number }[];
+	expect(ontologyMainIds.size).toBe(2); // zznt's (provisioned) + zznu's (minted first)
+	expect(Number(residue[0]?.n ?? -1)).toBe(0);
 });
 
 describe('generate_virtual_section — TS-native provisioning of a scratch TLD', () => {
@@ -444,7 +514,7 @@ describe('generate_virtual_section — TS-native provisioning of a scratch TLD',
 	});
 
 	test('ontology35 registration row exists and its tld item is lg-nolan', async () => {
-		// addMainSection (PHP add_main_section :809) — hierarchy6 uses lg-nolan,
+		// createMainSection (PHP add_main_section :809) — hierarchy6 uses lg-nolan,
 		// the counterpart of the descriptor's lg-spa pin above.
 		const rows = (await sql.unsafe(
 			`SELECT string->'hierarchy6' AS h6 FROM matrix_ontology_main
@@ -512,4 +582,70 @@ describe('ontology_delete — TS-native cascade through the dispatch chokepoint'
 		)) as { n: string }[];
 		expect(Number(records[0]?.n)).toBe(0);
 	}, 60000);
+});
+
+describe('generate_virtual_section — an EXISTING ontology35 row is never rewritten', () => {
+	const OFF = [
+		{
+			id: 1,
+			type: 'dd151',
+			section_id: 2,
+			section_tipo: 'dd64',
+			from_component_tipo: 'hierarchy4',
+		},
+	];
+	const CUSTOM_FILTER = [
+		{
+			id: 1,
+			type: 'dd675',
+			section_id: 7,
+			section_tipo: 'dd153',
+			from_component_tipo: 'hierarchy54',
+		},
+	];
+
+	test('the row stays byte-equal; <tld>0 is built from the row, not from the hierarchy', async () => {
+		// The installation's row: its own name + typology, switched off, custom filter.
+		const rowId = await createMainSection(
+			{
+				tld: TLD_PRE,
+				typology_id: 14,
+				name_data: [{ lang: 'lg-eng', value: 'zznu operator name' }],
+			},
+			-1,
+		);
+		ontologyMainIds.add(rowId);
+		await sql.unsafe(
+			`UPDATE matrix_ontology_main SET relation = relation || $2::text::jsonb
+			  WHERE section_tipo = 'ontology35' AND section_id = $1`,
+			[rowId, JSON.stringify({ hierarchy4: OFF, hierarchy54: CUSTOM_FILTER })],
+		);
+		const readRow = async () =>
+			(await sql.unsafe(
+				`SELECT data, relation, string, misc FROM matrix_ontology_main
+				  WHERE section_tipo = 'ontology35' AND section_id = $1`,
+				[rowId],
+			)) as unknown[];
+		const before = await readRow();
+		expect(before).toHaveLength(1);
+
+		// A hierarchy for the same TLD with a DIFFERENT typology (1) and name.
+		const preHierarchyId = await buildHierarchyFixture(TLD_PRE, 'zznu hierarchy name');
+		hierarchyIds.add(preHierarchyId);
+		const response = await generateVirtualSection({
+			section_id: preHierarchyId,
+			section_tipo: 'hierarchy1',
+			userId: granteeUserId ?? -1,
+		});
+		expect(response.errors).toEqual([]);
+		expect(response.ok).toBe(true);
+
+		expect(await readRow()).toEqual(before);
+		const roots = (await sql.unsafe('SELECT parent, term FROM dd_ontology WHERE tipo = $1', [
+			`${TLD_PRE}0`,
+		])) as { parent: string; term: Record<string, string> }[];
+		expect(roots).toHaveLength(1);
+		expect(roots[0]?.parent).toBe('ontologytype14');
+		expect(roots[0]?.term['lg-eng']).toBe('zznu operator name');
+	}, 120000);
 });

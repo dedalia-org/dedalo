@@ -3,7 +3,9 @@
  * set_records_in_dd_ontology :2502, regenerate_records_in_dd_ontology :2655,
  * sync_order_to_dd_ontology :2411, create_dd_ontology_ontology_section_node
  * :1042 (createDdOntologyRootNode), create_parent_grouper :1154,
- * add_main_section :809, get_main_* :2846}.
+ * add_main_section :809 — split into createMainSection /
+ * syncMainSectionFromDefinition / ensureMainSection by the registry-row law,
+ * get_main_* :2846}.
  *
  * These orchestrate the definition→runtime pipeline: they read matrix_ontology /
  * matrix_ontology_main records, (re)build the derived dd_ontology rows via the
@@ -37,11 +39,19 @@ import { readMatrixRecord } from '../db/matrix.ts';
 import { updateMatrixKeyData } from '../db/matrix_write.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { getLangSectionIdByCode } from '../relations/select_lang.ts';
 import { createSectionRecord } from '../section/record/create_record.ts';
+import { isCoreOntologyTld } from './core_tlds.ts';
+import {
+	dependenciesMiscItems,
+	normalizeOntologyDependencies,
+	type OntologyDependency,
+} from './ontology_dependencies.ts';
 import {
 	DATA_NOLAN,
 	HIERARCHY_ACTIVE,
 	HIERARCHY_ACTIVE_IN_THESAURUS,
+	HIERARCHY_DEPENDENCIES,
 	HIERARCHY_FILTER,
 	HIERARCHY_GENERAL_TERM,
 	HIERARCHY_LANG,
@@ -51,7 +61,6 @@ import {
 	HIERARCHY_TYPES_NAME,
 	HIERARCHY_TYPES_SECTION,
 	HIERARCHY_TYPOLOGY,
-	ONTOLOGY_DEPENDENCIES,
 	ONTOLOGY_IS_DESCRIPTOR,
 	ONTOLOGY_IS_MODEL,
 	ONTOLOGY_MAIN_SECTION,
@@ -69,9 +78,9 @@ import {
 	RELATION_TYPE_PARENT,
 	SECTION_MODEL_TIPO,
 	SI_NO_NO,
-	SI_NO_SECTION,
 	SI_NO_YES,
 	STRUCTURE_LANG,
+	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import { getTermIdFromLocator, parseSectionRecordToOntologyNode } from './parser.ts';
 import { getMatrixTableFromTipo } from './resolver.ts';
@@ -85,7 +94,6 @@ import {
 
 const RELATION_TYPE_FILTER = 'dd675'; // DEDALO_RELATION_TYPE_FILTER
 const LANG_SECTION = 'lg1';
-const LANG_SPA_ID = '17344'; // lg-spa id in lg1
 
 /** Standard write outcome (INTERNAL — `ok` is the discriminator, never a wire body). */
 export interface OntologyWriteResponse {
@@ -273,6 +281,12 @@ export interface FileItem {
 	typology_id?: number | null;
 	name_data?: { id?: number; lang?: string; value?: unknown }[] | null;
 	parent_grouper_tipo?: string | null;
+	/**
+	 * Declared dependencies (hierarchy60), already normalized by
+	 * normalizeOntologyDependencies. Absent/null = NOT declared (an existing
+	 * row keeps its value); `[]` = declared, needs nothing.
+	 */
+	dependencies?: OntologyDependency[] | null;
 }
 
 /**
@@ -330,17 +344,46 @@ export async function createDdOntologyRootNode(fileItem: FileItem, userId = -1):
 	return tipo;
 }
 
-// --- add main section (PHP add_main_section) ---------------------------------
+// --- the registry row (PHP add_main_section, split by the registry-row law) ---
+//
+// THE REGISTRY-ROW LAW (owner-approved 2026-10-10;
+// WC-2026-10-10-ontology-dependencies-hierarchy60). ONE behaviour on every
+// Dédalo server — any server may be the master of others, so there is no
+// master/client split in how a row is written:
+//
+//  - createMainSection — the ONLY door that mints a row, and only when no row
+//    names the TLD. It writes the whole registry contract: hierarchy4 active =
+//    YES (an admin switches a development TLD off by hand; the export filters
+//    on it), hierarchy125 = yes only for 'dd', hierarchy8 = the lg1 record of
+//    STRUCTURE_LANG, hierarchy54 = dd153/1, name, tld, target section,
+//    typology, declared dependencies (hierarchy60) and, for 'dd', the general
+//    term children.
+//  - syncMainSectionFromDefinition — the IMPORT door (package install, ontology
+//    update, the seed compiler, a JSON-node provision): creates when missing;
+//    on an EXISTING row it replaces ONLY what the definition owns (hierarchy5,
+//    hierarchy9, hierarchy60 — each only when the definition states it),
+//    switches hierarchy4 on for a CORE TLD only (a switched-off domain TLD
+//    stays off), and re-applies the hierarchy125 / hierarchy8 rules. It never
+//    touches hierarchy54 nor any other key: those are the installation's.
+//  - ensureMainSection — create-if-missing, otherwise NO write: the rebuild and
+//    provisioning doors (ensureMainNode, provisionVirtualSections,
+//    createParentGrouper) build `<tld>0` from what the row holds.
+//
+// The PHP original (add_main_section) rewrote every key with constants on every
+// call, so a rebuild silently re-activated a TLD an operator had switched off,
+// reset its project filter and pinned its language to a hard-coded lg-spa id.
 
 /**
  * THE one per-key writer of the ontology REGISTRY rows (matrix_ontology_main,
- * ontology35): addMainSection's registry components and writeDeclaredDependencies'
- * ddengine11 locators. Unstamped, no TM — registry definition rows, as in PHP
- * add_main_section (a sanctioned derived writer, write_obligations RAW_CALLER_EXEMPT).
+ * ontology35): createMainSection / syncMainSectionFromDefinition's registry
+ * components (hierarchy60 dependencies included). Unstamped, no TM — registry
+ * definition rows, as in PHP add_main_section (a sanctioned derived writer,
+ * write_obligations RAW_CALLER_EXEMPT). hierarchy60 is a component_json and
+ * lands in `misc`.
  */
 function writeOntologyMainKey(
 	mainSectionId: number,
-	column: 'relation' | 'string',
+	column: 'relation' | 'string' | 'misc',
 	tipo: string,
 	value: unknown,
 ): Promise<void> {
@@ -354,26 +397,190 @@ function writeOntologyMainKey(
 	);
 }
 
-/**
- * Idempotently create/update the matrix_ontology_main record for a TLD (PHP
- * add_main_section). Reuses the existing row (matched by hierarchy6) or creates a
- * new ontology35 record, then writes the registry components. Returns section_id.
- */
-export async function addMainSection(fileItem: FileItem, userId = -1): Promise<number | null> {
-	const tld = fileItem.tld;
-	const targetSectionTipo = fileItem.section_tipo ?? mapTldToTargetSectionTipo(tld);
-	const typologyId = fileItem.typology_id ?? null;
-	const nameData = fileItem.name_data ?? [literalItem(1, STRUCTURE_LANG, tld)];
+/** The registry columns a component's value can live in (relation / literal / json). */
+const REGISTRY_KEY_COLUMNS = ['relation', 'string', 'misc'] as const;
 
-	const existing = await getOntologyMainFromTld(tld);
-	const mainSectionId =
-		existing !== null
-			? existing.section_id
-			: await createSectionRecord(ONTOLOGY_MAIN_SECTION, userId);
+/**
+ * Remove a RETIRED component's stored values from every ontology REGISTRY row
+ * (matrix_ontology_main, ontology35): the key `tipo` is dropped from each of
+ * `relation` / `string` / `misc` that carries it, through the one registry key
+ * writer (a null value removes the key). The engine-ontology door calls it for
+ * the nodes engine_ontology.json declares `retired` (e.g. ddengine11, the
+ * pre-hierarchy60 dependency portal) — a value of a component that no longer
+ * exists is never read, but it is not left behind either. Answers one line per
+ * key removed (`ontology35/<id>: <column>.<tipo>`); idempotent (none left → []).
+ */
+export async function stripRetiredRegistryKey(tipo: string): Promise<string[]> {
+	const rows = (await sql.unsafe(
+		`SELECT section_id, relation ? $2 AS in_relation, string ? $2 AS in_string, misc ? $2 AS in_misc
+		 FROM "matrix_ontology_main"
+		 WHERE section_tipo = $1 AND (relation ? $2 OR string ? $2 OR misc ? $2)
+		 ORDER BY section_id`,
+		[ONTOLOGY_MAIN_SECTION, tipo],
+	)) as { section_id: number; in_relation: boolean; in_string: boolean; in_misc: boolean }[];
+	const removed: string[] = [];
+	for (const row of rows) {
+		const carried = { relation: row.in_relation, string: row.in_string, misc: row.in_misc };
+		for (const column of REGISTRY_KEY_COLUMNS) {
+			if (carried[column] !== true) continue;
+			await writeOntologyMainKey(Number(row.section_id), column, tipo, null);
+			removed.push(`${ONTOLOGY_MAIN_SECTION}/${row.section_id}: ${column}.${tipo}`);
+		}
+	}
+	return removed;
+}
+
+/**
+ * The lg1 record id of a language code — by default STRUCTURE_LANG, the
+ * language every registry row is filed under (hierarchy8). Resolved from the
+ * installation's own langs section, never a hard-coded id; an unresolvable code
+ * is an install defect and is refused loudly (no fallback: a guessed id would
+ * file the row under whatever language happens to own it).
+ */
+export async function resolveRegistryLangId(code: string = STRUCTURE_LANG): Promise<number> {
+	const sectionId = await getLangSectionIdByCode(code);
+	if (sectionId === null) {
+		throw new DedaloError('ontology.invalid_node', {
+			message: `ontology registry: the structure language '${code}' has no ${LANG_SECTION} record — the installation's langs section is incomplete`,
+			coordinates: { section_tipo: LANG_SECTION, lang: code },
+		});
+	}
+	return sectionId;
+}
+
+/** A dd64 yes/no link locator for a registry flag component. */
+function siNoValue(tipo: string, yes: boolean): Record<string, unknown>[] {
+	return [
+		relationLocator({
+			id: 1,
+			type: RELATION_TYPE_LINK,
+			section_tipo: YES_NO_SECTION,
+			section_id: yes ? SI_NO_YES : SI_NO_NO,
+			from_component_tipo: tipo,
+		}),
+	];
+}
+
+/** The definition's name items, normalized to {id, lang, value}; [] when it states none. */
+function definitionNameItems(fileItem: FileItem): Record<string, unknown>[] {
+	return (fileItem.name_data ?? [])
+		.filter(
+			(item): item is { id?: number; lang: string; value: unknown } =>
+				typeof item.lang === 'string',
+		)
+		.map((item) => literalItem(item.id ?? 1, item.lang, String(item.value ?? '')));
+}
+
+/** The definition's typology id, or null when it states none (PHP: only > 0). */
+function definitionTypologyId(fileItem: FileItem): number | null {
+	const typologyId = Number(fileItem.typology_id ?? 0);
+	return Number.isFinite(typologyId) && typologyId > 0 ? typologyId : null;
+}
+
+/**
+ * The definition's declared dependencies, re-checked against THE normalizer
+ * (ontology_dependencies.ts). null = not declared. A caller handing in a list
+ * the normalizer would change has skipped normalization — refused, never
+ * silently "fixed" into a declaration the definition did not make.
+ */
+function definitionDependencies(fileItem: FileItem): OntologyDependency[] | null {
+	const warnings: string[] = [];
+	const dependencies = normalizeOntologyDependencies(fileItem.tld, fileItem.dependencies, warnings);
+	if (warnings.length > 0) {
+		throw new DedaloError('internal.invariant', {
+			message: `ontology registry '${fileItem.tld}': dependencies were not normalized before the write — ${warnings.join('; ')}`,
+			coordinates: { tld: fileItem.tld },
+		});
+	}
+	return dependencies;
+}
+
+/** hierarchy8: the registry row's language (STRUCTURE_LANG's lg1 record). */
+function writeRegistryLang(mainSectionId: number, langId: number): Promise<void> {
+	return writeOntologyMainKey(mainSectionId, 'relation', HIERARCHY_LANG, [
+		relationLocator({
+			id: 1,
+			type: RELATION_TYPE_LINK,
+			section_tipo: LANG_SECTION,
+			section_id: langId,
+			from_component_tipo: HIERARCHY_LANG,
+		}),
+	]);
+}
+
+/**
+ * The keys the DEFINITION owns, each written only when the definition states
+ * it: hierarchy5 (name), hierarchy9 (typology — PHP omits the item id here),
+ * hierarchy60 (declared dependencies; `[]` is a declaration and is written).
+ */
+async function writeDefinitionKeys(
+	mainSectionId: number,
+	nameItems: readonly Record<string, unknown>[],
+	typologyId: number | null,
+	dependencies: readonly OntologyDependency[] | null,
+): Promise<void> {
+	if (nameItems.length > 0) {
+		await writeOntologyMainKey(mainSectionId, 'string', HIERARCHY_TERM, nameItems);
+	}
+	if (typologyId !== null) {
+		await writeOntologyMainKey(mainSectionId, 'relation', HIERARCHY_TYPOLOGY, [
+			relationLocator({
+				type: RELATION_TYPE_LINK,
+				section_tipo: HIERARCHY_TYPES_SECTION,
+				section_id: typologyId,
+				from_component_tipo: HIERARCHY_TYPOLOGY,
+			}),
+		]);
+	}
+	if (dependencies !== null) {
+		await writeOntologyMainKey(
+			mainSectionId,
+			'misc',
+			HIERARCHY_DEPENDENCIES,
+			dependenciesMiscItems(dependencies),
+		);
+	}
+}
+
+/** The 'dd' registry row's general-term children (nodes 1 and 2) — creation only. */
+function ddGeneralTermValue(targetSectionTipo: string): Record<string, unknown>[] {
+	return [1, 2].map((nodeId) =>
+		relationLocator({
+			id: nodeId,
+			type: RELATION_TYPE_CHILDREN,
+			section_tipo: targetSectionTipo,
+			section_id: nodeId,
+			from_component_tipo: HIERARCHY_GENERAL_TERM,
+		}),
+	);
+}
+
+/**
+ * MINT the matrix_ontology_main row of a TLD that has none (the registry-row
+ * law above). Refuses a TLD that already has a row — use
+ * syncMainSectionFromDefinition (an import) or ensureMainSection (a rebuild).
+ * Every input is resolved BEFORE the record is minted, so a refusal (an
+ * unresolvable STRUCTURE_LANG, unnormalized dependencies) writes nothing.
+ * Returns the new section_id.
+ */
+export async function createMainSection(fileItem: FileItem, userId = -1): Promise<number> {
+	const tld = fileItem.tld;
+	if ((await getOntologyMainFromTld(tld)) !== null) {
+		throw new DedaloError('internal.invariant', {
+			message: `createMainSection: '${tld}' already has an ontology registry row`,
+			coordinates: { tld },
+		});
+	}
+	const targetSectionTipo = fileItem.section_tipo ?? mapTldToTargetSectionTipo(tld);
+	const langId = await resolveRegistryLangId();
+	const dependencies = definitionDependencies(fileItem);
+	const nameItems = definitionNameItems(fileItem);
+
+	const mainSectionId = await createSectionRecord(ONTOLOGY_MAIN_SECTION, userId);
 	const write = (column: 'relation' | 'string', tipo: string, value: unknown): Promise<void> =>
 		writeOntologyMainKey(mainSectionId, column, tipo, value);
 
-	// Project filter (dd153/1)
+	// Project filter (dd153/1) — creation only: from here on it is the installation's.
 	await write('relation', HIERARCHY_FILTER, [
 		relationLocator({
 			id: 1,
@@ -383,126 +590,84 @@ export async function addMainSection(fileItem: FileItem, userId = -1): Promise<n
 			from_component_tipo: HIERARCHY_FILTER,
 		}),
 	]);
-	// Active in thesaurus (only 'dd' → yes by default)
-	await write('relation', HIERARCHY_ACTIVE_IN_THESAURUS, [
-		relationLocator({
-			id: 1,
-			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
-			section_id: tld === 'dd' ? SI_NO_YES : SI_NO_NO,
-			from_component_tipo: HIERARCHY_ACTIVE_IN_THESAURUS,
-		}),
-	]);
-	// Language (lg-spa)
-	await write('relation', HIERARCHY_LANG, [
-		relationLocator({
-			id: 1,
-			type: RELATION_TYPE_LINK,
-			section_tipo: LANG_SECTION,
-			section_id: LANG_SPA_ID,
-			from_component_tipo: HIERARCHY_LANG,
-		}),
-	]);
-	// Active (yes)
-	await write('relation', HIERARCHY_ACTIVE, [
-		relationLocator({
-			id: 1,
-			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
-			section_id: SI_NO_YES,
-			from_component_tipo: HIERARCHY_ACTIVE,
-		}),
-	]);
-	// Name (multilingual) — normalize to {id:1, lang, value} items.
-	const nameItems = (nameData as { id?: number; lang?: string; value?: unknown }[])
-		.filter(
-			(item): item is { id?: number; lang: string; value: unknown } =>
-				typeof item.lang === 'string',
-		)
-		.map((item) => literalItem(item.id ?? 1, item.lang, String(item.value ?? '')));
-	if (nameItems.length > 0) {
-		await write('string', HIERARCHY_TERM, nameItems);
-	}
-	// TLD
+	await write(
+		'relation',
+		HIERARCHY_ACTIVE_IN_THESAURUS,
+		siNoValue(HIERARCHY_ACTIVE_IN_THESAURUS, tld === 'dd'),
+	);
+	await writeRegistryLang(mainSectionId, langId);
+	await write('relation', HIERARCHY_ACTIVE, siNoValue(HIERARCHY_ACTIVE, true));
 	await write('string', HIERARCHY_TLD, [literalItem(1, DATA_NOLAN, tld)]);
-	// Target section tipo
 	await write('string', HIERARCHY_TARGET_SECTION, [literalItem(1, DATA_NOLAN, targetSectionTipo)]);
-	// Typology (optional; PHP omits the item id here)
-	if (typologyId !== null && typologyId !== undefined && Number(typologyId) > 0) {
-		await write('relation', HIERARCHY_TYPOLOGY, [
-			relationLocator({
-				type: RELATION_TYPE_LINK,
-				section_tipo: HIERARCHY_TYPES_SECTION,
-				section_id: typologyId,
-				from_component_tipo: HIERARCHY_TYPOLOGY,
-			}),
-		]);
-	}
-	// Root children (only 'dd': nodes 1 and 2)
+	await writeDefinitionKeys(
+		mainSectionId,
+		nameItems.length > 0 ? nameItems : [literalItem(1, STRUCTURE_LANG, tld)],
+		definitionTypologyId(fileItem),
+		dependencies,
+	);
 	if (tld === 'dd') {
-		await write('relation', HIERARCHY_GENERAL_TERM, [
-			relationLocator({
-				id: 1,
-				type: RELATION_TYPE_CHILDREN,
-				section_tipo: targetSectionTipo,
-				section_id: '1',
-				from_component_tipo: HIERARCHY_GENERAL_TERM,
-			}),
-			relationLocator({
-				id: 2,
-				type: RELATION_TYPE_CHILDREN,
-				section_tipo: targetSectionTipo,
-				section_id: '2',
-				from_component_tipo: HIERARCHY_GENERAL_TERM,
-			}),
-		]);
+		await write('relation', HIERARCHY_GENERAL_TERM, ddGeneralTermValue(targetSectionTipo));
 	}
-
 	return mainSectionId;
 }
 
-// --- declared dependencies (ddengine11, installer unification A5) ------------
-
 /**
- * Write an imported ontology's DECLARED dependencies onto its registry record
- * (component ddengine11 ONTOLOGY_DEPENDENCIES): one link locator per dependency
- * TLD that has a registry record HERE, in declared order — REPLACING what the
- * record held (the source's declaration is the ontology's, like the rows the
- * import just replaced). The census (data_io.ts getActiveOntologies) reads it
- * back, so an ontology server that obtained its ontologies by import re-serves
- * the declaration instead of dropping it after one hop.
- *
- * Same write shape as addMainSection (per-key matrix write, no TM — the import's
- * registry writes are not audited records edits). Answers the dependency TLDs
- * with no local registry record (not written — the caller reports them), or
- * null when `tld` itself has no registry record (nothing written).
+ * Create-if-missing, otherwise NO write — the rebuild/provisioning door
+ * (ensureMainNode, provisionVirtualSections, createParentGrouper): a rebuild
+ * re-derives `<tld>0` from what the row holds and never resets the row.
  */
-export async function writeDeclaredDependencies(
-	tld: string,
-	dependencies: readonly string[],
-): Promise<string[] | null> {
-	const own = await getOntologyMainFromTld(tld);
-	if (own === null) return null;
-	const locators: Record<string, unknown>[] = [];
-	const missing: string[] = [];
-	for (const dependency of dependencies) {
-		const target = await getOntologyMainFromTld(dependency);
-		if (target === null) missing.push(dependency);
-		else locators.push(dependencyLocator(locators.length + 1, target.section_id));
-	}
-	await writeOntologyMainKey(own.section_id, 'relation', ONTOLOGY_DEPENDENCIES, locators);
-	return missing;
+export async function ensureMainSection(
+	fileItem: FileItem,
+	userId = -1,
+): Promise<{ sectionId: number; created: boolean }> {
+	const existing = await getOntologyMainFromTld(fileItem.tld);
+	if (existing !== null) return { sectionId: existing.section_id, created: false };
+	return { sectionId: await createMainSection(fileItem, userId), created: true };
 }
 
-/** One ddengine11 locator: a link to an ontology35 registry record. */
-function dependencyLocator(id: number, sectionId: number): Record<string, unknown> {
-	return relationLocator({
-		id,
-		type: RELATION_TYPE_LINK,
-		section_tipo: ONTOLOGY_MAIN_SECTION,
-		section_id: sectionId,
-		from_component_tipo: ONTOLOGY_DEPENDENCIES,
-	});
+/**
+ * THE IMPORT door of a registry row: apply an ontology DEFINITION (an
+ * ontology.json entry, a package, an engine/test JSON main node) to the TLD's
+ * row — see the registry-row law above. Missing row → createMainSection. An
+ * existing row gets ONLY: hierarchy5 / hierarchy9 / hierarchy60 from the
+ * definition (each only when stated — an absent `dependencies` is "not
+ * declared" and leaves the local value), hierarchy4 = yes for a CORE TLD
+ * (isCoreOntologyTld) and unchanged otherwise, hierarchy125 by the dd-only
+ * rule, hierarchy8 by the STRUCTURE_LANG rule. Returns the row's section_id.
+ */
+export async function syncMainSectionFromDefinition(
+	fileItem: FileItem,
+	userId = -1,
+): Promise<number> {
+	const tld = fileItem.tld;
+	const existing = await getOntologyMainFromTld(tld);
+	if (existing === null) return await createMainSection(fileItem, userId);
+	const mainSectionId = existing.section_id;
+	const langId = await resolveRegistryLangId();
+	const dependencies = definitionDependencies(fileItem);
+
+	await writeDefinitionKeys(
+		mainSectionId,
+		definitionNameItems(fileItem),
+		definitionTypologyId(fileItem),
+		dependencies,
+	);
+	if (isCoreOntologyTld(tld)) {
+		await writeOntologyMainKey(
+			mainSectionId,
+			'relation',
+			HIERARCHY_ACTIVE,
+			siNoValue(HIERARCHY_ACTIVE, true),
+		);
+	}
+	await writeOntologyMainKey(
+		mainSectionId,
+		'relation',
+		HIERARCHY_ACTIVE_IN_THESAURUS,
+		siNoValue(HIERARCHY_ACTIVE_IN_THESAURUS, tld === 'dd'),
+	);
+	await writeRegistryLang(mainSectionId, langId);
+	return mainSectionId;
 }
 
 // --- parent grouper (PHP create_parent_grouper) ------------------------------
@@ -547,8 +712,9 @@ export async function createParentGrouper(
 		parent_grouper_tipo: 'ontologytype14', // fixed — prevents grouper recursion
 	};
 
-	// Register the grouper's own TLD (matrix_ontology_main + <groupTld>0 node).
-	await addMainSection(fileData, userId);
+	// Register the grouper's own TLD (matrix_ontology_main + <groupTld>0 node):
+	// create-if-missing — an existing grouper row is the installation's.
+	await ensureMainSection(fileData, userId);
 	await createDdOntologyRootNode(fileData, userId);
 
 	// Parent node (e.g. ontology0 for parent group ontology40).
@@ -600,7 +766,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_PUBLICATION,
 		}),
@@ -610,7 +776,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_IS_DESCRIPTOR,
 		}),
@@ -630,7 +796,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_NO,
 			from_component_tipo: ONTOLOGY_TRANSLATABLE,
 		}),
@@ -640,7 +806,7 @@ export async function createParentGrouper(
 		relationLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_NO,
 			from_component_tipo: ONTOLOGY_IS_MODEL,
 		}),

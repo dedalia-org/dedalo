@@ -20,8 +20,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
 import {
-	addMainSection,
 	createDdOntologyRootNode,
+	createMainSection,
 } from '../../src/core/ontology/ontology_write.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 
@@ -53,7 +53,7 @@ afterAll(sweep);
 
 describe('createDdOntologyRootNode without typology/name', () => {
 	test('reads them from the registry record: Core parent, registry term', async () => {
-		await addMainSection({
+		await createMainSection({
 			tld: TLD,
 			typology_id: CORE_TYPOLOGY,
 			name_data: [{ lang: 'lg-eng', value: NAME }],

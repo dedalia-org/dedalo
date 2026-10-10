@@ -127,3 +127,25 @@ the installer already reads.
   their own transforms, so none was affected when this entry was written (the
   parity tier was re-run against `engineering/parity_baseline.json` with no new
   red).
+
+## Addendum 2026-10-10 — superseded by WC-2026-10-10-ontology-dependencies-hierarchy60
+
+This entry is SUPERSEDED in full by
+`engineering/wire_contract/WC-2026-10-10-ontology-dependencies-hierarchy60.md`.
+It stays as history. The owner had not approved the engine-owned component
+`ddengine11`. The master ontology now defines the field as `hierarchy60`, a
+`component_json` "Dependencies" on `hierarchy1`/`ontology35`. A dependency is
+now an object, `{tld, main: ontology35|hierarchy1, mandatory}`. It is no
+longer a TLD string.
+
+Everything this entry describes is gone:
+
+- `ONTOLOGY_DEPENDENCIES` and `writeDeclaredDependencies` /
+  `recordDeclaredDependencies`;
+- the locator resolution in the census;
+- `normalizeDeclaredDependencies`;
+- `VENDORED_DOMAIN_ONTOLOGIES`.
+
+`ddengine11` is listed as `retired` in `engine_ontology.json`, so the engine
+ontology door prunes it from installs that materialized it. Its gate legs
+moved to the gates named in the new entry.

@@ -7,11 +7,16 @@
  * The manifest is what the master builds (data_io_import.ts
  * buildOntologyUpdateInfo, served by dd_utils_api.get_ontology_update_info):
  * `{info: ontology.json verbatim, files: [{tld, section_tipo, url}]}`.
- * `info.active_ontologies[i].dependencies` (string[] of TLDs, may include core)
- * is present only when the master DECLARES them (component ddengine11 —
- * WC-2026-10-09-ontology-manifest-dependencies); ABSENT means "not declared"
- * (an older server, or an empty component) and is reported as `null` here,
- * never as `[]`, so a caller cannot mistake it for "needs nothing".
+ * `info.active_ontologies[i].dependencies` — `{tld, main, mandatory}` objects
+ * (main `ontology35` = the TLD's ontology, `hierarchy1` = its thesaurus) — is
+ * present only when the master DECLARES them (registry field hierarchy60 —
+ * WC-2026-10-10-ontology-dependencies-hierarchy60); ABSENT means "not
+ * declared" (an older server, or a registry row without the field) and is
+ * reported as `null` here, never as `[]`, so a caller cannot mistake it for
+ * "needs nothing". The list goes through THE shared normalizer
+ * (ontology_dependencies.ts normalizeOntologyDependencies — the one the
+ * master's export applies too): a bad item is a WARNING, never a refused
+ * manifest.
  *
  * TWO SOURCES, ONE PARSER:
  *   - a local directory in the server export layout (`ontology.json` +
@@ -40,6 +45,7 @@ import {
 	type ManifestFileItem,
 	manifestFileItemSchema,
 } from './data_io_import.ts';
+import { normalizeOntologyDependencies, type OntologyDependency } from './ontology_dependencies.ts';
 
 /** Total deadline of the manifest request. */
 export const MANIFEST_TIMEOUT_MS = 30_000;
@@ -53,7 +59,7 @@ const activeOntologySchema = z
 		name_data: z.unknown().optional(),
 		typology_id: z.union([z.number(), z.string()]).nullable().optional(),
 		typology_name: z.string().nullable().optional(),
-		// Normalized by hand (normalizeDeclaredDependencies): a bad item is a WARNING, not a refused manifest.
+		// Normalized by hand (normalizeOntologyDependencies): a bad item is a WARNING, not a refused manifest.
 		dependencies: z.unknown().optional(),
 	})
 	.passthrough();
@@ -77,8 +83,8 @@ export interface ManifestOntology {
 	name_data: unknown;
 	typology_id: number | string | null;
 	typology_name: string | null;
-	/** Declared dependencies (TLDs, core included); null = NOT declared. */
-	dependencies: string[] | null;
+	/** Declared dependencies (normalized `{tld, main, mandatory}`); null = NOT declared. */
+	dependencies: OntologyDependency[] | null;
 	/** The file's URL (`file://` for a local source). */
 	url: string;
 }
@@ -97,41 +103,6 @@ export type ManifestResult =
 type ActiveOntology = z.infer<typeof activeOntologySchema>;
 
 const TLD_RE = /^[a-z]{2,}$/;
-
-/** One declared dependency item → a TLD, or null (with a warning) when it is not one. */
-function dependencyItem(tld: string, item: unknown, warnings: string[]): string | null {
-	const value = typeof item === 'string' ? item.trim().toLowerCase() : '';
-	if (TLD_RE.test(value)) return value;
-	warnings.push(
-		`'${tld}' declares a dependency that is not a TLD (${JSON.stringify(item)}) — ignored`,
-	);
-	return null;
-}
-
-/**
- * The declared dependencies of one entry: trimmed, lowercased, valid TLDs only,
- * deduplicated in declared order, the entry's own TLD dropped. Absent → null.
- * Shared with the update panel's stager (ontology_update_target.ts), which
- * carries the declaration into the import (ddengine11 on the registry record).
- */
-export function normalizeDeclaredDependencies(
-	tld: string,
-	raw: unknown,
-	warnings: string[],
-): string[] | null {
-	if (raw === undefined || raw === null) return null;
-	if (!Array.isArray(raw)) {
-		warnings.push(`'${tld}' declares dependencies that are not a list — treated as not declared`);
-		return null;
-	}
-	const found = new Set<string>();
-	for (const item of raw) {
-		const dependency = dependencyItem(tld, item, warnings);
-		if (dependency !== null) found.add(dependency);
-	}
-	found.delete(tld);
-	return [...found];
-}
 
 /** info.active_ontologies by (lowercased) TLD. */
 function infoByTld(
@@ -159,7 +130,7 @@ function manifestOntology(
 		name_data: meta.name_data ?? null,
 		typology_id: meta.typology_id ?? null,
 		typology_name: meta.typology_name ?? null,
-		dependencies: normalizeDeclaredDependencies(file.tld, meta.dependencies, warnings),
+		dependencies: normalizeOntologyDependencies(file.tld, meta.dependencies, warnings),
 		url: file.url,
 	};
 }

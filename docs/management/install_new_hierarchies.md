@@ -154,7 +154,10 @@ You do not create these by hand:
   `install_checked_default` (today only `es`), which the wizard pre-ticks and the
   command line installs when it gets no answer. `none` is a valid answer. The
   Languages thesaurus (`lg`) is not a choice: it is active on every install, and
-  naming it is dropped with a note.
+  naming it is dropped with a note. A thesaurus that an installed ontology
+  declares as a dependency is added to this set: always when it is mandatory
+  (locked in the wizard), and pre-ticked when it is optional
+  ([dependencies](../install/installer_reference.md#dependencies-are-declared-never-guessed)).
 - **Afterwards**, Maintenance → **Install hierarchies** (`add_hierarchy`) offers
   the same list, minus the ones already installed, and imports on demand.
 

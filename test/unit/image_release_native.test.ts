@@ -46,6 +46,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	FULL_GATE_WORKFLOWS,
+	fullGateFault,
 	type ManifestState,
 	type PlanGit,
 	Refusal,
@@ -476,21 +478,45 @@ describe('plan — which release a run publishes', () => {
 	});
 	afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
+	let ghLog = '';
 	function plan(env: Record<string, string>): {
 		code: number;
 		out: Record<string, string>;
 		text: string;
+		gh: string[];
 	} {
 		const tmp = mkdtempSync(join(tmpdir(), 'dedalo-image-plan-run-'));
 		try {
 			const outputs = join(tmp, 'out');
+			// `gh` stub: the Actions API's count of successful push runs per workflow file
+			// (STUB_GH_<CI|DB>, default 1 = green), STUB_GH_FAIL=1 → the API errors; argv logged.
+			const bin = join(tmp, 'bin');
+			mkdirSync(bin);
+			writeFileSync(
+				join(bin, 'gh'),
+				[
+					'#!/bin/sh',
+					'printf "gh %s\\n" "$*" >> "$GH_LOG"',
+					'[ "${STUB_GH_FAIL:-0}" = 1 ] && { echo "HTTP 502" >&2; exit 1; }',
+					'case "$*" in',
+					'  */ci.yml/runs*) echo "${STUB_GH_CI:-1}" ;;',
+					'  */db.yml/runs*) echo "${STUB_GH_DB:-1}" ;;',
+					'  *) echo "unexpected gh call" >&2; exit 2 ;;',
+					'esac',
+					'',
+				].join('\n'),
+				{ mode: 0o755 },
+			);
+			ghLog = join(tmp, 'gh.log');
 			const proc = Bun.spawnSync([process.execPath, PROGRAM, 'plan'], {
 				cwd: repo,
 				env: {
-					PATH: process.env.PATH ?? '/usr/bin:/bin',
+					PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
 					HOME: tmp,
 					RUNNER_TEMP: tmp,
 					GITHUB_OUTPUT: outputs,
+					GITHUB_REPOSITORY: 'dedalia-org/dedalo',
+					GH_LOG: ghLog,
 					...env,
 				},
 				stdout: 'pipe',
@@ -504,6 +530,7 @@ describe('plan — which release a run publishes', () => {
 				code: proc.exitCode ?? 1,
 				out,
 				text: proc.stdout.toString() + proc.stderr.toString(),
+				gh: existsSync(ghLog) ? readFileSync(ghLog, 'utf8').trim().split('\n') : [],
 			};
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
@@ -598,6 +625,76 @@ describe('plan — which release a run publishes', () => {
 		});
 		expect(missing.code).toBe(1);
 		expect(missing.text).toContain('does not exist');
+	});
+
+	// A release is cut only from a commit the FULL gate passed on GitHub (2026-10-10):
+	// a successful push run of ci.yml (hermetic) AND db.yml (db + instance) at that sha.
+	const tagPush = { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/tags/v7.0.1' };
+	test('a release asks the Actions API for green push runs of ci.yml AND db.yml at its commit', () => {
+		const result = plan({ ...tagPush, GITHUB_SHA: releaseSha });
+		expect(result.code, result.text).toBe(0);
+		expect(result.gh).toHaveLength(FULL_GATE_WORKFLOWS.length);
+		for (const workflow of FULL_GATE_WORKFLOWS)
+			expect(result.gh).toContainEqual(
+				`gh api -X GET repos/dedalia-org/dedalo/actions/workflows/${workflow}/runs -f head_sha=${releaseSha} -f event=push -f status=success --jq .total_count`,
+			);
+	});
+
+	test('a release whose commit lacks a green ci.yml or db.yml push run is REFUSED, nothing planned', () => {
+		for (const [key, workflow] of [
+			['STUB_GH_CI', 'ci.yml'],
+			['STUB_GH_DB', 'db.yml'],
+		] as const) {
+			const result = plan({ ...tagPush, GITHUB_SHA: releaseSha, [key]: '0' });
+			expect(result.code).toBe(1);
+			expect(result.text).toContain(`release commit ${releaseSha} has no green FULL gate`);
+			expect(result.text).toContain(`${workflow} (no successful push run)`);
+			expect(result.out).toEqual({});
+		}
+		// The release DISPATCH (re-publishing an existing tag) is held the same way.
+		const dispatched = plan({
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/heads/master',
+			GITHUB_SHA: masterSha,
+			INPUT_CHANNEL: 'release',
+			INPUT_TAG: 'v7.0.1',
+			STUB_GH_DB: '0',
+		});
+		expect(dispatched.code).toBe(1);
+		expect(dispatched.text).toContain('db.yml (no successful push run)');
+	});
+
+	test('an unreadable Actions API refuses (fail closed); a dev build never asks', () => {
+		const down = plan({ ...tagPush, GITHUB_SHA: releaseSha, STUB_GH_FAIL: '1' });
+		expect(down.code).toBe(1);
+		expect(down.text).toContain('runs unreadable');
+		const noRepo = plan({ ...tagPush, GITHUB_SHA: releaseSha, GITHUB_REPOSITORY: '' });
+		expect(noRepo.code).toBe(1);
+		expect(noRepo.text).toContain('runs unreadable');
+		const dev = plan({
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/heads/master',
+			GITHUB_SHA: masterSha,
+			INPUT_CHANNEL: 'dev',
+			STUB_GH_FAIL: '1',
+		});
+		expect(dev.code, dev.text).toBe(0);
+		expect(dev.gh).toEqual([]);
+	});
+
+	test('fullGateFault: green only when every full-gate workflow has ≥1 successful push run', () => {
+		const of = (ci: number | null, db: number | null) =>
+			fullGateFault(
+				'abc',
+				new Map([
+					['ci.yml', ci],
+					['db.yml', db],
+				]),
+			);
+		expect(of(1, 2)).toBeNull();
+		expect(of(0, 1)).toContain('ci.yml (no successful push run)');
+		expect(of(1, null)).toContain('db.yml (runs unreadable)');
+		expect(fullGateFault('abc', new Map())).toContain('ci.yml (runs unreadable)');
 	});
 
 	test('any other event never publishes', () => {

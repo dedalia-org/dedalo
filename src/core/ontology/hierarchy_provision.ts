@@ -17,7 +17,7 @@
  *
  * BYTE PINS (verified against PHP):
  *  - descriptor ontology7 tld item uses lang lg-spa (DEDALO_DATA_LANG); the
- *    matrix_ontology_main tld item (addMainSection) uses lg-nolan — different.
+ *    matrix_ontology_main tld item (createMainSection) uses lg-nolan — different.
  *  - the ontology15 parent locator written here is BARE {section_tipo, section_id}
  *    (no type/from_component_tipo) — pinned.
  *  - hierarchy53/58 items are {id:1, lang:lg-nolan, value:<tld>1|<tld>2}.
@@ -64,14 +64,14 @@ import {
 	ONTOLOGY_TRANSLATABLE,
 	RELATION_TYPE_LINK,
 	SI_NO_NO,
-	SI_NO_SECTION,
 	SI_NO_YES,
 	STRUCTURE_LANG,
+	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import {
-	addMainSection,
 	createDdOntologyRootNode,
 	createParentGrouper,
+	ensureMainSection,
 	insertDdOntologyRecord,
 } from './ontology_write.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
@@ -155,7 +155,7 @@ export async function generateVirtualSection(
 	)?.[0];
 	if (
 		activeLocator === undefined ||
-		activeLocator.section_tipo !== SI_NO_SECTION ||
+		activeLocator.section_tipo !== YES_NO_SECTION ||
 		Number(activeLocator.section_id) !== SI_NO_YES
 	) {
 		response.msg += 'Current hierarchy is not active';
@@ -297,18 +297,13 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 	} = args;
 	const nodeSectionTipo = `${tld2}0`;
 
-	// ontology main + root node
-	const mainSectionId = await addMainSection(
-		{ tld: tld2, typology_id: typologyId, name_data: nameData },
-		userId,
-	);
-	if (mainSectionId === null) {
-		throw new Error(`add_main_section failed for tld: ${tld2}`);
-	}
-	await createDdOntologyRootNode(
-		{ tld: tld2, typology_id: typologyId, name_data: nameData },
-		userId,
-	);
+	// ontology main + root node. The registry-row law (ontology_write.ts): the
+	// row is CREATED from this hierarchy's typology + name when the TLD has
+	// none; an existing row is the installation's and is not rewritten — the
+	// root node is then built from what the row holds (createDdOntologyRootNode
+	// reads typology + name off it when the item omits them).
+	await ensureMainSection({ tld: tld2, typology_id: typologyId, name_data: nameData }, userId);
+	await createDdOntologyRootNode({ tld: tld2 }, userId);
 
 	// --- descriptor section <tld>0 / 1 ---
 	await createSectionRecord(nodeSectionTipo, userId, new Date(), 1);
@@ -322,7 +317,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_PUBLICATION,
 		}),
@@ -331,7 +326,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_IS_DESCRIPTOR,
 		}),
@@ -350,7 +345,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_NO,
 			from_component_tipo: ONTOLOGY_TRANSLATABLE,
 		}),
@@ -367,7 +362,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 			from_component_tipo: ONTOLOGY_CONNECTED_TO,
 		}),
 	]);
-	// tld — lang lg-spa (DEDALO_DATA_LANG) — DIFFERS from addMainSection's lg-nolan
+	// tld — lang lg-spa (DEDALO_DATA_LANG) — DIFFERS from createMainSection's lg-nolan
 	await writeDescriptor('string', ONTOLOGY_TLD, [{ id: 1, lang: STRUCTURE_LANG, value: tld2 }]);
 	// name
 	if (nameData.length > 0) {
@@ -419,7 +414,7 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 		relLocator({
 			id: 1,
 			type: RELATION_TYPE_LINK,
-			section_tipo: SI_NO_SECTION,
+			section_tipo: YES_NO_SECTION,
 			section_id: SI_NO_YES,
 			from_component_tipo: ONTOLOGY_IS_MODEL,
 		}),

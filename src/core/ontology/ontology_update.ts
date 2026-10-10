@@ -71,6 +71,7 @@ import {
 	normalizeOntologyTld,
 	type OntologyIoResponse,
 } from './data_io_import.ts';
+import { reportMissingDependencies } from './dependency_report.ts';
 import { termByTipo } from './labels.ts';
 import {
 	type OntologyUpdateCatalog,
@@ -79,10 +80,9 @@ import {
 	stageOntologyFiles,
 } from './ontology_update_target.ts';
 import {
-	addMainSection,
 	createDdOntologyRootNode,
 	setRecordsInDdOntology,
-	writeDeclaredDependencies,
+	syncMainSectionFromDefinition,
 } from './ontology_write.ts';
 import { getOrderedSubtree } from './resolver.ts';
 import { LOCAL_ONTOLOGY_SECTION } from './tld.ts';
@@ -148,14 +148,18 @@ export async function importOntologyPackage(
 	// compiler bootstraps with a rows-only pass + derive, then runs this door in
 	// full on top, exactly as a client update does.
 	if (options.provision !== false) {
-		// absent typology (null) → both read the registry / default themselves
+		// absent typology (null) → both read the registry / default themselves.
+		// `dependencies` (hierarchy60): null/absent = the definition declares nothing —
+		// the row keeps its local value; [] = declared, needs nothing.
 		const fileItem = {
 			tld: file.tld,
 			section_tipo: file.sectionTipo,
 			typology_id: file.typologyId,
 			name_data: file.nameData,
-		} as Parameters<typeof addMainSection>[0];
-		await addMainSection(fileItem, userId);
+			dependencies: file.dependencies,
+		} as Parameters<typeof syncMainSectionFromDefinition>[0];
+		// The IMPORT door of the registry-row law (ontology_write.ts).
+		await syncMainSectionFromDefinition(fileItem, userId);
 		await createDdOntologyRootNode(fileItem, userId);
 		options.onProvisioned?.();
 	}
@@ -233,8 +237,9 @@ export const updateOntologyOptionsSchema = z.object({
 				url: z.string().url(),
 				typology_id: z.union([z.number(), z.string()]).nullish(),
 				name_data: z.unknown().nullish(),
-				// The manifest's declared dependencies, forwarded verbatim (absent = not
-				// declared); normalized by the stager, persisted on the registry record.
+				// The manifest's declared dependencies ({tld, main, mandatory} objects),
+				// forwarded verbatim (absent = not declared); normalized by the stager,
+				// persisted on the registry record (hierarchy60).
 				dependencies: z.unknown().optional(),
 			}),
 		)
@@ -497,6 +502,12 @@ export async function updateOntology(
 			return response;
 		}
 
+		// Declared dependencies this server lacks: REPORT ONLY, never installed
+		// (WC-2026-10-10-ontology-dependencies-hierarchy60). Here, not in the
+		// shared layer: the installer fails on ANY error, and it resolves the
+		// closure itself before importing.
+		await reportUpdateDependencies(staged, response, messages);
+
 		// SURF-1: the re-derive above never projects a non-grammar identifier, so
 		// an update is where a legacy install's NOT VALID grammar constraints turn
 		// VALID. Rows still breaking a rule keep theirs NOT VALID and are REPORTED
@@ -615,9 +626,6 @@ export async function importStagedOntologyFiles(
 		for (const file of staged) {
 			if (!(await importStagedFile(file, ctx, result))) return result;
 		}
-		// Every registry record of the batch exists now: the declarations can
-		// name each other (a dependency imported after its dependant).
-		await recordDeclaredDependencies(staged, result);
 		await deriveStagedNodes(staged, ctx.userId, result);
 		await clearOntologyDerivedCaches();
 		result.completed = true;
@@ -744,34 +752,24 @@ async function importStagedPrivateLists(
 }
 
 /**
- * Persist each imported ontology's DECLARED dependencies on its registry record
- * (ddengine11 — ontology_write.ts writeDeclaredDependencies), so the census and
- * this server's next export re-serve the declaration instead of losing it after
- * one hop (installer unification A5). `null` (the source declared nothing — an
- * older server, or a panel that did not forward it) writes NOTHING: the local
- * declaration, if any, stands. A dependency with no registry record here is a
- * NOTE (messages, never an error — the installer fails on any error): the
- * locator it would need does not exist on this server.
+ * The update's dependency report (dependency_report.ts): each updated TLD's
+ * declared dependencies (as its registry row now holds them) checked against
+ * this server. A MANDATORY missing one is a warning line in `errors` (the panel
+ * renders them as import warnings — the update still succeeds); an OPTIONAL
+ * one is a note in the import log. The structured list rides as the
+ * `missing_dependencies` extension key ([] when nothing is missing).
  */
-async function recordDeclaredDependencies(
+async function reportUpdateDependencies(
 	staged: readonly StagedFile[],
-	result: StagedImportResult,
+	response: OntologyIoResponse,
+	messages: string[],
 ): Promise<void> {
-	for (const file of staged) {
-		const declared = derivesNodes(file) ? (file.dependencies ?? null) : null;
-		if (declared === null) continue;
-		const note = dependencyNote(file.tld, await writeDeclaredDependencies(file.tld, declared));
-		if (note !== null) result.messages.push(note);
-	}
-}
-
-/** The operator note of one declaration write (null = recorded whole). */
-function dependencyNote(tld: string, missing: string[] | null): string | null {
-	if (missing === null) {
-		return `${tld}: no registry record — its declared dependencies were not recorded`;
-	}
-	if (missing.length === 0) return null;
-	return `${tld}: declared dependencies without a registry record here were not recorded: ${missing.join(', ')}`;
+	const report = await reportMissingDependencies(
+		staged.filter((file) => derivesNodes(file)).map((file) => file.tld),
+	);
+	response.errors.push(...report.invalid, ...report.warnings);
+	messages.push(...report.notes);
+	response.missing_dependencies = report.missing;
 }
 
 /** dd_ontology flat-index rebuild per imported TLD, in staged order (deriveOntologyPackages). */
@@ -791,7 +789,7 @@ async function deriveStagedNodes(
  *
  * The Phase-B snapshots cover matrix_ontology / matrix_dd ONLY. For every
  * non-`matrix_dd` TLD, Phase C provisions a `matrix_ontology_main` registry
- * record (addMainSection) and a `dd_ontology` root node (+ its ontologytype
+ * record (syncMainSectionFromDefinition) and a `dd_ontology` root node (+ its ontologytype
  * grouper) BEFORE the row import, through raw matrix writes with no Time
  * Machine trail. restoreSnapshots cannot undo any of that, so claiming
  * "previous state restored" after a provisioned TLD is a FALSE statement about

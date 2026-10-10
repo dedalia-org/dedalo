@@ -859,9 +859,26 @@ const get_content_data = function(self) {
 				update_step_indicator(self.node.content_data.step_indicator, needs_config ? 13 : 7)
 			}
 		}
-		hierarchies.content_div.appendChild(
-			render_hierarchies_import_block(hierarchies_import_options)
-		)
+		// The thesauri the saved plan's ontologies declare (persist_config's
+		// `hierarchy_dependencies`, kept in self._hierarchy_dependencies) are only
+		// known after the Save step, so the list is (re)built each time the step
+		// appears: mandatory ones checked and locked, optional ones pre-ticked.
+		const render_hierarchies_step = function() {
+			const declared = Array.isArray(self._hierarchy_dependencies) ? self._hierarchy_dependencies : []
+			const defaults = Array.isArray(properties.install_checked_default) ? properties.install_checked_default : []
+			hierarchies.content_div.replaceChildren(
+				render_hierarchies_import_block({
+					...hierarchies_import_options,
+					// a fresh array per render (the block sorts its input in place)
+					hierarchies				: [...(properties.hierarchies || [])],
+					hierarchy_typologies	: [...(properties.hierarchy_typologies || [])],
+					default_checked			: [...new Set([...defaults, ...declared.map(el => el.tld)])],
+					required_hierarchies	: declared.filter(el => el.mandatory===true)
+				})
+			)
+		}
+		render_hierarchies_step()
+		hierarchies.section._on_reveal = render_hierarchies_step
 
 	// ── REGISTER TOOLS BLOCK ──
 	// Register the discoverable tools (import, export, time machine, …) into the
@@ -1820,15 +1837,20 @@ const ontology_entry_label = function(entry) {
 * What ticking this entry brings with it: the declared dependencies the installer
 * installs too (`also_installs`, deps of deps included, core excluded), the
 * "not declared" warning when the source does not declare them
-* (`dependencies === null` — an older ontology server), or '' (nothing more).
+* (`dependencies === null` — an older ontology server, or a built-in
+* ontology.json that predates hierarchy60), or '' (nothing more).
 * @param object entry (OntologyCatalogView entry)
 * @return object { text, warning }
 */
 const ontology_dependency_text = function(entry) {
 
 	if (entry.dependencies===null) {
+		// the built-in (vendored) ontology.json may predate the declaration
+		// (hierarchy60) — not a server's fault, so say where it comes from
 		return {
-			text	: get_label.installation_ontologies_undeclared || 'The ontology server does not declare what this ontology depends on (an older server): it is installed alone, and anything it references in other ontologies stays unresolved.',
+			text	: entry.origin==='vendored'
+				? (get_label.installation_ontologies_undeclared_builtin || 'The built-in ontology file does not declare what this ontology depends on (a release that predates the declaration): it is installed alone over the core ontologies.')
+				: (get_label.installation_ontologies_undeclared || 'The ontology server does not declare what this ontology depends on (an older server): it is installed alone, and anything it references in other ontologies stays unresolved.'),
 			warning	: true
 		}
 	}
@@ -1846,16 +1868,127 @@ const ontology_dependency_text = function(entry) {
 
 
 /**
-* RENDER_ONTOLOGY_ENTRY
-* One catalog row: checkbox + name, the explanatory note (when the server names
-* one), and the dependency line, shown only while the row is ticked. Every
-* server-supplied string goes through text_content (SEC-032).
-* @param object entry (OntologyCatalogView entry)
-* @param Set selected the ticked TLDs (mutated on change)
-* @param function on_change called after every tick/untick
+* DEPENDENCY_DECLINE_TOKEN
+* The `declined_dependencies` token of one declared dependency: `<tld>:<main>`
+* (the plan also accepts a bare TLD — both mains — but the wizard declines
+* exactly the row the operator unticked).
+* @param object dependency {tld, main, mandatory}
+* @return string
+*/
+const dependency_decline_token = function(dependency) {
+
+	return dependency.tld + ':' + dependency.main
+}//end dependency_decline_token
+
+
+
+/**
+* IS_FIXED_DEPENDENCY
+* True when a declared dependency names something the SEED always installs, so
+* it is never a choice: a core ontology (`properties.ontologies.core`, or the
+* engine-owned `ddengine` — the server's isFixedTld) for `main: ontology35`, a
+* core hierarchy (`properties.core_hierarchies`, lg) for `main: hierarchy1`.
+* The server never lets such a dependency be declined either
+* (ontology_choice.ts followOntologyDependencies / isListedThesaurus).
+* @param object dependency {tld, main, mandatory}
+* @param array core_ontologies the core ontology TLDs
+* @param array core_hierarchies [{tld, label}]
+* @return bool
+*/
+const is_fixed_dependency = function(dependency, core_ontologies, core_hierarchies) {
+
+	if (dependency.main==='hierarchy1') {
+		return core_hierarchies.some(item => item && item.tld===dependency.tld)
+	}
+
+	return dependency.tld==='ddengine' || core_ontologies.includes(dependency.tld)
+}//end is_fixed_dependency
+
+
+
+/**
+* RENDER_DEPENDENCY_ROW
+* One DECLARED dependency of a ticked ontology (hierarchy60): a checkbox that is
+* checked and LOCKED when the dependency is mandatory (it is always installed),
+* checked but EDITABLE when it is optional (unticking declines it — the token
+* travels as `cfg.declined_dependencies`). `main: hierarchy1` rows are thesauri
+* (installed at the "Install hierarchies" step), `main: ontology35` rows are
+* ontologies. A FIXED dependency (a core ontology / core thesaurus: the seed
+* always installs it — see is_fixed_dependency) is checked and LOCKED too,
+* whatever its `mandatory`: unticking it could change nothing.
+* Server strings → text_content only (SEC-032).
+* @param object dependency {tld, main, mandatory}
+* @param Set declined the declined tokens (mutated on change)
+* @param function on_change
+* @param bool fixed the dependency is always installed (core)
 * @return HTMLElement li
 */
-const render_ontology_entry = function(entry, selected, on_change) {
+const render_dependency_row = function(dependency, declined, on_change, fixed) {
+
+	const token = dependency_decline_token(dependency)
+	const locked = fixed===true || dependency.mandatory===true
+	const li = ui.create_dom_element({
+		element_type	: 'li',
+		class_name		: 'ontology_dependency' + (locked ? ' mandatory' : ' optional')
+	})
+	const label = ui.create_dom_element({
+		element_type	: 'label',
+		class_name		: 'hierarchy_label ontology_dependency_label',
+		parent			: li
+	})
+	const checkbox = ui.create_dom_element({
+		element_type	: 'input',
+		type			: 'checkbox',
+		class_name		: 'hierarchy_checkbox',
+		parent			: label
+	})
+	checkbox.value		= token
+	checkbox.checked	= locked || !declined.has(token)
+	checkbox.disabled	= locked
+	const kind = dependency.main==='hierarchy1'
+		? (get_label.installation_dependency_thesaurus || 'thesaurus')
+		: (get_label.installation_dependency_ontology || 'ontology')
+	const status_text = fixed===true
+		? (get_label.installation_dependency_core || 'core — always installed')
+		: dependency.mandatory===true
+			? (get_label.installation_dependency_required || 'required — always installed')
+			: (get_label.installation_dependency_optional || 'optional — untick to skip it')
+	ui.create_dom_element({
+		element_type	: 'span',
+		text_content	: dependency.tld + ' (' + kind + ', ' + status_text + ')',
+		parent			: label
+	})
+
+	if (!locked) {
+		checkbox.addEventListener('change', function() {
+			if (checkbox.checked) {
+				declined.delete(token)
+			}else{
+				declined.add(token)
+			}
+			on_change()
+		})
+	}
+
+	return li
+}//end render_dependency_row
+
+
+
+/**
+* RENDER_ONTOLOGY_ENTRY
+* One catalog row: checkbox + name, the explanatory note (when the server names
+* one), the dependency line and the declared-dependency rows (mandatory locked,
+* optional pre-ticked — render_dependency_row), shown only while the row is
+* ticked. Every server-supplied string goes through text_content (SEC-032).
+* @param object entry (OntologyCatalogView entry)
+* @param Set selected the ticked TLDs (mutated on change)
+* @param Set declined the declined dependency tokens (mutated on change)
+* @param function on_change called after every tick/untick
+* @param function is_fixed dependency → bool (is_fixed_dependency, bound)
+* @return HTMLElement li
+*/
+const render_ontology_entry = function(entry, selected, declined, on_change, is_fixed) {
 
 	const li = ui.create_dom_element({
 		element_type	: 'li',
@@ -1904,9 +2037,25 @@ const render_ontology_entry = function(entry, selected, on_change) {
 			parent			: li
 		  })
 		: null
+	// declared dependencies: mandatory and FIXED (core — the seed always installs
+	// it) locked, optional pre-ticked and editable
+	const declared = Array.isArray(entry.dependencies) ? entry.dependencies : []
+	const dependencies_node = declared.length>0
+		? ui.create_dom_element({
+			element_type	: 'ul',
+			class_name		: 'ontology_dependency_list',
+			parent			: li
+		  })
+		: null
+	for (const dependency of declared) {
+		dependencies_node.appendChild(render_dependency_row(dependency, declined, on_change, is_fixed(dependency)))
+	}
 	const sync_dependency = function() {
 		if (dependency_node) {
 			dependency_node.classList.toggle('hide', !checkbox.checked)
+		}
+		if (dependencies_node) {
+			dependencies_node.classList.toggle('hide', !checkbox.checked)
 		}
 	}
 	sync_dependency()
@@ -1959,10 +2108,12 @@ const group_ontology_entries = function(entries) {
 * server catalog of a few hundred TLDs stays readable.
 * @param object group { name, entries }
 * @param Set selected
+* @param Set declined
 * @param function on_change
+* @param function is_fixed dependency → bool (is_fixed_dependency, bound)
 * @return HTMLElement details
 */
-const render_ontology_group = function(group, selected, on_change) {
+const render_ontology_group = function(group, selected, declined, on_change, is_fixed) {
 
 	const details = ui.create_dom_element({
 		element_type	: 'details',
@@ -1983,7 +2134,7 @@ const render_ontology_group = function(group, selected, on_change) {
 		parent			: details
 	})
 	for (const entry of group.entries) {
-		ul.appendChild(render_ontology_entry(entry, selected, on_change))
+		ul.appendChild(render_ontology_entry(entry, selected, declined, on_change, is_fixed))
 	}
 
 	return details
@@ -2005,7 +2156,9 @@ const render_ontology_group = function(group, selected, on_change) {
 *    (`data:false`) is reported and the built-in catalog stays offered;
 *  - `properties.ontologies.default` (oh) is pre-ticked; tch carries its note but
 *    is not; a ticked entry shows what it also installs (the DECLARED dependencies)
-*    or the not-declared warning;
+*    or the not-declared warning, and one row per declared dependency
+*    (hierarchy60): MANDATORY rows checked and locked, OPTIONAL rows pre-ticked —
+*    unticking one declines it (`cfg.declined_dependencies`, `<tld>:<main>`);
 *  - at least one domain ontology is required. The choice travels as
 *    `cfg.ontologies` with persist_config — only TLDs the current catalog offers.
 * @param {Object} self
@@ -2019,9 +2172,14 @@ const render_ontologies_block = function(self) {
 	const context		= props.ontologies || {}
 	const offline_view	= context.offline || { entries:[], warnings:[] }
 	const core			= Array.isArray(context.core) ? context.core : []
+	const core_hierarchies	= Array.isArray(props.core_hierarchies) ? props.core_hierarchies : []
+	// a dependency the seed always installs is shown locked, never a choice
+	const is_fixed		= dependency => is_fixed_dependency(dependency, core, core_hierarchies)
 
 	// the ticked TLDs — kept across catalog reloads; only the offered ones are posted
 	const selected = new Set(Array.isArray(context.default) ? context.default : [])
+	// the declined OPTIONAL dependency tokens (`<tld>:<main>`) — kept across reloads
+	const declined = new Set()
 	let offered = []
 
 	ui.create_dom_element({
@@ -2057,9 +2215,11 @@ const render_ontologies_block = function(self) {
 		parent			: fragment
 	})
 
-	// cfg.ontologies = ticked ∩ offered, in catalog order
+	// cfg.ontologies = ticked ∩ offered, in catalog order; the declined tokens as-is
+	// (a token no ticked ontology declares is inert in the plan)
 	const sync_cfg = function() {
 		cfg.ontologies = offered.filter(tld => selected.has(tld))
+		cfg.declined_dependencies = [...declined]
 		status.classList.remove('ok', 'error')
 		status.textContent = ''
 	}
@@ -2076,7 +2236,7 @@ const render_ontologies_block = function(self) {
 		}
 		list.replaceChildren()
 		for (const group of group_ontology_entries(entries)) {
-			list.appendChild(render_ontology_group(group, selected, sync_cfg))
+			list.appendChild(render_ontology_group(group, selected, declined, sync_cfg, is_fixed))
 		}
 		render_warning_lines(list, view.warnings)
 		sync_cfg()
@@ -2372,6 +2532,10 @@ const render_persist_block = function(self) {
 			return
 		}
 		render_ontology_plan(plan_box, api_response)
+		// the thesauri the saved plan's ontologies declare: the "Install hierarchies"
+		// step locks the mandatory ones and pre-ticks the optional ones
+		const hierarchy_dependencies = response_extension(api_response, 'hierarchy_dependencies')
+		self._hierarchy_dependencies = Array.isArray(hierarchy_dependencies) ? hierarchy_dependencies : []
 		// show generated secrets ONCE
 		const generated = api_response.generated || {}
 		const keys = Object.keys(generated)
@@ -3075,6 +3239,7 @@ const render_login_block = async function(self) {
 * @param {Object} [options.reset_request]          - Endpoint ({dd_api, action, source}) for a destructive "Reset to seed" button (maintenance widget only)
 * @param {Array}  [options.core_hierarchies=[]]    - Always-installed core hierarchies ({tld, label}); shown as a fixed note, never offered (install wizard)
 * @param {boolean} [options.allow_empty=false]     - When true, an empty selection is confirmed and posted as `hierarchies: []` (install wizard); false keeps the "Select one or more items" refusal (maintenance widget)
+* @param {Array}  [options.required_hierarchies=[]] - Thesauri the installed ontologies declare MANDATORY ({tld, dependants}); rendered checked and LOCKED (install wizard — the server adds them whatever is posted)
 * @returns {DocumentFragment} Fragment with description, optional filter, grouped hierarchy checkboxes, import button, optional reset button, and status div
 */
 export const render_hierarchies_import_block = function(options) {
@@ -3104,6 +3269,11 @@ export const render_hierarchies_import_block = function(options) {
 		// Install wizard only: an empty optional selection is a valid answer (confirmed,
 		// then posted as `hierarchies: []`). Default false keeps the maintenance refusal.
 		const allow_empty				= options.allow_empty===true
+		// Install wizard only: the MANDATORY declared thesauri (hierarchy60) — checked,
+		// disabled, with the ontologies that require them. The server unions them in
+		// at install_hierarchies whatever is posted; the lock only shows that truth.
+		const required_hierarchies		= Array.isArray(options.required_hierarchies) ? options.required_hierarchies : []
+		const required_by				= new Map(required_hierarchies.map(el => [el.tld, el.dependants || []]))
 
 	// DocumentFragment
 		const fragment = new DocumentFragment();
@@ -3219,9 +3389,10 @@ export const render_hierarchies_import_block = function(options) {
 						continue
 					}
 
-				// is_default check
+				// is_default check (a required thesaurus is always checked)
+					const is_required			= required_by.has(current_hierarchy.tld)
 					const is_default_checked	= default_checked.find(el => el===current_hierarchy.tld)
-					const checked				= is_default_checked ? true : false
+					const checked				= (is_default_checked || is_required) ? true : false
 
 				// li element
 					const hierarchy_li = ui.create_dom_element({
@@ -3259,6 +3430,15 @@ export const render_hierarchies_import_block = function(options) {
 					})
 					hierarchy_label.prepend(hierarchy_checkbox)
 					hierarchy_checkbox.checked = checked ? 'checked' : ''
+					if (is_required) {
+						hierarchy_checkbox.disabled = true
+						ui.create_dom_element({
+							element_type	: 'span',
+							class_name		: 'required_hierarchy',
+							text_content	: ' — ' + (get_label.installation_hierarchy_required_by || 'required by:') + ' ' + required_by.get(current_hierarchy.tld).join(', '),
+							parent			: hierarchy_label
+						})
+					}
 					hierarchy_checkbox.addEventListener('change', function() {
 						if(hierarchy_checkbox.checked){
 							hierarchies_to_install.push(current_hierarchy.tld)

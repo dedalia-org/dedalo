@@ -36,9 +36,29 @@
 # not apply — a schedule is exactly the event a tier must never be limited to, and
 # exactly the one this job is for.
 #
-# PUBLIC-REPO POSTURE: ubuntu-latest, no secrets (the token is the run's own
-# `github.token`), no self-hosted runner. A fork gets no schedule and cannot
-# dispatch.
+# THE FULL GATE OF THE INTERNAL REMOTE (2026-10-10, job `full_gate`). Pushes to the
+# internal day-to-day remote (gitdedalo) are gated HERMETIC-ONLY at the desk
+# (scripts/hooks/pre-push, "THE GATE IS PER REMOTE"): the full gate (~46 min) on every
+# push was not viable. That downgrade is honest only because THIS job runs the full gate
+# — the very command the hook runs for a public push, `bun run ci:local --docker
+# --hermetic --db --instance --ref <sha>`, in the locked CI image — every night on the
+# tip of gitdedalo/master, and a red lands in the ci-nightly issue below with that sha
+# (ci_workflow_tripwire rule 20 pairs the hook's downgrade with this job). gitdedalo is
+# reached over SSH with a READ-ONLY deploy key and a PINNED host key (both secrets,
+# never `ssh-keyscan`: trust-on-first-use would hand the run to whoever answers the
+# address); the key file lives only inside the fetch step. Without the secrets the job
+# SKIPS LOUDLY: an error annotation and a warning in the issue, never a quiet green.
+# Runbook (creating the key, the environment, the host-key secret): engineering/CI.md,
+# *The nightly full gate*. The `--audit-base <sha>` makes the push gate's audit skip
+# (no range): the dependency audit is `check`'s job, forced, every night.
+#
+# PUBLIC-REPO POSTURE: ubuntu-latest, no self-hosted runner, the token is the run's own
+# `github.token`. ONE job holds secrets — `full_gate`, bound to the
+# `gitdedalo-nightly` environment (deployment branches: master only), and only the three
+# GITDEDALO_* names; this file has no push / pull_request / workflow_run trigger
+# (rule 11's second carve-out holds exactly that). A fork gets no schedule and cannot
+# dispatch. NOTE: the job log is public — it shows the gated sha and test names of
+# gitdedalo/master, never its secrets.
 name: nightly
 
 on:
@@ -108,7 +128,7 @@ jobs:
         run: exit "$RC"
 
   report:
-    needs: [check, image_pin, cosign_pin]
+    needs: [check, image_pin, cosign_pin, full_gate]
     # always(): a red `check` is exactly when the issue matters. A cancelled or
     # skipped `check` reports nothing (handled in the script, not here, so the
     # condition cannot silently drop a red).
@@ -128,6 +148,11 @@ jobs:
           PIN_MESSAGE: ${{ needs.image_pin.outputs.message }}
           COSIGN_RESULT: ${{ needs.cosign_pin.result }}
           COSIGN_MESSAGE: ${{ needs.cosign_pin.outputs.message }}
+          FULL_RESULT: ${{ needs.full_gate.result }}
+          FULL_STATE: ${{ needs.full_gate.outputs.state }}
+          FULL_REASON: ${{ needs.full_gate.outputs.reason }}
+          FULL_SHA: ${{ needs.full_gate.outputs.sha }}
+          FULL_REDS: ${{ needs.full_gate.outputs.reds }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -150,6 +175,15 @@ jobs:
           # unset, and signs with a stale tool while it is behind — either way a problem here.
           if [ "${COSIGN_RESULT:-}" = "failure" ]; then
             SUMMARY="$(jq --arg m "cosign pin is unset or behind: ${COSIGN_MESSAGE:-read the cosign_pin job log} — run \`bun run ci:cosign:pin\` and commit the diff" '.problems = ((.problems // []) + [$m]) | .verdict = "red"' <<<"$SUMMARY")"
+          fi
+          # The FULL GATE of gitdedalo/master (full_gate job): red → a problem naming the sha
+          # and every red stage; not run (secrets absent) → a WARNING, loud but not red.
+          if [ "${FULL_STATE:-}" = "skipped" ]; then
+            SUMMARY="$(jq --arg m "full gate of gitdedalo/master NOT RUN: ${FULL_REASON:-no reason recorded}" '.warnings = ((.warnings // []) + [$m])' <<<"$SUMMARY")"
+          elif [ "${FULL_RESULT:-}" != "success" ]; then
+            reds="${FULL_REDS:-}"
+            [ -n "$reds" ] || reds='[]'
+            SUMMARY="$(jq --arg m "FULL GATE (hermetic + db + instance) is ${FULL_RESULT:-unknown} on gitdedalo/master ${FULL_SHA:-<sha unknown — the fetch did not complete>}${FULL_REASON:+: $FULL_REASON} — reproduce: git fetch gitdedalo master && bun run ci:local --docker --hermetic --db --instance --ref ${FULL_SHA:-gitdedalo/master}" --argjson reds "$reds" '.problems = ((.problems // []) + [$m] + ($reds | map("  ✗ " + .))) | .verdict = "red"' <<<"$SUMMARY")"
           fi
           verdict="$(jq -r '.verdict // "red"' <<<"$SUMMARY")"
           problems="$(jq '.problems // [] | length' <<<"$SUMMARY")"
@@ -185,6 +219,9 @@ jobs:
             echo "acceptance windows (calendar ON), and the GitHub advisory feed. The push gate skips these unless a push"
             echo "changes a lockfile, a package.json or vendor/, so this issue is where they surface."
             echo
+            echo "Also here: the FULL GATE (hermetic + db + instance, \`bun run ci:local --docker\`) of the internal"
+            echo "remote's master (gitdedalo), whose pushes are gated hermetic-only at the desk — sha: ${FULL_SHA:-not fetched}."
+            echo
             if [ "$problems" -gt 0 ]; then
               echo "### Red"
               echo
@@ -206,7 +243,7 @@ jobs:
             echo "This issue is kept by .github/workflows/nightly.yml: updated while anything is red or close, closed on the first green night."
           } > "$body"
 
-          title="ci-nightly: $state — time-based dependency/vendor checks"
+          title="ci-nightly: $state — time-based checks + gitdedalo full gate"
           if [ -n "$number" ]; then
             previous="$(gh issue view "$number" --json title --jq '.title')"
             gh issue edit "$number" --title "$title" --body-file "$body"
@@ -269,3 +306,89 @@ jobs:
           cat "$RUNNER_TEMP/cosign_pin.log"
           echo "message=$(grep '^ci:cosign:pin:' "$RUNNER_TEMP/cosign_pin.log" | tail -1 | tr -d '\r')" >> "$GITHUB_OUTPUT"
           exit "$rc"
+
+  # THE FULL GATE OF gitdedalo/master — see the header. Its red is carried to this run's
+  # verdict (the last step's exit) and into the ci-nightly issue (report).
+  full_gate:
+    runs-on: ubuntu-latest
+    # ~46 min on a developer Mac; a hosted runner is slower, and the instance tier is long.
+    timeout-minutes: 300
+    # The ONE job that may read the GITDEDALO_* secrets (rule 11's second carve-out). Owner
+    # setup: environment `gitdedalo-nightly`, deployment branches = master only, its three
+    # secrets stored there (engineering/CI.md, The nightly full gate).
+    environment: gitdedalo-nightly
+    outputs:
+      state: ${{ steps.fetch.outputs.state }}
+      reason: ${{ steps.fetch.outputs.reason }}
+      sha: ${{ steps.fetch.outputs.sha }}
+      rc: ${{ steps.gate.outputs.rc }}
+      reds: ${{ steps.gate.outputs.reds }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitdedalo/master shares this history: the fetch below is incremental
+          persist-credentials: false # the gated code runs next; it gets no token in .git/config
+      # The key never leaves this step: written under $RUNNER_TEMP, removed on exit. The host
+      # key is the PINNED line from the secret — StrictHostKeyChecking=yes, no global file,
+      # no ssh-keyscan. Secrets absent → state=skipped with the names, exit 0 (loud: an
+      # error annotation here, a warning in the issue).
+      - name: Fetch gitdedalo master (read-only deploy key, pinned host key)
+        id: fetch
+        env:
+          GITDEDALO_DEPLOY_KEY: ${{ secrets.GITDEDALO_DEPLOY_KEY }}
+          GITDEDALO_KNOWN_HOSTS: ${{ secrets.GITDEDALO_KNOWN_HOSTS }}
+          GITDEDALO_URL: ${{ secrets.GITDEDALO_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${GITDEDALO_DEPLOY_KEY:-}" ] || missing+=(GITDEDALO_DEPLOY_KEY)
+          [ -n "${GITDEDALO_KNOWN_HOSTS:-}" ] || missing+=(GITDEDALO_KNOWN_HOSTS)
+          [ -n "${GITDEDALO_URL:-}" ] || missing+=(GITDEDALO_URL)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            reason="secret(s) absent: ${missing[*]} — set them in the gitdedalo-nightly environment (engineering/CI.md, The nightly full gate)"
+            echo "::error title=full gate NOT RUN::$reason"
+            { echo "state=skipped"; echo "reason=$reason"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ssh_dir="$RUNNER_TEMP/gitdedalo-ssh"
+          mkdir -m 700 "$ssh_dir"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$GITDEDALO_DEPLOY_KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          printf '%s\n' "$GITDEDALO_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -F /dev/null -i $ssh_dir/key -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no"
+          if ! git fetch --no-tags --quiet "$GITDEDALO_URL" "+refs/heads/master:refs/remotes/gitdedalo/master"; then
+            reason="could not fetch gitdedalo master (deploy key refused, host key mismatch, or host down) — read this step's log"
+            echo "::error title=full gate NOT RUN::$reason"
+            { echo "state=failed"; echo "reason=$reason"; } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          sha="$(git rev-parse --verify 'refs/remotes/gitdedalo/master^{commit}')"
+          git checkout --quiet --detach "$sha"
+          echo "== full gate: gitdedalo/master = $sha"
+          { echo "state=ran"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
+      # From here on the checkout IS the gated commit: its .bun-version, its ci:local, its image pin.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.fetch.outputs.state == 'ran'
+        with:
+          bun-version-file: .bun-version # the load-bearing pin — never inline a version
+      - name: Full gate of gitdedalo/master (hermetic + db + instance, in the CI image)
+        id: gate
+        if: steps.fetch.outputs.state == 'ran'
+        env:
+          SHA: ${{ steps.fetch.outputs.sha }}
+        run: |
+          summary="$RUNNER_TEMP/full_gate.json"
+          # The rc is CARRIED, not swallowed: written below, and the next step exits with it.
+          rc=0
+          bun run ci:local --docker --hermetic --db --instance --ref "$SHA" --audit-base "$SHA" --summary "$summary" || rc=$?
+          reds='[]'
+          if [ -s "$summary" ]; then
+            reds="$(jq -c '[.tiers[]? | .tier as $t | .stages[]? | select(.verdict == "red") | "\($t) › \(.name)" + (if .fix_hint then " — \(.fix_hint)" else "" end)]' "$summary")"
+          fi
+          { echo "rc=$rc"; echo "reds=$reds"; } >> "$GITHUB_OUTPUT"
+      - name: Fail the run when the full gate is red
+        if: steps.fetch.outputs.state == 'ran'
+        env:
+          RC: ${{ steps.gate.outputs.rc }}
+        run: exit "$RC"

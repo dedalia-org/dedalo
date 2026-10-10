@@ -477,7 +477,7 @@ Besides, every installation chooses the **domain** ontologies it uses in its inv
 | **utoponymy** | Unofficial toponymy. Section definition for unofficial toponymy (unofficial places names), used to add places that are not inside the official toponymy of countries or the installation don't want import the official toponymy (use to point the place without the official term in some sections as Publications, to define any place of publication around the world) |
 | **nexus** | Nexus, a standalone module with its own sections. |
 
-The installer WRITES this key on every install: the core, then the chosen domain ontologies together with their declared dependencies, in install order (each dependency before the ontology that needs it). An EXAMPLE for an oral-history + intangible-heritage installation — not the default:
+The installer WRITES this key on every install: the core, then the chosen domain ontologies together with the ontologies they declare as dependencies (an optional one you declined is left out), in install order (each dependency before the ontology that needs it). An EXAMPLE for an oral-history + intangible-heritage installation — not the default:
 
 ```bash
 ACTIVE_ONTOLOGY_TLDS=[ "dd", "rsc", "ontology", "ontologytype", "hierarchy", "lg", "oh", "ich" ]

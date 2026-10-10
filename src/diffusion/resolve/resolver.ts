@@ -502,7 +502,7 @@ async function loadRecords(
 // ---------------------------------------------------------------------------
 
 /** PHP DEDALO_SECTION_SI_NO_TIPO / NUMERICAL_MATRIX_VALUE_YES (dd_tipos.php:83). */
-const SI_NO_SECTION_TIPO = 'dd64';
+const YES_NO_SECTION_TIPO = 'dd64';
 const MATRIX_VALUE_YES = 1;
 
 /**
@@ -522,7 +522,7 @@ async function isRecordPublishable(ctx: RunContext, record: MatrixRecord): Promi
 	const first = items[0];
 	return (
 		first !== undefined &&
-		first.section_tipo === SI_NO_SECTION_TIPO &&
+		first.section_tipo === YES_NO_SECTION_TIPO &&
 		Number(first.section_id) === MATRIX_VALUE_YES
 	);
 }

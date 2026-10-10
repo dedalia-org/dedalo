@@ -64,42 +64,65 @@ Which value of `DEDALO_CORS_ALLOWED_ORIGINS` depends on who you serve:
 
 ### Declaring what an ontology requires
 
-A master also tells installers **which ontologies each ontology needs** — the
-ones whose nodes it uses as models, or links to. An installer installs those too,
-before the ontology itself. The installer reads this declaration and nothing
-else; it never works out dependencies on its own.
+A master also tells other installations **what each ontology needs**: the
+ontologies whose nodes it uses as models or links to, and the thesauri its
+data is meant to point at. An installer reads this declaration and nothing else.
+It never works out dependencies on its own.
 
 The declaration is ordinary Dédalo data on the master:
 
 1. Open **Ontology › Ontologies main** (`ontology35`) and edit the record of the
    ontology, for example the `tch` record.
-2. In the *Relations* group (`hierarchy60`), fill **Required ontologies**
-   (`ddengine11`) with every ontology it needs. Include the core ones it uses
-   (every domain ontology takes its models from `dd`). An installer skips core
-   ontologies, because every installation already has them.
+2. In the *Relations* group, fill **Dependencies** (`hierarchy60`, a JSON
+   field) with one object per requirement:
+
+    ```json
+    [
+      { "tld": "dd", "main": "ontology35", "mandatory": true },
+      { "tld": "dc", "main": "hierarchy1", "mandatory": false }
+    ]
+    ```
+
+    * `tld` is the TLD of the requirement.
+    * `main` says what must be present. `ontology35` means that TLD's
+      **ontology**. `hierarchy1` means that TLD's **thesaurus** (its hierarchy,
+      with its terms, installed and active). A TLD may appear twice, once with
+      each value.
+    * `mandatory: true` means the requirement is always installed and cannot be
+      unticked. With `mandatory: false`, the installer offers it already ticked
+      and the operator may untick it.
+
+    Include the core ontologies the ontology uses (every domain ontology takes
+    its models from `dd`). An installer skips core ontologies, because every
+    installation already has them. An ontology may name its own thesaurus
+    (`main: hierarchy1`), but naming its own ontology is dropped.
 3. Export the ontology files again (the **Export** action of the
    [ontology parser](../../tools/using_ontology_parser.md)). The export writes the
    list as `dependencies` on that ontology's entry in `ontology.json`, and the
-   update manifest serves it unchanged.
+   update manifest serves it unchanged. Malformed items are left out and listed
+   as export warnings.
 
 An **empty** field means *not declared*, not *needs nothing*. The ontology is
 exported with no `dependencies`, and an installer that is asked for it warns
-that the server declares no dependencies, then installs it alone. A field that
-names only core ontologies is a complete declaration: *needs nothing beyond the
-core*.
-
-*Required ontologies* is an engine-owned field, part of every installation. It
-also appears on thesaurus records (*Thesaurus › Hierarchy*, which share the
-same form), but only the Ontologies main records are exported.
+that the server declares no dependencies, then installs it alone. An empty list
+(`[]`), or a list that names only core ontologies, is a complete declaration:
+*needs nothing beyond the core*.
 
 **Importing keeps the declaration.** When an installation imports an ontology
 whose master declares its requirements (with this panel or at install time), the
-import fills *Required ontologies* on that ontology's record here, replacing what
+import writes **Dependencies** on that ontology's record here, replacing what
 the field held. A master that gets its ontologies from another master (a local
 master for an institution's network, for example) therefore publishes the same
 declarations with its next export. An ontology the source does not declare
-leaves the field as it is. A required ontology that this installation has no
-record for is left out of the field, and the import's message names it.
+leaves the field as it is.
+
+**An update reports what is missing; it never installs it.** After an update,
+each updated ontology's declared requirements are checked against this
+installation. A missing **mandatory** requirement is listed under *Import
+warnings*, naming both ontologies and how to provide it: add the TLD to
+`ACTIVE_ONTOLOGY_TLDS` and run the update again, or install the thesaurus with
+**Maintenance › Install hierarchies**. A missing optional requirement is only a note
+in the import log.
 
 ### On the client side
 

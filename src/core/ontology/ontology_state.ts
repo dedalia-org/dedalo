@@ -101,13 +101,7 @@ import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
 import { ONTOLOGY_TLD } from './ontology_tipos.ts';
-import {
-	addMainSection,
-	createDdOntologyRootNode,
-	type FileItem,
-	getMainNameData,
-	getMainTypologyId,
-} from './ontology_write.ts';
+import { createDdOntologyRootNode, ensureMainSection } from './ontology_write.ts';
 import { type OntologyNodeDefect, parseSectionRecordToOntologyNodeWithDefects } from './parser.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
 import { LOCAL_ONTOLOGY_SECTION, mapTldToTargetSectionTipo, safeTld } from './tld.ts';
@@ -537,17 +531,16 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 
 /* ----------------------------------------------------------------- writes */
 
-/** Bootstrap the `<tld>0` main node + its registry (idempotent — PHP add_main_section). */
-async function ensureMainNode(tld: string, userId: number): Promise<{ error: string | null }> {
-	const typologyId = await getMainTypologyId(tld);
-	const nameData = await getMainNameData(tld);
-	const fileItem: FileItem = { tld, typology_id: typologyId, name_data: nameData };
-	const mainSectionId = await addMainSection(fileItem, userId);
-	if (mainSectionId === null || mainSectionId === undefined) {
-		return { error: `add_main_section failed for tld '${tld}'` };
-	}
-	await createDdOntologyRootNode(fileItem, userId);
-	return { error: null };
+/**
+ * Bootstrap the `<tld>0` main node + its registry row. The registry-row law
+ * (ontology_write.ts): a rebuild CREATES the row when it is missing and
+ * otherwise never writes it — an operator's switched-off TLD, project filter or
+ * language survive a rebuild. `<tld>0` is (re)built from what the row holds
+ * (createDdOntologyRootNode reads typology + name off it).
+ */
+async function ensureMainNode(tld: string, userId: number): Promise<void> {
+	await ensureMainSection({ tld }, userId);
+	await createDdOntologyRootNode({ tld }, userId);
 }
 
 /**
@@ -609,8 +602,7 @@ export async function rebuildOntology(
 			for (const node of parsed.values()) {
 				await upsertDdOntologyNode(node);
 			}
-			const main = await ensureMainNode(tld, userId);
-			if (main.error !== null) throw new Error(main.error);
+			await ensureMainNode(tld, userId);
 			applied.push(`rebuilt ${parsed.size} node(s)`, `main node ${tld}0`);
 		});
 	} catch (error) {

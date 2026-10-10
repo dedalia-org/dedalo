@@ -1150,7 +1150,7 @@ export const SANCTIONED_DERIVED_WRITERS: Readonly<Record<string, string>> = {
 	'src/core/ontology/hierarchy_provision.ts#provisionVirtualSections':
 		'hierarchy PROVISIONING of the `<tld>0` descriptor / model twin records at fixed ids.',
 	'src/core/ontology/ontology_write.ts#writeOntologyMainKey':
-		'ONTOLOGY registry rows (matrix_ontology_main): the one per-key writer behind addMainSection and writeDeclaredDependencies — definitions, unstamped as in PHP.',
+		'ONTOLOGY registry rows (matrix_ontology_main): the one per-key writer behind createMainSection / syncMainSectionFromDefinition (the registry-row law; hierarchy60 dependencies in `misc`) — definitions, unstamped as in PHP.',
 	'src/core/ontology/ontology_write.ts#createParentGrouper':
 		'ontology definition rows — see #writeOntologyMainKey.',
 };

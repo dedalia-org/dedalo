@@ -65,7 +65,8 @@ than fetching.
   entry.
 - **Ontologies.** The plan writes `ACTIVE_ONTOLOGY_TLDS` (raw JSON, OWNED —
   rewritten on every run) = `CORE_ONTOLOGY_TLDS` followed by the install order of
-  the chosen domain ontologies and their declared dependencies. See
+  the chosen domain ontologies and the ontologies they declare (`main:
+  ontology35`; declined optional ones left out). See
   [Domain ontologies](#domain-ontologies) below.
 - **Never in the plan:** `DEDALO_SUPERVISED`. Supervision is declared by the
   process manager (unit `Environment=`, compose `environment:`, the supervised
@@ -107,24 +108,51 @@ leaf first:
 
 | Module | Role |
 |---|---|
-| `src/core/install/ontology_choice.ts` | PURE, config-free. The answer (`normalizeOntologyChoice`: default `DEFAULT_DOMAIN_ONTOLOGIES` = `oh`, core dropped with a note, `none` refused), the built-in catalog (`vendoredOntologyCatalog`: `oh` only, its dependencies DECLARED here in `VENDORED_DOMAIN_ONTOLOGIES`), the merge (precedence local > vendored > server), the closure (`closeOntologyChoice`), the request, `activeOntologyTldsOf`, the round trip from a written list (`ontologyRequestFromActive`) and the ONE view (`describeOntologyCatalog`) both front ends show |
+| `src/core/install/ontology_choice.ts` | PURE, config-free. The answer (`normalizeOntologyChoice`: default `DEFAULT_DOMAIN_ONTOLOGIES` = `oh`, core dropped with a note, `none` refused), the built-in catalog (`vendoredOntologyCatalog`: `oh` only — `VENDORED_DOMAIN_TLDS` — its dependencies READ from the vendored `ontology.json` entry, absent = not declared), the merge (precedence local > vendored > server), the closure (`closeOntologyChoice`: `main: ontology35` dependencies depth-first, `main: hierarchy1` ones into the thesaurus set; mandatory always, optional unless `declined_dependencies`), the request, `activeOntologyTldsOf`, the round trip from a written list (`ontologyRequestFromActive`) and the ONE view (`describeOntologyCatalog`) both front ends show |
 | `src/core/install/ontology_catalog.ts` | `resolveOntologyCatalog(source, {allowedServers})` — the one place a source is read: `none` → built-in only; `local` → a directory or an extracted archive, its `ontology.json` version must equal this engine's `major.minor`; `server` → `fetchOntologyManifest`. Refuses `install.invalid_input` (operator path) or `install.step_failed` (server) |
 | `src/core/install/ontology_archive.ts` | `extractOntologyArchive` — a pure tar walk (no `tar` binary): regular files named `ontology.json` / `<tld>.copy.gz` at the root or under one top directory, through `confinedPath`; links, devices, absolute or `..` paths, > 256 entries or > 512 MiB refused |
+| `src/core/install/hierarchy_dependencies.ts` | `installedHierarchyDependencies()` — the wizard's `install_hierarchies` step reads the thesauri the registry rows of `ACTIVE_ONTOLOGY_TLDS` declare (`misc.hierarchy60`, read-only), with the plan's own collector |
 | `src/core/install/ontology_install.ts` | the two steps: `stageOntologies(request, {stagingDir})` and `installOntologies({stagingDir, userId})`, plus `verifyInstalledOntologyReferences` and the wizard's `ontologyRequestFromConfig` |
 | `src/core/install/prior_env.ts` | `readPriorEnv()` — the prior `.env` (`{}` when absent), for the CLI and `config_persist.ts` alike |
 | `src/core/ontology/ontology_manifest.ts` | the manifest CLIENT: `parseOntologyManifest`, `readLocalOntologyManifest`, `fetchOntologyManifest` |
 | `src/core/ontology/ontology_references.ts` | the pure reference classifier (below) |
 | `src/core/db/copy_text.ts` | the src-side COPY text codec (decode/encode a field, split a row, find a dump's COPY blocks) |
 
-**The closure.** `closeOntologyChoice(chosen, catalog)` walks the DECLARED
-dependencies of the chosen TLDs, transitively, in deps-first post-order. Core
+**The closure.** `closeOntologyChoice(chosen, catalog, policy)` walks the DECLARED
+`main: ontology35` dependencies of the chosen TLDs, transitively, in deps-first
+post-order: mandatory ones always, optional ones unless the policy declines them
+(`declinePolicy(answers.declined_dependencies)`, each declined one noted). Core
 TLDs and the engine-owned `ddengine` are never followed (a declaration names core
 too — every domain ontology takes its models from `dd` — but the seed already
 has it). A cycle is tolerated (first finish wins; the re-derive pass in
 `installOntologies` settles a node whose model arrived later). An entry with
 `dependencies: null` (an older server) is installed alone under a loud warning
-naming it — the installer never computes dependencies. A declared dependency the
-source does not offer, and an unknown TLD, are errors before any write.
+naming it — the installer never computes dependencies. A declared MANDATORY
+dependency the source does not offer, and an unknown TLD, are errors before any
+write; an unoffered OPTIONAL one is a warning and skipped. A dependency on a core
+or engine-owned TLD is never put to the decline policy: the seed always installs
+it, so it can be neither declined nor reported as declined (the wizard shows it
+ticked and locked).
+
+**The thesaurus set.** `main: hierarchy1` dependencies are collected by ONE
+function, `collectHierarchyDependencies` (merged per TLD, mandatory wins, core
+`lg` never listed), into `{tld, mandatory, dependants}` items. The plan collects
+them over the vendored core declarations plus the install order's entries. The
+seed compiler passes each release entry's declaration through the import door
+(`releaseDependencies` in `seed_build.ts`; a malformed one refuses the compile),
+so the seed's core registry rows hold the same `hierarchy60` the plan reads —
+`install_seed_drift_tripwire` checks the committed seed against the release.
+The result goes into `InstallPlan.hierarchyDependencies`,
+and adds them to `plan.hierarchies`: mandatory ones always (even with
+`--hierarchies none`), optional ones unless declined. `hierarchyDependencyPlan`
+checks each against the vendored thesauri (`offeredHierarchyTlds()` — `hierarchies.json` ∩ the `<tld>1.copy.gz` files): a mandatory
+thesaurus with no `<tld>1.copy.gz` is a plan error before any write, an optional
+one a warning. The wizard's `install_hierarchies` step runs in the restarted
+process with no plan, so it re-derives the set from the installed registry rows
+(`installedHierarchyDependencies`) and unions the mandatory ones into the posted
+list (`withMandatoryHierarchies`); a mandatory one that is not vendored is
+refused `install.invalid_input` before any write. The posted list is never
+trusted to carry them.
 
 **The source.** `ontologySourceFor(answers, priorEnv)` (in the plan): a local
 `ontology_source` wins; else the first entry of `ontologyServersFor` (a prior
@@ -171,24 +199,32 @@ post-install warnings (`verifyInstalledOntologyReferences`), the vendored-closur
 gate and the seed contract.
 
 **The declaration (server side).** Dependencies are Dédalo state on the ontology
-master: the engine-owned component `ddengine11` *Required ontologies* (a
-`component_portal` into the ontology registry `ontology35`, placed in the
-`hierarchy60` *Relations* group of `hierarchy1`, so it renders in the
-*Ontologies main* edit form). It lives in the ENGINE ontology
-(`src/core/ontology/engine_ontology.json`, TLD `ddengine`) because an ontology
-update replaces a TLD wholesale and a tipo cannot be pre-allocated on the master;
-`ensureEngineOntology` materializes it on every install, the master included.
-`getActiveOntologies` (`src/core/ontology/data_io.ts`) resolves its locators to
-TLDs (declared order, deduplicated, own TLD dropped) and emits `dependencies`
-ONLY when ≥ 1 resolves; `activeOntologiesInfo` copies it into `ontology.json`,
-and the update manifest serves that file verbatim. An empty component means NOT
-DECLARED (`engineering/wire_contract/WC-2026-10-09-ontology-manifest-dependencies.md`).
+master: the master ontology's component_json `hierarchy60` *Dependencies*
+(group *Relations* of `hierarchy1`, so the *Ontologies main* `ontology35` form
+has it too), stored as `misc.hierarchy60[0].value` on the registry row. Each
+item is `{tld, main: ontology35|hierarchy1, mandatory}`, checked by ONE
+normalizer (`normalizeOntologyDependencies`,
+`src/core/ontology/ontology_dependencies.ts`; the dedupe key is `(tld, main)`).
+`getActiveOntologies` (`src/core/ontology/data_io.ts`) exports it as
+`dependencies` ONLY when the row holds the key. Invalid items become census
+error lines. `activeOntologiesInfo` copies it into `ontology.json`, and the
+update manifest serves that file verbatim. An absent key means NOT DECLARED;
+`[]` is a declaration
+(`engineering/wire_contract/WC-2026-10-10-ontology-dependencies-hierarchy60.md`).
+The import writes it back through `syncMainSectionFromDefinition`, the
+registry-row law's import door, which on an existing row replaces only the
+definition's keys.
 
 **The wizard wire** (`engineering/wire_contract/WC-2026-10-09-install-domain-ontologies.md`):
 `get_install_context` gains `properties.ontologies = {default, core, offline}`
 (synchronous, no network); three pre-auth router actions —
 `get_ontology_catalog`, `stage_ontologies`, `install_ontologies`; and
-`persist_config` takes `ontologies`.
+`persist_config` takes `ontologies`. Since
+`engineering/wire_contract/WC-2026-10-10-ontology-dependencies-hierarchy60.md`
+it also takes `declined_dependencies` (CLI `--decline-dependencies`) and answers
+the extension key `hierarchy_dependencies`; each catalog view entry carries
+`hierarchy_dependencies`, and `--plan` prints `hierarchy_dependencies` and
+`declined_dependencies`.
 
 ## The suite database is built through these doors
 
@@ -392,10 +428,12 @@ rows). `install_plan_parity_tripwire` holds CLI and wizard to one plan;
 `install_core_hierarchy_native` proves the core activation needs no import;
 `install_sh_portability` runs `install.sh`'s answer-to-flag block through the
 plan's own parser. The ontology half: `install_ontology_choice` (the closure,
-hermetic), `ontology_references_native` (the classifier and codec, hermetic),
+hermetic), `install_hierarchy_dependencies_native` (the step's reader and its
+mandatory union over real registry rows, on the suite database),
+`ontology_references_native` (the classifier and codec, hermetic),
 `ontology_manifest_native` (the manifest client against a loopback stand-in
-master, hermetic), `ontology_dependencies_native` (`ddengine11` → manifest, on
-the suite database), `vendored_ontology_closure_tripwire` (the built-in `oh` is
+master, hermetic), `ontology_dependencies_native` (`hierarchy60` → census →
+manifest, on the suite database), `vendored_ontology_closure_tripwire` (the built-in `oh` is
 installable alone over the core seed, hermetic) and
 `install_ontology_door_native` (both steps driven for real on the suite database
 against a loopback master: closure order, undeclared warning, local

@@ -79,7 +79,7 @@ async function completeFreshInstall(): Promise<string> {
 		);
 	}
 	// The ENGINE-OWNED ontology (the sections the engine writes — the AI
-	// spend ledger, the ontology dependency declaration): the same idempotent
+	// spend ledger): the same idempotent
 	// door boot runs, so a fresh install is complete before its first boot
 	// (ontology/engine_ontology.ts).
 	const { ensureEngineOntology } = await import('../ontology/engine_ontology.ts');

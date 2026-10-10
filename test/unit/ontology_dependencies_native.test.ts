@@ -1,35 +1,39 @@
 /**
- * DECLARED ONTOLOGY DEPENDENCIES, server side (installer unification A5;
- * WC-2026-10-09-ontology-manifest-dependencies) — from the component an editor
- * fills on the ontology master to the field the installer reads in the manifest.
+ * DECLARED ONTOLOGY DEPENDENCIES, server side
+ * (WC-2026-10-10-ontology-dependencies-hierarchy60) — from the registry row's
+ * `misc.hierarchy60` to the field the installer reads in the manifest, and the
+ * update's report of what this server lacks.
  *
- *   ddengine11 (ONTOLOGY_DEPENDENCIES, engine-owned) is materialized under the
- *   ontology-main real section's "Relations" group and RENDERS in the
- *   ontology35 edit form (the implicit edit config of the virtual section) as a
- *   portal targeting ontology35 itself
- *       → the master's editors fill it through the REAL edit path (saveComponentData)
- *       → getActiveOntologies emits `dependencies` (declared order, deduplicated,
- *         own TLD dropped, PRESENT ONLY WHEN DECLARED; an unresolvable locator
- *         is a census error line, never fatal)
+ *   the import door (syncMainSectionFromDefinition) stores a declaration on the
+ *   ontology35 registry row as `misc.hierarchy60 = [{id:1, value:[…]}]`
+ *       → getActiveOntologies emits `dependencies` as `{tld, main, mandatory}`
+ *         objects through THE shared normalizer (declared order, `(tld, main)`
+ *         deduplicated, an ontology35 self-reference dropped, a hierarchy1 one
+ *         kept); PRESENT ONLY WHEN DECLARED (a stored `[]` is declared); an
+ *         invalid stored item is a census error line, never fatal
  *       → activeOntologiesInfo (what updateOntologyInfo persists into
  *         ontology.json) copies it only when defined
  *       → buildOntologyUpdateInfo (the master's manifest builder) carries it
- *         verbatim, and the client parser reads it back.
+ *         verbatim, and the client parser reads the same objects back
+ *       → reportMissingDependencies (the update's report-only check) names each
+ *         declared dependency this server does not provide, with its reason —
+ *         mandatory ones as warnings, optional ones as notes; it writes nothing.
  *
  * SCRATCH SURFACE (this file owns it, on the SUITE database — asserted first):
- * registry rows of the scratch TLDs zzka/zzkb/zzkc/zzkd, created by the
- * engine's own registry door (addMainSection); zzkd's row is deleted at once
- * so its id is a GUARANTEED-dangling locator target (the counter never gives
- * an id back). Swept in afterAll with their TM and activity rows, and the
- * residue asserted zero. The real section ids come from the counter — no id
- * band (test isolation is the database, not an id range).
+ * registry rows of the scratch TLDs zzka/zzkb/zzkc/zzke, created by the
+ * engine's own registry door (createMainSection). `zzkd` is NEVER created: it
+ * is the guaranteed-absent dependency. zzke's declaration is planted RAW
+ * (malformed items the door itself would refuse) through the key writer, to
+ * prove the census drops them loudly. Swept in afterAll with their TM and
+ * activity rows, and the residue asserted zero. The real section ids come from
+ * the counter — no id band (test isolation is the database, not an id range).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readDdOntologyRow } from '../../src/core/db/dd_ontology.ts';
+import { updateMatrixKeyData } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
 	activeOntologiesInfo,
@@ -37,50 +41,47 @@ import {
 	type OntologyCensusEntry,
 } from '../../src/core/ontology/data_io.ts';
 import { buildOntologyUpdateInfo } from '../../src/core/ontology/data_io_import.ts';
-import { loadEngineOntologyDoc } from '../../src/core/ontology/engine_ontology.ts';
-import { parseOntologyManifest } from '../../src/core/ontology/ontology_manifest.ts';
+import { reportMissingDependencies } from '../../src/core/ontology/dependency_report.ts';
 import {
-	DATA_NOLAN,
-	HIERARCHY_TLD,
-	ONTOLOGY_DEPENDENCIES,
-	ONTOLOGY_MAIN_SECTION,
-	RELATION_TYPE_LINK,
-} from '../../src/core/ontology/ontology_tipos.ts';
-import { addMainSection } from '../../src/core/ontology/ontology_write.ts';
-import { getSectionRealTipo } from '../../src/core/ontology/resolver.ts';
-import { buildImplicitSectionEditConfig } from '../../src/core/relations/request_config/implicit.ts';
-import { buildStructureContext } from '../../src/core/resolve/structure_context.ts';
-import { saveComponentData } from '../../src/core/section/record/save_component.ts';
+	HIERARCHY_DEPENDENCIES,
+	type OntologyDependency,
+} from '../../src/core/ontology/ontology_dependencies.ts';
+import { parseOntologyManifest } from '../../src/core/ontology/ontology_manifest.ts';
+import { HIERARCHY_TLD, ONTOLOGY_MAIN_SECTION } from '../../src/core/ontology/ontology_tipos.ts';
+import {
+	createMainSection,
+	syncMainSectionFromDefinition,
+} from '../../src/core/ontology/ontology_write.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 
 const DOOR = 'ontology_dependencies_native';
-const SCRATCH = ['zzka', 'zzkb', 'zzkc', 'zzkd'] as const;
+const SCRATCH = ['zzka', 'zzkb', 'zzkc', 'zzke'] as const;
 type ScratchTld = (typeof SCRATCH)[number];
 
 const ids = {} as Record<ScratchTld, number>;
-/** The core `dd` registry row (read, never written): a declaration names core too. */
-let coreDdId = 0;
 
-function dependencyLocator(sectionId: number): Record<string, unknown> {
-	return {
-		type: RELATION_TYPE_LINK,
-		section_tipo: ONTOLOGY_MAIN_SECTION,
-		section_id: String(sectionId),
-		from_component_tipo: ONTOLOGY_DEPENDENCIES,
-	};
-}
+/** zzka's declaration (already normalized: the door refuses anything else). */
+const ZZKA_DECLARED: OntologyDependency[] = [
+	{ tld: 'zzkb', main: 'ontology35', mandatory: true },
+	{ tld: 'dd', main: 'ontology35', mandatory: true },
+	// its OWN thesaurus — a valid self-reference
+	{ tld: 'zzka', main: 'hierarchy1', mandatory: false },
+	// never installed anywhere: the guaranteed-absent dependency, both kinds
+	{ tld: 'zzkd', main: 'ontology35', mandatory: true },
+	{ tld: 'zzkd', main: 'hierarchy1', mandatory: false },
+	// the core lg thesaurus — installed and active on every install
+	{ tld: 'lg', main: 'hierarchy1', mandatory: true },
+];
 
-async function declare(tld: ScratchTld, targets: number[]): Promise<void> {
-	const saved = await saveComponentData({
-		componentTipo: ONTOLOGY_DEPENDENCIES,
-		sectionTipo: ONTOLOGY_MAIN_SECTION,
-		sectionId: ids[tld],
-		lang: DATA_NOLAN,
-		changedData: [{ action: 'set_data', id: null, value: targets.map(dependencyLocator) }],
-		userId: -1,
-	});
-	if (!saved.ok) throw new Error(`declaring ${tld}'s dependencies failed: ${saved.message}`);
-}
+/** zzke's planted RAW value: one valid item among malformed ones. */
+const ZZKE_PLANTED: unknown[] = [
+	{ tld: ' ZZKB ', main: 'ontology35', mandatory: false },
+	{ tld: 'zzkb', main: 'ontology35', mandatory: true }, // duplicate (tld, main): first wins
+	{ tld: 'zzke', main: 'ontology35', mandatory: true }, // ontology35 self-reference
+	{ tld: 'dd', main: 'section', mandatory: true }, // bad main
+	{ tld: 'dd', main: 'hierarchy1', mandatory: 'yes' }, // non-boolean mandatory
+	'dd', // the retired string shape
+];
 
 async function registryIdOf(tld: string): Promise<number | null> {
 	const rows = (await sql.unsafe(
@@ -89,6 +90,14 @@ async function registryIdOf(tld: string): Promise<number | null> {
 		[ONTOLOGY_MAIN_SECTION, HIERARCHY_TLD, JSON.stringify([{ value: tld }])],
 	)) as { section_id: number }[];
 	return rows.length === 1 ? Number(rows[0]?.section_id) : null;
+}
+
+async function storedMisc(tld: ScratchTld): Promise<Record<string, unknown> | null> {
+	const rows = (await sql.unsafe(
+		`SELECT misc FROM matrix_ontology_main WHERE section_tipo = $1 AND section_id = $2`,
+		[ONTOLOGY_MAIN_SECTION, ids[tld]],
+	)) as { misc: Record<string, unknown> | null }[];
+	return rows[0]?.misc ?? null;
 }
 
 async function sweep(): Promise<number> {
@@ -136,28 +145,27 @@ beforeAll(async () => {
 	for (const tld of SCRATCH) {
 		if ((await registryIdOf(tld)) !== null)
 			throw new Error(`a '${tld}' registry row pre-exists — sweep it first`);
-		const id = await addMainSection({
+		ids[tld] = await createMainSection({
 			tld,
 			typology_id: 15,
 			name_data: [{ id: 1, lang: 'lg-spa', value: `${tld} scratch` }],
 		});
-		if (id === null) throw new Error(`addMainSection(${tld}) minted no record`);
-		ids[tld] = id;
 	}
-	// zzkd's id becomes a guaranteed-dangling target: its row goes, its id never returns.
-	await sql.unsafe(`DELETE FROM matrix_ontology_main WHERE section_tipo = $1 AND section_id = $2`, [
+	if ((await registryIdOf('zzkd')) !== null) throw new Error("'zzkd' must never have a row");
+	// zzka: declared through the IMPORT door (an existing row: only the definition keys change)
+	await syncMainSectionFromDefinition({ tld: 'zzka', dependencies: ZZKA_DECLARED });
+	// zzkb: declared EMPTY — "needs nothing", which is not "not declared"
+	await syncMainSectionFromDefinition({ tld: 'zzkb', dependencies: [] });
+	// zzkc: never declared → no key
+	// zzke: a malformed stored value, planted raw (the door would refuse it)
+	await updateMatrixKeyData(
+		'matrix_ontology_main',
 		ONTOLOGY_MAIN_SECTION,
-		ids.zzkd,
-	]);
-	const dd = await registryIdOf('dd');
-	if (dd === null) throw new Error("the suite database has no 'dd' ontology registry row");
-	coreDdId = dd;
-
-	// zzka: zzkb, itself, zzkb again, the dangling id, core dd → [zzkb, dd]
-	await declare('zzka', [ids.zzkb, ids.zzka, ids.zzkb, ids.zzkd, coreDdId]);
-	// zzkb: ONLY itself → nothing resolves to another TLD → NOT declared (no key)
-	await declare('zzkb', [ids.zzkb]);
-	// zzkc: never touched → no key
+		ids.zzke,
+		'misc',
+		HIERARCHY_DEPENDENCIES,
+		[{ id: 1, value: ZZKE_PLANTED }],
+	);
 	census = await getActiveOntologies({ activeOnly: true });
 }, 60_000);
 
@@ -167,84 +175,61 @@ afterAll(async () => {
 	expect(await residue()).toBe(0);
 });
 
-describe('the declaration component (engine-owned, in the Ontologies-main edit form)', () => {
-	test('ddengine11 is materialized exactly as its engine JSON node declares it', async () => {
-		const doc = await loadEngineOntologyDoc();
-		const node = doc.nodes.find((candidate) => candidate.tipo === ONTOLOGY_DEPENDENCIES);
-		if (node === undefined) throw new Error('the engine JSON lost the dependencies node');
-		const row = await readDdOntologyRow(ONTOLOGY_DEPENDENCIES);
-		expect(row).not.toBeNull();
-		expect({
-			parent: row?.parent,
-			model: row?.model,
-			order: row?.order_number,
-			relations: row?.relations,
-		}).toEqual({
-			parent: node.parent,
-			model: 'component_portal',
-			order: node.order_number,
-			relations: node.relations,
-		});
-	});
-
-	test('it renders in the ontology35 edit form (the virtual section borrows it from its real section)', async () => {
-		const real = await getSectionRealTipo(ONTOLOGY_MAIN_SECTION);
-		expect(real).not.toBe(ONTOLOGY_MAIN_SECTION); // ontology35 IS virtual — else this proves nothing
-		const [config] = await buildImplicitSectionEditConfig({
-			ownerTipo: ONTOLOGY_MAIN_SECTION,
-			ownerSectionTipo: ONTOLOGY_MAIN_SECTION,
-			mode: 'edit',
-			ownerIsSection: true,
-		});
-		const tipos = (config?.show?.ddo_map ?? []).map((ddo) => ddo.tipo);
-		expect(tipos.length).toBeGreaterThan(3); // anti-vacuity: the real form
-		expect(tipos).toContain(ONTOLOGY_DEPENDENCIES);
-	});
-
-	test('its own context is a portal whose records are ontology35 registry records', async () => {
-		const context = (await buildStructureContext({
-			tipo: ONTOLOGY_DEPENDENCIES,
-			sectionTipo: ONTOLOGY_MAIN_SECTION,
-			mode: 'edit',
-			lang: DATA_NOLAN,
-			permissions: 2,
-		})) as { model?: string; request_config?: { sqo?: { section_tipo?: unknown[] } }[] } | null;
-		expect(context?.model).toBe('component_portal');
-		const targets = (context?.request_config?.[0]?.sqo?.section_tipo ?? []).map((item) =>
-			typeof item === 'string' ? item : (item as { tipo?: string }).tipo,
-		);
-		expect(targets).toEqual([ONTOLOGY_MAIN_SECTION]);
+describe('the stored declaration (misc.hierarchy60, written by the import door)', () => {
+	test('a declaration is stored as the component_json shape [{id:1, value:[…]}]', async () => {
+		expect((await storedMisc('zzka'))?.[HIERARCHY_DEPENDENCIES]).toEqual([
+			{ id: 1, value: ZZKA_DECLARED },
+		]);
+		expect((await storedMisc('zzkb'))?.[HIERARCHY_DEPENDENCIES]).toEqual([{ id: 1, value: [] }]);
+		expect(Object.hasOwn((await storedMisc('zzkc')) ?? {}, HIERARCHY_DEPENDENCIES)).toBe(false);
 	});
 });
 
 describe('the export census (getActiveOntologies → activeOntologiesInfo → manifest)', () => {
-	test('declared order, deduplicated, own TLD dropped, core kept', () => {
-		expect(entry('zzka')?.dependencies).toEqual(['zzkb', 'dd']);
+	test('objects in declared order; a TLD twice (one per main) and a hierarchy1 self-reference kept', () => {
+		expect(entry('zzka')?.dependencies).toEqual(ZZKA_DECLARED);
 	});
 
-	test('NOT declared is an ABSENT key — an empty or self-only component included', () => {
-		for (const tld of ['zzkb', 'zzkc']) {
-			const found = entry(tld);
-			expect(found, `${tld} is in the census`).toBeDefined();
-			expect(Object.hasOwn(found as object, 'dependencies')).toBe(false);
-		}
+	test('a declared [] is PRESENT and empty', () => {
+		expect(entry('zzkb')?.dependencies).toEqual([]);
 	});
 
-	test('a locator that names no TLD is a census error line, never fatal', () => {
-		expect(census.errors).toContain(
-			`${ONTOLOGY_MAIN_SECTION}/${ids.zzka}: dependency ${ONTOLOGY_MAIN_SECTION}/${ids.zzkd} has no tld — skipped`,
+	test('NOT declared is an ABSENT key', () => {
+		const found = entry('zzkc');
+		expect(found, 'zzkc is in the census').toBeDefined();
+		expect(Object.hasOwn(found as object, 'dependencies')).toBe(false);
+	});
+
+	test('invalid stored items are dropped into census error lines (normalized like the import), never fatal', () => {
+		expect(entry('zzke')?.dependencies).toEqual([
+			{ tld: 'zzkb', main: 'ontology35', mandatory: false },
+		]);
+		const lines = census.errors.filter((line) =>
+			line.startsWith(`${ONTOLOGY_MAIN_SECTION}/${ids.zzke}: `),
 		);
+		expect(lines).toHaveLength(5); // duplicate, self, bad main, bad mandatory, string
+		expect(lines.some((line) => line.includes('more than once'))).toBe(true);
+		expect(lines.some((line) => line.includes('its own ontology'))).toBe(true);
+		expect(lines.some((line) => line.includes('whose main is not one of'))).toBe(true);
+		expect(lines.some((line) => line.includes('whose mandatory is not a boolean'))).toBe(true);
+		expect(lines.some((line) => line.includes('that is not an object'))).toBe(true);
+		// the well-declared rows produce none
+		for (const tld of ['zzka', 'zzkb', 'zzkc'] as const) {
+			expect(
+				census.errors.filter((line) => line.startsWith(`${ONTOLOGY_MAIN_SECTION}/${ids[tld]}:`)),
+			).toEqual([]);
+		}
 	});
 
 	test('activeOntologiesInfo copies dependencies ONLY when declared', () => {
 		const info = activeOntologiesInfo(census.ontologies.filter((el) => el.tld.startsWith('zzk')));
 		const byTld = new Map(info.map((item) => [item.tld, item]));
-		expect(byTld.get('zzka')).toMatchObject({ tld: 'zzka', dependencies: ['zzkb', 'dd'] });
-		expect(Object.hasOwn(byTld.get('zzkb') as object, 'dependencies')).toBe(false);
+		expect(byTld.get('zzka')).toMatchObject({ tld: 'zzka', dependencies: ZZKA_DECLARED });
+		expect(byTld.get('zzkb')).toMatchObject({ tld: 'zzkb', dependencies: [] });
 		expect(Object.hasOwn(byTld.get('zzkc') as object, 'dependencies')).toBe(false);
 	});
 
-	test('the master manifest carries it verbatim, and the client parser reads it back', () => {
+	test('the master manifest carries it verbatim, and the client parser reads the same objects back', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'zzk_manifest_'));
 		try {
 			const active = activeOntologiesInfo(
@@ -257,18 +242,70 @@ describe('the export census (getActiveOntologies → activeOntologiesInfo → ma
 			for (const tld of ['zzka', 'zzkb', 'zzkc']) writeFileSync(join(dir, `${tld}.copy.gz`), '');
 			const manifest = buildOntologyUpdateInfo(dir, 'https://zz.invalid/io/7.0');
 			const served = (
-				manifest.data.info as { active_ontologies: { tld: string; dependencies?: string[] }[] }
+				manifest.data.info as { active_ontologies: { tld: string; dependencies?: unknown }[] }
 			).active_ontologies;
-			expect(served.find((item) => item.tld === 'zzka')?.dependencies).toEqual(['zzkb', 'dd']);
+			expect(served.find((item) => item.tld === 'zzka')?.dependencies).toEqual(ZZKA_DECLARED);
 			const parsed = parseOntologyManifest(manifest.data);
 			if (!parsed.ok) throw new Error(parsed.reason);
+			expect(parsed.warnings).toEqual([]);
 			expect(parsed.ontologies.map((item) => [item.tld, item.dependencies])).toEqual([
-				['zzka', ['zzkb', 'dd']],
-				['zzkb', null],
+				['zzka', ZZKA_DECLARED],
+				['zzkb', []],
 				['zzkc', null],
 			]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('the update report (reportMissingDependencies — report only)', () => {
+	test('names each missing dependency with its reason; present ones are silent', async () => {
+		const before = JSON.stringify(await storedMisc('zzka'));
+		const report = await reportMissingDependencies(['zzka', 'zzkb', 'zzkc']);
+		expect(report.invalid).toEqual([]);
+		expect(report.missing).toEqual([
+			// a registry row, but not in ACTIVE_ONTOLOGY_TLDS (not updated with the others)
+			{ dependant: 'zzka', tld: 'zzkb', main: 'ontology35', mandatory: true, reason: 'not_active' },
+			// its own thesaurus: there is no zzka hierarchy
+			{
+				dependant: 'zzka',
+				tld: 'zzka',
+				main: 'hierarchy1',
+				mandatory: false,
+				reason: 'no_active_hierarchy',
+			},
+			{
+				dependant: 'zzka',
+				tld: 'zzkd',
+				main: 'ontology35',
+				mandatory: true,
+				reason: 'not_installed',
+			},
+			{
+				dependant: 'zzka',
+				tld: 'zzkd',
+				main: 'hierarchy1',
+				mandatory: false,
+				reason: 'no_active_hierarchy',
+			},
+		]); // dd (core ontology) and lg (active core thesaurus) are present
+		// mandatory → warnings, optional → notes; each line names both TLDs
+		expect(report.warnings).toHaveLength(2);
+		expect(report.notes).toHaveLength(2);
+		for (const line of [...report.warnings, ...report.notes]) expect(line).toContain("'zzka'");
+		expect(report.warnings[1]).toContain("'zzkd' ontology, which is not installed");
+		expect(report.notes[1]).toContain("'zzkd' thesaurus");
+		// it wrote nothing
+		expect(JSON.stringify(await storedMisc('zzka'))).toBe(before);
+	});
+
+	test('a malformed stored declaration is reported as invalid, never fatal', async () => {
+		const report = await reportMissingDependencies(['zzke']);
+		expect(report.invalid).toHaveLength(5);
+		// the one valid item (zzkb, optional) is checked like any other
+		expect(report.missing.map((item) => [item.tld, item.mandatory, item.reason])).toEqual([
+			['zzkb', false, 'not_active'],
+		]);
 	});
 });

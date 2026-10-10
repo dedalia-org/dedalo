@@ -8038,6 +8038,13 @@ body:has(.component_av.view_viewer) {
   font-size: 0.75rem;
   font-weight: 600;
 }
+.installer.wrapper .hierarchies_import_block .hierarchy_label .required_hierarchy {
+  color: var(--ut_text_muted);
+  font-size: 0.75rem;
+}
+.installer.wrapper .hierarchies_import_block .hierarchy_label > .hierarchy_checkbox:disabled {
+  cursor: not-allowed;
+}
 .installer.wrapper .ontologies_block .ontology_group {
   margin-bottom: 0.25rem;
 }
@@ -8090,6 +8097,25 @@ body:has(.component_av.view_viewer) {
 }
 .installer.wrapper .ontologies_block .ontology_airgapped {
   padding-left: 0;
+}
+.installer.wrapper .ontologies_block .ontology_dependency_list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 2.05rem;
+}
+.installer.wrapper .ontologies_block .ontology_dependency_list .ontology_dependency_label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--ut_text_secondary);
+}
+.installer.wrapper .ontologies_block .ontology_dependency_list .ontology_dependency_label > .hierarchy_checkbox {
+  accent-color: var(--ut_accent);
+  margin: 0;
+}
+.installer.wrapper .ontologies_block .ontology_dependency_list .ontology_dependency_label > .hierarchy_checkbox:disabled {
+  cursor: not-allowed;
 }
 .installer.wrapper .msg.installer_warning_lines {
   flex-direction: column;

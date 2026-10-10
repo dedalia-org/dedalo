@@ -31,7 +31,7 @@
  *      row) replace the table — count +1, every existing row intact;
  *  (g) the DECLARATION ROUND TRIP: after (a) this server's own export census
  *      (getActiveOntologies) answers the dependencies the stand-in declared
- *      (ddengine11 written by the shared import layer — a LAN master that
+ *      (hierarchy60 written by the shared import layer — a LAN master that
  *      imports re-serves them), and after (b) the undeclared zzjc stays
  *      undeclared (nothing computed, nothing written).
  * Around EVERY case the non-zz ontology census (dd_ontology, matrix_ontology,
@@ -111,7 +111,7 @@ function zzjb(): FixtureOntologyTld {
 		name: 'zz model provider',
 		typologyId: 8,
 		typologyName: 'Catalog',
-		dependencies: ['dd'],
+		dependencies: [{ tld: 'dd', main: 'ontology35', mandatory: true }],
 		nodes: [
 			{ id: 1, parent: 'zzjb0', model: coreModel, term: 'zz models' },
 			{ id: 2, parent: 'zzjb1', model: coreModel, term: 'zz_model_b', isModel: true },
@@ -125,7 +125,10 @@ function zzja(): FixtureOntologyTld {
 		name: 'zz domain',
 		typologyId: 8,
 		typologyName: 'Catalog',
-		dependencies: ['dd', 'zzjb'],
+		dependencies: [
+			{ tld: 'dd', main: 'ontology35', mandatory: true },
+			{ tld: 'zzjb', main: 'ontology35', mandatory: true },
+		],
 		nodes: [
 			{ id: 1, parent: 'zzja0', model: 'zzjb2', term: 'zz domain root' },
 			{ id: 2, parent: 'zzja1', model: 'zzjb2', term: 'zz domain node', relations: ['zzja1'] },
@@ -290,9 +293,9 @@ async function installChosen(chosen: string[], catalog: OntologyCatalog) {
  * The scratch TLDs' declared dependencies as THIS server's export census reads
  * them back (getActiveOntologies — what ontology.json serves); null = no key.
  */
-async function censusDependencies(): Promise<Record<string, string[] | null>> {
+async function censusDependencies(): Promise<Record<string, unknown[] | null>> {
 	const census = await getActiveOntologies();
-	const found: Record<string, string[] | null> = {};
+	const found: Record<string, unknown[] | null> = {};
 	for (const entry of census.ontologies.filter((item) => ZZ_TLDS.includes(item.tld))) {
 		found[entry.tld] = Object.hasOwn(entry, 'dependencies') ? (entry.dependencies ?? null) : null;
 	}
@@ -364,7 +367,13 @@ describe('the installer ontology door (suite DB, zz TLDs)', () => {
 			expect(await verifyInstalledOntologyReferences(['zzjb', 'zzja'])).toEqual([]);
 			// the DECLARATION survives the import: the census (what this server's
 			// next export serves) answers exactly what the stand-in declared
-			expect(await censusDependencies()).toEqual({ zzja: ['dd', 'zzjb'], zzjb: ['dd'] });
+			expect(await censusDependencies()).toEqual({
+				zzja: [
+					{ tld: 'dd', main: 'ontology35', mandatory: true },
+					{ tld: 'zzjb', main: 'ontology35', mandatory: true },
+				],
+				zzjb: [{ tld: 'dd', main: 'ontology35', mandatory: true }],
+			});
 			stand.stop();
 		});
 	});

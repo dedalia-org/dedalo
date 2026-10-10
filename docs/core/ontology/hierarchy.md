@@ -259,7 +259,7 @@ trees; the rendering, mutation and resolution layers sit around them:
   scope chain `main → thesaurus → relation_list`; see the
   [section_map resolver](section_map.md) page.
 - **[Ontology](index.md)** — `hierarchy_provision.ts` calls into the write
-  layer's `addMainSection()`, `createDdOntologyRootNode()`,
+  layer's `ensureMainSection()`, `createDdOntologyRootNode()`,
   `createParentGrouper()` and `insertDdOntologyRecord()`
   (`ontology/ontology_write.ts`) when materialising virtual sections.
 - **Components** — terms are read/written through the same matrix

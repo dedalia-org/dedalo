@@ -66,7 +66,11 @@
  *      Hub has no OIDC push federation and a self-hosted registry needs a robot
  *      token, so a mirror is impossible without a secret — the carve-out is exactly
  *      that wide and is judged by `secretReferenceFaults`, with a planted control
- *      for each way out of it.
+ *      for each way out of it. SECOND CARVE-OUT (2026-10-10): the `full_gate` job of
+ *      nightly.yml, bound to `environment: gitdedalo-nightly`, for exactly the three
+ *      GITDEDALO_* names (NIGHTLY_SECRETS), while nightly.yml is triggered by nothing
+ *      but schedule / workflow_dispatch — the read-only deploy key that fetches the
+ *      internal remote for the nightly full gate (rule 20).
  *  13. HOSTED TIERS NEED NO PRIVATE ENV (2026-08-25; generalized 2026-09-02 to
  *      every script an executing workflow runs, following `source` lines) —
  *      scripts/ci/db_tier.sh may contain NO command that requires ../private/.env. Its own header states
@@ -790,6 +794,22 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		"It materializes the engine ontology into the suite database's dd_ontology, reserves and settles against the shipped ledger section's rows (concurrent reservations racing on its row locks) and drives the metered doors as fixture users resolved from the suite database, so it cannot run without a live suite Postgres.",
 	],
 	[
+		'test/unit/engine_ontology_retired_native.test.ts',
+		"It plants a retired engine node's source record, dd_ontology row and registry value in the suite database and runs the engine-ontology door to prune them (a scratch ontology35 registry row minted by createMainSection), so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/ontology_registry_row_native.test.ts',
+		"It mints scratch ontology35 registry rows through the engine's registry doors on the suite database, runs the import and rebuild doors over them (and over the suite's real lg row, snapshotted and restored) and reads every column back, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/ontology_dependencies_native.test.ts',
+		"It writes scratch ontology35 registry rows and their stored hierarchy60 declarations on the suite database, then reads them back through the census, the manifest builder and the update's missing-dependency report, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/install_hierarchy_dependencies_native.test.ts',
+		"It writes scratch ontology35 registry rows declaring thesauri on the suite database and reads them back through the wizard's install_hierarchies reader, so it cannot run without a live suite Postgres.",
+	],
+	[
 		'test/unit/change_plan_write_door_native.test.ts',
 		"It installs the authz door fixture's scratch projects, profiles and users on the suite database, creates the record its plans address, and validates every plan through the write door's real permission and scope resolution, so it cannot run without a live suite Postgres.",
 	],
@@ -868,16 +888,63 @@ function triggerNames(src: string): string[] {
 	return names;
 }
 
-/** The ONE workflow that may reference a secret, and the environment that must guard it (rule 11). */
+/**
+ * The workflows that may reference a secret (rule 11), each with the environment that must
+ * guard it, the job it is confined to (null = any job declaring that environment), the
+ * names it may use, and the triggers it may never have — or, with `onlyTriggers`, the
+ * ONLY ones it may have. Two rows, each argued in the rule's comment; a third is a
+ * deliberate edit of this gate.
+ */
+interface SecretCarveOut {
+	workflow: string;
+	environment: string;
+	job: string | null;
+	declared: readonly string[];
+	/** Where `declared` comes from, for the fault message. */
+	declaredBy: string;
+	forbiddenTriggers: readonly string[];
+	onlyTriggers?: readonly string[];
+}
 const SECRET_WORKFLOW = 'image-release.yml';
 const SECRET_ENVIRONMENT = 'image-release';
-/** Triggers that hand fork or unattended code to a job — none may fire the secret-holding workflow. */
+/** Triggers that hand fork or unattended code to a job — none may fire the release workflow. */
 const SECRET_FORBIDDEN_TRIGGERS = [
 	'pull_request',
 	'pull_request_target',
 	'workflow_run',
 	'schedule',
 ];
+/**
+ * The nightly full gate of the internal remote (2026-10-10): the ONE job of nightly.yml that
+ * fetches gitdedalo/master over SSH. Its names are declared HERE — there is no registry file
+ * for them; the runbook (engineering/CI.md, The nightly full gate) names the same three.
+ */
+const NIGHTLY_SECRET_WORKFLOW = 'nightly.yml';
+const NIGHTLY_SECRET_ENVIRONMENT = 'gitdedalo-nightly';
+const NIGHTLY_SECRET_JOB = 'full_gate';
+const NIGHTLY_SECRETS = ['GITDEDALO_DEPLOY_KEY', 'GITDEDALO_KNOWN_HOSTS', 'GITDEDALO_URL'] as const;
+
+function secretCarveOuts(releaseDeclared: readonly string[]): SecretCarveOut[] {
+	return [
+		{
+			workflow: SECRET_WORKFLOW,
+			environment: SECRET_ENVIRONMENT,
+			job: null,
+			declared: releaseDeclared,
+			declaredBy: 'engineering/image_registries.json',
+			forbiddenTriggers: SECRET_FORBIDDEN_TRIGGERS,
+		},
+		{
+			workflow: NIGHTLY_SECRET_WORKFLOW,
+			environment: NIGHTLY_SECRET_ENVIRONMENT,
+			job: NIGHTLY_SECRET_JOB,
+			declared: NIGHTLY_SECRETS,
+			declaredBy: 'NIGHTLY_SECRETS (this gate)',
+			forbiddenTriggers: ['pull_request', 'pull_request_target', 'workflow_run', 'push'],
+			onlyTriggers: ['schedule', 'workflow_dispatch'],
+		},
+	];
+}
 
 /** Every secret EXPRESSION in a text: its name, or `?` when the expression is not a plain name. */
 function secretReferences(src: string): string[] {
@@ -887,38 +954,54 @@ function secretReferences(src: string): string[] {
 }
 
 /** Does a job block declare the protected environment (scalar or `name:` mapping form)? */
-function declaresSecretEnvironment(block: string): boolean {
+function declaresSecretEnvironment(block: string, environment: string): boolean {
 	return (
-		new RegExp(`^ {4}environment:\\s*${SECRET_ENVIRONMENT}\\s*$`, 'm').test(block) ||
-		new RegExp(`^ {4}environment:\\s*\\n {6}name:\\s*${SECRET_ENVIRONMENT}\\s*$`, 'm').test(block)
+		new RegExp(`^ {4}environment:\\s*${environment}\\s*$`, 'm').test(block) ||
+		new RegExp(`^ {4}environment:\\s*\\n {6}name:\\s*${environment}\\s*$`, 'm').test(block)
 	);
 }
 
 /**
- * Rule 11's judge, PURE: the faults of one workflow file's secret references. Outside
- * SECRET_WORKFLOW every reference is a fault; inside it, a reference outside the
- * environment-bound job, a name the registry list does not declare, and a forbidden
- * trigger on the file are faults.
+ * Rule 11's judge, PURE: the faults of one workflow file's secret references. Outside the
+ * carve-out workflows every reference is a fault; inside one, a reference outside its
+ * environment-bound job (or outside its named job), a name it does not declare, and a
+ * forbidden (or not-allowed) trigger on the file are faults.
  */
-function secretReferenceFaults(file: string, src: string, declared: readonly string[]): string[] {
-	if (file !== SECRET_WORKFLOW)
+function secretReferenceFaults(
+	file: string,
+	src: string,
+	carveOuts: readonly SecretCarveOut[],
+): string[] {
+	const carve = carveOuts.find((row) => row.workflow === file);
+	if (carve === undefined)
 		return secretReferences(src).map((name) => `${file}: references secret '${name}'`);
-	const faults = SECRET_FORBIDDEN_TRIGGERS.filter((trigger) =>
-		triggerNames(src).includes(trigger),
-	).map((trigger) => `${file}: holds secrets AND is triggered by \`${trigger}\``);
+	const triggers = triggerNames(src);
+	const faults = carve.forbiddenTriggers
+		.filter((trigger) => triggers.includes(trigger))
+		.map((trigger) => `${file}: holds secrets AND is triggered by \`${trigger}\``);
+	if (carve.onlyTriggers !== undefined)
+		for (const trigger of triggers.filter(
+			(t) => !carve.onlyTriggers?.includes(t) && !carve.forbiddenTriggers.includes(t),
+		))
+			faults.push(
+				`${file}: holds secrets AND is triggered by \`${trigger}\` (only ${carve.onlyTriggers.join(', ')})`,
+			);
 	const header = src.slice(0, Math.max(0, src.search(/^jobs:/m)));
 	for (const name of secretReferences(header))
 		faults.push(`${file}: secret '${name}' outside any job`);
 	for (const [id, block] of jobBlocks(src)) {
 		const names = secretReferences(block);
-		if (names.length > 0 && !declaresSecretEnvironment(block))
+		if (names.length === 0) continue;
+		if (carve.job !== null && id !== carve.job)
 			faults.push(
-				`${file} job '${id}': references ${names.join(', ')} without \`environment: ${SECRET_ENVIRONMENT}\``,
+				`${file} job '${id}': references ${names.join(', ')} — only job '${carve.job}' may`,
 			);
-		for (const name of names.filter((n) => !declared.includes(n)))
+		if (!declaresSecretEnvironment(block, carve.environment))
 			faults.push(
-				`${file} job '${id}': secret '${name}' is not declared by engineering/image_registries.json`,
+				`${file} job '${id}': references ${names.join(', ')} without \`environment: ${carve.environment}\``,
 			);
+		for (const name of names.filter((n) => !carve.declared.includes(n)))
+			faults.push(`${file} job '${id}': secret '${name}' is not declared by ${carve.declaredBy}`);
 	}
 	return faults;
 }
@@ -1073,6 +1156,88 @@ function nightlyFaults(nightly: string | null, hermetic: string): string[] {
 				`nightly.yml job '${auditJobId}': the audit's status is captured (\`${invocation}\`) but never carried to an \`exit\` — a red audit would be a green run`,
 			);
 	}
+	return faults;
+}
+
+/** The `run: |` payload of the step with `id: <stepId>` inside a job block, dedented. */
+function stepRunBlock(jobBlock: string, stepId: string): string | null {
+	const step = jobBlock
+		.split(/\n(?= {6}- )/)
+		.find((chunk) => new RegExp(`^\\s*id:\\s*${stepId}\\s*$`, 'm').test(chunk));
+	if (step === undefined) return null;
+	const lines = step.split('\n');
+	const at = lines.findIndex((l) => /^ {8}run:\s*\|\s*$/.test(l));
+	if (at === -1) return null;
+	const body: string[] = [];
+	for (const line of lines.slice(at + 1)) {
+		if (line.trim() !== '' && !line.startsWith('          ')) break;
+		body.push(line.slice(10));
+	}
+	return `${body.join('\n')}\n`;
+}
+
+/** The hook's INTERNAL_REMOTE_IDS (empty when the line is absent or blank). */
+function hookInternalIds(hook: string): string[] {
+	return (hook.match(/^INTERNAL_REMOTE_IDS='([^']*)'$/m)?.[1] ?? '')
+		.split(/\s+/)
+		.filter((id) => id !== '');
+}
+
+/**
+ * Rule 20's judge, PURE over the hook and nightly.yml. The pre-push hook gates an INTERNAL
+ * push hermetic-only — honest only while nightly.yml's `full_gate` job runs the FULL gate
+ * on the internal remote's master, carries its red to the run's verdict, reports it, and
+ * reaches the remote with a pinned host key. A hook with no internal identity owes nothing.
+ */
+function internalDowngradeFaults(hook: string, nightly: string | null): string[] {
+	if (hookInternalIds(hook).length === 0) return [];
+	if (nightly === null)
+		return ['the pre-push hook downgrades internal pushes but nightly.yml does not exist'];
+	const faults: string[] = [];
+	const jobs = jobBlocks(nightly);
+	const full = jobs.get('full_gate');
+	if (full === undefined)
+		return [
+			'nightly.yml has no `full_gate` job — internal pushes are hermetic-only and db/instance run NOWHERE for them',
+		];
+	const code = full
+		.split('\n')
+		.map((l) => l.trim())
+		.filter((l) => l !== '' && !l.startsWith('#'));
+	const gate = code.find((l) => /^bun run ci:local\b/.test(l));
+	if (gate === undefined) faults.push('nightly.yml full_gate: no `bun run ci:local` line');
+	else {
+		for (const flag of ['--docker', '--hermetic', '--db', '--instance', '--ref'])
+			if (!new RegExp(`(^|\\s)${flag}(\\s|$)`).test(gate))
+				faults.push(`nightly.yml full_gate: the gate lacks ${flag} — \`${gate}\``);
+		if (/\s--base\s/.test(gate))
+			faults.push('nightly.yml full_gate: --base makes the run a pull_request, not the push gate');
+		if (!/\|\|\s*rc=\$\?\s*$/.test(gate))
+			faults.push('nightly.yml full_gate: the gate status is not captured as `|| rc=$?`');
+	}
+	if (!code.some((l) => /rc=\$rc/.test(l)))
+		faults.push('nightly.yml full_gate: the gate rc is never written to the step outputs');
+	const exitStep =
+		/^ {10}RC:\s*\$\{\{\s*steps\.gate\.outputs\.rc\s*\}\}\s*$/m.test(full) &&
+		/^ {8}run:\s*exit "\$RC"\s*$/m.test(full);
+	if (!exitStep)
+		faults.push(
+			'nightly.yml full_gate: the gate rc is not carried to an `exit "$RC"` step — a red full gate would be a green run',
+		);
+	if (code.some((l) => /^continue-on-error:/.test(l)))
+		faults.push('nightly.yml full_gate: continue-on-error — a red full gate would be a green run');
+	if (/^ {4}if:/m.test(full))
+		faults.push('nightly.yml full_gate: a job-level `if:` — the nightly could skip it silently');
+	if (code.some((l) => /ssh-keyscan/.test(l)))
+		faults.push('nightly.yml full_gate: ssh-keyscan — the host key must be PINNED, never fetched');
+	if (!/StrictHostKeyChecking=yes/.test(full) || /StrictHostKeyChecking=(no|accept-new)/.test(full))
+		faults.push('nightly.yml full_gate: ssh does not run with StrictHostKeyChecking=yes');
+	const report = jobs.get('report');
+	if (report === undefined || !/^ {4}needs:.*\bfull_gate\b/m.test(report))
+		faults.push('nightly.yml report: does not need full_gate — a red full gate files no issue');
+	else
+		for (const read of ['needs.full_gate.result', 'needs.full_gate.outputs.sha'])
+			if (!report.includes(read)) faults.push(`nightly.yml report: never reads ${read}`);
 	return faults;
 }
 
@@ -1556,21 +1721,34 @@ describe('CI workflow tripwire', () => {
 	// workflow has no pull_request / pull_request_target / workflow_run / schedule
 	// trigger — each condition has a planted control below.
 	//
+	// THE SECOND CARVE-OUT (2026-10-10): the `full_gate` job of nightly.yml fetches the
+	// internal remote's master (gitdedalo) over SSH to run the full gate on it — the
+	// nightly home of the db/instance tiers the pre-push hook no longer runs on an
+	// internal push (rule 20). A deploy key cannot be anything but a secret. Legal only in
+	// that ONE job, only while it declares `environment: gitdedalo-nightly` (deployment
+	// branches: master only — owner setup, engineering/CI.md), only for the three
+	// GITDEDALO_* names, and only while nightly.yml is triggered by nothing but
+	// schedule / workflow_dispatch (no push, no PR, no workflow_run: fork or pushed code
+	// never runs beside it). Each condition has a planted control below.
+	//
 	// Matched as the EXPRESSION, not a bare substring, so these files stay free to
 	// DISCUSS the posture in their headers — the same courtesy rule 5 extends to
 	// the phrase "self-hosted".
-	test('no .github/workflows/ file references a secret, except the environment-bound release publish (rule 11)', () => {
+	test('no .github/workflows/ file references a secret, except the two environment-bound carve-outs (rule 11)', () => {
 		const declared = declaredSecretNames(loadImageRegistries());
-		// Anti-vacuity: the allowlist is read from the list, and the carve-out is in use.
+		const carveOuts = secretCarveOuts(declared);
+		// Anti-vacuity: the allowlist is read from the list, and each carve-out is in use.
 		expect(declared.length).toBeGreaterThanOrEqual(2);
 		const release = read(join('.github', 'workflows', SECRET_WORKFLOW));
 		expect(secretReferences(release).length).toBeGreaterThanOrEqual(2);
+		const nightly = read(join('.github', 'workflows', NIGHTLY_SECRET_WORKFLOW));
+		expect([...new Set(secretReferences(nightly))].sort()).toEqual([...NIGHTLY_SECRETS].sort());
 		const offenders = workflowFiles.flatMap((file) =>
-			secretReferenceFaults(file, read(join('.github', 'workflows', file)), declared),
+			secretReferenceFaults(file, read(join('.github', 'workflows', file)), carveOuts),
 		);
 		expect(
 			offenders,
-			'A secret reference in the EXECUTED tier of a public repo is a standing invitation: one trigger change and fork-PR code runs with it populated. A test tier needs none — hardcode the throwaway service password, and put anything genuinely secret in .github/workflows-selfhosted/ for the private mirror. The ONE exception is the environment-bound publish job of image-release.yml, for the names engineering/image_registries.json declares:',
+			'A secret reference in the EXECUTED tier of a public repo is a standing invitation: one trigger change and fork-PR code runs with it populated. A test tier needs none — hardcode the throwaway service password, and put anything genuinely secret in .github/workflows-selfhosted/ for the private mirror. The ONLY exceptions are the environment-bound publish job of image-release.yml (names from engineering/image_registries.json) and the environment-bound full_gate job of nightly.yml (the GITDEDALO_* names):',
 		).toEqual([]);
 
 		// Controls — each way out of the carve-out must be seen.
@@ -1578,14 +1756,14 @@ describe('CI workflow tripwire', () => {
 		const planted = (from: string | RegExp, to: string): string[] => {
 			const mutated = release.replace(from, to);
 			expect(mutated === release, `control did not apply: ${String(from)}`).toBe(false);
-			return secretReferenceFaults(SECRET_WORKFLOW, mutated, declared);
+			return secretReferenceFaults(SECRET_WORKFLOW, mutated, carveOuts);
 		};
 		// (a) a declared secret in ANOTHER workflow
 		expect(
 			secretReferenceFaults(
 				'ci.yml',
 				`jobs:\n  x:\n    environment: ${SECRET_ENVIRONMENT}\n    env:\n      A: \${{ secrets.${name} }}\n`,
-				declared,
+				carveOuts,
 			),
 		).toHaveLength(1);
 		// (b) in ANOTHER job of the release workflow (the plan job holds no environment)
@@ -1610,6 +1788,49 @@ describe('CI workflow tripwire', () => {
 		expect(planted(/^ {4}environment: image-release\n/m, '').join()).toContain("job 'publish'");
 		// (f) a non-plain secret expression is still a reference
 		expect(secretReferences("a: ${{ secrets[format('{0}', x)] }}")).toEqual(['?']);
+
+		// Controls on the nightly carve-out.
+		const plantedNightly = (from: string | RegExp, to: string): string[] => {
+			const mutated = nightly.replace(from, to);
+			expect(mutated === nightly, `control did not apply: ${String(from)}`).toBe(false);
+			return secretReferenceFaults(NIGHTLY_SECRET_WORKFLOW, mutated, carveOuts);
+		};
+		// (g) a GITDEDALO secret in ANOTHER job of nightly.yml (check runs the audit)
+		expect(
+			plantedNightly(
+				/^( {10}WARN_DAYS: .*)$/m,
+				'$1\n          LEAK: ${{ secrets.GITDEDALO_DEPLOY_KEY }}',
+			).join(),
+		).toContain("job 'check'");
+		// (h) the environment removed from full_gate
+		expect(plantedNightly(/^ {4}environment: gitdedalo-nightly\n/m, '').join()).toContain(
+			"job 'full_gate'",
+		);
+		// (i) an undeclared name in full_gate
+		expect(
+			plantedNightly(
+				/^( {10}GITDEDALO_URL: .*)$/m,
+				'$1\n          OTHER: ${{ secrets.NPM_TOKEN }}',
+			).join(),
+		).toContain("'NPM_TOKEN' is not declared");
+		// (j) a push / pull_request / any other trigger on nightly.yml
+		for (const trigger of ['push', 'pull_request', 'issue_comment'])
+			expect(
+				plantedNightly(/^ {2}workflow_dispatch:$/m, `  ${trigger}:\n  workflow_dispatch:`).join(),
+			).toContain(`\`${trigger}\``);
+		// (k) the release names are NOT legal in the nightly, nor the nightly's in the release
+		expect(
+			plantedNightly(
+				/^( {10}GITDEDALO_URL: .*)$/m,
+				`$1\n          X: \${{ secrets.${name} }}`,
+			).join(),
+		).toContain('is not declared');
+		expect(
+			planted(
+				/^( {10}RUN_ID: .*)$/m,
+				'$1\n          X: ${{ secrets.GITDEDALO_DEPLOY_KEY }}',
+			).join(),
+		).toContain("'GITDEDALO_DEPLOY_KEY' is not declared");
 	});
 
 	// Rule 12 (2026-08-25) — container images are DIGEST-pinned. Rule 8 above
@@ -2956,5 +3177,162 @@ describe('CI workflow tripwire', () => {
 		expect(read('scripts/ci/db_tier.sh')).toContain('${DEDALO_CI_UNIT_RECORD_OUT:-}');
 		// Control: the scan sees a planted workflow line.
 		expect(/DEDALO_CI_UNIT_RECORD/.test('env:\n  DEDALO_CI_UNIT_RECORD_OUT: /tmp\n')).toBe(true);
+	});
+
+	/**
+	 * Rule 20 — THE INTERNAL DOWNGRADE HAS A NIGHTLY HOME (2026-10-10).
+	 *
+	 * scripts/hooks/pre-push gates a push to the internal remote (gitdedalo, identified by
+	 * URL) hermetic-only. That is honest only while nightly.yml's `full_gate` job runs the
+	 * full gate on gitdedalo/master every night, fails the run when it is red, reports it in
+	 * the ci-nightly issue with the sha, and reaches the remote with a pinned host key. The
+	 * judge is `internalDowngradeFaults`; the fetch step is EXECUTED below with stubbed
+	 * git / ssh-keyscan: without its secrets it must SKIP LOUDLY (exit 0, state=skipped, the
+	 * three names); with them it must pin the host key from the secret, never keyscan, and
+	 * leave no key file behind.
+	 */
+	test('the hook’s internal hermetic-only downgrade has a nightly full-gate home that fails, reports and pins the host (rule 20)', () => {
+		const hook = read('scripts/hooks/pre-push');
+		const nightly = read('.github/workflows/nightly.yml');
+		expect(
+			hookInternalIds(hook).length,
+			'anti-vacuity: the hook has no internal identity',
+		).toBeGreaterThan(0);
+		expect(internalDowngradeFaults(hook, nightly)).toEqual([]);
+
+		const plant = (from: string | RegExp, to: string) => {
+			const mutated = nightly.replace(from, to);
+			expect(mutated, `control did not apply: ${String(from)}`).not.toBe(nightly);
+			return internalDowngradeFaults(hook, mutated).join('\n');
+		};
+		expect(internalDowngradeFaults(hook, null).join()).toContain('does not exist');
+		expect(plant(/^ {2}full_gate:$/m, '  other_gate:')).toContain('no `full_gate` job');
+		expect(
+			plant(/(ci:local --docker --hermetic) --db( --instance --ref "\$SHA")/, '$1$2'),
+		).toContain('lacks --db');
+		expect(plant(/(--hermetic --db) --instance( --ref "\$SHA")/, '$1$2')).toContain(
+			'lacks --instance',
+		);
+		// The LAST `exit "$RC"` is full_gate's (check carries the audit's the same way).
+		expect(plant(/run: exit "\$RC"(?![\s\S]*run: exit "\$RC")/, 'run: echo "$RC"')).toContain(
+			'not carried',
+		);
+		expect(plant(/^( {4}environment: gitdedalo-nightly)$/m, '$1\n    if: false')).toContain(
+			'job-level `if:`',
+		);
+		expect(plant(/StrictHostKeyChecking=yes/, 'StrictHostKeyChecking=accept-new')).toContain(
+			'StrictHostKeyChecking',
+		);
+		expect(
+			plant(
+				/^( {10}mkdir -m 700 .*)$/m,
+				'$1\n          ssh-keyscan host >> "$ssh_dir/known_hosts"',
+			),
+		).toContain('ssh-keyscan');
+		expect(
+			plant(
+				'needs: [check, image_pin, cosign_pin, full_gate]',
+				'needs: [check, image_pin, cosign_pin]',
+			),
+		).toContain('does not need full_gate');
+		// A hook with no internal identity owes no nightly.
+		expect(
+			internalDowngradeFaults(
+				hook.replace(/^INTERNAL_REMOTE_IDS='[^']*'$/m, "INTERNAL_REMOTE_IDS=''"),
+				null,
+			),
+		).toEqual([]);
+
+		// EXECUTED: the fetch step.
+		const fetch = stepRunBlock(jobBlocks(nightly).get('full_gate') ?? '', 'fetch');
+		expect(fetch, 'full_gate has no `id: fetch` step with a `run: |` block').not.toBeNull();
+		const scratch = mkdtempSync(join(tmpdir(), 'dedalo-nightly-fetch-'));
+		try {
+			const bin = join(scratch, 'bin');
+			const runnerTemp = join(scratch, 'rt');
+			for (const dir of [bin, runnerTemp]) Bun.spawnSync(['mkdir', '-p', dir]);
+			const log = join(scratch, 'calls.log');
+			writeFileSync(
+				join(bin, 'git'),
+				[
+					'#!/bin/bash',
+					`printf 'git %s\\n' "$*" >> '${log}'`,
+					'if [ "$1" = fetch ]; then',
+					`  printf 'ssh %s\\n' "$GIT_SSH_COMMAND" >> '${log}'`,
+					'  kh="$(printf "%s" "$GIT_SSH_COMMAND" | sed -n "s/.*UserKnownHostsFile=\\([^ ]*\\).*/\\1/p")"',
+					`  printf 'kh %s\\n' "$(cat "$kh")" >> '${log}'`,
+					'  exit "${STUB_FETCH_CODE:-0}"',
+					'fi',
+					'if [ "$1" = rev-parse ]; then echo 0123456789abcdef0123456789abcdef01234567; fi',
+					'exit 0',
+					'',
+				].join('\n'),
+				{ mode: 0o755 },
+			);
+			writeFileSync(join(bin, 'ssh-keyscan'), `#!/bin/sh\necho keyscan >> '${log}'\n`, {
+				mode: 0o755,
+			});
+			const runFetch = (env: Record<string, string>) => {
+				const out = join(scratch, `out-${Math.random().toString(36).slice(2)}`);
+				writeFileSync(out, '');
+				rmSync(join(runnerTemp, 'gitdedalo-ssh'), { recursive: true, force: true });
+				rmSync(log, { force: true });
+				const r = Bun.spawnSync(['bash', '-c', fetch as string], {
+					cwd: scratch,
+					env: {
+						PATH: `${bin}:/usr/bin:/bin`,
+						RUNNER_TEMP: runnerTemp,
+						GITHUB_OUTPUT: out,
+						...env,
+					},
+					stdout: 'pipe',
+					stderr: 'pipe',
+				});
+				return {
+					code: r.exitCode,
+					stdout: r.stdout.toString(),
+					outputs: readFileSync(out, 'utf8'),
+					calls: existsSync(log) ? readFileSync(log, 'utf8') : '',
+				};
+			};
+			// (1) no secrets → loud skip, exit 0, every missing name said, nothing fetched.
+			const skipped = runFetch({});
+			expect(skipped.code).toBe(0);
+			expect(skipped.outputs).toContain('state=skipped');
+			for (const name of NIGHTLY_SECRETS) expect(skipped.outputs).toContain(name);
+			expect(skipped.stdout).toContain('::error title=full gate NOT RUN::');
+			expect(skipped.calls).not.toContain('git fetch');
+			// (2) one secret missing is still a skip that names it.
+			const partial = runFetch({ GITDEDALO_DEPLOY_KEY: 'k', GITDEDALO_URL: 'ssh://x/y' });
+			expect(partial.outputs).toContain('state=skipped');
+			expect(partial.outputs).toContain('GITDEDALO_KNOWN_HOSTS');
+			// (3) all secrets → the pinned host line is THE known_hosts, strict, no keyscan,
+			// the gated sha recorded, and no key file survives the step.
+			const secrets = {
+				GITDEDALO_DEPLOY_KEY:
+					'-----BEGIN OPENSSH PRIVATE KEY-----\nstub\n-----END OPENSSH PRIVATE KEY-----',
+				GITDEDALO_KNOWN_HOSTS: '[pinned.example]:2222 ssh-ed25519 AAAAstub',
+				GITDEDALO_URL: 'ssh://git@pinned.example:2222/srv/repo.git',
+			};
+			const ran = runFetch(secrets);
+			expect(ran.code).toBe(0);
+			expect(ran.outputs).toContain('state=ran');
+			expect(ran.outputs).toContain('sha=0123456789abcdef0123456789abcdef01234567');
+			expect(ran.calls).toContain('kh [pinned.example]:2222 ssh-ed25519 AAAAstub');
+			expect(ran.calls).toMatch(/StrictHostKeyChecking=yes/);
+			expect(ran.calls).toMatch(/GlobalKnownHostsFile=\/dev\/null/);
+			expect(ran.calls).not.toContain('keyscan');
+			expect(ran.calls).toContain(
+				'git checkout --quiet --detach 0123456789abcdef0123456789abcdef01234567',
+			);
+			expect(existsSync(join(runnerTemp, 'gitdedalo-ssh'))).toBe(false);
+			// (4) a refused fetch is RED (exit 1, state=failed), never a skip.
+			const refused = runFetch({ ...secrets, STUB_FETCH_CODE: '128' });
+			expect(refused.code).toBe(1);
+			expect(refused.outputs).toContain('state=failed');
+			expect(existsSync(join(runnerTemp, 'gitdedalo-ssh'))).toBe(false);
+		} finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
 	});
 });

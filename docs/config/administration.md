@@ -157,7 +157,7 @@ A fresh machine boots into the wizard, which writes `../private/.env` for you (D
 connection, entity, languages, the update servers — `ONTOLOGY_SERVERS` and
 `CODE_SERVERS`, the official Dédalo master unless you chose the air-gapped
 option — the active ontologies — `ACTIVE_ONTOLOGY_TLDS`, the core plus the
-domain ontologies you chose and their declared dependencies — diffusion) and then
+domain ontologies you chose and the ontologies they declare — diffusion) and then
 seals the install. The headless installer writes
 the same keys. After that,
 you edit the `.env` by hand as above.

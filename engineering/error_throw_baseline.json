@@ -44,8 +44,7 @@
 		"src/core/media/tools/transcription.ts": 2,
 		"src/core/ontology/data_io.ts": 2,
 		"src/core/ontology/data_io_import.ts": 2,
-		"src/core/ontology/hierarchy_provision.ts": 3,
-		"src/core/ontology/ontology_state.ts": 1,
+		"src/core/ontology/hierarchy_provision.ts": 2,
 		"src/core/ontology/resolver.ts": 2,
 		"src/core/ontology/tld.ts": 1,
 		"src/core/search/bare_count.ts": 1,
@@ -70,7 +69,7 @@
 		"src/server.ts": 1
 	},
 	"summary": {
-		"files": 66,
-		"total": 125
+		"files": 65,
+		"total": 123
 	}
 }

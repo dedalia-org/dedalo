@@ -26,7 +26,7 @@ import {
 	downloadRemoteOntologyFile,
 	gunzipWithCaps,
 } from './data_io_import.ts';
-import { normalizeDeclaredDependencies } from './ontology_manifest.ts';
+import { normalizeOntologyDependencies, type OntologyDependency } from './ontology_dependencies.ts';
 
 /** One manifest entry as the client sends it (updateOntologyOptionsSchema shape). */
 export interface OntologyUpdateFile {
@@ -38,8 +38,9 @@ export interface OntologyUpdateFile {
 	name_data?: unknown;
 	/**
 	 * The manifest's declared dependencies (`info.active_ontologies[i].dependencies`),
-	 * forwarded as the source declared them; absent = NOT declared. Normalized by
-	 * the stager (ontology_manifest.ts normalizeDeclaredDependencies).
+	 * forwarded as the source declared them (`{tld, main, mandatory}` objects);
+	 * absent = NOT declared. Normalized by the stager (ontology_dependencies.ts
+	 * normalizeOntologyDependencies — WC-2026-10-10-ontology-dependencies-hierarchy60).
 	 */
 	dependencies?: unknown;
 }
@@ -52,8 +53,11 @@ export interface StagedFile {
 	stagedPath: string;
 	typologyId?: number | string | null;
 	nameData?: unknown;
-	/** Declared dependency TLDs (normalized); null = not declared — the import writes nothing. */
-	dependencies?: string[] | null;
+	/**
+	 * Declared dependencies (normalized); null = not declared — the import leaves
+	 * the registry row's hierarchy60 as it is.
+	 */
+	dependencies?: OntologyDependency[] | null;
 }
 
 /** The config catalog slice resolveUpdateTarget adjudicates against. */
@@ -184,9 +188,12 @@ export async function stageOntologyFiles(
 }
 
 /** A file's declared dependencies, normalized (notes into `messages`); matrix_dd declares none. */
-function stagedDependencies(file: OntologyUpdateFile, messages: string[]): string[] | null {
+function stagedDependencies(
+	file: OntologyUpdateFile,
+	messages: string[],
+): OntologyDependency[] | null {
 	if (file.tld === 'matrix_dd') return null;
-	return normalizeDeclaredDependencies(file.tld, file.dependencies, messages);
+	return normalizeOntologyDependencies(file.tld, file.dependencies, messages);
 }
 
 function statSafe(path: string): boolean {

@@ -186,6 +186,10 @@ DB_TIER_TRIPWIRES=(
 	test/unit/duplicate_record_media_verdict_native.test.ts
 	test/unit/portal_locator_door_native.test.ts
 	test/unit/ai_spend_budget_native.test.ts
+	test/unit/engine_ontology_retired_native.test.ts
+	test/unit/ontology_registry_row_native.test.ts
+	test/unit/ontology_dependencies_native.test.ts
+	test/unit/install_hierarchy_dependencies_native.test.ts
 	test/unit/change_plan_write_door_native.test.ts
 	test/unit/import_create_door_native.test.ts
 	test/unit/install_ontology_door_native.test.ts

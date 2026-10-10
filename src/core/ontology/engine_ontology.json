@@ -1,5 +1,5 @@
 {
-	"_doc": "The ENGINE-OWNED ontology (TLD `ddengine`) — THE SOURCE OF RECORD for the sections the engine itself writes AND the components it reads for a wire contract. Two families today: the AI spend ledger (ddengine1..10, a section of its own) and ddengine11 'Required ontologies' — the DECLARED dependencies of an ontology, a component_portal placed in hierarchy1's 'Relations' group (hierarchy60) so it renders in the Ontologies-main (ontology35) edit form, read by the ontology export into ontology.json `active_ontologies[i].dependencies` (src/core/ontology/data_io.ts, WC-2026-10-09-ontology-manifest-dependencies). Materialized into every installation by src/core/ontology/engine_ontology.ts (boot, install, the suite setup) through the engine's own doors: matrix_ontology `ddengine0` records via the inverse parser, then rebuildOntology derives dd_ontology. Never hand-edit the database copy: an edit there is drift that the next boot rewrites from this file. Gates: test/unit/ai_spend_budget_native.test.ts (engine ontology legs), test/unit/ontology_dependencies_native.test.ts (ddengine11).",
+	"_doc": "The ENGINE-OWNED ontology (TLD `ddengine`) — THE SOURCE OF RECORD for the sections the engine itself writes: today the AI spend ledger (ddengine1..10, a section of its own). Materialized into every installation by src/core/ontology/engine_ontology.ts (boot, install, the suite setup) through the engine's own doors: matrix_ontology `ddengine0` records via the inverse parser, then rebuildOntology derives dd_ontology. Never hand-edit the database copy: an edit there is drift that the next boot rewrites from this file. `retired` lists the nodes the engine once shipped and now PRUNES wherever they survive (source record, dd_ontology row, registry values) — a node is retired here, never merely deleted from `nodes` (a node only absent from this file is a stray the door reports and the rebuild would resurrect). Gates: test/unit/ai_spend_budget_native.test.ts (engine ontology legs), test/unit/engine_ontology_retired_native.test.ts (the pruning).",
 	"tld": "ddengine",
 	"nodes": [
 		{
@@ -255,35 +255,13 @@
 			"is_translatable": true,
 			"is_main": false,
 			"propiedades": null
-		},
+		}
+	],
+	"retired": [
 		{
 			"tipo": "ddengine11",
-			"parent": "hierarchy60",
-			"term": {
-				"lg-eng": "Required ontologies",
-				"lg-spa": "Ontologías requeridas",
-				"lg-cat": "Ontologies requerides"
-			},
-			"model": "component_portal",
-			"order_number": 5,
-			"relations": [
-				{
-					"tipo": "ontology35"
-				},
-				{
-					"tipo": "hierarchy6"
-				},
-				{
-					"tipo": "hierarchy5"
-				}
-			],
-			"tld": "ddengine",
-			"properties": null,
-			"model_tipo": "dd592",
-			"is_model": false,
-			"is_translatable": false,
-			"is_main": false,
-			"propiedades": null
+			"retired": "2026-10-10",
+			"reason": "'Required ontologies' (component_portal → ontology35, 2026-10-09) — superseded by the master ontology's own component_json hierarchy60 'Dependencies' on the registry row (WC-2026-10-10-ontology-dependencies-hierarchy60)."
 		}
 	]
 }

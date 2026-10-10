@@ -4,8 +4,8 @@
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
 		"bytes": 1816582,
-		"sha256": "a0845a339a7ced8d230d382bb85377e8c2091bc1ed844e41fea09b7e8ea79fd8",
-		"content_sha256": "d67aaff83ea76b0276a4788c26c542712d1e57809b8d9de1ab7e16407b114887",
+		"sha256": "0f0c1e02ad571c375b09613d9e05cff44c08b272e9bfd455ce5a5e61254f753e",
+		"content_sha256": "c134c0f996f5583ea5fcd9476052f9ab3a75c8b92ee72d4ac5a03f1d044c1628",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
 	"sources": {
@@ -35,10 +35,10 @@
 		"install/import/ontology/7.0/ontologytype.copy.gz": "8bb30e62229bdffe079d22be5e5748a0990d5dad915b2a47804c56bcf961414e",
 		"install/import/ontology/7.0/rsc.copy.gz": "32f748cd3490fb9ddf53aa124f622fd9dee98d049e74a464fe0dad6b674d06db",
 		"scripts/seed_build_child.ts": "97e9caa5785d2fca86fd692fa468800d1f63c4b22b39798496d1705142471513",
-		"src/core/install/seed_build.ts": "3a15cdbef40a17057518a06d756f7a3b379e8458cd65197e6902f00c55fa78dc",
-		"src/core/install/seed_sources.ts": "e2fa6a4ffbcd0ffde7522bfa09efe25eb0a5786524fe07142077e410e0eac375"
+		"src/core/install/seed_build.ts": "cbe1db3283c233a6ea3e346a4d0edb0e3eced37a8f83344402d61db00e9db863",
+		"src/core/install/seed_sources.ts": "3806d735015cb252d9495af0d3985fa00f669d16268a5189ecd757d35cd0431f"
 	},
-	"rules_digest": "24fc0b5c5729ebe57f4144ffdac69c6bb595292ea78cf1bf95be42a4e860435e",
+	"rules_digest": "9253980c9760bc24802ac9acd3fd4374e41b1d4419173a5a1837901298bf1717",
 	"ontology_release": {
 		"version": "7.0.0",
 		"date": "2026-07-14T16:08:54+02:00"
@@ -81,7 +81,7 @@
 	},
 	"verified": {
 		"checks": [
-			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores + engine ontology (11 records) + core hierarchies activated (lg) — OK",
+			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores + engine ontology (10 records) + core hierarchies activated (lg) — OK",
 			"boot migrations: 11 applied, 0 skipped; online: 2 applied",
 			"ontology dd in sync (1727 nodes)",
 			"ontology rsc in sync (1544 nodes)",
@@ -89,8 +89,8 @@
 			"ontology ontologytype in sync (14 nodes)",
 			"ontology hierarchy in sync (137 nodes)",
 			"ontology lg in sync (9 nodes)",
-			"matrix_string_search filled by the boot self-heal (74046 rows)",
-			"matrix_relation_index filled by the boot self-heal (172380 rows)",
+			"matrix_string_search filled by the boot self-heal (74042 rows)",
+			"matrix_relation_index filled by the boot self-heal (172373 rows)",
 			"lg (Languages) active",
 			"root password set and verified"
 		]
