@@ -692,7 +692,7 @@ const build_list_view = async function(self, widgets) {
 		publication_hosts:			'Separate publication machines: pairing, media rules and API releases. Hosts are paired on the command line.',
 		media_control:				'Sets the media access-protection mode and rebuilds the gate rules.',
 		ai_models:					'Local AI model store: which speech models are installed and usable.',
-		update_ontology:			'Overwrites the live ontology with a snapshot from a master server. Irreversible.',
+		update_ontology:			'Replaces the ontologies of the selected TLDs with a snapshot from a master server and re-processes them. Your local ontology is kept. Irreversible.',
 		serve_ontology:				'Whether other installations can pull their ontology from this one: the three .env keys that decide it and the endpoint they register.',
 		move_tld:					'Rewrites the ontology tipo across every matrix table. Irreversible.',
 		move_locator:				'Bulk-moves locators from a source section to a target. Irreversible.',

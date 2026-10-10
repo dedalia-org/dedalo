@@ -18240,6 +18240,10 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_ontology .overwrite_note {
   margin: 0;
 }
+.wrapper_widget.update_ontology .overwrite_note em {
+  font-style: italic;
+  font-weight: 600;
+}
 .wrapper_widget.update_ontology .section {
   display: flex;
   flex-direction: column;

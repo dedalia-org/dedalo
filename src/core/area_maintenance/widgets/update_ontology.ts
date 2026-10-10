@@ -92,6 +92,7 @@ async function probeOntologyServers(): Promise<Record<string, unknown>[]> {
 async function updateOntologyGetValue(): Promise<WidgetResponse> {
 	const { readDdOntologyRow } = await import('../../db/dd_ontology.ts');
 	const { getLabels } = await import('../../labels/catalog.ts');
+	const { currentApplicationLang } = await import('../../resolve/request_lang.ts');
 
 	const servers = await probeOntologyServers();
 
@@ -116,7 +117,7 @@ async function updateOntologyGetValue(): Promise<WidgetResponse> {
 		version: properties.version ?? null,
 	};
 
-	const labels = await getLabels(config.lang.structureLang);
+	const labels = await getLabels(currentApplicationLang());
 
 	return {
 		data: {
@@ -125,11 +126,17 @@ async function updateOntologyGetValue(): Promise<WidgetResponse> {
 			active_ontology_tlds: activeOntologyTlds,
 			active_ontology_tlds_configured: config.ontologyIo.activeOntologyTldsConfigured,
 			body: `${labels.update_ontology ?? 'Update ontology'} is disabled for ${config.entity}`,
+			// Localized confirmation copy (WARNING label), served in the request's
+			// application language; the English literal is a fallback only.
 			confirm_text:
+				labels.update_ontology_confirm_text ??
 				'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! WARNING !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n' +
-				'!!!!!!!!!!!!!! DELETING ACTUAL ONTOLOGY !!!!!!!!!!!!!!!!!!!!!!!!!!!\n' +
-				'Are you sure you want to overwrite the current Ontology data?\n' +
-				'You will lose all changes made to the local Ontology.',
+					'OVERWRITING THE COMMON ONTOLOGIES\n' +
+					'The ontology of every selected TLD (the common/shared ontologies) will be replaced\n' +
+					"by the master's server version and re-processed. This cannot be undone.\n" +
+					'Your local ontology is NOT overwritten: custom TLDs and localontology overrides\n' +
+					"are kept — unless you include 'localontology' in the list to update.\n" +
+					'Are you sure you want to continue?',
 		},
 	};
 }

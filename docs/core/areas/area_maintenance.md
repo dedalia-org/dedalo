@@ -201,7 +201,7 @@ read-only panel: it reports state through `getValue` or an eager catalog value.
 | `check_config` | config | `set_maintenance_mode`, `set_recovery_mode`, `set_notification` |
 | `config_areas` | config | `save_config_areas` |
 | `menu_skip_tipos` | config | `save_menu_skip_tipos` |
-| `update_ontology` | config | `update_ontology` — PULL: overwrite the local ontology from a master |
+| `update_ontology` | config | `update_ontology` — PULL: replace the selected (common/shared) ontologies from a master; the local ontology is kept |
 | `serve_ontology` | config | *(read-only panel)* — SERVE: whether other installations can pull from here (`IS_AN_ONTOLOGY_SERVER`, `ONTOLOGY_SERVER_CODE`, `DEDALO_CORS_ALLOWED_ORIGINS`) and the endpoint they register |
 | `register_tools` | config | `register_tools` |
 | `update_code` | config | `update_code`, `restore_code`, `delete_restore_point` — PULL: install a release from a code server |

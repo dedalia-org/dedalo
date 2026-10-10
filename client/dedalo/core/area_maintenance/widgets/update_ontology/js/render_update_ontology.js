@@ -713,7 +713,7 @@ const get_content_data_edit = async function(self) {
 		const current_ontology		= value.current_ontology || {}
 		const servers				= value.servers || []
 		const active_ontology_tlds	= value.active_ontology_tlds || []
-		const confirm_text			= value.confirm_text || 'Sure?'
+		const confirm_text			= get_label.update_ontology_confirm_text || value.confirm_text || 'Sure?'
 
 	// content_data (own class — the wrapper's content node is otherwise classless,
 	// so styles must hang off this, not a non-existent `.content_data` class)
@@ -726,7 +726,7 @@ const get_content_data_edit = async function(self) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'dd_note state_danger overwrite_note',
-			inner_html		: (get_label.update_ontology_overwrite_note || '<b>Overwrites the local ontology.</b> Imports a snapshot from the selected master over the live ontology. Local ontology edits are lost, and this can’t be undone.'),
+			inner_html		: (get_label.update_ontology_overwrite_note || '<b>Replaces the ontologies of the selected TLDs.</b> Imports them from the master over the live ontologies and re-processes them. Custom TLDs and localontology overrides are not part of them and are kept — unless you add <em>localontology</em> to the list.'),
 			parent			: content_data
 		})
 
@@ -762,7 +762,7 @@ const get_content_data_edit = async function(self) {
 	// d. update form
 		if (self.caller?.init_form) {
 			self.caller.init_form({
-				submit_label	: (get_label.update_ontology_submit || 'Overwrite local ontology'),
+				submit_label	: (get_label.update_ontology_submit || 'Replace selected ontologies'),
 				confirm_text	: confirm_text,
 				body_info		: content_data,
 				body_response	: body_response,
