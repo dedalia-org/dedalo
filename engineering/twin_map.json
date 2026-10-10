@@ -7,8 +7,8 @@
 		"frozen_record": 7,
 		"supplement": 8,
 		"back_links": 12,
-		"unmapped_red_files": 23,
-		"unmapped_red_tests": 54
+		"unmapped_red_files": 24,
+		"unmapped_red_tests": 56
 	},
 	"twins": [
 		{
@@ -246,11 +246,12 @@
 		"test/parity/related_count_differential.test.ts": 2,
 		"test/parity/relation_inverse_differential.test.ts": 3,
 		"test/parity/relation_search_pipelines_differential.test.ts": 3,
-		"test/parity/section_context_extras_differential.test.ts": 1,
+		"test/parity/section_context_extras_differential.test.ts": 2,
 		"test/parity/section_terms_differential.test.ts": 2,
 		"test/parity/sqo_differential.test.ts": 1,
 		"test/parity/start_differential.test.ts": 1,
 		"test/parity/ts_node_read_differential.test.ts": 2,
-		"test/parity/ts_search_differential.test.ts": 1
+		"test/parity/ts_search_differential.test.ts": 1,
+		"test/parity/virtual_section_edit_differential.test.ts": 1
 	}
 }
