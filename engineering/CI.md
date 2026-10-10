@@ -41,9 +41,9 @@ by a hosted one (`tier_wiring_tripwire` leg B).
 |---|---|---|---|
 | `.github/workflows/ci.yml` | pull_request + push master/v7 | hosted ubuntu, `hermetic` in the CI image (uid 1001) | `dedupe` → `hermetic` (`scripts/ci/hermetic.sh`) |
 | `.github/workflows/db.yml` | pull_request + push master/v7 + dispatch | hosted ubuntu, each tier job in the CI image (uid 1001) + a `pgvector` service (digest-pinned) reached as `postgres` | `dedupe` → `db` (`scripts/ci/db_tier.sh`: builds the suite database from repo-vendored bytes, starts the suite MariaDB target, then, in this order, the DB-backed tripwires → the unit tier (blocking since 2026-10-02) → the parity tier → the MariaDB tier (blocking — PUB-05, LAST on purpose: see *CI tiers → DB* below; tier_wiring leg K)) and `instance` (`scripts/ci/instance_tier.sh`: its OWN fresh suite database, then the browser client suite via `scripts/ci/client_gate.sh`, the tool phone contract, both update drills, the publication-host media drill on live Apache + nginx, the publication-host agent drill (the suite MariaDB started for it) and the publication-host engine drill (engine ↔ real agent: pair CLI, panel actions, httpd gating)). Both source `scripts/ci/hosted_env.sh` |
-| `.github/workflows/nightly.yml` | cron 04:17 UTC daily + dispatch | hosted ubuntu | the TIME-BASED checks the push gate defers: `scripts/ci/audit.ts --force --require-network` with the vendor calendar ON; `image_pin` (`bun run ci:image:pin --check`: the lock is the latest published build); `cosign_pin` (`bun run ci:cosign:pin --check`: `ci/cosign.json` is set and is the latest stable cosign); `report` keeps one `ci-nightly` issue open/updated/closed |
+| `.github/workflows/nightly.yml` | cron 04:17 UTC daily + dispatch | hosted ubuntu | the TIME-BASED checks the push gate defers: `scripts/ci/audit.ts --force --require-network` with the vendor calendar ON; `image_pin` (`bun run ci:image:pin --check`: the lock is the latest published build); `cosign_pin` (`bun run ci:cosign:pin --check`: `ci/cosign.json` is set and is the latest stable cosign); `full_gate` (environment `gitdedalo-nightly`): fetches **gitdedalo/master** with a read-only deploy key + pinned host key and runs the FULL gate on it — `bun run ci:local --docker --hermetic --db --instance --ref <sha>` — see *The nightly full gate*; `report` keeps one `ci-nightly` issue open/updated/closed (a red full gate is a problem naming the gitdedalo sha and each red stage; absent secrets are a warning) |
 | `.github/workflows/ci-image.yml` | push master/v7 touching the image definition + weekly cron (cache OFF) + dispatch | hosted ubuntu-24.04 amd64 + arm64 (native, no QEMU) | builds `ci/Dockerfile`, smoke-tests the exact bytes, pushes `ghcr.io/dedalia-org/dedalo-ci` (`fp-<fingerprint>`, `<YYYYMMDD>`, `latest`) as a multi-arch manifest list |
-| `.github/workflows/image-release.yml` | push of a stable tag `vX.Y.Z` + dispatch (`dev` from `master`, or `release` of an existing tag) — never PR or schedule | hosted ubuntu-24.04 amd64 + arm64 (native); `publish` bound to the `image-release` environment | the PRODUCT image (`Dockerfile`): `plan` → per-arch `build` from a `git archive` of the release commit + smoke test → `publish` (one index in staging, immutability, cosign keyless sign ONCE, `cosign copy` to every provisioned registry of `engineering/image_registries.json`, same-digest + `cosign verify` check, record) — see *The product image* |
+| `.github/workflows/image-release.yml` | push of a stable tag `vX.Y.Z` + dispatch (`dev` from `master`, or `release` of an existing tag) — never PR or schedule | hosted ubuntu-24.04 amd64 + arm64 (native); `publish` bound to the `image-release` environment | the PRODUCT image (`Dockerfile`): `plan` (refuses a release commit without a successful push run of ci.yml AND db.yml — the full gate) → per-arch `build` from a `git archive` of the release commit + smoke test → `publish` (one index in staging, immutability, cosign keyless sign ONCE, `cosign copy` to every provisioned registry of `engineering/image_registries.json`, same-digest + `cosign verify` check, record) — see *The product image* |
 | `.github/workflows/security.yml` | PR + push master + weekly cron + dispatch | hosted ubuntu | secret scan (gitleaks, digest-pinned image): working tree every run, FULL HISTORY weekly |
 | `.github/workflows/codeql.yml` | PR + push master + weekly cron | hosted ubuntu | CodeQL dataflow SAST (javascript-typescript, `build-mode: none`) → Security tab |
 | `.github/workflows/docs.yml` | PR + push master, both narrowed to `docs/**`/`mkdocs.yml` | hosted ubuntu | the mkdocs manual build (not a tier: legs F/G do not bind it) |
@@ -271,6 +271,28 @@ improvement direction mechanically and keeps refusing the other exactly as loudl
   `baseline_registry_tripwire` discovers every baseline a gate reads and fails on one
   missing from the bank's `REGISTRY` (unbankable ones carry a reason).
 
+### The push policy — per remote (2026-10-10)
+
+The full gate (hermetic + db + instance, ~46 min with `--docker`) on every push was not
+viable for day-to-day work. So the gate is chosen by WHERE the push goes:
+
+| Remote (classified by URL, never by name) | Desk gate | Where db/instance run |
+|---|---|---|
+| **internal** — `gitdedalo`, the day-to-day remote | hermetic only (~3 min) | NIGHTLY on GitHub against gitdedalo/master (`nightly.yml` `full_gate`), red → the `ci-nightly` issue with the sha |
+| **public** — `github` (dedalia-org/dedalo), `gitlab` (dedalia/dedalo), synced deliberately | FULL (minus the `HERMETIC_ONLY_PATHS` allow-list), the per-sha green memory as before | at the desk, and again by ci.yml/db.yml on the push |
+| **unknown** — anything else (a fork, a local path, an ssh alias) | same as public | — |
+| any remote, a **release tag** `refs/tags/vX.Y.Z` | a FULL green for the tag's commit (gated full now when the tag names HEAD; refused otherwise) | image-release.yml `plan` re-checks GitHub's own verdict |
+
+The hook normalizes the URL (scheme, user, default port, trailing `/` and `.git` dropped,
+host lowercased; scp-like `user@host:path` = `host/path`) and compares its `git
+hash-object` identity with `INTERNAL_REMOTE_IDS` — the internal host is named nowhere in
+the repository, and a renamed remote cannot change its class. `sh scripts/hooks/pre-push
+--remote-id <url>` prints a URL's identity (register a new internal URL by adding it);
+`--remote-class <url>` prints its class. `bun run push --internal` lands both branches on
+gitdedalo only (hermetic); `bun run push` lands everywhere (full). `DEDALO_PREPUSH=full`
+forces the full gate on any push. A **release** needs a public push first (or
+`DEDALO_PREPUSH=full`): a hermetic green never qualifies a commit for a tag.
+
 ### `scripts/hooks/pre-push` — the gate git runs
 
 Installed by `bun install` (`package.json` `prepare` sets `core.hooksPath=scripts/hooks`
@@ -295,7 +317,8 @@ against local bare remotes with stubbed bank/ci:local). For the pushed refs it:
 3. adds `--db --instance` unless every file the pushed range touches (renames count
    both paths; a merge is diffed against its first parent; >500 new commits or a URL
    remote count as everything) is in its `HERMETIC_ONLY_PATHS` allow-list (anything
-   unlisted selects the full gate), or always with `DEDALO_PREPUSH=full`. The db tier
+   unlisted selects the full gate) or the remote is INTERNAL (then never — the nightly
+   `full_gate` runs them), or always with `DEDALO_PREPUSH=full`. The db tier
    runs WHOLE, its unit stage included: that stage is blocking on the runner, so the
    full gate costs ~5 min more than it did while the desk skipped it (2026-10-02) —
    the price of a desk verdict that predicts the runner's.
@@ -316,8 +339,10 @@ A GREEN verdict is remembered in `$(git rev-parse --git-path dedalo-prepush-gree
 `<sha> <level> audit:<forced|base>` (last 50): reused only for the same sha, a covering
 level (full answers hermetic) and the SAME audit base — or a forced audit, which answers
 any base — and only on a clean tree. A red is re-measured every time. So a sha pushed to
-several remotes (or two refs in one push) is gated once. **Docker is required** — there
-is no silent skip; the visible bypass is `git push --no-verify` (CI still runs). Exit:
+several remotes (or two refs in one push) is gated once — an internal (hermetic) green
+never answers for a public push. **Docker is required** — there is no silent skip; the
+visible bypass is `git push --no-verify` (on a public mirror CI still runs; on the
+internal remote NOTHING runs until the nightly `full_gate` — the refusal says which). Exit:
 0 push proceeds · 1 red / refused · 3 improvements banked, re-run the push.
 
 ### `bun run push` — publish both branches, gated once
@@ -327,16 +352,19 @@ refused — a merge is a decision, not a push step), runs the pre-push gate ONCE
 stdin git would hand it (remote tips from `git ls-remote`), re-aligns and re-gates by
 itself when the bank committed improvements (exit 3), then pushes both branches to every
 remote (`gitdedalo`, `github`, `gitlab`) with `--no-verify` — the gate already ran on
-exactly these shas. `--dry-run` prints the plan. No flag skips the gate.
+exactly these shas. `--internal` restricts it to `gitdedalo` (the day-to-day landing,
+hermetic). `--dry-run` prints the plan. No flag skips the gate: the hook picks each
+remote's level from its URL.
 
 ### The banking flow, end to end
 
-    edit → commit → bun run push
+    edit → commit → bun run push --internal  (day to day: hermetic; nightly runs db/instance)
+                  | bun run push             (publish: full gate)
       → pre-push: baselines:bank (worktree of the pushed sha)
           improvement-only → commit "chore(baselines): bank improvements" → exit 3
           → push.ts re-aligns + re-gates (bounded)
           regression → exit 1 (nothing written; the reasoned path is named)
-      → ci:local --docker (hermetic; + db/instance unless provably hermetic-only)
+      → ci:local --docker (hermetic; + db/instance unless internal or provably hermetic-only)
       → git push --no-verify to every remote
       → GitHub: ci/db on master (runs) + on v7 (queues, then dedupe → skipped)
 
@@ -666,6 +694,84 @@ and the `report` job — the ONE job holding `issues: write`, running no reposit
 within 21 days (warning), closed when green. Rule 17 holds the pair: a deferral with no
 nightly home that can fail and report is red. The ratchet itself (DEC-12) is unchanged.
 
+### The nightly full gate — gitdedalo/master on GitHub (2026-10-10)
+
+The internal remote has no CI of its own, and its pushes are gated hermetic-only at the
+desk. `nightly.yml`'s `full_gate` job closes that: every night (and on `gh workflow run
+nightly.yml`) it fetches `master` from gitdedalo over SSH, checks that sha out (so ITS
+`.bun-version`, `ci:local` and image pin are used) and runs exactly the public push's
+gate — `bun run ci:local --docker --hermetic --db --instance --ref <sha> --audit-base
+<sha>` (the base = the sha makes the push gate's audit skip: `check` runs the audit,
+forced). Its rc is the run's verdict; `report` puts a red in the `ci-nightly` issue with
+the gitdedalo sha, each red stage and the reproduce command. Rule 20 of
+`ci_workflow_tripwire` pairs the hook's downgrade with this job (gate flags, rc carried,
+no `if:` / continue-on-error, report needs it, pinned host key) and EXECUTES the fetch
+step with stubbed git.
+
+**Without its secrets it skips LOUDLY**: an error annotation on the run and a WARNING in
+the `ci-nightly` issue naming the missing secrets — never a quiet green. A refused fetch
+(key revoked, host key changed, host down) is RED.
+
+**Posture.** The job is the ONE holder of the `GITDEDALO_*` secrets (rule 11's second
+carve-out), bound to the `gitdedalo-nightly` environment; nightly.yml has no push / PR /
+workflow_run trigger. The key reaches only the fetch step (written under
+`$RUNNER_TEMP`, removed on exit; ssh with `-F /dev/null`, `IdentitiesOnly`,
+`StrictHostKeyChecking=yes`, the secret as the ONLY known_hosts, never `ssh-keyscan`).
+The checkout is made with `persist-credentials: false`. **The job log is public** (the
+repository is): it shows gitdedalo's sha, commit subjects the tiers print and test names
+— never the secrets (masked) or the host (a secret too).
+
+**Known gaps.** It runs the three tiers SERIALLY in one hosted job (~46 min on a Mac;
+the first green run's wall clock should re-pin `timeout-minutes: 300`). A hermetic-only
+commit on gitdedalo is unverified at the db/instance level until the next night (or a
+dispatch). The hosted runner must reach the gitdedalo SSH port from the internet (GitHub
+Actions ranges: `gh api meta --jq .actions`); if that port is firewalled, the fetch is red.
+
+**Runbook — the read-only deploy key** (owner, once; rotate the same way):
+
+1. On a trusted machine, make a dedicated key (no passphrase — the runner cannot type one):
+
+       ssh-keygen -t ed25519 -N '' -C 'dedalia-org/dedalo nightly full gate (read-only)' -f gitdedalo_nightly_ro
+
+2. On the gitdedalo host, as the account that owns the bare repository, append the
+   PUBLIC half to `~/.ssh/authorized_keys`, restricted to fetching that one repository —
+   `restrict` drops pty/forwarding/agent/rc, and the forced command runs
+   `git-upload-pack` (read) whatever the client asks, so a push (`git-receive-pack`) or a
+   shell is impossible with this key:
+
+       restrict,command="git-upload-pack '<absolute path of the bare repository>'" ssh-ed25519 AAAA… dedalia-org/dedalo nightly full gate (read-only)
+
+   Check from your desk: `GIT_SSH_COMMAND='ssh -i gitdedalo_nightly_ro -o IdentitiesOnly=yes' git ls-remote <gitdedalo url> master`
+   answers; `… ssh -i gitdedalo_nightly_ro -p <port> <user>@<host> id` does NOT give a shell.
+
+3. The PINNED host key: on the host, `cat /etc/ssh/ssh_host_ed25519_key.pub`, written as
+   one known_hosts line (a non-22 port takes the bracket form):
+
+       [<host>]:<port> ssh-ed25519 AAAA…
+
+   Read it ON the host (or from a known_hosts entry you already verified:
+   `ssh-keygen -F '[<host>]:<port>'`), and compare fingerprints
+   (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`). Never `ssh-keyscan` — that is
+   trust-on-first-use, the thing pinning prevents.
+
+4. On GitHub (dedalia-org/dedalo → Settings → Environments): create **`gitdedalo-nightly`**,
+   *Deployment branches and tags* = selected branch **`master`** (the default branch —
+   schedules run from it; no other ref can read the secrets), NO required reviewers (they
+   would stall every night). Add its three environment secrets:
+
+       gh secret set GITDEDALO_DEPLOY_KEY  --env gitdedalo-nightly < gitdedalo_nightly_ro
+       gh secret set GITDEDALO_KNOWN_HOSTS --env gitdedalo-nightly --body '[<host>]:<port> ssh-ed25519 AAAA…'
+       gh secret set GITDEDALO_URL         --env gitdedalo-nightly --body "$(git remote get-url gitdedalo)"
+
+   Then destroy the local private half (`rm -P gitdedalo_nightly_ro` on macOS).
+
+5. `gh workflow run nightly.yml` and read `full_gate`: `== full gate: gitdedalo/master = <sha>`,
+   then the tiers. The ci-nightly issue's warning about absent secrets goes away.
+
+Rotation / revocation: delete the `authorized_keys` line (the next nightly is RED:
+fetch refused), then repeat 1–4. A host-key change on gitdedalo makes the fetch RED
+until `GITDEDALO_KNOWN_HOSTS` is updated — by design.
+
 ### The CI image (`ci/Dockerfile`, `ci-image.yml`)
 
 One definition for the desk and both hosts: bun at `.bun-version`,
@@ -832,7 +938,8 @@ as unavailable. Gate: `image_registries_tripwire`.
 - **GitLab runs no DB tier.**
 - **Least privilege** (rule 7): every workflow declares a top-level `permissions:`
   block, read-only; a job widens only itself — `dedupe` (`actions: read`), nightly's
-  `report` (`issues: write`), ci-image's publishers (`packages: write`), image-release's `build` (`packages: write`)
+  `report` (`issues: write`), image-release's `plan` (`actions: read`: the full-gate
+  verdict of the release commit), ci-image's publishers (`packages: write`), image-release's `build` (`packages: write`)
   and `publish` (`packages: write`, `id-token: write` for keyless signing), codeql
   (`security-events: write`). `write-all` and `contents: write` are red;
   `pull_request_target`/`workflow_run` are forbidden.
@@ -846,7 +953,20 @@ as unavailable. Gate: `image_registries_tripwire`.
   reached otherwise) — only in
   the job that declares `environment: image-release`, only those names, and only while
   that workflow has no `pull_request` / `pull_request_target` / `workflow_run` /
-  `schedule` trigger (`secretReferenceFaults`, a planted control per condition).
+  `schedule` trigger (`secretReferenceFaults`, a planted control per condition). SECOND
+  carve-out (2026-10-10): the `full_gate` job of `nightly.yml`, bound to `environment:
+  gitdedalo-nightly`, for exactly `GITDEDALO_DEPLOY_KEY`, `GITDEDALO_KNOWN_HOSTS`,
+  `GITDEDALO_URL` (NIGHTLY_SECRETS in the gate), while nightly.yml is triggered by
+  nothing but `schedule` / `workflow_dispatch` — see *The nightly full gate*.
+- **An internal push's downgrade has a nightly home** (rule 20): while the pre-push hook
+  holds an internal identity, `nightly.yml` `full_gate` must run the full gate on the
+  internal master, carry its rc, report it, and pin the host key.
+- **A release is cut only from a full-gate-green commit**: the hook refuses a `vX.Y.Z`
+  tag push without a FULL green for its commit (`pre_push_gate_native`), and
+  image-release.yml `plan` refuses a commit without a successful push run of ci.yml AND
+  db.yml (`image_release_native`; fail closed on an unreadable API). Both live in files
+  read AT the tag — the `v*` tag ruleset (activation runbook step 8) is what keeps a
+  non-maintainer from tagging a commit that drops them.
 - **Pinned actions** (rule 8): every `uses:` is a 40-hex SHA with the version in a
   trailing comment; Dependabot (`github-actions`) proposes bumps. It scans only
   `.github/workflows/` — bump `workflows-selfhosted/` by hand in the same change
@@ -935,6 +1055,12 @@ restrict allowed actions to the census — `actions/*`, `github/codeql-action/*`
 secret scanner is a digest-pinned container, not an action. Also enable **secret
 scanning + push protection** and **private vulnerability reporting** (`SECURITY.md`).
 
+**The nightly deploy key** (rule 11's second carve-out): `GITDEDALO_DEPLOY_KEY` is a
+read-only key (forced `git-upload-pack` of one repository), held as an ENVIRONMENT secret
+of `gitdedalo-nightly` (deployment branch `master` only) next to the pinned host line and
+the URL; only `nightly.yml`'s `full_gate` names them, and that file has no trigger fork
+or pushed code can fire. Runbook: *The nightly full gate*.
+
 **The release secrets** (rule 11 carve-out). The only secrets the executed tier may
 reference are the registry credentials `engineering/image_registries.json` declares, mapped
 by the `publish` job of `image-release.yml`, which is bound to the `image-release`
@@ -1006,6 +1132,10 @@ naming them: the gate is what keeps every reference inside the environment-bound
      **public** (anonymous pull); the staging package `dedalo-build` may stay private;
    - when a further registry is stood up, provision it in the list (see *The product
      image*) and dispatch the `release` channel for every existing tag.
+
+9. **The nightly full gate of gitdedalo** (owner-only): the deploy key, host line, URL
+   and the `gitdedalo-nightly` environment — *The nightly full gate* → runbook. Until
+   then every nightly carries a warning saying the full gate did not run.
 
 ## Activation runbook — the self-hosted tier (PRIVATE mirror)
 
