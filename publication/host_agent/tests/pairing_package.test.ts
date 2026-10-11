@@ -119,6 +119,9 @@ describe('the sealed pairing package', () => {
     expect(reason(() => openPairingPackage(new Uint8Array(MAX_PACKAGE_BYTES + 1), PASS))).toBe('too_large');
   });
 
+  // ~16 REAL scrypt derivations (8 seals + 8 opens at the production cost — the
+  // cost is the property under test, never lowered): ~2.5 s on a desk, 5.4 s on a
+  // GitLab shared runner (2026-10-11), past bun's 5 s default. The bound is explicit.
   test('the plaintext must hold EXACTLY format, version, fragment, token, bundle', () => {
     const base = { format: PLAINTEXT_FORMAT, version: 1, ...PARTS };
     expect(openPairingPackage(sealRaw(JSON.stringify(base), PASS), PASS)).toEqual(PARTS);
@@ -131,7 +134,7 @@ describe('the sealed pairing package', () => {
     expect(reason(() => openPairingPackage(sealRaw('[1,2]', PASS), PASS))).toBe('parts');
     expect(reason(() => openPairingPackage(sealRaw('not json', PASS), PASS))).toBe('parts');
     expect(reason(() => sealPairingPackage({ ...PARTS, token: '' }, PASS))).toBe('parts');
-  });
+  }, 30_000);
 
   test('the passphrase: 24 characters of the alphabet, grouped by four; any other shape refused before the KDF', () => {
     expect(PASSPHRASE_ALPHABET).toHaveLength(32);
