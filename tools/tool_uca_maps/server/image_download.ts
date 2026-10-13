@@ -186,6 +186,7 @@ async function readRasterShape(path: string): Promise<RasterShape> {
 	let info: {
 		size?: unknown;
 		bands?: Array<{ type?: string; colorInterpretation?: string }>;
+		metadata?: { IMAGE_STRUCTURE?: { SOURCE_COLOR_SPACE?: unknown } };
 	};
 	try {
 		info = JSON.parse(result.stdout);
@@ -198,9 +199,12 @@ async function readRasterShape(path: string): Promise<RasterShape> {
 	const size = Array.isArray(info.size) ? info.size : [];
 	const bands = Array.isArray(info.bands) ? info.bands : [];
 	const interps = bands.map((band) => String(band.colorInterpretation ?? ''));
-	// a CMYK source would come out with the wrong colours in every format —
-	// refused loudly rather than downloaded wrong
-	if (interps.some((interp) => ['Cyan', 'Magenta', 'Yellow', 'Black'].includes(interp))) {
+	// GDAL reads a CMYK JPEG as RGB bands converted ignoring any ICC profile:
+	// neither what the map shows (the browser applies it) nor what the engine's
+	// derivatives get (CMYK→sRGB by ICC). Only the source colour space says
+	// CMYK — refused rather than downloaded wrong.
+	const sourceColorSpace = info.metadata?.IMAGE_STRUCTURE?.SOURCE_COLOR_SPACE;
+	if (sourceColorSpace === 'CMYK' || sourceColorSpace === 'YCbCrK') {
 		throw new DedaloError('tool.unsupported_target', {
 			coordinates: { tool: 'tool_uca_maps' },
 			message: 'image download: CMYK sources are not supported',

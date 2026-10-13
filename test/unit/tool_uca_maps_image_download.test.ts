@@ -310,44 +310,98 @@ describe.if(HAVE_GDAL)('tool_uca_maps image_download — the real warp', () => {
 		});
 	});
 
-	test('a CMYK master is refused with its reason on the wire: the image, not the server, is the problem', async () => {
-		await withDir(async (dir) => {
-			const plain = await master(dir, [
-				'-bands',
-				'4',
-				'-burn',
-				'10',
-				'-burn',
-				'20',
-				'-burn',
-				'30',
-				'-burn',
-				'40',
-			]);
-			const cmyk = join(dir, 'cmyk.tif');
-			await run([
-				mustGet(Bun.which('gdal_translate'), 'gdal_translate'),
-				'-q',
-				'-colorinterp',
-				'cyan,magenta,yellow,black',
-				plain,
-				cmyk,
-			]);
+	/** The served file is a JPEG, never a TIFF: a 4-band source is written as
+	 * plain CMYK, a 3-band one as ordinary YCbCr. */
+	async function jpegOf(dir: string, source: string): Promise<string> {
+		const path = join(mkdtempSync(join(dir, 'served_')), 'served.jpg');
+		await run([
+			mustGet(Bun.which('gdal_translate'), 'gdal_translate'),
+			'-q',
+			'-of',
+			'JPEG',
+			source,
+			path,
+		]);
+		return path;
+	}
 
-			const refusal = await renderImageDownload(
-				mkdtempSync(join(dir, 'work_')),
-				cmyk,
-				ROTATED,
-				'png',
-				120,
-			).then(
-				() => null,
-				(error: unknown) => error,
+	/** What GDAL reports for a file: the band names and the source colour space. */
+	async function colourOf(path: string) {
+		const info = JSON.parse(await run([mustGet(Bun.which('gdalinfo'), 'gdalinfo'), '-json', path]));
+		return {
+			bands: info.bands.map((band: { colorInterpretation: string }) => band.colorInterpretation),
+			space: info.metadata?.IMAGE_STRUCTURE?.SOURCE_COLOR_SPACE,
+		};
+	}
+
+	async function expectCmykRefusal(dir: string, source: string) {
+		const refusal = await renderImageDownload(
+			mkdtempSync(join(dir, 'work_')),
+			source,
+			ROTATED,
+			'png',
+			120,
+		).then(
+			() => null,
+			(error: unknown) => error,
+		);
+		expect(refusal).toMatchObject({ code: 'tool.unsupported_target' });
+		expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).message).toBe(
+			'This image is stored in CMYK, which cannot be downloaded from the map.',
+		);
+	}
+
+	test('a CMYK JPEG is refused with its reason on the wire, though GDAL hands it over as RGB', async () => {
+		await withDir(async (dir) => {
+			const cmyk = await jpegOf(
+				dir,
+				await master(dir, [
+					'-bands',
+					'4',
+					'-burn',
+					'10',
+					'-burn',
+					'20',
+					'-burn',
+					'30',
+					'-burn',
+					'40',
+				]),
 			);
-			expect(refusal).toMatchObject({ code: 'tool.unsupported_target' });
-			expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).message).toBe(
-				'This image is stored in CMYK, which cannot be downloaded from the map.',
-			);
+			// the bands never say CMYK: only the source colour space does
+			expect(await colourOf(cmyk)).toEqual({ bands: ['Red', 'Green', 'Blue'], space: 'CMYK' });
+			await expectCmykRefusal(dir, cmyk);
+		});
+	});
+
+	test.if(Bun.which('magick') !== null)(
+		'an Adobe CMYK JPEG (YCCK, as image editors write it) is refused too — built with ImageMagick',
+		async () => {
+			await withDir(async (dir) => {
+				const ycck = join(mkdtempSync(join(dir, 'served_')), 'served.jpg');
+				await run([
+					mustGet(Bun.which('magick'), 'magick'),
+					'-size',
+					'64x32',
+					'xc:#c81e1e',
+					'-colorspace',
+					'CMYK',
+					ycck,
+				]);
+				expect(await colourOf(ycck)).toEqual({ bands: ['Red', 'Green', 'Blue'], space: 'YCbCrK' });
+				await expectCmykRefusal(dir, ycck);
+			});
+		},
+	);
+
+	test('an ordinary RGB JPEG is not mistaken for CMYK: it downloads with its colour', async () => {
+		await withDir(async (dir) => {
+			const rgb = await jpegOf(dir, await master(dir));
+			expect(await colourOf(rgb)).toEqual({ bands: ['Red', 'Green', 'Blue'], space: 'YCbCr' });
+			const { out, info } = await render(dir, rgb, 'png');
+			const middle = Math.floor(info.size[1] / 2);
+			expect(await pixel(out, 4, 60, middle)).toBe(255);
+			expect(Math.abs((await pixel(out, 1, 60, middle)) - 200)).toBeLessThanOrEqual(3);
 		});
 	});
 });
