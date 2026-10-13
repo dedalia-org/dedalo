@@ -66,11 +66,21 @@ export async function resolveRenderableImage(options: Record<string, unknown>) {
 
 	const files_info = scanFilesInfo(spec, identity, pathOpts, scanContextFromItem(items[0]));
 
-	const renderable = files_info.filter(
-		(entry) =>
-			entry.file_exist &&
-			typeof entry.file_path === 'string' &&
-			OVERLAY_EXTENSIONS.includes(String(entry.extension ?? '').toLowerCase()),
+	// no file at all and no drawable file are different facts: the first is a
+	// vanished upload, the second an image this tool cannot show
+	const present = files_info.filter(
+		(entry) => entry.file_exist && typeof entry.file_path === 'string',
+	);
+	if (present.length === 0) {
+		throw new DedaloError('media.file_not_found', {
+			message: `tool_uca_maps: no image file at all for ${identity.componentTipo}_${identity.sectionTipo}_${identity.sectionId}`,
+			publicMessage: 'The image is no longer on the server.',
+			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },
+		});
+	}
+
+	const renderable = present.filter((entry) =>
+		OVERLAY_EXTENSIONS.includes(String(entry.extension ?? '').toLowerCase()),
 	);
 	const served = renderable.find((entry) => entry.quality === spec.defaultQuality) ?? renderable[0];
 	if (!served || typeof served.file_path !== 'string') {
