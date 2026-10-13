@@ -258,12 +258,9 @@ const compass_node = function() {
 * tool_uca_maps.prototype.destroy(). The 'move' listener comes off in the
 * control's own `onRemove`.
 *
-* NOT registered in `self._toolbar_nodes`: that registry is the map-image
-* screenshot's exclusion list (`map_image_download.js`), and a scale bar and a
-* north arrow are the two pieces of map chrome that most BELONG in an exported
-* map image. Same reasoning that already leaves Leaflet's attribution and
-* Geoman's own toolbar in the capture — the filter excludes what this TOOL
-* adds as its own UI, not what the map legitimately shows.
+* NOT registered in `self._toolbar_nodes`, and named in `keep_in_map_image`
+* (`map_image_download.js`): a scale bar and a north arrow belong in an
+* exported map image, unlike the controls the capture drops.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

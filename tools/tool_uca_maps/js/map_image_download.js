@@ -199,9 +199,36 @@ const projected_bounds = function(map) {
 
 
 /**
+* KEEP_IN_MAP_IMAGE
+* The capture's `filter` (called on each original node, never the root). Map
+* content stays; every Leaflet control is UI and goes, except the three that
+* belong to a cartographic image: scale, legend and the attribution the tile
+* licence asks for. A control added later stays out until it is named here.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Node} node
+* @returns {boolean} false drops the node and its subtree
+*/
+export const keep_in_map_image = function(self, node) {
+
+	if (is_toolbar_node(self, node)) {
+		return false
+	}
+	if (!node.classList || !node.classList.contains('leaflet-control')) {
+		return true
+	}
+
+	return node.classList.contains('leaflet-control-attribution')
+		|| (self.scale_control!=null && node===self.scale_control.getContainer())
+		|| (self.legend_overlay!=null && node===self.legend_overlay.getContainer())
+}//end keep_in_map_image
+
+
+
+/**
 * DOWNLOAD_MAP_IMAGE
-* Captures the live map's container — everything visible EXCEPT this tool's
-* own UI chrome (every toolbar button/panel this tool owns, `filter` below).
+* Captures the live map's container — its content, never the controls around
+* it (`keep_in_map_image`).
 * Validated live by Sergio (2026-09-03): without the filter, the "UCA" panel
 * itself was baked into the exported image — v6's own equivalent
 * is a small icon-only toolbar that happened not to read as intrusive in a
@@ -252,20 +279,17 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 		// same three options against the same kind of Leaflet pane — ported
 		// verbatim, not reinvented.
 		//
-		// filter: dom-to-image-more calls this on every node in the cloned
-		// subtree (never the root) and drops a node — and everything under it
-		// — when it returns false. Excludes EVERY DOM root this tool itself
-		// owns — every toolbar button and every panel, however many exist by
-		// now (`toolbar.js` `is_toolbar_node`/`self._toolbar_nodes`) — not just
-		// the two hardcoded references (`self.map_control`/`self.panel_node`)
-		// this filter checked before the toolbar refactor (2026-09-04), which
-		// would have silently stopped excluding the map-image/capabilities
-		// buttons+panels the moment they existed.
+		// Geoman's toolbar must stay out: dom-to-image-more reads the
+		// `url(#…)` inside its data: SVG icons as URLs and fetches each one.
+		// filterUrls: computed values are always absolute, so a relative URL
+		// with no stylesheet base is an unresolved custom property (core's
+		// --search_icon_url, serialised with a pseudo-element): never painted
 		const capture_options	= {
 			cacheBust	: true,
 			width		: container.offsetWidth,
 			height		: container.offsetHeight,
-			filter		: (node) => !is_toolbar_node(self, node)
+			filter		: (node) => keep_in_map_image(self, node),
+			filterUrls	: (url, base_url) => Boolean(base_url) || /^[a-z][a-z0-9+.-]*:/i.test(url)
 		}
 
 		if (format==='png') {

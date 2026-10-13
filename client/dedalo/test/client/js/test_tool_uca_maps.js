@@ -61,7 +61,7 @@ import {
 	apply_display,
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
-import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
+import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload } from '../../../tools/tool_uca_maps/js/image_upload.js'
@@ -1655,6 +1655,107 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.isOk(captured.blob, 'expected a Blob')
 		assert.equal(captured.name, 'Necrópolis de Cádiz.png', 'expected the typed name, separators stripped and the extension appended once')
+	})
+
+	it('the map image keeps scale, legend and attribution, and drops every other control', function() {
+
+		tool.attach_map_image_download_control()
+		tool.attach_scale_bar()
+		tool.attach_legend()
+
+		const container = geolocation.map.getContainer()
+		// what dom-to-image-more does with the filter: a dropped node takes its subtree
+		const survives = (node) => {
+			for (let current = node; current && current!==container; current = current.parentNode) {
+				if (!keep_in_map_image(tool, current)) {
+					return false
+				}
+			}
+			return true
+		}
+
+		const attribution = container.querySelector('.leaflet-control-attribution')
+		assert.isOk(attribution, 'expected Leaflet\'s attribution on the live map')
+		assert.sameMembers(
+			[...container.querySelectorAll('.leaflet-control')].filter((node) => keep_in_map_image(tool, node)),
+			[tool.scale_control.getContainer(), tool.legend_overlay.getContainer(), attribution],
+			'expected only the cartographic controls kept'
+		)
+		for (const node of [tool.scale_control.getContainer(), tool.legend_overlay.getContainer(), attribution, container.querySelector('.leaflet-map-pane')]) {
+			assert.isTrue(survives(node), `expected ${node.className} in the image`)
+		}
+
+		// floors: each control the filter exists to drop is really on the map
+		for (const selector of ['.leaflet-control-zoom', '.leaflet-control-layers', '.leaflet-pm-toolbar', '[class*="leaflet-pm-icon-"]', '.uca-maps-map-image-control']) {
+			const nodes = [...container.querySelectorAll(selector)]
+			assert.isAbove(nodes.length, 0, `expected ${selector} on the live map`)
+			assert.isFalse(nodes.some(survives), `expected every ${selector} out of the image`)
+		}
+	})
+
+	// every URL dom-to-image-more asks for while capturing (it fetches by XHR)
+	const capture_png_requests = async function() {
+		const requested		= []
+		const original_open	= XMLHttpRequest.prototype.open
+		XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+			requested.push(String(url))
+			return original_open.call(this, method, url, ...rest)
+		}
+		let blob
+		try {
+			blob = await capture_download_blob(() => download_map_image(tool, 'png'))
+		} finally {
+			XMLHttpRequest.prototype.open = original_open
+		}
+		assert.isOk(blob, 'expected the capture to finish')
+		return requested
+	}//end capture_png_requests
+
+	it('capturing the map requests no URL made out of an SVG icon\'s own #reference', async function() {
+
+		tool.attach_map_image_download_control()
+
+		// Geoman's icons are data: SVGs with `url(#mask-2)`-style references,
+		// which dom-to-image-more fetched as page URLs (404s and console noise)
+		assert.isOk(geolocation.map.getContainer().querySelector('[class*="leaflet-pm-icon-"]'), 'expected Geoman\'s icons on the map')
+
+		const requested = await capture_png_requests()
+
+		assert.deepEqual(requested.filter((url) => /#|%23/.test(url)), [], 'expected no request built from an SVG #reference')
+	})
+
+	it('capturing the map requests no URL held by a CSS custom property', async function() {
+
+		tool.attach_map_image_download_control()
+
+		// core tokens such as --search_icon_url hold relative url()s the browser
+		// never resolves. dom-to-image-more serialises a pseudo-element with
+		// every property it inherits, those tokens included, and fetched them
+		// against the page's own path (404s and console noise)
+		const pane		= geolocation.map.getContainer().querySelector('.leaflet-map-pane')
+		const style		= getComputedStyle(pane)
+		const token_paths	= [...style]
+			.filter((name) => name.startsWith('--'))
+			.flatMap((name) => [...style.getPropertyValue(name).matchAll(/url\(\s*['"]?([^'")]+)/g)].map((match) => match[1]))
+			.filter((path) => !path.startsWith('data:'))
+		assert.isAbove(token_paths.length, 0, 'expected the map to inherit custom properties holding a url()')
+
+		const pseudo_rule = document.createElement('style')
+		pseudo_rule.textContent = '.leaflet-map-pane::before { content: ""; }'
+		document.head.appendChild(pseudo_rule)
+		let requested
+		try {
+			assert.notEqual(getComputedStyle(pane, '::before').getPropertyValue('content'), 'none', 'expected a pseudo-element in the map')
+			requested = await capture_png_requests()
+		} finally {
+			pseudo_rule.remove()
+		}
+
+		assert.deepEqual(
+			requested.filter((url) => token_paths.some((path) => url.startsWith(path))),
+			[],
+			'expected no request for a url() a custom property holds'
+		)
 	})
 
 	it('download_map_image refuses an EMPTY name (v6 parity) without capturing or calling the server', async function() {

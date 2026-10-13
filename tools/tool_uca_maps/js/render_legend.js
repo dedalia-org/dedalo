@@ -657,8 +657,8 @@ const pick_icon_file = function(self, panel, column_index, element_index) {
 * CREATE_LEGEND_OVERLAY
 * La leyenda sobre el mapa, como L.Control propio en 'bottomleft' (API
 * pública; v6 se cuelga de `map._controlCorners.topleft`, que además es
-* donde viven los botones de este tool). NO se registra como toolbar node:
-* es contenido del mapa y tiene que salir en la descarga de imagen.
+* donde viven los botones de este tool). NO se registra como toolbar node y
+* `keep_in_map_image` la nombra: es contenido del mapa y sale en la imagen.
 *
 * @param {Object} self
 * @returns {Object} el L.Control
