@@ -75,7 +75,9 @@ import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/too
 import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
-import { UPLOAD_MESSAGE_MS, UPLOAD_ERROR_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
+import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
+import { tool_error_text } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
+import { error_text } from '../../../core/common/js/render_api_error.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
@@ -281,6 +283,44 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 	// parity: any `queryable` attribute at all, even "0", counts — a plain
 	// `getAttribute()!==null` check — and an unnamed layer is a non-leaf
 	// grouping node, skipped).
+	it('tool_error_text: a request.invalid_options refusal is the panel\'s lead, then the server\'s reason', function() {
+
+		const refusal = {
+			is_api_error	: true,
+			code			: 'request.invalid_options',
+			label_key		: 'error_request_invalid_options',
+			message			: "Invalid UTM zone '61' (expected 1 to 60)"
+		}
+
+		assert.equal(
+			tool_error_text(refusal, 'The file could not be loaded.'),
+			"The file could not be loaded.\nInvalid UTM zone '61' (expected 1 to 60)",
+			'expected the reason core\'s generic label hides'
+		)
+	})
+
+	it('tool_error_text: any other code, or a refusal with no reason, is core\'s error_text', function() {
+
+		const other = {
+			is_api_error	: true,
+			code			: 'tool.action_failed',
+			label_key		: 'error_tool_action_failed',
+			message			: 'The tool action could not be completed'
+		}
+		const bare = {
+			is_api_error	: true,
+			code			: 'request.invalid_options',
+			label_key		: 'error_request_invalid_options',
+			message			: '  '
+		}
+
+		for (const api_error of [other, bare]) {
+			const text = tool_error_text(api_error, 'LEAD')
+			assert.equal(text, error_text(api_error), 'expected core\'s sentence for ' + api_error.code)
+			assert.notInclude(text, 'LEAD', 'expected no lead without a reason to introduce')
+		}
+	})
+
 	it('parse_wms_capabilities_xml keeps only queryable, named layers; falls back Title to Name', function() {
 
 		const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -3228,6 +3268,44 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.match(banner.textContent, /parcel/i)
 	})
 
+	it('a refusal\'s reason sits on its own line: Catastro\'s core banner and the panel lines', async function() {
+
+		// with the tool CSS or not at all: without it white-space is never pre-line
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			geolocation.section_lang = 'lg-spa'
+			tool.attach_catastro()
+			tool.catastro_control.getContainer().click() // arm
+			tool.tool_request = async () => ({ok: false, error: {
+				is_api_error	: true,
+				code			: 'request.invalid_options',
+				label_key		: 'error_request_invalid_options',
+				message			: 'Coordinates out of range'
+			}})
+			await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+
+			const text = geolocation.node.querySelector('.uca-maps-catastro-message .text')
+			assert.isOk(text, 'expected core\'s banner line')
+			assert.equal(text.textContent, 'The cadastral parcel could not be looked up.\nCoordinates out of range')
+			assert.equal(getComputedStyle(text).whiteSpace, 'pre-line', 'expected the line break kept in the banner')
+
+			// every panel line shares one mixin; the upload one stands for all
+			tool.attach_file_upload()
+			const line = tool.upload_panel.querySelector('.uca-maps-upload-message')
+			assert.equal(getComputedStyle(line).whiteSpace, 'pre-line', 'expected the line break kept in a panel line')
+		} finally {
+			link.remove()
+		}
+	})
+
 	it('check_catastro_at_point refuses overlapping lookups (busy guard) — only the first reaches tool_request', async function() {
 
 		geolocation.section_lang = 'lg-spa'
@@ -3545,18 +3623,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the EPSG format check runs BEFORE the ogr2ogr call (vector_upload.ts),
 		// so this exercises the real staged-upload + server round trip without
-		// depending on GDAL being installed. Asserted on the RAW response's
-		// error CODE, never the rendered text: request.invalid_options carries
-		// a registered label_key (master.json error_request_invalid_options),
-		// and error_text() (render_api_error.js) always prefers that catalog
-		// label over whatever specific message/publicMessage the server set —
-		// same reason the download_vector('jpg'/'geotiff') tests above assert
-		// on response.error.code, never on rendered text.
+		// depending on GDAL being installed. The reason must survive to the
+		// panel: core's error_text alone shows only "Invalid request options".
 		const result = await tool.upload_vector_file(file, {epsg: 'not-a-code', zone: '30', band: 'N'})
 
 		assert.equal(result.ok, false)
 		assert.isOk(response, 'expected tool_request to have been reached')
 		assert.equal(response.error && response.error.code, 'request.invalid_options')
+		assert.equal(
+			result.error,
+			(tool.get_tool_label('upload_error_rejected') || 'The file could not be loaded.') + "\nInvalid EPSG code 'not-a-code'",
+			'expected the panel\'s lead and the server\'s own reason'
+		)
 		// all three reach the wire: a dropped zone or band would make the server
 		// refuse every UTM projection, and nothing else here would notice
 		assert.deepInclude(sent.options, {epsg: 'not-a-code', zone: '30', band: 'N'})
@@ -3867,9 +3945,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('an image placement message goes away by itself; an upload error too, later (v6\'s 3.5 s)', async function() {
+	// the former window: errors hid after it, and a long refusal could not be read
+	const FORMER_ERROR_MESSAGE_MS = 3500
 
-		this.timeout(UPLOAD_MESSAGE_MS + UPLOAD_ERROR_MESSAGE_MS + 2000)
+	it('an image placement message goes away by itself; an upload error stays until the next pick', async function() {
+
+		this.timeout(UPLOAD_MESSAGE_MS + FORMER_ERROR_MESSAGE_MS + 2000)
 
 		tool.attach_file_upload()
 
@@ -3889,19 +3970,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			answer = {ok: false, error: 'the ingest refused it'}
 			pick_file(picker, file)
-			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
-			assert.equal(message.hidden, false, 'expected an error still there after the success window')
+			await new Promise(resolve => setTimeout(resolve, FORMER_ERROR_MESSAGE_MS + 200))
+			assert.equal(message.hidden, false, 'expected the error still there past the former window')
 			assert.equal(message.textContent, 'the ingest refused it')
-			await new Promise(resolve => setTimeout(resolve, UPLOAD_ERROR_MESSAGE_MS - UPLOAD_MESSAGE_MS))
-			assert.equal(message.hidden, true, 'expected the error gone after UPLOAD_ERROR_MESSAGE_MS')
+
+			// the next pick is the gesture that replaces it, before its own answer
+			tool.upload_image_file = () => new Promise(() => {})
+			pick_file(picker, file)
+			assert.equal(message.textContent, 'Uploading the image…', 'expected the next pick to replace the error with its working line')
 		} finally {
 			delete tool.upload_image_file
 		}
 	})
 
-	it('a vector success goes away by itself, as the image one does; a vector error too, later', async function() {
+	it('a vector success goes away by itself, as the image one does; a vector error stays until the next Upload', async function() {
 
-		this.timeout(UPLOAD_MESSAGE_MS + UPLOAD_ERROR_MESSAGE_MS + 2000)
+		this.timeout(UPLOAD_MESSAGE_MS + FORMER_ERROR_MESSAGE_MS + 2000)
 
 		tool.attach_file_upload()
 
@@ -3924,11 +4008,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			answer = {ok: false, error: 'zone and band do not match'}
 			load_file(picker, file)
 			submit.click()
-			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
-			assert.equal(message.hidden, false, 'expected an error still there after the success window')
+			await new Promise(resolve => setTimeout(resolve, FORMER_ERROR_MESSAGE_MS + 200))
+			assert.equal(message.hidden, false, 'expected the error still there past the former window')
 			assert.equal(message.textContent, 'zone and band do not match')
-			await new Promise(resolve => setTimeout(resolve, UPLOAD_ERROR_MESSAGE_MS - UPLOAD_MESSAGE_MS))
-			assert.equal(message.hidden, true, 'expected the error gone after UPLOAD_ERROR_MESSAGE_MS')
+
+			// the next Upload is the gesture that clears it, before its own answer
+			tool.upload_vector_file = () => new Promise(() => {})
+			submit.click()
+			assert.equal(message.hidden, true, 'expected the next Upload to clear the error')
 		} finally {
 			delete tool.upload_vector_file
 		}

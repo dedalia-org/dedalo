@@ -39,7 +39,7 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {error_text} from '../../../core/common/js/render_api_error.js'
+import {tool_error_text} from './tool_error_text.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -330,7 +330,8 @@ export const search_roman = async function(self, source, params) {
 		}
 
 		if (request_failed(response)) {
-			return {ok: false, error: error_text(response.error)}
+			const failed = self.get_tool_label('roman_error_failed') || 'The search could not be completed.'
+			return {ok: false, error: tool_error_text(response.error, failed)}
 		}
 
 		const data		= response_data(response)
@@ -396,7 +397,8 @@ export const add_roman_result = async function(self, index) {
 			return {ok: false}
 		}
 		if (request_failed(response)) {
-			return {ok: false, error: error_text(response.error)}
+			const failed = self.get_tool_label('roman_error_failed') || 'The search could not be completed.'
+			return {ok: false, error: tool_error_text(response.error, failed)}
 		}
 
 		const data	= response_data(response)

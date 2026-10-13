@@ -31,7 +31,7 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {error_text} from '../../../core/common/js/render_api_error.js'
+import {tool_error_text} from './tool_error_text.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {create_toolbar_button, register_toolbar_node, remove_toolbar_button} from './toolbar.js'
 import {report_client_error} from './object_console.js'
@@ -268,7 +268,8 @@ export const check_catastro_at_point = async function(self, latlng) {
 		}
 
 		if (request_failed(response)) {
-			show_catastro_message(self, error_text(response.error))
+			const failed = self.get_tool_label('catastro_error_failed') || 'The cadastral parcel could not be looked up.'
+			show_catastro_message(self, tool_error_text(response.error, failed))
 			return
 		}
 

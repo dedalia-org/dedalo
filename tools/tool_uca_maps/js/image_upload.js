@@ -39,7 +39,7 @@
 
 import {upload} from '../../../core/services/service_upload/js/service_upload.js'
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {error_text} from '../../../core/common/js/render_api_error.js'
+import {tool_error_text} from './tool_error_text.js'
 import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
@@ -346,9 +346,11 @@ export const ingest_image_upload = async function(self, file) {
 		tipo				: IMAGE_COMPONENT_TIPO
 	})
 
+	const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+
 	if (!response_data(upload_response)) {
 		const message = upload_response && upload_response.error
-			? error_text(upload_response.error)
+			? tool_error_text(upload_response.error, failed)
 			: (self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.')
 		return {ok: false, error: message}
 	}
@@ -364,7 +366,7 @@ export const ingest_image_upload = async function(self, file) {
 
 	const ingest_response = await ingest_uploaded_file(section_id, upload_response.file_data)
 	if (request_failed(ingest_response)) {
-		return {ok: false, error: error_text(ingest_response.error)}
+		return {ok: false, error: tool_error_text(ingest_response.error, failed)}
 	}
 
 	return {ok: true, section_id: section_id}
@@ -418,7 +420,8 @@ export const upload_image_file = async function(self, file) {
 		}
 
 		if (request_failed(overlay_response)) {
-			return {ok: false, error: error_text(overlay_response.error)}
+			const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+			return {ok: false, error: tool_error_text(overlay_response.error, failed)}
 		}
 
 		const data = response_data(overlay_response)

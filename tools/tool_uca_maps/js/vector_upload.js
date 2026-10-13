@@ -28,7 +28,7 @@
 
 import {upload} from '../../../core/services/service_upload/js/service_upload.js'
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {error_text} from '../../../core/common/js/render_api_error.js'
+import {tool_error_text} from './tool_error_text.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -134,9 +134,11 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 			tipo				: self.geolocation.tipo
 		})
 
+		const rejected = self.get_tool_label('upload_error_rejected') || 'The file could not be loaded.'
+
 		if (!response_data(upload_response)) {
 			const message = upload_response && upload_response.error
-				? error_text(upload_response.error)
+				? tool_error_text(upload_response.error, rejected)
 				: (self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.')
 			return {ok: false, error: message}
 		}
@@ -162,7 +164,7 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 		}
 
 		if (request_failed(response)) {
-			return {ok: false, error: error_text(response.error)}
+			return {ok: false, error: tool_error_text(response.error, rejected)}
 		}
 
 		const data = response_data(response)

@@ -153,6 +153,8 @@
 	border-radius: 0.2rem;
 	padding: 0.35rem 0.5rem;
 	font-size: 0.8rem;
+	// a refusal is two lines (tool_error_text.js): what failed, then why
+	white-space: pre-line;
 
 	&[hidden] {
 		display: none;
@@ -647,6 +649,10 @@
 .uca-maps-catastro-control.uca-maps-catastro-enabled {
 	background: var(--uca_maps_toggle_on);
 	color: var(--uca_maps_toggle_on_fg);
+}
+// its refusal is shown by core's ui.show_message: keep tool_error_text's line break
+.uca-maps-catastro-message .text {
+	white-space: pre-line;
 }
 
 // "UA" (functionality #9, administrative_units.js) — a single level

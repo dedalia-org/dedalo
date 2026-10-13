@@ -258,6 +258,7 @@
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
 }
 .uca-maps-xyz-panel .uca-maps-xyz-message[hidden] {
   display: none;
@@ -340,6 +341,7 @@
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
 }
 .uca-maps-wms-panel .uca-maps-wms-message[hidden] {
   display: none;
@@ -434,12 +436,16 @@
   background: var(--uca_maps_toggle_on);
   color: var(--uca_maps_toggle_on_fg);
 }
+.uca-maps-catastro-message .text {
+  white-space: pre-line;
+}
 .uca-maps-ua-panel .uca-maps-ua-message {
   background-color: var(--uca_maps_msg_error_bg);
   color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
   margin: 0.5rem 0.75rem 0;
 }
 .uca-maps-ua-panel .uca-maps-ua-message[hidden] {
@@ -461,6 +467,7 @@
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
   margin: 0 0.75rem 0.75rem;
 }
 .uca-maps-upload-panel .uca-maps-upload-message[hidden] {
@@ -787,6 +794,7 @@
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
 }
 .uca-maps-place-search-panel .uca-maps-place-search-message[hidden] {
   display: none;
@@ -893,6 +901,7 @@
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
 }
 .uca-maps-legend-panel .uca-maps-legend-message[hidden] {
   display: none;
@@ -1136,6 +1145,7 @@
   border-radius: 0.2rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  white-space: pre-line;
 }
 .uca-maps-roman-panel .uca-maps-roman-message[hidden] {
   display: none;

@@ -37,7 +37,7 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {error_text} from '../../../core/common/js/render_api_error.js'
+import {tool_error_text} from './tool_error_text.js'
 import {commit, ensure_properties, report_client_error} from './object_console.js'
 import {ingest_image_upload} from './image_upload.js'
 
@@ -149,7 +149,8 @@ export const associate_image = async function(self, layer, file) {
 		})
 
 		if (request_failed(file_response)) {
-			return {ok: false, error: error_text(file_response.error)}
+			const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+			return {ok: false, error: tool_error_text(file_response.error, failed)}
 		}
 
 		const data = response_data(file_response)

@@ -36,7 +36,7 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {error_text} from '../../../core/common/js/render_api_error.js'
+import {tool_error_text} from './tool_error_text.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -158,7 +158,8 @@ export const search_places = async function(self, raw_query) {
 		}
 
 		if (request_failed(response)) {
-			return {ok: false, error: error_text(response.error)}
+			const failed = self.get_tool_label('place_search_error_failed') || 'The place search could not be completed.'
+			return {ok: false, error: tool_error_text(response.error, failed)}
 		}
 
 		const data		= response_data(response)

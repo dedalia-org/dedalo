@@ -260,8 +260,8 @@ const render_image_section = function(self, panel) {
 * BIND_VECTOR_UPLOAD
 * The vector half's Upload button. The chosen file stays in the picker after
 * a failure, so correcting EPSG/zone/band and pressing Upload again is the
-* whole retry. Only a success empties it. Every line hides itself: a
-* success after UPLOAD_MESSAGE_MS, an error after UPLOAD_ERROR_MESSAGE_MS.
+* whole retry. Only a success empties it. A success hides itself after
+* UPLOAD_MESSAGE_MS; an error stays until the next Upload or reopening.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLInputElement} file_input
@@ -294,15 +294,14 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 
 		if (!result.ok) {
 			if (result.error) {
-				show_upload_message(message, result.error, UPLOAD_ERROR_MESSAGE_MS)
+				show_upload_message(message, result.error)
 			}
 			return
 		}
 		if (result.feature_count===0) {
 			show_upload_message(
 				message,
-				self.get_tool_label('upload_no_features') || 'No objects could be read from this file.',
-				UPLOAD_ERROR_MESSAGE_MS
+				self.get_tool_label('upload_no_features') || 'No objects could be read from this file.'
 			)
 			return
 		}
@@ -329,7 +328,7 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 * @param {HTMLInputElement} file_input
 * @param {HTMLElement} message - this sub-flow's own status line
 * @param {function(File): Promise<string|{text: string, hide_after_ms: number}|null>} run
-*	resolves what to show; a bare string is an error (UPLOAD_ERROR_MESSAGE_MS)
+*	resolves what to show; a bare string is an error, which stays until the next pick
 * @returns {void}
 */
 const bind_upload_on_pick = function(file_input, message, run) {
@@ -355,7 +354,7 @@ const bind_upload_on_pick = function(file_input, message, run) {
 		file_input.value	= ''
 
 		clear_upload_message(message)
-		const answer = (text && typeof text==='object') ? text : {text, hide_after_ms: UPLOAD_ERROR_MESSAGE_MS}
+		const answer = (text && typeof text==='object') ? text : {text}
 		if (answer.text) {
 			show_upload_message(message, answer.text, answer.hide_after_ms)
 		}
@@ -382,10 +381,6 @@ const render_upload_message = function(parent) {
  * the self-closing "UCA Maps" modal (`tool_uca_maps.js`). */
 export const UPLOAD_MESSAGE_MS = 2000
 
-/** An error stays longer, v6's own default for every message
- * (`special_tools.js:3473` modal_message): it has to be read, not glimpsed. */
-export const UPLOAD_ERROR_MESSAGE_MS = 3500
-
 /**
 * SHOW_UPLOAD_MESSAGE
 * Plain in-flow status/error line — same reasoning as `render_wms_services.js`
@@ -395,7 +390,8 @@ export const UPLOAD_ERROR_MESSAGE_MS = 3500
 *
 * @param {HTMLElement} message
 * @param {string} text
-* @param {number} [hide_after_ms] - omitted: the line stays (the "working" one)
+* @param {number} [hide_after_ms] - omitted: the line stays (the "working" one,
+*	and an error: a refusal's reason is read while fixing the input, not glimpsed)
 * @returns {void}
 */
 const show_upload_message = function(message, text, hide_after_ms) {
