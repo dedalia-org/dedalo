@@ -261,6 +261,56 @@ const create_image_record = async function() {
 
 
 
+/** Ingest refusals raised BEFORE the staged file moves (gates, tool_upload's
+ * context, the pre-move checks of process_uploaded_file.ts) and that a re-run
+ * resend would raise again: only these leave the minted record empty for certain.
+ * Any other code is an unknown outcome: an idempotency.* replay, a db.* failure
+ * after the move, media.file_not_found (a re-run whose staged file was consumed). */
+const PRE_MOVE_REFUSALS = new Set([
+	'request.invalid',
+	'request.invalid_options',
+	'request.invalid_model',
+	'request.invalid_source',
+	'tool.invalid_name',
+	'tool.no_server_module',
+	'tool.method_not_allowed',
+	'tool.not_authorized',
+	'perm.denied',
+	'perm.out_of_scope',
+	'media.upload_rejected'
+])
+
+
+
+/**
+* DELETE_IMAGE_RECORD
+* Undoes CREATE_IMAGE_RECORD through core's public delete door (the same rqo
+* `view_note_text_area.js` sends): Time Machine snapshot first, and the user's
+* own permissions and project scope decide, never the tool.
+*
+* @param {number} section_id
+* @returns {Promise<boolean>} true only when the server confirms the deletion
+*/
+const delete_image_record = async function(section_id) {
+
+	const api_response = await data_manager.request({
+		body : {
+			action	: 'delete',
+			source	: {
+				delete_mode		: 'delete_record',
+				section_tipo	: IMAGE_SECTION_TIPO,
+				section_id		: section_id
+			}
+		}
+	})
+
+	const deleted = response_data(api_response)
+
+	return Array.isArray(deleted) && deleted.includes(section_id)
+}//end delete_image_record
+
+
+
 /**
 * INGEST_UPLOADED_FILE
 * Door 2b: hand the staged upload to `tool_upload::process_uploaded_file`.
@@ -326,17 +376,10 @@ const ingest_uploaded_file = async function(section_id, file_data) {
 */
 export const ingest_image_upload = async function(self, file) {
 
-	// The bytes are staged BEFORE the record is minted, deliberately —
-	// v6 does it the other way round and leaves an empty rsc170 record
-	// behind every time an upload is refused or cancelled. Nothing in the
-	// staging step needs the record (`tipo` here is the component TIPO, a
-	// constant), so the record is only created once there is a file to
-	// put in it.
-	// (!) This NARROWS the orphan-record window, it does not close it: a
-	// failure AFTER the mint (a refused ingest, a torn-down tool, a
-	// missing renderable tier) still leaves the rsc170 record behind.
-	// Cleaning that up means the tool DELETING a core-section record,
-	// which is a decision of its own — see the hito 13 dossier.
+	// The bytes are staged BEFORE the record is minted: v6 does the reverse
+	// and leaves an empty rsc170 record behind every refused upload. Once
+	// the ingest has run, a record holding the image is a catalogue
+	// resource and stays, whatever the map does with it afterwards.
 	const upload_response = await upload({
 		id					: self.id,
 		file				: file,
@@ -366,7 +409,18 @@ export const ingest_image_upload = async function(self, file) {
 
 	const ingest_response = await ingest_uploaded_file(section_id, upload_response.file_data)
 	if (request_failed(ingest_response)) {
-		return {ok: false, error: tool_error_text(ingest_response.error, failed)}
+		const error = tool_error_text(ingest_response.error, failed)
+		// an error envelope alone does not prove nothing was written: only a
+		// refusal raised before the file moved does. Any other answer leaves the
+		// record named, never deleted (the server may still be filling it)
+		const removed = PRE_MOVE_REFUSALS.has(ingest_response.error.code) && await delete_image_record(section_id)
+		return {
+			ok		: false,
+			error	: removed
+				? error
+				: error + '\n' + (self.get_tool_label('upload_image_record_left', section_id)
+					|| `Image record ${section_id} may have been left empty: review it.`)
+		}
 	}
 
 	return {ok: true, section_id: section_id}

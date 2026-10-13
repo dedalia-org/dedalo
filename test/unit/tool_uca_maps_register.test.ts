@@ -23,11 +23,12 @@ import { authoringRegisterSchema } from '../../src/core/tools/register_schema.ts
 
 const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
 
-/** `self.get_tool_label('some_key')` — the only form the tool's own client
- * uses for a literal key. The two dynamic call sites (the `get_tool_label`
- * DEFINITION in tool_uca_maps.js and a helper that forwards its argument in
- * render_object_console.js) carry no literal and are correctly not matched. */
-const LABEL_CALL = /get_tool_label\(\s*'([A-Za-z0-9_]+)'\s*\)/g;
+/** `self.get_tool_label('some_key')`, or `('some_key', value)` for a label with
+ * `%s` — the only forms the tool's own client uses for a literal key. The two
+ * dynamic call sites (the `get_tool_label` DEFINITION in tool_uca_maps.js and a
+ * helper that forwards its argument in render_object_console.js) carry no
+ * literal and are correctly not matched. */
+const LABEL_CALL = /get_tool_label\(\s*'([A-Za-z0-9_]+)'\s*[,)]/g;
 
 async function usedLabelKeys(): Promise<Set<string>> {
 	const keys = new Set<string>();

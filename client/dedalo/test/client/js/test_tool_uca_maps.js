@@ -44,6 +44,7 @@ import { elements } from './elements.js'
 import { get_instance } from '../../../core/common/js/instances.js'
 import { ui } from '../../../core/common/js/ui.js'
 import { event_manager } from '../../../core/common/js/event_manager.js'
+import { data_manager } from '../../../core/common/js/data_manager.js'
 import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js'
 import {
 	find_layer_id,
@@ -63,7 +64,7 @@ import {
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
-import { create_image_object, corners_from_viewport, image_download_width } from '../../../tools/tool_uca_maps/js/image_upload.js'
+import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
 	associate_image,
 	object_images,
@@ -4256,6 +4257,105 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(called, false, 'expected the server never contacted with no file selected')
 
 		tool.tool_request = original_tool_request
+	})
+
+	// The stub stands in for create, ingest and delete only, so no record is
+	// ever written; the staging upload stays real (service_upload, as the
+	// vector tests above use it).
+	it('only a refusal raised before the file moved deletes the minted record; any other failure names it', async function() {
+
+		const NEW_ID	= 987654
+		// a real 1x1 PNG: the staging endpoint checks the file signature
+		const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
+		const reason	= 'The staged file is not an image'
+		const refusal	= {is_api_error: true, code: 'request.invalid_options', label_key: 'error_request_invalid_options', message: reason, transport: false}
+		const record_left = 'Image record ' + NEW_ID + ' may have been left empty: review it.'
+		const rows = [
+			{
+				label	: 'an envelope refusal',
+				ingest	: refusal,
+				answer	: {ok: true, data: [NEW_ID]},
+				deletes	: true,
+				error	: 'The image could not be loaded.\n' + reason
+			},
+			{
+				label	: 'a timeout: the server may still finish',
+				ingest	: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true},
+				answer	: null,
+				deletes	: false,
+				error	: 'The request timed out\n' + record_left
+			},
+			{
+				// what a resend gets while the first attempt is still ingesting
+				label	: 'an idempotency replay: an envelope, yet the ingest is running',
+				ingest	: {is_api_error: true, code: 'idempotency.in_progress', message: 'Still running', transport: false},
+				answer	: null,
+				deletes	: false,
+				error	: 'Still running\n' + record_left
+			},
+			{
+				// persistUploadedMedia refusing AFTER the file is in the media tree
+				label	: 'a failure after the move: the file is on disk',
+				ingest	: {is_api_error: true, code: 'db.lock_timeout', message: 'Lock timeout', transport: false},
+				answer	: null,
+				deletes	: false,
+				error	: 'Lock timeout\n' + record_left
+			},
+			{
+				// a resend re-run after a restart: the first run consumed the staged file
+				label	: 'a staged file already consumed',
+				ingest	: {is_api_error: true, code: 'media.file_not_found', message: 'Staged upload not found', transport: false},
+				answer	: null,
+				deletes	: false,
+				error	: 'Staged upload not found\n' + record_left
+			},
+			{
+				label	: 'an envelope refusal whose delete is refused',
+				ingest	: refusal,
+				answer	: {ok: false, error: {is_api_error: true, code: 'perm.denied', message: 'Permission denied', transport: false}},
+				deletes	: true,
+				error	: 'The image could not be loaded.\n' + reason + '\n' + record_left
+			}
+		]
+
+		const original_request = data_manager.request
+		try {
+			for (const row of rows) {
+				let created	= null
+				let deleted	= null
+				data_manager.request = async function(options) {
+					const body = options && options.body
+					if (body && body.action==='create') {
+						created = body
+						return {ok: true, data: NEW_ID}
+					}
+					if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
+						return {ok: false, error: row.ingest}
+					}
+					if (body && body.action==='delete') {
+						deleted = body
+						return row.answer
+					}
+					return original_request.apply(this, arguments)
+				}
+
+				const result = await ingest_image_upload(tool, new File([png], 'plan.png', {type: 'image/png'}))
+
+				assert.isOk(created, 'expected the record minted before the ingest: ' + row.label)
+				assert.equal(result.ok, false, row.label)
+				assert.equal(result.error, row.error, row.label)
+				if (row.deletes) {
+					assert.deepEqual(deleted, {
+						action	: 'delete',
+						source	: {delete_mode: 'delete_record', section_tipo: created.source.section_tipo, section_id: NEW_ID}
+					}, 'expected the minted record, and only it, deleted: ' + row.label)
+				} else {
+					assert.isNull(deleted, 'expected nothing deleted: ' + row.label)
+				}
+			}
+		} finally {
+			data_manager.request = original_request
+		}
 	})
 
 	it('attach_image_overlays rebuilds a saved overlay from its carrier rectangle', async function() {

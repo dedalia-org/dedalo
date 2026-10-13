@@ -443,6 +443,9 @@
 		{ "lang": "lg-eng", "name": "upload_image_error_failed", "value": "The image could not be loaded." },
 		{ "lang": "lg-spa", "name": "upload_image_error_failed", "value": "No se ha podido cargar la imagen." },
 
+		{ "lang": "lg-eng", "name": "upload_image_record_left", "value": "Image record %s may have been left empty: review it." },
+		{ "lang": "lg-spa", "name": "upload_image_record_left", "value": "El registro de imagen %s puede haber quedado vacío: revíselo." },
+
 		{ "lang": "lg-eng", "name": "upload_image_error_no_display", "value": "The uploaded image has no version this browser can display." },
 		{ "lang": "lg-spa", "name": "upload_image_error_no_display", "value": "La imagen subida no tiene ninguna versión que este navegador pueda mostrar." },
 
