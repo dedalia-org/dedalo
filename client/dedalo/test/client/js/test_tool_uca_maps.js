@@ -77,7 +77,7 @@ import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.j
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
-import { tool_error_text } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
+import { tool_error_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
@@ -319,6 +319,19 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 			const text = tool_error_text(api_error, 'LEAD')
 			assert.equal(text, error_text(api_error), 'expected core\'s sentence for ' + api_error.code)
 			assert.notInclude(text, 'LEAD', 'expected no lead without a reason to introduce')
+		}
+	})
+
+	it('tool_error_text: every REASON_CODES refusal carries its reason — a target it cannot process, a file that is gone', function() {
+
+		assert.includeMembers(
+			Array.from(REASON_CODES),
+			['request.invalid_options', 'tool.unsupported_target', 'media.file_not_found'],
+			'expected the three public codes the server refuses with a reason'
+		)
+		for (const code of REASON_CODES) {
+			const refusal = {is_api_error: true, code: code, label_key: 'x', message: 'Why it failed.'}
+			assert.equal(tool_error_text(refusal, 'LEAD'), 'LEAD\nWhy it failed.', 'expected the reason shown for ' + code)
 		}
 	})
 
@@ -769,6 +782,90 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isUndefined(sent.url, 'expected no url sent either')
 
 		tool.tool_request = original_tool_request
+	})
+
+	/**
+	* A refused download used to reach the user only as the page toast, which
+	* names the code ("Invalid request options") and never the reason. Each one
+	* now answers its section's lead and the server's reason, for its own line.
+	*/
+	it('a refused download answers the section\'s lead and the server\'s reason, not only a toast', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+		const layer		= geolocation.FeatureGroup[1].getLayers()[0]
+		const refusal	= {is_api_error: true, code: 'request.invalid_options', message: 'The object could not be read.', transport: false}
+
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() {
+			return {ok: false, error: refusal}
+		}
+		try {
+			const rows = [
+				{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
+				{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
+				{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
+			]
+			for (const row of rows) {
+				assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\n' + refusal.message}, row.label)
+			}
+
+			// an answer without an envelope error still says what failed
+			tool.tool_request = async function() {
+				return {ok: false}
+			}
+			assert.deepEqual(await download_vector(tool, layer, 'kml'), {ok: false, error: 'The object could not be downloaded.'})
+		} finally {
+			tool.tool_request = original_tool_request
+		}
+	})
+
+	it('each download button shows its refusal on its own line, and the next attempt clears it', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.openPopup()
+		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+
+		const answers	= []
+		const originals	= {}
+		for (const name of ['download_vector', 'download_object_pdf', 'download_map_image']) {
+			originals[name] = tool[name]
+			tool[name] = async function() {
+				return answers.shift()
+			}
+		}
+		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+
+		try {
+			const rows = [
+				{label: 'vector', box: section.querySelector('.uca-maps-download-section'), button: '.uca-maps-download-button', line: '.uca-maps-download-message'},
+				{label: 'pdf', box: section.querySelector('.uca-maps-properties-editor'), button: '.uca-maps-property-pdf-button', line: '.uca-maps-download-message'},
+				{label: 'map image', box: tool.map_image_panel, button: '.uca-maps-map-image-button', line: '.uca-maps-map-image-message'}
+			]
+			for (const row of rows) {
+				const line		= row.box.querySelector(row.line)
+				const button	= row.box.querySelector(row.button)
+				assert.isOk(line, 'expected a refusal line: ' + row.label)
+				assert.isTrue(line.hidden, 'expected no line before any attempt: ' + row.label)
+
+				answers.push({ok: false, error: 'LEAD\nREASON'})
+				button.click()
+				await settle()
+				assert.isFalse(line.hidden, 'expected the refusal shown: ' + row.label)
+				assert.equal(line.textContent, 'LEAD\nREASON', row.label)
+
+				answers.push({ok: true})
+				button.click()
+				await settle()
+				assert.isTrue(line.hidden, 'expected the next attempt to clear it: ' + row.label)
+			}
+		} finally {
+			for (const name in originals) {
+				tool[name] = originals[name]
+			}
+		}
 	})
 
 	it('find_layer_id resolves the FeatureGroup that owns a layer', function() {
@@ -4307,7 +4404,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'media.file_not_found', message: 'Staged upload not found', transport: false},
 				answer	: null,
 				deletes	: false,
-				error	: 'Staged upload not found\n' + record_left
+				error	: 'The image could not be loaded.\nStaged upload not found\n' + record_left
 			},
 			{
 				label	: 'an envelope refusal whose delete is refused',
@@ -4678,6 +4775,34 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const captured = await capture_download(() => tool.download_image(carrier, 'png', 0.8, 'plan'))
 			assert.equal(captured.name, 'plan.png', 'expected the server\'s file name on the anchor')
 			assert.equal(captured.blob && captured.blob.type, 'image/png', 'expected the server\'s mime on the blob')
+		} finally {
+			tool.tool_request = original
+		}
+	})
+
+	it('"Download image" refused: its own line names what failed and why', async function() {
+
+		const carrier = add_image_carrier()
+		tool.attach_console()
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+
+		const gone		= 'The image shown on the map is no longer on the server.'
+		const original	= tool.tool_request
+		tool.tool_request = async function() {
+			return {ok: false, error: {is_api_error: true, code: 'media.file_not_found', message: gone, transport: false}}
+		}
+		try {
+			const download	= tool.panel_node.querySelector('.uca-maps-image-download-section')
+			const line		= download.querySelector('.uca-maps-download-message')
+			assert.isTrue(line.hidden, 'expected no line before any attempt')
+
+			download.querySelector('.uca-maps-image-download-button').click()
+			for (let i=0; i<100 && line.hidden; i++) {
+				await new Promise(r => setTimeout(r, 10))
+			}
+
+			assert.isFalse(line.hidden, 'expected the refusal shown under the button')
+			assert.equal(line.textContent, 'The image could not be downloaded.\n' + gone)
 		} finally {
 			tool.tool_request = original
 		}

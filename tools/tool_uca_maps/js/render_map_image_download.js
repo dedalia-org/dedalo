@@ -39,8 +39,9 @@ const RASTER_FORMATS = ['png', 'jpg', 'gif', 'webp', 'geotiff']
 * RENDER_MAP_IMAGE_DOWNLOAD_PANEL
 * Populates the panel shell `toolbar.js`'s `create_toolbar_panel` already
 * built and appended to the map container — header + a name field + a format
-* `<select>` + one "Download" button. The name field is v6's own (audit row
-* #10, `special_tools_map_image_download.js:198-221`), restored 2026-09-22:
+* `<select>` + one "Download" button + the line a server refusal is shown on.
+* The name field is v6's own (audit row #10,
+* `special_tools_map_image_download.js:198-221`), restored 2026-09-22:
 * it had been dropped for consistency with the per-object download, which is
 * an argument about this tool's other panels, not about what the user needs
 * when naming a file they are about to keep.
@@ -113,7 +114,24 @@ export const render_map_image_download_panel = function(self, panel) {
 		parent			: row
 	})
 	button.type = 'button'
-	button.addEventListener('click', () => self.download_map_image(select.value, name_input.value))
+
+	// a refusal's reason, which the page toast does not carry; the next
+	// Download clears it
+	const message = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-map-image-message',
+		parent			: panel
+	})
+	message.hidden = true
+
+	button.addEventListener('click', async () => {
+		message.hidden = true
+		const result = await self.download_map_image(select.value, name_input.value)
+		if (result && result.error) {
+			message.textContent	= result.error
+			message.hidden		= false
+		}
+	})
 
 
 	return panel

@@ -54,7 +54,7 @@
 
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
-import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
+import {tool_error_text} from './tool_error_text.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 import {is_onexone_rectangle} from './onexone_flags.js'
 import {
@@ -1049,22 +1049,22 @@ export const report_client_error = function(message) {
 * label for data already in that CRS, not a reprojection.
 *
 * Never silent (review-diff correctness finding, hito 3): a server-reported
-* failure (GDAL missing, permission denied, …) goes through the project's own
-* `handle_api_error` — the same call every other tool makes on a failed
-* `tool_request` (e.g. `tool_media_versions`/`tool_time_machine`). The WHOLE
-* function body (including `layer.toGeoJSON()` — review-diff finding, hito
-* 3b: an earlier revision called it BEFORE the try block, so a throw there
-* was not caught by this function's own handling) runs inside one try/catch;
-* an unexpected client-side exception goes through `report_client_error`
-* instead of only `console.error` (review-diff finding, hito 3b: the
-* original catch only logged, contradicting this very doc comment) — never
-* an unhandled promise rejection from the caller's un-awaited click handler
-* (`render_object_console.js`), and never a silent no-op either.
+* failure (GDAL missing, permission denied, …) comes back as the text for
+* the section's line (`tool_error_text`: the page toast only names the
+* code). The WHOLE function body (including `layer.toGeoJSON()` — review-diff
+* finding, hito 3b: an earlier revision called it BEFORE the try block, so a
+* throw there was not caught by this function's own handling) runs inside one
+* try/catch; an unexpected client-side exception goes through
+* `report_client_error` instead of only `console.error` (review-diff finding,
+* hito 3b: the original catch only logged, contradicting this very doc
+* comment) — never an unhandled promise rejection from the caller's click
+* handler (`render_object_console.js`), and never a silent no-op either.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
 * @param {'geojson'|'shp'|'kml'} format
-* @returns {Promise<void>}
+* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal,
+*   for the section's line
 */
 export const download_vector = async function(self, layer, format) {
 
@@ -1075,7 +1075,7 @@ export const download_vector = async function(self, layer, format) {
 		if (format==='geojson') {
 			const blob = new Blob([JSON.stringify(geojson, null, 2)], {type: 'application/geo+json'})
 			trigger_blob_download(blob, 'uca_maps_object.geojson')
-			return
+			return {ok: true}
 		}
 
 		const response = await self.tool_request({
@@ -1092,16 +1092,19 @@ export const download_vector = async function(self, layer, format) {
 		const data = response_data(response)
 
 		if (!data) {
-			await handle_api_error(response.error, {})
-			return
+			const failed = self.get_tool_label('vector_download_error_failed') || 'The object could not be downloaded.'
+			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
 		}
 
 		const {content_base64, filename, mime} = data
 		trigger_blob_download(await base64_to_blob(content_base64, mime), filename)
 
+		return {ok: true}
+
 	} catch (error) {
 		console.error('tool_uca_maps: vector_download failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Vector download failed')
+		return {ok: false}
 	}
 }//end download_vector
 
@@ -1121,7 +1124,8 @@ export const download_vector = async function(self, layer, format) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
-* @returns {Promise<void>}
+* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal,
+*   for the section's line
 */
 export const download_object_pdf = async function(self, layer) {
 
@@ -1167,15 +1171,18 @@ export const download_object_pdf = async function(self, layer) {
 
 		const data = response_data(response)
 		if (!data) {
-			await handle_api_error(response.error, {})
-			return
+			const failed = self.get_tool_label('pdf_error_failed') || 'The PDF could not be created.'
+			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
 		}
 
 		trigger_blob_download(await base64_to_blob(data.content_base64, data.mime), data.filename)
 
+		return {ok: true}
+
 	} catch (error) {
 		console.error('tool_uca_maps: object_pdf_report failed unexpectedly', error)
 		report_client_error((error && error.message) || 'PDF export failed')
+		return {ok: false}
 	}
 }//end download_object_pdf
 

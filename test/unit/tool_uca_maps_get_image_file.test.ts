@@ -59,15 +59,19 @@ describe('the served-tier contract', () => {
 
 describe('get_image_file — refusals', () => {
 	test('a component that is not an image is refused, not scanned', async () => {
-		// test52 is the geolocation component of the generic test TLD — a real
-		// tipo, and deliberately the wrong model for this action
-		expect(
+		// test85 is a component_pdf of the generic test TLD: a media component,
+		// so core's media context accepts it and the tool's own check is what
+		// refuses. A public code: the reason is the user's to read
+		await expect(
 			getImageFile({
 				principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
 				userId: -1,
-				options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101 },
+				options: { section_tipo: 'test3', tipo: 'test85', section_id: 905101 },
 				background: false,
 			}),
-		).rejects.toThrow();
+		).rejects.toMatchObject({
+			code: 'tool.unsupported_target',
+			publicMessage: 'Only an image component can be used here.',
+		});
 	});
 });

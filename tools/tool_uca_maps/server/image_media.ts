@@ -57,7 +57,7 @@ export interface RenderableImage {
 export async function resolveRenderableImage(options: Record<string, unknown>) {
 	const { spec, identity, pathOpts, items } = await resolveMediaToolContext(options);
 	if (spec.model !== 'component_image') {
-		throw new DedaloError('request.invalid_model', {
+		throw new DedaloError('tool.unsupported_target', {
 			message: `tool_uca_maps: an image lookup needs a component_image, got '${spec.model}'`,
 			publicMessage: 'Only an image component can be used here.',
 			coordinates: { component_tipo: identity.componentTipo, model: spec.model },
@@ -74,7 +74,7 @@ export async function resolveRenderableImage(options: Record<string, unknown>) {
 	);
 	const served = renderable.find((entry) => entry.quality === spec.defaultQuality) ?? renderable[0];
 	if (!served || typeof served.file_path !== 'string') {
-		throw new DedaloError('tool.target_not_found', {
+		throw new DedaloError('tool.unsupported_target', {
 			message: `tool_uca_maps: no renderable image file for ${identity.componentTipo}_${identity.sectionTipo}_${identity.sectionId}`,
 			publicMessage: 'The uploaded image has no version this browser can display.',
 			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },

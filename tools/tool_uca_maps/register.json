@@ -52,6 +52,9 @@
 		{ "lang": "lg-eng", "name": "properties_pdf_button", "value": "Export as PDF" },
 		{ "lang": "lg-spa", "name": "properties_pdf_button", "value": "Exportar como PDF" },
 
+		{ "lang": "lg-eng", "name": "pdf_error_failed", "value": "The PDF could not be created." },
+		{ "lang": "lg-spa", "name": "pdf_error_failed", "value": "No se ha podido generar el PDF." },
+
 		{ "lang": "lg-eng", "name": "pdf_title", "value": "Object properties" },
 		{ "lang": "lg-spa", "name": "pdf_title", "value": "Propiedades del objeto" },
 
@@ -160,6 +163,9 @@
 		{ "lang": "lg-eng", "name": "image_download_title", "value": "Image download" },
 		{ "lang": "lg-spa", "name": "image_download_title", "value": "Descarga de imagen" },
 
+		{ "lang": "lg-eng", "name": "image_download_error_failed", "value": "The image could not be downloaded." },
+		{ "lang": "lg-spa", "name": "image_download_error_failed", "value": "No se ha podido descargar la imagen." },
+
 		{ "lang": "lg-eng", "name": "image_download_format_label", "value": "Export as" },
 		{ "lang": "lg-spa", "name": "image_download_format_label", "value": "Exportar como" },
 
@@ -189,6 +195,8 @@
 
 		{ "lang": "lg-eng", "name": "download_title", "value": "Vector download" },
 		{ "lang": "lg-spa", "name": "download_title", "value": "Descarga vectorial" },
+		{ "lang": "lg-eng", "name": "vector_download_error_failed", "value": "The object could not be downloaded." },
+		{ "lang": "lg-spa", "name": "vector_download_error_failed", "value": "No se ha podido descargar el objeto." },
 		{ "lang": "lg-eng", "name": "download_button", "value": "Download" },
 		{ "lang": "lg-spa", "name": "download_button", "value": "Descargar" },
 		{ "lang": "lg-eng", "name": "geoman_edition_label", "value": "Geoman editing active" },
@@ -205,6 +213,9 @@
 
 		{ "lang": "lg-eng", "name": "map_image_download_title", "value": "Download map as image" },
 		{ "lang": "lg-spa", "name": "map_image_download_title", "value": "Descargar mapa como imagen" },
+
+		{ "lang": "lg-eng", "name": "map_image_download_error_failed", "value": "The map image could not be downloaded." },
+		{ "lang": "lg-spa", "name": "map_image_download_error_failed", "value": "No se ha podido descargar la imagen del mapa." },
 
 		{ "lang": "lg-eng", "name": "map_image_name_label", "value": "Name" },
 		{ "lang": "lg-spa", "name": "map_image_name_label", "value": "Nombre" },

@@ -514,6 +514,37 @@ const IMAGE_DOWNLOAD_QUALITIES = [
 ]
 
 /**
+* RENDER_DOWNLOAD_MESSAGE
+* The line under a download button where a server refusal is shown with its
+* reason, which the page toast does not carry. Each new attempt clears it.
+*
+* @param {HTMLElement} parent
+* @returns {HTMLElement}
+*/
+const render_download_message = function(parent) {
+	const message = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-download-message',
+		parent			: parent
+	})
+	message.hidden = true
+	return message
+}//end render_download_message
+
+/**
+* SHOW_DOWNLOAD_RESULT
+* @param {HTMLElement} message - render_download_message's line
+* @param {{ok: boolean, error?: string}|undefined} result
+* @returns {void}
+*/
+const show_download_result = function(message, result) {
+	if (result && result.error) {
+		message.textContent	= result.error
+		message.hidden		= false
+	}
+}//end show_download_result
+
+/**
 * RENDER_IMAGE_DOWNLOAD
 * v6's "Descargar Imagen" (`special_tools.js:1217`), inline like the vector
 * download beside it instead of v6's modal: format, quality, name, button.
@@ -587,14 +618,16 @@ const render_image_download = function(self, layer, container) {
 		parent			: name_row
 	})
 	button.type = 'button'
+	const message = render_download_message(fieldset)
 	button.addEventListener('click', async () => {
 		// direction read off the DOM, never a cached flag (hito 3c corollary)
 		if (button.disabled) {
 			return
 		}
 		button.disabled = true
+		message.hidden = true
 		try {
-			await self.download_image(layer, format_select.value, parseFloat(quality_select.value), name_input.value)
+			show_download_result(message, await self.download_image(layer, format_select.value, parseFloat(quality_select.value), name_input.value))
 		} finally {
 			if (button.isConnected) {
 				button.disabled = false
@@ -1048,6 +1081,7 @@ const render_pdf_export = function(self, layer, container) {
 		parent			: container
 	})
 	pdf_btn.type = 'button'
+	const message = render_download_message(container)
 	pdf_btn.addEventListener('click', async function() {
 
 		// direction read off the DOM, never a cached flag (hito 3c corollary)
@@ -1055,8 +1089,9 @@ const render_pdf_export = function(self, layer, container) {
 			return
 		}
 		pdf_btn.disabled = true
+		message.hidden = true
 		try {
-			await self.download_object_pdf(layer)
+			show_download_result(message, await self.download_object_pdf(layer))
 		} finally {
 			if (pdf_btn.isConnected) {
 				pdf_btn.disabled = false
@@ -1123,7 +1158,11 @@ const render_download_button = function(self, layer, container) {
 		parent			: row
 	})
 	button.type = 'button'
-	button.addEventListener('click', () => self.download_vector(layer, select.value))
+	const message = render_download_message(fieldset)
+	button.addEventListener('click', async () => {
+		message.hidden = true
+		show_download_result(message, await self.download_vector(layer, select.value))
+	})
 
 }//end render_download_button
 

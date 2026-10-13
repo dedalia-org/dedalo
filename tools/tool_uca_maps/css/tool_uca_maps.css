@@ -197,6 +197,18 @@
 .uca-maps-map-image-panel .uca-maps-map-image-button:hover {
   filter: brightness(0.92);
 }
+.uca-maps-map-image-panel .uca-maps-map-image-message {
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  white-space: pre-line;
+  margin: 0 0.75rem 0.5rem;
+}
+.uca-maps-map-image-panel .uca-maps-map-image-message[hidden] {
+  display: none;
+}
 .uca-maps-object-viewer-panel > .uca-maps-object-viewer-title {
   margin: 0.5rem 0.75rem 0.2rem;
   font-size: 0.8rem;
@@ -759,6 +771,18 @@
 .uca-maps-console > .uca-maps-object-section .uca-maps-image-download-name {
   flex: 1 1 4rem;
   min-width: 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-download-message {
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  white-space: pre-line;
+  margin-top: 0.4rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-download-message[hidden] {
+  display: none;
 }
 .uca-maps-console > .uca-maps-object-section button {
   flex: 0 0 auto;

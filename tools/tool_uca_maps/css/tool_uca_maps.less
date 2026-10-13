@@ -408,6 +408,11 @@
 			filter: brightness(0.92);
 		}
 	}
+
+	.uca-maps-map-image-message {
+		.uca-maps-panel-inline-message();
+		margin: 0 0.75rem 0.5rem;
+	}
 }//end uca-maps-map-image-panel
 
 // "Objects" (functionality #4, object_viewer.js) — two read-only lists,
@@ -1028,6 +1033,13 @@
 		.uca-maps-image-download-name {
 			flex: 1 1 4rem;
 			min-width: 0;
+		}
+
+		// a download refusal, under its button (render_object_console.js
+		// render_download_message)
+		.uca-maps-download-message {
+			.uca-maps-panel-inline-message();
+			margin-top: 0.4rem;
 		}
 
 		// every button in this section — Add, ✕ delete, Download.

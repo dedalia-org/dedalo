@@ -11,6 +11,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { toErrorBody } from '../../src/core/errors/convert.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
@@ -306,6 +307,47 @@ describe.if(HAVE_GDAL)('tool_uca_maps image_download — the real warp', () => {
 			const jpg = await render(dir, deep, 'jpg');
 			expect(jpg.info.bands[0].type).toBe('Byte');
 			expect(await pixel(jpg.out, 1, 60, Math.floor(jpg.info.size[1] / 2))).toBeGreaterThan(200);
+		});
+	});
+
+	test('a CMYK master is refused with its reason on the wire: the image, not the server, is the problem', async () => {
+		await withDir(async (dir) => {
+			const plain = await master(dir, [
+				'-bands',
+				'4',
+				'-burn',
+				'10',
+				'-burn',
+				'20',
+				'-burn',
+				'30',
+				'-burn',
+				'40',
+			]);
+			const cmyk = join(dir, 'cmyk.tif');
+			await run([
+				mustGet(Bun.which('gdal_translate'), 'gdal_translate'),
+				'-q',
+				'-colorinterp',
+				'cyan,magenta,yellow,black',
+				plain,
+				cmyk,
+			]);
+
+			const refusal = await renderImageDownload(
+				mkdtempSync(join(dir, 'work_')),
+				cmyk,
+				ROTATED,
+				'png',
+				120,
+			).then(
+				() => null,
+				(error: unknown) => error,
+			);
+			expect(refusal).toMatchObject({ code: 'tool.unsupported_target' });
+			expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).message).toBe(
+				'This image is stored in CMYK, which cannot be downloaded from the map.',
+			);
 		});
 	});
 });

@@ -201,7 +201,7 @@ async function readRasterShape(path: string): Promise<RasterShape> {
 	// a CMYK source would come out with the wrong colours in every format —
 	// refused loudly rather than downloaded wrong
 	if (interps.some((interp) => ['Cyan', 'Magenta', 'Yellow', 'Black'].includes(interp))) {
-		throw new DedaloError('tool.action_failed', {
+		throw new DedaloError('tool.unsupported_target', {
 			coordinates: { tool: 'tool_uca_maps' },
 			message: 'image download: CMYK sources are not supported',
 			publicMessage: 'This image is stored in CMYK, which cannot be downloaded from the map.',
@@ -385,7 +385,7 @@ export async function imageDownload(ctx: ToolActionContext): Promise<ToolRespons
 			? buildMediaLocation(spec, identity, source.quality, source.extension, pathOpts)
 			: null;
 	if (!location || !existsSync(location.absolutePath)) {
-		throw new DedaloError('tool.target_not_found', {
+		throw new DedaloError('media.file_not_found', {
 			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },
 			message: `image_download: no file for ${String(ctx.options.file_path ?? served.file_path)}`,
 			publicMessage: 'The image shown on the map is no longer on the server.',
