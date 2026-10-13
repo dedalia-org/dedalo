@@ -39,7 +39,7 @@
 
 import {upload} from '../../../core/services/service_upload/js/service_upload.js'
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
+import {exception_text, tool_error_text} from './tool_error_text.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
@@ -845,8 +845,8 @@ export const image_download_width = function(map, corners, quality) {
 * @param {string} format - 'geotiff' | 'png' | 'jpg'
 * @param {number} quality - v6's factor
 * @param {string} [file_name]
-* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal,
-*   for the section's line
+* @returns {Promise<{ok: boolean, error?: string}>} `error`: an empty name, a
+*   server refusal or a client-side throw, for the section's line
 */
 export const download_image = async function(self, carrier, format, quality, file_name=DEFAULT_IMAGE_DOWNLOAD_NAME) {
 
@@ -858,9 +858,10 @@ export const download_image = async function(self, carrier, format, quality, fil
 
 	const base_name = sanitize_download_name(file_name)
 	if (base_name==='') {
-		report_client_error(self.get_tool_label('map_image_name_required') || 'Please enter a name for the file')
-		return {ok: false}
+		return {ok: false, error: self.get_tool_label('map_image_name_required') || 'Please enter a name for the file'}
 	}
+
+	const failed = self.get_tool_label('image_download_error_failed') || 'The image could not be downloaded.'
 
 	try {
 
@@ -880,7 +881,6 @@ export const download_image = async function(self, carrier, format, quality, fil
 
 		const data = response_data(response)
 		if (!data) {
-			const failed = self.get_tool_label('image_download_error_failed') || 'The image could not be downloaded.'
 			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
 		}
 
@@ -891,7 +891,7 @@ export const download_image = async function(self, carrier, format, quality, fil
 	} catch (error) {
 		console.error('tool_uca_maps: download_image failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Image download failed')
-		return {ok: false}
+		return {ok: false, error: exception_text(error, failed)}
 	}
 }//end download_image
 

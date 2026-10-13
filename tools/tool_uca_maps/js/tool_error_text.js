@@ -40,3 +40,25 @@ export const tool_error_text = function(api_error, lead) {
 		? lead + '\n' + reason
 		: error_text(api_error)
 }//end tool_error_text
+
+
+
+/**
+* EXCEPTION_TEXT
+* The same two lines for a client-side throw (a capture, a decode): no
+* envelope ever existed, so the reason is the exception's own message.
+*
+* @param {Error|*} error
+* @param {string} lead - the panel's sentence, already resolved (get_tool_label)
+* @returns {string}
+*/
+export const exception_text = function(error, lead) {
+
+	const reason = (error && typeof error.message==='string')
+		? error.message.trim()
+		: ''
+
+	return reason.length > 0
+		? lead + '\n' + reason
+		: lead
+}//end exception_text

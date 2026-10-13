@@ -77,7 +77,7 @@ import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.j
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
-import { tool_error_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
+import { tool_error_text, exception_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
@@ -332,6 +332,14 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		for (const code of REASON_CODES) {
 			const refusal = {is_api_error: true, code: code, label_key: 'x', message: 'Why it failed.'}
 			assert.equal(tool_error_text(refusal, 'LEAD'), 'LEAD\nWhy it failed.', 'expected the reason shown for ' + code)
+		}
+	})
+
+	it('exception_text: the lead, then the exception\'s own message when it has one', function() {
+
+		assert.equal(exception_text(new Error('Tainted canvas.'), 'LEAD'), 'LEAD\nTainted canvas.')
+		for (const bare of [new Error(''), new Error('   '), {}, null, 'a string']) {
+			assert.equal(exception_text(bare, 'LEAD'), 'LEAD', 'expected the lead alone for ' + JSON.stringify(bare))
 		}
 	})
 
@@ -820,51 +828,114 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('each download button shows its refusal on its own line, and the next attempt clears it', async function() {
+	/**
+	* Two attempts in flight could answer out of order: a slow refusal would
+	* land under a later download that worked. The button is busy until its
+	* answer is in.
+	*/
+	it('each download button shows its failure on its own line, asks once at a time, and the next attempt clears it', async function() {
 
 		tool.attach_console()
 		tool.attach_map_image_download_control()
 		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
 
-		const answers	= []
+		const calls		= {}
 		const originals	= {}
-		for (const name of ['download_vector', 'download_object_pdf', 'download_map_image']) {
+		let answer		= null
+		for (const name of ['download_vector', 'download_object_pdf', 'download_image', 'download_map_image']) {
 			originals[name] = tool[name]
-			tool[name] = async function() {
-				return answers.shift()
+			tool[name] = function() {
+				calls[name] = (calls[name] || 0) + 1
+				return new Promise(resolve => { answer = resolve })
 			}
 		}
 		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+		const object_section = () => tool.panel_node.querySelector('.uca-maps-object-section')
 
 		try {
 			const rows = [
-				{label: 'vector', box: section.querySelector('.uca-maps-download-section'), button: '.uca-maps-download-button', line: '.uca-maps-download-message'},
-				{label: 'pdf', box: section.querySelector('.uca-maps-properties-editor'), button: '.uca-maps-property-pdf-button', line: '.uca-maps-download-message'},
-				{label: 'map image', box: tool.map_image_panel, button: '.uca-maps-map-image-button', line: '.uca-maps-map-image-message'}
+				{
+					label	: 'vector', name: 'download_vector', open: () => layer.openPopup(),
+					box		: () => object_section().querySelector('.uca-maps-download-section'),
+					button	: '.uca-maps-download-button', line: '.uca-maps-download-message'
+				},
+				{
+					label	: 'pdf', name: 'download_object_pdf', open: () => layer.openPopup(),
+					box		: () => object_section().querySelector('.uca-maps-properties-editor'),
+					button	: '.uca-maps-property-pdf-button', line: '.uca-maps-download-message'
+				},
+				{
+					label	: 'image', name: 'download_image',
+					open	: () => geolocation.map.fire('popupopen', {popup: {_source: add_image_carrier()}}),
+					box		: () => tool.panel_node.querySelector('.uca-maps-image-download-section'),
+					button	: '.uca-maps-image-download-button', line: '.uca-maps-download-message'
+				},
+				{
+					label	: 'map image', name: 'download_map_image', open: () => {},
+					box		: () => tool.map_image_panel,
+					button	: '.uca-maps-map-image-button', line: '.uca-maps-map-image-message'
+				}
 			]
 			for (const row of rows) {
-				const line		= row.box.querySelector(row.line)
-				const button	= row.box.querySelector(row.button)
-				assert.isOk(line, 'expected a refusal line: ' + row.label)
+				row.open()
+				const box		= row.box()
+				const line		= box.querySelector(row.line)
+				const button	= box.querySelector(row.button)
+				assert.isOk(line, 'expected a failure line: ' + row.label)
 				assert.isTrue(line.hidden, 'expected no line before any attempt: ' + row.label)
 
-				answers.push({ok: false, error: 'LEAD\nREASON'})
 				button.click()
+				assert.isTrue(button.disabled, 'expected the button busy while it asks: ' + row.label)
+				button.click()
+				assert.equal(calls[row.name], 1, 'expected a click in flight to ask nothing more: ' + row.label)
+
+				answer({ok: false, error: 'LEAD\nREASON'})
 				await settle()
-				assert.isFalse(line.hidden, 'expected the refusal shown: ' + row.label)
+				assert.isFalse(button.disabled, 'expected the button free once answered: ' + row.label)
+				assert.isFalse(line.hidden, 'expected the failure shown: ' + row.label)
 				assert.equal(line.textContent, 'LEAD\nREASON', row.label)
 
-				answers.push({ok: true})
 				button.click()
-				await settle()
 				assert.isTrue(line.hidden, 'expected the next attempt to clear it: ' + row.label)
+				answer({ok: true})
+				await settle()
+				assert.isTrue(line.hidden, 'expected no line after a download that worked: ' + row.label)
 			}
 		} finally {
 			for (const name in originals) {
 				tool[name] = originals[name]
 			}
+		}
+	})
+
+	it('a download that throws in the browser answers its lead and the exception, and keeps the page toast', async function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+		const layer		= geolocation.FeatureGroup[1].getLayers()[0]
+		const carrier	= add_image_carrier()
+
+		// no envelope ever reached data_manager, so nothing else toasts it
+		const toasts	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+		const original_tool_request = tool.tool_request
+		tool.tool_request = async function() {
+			throw new Error('Boom.')
+		}
+		try {
+			const rows = [
+				{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
+				{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
+				{label: 'image', run: () => tool.download_image(carrier, 'png', 0.8, 'plan'), lead: 'The image could not be downloaded.'},
+				{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
+			]
+			for (const row of rows) {
+				assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\nBoom.'}, row.label)
+			}
+			assert.equal(toasts.length, rows.length, 'expected one page toast per throw')
+		} finally {
+			event_manager.unsubscribe(token)
+			tool.tool_request = original_tool_request
 		}
 	})
 
@@ -1598,23 +1669,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return original_tool_request.call(tool, options)
 		}
 
-		// The refusal has to be VISIBLE, not just "nothing happened": the toast
-		// is the whole difference between refusing and failing silently
-		// (review-diff, 2026-09-22).
+		// The refusal has to be VISIBLE, not just "nothing happened": it comes
+		// back for the panel's line, under the field it is about, and nothing
+		// toasts — no request failed.
 		const errors = []
 		const token = event_manager.subscribe('api_error', (error) => errors.push(error))
 
 		// A name that sanitizes to nothing is a refusal, never a silent
 		// fallback to the default (download_filename.js).
-		const captured = await capture_download(() => download_map_image(tool, 'png', '   '))
+		let result = null
+		const captured = await capture_download(async () => {
+			result = await download_map_image(tool, 'png', '   ')
+		})
 
 		event_manager.unsubscribe(token)
 
 		assert.isNotOk(captured.blob, 'expected no capture at all')
 		assert.isNotOk(captured.name, 'expected no download triggered')
 		assert.equal(tool_request_called, false, 'expected no server round-trip either')
-		assert.equal(errors.length, 1, 'expected exactly one api_error toast telling the user why')
-		assert.equal(errors[0].code, 'client.tool_uca_maps_failed', 'expected the tool\'s own client-origin error code')
+		assert.deepEqual(result, {ok: false, error: 'Please enter a name for the file'}, 'expected the reason for the panel\'s line')
+		assert.equal(errors.length, 0, 'expected no page toast for a field the user left empty')
 
 		tool.tool_request = original_tool_request
 	})
@@ -4834,8 +4908,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original = tool.tool_request
 		tool.tool_request = async function() { asked = true; return {ok: false} }
 		try {
-			await tool.download_image(carrier, 'png', 0.8, '   ')
+			const result = await tool.download_image(carrier, 'png', 0.8, '   ')
 			assert.equal(asked, false, 'expected no request for an empty name')
+			assert.deepEqual(result, {ok: false, error: 'Please enter a name for the file'}, 'expected the reason for the section\'s line')
 		} finally {
 			tool.tool_request = original
 		}

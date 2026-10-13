@@ -32,7 +32,7 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
+import {exception_text, tool_error_text} from './tool_error_text.js'
 import {trigger_blob_download, base64_to_blob, report_client_error} from './object_console.js'
 import {
 	create_toolbar_button,
@@ -218,7 +218,7 @@ const projected_bounds = function(map) {
 * canvas from a cross-origin tile layer throwing a `SecurityError` on
 * capture) goes through `report_client_error` instead of only
 * `console.error` (review-diff finding, hito 3b: the original catch
-* contradicted this very doc comment by only logging).
+* contradicted this very doc comment by only logging), and to the same line.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {'png'|'jpg'|'gif'|'webp'|'geotiff'} format
@@ -226,8 +226,8 @@ const projected_bounds = function(map) {
 *   field, v6 parity). OMITTED and EMPTY are different: a caller that passes
 *   nothing gets the default base name, an empty field is refused the way v6
 *   refuses it ("Por favor, indique un nombre para el archivo").
-* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal,
-*   for the panel's line
+* @returns {Promise<{ok: boolean, error?: string}>} `error`: an empty name, a
+*   server refusal or a client-side throw, for the panel's line
 */
 export const download_map_image = async function(self, format, file_name=DEFAULT_MAP_IMAGE_NAME) {
 
@@ -237,9 +237,10 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 
 	const base_name = sanitize_download_name(file_name)
 	if (base_name==='') {
-		report_client_error(self.get_tool_label('map_image_name_required') || 'Please enter a name for the file')
-		return {ok: false}
+		return {ok: false, error: self.get_tool_label('map_image_name_required') || 'Please enter a name for the file'}
 	}
+
+	const failed = self.get_tool_label('map_image_download_error_failed') || 'The map image could not be downloaded.'
 
 	try {
 
@@ -294,7 +295,6 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 		const data = response_data(response)
 
 		if (!data) {
-			const failed = self.get_tool_label('map_image_download_error_failed') || 'The map image could not be downloaded.'
 			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
 		}
 
@@ -306,7 +306,7 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 	} catch (error) {
 		console.error('tool_uca_maps: download_map_image failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Map image download failed')
-		return {ok: false}
+		return {ok: false, error: exception_text(error, failed)}
 	}
 }//end download_map_image
 

@@ -54,7 +54,7 @@
 
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
+import {exception_text, tool_error_text} from './tool_error_text.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 import {is_onexone_rectangle} from './onexone_flags.js'
 import {
@@ -1057,16 +1057,19 @@ export const report_client_error = function(message) {
 * try/catch; an unexpected client-side exception goes through
 * `report_client_error` instead of only `console.error` (review-diff finding,
 * hito 3b: the original catch only logged, contradicting this very doc
-* comment) — never an unhandled promise rejection from the caller's click
-* handler (`render_object_console.js`), and never a silent no-op either.
+* comment), and to the same line as a refusal — never an unhandled promise
+* rejection from the caller's click handler (`render_object_console.js`),
+* and never a silent no-op either.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
 * @param {'geojson'|'shp'|'kml'} format
-* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal,
-*   for the section's line
+* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal
+*   or a client-side throw, for the section's line
 */
 export const download_vector = async function(self, layer, format) {
+
+	const failed = self.get_tool_label('vector_download_error_failed') || 'The object could not be downloaded.'
 
 	try {
 
@@ -1092,7 +1095,6 @@ export const download_vector = async function(self, layer, format) {
 		const data = response_data(response)
 
 		if (!data) {
-			const failed = self.get_tool_label('vector_download_error_failed') || 'The object could not be downloaded.'
 			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
 		}
 
@@ -1104,7 +1106,7 @@ export const download_vector = async function(self, layer, format) {
 	} catch (error) {
 		console.error('tool_uca_maps: vector_download failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Vector download failed')
-		return {ok: false}
+		return {ok: false, error: exception_text(error, failed)}
 	}
 }//end download_vector
 
@@ -1124,10 +1126,12 @@ export const download_vector = async function(self, layer, format) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
-* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal,
-*   for the section's line
+* @returns {Promise<{ok: boolean, error?: string}>} `error`: a server refusal
+*   or a client-side throw, for the section's line
 */
 export const download_object_pdf = async function(self, layer) {
+
+	const failed = self.get_tool_label('pdf_error_failed') || 'The PDF could not be created.'
 
 	try {
 
@@ -1171,7 +1175,6 @@ export const download_object_pdf = async function(self, layer) {
 
 		const data = response_data(response)
 		if (!data) {
-			const failed = self.get_tool_label('pdf_error_failed') || 'The PDF could not be created.'
 			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
 		}
 
@@ -1182,7 +1185,7 @@ export const download_object_pdf = async function(self, layer) {
 	} catch (error) {
 		console.error('tool_uca_maps: object_pdf_report failed unexpectedly', error)
 		report_client_error((error && error.message) || 'PDF export failed')
-		return {ok: false}
+		return {ok: false, error: exception_text(error, failed)}
 	}
 }//end download_object_pdf
 
