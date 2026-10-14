@@ -97,7 +97,7 @@
 		"flatpickr": "4.6.13",
 		"leaflet": "1.9.4",
 		"mmdb-lib": "3.0.3",
-		"nodemailer": "^10.0.15",
+		"nodemailer": "^10.1.0",
 		"onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
 		"split.js": "1.6.5",
 		"three": "0.186.1",
