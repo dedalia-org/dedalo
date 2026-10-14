@@ -106,6 +106,7 @@
 		toggle_centroid,
 		toggle_uncertainty,
 		set_hierarchy,
+		format_polygon_area,
 		sync_measurements,
 		is_geoman_edition,
 		has_geoman_edition,
@@ -912,6 +913,10 @@ tool_uca_maps.prototype.center_on_object = function(layer) {
 tool_uca_maps.prototype.compute_info = function(layer) {
 	return compute_info(this, layer)
 }//end compute_info
+
+tool_uca_maps.prototype.format_polygon_area = function(area_m2) {
+	return format_polygon_area(area_m2)
+}//end format_polygon_area
 
 tool_uca_maps.prototype.fetch_elevation = function(layer) {
 	return fetch_elevation(this, layer)

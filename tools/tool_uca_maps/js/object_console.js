@@ -1356,13 +1356,12 @@ const unlock_orphaned_centroid = function(self, removed_layer) {
 
 /**
 * GET_UNCERTAINTY
-* Ports v6's `special_tools.js` `get_incertidumbre` exactly, INCLUDING its
-* confirmed bug (plan_implementacion.md hito 2, Sergio's decision
-* 2026-09-02: preserve byte-parity) — `value` stores `1/area`, not `area`,
-* despite the ' m²' suffix implying otherwise. Do not "fix" this.
+* v6's `special_tools.js` `get_incertidumbre` tiers, minus its bug: v6
+* stored `1/area` as a string with an ' m²' suffix. The area is stored as
+* the plain number it is; the console formats it when it shows it.
 *
 * @param {number} area_m2 - `turf.area(layer.toGeoJSON())` result
-* @returns {{scale_tier: number, value: string}}
+* @returns {{scale_tier: number, area_m2: number}}
 */
 const get_uncertainty = function(area_m2) {
 
@@ -1376,7 +1375,7 @@ const get_uncertainty = function(area_m2) {
 
 	return {
 		scale_tier	: scale_tier,
-		value		: (1 / area_m2).toFixed(20) + ' m²' // (!) bug preserved verbatim from v6 — see file header
+		area_m2		: area_m2
 	}
 }//end get_uncertainty
 
@@ -1412,13 +1411,10 @@ export const toggle_uncertainty = function(self, layer) {
 
 /**
 * SET_HIERARCHY
-* Ports v6's `special_tools.js` `create_div_hierarchy` click handlers
-* exactly, INCLUDING the confirmed bug (Sergio's decision, 2026-09-02):
-* unchecking either box calls the OPPOSITE `bringTo*()` — a visible jump
-* straight to the other end, never back to a neutral z-order — WITHOUT
-* setting that opposite box's own flag true. So after a reload the
-* checkboxes can show NEITHER box checked despite the layer having visually
-* jumped to front/back. Do not "fix" this (preserve the exact asymmetry).
+* v6's `special_tools.js` `create_div_hierarchy` boxes, minus its bug: v6's
+* uncheck called the OPPOSITE `bringTo*()` without setting that flag, so the
+* map showed an order no reload could reproduce. Unchecking clears the flag
+* and restores the order a reload would draw (`restore_natural_order`).
 *
 * Circle/polygon/polyline only — matches v6 (`create_div_hierarchy` is
 * never called from the marker branch of `set_info_console`).
@@ -1435,28 +1431,53 @@ export const set_hierarchy = function(self, layer, edge, checked) {
 	properties.uca_maps	= properties.uca_maps || {}
 	const hierarchy		= properties.uca_maps.hierarchy = properties.uca_maps.hierarchy || {}
 
-	if (edge==='back') {
-		if (checked) {
-			hierarchy.bringToBack	= true
-			hierarchy.bringToFront	= false
-			layer.bringToBack()
-		} else {
-			hierarchy.bringToBack = false // (!) bringToFront NOT set true — bug preserved, file header
-			layer.bringToFront()
-		}
+	if (checked) {
+		hierarchy.bringToFront	= edge==='front'
+		hierarchy.bringToBack	= edge==='back'
+		reapply_hierarchy(layer)
 	} else {
-		if (checked) {
-			hierarchy.bringToFront	= true
-			hierarchy.bringToBack	= false
-			layer.bringToFront()
-		} else {
-			hierarchy.bringToFront = false // (!) bringToBack NOT set true — bug preserved, file header
-			layer.bringToBack()
-		}
+		hierarchy[edge==='front' ? 'bringToFront' : 'bringToBack'] = false
+		restore_natural_order(self)
 	}
 
 	commit(self, layer)
 }//end set_hierarchy
+
+
+
+/**
+* RESTORE_NATURAL_ORDER
+* Leaflet has no neutral z-order to put one path back into, so the whole
+* stack is rebuilt as a load builds it: every path in FeatureGroup order,
+* then each one's saved flags in that same order (`reapply_hierarchy`).
+*
+* @param {Object} self
+* @returns {void}
+*/
+const restore_natural_order = function(self) {
+
+	const map				= self.geolocation && self.geolocation.map
+	const feature_groups	= self.geolocation && self.geolocation.FeatureGroup
+	if (!map || !feature_groups) {
+		return
+	}
+
+	const paths = []
+	for (const layer_id in feature_groups) {
+		feature_groups[layer_id].eachLayer((layer) => {
+			if (layer instanceof L.Path && map.hasLayer(layer)) {
+				paths.push(layer)
+			}
+		})
+	}
+
+	for (const path of paths) {
+		path.bringToFront()
+	}
+	for (const path of paths) {
+		reapply_hierarchy(path)
+	}
+}//end restore_natural_order
 
 
 
@@ -1644,7 +1665,15 @@ export const fetch_elevation = async function(self, layer) {
 
 
 
-const format_polygon_area = function(area_m2) {
+/**
+* FORMAT_POLYGON_AREA
+* m² below a hectare, ha below a km², km² above — two decimals. Exported so
+* the console prints a stored area the way it writes `properties.area`.
+*
+* @param {number} area_m2
+* @returns {string}
+*/
+export const format_polygon_area = function(area_m2) {
 	if (area_m2>=1000000) {
 		return Math.round((area_m2 / 1000000) * 100) / 100 + ' km²'
 	}

@@ -136,7 +136,7 @@ const UNCERTAINTY_TIERS = 6
 * The green-to-red band strip with the ring on the current tier — v6 draws
 * it in BOTH consoles it appears in (`create_div_incertidumbre` for the
 * polygon, `create_div_oneXone` for the 1x1 marker), so it is built once
-* here. `title` carries the stored value, as v6's `img.title` did.
+* here. `title` carries the stored area, as v6's `img.title` did.
 *
 * @param {number} tier - 1..6
 * @param {string|null} title
@@ -213,7 +213,7 @@ const render_onexone_reference = function(self, layer, container) {
 		text_content	: (self.get_tool_label('uncertainty_label') || 'Uncertainty') + ':',
 		parent			: container
 	})
-	render_uncertainty_scale(1, '1', container)
+	render_uncertainty_scale(1, self.format_polygon_area(1), container)
 
 }//end render_onexone_reference
 
@@ -757,8 +757,7 @@ const render_centroid_control = function(self, layer, container) {
 /**
 * RENDER_UNCERTAINTY_CONTROL
 * Polygon only — matches v6 exactly (`object_console.js` `toggle_uncertainty`
-* file header). Shows the scale tier + the preserved buggy value alongside
-* the checkbox once enabled, so the bug is visible, not silently stored.
+* file header). Shows the scale tier and the stored area once enabled.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -786,12 +785,15 @@ const render_uncertainty_control = function(self, layer, container) {
 	input.addEventListener('change', () => self.toggle_uncertainty(layer))
 
 	if (uncertainty) {
-		render_uncertainty_scale(uncertainty.scale_tier, uncertainty.value, container)
+		const area = typeof uncertainty.area_m2==='number'
+			? self.format_polygon_area(uncertainty.area_m2)
+			: null
+		render_uncertainty_scale(uncertainty.scale_tier, area, container)
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'uca-maps-uncertainty-badge',
 			text_content	: (self.get_tool_label('uncertainty_scale_tier') || 'Scale tier')
-				+ ' ' + uncertainty.scale_tier + ' — ' + uncertainty.value,
+				+ ' ' + uncertainty.scale_tier + (area ? ' — ' + area : ''),
 			parent			: container
 		})
 	}
@@ -804,10 +806,8 @@ const render_uncertainty_control = function(self, layer, container) {
 * RENDER_HIERARCHY_CONTROLS
 * Circle/polygon/polyline (not marker) — matches v6
 * (`object_console.js` `set_hierarchy` file header). The two checkboxes are
-* mutually exclusive ON CHECK (checking one visually unchecks the other,
-* matching v6's own UI); UNCHECK deliberately does NOT force-check the
-* other — after re-render both can show unchecked despite the layer having
-* visually jumped (the preserved bug — see `set_hierarchy`).
+* mutually exclusive ON CHECK (checking one unchecks the other, as in v6);
+* unchecking leaves both clear and the layer back in its natural order.
 *
 * @param {Object} self
 * @param {Object} layer

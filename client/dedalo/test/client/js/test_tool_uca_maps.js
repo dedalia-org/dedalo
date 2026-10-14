@@ -58,6 +58,7 @@ import {
 	toggle_centroid,
 	toggle_uncertainty,
 	set_hierarchy,
+	format_polygon_area,
 	apply_display,
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
@@ -1213,19 +1214,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('toggle_uncertainty preserves the v6 1/area bug (value is 1/area, not area)', function() {
+	it('toggle_uncertainty stores the area as a number, never v6\'s 1/area string', function() {
 
 		const layer = geolocation.FeatureGroup[1].getLayers()[0]
 		const area_m2 = turf.area(layer.toGeoJSON())
+		assert.isAbove(area_m2, 1, 'expected a seeded polygon bigger than 1 m², or 1/area and area coincide')
 
 		toggle_uncertainty(tool, layer)
 
 		const uncertainty = layer.feature.properties.uca_maps.uncertainty
 		assert.isOk(uncertainty, 'expected uncertainty recorded')
-		assert.equal(
-			uncertainty.value, (1 / area_m2).toFixed(20) + ' m²',
-			'expected the preserved v6 bug: 1/area, not area, formatted as if it were m²'
-		)
+		assert.strictEqual(uncertainty.area_m2, area_m2, 'expected the area itself, as a number')
+		assert.notProperty(uncertainty, 'value', 'expected no v6 string value beside it')
 		assert.isAtLeast(uncertainty.scale_tier, 1, 'expected a scale tier assigned')
 		assert.isAtMost(uncertainty.scale_tier, 6, 'expected a scale tier within the 6-tier v6 scale')
 
@@ -1233,22 +1233,67 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(layer.feature.properties.uca_maps.uncertainty, undefined, 'expected uncertainty cleared on second toggle')
 	})
 
-	it('set_hierarchy preserves the v6 opposite-jump-on-uncheck bug', function() {
+	it('the uncertainty badge prints the stored area, formatted', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.attach_console()
+		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		toggle_uncertainty(tool, polygon)
 
-		set_hierarchy(tool, layer, 'back', true)
-		let hierarchy = layer.feature.properties.uca_maps.hierarchy
-		assert.equal(hierarchy.bringToBack, true, 'expected bringToBack true after checking it')
-		assert.equal(hierarchy.bringToFront, false, 'expected bringToFront forced false (mutually exclusive on check)')
-
-		set_hierarchy(tool, layer, 'back', false)
-		hierarchy = layer.feature.properties.uca_maps.hierarchy
-		assert.equal(hierarchy.bringToBack, false, 'expected bringToBack false after unchecking it')
+		polygon.openPopup()
+		const badge	= tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-uncertainty-badge')
+		const area	= format_polygon_area(polygon.feature.properties.uca_maps.uncertainty.area_m2)
+		assert.isOk(badge, 'expected the badge beside the checked box')
+		assert.isTrue(badge.textContent.endsWith(' — ' + area), 'expected the badge to end with "' + area + '", got "' + badge.textContent + '"')
 		assert.equal(
-			hierarchy.bringToFront, false,
-			'expected the preserved v6 bug: bringToFront NOT set true even though the layer visually jumped to front'
+			tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-uncertainty-scale').getAttribute('title'), area,
+			'expected the scale\'s title to carry the same area'
 		)
+	})
+
+	it('set_hierarchy: unchecking clears the flag and restores the order a reload draws', function() {
+
+		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]
+		const circle	= geolocation.FeatureGroup[2].getLayers()[0]
+		const index_of	= (layer) => Array.prototype.indexOf.call(layer._path.parentNode.childNodes, layer._path)
+		const flags_of	= (layer) => {
+			const hierarchy = layer.feature.properties.uca_maps.hierarchy
+			return [hierarchy.bringToFront, hierarchy.bringToBack]
+		}
+		assert.strictEqual(polygon._path.parentNode, circle._path.parentNode, 'expected both paths in one SVG renderer, or their order is not comparable')
+		// natural order = FeatureGroup order; each case below is one v6 would get wrong
+		assert.isBelow(index_of(polygon), index_of(circle), 'precondition: the polygon (FeatureGroup 1) drawn under the circle (FeatureGroup 2)')
+
+		// the check moves a layer across the other; the uncheck must move it back
+		set_hierarchy(tool, polygon, 'front', true)
+		assert.isAbove(index_of(polygon), index_of(circle), 'expected checking front to raise the polygon over the circle')
+		set_hierarchy(tool, polygon, 'front', false)
+		assert.isBelow(index_of(polygon), index_of(circle), 'expected unchecking to put the polygon back under the circle, as a reload draws it')
+
+		set_hierarchy(tool, circle, 'back', true)
+		assert.isBelow(index_of(circle), index_of(polygon), 'expected checking back to sink the circle under the polygon')
+		set_hierarchy(tool, circle, 'back', false)
+		assert.isBelow(index_of(polygon), index_of(circle), 'expected unchecking to put the circle back over the polygon, as a reload draws it')
+
+		// v6 jumped the polygon to the FRONT here
+		set_hierarchy(tool, polygon, 'back', true)
+		assert.deepEqual(flags_of(polygon), [false, true], 'expected only bringToBack set on check')
+		set_hierarchy(tool, polygon, 'back', false)
+		assert.deepEqual(flags_of(polygon), [false, false], 'expected both flags clear after unchecking')
+		assert.isBelow(index_of(polygon), index_of(circle), 'expected the polygon back under the circle, not jumped to the front')
+
+		// v6 jumped the circle to the BACK here
+		set_hierarchy(tool, circle, 'front', true)
+		assert.deepEqual(flags_of(circle), [true, false], 'expected only bringToFront set on check')
+		set_hierarchy(tool, circle, 'front', false)
+		assert.deepEqual(flags_of(circle), [false, false], 'expected both flags clear after unchecking')
+		assert.isBelow(index_of(polygon), index_of(circle), 'expected the circle back over the polygon, not jumped to the back')
+
+		// unchecking one object keeps every OTHER saved flag in force
+		set_hierarchy(tool, circle, 'back', true)
+		set_hierarchy(tool, polygon, 'front', true)
+		set_hierarchy(tool, polygon, 'front', false)
+		assert.deepEqual(flags_of(circle), [false, true], 'expected the circle\'s own flag untouched')
+		assert.isBelow(index_of(circle), index_of(polygon), 'expected the circle still at the back after the polygon\'s uncheck')
 	})
 
 	it('render_selected_object builds the full 2b section set for a polygon', function() {
