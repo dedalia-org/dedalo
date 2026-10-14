@@ -1663,11 +1663,46 @@ export const fetch_elevation = async function(self, layer) {
 	// moved, and Open-Elevation rate-limits until the line reads "not
 	// available" (review finding, hito 16).
 	// Keyed on the layer AND the coordinates, so MOVING a shape does re-ask.
+	// The PROMISE is cached the moment the request leaves: a burst of renders
+	// before the first answer shares one request instead of each sending its own.
 	const cache_key = center.lat + ',' + center.lng
 	const cached = self._elevation
 	if (cached && cached.layer===layer && cached.key===cache_key) {
-		return {elevation: cached.elevation, unavailable: cached.elevation===null}
+		return cached.promise
 	}
+
+	// `elevation` is filled on arrival for the PDF export, which must print the
+	// number the user is LOOKING AT — asking the service a second time could
+	// legitimately answer differently and make the document disagree with the panel
+	const entry = {layer: layer, key: cache_key, elevation: null, promise: null}
+	entry.promise = request_elevation(self, center).then(function(result) {
+		if (result.failed) {
+			// a refused or thrown request is not an answer: the next render asks again
+			if (self._elevation===entry) {
+				self._elevation = null
+			}
+		} else {
+			entry.elevation = result.elevation
+		}
+		return {elevation: result.elevation, unavailable: result.unavailable}
+	})
+	self._elevation = entry
+
+	return entry.promise
+}//end fetch_elevation
+
+
+
+/**
+* REQUEST_ELEVATION
+* The one round trip behind `fetch_elevation`. `failed` separates a refusal or
+* a throw (not cached) from an answer that has no elevation (cached).
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} center - L.LatLng
+* @returns {Promise<{elevation: number|null, unavailable: boolean, failed: boolean}>}
+*/
+const request_elevation = async function(self, center) {
 
 	try {
 
@@ -1683,28 +1718,20 @@ export const fetch_elevation = async function(self, layer) {
 		})
 
 		if (request_failed(response)) {
-			return {elevation: null, unavailable: true}
+			return {elevation: null, unavailable: true, failed: true}
 		}
 
 		const data = response_data(response)
 
-		const result = (data && typeof data.elevation==='number')
-			? {elevation: data.elevation, unavailable: false}
-			: {elevation: null, unavailable: true}
-
-		// remembered for the re-render guard above AND for the PDF export, which
-		// must print the number the user is LOOKING AT — asking the service a
-		// second time could legitimately answer differently and make the
-		// document disagree with the panel
-		self._elevation = {layer: layer, key: cache_key, elevation: result.elevation}
-
-		return result
+		return (data && typeof data.elevation==='number')
+			? {elevation: data.elevation, unavailable: false, failed: false}
+			: {elevation: null, unavailable: true, failed: false}
 
 	} catch (error) {
 		console.error('tool_uca_maps: get_elevation failed unexpectedly', error)
-		return {elevation: null, unavailable: true}
+		return {elevation: null, unavailable: true, failed: true}
 	}
-}//end fetch_elevation
+}//end request_elevation
 
 
 

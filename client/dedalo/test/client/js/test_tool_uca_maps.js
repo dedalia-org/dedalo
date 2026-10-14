@@ -652,6 +652,51 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.tool_request = original_tool_request
 	})
 
+	// every commit() re-renders the console, so renders arrive faster than the
+	// third-party answer: caching only the ANSWER let each of them send its own
+	it('fetch_elevation sends one request for renders that arrive before the answer; a failure is asked again', async function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+
+		const original_tool_request = tool.tool_request
+		let calls = 0
+		let release = null
+		const answer = new Promise(function(resolve) { release = resolve })
+		tool.tool_request = async function() {
+			calls++
+			await answer
+			return { ok:true, data:{ elevation: 412, unavailable:false } }
+		}
+		try {
+			const burst = [fetch_elevation(tool, layer), fetch_elevation(tool, layer), fetch_elevation(tool, layer)]
+			assert.equal(calls, 1, 'expected ONE request while the first is still in flight')
+			release()
+			const results = await Promise.all(burst)
+			assert.deepEqual(results.map(result => result.elevation), [412, 412, 412], 'expected every render to get the answer')
+			assert.equal(tool._elevation.elevation, 412, 'expected the answer kept for the PDF export')
+
+			await fetch_elevation(tool, layer)
+			assert.equal(calls, 1, 'expected the answered centre not to be asked again')
+
+			// a refusal and a throw are not answers: neither may stick
+			const refusal = {is_api_error: true, code: 'request.invalid_options', message: 'x', transport: false}
+			for (const failing of [
+				async function() { calls++; return {ok: false, error: refusal} },
+				async function() { calls++; throw new Error('network down') }
+			]) {
+				tool._elevation	= null
+				calls			= 0
+				tool.tool_request = failing
+				await fetch_elevation(tool, layer)
+				await fetch_elevation(tool, layer)
+				assert.equal(calls, 2, 'expected a failed request to be asked again on the next render')
+				assert.isNull(tool._elevation, 'expected no cache entry left by a failure')
+			}
+		} finally {
+			tool.tool_request = original_tool_request
+		}
+	})
+
 
 	/**
 	* ASSOCIATED IMAGES + GALLERY (fila #3, hito 16). The upload pipeline
