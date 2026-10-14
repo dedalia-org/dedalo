@@ -285,6 +285,11 @@ export const check_catastro_at_point = async function(self, latlng) {
 		create_catastro_parcel(self, data)
 
 	} catch (error) {
+		// torn down while in flight: the page toast would report work the
+		// user already left behind
+		if (!self.catastro_control) {
+			return
+		}
 		console.error('tool_uca_maps: catastro lookup failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Catastro lookup failed')
 	} finally {

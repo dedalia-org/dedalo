@@ -355,6 +355,11 @@ export const search_roman = async function(self, source, params) {
 		return {ok: true, results: results}
 
 	} catch (error) {
+		// torn down while in flight: the page toast would report work the
+		// user already left behind
+		if (!self.roman_panel) {
+			return {ok: false}
+		}
 		console.error('tool_uca_maps: roman gazetteer search failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Gazetteer search failed')
 		return {ok: false, error: self.get_tool_label('roman_error_failed') || 'The search could not be completed.'}
@@ -427,6 +432,11 @@ export const add_roman_result = async function(self, index) {
 		return {ok: true, created: created}
 
 	} catch (error) {
+		// torn down while in flight: the page toast would report work the
+		// user already left behind
+		if (!self.roman_panel) {
+			return {ok: false}
+		}
 		console.error('tool_uca_maps: adding a gazetteer result failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Adding the place failed')
 		return {ok: false, error: self.get_tool_label('roman_error_failed') || 'The search could not be completed.'}

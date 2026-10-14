@@ -223,6 +223,11 @@ export const search_wms_layers = async function(self, raw_url) {
 		return {ok: true, layers: parsed.layers}
 
 	} catch (error) {
+		// torn down while in flight: the page toast would report work the
+		// user already left behind
+		if (!self.wms_panel) {
+			return {ok: false}
+		}
 		console.error('tool_uca_maps: search_wms_layers failed unexpectedly', error)
 		report_client_error((error && error.message) || 'WMS layer search failed')
 		return {ok: false, error: self.get_tool_label('wms_error_parse') || 'Could not read the server response.'}

@@ -274,6 +274,11 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 		create_administrative_unit_object(self, data.feature)
 
 	} catch (error) {
+		// torn down while in flight: the page toast would report work the
+		// user already left behind
+		if (!self.ua_panel) {
+			return
+		}
 		console.error('tool_uca_maps: administrative unit lookup failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Administrative unit lookup failed')
 	} finally {

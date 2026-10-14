@@ -3150,6 +3150,58 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._wms_search_results, null, 'expected the late response NOT to resurrect state on the torn-down instance')
 	})
 
+	// one row per lookup that can throw: a live failure keeps its page toast,
+	// one left in flight by teardown has none
+	it('a lookup that throws toasts while the tool lives, and never once it is torn down mid-flight', async function() {
+
+		geolocation.section_lang = 'lg-spa' // Catastro and UA exist only for es/cat/eus
+		tool.attach_wms_services()
+		tool.attach_roman_empire()
+		tool.attach_catastro()
+		tool.attach_administrative_units()
+		tool.attach_place_search()
+
+		const rows = [
+			{label: 'place search', run: () => search_places(tool, 'Sagunto')},
+			{label: 'wms search', run: () => tool.search_wms_layers('https://example.com/geoserver/wms')},
+			{label: 'roman search', run: () => search_roman(tool, 'pleiades', {query: 'Saguntum', type: 'name'})},
+			{label: 'roman add', run: () => { tool._roman_results = [{id: '265849'}]; return add_roman_result(tool, 0) }},
+			{label: 'catastro', run: () => check_catastro_at_point(tool, L.latLng(40.15, -3.65))},
+			{label: 'ua', run: () => check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))}
+		]
+
+		const toasts	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+		const failures	= []
+		const original_tool_request = tool.tool_request
+		tool.tool_request = () => new Promise((resolve, reject) => { failures.push(reject) })
+		try {
+			// control: alive, each exception reaches the page toast
+			for (const row of rows) {
+				const pending = row.run()
+				assert.equal(failures.length, 1, 'expected the request in flight: ' + row.label)
+				failures.pop()(new Error('Boom.'))
+				await pending
+			}
+			assert.equal(toasts.length, rows.length, 'expected one toast per live failure')
+			assert.isTrue(toasts.every((toast) => toast.code==='client.tool_uca_maps_failed'))
+
+			const pending = rows.map((row) => row.run())
+			assert.equal(failures.length, rows.length, 'expected every lookup in flight')
+			await tool.destroy(false, false, false)
+			failures.forEach((fail) => fail(new Error('Boom.')))
+			await Promise.all(pending)
+
+			assert.deepEqual(
+				toasts.slice(rows.length).map((toast) => toast.message), [],
+				'expected NO toast from a lookup the closed tool left in flight'
+			)
+		} finally {
+			event_manager.unsubscribe(token)
+			tool.tool_request = original_tool_request
+		}
+	})
+
 	it('search_wms_layers (mocked server) stores the parsed results; the panel lists them with an "Add" button', async function() {
 
 		// the network half (SSRF-guarded proxy, real GetCapabilities fetch) is
