@@ -1250,6 +1250,34 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
+	it('a checked uncertainty follows the geometry when the polygon is reshaped', function() {
+
+		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]
+		const square	= function(side_deg) {
+			return [[40.45, -3.655], [40.45, -3.655 + side_deg], [40.45 + side_deg, -3.655 + side_deg], [40.45 + side_deg, -3.655]]
+		}
+
+		polygon.setLatLngs(square(0.01)) // ~0.94 km² → tier 4
+		toggle_uncertainty(tool, polygon)
+		const before = polygon.feature.properties.uca_maps.uncertainty
+		assert.equal(before.scale_tier, 4, 'expected the big square in tier 4')
+		tool.sync_measurements(polygon) // settles `properties.area` for the new square
+		assert.equal(tool.sync_measurements(polygon), false, 'expected an untouched geometry to write nothing')
+
+		polygon.setLatLngs(square(0.0001)) // ~94 m² → tier 1
+		const area_m2 = turf.area(polygon.toGeoJSON())
+		assert.equal(tool.sync_measurements(polygon), true, 'expected the reshape to dirty the record')
+		const after = polygon.feature.properties.uca_maps.uncertainty
+		assert.equal(after.scale_tier, 1, 'expected the tier recomputed for the new size')
+		assert.strictEqual(after.area_m2, area_m2, 'expected the stored area to be the new one')
+		assert.equal(tool.sync_measurements(polygon), false, 'expected the resync to stop once in step')
+
+		toggle_uncertainty(tool, polygon)
+		polygon.setLatLngs(square(0.01))
+		tool.sync_measurements(polygon)
+		assert.isUndefined(polygon.feature.properties.uca_maps.uncertainty, 'expected an unchecked box never to come back on a reshape')
+	})
+
 	it('set_hierarchy: unchecking clears the flag and restores the order a reload draws', function() {
 
 		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]

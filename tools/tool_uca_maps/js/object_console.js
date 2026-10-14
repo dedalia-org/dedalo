@@ -426,6 +426,10 @@ const mark_dirty = function(self, layer) {
 * would make the property disagree with the popup the user reads on the same
 * object; the formula is the core's to fix (audit ledger + PREGUNTAS_FORO).
 *
+* A checked uncertainty is resynced on the same pass (`sync_uncertainty`):
+* it stores the area too, and a polygon reshaped after the box was checked
+* would otherwise keep the old size and tier.
+*
 * Dirty is marked ONLY when the value actually changed, so merely selecting
 * an object does not dirty a record the user has not touched (the same
 * criterion hito 16 applied to elevation) and the re-render the event
@@ -437,7 +441,8 @@ const mark_dirty = function(self, layer) {
 */
 export const sync_measurements = function(self, layer) {
 
-	let value = null
+	let value					= null
+	let uncertainty_changed	= false
 
 	if (layer instanceof L.Circle) {
 		value = (2 * Math.PI * layer.getRadius()).toFixed(2) + ' m'
@@ -445,13 +450,16 @@ export const sync_measurements = function(self, layer) {
 		if (is_onexone_rectangle(layer)) {
 			return false // v6 saves no area for a 1x1 — see compute_info
 		}
-		value = format_polygon_area(turf.area(layer.toGeoJSON()))
+		const area_m2		= turf.area(layer.toGeoJSON())
+		value				= format_polygon_area(area_m2)
+		uncertainty_changed	= sync_uncertainty(layer, area_m2)
 	} else {
 		return false
 	}
 
-	const properties = ensure_properties(layer)
-	if (properties.area===value) {
+	const properties	= ensure_properties(layer)
+	const area_changed	= properties.area!==value
+	if (!area_changed && !uncertainty_changed) {
 		return false
 	}
 
@@ -460,6 +468,41 @@ export const sync_measurements = function(self, layer) {
 
 	return true
 }//end sync_measurements
+
+
+
+/**
+* SYNC_UNCERTAINTY
+* Recomputes a CHECKED uncertainty from the current geometry. "Changed" is
+* judged by the tier and the area as printed, the criterion `properties.area`
+* uses: a float jitter below what the console shows must not dirty a record
+* the user has not touched.
+*
+* @param {Object} layer - polygon layer
+* @param {number} area_m2 - `turf.area(layer.toGeoJSON())` result
+* @returns {boolean} true when the stored uncertainty was rewritten
+*/
+const sync_uncertainty = function(layer, area_m2) {
+
+	const uca_maps	= layer.feature && layer.feature.properties && layer.feature.properties.uca_maps
+	const stored	= uca_maps && uca_maps.uncertainty
+	if (!stored) {
+		return false
+	}
+
+	const current = get_uncertainty(area_m2)
+	if (
+		stored.scale_tier===current.scale_tier
+		&& typeof stored.area_m2==='number'
+		&& format_polygon_area(stored.area_m2)===format_polygon_area(current.area_m2)
+	) {
+		return false
+	}
+
+	uca_maps.uncertainty = current
+
+	return true
+}//end sync_uncertainty
 
 
 
