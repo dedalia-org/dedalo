@@ -5579,6 +5579,52 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	it('a search in flight refuses Enter and locks Clear until it answers', async function() {
+
+		tool.attach_place_search()
+
+		const panel		= tool.place_search_panel
+		const input		= panel.querySelector('.uca-maps-place-search-input')
+		const button	= panel.querySelector('.uca-maps-place-search-button')
+		const clear		= panel.querySelector('.uca-maps-place-search-clear-button')
+		const enter		= () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+
+		const pending = []
+		const original_tool_request = tool.tool_request
+		tool.tool_request = function() {
+			return new Promise((resolve) => { pending.push(resolve) })
+		}
+
+		try {
+			tool.place_search_control.getContainer().click()
+			input.value = 'Sagunto'
+			enter()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(pending.length, 1, 'expected Enter to start the first search')
+			assert.equal(button.disabled, true, 'expected Search locked while it runs')
+			assert.equal(clear.disabled, true, 'expected Clear locked while it runs')
+
+			enter()
+			button.click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(pending.length, 1, 'expected no second search while the first runs')
+
+			pending[0]({ ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } })
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(button.disabled, false, 'expected Search unlocked by the answer')
+			assert.equal(clear.disabled, false, 'expected Clear unlocked by the answer')
+			assert.equal(input.value, 'Sagunto', 'expected the query kept under its hits')
+
+			enter()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(pending.length, 2, 'expected Enter to search again once unlocked')
+			pending[1]({ ok: true, data: { results: [] } })
+			await new Promise(resolve => setTimeout(resolve, 0))
+		} finally {
+			tool.tool_request = original_tool_request
+		}
+	})
+
 	it('detach_place_search removes the button and panel', async function() {
 
 		tool.attach_place_search()

@@ -102,11 +102,19 @@ const render_search_form = function(self, panel) {
 	})
 	search_btn.type = 'button'
 
+	// Enter bypasses the locked button, so the lock is checked here. Clear is
+	// locked with it: the answer in flight would land under an emptied field.
 	const run_search = async () => {
 
-		search_btn.disabled = true
+		if (search_btn.disabled) {
+			return
+		}
+
+		search_btn.disabled	= true
+		clear_btn.disabled	= true
 		const result = await self.search_places(query_input.value)
-		search_btn.disabled = false
+		search_btn.disabled	= false
+		clear_btn.disabled	= false
 
 		if (!result.ok) {
 			// a torn-down tool answers {ok:false} with no error text — there is
@@ -125,14 +133,6 @@ const render_search_form = function(self, panel) {
 		populate_place_search_results(self, panel)
 	}
 
-	search_btn.addEventListener('click', run_search)
-	query_input.addEventListener('keydown', (event) => {
-		if (event.key==='Enter') {
-			event.preventDefault()
-			run_search()
-		}
-	})
-
 	const clear_btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-place-search-clear-button',
@@ -141,6 +141,14 @@ const render_search_form = function(self, panel) {
 	})
 	clear_btn.type = 'button'
 	clear_btn.addEventListener('click', () => clear_place_search_form(self, panel))
+
+	search_btn.addEventListener('click', run_search)
+	query_input.addEventListener('keydown', (event) => {
+		if (event.key==='Enter') {
+			event.preventDefault()
+			run_search()
+		}
+	})
 
 }//end render_search_form
 
