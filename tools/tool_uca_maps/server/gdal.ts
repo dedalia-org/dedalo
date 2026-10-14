@@ -33,6 +33,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } fro
 import { basename, extname, join } from 'node:path';
 import { config } from '../../../src/config/config.ts';
 import { DedaloError } from '../../../src/core/errors/index.ts';
+import { MEDIA_DIR_MODE } from '../../../src/core/install/media_tree.ts';
 import { identifyAvailable, resolveMagick } from '../../../src/core/media/engine/binaries.ts';
 import {
 	assertSpawnOk,
@@ -199,7 +200,7 @@ export function scratchRoot(): string {
 	}
 	const root = assertTestMediaRoot(configured, 'tool_uca_maps.scratchRoot');
 	const scratch = join(root, config.media.upload.tmpSubdir, 'tool_uca_maps');
-	mkdirSync(scratch, { recursive: true, mode: 0o775 });
+	mkdirSync(scratch, { recursive: true, mode: MEDIA_DIR_MODE });
 	return scratch;
 }
 
