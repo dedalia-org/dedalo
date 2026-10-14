@@ -15,6 +15,8 @@
  *    fields first) — still no GDAL for GeoJSON and KML;
  *  - a conversion whose coordinates are not longitude/latitude (a CRS-less
  *    UTM GeoJSON, which GDAL reads as WGS84) is refused, never returned;
+ *  - every Multi* or GeometryCollection (KML's MultiGeometry) comes back as
+ *    one single-part feature per part, as v6 splits them;
  *  - staged-path confinement (SEC parity w/ `tool_import_dedalo_csv`'s
  *    `processUploadedFile`): a traversal in `tmp_name`/`key_dir`, or
  *    `key_dir='../<other_uid>'` claiming another user's staged upload, is
@@ -49,6 +51,7 @@ import {
 	assertProjectionMatches,
 	classifyProjectionLookupError,
 	declaresOwnCrs,
+	explodeToSingleParts,
 	findPositionOutsideLonLat,
 	type GeoJsonFeatureCollection,
 	parseManualProjection,
@@ -231,6 +234,84 @@ describe('tool_uca_maps findPositionOutsideLonLat (pure)', () => {
 		expect(
 			findPositionOutsideLonLat(collection({ type: 'Point', coordinates: [10] })),
 		).not.toBeNull();
+	});
+});
+
+describe('tool_uca_maps explodeToSingleParts (pure)', () => {
+	const feature = (name: string, geometry: unknown) => ({
+		type: 'Feature',
+		properties: { name },
+		geometry,
+	});
+	const explode = (...features: unknown[]) =>
+		explodeToSingleParts({ type: 'FeatureCollection', features }).features as {
+			properties: { name: string };
+			geometry: unknown;
+		}[];
+	const ring = (x: number) => [
+		[x, 39.4],
+		[x + 0.01, 39.4],
+		[x, 39.41],
+		[x, 39.4],
+	];
+
+	test('each part of a Multi* is its own feature, carrying the whole feature properties', () => {
+		const features = explode(
+			feature('pts', {
+				type: 'MultiPoint',
+				coordinates: [
+					[-0.4, 39.4],
+					[-0.41, 39.41],
+				],
+			}),
+			feature('lines', { type: 'MultiLineString', coordinates: [ring(-0.4), ring(-0.5)] }),
+			feature('polys', { type: 'MultiPolygon', coordinates: [[ring(-0.4)], [ring(-0.5)]] }),
+		);
+		expect(features.map((f) => [f.properties.name, f.geometry])).toEqual([
+			['pts', { type: 'Point', coordinates: [-0.4, 39.4] }],
+			['pts', { type: 'Point', coordinates: [-0.41, 39.41] }],
+			['lines', { type: 'LineString', coordinates: ring(-0.4) }],
+			['lines', { type: 'LineString', coordinates: ring(-0.5) }],
+			['polys', { type: 'Polygon', coordinates: [ring(-0.4)] }],
+			['polys', { type: 'Polygon', coordinates: [ring(-0.5)] }],
+		]);
+	});
+
+	test("a GeometryCollection (KML's MultiGeometry) splits at any depth, its Multi* parts too", () => {
+		const features = explode(
+			feature('nested', {
+				type: 'GeometryCollection',
+				geometries: [
+					{
+						type: 'MultiPoint',
+						coordinates: [
+							[-0.4, 39.4],
+							[-0.43, 39.43],
+						],
+					},
+					{
+						type: 'GeometryCollection',
+						geometries: [{ type: 'Polygon', coordinates: [ring(-0.5)] }],
+					},
+					{ type: 'LineString', coordinates: ring(-0.6) },
+				],
+			}),
+		);
+		expect(features.map((f) => [f.properties.name, f.geometry])).toEqual([
+			['nested', { type: 'Point', coordinates: [-0.4, 39.4] }],
+			['nested', { type: 'Point', coordinates: [-0.43, 39.43] }],
+			['nested', { type: 'Polygon', coordinates: [ring(-0.5)] }],
+			['nested', { type: 'LineString', coordinates: ring(-0.6) }],
+		]);
+	});
+
+	test('a single-part or geometry-less feature comes back as the very same object', () => {
+		const point = feature('p', { type: 'Point', coordinates: [-0.375, 39.47] });
+		const bare = feature('none', null);
+		const features = explode(point, bare);
+		expect(features).toHaveLength(2);
+		expect(features[0]).toBe(point);
+		expect(features[1]).toBe(bare);
 	});
 });
 
@@ -523,6 +604,31 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			const response = await callUpload({ tmp_name: 'plain.kml', extension: 'kml' });
 			expect(response.ok).toBe(true);
 			expect(dataOf(response).feature_count).toBe(1);
+		} finally {
+			rmSync(userStaging, { recursive: true, force: true });
+		}
+	});
+
+	test('a .kml MultiGeometry arrives as one single-part feature per member', async () => {
+		const point = (lon: number) => `<Point><coordinates>${lon},39.4</coordinates></Point>`;
+		const kml =
+			'<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>' +
+			`<Placemark><name>pts</name><MultiGeometry>${point(-0.4)}${point(-0.41)}</MultiGeometry></Placemark>` +
+			'<Placemark><name>mix</name><MultiGeometry>' +
+			`${point(-0.4)}<LineString><coordinates>-0.4,39.4 -0.42,39.42</coordinates></LineString>` +
+			'</MultiGeometry></Placemark></Document></kml>';
+		await stage('multi.kml', kml);
+		try {
+			const response = await callUpload({ tmp_name: 'multi.kml', extension: 'kml' });
+			expect(response.ok).toBe(true);
+			const data = dataOf(response);
+			expect(data.feature_count).toBe(4);
+			expect(data.geojson.features.map((f) => f.geometry.type)).toEqual([
+				'Point',
+				'Point',
+				'Point',
+				'LineString',
+			]);
 		} finally {
 			rmSync(userStaging, { recursive: true, force: true });
 		}

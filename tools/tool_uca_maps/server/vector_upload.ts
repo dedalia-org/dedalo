@@ -306,6 +306,47 @@ function outsideInCoordinates(coordinates: unknown): [number, number] | null {
 	return null;
 }
 
+const SINGLE_PART: Readonly<Record<string, string>> = {
+	MultiPoint: 'Point',
+	MultiLineString: 'LineString',
+	MultiPolygon: 'Polygon',
+};
+
+/**
+ * One feature per part, each with the whole feature's properties, as v6
+ * splits them (`projections.js` multipoint/multipolygon/multilinestring).
+ * Leaflet draws a MultiPoint or a GeometryCollection (KML's MultiGeometry) as
+ * a FeatureGroup: an object the console can neither measure nor style.
+ */
+export function explodeToSingleParts(
+	collection: GeoJsonFeatureCollection,
+): GeoJsonFeatureCollection {
+	const features = collection.features.flatMap((feature) => {
+		const geometry = (feature as { geometry?: unknown } | null)?.geometry;
+		return singleParts(geometry).map((part) =>
+			part === geometry ? feature : { ...(feature as object), geometry: part },
+		);
+	});
+	return { ...collection, features };
+}
+
+function singleParts(geometry: unknown): unknown[] {
+	if (geometry === null || typeof geometry !== 'object') return [geometry];
+	const { type, geometries, coordinates } = geometry as {
+		type?: unknown;
+		geometries?: unknown;
+		coordinates?: unknown;
+	};
+	if (type === 'GeometryCollection' && Array.isArray(geometries)) {
+		return geometries.flatMap(singleParts);
+	}
+	const partType = typeof type === 'string' ? SINGLE_PART[type] : undefined;
+	if (partType !== undefined && Array.isArray(coordinates)) {
+		return coordinates.map((part) => ({ type: partType, coordinates: part }));
+	}
+	return [geometry];
+}
+
 /** Each refusal names the one correction that applies: a field to fill in only
  * where the file has no projection of its own, which is when they are taken. */
 async function outsideLonLatRefusal(
@@ -438,7 +479,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		if (outside !== null) {
 			throw await outsideLonLatRefusal(outside, projection, inputFile, extension);
 		}
-		return parsed;
+		return explodeToSingleParts(parsed);
 	});
 
 	return ok({ geojson, feature_count: geojson.features.length }, { requestId: toolRequestId(ctx) });
