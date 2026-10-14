@@ -23,6 +23,12 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { DedaloError } from '../../../src/core/errors/index.ts';
+import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
+
+const PLEIADES_HOST = 'atlantides.org';
+
+/** The two dumps weigh ~7 and ~4 MB today: room to grow, never unbounded. */
+export const PLEIADES_DUMP_MAX_BYTES = 64 * 1024 * 1024;
 
 const PLEIADES_DUMPS = [
 	'https://atlantides.org/downloads/pleiades/dumps/pleiades-places-latest.csv.gz',
@@ -78,18 +84,29 @@ function splitCsvRow(line: string): string[] {
 	return fields;
 }
 
-/** Downloads one dump and yields its [title, place id] pairs. */
-async function readDump(url: string): Promise<[string, string][]> {
+/**
+ * Downloads one dump and yields its [title, place id] pairs. A file on
+ * another site: the harvesting door, https only, Pleiades' host only, with an
+ * explicit byte ceiling. `deps` scripts the site in tests.
+ */
+export async function readDump(url: string, deps: HarvestDeps = {}): Promise<[string, string][]> {
 	console.log(`fetching ${basename(url)}…`);
-	const response = await fetch(url);
+	const response = await harvestFetch(
+		{
+			url,
+			hosts: [PLEIADES_HOST],
+			requireHttps: true,
+			maxBytes: PLEIADES_DUMP_MAX_BYTES,
+		},
+		deps,
+	);
 	if (!response.ok) {
-		throw new DedaloError('security.outbound_failed', {
-			message: `${url} answered ${response.status}`,
+		throw new DedaloError('tool.action_failed', {
+			coordinates: { tool: 'tool_uca_maps' },
+			message: `${url} answered ${String(response.status)}`,
 		});
 	}
-	const csv = new TextDecoder().decode(
-		Bun.gunzipSync(new Uint8Array(await response.arrayBuffer())),
-	);
+	const csv = new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(response.bytes)));
 
 	const [header, ...rows] = csv.split('\n');
 	const columns = splitCsvRow(header ?? '');
@@ -153,23 +170,26 @@ async function copyPelagiosLayers(outDir: string, v6Dir: string): Promise<void> 
 	console.log(`copied ${copied} Pelagios layers into ${target}`);
 }
 
-const out = arg('--out');
-if (!out) {
-	console.error('usage: --out <dir> [--from-v6 <path to tool_leaflet_special_tools>]');
-	process.exit(1);
+// a script, and a module its test imports: run only when invoked
+if (import.meta.main) {
+	const out = arg('--out');
+	if (!out) {
+		console.error('usage: --out <dir> [--from-v6 <path to tool_leaflet_special_tools>]');
+		process.exit(1);
+	}
+	const outDir = resolve(out);
+	mkdirSync(outDir, { recursive: true });
+
+	await buildPleiadesIndex(outDir);
+
+	const v6 = arg('--from-v6');
+	if (v6) {
+		await copyPelagiosLayers(outDir, resolve(v6));
+	} else {
+		console.log(
+			'no --from-v6 given: the Pelagios layers are not installed (Pleiades and DARE still work).',
+		);
+	}
+
+	console.log(`Set the tool option "gazetteer_data_path" to: ${outDir}`);
 }
-const outDir = resolve(out);
-mkdirSync(outDir, { recursive: true });
-
-await buildPleiadesIndex(outDir);
-
-const v6 = arg('--from-v6');
-if (v6) {
-	await copyPelagiosLayers(outDir, resolve(v6));
-} else {
-	console.log(
-		'no --from-v6 given: the Pelagios layers are not installed (Pleiades and DARE still work).',
-	);
-}
-
-console.log(`Set the tool option "gazetteer_data_path" to: ${outDir}`);

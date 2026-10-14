@@ -27,8 +27,8 @@
  * the full design).
  *
  * `get_wms_layers` (fila #6, "WMS services") gets the SAME gate too: it reads
- * a THIRD PARTY WMS server's own GetCapabilities document (via the SSRF-
- * guarded `fetchGuardedText`, see `wms.ts`) — nothing this install owns is
+ * a THIRD PARTY WMS server's own GetCapabilities document (through the
+ * harvesting door, `harvestFetch`, see `wms.ts`) — nothing this install owns is
  * written or even read beyond the caller being a scoped, authenticated map
  * viewer.
  *

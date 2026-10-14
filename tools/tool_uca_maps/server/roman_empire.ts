@@ -15,10 +15,13 @@
  * WHY THE SERVER: same reason as every other third-party door in this tool
  * (`wms.ts`, `place_search.ts`) — the app serves `connect-src 'self'`, so the
  * page cannot query these services itself, and a local dataset is not the
- * browser's to read at all.
+ * browser's to read at all. A Pleiades place is a document on Pleiades' own
+ * site, so it comes through the harvesting door (`harvestFetch`); DARE is an
+ * API call, a different door.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
 import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
@@ -330,8 +333,10 @@ export function parseDareResults(text: string, limit = RESULT_LIMIT): GazetteerR
  * to trust and to fall out of date. (Its `/search` endpoint is the one behind
  * an anti-bot wall, which is exactly why the name index stays local.)
  */
+const PLEIADES_HOST = 'pleiades.stoa.org';
+
 export function pleiadesPlaceUrl(id: string): URL {
-	return new URL(`https://pleiades.stoa.org/places/${id}/json`);
+	return new URL(`https://${PLEIADES_HOST}/places/${id}/json`);
 }
 
 /** The store's directory, or the operator-facing refusal when unset. */
@@ -375,15 +380,42 @@ export async function searchPleiades(ctx: ToolActionContext): Promise<ToolRespon
 	return ok({ results: matchPleiadesIndex(text, type, value) }, { requestId: toolRequestId(ctx) });
 }
 
-export async function getPleiadesPlace(ctx: ToolActionContext): Promise<ToolResponse> {
+/** `deps` scripts the site in tests; the action binds the real door. */
+export async function getPleiadesPlace(
+	ctx: ToolActionContext,
+	deps: HarvestDeps = {},
+): Promise<ToolResponse> {
 	const id = String(ctx.options.id ?? '').trim();
 	if (!/^[0-9]{1,12}$/.test(id)) {
 		throw invalidRequest('A numeric Pleiades id is required.');
 	}
 
-	const text = await fetchGuardedText(pleiadesPlaceUrl(id).toString(), {
-		maxBytes: 8 * 1024 * 1024,
-	});
+	return ok({ place: await fetchPleiadesPlace(id, deps) }, { requestId: toolRequestId(ctx) });
+}
+
+/**
+ * One place document from Pleiades, a GeoJSON FeatureCollection. A non-2xx
+ * answer (an unknown id) is a plain failure, not a retryable transport one.
+ * `deps` scripts the site in tests.
+ */
+export async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<unknown> {
+	const response = await harvestFetch(
+		{
+			url: pleiadesPlaceUrl(id).toString(),
+			hosts: [PLEIADES_HOST],
+			requireHttps: true,
+			maxBytes: 8 * 1024 * 1024,
+			timeoutMs: 15_000,
+		},
+		deps,
+	);
+	if (!response.ok) {
+		throw new DedaloError('tool.action_failed', {
+			coordinates: { tool: 'tool_uca_maps' },
+			message: `Pleiades answered HTTP ${String(response.status)}`,
+		});
+	}
+	const text = response.text();
 	let payload: unknown;
 	try {
 		payload = JSON.parse(text);
@@ -394,8 +426,7 @@ export async function getPleiadesPlace(ctx: ToolActionContext): Promise<ToolResp
 	if (!Array.isArray((payload as { features?: unknown }).features)) {
 		throw outboundFailure('Pleiades returned an unexpected document.');
 	}
-
-	return ok({ place: payload }, { requestId: toolRequestId(ctx) });
+	return payload;
 }
 
 export async function searchPelagios(ctx: ToolActionContext): Promise<ToolResponse> {

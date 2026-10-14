@@ -9,10 +9,11 @@
  * most carry no CORS headers — and a raw server-side `file_get_contents` on a
  * user-typed URL is exactly the SSRF surface `src/core/security/ssrf_guard.ts`
  * exists to close (a form field pointed at `http://169.254.169.254/` or an
- * internal service). This handler is `fetchGuardedText`'s intended shape: the
- * caller supplies no address policy of its own — the guard's "must be public"
- * policy IS the policy here, on purpose (a WMS server is by definition a
- * public map service).
+ * internal service). The capabilities document is a file on a site the user
+ * named, so it goes through the harvesting door (`harvestFetch`,
+ * `engineering/OUTBOUND_SPEC.md` §2-3): every address public, redirects
+ * followed one vetted hop at a time (http → https, a moved service), the
+ * site's robots.txt obeyed, one request at a time per origin.
  *
  * The response XML is handed back RAW: `js/wms_services.js` parses it with
  * `DOMParser`, the same client-only approach v6 used (no server-side XML
@@ -21,7 +22,7 @@
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
+import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -71,12 +72,45 @@ export function wmsCapabilitiesUrl(base: URL): URL {
 	return url;
 }
 
-export async function getWmsLayers(ctx: ToolActionContext): Promise<ToolResponse> {
+/**
+ * Fetch `base`'s GetCapabilities. A non-2xx answer is the server's own
+ * refusal, not a transport failure: a plain failure, not a retryable one.
+ * `deps` scripts the site in tests.
+ *
+ * @returns the base the document was served from (a redirect moved it: the
+ *   layers live where it landed) and the raw XML
+ */
+export async function fetchWmsCapabilities(
+	base: URL,
+	deps: HarvestDeps = {},
+): Promise<{ url: string; xml: string }> {
+	const response = await harvestFetch(
+		{
+			url: wmsCapabilitiesUrl(base).toString(),
+			hosts: 'public',
+			maxBytes: 10 * 1024 * 1024,
+			timeoutMs: 15_000,
+		},
+		deps,
+	);
+	if (!response.ok) {
+		throw new DedaloError('tool.action_failed', {
+			coordinates: { tool: 'tool_uca_maps' },
+			message: `WMS GetCapabilities answered HTTP ${String(response.status)}`,
+		});
+	}
+	const landed = new URL(response.url);
+	landed.search = '';
+	landed.hash = '';
+	return { url: landed.toString(), xml: response.text() };
+}
+
+/** `deps` scripts the site in tests; the action binds the real door. */
+export async function getWmsLayers(
+	ctx: ToolActionContext,
+	deps: HarvestDeps = {},
+): Promise<ToolResponse> {
 	const base = normalizeWmsBaseUrl(String(ctx.options.url ?? ''));
-	// SSRF-01: assertPublicUrl (inside fetchGuardedText) resolves+vets the
-	// host; no redirects, a timeout and a body cap close DOS-05/06.
-	const xml = await fetchGuardedText(wmsCapabilitiesUrl(base).toString(), {
-		maxBytes: 10 * 1024 * 1024,
-	});
-	return ok({ url: base.toString(), xml }, { requestId: toolRequestId(ctx) });
+	const capabilities = await fetchWmsCapabilities(base, deps);
+	return ok(capabilities, { requestId: toolRequestId(ctx) });
 }
