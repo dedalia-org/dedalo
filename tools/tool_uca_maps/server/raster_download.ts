@@ -157,8 +157,8 @@ function downloadBaseName(value: unknown): string {
  * reused verbatim, the rest is not, on purpose.
  * The bytes come from the client and ImageMagick sniffs them, so the spawn
  * carries MEDIA-01's two engine halves: the install's operating `-limit` argv
- * (`magickResourceLimitArgs`) and a converter permit (`withConverterSlot`).
- * The third, the spill volume, is not met yet (see the scratch note below).
+ * (`magickResourceLimitArgs`) and a converter permit (`withConverterSlot`);
+ * the pixel cache spills into the action's scratch dir, inside the media root.
  * `magick_policy_tripwire` walks `src/core/media/` only: the gate is ours. */
 async function convertWithImageMagick(
 	dir: string,
@@ -175,13 +175,9 @@ async function convertWithImageMagick(
 	// the limits go right after the binary: `-limit` is a setting that must
 	// precede the image it governs (same position as `runMagickTo`)
 	const argv = [magick, ...magickResourceLimitArgs(), inputFile, ...flatten, outputFile];
-	// `dir` is this action's scratch directory, so the pixel cache spills inside
-	// the tree `withScratchDir` sweeps rather than loose in the OS temp root.
-	// (!) It does NOT satisfy what `magickPolicyEnv` asks for: `withScratchDir`
-	// mkdtemps under `tmpdir()` (gdal.ts), so the spill still lands on the OS
-	// temp VOLUME — on both shipped compose stacks, the database's. Moving the
-	// tool's scratch root under the media root is the real fix and is not this
-	// change's scope; recorded in the tool's ledger, not hidden here.
+	// `dir` is this action's scratch directory (gdal.ts `withScratchDir`), on
+	// the media volume: the spill stays out of the OS temp dir and is swept
+	// with it
 	// one process's bound times K concurrent exports is not a bound: the permit
 	// is taken around the spawn only, like the engine's own spawn doors
 	await withConverterSlot('magick', () =>

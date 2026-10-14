@@ -23,12 +23,15 @@
  * `src/core/media/tools/pdf_extract.ts`, which documents the vulnerability
  * this defends against (UPLOAD-TRAV-01, 2026-07-28 audit): a predictable
  * `/tmp/<fixed name>` lets an attacker pre-place a symlink there to redirect
- * the write.
+ * the write. It lives under the media root, never the OS temp dir: on both
+ * shipped compose stacks that is the database's volume, and ImageMagick
+ * spills its pixel cache into it (MEDIA_SPEC §10, "the spill also has a
+ * chosen filesystem").
  */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
+import { config } from '../../../src/config/config.ts';
 import { DedaloError } from '../../../src/core/errors/index.ts';
 import { identifyAvailable, resolveMagick } from '../../../src/core/media/engine/binaries.ts';
 import {
@@ -36,6 +39,7 @@ import {
 	runBinary,
 	type SpawnResult,
 } from '../../../src/core/media/engine/spawn.ts';
+import { assertTestMediaRoot } from '../../../src/core/media/test_media_root.ts';
 import { probeOnPath } from './capabilities.ts';
 
 /** Bounded — these are single-object/single-screenshot conversions, never a
@@ -181,12 +185,75 @@ export function resolveMagickBinary(): string {
 }
 
 /**
+ * Where every scratch directory is created: `tool_uca_maps/` inside the
+ * upload staging tree, so it shares the media volume and the staging tree's
+ * permissions. The staging tree's per-user dirs are numeric ids: no clash.
+ */
+export function scratchRoot(): string {
+	const configured = config.media.rootPath;
+	if (configured === null || configured === '') {
+		throw new DedaloError('tool.dependency_unavailable', {
+			coordinates: { tool: 'tool_uca_maps' },
+			message: 'media root is not configured',
+		});
+	}
+	const root = assertTestMediaRoot(configured, 'tool_uca_maps.scratchRoot');
+	const scratch = join(root, config.media.upload.tmpSubdir, 'tool_uca_maps');
+	mkdirSync(scratch, { recursive: true, mode: 0o775 });
+	return scratch;
+}
+
+/** Every scratch directory's name prefix: the sweep touches nothing else. */
+const SCRATCH_PREFIX = 'scratch_';
+
+/** A scratch dir idle this long was left by a process that died mid-action
+ * (its `finally` never ran). An action is minutes at most (60 s per spawn,
+ * 120 s of converter queue by default), so an hour never touches a live one. */
+export const SCRATCH_ORPHAN_TTL_MS = 60 * 60 * 1000;
+
+/** Newest mtime of a dir and its direct entries (the spill files live there). */
+function lastActivity(path: string): number {
+	let newest = statSync(path).mtimeMs;
+	for (const entry of readdirSync(path)) {
+		try {
+			newest = Math.max(newest, statSync(join(path, entry)).mtimeMs);
+		} catch {
+			// removed by its own action meanwhile — not an error
+		}
+	}
+	return newest;
+}
+
+/**
+ * Remove the orphaned `scratch_*` dirs under `root`. On the media volume they
+ * would otherwise outlive every restart; a cheap readdir run on each action.
+ * Best-effort: a dir that vanishes or cannot be read is skipped.
+ */
+export function sweepScratchOrphans(root: string, now: number = Date.now()): number {
+	let removed = 0;
+	for (const entry of readdirSync(root)) {
+		if (!entry.startsWith(SCRATCH_PREFIX)) continue;
+		const full = join(root, entry);
+		try {
+			if (now - lastActivity(full) <= SCRATCH_ORPHAN_TTL_MS) continue;
+			rmSync(full, { recursive: true, force: true });
+			removed++;
+		} catch {
+			// raced with a sibling sweep or its own action — leave it
+		}
+	}
+	return removed;
+}
+
+/**
  * Run `fn` with a private per-call scratch directory, removed unconditionally
  * afterwards (success or failure) — see the module header for why this is
- * never a shared/predictable path.
+ * never a shared/predictable path, nor the OS temp dir.
  */
 export async function withScratchDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-	const dir = mkdtempSync(join(tmpdir(), 'dedalo_uca_maps_'));
+	const root = scratchRoot();
+	sweepScratchOrphans(root);
+	const dir = mkdtempSync(join(root, SCRATCH_PREFIX));
 	try {
 		return await fn(dir);
 	} finally {

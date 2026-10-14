@@ -16,8 +16,8 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import type { TCPSocketListener } from 'bun';
 import { config } from '../../src/config/config.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
@@ -30,6 +30,8 @@ import {
 	rasterDriverOf,
 	resolveGdalBinary,
 	runToolBinary,
+	SCRATCH_ORPHAN_TTL_MS,
+	scratchRoot,
 	withScratchDir,
 } from '../../tools/tool_uca_maps/server/gdal.ts';
 import { renderImageDownload } from '../../tools/tool_uca_maps/server/image_download.ts';
@@ -224,6 +226,54 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 		expect(rasterDriverOf('/x/a.png')).toBe('PNG');
 		expect(() => rasterDriverOf('/x/a.xml')).toThrow(/no raster driver/);
 		expect(() => rasterDriverOf('/x/a.vrt')).toThrow(/no raster driver/);
+	});
+});
+
+describe('tool_uca_maps scratch — inside the media root, never the OS temp dir (no GDAL needed)', () => {
+	// ImageMagick spills its pixel cache into the scratch dir, and the OS temp
+	// dir is the database's volume on the shipped compose stacks
+	const within = (dir: string, root: string) => resolve(dir).startsWith(resolve(root) + sep);
+
+	test('each call gets a private dir under the media root, swept afterwards', async () => {
+		const mediaRoot = resolve(mustGet(config.media.rootPath, 'config.media.rootPath'));
+		const toolRoot = join(mediaRoot, config.media.upload.tmpSubdir, 'tool_uca_maps');
+		const seen: string[] = [];
+		for (let i = 0; i < 2; i++) {
+			await withScratchDir(async (dir) => {
+				seen.push(dir);
+				expect(existsSync(dir)).toBe(true);
+				expect(within(dir, toolRoot)).toBe(true);
+			});
+		}
+		expect(seen.length).toBe(2);
+		expect(seen[0]).not.toBe(seen[1]);
+		for (const dir of seen) expect(existsSync(dir)).toBe(false);
+	});
+
+	test('an orphan a killed process left is swept; a live one and a foreign entry are kept', async () => {
+		const root = scratchRoot();
+		const old = join(root, 'scratch_orphan_gate');
+		const live = join(root, 'scratch_live_gate');
+		const foreign = join(root, 'not_scratch_gate');
+		try {
+			for (const dir of [old, live, foreign]) {
+				mkdirSync(dir, { recursive: true });
+				writeFileSync(join(dir, 'magick-spill'), 'x');
+			}
+			const stale = (Date.now() - SCRATCH_ORPHAN_TTL_MS - 60_000) / 1000;
+			for (const dir of [old, foreign]) {
+				utimesSync(join(dir, 'magick-spill'), stale, stale);
+				utimesSync(dir, stale, stale);
+			}
+
+			await withScratchDir(async () => {});
+
+			expect(existsSync(old)).toBe(false);
+			expect(existsSync(live)).toBe(true);
+			expect(existsSync(foreign)).toBe(true);
+		} finally {
+			for (const dir of [old, live, foreign]) rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 
