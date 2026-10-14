@@ -83,7 +83,7 @@ import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
 import { create_position_marker, is_geolocate_enabled, toggle_geolocate } from '../../../tools/tool_uca_maps/js/geolocate.js'
 import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/render_place_search.js'
-import { format_distance, round_distance } from '../../../tools/tool_uca_maps/js/scale_bar.js'
+import { attach_scale_bar, detach_scale_bar, format_distance, round_distance } from '../../../tools/tool_uca_maps/js/scale_bar.js'
 import {
 	empty_legend,
 	DEFAULT_ELEMENT_ICON,
@@ -5858,6 +5858,30 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.uca-maps-scale'),
 			'expected the scale bar removed on teardown'
 		)
+	})
+
+	it('a scale attached before its map loads leaves no load hook behind once detached', function() {
+
+		// the suite's map is already loaded, so whenReady runs at once there:
+		// only a map with no view yet makes it queue a 'load' listener
+		const container = document.createElement('div')
+		container.style.cssText = 'width:300px;height:200px'
+		document.body.appendChild(container)
+		const map	= L.map(container)
+		const owner	= {geolocation: {map}}
+		try {
+			attach_scale_bar(owner)
+			const control = owner.scale_control
+			assert.isTrue(map.listens('load', control._redraw, control), 'expected the redraw queued for load')
+
+			detach_scale_bar(owner)
+			assert.isFalse(map.listens('load', control._redraw, control), 'expected the load hook removed with the control')
+			// loading now must not reach the removed control (its _map is null)
+			map.setView([39.47, -0.38], 10)
+		} finally {
+			map.remove()
+			container.remove()
+		}
 	})
 
 	it('attach_legend adds the button, the panel and the overlay, idempotently', function() {

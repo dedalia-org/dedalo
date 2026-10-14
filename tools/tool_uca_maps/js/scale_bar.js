@@ -79,6 +79,9 @@ export const attach_scale_bar = function(self) {
 		},
 		onRemove : function(map) {
 			map.off('move', this._redraw, this)
+			// whenReady on a map not loaded yet queues a 'load' listener: left
+			// behind, it would redraw a removed control (null _map) on load
+			map.off('load', this._redraw, this)
 		},
 		_redraw : function() {
 			render_scale(this._map, this._scale_node)
@@ -255,8 +258,8 @@ const compass_node = function() {
 /**
 * DETACH_SCALE_BAR
 * Real teardown (CLAUDE.local.md "destrucción real") — called from
-* tool_uca_maps.prototype.destroy(). The 'move' listener comes off in the
-* control's own `onRemove`.
+* tool_uca_maps.prototype.destroy(). The 'move' and 'load' listeners come
+* off in the control's own `onRemove`.
 *
 * NOT registered in `self._toolbar_nodes`, and named in `keep_in_map_image`
 * (`map_image_download.js`): a scale bar and a north arrow belong in an
