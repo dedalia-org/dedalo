@@ -22,7 +22,9 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
+import { config } from '../../src/config/config.ts';
+import { converterAdmission } from '../../src/core/media/engine/admission.ts';
 import { identifyAvailable } from '../../src/core/media/engine/binaries.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
@@ -193,6 +195,77 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 			expect(data.filename).toBe(filename);
 			expect(data.mime).toBe(mime);
 			expect(Buffer.from(data.content_base64 as string, 'base64').length).toBeGreaterThan(0);
+		}
+	});
+});
+
+/** A GIF89a of `frames` 1x1 scenes, built by hand. The image bytes come from
+ * the client and ImageMagick sniffs them, so a "screenshot" may be any
+ * sequence; a sequence is what `-limit list-length` bounds. */
+function gifOfFrames(frames: number): string {
+	const header = [
+		0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff,
+	];
+	const frame = [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0x02, 0x02, 0x44, 0x01, 0x00];
+	const bytes: number[] = [...header];
+	for (let i = 0; i < frames; i++) bytes.push(...frame);
+	bytes.push(0x3b);
+	return Buffer.from(bytes).toString('base64');
+}
+
+describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — the install operating limits', () => {
+	// The policy's ceiling lets far more scenes through than the operating
+	// default: only the spliced `-limit` argv can refuse in that gap.
+	const listLength = config.media.magickLimits.listLength;
+	const policy = readFileSync('src/core/media/engine/imagemagick-policy/policy.xml', 'utf8');
+	const ceiling = Number(/name="list-length" value="(\d+)"/.exec(policy)?.[1]);
+
+	test('a sequence over the list-length limit is refused in every format, one well under it converts', async () => {
+		expect(listLength + 1).toBeLessThan(ceiling);
+		const action = await loadAction();
+
+		const under = await action.handler(
+			contextOf({ format: 'gif', image_base64: gifOfFrames(Math.floor(listLength / 2)) }),
+		);
+		expect(under.ok).toBe(true);
+
+		const over = gifOfFrames(listLength + 1);
+		for (const format of ['jpg', 'gif', 'webp']) {
+			await expect(action.handler(contextOf({ format, image_base64: over }))).rejects.toMatchObject(
+				{
+					code: 'tool.action_failed',
+					message: expect.stringMatching(/list length exceeds limit/i),
+				},
+			);
+		}
+	});
+
+	test('the conversion waits for a converter permit like every engine spawn', async () => {
+		const admission = converterAdmission();
+		const action = await loadAction();
+		// hold every permit, so the export can only queue behind them
+		let release = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const holders = Array.from({ length: admission.concurrency }, () =>
+			admission.run('test_hold', () => gate),
+		);
+		try {
+			const exported = action.handler(
+				contextOf({ format: 'gif', image_base64: SAMPLE_PNG_BASE64 }),
+			);
+			const deadline = performance.now() + 2000;
+			while (admission.queued === 0 && performance.now() < deadline) {
+				await Bun.sleep(10);
+			}
+			expect(admission.queued).toBe(1);
+
+			release();
+			expect((await exported).ok).toBe(true);
+		} finally {
+			release();
+			await Promise.all(holders);
 		}
 	});
 });

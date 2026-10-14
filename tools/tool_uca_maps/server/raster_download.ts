@@ -52,7 +52,11 @@
 
 import { join } from 'node:path';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import { magickPolicyEnv } from '../../../src/core/media/engine/binaries.ts';
+import { withConverterSlot } from '../../../src/core/media/engine/admission.ts';
+import {
+	magickPolicyEnv,
+	magickResourceLimitArgs,
+} from '../../../src/core/media/engine/binaries.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -151,10 +155,11 @@ function downloadBaseName(value: unknown): string {
  * verification, resize budgets, CMYK profiles) — a screenshot is always one
  * scene and needs none of that; `resolveMagickBinary`/`magickPolicyEnv` are
  * reused verbatim, the rest is not, on purpose.
- * (!) MEDIA-01 has TWO halves and this path carries only one: the hardened
- * policy env, never the operating `-limit` argv (`magickResourceLimitArgs`).
- * `magick_policy_tripwire`'s census walks `src/core/media/` only, so nothing
- * goes red about it — which is precisely why it is written here. */
+ * The bytes come from the client and ImageMagick sniffs them, so the spawn
+ * carries MEDIA-01's two engine halves: the install's operating `-limit` argv
+ * (`magickResourceLimitArgs`) and a converter permit (`withConverterSlot`).
+ * The third, the spill volume, is not met yet (see the scratch note below).
+ * `magick_policy_tripwire` walks `src/core/media/` only: the gate is ours. */
 async function convertWithImageMagick(
 	dir: string,
 	inputFile: string,
@@ -166,10 +171,10 @@ async function convertWithImageMagick(
 	// `imagemagick.ts buildConvertArgv`'s own reasoning for the same problem
 	// (a bare JPEG encode keeps the source's hidden RGB under a transparent
 	// area instead of compositing it). GIF/WebP keep transparency as-is.
-	const argv =
-		format === 'jpg'
-			? [magick, inputFile, '-background', 'white', '-flatten', outputFile]
-			: [magick, inputFile, outputFile];
+	const flatten = format === 'jpg' ? ['-background', 'white', '-flatten'] : [];
+	// the limits go right after the binary: `-limit` is a setting that must
+	// precede the image it governs (same position as `runMagickTo`)
+	const argv = [magick, ...magickResourceLimitArgs(), inputFile, ...flatten, outputFile];
 	// `dir` is this action's scratch directory, so the pixel cache spills inside
 	// the tree `withScratchDir` sweeps rather than loose in the OS temp root.
 	// (!) It does NOT satisfy what `magickPolicyEnv` asks for: `withScratchDir`
@@ -177,10 +182,14 @@ async function convertWithImageMagick(
 	// temp VOLUME — on both shipped compose stacks, the database's. Moving the
 	// tool's scratch root under the media root is the real fix and is not this
 	// change's scope; recorded in the tool's ledger, not hidden here.
-	await runToolBinary(argv, `raster_download (${format})`, {
-		env: magickPolicyEnv(dir),
-		expectedOutput: outputFile,
-	});
+	// one process's bound times K concurrent exports is not a bound: the permit
+	// is taken around the spawn only, like the engine's own spawn doors
+	await withConverterSlot('magick', () =>
+		runToolBinary(argv, `raster_download (${format})`, {
+			env: magickPolicyEnv(dir),
+			expectedOutput: outputFile,
+		}),
+	);
 	return { extension: format, content: await readFileBase64(outputFile) };
 }
 
