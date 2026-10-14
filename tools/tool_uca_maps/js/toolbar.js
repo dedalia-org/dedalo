@@ -268,8 +268,7 @@ export const anchor_panel_to_button = function(panel, control) {
 * SET_TOOLBAR_PANEL_VISIBLE below: opening one panel force-closes every
 * other one directly in the DOM, so a per-functionality flag mirroring
 * "visible" would desync the instant a SIBLING panel closes it). Every
-* toggle_X function (object_console.js/map_image_download.js/
-* capabilities_panel.js) computes its next state from this, not from a
+* toggle_X function (object_console.js/map_image_download.js/…) computes its next state from this, not from a
 * cached flag.
 *
 * @param {HTMLElement|null} panel

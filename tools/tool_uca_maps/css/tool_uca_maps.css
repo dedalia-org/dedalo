@@ -148,20 +148,6 @@
 .uca-maps-panel.uca-maps-panel-centered > .uca-maps-panel-header > .uca-maps-panel-close:hover {
   opacity: 0.75;
 }
-.uca-maps-capabilities-panel > .uca-maps-capabilities-body {
-  padding: 0.5rem 0.75rem;
-}
-.uca-maps-capabilities-panel .capabilities_list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.uca-maps-capabilities-panel .capabilities_list > li {
-  padding: 0.25rem 0;
-}
-.uca-maps-capabilities-panel .capabilities_list > li.capability_unavailable {
-  opacity: 0.65;
-}
 .uca-maps-map-image-panel > .uca-maps-map-image-row {
   display: flex;
   gap: 0.3rem;

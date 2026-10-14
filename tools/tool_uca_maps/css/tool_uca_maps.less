@@ -336,31 +336,6 @@
 	}
 }//end uca-maps-panel
 
-// dev-only server-capabilities diagnostic (capabilities_panel.js) — NOT one
-// of the 15 functionalities in
-// docs/Funcionalidades de tool_leaflet_special_tools.md, so it gets no
-// end-user button (SHOW_DEVELOPER-gated); its panel content, unchanged
-// since hito 1 beyond moving twice.
-.uca-maps-capabilities-panel {
-	>.uca-maps-capabilities-body {
-		padding: 0.5rem 0.75rem;
-	}
-
-	.capabilities_list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-
-		>li {
-			padding: 0.25rem 0;
-
-			&.capability_unavailable {
-				opacity: 0.65;
-			}
-		}
-	}
-}//end uca-maps-capabilities-panel
-
 // "Download map as image" (functionality #10, map_image_download.js) — same
 // select+button flex row shape as .uca-maps-download inside the object
 // section below, reused for a map-wide action instead of a per-object one.
@@ -797,7 +772,7 @@
 
 // object console (functionality #3, object_console.js) — the "UCA" button's
 // own panel, header + selected-object section only since the toolbar
-// refactor (capabilities/map-image moved to their own panels above).
+// refactor (map-image moved to its own panel above).
 .uca-maps-console {
 
 	>.uca-maps-object-section {

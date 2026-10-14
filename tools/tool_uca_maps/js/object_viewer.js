@@ -86,8 +86,8 @@ import {render_object_viewer_panel, populate_object_viewer} from './render_objec
 * header). Idempotent — a stray second call (e.g. a refresh) never attaches
 * a duplicate control or panel. Content is NOT populated here — the panel is
 * hidden by default and nothing reads it before the first open (same as
-* every sibling panel: `map_image_download.js`/`capabilities_panel.js` never
-* populate at attach time either); `toggle_object_viewer_panel` populates on
+* every sibling panel: `map_image_download.js` never populates at attach
+* time either); `toggle_object_viewer_panel` populates on
 * the first and every subsequent SHOW.
 *
 * @param {Object} self - tool_uca_maps instance

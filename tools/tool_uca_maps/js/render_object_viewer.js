@@ -14,8 +14,7 @@
 * `updated_layer_data_<id_base>` publish while already open — file header of
 * `object_viewer.js`) — never at attach time: the panel starts hidden and
 * nothing reads it before the first click, same as every sibling panel
-* (`map_image_download.js`/`capabilities_panel.js` build their content lazily
-* too; review-diff simplification finding, hito 4 — this used to populate
+* (`map_image_download.js` builds its content lazily too; review-diff simplification finding, hito 4 — this used to populate
 * once eagerly here AND again on first open, discarding that first build).
 *
 * Same render/logic split as the rest of this tool: this file only builds

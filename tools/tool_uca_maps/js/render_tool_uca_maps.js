@@ -26,7 +26,7 @@
 * LEFT TOOLBAR (2026-09-04, before hito 4 — CLAUDE.local.md "Left toolbar:
 * un botón por funcionalidad"): what edit() attaches is no longer one
 * combined panel — it is now one call per functionality (attach_console,
-* attach_map_image_download_control, attach_capabilities_panel, hito 4's
+* attach_map_image_download_control, hito 4's
 * attach_object_viewer, hito 7's attach_onexone, hito 9's
 * attach_xyz_basemaps, hito 10's attach_wms_services, hito 11's
 * attach_catastro/attach_administrative_units, hito 12-13's
@@ -92,10 +92,8 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// header, CLAUDE.local.md). ORDER MATTERS: Leaflet's 'topleft' corner
 	// stacks controls top-to-bottom in the order they are added
 	// (L.Control.addTo appends to that corner's container), so the first
-	// attach_* call here ends up as the TOPMOST button. capabilities_panel
-	// (the dev-only "DEV" button) attaches first — Sergio, 2026-09-04 —
-	// ahead of the real functionalities; the two hito-15 controls attach
-	// last, so the corner reads DEV, UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro,
+	// attach_* call here ends up as the TOPMOST button. The two hito-15
+	// controls attach last, so the corner reads UCA, IMG, OBJ, 1x1, XYZ, WMS, Catastro,
 	// UA, UP, Search, GPS, Legend, Roma top-to-bottom — appended rather than slotted in at
 	// the top so the order Sergio already validated in earlier hitos does not
 	// move under him — which is also the only reason hito 17's "Legend" is LAST
@@ -105,7 +103,6 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 	// both gated on the record's language, v6 parity, catastro.js
 	// is_spanish_official_lang).
 		if (self.geolocation && self.map_ready) {
-			self.attach_capabilities_panel()
 			self.attach_console()
 			self.attach_map_image_download_control()
 			self.attach_object_viewer()

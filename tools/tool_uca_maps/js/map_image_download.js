@@ -101,8 +101,7 @@ const toggle_map_image_panel = function(self) {
 /**
 * DETACH_MAP_IMAGE_DOWNLOAD_CONTROL
 * Real teardown (CLAUDE.local.md "destrucción real") — called from
-* `tool_uca_maps.prototype.destroy()` alongside `detach_console`/
-* `detach_capabilities_panel`.
+* `tool_uca_maps.prototype.destroy()` alongside `detach_console`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

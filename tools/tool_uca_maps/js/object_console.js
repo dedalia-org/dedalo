@@ -47,7 +47,7 @@
 * approach, not as "features still landing" — the audit lists 15 SEPARATE
 * functionalities. This module now owns functionality #3 ONLY; the button/
 * panel plumbing itself moved to `toolbar.js`, shared with every other
-* functionality's own button+panel (map_image_download.js, capabilities_panel.js).
+* functionality's own button+panel (map_image_download.js, object_viewer.js).
 */
 
 

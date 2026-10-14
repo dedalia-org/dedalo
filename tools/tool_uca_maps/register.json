@@ -18,21 +18,6 @@
 	"active": true,
 	"properties": { "open_as": "modal", "windowFeatures": { "width": "60rem", "maxWidth": "100%" } },
 	"labels": [
-		{ "lang": "lg-eng", "name": "capabilities_title", "value": "Server capabilities" },
-		{ "lang": "lg-spa", "name": "capabilities_title", "value": "Capacidades del servidor" },
-
-		{ "lang": "lg-eng", "name": "capabilities_gdal", "value": "GDAL (vector/raster conversion)" },
-		{ "lang": "lg-spa", "name": "capabilities_gdal", "value": "GDAL (conversión vectorial/ráster)" },
-
-		{ "lang": "lg-eng", "name": "capabilities_imagemagick", "value": "ImageMagick (map image export)" },
-		{ "lang": "lg-spa", "name": "capabilities_imagemagick", "value": "ImageMagick (exportación de imagen de mapa)" },
-
-		{ "lang": "lg-eng", "name": "capability_available", "value": "available" },
-		{ "lang": "lg-spa", "name": "capability_available", "value": "disponible" },
-
-		{ "lang": "lg-eng", "name": "capability_unavailable", "value": "not installed on this server" },
-		{ "lang": "lg-spa", "name": "capability_unavailable", "value": "no instalado en este servidor" },
-
 		{ "lang": "lg-eng", "name": "waiting_for_map", "value": "Waiting for the map to finish loading…" },
 		{ "lang": "lg-spa", "name": "waiting_for_map", "value": "Esperando a que el mapa termine de cargar…" },
 
@@ -590,10 +575,6 @@
 		{ "lang": "lg-spa", "name": "roman_error_failed", "value": "No se ha podido completar la búsqueda." },
 		{ "lang": "lg-eng", "name": "roman_error_no_geometry", "value": "This result carries no geometry." },
 		{ "lang": "lg-spa", "name": "roman_error_no_geometry", "value": "Este resultado no trae geometría." },
-		{ "lang": "lg-eng", "name": "capabilities_gazetteer_pleiades", "value": "Pleiades index" },
-		{ "lang": "lg-spa", "name": "capabilities_gazetteer_pleiades", "value": "Índice de Pleiades" },
-		{ "lang": "lg-eng", "name": "capabilities_gazetteer_pelagios", "value": "Pelagios layers" },
-		{ "lang": "lg-spa", "name": "capabilities_gazetteer_pelagios", "value": "Capas de Pelagios" },
 		{ "lang": "lg-eng", "name": "roman_source_unavailable", "value": "Not available: this install has no local data for this gazetteer." },
 		{ "lang": "lg-spa", "name": "roman_source_unavailable", "value": "No disponible: esta instalación no tiene datos locales de este gacetero." }
 	],

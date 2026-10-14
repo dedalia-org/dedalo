@@ -50,11 +50,7 @@
  * collapsible sections. Every functionality now gets its OWN 'topleft'
  * button + its OWN panel, built through `toolbar.js`: "UCA" (functionality
  * #3, the object console — `object_console.js`), "Download map as image"
- * (functionality #10 — `map_image_download.js`), and a dev-only server-
- * capabilities diagnostic (`capabilities_panel.js`, SHOW_DEVELOPER-gated —
- * it is not one of the 15 functionalities in
- * `docs/Funcionalidades de tool_leaflet_special_tools.md`, so it does not
- * get an end-user button). Hito 4 adds "Objects" (functionality #4, the
+ * (functionality #10 — `map_image_download.js`). Hito 4 adds "Objects" (functionality #4, the
  * read-only vector/rasterized object list — `object_viewer.js`). Hito 7 adds
  * "1x1" (functionality #7, a 1 m-radius rectangle around a clicked Marker —
  * `onexone.js`), the first of these with NO panel — v6 has none for this row
@@ -123,7 +119,6 @@
 		object_image_url,
 		remove_object_image
 	} from './object_image.js'
-	import {attach_capabilities_panel, detach_capabilities_panel} from './capabilities_panel.js'
 	import {
 		attach_object_viewer,
 		detach_object_viewer,
@@ -250,10 +245,6 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   (functionality #10, map_image_download.js)
 *   map_image_panel - its anchored panel
 *   map_image_panel_visible - whether map_image_panel is currently shown
-*   capabilities_control - the dev-only server-capabilities toolbar button
-*                   (capabilities_panel.js), null unless SHOW_DEVELOPER
-*   capabilities_panel - its anchored panel, same SHOW_DEVELOPER gate
-*   capabilities_panel_visible - whether capabilities_panel is currently shown
 *   object_viewer_control - the "Objects" toolbar button (functionality #4,
 *                   object_viewer.js)
 *   object_viewer_panel - its anchored panel
@@ -363,9 +354,6 @@ export const tool_uca_maps = function () {
 	this.map_image_control			= null
 	this.map_image_panel			= null
 	this.map_image_panel_visible	= false
-	this.capabilities_control		= null
-	this.capabilities_panel		= null
-	this.capabilities_panel_visible	= false
 	this.object_viewer_control		= null
 	this.object_viewer_panel		= null
 	this.object_viewer_panel_visible	= false
@@ -586,20 +574,15 @@ tool_uca_maps.prototype.attach_console = function() {
 
 
 /**
-* ATTACH_MAP_IMAGE_DOWNLOAD_CONTROL / ATTACH_CAPABILITIES_PANEL
-* Thin prototype wrappers over map_image_download.js/capabilities_panel.js —
-* same reason as attach_console above. Called alongside it from edit()
-* (render_tool_uca_maps.js): each functionality's own button+panel, built
+* ATTACH_MAP_IMAGE_DOWNLOAD_CONTROL
+* Thin prototype wrapper over map_image_download.js — same reason as attach_console above. Called alongside it from edit()
+* (render_tool_uca_maps.js): its own button+panel, built
 * through toolbar.js (CLAUDE.local.md "Left toolbar: un botón por
 * funcionalidad").
 */
 tool_uca_maps.prototype.attach_map_image_download_control = function() {
 	attach_map_image_download_control(this)
 }//end attach_map_image_download_control
-
-tool_uca_maps.prototype.attach_capabilities_panel = function() {
-	attach_capabilities_panel(this)
-}//end attach_capabilities_panel
 
 tool_uca_maps.prototype.attach_object_viewer = function() {
 	attach_object_viewer(this)
@@ -1079,7 +1062,6 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 * Real teardown (CLAUDE.local.md "destrucción real"): removes every
 * button+panel this tool anchored to the shared map — object_console.js
 * ("UCA"), map_image_download.js ("Download map as image"),
-* capabilities_panel.js (dev-only diagnostic, a no-op if it never attached),
 * object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel),
 * xyz_basemaps.js ("XYZ"), wms_services.js ("WMS"), catastro.js ("Catastro",
 * button only, no panel — possibly a no-op if the record's language never
@@ -1107,7 +1089,6 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 
 	detach_console(self)
 	detach_map_image_download_control(self)
-	detach_capabilities_panel(self)
 	detach_object_viewer(self)
 	detach_onexone(self)
 	detach_xyz_basemaps(self)

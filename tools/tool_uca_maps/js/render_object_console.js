@@ -8,10 +8,9 @@
 * RENDER_OBJECT_CONSOLE
 * DOM for the panel object_console.js anchors to the live map. Toolbar
 * refactor (2026-09-04, CLAUDE.local.md "Left toolbar"): this panel is now
-* functionality #3 ONLY (header + the selected-object section) — server
-* capabilities moved to `render_capabilities_panel.js` (dev-only, its own
-* button) and "Download map as image" moved to `render_map_image_download.js`
-* (its own button), both through `toolbar.js`. `render_selected_object`
+* functionality #3 ONLY (header + the selected-object section) —
+* "Download map as image" moved to `render_map_image_download.js` (its own
+* button, through `toolbar.js`). `render_selected_object`
 * builds the full per-geometry-type object section (style/properties/
 * download/centroid/uncertainty/hierarchy) — every mutation handler it wires
 * lives in `object_console.js`, never here (this module only builds DOM and
@@ -44,7 +43,7 @@ import {bind_download_button, render_download_message} from './render_download_l
 * RENDER_CONSOLE_PANEL
 * Populates the panel shell `toolbar.js`'s `create_toolbar_panel` already
 * built and appended to the map container — header + the selected-object
-* section only (see file header for where capabilities/map-image moved).
+* section only (see file header for where map-image moved).
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (`toolbar.js` create_toolbar_panel)
