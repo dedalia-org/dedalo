@@ -7648,6 +7648,85 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notInclude(tool.roman_dropdown.textContent, 'NEW', 'expected the late hits discarded')
 	})
 
+	// the capability answer can land with the panel already open: disabling the
+	// focused field must not drop the focus to <body>, nor move it when the
+	// focused control stays usable
+	it('a capability answer that disables the focused field moves the focus to the first usable one', async function() {
+
+		let answer = null
+		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
+		tool.attach_roman_empire()
+		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		const panel		= tool.roman_panel
+		const pleiades	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
+		assert.equal(document.activeElement, pleiades, 'expected the panel opened on Pleiades — else the answer disables nothing focused')
+
+		answer({ ok: true, data: { gazetteers: { configured: false, pleiades: false, pelagios: [] } } })
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		assert.isTrue(pleiades.disabled, 'expected Pleiades disabled by the answer')
+		assert.equal(
+			document.activeElement,
+			panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input'),
+			'expected the focus on DARE, the first field still usable, not on <body>'
+		)
+	})
+
+	it('a capability answer leaves alone a focused control that stays usable', async function() {
+
+		let answer = null
+		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
+		tool.attach_roman_empire()
+		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		const select = tool.roman_panel.querySelector('.uca-maps-roman-dare-filters select')
+		select.focus()
+		assert.equal(document.activeElement, select)
+
+		answer({ ok: true, data: { gazetteers: { configured: false, pleiades: false, pelagios: [] } } })
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		assert.isTrue(tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input').disabled, 'expected the answer applied')
+		assert.equal(document.activeElement, select, 'expected the focus kept on the DARE filter')
+	})
+
+	it('whatever closes the list, a focused row hands the focus back to its field', async function() {
+
+		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
+		tool.attach_roman_empire()
+		await load_roman_capabilities(tool)
+		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		const panel = tool.roman_panel
+		panel.style.maxHeight	= '160px' // the suite has no tool CSS: make the panel scroll
+		panel.style.overflowY	= 'auto'
+		const dare = panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const focus_a_row = (source) => {
+			tool._roman_results	= [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
+			tool._roman_source	= source
+			populate_roman_results(tool, panel)
+			const row = tool.roman_dropdown.querySelector('.uca-maps-roman-result-button')
+			row.focus()
+			assert.equal(document.activeElement, row, 'expected a row focused — else nothing below is lost')
+		}
+
+		// the panel's scroll takes the field out of view: the focus goes back
+		// to it WITHOUT scrolling the panel back, which would undo the user's scroll
+		panel.scrollTop += dare.getBoundingClientRect().top - panel.getBoundingClientRect().top - panel.clientHeight / 2
+		focus_a_row('dare')
+		panel.scrollTop = 0 // DARE is the last source: its field is now below the view
+		panel.dispatchEvent(new Event('scroll'))
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected the scroll to close the list')
+		assert.equal(document.activeElement, dare, 'expected the focus back in DARE, not on <body>')
+		assert.equal(panel.scrollTop, 0, 'expected the user\'s scroll kept')
+
+		// the owning source turns unavailable: its field is disabled, so the
+		// focus goes on to the first usable one
+		focus_a_row('pleiades')
+		tool._roman_gazetteers = { configured: false, pleiades: false, pelagios: [] }
+		refresh_roman_sources(tool, panel)
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected the unavailable source\'s list closed')
+		assert.equal(document.activeElement, dare, 'expected the focus on DARE, not on <body>')
+	})
+
 	it('Tab past the last row enters a radio group at its CHECKED radio', async function() {
 
 		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }

@@ -50,7 +50,13 @@ import {
 	set_toolbar_panel_visible
 } from './toolbar.js'
 import {report_client_error} from './object_console.js'
-import {render_roman_empire_panel, refresh_roman_sources, reset_roman_panel} from './render_roman_empire.js'
+import {
+	focus_first_roman_field,
+	refresh_roman_sources,
+	render_roman_empire_panel,
+	reset_roman_panel,
+	source_input
+} from './render_roman_empire.js'
 
 
 
@@ -174,10 +180,7 @@ const toggle_roman_panel = function(self) {
 	}
 
 	if (next_visible) {
-		const input = self.roman_panel.querySelector('.uca-maps-roman-input:not(:disabled)')
-		if (input) {
-			input.focus()
-		}
+		focus_first_roman_field(self.roman_panel)
 	}
 
 }//end toggle_roman_panel
@@ -191,6 +194,8 @@ const toggle_roman_panel = function(self) {
 * panel closing, teardown) leaves the same state behind. It also voids any
 * search still in flight AND the keystroke still waiting out the debounce:
 * either would reopen a closed list, the timer with a token newer than ours.
+* A focused row would go hidden and drop the focus to <body>: whatever closes
+* the list, the focus goes back to the field that owns it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -201,7 +206,14 @@ export const close_roman_suggestions = function(self) {
 		self._roman_search_timer = null
 	}
 	if (self.roman_dropdown) {
+		const owner = self.roman_dropdown.contains(document.activeElement) && self.roman_panel
+			? source_input(self.roman_panel, self._roman_source)
+			: null
 		self.roman_dropdown.hidden = true
+		if (owner) {
+			// no scroll: a list closed by the panel's own scroll must not undo it
+			owner.focus({preventScroll: true})
+		}
 	}
 	self._roman_active_index	= -1
 	self._roman_search_token	= (self._roman_search_token || 0) + 1

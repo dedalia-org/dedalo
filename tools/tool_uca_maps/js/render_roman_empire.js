@@ -237,10 +237,26 @@ const source_block = function(panel, source) {
 	return source ? panel.querySelector('.uca-maps-roman-' + source) : null
 }//end source_block
 
-const source_input = function(panel, source) {
+export const source_input = function(panel, source) {
 	const block = source_block(panel, source)
 	return block ? block.querySelector('.uca-maps-roman-input') : null
 }//end source_input
+
+
+
+/**
+* FOCUS_FIRST_ROMAN_FIELD
+* The field a fresh panel starts on: the first source this install can serve.
+*
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+export const focus_first_roman_field = function(panel) {
+	const input = panel.querySelector('.uca-maps-roman-input:not(:disabled)')
+	if (input) {
+		input.focus()
+	}
+}//end focus_first_roman_field
 
 
 
@@ -467,8 +483,7 @@ const wire_list_keyboard = function(self, panel) {
 
 		if (event.key==='Escape') {
 			event.preventDefault()
-			self.close_roman_suggestions()
-			input.focus()
+			self.close_roman_suggestions() // hands the focus back to the field
 			return
 		}
 
@@ -543,13 +558,8 @@ const choose_suggestion = async function(self, panel, index) {
 	// and a reopening wipes the panel — an error from before it is not news
 	const block		= source_block(panel, self._roman_source)
 	const opening	= self._roman_panel_opening
-	const input		= source_input(panel, self._roman_source)
-	const from_list	= Boolean(self.roman_dropdown && self.roman_dropdown.contains(document.activeElement))
 
-	self.close_roman_suggestions()
-	if (from_list && input) {
-		input.focus() // the focused row is now hidden: the focus would fall to <body>
-	}
+	self.close_roman_suggestions() // from a focused row, the focus goes back to the field
 
 	const added = await self.add_roman_result(index)
 	if (!added.ok && added.error && block && opening===self._roman_panel_opening) {
@@ -698,6 +708,12 @@ const render_dare_filters = function(self, block) {
 */
 export const refresh_roman_sources = function(self, panel) {
 
+	// the answer may land with the panel already open and a field focused:
+	// disabling that field, or rebuilding the dataset checkboxes, drops the
+	// focus to <body> — read where it was before touching anything
+	const had_focus = panel.contains(document.activeElement)
+		|| Boolean(self.roman_dropdown && self.roman_dropdown.contains(document.activeElement))
+
 	const capability	= self._roman_gazetteers
 	const datasets		= (capability && Array.isArray(capability.pelagios)) ? capability.pelagios : []
 	const available		= {
@@ -727,6 +743,13 @@ export const refresh_roman_sources = function(self, panel) {
 	if (self._roman_source && !available[self._roman_source]) {
 		self.clear_roman_search()
 		self.close_roman_suggestions()
+	}
+
+	// a row of a list still open keeps it: the list hangs from the map, not the panel
+	const focused		= document.activeElement
+	const in_live_list	= Boolean(self.roman_dropdown && !self.roman_dropdown.hidden && self.roman_dropdown.contains(focused))
+	if (had_focus && !panel.hidden && !in_live_list && (!panel.contains(focused) || focused.disabled)) {
+		focus_first_roman_field(panel)
 	}
 
 }//end refresh_roman_sources
