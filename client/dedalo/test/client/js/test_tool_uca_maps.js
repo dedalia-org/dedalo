@@ -5481,6 +5481,36 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.tool_request = original_tool_request
 	})
 
+	it('search_places toasts a request that throws, but not once the tool is torn down mid-flight', async function() {
+
+		tool.attach_place_search()
+
+		const toasts	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+		const original_tool_request = tool.tool_request
+		let fail = null
+		tool.tool_request = () => new Promise((resolve, reject) => { fail = reject })
+		try {
+			// control: alive, the exception reaches the page toast
+			const alive = search_places(tool, 'Sagunto')
+			fail(new Error('Boom.'))
+			assert.equal((await alive).ok, false)
+			assert.equal(toasts.length, 1, 'expected the live failure toasted')
+			assert.equal(toasts[0].code, 'client.tool_uca_maps_failed')
+
+			const pending = search_places(tool, 'Sagunto')
+			await tool.destroy(false, false, false)
+			assert.equal(tool.place_search_panel, null, 'expected the panel already torn down')
+			fail(new Error('Boom.'))
+
+			assert.equal((await pending).ok, false)
+			assert.equal(toasts.length, 1, 'expected NO toast for a search the closed tool left in flight')
+		} finally {
+			event_manager.unsubscribe(token)
+			tool.tool_request = original_tool_request
+		}
+	})
+
 	it('focus_place_result fits the bounding box, and falls back to a point zoom without one', async function() {
 
 		tool.attach_place_search()

@@ -170,6 +170,11 @@ export const search_places = async function(self, raw_query) {
 		return {ok: true, results: results}
 
 	} catch (error) {
+		// torn down while in flight: the panel the message was for is gone, and
+		// a page toast would report a search the user already left behind
+		if (!self.place_search_panel) {
+			return {ok: false}
+		}
 		console.error('tool_uca_maps: search_places failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Place search failed')
 		return {ok: false, error: self.get_tool_label('place_search_error_failed') || 'The place search could not be completed.'}
