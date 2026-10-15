@@ -22,13 +22,19 @@
 
 import { existsSync, mkdirSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { DedaloError } from '../../../src/core/errors/index.ts';
 import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
+import { harvestTooLarge, siteOf } from '../../../src/core/harvest/refusals.ts';
 
 const PLEIADES_HOST = 'atlantides.org';
 
 /** The two dumps weigh ~7 and ~4 MB today: room to grow, never unbounded. */
 export const PLEIADES_DUMP_MAX_BYTES = 64 * 1024 * 1024;
+
+/** ~26 and ~17 MB once decompressed (4x the gzip): the download ceiling bounds only
+ * the compressed bytes, and a gzip expands without limit unless told one. */
+export const PLEIADES_DUMP_MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 
 const PLEIADES_DUMPS = [
 	'https://atlantides.org/downloads/pleiades/dumps/pleiades-places-latest.csv.gz',
@@ -106,7 +112,16 @@ export async function readDump(url: string, deps: HarvestDeps = {}): Promise<[st
 			message: `${url} answered ${String(response.status)}`,
 		});
 	}
-	const csv = new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(response.bytes)));
+	let expanded: Uint8Array;
+	try {
+		expanded = gunzipSync(response.bytes, { maxOutputLength: PLEIADES_DUMP_MAX_EXPANDED_BYTES });
+	} catch (error) {
+		if ((error as { code?: unknown }).code === 'ERR_BUFFER_TOO_LARGE') {
+			throw harvestTooLarge(siteOf(url), PLEIADES_DUMP_MAX_EXPANDED_BYTES, error);
+		}
+		throw error;
+	}
+	const csv = new TextDecoder().decode(expanded);
 
 	const [header, ...rows] = csv.split('\n');
 	const columns = splitCsvRow(header ?? '');

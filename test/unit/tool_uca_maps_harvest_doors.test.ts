@@ -23,6 +23,7 @@ import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	PLEIADES_DUMP_MAX_BYTES,
+	PLEIADES_DUMP_MAX_EXPANDED_BYTES,
 	readDump,
 } from '../../tools/tool_uca_maps/gazetteers/provision.ts';
 import { getPleiadesPlace } from '../../tools/tool_uca_maps/server/roman_empire.ts';
@@ -233,6 +234,23 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 		});
 		const error = await failureOf(readDump(DUMP, site.deps));
 		expect(error.code).toBe('harvest.too_large');
+	});
+
+	test('a dump that expands past its ceiling is refused, not decompressed whole', async () => {
+		// concatenated gzip members: ~270 KB on the wire, 257 MiB once expanded
+		const member = Bun.gzipSync(new Uint8Array(1024 * 1024));
+		const members = PLEIADES_DUMP_MAX_EXPANDED_BYTES / (1024 * 1024) + 1;
+		const bomb = new Uint8Array(member.byteLength * members);
+		for (let i = 0; i < members; i++) bomb.set(member, i * member.byteLength);
+		expect(bomb.byteLength).toBeLessThan(PLEIADES_DUMP_MAX_BYTES);
+
+		const site = scriptedSite({ [DUMP]: { status: 200, body: bomb } });
+		const error = await failureOf(readDump(DUMP, site.deps));
+		expect(error.code).toBe('harvest.too_large');
+		expect(error.details).toEqual({
+			site: 'https://atlantides.org',
+			max_bytes: PLEIADES_DUMP_MAX_EXPANDED_BYTES,
+		});
 	});
 
 	test('a dump that does not answer 2xx is a plain failure', async () => {
