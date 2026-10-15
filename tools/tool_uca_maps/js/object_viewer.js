@@ -101,7 +101,7 @@ export const attach_object_viewer = function(self) {
 
 	self.object_viewer_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('object_viewer_control_title') || 'Objects',
-		text		: 'OBJ',
+		icon		: 'list',
 		class_name	: 'uca-maps-object-viewer-control',
 		on_click	: () => toggle_object_viewer_panel(self)
 	})

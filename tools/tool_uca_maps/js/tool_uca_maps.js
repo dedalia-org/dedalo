@@ -327,6 +327,8 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   _image_overlay_remove_handler / _image_overlay_token - the 'pm:remove'
 *                   listener and the layer-data subscription that keep those
 *                   overlays following their carrier rectangles
+*   _toolbar_bar - the one Leaflet control every toolbar button lives in
+*                   (toolbar.js), built with the first button, gone with the last
 *   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
 *                   built (toolbar.js registers/unregisters them); the
 *                   registry map_image_download.js's screenshot capture
@@ -395,6 +397,7 @@ export const tool_uca_maps = function () {
 	this._image_overlays			= null
 	this._image_overlay_remove_handler = null
 	this._image_overlay_token		= null
+	this._toolbar_bar				= null
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 

@@ -78,7 +78,7 @@ export const attach_catastro = function(self) {
 
 	self.catastro_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('catastro_control_title') || 'Catastro',
-		text		: 'Catastro',
+		text		: 'CAT',
 		class_name	: 'uca-maps-catastro-control',
 		on_click	: () => toggle_catastro(self)
 	})

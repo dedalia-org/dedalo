@@ -31,9 +31,10 @@
 	--tool_uca_maps: var(--color_orange_dedalo);
 
 	// --- map chrome (theme-invariant) ---
-	// v6's enabled-toggle cyan (`special_tools_onexone.js`), kept verbatim
-	--uca_maps_toggle_on: #14fbcd;
-	--uca_maps_toggle_on_fg: #212529;
+	// Geoman's own glyph grey and pressed shade: the toolbar reads as one
+	// more bar beside Geoman's
+	--uca_maps_toolbar_glyph: #5b5b5b;
+	--uca_maps_toolbar_pressed: rgba(81, 77, 77, 0.31);
 	--uca_maps_map_chrome_bg: #ffffff;
 	--uca_maps_map_chrome_fg: #212529;
 	--uca_maps_map_chrome_border: #adb5bd;
@@ -63,8 +64,10 @@
 :root[data-theme="dark"] {
 	// map chrome: the SAME values. A basemap is lit the same way in both
 	// themes, so this is a twin that states invariance, not a copy-paste.
-	--uca_maps_toggle_on: #14fbcd;
-	--uca_maps_toggle_on_fg: #212529;
+	// Except the glyph: core darkens every .leaflet-bar here
+	// (component_geolocation.less), so it takes core's ink.
+	--uca_maps_toolbar_glyph: var(--fg_default);
+	--uca_maps_toolbar_pressed: rgba(81, 77, 77, 0.31);
 	--uca_maps_map_chrome_bg: #ffffff;
 	--uca_maps_map_chrome_fg: #212529;
 	--uca_maps_map_chrome_border: #adb5bd;
@@ -232,24 +235,68 @@
 // shared button chrome. Scoped to the map, not to .wrapper_tool: every one
 // of these buttons lives outside the tool's own DOM subtree, and outlives
 // the tool's modal (file header of object_console.js).
-.leaflet-control.uca-maps-toolbar-button {
-	background: @tool_color;
-	color: var(--fg_on_brand);
-	font-weight: bold;
-	font-size: 0.7rem;
-	padding: 0.3rem 0.5rem;
+// One bar (toolbar.js get_toolbar_bar): Leaflet's `.leaflet-bar a` paints
+// each square, its size and hover, the hairline under every square but the
+// last and the rounded ends (core grows it to the phone target). Geoman's own
+// button box (`.leaflet-buttons-control-button`: border-box, 5px padding) is
+// the model, so the hairline does not make a square taller.
+// set apart from the zoom bar above it (Leaflet's own 10px between controls)
+.leaflet-control.uca-maps-toolbar {
+	margin-top: 30px;
+}
+.uca-maps-toolbar > .uca-maps-toolbar-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 5px;
+	color: var(--uca_maps_toolbar_glyph);
 	cursor: pointer;
 }
+// a label still without its icon: a code of three characters at most, so
+// every square keeps exactly Leaflet's size
+.uca-maps-toolbar > .uca-maps-toolbar-text {
+	padding: 0;
+	font-weight: bold;
+	font-size: 0.65rem;
+	white-space: nowrap;
+	overflow: hidden;
+}
+.uca-maps-toolbar-glyph {
+	display: block;
+	// core's solid glyphs read larger than Geoman's line art in the same
+	// 20px box: 18px matches them by eye
+	width: 18px;
+	height: 18px;
+	background-color: currentColor;
+	-webkit-mask-size: contain;
+			mask-size: contain;
+	-webkit-mask-repeat: no-repeat;
+			mask-repeat: no-repeat;
+	-webkit-mask-position: center;
+			mask-position: center;
+}
+// core theme icons, the set every Dédalo button draws from
+.uca-maps-icon(@name) {
+	-webkit-mask-image: url('../../../core/themes/default/icons/@{name}.svg');
+			mask-image: url('../../../core/themes/default/icons/@{name}.svg');
+}
+.uca-maps-icon-info		{ .uca-maps-icon(info); }
+.uca-maps-icon-download	{ .uca-maps-icon(download); }
+.uca-maps-icon-list		{ .uca-maps-icon(list); }
+.uca-maps-icon-upload	{ .uca-maps-icon(upload); }
+.uca-maps-icon-search	{ .uca-maps-icon(search); }
+.uca-maps-icon-pointer	{ .uca-maps-icon(pointer); }
 
-// "1x1" (functionality #7, onexone.js) is a TOGGLE, not an open/close panel
-// button (file header, onexone.js) — the only visual state it needs is
-// "armed", ported from v6's own enabled colour (`st-enable`,
-// `special_tools_onexone.js`/tool_leaflet_special_tools.css, #14fbcd) rather
-// than v6's full white/cyan pair: the disabled state already reads correctly
-// as the shared @tool_color chrome above, matching every sibling button.
+// pressed: Geoman's own inset shade, plus the tool colour as a thin edge
+// (decoration only, never under text). One look for an open panel and for
+// an armed toggle (1x1, Catastro, GPS).
+.uca-maps-toolbar-pressed() {
+	box-shadow: inset 3px 0 0 var(--tool_uca_maps), inset 0 -1px 5px 2px var(--uca_maps_toolbar_pressed);
+}
+.uca-maps-toolbar-button-active,
 .uca-maps-onexone-control.uca-maps-onexone-enabled {
-	background: var(--uca_maps_toggle_on);
-	color: var(--uca_maps_toggle_on_fg);
+	.uca-maps-toolbar-pressed();
 }
 
 // shared panel chrome — anchored directly to the live map's own DOM
@@ -618,12 +665,9 @@
 
 }//end uca-maps-wms-panel
 
-// "Catastro" (functionality #8, catastro.js) is a TOGGLE with no panel, same
-// shape as "1x1" above — reuses the identical enabled-state idiom instead of
-// inventing a second toggle colour.
+// "Catastro" (catastro.js) is a toggle with no panel: same pressed look as "1x1"
 .uca-maps-catastro-control.uca-maps-catastro-enabled {
-	background: var(--uca_maps_toggle_on);
-	color: var(--uca_maps_toggle_on_fg);
+	.uca-maps-toolbar-pressed();
 }
 // its refusal is shown by core's ui.show_message: keep tool_error_text's line break
 .uca-maps-catastro-message .text {
@@ -1194,13 +1238,10 @@
 
 }//end uca-maps-scale
 
-// "Geolocation" (functionality #13, geolocate.js) is a TOGGLE with no panel,
-// same shape as "1x1"/"Catastro" above — armed while the browser's own
-// position lookup is in flight, so a slow fix reads as "working", not as a
-// dead button. Same enabled colour, not a third one.
+// "Geolocation" (geolocate.js) is pressed while the browser's position lookup
+// is in flight, so a slow fix reads as "working", not as a dead button
 .uca-maps-geolocate-control.uca-maps-geolocate-enabled {
-	background: var(--uca_maps_toggle_on);
-	color: var(--uca_maps_toggle_on_fg);
+	.uca-maps-toolbar-pressed();
 }
 
 // "Legend" (functionality #12, legend.js / render_legend.js) — DOS piezas

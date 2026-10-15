@@ -109,7 +109,7 @@ export const attach_console = function(self) {
 
 	self.map_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('uca_maps_control_title') || 'UCA Maps',
-		text		: 'UCA',
+		icon		: 'info',
 		class_name	: 'uca-maps-control',
 		on_click	: () => toggle_panel(self)
 	})

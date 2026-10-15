@@ -70,7 +70,7 @@ export const attach_geolocate = function(self) {
 
 	self.geolocate_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('geolocate_control_title') || 'Geolocation',
-		text		: 'GPS',
+		icon		: 'pointer',
 		class_name	: 'uca-maps-geolocate-control',
 		on_click	: () => toggle_geolocate(self)
 	})

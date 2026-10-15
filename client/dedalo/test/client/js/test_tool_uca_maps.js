@@ -75,7 +75,7 @@ import {
 	MAX_OBJECT_IMAGES
 } from '../../../tools/tool_uca_maps/js/object_image.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
-import { DEFAULT_BASEMAPS } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
+import { DEFAULT_BASEMAPS, detach_xyz_basemaps } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
@@ -189,6 +189,7 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance._image_upload_busy, false, 'expected _image_upload_busy false')
 		assert.equal(instance._image_overlays, null, 'expected _image_overlays null')
 		assert.equal(instance._image_overlay_token, null, 'expected _image_overlay_token null')
+		assert.equal(instance._toolbar_bar, null, 'expected _toolbar_bar null')
 		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
 	})
 
@@ -3146,6 +3147,138 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		onexone_control.click()
 		assert.equal(is_onexone_enabled(tool), true, 'expected 1x1 armed by its own click')
 		assert.equal(tool.panel_node.hidden, false, 'expected UCA to stay open — 1x1 has no panel, so it never enters the exclusivity set')
+	})
+
+	it('toolbar buttons are links of ONE Leaflet bar: an icon, or a label while it has none; the title names each', async function() {
+
+		tool.attach_console()
+		tool.attach_xyz_basemaps()
+
+		const uca_link = geolocation.map.getContainer().querySelector('.uca-maps-control')
+		assert.equal(uca_link.tagName, 'A', 'expected the <a> Leaflet\'s .leaflet-bar styles as a button')
+		const bar = uca_link.parentElement
+		assert.isTrue(bar.classList.contains('leaflet-bar') && bar.classList.contains('uca-maps-toolbar'), 'expected the shared bar as its parent')
+		assert.equal(uca_link.getAttribute('role'), 'button')
+		assert.equal(uca_link.getAttribute('href'), '#', 'expected an href: without it the link takes no keyboard focus')
+		assert.isOk(uca_link.title, 'expected a hover title')
+		assert.equal(uca_link.getAttribute('aria-label'), uca_link.title, 'expected the title as the accessible name')
+		assert.isOk(uca_link.querySelector(':scope > .uca-maps-toolbar-glyph.uca-maps-icon-info'), 'expected the core "info" icon')
+		assert.equal(uca_link.textContent, '', 'expected no visible label beside an icon')
+
+		const xyz_link = geolocation.map.getContainer().querySelector('.uca-maps-xyz-control')
+		assert.equal(xyz_link.parentElement, bar, 'expected the second button in the SAME bar, not a control of its own')
+		assert.isNull(xyz_link.querySelector('.uca-maps-toolbar-glyph'), 'expected no glyph for a button without an icon')
+		assert.isTrue(xyz_link.classList.contains('uca-maps-toolbar-text'))
+		assert.equal(xyz_link.textContent, 'XYZ')
+
+		// the '#' href must not navigate the page
+		const click = new MouseEvent('click', {bubbles: true, cancelable: true})
+		uca_link.dispatchEvent(click)
+		assert.isTrue(click.defaultPrevented, 'expected the click\'s default prevented')
+		assert.equal(tool.panel_node.hidden, false, 'expected the click on the link to reach the button\'s handler')
+
+		// the bar goes with its last button
+		detach_xyz_basemaps(tool)
+		assert.equal(uca_link.parentElement, bar, 'expected the bar kept while a button remains')
+		assert.isTrue(bar.isConnected)
+		await tool.destroy(false, false, false)
+		assert.isFalse(bar.isConnected, 'expected the bar removed with its last button')
+		assert.isNull(tool._toolbar_bar, 'expected no stale bar handle')
+	})
+
+	// Sergio's validation (2026-10-15): one size for every button, icon or
+	// label, and no gap between them. Layout, so it loads the tool sheet.
+	it('with the tool CSS, every toolbar button is the same square and they stack with no gap', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			geolocation.section_lang = 'lg-spa' // gates Catastro and UA in
+			tool.type		= 'tool'
+			tool.mode		= 'edit'
+			tool.context	= { label: 'Mapas UCA' }
+			await tool.edit({})
+
+			const corner	= tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
+			assert.equal(corner.querySelectorAll('.uca-maps-toolbar').length, 1, 'expected ONE bar')
+
+			// the zoom bar stays first, set 30px apart from the tool's bar
+			const zoom	= corner.querySelector('.leaflet-control-zoom')
+			const bar	= corner.querySelector('.uca-maps-toolbar')
+			assert.isOk(zoom, 'expected Leaflet\'s zoom bar in the same corner')
+			assert.equal(zoom.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING, 'expected the zoom bar above the tool\'s')
+			assert.closeTo(bar.getBoundingClientRect().top - zoom.getBoundingClientRect().bottom, 30, 0.5, 'expected 30px between the zoom bar and the tool\'s')
+			const links		= Array.from(corner.querySelectorAll('.uca-maps-toolbar > .uca-maps-toolbar-button'))
+			assert.equal(links.length, 13, 'expected every functionality\'s button')
+
+			const rects = links.map((node) => node.getBoundingClientRect())
+			const sizes = new Set(rects.map((rect) => Math.round(rect.width) + 'x' + Math.round(rect.height)))
+			assert.equal(sizes.size, 1, 'expected one size for every button, got ' + [...sizes].join(', '))
+			const [width, height] = [...sizes][0].split('x').map(Number)
+			assert.equal(width, height, 'expected a square')
+			assert.isAtLeast(width, 26, 'expected Leaflet\'s bar size, not a collapsed box')
+
+			// the goal is Geoman's own squares, top right
+			const geoman = geolocation.map.getContainer().querySelector('.leaflet-pm-toolbar a.leaflet-buttons-control-button')
+			assert.isOk(geoman, 'expected Geoman\'s draw bar on the map to compare with')
+			const geoman_rect = geoman.getBoundingClientRect()
+			assert.equal(Math.round(geoman_rect.width) + 'x' + Math.round(geoman_rect.height), width + 'x' + height, 'expected the size of Geoman\'s squares')
+
+			// and Geoman's hairline between squares: under every one but the last
+			const line		= (node) => getComputedStyle(node).borderBottomWidth + ' ' + getComputedStyle(node).borderBottomStyle + ' ' + getComputedStyle(node).borderBottomColor
+			const geoman_line	= line(geoman)
+			assert.notInclude(geoman_line, 'none', 'expected Geoman\'s first square to carry the hairline to compare with')
+			links.slice(0, -1).forEach((node) => {
+				assert.equal(line(node), geoman_line, 'expected Geoman\'s hairline under "' + (node.textContent || node.getAttribute('aria-label')) + '"')
+			})
+			assert.include(line(links[links.length - 1]), 'none', 'expected no hairline under the last square')
+
+			for (let i = 1; i < rects.length; i++) {
+				assert.closeTo(rects[i].top, rects[i - 1].bottom, 0.5, 'expected no gap above "' + (links[i].textContent || links[i].getAttribute('aria-label')) + '"')
+			}
+			for (const node of links) {
+				assert.isAtMost(node.scrollWidth, node.clientWidth, 'expected the label to fit its square: "' + node.textContent + '"')
+			}
+		} finally {
+			link.remove()
+		}
+	})
+
+	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
+
+		tool.attach_console()
+		tool.attach_map_image_download_control()
+		tool.attach_wms_services()
+
+		const ACTIVE		= 'uca-maps-toolbar-button-active'
+		const uca_control	= geolocation.map.getContainer().querySelector('.uca-maps-control')
+		const img_control	= geolocation.map.getContainer().querySelector('.uca-maps-map-image-control')
+		const wms_control	= geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
+		const pressed		= () => [uca_control, img_control, wms_control].map((node) => node.classList.contains(ACTIVE))
+
+		assert.deepEqual(pressed(), [false, false, false], 'expected nothing pressed before any click')
+
+		uca_control.click()
+		assert.deepEqual(pressed(), [true, false, false], 'expected UCA pressed by opening its panel')
+
+		img_control.click()
+		assert.deepEqual(pressed(), [false, true, false], 'expected UCA released when a sibling closed its panel')
+
+		img_control.click()
+		assert.deepEqual(pressed(), [false, false, false], 'expected IMG released by its own toggle-off')
+
+		wms_control.click()
+		assert.deepEqual(pressed(), [false, false, true], 'expected WMS pressed by opening its centered panel')
+
+		tool.wms_panel.querySelector('.uca-maps-panel-close').click()
+		assert.deepEqual(pressed(), [false, false, false], 'expected WMS released by its panel\'s ×')
 	})
 
 

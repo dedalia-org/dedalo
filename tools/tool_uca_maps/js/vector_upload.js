@@ -64,7 +64,7 @@ export const attach_file_upload = function(self) {
 
 	self.upload_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('upload_control_title') || 'Upload file to map',
-		text		: 'UP',
+		icon		: 'upload',
 		class_name	: 'uca-maps-upload-control',
 		on_click	: () => toggle_upload_panel(self)
 	})

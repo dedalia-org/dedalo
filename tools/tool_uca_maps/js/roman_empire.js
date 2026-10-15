@@ -121,7 +121,7 @@ export const attach_roman_empire = function(self) {
 
 	self.roman_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('roman_control_title') || 'Roman Empire',
-		text		: self.get_tool_label('roman_control_text') || 'Roma',
+		text		: 'ROM',
 		class_name	: 'uca-maps-roman-control',
 		on_click	: () => toggle_roman_panel(self)
 	})

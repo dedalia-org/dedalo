@@ -72,7 +72,7 @@ export const attach_place_search = function(self) {
 
 	self.place_search_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('place_search_control_title') || 'Place search',
-		text		: self.get_tool_label('place_search_control_text') || 'Search',
+		icon		: 'search',
 		class_name	: 'uca-maps-place-search-control',
 		on_click	: () => toggle_place_search_panel(self)
 	})

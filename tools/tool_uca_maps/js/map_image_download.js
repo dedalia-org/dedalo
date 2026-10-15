@@ -69,7 +69,7 @@ export const attach_map_image_download_control = function(self) {
 
 	self.map_image_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('map_image_download_title') || 'Download map as image',
-		text		: 'IMG',
+		icon		: 'download',
 		class_name	: 'uca-maps-map-image-control',
 		on_click	: () => toggle_map_image_panel(self)
 	})

@@ -22,7 +22,7 @@
 * section inside another functionality's panel.
 *
 * What lives here (the identical boilerplate every button+panel pair would
-* otherwise repeat, hito after hito): building the L.Control toggle button,
+* otherwise repeat, hito after hito): adding the toggle button to the one bar,
 * building the floating panel shell and anchoring it to ITS OWN button (so N
 * independently-openable panels never start life stacked on top of each
 * other, however many buttons end up in the corner by hito 7), show/hide —
@@ -46,6 +46,10 @@
 *
 * @module toolbar
 */
+
+
+
+const TOOLBAR_BUTTON_ACTIVE_CLASS = 'uca-maps-toolbar-button-active'
 
 
 
@@ -97,43 +101,87 @@ export const is_toolbar_node = function(self, node) {
 
 
 /**
-* CREATE_TOOLBAR_BUTTON
-* Builds and adds a 'topleft' L.Control toggle button. 'topleft' (not
-* 'topright', which Geoman's own draw toolbar already owns —
+* GET_TOOLBAR_BAR
+* The ONE 'topleft' L.Control every button lives in, built on first use.
+* 'topleft' (not 'topright', which Geoman's own draw toolbar already owns —
 * `component_geolocation.js` `map.pm.addControls({position: 'topright', ...})`)
-* matches v6's own `special_tools` control position and keeps every one of
-* this tool's own buttons in the same corner, stacking automatically via
-* Leaflet's own corner layout — no manual offset bookkeeping needed here.
+* matches v6's own `special_tools` control position. One bar, not one control
+* per button: Leaflet spaces separate controls 10px apart and frames each, so
+* only shared bar markup (`.leaflet-bar > a`, as the zoom control and Geoman)
+* stacks the squares flush with a hairline between them.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {Object} options
-* @param {string} options.title - hover title (get_tool_label result)
-* @param {string} options.text - the button's own visible text
-* @param {string} options.class_name - identity class, e.g. 'uca-maps-control'
-* @param {Function} options.on_click
-* @returns {Object} the L.Control instance (self.geolocation.map already has it added)
+* @returns {Object} the L.Control (self.geolocation.map already has it added)
 */
-export const create_toolbar_button = function(self, {title, text, class_name, on_click}) {
+const get_toolbar_bar = function(self) {
 
-	const ToolbarButtonControl = L.Control.extend({
+	if (self._toolbar_bar) {
+		return self._toolbar_bar
+	}
+
+	const ToolbarControl = L.Control.extend({
 		options : { position: 'topleft' },
 		onAdd : function() {
-			const container = L.DomUtil.create('div', 'leaflet-bar uca-maps-toolbar-button ' + class_name)
-			container.title		= title
-			container.textContent	= text
-			container.addEventListener('click', on_click)
-			// prevent map drag/zoom/click from reaching the map through this control
+			const container = L.DomUtil.create('div', 'leaflet-bar uca-maps-toolbar')
+			// prevent map drag/zoom/click from reaching the map through the bar
 			L.DomEvent.disableClickPropagation(container)
 			L.DomEvent.disableScrollPropagation(container)
 			return container
 		}
 	})
 
-	const control = new ToolbarButtonControl()
-	control.addTo(self.geolocation.map)
-	register_toolbar_node(self, control.getContainer())
+	const bar = new ToolbarControl()
+	bar.addTo(self.geolocation.map)
+	register_toolbar_node(self, bar.getContainer())
+	self._toolbar_bar = bar
 
-	return control
+	return bar
+}//end get_toolbar_bar
+
+
+
+/**
+* CREATE_TOOLBAR_BUTTON
+* Appends one toggle button to the shared bar (get_toolbar_bar), so the
+* attach order is the top-to-bottom order. The button is Leaflet's own bar
+* link (`a[role=button]`): square, hover and keyboard focus match the zoom
+* and Geoman bars. With no icon the label is drawn instead; the title is
+* the accessible name.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} options
+* @param {string} options.title - hover title and accessible name (get_tool_label result)
+* @param {string} [options.icon] - core theme icon name, e.g. 'upload'
+* @param {string} [options.text] - visible label when there is no icon
+* @param {string} options.class_name - identity class, e.g. 'uca-maps-control'
+* @param {Function} options.on_click
+* @returns {{getContainer: function(): HTMLElement}} the button handle
+*/
+export const create_toolbar_button = function(self, {title, icon, text, class_name, on_click}) {
+
+	const bar = get_toolbar_bar(self)
+
+	const button = L.DomUtil.create('a', 'uca-maps-toolbar-button ' + class_name, bar.getContainer())
+	button.href		= '#'
+	button.title	= title
+	button.setAttribute('role', 'button')
+	button.setAttribute('aria-label', title)
+	if (icon) {
+		L.DomUtil.create('span', 'uca-maps-toolbar-glyph uca-maps-icon-' + icon, button)
+	} else {
+		button.classList.add('uca-maps-toolbar-text')
+		button.textContent = text
+	}
+	button.addEventListener('click', (event) => {
+		event.preventDefault() // the '#' href must not navigate
+		on_click(event)
+	})
+	register_toolbar_node(self, button)
+
+	// the one method every caller uses, so callers did not change shape
+	return {
+		getContainer : () => button
+	}
 }//end create_toolbar_button
 
 
@@ -306,7 +354,28 @@ export const set_toolbar_panel_visible = function(self, panel, control, visible)
 		}
 	}
 	panel.hidden = !visible
+	// remembered so a close that does not come through here clears it too
+	panel._toolbar_control = control
+	set_toolbar_button_active(control, visible)
 }//end set_toolbar_panel_visible
+
+
+
+/**
+* SET_TOOLBAR_BUTTON_ACTIVE
+* The pressed look of a button whose panel is open — the same look the
+* toggles without a panel (1x1, Catastro, GPS) wear while armed.
+*
+* @param {Object|null} control
+* @param {boolean} active
+* @returns {void}
+*/
+const set_toolbar_button_active = function(control, active) {
+	const container = control && control.getContainer && control.getContainer()
+	if (container) {
+		container.classList.toggle(TOOLBAR_BUTTON_ACTIVE_CLASS, active===true)
+	}
+}//end set_toolbar_button_active
 
 
 
@@ -345,6 +414,7 @@ const close_toolbar_panel = function(panel) {
 		return
 	}
 	panel.hidden = true
+	set_toolbar_button_active(panel._toolbar_control, false)
 	if (typeof panel._on_hide==='function') {
 		panel._on_hide()
 	}
@@ -354,21 +424,33 @@ const close_toolbar_panel = function(panel) {
 
 /**
 * REMOVE_TOOLBAR_BUTTON
+* Takes the button out of the bar; the bar goes with its last button.
+*
 * @param {Object} self
-* @param {Object} control
+* @param {Object} control - the handle create_toolbar_button returned
 * @returns {void}
 */
 export const remove_toolbar_button = function(self, control) {
 	if (!control) {
 		return
 	}
-	try {
-		if (self.geolocation && self.geolocation.map) {
-			unregister_toolbar_node(self, control.getContainer())
-			self.geolocation.map.removeControl(control)
+	const button = control.getContainer()
+	unregister_toolbar_node(self, button)
+	button.remove()
+
+	const bar = self._toolbar_bar
+	if (bar && !bar.getContainer().querySelector('.uca-maps-toolbar-button')) {
+		unregister_toolbar_node(self, bar.getContainer())
+		try {
+			if (self.geolocation && self.geolocation.map) {
+				self.geolocation.map.removeControl(bar)
+			} else {
+				bar.getContainer().remove()
+			}
+		} catch (error) {
+			console.warn('tool_uca_maps toolbar: error removing the toolbar', error)
 		}
-	} catch (error) {
-		console.warn('tool_uca_maps toolbar: error removing a toolbar button', error)
+		self._toolbar_bar = null
 	}
 }//end remove_toolbar_button
 
