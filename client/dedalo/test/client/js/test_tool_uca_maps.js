@@ -3405,6 +3405,43 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notEqual(tool.panel_node.style.left, '', 'expected the console anchored beside its button')
 	})
 
+	// The panels live inside Leaflet's container, which sets its own 12px
+	// Helvetica; they take the page's font and base size instead (html is the
+	// app's 1rem), with one smaller step for secondary text.
+	it('with the tool CSS, a panel reads in the page\'s font and base size, not Leaflet\'s', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			tool.attach_xyz_basemaps()
+			const panel	= tool.xyz_panel
+			const root	= getComputedStyle(document.documentElement)
+			const map	= getComputedStyle(geolocation.map.getContainer())
+			assert.match(map.fontFamily, /Helvetica Neue/, 'expected Leaflet\'s own font on the map, or this proves nothing')
+
+			// the harness styles its own html (unit_test.css), so the reference is
+			// core's page font itself: fonts.less .global_font, which html carries
+			assert.notEqual(getComputedStyle(panel).fontFamily, map.fontFamily, 'expected not Leaflet\'s font')
+			assert.match(getComputedStyle(panel).fontFamily, /^system-ui\b/, 'expected core\'s page font (fonts.less .global_font)')
+			assert.equal(getComputedStyle(panel).fontSize, root.fontSize, 'expected the page\'s base size (1rem)')
+
+			const add = panel.querySelector('.uca-maps-xyz-add-button')
+			assert.equal(getComputedStyle(add).fontSize, root.fontSize, 'expected an action button at the base size, as core buttons')
+
+			const secondary = panel.querySelector('.uca-maps-xyz-list-title')
+			assert.closeTo(parseFloat(getComputedStyle(secondary).fontSize), parseFloat(root.fontSize) * 0.85, 0.05, 'expected the one smaller step')
+		} finally {
+			link.remove()
+		}
+	})
+
 	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
 
 		tool.attach_console()

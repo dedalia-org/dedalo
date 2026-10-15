@@ -6,6 +6,7 @@
 
 // imports
 @import (once) '../../../client/dedalo/core/page/css/layout/vars';
+@import (once, reference) '../../../client/dedalo/core/page/css/layout/fonts';
 
 // local vars
 //
@@ -93,6 +94,11 @@
 }
 @tool_color : var(--tool_uca_maps);
 
+// Type scale: two steps on the page's own base (html is 13px, so 1rem is the
+// app's body text). The panels sit inside Leaflet's container, whose own
+// 12px Helvetica they would otherwise inherit.
+@uca_maps_text_small: 0.85rem;
+
 // Shared per-panel action-button chrome (review-diff finding: was hand-
 // duplicated verbatim across .uca-maps-xyz-panel/.uca-maps-wms-panel — a
 // future tweak had to be applied in lockstep with no signal if one copy was
@@ -109,7 +115,7 @@
 	border: none;
 	border-radius: 0.2rem;
 	padding: 0.3rem 0.6rem;
-	font-size: 0.8rem;
+	font-size: 1rem;
 	cursor: pointer;
 
 	&:hover {
@@ -126,7 +132,7 @@
 // themes, so the ink is named here instead of inherited from the panel.
 .uca-maps-panel-secondary-button() {
 	padding: 0.15rem 0.4rem;
-	font-size: 0.75rem;
+	font-size: @uca_maps_text_small;
 	background-color: var(--bg_fill_inverse);
 	color: var(--fg_inverse);
 }//end uca-maps-panel-secondary-button
@@ -173,7 +179,7 @@
 	}
 	border-radius: 0.2rem;
 	padding: 0.35rem 0.5rem;
-	font-size: 0.8rem;
+	font-size: @uca_maps_text_small;
 	// a refusal is two lines (tool_error_text.js): what failed, then why
 	white-space: pre-line;
 
@@ -335,7 +341,8 @@
 	color: var(--fg_default);
 	border-radius: 0.25rem;
 	box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
-	font-size: 0.85rem;
+	.global_font();
+	font-size: 1rem;
 
 	&[hidden] {
 		display: none;
@@ -427,7 +434,7 @@
 	.uca-maps-map-image-name-label {
 		flex: 0 0 auto;
 		align-self: center;
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 	}
 
 	.uca-maps-map-image-name {
@@ -459,7 +466,7 @@
 
 	>.uca-maps-object-viewer-title {
 		margin: 0.5rem 0.75rem 0.2rem;
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
 		color: var(--fg_muted);
@@ -532,7 +539,7 @@
 
 	.uca-maps-xyz-list-title {
 		margin: 0.3rem 0.75rem 0.2rem;
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
 		color: var(--fg_muted);
@@ -607,7 +614,7 @@
 
 	.uca-maps-wms-list-title {
 		margin: 0.3rem 0.75rem 0.2rem;
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
 		color: var(--fg_muted);
@@ -703,7 +710,7 @@
 
 	.uca-maps-ua-hint {
 		margin: 0 0.75rem 0.5rem;
-		font-size: 0.75rem;
+		font-size: @uca_maps_text_small;
 		color: var(--fg_muted);
 	}
 
@@ -722,7 +729,7 @@
 
 	.uca-maps-upload-hint {
 		margin: 0.5rem 0.75rem;
-		font-size: 0.75rem;
+		font-size: @uca_maps_text_small;
 		color: var(--fg_muted);
 	}
 
@@ -757,7 +764,7 @@
 			flex: 1 1 auto;
 			min-width: 0;
 			overflow-wrap: anywhere;
-			font-size: 0.75rem;
+			font-size: @uca_maps_text_small;
 		}
 	}
 
@@ -767,7 +774,7 @@
 		display: block;
 		margin: 0 0.75rem;
 		padding: 0.2rem 0.5rem;
-		font-size: 0.7rem;
+		font-size: @uca_maps_text_small;
 	}
 
 	// the vector half's only upload trigger: it comes after the projection
@@ -784,7 +791,7 @@
 		margin: 0.25rem 0.75rem 0;
 		padding-top: 0.5rem;
 		border-top: 1px solid var(--border_default);
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
@@ -843,7 +850,7 @@
 		// `create_div_hierarchy`) — `.uca-maps-section`, below, is that line.
 		h6 {
 			margin: 0 0 0.35rem;
-			font-size: 0.85rem;
+			font-size: @uca_maps_text_small;
 			font-weight: 700;
 			letter-spacing: 0.02em;
 			color: inherit;
@@ -857,7 +864,7 @@
 
 		.uca-maps-object-gallery-title {
 			margin: 0.6rem 0 0.35rem;
-			font-size: 0.85rem;
+			font-size: @uca_maps_text_small;
 			font-weight: 700;
 		}
 
@@ -1005,7 +1012,7 @@
 
 		.uca-maps-uncertainty-badge {
 			margin: 0.2rem 0 0.4rem;
-			font-size: 0.75rem;
+			font-size: @uca_maps_text_small;
 			color: var(--fg_muted);
 			word-break: break-all; // the preserved 1/area bug prints ~20 decimals
 		}
@@ -1087,7 +1094,7 @@
 		.uca-maps-property-delete {
 			.uca-maps-panel-secondary-button();
 			padding: 0.2rem 0.45rem;
-			font-size: 0.8rem;
+			font-size: @uca_maps_text_small;
 		}
 	}//end uca-maps-object-section
 
@@ -1262,7 +1269,7 @@
 
 		>.uca-maps-legend-field-label {
 			flex: 0 0 auto;
-			font-size: 0.8rem;
+			font-size: @uca_maps_text_small;
 			font-weight: bold;
 		}
 
@@ -1287,12 +1294,12 @@
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 	}
 
 	.uca-maps-legend-empty {
 		padding: 0 0 0.5rem;
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 		color: var(--fg_muted);
 	}
 
@@ -1325,7 +1332,7 @@
 		border-radius: 0.2rem;
 		background-color: var(--uca_maps_msg_warning_bg);
 		color: var(--uca_maps_msg_warning_fg);
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 
 		&[hidden] {
 			display: none;
@@ -1405,7 +1412,7 @@
 		align-items: center;
 		gap: 0.25rem;
 		padding: 0.15rem 0.4rem;
-		font-size: 0.75rem;
+		font-size: @uca_maps_text_small;
 		background: none;
 		color: var(--fg_default);
 		border: 1px solid var(--border_default);
@@ -1518,7 +1525,7 @@
 		margin: 0.25rem 0 0.1rem;
 		padding-top: 0.5rem;
 		border-top: 1px solid var(--border_default);
-		font-size: 0.8rem;
+		font-size: @uca_maps_text_small;
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.02em;
@@ -1535,7 +1542,7 @@
 	}
 
 	.uca-maps-roman-unavailable {
-		font-size: 0.75rem;
+		font-size: @uca_maps_text_small;
 		color: var(--fg_muted);
 
 		&[hidden] {
@@ -1616,7 +1623,9 @@
 	color: var(--fg_default);
 	border-radius: 0.25rem;
 	box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
-	font-size: 0.85rem;
+	// outside every panel, so it needs the page font of its own
+	.global_font();
+	font-size: 1rem;
 
 	&[hidden] {
 		display: none;
