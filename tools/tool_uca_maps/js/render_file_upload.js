@@ -51,17 +51,7 @@ const DEFAULT_PROJECTIONS = [
 */
 export const render_file_upload_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('upload_control_title') || 'Upload file to map',
-		parent			: header
-	})
+	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	// v6's "Subir archivo vectorial" modal, in its order: picker first, the
 	// manual projection after it, then the button that reads both

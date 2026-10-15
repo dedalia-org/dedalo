@@ -28,17 +28,7 @@ import {ui} from '../../../core/common/js/ui.js'
 */
 export const render_place_search_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('place_search_control_title') || 'Place search',
-		parent			: header
-	})
+	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	render_search_form(self, panel)
 

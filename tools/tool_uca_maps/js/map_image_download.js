@@ -74,7 +74,11 @@ export const attach_map_image_download_control = function(self) {
 		on_click	: () => toggle_map_image_panel(self)
 	})
 
-	self.map_image_panel = create_toolbar_panel(self, {class_name: 'uca-maps-map-image-panel'})
+	self.map_image_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-map-image-panel',
+		centered	: true,
+		title		: self.get_tool_label('map_image_download_title') || 'Download map as image'
+	})
 	render_map_image_download_panel(self, self.map_image_panel)
 
 }//end attach_map_image_download_control

@@ -48,17 +48,7 @@ import {eye_node} from './icons.js'
 */
 export const render_object_viewer_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('object_viewer_control_title') || 'Objects',
-		parent			: header
-	})
+	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	create_object_list_section(
 		self, panel,

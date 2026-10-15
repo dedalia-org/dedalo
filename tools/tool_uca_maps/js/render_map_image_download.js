@@ -53,17 +53,7 @@ const RASTER_FORMATS = ['png', 'jpg', 'gif', 'webp', 'geotiff']
 */
 export const render_map_image_download_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('map_image_download_title') || 'Download map as image',
-		parent			: header
-	})
+	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	// Name before format, as v6 orders it. Pre-filled with the base name this
 	// panel used when it had no field at all, so leaving it alone reproduces

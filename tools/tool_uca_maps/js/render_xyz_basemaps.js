@@ -28,17 +28,7 @@ import {ui} from '../../../core/common/js/ui.js'
 */
 export const render_xyz_basemaps_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('xyz_control_title') || 'XYZ basemaps',
-		parent			: header
-	})
+	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	render_add_form(self, panel)
 

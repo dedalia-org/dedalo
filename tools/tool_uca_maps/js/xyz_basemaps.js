@@ -80,7 +80,11 @@ export const attach_xyz_basemaps = function(self) {
 		on_click	: () => toggle_xyz_panel(self)
 	})
 
-	self.xyz_panel = create_toolbar_panel(self, {class_name: 'uca-maps-xyz-panel'})
+	self.xyz_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-xyz-panel',
+		centered	: true,
+		title		: self.get_tool_label('xyz_control_title') || 'XYZ basemaps'
+	})
 	render_xyz_basemaps_panel(self, self.xyz_panel)
 
 	rebuild_xyz_layer_control(self, {activate_index: 0})

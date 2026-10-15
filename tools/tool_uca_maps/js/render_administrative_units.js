@@ -32,17 +32,7 @@ const LEVELS = ['Municipio', 'Provincia', 'CCAA']
 */
 export const render_administrative_units_panel = function(self, panel) {
 
-	const header = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-panel-header',
-		parent			: panel
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'uca-maps-panel-title',
-		text_content	: self.get_tool_label('ua_control_title') || 'Administrative Units',
-		parent			: header
-	})
+	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-ua-message', parent: panel})
 	message.hidden = true

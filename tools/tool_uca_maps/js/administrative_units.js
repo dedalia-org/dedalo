@@ -83,7 +83,12 @@ export const attach_administrative_units = function(self) {
 	// a SIBLING panel forcing this one shut (toolbar.js close_other_toolbar_
 	// panels) left the overlay+click listener running with no panel visible
 	// to show for it (review-diff finding, hito 11)
-	self.ua_panel = create_toolbar_panel(self, {class_name: 'uca-maps-ua-panel', on_hide: () => disable_ua(self)})
+	self.ua_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-ua-panel',
+		centered	: true,
+		title		: self.get_tool_label('ua_control_title') || 'Administrative Units',
+		on_hide		: () => disable_ua(self)
+	})
 	render_administrative_units_panel(self, self.ua_panel)
 
 }//end attach_administrative_units

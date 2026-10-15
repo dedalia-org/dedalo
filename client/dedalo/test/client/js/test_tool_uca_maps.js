@@ -3374,6 +3374,37 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	// Sergio (2026-10-15): every panel opens centred, as WMS, Roman and Legend
+	// already did — except the UCA console, a terminal that would cover the
+	// very geometry it inspects.
+	it('the image, objects, XYZ, UA, upload and search panels open centred with toolbar.js\'s header; the console stays by its button', function() {
+
+		geolocation.section_lang = 'lg-spa' // gates UA in
+		const cases = [
+			['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
+			['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
+			['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
+			['attach_administrative_units',			'ua_panel',				'ua_control'],
+			['attach_file_upload',					'upload_panel',			'upload_control'],
+			['attach_place_search',					'place_search_panel',	'place_search_control']
+		]
+		for (const [attach, panel_key, control_key] of cases) {
+			tool[attach]()
+			const panel = tool[panel_key]
+			tool[control_key].getContainer().click()
+			assert.equal(panel.hidden, false, panel_key + ': expected open after its click')
+			assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), panel_key + ': expected the centred variant')
+			assert.equal(panel.querySelectorAll('.uca-maps-panel-header').length, 1, panel_key + ': expected toolbar.js\'s header only')
+			assert.isOk(panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-close'), panel_key + ': expected the ×')
+			assert.equal(panel.style.top + panel.style.left, '', panel_key + ': expected no anchoring beside its button')
+		}
+
+		tool.attach_console()
+		tool.map_control.getContainer().click()
+		assert.isFalse(tool.panel_node.classList.contains('uca-maps-panel-centered'), 'expected the console not centred')
+		assert.notEqual(tool.panel_node.style.left, '', 'expected the console anchored beside its button')
+	})
+
 	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
 
 		tool.attach_console()
@@ -4676,9 +4707,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the vector file input still there — one row, one panel'
 		)
 		// the vector half uploads from its own button (2026-09-28); the image
-		// half still uploads on pick, so it has none
+		// half still uploads on pick, so it has none (the header's × is toolbar.js's)
 		assert.deepEqual(
-			Array.from(tool.upload_panel.querySelectorAll('button')).map(b => b.className),
+			Array.from(tool.upload_panel.querySelectorAll(':scope > :not(.uca-maps-panel-header) button, :scope > button')).map(b => b.className),
 			['uca-maps-upload-projections-button', 'uca-maps-upload-submit'],
 			'expected v6\'s projections toggle and the vector Upload button, nothing in the image half'
 		)

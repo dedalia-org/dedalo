@@ -106,7 +106,11 @@ export const attach_object_viewer = function(self) {
 		on_click	: () => toggle_object_viewer_panel(self)
 	})
 
-	self.object_viewer_panel = create_toolbar_panel(self, {class_name: 'uca-maps-object-viewer-panel'})
+	self.object_viewer_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-object-viewer-panel',
+		centered	: true,
+		title		: self.get_tool_label('object_viewer_control_title') || 'Objects'
+	})
 	render_object_viewer_panel(self, self.object_viewer_panel)
 
 	// live refresh while left open (file header) — self.events_tokens is

@@ -69,7 +69,11 @@ export const attach_file_upload = function(self) {
 		on_click	: () => toggle_upload_panel(self)
 	})
 
-	self.upload_panel = create_toolbar_panel(self, {class_name: 'uca-maps-upload-panel'})
+	self.upload_panel = create_toolbar_panel(self, {
+		class_name	: 'uca-maps-upload-panel',
+		centered	: true,
+		title		: self.get_tool_label('upload_control_title') || 'Upload file to map'
+	})
 	render_file_upload_panel(self, self.upload_panel)
 
 }//end attach_file_upload
