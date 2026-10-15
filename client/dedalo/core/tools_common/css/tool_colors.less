@@ -437,6 +437,18 @@
 	--tool_fill_hover: #feaf7d;
 	--tool_on_fill: #16181b; // 7.89:1
 }
+.tool_header.tool_uca_maps, .wrapper_tool.tool_uca_maps, [data-tool="tool_uca_maps"] {
+	--tool_edge: var(--tool_uca_maps, #f78a1c);
+	--tool_fill: #f78a1c;
+	--tool_fill_hover: #ffa55d;
+	--tool_on_fill: #16181b; // 7.29:1
+}
+:root[data-theme="dark"] :is(.tool_header.tool_uca_maps, .wrapper_tool.tool_uca_maps, [data-tool="tool_uca_maps"]) {
+	--tool_edge: var(--tool_uca_maps, #ffa54a);
+	--tool_fill: #ffa54a;
+	--tool_fill_hover: #fec28b;
+	--tool_on_fill: #16181b; // 9.09:1
+}
 .tool_header.tool_update_cache, .wrapper_tool.tool_update_cache, [data-tool="tool_update_cache"] {
 	--tool_edge: var(--tool_update_cache, #5f8367);
 	--tool_fill: #5b7f63;
