@@ -101,6 +101,9 @@
 .uca-maps-panel-action-button() {
 	flex: 0 0 auto;
 	white-space: nowrap;
+	// the brand orange with its own ink (--fg_on_brand, vars_tokens.less).
+	// Not yet .tool_action_button(): its generated tokens do not reach a panel
+	// hanging from the map, outside .wrapper_tool.tool_uca_maps
 	background-color: @tool_color;
 	color: var(--fg_on_brand);
 	border: none;
@@ -333,8 +336,12 @@
 		top: 0;
 		z-index: 1;
 		padding: 0.5rem 0.75rem;
-		background-color: @tool_color;
-		color: var(--fg_on_brand);
+		// the tool header's own treatment (tool_common.less): the hue is a 4px
+		// edge over the theme's surface (decoration), the title in the theme's ink
+		border-top: 4px solid @tool_color;
+		background-color: var(--bg_surface_alt);
+		color: var(--fg_default);
+		box-shadow: inset 0 -1px 0 var(--border_default);
 		border-radius: 0.25rem 0.25rem 0 0;
 
 		>.uca-maps-panel-title {
@@ -411,19 +418,7 @@
 	}
 
 	.uca-maps-map-image-button {
-		flex: 0 0 auto;
-		white-space: nowrap;
-		background-color: @tool_color;
-		color: var(--fg_on_brand);
-		border: none;
-		border-radius: 0.2rem;
-		padding: 0.3rem 0.6rem;
-		font-size: 0.8rem;
-		cursor: pointer;
-
-		&:hover {
-			filter: brightness(0.92);
-		}
+		.uca-maps-panel-action-button();
 	}
 
 	.uca-maps-map-image-message {
@@ -1071,33 +1066,17 @@
 			margin-top: 0.4rem;
 		}
 
-		// every button in this section — Add, ✕ delete, Download.
-		// (!) flex:0 0 auto + white-space:nowrap on the buttons specifically
-		// (not just the row) is required: without it, "Add" squeezed down
-		// to single-letter-per-line inside a flex row shared with two
-		// flex:1 text inputs (confirmed live by Sergio, 2026-09-02) — a
-		// <button> can still be forced below its natural width once the
-		// row runs out of space; this opts it out of shrinking at all.
+		// every button in this section — Add, ✕ delete, Download. The mixin's
+		// flex:0 0 auto + nowrap keep "Add" from being squeezed to a letter per
+		// line in a row shared with two flex:1 inputs (Sergio, 2026-09-02).
 		button {
-			flex: 0 0 auto;
-			white-space: nowrap;
-			background-color: @tool_color;
-			color: var(--fg_on_brand);
-			border: none;
-			border-radius: 0.2rem;
-			padding: 0.3rem 0.6rem;
-			font-size: 0.8rem;
-			cursor: pointer;
-
-			&:hover {
-				filter: brightness(0.92);
-			}
+			.uca-maps-panel-action-button();
 		}
 
 		.uca-maps-property-delete {
+			.uca-maps-panel-secondary-button();
 			padding: 0.2rem 0.45rem;
-			background-color: var(--bg_fill_inverse);
-			color: var(--fg_inverse);
+			font-size: 0.8rem;
 		}
 	}//end uca-maps-object-section
 

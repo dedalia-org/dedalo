@@ -3251,6 +3251,49 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	// Layout and paint, so it loads the tool sheet: a panel header is the tool
+	// header's treatment (the hue as an edge, never under its title), and the
+	// buttons that once copied the action chrome by hand now share it.
+	it('with the tool CSS, a panel header carries the hue as an edge, and every action button shares one chrome', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			tool.attach_xyz_basemaps()
+			tool.attach_map_image_download_control()
+			geolocation.map.getContainer().querySelector('.uca-maps-xyz-control').click()
+
+			const probe = document.createElement('div')
+			probe.style.cssText = 'background-color: var(--tool_uca_maps)'
+			tool.xyz_panel.appendChild(probe)
+			const hue = getComputedStyle(probe).backgroundColor
+			assert.notEqual(hue, 'rgba(0, 0, 0, 0)', 'expected the tool hue to resolve')
+
+			const header = getComputedStyle(tool.xyz_panel.querySelector('.uca-maps-panel-header'))
+			assert.equal(header.borderTopColor, hue, 'expected the hue as the header\'s top edge')
+			assert.equal(header.borderTopWidth, '4px')
+			assert.notEqual(header.backgroundColor, hue, 'expected no title on the hue')
+
+			const chrome = (node) => {
+				const style = getComputedStyle(node)
+				return [style.backgroundColor, style.color, style.paddingTop, style.paddingLeft, style.fontSize, style.borderRadius, style.whiteSpace].join(' | ')
+			}
+			const xyz_add	= tool.xyz_panel.querySelector('.uca-maps-xyz-add-button')
+			const image_btn	= tool.map_image_panel.querySelector('.uca-maps-map-image-button')
+			assert.isOk(image_btn, 'expected the map-image download button')
+			assert.equal(chrome(image_btn), chrome(xyz_add), 'expected the map-image button on the shared action chrome')
+		} finally {
+			link.remove()
+		}
+	})
+
 	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
 
 		tool.attach_console()

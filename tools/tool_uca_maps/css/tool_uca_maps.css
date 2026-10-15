@@ -158,8 +158,10 @@
   top: 0;
   z-index: 1;
   padding: 0.5rem 0.75rem;
-  background-color: var(--tool_uca_maps);
-  color: var(--fg_on_brand);
+  border-top: 4px solid var(--tool_uca_maps);
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
+  box-shadow: inset 0 -1px 0 var(--border_default);
   border-radius: 0.25rem 0.25rem 0 0;
 }
 .uca-maps-panel > .uca-maps-panel-header > .uca-maps-panel-title {
@@ -226,6 +228,10 @@
 }
 .uca-maps-map-image-panel .uca-maps-map-image-button:hover {
   filter: brightness(0.92);
+}
+.uca-maps-map-image-panel .uca-maps-map-image-button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .uca-maps-map-image-panel .uca-maps-map-image-message {
   background-color: var(--uca_maps_msg_error_bg);
@@ -838,10 +844,17 @@
 .uca-maps-console > .uca-maps-object-section button:hover {
   filter: brightness(0.92);
 }
+.uca-maps-console > .uca-maps-object-section button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-property-delete {
-  padding: 0.2rem 0.45rem;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
   background-color: var(--bg_fill_inverse);
   color: var(--fg_inverse);
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8rem;
 }
 .uca-maps-place-search-panel .uca-maps-place-search-form {
   display: flex;
