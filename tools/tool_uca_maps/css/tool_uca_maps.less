@@ -152,10 +152,25 @@
 // the plain in-flow error/status line every session-only-persistence panel
 // uses instead of the page-level `ui.show_message` toast, which a floating
 // panel's own `overflow-y: auto` would clip (render_xyz_basemaps.js
-// show_xyz_message / render_wms_services.js show_wms_message doc comments)
+// show_xyz_message / render_wms_services.js show_wms_message doc comments).
+// Its `data-type` (set by each show_*_message) picks the tint: an error by
+// default, a success, a "nothing found" warning, or a neutral working line.
 .uca-maps-panel-inline-message() {
 	background-color: var(--uca_maps_msg_error_bg);
 	color: var(--uca_maps_msg_error_fg);
+
+	&[data-type="ok"] {
+		background-color: var(--uca_maps_msg_ok_bg);
+		color: var(--uca_maps_msg_ok_fg);
+	}
+	&[data-type="warning"] {
+		background-color: var(--uca_maps_msg_warning_bg);
+		color: var(--uca_maps_msg_warning_fg);
+	}
+	&[data-type="info"] {
+		background-color: var(--bg_surface_alt);
+		color: var(--fg_default);
+	}
 	border-radius: 0.2rem;
 	padding: 0.35rem 0.5rem;
 	font-size: 0.8rem;

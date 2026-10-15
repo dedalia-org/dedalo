@@ -267,11 +267,13 @@ export const focus_first_roman_field = function(panel) {
 *
 * @param {HTMLElement} block - a source's own section
 * @param {string} text
+* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_roman_message = function(block, text) {
+const show_roman_message = function(block, text, type='error') {
 	const message = block.querySelector('.uca-maps-roman-message')
 	message.textContent	= text
+	message.dataset.type	= type
 	message.hidden		= false
 }//end show_roman_message
 

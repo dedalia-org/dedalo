@@ -230,7 +230,7 @@ const render_image_section = function(self, panel) {
 
 		// the ingest + derivative build is measurably slower than a vector
 		// conversion, so this one says so instead of looking frozen
-		show_upload_message(message, self.get_tool_label('upload_image_working') || 'Uploading the image…')
+		show_upload_message(message, self.get_tool_label('upload_image_working') || 'Uploading the image…', undefined, 'info')
 
 		const result = await self.upload_image_file(file)
 
@@ -248,8 +248,9 @@ const render_image_section = function(self, panel) {
 				: (self.get_tool_label('upload_image_success_viewport')
 					|| 'The image carries no coordinates: placed over the current view.')
 		// the image is on the map, which is the real confirmation: the line
-		// only has to be read once, not greet every later reopening of the panel
-		return {text, hide_after_ms: UPLOAD_MESSAGE_MS}
+		// only has to be read once, not greet every later reopening of the panel.
+		// Placed by its own coordinates is a plain success; over the view, a caveat
+		return {text, hide_after_ms: UPLOAD_MESSAGE_MS, type: result.georeferenced ? 'ok' : 'warning'}
 	})
 
 }//end render_image_section
@@ -301,7 +302,9 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 		if (result.feature_count===0) {
 			show_upload_message(
 				message,
-				self.get_tool_label('upload_no_features') || 'No objects could be read from this file.'
+				self.get_tool_label('upload_no_features') || 'No objects could be read from this file.',
+				undefined,
+				'warning'
 			)
 			return
 		}
@@ -310,7 +313,8 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 		show_upload_message(
 			message,
 			(self.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (' + result.feature_count + ')',
-			UPLOAD_MESSAGE_MS
+			UPLOAD_MESSAGE_MS,
+			'ok'
 		)
 	})
 
@@ -327,7 +331,7 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 *
 * @param {HTMLInputElement} file_input
 * @param {HTMLElement} message - this sub-flow's own status line
-* @param {function(File): Promise<string|{text: string, hide_after_ms: number}|null>} run
+* @param {function(File): Promise<string|{text: string, hide_after_ms: number, type: string}|null>} run
 *	resolves what to show; a bare string is an error, which stays until the next pick
 * @returns {void}
 */
@@ -356,7 +360,7 @@ const bind_upload_on_pick = function(file_input, message, run) {
 		clear_upload_message(message)
 		const answer = (text && typeof text==='object') ? text : {text}
 		if (answer.text) {
-			show_upload_message(message, answer.text, answer.hide_after_ms)
+			show_upload_message(message, answer.text, answer.hide_after_ms, answer.type)
 		}
 	})
 
@@ -392,11 +396,13 @@ export const UPLOAD_MESSAGE_MS = 2000
 * @param {string} text
 * @param {number} [hide_after_ms] - omitted: the line stays (the "working" one,
 *	and an error: a refusal's reason is read while fixing the input, not glimpsed)
+* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_upload_message = function(message, text, hide_after_ms) {
+const show_upload_message = function(message, text, hide_after_ms, type='error') {
 	clear_upload_message(message)
 	message.textContent	= text
+	message.dataset.type	= type
 	message.hidden		= false
 	if (typeof hide_after_ms==='number') {
 		message._uca_maps_hide_timer = setTimeout(() => clear_upload_message(message), hide_after_ms)

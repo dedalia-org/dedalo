@@ -81,11 +81,13 @@ export const render_administrative_units_panel = function(self, panel) {
 *
 * @param {HTMLElement} panel
 * @param {string} text
+* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-export const show_ua_message = function(panel, text) {
+export const show_ua_message = function(panel, text, type='error') {
 	const message = panel.querySelector('.uca-maps-ua-message')
 	message.textContent	= text
+	message.dataset.type	= type
 	message.hidden			= false
 }//end show_ua_message
 

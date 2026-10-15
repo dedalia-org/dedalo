@@ -62,11 +62,13 @@ export const render_wms_services_panel = function(self, panel) {
 *
 * @param {HTMLElement} panel
 * @param {string} text
+* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_wms_message = function(panel, text) {
+const show_wms_message = function(panel, text, type='error') {
 	const message = panel.querySelector('.uca-maps-wms-message')
 	message.textContent	= text
+	message.dataset.type	= type
 	message.hidden			= false
 }//end show_wms_message
 
@@ -116,7 +118,7 @@ const render_search_form = function(self, panel) {
 
 		message.hidden = true
 		if (result.layers.length===0) {
-			show_wms_message(panel, self.get_tool_label('wms_no_layers') || 'No queryable layers found on this server.')
+			show_wms_message(panel, self.get_tool_label('wms_no_layers') || 'No queryable layers found on this server.', 'warning')
 		}
 		populate_wms_search_results(self, panel)
 

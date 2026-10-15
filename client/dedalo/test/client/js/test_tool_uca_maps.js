@@ -3294,6 +3294,49 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	it('with the tool CSS, a panel line takes the tint of its type: error by default, success, warning, working', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			tool.attach_file_upload()
+			const message = tool.upload_panel.querySelector('.uca-maps-upload-message')
+			message.hidden = false
+
+			const tint_of = (token) => {
+				const probe = document.createElement('div')
+				probe.style.backgroundColor = 'var(' + token + ')'
+				tool.upload_panel.appendChild(probe)
+				const value = getComputedStyle(probe).backgroundColor
+				probe.remove()
+				return value
+			}
+			const expected = {
+				error	: tint_of('--uca_maps_msg_error_bg'),
+				ok		: tint_of('--uca_maps_msg_ok_bg'),
+				warning	: tint_of('--uca_maps_msg_warning_bg'),
+				info	: tint_of('--bg_surface_alt')
+			}
+			assert.equal(new Set(Object.values(expected)).size, 4, 'expected four distinct tints to tell apart')
+
+			delete message.dataset.type
+			assert.equal(getComputedStyle(message).backgroundColor, expected.error, 'expected an untyped line read as an error')
+			for (const type of ['error', 'ok', 'warning', 'info']) {
+				message.dataset.type = type
+				assert.equal(getComputedStyle(message).backgroundColor, expected[type], 'expected the ' + type + ' tint')
+			}
+		} finally {
+			link.remove()
+		}
+	})
+
 	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
 
 		tool.attach_console()
@@ -4342,6 +4385,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 		const message = tool.ua_panel.querySelector('.uca-maps-ua-message')
 		assert.equal(message.hidden, false, 'expected the in-panel message shown')
+		assert.equal(message.dataset.type, 'warning', 'expected "not found" as a warning, not an error')
 	})
 
 	// review-diff finding, hito 11: a lookup in flight when the user closes
@@ -4731,6 +4775,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(messages[0].hidden, true, 'expected the vector half\'s line untouched')
 			assert.equal(messages[1].hidden, false, 'expected the result in the image half')
 			assert.equal(messages[1].textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
+			assert.equal(messages[1].dataset.type, 'ok', 'expected a success, not the error tint')
 		} finally {
 			delete tool.upload_image_file
 		}
@@ -4760,11 +4805,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			submit.click()
 			await new Promise(resolve => setTimeout(resolve, 0))
 			assert.equal(message.textContent, tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.')
+			assert.equal(message.dataset.type, 'warning', 'expected "nothing read" as a warning, not an error')
 
 			answer = {ok: true, feature_count: 3}
 			submit.click()
 			await new Promise(resolve => setTimeout(resolve, 0))
 			assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (3)')
+			assert.equal(message.dataset.type, 'ok', 'expected a success, not the error tint')
 			assert.equal(picker.value, '', 'expected the picker emptied after a success')
 		} finally {
 			delete tool.upload_vector_file
@@ -4832,11 +4879,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			await new Promise(resolve => setTimeout(resolve, FORMER_ERROR_MESSAGE_MS + 200))
 			assert.equal(message.hidden, false, 'expected the error still there past the former window')
 			assert.equal(message.textContent, 'the ingest refused it')
+			assert.equal(message.dataset.type, 'error')
 
 			// the next pick is the gesture that replaces it, before its own answer
 			tool.upload_image_file = () => new Promise(() => {})
 			pick_file(picker, file)
 			assert.equal(message.textContent, 'Uploading the image…', 'expected the next pick to replace the error with its working line')
+			assert.equal(message.dataset.type, 'info', 'expected the working line neutral, not still the error tint')
 		} finally {
 			delete tool.upload_image_file
 		}

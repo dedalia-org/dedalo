@@ -265,7 +265,8 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 		if (!data || !data.found) {
 			show_ua_message(
 				self.ua_panel,
-				self.get_tool_label('ua_not_found') || 'No administrative unit could be found at this point.'
+				self.get_tool_label('ua_not_found') || 'No administrative unit could be found at this point.',
+				'warning'
 			)
 			return
 		}

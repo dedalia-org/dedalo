@@ -57,11 +57,13 @@ export const render_place_search_panel = function(self, panel) {
 *
 * @param {HTMLElement} panel
 * @param {string} text
+* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_place_search_message = function(panel, text) {
+const show_place_search_message = function(panel, text, type='error') {
 	const message = panel.querySelector('.uca-maps-place-search-message')
 	message.textContent	= text
+	message.dataset.type	= type
 	message.hidden		= false
 }//end show_place_search_message
 
@@ -128,7 +130,7 @@ const render_search_form = function(self, panel) {
 
 		message.hidden = true
 		if (result.results.length===0) {
-			show_place_search_message(panel, self.get_tool_label('place_search_no_results') || 'No places found.')
+			show_place_search_message(panel, self.get_tool_label('place_search_no_results') || 'No places found.', 'warning')
 		}
 		populate_place_search_results(self, panel)
 	}

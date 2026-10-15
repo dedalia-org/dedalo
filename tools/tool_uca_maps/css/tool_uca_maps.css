@@ -242,6 +242,18 @@
   white-space: pre-line;
   margin: 0 0.75rem 0.5rem;
 }
+.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
+}
 .uca-maps-map-image-panel .uca-maps-map-image-message[hidden] {
   display: none;
 }
@@ -307,6 +319,18 @@
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
   white-space: pre-line;
+}
+.uca-maps-xyz-panel .uca-maps-xyz-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-xyz-panel .uca-maps-xyz-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-xyz-panel .uca-maps-xyz-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
 }
 .uca-maps-xyz-panel .uca-maps-xyz-message[hidden] {
   display: none;
@@ -390,6 +414,18 @@
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
   white-space: pre-line;
+}
+.uca-maps-wms-panel .uca-maps-wms-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-wms-panel .uca-maps-wms-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-wms-panel .uca-maps-wms-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
 }
 .uca-maps-wms-panel .uca-maps-wms-message[hidden] {
   display: none;
@@ -495,6 +531,18 @@
   white-space: pre-line;
   margin: 0.5rem 0.75rem 0;
 }
+.uca-maps-ua-panel .uca-maps-ua-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-ua-panel .uca-maps-ua-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-ua-panel .uca-maps-ua-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
+}
 .uca-maps-ua-panel .uca-maps-ua-message[hidden] {
   display: none;
 }
@@ -516,6 +564,18 @@
   font-size: 0.8rem;
   white-space: pre-line;
   margin: 0 0.75rem 0.75rem;
+}
+.uca-maps-upload-panel .uca-maps-upload-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-upload-panel .uca-maps-upload-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-upload-panel .uca-maps-upload-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
 }
 .uca-maps-upload-panel .uca-maps-upload-message[hidden] {
   display: none;
@@ -827,6 +887,18 @@
   white-space: pre-line;
   margin-top: 0.4rem;
 }
+.uca-maps-console > .uca-maps-object-section .uca-maps-download-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-download-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-download-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-download-message[hidden] {
   display: none;
 }
@@ -872,6 +944,18 @@
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
   white-space: pre-line;
+}
+.uca-maps-place-search-panel .uca-maps-place-search-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-place-search-panel .uca-maps-place-search-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-place-search-panel .uca-maps-place-search-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
 }
 .uca-maps-place-search-panel .uca-maps-place-search-message[hidden] {
   display: none;
@@ -978,6 +1062,18 @@
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
   white-space: pre-line;
+}
+.uca-maps-legend-panel .uca-maps-legend-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-legend-panel .uca-maps-legend-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-legend-panel .uca-maps-legend-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
 }
 .uca-maps-legend-panel .uca-maps-legend-message[hidden] {
   display: none;
@@ -1222,6 +1318,18 @@
   padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
   white-space: pre-line;
+}
+.uca-maps-roman-panel .uca-maps-roman-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-roman-panel .uca-maps-roman-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-roman-panel .uca-maps-roman-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
 }
 .uca-maps-roman-panel .uca-maps-roman-message[hidden] {
   display: none;

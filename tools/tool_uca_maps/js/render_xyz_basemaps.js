@@ -63,11 +63,13 @@ export const render_xyz_basemaps_panel = function(self, panel) {
 *
 * @param {HTMLElement} panel
 * @param {string} text
+* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_xyz_message = function(panel, text) {
+const show_xyz_message = function(panel, text, type='error') {
 	const message = panel.querySelector('.uca-maps-xyz-message')
 	message.textContent	= text
+	message.dataset.type	= type
 	message.hidden			= false
 }//end show_xyz_message
 
