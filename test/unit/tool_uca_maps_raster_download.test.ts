@@ -220,6 +220,8 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — the install operatin
 	const policy = readFileSync('src/core/media/engine/imagemagick-policy/policy.xml', 'utf8');
 	const ceiling = Number(/name="list-length" value="(\d+)"/.exec(policy)?.[1]);
 
+	// four ImageMagick runs over thousands of frames: ~5 s alone, at bun's default
+	// timeout, so it failed by load, not by behaviour
 	test('a sequence over the list-length limit is refused in every format, one well under it converts', async () => {
 		expect(listLength + 1).toBeLessThan(ceiling);
 		const action = await loadAction();
@@ -238,7 +240,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — the install operatin
 				},
 			);
 		}
-	});
+	}, 30_000);
 
 	test('the conversion waits for a converter permit like every engine spawn', async () => {
 		const admission = converterAdmission();
