@@ -119,6 +119,24 @@ export function extractParcelPosList(xml: string, refcat: string): [number, numb
 	return points.length >= 3 ? points : null; // a ring needs at least a triangle
 }
 
+/**
+ * The WFS reply read as the parcel's ring. A stored query that finds nothing
+ * answers an OWS `ExceptionReport` (null: the caller falls back, as v6 did);
+ * a reply that is neither that nor a `FeatureCollection` (its maintenance
+ * page) is not an answer, and reading it as "no parcel" would be false.
+ */
+export function parseParcelGeometry(xml: string, refcat: string): [number, number][] | null {
+	if (/<(?:\w+:)?ExceptionReport[\s>]/.test(xml)) {
+		return null;
+	}
+	if (!/<(?:\w+:)?FeatureCollection[\s>]/.test(xml)) {
+		throw new DedaloError('security.outbound_failed', {
+			message: 'Catastro WFS answered with neither a FeatureCollection nor an ExceptionReport',
+		});
+	}
+	return extractParcelPosList(xml, refcat);
+}
+
 async function fetchParcelGeometry(
 	refcat: string,
 	storedQueryId: 'getneighbourparcel' | 'getparcel',
@@ -131,7 +149,7 @@ async function fetchParcelGeometry(
 	url.searchParams.set('STOREDQUERIE_ID', storedQueryId);
 	url.searchParams.set('refcat', refcat);
 	const xml = await fetchGuardedText(url.toString(), { maxBytes: 5 * 1024 * 1024 });
-	return extractParcelPosList(xml, refcat);
+	return parseParcelGeometry(xml, refcat);
 }
 
 export async function getCatastroParcel(ctx: ToolActionContext): Promise<ToolResponse> {

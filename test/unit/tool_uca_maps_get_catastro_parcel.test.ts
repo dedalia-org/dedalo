@@ -24,6 +24,7 @@ import {
 	extractParcelPosList,
 	featureInfoUrl,
 	parseCatastroRefcat,
+	parseParcelGeometry,
 } from '../../tools/tool_uca_maps/server/catastro.ts';
 import { mustGet } from '../helpers/assert.ts';
 
@@ -153,6 +154,36 @@ describe('extractParcelPosList', () => {
 	test('fewer than 3 points (not a ring) — null', () => {
 		const xml = `<FeatureCollection>${memberXml(REFCAT, '39.1 -0.1 39.2 -0.2')}</FeatureCollection>`;
 		expect(extractParcelPosList(xml, REFCAT)).toBeNull();
+	});
+
+	// captured live, 2026-10-15: a stored query for a reference with no parcel
+	const NOT_FOUND_XML =
+		'<?xml version=\'1.0\' encoding="ISO-8859-1" standalone="no"?>\n<ExceptionReport xmlns="http://www.opengis.net/ows/1.1" version="2.0.0">\n<Exception exceptionCode="OperationProcessingFailed">\n<ExceptionText><![CDATA[No se han encontrado registros de la referencia 0000000AA0000A]]></ExceptionText>\n</Exception>\n</ExceptionReport>\n';
+
+	test('the WFS reply: a FeatureCollection is read, a "not found" report is null (the fallback runs)', () => {
+		const xml = `<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0">${memberXml(REFCAT, '39.1 -0.1 39.2 -0.2 39.3 -0.3 39.1 -0.1')}</FeatureCollection>`;
+		expect(parseParcelGeometry(xml, REFCAT)).toEqual([
+			[39.1, -0.1],
+			[39.2, -0.2],
+			[39.3, -0.3],
+			[39.1, -0.1],
+		]);
+		expect(parseParcelGeometry(NOT_FOUND_XML, REFCAT)).toBeNull();
+	});
+
+	test('a WFS reply that is neither (maintenance, empty) is the source unavailable, never "no parcel"', () => {
+		const maintenance =
+			'<html><body><h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
+		for (const xml of [maintenance, '']) {
+			let error: unknown = null;
+			try {
+				parseParcelGeometry(xml, REFCAT);
+			} catch (caught) {
+				error = caught;
+			}
+			expect(error).toBeInstanceOf(DedaloError);
+			expect((error as DedaloError).code).toBe('security.outbound_failed');
+		}
 	});
 });
 
