@@ -86,6 +86,10 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 		// hito 18 (fila #14): the local gazetteer store is reported the same
 		// way a binary is — and it NEVER names the install's own directory,
 		// only what can be served out of it
+		// importing an object's linked images is on unless an install turns
+		// it off, and the suite never does
+		expect(data.externalImages).toBe(true);
+
 		const gazetteers = data.gazetteers as {
 			configured: unknown;
 			pleiades: unknown;

@@ -69,6 +69,9 @@ import {
 	object_images,
 	object_image_url,
 	remove_object_image,
+	linked_images,
+	external_images_enabled,
+	import_linked_images,
 	MAX_OBJECT_IMAGES
 } from '../../../tools/tool_uca_maps/js/object_image.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
@@ -789,6 +792,298 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the gallery cap is v6\'s own 30', function() {
 		assert.equal(MAX_OBJECT_IMAGES, 30, 'expected v6\'s documented maximum')
+	})
+
+	/**
+	* LINKED IMAGES (v6 `check_if_external_images`): an object's
+	* `properties.images[]` entries that only carry a url are downloaded by the
+	* server on the user's gesture, ingested like a picked file and MOVED into
+	* the object's own images. A failed link stays, with its reason.
+	*/
+	it('linked_images picks only links with no Dédalo record, v6\'s own test', function() {
+
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const link = {url: 'https://images.example/a.jpg'}
+		layer.feature.properties.images = [
+			link,
+			{url: 'https://images.example/b.jpg', section_tipo: 'rsc170', section_id: 4, tipo: 'rsc29'},
+			{url: '   '},
+			{title: 'no url'},
+			null,
+			'https://images.example/c.jpg'
+		]
+		try {
+			assert.deepEqual(linked_images(layer), [link], 'expected only the url entry with no record')
+			layer.feature.properties.images = 'not a list'
+			assert.deepEqual(linked_images(layer), [], 'expected nothing from a non-array')
+			assert.deepEqual(linked_images(null), [], 'expected an array, never null')
+		} finally {
+			delete layer.feature.properties.images
+		}
+	})
+
+	it('external_images_enabled asks the install once, and a failed answer is off', async function() {
+
+		const original = tool.get_capabilities
+		let calls = 0
+		try {
+			tool._external_images_enabled = null
+			tool.get_capabilities = async function() { calls++; return {ok: true, data: {externalImages: true}} }
+			assert.equal(await external_images_enabled(tool), true, 'expected the install answer')
+			assert.equal(await external_images_enabled(tool), true, 'expected the same answer again')
+			assert.equal(calls, 1, 'expected ONE capabilities request per tool instance')
+
+			tool._external_images_enabled = null
+			tool.get_capabilities = async function() { throw new Error('network down') }
+			assert.equal(await external_images_enabled(tool), false, 'expected a throw to read as off')
+
+			tool._external_images_enabled = null
+			tool.get_capabilities = async function() { return {ok: false, error: {is_api_error: true, code: 'perm.denied', message: 'x', transport: false}} }
+			assert.equal(await external_images_enabled(tool), false, 'expected a refusal to read as off')
+		} finally {
+			tool.get_capabilities		= original
+			tool._external_images_enabled	= null
+		}
+	})
+
+	// The four requests of one import: stage (server download), mint, ingest,
+	// where it is served. `stage` answers per url; the rest succeed.
+	const stub_linked_import = function(stage, ingest) {
+		const original_request		= data_manager.request
+		const original_tool_request	= tool.tool_request
+		const seen = {stages: [], created: 0, released: []}
+		let next_id = 9100
+		data_manager.request = async function(options) {
+			const body = options && options.body
+			if (body && body.action==='tool_request' && body.source && body.source.action==='stage_external_image') {
+				seen.stages.push({options: body.options, timeout: options.timeout})
+				return stage(body.options.url)
+			}
+			if (body && body.action==='create') {
+				seen.created++
+				return {ok: true, data: next_id++}
+			}
+			if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
+				return ingest ? ingest(body.options.file_data.tmp_name) : {ok: true, data: true}
+			}
+			if (body && body.action==='delete') {
+				return {ok: true, data: [body.source.section_id]}
+			}
+			if (body && body.action==='delete_uploaded_file') {
+				seen.released.push(body.options)
+				return {ok: true, data: true}
+			}
+			return original_request.apply(this, arguments)
+		}
+		tool.tool_request = async function(options) {
+			if (options.action==='get_image_file') {
+				return {ok: true, data: {file_path: '/rsc29/1.5MB/' + options.options.section_id + '.jpg', quality: '1.5MB'}}
+			}
+			return original_tool_request.apply(this, arguments)
+		}
+		seen.restore = function() {
+			data_manager.request	= original_request
+			tool.tool_request		= original_tool_request
+		}
+		return seen
+	}
+
+	const staged_answer = (name) => ({ok: true, data: {file_data: {
+		key_dir: 'image', tmp_name: name, name: name, extension: 'jpg', complete: true
+	}}})
+
+	it('import_linked_images moves what it imports, keeps a failed link and says why', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.active_console_layer = layer
+		const good		= {url: 'https://images.example/good.jpg'}
+		const refused	= {url: 'https://images.example/refused.jpg'}
+		const recorded	= {url: 'https://images.example/kept.jpg', section_tipo: 'rsc170', section_id: 4, tipo: 'rsc29'}
+		layer.feature.properties.images = [good, refused, recorded]
+		layer.feature.properties.uca_maps = {}
+
+		const seen = stub_linked_import(function(url) {
+			return url===good.url
+				? staged_answer('good.jpg')
+				: {ok: false, error: {is_api_error: true, code: 'harvest.robots_disallowed', message: 'The site does not allow it', transport: false}}
+		})
+		const progress = []
+		try {
+			const result = await import_linked_images(tool, layer, (done, total) => progress.push([done, total]))
+
+			assert.equal(result.ok, false, 'expected a partial import to say so')
+			assert.equal(result.imported, 1, 'expected one imported')
+			assert.equal(result.failures.length, 1, 'expected one failure')
+			assert.equal(result.failures[0].url, refused.url, 'expected the failure to name its link')
+			assert.include(result.failures[0].error, 'The site does not allow it', 'expected the server reason shown')
+			assert.deepEqual(progress, [[0, 2], [1, 2]], 'expected progress per link')
+
+			assert.equal(seen.stages[0].options.url, good.url, 'expected the link itself sent')
+			assert.equal(seen.stages[0].options.section_id, geolocation.section_id, 'expected the MAP record named for the write gate')
+			assert.isAbove(seen.stages[0].timeout, 5000, 'expected a timeout past data_manager\'s 5 s default')
+
+			assert.deepEqual(layer.feature.properties.images, [refused, recorded], 'expected the imported link moved out, the rest untouched')
+			const images = object_images(layer)
+			assert.equal(images.length, 1, 'expected the image hung off the object')
+			assert.equal(images[0].source_url, good.url, 'expected where it came from kept')
+			assert.equal(images[0].section_tipo, 'rsc170', 'expected a Dédalo record behind it')
+			assert.isUndefined(images[0].url, 'expected no absolute url stored')
+		} finally {
+			seen.restore()
+			delete layer.feature.properties.images
+			delete layer.feature.properties.uca_maps
+		}
+	})
+
+	// a download the ingest refused before moving it is released; one whose
+	// outcome is unknown is not (the server may still be consuming it)
+	it('import_linked_images releases a staged download only when the ingest certainly left it', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.active_console_layer = layer
+		const refused	= {url: 'https://images.example/refused.jpg'}
+		const unknown	= {url: 'https://images.example/unknown.jpg'}
+		layer.feature.properties.images = [refused, unknown]
+		layer.feature.properties.uca_maps = {}
+
+		const seen = stub_linked_import(
+			url => staged_answer(url===refused.url ? 'refused.jpg' : 'unknown.jpg'),
+			tmp_name => ({ok: false, error: tmp_name==='refused.jpg'
+				? {is_api_error: true, code: 'media.upload_rejected', message: 'x', transport: false}
+				: {is_api_error: true, code: 'internal.unexpected', message: 'x', transport: false}})
+		)
+		try {
+			const result = await import_linked_images(tool, layer)
+			assert.equal(result.failures.length, 2, 'expected both links reported')
+			assert.deepEqual(seen.released, [{key_dir: 'image', file_name: 'refused.jpg'}],
+				'expected only the pre-move refusal released, by its staged name')
+			assert.deepEqual(layer.feature.properties.images, [refused, unknown], 'expected both links kept')
+			assert.deepEqual(object_images(layer), [], 'expected nothing hung off the object')
+		} finally {
+			seen.restore()
+			delete layer.feature.properties.images
+			delete layer.feature.properties.uca_maps
+		}
+	})
+
+	// an import that brings anything in commits, and the commit re-renders the
+	// console: the failures must survive into the panel that replaces it
+	it('a partial import still lists its failed links in the re-rendered panel', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const good		= {url: 'https://images.example/good.jpg'}
+		const refused	= {url: 'https://images.example/refused.jpg'}
+		layer.feature.properties.images = [good, refused]
+		layer.feature.properties.uca_maps = {}
+
+		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+		const seen = stub_linked_import(function(url) {
+			return url===good.url
+				? staged_answer('good.jpg')
+				: {ok: false, error: {is_api_error: true, code: 'harvest.robots_disallowed', message: 'x', transport: false}}
+		})
+		tool.external_images_enabled = async () => true
+		try {
+			layer.openPopup()
+			await settle()
+			const before = tool.panel_node.querySelector('.uca-maps-object-linked-import')
+			assert.isOk(before, 'expected the import button')
+
+			before.click()
+			for (let i=0; i<100 && before.isConnected; i++) {
+				await settle()
+			}
+			assert.isFalse(before.isConnected, 'expected the commit to re-render the console')
+			await settle()
+
+			const lines = [...tool.panel_node.querySelectorAll('.uca-maps-object-linked-failure')]
+			assert.equal(lines.length, 1, 'expected the failed link listed in the new panel')
+			assert.include(lines[0].textContent, refused.url, 'expected the failure to name its link')
+			assert.include(tool.panel_node.querySelector('.uca-maps-object-linked-import').textContent, '1',
+				'expected the button offering the one link left')
+		} finally {
+			seen.restore()
+			delete tool.external_images_enabled
+			tool._linked_import_report = null
+			delete layer.feature.properties.images
+			delete layer.feature.properties.uca_maps
+		}
+	})
+
+	it('import_linked_images drops the emptied images list, and asks nothing at the cap', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		tool.active_console_layer = layer
+		layer.feature.properties.images = [{url: 'https://images.example/a.jpg'}]
+		layer.feature.properties.uca_maps = {}
+
+		let seen = stub_linked_import(() => staged_answer('a.jpg'))
+		try {
+			const result = await import_linked_images(tool, layer)
+			assert.equal(result.ok, true, 'expected a clean import')
+			assert.isUndefined(layer.feature.properties.images, 'expected no empty images list left behind')
+		} finally {
+			seen.restore()
+		}
+
+		layer.feature.properties.images = [{url: 'https://images.example/b.jpg'}]
+		layer.feature.properties.uca_maps = { images: Array.from(
+			{length: MAX_OBJECT_IMAGES},
+			(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'rsc170', section_id:index, tipo:'rsc29', name:null})
+		) }
+		seen = stub_linked_import(() => staged_answer('b.jpg'))
+		try {
+			const result = await import_linked_images(tool, layer)
+			assert.equal(result.imported, 0, 'expected nothing imported at the cap')
+			assert.equal(result.failures.length, 1, 'expected the link reported, not dropped')
+			assert.equal(seen.stages.length, 0, 'expected NO download at the cap')
+			assert.equal(seen.created, 0, 'expected NO record minted at the cap')
+			assert.equal(layer.feature.properties.images.length, 1, 'expected the link kept')
+		} finally {
+			seen.restore()
+			delete layer.feature.properties.images
+			delete layer.feature.properties.uca_maps
+		}
+	})
+
+	it('the import button shows only when the install allows it and there is something to import', async function() {
+
+		tool.attach_console()
+		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		layer.feature.properties.images = [{url: 'https://images.example/a.jpg'}, {url: 'https://images.example/b.jpg'}]
+
+		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+		const button = () => tool.panel_node.querySelector('.uca-maps-object-linked-import')
+		try {
+			tool.external_images_enabled = async () => false
+			layer.openPopup()
+			await settle()
+			assert.isNull(button(), 'expected no button when the install has it off')
+
+			tool.external_images_enabled = async () => true
+			layer.closePopup()
+			layer.openPopup()
+			await settle()
+			assert.isOk(button(), 'expected the button when on and the object links images')
+			assert.include(button().textContent, '2', 'expected the count of linked images')
+
+			let asked = null
+			tool.import_linked_images = async function(asked_layer) {
+				asked = asked_layer
+				return {ok: true, imported: 0, failures: [], still_shown: true}
+			}
+			button().click()
+			await settle()
+			assert.equal(asked, layer, 'expected the click to import this object\'s links')
+		} finally {
+			delete tool.external_images_enabled
+			delete tool.import_linked_images
+			delete layer.feature.properties.images
+		}
 	})
 
 	it('download_object_pdf sends record identities and NEVER a file path', async function() {

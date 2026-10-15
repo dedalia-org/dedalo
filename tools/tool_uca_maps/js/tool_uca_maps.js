@@ -117,7 +117,10 @@
 		associate_image,
 		object_images,
 		object_image_url,
-		remove_object_image
+		remove_object_image,
+		linked_images,
+		external_images_enabled,
+		import_linked_images
 	} from './object_image.js'
 	import {
 		attach_object_viewer,
@@ -920,6 +923,18 @@ tool_uca_maps.prototype.object_image_url = function(image) {
 tool_uca_maps.prototype.remove_object_image = function(layer, index) {
 	return remove_object_image(this, layer, index)
 }//end remove_object_image
+
+tool_uca_maps.prototype.linked_images = function(layer) {
+	return linked_images(layer)
+}//end linked_images
+
+tool_uca_maps.prototype.external_images_enabled = function() {
+	return external_images_enabled(this)
+}//end external_images_enabled
+
+tool_uca_maps.prototype.import_linked_images = function(layer, on_progress) {
+	return import_linked_images(this, layer, on_progress)
+}//end import_linked_images
 
 tool_uca_maps.prototype.get_reserved_property_keys = function() {
 	return RESERVED_PROPERTY_KEYS

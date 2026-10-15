@@ -78,6 +78,13 @@
 		{ "lang": "lg-eng", "name": "object_images_full", "value": "This object already holds the maximum number of images." },
 		{ "lang": "lg-spa", "name": "object_images_full", "value": "El objeto ya tiene el máximo de imágenes." },
 
+		{ "lang": "lg-eng", "name": "object_images_import_linked", "value": "Import %s linked images" },
+		{ "lang": "lg-spa", "name": "object_images_import_linked", "value": "Importar %s imágenes enlazadas" },
+		{ "lang": "lg-eng", "name": "object_images_importing", "value": "Importing %s of %s…" },
+		{ "lang": "lg-spa", "name": "object_images_importing", "value": "Importando %s de %s…" },
+		{ "lang": "lg-eng", "name": "object_images_import_failed", "value": "These links could not be imported and stay on the object:" },
+		{ "lang": "lg-spa", "name": "object_images_import_failed", "value": "Estos enlaces no se han podido importar y se conservan en el objeto:" },
+
 		{ "lang": "lg-eng", "name": "elevation", "value": "Elevation" },
 		{ "lang": "lg-spa", "name": "elevation", "value": "Elevación" },
 
@@ -579,6 +586,7 @@
 		{ "lang": "lg-spa", "name": "roman_source_unavailable", "value": "No disponible: esta instalación no tiene datos locales de este gacetero." }
 	],
 	"default_config": {
-		"gazetteer_data_path": ""
+		"gazetteer_data_path": "",
+		"external_images_enabled": true
 	}
 }

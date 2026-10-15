@@ -636,6 +636,17 @@
   width: 100%;
   margin: 0.35rem 0;
 }
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-linked-import {
+  display: block;
+  margin: 0.35rem 0;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-linked-status {
+  margin: 0.35rem 0;
+  font-style: italic;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-linked-failure {
+  overflow-wrap: anywhere;
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-field {
   display: flex;
   align-items: center;

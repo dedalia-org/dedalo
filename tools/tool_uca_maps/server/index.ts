@@ -62,6 +62,11 @@
  * then load. It writes nothing: the file was already ingested through the
  * engine's own door (`tool_upload::process_uploaded_file`), and this only
  * reports where on the map it belongs (see `image_overlay.ts`).
+ *
+ * `stage_external_image` is the one WRITE-level gate: it downloads an image an
+ * object links to and stages it for the ingest, and exists only to change the
+ * map record — a read-only viewer has no reason to make the server fetch
+ * (see `external_image.ts`).
  */
 
 import { ok } from '../../../src/core/errors/index.ts';
@@ -75,6 +80,7 @@ import { getAdministrativeUnit } from './administrative_units.ts';
 import { probeCapabilities } from './capabilities.ts';
 import { getCatastroParcel } from './catastro.ts';
 import { getElevation } from './elevation.ts';
+import { stageExternalImage } from './external_image.ts';
 import { imageDownload } from './image_download.ts';
 import { getImageFile } from './image_media.ts';
 import { getImageOverlay } from './image_overlay.ts';
@@ -111,6 +117,7 @@ export const tool: ToolServerModule = {
 		search_places: { permission: 'record_tipo', minLevel: 1, handler: searchPlaces },
 		get_elevation: { permission: 'record_tipo', minLevel: 1, handler: getElevation },
 		get_image_file: { permission: 'record_tipo', minLevel: 1, handler: getImageFile },
+		stage_external_image: { permission: 'record_tipo', minLevel: 2, handler: stageExternalImage },
 		object_pdf_report: { permission: 'record_tipo', minLevel: 1, handler: objectPdfReport },
 		search_pleiades: { permission: 'record_tipo', minLevel: 1, handler: searchPleiades },
 		get_pleiades_place: { permission: 'record_tipo', minLevel: 1, handler: getPleiadesPlace },

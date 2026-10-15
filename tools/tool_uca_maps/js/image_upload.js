@@ -398,33 +398,58 @@ export const ingest_image_upload = async function(self, file) {
 		return {ok: false, error: message}
 	}
 
+	return await ingest_staged_image(self, upload_response.file_data)
+}//end ingest_image_upload
+
+
+
+/**
+* INGEST_STAGED_IMAGE
+* Door 2 alone: mint the record and ingest a file ALREADY staged — by the
+* upload above, or by the server from an object's linked URL
+* (`stage_external_image`). One copy, so both keep the empty-record cleanup.
+*
+* `staged_untouched` marks a failure that certainly left the staged file
+* where it was, so a caller that staged it itself may release it.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} file_data - the staged file's descriptor
+* @returns {Promise<{ok: boolean, section_id?: number, error?: string, staged_untouched?: boolean}>}
+*/
+export const ingest_staged_image = async function(self, file_data) {
+
+	const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+
 	const section_id = await create_image_record()
 	if (section_id===null) {
 		return {
-			ok		: false,
-			error	: self.get_tool_label('upload_image_error_record')
-				|| 'A record to hold the image could not be created.'
+			ok					: false,
+			error				: self.get_tool_label('upload_image_error_record')
+				|| 'A record to hold the image could not be created.',
+			staged_untouched	: true
 		}
 	}
 
-	const ingest_response = await ingest_uploaded_file(section_id, upload_response.file_data)
+	const ingest_response = await ingest_uploaded_file(section_id, file_data)
 	if (request_failed(ingest_response)) {
 		const error = tool_error_text(ingest_response.error, failed)
 		// an error envelope alone does not prove nothing was written: only a
 		// refusal raised before the file moved does. Any other answer leaves the
 		// record named, never deleted (the server may still be filling it)
-		const removed = PRE_MOVE_REFUSALS.has(ingest_response.error.code) && await delete_image_record(section_id)
+		const pre_move	= PRE_MOVE_REFUSALS.has(ingest_response.error.code)
+		const removed	= pre_move && await delete_image_record(section_id)
 		return {
-			ok		: false,
-			error	: removed
+			ok					: false,
+			error				: removed
 				? error
 				: error + '\n' + (self.get_tool_label('upload_image_record_left', section_id)
-					|| `Image record ${section_id} may have been left empty: review it.`)
+					|| `Image record ${section_id} may have been left empty: review it.`),
+			staged_untouched	: pre_move
 		}
 	}
 
 	return {ok: true, section_id: section_id}
-}//end ingest_image_upload
+}//end ingest_staged_image
 
 
 

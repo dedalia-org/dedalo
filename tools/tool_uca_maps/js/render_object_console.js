@@ -1220,6 +1220,13 @@ const render_object_images = function(self, layer, parent) {
 		parent			: container
 	})
 
+	// filled once the install answers whether the import is allowed
+	const linked = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-linked-images',
+		parent			: container
+	})
+
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-object-gallery-title',
@@ -1233,6 +1240,7 @@ const render_object_images = function(self, layer, parent) {
 		parent			: container
 	})
 	populate_object_gallery(self, layer, gallery)
+	render_linked_images_import(self, layer, linked)
 
 	// CHOOSING THE FILE IS THE WHOLE GESTURE (2026-09-22, functional audit):
 	// there is no second "Associate" button. Picking a picture for an object
@@ -1271,6 +1279,95 @@ const render_object_images = function(self, layer, parent) {
 	})
 
 }//end render_object_images
+
+
+
+/**
+* RENDER_LINKED_IMAGES_IMPORT
+* "Import N linked images": shown only when the install turned the import on
+* and the object links to images that are not in Dédalo yet
+* (`object_image.js` `import_linked_images`). An import that brings anything
+* in commits, and the commit re-renders this panel: the failures are read
+* back from the instance, listed while their links are still on the object.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object} layer
+* @param {HTMLElement} holder
+* @returns {Promise<void>}
+*/
+const render_linked_images_import = async function(self, layer, holder) {
+
+	if (self.linked_images(layer).length===0 || !(await self.external_images_enabled())) {
+		return
+	}
+	// the panel may be gone, or showing another object, by now
+	if (!holder.isConnected) {
+		return
+	}
+
+	const button = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'uca-maps-object-linked-import',
+		parent			: holder
+	})
+	button.type = 'button'
+	const count = self.linked_images(layer).length
+	button.textContent = self.get_tool_label('object_images_import_linked', count)
+		|| `Import ${count} linked images`
+
+	const status = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-object-linked-status',
+		parent			: holder
+	})
+
+	const show_report = function() {
+		status.replaceChildren()
+		const report = self._linked_import_report
+		if (!report || report.layer!==layer) {
+			return
+		}
+		const pending = self.linked_images(layer).map(entry => entry.url.trim())
+		const failures = report.failures.filter(failure => pending.includes(failure.url))
+		if (failures.length===0) {
+			return
+		}
+		ui.create_dom_element({
+			element_type	: 'div',
+			text_content	: self.get_tool_label('object_images_import_failed')
+				|| 'These links could not be imported and stay on the object:',
+			parent			: status
+		})
+		failures.forEach(function(failure) {
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'uca-maps-object-linked-failure',
+				text_content	: failure.url + ' — ' + failure.error,
+				parent			: status
+			})
+		})
+	}
+	show_report()
+
+	button.addEventListener('click', async function() {
+
+		if (button.disabled) {
+			return
+		}
+		button.disabled = true
+
+		await self.import_linked_images(layer, function(done, total) {
+			status.textContent = self.get_tool_label('object_images_importing', done + 1, total)
+				|| `Importing ${done + 1} of ${total}…`
+		})
+
+		// nothing imported, nothing committed: this panel is still the live one
+		if (holder.isConnected) {
+			button.disabled = false
+			show_report()
+		}
+	})
+}//end render_linked_images_import
 
 
 
