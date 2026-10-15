@@ -63,7 +63,7 @@ import {
 import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
-import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload } from '../../../tools/tool_uca_maps/js/image_upload.js'
+import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload, IMAGE_DOWNLOAD_TIMEOUT_MS } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
 	associate_image,
 	object_images,
@@ -956,6 +956,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.tool_request = async function() {
 			throw new Error('Boom.')
 		}
+		const restore_image_download = stub_image_download(async () => { throw new Error('Boom.') })
 		try {
 			const rows = [
 				{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
@@ -970,6 +971,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		} finally {
 			event_manager.unsubscribe(token)
 			tool.tool_request = original_tool_request
+			restore_image_download()
 		}
 	})
 
@@ -1095,6 +1097,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* typed name is observable on the client-only PNG branch. Stubbing
 	* `click` also keeps the headless browser from actually downloading.
 	*/
+	// "Download image" asks through data_manager.request with its own timeout:
+	// `answer` sees the {action, options} a tool_request stub would, plus the
+	// transport options. Returns the restore.
+	const stub_image_download = function(answer) {
+		const original = data_manager.request
+		data_manager.request = async function(options) {
+			const body = options && options.body
+			if (body && body.action==='tool_request' && body.source && body.source.action==='image_download') {
+				return answer({action: body.source.action, options: body.options}, options)
+			}
+			return original.apply(this, arguments)
+		}
+		return () => { data_manager.request = original }
+	}
+
 	const capture_download = async function(fn) {
 		const original_create_object_url	= URL.createObjectURL
 		const original_click				= HTMLAnchorElement.prototype.click
@@ -5006,12 +5023,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// a handle drag that nobody saved yet: the download must follow it
 		image.corners.top_right = [40.47, -3.63]
 
-		let sent = null
-		const original = tool.tool_request
-		tool.tool_request = async function(request) {
-			sent = request
+		let sent		= null
+		let transport	= null
+		const restore	= stub_image_download(async function(request, transport_options) {
+			sent		= request
+			transport	= transport_options
 			return {ok: false, error: {code: 'request.invalid_options'}}
-		}
+		})
 
 		try {
 			const download = tool.panel_node.querySelector('.uca-maps-image-download-section')
@@ -5032,24 +5050,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(sent.options.width, image_download_width(geolocation.map, image.corners, 2))
 			assert.equal(sent.options.file_name, 'image')
 			assert.notProperty(sent.options, 'opacity', 'expected opacity left out: it is how the map shows the picture')
+			assert.equal(transport.timeout, IMAGE_DOWNLOAD_TIMEOUT_MS, 'expected its own timeout, past the default 5 s per attempt')
+			assert.isAtLeast(IMAGE_DOWNLOAD_TIMEOUT_MS, 4 * 60 * 1000, 'expected room for its four GDAL runs of 60 s')
+			assert.isTrue(transport.busy_notice, 'expected the slow-server cue kept, which a long timeout turns off by default')
 		} finally {
-			tool.tool_request = original
+			restore()
 		}
 	})
 
 	it('"Download image" saves what the server sends, under its name and type', async function() {
 
 		const carrier = add_image_carrier()
-		const original = tool.tool_request
-		tool.tool_request = async function() {
+		const restore = stub_image_download(async function() {
 			return {ok: true, data: {content_base64: btoa('x'), mime: 'image/png', filename: 'plan.png'}}
-		}
+		})
 		try {
 			const captured = await capture_download(() => tool.download_image(carrier, 'png', 0.8, 'plan'))
 			assert.equal(captured.name, 'plan.png', 'expected the server\'s file name on the anchor')
 			assert.equal(captured.blob && captured.blob.type, 'image/png', 'expected the server\'s mime on the blob')
 		} finally {
-			tool.tool_request = original
+			restore()
 		}
 	})
 
@@ -5060,10 +5080,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
 
 		const gone		= 'The image shown on the map is no longer on the server.'
-		const original	= tool.tool_request
-		tool.tool_request = async function() {
+		const restore	= stub_image_download(async function() {
 			return {ok: false, error: {is_api_error: true, code: 'media.file_not_found', message: gone, transport: false}}
-		}
+		})
 		try {
 			const download	= tool.panel_node.querySelector('.uca-maps-image-download-section')
 			const line		= download.querySelector('.uca-maps-download-message')
@@ -5077,7 +5096,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isFalse(line.hidden, 'expected the refusal shown under the button')
 			assert.equal(line.textContent, 'The image could not be downloaded.\n' + gone)
 		} finally {
-			tool.tool_request = original
+			restore()
 		}
 	})
 
@@ -5104,14 +5123,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		let asked = false
-		const original = tool.tool_request
-		tool.tool_request = async function() { asked = true; return {ok: false} }
+		const restore = stub_image_download(async function() { asked = true; return {ok: false} })
 		try {
 			const result = await tool.download_image(carrier, 'png', 0.8, '   ')
 			assert.equal(asked, false, 'expected no request for an empty name')
 			assert.deepEqual(result, {ok: false, error: 'Please enter a name for the file'}, 'expected the reason for the section\'s line')
 		} finally {
-			tool.tool_request = original
+			restore()
 		}
 	})
 

@@ -41,6 +41,7 @@ import {upload} from '../../../core/services/service_upload/js/service_upload.js
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
 import {exception_text, tool_error_text} from './tool_error_text.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
+import {create_source} from '../../../core/common/js/common.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
 import {commit, ensure_properties, report_client_error, trigger_blob_download, base64_to_blob} from './object_console.js'
@@ -832,6 +833,11 @@ export const image_download_width = function(map, corners, quality) {
 
 
 
+// A large PNG at "Excelente" takes seconds per GDAL run (four, each bounded at
+// 60 s, server/gdal.ts), past data_manager's 5 s per attempt; tool_request
+// cannot raise it, so this request is the tool_request RQO with its own timeout.
+export const IMAGE_DOWNLOAD_TIMEOUT_MS = 4 * 60 * 1000
+
 /**
 * DOWNLOAD_IMAGE
 * "Descargar Imagen": the picture in its CURRENT shape — the live corners,
@@ -865,18 +871,26 @@ export const download_image = async function(self, carrier, format, quality, fil
 
 	try {
 
-		const response = await self.tool_request({
-			action	: 'image_download',
-			options	: {
-				tipo			: image.tipo,
-				section_tipo	: image.section_tipo,
-				section_id		: image.section_id,
-				file_path		: image.file_path,
-				corners			: image.corners,
-				format			: format,
-				width			: image_download_width(self.geolocation.map, image.corners, quality),
-				file_name		: base_name
-			}
+		const response = await data_manager.request({
+			body : {
+				dd_api			: 'dd_tools_api',
+				action			: 'tool_request',
+				prevent_lock	: true,
+				source			: create_source(self, 'image_download'),
+				options			: {
+					tipo			: image.tipo,
+					section_tipo	: image.section_tipo,
+					section_id		: image.section_id,
+					file_path		: image.file_path,
+					corners			: image.corners,
+					format			: format,
+					width			: image_download_width(self.geolocation.map, image.corners, quality),
+					file_name		: base_name
+				}
+			},
+			timeout		: IMAGE_DOWNLOAD_TIMEOUT_MS,
+			// a timeout this long turns the page's slow-server cue off by default
+			busy_notice	: true
 		})
 
 		const data = response_data(response)

@@ -276,6 +276,25 @@ describe.if(HAVE_GDAL)('tool_uca_maps image_download — the real warp', () => {
 		});
 	});
 
+	test("png is written at zlib's fastest level: a large one stays inside the client's wait", async () => {
+		await withDir(async (dir) => {
+			const { out } = await render(dir, await master(dir), 'png');
+			const bytes = new Uint8Array(await Bun.file(out).arrayBuffer());
+			// the first IDAT chunk's data opens with the zlib header; FLEVEL (the
+			// top two bits of its second byte) is 0 for level 1, 2 for GDAL's default 6
+			let offset = 8;
+			while (offset + 8 < bytes.length) {
+				const length = new DataView(bytes.buffer).getUint32(offset);
+				const type = new TextDecoder().decode(bytes.subarray(offset + 4, offset + 8));
+				if (type === 'IDAT') break;
+				offset += 12 + length;
+			}
+			expect(new TextDecoder().decode(bytes.subarray(offset + 4, offset + 8))).toBe('IDAT');
+			const flg = bytes[offset + 9] ?? 0xff;
+			expect(flg >> 6).toBe(0);
+		});
+	});
+
 	test('an RGBA master and a 16-bit master still give a valid jpg', async () => {
 		await withDir(async (dir) => {
 			const rgba = await master(dir, [

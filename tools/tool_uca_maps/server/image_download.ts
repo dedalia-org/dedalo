@@ -319,6 +319,9 @@ export async function renderImageDownload(
 			format === 'jpg' ? 'JPEG' : 'PNG',
 			...bandArgs,
 			...depthArgs,
+			// zlib 1, not GDAL's 6: lossless either way, ~4x faster on a large
+			// image (6.8 -> 1.5 s at 3800 px) for a file ~25 % bigger
+			...(format === 'png' ? ['-co', 'ZLEVEL=1'] : []),
 			'-co',
 			'WORLDFILE=NO',
 			warped,
