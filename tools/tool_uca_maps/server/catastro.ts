@@ -20,7 +20,7 @@
  * correct regardless of how many neighbours the stored query returns.
  */
 
-import { ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
@@ -53,17 +53,26 @@ export function featureInfoUrl({ bbox, width, height, x, y }: ClickParams): URL 
 }
 
 /**
- * Extracts {refcat, url} from the GetFeatureInfo HTML, or null if empty.
- * Scoped to the text AFTER the fixed "Referencia catastral" label (v6's own
- * literal string anchor for the same page) rather than the FIRST `<a>` tag
- * anywhere in the document — a page-wide match would silently pick up an
- * unrelated link (a skip-link, a cookie notice) if the third party's markup
- * ever grows one ahead of the real answer (review-diff finding, hito 11).
+ * Extracts {refcat, url} from the GetFeatureInfo HTML, or null when the
+ * result page names no parcel. Scoped to the text AFTER the fixed
+ * "Referencia catastral" label (v6's own literal string anchor for the same
+ * page) rather than the FIRST `<a>` tag anywhere in the document — a
+ * page-wide match would silently pick up an unrelated link (a skip-link, a
+ * cookie notice) if the third party's markup ever grows one ahead of the
+ * real answer (review-diff finding, hito 11).
+ *
+ * Catastro answers a point with no parcel with that same result page, label
+ * and no link. A 200 without the label is not an answer (its scheduled
+ * maintenance page is one): reading it as "no parcel" would tell the user
+ * something false. It fails with the code the tool's other proxies use for an
+ * unusable answer, which is also what a non-2xx from Catastro already gives.
  */
 export function parseCatastroRefcat(html: string): { refcat: string; url: string } | null {
 	const labelIndex = html.search(/Referencia catastral/i);
 	if (labelIndex === -1) {
-		return null;
+		throw new DedaloError('security.outbound_failed', {
+			message: 'Catastro GetFeatureInfo answered without its parcel result page',
+		});
 	}
 	const match = html.slice(labelIndex).match(/<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/i);
 	if (!match) {

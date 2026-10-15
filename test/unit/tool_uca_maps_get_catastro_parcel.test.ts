@@ -17,6 +17,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { DedaloError } from '../../src/core/errors/index.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
@@ -84,8 +85,31 @@ describe('parseCatastroRefcat', () => {
 		});
 	});
 
-	test('an empty reply (no parcel at that point) yields null', () => {
-		expect(parseCatastroRefcat('<html><body></body></html>')).toBeNull();
+	// captured live, 2026-10-15: a click in the sea and one in France
+	const NO_PARCEL_HTML =
+		'<?xml version="1.0" encoding="ISO-8859-1"?>\n<!DOCTYPE html \nPUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="sp"  lang="sp" >\n<head><title>Informaci&oacute;n parcelas</title></head><body><p>Referencia catastral de la parcela:</p></body></html>';
+
+	// seen 2026-10-14 during a scheduled stop: a 200 carrying this notice and
+	// no result page (its wording, not its bytes, which were not captured)
+	const MAINTENANCE_HTML =
+		'<html><head><title>Sede Electr&oacute;nica del Catastro</title></head><body>' +
+		'<h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
+
+	test('the result page with no parcel at that point yields null', () => {
+		expect(parseCatastroRefcat(NO_PARCEL_HTML)).toBeNull();
+	});
+
+	test('a reply that is not the result page (maintenance, empty) is the source unavailable, never "no parcel"', () => {
+		for (const html of [MAINTENANCE_HTML, '', '<html><body></body></html>']) {
+			let error: unknown = null;
+			try {
+				parseCatastroRefcat(html);
+			} catch (caught) {
+				error = caught;
+			}
+			expect(error).toBeInstanceOf(DedaloError);
+			expect((error as DedaloError).code).toBe('security.outbound_failed');
+		}
 	});
 
 	test('a refcat not matching the 14-alphanumeric shape is refused', () => {
