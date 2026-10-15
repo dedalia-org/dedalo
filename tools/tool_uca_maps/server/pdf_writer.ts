@@ -229,9 +229,43 @@ export function textWidth(text: string, size: number, bold: boolean): number {
 }
 
 /**
+ * A word wider than the line, cut into line-wide pieces in one pass: summing
+ * the width char by char, never re-measuring the rest (that was cubic in the
+ * word, and a geometry's coordinates are one word of megabytes). It cuts after
+ * the last "]," that fits, between two coordinate pairs as v6's PDF does, and
+ * mid-word only when a piece has none.
+ */
+function splitOverlongWord(word: string, size: number, bold: boolean, maxWidth: number): string[] {
+	const chars = Array.from(word);
+	const bytes = encodeWinAnsi(word); // one byte per code point
+	const scale = (size / 1000) * (bold ? BOLD_FACTOR : 1);
+	const widthAt = (index: number) =>
+		(HELVETICA_WIDTHS[bytes[index] ?? 0x3f] ?? DEFAULT_WIDTH) * scale;
+	const pieces: string[] = [];
+	let start = 0;
+	let width = 0;
+	let lastBreak = -1;
+	for (let index = 0; index < chars.length; index++) {
+		const charWidth = widthAt(index);
+		if (width + charWidth > maxWidth && index > start) {
+			const cut = lastBreak > start ? lastBreak : index;
+			pieces.push(chars.slice(start, cut).join(''));
+			start = cut;
+			lastBreak = -1;
+			width = 0;
+			for (let carried = start; carried < index; carried++) width += widthAt(carried);
+		}
+		width += charWidth;
+		if (chars[index] === ',' && chars[index - 1] === ']') lastBreak = index + 1;
+	}
+	pieces.push(chars.slice(start).join(''));
+	return pieces;
+}
+
+/**
  * Greedy word wrap. A single word longer than the line (a coordinate array, a
- * URL) is broken mid-word rather than allowed to run off the page — losing
- * the tail of a coordinate silently is worse than an ugly break.
+ * URL) is broken rather than allowed to run off the page — losing the tail of
+ * a coordinate silently is worse than an ugly break.
  */
 export function wrapText(text: string, size: number, bold: boolean, maxWidth: number): string[] {
 	const lines: string[] = [];
@@ -245,18 +279,10 @@ export function wrapText(text: string, size: number, bold: boolean, maxWidth: nu
 			}
 			if (line !== '') {
 				lines.push(line);
-				line = '';
 			}
-			let rest = word;
-			while (textWidth(rest, size, bold) > maxWidth && rest.length > 1) {
-				let cut = rest.length;
-				while (cut > 1 && textWidth(rest.slice(0, cut), size, bold) > maxWidth) {
-					cut--;
-				}
-				lines.push(rest.slice(0, cut));
-				rest = rest.slice(cut);
-			}
-			line = rest;
+			const pieces = splitOverlongWord(word, size, bold, maxWidth);
+			lines.push(...pieces.slice(0, -1));
+			line = pieces[pieces.length - 1] ?? '';
 		}
 		lines.push(line);
 	}

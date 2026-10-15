@@ -37,6 +37,7 @@ import {
 	encodeWinAnsi,
 	PdfDocument,
 	readJpegInfo,
+	textWidth,
 	wrapText,
 } from '../../tools/tool_uca_maps/server/pdf_writer.ts';
 import { mustGet } from '../helpers/assert.ts';
@@ -208,6 +209,21 @@ describe('pdf_writer — encoding and wrapping', () => {
 		const lines = wrapText('x'.repeat(500), 10, false, 200);
 		expect(lines.length).toBeGreaterThan(1);
 		expect(lines.join('')).toBe('x'.repeat(500));
+	});
+
+	test("a geometry's coordinates wrap between pairs, in one pass, without losing a char", () => {
+		const ring: number[][] = [];
+		for (let i = 0; i <= 200; i++) ring.push([-0.4123456789 + i * 1e-5, 39.4123456789 + i * 1e-5]);
+		const json = JSON.stringify([ring]);
+		// re-measuring the rest per cut took ~19 s here; and it is synchronous,
+		// so it held the whole server, every user, for that long
+		const started = performance.now();
+		const lines = wrapText(json, 9, false, 480);
+		expect(performance.now() - started).toBeLessThan(1000);
+		expect(lines.length).toBeGreaterThan(10);
+		expect(lines.join('')).toBe(json);
+		for (const line of lines.slice(0, -1)) expect(line.endsWith('],')).toBe(true);
+		for (const line of lines) expect(textWidth(line, 9, false)).toBeLessThanOrEqual(480);
 	});
 
 	test('readJpegInfo refuses what it cannot embed', () => {
