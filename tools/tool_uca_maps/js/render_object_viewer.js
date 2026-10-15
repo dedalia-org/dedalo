@@ -165,7 +165,7 @@ const render_list = function(self, list, objects, empty_label) {
 	if (objects.length===0) {
 		ui.create_dom_element({
 			element_type	: 'li',
-			class_name		: 'uca-maps-object-viewer-placeholder',
+			class_name		: 'uca-maps-empty-state',
 			text_content	: empty_label,
 			parent			: list
 		})

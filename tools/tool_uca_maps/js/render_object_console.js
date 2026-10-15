@@ -101,7 +101,7 @@ export const render_placeholder = function(self, container) {
 	container.replaceChildren()
 	ui.create_dom_element({
 		element_type	: 'p',
-		class_name		: 'uca-maps-object-placeholder',
+		class_name		: 'uca-maps-empty-state',
 		text_content	: self.get_tool_label('no_object_selected') || 'Click a drawn geometry to inspect it.',
 		parent			: container
 	})

@@ -2370,7 +2370,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const vector_items = vector_list.querySelectorAll('.uca-maps-object-viewer-item')
 		assert.equal(vector_items.length, 1, 'expected the one seeded polygon in Vector Objects')
 		assert.isOk(
-			raster_list.querySelector('.uca-maps-object-viewer-placeholder'),
+			raster_list.querySelector('.uca-maps-empty-state'),
 			'expected Rasterized Objects to show its empty-state placeholder — no raster-overlay support ported yet (functionality #11)'
 		)
 
@@ -3332,6 +3332,43 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				message.dataset.type = type
 				assert.equal(getComputedStyle(message).backgroundColor, expected[type], 'expected the ' + type + ' tint')
 			}
+		} finally {
+			link.remove()
+		}
+	})
+
+	it('with the tool CSS, every "nothing here yet" line looks the same: the console\'s and the object list\'s', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			tool.attach_console()
+			tool.attach_object_viewer()
+			tool.object_viewer_control.getContainer().click() // populate: no objects yet
+
+			const console_line	= tool.panel_node.querySelector('.uca-maps-empty-state')
+			const list_line		= tool.object_viewer_panel.querySelector('.uca-maps-empty-state')
+			assert.isOk(console_line, 'expected the console\'s empty line on the shared class')
+			assert.isOk(list_line, 'expected the object list\'s empty line on the shared class')
+
+			const look = (node) => {
+				const style = getComputedStyle(node)
+				return [style.color, style.fontStyle, style.paddingTop, style.marginTop].join(' | ')
+			}
+			assert.equal(look(list_line), look(console_line), 'expected one look for both')
+
+			const probe = document.createElement('span')
+			probe.style.color = 'var(--fg_muted)'
+			tool.panel_node.appendChild(probe)
+			assert.equal(getComputedStyle(console_line).color, getComputedStyle(probe).color, 'expected the muted ink')
+			assert.equal(getComputedStyle(console_line).fontStyle, 'italic')
 		} finally {
 			link.remove()
 		}
