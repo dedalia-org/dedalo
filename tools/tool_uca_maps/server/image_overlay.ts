@@ -46,6 +46,7 @@ import {
 } from '../../../src/core/tools/module.ts';
 import {
 	inputDrivers,
+	isMissingGdalBinary,
 	rasterDriverOf,
 	resolveGdalBinary,
 	runToolBinary,
@@ -166,7 +167,7 @@ export async function getImageOverlay(ctx: ToolActionContext): Promise<ToolRespo
 			try {
 				corners = await readGeoreference(location.absolutePath);
 			} catch (error) {
-				if (error instanceof DedaloError && error.code === 'tool.dependency_unavailable') {
+				if (isMissingGdalBinary(error, 'gdalinfo')) {
 					georeferenceUnavailable = true;
 				} else {
 					throw error;

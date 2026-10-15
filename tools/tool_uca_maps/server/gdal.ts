@@ -163,6 +163,18 @@ export async function resolveGdalBinary(
 }
 
 /**
+ * Whether `error` is `resolveGdalBinary`'s "not installed" for `name`. The code
+ * alone does not say it: a missing media root raises the same one (scratchRoot).
+ */
+export function isMissingGdalBinary(error: unknown, name: string): boolean {
+	return (
+		error instanceof DedaloError &&
+		error.code === 'tool.dependency_unavailable' &&
+		error.coordinates?.binary === name
+	);
+}
+
+/**
  * Resolve the ImageMagick binary, or throw `tool.dependency_unavailable` —
  * review-diff finding, hito 3b: `resolveMagick()` (`media/engine/binaries.ts`)
  * NEVER throws (it falls back to an unverified guessed path when neither

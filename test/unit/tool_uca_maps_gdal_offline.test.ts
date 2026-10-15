@@ -35,6 +35,7 @@ import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tool
 import {
 	assertOfflineGeoJsonCrs,
 	inputDrivers,
+	isMissingGdalBinary,
 	OFFLINE_ENV,
 	rasterDriverOf,
 	resolveGdalBinary,
@@ -242,6 +243,27 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 		const lines = new Set(result.stdout.split('\n'));
 		expect(lines.has('CPL_TMPDIR=/scratch/probe')).toBe(true);
 		expect(lines.has('TMPDIR=/scratch/probe')).toBe(true);
+	});
+
+	test('"GDAL is missing" is the not-installed refusal for that binary, never only its code', async () => {
+		const missing = 'uca_maps_no_such_binary' as Parameters<typeof resolveGdalBinary>[0];
+		const notInstalled = await rejection(resolveGdalBinary(missing));
+		expect(isMissingGdalBinary(notInstalled, missing)).toBe(true);
+		expect(isMissingGdalBinary(notInstalled, 'gdalinfo')).toBe(false);
+
+		let noMediaRoot: unknown = null;
+		try {
+			scratchRoot(null);
+		} catch (caught) {
+			noMediaRoot = caught;
+		}
+		expectCode(noMediaRoot, 'tool.dependency_unavailable');
+		expect(isMissingGdalBinary(noMediaRoot, 'gdalinfo')).toBe(false);
+
+		const otherCode = new DedaloError('tool.action_failed', {
+			coordinates: { binary: 'gdalinfo' },
+		});
+		expect(isMissingGdalBinary(otherCode, 'gdalinfo')).toBe(false);
 	});
 
 	test('a raster driver comes from the extension; an unknown one, VRT included, is refused', () => {
