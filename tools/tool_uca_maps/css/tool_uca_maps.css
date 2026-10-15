@@ -78,9 +78,6 @@
   min-height: 4.5rem;
   padding-top: 0.75rem;
 }
-.tool_header.tool_uca_maps {
-  background-color: var(--tool_uca_maps);
-}
 .leaflet-control.uca-maps-toolbar-button {
   background: var(--tool_uca_maps);
   color: var(--fg_on_brand);
