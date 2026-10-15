@@ -189,9 +189,10 @@ export function resolveMagickBinary(): string {
  * Where every scratch directory is created: `tool_uca_maps/` inside the
  * upload staging tree, so it shares the media volume and the staging tree's
  * permissions. The staging tree's per-user dirs are numeric ids: no clash.
+ * The root is a parameter only so a gate can hand it a missing or unmarked
+ * one: `config.media` is frozen.
  */
-export function scratchRoot(): string {
-	const configured = config.media.rootPath;
+export function scratchRoot(configured: string | null = config.media.rootPath): string {
 	if (configured === null || configured === '') {
 		throw new DedaloError('tool.dependency_unavailable', {
 			coordinates: { tool: 'tool_uca_maps' },
@@ -264,6 +265,12 @@ export async function withScratchDir<T>(fn: (dir: string) => Promise<T>): Promis
 
 /** Options for `runToolBinary` beyond the argv/context every call needs. */
 export interface RunToolBinaryOptions {
+	/**
+	 * This call's `withScratchDir` dir, handed to the binary as `CPL_TMPDIR`
+	 * and `TMPDIR`: GDAL (and any child it starts) writes its own temp files
+	 * there, never in the OS temp dir. Required, the twin of `magickPolicyEnv`.
+	 */
+	scratchDir: string;
 	/** Extra environment (e.g. ImageMagick's `magickPolicyEnv()`, MEDIA-02). */
 	env?: Record<string, string>;
 	/**
@@ -296,7 +303,7 @@ export interface RunToolBinaryOptions {
 export async function runToolBinary(
 	argv: readonly string[],
 	context: string,
-	options: RunToolBinaryOptions = {},
+	options: RunToolBinaryOptions,
 ): Promise<SpawnResult> {
 	if (GDAL_FILE_READERS.has(basename(argv[0] ?? '')) && !argv.includes('-if')) {
 		throw new DedaloError('internal.invariant', {
@@ -306,7 +313,12 @@ export async function runToolBinary(
 	const result = await runBinary(argv, {
 		timeoutMs: TOOL_BINARY_TIMEOUT_MS,
 		nice: false,
-		env: { ...options.env, ...OFFLINE_ENV },
+		env: {
+			...options.env,
+			CPL_TMPDIR: options.scratchDir,
+			TMPDIR: options.scratchDir,
+			...OFFLINE_ENV,
+		},
 	});
 	try {
 		assertSpawnOk(result, context);

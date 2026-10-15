@@ -158,13 +158,14 @@ export function classifyProjectionLookupError(error: unknown, epsg: string): unk
 	return error;
 }
 
-async function checkManualProjection(projection: ManualProjection): Promise<void> {
+async function checkManualProjection(dir: string, projection: ManualProjection): Promise<void> {
 	const gdalsrsinfo = await resolveGdalBinary('gdalsrsinfo');
 	let proj4: string;
 	try {
 		const result = await runToolBinary(
 			[gdalsrsinfo, '-o', 'proj4', `EPSG:${projection.epsg}`],
 			'vector_upload (projection lookup)',
+			{ scratchDir: dir },
 		);
 		proj4 = result.stdout;
 	} catch (error) {
@@ -197,7 +198,11 @@ export function parseStrictGeoJson(text: string): unknown {
  * undeclared although GDAL reads it as WGS84 (RFC 7946): legacy UTM files
  * without it are what the fields are for.
  */
-export async function declaresOwnCrs(inputFile: string, extension: string): Promise<boolean> {
+export async function declaresOwnCrs(
+	dir: string,
+	inputFile: string,
+	extension: string,
+): Promise<boolean> {
 	if (extension === 'kml') return true; // WGS84 by definition
 	if (extension === 'geojson') {
 		const parsed = parseStrictGeoJson(await Bun.file(inputFile).text());
@@ -211,6 +216,7 @@ export async function declaresOwnCrs(inputFile: string, extension: string): Prom
 	const result = await runToolBinary(
 		[ogrinfo, ...inputDrivers(...drivers), '-json', '-so', '-ro', inputFile],
 		`vector_upload (${extension} crs probe)`,
+		{ scratchDir: dir },
 	);
 	const info = JSON.parse(result.stdout) as {
 		layers?: { geometryFields?: { coordinateSystem?: unknown }[] }[];
@@ -350,6 +356,7 @@ function singleParts(geometry: unknown): unknown[] {
 /** Each refusal names the one correction that applies: a field to fill in only
  * where the file has no projection of its own, which is when they are taken. */
 async function outsideLonLatRefusal(
+	dir: string,
 	position: [number, number],
 	projection: ManualProjection | null,
 	inputFile: string,
@@ -362,7 +369,7 @@ async function outsideLonLatRefusal(
 				"it is not this file's projection",
 		);
 	}
-	const declares = await declaresOwnCrs(inputFile, extension);
+	const declares = await declaresOwnCrs(dir, inputFile, extension);
 	if (declares) {
 		return invalidVectorUpload(
 			`The coordinates do not fit the projection this file declares (${at} is not ` +
@@ -424,7 +431,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		// that declares its own, "zone and band go together" or "fill in its zone
 		// and band" would send the user to fill in fields that must end up empty
 		if (typed) {
-			const declares = await declaresOwnCrs(inputFile, extension);
+			const declares = await declaresOwnCrs(dir, inputFile, extension);
 			if (declares) {
 				throw invalidVectorUpload(
 					'This file already declares its own projection: leave EPSG, zone and band empty',
@@ -432,7 +439,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 			}
 		}
 		const projection = parseManualProjection(ctx.options);
-		if (projection !== null) await checkManualProjection(projection);
+		if (projection !== null) await checkManualProjection(dir, projection);
 
 		const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 		const argv = [
@@ -447,7 +454,10 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		argv.push(outputFile, inputFile);
 
 		try {
-			await runToolBinary(argv, `vector_upload (${extension})`, { expectedOutput: outputFile });
+			await runToolBinary(argv, `vector_upload (${extension})`, {
+				scratchDir: dir,
+				expectedOutput: outputFile,
+			});
 		} catch (error) {
 			// The one failure GDAL cannot recover from on its own: a source with
 			// no embedded CRS and no override given — ogr2ogr's own stderr names
@@ -477,7 +487,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		}
 		const outside = findPositionOutsideLonLat(parsed);
 		if (outside !== null) {
-			throw await outsideLonLatRefusal(outside, projection, inputFile, extension);
+			throw await outsideLonLatRefusal(dir, outside, projection, inputFile, extension);
 		}
 		return explodeToSingleParts(parsed);
 	});

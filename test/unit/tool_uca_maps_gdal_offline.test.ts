@@ -16,7 +16,16 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import type { TCPSocketListener } from 'bun';
 import { config } from '../../src/config/config.ts';
@@ -38,6 +47,7 @@ import { renderImageDownload } from '../../tools/tool_uca_maps/server/image_down
 import { readGeoreference } from '../../tools/tool_uca_maps/server/image_overlay.ts';
 import { parseStrictGeoJson } from '../../tools/tool_uca_maps/server/vector_upload.ts';
 import { mustGet } from '../helpers/assert.ts';
+import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
 
 const HAVE_GDAL = [
 	'ogr2ogr',
@@ -202,7 +212,9 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 		for (const name of ['ogr2ogr', 'ogrinfo', 'gdalinfo', 'gdal_translate', 'gdalwarp']) {
 			// a path that does not exist: a spawn would fail ENOENT, not with this code
 			const error = await rejection(
-				runToolBinary([`/nonexistent/${name}`, '-json', 'in.tif'], `probe ${name}`),
+				runToolBinary([`/nonexistent/${name}`, '-json', 'in.tif'], `probe ${name}`, {
+					scratchDir: '/nonexistent/scratch',
+				}),
 			);
 			expectCode(error, 'internal.invariant');
 			expect((error as DedaloError).message).toMatch(/driver named \(-if\)/);
@@ -212,12 +224,24 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 	test('every spawn runs with the offline env, which a caller env cannot override', async () => {
 		const env = mustGet(Bun.which('env'), 'env binary');
 		const result = await runToolBinary([env], 'probe env', {
+			scratchDir: '/scratch/probe',
 			env: { GDAL_HTTP_PROXY: 'http://127.0.0.1:1', NO_PROXY: '*', PROJ_NETWORK: 'ON' },
 		});
 		const lines = new Set(result.stdout.split('\n'));
 		for (const [key, value] of Object.entries(OFFLINE_ENV)) {
 			expect(lines.has(`${key}=${value}`)).toBe(true);
 		}
+	});
+
+	test("every spawn's temp dir is its scratch, which a caller env cannot override", async () => {
+		const env = mustGet(Bun.which('env'), 'env binary');
+		const result = await runToolBinary([env], 'probe env', {
+			scratchDir: '/scratch/probe',
+			env: { CPL_TMPDIR: '/tmp', TMPDIR: '/tmp' },
+		});
+		const lines = new Set(result.stdout.split('\n'));
+		expect(lines.has('CPL_TMPDIR=/scratch/probe')).toBe(true);
+		expect(lines.has('TMPDIR=/scratch/probe')).toBe(true);
 	});
 
 	test('a raster driver comes from the extension; an unknown one, VRT included, is refused', () => {
@@ -248,6 +272,46 @@ describe('tool_uca_maps scratch — inside the media root, never the OS temp dir
 		expect(seen.length).toBe(2);
 		expect(seen[0]).not.toBe(seen[1]);
 		for (const dir of seen) expect(existsSync(dir)).toBe(false);
+	});
+
+	test('no media root, or an empty one, refuses as the missing dependency it is', () => {
+		for (const root of [null, '']) {
+			let error: unknown = null;
+			try {
+				scratchRoot(root);
+			} catch (caught) {
+				error = caught;
+			}
+			expectCode(error, 'tool.dependency_unavailable');
+		}
+	});
+
+	test('a root without the test-media marker is refused and nothing is created in it', () => {
+		const unmarked = mkdtempSync(join(tmpdir(), 'uca_maps_unmarked_'));
+		try {
+			let error: unknown = null;
+			try {
+				scratchRoot(unmarked);
+			} catch (caught) {
+				error = caught;
+			}
+			expectCode(error, 'media.invalid_path');
+			expect(existsSync(join(unmarked, config.media.upload.tmpSubdir))).toBe(false);
+		} finally {
+			rmSync(unmarked, { recursive: true, force: true });
+		}
+	});
+
+	test('a marked root gets the scratch under its staging tree, closed to other users', () => {
+		const marked = scratchMediaRoot('uca_maps_marked_');
+		try {
+			const scratch = scratchRoot(marked);
+			expect(scratch).toBe(join(marked, config.media.upload.tmpSubdir, 'tool_uca_maps'));
+			expect(statSync(scratch).isDirectory()).toBe(true);
+			expect(statSync(scratch).mode & 0o007).toBe(0);
+		} finally {
+			rmSync(marked, { recursive: true, force: true });
+		}
 	});
 
 	test('an orphan a killed process left is swept; a live one and a foreign entry are kept', async () => {
@@ -374,6 +438,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps GDAL — zero connections, real binaries',
 				await runToolBinary(
 					[ogr2ogr, ...inputDrivers(driver), '-f', 'GeoJSON', resolve(dir, `${name}.out`), input],
 					`probe ${name}`,
+					{ scratchDir: dir },
 				).catch(() => null);
 			}
 		});

@@ -434,7 +434,7 @@ describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
 		return withScratchDir(async (dir) => {
 			const file = resolve(dir, name);
 			writeFileSync(file, text);
-			return declaresOwnCrs(file, name.split('.').pop() ?? '');
+			return declaresOwnCrs(dir, file, name.split('.').pop() ?? '');
 		});
 	}
 
@@ -593,9 +593,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			await runToolBinary(
 				[ogr2ogr, '-if', 'GeoJSON', '-f', 'KML', out, src],
 				'test fixture (kml)',
-				{
-					expectedOutput: out,
-				},
+				{ scratchDir: dir, expectedOutput: out },
 			);
 			return Bun.file(out).text();
 		});
@@ -649,7 +647,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			await runToolBinary(
 				[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', out, src],
 				'test fixture (utm shp.zip)',
-				{ expectedOutput: out },
+				{ scratchDir: dir, expectedOutput: out },
 			);
 			return Bun.file(out).arrayBuffer();
 		});
@@ -703,7 +701,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			await runToolBinary(
 				[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', utm, src],
 				'test fixture (utm shp, unzipped)',
-				{ expectedOutput: utm },
+				{ scratchDir: dir, expectedOutput: utm },
 			);
 			// re-zip WITHOUT the .prj sidecar — a source with genuinely no CRS
 			const noPrjDir = resolve(dir, 'noprj');
@@ -726,7 +724,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 					resolve(noPrjDir, 'noprj.shp'),
 				],
 				'test fixture (noprj shp.zip)',
-				{ expectedOutput: out },
+				{ scratchDir: dir, expectedOutput: out },
 			);
 			return Bun.file(out).arrayBuffer();
 		});
@@ -780,16 +778,14 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 			await runToolBinary(
 				[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', shp, src],
 				'test fixture (lonlat shp)',
-				{
-					expectedOutput: shp,
-				},
+				{ scratchDir: dir, expectedOutput: shp },
 			);
 			rmSync(resolve(dir, 'lonlat.prj'));
 			const out = resolve(dir, 'lonlat.shp.zip');
 			await runToolBinary(
 				[ogr2ogr, '-if', 'ESRI Shapefile', '-f', 'ESRI Shapefile', out, shp],
 				'test fixture (lonlat noprj shp.zip)',
-				{ expectedOutput: out },
+				{ scratchDir: dir, expectedOutput: out },
 			);
 			return Bun.file(out).arrayBuffer();
 		});
@@ -833,7 +829,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps upload_vector_layer — real ogr2ogr conve
 					src,
 				],
 				'test fixture (utm geojson)',
-				{ expectedOutput: out },
+				{ scratchDir: dir, expectedOutput: out },
 			);
 			return (await Bun.file(out).json()) as Record<string, unknown>;
 		});

@@ -73,6 +73,7 @@ interface VectorDownloadResult {
  * (`expectedOutput`) now, not repeated here either.
  */
 async function convertWithOgr2Ogr(
+	dir: string,
 	inputFile: string,
 	driverName: string,
 	outputFile: string,
@@ -91,7 +92,7 @@ async function convertWithOgr2Ogr(
 			inputFile,
 		],
 		`vector_download (${fileName})`,
-		{ expectedOutput: outputFile },
+		{ scratchDir: dir, expectedOutput: outputFile },
 	);
 	return { fileName, content: await readFileBase64(outputFile) };
 }
@@ -119,12 +120,14 @@ export async function vectorDownload(ctx: ToolActionContext): Promise<ToolRespon
 		await Bun.write(inputFile, JSON.stringify(geojson));
 		return format === 'shp'
 			? convertWithOgr2Ogr(
+					dir,
 					inputFile,
 					'ESRI Shapefile',
 					join(dir, 'uca_maps_object.shp.zip'),
 					'uca_maps_object.shp.zip',
 				)
 			: convertWithOgr2Ogr(
+					dir,
 					inputFile,
 					'KML',
 					join(dir, 'uca_maps_object.kml'),

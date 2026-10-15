@@ -177,11 +177,12 @@ interface RasterShape {
 	sixteenBit: boolean;
 }
 
-async function readRasterShape(path: string): Promise<RasterShape> {
+async function readRasterShape(dir: string, path: string): Promise<RasterShape> {
 	const gdalinfo = await resolveGdalBinary('gdalinfo');
 	const result = await runToolBinary(
 		[gdalinfo, ...inputDrivers(rasterDriverOf(path)), '-json', path],
 		'gdalinfo (image download)',
+		{ scratchDir: dir },
 	);
 	let info: {
 		size?: unknown;
@@ -233,7 +234,7 @@ export async function renderImageDownload(
 	format: string,
 	width: number,
 ): Promise<{ extension: string; content: string }> {
-	const shape = await readRasterShape(sourcePath);
+	const shape = await readRasterShape(dir, sourcePath);
 	if (!(shape.width > 0) || !(shape.height > 0)) {
 		throw new DedaloError('tool.action_failed', {
 			coordinates: { tool: 'tool_uca_maps' },
@@ -270,7 +271,7 @@ export async function renderImageDownload(
 			vrt,
 		],
 		'image_download (control points)',
-		{ expectedOutput: vrt },
+		{ scratchDir: dir, expectedOutput: vrt },
 	);
 
 	// JPEG has no alpha: what falls outside the shape is painted white, the
@@ -296,7 +297,7 @@ export async function renderImageDownload(
 			warped,
 		],
 		`image_download (warp, ${format})`,
-		{ expectedOutput: warped },
+		{ scratchDir: dir, expectedOutput: warped },
 	);
 
 	if (format === 'geotiff') {
@@ -324,7 +325,7 @@ export async function renderImageDownload(
 			output,
 		],
 		`image_download (${format})`,
-		{ expectedOutput: output },
+		{ scratchDir: dir, expectedOutput: output },
 	);
 	return {
 		extension: IMAGE_DOWNLOAD_EXTENSION[format] as string,

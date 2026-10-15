@@ -182,6 +182,7 @@ async function convertWithImageMagick(
 	// is taken around the spawn only, like the engine's own spawn doors
 	await withConverterSlot('magick', () =>
 		runToolBinary(argv, `raster_download (${format})`, {
+			scratchDir: dir,
 			env: magickPolicyEnv(dir),
 			expectedOutput: outputFile,
 		}),
@@ -217,7 +218,7 @@ async function convertToGeotiff(
 			outputFile,
 		],
 		'raster_download (geotiff)',
-		{ expectedOutput: outputFile },
+		{ scratchDir: dir, expectedOutput: outputFile },
 	);
 	return { extension: 'tif', content: await readFileBase64(outputFile) };
 }

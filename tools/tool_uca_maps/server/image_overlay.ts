@@ -44,7 +44,13 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import { inputDrivers, rasterDriverOf, resolveGdalBinary, runToolBinary } from './gdal.ts';
+import {
+	inputDrivers,
+	rasterDriverOf,
+	resolveGdalBinary,
+	runToolBinary,
+	withScratchDir,
+} from './gdal.ts';
 import { resolveRenderableImage } from './image_media.ts';
 
 /** Extensions worth asking GDAL about. Only a TIFF carries georeferencing
@@ -89,9 +95,9 @@ export function cornersFromWgs84Extent(extent: unknown): OverlayCorners | null {
 }
 
 /**
- * Ask GDAL where the file sits. `-json` only: no conversion, no write, no
- * scratch dir — this reads metadata off a file the engine's own ingest
- * already put in place.
+ * Ask GDAL where the file sits. `-json` only: no conversion, and the file the
+ * engine's own ingest put in place is read where it is; the private scratch
+ * dir is only GDAL's temp dir.
  *
  * Two outcomes, both deliberate. A TIFF GDAL opens but that carries no CRS
  * exits 0 and simply has no `wgs84Extent` → null, and the caller places the
@@ -101,9 +107,12 @@ export function cornersFromWgs84Extent(extent: unknown): OverlayCorners | null {
  */
 export async function readGeoreference(absolutePath: string): Promise<OverlayCorners | null> {
 	const gdalinfo = await resolveGdalBinary('gdalinfo');
-	const result = await runToolBinary(
-		[gdalinfo, ...inputDrivers(rasterDriverOf(absolutePath)), '-json', absolutePath],
-		'gdalinfo (image overlay georeference)',
+	const result = await withScratchDir((dir) =>
+		runToolBinary(
+			[gdalinfo, ...inputDrivers(rasterDriverOf(absolutePath)), '-json', absolutePath],
+			'gdalinfo (image overlay georeference)',
+			{ scratchDir: dir },
+		),
 	);
 	let parsed: unknown;
 	try {
