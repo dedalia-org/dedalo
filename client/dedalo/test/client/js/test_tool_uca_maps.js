@@ -63,6 +63,7 @@ import { DEFAULT_BASEMAPS, detach_xyz_basemaps } from '../../../tools/tool_uca_m
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
+import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_upload.js'
 import { tool_error_text, exception_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
@@ -270,11 +271,11 @@ const parcel_found = (url = 'https://example.com/parcel') => ({
 * handed back to sweep them.
 */
 const IMAGE_DESCRIPTOR = {
-	file_path		: '/image/1.5MB/rsc29_rsc170_1.jpg',
+	file_path		: '/image/1.5MB/test99_test3_1.jpg',
 	quality			: '1.5MB',
-	section_tipo	: 'rsc170',
+	section_tipo	: 'test3',
 	section_id		: 1,
-	tipo			: 'rsc29',
+	tipo			: 'test99',
 	corners			: {
 		top_left	: [40.46, -3.66],
 		top_right	: [40.46, -3.64],
@@ -4459,216 +4460,373 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('attach_administrative_units builds the button+panel (level select) once section_lang is es/cat/eus', function() {
+	/** A 1x1 transparent GIF: a tile served without the network. */
+	const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
 
-		geolocation.section_lang = 'lg-eus'
-		tool.attach_administrative_units()
-		tool.attach_administrative_units() // second call: must be a no-op
+	/**
+	* Arming UA builds the IGN's AU.AdministrativeUnit WMS: its tiles come from
+	* BLANK_TILE while this is in place, so no test reaches www.ign.es. The
+	* layer stays a real L.TileLayer.WMS. Returns the restore (L is global).
+	*/
+	const offline_ua_wms = function() {
+		const original = L.tileLayer.wms
+		L.tileLayer.wms = function(url, options) {
+			const layer = original.call(this, url, options)
+			layer.getTileUrl = () => BLANK_TILE
+			return layer
+		}
+		return () => { L.tileLayer.wms = original }
+	}
 
-		const controls = geolocation.map.getContainer().querySelectorAll('.uca-maps-ua-control')
-		assert.equal(controls.length, 1, 'expected exactly one "UA" button')
-		assert.isOk(tool.ua_panel, 'expected the UA panel built')
-		assert.equal(tool.ua_panel.hidden, true, 'expected the panel hidden by default')
-		assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-level-select'), 'expected the level select rendered')
-	})
-
-	// v6 parity, confirmed live by Sergio (2026-09-08 validation): UA SWAPS
-	// the active basemap for AU.AdministrativeUnit (same fix as Catastro).
-	it('opening the "UA" panel swaps the active basemap; closing it restores the previous one', function() {
-
+	// UA exists only for es/cat/eus; opening its panel is arming it
+	const arm_ua = function() {
 		geolocation.section_lang = 'lg-spa'
 		tool.attach_administrative_units()
-
-		const previous_base_layer = find_active_tile_layer(geolocation.map)
-		assert.isOk(previous_base_layer, 'expected a basemap already on the map before arming (test fixture default)')
-
 		tool.ua_control.getContainer().click()
-		assert.equal(tool.ua_panel.hidden, false, 'expected the panel open')
-		assert.isOk(tool._ua_tile_layer, 'expected the AU.AdministrativeUnit tile layer built')
-		assert.equal(geolocation.map.hasLayer(tool._ua_tile_layer), true, 'expected it active on the map')
-		assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while UA is active — a swap, not an overlay')
+	}
 
-		tool.ua_control.getContainer().click()
-		assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
-		assert.equal(tool._ua_tile_layer, null, 'expected the tile layer cleared')
-		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
-	})
+	describe('administrative units (UA), IGN tiles served offline', function() {
 
-	// review-diff finding, hito 11: toolbar.js's own exclusivity (opening ANY
-	// sibling panel force-hides an already-open one) used to hide the UA
-	// panel WITHOUT disarming it — the overlay tile layer and the map 'click'
-	// listener kept running behind a panel that looked closed. Fixed via
-	// create_toolbar_panel's `on_hide` hook.
-	it('a sibling panel opening force-closes AND disarms UA — not just visually hidden', function() {
+		let restore_wms = null
+		beforeEach(function() { restore_wms = offline_ua_wms() })
+		afterEach(function() { restore_wms() })
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_administrative_units()
-		tool.attach_wms_services()
+		it('attach_administrative_units builds the button+panel (level select) once section_lang is es/cat/eus', function() {
 
-		tool.ua_control.getContainer().click() // arm UA
-		assert.isOk(tool._ua_tile_layer, 'expected UA armed')
-		const armed_tile_layer = tool._ua_tile_layer
-		const armed_click_handler = tool._ua_click_handler
+			geolocation.section_lang = 'lg-eus'
+			tool.attach_administrative_units()
+			tool.attach_administrative_units() // second call: must be a no-op
 
-		tool.wms_control.getContainer().click() // opens a SIBLING panel — forces UA's panel shut
-
-		assert.equal(tool.ua_panel.hidden, true, 'expected the UA panel force-closed')
-		assert.equal(tool._ua_tile_layer, null, 'expected the overlay tile layer disarmed, not left running behind a closed panel')
-		assert.equal(tool._ua_click_handler, null, 'expected the map click listener disarmed too')
-		assert.equal(geolocation.map.hasLayer(armed_tile_layer), false, 'expected the overlay actually removed from the map')
-
-		// reopening UA must not leak a second, duplicate overlay/listener
-		// alongside a stale reference to the one already torn down
-		tool.ua_control.getContainer().click()
-		assert.notEqual(tool._ua_tile_layer, armed_tile_layer, 'expected a fresh overlay, not the disarmed one')
-		assert.notEqual(tool._ua_click_handler, armed_click_handler, 'expected a fresh click listener')
-	})
-
-	it('check_administrative_unit_at_point (found) builds a layer via L.geoJSON and fires pm:create', async function() {
-
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_administrative_units()
-		tool.ua_control.getContainer().click() // arm, level defaults to 'Municipio'
-
-		let requested_options = null
-		stub_tool_request(async function(options) {
-			requested_options = options
-			return {ok: true, data: {found: true, feature: {
-				type: 'Feature',
-				geometry: {type: 'Polygon', coordinates: [[[-3.71,40.40],[-3.60,40.40],[-3.60,40.50],[-3.71,40.50],[-3.71,40.40]]]},
-				properties: {nameunit: 'Test municipality'}
-			}}}
+			const controls = geolocation.map.getContainer().querySelectorAll('.uca-maps-ua-control')
+			assert.equal(controls.length, 1, 'expected exactly one "UA" button')
+			assert.isOk(tool.ua_panel, 'expected the UA panel built')
+			assert.equal(tool.ua_panel.hidden, true, 'expected the panel hidden by default')
+			assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-level-select'), 'expected the level select rendered')
 		})
 
-		const before_layer_count = active_group().getLayers().length
-		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+		// v6's UA_on swaps the basemap for AU.AdministrativeUnit, as Catastro does:
+		// laid over it, the units would be read against a second map
+		it('opening the "UA" panel swaps the active basemap; closing it restores the previous one', function() {
 
-		assert.equal(requested_options.action, 'get_administrative_unit')
-		assert.equal(requested_options.options.level, 'Municipio')
+			geolocation.section_lang = 'lg-spa'
+			tool.attach_administrative_units()
 
-		const layers = active_group().getLayers()
-		assert.equal(layers.length, before_layer_count + 1, 'expected one new object added to the active FeatureGroup')
-		assert.equal(layers[layers.length - 1].feature.properties.nameunit, 'Test municipality', 'expected the raw IGN properties kept, v6 parity')
+			const previous_base_layer = find_active_tile_layer(geolocation.map)
+			assert.isOk(previous_base_layer, 'expected a basemap already on the map before arming (test fixture default)')
+
+			tool.ua_control.getContainer().click()
+			assert.equal(tool.ua_panel.hidden, false, 'expected the panel open')
+			assert.isOk(tool._ua_tile_layer, 'expected the AU.AdministrativeUnit tile layer built')
+			assert.equal(geolocation.map.hasLayer(tool._ua_tile_layer), true, 'expected it active on the map')
+			assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while UA is active — a swap, not an overlay')
+
+			tool.ua_control.getContainer().click()
+			assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
+			assert.equal(tool._ua_tile_layer, null, 'expected the tile layer cleared')
+			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
+		})
+
+		// the exclusivity close (toolbar.js) never passes through UA's own toggle:
+		// only the panel's on_hide disarms it then
+		it('a sibling panel opening force-closes AND disarms UA — not just visually hidden', function() {
+
+			geolocation.section_lang = 'lg-spa'
+			tool.attach_administrative_units()
+			tool.attach_wms_services()
+
+			tool.ua_control.getContainer().click() // arm UA
+			assert.isOk(tool._ua_tile_layer, 'expected UA armed')
+			const armed_tile_layer = tool._ua_tile_layer
+			const armed_click_handler = tool._ua_click_handler
+
+			tool.wms_control.getContainer().click() // opens a SIBLING panel — forces UA's panel shut
+
+			assert.equal(tool.ua_panel.hidden, true, 'expected the UA panel force-closed')
+			assert.equal(tool._ua_tile_layer, null, 'expected the overlay tile layer disarmed, not left running behind a closed panel')
+			assert.equal(tool._ua_click_handler, null, 'expected the map click listener disarmed too')
+			assert.equal(geolocation.map.hasLayer(armed_tile_layer), false, 'expected the overlay actually removed from the map')
+
+			// reopening UA must not leak a second, duplicate overlay/listener
+			// alongside a stale reference to the one already torn down
+			tool.ua_control.getContainer().click()
+			assert.notEqual(tool._ua_tile_layer, armed_tile_layer, 'expected a fresh overlay, not the disarmed one')
+			assert.notEqual(tool._ua_click_handler, armed_click_handler, 'expected a fresh click listener')
+		})
+
+		it('the UA level select sets the level the next lookup asks for', async function() {
+
+			arm_ua()
+
+			const select = tool.ua_panel.querySelector('.uca-maps-ua-level-select')
+			assert.equal(select.value, 'Municipio', 'expected v6\'s default level selected')
+			select.value = 'Provincia'
+			select.dispatchEvent(new Event('change'))
+
+			let requested_options = null
+			stub_tool_request(async function(options) {
+				requested_options = options
+				return {ok: true, data: {found: false}}
+			})
+			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+
+			assert.equal(requested_options.options.level, 'Provincia', 'expected the picked level sent, not the default')
+		})
+
+		it('check_administrative_unit_at_point (found) adds the unit as an object in the active group, asking for the level', async function() {
+
+			arm_ua() // level defaults to 'Municipio'
+
+			let requested_options = null
+			stub_tool_request(async function(options) {
+				requested_options = options
+				return {ok: true, data: {found: true, feature: {
+					type: 'Feature',
+					geometry: {type: 'Polygon', coordinates: [[[-3.71,40.40],[-3.60,40.40],[-3.60,40.50],[-3.71,40.50],[-3.71,40.40]]]},
+					properties: {nameunit: 'Test municipality'}
+				}}}
+			})
+
+			const before_layer_count = active_group().getLayers().length
+			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+			await settle_map(geolocation.map) // the polygon is fitted, which animates
+
+			assert.equal(requested_options.action, 'get_administrative_unit')
+			assert.equal(requested_options.options.level, 'Municipio')
+
+			const layers = active_group().getLayers()
+			assert.equal(layers.length, before_layer_count + 1, 'expected one new object added to the active FeatureGroup')
+			assert.equal(layers[layers.length - 1].feature.properties.nameunit, 'Test municipality', 'expected the raw IGN properties kept, v6 parity')
+		})
+
+		it('check_administrative_unit_at_point (not found) shows an in-panel message, creates nothing', async function() {
+
+			arm_ua()
+
+			stub_tool_request(async () => ({ok: true, data: {found: false}}))
+
+			const before_layer_count = active_group().getLayers().length
+			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+
+			assert.equal(
+				active_group().getLayers().length,
+				before_layer_count,
+				'expected no object created on a "not found" result'
+			)
+			const message = tool.ua_panel.querySelector('.uca-maps-ua-message')
+			assert.equal(message.hidden, false, 'expected the in-panel message shown')
+			assert.equal(message.dataset.type, 'warning', 'expected "not found" as a warning, not an error')
+		})
+
+		// a click while a lookup runs, or while Geoman edits a shape, is not a lookup
+		it('check_administrative_unit_at_point asks nothing while a lookup is in flight or Geoman is editing', async function() {
+
+			arm_ua()
+
+			let call_count = 0
+			let resolve_first = null
+			stub_tool_request(() => new Promise((resolve) => {
+				call_count++
+				resolve_first = () => resolve({ok: true, data: {found: false}})
+			}))
+
+			const first = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+			await check_administrative_unit_at_point(tool, L.latLng(40.46, -3.66)) // dropped: busy
+			assert.equal(call_count, 1, 'expected the overlapping lookup never to reach tool_request')
+			resolve_first()
+			await first
+
+			const original_global_edit_mode_enabled = geolocation.map.pm.globalEditModeEnabled
+			geolocation.map.pm.globalEditModeEnabled = () => true
+			try {
+				await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+			} finally {
+				geolocation.map.pm.globalEditModeEnabled = original_global_edit_mode_enabled
+			}
+			assert.equal(call_count, 1, 'expected no lookup while Geoman is in global edit mode')
+
+			// control: idle and not editing, a click asks again
+			const control = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+			assert.equal(call_count, 2, 'expected an idle click to reach tool_request')
+			resolve_first()
+			await control
+		})
+
+		// closed by its own toggle here; a sibling panel's close disarms through on_hide
+		it('check_administrative_unit_at_point drops a response that arrives after the UA panel is closed mid-request', async function() {
+
+			arm_ua()
+
+			let resolve_tool_request
+			stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
+
+			const before_layer_count = active_group().getLayers().length
+			const pending = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+
+			tool.ua_control.getContainer().click() // close WHILE the request is in flight
+			assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
+
+			resolve_tool_request({ok: true, data: {found: true, feature: {
+				type: 'Feature',
+				geometry: {type: 'Point', coordinates: [-3.65, 40.45]},
+				properties: {}
+			}}})
+			await pending
+
+			assert.equal(
+				active_group().getLayers().length,
+				before_layer_count,
+				'expected the late "found" response NOT to create an object after the panel was closed'
+			)
+		})
+
+		it('detach_administrative_units removes the button/panel AND restores the previous basemap', async function() {
+
+			geolocation.section_lang = 'lg-spa'
+			tool.attach_administrative_units()
+
+			const previous_base_layer = find_active_tile_layer(geolocation.map)
+			tool.ua_control.getContainer().click() // arm
+			const tile_layer = tool._ua_tile_layer
+			const map_container_node = geolocation.map.getContainer()
+
+			await tool.destroy(false, false, false)
+
+			assert.equal(tool.ua_control, null, 'expected ua_control cleared')
+			assert.equal(tool.ua_panel, null, 'expected ua_panel cleared')
+			assert.isNotOk(map_container_node.querySelector('.uca-maps-ua-control'), 'expected the button removed from the DOM')
+			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the AU.AdministrativeUnit layer removed from the map')
+			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
+		})
 	})
 
-	it('check_administrative_unit_at_point (not found) shows an in-panel message, creates nothing', async function() {
+	// each panel's own lead says what failed; a REASON_CODES refusal adds the
+	// server's reason on its own line, which core's error_text alone drops
+	it('a refusal with a reason shows the panel\'s lead, then the reason: UA, WMS, place and Roman searches', async function() {
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_administrative_units()
-		tool.ua_control.getContainer().click() // arm
+		const restore_wms = offline_ua_wms()
+		try {
+			arm_ua()
+			tool.attach_wms_services()
+			tool.attach_place_search()
+			mount_roman(WITH_PLEIADES)
 
-		stub_tool_request(async () => ({ok: true, data: {found: false}}))
+			const reason = 'Coordinates out of range'
+			stub_tool_request(async () => ({ok: false, error: {
+				is_api_error	: true,
+				code			: 'request.invalid_options',
+				label_key		: 'error_request_invalid_options',
+				message			: reason,
+				transport		: false
+			}}))
 
-		const before_layer_count = active_group().getLayers().length
-		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
-
-		assert.equal(
-			active_group().getLayers().length,
-			before_layer_count,
-			'expected no object created on a "not found" result'
-		)
-		const message = tool.ua_panel.querySelector('.uca-maps-ua-message')
-		assert.equal(message.hidden, false, 'expected the in-panel message shown')
-		assert.equal(message.dataset.type, 'warning', 'expected "not found" as a warning, not an error')
-	})
-
-	// review-diff finding, hito 11: a lookup in flight when the user closes
-	// the UA panel (own toggle, here — the sibling-panel path is covered by
-	// the toolbar-exclusivity test above) must not resurrect an object.
-	it('check_administrative_unit_at_point drops a response that arrives after the UA panel is closed mid-request', async function() {
-
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_administrative_units()
-		tool.ua_control.getContainer().click() // arm
-
-		let resolve_tool_request
-		stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
-
-		const before_layer_count = active_group().getLayers().length
-		const pending = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
-
-		tool.ua_control.getContainer().click() // close WHILE the request is in flight
-		assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
-
-		resolve_tool_request({ok: true, data: {found: true, feature: {
-			type: 'Feature',
-			geometry: {type: 'Point', coordinates: [-3.65, 40.45]},
-			properties: {}
-		}}})
-		await pending
-
-		assert.equal(
-			active_group().getLayers().length,
-			before_layer_count,
-			'expected the late "found" response NOT to create an object after the panel was closed'
-		)
-	})
-
-	it('detach_administrative_units removes the button/panel AND restores the previous basemap', async function() {
-
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_administrative_units()
-
-		const previous_base_layer = find_active_tile_layer(geolocation.map)
-		tool.ua_control.getContainer().click() // arm
-		const tile_layer = tool._ua_tile_layer
-		const map_container_node = geolocation.map.getContainer()
-
-		await tool.destroy(false, false, false)
-
-		assert.equal(tool.ua_control, null, 'expected ua_control cleared')
-		assert.equal(tool.ua_panel, null, 'expected ua_panel cleared')
-		assert.isNotOk(map_container_node.querySelector('.uca-maps-ua-control'), 'expected the button removed from the DOM')
-		assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the AU.AdministrativeUnit layer removed from the map')
-		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
+			const ua_line = () => tool.ua_panel.querySelector('.uca-maps-ua-message')
+			const rows = [
+				{
+					label	: 'ua',
+					lead	: 'The administrative unit could not be looked up.',
+					run		: async () => {
+						await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+						assert.equal(ua_line().dataset.type, 'error', 'expected the UA refusal as an error')
+						return ua_line().textContent
+					}
+				},
+				{
+					label	: 'wms search',
+					lead	: 'The WMS server could not be queried.',
+					run		: async () => (await tool.search_wms_layers('https://example.com/geoserver/wms')).error
+				},
+				{
+					label	: 'place search',
+					lead	: 'The place search could not be completed.',
+					run		: async () => (await search_places(tool, 'Sagunto')).error
+				},
+				{
+					label	: 'roman search',
+					lead	: 'The search could not be completed.',
+					run		: async () => (await search_roman(tool, 'pleiades', {query: 'Saguntum', type: 'name'})).error
+				},
+				{
+					label	: 'roman add',
+					lead	: 'The search could not be completed.',
+					run		: async () => {
+						tool._roman_results = [{id: '265849'}]
+						return (await add_roman_result(tool, 0)).error
+					}
+				}
+			]
+			for (const row of rows) {
+				assert.equal(await row.run(), `${row.lead}\n${reason}`, row.label)
+			}
+		} finally {
+			restore_wms()
+		}
 	})
 
 
 
 	// UPLOAD FILE TO MAP, vector half (vector_upload.js). The round-trip tests
-	// run the real service_upload transport and upload_vector_layer action,
-	// and accept a missing GDAL as the only failure.
+	// run the real service_upload transport and upload_vector_layer action.
 
-	it('attach_file_upload builds its own button+panel', function() {
+	/**
+	* Releases what a test staged for real and nobody ingested, through the door
+	* the upload queue uses for a removed row. Answers each release's response.
+	*/
+	const release_staged = async function(staged) {
+		const answers = []
+		for (const file_data of staged) {
+			answers.push(await data_manager.request({body: {
+				dd_api	: 'dd_utils_api',
+				action	: 'delete_uploaded_file',
+				options	: {key_dir: file_data.key_dir, file_name: file_data.tmp_name}
+			}}))
+		}
+		return answers
+	}
+
+	// the two halves share the guard's sentence; "no request" is counted at every
+	// door, service_upload's XHR included, not at tool_request alone
+	it('both upload halves refuse a missing file with upload_no_file, sending no request by any door', async function() {
 
 		tool.attach_file_upload()
 
-		const control = geolocation.map.getContainer().querySelector('.uca-maps-upload-control')
-		assert.isOk(control, 'expected the "Upload file to map" toggle button')
-		assert.isOk(tool.upload_panel, 'expected the upload panel built')
-		assert.equal(tool.upload_panel.hidden, true, 'expected the panel hidden by default')
+		const rows = [
+			{label: 'vector', run: () => tool.upload_vector_file(null, {})},
+			{label: 'image', run: () => tool.upload_image_file(null)}
+		]
+		for (const row of rows) {
+			const {result, sent} = await requests_sent_by(row.run)
+			assert.deepEqual(
+				result, {ok: false, error: tool.get_tool_label('upload_no_file') || 'Please choose a file first.'},
+				`expected the no-file sentence, not the transport catch: ${row.label}`
+			)
+			assert.deepEqual(sent, [], `expected NO request of any kind without a file: ${row.label}`)
+		}
 	})
 
-	it('upload_vector_file refuses without a file, never touching the network', async function() {
+	// a server without GDAL answers tool.dependency_unavailable and the case is skipped, never passed
+	it('upload_vector_file (real round trip) uploads a .geojson file and creates a matching object (skipped without GDAL)', async function() {
 
 		tool.attach_file_upload()
 
-		let called = false
-		stub_tool_request(async function(options) { called = true; return real_tool_request(options) })
-
-		const result = await tool.upload_vector_file(null, {})
-
-		assert.equal(result.ok, false)
-		assert.equal(called, false, 'expected the server never contacted with no file selected')
-	})
-
-	it('upload_vector_file (real round trip) uploads a .geojson file and creates a matching object, or reports GDAL unavailable', async function() {
-
-		tool.attach_file_upload()
+		let response = null
+		stub_tool_request(async function(options) {
+			response = await real_tool_request(options)
+			return response
+		})
 
 		const before_layer_count = active_group().getLayers().length
-		const file = sample_vector_file()
+		const result = await tool.upload_vector_file(sample_vector_file(), {})
+		await settle_map(geolocation.map) // the new object is fitted, which animates
 
-		const result = await tool.upload_vector_file(file, {})
-
-		if (!result.ok) {
-			assert.include(
-				result.error || '', 'GDAL',
-				'expected the only acceptable failure to mention GDAL — full result: ' + JSON.stringify(result)
+		if (response && response.ok!==true) {
+			assert.equal(
+				response.error?.code, 'tool.dependency_unavailable',
+				`expected the only acceptable failure to be a missing GDAL binary — full response: ${JSON.stringify(response)}`
 			)
-			return
+			this.skip()
 		}
 
+		assert.isTrue(result.ok, `expected the upload to succeed — full result: ${JSON.stringify(result)}`)
 		assert.equal(result.feature_count, 1, 'expected exactly the one uploaded feature')
 		assert.equal(
 			active_group().getLayers().length,
@@ -4677,7 +4835,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('upload_vector_file (real round trip) surfaces a malformed EPSG code as a server-side request.invalid_options error, without needing GDAL', async function() {
+	it('upload_vector_file (real round trip) brings a malformed EPSG code back as request.invalid_options, with no GDAL needed', async function() {
 
 		tool.attach_file_upload()
 
@@ -4710,30 +4868,45 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepInclude(sent.options, {epsg: 'not-a-code', zone: '30', band: 'N'})
 	})
 
+	// a quiet drop, not the catch: building objects on a destroyed tool throws,
+	// and the catch would answer an error and toast it
 	it('upload_vector_file drops a response that arrives after detach_file_upload already ran', async function() {
 
 		tool.attach_file_upload()
 
 		let resolve_tool_request
-		stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
+		let staged = null
+		stub_tool_request((options) => new Promise((resolve) => {
+			staged = options.options.file_data
+			resolve_tool_request = resolve
+		}))
 
-		const file = sample_vector_file()
-		const pending = tool.upload_vector_file(file, {})
+		const toasts	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+		try {
+			const before_layer_count = active_group().getLayers().length
+			const pending = tool.upload_vector_file(sample_vector_file(), {})
 
-		// wait for the (real) service_upload transport to finish staging the
-		// file and reach the point where it calls tool.tool_request — polling
-		// is the only signal available, tool_request itself has no "about to
-		// call" hook
-		await until(() => resolve_tool_request)
-		assert.isOk(resolve_tool_request, 'expected tool_request reached within the wait budget')
+			// the real staging upload runs first: tool_request has no "about to be
+			// called" hook, so its arrival is polled
+			await until(() => resolve_tool_request)
+			assert.isOk(resolve_tool_request, 'expected tool_request reached within the wait budget')
 
-		await tool.destroy(false, false, false)
-		assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
+			await tool.destroy(false, false, false)
+			assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
 
-		resolve_tool_request({ok: true, data: {geojson: SAMPLE_UPLOAD_GEOJSON, feature_count: 1}})
-		const result = await pending
+			resolve_tool_request({ok: true, data: {geojson: SAMPLE_UPLOAD_GEOJSON, feature_count: 1}})
+			const result = await pending
 
-		assert.equal(result.ok, false)
+			assert.deepEqual(result, {ok: false}, 'expected a quiet drop, with no error for a panel that is gone')
+			assert.equal(toasts.length, 0, 'expected NO toast for an upload the closed tool left in flight')
+			assert.equal(active_group().getLayers().length, before_layer_count, 'expected no object created')
+		} finally {
+			event_manager.unsubscribe(token)
+			if (staged) {
+				await release_staged([staged])
+			}
+		}
 	})
 
 
@@ -4742,10 +4915,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// — on carriers built by hand (IMAGE_DESCRIPTOR); the server half is
 	// test/unit/tool_uca_maps_image_overlay.test.ts's.
 
-	it('the upload panel carries the image sub-flow as well as the vector one', function() {
+	it('attach_file_upload builds one button and one hidden panel carrying both the vector and the image sub-flows', function() {
 
 		tool.attach_file_upload()
 
+		assert.isOk(
+			geolocation.map.getContainer().querySelector('.uca-maps-upload-control'),
+			'expected the "Upload file to map" toggle button'
+		)
+		assert.equal(tool.upload_panel.hidden, true, 'expected the panel hidden by default')
 		assert.isOk(
 			tool.upload_panel.querySelector('.uca-maps-upload-image-file'),
 			'expected the image file input in the same panel'
@@ -4754,8 +4932,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.upload_panel.querySelector('.uca-maps-upload-file'),
 			'expected the vector file input still there — one row, one panel'
 		)
-		// the vector half uploads from its own button (2026-09-28); the image
-		// half still uploads on pick, so it has none (the header's × is toolbar.js's)
+		// the vector half uploads from its own button, the image half on pick,
+		// so it has none (the header's × is toolbar.js's)
 		assert.deepEqual(
 			Array.from(tool.upload_panel.querySelectorAll(':scope > :not(.uca-maps-panel-header) button, :scope > button')).map(b => b.className),
 			['uca-maps-upload-projections-button', 'uca-maps-upload-submit'],
@@ -4784,7 +4962,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('the vector half is v6\'s modal: title, picker, extensions, projections toggle, explanation, EPSG/zone/band, epsg.io, then Upload', function() {
+	it('the vector half is v6\'s modal: title, picker, projections toggle, EPSG/zone/band fields, projections list, then Upload', function() {
 
 		tool.attach_file_upload()
 
@@ -4885,129 +5063,176 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(messages[1].dataset.type, 'ok', 'expected a success, not the error tint')
 	})
 
-	it('the vector half says how many objects an upload created, or that it read none', async function() {
+	it('an upload of either half that outlives the panel writes nothing to it', async function() {
 
-		tool.attach_file_upload()
+		const rows = [
+			{
+				label	: 'vector',
+				picker	: '.uca-maps-upload-file',
+				line	: 0,
+				method	: 'upload_vector_file',
+				start	: (panel, picker) => {
+					load_file(picker, vector_file())
+					panel.querySelector('.uca-maps-upload-submit').click()
+				}
+			},
+			{
+				label	: 'image',
+				picker	: '.uca-maps-upload-image-file',
+				line	: 1,
+				method	: 'upload_image_file',
+				start	: (_panel, picker) => pick_file(picker, image_file())
+			}
+		]
+		for (const row of rows) {
+			tool.attach_file_upload()
 
-		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
-		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
-		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
-		const file		= vector_file()
+			const panel		= tool.upload_panel
+			const picker	= panel.querySelector(row.picker)
+			const submit	= panel.querySelector('.uca-maps-upload-submit')
+			const message	= panel.querySelectorAll('.uca-maps-upload-message')[row.line]
 
-		let answer = {ok: true, feature_count: 0}
-		tool.upload_vector_file = async function() { return answer }
+			let settle = null
+			tool[row.method] = function() {
+				return new Promise((resolve) => { settle = resolve })
+			}
 
-		load_file(picker, file)
-		submit.click()
-		await tick()
-		assert.equal(message.textContent, tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.')
-		assert.equal(message.dataset.type, 'warning', 'expected "nothing read" as a warning, not an error')
+			row.start(panel, picker)
+			await tick()
+			assert.isOk(settle, `expected the upload in flight: ${row.label}`)
 
-		answer = {ok: true, feature_count: 3}
-		submit.click()
-		await tick()
-		assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (3)')
-		assert.equal(message.dataset.type, 'ok', 'expected a success, not the error tint')
-		assert.equal(picker.value, '', 'expected the picker emptied after a success')
-	})
+			detach_file_upload(tool) // the panel's own teardown, as destroy() runs it
+			assert.equal(tool.upload_panel, null, `expected the panel already torn down: ${row.label}`)
+			const left = {hidden: message.hidden, text: message.textContent, submit: submit.disabled}
+			settle({ok: false, error: 'late answer'})
+			await tick()
 
-	it('an upload that outlives the panel writes nothing to it', async function() {
-
-		tool.attach_file_upload()
-
-		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
-		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
-		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
-
-		let settle = null
-		tool.upload_vector_file = function() {
-			return new Promise((resolve) => { settle = resolve })
+			assert.equal(message.isConnected, false, `expected the panel gone: ${row.label}`)
+			assert.deepEqual(
+				{hidden: message.hidden, text: message.textContent, submit: submit.disabled}, left,
+				`expected the late answer never written: ${row.label}`
+			)
+			assert.equal(picker.disabled, true, `expected the detached picker left as it was: ${row.label}`)
 		}
-
-		load_file(picker, vector_file())
-		submit.click()
-		await tick()
-		assert.isOk(settle, 'expected the upload in flight')
-
-		await tool.destroy(false, false, false)
-		assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
-		settle({ok: false, error: 'late answer'})
-		await tick()
-
-		assert.equal(message.isConnected, false, 'expected the panel gone')
-		assert.equal(message.hidden, true, 'expected the late answer never written')
-		assert.equal(picker.disabled, true, 'expected the detached picker left as it was')
-		assert.equal(submit.disabled, true, 'expected the detached button left as it was')
 	})
 
-	// the former window: errors hid after it, and a long refusal could not be read
-	const FORMER_ERROR_MESSAGE_MS = 3500
+	/** Runs `fn` with window.setTimeout recorded: each timer's id, delay and callback. */
+	const timers_set_by = async function(fn) {
+		const timers	= []
+		const original	= window.setTimeout
+		window.setTimeout = function(callback, ms, ...rest) {
+			const id = original.call(window, callback, ms, ...rest)
+			timers.push({id, ms, callback})
+			return id
+		}
+		try {
+			await fn()
+		} finally {
+			window.setTimeout = original
+		}
+		return timers
+	}
 
-	it('an image placement message goes away by itself; an upload error stays until the next pick', async function() {
+	// the map is the confirmation of a success, so its line goes; an error, or
+	// a file that read nothing, is read while fixing the input, so it stays
+	it('a success or caveat line hides after UPLOAD_MESSAGE_MS; an error or "read nothing" stays until the next gesture', async function() {
 
-		this.timeout(UPLOAD_MESSAGE_MS + FORMER_ERROR_MESSAGE_MS + 2000)
+		assert.isAtLeast(UPLOAD_MESSAGE_MS, 1000, 'expected a couple of seconds, long enough to be read')
+		assert.isAtMost(UPLOAD_MESSAGE_MS, 3000, 'expected a couple of seconds, not a lingering line')
 
 		tool.attach_file_upload()
 
-		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-image-file')
-		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[1]
-		const file		= image_file()
+		const panel			= tool.upload_panel
+		const messages		= panel.querySelectorAll('.uca-maps-upload-message')
+		const vector_picker	= panel.querySelector('.uca-maps-upload-file')
+		const image_picker	= panel.querySelector('.uca-maps-upload-image-file')
+		const submit		= panel.querySelector('.uca-maps-upload-submit')
 
-		let answer = {ok: true, georeferenced: false}
-		tool.upload_image_file = async function() { return answer }
+		const halves = {
+			vector	: {
+				method	: 'upload_vector_file',
+				message	: messages[0],
+				run		: () => {
+					load_file(vector_picker, vector_file())
+					submit.click()
+				},
+				// the next Upload clears the line before its own answer
+				next	: {hidden: true}
+			},
+			image	: {
+				method	: 'upload_image_file',
+				message	: messages[1],
+				run		: () => pick_file(image_picker, image_file()),
+				// the next pick replaces it with its neutral working line
+				next	: {hidden: false, text: 'Uploading the image…', type: 'info'}
+			}
+		}
+		const rows = [
+			{
+				half	: 'image',
+				answer	: {ok: true, georeferenced: false},
+				text	: tool.get_tool_label('upload_image_success_viewport') || 'The image carries no coordinates: placed over the current view.',
+				type	: 'warning',
+				hides	: true
+			},
+			{half: 'image', answer: {ok: false, error: 'the ingest refused it'}, text: 'the ingest refused it', type: 'error', hides: false},
+			{
+				half	: 'vector',
+				answer	: {ok: true, feature_count: 2},
+				text	: (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (2)',
+				type	: 'ok',
+				hides	: true,
+				// only a success empties the picker: a failure keeps the file for the retry
+				check	: () => assert.equal(vector_picker.value, '', 'expected the picker emptied after a success')
+			},
+			{
+				half	: 'vector',
+				answer	: {ok: true, feature_count: 0},
+				text	: tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.',
+				type	: 'warning',
+				hides	: false
+			},
+			{half: 'vector', answer: {ok: false, error: 'zone and band do not match'}, text: 'zone and band do not match', type: 'error', hides: false}
+		]
+		for (const row of rows) {
+			const half		= halves[row.half]
+			const message	= half.message
+			const label		= `${row.half} ${JSON.stringify(row.answer)}`
+			tool[half.method] = async function() { return row.answer }
 
-		pick_file(picker, file)
-		await tick()
-		assert.equal(message.hidden, false, 'expected the placement message shown first')
-		await tick(UPLOAD_MESSAGE_MS + 200)
-		assert.equal(message.hidden, true, 'expected it gone after a couple of seconds')
+			const timers = await timers_set_by(async () => {
+				half.run()
+				await tick()
+			})
 
-		answer = {ok: false, error: 'the ingest refused it'}
-		pick_file(picker, file)
-		await tick(FORMER_ERROR_MESSAGE_MS + 200)
-		assert.equal(message.hidden, false, 'expected the error still there past the former window')
-		assert.equal(message.textContent, 'the ingest refused it')
-		assert.equal(message.dataset.type, 'error')
+			assert.equal(message.hidden, false, `expected the line shown: ${label}`)
+			assert.equal(message.textContent, row.text, label)
+			assert.equal(message.dataset.type, row.type, label)
+			if (row.check) {
+				row.check()
+			}
+			if (row.hides) {
+				const timer = timers.find((candidate) => candidate.id===message._uca_maps_hide_timer)
+				assert.isOk(timer, `expected a hide timer armed: ${label}`)
+				assert.equal(timer.ms, UPLOAD_MESSAGE_MS, label)
+				timer.callback()
+				assert.equal(message.hidden, true, `expected the line gone once its timer fires: ${label}`)
+				continue
+			}
+			assert.isNull(message._uca_maps_hide_timer, `expected NO hide timer, the line stays: ${label}`)
 
-		// the next pick is the gesture that replaces it, before its own answer
-		tool.upload_image_file = () => new Promise(() => {})
-		pick_file(picker, file)
-		assert.equal(message.textContent, 'Uploading the image…', 'expected the next pick to replace the error with its working line')
-		assert.equal(message.dataset.type, 'info', 'expected the working line neutral, not still the error tint')
-	})
-
-	it('a vector success goes away by itself, as the image one does; a vector error stays until the next Upload', async function() {
-
-		this.timeout(UPLOAD_MESSAGE_MS + FORMER_ERROR_MESSAGE_MS + 2000)
-
-		tool.attach_file_upload()
-
-		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
-		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
-		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
-		const file		= vector_file()
-
-		let answer = {ok: true, feature_count: 2}
-		tool.upload_vector_file = async function() { return answer }
-
-		load_file(picker, file)
-		submit.click()
-		await tick()
-		assert.equal(message.hidden, false, 'expected the success shown first')
-		await tick(UPLOAD_MESSAGE_MS + 200)
-		assert.equal(message.hidden, true, 'expected it gone after the image message\'s window')
-
-		answer = {ok: false, error: 'zone and band do not match'}
-		load_file(picker, file)
-		submit.click()
-		await tick(FORMER_ERROR_MESSAGE_MS + 200)
-		assert.equal(message.hidden, false, 'expected the error still there past the former window')
-		assert.equal(message.textContent, 'zone and band do not match')
-
-		// the next Upload is the gesture that clears it, before its own answer
-		tool.upload_vector_file = () => new Promise(() => {})
-		submit.click()
-		assert.equal(message.hidden, true, 'expected the next Upload to clear the error')
+			// the next gesture is what removes it, before its own answer
+			let settle = null
+			tool[half.method] = () => new Promise((resolve) => { settle = resolve })
+			half.run()
+			assert.equal(message.hidden, half.next.hidden, `expected the next gesture to take the line: ${label}`)
+			if (!half.next.hidden) {
+				assert.equal(message.textContent, half.next.text, label)
+				assert.equal(message.dataset.type, half.next.type, label)
+			}
+			settle({ok: false})
+			await tick()
+		}
 	})
 
 	it('UP closed by a SIBLING panel reopens clean too, in both halves', async function() {
@@ -5164,9 +5389,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		pick_file(picker, image_file())
 		await tick()
-		assert.isOk(message._uca_maps_hide_timer, 'expected a hide timer armed')
+		const timer = message._uca_maps_hide_timer
+		assert.isOk(timer, 'expected a hide timer armed')
 
-		await tool.destroy(false, false, false)
+		const cleared			= []
+		const original_clear	= window.clearTimeout
+		window.clearTimeout = function(id) {
+			cleared.push(id)
+			return original_clear.call(window, id)
+		}
+		try {
+			await tool.destroy(false, false, false)
+		} finally {
+			window.clearTimeout = original_clear
+		}
+		assert.include(cleared, timer, 'expected the armed timer itself cancelled, not just forgotten')
 		assert.equal(message._uca_maps_hide_timer, null, 'expected the timer cancelled with the panel')
 	})
 
@@ -5206,44 +5443,88 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(messages[1].hidden, true, 'expected the image half\'s line untouched')
 	})
 
-	it('upload_image_file refuses without a file, never touching the network', async function() {
+	/** The body core's tool_request sends for `action` and `options`, captured, never sent. */
+	const tool_request_body = async function(action, options) {
+		let body = null
+		const original = data_manager.request
+		data_manager.request = async function(request) {
+			body = request.body
+			return {ok: true, data: null}
+		}
+		try {
+			await tool_uca_maps.prototype.tool_request.call(tool, {action, options})
+		} finally {
+			data_manager.request = original
+		}
+		return body
+	}
 
-		tool.attach_file_upload()
+	/** A real 1x1 PNG: the staging endpoint checks the file signature. */
+	const png_file = () => new File(
+		[Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))],
+		'plan.png', {type: 'image/png'}
+	)
 
-		let called = false
-		stub_tool_request(async function(options) { called = true; return real_tool_request(options) })
+	/**
+	* Stands in for core's create, the ingest and delete, so no record is ever
+	* written; the staging upload stays real (service_upload). `ingest` answers
+	* per call; every staged file is kept for release_staged.
+	*/
+	const stub_image_record_doors = function(new_id, ingest, delete_answer) {
+		const original_request = data_manager.request
+		const seen = {created: [], deleted: [], staged: []}
+		data_manager.request = async function(options) {
+			const body = options && options.body
+			if (body && body.action==='create') {
+				seen.created.push(body)
+				return {ok: true, data: new_id}
+			}
+			if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
+				seen.staged.push(body.options.file_data)
+				return ingest()
+			}
+			if (body && body.action==='delete') {
+				seen.deleted.push(body)
+				return delete_answer()
+			}
+			return original_request.apply(this, arguments)
+		}
+		seen.restore = async function() {
+			data_manager.request = original_request
+			return await release_staged(seen.staged)
+		}
+		return seen
+	}
 
-		const result = await tool.upload_image_file(null)
-
-		assert.equal(result.ok, false)
-		assert.equal(called, false, 'expected the server never contacted with no file selected')
-	})
-
-	// The stub stands in for create, ingest and delete only, so no record is
-	// ever written; the staging upload stays real (service_upload, as the
-	// vector tests above use it).
+	// only a refusal raised before the file moved proves the record empty; any
+	// other answer may still be filling it, so it is named, never deleted
 	it('only a refusal raised before the file moved deletes the minted record; any other failure names it', async function() {
 
 		const NEW_ID	= 987654
-		// a real 1x1 PNG: the staging endpoint checks the file signature
-		const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 		const reason	= 'The staged file is not an image'
 		const refusal	= {is_api_error: true, code: 'request.invalid_options', label_key: 'error_request_invalid_options', message: reason, transport: false}
 		const record_left = 'Image record ' + NEW_ID + ' may have been left empty: review it.'
 		const rows = [
 			{
+				label	: 'a clean ingest',
+				ingest	: null,
+				answer	: null,
+				deletes	: false,
+				result	: {ok: true, section_id: NEW_ID}
+			},
+			{
 				label	: 'an envelope refusal',
 				ingest	: refusal,
 				answer	: {ok: true, data: [NEW_ID]},
 				deletes	: true,
-				error	: 'The image could not be loaded.\n' + reason
+				result	: {ok: false, error: `The image could not be loaded.\n${reason}`, staged_untouched: true}
 			},
 			{
 				label	: 'a timeout: the server may still finish',
 				ingest	: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true},
 				answer	: null,
 				deletes	: false,
-				error	: 'The request timed out\n' + record_left
+				result	: {ok: false, error: `The request timed out\n${record_left}`, staged_untouched: false}
 			},
 			{
 				// what a resend gets while the first attempt is still ingesting
@@ -5251,7 +5532,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'idempotency.in_progress', message: 'Still running', transport: false},
 				answer	: null,
 				deletes	: false,
-				error	: 'Still running\n' + record_left
+				result	: {ok: false, error: `Still running\n${record_left}`, staged_untouched: false}
 			},
 			{
 				// persistUploadedMedia refusing AFTER the file is in the media tree
@@ -5259,7 +5540,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'db.lock_timeout', message: 'Lock timeout', transport: false},
 				answer	: null,
 				deletes	: false,
-				error	: 'Lock timeout\n' + record_left
+				result	: {ok: false, error: `Lock timeout\n${record_left}`, staged_untouched: false}
 			},
 			{
 				// a resend re-run after a restart: the first run consumed the staged file
@@ -5267,54 +5548,167 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'media.file_not_found', message: 'Staged upload not found', transport: false},
 				answer	: null,
 				deletes	: false,
-				error	: 'The image could not be loaded.\nStaged upload not found\n' + record_left
+				result	: {ok: false, error: `The image could not be loaded.\nStaged upload not found\n${record_left}`, staged_untouched: false}
 			},
 			{
 				label	: 'an envelope refusal whose delete is refused',
 				ingest	: refusal,
 				answer	: {ok: false, error: {is_api_error: true, code: 'perm.denied', message: 'Permission denied', transport: false}},
 				deletes	: true,
-				error	: 'The image could not be loaded.\n' + reason + '\n' + record_left
+				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+			},
+			{
+				// core answers no id for a record it did not find, or one it kept
+				label	: 'an envelope refusal whose delete removes nothing',
+				ingest	: refusal,
+				answer	: {ok: true, data: []},
+				deletes	: true,
+				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
 			}
 		]
 
-		const original_request = data_manager.request
+		const released = []
+		for (const row of rows) {
+			const seen = stub_image_record_doors(
+				NEW_ID,
+				() => (row.ingest ? {ok: false, error: row.ingest} : {ok: true, data: true}),
+				() => row.answer
+			)
+			let result
+			try {
+				result = await ingest_image_upload(tool, png_file())
+			} finally {
+				released.push(...await seen.restore())
+			}
+
+			assert.equal(seen.created.length, 1, `expected the record minted before the ingest: ${row.label}`)
+			assert.equal(seen.created[0].source.section_tipo, IMAGE_SECTION_TIPO, `expected it minted in the Images section: ${row.label}`)
+			assert.deepEqual(result, row.result, row.label)
+			if (row.deletes) {
+				assert.deepEqual(seen.deleted, [{
+					action	: 'delete',
+					source	: {delete_mode: 'delete_record', section_tipo: IMAGE_SECTION_TIPO, section_id: NEW_ID}
+				}], `expected the minted record, and only it, deleted once: ${row.label}`)
+			} else {
+				assert.deepEqual(seen.deleted, [], `expected nothing deleted: ${row.label}`)
+			}
+		}
+		assert.equal(released.length, rows.length, 'expected every row\'s staged file released')
+		assert.isTrue(released.every((answer) => answer && answer.ok!==false), `expected the staging left clean: ${JSON.stringify(released)}`)
+	})
+
+	// a request.invalid_options refusal of the step after the ingest: the
+	// image's lead, then the server's reason on its own line
+	it('an image refusal with a reason shows its lead, then the reason: the map overlay and an associated image', async function() {
+
+		tool.attach_file_upload()
+		const layer = seeded_layer(1)
+		tool.active_console_layer = layer
+
+		const reason	= 'Coordinates out of range'
+		const rows		= [
+			{label: 'overlay', action: 'get_image_overlay', run: () => tool.upload_image_file(png_file())},
+			{label: 'associate_image', action: 'get_image_file', run: () => associate_image(tool, layer, png_file())}
+		]
+		const seen = stub_image_record_doors(9100, () => ({ok: true, data: true}), () => ({ok: true, data: []}))
+		let released = []
 		try {
 			for (const row of rows) {
-				let created	= null
-				let deleted	= null
-				data_manager.request = async function(options) {
-					const body = options && options.body
-					if (body && body.action==='create') {
-						created = body
-						return {ok: true, data: NEW_ID}
+				let asked = null
+				stub_tool_request(async function(options) {
+					if (options.action!==row.action) {
+						return real_tool_request(options)
 					}
-					if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
-						return {ok: false, error: row.ingest}
-					}
-					if (body && body.action==='delete') {
-						deleted = body
-						return row.answer
-					}
-					return original_request.apply(this, arguments)
-				}
-
-				const result = await ingest_image_upload(tool, new File([png], 'plan.png', {type: 'image/png'}))
-
-				assert.isOk(created, 'expected the record minted before the ingest: ' + row.label)
-				assert.equal(result.ok, false, row.label)
-				assert.equal(result.error, row.error, row.label)
-				if (row.deletes) {
-					assert.deepEqual(deleted, {
-						action	: 'delete',
-						source	: {delete_mode: 'delete_record', section_tipo: created.source.section_tipo, section_id: NEW_ID}
-					}, 'expected the minted record, and only it, deleted: ' + row.label)
-				} else {
-					assert.isNull(deleted, 'expected nothing deleted: ' + row.label)
-				}
+					asked = options.action
+					return {ok: false, error: {
+						is_api_error	: true,
+						code			: 'request.invalid_options',
+						label_key		: 'error_request_invalid_options',
+						message			: reason,
+						transport		: false
+					}}
+				})
+				const result = await row.run()
+				assert.equal(asked, row.action, `expected the step after the ingest reached: ${row.label}`)
+				assert.deepEqual(result, {ok: false, error: `The image could not be loaded.\n${reason}`}, row.label)
 			}
 		} finally {
-			data_manager.request = original_request
+			released = await seen.restore()
+		}
+		assert.deepEqual(object_images(layer), [], 'expected nothing hung off the object')
+		assert.equal(released.length, rows.length, 'expected both staged files released')
+	})
+
+	// a link can fail past the stage too: a stage that names no file, or an
+	// ingested image the server does not serve
+	it('import_linked_images names a link whose stage brings no file, or whose ingested image is not served', async function() {
+
+		const layer = seeded_layer(1)
+		tool.active_console_layer = layer
+		const empty		= {url: 'https://images.example/empty.jpg'}
+		const unserved	= {url: 'https://images.example/unserved.jpg'}
+		layer.feature.properties.images = [empty, unserved]
+		layer.feature.properties.uca_maps = {}
+
+		const reason	= 'No displayable version'
+		const seen		= stub_linked_import((url) => (url===empty.url ? {ok: true, data: {}} : staged_answer('unserved.jpg')))
+		const stub_body	= data_manager.request
+		let stage_body	= null
+		data_manager.request = function(options, ...rest) {
+			const body = options?.body
+			if (body?.source?.action==='stage_external_image' && !stage_body) {
+				stage_body = body
+			}
+			return stub_body.call(this, options, ...rest)
+		}
+		stub_tool_request(async function(options) {
+			return options.action==='get_image_file'
+				? {ok: false, error: {is_api_error: true, code: 'request.invalid_options', message: reason, transport: false}}
+				: real_tool_request(options)
+		})
+		try {
+			const result = await import_linked_images(tool, layer)
+
+			assert.deepEqual(result.failures, [
+				{url: empty.url, error: 'The image could not be loaded.'},
+				{url: unserved.url, error: `The image could not be loaded.\n${reason}`}
+			], 'expected each link named with why it failed')
+			assert.equal(result.imported, 0)
+			assert.equal(seen.created, 1, 'expected a record minted only for the link that staged a file')
+			assert.deepEqual(layer.feature.properties.images, [empty, unserved], 'expected both links kept')
+			assert.deepEqual(object_images(layer), [], 'expected nothing hung off the object')
+
+			data_manager.request = stub_body
+			assert.deepEqual(stage_body, await tool_request_body('stage_external_image', stage_body.options),
+				'expected the stage sent as tool_request builds it, its own timeout apart')
+		} finally {
+			data_manager.request = stub_body
+			seen.restore()
+		}
+	})
+
+	it('import_linked_images asks nothing while an import is already running', async function() {
+
+		const layer = seeded_layer(1)
+		tool.active_console_layer = layer
+		layer.feature.properties.images = [{url: 'https://images.example/a.jpg'}]
+		layer.feature.properties.uca_maps = {}
+
+		let stage = null
+		const seen = stub_linked_import(() => new Promise((resolve) => { stage = resolve }))
+		try {
+			const first = import_linked_images(tool, layer)
+			await until(() => stage)
+
+			const second = await import_linked_images(tool, layer)
+			assert.deepEqual(second, {ok: false, imported: 0, failures: []}, 'expected the second run refused outright')
+			assert.equal(seen.stages.length, 1, 'expected only the first run to download anything')
+
+			// control: the first run is unaffected and imports its link
+			stage(staged_answer('a.jpg'))
+			assert.equal((await first).imported, 1, 'expected the running import to finish its link')
+		} finally {
+			seen.restore()
 		}
 	})
 
@@ -5338,11 +5732,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a coordinate-less image keeps its own aspect ratio and does not fill the viewport', function() {
 
-		// v6 stretches the image onto map.getBounds(), which distorts every
-		// image the moment the map is not square (a square plan lands as a
-		// wide rectangle) and covers the whole map with something that cannot
-		// be resized until "Activar edición" lands. Both deviations are
-		// deliberate — image_upload.js corners_from_viewport.
+		// v6 stretches the image onto map.getBounds(): every image distorts the
+		// moment the map is not square, and it hides the map it must be placed
+		// against. Both departures are deliberate (corners_from_viewport).
 		const viewport	= geolocation.map.getSize()
 		assert.isAbove(viewport.x, 0, 'expected a laid-out map — every assertion below is in its pixels')
 		assert.isAbove(viewport.y, 0, 'expected a laid-out map — every assertion below is in its pixels')
@@ -5351,25 +5743,28 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// a deliberately NON-square image, so a stretched result is unmissable
 		const corners = corners_from_viewport(geolocation.map, {width: 400, height: 100})
 
-		// measure back in CONTAINER PIXELS — degrees of lat and lon are not
-		// the same length on screen, so a lat/lon comparison would prove nothing
-		const to_point	= (c) => geolocation.map.latLngToContainerPoint(L.latLng(c[0], c[1]))
+		// measured back in PIXELS, as degrees of lat and lon differ on screen.
+		// Unrounded (map.project): latLngToContainerPoint rounds to whole pixels,
+		// which on a short map moves a 4:1 ratio by more than any tolerance means
+		const to_point	= (c) => geolocation.map.project(L.latLng(c[0], c[1]))
 		const tl		= to_point(corners.top_left)
 		const tr		= to_point(corners.top_right)
 		const bl		= to_point(corners.bottom_left)
 		const drawn_w	= tr.x - tl.x
 		const drawn_h	= bl.y - tl.y
+		assert.isAbove(drawn_h, 1, 'expected an image tall enough to measure a ratio on')
 
-		assert.closeTo(drawn_w / drawn_h, 4, 0.05, 'expected the image\'s own 4:1 ratio preserved, not the map\'s')
+		assert.closeTo(drawn_w / drawn_h, 4, 0.01, 'expected the image\'s own 4:1 ratio preserved, not the map\'s')
 		assert.isAbove(
 			Math.abs(drawn_w / drawn_h - map_ratio), 0.05,
 			'expected the image NOT stretched to the viewport ratio (the v6 bug this replaces)'
 		)
 
-		// half the shorter side, and centred
+		// half the shorter side, and centred in the container
 		assert.closeTo(drawn_w, Math.min(viewport.x, viewport.y) * 0.5, 1, 'expected half the shorter viewport side')
-		assert.closeTo((tl.x + tr.x) / 2, viewport.x / 2, 1, 'expected horizontally centred')
-		assert.closeTo((tl.y + bl.y) / 2, viewport.y / 2, 1, 'expected vertically centred')
+		const in_container = (c) => geolocation.map.latLngToContainerPoint(L.latLng(c[0], c[1]))
+		assert.closeTo((in_container(corners.top_left).x + in_container(corners.top_right).x) / 2, viewport.x / 2, 1, 'expected horizontally centred')
+		assert.closeTo((in_container(corners.top_left).y + in_container(corners.bottom_left).y) / 2, viewport.y / 2, 1, 'expected vertically centred')
 	})
 
 	it('create_image_object flags the object is_raster so the object viewer lists it as a raster', async function() {
@@ -5394,34 +5789,27 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('create_image_object hands the carrier back ALREADY editable, as v6 does', async function() {
+	// a plain image lands at an arbitrary spot, so the next gesture is moving
+	// it: v6 uploads straight into edit mode. The builder fills a MISSING flag,
+	// it never decides for a caller that set one
+	it('create_image_object hands a new image back editable, as v6 does, and keeps an interactive flag already given', async function() {
 
-		// a plain image lands at an arbitrary spot, so the next gesture is
-		// always moving it: v6 uploads straight into edit mode and making the
-		// user find a checkbox first is a step it never asked for
-		const descriptor = image_descriptor()
-		delete descriptor.interactive
+		for (const [given, expected] of [[undefined, true], [false, false]]) {
+			const descriptor = image_descriptor()
+			if (given===undefined) {
+				delete descriptor.interactive
+			} else {
+				descriptor.interactive = given
+			}
 
-		const carrier = await create_image_object(tool, descriptor)
-		await settle_map(geolocation.map)
+			const carrier = await create_image_object(tool, descriptor)
+			await settle_map(geolocation.map)
 
-		assert.equal(
-			carrier.feature.properties.uca_maps.image.interactive, true,
-			'expected a new image to arrive with edit mode on'
-		)
-	})
-
-	it('create_image_object never overrides an interactive flag the descriptor already carries', async function() {
-
-		// the guard that keeps the default from becoming a rule: the builder
-		// fills a MISSING flag, it does not decide for a caller that set one
-		const descriptor = image_descriptor()
-		descriptor.interactive = false
-
-		const carrier = await create_image_object(tool, descriptor)
-		await settle_map(geolocation.map)
-
-		assert.equal(carrier.feature.properties.uca_maps.image.interactive, false, 'expected the given flag kept')
+			assert.equal(
+				carrier.feature.properties.uca_maps.image.interactive, expected,
+				`expected interactive ${expected} for a descriptor giving ${given}`
+			)
+		}
 	})
 
 	it('the carrier is sealed from Geoman editing but still removable', async function() {
@@ -5443,10 +5831,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('dragging the carrier carries the picture, the handles and the stored corners with it', async function() {
 
-		// Geoman's drag mode grabs the CARRIER — a transparent rectangle. Before
-		// this the user dragged an invisible box and the image stayed behind:
-		// the two desynced and nothing appeared to move (Sergio, validación
-		// hito 14, 2ª ronda). v6 could not drag an image at all
+		// Geoman's drag mode grabs the CARRIER, a transparent rectangle: unless
+		// the picture follows, the user drags an invisible box and nothing seems
+		// to move. v6 could not drag an image at all
 		const carrier = await create_image_object(tool, image_descriptor())
 		await settle_map(geolocation.map)
 
@@ -5478,8 +5865,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the width unchanged by a drag'
 		)
 
-		assert.closeTo(handles[0].getLatLng().lat, after.top_left[0], 1e-9, 'expected the handles moved too')
-		assert.closeTo(handles[0].getLatLng().lng, after.top_left[1], 1e-9, 'expected the handles moved too')
+		// the picture itself, and every handle, at the stored corners
+		const overlay = carrier._uca_maps_overlay
+		assert.isOk(overlay, 'expected the picture on the map')
+		const placed = {top_left: overlay._topLeft, top_right: overlay._topRight, bottom_left: overlay._bottomLeft}
+		const keys = ['top_left', 'top_right', 'bottom_left']
+		keys.forEach((key, index) => {
+			for (const [label, latlng] of [['picture', placed[key]], ['handle', handles[index].getLatLng()]]) {
+				assert.closeTo(latlng.lat, after[key][0], 1e-9, `expected the ${label}'s ${key} moved with the carrier`)
+				assert.closeTo(latlng.lng, after[key][1], 1e-9, `expected the ${label}'s ${key} moved with the carrier`)
+			}
+		})
 	})
 
 	it('two concurrent hydrations never paint the same image twice', async function() {
@@ -5501,6 +5897,56 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay, not a stacked duplicate')
 	})
 
+	/** The overlay plugin, loaded as the tool loads it, so a test can wrap its factory first. */
+	const rotated_plugin_loaded = function() {
+		if (L.imageOverlay.rotated) {
+			return Promise.resolve()
+		}
+		return new Promise((resolve, reject) => {
+			const script	= document.createElement('script')
+			script.src		= new URL('../../../tools/tool_uca_maps/js/lib/leaflet-imageoverlay-rotated/leaflet-imageoverlay-rotated.js', import.meta.url).href
+			script.onload	= resolve
+			script.onerror	= reject
+			document.head.appendChild(script)
+		})
+	}
+
+	// the claim on the carrier is released in a finally: a throw while building
+	// the picture must not leave it claimed, or no later hydration could paint it
+	it('a hydration that throws releases its claim on the carrier, so the next one paints a single overlay', async function() {
+
+		await rotated_plugin_loaded()
+		const original_rotated	= L.imageOverlay.rotated
+		let throws				= 1
+		L.imageOverlay.rotated = function(...args) {
+			if (throws > 0) {
+				throws--
+				throw new Error('Boom.')
+			}
+			return original_rotated.apply(this, args)
+		}
+		const toasts	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+		try {
+			const carrier = add_image_carrier()
+			tool.attach_image_overlays()
+			await until(() => toasts.length > 0)
+
+			assert.deepEqual(toasts.map((toast) => toast.message), ['Boom.'], 'expected the rebuild rejected with the throw, and reported once')
+			assert.isUndefined(carrier._uca_maps_overlay, 'expected no picture from the failed build')
+			assert.notProperty(carrier, '_uca_maps_overlay_pending', 'expected the claim released by the failure')
+
+			event_manager.publish(`updated_layer_data_${geolocation.id_base}`, {})
+			await await_overlay(carrier)
+			await tick(100)
+			assert.isOk(carrier._uca_maps_overlay, 'expected the next hydration to paint the picture')
+			assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay')
+		} finally {
+			L.imageOverlay.rotated = original_rotated
+			event_manager.unsubscribe(token)
+		}
+	})
+
 	it('hiding an uploaded image hides the picture, not just its carrier', async function() {
 
 		const carrier = add_image_carrier()
@@ -5518,7 +5964,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notEqual(carrier._uca_maps_overlay._image.style.display, 'none', 'expected it shown again')
 	})
 
-	it('the console shows an image carrier v6\'s sections: image controls, downloads and the properties block, never the geometry ones', async function() {
+	it('an image carrier\'s console shows v6\'s sections: image controls, downloads, properties, never the geometry ones', async function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_console()
@@ -5619,6 +6065,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		} finally {
 			restore()
 		}
+
+		// the rest of the request is exactly what tool_request would send
+		assert.deepEqual(Object.keys(transport).sort(), ['body', 'busy_notice', 'timeout'], 'expected nothing but the body and the two transport options')
+		assert.deepEqual(transport.body, await tool_request_body('image_download', transport.body.options),
+			'expected the body tool_request builds: dd_api, prevent_lock and the source included')
 	})
 
 	it('"Download image" saves what the server sends, under its name and type', async function() {
@@ -5673,24 +6124,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.closeTo(image_download_width(map, corners, 2), one * 2, 1, 'expected twice the pixels at "Excelente"')
 		assert.closeTo(image_download_width(map, corners, 0.4), one * 0.4, 1)
 
+		assert.deepEqual([map.getCenter(), map.getZoom()], [center, zoom], 'expected the map not moved by measuring')
+
 		// fitted, not "as seen now": zooming the map changes nothing
 		map.setZoom(zoom - 2, {animate: false})
+		const zoomed = [map.getCenter(), map.getZoom()]
 		assert.equal(image_download_width(map, corners, 1), one, 'expected the same width at any current zoom')
+		assert.deepEqual([map.getCenter(), map.getZoom()], zoomed, 'expected the zoomed map not moved by measuring')
 		map.setView(center, zoom, {animate: false})
-		assert.equal(map.getCenter().lat, center.lat, 'expected the map left where it was')
 	})
 
 	it('"Download image" with an empty name is refused without asking the server', async function() {
 
 		const carrier = add_image_carrier()
 		let asked = false
-		const restore = stub_image_download(async function() { asked = true; return {ok: false} })
+		const restore	= stub_image_download(async function() { asked = true; return {ok: false} })
+		const toasts	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		try {
 			const result = await tool.download_image(carrier, 'png', 0.8, '   ')
 			assert.equal(asked, false, 'expected no request for an empty name')
 			assert.deepEqual(result, {ok: false, error: 'Please enter a name for the file'}, 'expected the reason for the section\'s line')
+			assert.equal(toasts.length, 0, 'expected the line alone to say it, no page toast')
 		} finally {
 			restore()
+			event_manager.unsubscribe(token)
 		}
 	})
 

@@ -770,9 +770,37 @@ export const image_download_width = function(map, corners, quality) {
 
 
 
+/**
+* TOOL_REQUEST_WITH_TIMEOUT
+* Core's tool_request RQO with a timeout of its own: tool_request cannot raise
+* data_manager's 5 s per attempt. One copy for every slow action, built as
+* tool_request builds it, so the two cannot drift. Exported for object_image.js.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {string} action
+* @param {Object} options
+* @param {{timeout: number, busy_notice: boolean}} transport
+* @returns {Promise<Object>} the api_response
+*/
+export const tool_request_with_timeout = function(self, action, options, transport) {
+
+	return data_manager.request({
+		body : {
+			dd_api			: 'dd_tools_api',
+			action			: 'tool_request',
+			prevent_lock	: true,
+			source			: create_source(self, action),
+			options			: options
+		},
+		timeout		: transport.timeout,
+		busy_notice	: transport.busy_notice
+	})
+}//end tool_request_with_timeout
+
+
+
 // A large PNG at "Excelente" takes seconds per GDAL run (four, each bounded at
-// 60 s, server/gdal.ts), past data_manager's 5 s per attempt; tool_request
-// cannot raise it, so this request is the tool_request RQO with its own timeout.
+// 60 s, server/gdal.ts), past data_manager's 5 s per attempt.
 // exported for the client gate
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 4 * 60 * 1000
 
@@ -807,23 +835,16 @@ export const download_image = async function(self, carrier, format, quality, fil
 
 	try {
 
-		const response = await data_manager.request({
-			body : {
-				dd_api			: 'dd_tools_api',
-				action			: 'tool_request',
-				prevent_lock	: true,
-				source			: create_source(self, 'image_download'),
-				options			: {
-					tipo			: image.tipo,
-					section_tipo	: image.section_tipo,
-					section_id		: image.section_id,
-					file_path		: image.file_path,
-					corners			: image.corners,
-					format			: format,
-					width			: image_download_width(self.geolocation.map, image.corners, quality),
-					file_name		: base_name
-				}
-			},
+		const response = await tool_request_with_timeout(self, 'image_download', {
+			tipo			: image.tipo,
+			section_tipo	: image.section_tipo,
+			section_id		: image.section_id,
+			file_path		: image.file_path,
+			corners			: image.corners,
+			format			: format,
+			width			: image_download_width(self.geolocation.map, image.corners, quality),
+			file_name		: base_name
+		}, {
 			timeout		: IMAGE_DOWNLOAD_TIMEOUT_MS,
 			// a timeout this long turns the page's slow-server cue off by default
 			busy_notice	: true

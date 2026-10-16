@@ -16,13 +16,13 @@
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
 import {tool_error_text} from './tool_error_text.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
-import {create_source} from '../../../core/common/js/common.js'
 import {commit, ensure_uca_maps, report_client_error} from './object_console.js'
 import {read_uca_maps} from './uca_maps_data.js'
 import {
 	ingest_image_upload,
 	ingest_staged_image,
 	image_url,
+	tool_request_with_timeout,
 	IMAGE_SECTION_TIPO,
 	IMAGE_COMPONENT_TIPO
 } from './image_upload.js'
@@ -38,7 +38,7 @@ export const MAX_OBJECT_IMAGES = 30
 
 // The server downloads at the site's pace (one request per site every few
 // seconds, robots.txt first) and may follow redirects: far past data_manager's
-// 5 s per attempt, and tool_request cannot raise it.
+// 5 s per attempt.
 const STAGE_EXTERNAL_IMAGE_TIMEOUT_MS = 4 * 60 * 1000
 
 
@@ -276,7 +276,7 @@ export const external_images_enabled = function(self) {
 /**
 * STAGE_EXTERNAL_IMAGE
 * Has the server download one linked image into the caller's staging dir.
-* The tool_request RQO with its own timeout (see STAGE_EXTERNAL_IMAGE_TIMEOUT_MS).
+* The tool_request RQO with its own timeout (STAGE_EXTERNAL_IMAGE_TIMEOUT_MS).
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} url
@@ -284,19 +284,12 @@ export const external_images_enabled = function(self) {
 */
 const stage_external_image = async function(self, url) {
 
-	return await data_manager.request({
-		body : {
-			dd_api			: 'dd_tools_api',
-			action			: 'tool_request',
-			prevent_lock	: true,
-			source			: create_source(self, 'stage_external_image'),
-			options			: {
-				tipo			: self.geolocation.tipo,
-				section_tipo	: self.geolocation.section_tipo,
-				section_id		: self.geolocation.section_id,
-				url				: url
-			}
-		},
+	return await tool_request_with_timeout(self, 'stage_external_image', {
+		tipo			: self.geolocation.tipo,
+		section_tipo	: self.geolocation.section_tipo,
+		section_id		: self.geolocation.section_id,
+		url				: url
+	}, {
 		timeout		: STAGE_EXTERNAL_IMAGE_TIMEOUT_MS,
 		// the panel shows its own progress line
 		busy_notice	: false
