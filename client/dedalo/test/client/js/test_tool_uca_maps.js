@@ -1718,6 +1718,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
+	it('the uncertainty scale rings the polygon\'s own tier on any polygon, not only a 1x1\'s tier 1', function() {
+
+		tool.attach_console()
+		const polygon = seeded_layer(1)
+		toggle_uncertainty(tool, polygon)
+		const ring_cx = () => tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-uncertainty-scale svg circle').getAttribute('cx')
+
+		// the seeded polygon is ~100 km², past the last band
+		polygon.openPopup()
+		assert.equal(polygon.feature.properties.uca_maps.uncertainty.scale_tier, 6)
+		assert.equal(ring_cx(), '220', 'expected the ring on band 6 of a plain polygon (v6 create_div_incertidumbre)')
+
+		// ~4,700 m²: the render resyncs the stored tier from the geometry first
+		polygon.closePopup()
+		polygon.setLatLngs([[40.45, -3.65], [40.45, -3.649], [40.4505, -3.649], [40.4505, -3.65]])
+		polygon.openPopup()
+		assert.equal(polygon.feature.properties.uca_maps.uncertainty.scale_tier, 2)
+		assert.equal(ring_cx(), '60', 'expected the ring on the stored tier\'s band, as v6 picks escala-<tier>.png')
+	})
+
 	it('a checked uncertainty follows the geometry when the polygon is reshaped', function() {
 
 		const polygon	= seeded_layer(1)
@@ -3116,33 +3136,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(polygon.pm.enabled(), true, 'expected the queued re-assert cancelled, not run on a detached console')
 	})
 
-	it('the uncertainty scale rings the STORED tier, on any polygon, not only on a 1x1', function() {
-
-		tool.attach_console()
-		const polygon = seeded_layer(1)
-		toggle_uncertainty(tool, polygon)
-
-		polygon.openPopup()
-		const section	= tool.panel_node.querySelector('.uca-maps-object-section')
-		const svg		= section.querySelector('.uca-maps-uncertainty-scale svg')
-		assert.isOk(svg, 'expected the scale bar on a plain polygon too (v6 create_div_incertidumbre)')
-
-		const tier = polygon.feature.properties.uca_maps.uncertainty.scale_tier
-		assert.equal(
-			svg.querySelectorAll('circle')[0].getAttribute('cx'),
-			String(((tier - 1) * 40) + 20),
-			'expected the ring on the band of the stored tier, as v6 picks escala-<tier>.png'
-		)
-	})
-
-	it('detach_onexone removes the button and stops both map listeners', async function() {
+	it('detach_onexone removes the button and takes both map listeners off', async function() {
 
 		tool.attach_onexone()
-		const map_container_node = geolocation.map.getContainer()
+		const map					= geolocation.map
+		const map_container_node	= map.getContainer()
 		assert.isOk(tool.onexone_control, 'expected the control attached first')
+		const listeners = [['popupopen', tool._onexone_popupopen_handler], ['pm:remove', tool._onexone_pmremove_handler]]
+		for (const [type, handler] of listeners) {
+			assert.isTrue(map.listens(type, handler), 'expected 1x1 listening to ' + type)
+		}
 
 		await tool.destroy(false, false, false)
 
+		for (const [type, handler] of listeners) {
+			assert.isFalse(map.listens(type, handler), 'expected ' + type + ' taken off the map')
+		}
 		assert.equal(tool.onexone_control, null, 'expected onexone_control cleared')
 		assert.equal(tool._onexone_popupopen_handler, null, 'expected _onexone_popupopen_handler cleared')
 		assert.equal(tool._onexone_pmremove_handler, null, 'expected _onexone_pmremove_handler cleared')
@@ -3157,50 +3166,43 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// TOOLBAR (toolbar.js) — one Leaflet bar, one button per functionality,
 	// one panel open at a time.
 
-	it('edit() stacks "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS"/"Legend"/"Roma" (attach order = corner order)', async function() {
+	it('edit() stacks the buttons in attach order; an es/cat/eus section_lang adds Catastro and UA after WMS', async function() {
 
-		assert.isNotOk(geolocation.map.getContainer().querySelector('.uca-maps-toolbar-button'), 'expected no button before edit() runs')
-		await run_edit()
+		const NAMES = {
+			'uca-maps-control'					: 'UCA',
+			'uca-maps-map-image-control'		: 'IMG',
+			'uca-maps-object-viewer-control'	: 'OBJ',
+			'uca-maps-onexone-control'			: '1x1',
+			'uca-maps-xyz-control'				: 'XYZ',
+			'uca-maps-wms-control'				: 'WMS',
+			'uca-maps-catastro-control'			: 'Catastro',
+			'uca-maps-ua-control'				: 'UA',
+			'uca-maps-upload-control'			: 'UP',
+			'uca-maps-place-search-control'		: 'Search',
+			'uca-maps-geolocate-control'		: 'GPS',
+			'uca-maps-legend-control'			: 'Legend',
+			'uca-maps-roman-control'			: 'Roma'
+		}
+		const rows = [
+			{section_lang: undefined,	order: ['UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS', 'Legend', 'Roma']},
+			{section_lang: 'lg-spa',	order: ['UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'Catastro', 'UA', 'UP', 'Search', 'GPS', 'Legend', 'Roma']}
+		]
+		for (const row of rows) {
+			// the second row reuses the instance: destroy(false) only detaches
+			tool.geolocation			= geolocation
+			geolocation.section_lang	= row.section_lang
+			assert.isNotOk(geolocation.map.getContainer().querySelector('.uca-maps-toolbar-button'), 'expected no button before edit() runs')
+			await run_edit()
 
-		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
-		assert.isOk(corner, 'expected the "UCA" button inside Leaflet\'s topleft corner')
+			const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
+			assert.isOk(corner, 'expected the "UCA" button inside Leaflet\'s topleft corner')
+			const order = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'), (button) =>
+				Object.keys(NAMES).filter((name) => button.classList.contains(name)).map((name) => NAMES[name]).join('+') || 'unknown'
+			)
+			assert.deepEqual(order, row.order, 'expected the top-to-bottom order with section_lang ' + row.section_lang)
 
-		const buttons = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'))
-		const classes = buttons.map((button) => {
-			if (button.classList.contains('uca-maps-control'))				return 'UCA'
-			if (button.classList.contains('uca-maps-map-image-control'))		return 'IMG'
-			if (button.classList.contains('uca-maps-object-viewer-control'))	return 'OBJ'
-			if (button.classList.contains('uca-maps-onexone-control'))		return '1x1'
-			if (button.classList.contains('uca-maps-xyz-control'))			return 'XYZ'
-			if (button.classList.contains('uca-maps-wms-control'))			return 'WMS'
-			if (button.classList.contains('uca-maps-upload-control'))			return 'UP'
-			if (button.classList.contains('uca-maps-place-search-control'))	return 'Search'
-			if (button.classList.contains('uca-maps-geolocate-control'))		return 'GPS'
-			if (button.classList.contains('uca-maps-legend-control'))			return 'Legend'
-			if (button.classList.contains('uca-maps-roman-control'))			return 'Roma'
-			return 'unknown'
-		})
-		assert.deepEqual(
-			classes,
-			['UCA', 'IMG', 'OBJ', '1x1', 'XYZ', 'WMS', 'UP', 'Search', 'GPS', 'Legend', 'Roma'],
-			'expected UCA first (topmost), then IMG, OBJ, 1x1, XYZ, WMS, UP, Search, GPS, Legend, Roma'
-		)
-	})
-
-	it('edit() also stacks "Catastro"/"UA" last when section_lang gates them in', async function() {
-
-		geolocation.section_lang = 'lg-spa'
-		await run_edit()
-
-		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
-		const buttons = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'))
-		const classes = buttons.map((button) => {
-			if (button.classList.contains('uca-maps-catastro-control'))	return 'Catastro'
-			if (button.classList.contains('uca-maps-ua-control'))			return 'UA'
-			return 'other'
-		}).filter((name) => name!=='other')
-
-		assert.deepEqual(classes, ['Catastro', 'UA'], 'expected Catastro then UA, last in the corner')
+			await tool.destroy(false, false, false)
+		}
 	})
 
 	it('opening one panel closes any other panel already open (only one at a time)', function() {
@@ -3225,9 +3227,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by opening OBJ')
 		assert.equal(tool.panel_node.hidden, true, 'expected UCA to stay closed')
 
-		// re-clicking IMG's own button still just toggles IT — no stale flag
-		// from being force-closed by a sibling earlier (toolbar.js
-		// is_toolbar_panel_visible file comment)
+		// a sibling closed UCA: its own button still reopens it, since the
+		// toggle reads the panel's `hidden`, never a flag of its own
 		uca_control.click()
 		assert.equal(tool.panel_node.hidden, false, 'expected UCA reopened by its own click, even though a sibling force-closed it earlier')
 		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by reopening UCA')
@@ -3287,9 +3288,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNull(tool._toolbar_bar, 'expected no stale bar handle')
 	})
 
-	// Sergio's validation (2026-10-15): one size for every button, icon or
-	// label, and no gap between them. Layout, so it loads the tool sheet.
-	it('with the tool CSS, every toolbar button is the same square and they stack with no gap', async function() {
+	// an icon is a CSS mask of a core theme icon: a name with no rule, or a
+	// rule on a missing file, paints an empty square that only the sheet shows
+	it('with the tool CSS, every toolbar button is the same square, they stack with no gap, and each icon paints', async function() {
 
 		await with_tool_css(async () => {
 			geolocation.section_lang = 'lg-spa' // gates Catastro and UA in
@@ -3305,7 +3306,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(zoom.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING, 'expected the zoom bar above the tool\'s')
 			assert.closeTo(bar.getBoundingClientRect().top - zoom.getBoundingClientRect().bottom, 30, 0.5, 'expected 30px between the zoom bar and the tool\'s')
 			const links		= Array.from(corner.querySelectorAll('.uca-maps-toolbar > .uca-maps-toolbar-button'))
-			assert.equal(links.length, 13, 'expected every functionality\'s button')
 
 			const rects = links.map((node) => node.getBoundingClientRect())
 			const sizes = new Set(rects.map((rect) => Math.round(rect.width) + 'x' + Math.round(rect.height)))
@@ -3335,15 +3335,28 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			for (const node of links) {
 				assert.isAtMost(node.scrollWidth, node.clientWidth, 'expected the label to fit its square: "' + node.textContent + '"')
 			}
+
+			const glyphs = links.map((node) => node.querySelector(':scope > .uca-maps-toolbar-glyph')).filter(Boolean)
+			assert.isAtLeast(glyphs.length, 6, 'expected the icon buttons to be measured at all')
+			for (const glyph of glyphs) {
+				const name	= glyph.parentElement.getAttribute('aria-label')
+				const style	= getComputedStyle(glyph)
+				const mask	= style.maskImage || style.webkitMaskImage
+				const url	= /^url\("(.+)"\)$/.exec(mask)
+				assert.isOk(url, 'expected a mask image on the "' + name + '" icon, got ' + mask)
+				const response = await fetch(url[1])
+				assert.equal(response.status, 200, 'expected the "' + name + '" icon served: ' + url[1])
+			}
 		})
 	})
 
-	// Layout and paint, so it loads the tool sheet: a panel header is the tool
-	// header's treatment (the hue as an edge, never under its title), and the
-	// buttons that once copied the action chrome by hand now share it.
+	// the buttons once copied the action chrome by hand: only the disabled
+	// state told a copy from the shared mixin, so both states are compared
 	it('with the tool CSS, a panel header carries the hue as an edge, and every action button shares one chrome', async function() {
 
 		await with_tool_css(async () => {
+			seeded_layer(1).feature.properties.name = 'Saguntum' // a property row, with its ✕
+			open_console_on(1)
 			tool.attach_xyz_basemaps()
 			tool.attach_map_image_download_control()
 			geolocation.map.getContainer().querySelector('.uca-maps-xyz-control').click()
@@ -3361,12 +3374,36 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			const chrome = (node) => {
 				const style = getComputedStyle(node)
-				return [style.backgroundColor, style.color, style.paddingTop, style.paddingLeft, style.fontSize, style.borderRadius, style.whiteSpace].join(' | ')
+				return [style.backgroundColor, style.color, style.paddingTop, style.paddingLeft, style.fontSize, style.borderRadius, style.whiteSpace, style.opacity, style.cursor].join(' | ')
 			}
-			const xyz_add	= tool.xyz_panel.querySelector('.uca-maps-xyz-add-button')
-			const image_btn	= tool.map_image_panel.querySelector('.uca-maps-map-image-button')
+			const xyz_add		= tool.xyz_panel.querySelector('.uca-maps-xyz-add-button')
+			const image_btn		= tool.map_image_panel.querySelector('.uca-maps-map-image-button')
+			const object_btn	= tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-property-add-button')
+			const delete_btn	= tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-property-delete')
 			assert.isOk(image_btn, 'expected the map-image download button')
+			assert.isOk(object_btn, 'expected the object section\'s Add button')
+			assert.isOk(delete_btn, 'expected the property row\'s ✕')
+			assert.equal(getComputedStyle(xyz_add).backgroundColor, hue, 'expected the action fill on the tool hue')
+			assert.equal(getComputedStyle(xyz_add).cursor, 'pointer')
 			assert.equal(chrome(image_btn), chrome(xyz_add), 'expected the map-image button on the shared action chrome')
+			assert.equal(chrome(object_btn), chrome(xyz_add), 'expected the object section\'s buttons on the shared action chrome')
+
+			// the ✕ is the secondary variant of the same mixin
+			const secondary = document.createElement('div')
+			secondary.style.cssText = 'background-color: var(--bg_fill_inverse)'
+			tool.panel_node.appendChild(secondary)
+			assert.equal(getComputedStyle(delete_btn).backgroundColor, getComputedStyle(secondary).backgroundColor, 'expected the ✕ on the secondary fill')
+			assert.equal(getComputedStyle(delete_btn).cursor, 'pointer')
+
+			for (const node of [xyz_add, image_btn, object_btn, delete_btn]) {
+				node.disabled = true
+			}
+			assert.equal(getComputedStyle(xyz_add).opacity, '0.4', 'expected a disabled action dimmed')
+			assert.equal(getComputedStyle(xyz_add).cursor, 'default')
+			assert.equal(chrome(image_btn), chrome(xyz_add), 'expected the map-image button dimmed as the shared chrome')
+			assert.equal(chrome(object_btn), chrome(xyz_add), 'expected the object section\'s buttons dimmed as the shared chrome')
+			assert.equal(getComputedStyle(delete_btn).opacity, '0.4', 'expected the ✕ dimmed by the mixin too')
+			assert.equal(getComputedStyle(delete_btn).cursor, 'default')
 		})
 	})
 
@@ -3407,7 +3444,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		await with_tool_css(async () => {
 			tool.attach_console()
 			tool.attach_object_viewer()
-			tool.object_viewer_control.getContainer().click() // populate: no objects yet
+			// the vector list holds the seeded polygon: the empty line is the raster list's
+			tool.object_viewer_control.getContainer().click()
 
 			const console_line	= tool.panel_node.querySelector('.uca-maps-empty-state')
 			const list_line		= tool.object_viewer_panel.querySelector('.uca-maps-empty-state')
@@ -3428,27 +3466,28 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
-	// Sergio (2026-10-15): every panel opens centred, as WMS, Roman and Legend
-	// already did — except the UCA console, a terminal that would cover the
-	// very geometry it inspects.
-	it('the image, objects, XYZ, UA, upload and search panels open centred with toolbar.js\'s header; the console stays by its button', function() {
+	// the UCA console is the one panel left anchored: centred, it would cover
+	// the very geometry it inspects
+	it('the image, objects, XYZ, UA, upload and search panels open centred under their title; the console stays by its button', function() {
 
 		geolocation.section_lang = 'lg-spa' // gates UA in
 		const cases = [
-			['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
-			['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
-			['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
-			['attach_administrative_units',			'ua_panel',				'ua_control'],
-			['attach_file_upload',					'upload_panel',			'upload_control'],
-			['attach_place_search',					'place_search_panel',	'place_search_control']
+			['attach_map_image_download_control',	'map_image_panel',		'map_image_control',		'Download map as image'],
+			['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control',	'Objects'],
+			['attach_xyz_basemaps',					'xyz_panel',			'xyz_control',				'XYZ basemaps'],
+			['attach_administrative_units',			'ua_panel',				'ua_control',				'Administrative Units'],
+			['attach_file_upload',					'upload_panel',			'upload_control',			'Upload file to map'],
+			['attach_place_search',					'place_search_panel',	'place_search_control',		'Place search']
 		]
-		for (const [attach, panel_key, control_key] of cases) {
+		for (const [attach, panel_key, control_key, title] of cases) {
 			tool[attach]()
 			const panel = tool[panel_key]
 			tool[control_key].getContainer().click()
 			assert.equal(panel.hidden, false, panel_key + ': expected open after its click')
 			assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), panel_key + ': expected the centred variant')
 			assert.equal(panel.querySelectorAll('.uca-maps-panel-header').length, 1, panel_key + ': expected toolbar.js\'s header only')
+			const title_node = panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-title')
+			assert.equal(title_node && title_node.textContent, title, panel_key + ': expected the header titled')
 			assert.isOk(panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-close'), panel_key + ': expected the ×')
 			assert.equal(panel.style.top + panel.style.left, '', panel_key + ': expected no anchoring beside its button')
 		}
@@ -3461,32 +3500,74 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	// The panels live inside Leaflet's container, which sets its own 12px
 	// Helvetica; they take the page's font and base size instead (html is the
-	// app's 1rem), with one smaller step for secondary text.
-	it('with the tool CSS, a panel reads in the page\'s font and base size, not Leaflet\'s', async function() {
+	// app's 1rem), with one smaller step for secondary text. Every text node a
+	// panel draws from local state is walked: one rule off the two steps shows.
+	it('with the tool CSS, every panel text reads in the page\'s font at its base size or one smaller step, not Leaflet\'s', async function() {
 
 		await with_tool_css(async () => {
-			tool.attach_xyz_basemaps()
-			const panel	= tool.xyz_panel
-			const root	= getComputedStyle(document.documentElement)
-			const map	= getComputedStyle(geolocation.map.getContainer())
+			const root		= getComputedStyle(document.documentElement)
+			const map		= getComputedStyle(geolocation.map.getContainer())
+			const base		= parseFloat(root.fontSize)
+			const page_font	= /^system-ui\b/ // core's page font (fonts.less .global_font), which html carries
 			assert.match(map.fontFamily, /Helvetica Neue/, 'expected Leaflet\'s own font on the map, or this proves nothing')
 
-			// the harness styles its own html (unit_test.css), so the reference is
-			// core's page font itself: fonts.less .global_font, which html carries
-			assert.notEqual(getComputedStyle(panel).fontFamily, map.fontFamily, 'expected not Leaflet\'s font')
-			assert.match(getComputedStyle(panel).fontFamily, /^system-ui\b/, 'expected core\'s page font (fonts.less .global_font)')
-			assert.equal(getComputedStyle(panel).fontSize, root.fontSize, 'expected the page\'s base size (1rem)')
+			mount_roman(WITH_PLEIADES)
+			const panels = [
+				['attach_console',						'panel_node',			'map_control'],
+				['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
+				['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
+				['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
+				['attach_wms_services',					'wms_panel',			'wms_control'],
+				['attach_file_upload',					'upload_panel',			'upload_control'],
+				['attach_place_search',					'place_search_panel',	'place_search_control'],
+				['attach_legend',						'legend_panel',			'legend_control'],
+				['attach_roman_empire',					'roman_panel',			'roman_control']
+			]
+			for (const [attach, , control_key] of panels) {
+				tool[attach]()
+				tool[control_key].getContainer().click() // opening populates the lists
+			}
+			seeded_layer(1).openPopup() // the console's object section
 
-			const add = panel.querySelector('.uca-maps-xyz-add-button')
+			let measured = 0
+			for (const [, panel_key] of panels) {
+				const panel = tool[panel_key]
+				assert.equal(getComputedStyle(panel).fontSize, root.fontSize, panel_key + ': expected the page\'s base size (1rem)')
+				let panel_measured = 0
+				const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT)
+				while (walker.nextNode()) {
+					const text		= walker.currentNode.textContent.trim()
+					const element	= walker.currentNode.parentElement
+					// the × is a glyph drawn at its own size, not text
+					if (text==='' || element.classList.contains('uca-maps-panel-close')) continue
+					const style	= getComputedStyle(element)
+					const size	= parseFloat(style.fontSize)
+					const label	= panel_key + ' "' + text.slice(0, 30) + '"'
+					assert.isTrue([base, base * 0.85].some((step) => Math.abs(size - step) < 0.05), label + ': expected ' + base + 'px or ' + (base * 0.85) + 'px, got ' + style.fontSize)
+					assert.match(style.fontFamily, page_font, label + ': expected core\'s page font')
+					panel_measured++
+				}
+				assert.isAtLeast(panel_measured, 3, panel_key + ': expected its texts walked')
+				measured += panel_measured
+			}
+			assert.isAtLeast(measured, 80, 'expected the panels\' texts walked at all')
+
+			// which step: an action button is body text, a list title the smaller one
+			const add		= tool.xyz_panel.querySelector('.uca-maps-xyz-add-button')
+			const secondary	= tool.xyz_panel.querySelector('.uca-maps-xyz-list-title')
 			assert.equal(getComputedStyle(add).fontSize, root.fontSize, 'expected an action button at the base size, as core buttons')
+			assert.closeTo(parseFloat(getComputedStyle(secondary).fontSize), base * 0.85, 0.05, 'expected the one smaller step')
 
-			const secondary = panel.querySelector('.uca-maps-xyz-list-title')
-			assert.closeTo(parseFloat(getComputedStyle(secondary).fontSize), parseFloat(root.fontSize) * 0.85, 0.05, 'expected the one smaller step')
+			// the Roma suggestions hang from the map, outside every panel
+			open_roman()
+			seed_roman_list('pleiades', [roman_hit('Saguntum', 39.68, -0.27)])
+			const dropdown = getComputedStyle(tool.roman_dropdown)
+			assert.isOk(tool.roman_dropdown.querySelector('.uca-maps-roman-result-name'), 'expected a suggestion drawn')
+			assert.match(dropdown.fontFamily, page_font, 'expected the Roma suggestions in core\'s page font, not Leaflet\'s')
+			assert.equal(dropdown.fontSize, root.fontSize, 'expected the Roma suggestions at the page\'s base size')
 		})
 	})
 
-	// Sergio (2026-10-16): the console is wider than a plain panel, and the
-	// opacity/stroke sliders no longer push past its edge (sideways scroll).
 	it('with the tool CSS, the console is wider than a panel and an object\'s controls never scroll it sideways', async function() {
 
 		await with_tool_css(async () => {
@@ -3504,9 +3585,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isAtMost(panel.scrollWidth, panel.clientWidth, 'expected no sideways scroll in the console')
 			remove_toolbar_panel(tool, plain)
 
-			// narrower than a slider's own intrinsic width plus its label (the
-			// narrow console where Sergio saw it): the sliders must shrink with
-			// the panel instead of pushing past its edge
+			// narrower than a slider's intrinsic ~130px plus its label: without
+			// min-width:0 the range keeps that width and pushes past the edge
 			panel.style.width = '16rem'
 			assert.isAtMost(panel.scrollWidth, panel.clientWidth, 'expected the sliders to shrink with a narrow console, not scroll it sideways')
 			panel.style.width = ''
@@ -3550,7 +3630,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// osm: the "existing control" path this module must clean up (v6 listed
 	// OSM twice).
 
-	it('attach_xyz_basemaps seeds the v6 defaults minus Google Maps, replaces the core\'s own arcgis/osm base layers (no duplicates), and activates the first', function() {
+	it('attach_xyz_basemaps seeds v6\'s defaults minus Google, replaces the core\'s arcgis/osm (no duplicate), activates the first', function() {
 
 		tool.attach_xyz_basemaps()
 
@@ -3560,8 +3640,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.xyz_panel.hidden, true, 'expected the panel hidden by default')
 		assert.deepEqual(tool.basemaps, DEFAULT_BASEMAPS, 'expected the defaults seeded')
 
-		// the fix: exactly 2 tile entries in the control, no leftover
-		// arcgis/osm from the core's own VARIOUS branch, no duplicate names
+		// no leftover arcgis/osm from the core's own VARIOUS branch
 		const tile_entries = Object.values(geolocation.layer_control._layers)
 			.filter((entry) => entry.layer instanceof L.TileLayer)
 		assert.equal(tile_entries.length, 2, 'expected exactly 2 base layers registered, no leftovers/duplicates')
@@ -3569,22 +3648,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// v6 shipped a third default fetched from mt1.google.com, an
 		// undocumented endpoint whose use Google's terms prohibit
-		assert.isFalse(
-			DEFAULT_BASEMAPS.some((basemap) => /google/i.test(basemap.url) || /google/i.test(basemap.name)),
-			'expected no Google Maps default basemap'
-		)
+		const live_tiles = []
+		geolocation.map.eachLayer((layer) => { if (layer instanceof L.TileLayer) live_tiles.push(layer) })
+		assert.isAtLeast(live_tiles.length, 1, 'expected a tile layer on the map to check')
+		for (const layer of [...live_tiles, ...tile_entries.map((entry) => entry.layer)]) {
+			assert.notMatch(layer._url, /google/i, 'expected no Google Maps tiles, on the map or offered by the control')
+		}
 
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the first basemap (OSM) active on the map')
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[1]), false, 'expected the other basemap NOT active')
 	})
 
-	it('attach_xyz_basemaps takes over an OSM-provider record (no layer_control yet): builds one, drops the raw tile layer, disconnects theme_observer', function() {
+	it('attach_xyz_basemaps takes over an OSM-provider record: builds a layer_control, drops its raw layer, stops theme_observer', function() {
 
-		// simulate component_geolocation's OSM branch (component_geolocation.js:897-907)
-		// instead of this fixture's real VARIOUS branch — geolocation.layer_control
-		// stays false, a single raw tile layer is added directly to the map.
-		// The fixture's own default (VARIOUS) control is removed for real first,
-		// not just unreferenced — else it lingers, unremovable, in the map's DOM
+		// the core's OSM branch: no layer_control, one raw tile layer on the map.
+		// The fixture's own control is removed for real, not just unreferenced,
+		// or it lingers unremovable in the map's DOM
 		let disconnect_calls = 0
 		geolocation.map.removeControl(geolocation.layer_control)
 		const raw_tile_layer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(geolocation.map)
@@ -3595,19 +3674,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_xyz_basemaps()
 
 		assert.isOk(geolocation.layer_control, 'expected a fresh layer_control created')
-		assert.notEqual(geolocation.layer_control, false)
 		assert.equal(geolocation.map.hasLayer(raw_tile_layer), false, 'expected the raw OSM tile layer removed from the map')
 		assert.equal(disconnect_calls, 1, 'expected theme_observer.disconnect() called exactly once')
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected our own first basemap active instead')
 	})
 
-	it('attach_xyz_basemaps also sweeps an UNTRACKED raw layer (GOOGLE/ARCGIS providers store no reference on geolocation at all)', function() {
+	it('attach_xyz_basemaps also sweeps an UNTRACKED raw layer (the GOOGLE/ARCGIS providers keep no reference to it)', function() {
 
-		// component_geolocation.js's GOOGLE/ARCGIS branches (:909-923) call
-		// `.addTo(self.map)` on an anonymous layer, never assigning it to any
-		// named property — only `map.eachLayer` can find it (review-diff
-		// correctness finding, hito 9). Real removal of the fixture's own
-		// default control first — see the OSM-takeover test above.
+		// the core's GOOGLE/ARCGIS branches add an anonymous layer kept in no
+		// property: only `map.eachLayer` finds it. The fixture's control is
+		// removed for real first, as in the OSM takeover
 		geolocation.map.removeControl(geolocation.layer_control)
 		const untracked_layer = L.tileLayer('https://server.arcgisonline.com/{z}/{y}/{x}').addTo(geolocation.map)
 		geolocation.layer_control = false
@@ -3746,8 +3822,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('detach_xyz_basemaps removes the layer_control ENTIRELY when this tool is the one that created it (OSM-provider takeover)', async function() {
 
-		// real removal of the fixture's own default control first — see the
-		// OSM-takeover test above (otherwise it lingers, unremovable, in the DOM)
+		// the fixture's control removed for real first, or it lingers in the DOM
 		geolocation.map.removeControl(geolocation.layer_control)
 		geolocation.layer_control	= false
 		geolocation.tile_layer		= L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(geolocation.map)
@@ -3772,18 +3847,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// layer_control is never touched. GetCapabilities is always stubbed; the
 	// guarded fetch is test/unit/tool_uca_maps_get_wms_layers.test.ts's.
 
-	it('attach_wms_services seeds an empty session-only layer list and builds the button+panel', function() {
-
-		tool.attach_wms_services()
-
-		const control = geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
-		assert.isOk(control, 'expected the "WMS" toggle button')
-		assert.isOk(tool.wms_panel, 'expected the wms panel built')
-		assert.equal(tool.wms_panel.hidden, true, 'expected the panel hidden by default')
-		assert.deepEqual(tool.wms_layers, [], 'expected no layers pre-added, unlike XYZ\'s 3 defaults')
-		assert.isOk(geolocation.map.getPane('wms'), 'expected the dedicated "wms" pane created')
-	})
-
 	it('search_wms_layers refuses a non-absolute-http(s) URL without touching the server', async function() {
 
 		tool.attach_wms_services()
@@ -3797,10 +3860,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(called, false, 'expected the server never contacted for an invalid URL')
 	})
 
-	// review-diff correctness finding: an unexpected throw must resolve to a
-	// failure object, never an unhandled rejection that leaves the panel's
-	// "Search" button stuck disabled (render_wms_services.js's click handler
-	// only re-enables it after the awaited call settles).
+	// a rejection would leave the panel's "Search" button disabled: its click
+	// handler re-enables it only once the awaited call settles
 	it('search_wms_layers never rejects, even when tool_request throws unexpectedly', async function() {
 
 		tool.attach_wms_services()
@@ -3812,9 +3873,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(result.error)
 	})
 
-	// review-diff correctness finding: a response that lands AFTER the tool
-	// was torn down (record deleted/navigated away mid-request) must not
-	// resurrect state on a dead instance.
+	// the record can be closed while GetCapabilities is in flight
 	it('search_wms_layers drops a response that arrives after detach_wms_services already ran', async function() {
 
 		tool.attach_wms_services()
@@ -3886,11 +3945,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('search_wms_layers (mocked server) stores the parsed results; the panel lists them with an "Add" button', async function() {
 
-		// the network half (SSRF-guarded proxy, real GetCapabilities fetch) is
-		// covered server-side (file header above) — tool_request is stubbed
-		// here so this test stays hermetic and exercises tool_request/
-		// search_wms_layers/populate_wms_search_results/add_wms_layer
-		// DIRECTLY (awaited calls, not a real DOM click + microtask race)
+		// the guarded GetCapabilities fetch is the server's: awaited calls here,
+		// not a DOM click racing its microtasks
 		tool.attach_wms_services()
 		const panel = tool.wms_panel
 
@@ -3930,6 +3986,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(panel.querySelectorAll('.uca-maps-wms-result-item').length, 0, 'expected the results list rebuilt empty')
 	})
 
+	it('a WMS server with no queryable layer leaves a warning line, not an error, and no result', async function() {
+
+		tool.attach_wms_services()
+		const panel = tool.wms_panel
+		const no_queryable_layer = SAMPLE_CAPABILITIES_XML.replace(' queryable="1"', '')
+		stub_tool_request(async () => ({ok: true, data: {url: 'https://example.com/geoserver/wms', xml: no_queryable_layer}}))
+
+		panel.querySelector('.uca-maps-wms-url').value = 'https://example.com/geoserver/wms'
+		panel.querySelector('.uca-maps-wms-search-button').click()
+		const message = panel.querySelector('.uca-maps-wms-message')
+		await until(() => !message.hidden)
+
+		assert.equal(message.hidden, false, 'expected a line once the answer is in')
+		assert.equal(message.textContent, 'No queryable layers found on this server.')
+		assert.equal(message.dataset.type, 'warning', 'expected nothing found told apart from a failure')
+		assert.equal(panel.querySelectorAll('.uca-maps-wms-result-item').length, 0, 'expected no result listed')
+	})
+
 	it('toggle_wms_layer shows/hides the live layer; set_wms_layer_opacity updates it and refuses out-of-range values', function() {
 
 		tool.attach_wms_services()
@@ -3953,30 +4027,38 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.wms_layers[0].opacity, 0.4, 'expected the refused value NOT applied')
 	})
 
-	it('delete_wms_layer removes the tile layer from the live map and from the list', function() {
+	it('delete_wms_layer takes the layer off the map and the list; the survivor keeps its own tile layer at the new index', function() {
 
 		tool.attach_wms_services()
 		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
 		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two'})
 
-		const first_tile_layer = tool._wms_tile_layers[0]
+		const [first_tile_layer, second_tile_layer] = tool._wms_tile_layers
 
 		assert.deepEqual(tool.delete_wms_layer(0), {ok: true})
 		assert.equal(tool.wms_layers.length, 1)
 		assert.equal(tool.wms_layers[0].name, 'topo:layer2', 'expected the survivor to be the second-added layer')
 		assert.equal(geolocation.map.hasLayer(first_tile_layer), false, 'expected the deleted layer off the map')
+		assert.deepEqual(tool._wms_tile_layers, [second_tile_layer], 'expected only the survivor\'s tile layer kept, at its new index')
+		assert.equal(geolocation.map.hasLayer(second_tile_layer), true, 'expected the survivor still on the map')
+
+		// index 0 now drives the survivor's own tile layer
+		tool.toggle_wms_layer(0)
+		assert.equal(geolocation.map.hasLayer(second_tile_layer), false, 'expected toggle_wms_layer(0) to hide the survivor')
 	})
 
-	// Row #6 audit (2026-09-23): the panel opens centred with a ×, and
-	// show/hide is v6's eye drawing the STATE. The suite loads no tool CSS, so
-	// "centered" is asserted as what toolbar.js does (class, never anchored),
-	// not as measured geometry.
-	it('the WMS panel opens centered — never anchored to its button — and its × closes it', function() {
+	// "centred" here is what toolbar.js does (the class, no anchoring); the
+	// geometry is measured by the WMS layout test, with the tool CSS
+	it('attach_wms_services builds its button, the "wms" pane and an empty layer list; its panel opens centred, its × closes it', function() {
 
 		tool.attach_wms_services()
 		const panel		= tool.wms_panel
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
 
+		assert.isOk(control, 'expected the "WMS" toggle button')
+		assert.equal(panel.hidden, true, 'expected the panel hidden by default')
+		assert.deepEqual(tool.wms_layers, [], 'expected no layers pre-added: WMS layers live for the session only')
+		assert.isOk(geolocation.map.getPane('wms'), 'expected the dedicated "wms" pane created')
 		assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the centered variant')
 		const title = panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-title')
 		assert.equal(title.textContent, 'WMS services', 'expected toolbar.js to build the header title')
@@ -4060,8 +4142,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(rebuilt_eye.querySelectorAll('svg path').length, 2, 'expected the struck eye after the rebuild')
 	})
 
-	// H-11: the value was set before type='range', so the range sanitized it
-	// against its default 0..100 step 1 and a 0.7 layer showed its slider at 1
+	// a value set before type='range' is sanitised against the default
+	// 0..100 step 1: a 0.7 layer would show its slider at 1
 	it('the opacity slider shows the layer\'s stored opacity, when added and after a rebuild', function() {
 
 		tool.attach_wms_services()
@@ -4083,11 +4165,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	// The fix Sergio asked for is layout, so this one loads the tool's own
-	// stylesheet (the suite otherwise has none) and measures it: with several
-	// long names added, each name keeps most of its row, and the panel sits
-	// centred across the map, 5rem below its top (v6's modal box), rather
-	// than at the 18rem anchored default.
+	// long names used to be squeezed by the slider; the panel sits where v6's
+	// modal box did, centred and 5rem below the map top
 	it('with the tool CSS, a WMS layer name keeps its width and the panel sits centred near the map top', async function() {
 
 		await with_tool_css(async () => {
@@ -4146,16 +4225,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// for an es/cat/eus section_lang, which the fixture does not set, and both
 	// SWAP the base map (find_active_tile_layer). Every lookup is stubbed.
 
-	it('attach_catastro/attach_administrative_units are a no-op unless section_lang is es/cat/eus (v6 parity)', function() {
+	it('attach_catastro/attach_administrative_units are a no-op without section_lang or with a non-Spanish one (v6 parity)', function() {
 
 		assert.equal(geolocation.section_lang, undefined, 'expected the shared fixture to set no section_lang')
-		assert.equal(is_spanish_official_lang(tool), false)
+		for (const section_lang of [undefined, 'lg-eng']) {
+			geolocation.section_lang = section_lang
+			assert.equal(is_spanish_official_lang(tool), false, 'expected ' + section_lang + ' not an official language of Spain')
 
-		tool.attach_catastro()
-		tool.attach_administrative_units()
+			tool.attach_catastro()
+			tool.attach_administrative_units()
 
-		assert.equal(tool.catastro_control, null, 'expected no "Catastro" button gated out')
-		assert.equal(tool.ua_control, null, 'expected no "UA" button gated out')
+			assert.equal(tool.catastro_control, null, 'expected no "Catastro" button for ' + section_lang)
+			assert.equal(tool.ua_control, null, 'expected no "UA" button for ' + section_lang)
+		}
 	})
 
 	it('attach_catastro builds the toggle button once section_lang is es/cat/eus', function() {
@@ -4171,9 +4253,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro off by default')
 	})
 
-	// v6 parity, confirmed live by Sergio (2026-09-08 validation): Catastro
-	// SWAPS the active basemap (marked in the map's own layer-control) rather
-	// than adding a translucent overlay on top of it.
+	// as v6, Catastro SWAPS the active basemap (marked in the map's own
+	// layer-control) rather than laying a translucent overlay on top of it
 	it('clicking "Catastro" swaps the active basemap for the cadastral map; a second click restores the previous one', function() {
 
 		geolocation.section_lang = 'lg-spa'
@@ -4220,7 +4301,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 	// v6 prints any URL-valued property as a "Más información" link; here only
-	// the parcel's own url, titled "Catastro" (Sergio, 2026-09-24).
+	// the parcel's own url, titled "Catastro"
 	it('the console shows a parcel\'s url as a read-only "Catastro" link; the same key typed by hand stays editable text', async function() {
 
 		tool.attach_console()
@@ -4272,7 +4353,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notProperty(parcel.feature.properties, 'url', 'expected the ✕ on the link row to delete the url')
 	})
 
-	it('check_catastro_at_point (not found) shows a message, creates nothing', async function() {
+	it('check_catastro_at_point (not found) shows the not-found line, creates nothing', async function() {
 
 		arm_catastro()
 
@@ -4286,9 +4367,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			before_layer_count,
 			'expected no polygon created on a "not found" result'
 		)
-		const banner = geolocation.node.querySelector('.uca-maps-catastro-message')
+		const banner = geolocation.node.querySelector('.uca-maps-catastro-message .text')
 		assert.isOk(banner, 'expected an in-component message banner')
-		assert.match(banner.textContent, /parcel/i)
+		assert.equal(banner.textContent, 'No parcel could be found at this point.', 'expected the not-found line, not the lookup failure\'s')
 	})
 
 	it('a refusal\'s reason sits on its own line: Catastro\'s core banner and the panel lines', async function() {
@@ -4354,8 +4435,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
 	})
 
-	// review-diff finding, hito 11: a lookup in flight when the user disarms
-	// Catastro (second click) must not resurrect a parcel after the fact.
+	// a parcel drawn after the disarm would land on a map no longer in Catastro mode
 	it('check_catastro_at_point drops a response that arrives after the user disarms Catastro mid-request', async function() {
 
 		arm_catastro()
