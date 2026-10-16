@@ -6,21 +6,10 @@
 
 /**
 * RENDER_LEGEND
-* DOM de la fila #12 en sus DOS mitades, que son cosas distintas:
-*
-* - el PANEL de edición (chrome del tool, excluido de la descarga de mapa
-*   como imagen): formulario construido una sola vez en attach —los inputs
-*   tienen que sobrevivir a un reabrir a medio teclear— y la lista de
-*   columnas, que se reconstruye entera en cada mutación ESTRUCTURAL.
-*   Teclear o tocar un color NO la reconstruye: perdería el foco, o cerraría
-*   el selector de color abierto, así que solo repinta el overlay.
-*   Una "columna" del dato se llama "grupo" en la interfaz: en el overlay
-*   los grupos envuelven, no son columnas fijas.
-* - el OVERLAY, la leyenda dibujada sobre el mapa, que es CONTENIDO y por
-*   eso no se registra como toolbar node (ver `legend.js` file header).
-*
-* Las mutaciones salen por `self.<método>(...)`, nunca llamando a
-* `legend.js` directamente.
+* Two halves: the edit PANEL (tool chrome, left out of the map image), whose
+* group list is rebuilt only on STRUCTURAL change (typing or a colour repaints
+* just the overlay: a rebuild would drop focus or close the colour picker), and
+* the OVERLAY, map CONTENT. A data "column" is a "group" in the UI: groups wrap.
 *
 * @module render_legend
 */
@@ -39,7 +28,7 @@ import {show_panel_message} from './render_download_line.js'
 
 /**
 * RENDER_LEGEND_PANEL
-* La cabecera (título + ×) la pone `toolbar.js`: es un panel centrado.
+* The header (title + ×) is `toolbar.js`'s: the panel opens centred.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
@@ -109,13 +98,10 @@ export const render_legend_panel = function(self, panel) {
 
 /**
 * SHOW_LEGEND_MESSAGE
-* Línea de error en flujo, no `ui.show_message` — su toast de página se
-* recortaría contra el `overflow-y: auto` del panel (misma razón que
-* `render_xyz_basemaps.js`).
-*
-* Exportada para que un gate pueda fijar el acoplamiento por CLASE entre esta
-* función y el nodo que `render_legend_panel` construye: renombrar uno de los
-* dos lados revienta la subida de icono en silencio (review-diff, hito 17).
+* In-flow error line, not `ui.show_message`: its page toast would be clipped
+* by the panel's `overflow-y: auto`. Exported so a gate pins the CLASS shared
+* with the node `render_legend_panel` builds: renaming either side silently
+* breaks the icon upload.
 *
 * @param {HTMLElement} panel
 * @param {string} text
@@ -130,9 +116,8 @@ export const show_legend_message = function(panel, text, type='error') {
 
 /**
 * CLEAR_LEGEND_MESSAGE
-* Una negativa vieja que sigue ahí al reabrir el panel describe algo que ya
-* no ha pasado. Se limpia al abrir y antes de cada intento nuevo (mismo
-* criterio que `render_file_upload.js` clear_upload_message).
+* An old refusal still showing on reopen describes something no longer
+* happening, so it is cleared on open and before every new attempt.
 *
 * @param {HTMLElement} panel
 * @returns {void}
@@ -148,8 +133,8 @@ export const clear_legend_message = function(panel) {
 
 /**
 * POPULATE_LEGEND_COLUMNS
-* Reconstruye la lista de grupos desde `self.legend.columns` — en cada
-* apertura del panel y tras cada mutación estructural.
+* Rebuilds the group list from `self.legend.columns`, on every open and after
+* every structural mutation.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -393,8 +378,8 @@ const focus_move_button = function(panel, column_index, element_index, offset) {
 
 /**
 * RENDER_ELEMENT_ROW
-* Símbolo (botón que abre su editor) + nombre + ↑/↓ + borrar, y debajo el
-* editor del símbolo, cerrado.
+* Symbol (a button opening its editor) + name + ↑/↓ + delete, with the
+* symbol editor below it, closed.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
@@ -420,11 +405,10 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	symbol_btn.setAttribute('aria-label', symbol_btn.title)
 	symbol_btn.setAttribute('aria-expanded', 'false')
 
-	// `src` assigned AFTER creation on purpose: ui.create_dom_element routes
-	// options.src through safe_url, which refuses `data:` — and every icon here
-	// is a data URL this browser just minted (the pin, a drawn symbol or a
-	// FileReader result). If legends ever persist (a stored value arriving from
-	// the wire), THIS line and its twins are what must be re-guarded.
+	// `src` assigned AFTER creation on purpose: create_dom_element's safe_url
+	// refuses `data:`, and every icon here is a data URL this browser minted.
+	// If legends ever persist (a value off the wire), THIS line and its twins
+	// must be re-guarded.
 	const icon = ui.create_dom_element({element_type: 'img', class_name: 'uca-maps-legend-element-icon', parent: symbol_btn})
 	icon.src	= element.icon
 	icon.width	= 18
@@ -480,9 +464,9 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 
 /**
 * RENDER_SYMBOL_EDITOR
-* Forma + relleno + borde, o subir una imagen. Cada gesto aplica el símbolo
-* entero en el acto; nada reconstruye la lista, así que el selector de
-* color nativo sigue abierto mientras se arrastra.
+* Shape + fill + stroke, or an uploaded image. Every gesture applies the whole
+* symbol at once; nothing rebuilds the list, so the native colour picker stays
+* open while dragging.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
@@ -606,8 +590,8 @@ const render_colour_field = function(parent, class_name, text, value, on_input) 
 
 /**
 * PICK_ICON_FILE
-* Selector de fichero efímero (mismo gesto que v6 `change_icon`): se crea,
-* se abre y muere con el handler — nada que limpiar en detach.
+* A throwaway file picker (v6's `change_icon` gesture): created, opened and
+* dropped with the handler, so detach has nothing to clean.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
@@ -655,13 +639,13 @@ const pick_icon_file = function(self, panel, column_index, element_index) {
 
 /**
 * CREATE_LEGEND_OVERLAY
-* La leyenda sobre el mapa, como L.Control propio en 'bottomleft' (API
-* pública; v6 se cuelga de `map._controlCorners.topleft`, que además es
-* donde viven los botones de este tool). NO se registra como toolbar node y
-* `keep_in_map_image` la nombra: es contenido del mapa y sale en la imagen.
+* The legend on the map, its own L.Control in 'bottomleft' (public API; v6
+* hangs from `map._controlCorners.topleft`, where this tool's buttons live).
+* NOT a toolbar node, and named in `keep_in_map_image`: it is map content and
+* belongs in the image.
 *
 * @param {Object} self
-* @returns {Object} el L.Control
+* @returns {Object} the L.Control
 */
 export const create_legend_overlay = function(self) {
 
@@ -685,9 +669,9 @@ export const create_legend_overlay = function(self) {
 
 /**
 * RENDER_LEGEND_OVERLAY
-* Repinta el overlay entero desde `self.legend`. Se esconde con el checkbox
-* apagado y también cuando no hay NADA que enseñar (ni título ni columnas):
-* v6 deja una caja vacía sobre el mapa, que es ruido, no información.
+* Repaints the whole overlay from `self.legend`. Hidden when the checkbox is
+* off and when there is NOTHING to show (no title, no groups): v6 leaves an
+* empty box on the map, which is noise, not information.
 *
 * @param {Object} self
 * @returns {void}

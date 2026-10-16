@@ -5,11 +5,10 @@
 
 /**
 * RENDER_ADMINISTRATIVE_UNITS
-* DOM for the "UA" panel (functionality #9). Shell built once at attach: a
-* level `<select>` (v6's own three options — `special_tools_UA_es.js`
-* create_select) plus an in-flow message line, same shape as
-* `render_wms_services.js`/`render_xyz_basemaps.js`. Mutations reach
-* `self.<method>(...)`, never `administrative_units.js` directly.
+* DOM for the "UA" panel, built once at attach: a level `<select>` (v6's own
+* three options, `special_tools_UA_es.js` create_select) and an in-flow
+* message line. Mutations reach `self.<method>(...)`, never
+* `administrative_units.js` directly.
 *
 * @module render_administrative_units
 */
@@ -47,9 +46,8 @@ export const render_administrative_units_panel = function(self, panel) {
 		})
 		option.value = level
 	})
-	// attach_administrative_units seeds self._ua_level BEFORE calling this —
-	// a second '|| Municipio' default here would just be a fork of the same
-	// literal to keep in sync by hand (review-diff finding, hito 11)
+	// attach_administrative_units seeds self._ua_level BEFORE calling this:
+	// a second '|| Municipio' default here would be a fork of the same literal
 	select.value = self._ua_level
 	select.addEventListener('change', () => { self._ua_level = select.value })
 

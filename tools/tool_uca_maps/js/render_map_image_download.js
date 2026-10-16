@@ -5,20 +5,10 @@
 
 /**
 * RENDER_MAP_IMAGE_DOWNLOAD
-* DOM for the "Download map as image" panel (functionality #10). Toolbar
-* refactor (2026-09-04, CLAUDE.local.md "Left toolbar: un botón por
-* funcionalidad"): this used to be a collapsed `<details>` section built
-* INTO the "UCA" object-console panel (hito 3, checkpoint 3b); it is now its
-* OWN panel behind its OWN button, both built through `toolbar.js` — see
-* `map_image_download.js`'s `attach_map_image_download_control`.
-*
-* Same render/logic split as the rest of this tool: this file only builds
-* DOM and reads state; the mutation (`download_map_image`) lives in
-* `map_image_download.js`, reached through `self.download_map_image(...)` —
-* the thin-prototype-wrapper pattern (`tool_uca_maps.js`), never a direct
-* import from a render file (the established one-directional convention:
-* logic imports render, never the reverse — review-diff tripwire-integrity
-* finding, hito 2).
+* DOM for the "Download map as image" panel, behind its own toolbar button
+* (`map_image_download.js` attach_map_image_download_control). It only builds
+* DOM and reads state; the download is reached through
+* `self.download_map_image(...)`, since logic imports render, never the reverse.
 *
 * @module render_map_image_download
 */
@@ -31,21 +21,16 @@ import {bind_download_button, create_panel_message} from './render_download_line
 
 
 
-/** Raster formats, in menu order — the 5 of v6's "Download map as image"
-* (functionality #10). PNG stays client-only (`map_image_download.js`);
-* the rest round-trip through the server's `raster_download` action. */
+/** Raster formats, in menu order: the 5 of v6's "Download map as image".
+* PNG stays client-only (`map_image_download.js`); the rest round-trip
+* through the server's `raster_download` action. */
 const RASTER_FORMATS = ['png', 'jpg', 'gif', 'webp', 'geotiff']
 
 /**
 * RENDER_MAP_IMAGE_DOWNLOAD_PANEL
-* Populates the panel shell `toolbar.js`'s `create_toolbar_panel` already
-* built and appended to the map container — header + a name field + a format
-* `<select>` + one "Download" button + the line a failure is shown on.
-* The name field is v6's own (audit row #10,
-* `special_tools_map_image_download.js:198-221`), restored 2026-09-22:
-* it had been dropped for consistency with the per-object download, which is
-* an argument about this tool's other panels, not about what the user needs
-* when naming a file they are about to keep.
+* Populates the panel shell `toolbar.js` create_toolbar_panel built: a name
+* field (v6's own, `special_tools_map_image_download.js`), a format `<select>`,
+* one "Download" button and the line a failure is shown on.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (`toolbar.js` create_toolbar_panel)
@@ -55,9 +40,8 @@ export const render_map_image_download_panel = function(self, panel) {
 
 	// the header (title + ×) is toolbar.js's: the panel opens centred
 
-	// Name before format, as v6 orders it. Pre-filled with the base name this
-	// panel used when it had no field at all, so leaving it alone reproduces
-	// exactly the previous behaviour.
+	// name before format, as v6 orders it; pre-filled with the default base
+	// name, so leaving it alone still names the file
 	const name_row = ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-map-image-row',

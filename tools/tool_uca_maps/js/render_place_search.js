@@ -5,11 +5,10 @@
 
 /**
 * RENDER_PLACE_SEARCH
-* DOM for the "Search" panel (functionality #1). Shell (header + search form
-* + result list container) built once at attach and reset on every open
-* (`reset_place_search_panel`); the list rebuilds from `self._place_results`
-* on every search/clear (same split as `render_wms_services.js`). Everything
-* it triggers reaches `self.<method>(...)`, never `place_search.js` directly.
+* DOM for the "Search" panel (its header is toolbar.js's). Form and result
+* list are built once at attach and reset on every open; the list is rebuilt
+* from `self._place_results` on every search or clear. Calls reach
+* `self.<method>(...)`, never `place_search.js` directly.
 *
 * @module render_place_search
 */
@@ -186,13 +185,9 @@ export const reset_place_search_panel = function(self, panel) {
 
 /**
 * POPULATE_PLACE_SEARCH_RESULTS
-* Rebuilds the result `<ul>` from `self._place_results` — called after every
-* search/clear, same "no incremental diff" reasoning as
-* `render_wms_services.js` populate_wms_search_results.
-*
-* Each row is a button, not a bare `<li>` with a click listener: the list is
-* keyboard-reachable that way, and a search box that only answers the mouse
-* is a worse control than the one v6 had.
+* Rebuilds the result `<ul>` from `self._place_results` after every search
+* or clear. Each row is a button, not a bare `<li>` with a click listener, so
+* the list is keyboard-reachable.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel

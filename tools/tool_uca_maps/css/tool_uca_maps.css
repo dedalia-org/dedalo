@@ -688,9 +688,6 @@
 .uca-maps-console > .uca-maps-object-section {
   padding: 0.5rem 0.75rem;
 }
-.uca-maps-console > .uca-maps-object-section > h5 {
-  margin: 0 0 0.35rem;
-}
 .uca-maps-console > .uca-maps-object-section h6 {
   margin: 0 0 0.35rem;
   font-size: 0.85rem;
@@ -923,10 +920,10 @@
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-property-delete {
   padding: 0.15rem 0.4rem;
+  font-size: 0.85rem;
   background-color: var(--bg_fill_inverse);
   color: var(--fg_inverse);
   padding: 0.2rem 0.45rem;
-  font-size: 0.85rem;
 }
 .uca-maps-place-search-panel .uca-maps-place-search-form {
   display: flex;
@@ -1035,9 +1032,6 @@
 }
 .uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division:last-child {
   border-right-width: 1px;
-}
-.uca-maps-scale .uca-maps-scale-row + .uca-maps-scale-row {
-  border-top: 0;
 }
 .uca-maps-scale .uca-maps-scale-labels {
   display: flex;

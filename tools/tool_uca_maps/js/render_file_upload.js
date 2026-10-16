@@ -5,16 +5,10 @@
 
 /**
 * RENDER_FILE_UPLOAD
-* DOM for the "Upload file to map" panel (functionality #11). ONE panel, TWO
-* independent sub-flows — v6 has one icon opening two separate modals
-* ("Subir archivo" for vectors, hito 12; "Subir imagen" for overlays, hito
-* 13), and the row is one row, so it stays one button + one panel (the "one
-* button per FUNCTIONALITY, never a panel of unrelated sections" law in
-* CLAUDE.local.md is about mixing DIFFERENT audit rows, which this does not).
-* Shell built once at attach, same shape as `render_wms_services.js`
-* render_search_form: mutations reach `self.upload_vector_file(...)` /
-* `self.upload_image_file(...)`, never `vector_upload.js`/`image_upload.js`
-* directly.
+* DOM for the "Upload file to map" panel: ONE functionality with TWO
+* independent sub-flows, as v6's one icon opening "Subir archivo" (vectors)
+* and "Subir imagen" (overlays). Built once at attach; uploads reach
+* `self.upload_vector_file`/`self.upload_image_file`, never their modules.
 *
 * @module render_file_upload
 */
@@ -28,7 +22,7 @@ import {create_panel_message, show_panel_message} from './render_download_line.j
 
 const EPSG_IO_URL = 'https://epsg.io/'
 
-// v6's list, verbatim (`special_tools_upload.js:307`): GDAL reads every EPSG
+// v6's list, verbatim (`special_tools_upload.js`): GDAL reads every EPSG
 // code, these are just the ones v6 knew without being told
 const DEFAULT_PROJECTIONS = [
 	'EPSG:4230', 'EPSG:4326', 'EPSG:4258', 'EPSG:3857', 'EPSG:32628', 'EPSG:32629',
@@ -40,11 +34,10 @@ const DEFAULT_PROJECTIONS = [
 
 /**
 * RENDER_FILE_UPLOAD_PANEL
-* The two halves upload differently (functional audit, 2026-09-28). An image
-* uploads as soon as it is chosen, as in v6. A vector file has its own Upload
-* button, because the projection fields under the picker have to be filled
-* in first, and uploading on pick would skip them. Each half has its own
-* status line, so an image result never lands in the vector half.
+* An image uploads as soon as it is chosen, as in v6. A vector file has its
+* own Upload button: the projection fields under the picker come first, and
+* uploading on pick would skip them. Each half has its own status line, so an
+* image result never lands in the vector half.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
@@ -100,8 +93,8 @@ export const render_file_upload_panel = function(self, panel) {
 * RENDER_PROJECTION_FIELDS
 * v6's manual UTM projection: the "default projections" toggle, its
 * explanation, EPSG + zone + band and the epsg.io link that follows the typed
-* code (`special_tools_upload.js:188-368`). The field names stay literal, as
-* in v6; the server decides what a set of three means (vector_upload.ts).
+* code (`special_tools_upload.js`). The field names stay literal, as in v6;
+* the server decides what a set of three means (vector_upload.ts).
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -166,7 +159,7 @@ const render_projection_fields = function(self, panel) {
 	})
 	list.hidden = true
 
-	// the direction is read off the DOM, never a cached flag (hito 3c law)
+	// the direction is read off the DOM, never a cached flag
 	list_button.addEventListener('click', () => {
 		list.hidden = !list.hidden
 		list_button.setAttribute('aria-expanded', String(!list.hidden))
@@ -181,10 +174,9 @@ const render_projection_fields = function(self, panel) {
 
 /**
 * RENDER_IMAGE_SECTION
-* The second sub-flow of the SAME row (hito 13): file input only, no EPSG
-* field — a raster carries its own georeferencing or none at all, and GDAL
-* reads it server-side (`server/image_overlay.ts`); there is no "the numbers
-* are UTM but the file forgot to say so" case to override, unlike a vector.
+* The image sub-flow: file input only, no EPSG field. A raster carries its
+* own georeferencing or none, read server-side by GDAL (`server/image_overlay.ts`);
+* there is no "UTM numbers, undeclared" case to override, unlike a vector.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -238,9 +230,9 @@ const render_image_section = function(self, panel) {
 					|| 'GDAL is not installed on this server, so the image could not be placed by its own coordinates: placed over the current view.')
 				: (self.get_tool_label('upload_image_success_viewport')
 					|| 'The image carries no coordinates: placed over the current view.')
-		// the image is on the map, which is the real confirmation: the line
-		// only has to be read once, not greet every later reopening of the panel.
-		// Placed by its own coordinates is a plain success; over the view, a caveat
+		// the image on the map is the real confirmation, so the line hides
+		// instead of greeting every reopening. Placed by its own coordinates is
+		// a plain success; over the view, a caveat
 		return {text, hide_after_ms: UPLOAD_MESSAGE_MS, type: result.georeferenced ? 'ok' : 'warning'}
 	})
 
@@ -316,7 +308,7 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 /**
 * BIND_UPLOAD_ON_PICK
 * The image half: one upload per pick. The picker is disabled for the round
-* trip and its direction read off the DOM, never a cached flag (hito 3c law).
+* trip and its direction read off the DOM, never a cached flag.
 * It is emptied after every attempt, failed ones too, so that choosing the
 * SAME file again still fires `change`.
 *
@@ -370,17 +362,16 @@ const render_upload_message = function(parent) {
 
 
 
-/** How long a transient line stays: "un par de segundos", the same window as
+/** How long a transient line stays: a couple of seconds, the same window as
  * the self-closing "UCA Maps" modal (`tool_uca_maps.js`). */
 // exported for the client gate
 export const UPLOAD_MESSAGE_MS = 2000
 
 /**
 * SHOW_UPLOAD_MESSAGE
-* Plain in-flow status/error line — same reasoning as `render_wms_services.js`
-* show_wms_message (used for both success and error text here, unlike WMS,
-* since there is no separate results list to react to). The hide timer lives
-* on the node, so a newer message or the teardown cancels it.
+* Plain in-flow status/error line, as `render_wms_services.js`
+* show_wms_message, for success too: there is no results list to react to.
+* The hide timer lives on the node, so a newer message or the teardown cancels it.
 *
 * @param {HTMLElement} message
 * @param {string} text
@@ -432,11 +423,10 @@ export const clear_upload_messages = function(panel) {
 
 /**
 * RESET_FILE_UPLOAD_PANEL
-* What v6 gets by rebuilding its modal on every open: no message, no file
-* chosen, empty EPSG/zone/band, the projections list closed. Called on OPEN,
-* not on close: a sibling panel can close this one without going through
-* this module (toolbar.js close_other_toolbar_panels). A half whose upload is
-* still in flight (its picker disabled) is left alone, file and line included.
+* What v6 gets by rebuilding its modal on every open: no message, no file,
+* empty EPSG/zone/band, projections list closed. On OPEN, because a sibling
+* can close this panel without this module (toolbar.js close_other_toolbar_panels).
+* A half whose upload is in flight (picker disabled) is left alone.
 *
 * @param {HTMLElement|null} panel
 * @returns {void}

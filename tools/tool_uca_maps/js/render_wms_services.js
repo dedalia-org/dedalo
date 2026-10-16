@@ -5,13 +5,10 @@
 
 /**
 * RENDER_WMS_SERVICES
-* DOM for the "WMS" panel (functionality #6). Shell (search form + both list
-* containers; the header is toolbar.js's, this is a centered panel) built
-* once at attach — the URL input must survive a
-* reopen mid-typing; both lists rebuild from `self._wms_search_results`/
-* `self.wms_layers` on every search/mutation (same split as
-* `render_xyz_basemaps.js`). Mutations reach `self.<method>(...)`, never
-* `wms_services.js` directly.
+* DOM for the "WMS" panel (its header is toolbar.js's). The search form is
+* built once at attach, so a typed URL survives a reopen; both lists are
+* rebuilt from `self._wms_search_results`/`self.wms_layers` on every search
+* or mutation. Mutations reach `self.<method>(...)`, never `wms_services.js`.
 *
 * @module render_wms_services
 */
@@ -206,10 +203,9 @@ const paint_eye = function(eye_btn, visible) {
 
 /**
 * POPULATE_WMS_LAYERS
-* Rebuilds the "Added layers" `<ul>` from `self.wms_layers` — called on every
-* open and after every mutation (add/toggle/opacity/delete). Show/hide is
-* v6's eye button, but drawing the STATE (open = on the map) where v6 draws
-* the action (Sergio, 2026-09-23); `aria-pressed` says the same to a reader.
+* Rebuilds the "Added layers" `<ul>` from `self.wms_layers` on every open
+* and mutation. Show/hide is v6's eye button, but drawing the STATE (open =
+* on the map) where v6 draws the action; `aria-pressed` says the same.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel

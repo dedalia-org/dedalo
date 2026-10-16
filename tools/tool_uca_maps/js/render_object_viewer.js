@@ -5,25 +5,10 @@
 
 /**
 * RENDER_OBJECT_VIEWER
-* DOM for the "Objects" panel (functionality #4 — see `object_viewer.js`
-* file header for the full architecture note). Two `<ul>` lists — Vector
-* Objects / Rasterized Objects — v6's own two-title-two-container layout
-* (`special_tools_objects.js` `create_containers`), rebuilt from scratch on
-* every SHOW (`populate_object_viewer`, called from `object_viewer.js`'s
-* `toggle_object_viewer_panel` on every open, and again on a live
-* `updated_layer_data_<id_base>` publish while already open — file header of
-* `object_viewer.js`) — never at attach time: the panel starts hidden and
-* nothing reads it before the first click, same as every sibling panel
-* (`map_image_download.js` builds its content lazily too; review-diff simplification finding, hito 4 — this used to populate
-* once eagerly here AND again on first open, discarding that first build).
-*
-* Same render/logic split as the rest of this tool: this file only builds
-* DOM and reads state; every mutation (`set_object_display`,
-* `center_on_object`) is reached through `self.<method>(...)` — the thin-
-* prototype-wrapper pattern (`tool_uca_maps.js`), never a direct import from
-* `object_viewer.js` (the established one-directional convention across
-* every render_X.js/X.js pair in tools/: logic imports render, never the
-* reverse — review-diff tripwire-integrity finding, hito 2).
+* DOM for the "Objects" panel: v6's two lists, Vector / Rasterized Objects
+* (`special_tools_objects.js` `create_containers`), rebuilt on every open and
+* on a live publish while open (`object_viewer.js`), never at attach: the
+* panel starts hidden. Mutations go through `self.<method>(...)`.
 *
 * @module render_object_viewer
 */
@@ -37,10 +22,8 @@ import {eye_node} from './icons.js'
 
 /**
 * RENDER_OBJECT_VIEWER_PANEL
-* Populates the panel shell `toolbar.js`'s `create_toolbar_panel` already
-* built and appended to the map container — header + the two (empty) list
-* sections. Content itself is filled in later, on first open
-* (`populate_object_viewer` — see file header).
+* Populates the panel shell `toolbar.js` create_toolbar_panel built with the
+* two empty list sections; `populate_object_viewer` fills them on open.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel - the panel shell (`toolbar.js` create_toolbar_panel)
@@ -68,10 +51,8 @@ export const render_object_viewer_panel = function(self, panel) {
 
 /**
 * CREATE_OBJECT_LIST_SECTION
-* One `<h5>` title + its empty `<ul>` — the identical shape "Vector Objects"
-* and "Rasterized Objects" both need (v6's own two-title-two-container
-* layout, file header). Content is filled in later by `render_list`, keyed
-* off `list_class`.
+* One `<h5>` title + its empty `<ul>`, the shape both lists share; filled
+* later by `render_list`, found by `list_class`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -100,10 +81,8 @@ const create_object_list_section = function(self, panel, title, list_class) {
 
 /**
 * POPULATE_OBJECT_VIEWER
-* Rebuilds both `<ul>` lists from `self.collect_objects()`'s current
-* snapshot — destructive re-render (`replaceChildren`), matching v6's own
-* rebuild-on-open behaviour (no incremental diff needed: this panel's
-* content only ever changes between opens, `object_viewer.js` file header).
+* Rebuilds both `<ul>` lists from `self.collect_objects()`'s snapshot, whole,
+* as v6 rebuilds on open: no incremental diff to get wrong.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -133,14 +112,9 @@ export const populate_object_viewer = function(self, panel) {
 
 /**
 * RENDER_LIST
-* One `<ul>`'s worth of rows: a show/hide checkbox, the object's name
-* (ellipsis via CSS rather than v6's `max_length_str` JS truncation — no
-* behaviour to preserve there, the audit's own row 3 note already
-* established this tool builds fresh UI rather than porting v6's DOM
-* verbatim wherever nothing else depends on the exact markup), and the
-* "eye" button that centers the map on it — v6's own affordance
-* (`icon-view-object`), as an icon rather than the text button this used
-* to render.
+* One `<ul>`'s rows: a show/hide checkbox, the name (ellipsis by CSS rather
+* than v6's `max_length_str` truncation) and v6's "eye" button
+* (`icon-view-object`) that centers the map on it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} list - the `<ul>` to (re)fill

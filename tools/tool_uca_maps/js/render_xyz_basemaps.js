@@ -5,10 +5,9 @@
 
 /**
 * RENDER_XYZ_BASEMAPS
-* DOM for the "XYZ" panel (functionality #5). Shell (header + add-form)
-* built once at attach — inputs must survive a reopen mid-typing; the list
-* rebuilds from `self.basemaps` on every open/mutation (same split as
-* `render_object_console.js`'s properties editor). Mutations reach
+* DOM for the "XYZ" panel (its header is toolbar.js's). The add form is built
+* once at attach, so typing survives a reopen; the list is rebuilt from
+* `self.basemaps` on every open and mutation. Mutations go through
 * `self.<method>(...)`, never `xyz_basemaps.js` directly.
 *
 * @module render_xyz_basemaps
@@ -48,9 +47,9 @@ export const render_xyz_basemaps_panel = function(self, panel) {
 
 /**
 * SHOW_XYZ_MESSAGE
-* Plain in-flow error line — NOT `ui.show_message`, whose page-level toast
-* CSS (`top: -height`, nothing resets it) would render clipped by this
-* panel's own `overflow-y: auto` (`docs/hitos/hito_9.md`).
+* Plain in-flow error line, NOT `ui.show_message`: its page-level toast CSS
+* (`top: -height`, nothing resets it) renders clipped by this panel's
+* `overflow-y: auto`.
 *
 * @param {HTMLElement} panel
 * @param {string} text
