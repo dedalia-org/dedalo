@@ -16,8 +16,9 @@
  *
  * What it does not do: test the server actions (test/unit/tool_uca_maps_*),
  * or reach a third party. Lookups are stubbed per test and get_elevation in
- * the beforeEach; only basemap and WMS tiles still load, and nothing asserts
- * on them. A few tests round-trip a GDAL/ImageMagick action on the suite's
+ * the beforeEach; only basemap and Catastro tiles still load (UA's are
+ * blanked), and nothing asserts on them. A few tests round-trip a
+ * GDAL/ImageMagick action on the suite's
  * own server. The tool stylesheet is loaded only by with_tool_css() tests.
  */
 
@@ -67,7 +68,8 @@ import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_uploa
 import { tool_error_text, exception_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
-import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
+import { is_catastro_enabled, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
+import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/basemap_swap.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
 import { create_position_marker, is_geolocate_enabled, toggle_geolocate } from '../../../tools/tool_uca_maps/js/geolocate.js'
@@ -2136,7 +2138,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// v6's own name field
 		const name_input = tool.map_image_panel.querySelector('.uca-maps-map-image-name')
 		assert.isOk(name_input, 'expected the file-name field')
-		assert.equal(name_input.value, 'map', 'expected it pre-filled with "map", the initial value chosen for this field (v6 opens with "archivo")')
+		assert.equal(name_input.value, DEFAULT_MAP_IMAGE_NAME, 'expected it pre-filled with the default base name (v6 opens with "archivo")')
 		assert.isOk(tool.map_image_panel.querySelector('.uca-maps-map-image-name-label'), 'expected the field labelled')
 
 		control.click()
@@ -2320,11 +2322,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// A name that sanitizes to nothing is a refusal, never a silent
 		// fallback to the default (download_filename.js).
 		let result = null
-		const captured = await capture_download(async () => {
-			result = await download_map_image(tool, 'png', '   ')
-		})
-
-		event_manager.unsubscribe(token)
+		let captured = null
+		try {
+			captured = await capture_download(async () => {
+				result = await download_map_image(tool, 'png', '   ')
+			})
+		} finally {
+			event_manager.unsubscribe(token)
+		}
 
 		assert.isNotOk(captured.blob, 'expected no capture at all')
 		assert.isNotOk(captured.name, 'expected no download triggered')
@@ -2705,9 +2710,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(layer._path.style.display, 'none', 'expected reapply_display to re-hide the layer on the next hydration pass')
 	})
 
-	it('detach_object_viewer removes the control and panel', async function() {
+	it('detach_object_viewer removes the control and panel; destroy drops its updated_layer_data subscription', async function() {
 
+		// read off the event manager, not events_tokens: a token the tool
+		// forgot to keep would outlive the tool and still be found here
+		const event_name	= `updated_layer_data_${geolocation.id_base}`
+		const tokens		= () => [...event_manager.tokenMap].filter(([, entry]) => entry.event_name===event_name).map(([token]) => token)
+		const before		= tokens()
 		tool.attach_object_viewer()
+		const added = tokens().filter((token) => !before.includes(token))
+		assert.equal(added.length, 1, 'expected attach to subscribe updated_layer_data once')
 		const map_container_node = geolocation.map.getContainer()
 		assert.isOk(tool.object_viewer_control, 'expected the control attached first')
 		assert.isOk(
@@ -2715,7 +2727,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the button in the DOM before teardown'
 		)
 
-		await tool.destroy(false, false, false)
+		// on_geolocation_destroyed's own call: only delete_self unsubscribes events_tokens
+		await tool.destroy(true, true, true)
 
 		assert.equal(tool.object_viewer_control, null, 'expected object_viewer_control cleared')
 		assert.equal(tool.object_viewer_panel, null, 'expected object_viewer_panel cleared')
@@ -2723,6 +2736,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.uca-maps-object-viewer-control'),
 			'expected the button removed from the DOM'
 		)
+		assert.isFalse(event_manager.tokenMap.has(added[0]), 'expected the updated_layer_data subscription dropped with the tool')
 	})
 
 
@@ -4865,19 +4879,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// so this exercises the real staged-upload + server round trip without
 		// depending on GDAL being installed. The reason must survive to the
 		// panel: core's error_text alone shows only "Invalid request options".
-		const result = await tool.upload_vector_file(file, {epsg: 'not-a-code', zone: '30', band: 'N'})
+		// The refusal leaves the staged file behind, so it is released here.
+		try {
+			const result = await tool.upload_vector_file(file, {epsg: 'not-a-code', zone: '30', band: 'N'})
 
-		assert.equal(result.ok, false)
-		assert.isOk(response, 'expected tool_request to have been reached')
-		assert.equal(response.error && response.error.code, 'request.invalid_options')
-		assert.equal(
-			result.error,
-			(tool.get_tool_label('upload_error_rejected') || 'The file could not be loaded.') + "\nInvalid EPSG code 'not-a-code'",
-			'expected the panel\'s lead and the server\'s own reason'
-		)
-		// all three reach the wire: a dropped zone or band would make the server
-		// refuse every UTM projection, and nothing else here would notice
-		assert.deepInclude(sent.options, {epsg: 'not-a-code', zone: '30', band: 'N'})
+			assert.equal(result.ok, false)
+			assert.isOk(response, 'expected tool_request to have been reached')
+			assert.equal(response.error && response.error.code, 'request.invalid_options')
+			assert.equal(
+				result.error,
+				(tool.get_tool_label('upload_error_rejected') || 'The file could not be loaded.') + "\nInvalid EPSG code 'not-a-code'",
+				'expected the panel\'s lead and the server\'s own reason'
+			)
+			// all three reach the wire: a dropped zone or band would make the server
+			// refuse every UTM projection, and nothing else here would notice
+			assert.deepInclude(sent.options, {epsg: 'not-a-code', zone: '30', band: 'N'})
+		} finally {
+			if (sent?.options?.file_data) {
+				await release_staged([sent.options.file_data])
+			}
+		}
 	})
 
 	// a quiet drop, not the catch: building objects on a destroyed tool throws,
@@ -6758,11 +6779,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('attach_geolocate adds exactly one button and no panel, idempotently', function() {
 
+		const map_container_node	= geolocation.map.getContainer()
+		const panels				= () => map_container_node.querySelectorAll('.uca-maps-panel').length
+		const panels_before			= panels()
+
 		tool.attach_geolocate()
 		tool.attach_geolocate()
 
-		const map_container_node = geolocation.map.getContainer()
 		assert.equal(map_container_node.querySelectorAll('.uca-maps-geolocate-control').length, 1)
+		assert.equal(panels(), panels_before, 'expected no panel added')
 		assert.equal(is_geolocate_enabled(tool), false, 'expected it to start disarmed')
 	})
 
@@ -6770,10 +6795,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_geolocate()
 
+		// the map is rebuilt for every test, so these stubs need no restore
 		let located = 0
 		let stopped = 0
-		const original_locate		= geolocation.map.locate
-		const original_stop_locate	= geolocation.map.stopLocate
 		geolocation.map.locate		= function() { located++; return this }
 		geolocation.map.stopLocate	= function() { stopped++; return this }
 
@@ -6784,9 +6808,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		toggle_geolocate(tool)
 		assert.equal(is_geolocate_enabled(tool), false, 'expected the button disarmed')
 		assert.equal(stopped, 1, 'expected an in-flight lookup cancelled, not left running')
-
-		geolocation.map.locate		= original_locate
-		geolocation.map.stopLocate	= original_stop_locate
 	})
 
 	it('a position fix drops ONE marker in the active layer and marks the record dirty — never saves', function() {
@@ -6796,10 +6817,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// the core's own 'pm:create' handler already marks the record dirty;
 		// the tool's commit() after it only repeats that. What matters is that
 		// nothing here reaches the save door: the user's Save stays the only writer
+		// the component is rebuilt for every test, so these stubs need no restore
 		let commits = 0
 		let saves = 0
 		const original_update	= geolocation.update_draw_data
-		const original_save		= geolocation.save
 		geolocation.update_draw_data	= function() { commits++; return original_update.apply(this, arguments) }
 		geolocation.save				= function() { saves++ }
 
@@ -6812,9 +6833,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(after, before + 1, 'expected exactly one new object in the active layer')
 		assert.isAbove(commits, 0, 'expected the record marked dirty')
 		assert.equal(saves, 0, 'expected NO save — nothing here writes')
-
-		geolocation.update_draw_data	= original_update
-		geolocation.save				= original_save
 	})
 
 	it('a position fix with no FeatureGroup to land in says so and draws nothing', function() {
@@ -7168,7 +7186,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// open it the way a user does — populate_legend_columns only runs on show
 		tool.legend_control.getContainer().click()
 
-		const panel = tool.legend_panel
+		const panel		= tool.legend_panel
+		const overlay	= tool.legend_overlay.getContainer()
 		assert.isFalse(panel.hidden, 'expected the panel open')
 		assert.isOk(panel.querySelector('.uca-maps-legend-empty'), 'expected the empty-state line')
 
@@ -7176,6 +7195,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		title_input.value = 'Simbología'
 		title_input.dispatchEvent(new Event('input'))
 		assert.equal(tool.legend.legend, 'Simbología', 'expected typing to reach the legend')
+		assert.isFalse(overlay.hidden, 'expected the overlay drawn once the panel gives it a title')
+		assert.equal(overlay.querySelector('.uca-maps-legend-overlay-title').textContent, 'Simbología', 'expected the overlay to draw the typed title')
 
 		panel.querySelector('.uca-maps-legend-add-column').click()
 		assert.equal(panel.querySelectorAll('.uca-maps-legend-column').length, 1)
@@ -7183,12 +7204,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		panel.querySelector('.uca-maps-legend-add-element').click()
 		assert.equal(panel.querySelectorAll('.uca-maps-legend-element').length, 1)
+		assert.equal(overlay.querySelectorAll('.uca-maps-legend-overlay-element').length, 1, 'expected the overlay to draw the added element')
 
 		const show_checkbox = panel.querySelector('.uca-maps-legend-show')
 		assert.isTrue(show_checkbox.checked, 'expected the legend shown by default, as in v6')
 		show_checkbox.checked = false
 		show_checkbox.dispatchEvent(new Event('change'))
 		assert.isFalse(tool.legend.enable, 'expected the checkbox to reach the legend')
+		assert.isTrue(overlay.hidden, 'expected the checkbox to hide the overlay')
 
 		panel.querySelector('.uca-maps-legend-delete-element').click()
 		assert.equal(panel.querySelectorAll('.uca-maps-legend-element').length, 0)
@@ -7750,10 +7773,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		mount_roman()
 
-		let asked_action = null
+		// captured, asserted after: add_roman_result's catch would swallow an
+		// assertion thrown inside the stub
+		let asked = null
 		stub_tool_request(async function(options) {
-			asked_action = options.action
-			assert.equal(options.options.id, '256135', 'expected the hit id forwarded')
+			asked = options
 			return { ok: true, data: { place: {
 				type		: 'FeatureCollection',
 				features	: [roman_feature('Gades', 36.53, -6.29)]
@@ -7763,7 +7787,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool._roman_results = [{ name: 'Gades', id: '256135' }]
 		const added = await add_roman_result(tool, 0)
 
-		assert.equal(asked_action, 'get_pleiades_place', 'expected the geometry fetched by id')
+		assert.isOk(asked, 'expected the server asked for the geometry')
+		assert.equal(asked.action, 'get_pleiades_place', 'expected the geometry fetched by id')
+		assert.equal(asked.options.id, '256135', 'expected the hit id forwarded')
 		assert.equal(added.ok, true)
 		assert.equal(added.created, 1)
 	})

@@ -99,16 +99,15 @@ export const render_legend_panel = function(self, panel) {
 /**
 * SHOW_LEGEND_MESSAGE
 * In-flow error line, not `ui.show_message`: its page toast would be clipped
-* by the panel's `overflow-y: auto`. Exported so a gate pins the CLASS shared
-* with the node `render_legend_panel` builds: renaming either side silently
-* breaks the icon upload.
+* by the panel's `overflow-y: auto`. Its CLASS is the node `render_legend_panel`
+* builds: renaming either side silently breaks the icon upload.
 *
 * @param {HTMLElement} panel
 * @param {string} text
 * @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-export const show_legend_message = function(panel, text, type='error') {
+const show_legend_message = function(panel, text, type='error') {
 	show_panel_message(panel.querySelector('.uca-maps-legend-message'), text, type)
 }//end show_legend_message
 

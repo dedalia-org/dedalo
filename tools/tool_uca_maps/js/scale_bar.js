@@ -77,8 +77,8 @@ export const attach_scale_bar = function(self) {
 /**
 * ROUND_DISTANCE
 * Leaflet's own `_getRoundNum` criterion: the largest 1/2/3/5/10 × 10^n that
-* still fits. Exported for the client gate: the whole bar is wrong if this is.
-* this is, and it is pure arithmetic.
+* still fits. Exported for the client gate: the whole bar is wrong if this is,
+* and it is pure arithmetic.
 *
 * @param {number} max_meters - what MAX_WIDTH px is worth on the ground
 * @returns {number} the round distance the bar will represent, in metres

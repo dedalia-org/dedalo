@@ -19,7 +19,6 @@ import {tool_error_text} from './tool_error_text.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
-	register_toolbar_node,
 	set_toolbar_panel_visible,
 	is_toolbar_panel_visible,
 	remove_toolbar_button,
@@ -27,18 +26,16 @@ import {
 } from './toolbar.js'
 import {render_administrative_units_panel, show_ua_message, clear_ua_message} from './render_administrative_units.js'
 import {report_client_error} from './object_console.js'
+import {
+	disable_basemap_swap,
+	enable_basemap_swap,
+	is_spanish_official_lang,
+	wms_point_options
+} from './basemap_swap.js'
 
 
 
 const UA_URL = 'https://www.ign.es/wms-inspire/unidades-administrativas'
-
-
-
-/** v6's gate for Catastro and UA: the record's language is Spanish, Catalan or Basque. */
-const is_spanish_official_lang = function(self) {
-	const lang = self.geolocation && self.geolocation.section_lang
-	return lang==='lg-spa' || lang==='lg-cat' || lang==='lg-eus'
-}//end is_spanish_official_lang
 
 
 
@@ -109,43 +106,24 @@ const toggle_ua_panel = function(self) {
 
 /**
 * ENABLE_UA
-* Swaps the basemap for the AU.AdministrativeUnit WMS, as `enable_catastro`: the layer
-* control's own API, the previous tile layers remembered so disabling restores them.
+* Swaps the basemap for the AU.AdministrativeUnit WMS and arms the click.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const enable_ua = function(self) {
 
-	const geolocation	= self.geolocation
-	const map			= geolocation.map
-
-	if (!geolocation.layer_control) {
-		geolocation.layer_control = L.control.layers({}).addTo(map)
-		self._ua_created_layer_control = true
-		register_toolbar_node(self, geolocation.layer_control.getContainer())
-	}
-	const layer_control = geolocation.layer_control
-
-	self._ua_previous_base_layers = []
-	map.eachLayer((layer) => {
-		if (layer instanceof L.TileLayer) {
-			self._ua_previous_base_layers.push(layer)
-			map.removeLayer(layer)
-		}
+	enable_basemap_swap(self, 'ua', {
+		url			: UA_URL,
+		wms_options	: {
+			layers		: 'AU.AdministrativeUnit',
+			format		: 'image/png',
+			transparent	: true,
+			opacity		: 1
+		},
+		label		: self.get_tool_label('ua_control_title') || 'Administrative Units',
+		on_click	: (latlng) => check_administrative_unit_at_point(self, latlng)
 	})
-
-	self._ua_tile_layer = L.tileLayer.wms(UA_URL + '?', {
-		layers		: 'AU.AdministrativeUnit',
-		format		: 'image/png',
-		transparent	: true,
-		opacity		: 1
-	})
-	layer_control.addBaseLayer(self._ua_tile_layer, self.get_tool_label('ua_control_title') || 'Administrative Units')
-	self._ua_tile_layer.addTo(map) // the layer control redraws itself: no radio click to simulate
-
-	self._ua_click_handler = (event) => check_administrative_unit_at_point(self, event.latlng)
-	map.on('click', self._ua_click_handler)
 
 }//end enable_ua
 
@@ -153,41 +131,13 @@ const enable_ua = function(self) {
 
 /**
 * DISABLE_UA
-* Reverses ENABLE_UA: off the map and the control, previous basemaps back, a
-* self-created control removed.
+* Reverses ENABLE_UA. Also the panel's on_hide, so any path that closes it disarms.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const disable_ua = function(self) {
-
-	const geolocation	= self.geolocation
-	const map			= geolocation.map
-
-	if (self._ua_click_handler) {
-		map.off('click', self._ua_click_handler)
-		self._ua_click_handler = null
-	}
-
-	if (self._ua_tile_layer) {
-		if (geolocation.layer_control) {
-			geolocation.layer_control.removeLayer(self._ua_tile_layer)
-		}
-		map.removeLayer(self._ua_tile_layer)
-		self._ua_tile_layer = null
-	}
-
-	for (const layer of self._ua_previous_base_layers || []) {
-		layer.addTo(map)
-	}
-	self._ua_previous_base_layers = null
-
-	if (self._ua_created_layer_control && geolocation.layer_control) {
-		map.removeControl(geolocation.layer_control)
-		geolocation.layer_control = false
-		self._ua_created_layer_control = false
-	}
-
+	disable_basemap_swap(self, 'ua')
 }//end disable_ua
 
 
@@ -211,23 +161,9 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 
 	try {
 
-		const bounds	= self.geolocation.map.getBounds()
-		const point		= self.geolocation.map.latLngToContainerPoint(latlng)
-		const size		= self.geolocation.map.getSize()
-
 		const response = await self.tool_request({
 			action	: 'get_administrative_unit',
-			options	: {
-				tipo			: self.geolocation.tipo,
-				section_id		: self.geolocation.section_id,
-				section_tipo	: self.geolocation.section_tipo,
-				bbox			: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-				width			: size.x,
-				height			: size.y,
-				x				: point.x,
-				y				: point.y,
-				level			: self._ua_level
-			}
+			options	: {...wms_point_options(self, latlng), level: self._ua_level}
 		})
 
 		// torn down or closed (by any path) while in flight: a late response must

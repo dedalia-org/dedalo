@@ -20,32 +20,21 @@ import {ui} from '../../../core/common/js/ui.js'
 import {
 	create_toolbar_button,
 	is_toolbar_button_armed,
-	register_toolbar_node,
 	remove_toolbar_button,
 	set_toolbar_button_armed
 } from './toolbar.js'
 import {report_client_error} from './object_console.js'
+import {
+	disable_basemap_swap,
+	enable_basemap_swap,
+	is_spanish_official_lang,
+	wms_point_options
+} from './basemap_swap.js'
 
 
 
 const ENABLED_CLASS	= 'uca-maps-catastro-enabled'
 const CATASTRO_URL	= 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx'
-
-
-
-/**
-* IS_SPANISH_OFFICIAL_LANG
-* v6's gate for Catastro and UA (`render_tool_leaflet_special_tools.js`): the
-* record's language is Spanish, Catalan or Basque.
-*
-* @param {Object} self - tool_uca_maps instance
-* @returns {boolean}
-*/
-// exported for the client gate
-export const is_spanish_official_lang = function(self) {
-	const lang = self.geolocation && self.geolocation.section_lang
-	return lang==='lg-spa' || lang==='lg-cat' || lang==='lg-eus'
-}//end is_spanish_official_lang
 
 
 
@@ -102,47 +91,27 @@ const toggle_catastro = function(self) {
 
 /**
 * ENABLE_CATASTRO
-* Swaps the basemap for the cadastral WMS and arms the click. Remembers the tile
-* layers live on the map right then (asked via the map, never a cached "current"),
-* so disabling restores exactly those. Creates a layer_control only if none exists.
+* Arms the button, then swaps the basemap for the cadastral WMS and arms the click.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const enable_catastro = function(self) {
 
-	const geolocation	= self.geolocation
-	const map			= geolocation.map
-
 	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, true)
 
-	if (!geolocation.layer_control) {
-		geolocation.layer_control = L.control.layers({}).addTo(map)
-		self._catastro_created_layer_control = true
-		register_toolbar_node(self, geolocation.layer_control.getContainer())
-	}
-	const layer_control = geolocation.layer_control
-
-	self._catastro_previous_base_layers = []
-	map.eachLayer((layer) => {
-		if (layer instanceof L.TileLayer) {
-			self._catastro_previous_base_layers.push(layer)
-			map.removeLayer(layer)
-		}
+	enable_basemap_swap(self, 'catastro', {
+		url			: CATASTRO_URL,
+		wms_options	: {
+			layers		: 'Catastro',
+			format		: 'image/png',
+			transparent	: true,
+			opacity		: 1,
+			maxZoom		: 21
+		},
+		label		: self.get_tool_label('catastro_control_title') || 'Catastro',
+		on_click	: (latlng) => check_catastro_at_point(self, latlng)
 	})
-
-	self._catastro_tile_layer = L.tileLayer.wms(CATASTRO_URL + '?', {
-		layers		: 'Catastro',
-		format		: 'image/png',
-		transparent	: true,
-		opacity		: 1,
-		maxZoom		: 21
-	})
-	layer_control.addBaseLayer(self._catastro_tile_layer, self.get_tool_label('catastro_control_title') || 'Catastro')
-	self._catastro_tile_layer.addTo(map) // the layer control redraws itself: no radio click to simulate
-
-	self._catastro_click_handler = (event) => check_catastro_at_point(self, event.latlng)
-	map.on('click', self._catastro_click_handler)
 
 }//end enable_catastro
 
@@ -150,44 +119,16 @@ const enable_catastro = function(self) {
 
 /**
 * DISABLE_CATASTRO
-* Reverses ENABLE_CATASTRO. The cadastral layer also leaves the layer control, as
-* v6's `catastro_off`: a stale entry would linger in the basemap list.
+* Reverses ENABLE_CATASTRO.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const disable_catastro = function(self) {
 
-	const geolocation	= self.geolocation
-	const map			= geolocation.map
-
 	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, false)
 
-	if (self._catastro_click_handler) {
-		map.off('click', self._catastro_click_handler)
-		self._catastro_click_handler = null
-	}
-
-	if (self._catastro_tile_layer) {
-		if (geolocation.layer_control) {
-			geolocation.layer_control.removeLayer(self._catastro_tile_layer)
-		}
-		map.removeLayer(self._catastro_tile_layer)
-		self._catastro_tile_layer = null
-	}
-
-	for (const layer of self._catastro_previous_base_layers || []) {
-		layer.addTo(map)
-	}
-	self._catastro_previous_base_layers = null
-
-	// only remove the control if THIS toggle created it (no provider one existed)
-	// existed) — same "created_layer_control" convention as xyz_basemaps.js
-	if (self._catastro_created_layer_control && geolocation.layer_control) {
-		map.removeControl(geolocation.layer_control)
-		geolocation.layer_control = false
-		self._catastro_created_layer_control = false
-	}
+	disable_basemap_swap(self, 'catastro')
 
 }//end disable_catastro
 
@@ -211,22 +152,9 @@ export const check_catastro_at_point = async function(self, latlng) {
 
 	try {
 
-		const bounds	= self.geolocation.map.getBounds()
-		const point		= self.geolocation.map.latLngToContainerPoint(latlng)
-		const size		= self.geolocation.map.getSize()
-
 		const response = await self.tool_request({
 			action	: 'get_catastro_parcel',
-			options	: {
-				tipo			: self.geolocation.tipo,
-				section_id		: self.geolocation.section_id,
-				section_tipo	: self.geolocation.section_tipo,
-				bbox			: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-				width			: size.x,
-				height			: size.y,
-				x				: point.x,
-				y				: point.y
-			}
+			options	: wms_point_options(self, latlng)
 		})
 
 		// torn down or disarmed while in flight: a late response must not create a
