@@ -79,10 +79,7 @@ import {
 	ALLOWED_ICON_TYPES,
 	MAX_ICON_BYTES
 } from '../../../tools/tool_uca_maps/js/legend.js'
-import {
-	populate_legend_columns,
-	show_legend_message
-} from '../../../tools/tool_uca_maps/js/render_legend.js'
+import { populate_legend_columns } from '../../../tools/tool_uca_maps/js/render_legend.js'
 import { DEFAULT_SYMBOL_COLOUR } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
 import { is_toolbar_node, create_toolbar_panel, remove_toolbar_panel } from '../../../tools/tool_uca_maps/js/toolbar.js'
 import {
@@ -2487,6 +2484,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		control.click()
 		assert.equal(tool.object_viewer_panel.hidden, true, 'expected the panel hidden again after a second click')
+	})
+
+	it('each listed object carries an icon-only eye button: an SVG with an accessible name, no text', function() {
+
+		geolocation.active_layer_id = 1 // the seeded polygon
+		tool.attach_object_viewer()
+		tool.object_viewer_control.getContainer().click()
+
+		const eye = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-item .uca-maps-object-viewer-center')
+		assert.isOk(eye, 'expected the eye button on the listed object')
+		assert.instanceOf(eye.querySelector('svg'), SVGSVGElement, 'expected a real SVG icon, not markup turned into text')
+		assert.isOk(eye.querySelector('svg path').getAttribute('d'), 'expected the eye drawn')
+		assert.equal(eye.textContent.trim(), '', 'expected no text beside the icon')
+		assert.isOk(eye.getAttribute('aria-label'), 'expected the icon-only button to carry an accessible name')
 	})
 
 	it('collect_objects reads the ACTIVE FeatureGroup only (v6 parity), with a display-only nameless fallback', function() {
@@ -6279,31 +6290,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._image_overlays.length, 1, 'expected exactly one tracked overlay, not two stacked')
 	})
 
-	it('deleting the carrier takes its overlay off the map with it', async function() {
-
-		const carrier = add_image_carrier()
-		tool.attach_image_overlays()
-		await await_overlay(carrier)
-		const overlay = carrier._uca_maps_overlay
-
-		geolocation.map.fire('pm:remove', {layer: carrier})
-
-		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the orphaned image removed from the map')
-		assert.equal(tool._image_overlays.length, 0, 'expected the overlay untracked')
-	})
-
-	it('teardown removes every overlay the tool put on the map', async function() {
-
-		const carrier = add_image_carrier()
-		tool.attach_image_overlays()
-		await await_overlay(carrier)
-		const overlay = carrier._uca_maps_overlay
-
-		await tool.destroy(false, false, false)
-
-		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the overlay removed on teardown')
-	})
-
 	// IMAGE EDIT MODE (image_edit.js) — the overlay's three control points as
 	// draggable handles, on the same hand-built carriers.
 
@@ -6360,6 +6346,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(after.top_right, [40.47, -3.60], 'expected the dragged corner stored')
 		assert.deepEqual(after.top_left, before.top_left, 'expected the other two corners untouched')
 		assert.deepEqual(after.bottom_left, before.bottom_left, 'expected the other two corners untouched')
+
+		// the overlay is what the user sees: the plugin keeps its corners in these three
+		const overlay = carrier._uca_maps_overlay
+		assert.closeTo(overlay._topRight.lat, 40.47, 1e-9, 'expected the image itself moved with the handle')
+		assert.closeTo(overlay._topRight.lng, -3.60, 1e-9, 'expected the image itself moved with the handle')
+		assert.deepEqual([overlay._topLeft.lat, overlay._topLeft.lng], before.top_left, 'expected the image\'s other corners untouched')
+		assert.deepEqual([overlay._bottomLeft.lat, overlay._bottomLeft.lng], before.bottom_left, 'expected the image\'s other corners untouched')
 
 		// the carrier is what can be clicked and deleted — an overlay that
 		// moved away from it would be unselectable
@@ -6440,14 +6433,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('teardown removes the handles as well as the overlay', async function() {
+	it('teardown removes every overlay and handle the tool put on the map', async function() {
 
 		const carrier = await add_image_carrier_with_overlay()
 		tool.set_image_interactive(carrier, true)
+		const overlay = carrier._uca_maps_overlay
 		const handles = carrier._uca_maps_handles.slice()
 
 		await tool.destroy(false, false, false)
 
+		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the overlay removed on teardown')
 		for (const handle of handles) {
 			assert.equal(
 				geolocation.map.hasLayer(handle), false,
@@ -6456,14 +6451,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('deleting the object removes its handles too', async function() {
+	it('deleting the carrier takes its overlay and its handles off the map with it', async function() {
 
 		const carrier = await add_image_carrier_with_overlay()
 		tool.set_image_interactive(carrier, true)
+		const overlay = carrier._uca_maps_overlay
 		const handles = carrier._uca_maps_handles.slice()
 
 		geolocation.map.fire('pm:remove', {layer: carrier})
 
+		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the orphaned image removed from the map')
+		assert.equal(tool._image_overlays.length, 0, 'expected the overlay untracked')
 		for (const handle of handles) {
 			assert.equal(geolocation.map.hasLayer(handle), false, 'expected the handle removed with its object')
 		}
@@ -6502,13 +6500,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(asked, false, 'expected NO request for an empty query')
 	})
 
-	it('search_places stores the hits and the panel renders one clickable row each', async function() {
+	it('search_places asks in the record\'s language, and each hit is a row that moves the map when clicked', async function() {
 
 		tool.attach_place_search()
+		// hits are named in the record's language; set one only forwarding can match
+		geolocation.section_lang = 'lg-cat'
 
+		const sent = []
 		stub_tool_request(async function(options) {
-			assert.equal(options.action, 'search_places')
-			assert.equal(options.options.query, 'Sagunto')
+			sent.push(options)
 			return { ok: true, data: { results: [
 				{ name: 'Sagunt', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
 				{ name: 'Sagunto, Spain', point: [39.67, -0.28], bbox: null }
@@ -6518,6 +6518,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const result = await search_places(tool, ' Sagunto ')
 		assert.equal(result.ok, true)
 		assert.equal(result.results.length, 2)
+		assert.equal(sent.length, 1)
+		assert.equal(sent[0].action, 'search_places')
+		assert.equal(sent[0].options.query, 'Sagunto', 'expected the query trimmed')
+		assert.equal(sent[0].options.lang, 'lg-cat', 'expected the record\'s language forwarded')
 
 		// the panel's own render path (render_place_search.js), reached the
 		// way the Search button reaches it
@@ -6525,6 +6529,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const rows = tool.place_search_panel.querySelectorAll('.uca-maps-place-search-result-button')
 		assert.equal(rows.length, 2, 'expected one row per hit')
 		assert.equal(rows[0].textContent, 'Sagunt')
+
+		// the second hit has no box: the click lands on its point exactly
+		rows[1].click()
+		const center = geolocation.map.getCenter()
+		assert.closeTo(center.lat, 39.67, 1e-6, 'expected the click to centre the map on its own hit')
+		assert.closeTo(center.lng, -0.28, 1e-6, 'expected the click to centre the map on its own hit')
 	})
 
 	it('search_places toasts a request that throws, but not once the tool is torn down mid-flight', async function() {
@@ -6558,14 +6568,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('focus_place_result fits the bounding box, and falls back to a point zoom without one', async function() {
 
 		tool.attach_place_search()
+		// a box degrees wide: a point zoom around its centre could not show both corners
+		const bbox = [35.0, -6.0, 43.0, 3.0]
 		tool._place_results = [
-			{ name: 'with bbox', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
+			{ name: 'with bbox', point: [39.0, -1.5], bbox: bbox },
 			{ name: 'no bbox', point: [40.0, -1.0], bbox: null }
 		]
 
+		const map		= geolocation.map
+		const box		= L.latLngBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]])
+		const box_zoom	= map.getBoundsZoom(box)
+		assert.isBelow(box_zoom, map.getMaxZoom(), 'expected a box that needs a wider view than the point zoom')
+
 		assert.equal(focus_place_result(tool, 0), true)
-		const bounds = geolocation.map.getBounds()
-		assert.isTrue(bounds.contains(L.latLng(39.68, -0.27)), 'expected the map moved onto the hit')
+		assert.equal(map.getZoom(), box_zoom, 'expected the zoom that fits the box, not the point zoom')
+		assert.isTrue(map.getBounds().contains(box.getSouthWest()), 'expected the box\'s south-west corner in view')
+		assert.isTrue(map.getBounds().contains(box.getNorthEast()), 'expected the box\'s north-east corner in view')
 
 		assert.equal(focus_place_result(tool, 1), true)
 		const center = geolocation.map.getCenter()
@@ -6683,15 +6701,52 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(pending.length, 2, 'expected Enter to search again once unlocked')
 		pending[1]({ ok: true, data: { results: [] } })
 		await tick()
+		// nothing found is a warning, not a failure
+		const message = panel.querySelector('.uca-maps-place-search-message')
+		assert.isFalse(message.hidden, 'expected an answer with no hits to say so')
+		assert.equal(message.textContent, 'No places found.')
+		assert.equal(message.dataset.type, 'warning')
+	})
+
+	it('a failed search shows its error in the panel and drops the previous hits from the list', async function() {
+
+		tool.attach_place_search()
+
+		const panel		= tool.place_search_panel
+		const input		= panel.querySelector('.uca-maps-place-search-input')
+		const message	= panel.querySelector('.uca-maps-place-search-message')
+		const rows		= () => panel.querySelectorAll('.uca-maps-place-search-result-button').length
+		const error		= {is_api_error: true, code: 'request.invalid_options', message: 'Nominatim is down', transport: false}
+
+		let answer = { ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } }
+		stub_tool_request(async () => answer)
+
+		tool.place_search_control.getContainer().click()
+		input.value = 'Sagunto'
+		panel.querySelector('.uca-maps-place-search-button').click()
+		await tick()
+		assert.equal(rows(), 1, 'expected the first answer listed')
+
+		answer = { ok: false, error: error }
+		panel.querySelector('.uca-maps-place-search-button').click()
+		await tick()
+
+		assert.isFalse(message.hidden, 'expected the failure shown in the panel')
+		assert.equal(message.textContent, tool_error_text(error, 'The place search could not be completed.'))
+		assert.equal(message.dataset.type, 'error')
+		assert.equal(rows(), 0, 'expected no stale hits under the error')
 	})
 
 	it('detach_place_search removes the button and panel', async function() {
 
 		tool.attach_place_search()
-		const map_container_node = geolocation.map.getContainer()
+		const map_container_node	= geolocation.map.getContainer()
+		const panel					= tool.place_search_panel
+		assert.isTrue(panel.isConnected, 'expected the panel in the page before teardown')
 
 		await tool.destroy(false, false, false)
 
+		assert.isFalse(panel.isConnected, 'expected the panel taken out of the map, not just forgotten')
 		assert.equal(tool.place_search_control, null, 'expected place_search_control cleared')
 		assert.equal(tool.place_search_panel, null, 'expected place_search_panel cleared')
 		assert.isNotOk(
@@ -6737,13 +6792,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_geolocate()
 
-		// two dirty marks, both legitimate and neither a save: the core's own
-		// 'pm:create' handler calls update_draw_data when it adds the layer
-		// (component_geolocation.js:1958), and commit() calls it again after
-		// the tool has finished writing its own properties onto the feature.
-		// What matters is that NOTHING here reaches the save door — the user's
-		// own Save button stays the only writer (second law of
-		// component_geolocation).
+		// the core's own 'pm:create' handler already marks the record dirty;
+		// the tool's commit() after it only repeats that. What matters is that
+		// nothing here reaches the save door: the user's Save stays the only writer
 		let commits = 0
 		let saves = 0
 		const original_update	= geolocation.update_draw_data
@@ -6763,6 +6814,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		geolocation.update_draw_data	= original_update
 		geolocation.save				= original_save
+	})
+
+	it('a position fix with no FeatureGroup to land in says so and draws nothing', function() {
+
+		tool.attach_geolocate()
+
+		// the core's 'pm:create' handler would throw adding to a group that does not exist
+		geolocation.active_layer_id = 99
+		assert.isNotOk(geolocation.FeatureGroup[99], 'expected no group for the active layer')
+
+		const toasts	= []
+		const created	= []
+		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+		geolocation.map.on('pm:create', (event) => created.push(event.layer))
+		try {
+			const marker = create_position_marker(tool, L.latLng(40.44, -3.70))
+			assert.isNull(marker, 'expected no marker')
+			assert.equal(created.length, 0, 'expected nothing handed to the draw pipeline')
+			assert.equal(toasts.length, 1, 'expected the user told why nothing was drawn')
+			assert.equal(toasts[0].message, 'Select a map layer before using geolocation.')
+		} finally {
+			event_manager.unsubscribe(token)
+		}
 	})
 
 	it('a second locationfound while disarmed drops nothing — v6 re-binds a listener per click and drops N markers', function() {
@@ -6787,19 +6861,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('detach_geolocate removes the button and its listeners', async function() {
 
 		tool.attach_geolocate()
-		const map_container_node	= geolocation.map.getContainer()
-		const group					= active_group()
-		const before				= group.getLayers().length
+		const map					= geolocation.map
+		const map_container_node	= map.getContainer()
+		const found_handler			= tool._geolocate_found_handler
+		const error_handler			= tool._geolocate_error_handler
+		assert.isTrue(map.listens('locationfound', found_handler), 'expected the fix listener bound at attach')
+		assert.isTrue(map.listens('locationerror', error_handler), 'expected the error listener bound at attach')
 
 		await tool.destroy(false, false, false)
 
 		assert.equal(tool.geolocate_control, null, 'expected geolocate_control cleared')
 		assert.isNotOk(map_container_node.querySelector('.uca-maps-geolocate-control'))
-
-		// destroy() nulls self.geolocation, so the handler would throw if it
-		// were still bound — firing proves it is really off the map
-		geolocation.map.fire('locationfound', {latlng: L.latLng(40.44, -3.70)})
-		assert.equal(group.getLayers().length, before, 'expected a torn-down tool to ignore the map entirely')
+		// a disarmed handler ignores a fix anyway, so only the map's own list tells
+		// a removed listener from one left behind on the core's map
+		assert.isFalse(map.listens('locationfound', found_handler), 'expected the fix listener off the map')
+		assert.isFalse(map.listens('locationerror', error_handler), 'expected the error listener off the map')
 	})
 
 	it('attach_scale_bar adds exactly one graphic scale WITH its compass rose, idempotently', function() {
@@ -6811,10 +6887,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const scales = map_container_node.querySelectorAll('.uca-maps-scale')
 		assert.equal(scales.length, 1, 'expected exactly one scale bar')
 
-		// the compass is half of what v6 draws here (its hand-patched copy of
-		// leaflet-graphicscale builds one) — a scale bar without it is the
-		// omission Sergio caught on the hito-15 validation
+		// the compass is half of what v6 draws here: its hand-patched copy of
+		// leaflet-graphicscale builds one
 		assert.isOk(scales[0].querySelector('.uca-maps-scale-compass'), 'expected the compass rose')
+
+		// map furniture, not tool chrome: the exported map image keeps it
+		assert.isFalse(is_toolbar_node(tool, scales[0]), 'expected the scale NOT registered as chrome')
 
 		// two offset rows of divisions: the "double line" checker bar, not a
 		// single stroke
@@ -6860,7 +6938,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('detach removes the scale bar', async function() {
 
 		tool.attach_scale_bar()
-		const map_container_node = geolocation.map.getContainer()
+		const map					= geolocation.map
+		const map_container_node	= map.getContainer()
+		const control				= tool.scale_control
+		assert.isOk(map_container_node.querySelector('.uca-maps-scale'), 'expected the scale bar drawn before teardown')
 
 		await tool.destroy(false, false, false)
 
@@ -6869,6 +6950,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.uca-maps-scale'),
 			'expected the scale bar removed on teardown'
 		)
+		assert.isFalse(map.listens('move', control._redraw, control), 'expected the move listener off the map')
+		// a redraw left bound would read the removed control's null _map and throw
+		map.fire('move')
 	})
 
 	it('a scale attached before its map loads leaves no load hook behind once detached', function() {
@@ -6920,10 +7004,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_legend()
 
-		// `map_image_download.js` excludes every node registered through
-		// toolbar.js from the screenshot. The editing panel and its button are
-		// chrome and belong out; the legend itself is the one thing a user
-		// exports a map WITH, so it must not be registered (hito 17 decision).
+		// the screenshot skips every node registered through toolbar.js. The
+		// panel and its button are chrome; the legend is what a user exports a
+		// map WITH, so it must not be registered
 		assert.isTrue(is_toolbar_node(tool, tool.legend_panel), 'expected the panel registered as chrome')
 		assert.isTrue(
 			is_toolbar_node(tool, tool.legend_control.getContainer()),
@@ -6944,9 +7027,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// there, which is noise, not information
 		assert.isTrue(overlay.hidden, 'expected no overlay while the legend is empty')
 
-		// the corner itself is the decision (hito 17): 'topleft' is this tool's
-		// own button column, 'topright' Geoman's draw bar, 'bottomright' the
-		// scale bar — a legend stacked under the buttons is not the same design
+		// 'topleft' is this tool's button column, 'topright' Geoman's draw bar,
+		// 'bottomright' the scale bar: the one free corner is bottomleft
 		assert.isOk(
 			overlay.closest('.leaflet-bottom.leaflet-left'),
 			'expected the overlay in Leaflet\'s bottomleft corner'
@@ -7033,6 +7115,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 		assert.isFalse(rejected_size.ok, 'expected an oversized icon refused')
 		assert.isOk(rejected_size.error, 'expected the refusal to say why')
+		assert.equal(
+			tool.legend.columns[0].elements[0].icon, DEFAULT_ELEMENT_ICON,
+			'expected a refused icon to leave the pin in place'
+		)
 
 		// the ceiling is v6's, inclusive: a file AT 2 MB is accepted — without
 		// this case a `>` turned into a `>=` reads as green
@@ -7040,12 +7126,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			0, 0, new File([new Uint8Array(MAX_ICON_BYTES)], 'exact.png', {type: 'image/png'})
 		)
 		assert.isTrue(at_the_ceiling.ok, 'expected a file exactly at the 2 MB ceiling accepted')
+		// back to the pin, so the last case has to land its own icon
 		tool.legend.columns[0].elements[0].icon = DEFAULT_ELEMENT_ICON
-
-		assert.equal(
-			tool.legend.columns[0].elements[0].icon, DEFAULT_ELEMENT_ICON,
-			'expected a refused icon to leave the pin in place'
-		)
 
 		const accepted = await tool.set_legend_element_icon(
 			0, 0, pin_png()
@@ -7143,7 +7225,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(row.querySelector('.uca-maps-legend-upload-icon'), 'expected the icon button')
 	})
 
-	it('a refused icon reaches the panel, and an accepted one repaints the row', async function() {
+	it('the icon picker reports a refused or unreadable file in the panel, and an accepted one repaints the row', async function() {
 
 		tool.attach_legend()
 		tool.legend_control.getContainer().click()
@@ -7152,29 +7234,52 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		panel.querySelector('.uca-maps-legend-add-column').click()
 		panel.querySelector('.uca-maps-legend-add-element').click()
 
-		// the message node and show_legend_message are coupled BY CLASS across
-		// two files: renaming one side alone would throw inside the file-picker
-		// handler and swallow every icon refusal silently
-		const message = panel.querySelector('.uca-maps-legend-message')
-		assert.isOk(message, 'expected the panel to carry its message line')
-		assert.isTrue(message.hidden, 'expected it hidden while nothing failed')
+		const message	= panel.querySelector('.uca-maps-legend-message')
+		const row_src	= () => panel.querySelector('.uca-maps-legend-element img').getAttribute('src')
+		assert.isTrue(message.hidden, 'expected the message line hidden while nothing failed')
 
-		show_legend_message(panel, 'nope')
-		assert.isFalse(message.hidden, 'expected a refusal shown')
-		assert.equal(message.textContent, 'nope')
+		// the picker is a throwaway file input: catch it instead of opening the OS chooser
+		const pick = async function(file, done) {
+			let picker = null
+			const original_click = HTMLInputElement.prototype.click
+			HTMLInputElement.prototype.click = function() { picker = this }
+			try {
+				panel.querySelector('.uca-maps-legend-upload-icon').click()
+			} finally {
+				HTMLInputElement.prototype.click = original_click
+			}
+			assert.isOk(picker, 'expected the upload button to open a file picker')
+			pick_file(picker, file)
+			await until(done)
+		}
 
-		const accepted = await tool.set_legend_element_icon(
-			0, 0, pin_png()
-		)
-		assert.isTrue(accepted.ok)
+		await pick(new File(['x'], 'note.txt', {type: 'text/plain'}), () => !message.hidden)
+		assert.isFalse(message.hidden, 'expected the refusal shown in the panel')
+		assert.equal(message.textContent, 'Icon file type not allowed (PNG, JPEG, GIF, WebP or SVG only).')
+		assert.equal(message.dataset.type, 'error')
+		assert.equal(row_src(), DEFAULT_ELEMENT_ICON, 'expected the pin kept')
 
-		// the icon path is the one mutation that repaints the LIST, not just
-		// the overlay (a new icon has to show in the row that uploaded it)
-		populate_legend_columns(tool, panel)
-		assert.isTrue(
-			panel.querySelector('.uca-maps-legend-element img').getAttribute('src').startsWith('data:image/png;base64,'),
-			'expected the row repainted with the uploaded icon'
-		)
+		// a file the browser fails to read, whichever reading API asks for it
+		const original_read		= FileReader.prototype.readAsDataURL
+		const original_buffer	= Blob.prototype.arrayBuffer
+		FileReader.prototype.readAsDataURL = function() {
+			setTimeout(() => this.dispatchEvent(new ProgressEvent('error')))
+		}
+		Blob.prototype.arrayBuffer = () => Promise.reject(new DOMException('unreadable', 'NotReadableError'))
+		try {
+			await pick(pin_png(), () => !message.hidden)
+		} finally {
+			FileReader.prototype.readAsDataURL	= original_read
+			Blob.prototype.arrayBuffer			= original_buffer
+		}
+		assert.isFalse(message.hidden, 'expected the failed read shown in the panel')
+		assert.equal(message.textContent, 'The icon could not be read.')
+		assert.equal(row_src(), DEFAULT_ELEMENT_ICON, 'expected the pin kept')
+
+		await pick(pin_png(), () => row_src()!==DEFAULT_ELEMENT_ICON)
+		assert.isTrue(message.hidden, 'expected the old message cleared by the next pick')
+		assert.isTrue(row_src().startsWith('data:image/png;base64,'), 'expected the row repainted with the uploaded icon')
+		assert.equal(row_src(), tool.legend.columns[0].elements[0].icon, 'expected the row to show the stored icon')
 	})
 
 	it('the Legend toggle reads the DOM, so a sibling panel closing it never jams it shut', function() {
@@ -7190,9 +7295,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(tool.legend_panel.hidden, 'expected the second click to close')
 
 		// a sibling panel opening force-closes this one WITHOUT going through
-		// its own toggle (toolbar.js close_other_toolbar_panels) — a cached
-		// "is open" flag would desync here and the next click would do nothing.
-		// This is the bug CLAUDE.local.md records as already real once.
+		// its own toggle (toolbar.js close_other_toolbar_panels): a cached
+		// "is open" flag would desync here and the next click would do nothing
 		button.click()
 		assert.isFalse(tool.legend_panel.hidden, 'expected it open again')
 		tool.xyz_control.getContainer().click()
@@ -7508,6 +7612,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(sent.length, 1, 'expected one search: an id of one digit is a query')
 		assert.equal(sent[0].action, 'search_pleiades')
 		assert.equal(sent[0].options.type, 'id', 'expected the checked radio forwarded')
+	})
+
+	it('two Roman panels on one page keep their own Pleiades choice: each radio group has its own name', async function() {
+
+		mount_roman(WITH_PLEIADES)
+		// a second tool on the same page, as when two records' maps are open at once
+		const other = new tool_uca_maps()
+		other.model				= 'tool_uca_maps'
+		other.caller			= geolocation
+		other.geolocation		= geolocation
+		other.map_ready			= true
+		other.mode				= 'edit'
+		other.get_tool_label	= () => undefined
+		other.get_capabilities	= async () => ({ ok: true, data: { gazetteers: structuredClone(WITH_PLEIADES) } })
+		other.attach_roman_empire()
+		try {
+			const radios = (owner) => owner.roman_panel.querySelectorAll('.uca-maps-roman-pleiades-type input[type="radio"]')
+			assert.notEqual(radios(tool)[0].name, radios(other)[0].name, 'expected one group name per panel')
+
+			radios(other)[1].click()
+			assert.isTrue(radios(other)[1].checked, 'expected the second panel searching by id')
+			assert.isTrue(radios(tool)[0].checked, 'expected the first panel still searching by name')
+		} finally {
+			await other.destroy(false, false, false)
+		}
 	})
 
 	it('search_roman refuses an empty query, and Pelagios with no layer, without asking the server', async function() {
