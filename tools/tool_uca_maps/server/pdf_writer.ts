@@ -224,7 +224,9 @@ function splitOverlongWord(word: string, size: number, bold: boolean, maxWidth: 
 	let lastBreak = -1;
 	for (let index = 0; index < chars.length; index++) {
 		const charWidth = widthAt(index);
-		if (width + charWidth > maxWidth && index > start) {
+		// the tail carried past a "]," cut can still overflow with this char:
+		// then it is cut again, mid-word
+		while (width + charWidth > maxWidth && index > start) {
 			const cut = lastBreak > start ? lastBreak : index;
 			pieces.push(chars.slice(start, cut).join(''));
 			start = cut;

@@ -31,12 +31,19 @@ const SAMPLE_GEOJSON = {
 };
 
 describe('tool_uca_maps vector_download — caller-fault validation (no binary needed)', () => {
-	test('an unsupported format is refused', async () => {
-		const action = await loadAction('vector_download');
-		await expect(
-			action.handler(contextOf({ format: 'dxf', geojson: SAMPLE_GEOJSON })),
-		).rejects.toThrow(/Unsupported vector format/);
-	});
+	// a key every object inherits is no format: the format table is read by own keys only
+	test.each(['dxf', 'toString', 'constructor', '__proto__'])(
+		"an unsupported format ('%s') is refused",
+		async (format) => {
+			const action = await loadAction('vector_download');
+			await expect(
+				action.handler(contextOf({ format, geojson: SAMPLE_GEOJSON })),
+			).rejects.toMatchObject({
+				code: 'request.invalid_options',
+				message: expect.stringMatching(/^Unsupported vector format/),
+			});
+		},
+	);
 
 	test.each([
 		['missing', { format: 'shp' }],

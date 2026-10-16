@@ -17,9 +17,11 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	statSync,
 	utimesSync,
@@ -27,12 +29,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import type { TCPSocketListener } from 'bun';
+import { Glob, type TCPSocketListener } from 'bun';
 import { config } from '../../src/config/config.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
+import { meetsGdalMinVersion } from '../../tools/tool_uca_maps/server/capabilities.ts';
 import {
 	assertOfflineGeoJsonCrs,
+	GDAL_READ_ENV,
 	inputDrivers,
 	isMissingGdalBinary,
 	OFFLINE_ENV,
@@ -206,7 +210,7 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 		}
 	});
 
-	test('every spawn runs offline with its scratch as temp dir, which a caller env cannot override', async () => {
+	test('every spawn runs offline, reads JPEG as RGB, with its scratch as temp dir, which a caller env cannot override', async () => {
 		const env = mustGet(Bun.which('env'), 'env binary');
 		const result = await runToolBinary([env], 'probe env', {
 			scratchDir: '/scratch/probe',
@@ -214,12 +218,18 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 				GDAL_HTTP_PROXY: 'http://127.0.0.1:1',
 				NO_PROXY: '*',
 				PROJ_NETWORK: 'ON',
+				GDAL_JPEG_TO_RGB: 'NO',
 				CPL_TMPDIR: '/tmp',
 				TMPDIR: '/tmp',
 			},
 		});
 		const lines = new Set(result.stdout.split('\n'));
-		const expected = { ...OFFLINE_ENV, CPL_TMPDIR: '/scratch/probe', TMPDIR: '/scratch/probe' };
+		const expected = {
+			...OFFLINE_ENV,
+			...GDAL_READ_ENV,
+			CPL_TMPDIR: '/scratch/probe',
+			TMPDIR: '/scratch/probe',
+		};
 		for (const [key, value] of Object.entries(expected)) {
 			expect([key, lines.has(`${key}=${value}`)]).toEqual([key, true]);
 		}
@@ -246,6 +256,36 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 		expect(isMissingGdalBinary(otherCode, 'gdalinfo')).toBe(false);
 	});
 
+	test.each([
+		['GDAL 3.2.0, released 2020/11/02', true],
+		['GDAL 3.13.2 "Iowa City", released 2026/07/20', true],
+		['GDAL 4.0.0, released 2030/01/01', true],
+		['GDAL 3.1.4, released 2020/10/20', false],
+		['GDAL 2.10.0, released 2019/01/01', false],
+		['gdalinfo: unknown option', false],
+		['', false],
+		[null, false],
+	])('the GDAL version floor (-if exists from 3.2): %p meets it: %p', (banner, meets) => {
+		expect(meetsGdalMinVersion(banner)).toBe(meets);
+	});
+
+	// a fake binary that answers `--version` as GDAL 3.1 would: it runs, but -if
+	// fails. Named by its absolute path: Bun.which never sees a PATH set at runtime
+	test('a GDAL below the floor is the not-installed refusal for that binary, never a spawn that fails', async () => {
+		const bin = mkdtempSync(join(tmpdir(), 'uca_maps_old_gdal_'));
+		const name = join(bin, 'gdalinfo') as Parameters<typeof resolveGdalBinary>[0];
+		try {
+			writeFileSync(name, "#!/bin/sh\necho 'GDAL 3.1.4, released 2020/10/20'\n");
+			chmodSync(name, 0o755);
+			const error = await failureOf(resolveGdalBinary(name));
+			expectCode(error, 'tool.dependency_unavailable');
+			expect(isMissingGdalBinary(error, name)).toBe(true);
+			expect((error as DedaloError).message).toMatch(/GDAL 3\.2 or later is required/);
+		} finally {
+			rmSync(bin, { recursive: true, force: true });
+		}
+	});
+
 	test('a raster driver comes from the extension; an unknown one, VRT included, is refused', () => {
 		expect(rasterDriverOf('/x/a.TIF')).toBe('GTiff');
 		expect(rasterDriverOf('/x/a.jpeg')).toBe('JPEG');
@@ -267,6 +307,34 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 			}
 		});
 		expect(driverless).toEqual([]);
+	});
+});
+
+/** Server files that may spawn outside `runToolBinary`, each with its reason. */
+const SPAWN_EXEMPT: Readonly<Record<string, string>> = {
+	'capabilities.ts': '--version only, no input file: probeOnPath bounds it itself',
+};
+
+describe('tool_uca_maps spawn census — every binary runs through runToolBinary', () => {
+	const SERVER = resolve(import.meta.dir, '../../tools/tool_uca_maps/server');
+	const SPAWN = /\brunBinary\b|\bBun\.spawn(Sync)?\b|\bBun\.\$|node:child_process/;
+	/** Code lines only: a comment may name a spawn without making one. */
+	const codeLines = (file: string) =>
+		readFileSync(join(SERVER, file), 'utf-8')
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((line) => !/^(\/\/|\*|\/\*)/.test(line));
+
+	test('only gdal.ts spawns, once, inside runToolBinary; the exemptions still spawn', () => {
+		const files = [...new Glob('**/*.ts').scanSync({ cwd: SERVER })];
+		expect(files.length).toBeGreaterThanOrEqual(15);
+		const spawning = files.filter((file) => codeLines(file).some((line) => SPAWN.test(line)));
+		expect(spawning.sort()).toEqual(['gdal.ts', ...Object.keys(SPAWN_EXEMPT)].sort());
+		// one call, and it is runToolBinary's own
+		const gdal = readFileSync(join(SERVER, 'gdal.ts'), 'utf-8');
+		const from = gdal.slice(gdal.indexOf('export async function runToolBinary('));
+		expect(gdal.match(/\brunBinary\(/g)?.length).toBe(1);
+		expect(from.slice(0, from.indexOf('\n}\n'))).toContain('await runBinary(argv,');
 	});
 });
 

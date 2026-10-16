@@ -136,7 +136,7 @@ describe('tool_uca_maps findPositionOutsideLonLat (pure)', () => {
 		features: geometries.map((geometry) => ({ type: 'Feature', properties: {}, geometry })),
 	});
 
-	test('longitude/latitude everywhere, edges included, is null; so is a feature without geometry', () => {
+	test('longitude/latitude everywhere, edges included, is null; so is a feature without geometry or an empty one', () => {
 		expect(
 			findPositionOutsideLonLat(
 				collection(
@@ -149,6 +149,8 @@ describe('tool_uca_maps findPositionOutsideLonLat (pure)', () => {
 						],
 					},
 					null,
+					{ type: 'MultiPolygon', coordinates: [] },
+					{ type: 'Polygon', coordinates: [[]] },
 				),
 			),
 		).toBeNull();
@@ -194,6 +196,26 @@ describe('tool_uca_maps findPositionOutsideLonLat (pure)', () => {
 		expect(
 			findPositionOutsideLonLat(collection({ type: 'Point', coordinates: [10] })),
 		).not.toBeNull();
+	});
+
+	test('a position whose coordinates are not numbers is never inside, at any depth', () => {
+		expect(
+			findPositionOutsideLonLat(collection({ type: 'Point', coordinates: ['10', '20'] })),
+		).toEqual([Number.NaN, Number.NaN]);
+		expect(
+			findPositionOutsideLonLat(
+				collection({
+					type: 'Polygon',
+					coordinates: [
+						[
+							[-0.4, 39.4],
+							[-0.3, null],
+							[-0.4, 39.4],
+						],
+					],
+				}),
+			),
+		).toEqual([-0.3, Number.NaN]);
 	});
 });
 

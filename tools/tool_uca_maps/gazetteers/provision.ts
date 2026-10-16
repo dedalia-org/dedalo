@@ -32,8 +32,9 @@ const PLEIADES_DUMPS = [
 ];
 
 /** The layers `gazetteer_store.ts` serves, copied rather than imported: that
- * module loads the engine's database config, which this script never needs. */
-const PELAGIOS_DATASETS = [
+ * module loads the engine's database config, which this script never needs.
+ * Exported for the gate that keeps the two lists equal. */
+export const PELAGIOS_DATASETS = [
 	'places_high',
 	'places_medium',
 	'places_low',

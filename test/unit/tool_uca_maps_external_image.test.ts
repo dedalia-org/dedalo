@@ -135,7 +135,10 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 	test.each([
 		['true', true, true],
 		['a JSON false', false, false],
-		['absent', true, undefined],
+		['a quoted "false"', false, 'false'],
+		['a quoted "true"', false, 'true'],
+		['null', false, null],
+		['undefined', false, undefined],
 	])('the stored option %s reads as on=%p', (_label, on, value) => {
 		expect(externalImagesOn(value)).toBe(on);
 	});

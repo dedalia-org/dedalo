@@ -1,5 +1,5 @@
 /**
- * tool_uca_maps — every sentence the server writes for the user reaches them.
+ * tool_uca_maps — every sentence the server writes for the user survives to the client.
  *
  * A `publicMessage` survives the converter only on a `public`-disclosure code
  * (the ladder, src/core/errors/convert.ts); on an `operator` code it is
@@ -7,7 +7,8 @@
  * shows a reason only for the codes in the client's REASON_CODES
  * (js/tool_error_text.js). This census ties the three together: each
  * `new DedaloError(code, {publicMessage})` under server/ names a public code,
- * the converter really puts the sentence on the wire, and the client shows it.
+ * the converter really puts the sentence on the wire, and REASON_CODES lists
+ * the code. Whether the calling panel renders the reason is not read here.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -113,7 +114,7 @@ describe('tool_uca_maps — a public message is a message the user reads', () =>
 		expect(isInlineOptions(" ''")).toBe(true);
 	});
 
-	test('a publicMessage rides only a public code, the converter keeps it, the panel shows it', async () => {
+	test('a publicMessage rides only a public code that the converter keeps and REASON_CODES lists', async () => {
 		const reasons = await clientReasonCodes();
 		const spoken = (await throwSites()).filter((site) => site.publicMessage);
 		// a floor: a moved directory or a renamed field must not pass as "none"

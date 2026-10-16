@@ -17,7 +17,7 @@ import {
 	type SpawnResult,
 } from '../../../src/core/media/engine/spawn.ts';
 import { assertTestMediaRoot } from '../../../src/core/media/test_media_root.ts';
-import { probeOnPath } from './capabilities.ts';
+import { GDAL_MIN_VERSION, meetsGdalMinVersion, probeOnPath } from './capabilities.ts';
 
 /** Bounded — these are single-object/single-screenshot conversions, never a
  * multi-GB media transcode; a stuck GDAL/ImageMagick process must not hold
@@ -36,6 +36,15 @@ export const OFFLINE_ENV: Readonly<Record<string, string>> = {
 	NO_PROXY: '',
 	no_proxy: '',
 	PROJ_NETWORK: 'OFF',
+};
+
+/**
+ * GDAL's reading pinned like the network: with `GDAL_JPEG_TO_RGB=NO` in the
+ * server's env a CMYK JPEG comes as Cyan/Magenta/Yellow/Black bands without
+ * `SOURCE_COLOR_SPACE`, the one signal the image download's CMYK refusal reads.
+ */
+export const GDAL_READ_ENV: Readonly<Record<string, string>> = {
+	GDAL_JPEG_TO_RGB: 'YES',
 };
 
 /** GDAL binaries that open a file: each picks its driver by CONTENT unless
@@ -115,9 +124,9 @@ function assertOfflineCrs(crs: unknown): void {
 
 /**
  * Resolve a GDAL/OGR binary with the same probe `get_capabilities` reports, so
- * a broken one is `tool.dependency_unavailable` here too, never a generic
- * `tool.action_failed`. Re-probed on every call: an install may add or remove
- * GDAL without a restart, and a conversion is no hot path.
+ * a broken or too old one is `tool.dependency_unavailable` here too, never a
+ * generic `tool.action_failed`. Re-probed on every call: an install may add or
+ * remove GDAL without a restart, and a conversion is no hot path.
  */
 export async function resolveGdalBinary(
 	name: 'ogr2ogr' | 'ogrinfo' | 'gdal_translate' | 'gdalwarp' | 'gdalinfo' | 'gdalsrsinfo',
@@ -129,12 +138,19 @@ export async function resolveGdalBinary(
 			message: `${name} is not installed on this server`,
 		});
 	}
+	if (!meetsGdalMinVersion(probe.version)) {
+		throw new DedaloError('tool.dependency_unavailable', {
+			coordinates: { tool: 'tool_uca_maps', binary: name },
+			message: `${name} reports '${probe.version ?? ''}': GDAL ${GDAL_MIN_VERSION.join('.')} or later is required`,
+		});
+	}
 	return probe.path;
 }
 
 /**
- * Whether `error` is `resolveGdalBinary`'s "not installed" for `name`. The code
- * alone does not say it: a missing media root raises the same one (scratchRoot).
+ * Whether `error` is `resolveGdalBinary`'s "not installed" (or too old) for
+ * `name`. The code alone does not say it: a missing media root raises the same
+ * one (scratchRoot).
  */
 export function isMissingGdalBinary(error: unknown, name: string): boolean {
 	return (
@@ -266,8 +282,9 @@ interface RunToolBinaryOptions {
 /**
  * Run one GDAL/OGR or ImageMagick binary and assert it succeeded (and left
  * `expectedOutput`, when given); `context` names the operation in the
- * log-only message. Every spawn goes through here so none inherits
- * `spawn.ts`'s 10-minute default instead of TOOL_BINARY_TIMEOUT_MS.
+ * log-only message. Every spawn goes through here (bar `probeOnPath`'s
+ * bounded `--version`) so none inherits `spawn.ts`'s 10-minute default
+ * instead of TOOL_BINARY_TIMEOUT_MS.
  */
 export async function runToolBinary(
 	argv: readonly string[],
@@ -287,6 +304,7 @@ export async function runToolBinary(
 			CPL_TMPDIR: options.scratchDir,
 			TMPDIR: options.scratchDir,
 			...OFFLINE_ENV,
+			...GDAL_READ_ENV,
 		},
 	});
 	try {

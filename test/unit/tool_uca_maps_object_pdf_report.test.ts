@@ -193,6 +193,15 @@ describe('pdf_writer — encoding and wrapping', () => {
 		for (const line of lines) expect(textWidth(line, 9, false)).toBeLessThanOrEqual(480);
 	});
 
+	// the cut lands after "],", and the tail it carries plus the next char is
+	// already wider than the line: one cut is not enough
+	test('a tail carried past a "]," cut is cut again when it still overflows', () => {
+		const word = `${'x'.repeat(19)}],${'W'.repeat(40)}`;
+		const lines = wrapText(word, 10, false, 100);
+		expect(lines.join('')).toBe(word);
+		for (const line of lines) expect(textWidth(line, 10, false)).toBeLessThanOrEqual(100);
+	});
+
 	test('accented, unencodable and bold text wraps within the line, every char kept', () => {
 		const word = 'áéíóú文ñ'.repeat(60);
 		const lines = wrapText(word, 10, true, 200);
@@ -264,10 +273,15 @@ describe('pdf_writer — the file a real reader sees', () => {
 const MAGICK = Bun.which('magick') ?? Bun.which('convert');
 const HAVE_MAGICK = MAGICK !== null;
 
-/** A real encoder's 2x2 JPEG, built at test time rather than checked in as a blob. */
-async function tinyJpeg(): Promise<Uint8Array> {
-	const target = join(scratch, 'tiny.jpg');
-	const proc = Bun.spawn([MAGICK ?? 'magick', '-size', '2x2', 'xc:red', target], {
+/** A real encoder's JPEG, built at test time rather than checked in as a blob;
+ * `extra` adds encoder options (a grayscale colorspace). */
+async function realJpeg(
+	name: string,
+	size = '2x2',
+	extra: readonly string[] = [],
+): Promise<Uint8Array> {
+	const target = join(scratch, `${name}.jpg`);
+	const proc = Bun.spawn([MAGICK ?? 'magick', '-size', size, 'xc:red', ...extra, target], {
 		stdout: 'pipe',
 		stderr: 'pipe',
 	});
@@ -301,12 +315,33 @@ describe('pdf_writer — an embedded image is really IN the file', () => {
 		async () => {
 			const pdf = new PdfDocument();
 			pdf.text('con imagen', { size: 12 });
-			expect(pdf.image(await tinyJpeg())).toBe(true);
+			expect(pdf.image(await realJpeg('tiny'))).toBe(true);
 
 			const { rows, errors } = await pdfImages(pdf.build(), 'embedded');
 			expect(errors).not.toMatch(/Syntax Error/);
 			expect(rows).toHaveLength(1);
 			expect(rows[0]).toMatch(/jpeg/i);
+		},
+	);
+
+	// with one image every index is 0: only two different ones, on two pages,
+	// show that each page names its own XObject
+	test.skipIf(!HAVE_MAGICK)(
+		'two different images, a page apart, each keep their own size and colour (needs ImageMagick)',
+		async () => {
+			const pdf = new PdfDocument();
+			expect(pdf.image(await realJpeg('first_rgb', '7x3'))).toBe(true);
+			for (let index = 0; index < 60; index++) pdf.text(`line ${index}`, { size: 10 });
+			expect(pdf.image(await realJpeg('second_gray', '4x9', ['-colorspace', 'Gray']))).toBe(true);
+
+			const { rows, errors } = await pdfImages(pdf.build(), 'two_images');
+			expect(errors).not.toMatch(/Syntax Error/);
+			// page, num, type, width, height, color
+			const listed = rows.map((row) => row.trim().split(/\s+/).slice(0, 6));
+			expect(listed).toEqual([
+				['1', '0', 'image', '7', '3', 'rgb'],
+				['2', '1', 'image', '4', '9', 'gray'],
+			]);
 		},
 	);
 });
@@ -373,7 +408,7 @@ describe('objectPdfReport — the whole document', () => {
 		const location = buildMediaLocation(spec, identity, spec.defaultQuality, 'jpg', pathOpts);
 		const created = mkdirSync(dirname(location.absolutePath), { recursive: true });
 		try {
-			writeFileSync(location.absolutePath, await tinyJpeg());
+			writeFileSync(location.absolutePath, await realJpeg('tiny'));
 			return await body();
 		} finally {
 			rmSync(location.absolutePath, { force: true });

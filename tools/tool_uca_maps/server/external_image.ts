@@ -37,9 +37,11 @@ export interface ExternalImageDeps {
 	readonly enabled?: () => Promise<boolean>;
 }
 
-/** The switch read from the option's stored value: only a JSON `false` turns it off. */
+/** The switch read from the option's stored value: only a JSON `true` turns it
+ * on, so a quoted "false" is off. An absent option never reaches it: the
+ * reader below falls back to `true`. */
 export function externalImagesOn(value: unknown): boolean {
-	return value !== false;
+	return value === true;
 }
 
 /** Whether this install allows the import. The fallback covers an install

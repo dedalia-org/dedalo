@@ -92,6 +92,18 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 			});
 		});
 	}
+
+	// a key every object inherits is no format: the format table is read by own keys only
+	test.each(['toString', 'constructor', '__proto__'])(
+		"refuses the inherited key '%s' as a format",
+		async (format) => {
+			const action = await loadAction('image_download');
+			await expect(action.handler(contextOf({ ...VALID, format }))).rejects.toMatchObject({
+				code: 'request.invalid_options',
+				message: expect.stringMatching(/^Unsupported image format/),
+			});
+		},
+	);
 });
 
 describe('tool_uca_maps image_download — pickDownloadSource: the file the map shows, only', () => {
@@ -183,7 +195,8 @@ const YCCK_JPEG_BASE64 =
 
 describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (needs GDAL)', () => {
 	async function run(argv: string[]): Promise<string> {
-		const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe' });
+		// the env spread, as `spawn.ts` does: Bun.spawn's default misses a runtime change
+		const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe', env: { ...process.env } });
 		const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 		expect(code).toBe(0);
 		return stdout;
@@ -384,27 +397,35 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 		);
 	}
 
+	const CMYK_BANDS = ['-bands', '4', '-burn', '10', '-burn', '20', '-burn', '30', '-burn', '40'];
+
 	test('a CMYK JPEG is refused with its reason on the wire, though GDAL hands it over as RGB', async () => {
 		await withDir(async (dir) => {
-			const cmyk = await jpegOf(
-				dir,
-				await master(dir, [
-					'-bands',
-					'4',
-					'-burn',
-					'10',
-					'-burn',
-					'20',
-					'-burn',
-					'30',
-					'-burn',
-					'40',
-				]),
-			);
+			const cmyk = await jpegOf(dir, await master(dir, CMYK_BANDS));
 			// the bands never say CMYK: only the source colour space does
 			expect(await colourOf(cmyk)).toEqual({ bands: ['Red', 'Green', 'Blue'], space: 'CMYK' });
 			await expectCmykRefusal(dir, cmyk);
 		});
+	});
+
+	// every spawn inherits the server's env: there, GDAL_JPEG_TO_RGB=NO would hand
+	// the C/M/Y bands over as R/G/B with no SOURCE_COLOR_SPACE to refuse on
+	test('a CMYK JPEG is refused even where the server environment says GDAL_JPEG_TO_RGB=NO', async () => {
+		const previous = process.env.GDAL_JPEG_TO_RGB;
+		process.env.GDAL_JPEG_TO_RGB = 'NO';
+		try {
+			await withDir(async (dir) => {
+				const cmyk = await jpegOf(dir, await master(dir, CMYK_BANDS));
+				expect(await colourOf(cmyk)).toEqual({
+					bands: ['Cyan', 'Magenta', 'Yellow', 'Black'],
+					space: undefined,
+				});
+				await expectCmykRefusal(dir, cmyk);
+			});
+		} finally {
+			if (previous === undefined) delete process.env.GDAL_JPEG_TO_RGB;
+			else process.env.GDAL_JPEG_TO_RGB = previous;
+		}
 	});
 
 	test('an Adobe CMYK JPEG (YCCK, as image editors write it) is refused too', async () => {

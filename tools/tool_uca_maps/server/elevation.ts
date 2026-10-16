@@ -22,9 +22,10 @@ const ELEVATION_TIMEOUT_MS = 8000;
 /** One point's elevation is a handful of bytes; anything larger is not it. */
 const ELEVATION_MAX_BYTES = 64 * 1024;
 
-/** A caller fault — a coordinate that is not a coordinate. */
+/** A caller fault — a coordinate that is not a coordinate. No publicMessage:
+ * the console shows only "unavailable" whatever the failure. */
 function invalidCoordinate(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+	return new DedaloError('request.invalid_options', { message });
 }
 
 /**

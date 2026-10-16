@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PELAGIOS_DATASETS as PROVISIONED_DATASETS } from '../../tools/tool_uca_maps/gazetteers/provision.ts';
 import {
 	gazetteerFilePath,
 	PELAGIOS_DATASETS,
@@ -66,5 +67,13 @@ describe('gazetteer store paths', () => {
 	test('a SYMLINK pointing out of the store is refused too', () => {
 		symlinkSync(outside, join(store, 'pelagios', 'roads_low.geojson'));
 		expect(pelagiosDatasetPath(store, 'roads_low')).toBeNull();
+	});
+});
+
+describe('gazetteer store — the provisioning script', () => {
+	// the script copies the list instead of importing it: a layer added to one
+	// side only is served but never installed, or installed but never served
+	test('provisions exactly the Pelagios layers the store serves', () => {
+		expect([...PROVISIONED_DATASETS].sort()).toEqual([...PELAGIOS_DATASETS].sort());
 	});
 });

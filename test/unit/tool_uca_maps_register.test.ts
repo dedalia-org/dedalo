@@ -14,13 +14,15 @@ const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
 
 /** `get_tool_label('some_key')`, or `('some_key', value…)` for a label with `%s`. */
 const LABEL_CALL = /get_tool_label\(\s*'([A-Za-z0-9_]+)'\s*[,)]/y;
-/** A computed family, `get_tool_label('raster_format_' + format)`: no key to check. */
-const FAMILY_CALL = /get_tool_label\(\s*'[A-Za-z0-9_]+_'\s*\+/y;
+/** A computed family, `get_tool_label('raster_format_' + format)`: only its prefix is known. */
+const FAMILY_CALL = /get_tool_label\(\s*'([A-Za-z0-9_]+_)'\s*\+/y;
 
 interface LabelCall {
 	file: string;
 	/** The literal key, or null for a computed family. */
 	key: string | null;
+	/** A computed family's literal prefix (`raster_format_`), else null. */
+	family: string | null;
 	/** How many values the call passes for the label's `%s`; -1 when unread. */
 	args: number;
 	/** The call's opening text, for a failure message. */
@@ -59,9 +61,16 @@ async function labelCalls(): Promise<LabelCall[]> {
 			if (literal) {
 				const end = at + literal[0].length;
 				const args = source[end - 1] === ',' ? countArgs(source, end) + 1 : 0;
-				calls.push({ file: relative, key: literal[1] as string, args, text });
+				calls.push({ file: relative, key: literal[1] as string, family: null, args, text });
 			} else {
-				calls.push({ file: relative, key: null, args: FAMILY_CALL.test(source) ? 0 : -1, text });
+				const family = FAMILY_CALL.exec(source);
+				calls.push({
+					file: relative,
+					key: null,
+					family: family ? (family[1] as string) : null,
+					args: family ? 0 : -1,
+					text,
+				});
 			}
 		}
 	}
@@ -121,6 +130,27 @@ describe('tool_uca_maps register.json', () => {
 		expect(
 			calls.filter((call) => call.args === -1).map((call) => `${call.file}: ${call.text}`),
 		).toEqual([]);
+	});
+
+	// the members are computed at run time; at least one per family proves the
+	// prefix is spelled as the labels are, so the family can resolve at all
+	test('every computed family has labels under its prefix, in every language', async () => {
+		const labels =
+			authoringRegisterSchema.parse(await Bun.file(new URL('register.json', TOOL_DIR)).json())
+				.labels ?? [];
+		const langs = [...new Set(labels.map((label) => label.lang))];
+		const families = new Set(
+			(await labelCalls()).flatMap((call) => (call.family === null ? [] : [call.family])),
+		);
+		expect(families.size).toBeGreaterThanOrEqual(5);
+		const bare = [...families]
+			.flatMap((prefix) =>
+				langs
+					.filter((lang) => !labels.some((l) => l.lang === lang && l.name.startsWith(prefix)))
+					.map((lang) => `${prefix} (${lang})`),
+			)
+			.sort();
+		expect(bare).toEqual([]);
 	});
 
 	test('a label called with values has one %s per value, in every language', async () => {

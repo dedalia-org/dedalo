@@ -9,8 +9,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
+import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	cornersFromWgs84Extent,
 	overlayFallbackOf,

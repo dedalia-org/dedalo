@@ -40,12 +40,19 @@ const TRANSPARENT_CORNER_PNG_BASE64 =
 const SAMPLE_BOUNDS = { west: -692000, north: 4322000, east: -690000, south: 4320000 };
 
 describe('tool_uca_maps raster_download — caller-fault validation (no binary needed)', () => {
-	test('an unsupported format is refused', async () => {
-		const action = await loadAction('raster_download');
-		await expect(
-			action.handler(contextOf({ format: 'bmp', image_base64: SAMPLE_PNG_BASE64 })),
-		).rejects.toThrow(/Unsupported raster format/);
-	});
+	// a key every object inherits is no format: the format table is read by own keys only
+	test.each(['bmp', 'toString', 'constructor', '__proto__'])(
+		"an unsupported format ('%s') is refused",
+		async (format) => {
+			const action = await loadAction('raster_download');
+			await expect(
+				action.handler(contextOf({ format, image_base64: SAMPLE_PNG_BASE64 })),
+			).rejects.toMatchObject({
+				code: 'request.invalid_options',
+				message: expect.stringMatching(/^Unsupported raster format/),
+			});
+		},
+	);
 
 	test('missing image_base64 is refused', async () => {
 		const action = await loadAction('raster_download');

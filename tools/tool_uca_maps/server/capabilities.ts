@@ -5,9 +5,8 @@
  * install-configured resolver (`media/engine/binaries.ts`).
  */
 
-import { existsSync } from 'node:fs';
 import { ok } from '../../../src/core/errors/index.ts';
-import { resolveIdentify } from '../../../src/core/media/engine/binaries.ts';
+import { identifyAvailable, resolveIdentify } from '../../../src/core/media/engine/binaries.ts';
 import { runBinary } from '../../../src/core/media/engine/spawn.ts';
 import {
 	type ToolActionContext,
@@ -18,7 +17,7 @@ import { externalImagesEnabled } from './external_image.ts';
 import { type GazetteerCapability, probeGazetteers } from './gazetteer_store.ts';
 
 /** One external binary's availability, resolved path and self-reported version. */
-interface BinaryCapability {
+export interface BinaryCapability {
 	available: boolean;
 	path: string | null;
 	version: string | null;
@@ -51,6 +50,31 @@ export async function probeOnPath(
 	};
 }
 
+/** `-if`, which every GDAL file read names, exists from GDAL 3.2 on. */
+export const GDAL_MIN_VERSION: readonly [major: number, minor: number] = [3, 2];
+
+/**
+ * Whether a `--version` banner ("GDAL 3.6.2, released …") is at least
+ * GDAL_MIN_VERSION. A banner that names no version is not: below the floor
+ * every action would fail as `tool.action_failed` on `-if`.
+ */
+export function meetsGdalMinVersion(banner: string | null): boolean {
+	const match = /^GDAL (\d+)\.(\d+)/.exec(banner ?? '');
+	if (match === null) return false;
+	const [major, minor] = [Number(match[1]), Number(match[2])];
+	const [floorMajor, floorMinor] = GDAL_MIN_VERSION;
+	return major > floorMajor || (major === floorMajor && minor >= floorMinor);
+}
+
+/**
+ * A GDAL probe as `get_capabilities` reports it: below GDAL_MIN_VERSION the
+ * binary runs but every action would refuse, so it reads as unavailable and
+ * the client greys the action out instead of offering a button that fails.
+ */
+export function gdalCapability(probe: BinaryCapability): BinaryCapability {
+	return { ...probe, available: probe.available && meetsGdalMinVersion(probe.version) };
+}
+
 /** The capabilities `get_capabilities` reports. */
 export interface UcaMapsCapabilities {
 	/** `gdalinfo` — raster probing, and the GDAL version every driver shares. */
@@ -75,20 +99,20 @@ export async function probeCapabilities(
 	externalImagesOn: () => Promise<boolean> = externalImagesEnabled,
 ): Promise<UcaMapsCapabilities> {
 	const [gdal, ogr2ogr, gdalTranslate, gazetteers, externalImages] = await Promise.all([
-		probeOnPath('gdalinfo', ['--version']),
-		probeOnPath('ogr2ogr', ['--version']),
-		probeOnPath('gdal_translate', ['--version']),
+		probeOnPath('gdalinfo', ['--version']).then(gdalCapability),
+		probeOnPath('ogr2ogr', ['--version']).then(gdalCapability),
+		probeOnPath('gdal_translate', ['--version']).then(gdalCapability),
 		probeGazetteers(),
-		externalImagesOn(),
+		// the option is a DB read: an outage reads as "off", never a 500
+		externalImagesOn().catch(() => false),
 	]);
-	// what core's identifyAvailable() checks, resolved once for the path too
-	const [identify] = resolveIdentify();
-	const available = identify !== undefined && existsSync(identify);
+	// the predicate `resolveMagickBinary` gates on, so the two never disagree
+	const available = identifyAvailable();
 	return {
 		gdal,
 		ogr2ogr,
 		gdalTranslate,
-		imagemagick: { available, path: available ? (identify as string) : null },
+		imagemagick: { available, path: available ? (resolveIdentify()[0] ?? null) : null },
 		gazetteers,
 		externalImages,
 	};

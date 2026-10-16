@@ -206,11 +206,12 @@ function resolveStagedUpload(userId: number, rawKeyDir: string, rawTmpName: stri
 	if (rawTmpName === '') throw invalidVectorUpload('Missing staged file (tmp_name)');
 	const keyDir = rawKeyDir === '' ? '' : sanitizeSegment(rawKeyDir);
 	const tmpName = sanitizeSegment(rawTmpName);
-	const stagingBase = uploadStagingBase('tool_uca_maps.vectorUpload');
-	const staged = join(stagingBase, String(userId), keyDir, tmpName);
-	if (!staged.startsWith(stagingBase + sep)) {
+	const userStaging = join(uploadStagingBase('tool_uca_maps.vectorUpload'), String(userId));
+	const staged = join(userStaging, keyDir, tmpName);
+	// the caller's own dir, not the staging base: a sibling user's dir is under the base too
+	if (!staged.startsWith(userStaging + sep)) {
 		throw new DedaloError('internal.invariant', {
-			message: 'staged path escapes the upload root',
+			message: "staged path escapes the caller's upload dir",
 		});
 	}
 	if (!existsSync(staged)) {
@@ -259,10 +260,11 @@ function outsideInGeometry(geometry: unknown): [number, number] | null {
 }
 
 function outsideInCoordinates(coordinates: unknown): [number, number] | null {
-	if (!Array.isArray(coordinates)) return null;
-	if (typeof coordinates[0] === 'number') {
-		const x = Number(coordinates[0]);
-		const y = Number(coordinates[1]);
+	if (!Array.isArray(coordinates) || coordinates.length === 0) return null;
+	// a position is the innermost array: one whose members are not numbers is outside too
+	if (!Array.isArray(coordinates[0])) {
+		const x = typeof coordinates[0] === 'number' ? coordinates[0] : Number.NaN;
+		const y = typeof coordinates[1] === 'number' ? coordinates[1] : Number.NaN;
 		const inside =
 			Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 180 && Math.abs(y) <= 90;
 		return inside ? null : [x, y];

@@ -4,9 +4,15 @@
  * installed. No DB write: it probes binaries and reads config only.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
+import { identifyAvailable } from '../../src/core/media/engine/binaries.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { probeCapabilities, probeOnPath } from '../../tools/tool_uca_maps/server/capabilities.ts';
+import {
+	gdalCapability,
+	probeCapabilities,
+	probeOnPath,
+} from '../../tools/tool_uca_maps/server/capabilities.ts';
+import * as externalImage from '../../tools/tool_uca_maps/server/external_image.ts';
 import { contextOf, dataOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('tool_uca_maps get_capabilities — probeOnPath', () => {
@@ -63,6 +69,8 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 		const imagemagick = data.imagemagick as { available: unknown; path: unknown };
 		expect(Object.keys(imagemagick).sort()).toEqual(['available', 'path']);
 		expect(imagemagick.available).toBe(imagemagick.path !== null);
+		// the predicate the conversions gate on (`resolveMagickBinary`)
+		expect(imagemagick.available).toBe(identifyAvailable());
 
 		// importing an object's linked images is on unless an install turns it
 		// off, and the suite never does
@@ -73,8 +81,48 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 		expect(data.gazetteers).toEqual({ configured: false, pleiades: false, pelagios: [] });
 	});
 
-	test('reports the linked-images option as the install sets it', async () => {
+	test('reports what the injected linked-images reader answers', async () => {
 		expect((await probeCapabilities(async () => false)).externalImages).toBe(false);
 		expect((await probeCapabilities(async () => true)).externalImages).toBe(true);
+	});
+
+	test('the default linked-images reader is externalImagesEnabled', async () => {
+		const reader = spyOn(externalImage, 'externalImagesEnabled').mockImplementation(
+			async () => false,
+		);
+		try {
+			expect((await probeCapabilities()).externalImages).toBe(false);
+			expect(reader).toHaveBeenCalledTimes(1);
+		} finally {
+			reader.mockRestore();
+		}
+	});
+
+	test('a reader that fails reads as off: the probe never throws', async () => {
+		const failing = async (): Promise<boolean> => {
+			throw new Error('config read failed');
+		};
+		expect((await probeCapabilities(failing)).externalImages).toBe(false);
+	});
+});
+
+describe('tool_uca_maps get_capabilities — the GDAL version floor', () => {
+	const probe = (version: string | null, available = true) => ({
+		available,
+		path: '/usr/bin/gdalinfo',
+		version,
+	});
+
+	test.each([
+		['GDAL 3.6.2, released 2023/01/02', true],
+		['GDAL 3.2.0, released 2020/11/02', true],
+		['GDAL 3.0.4, released 2020/01/28', false],
+		[null, false],
+	] as const)('%s reads as available: %p', (banner, available) => {
+		expect(gdalCapability(probe(banner)).available).toBe(available);
+	});
+
+	test('a binary that did not run stays unavailable whatever its banner', () => {
+		expect(gdalCapability(probe('GDAL 3.6.2, released 2023/01/02', false)).available).toBe(false);
 	});
 });

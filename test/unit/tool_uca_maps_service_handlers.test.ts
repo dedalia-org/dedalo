@@ -87,6 +87,8 @@ describe('get_elevation — caller-fault validation', () => {
 		['an empty-string longitude', { lat: 39.6, lon: '' }],
 		['a latitude past the pole', { lat: 91, lon: -0.2 }],
 		['a longitude past the antimeridian', { lat: 39.6, lon: 181 }],
+		// Leaflet's own spelling: the action reads only the `lon` the client sends
+		['a longitude sent as lng', { lat: 39.6, lng: -0.2 }],
 	])('refuses %s as request.invalid_options, nothing sent', async (_label, options) => {
 		expectCode(await failureOf(getElevation(contextOf(options))), 'request.invalid_options');
 		expect(sent).toEqual([]);
@@ -145,6 +147,13 @@ describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
 			return query === 'getneighbourparcel' || query === 'getparcel' ? wfs[query] : RESULT_PAGE;
 		};
 	}
+
+	test('a click without a bounding box is refused as request.invalid_options, nothing sent', async () => {
+		const error = await failureOf(getCatastroParcel(contextOf({})));
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/bounding box/);
+		expect(sent).toEqual([]);
+	});
 
 	test('a "not found" report falls back to the parcel query, whose ring is the answer', async () => {
 		reply = catastro({ getneighbourparcel: NOT_FOUND, getparcel: PARCEL });
