@@ -3442,6 +3442,45 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	// Sergio (2026-10-16): the console is wider than a plain panel, and the
+	// opacity/stroke sliders no longer push past its edge (sideways scroll).
+	it('with the tool CSS, the console is wider than a panel and an object\'s controls never scroll it sideways', async function() {
+
+		const link = document.createElement('link')
+		link.rel	= 'stylesheet'
+		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+		await new Promise((resolve, reject) => {
+			link.addEventListener('load', resolve)
+			link.addEventListener('error', reject)
+			document.head.appendChild(link)
+		})
+
+		try {
+			tool.attach_console()
+			tool.map_control.getContainer().click()
+			geolocation.FeatureGroup[1].getLayers()[0].openPopup()
+
+			// a plain panel anchored by its button, as the console is
+			const plain = create_toolbar_panel(tool, {class_name: 'uca-maps-test-plain-panel'})
+			plain.hidden = false
+
+			const panel = tool.panel_node
+			assert.isOk(panel.querySelector('.uca-maps-style-controls input[type="range"]'), 'expected the style sliders on screen')
+			assert.isAbove(panel.offsetWidth, plain.offsetWidth, 'expected the console wider than a plain panel')
+			assert.isAtMost(panel.scrollWidth, panel.clientWidth, 'expected no sideways scroll in the console')
+			remove_toolbar_panel(tool, plain)
+
+			// narrower than a slider's own intrinsic width plus its label (the
+			// narrow console where Sergio saw it): the sliders must shrink with
+			// the panel instead of pushing past its edge
+			panel.style.width = '16rem'
+			assert.isAtMost(panel.scrollWidth, panel.clientWidth, 'expected the sliders to shrink with a narrow console, not scroll it sideways')
+			panel.style.width = ''
+		} finally {
+			link.remove()
+		}
+	})
+
 	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
 
 		tool.attach_console()

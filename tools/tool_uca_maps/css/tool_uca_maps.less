@@ -832,6 +832,9 @@
 // own panel, header + selected-object section only since the toolbar
 // refactor (map-image moved to its own panel above).
 .uca-maps-console {
+	// wider than a plain panel: every style/property row of the selected
+	// object lives here (Sergio, 2026-10-16)
+	width: 22rem;
 
 	>.uca-maps-object-section {
 		padding: 0.5rem 0.75rem;
@@ -940,8 +943,11 @@
 				flex: 0 0 auto;
 			}
 
+			// min-width:0: a range's automatic minimum is its intrinsic ~130px,
+			// which pushed opacity/stroke past the panel edge (sideways scroll)
 			>input[type='range'] {
 				flex: 1 1 auto;
+				min-width: 0;
 			}
 		}
 

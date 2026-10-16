@@ -682,6 +682,9 @@
   box-shadow: 0 0 3px var(--uca_maps_handle_shadow);
   cursor: move;
 }
+.uca-maps-console {
+  width: 22rem;
+}
 .uca-maps-console > .uca-maps-object-section {
   padding: 0.5rem 0.75rem;
 }
@@ -764,6 +767,7 @@
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-field > input[type='range'] {
   flex: 1 1 auto;
+  min-width: 0;
 }
 .uca-maps-console > .uca-maps-object-section .uca-maps-image-view {
   display: inline-block;
