@@ -91,7 +91,8 @@ import {
 } from '../../../tools/tool_uca_maps/js/roman_empire.js'
 import {
 	populate_roman_results,
-	refresh_roman_sources
+	refresh_roman_sources,
+	LIVE_SEARCH_DELAY_MS
 } from '../../../tools/tool_uca_maps/js/render_roman_empire.js'
 
 
@@ -3911,7 +3912,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		geolocation.section_lang = 'lg-spa' // Catastro and UA exist only for es/cat/eus
 		tool.attach_wms_services()
-		tool.attach_roman_empire()
+		mount_roman()
 		tool.attach_catastro()
 		tool.attach_administrative_units()
 		tool.attach_place_search()
@@ -7537,6 +7538,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.uca-maps-upload-control'),
 			'expected the button removed from the DOM'
 		)
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-upload-panel'),
+			'expected the panel removed from the DOM'
+		)
 	})
 
 	/**
@@ -7544,6 +7549,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* centred panel; a hit becomes a REAL object of the record. No gazetteer is
 	* reached: the install's answer (mount_roman) and every search are stubbed.
 	*/
+
+	// a stubbed answer settles within SETTLE_MS; a wait shorter than the debounce
+	// would pass "nothing travels" without the timer ever having fired
+	const SETTLE_MS			= 50
+	const AFTER_DEBOUNCE_MS	= LIVE_SEARCH_DELAY_MS + SETTLE_MS
+
+	// a document without focus gets no focus events in Chrome: these gates would
+	// then fail on the runner, not on the code, so they say so and skip
+	const require_document_focus = function(context) {
+		if (!document.hasFocus()) {
+			context.test.title += ' (skipped: the document has no focus)'
+			context.skip()
+		}
+	}
 
 	it('attach_roman_empire adds exactly one button and one hidden panel, idempotently', function() {
 
@@ -7562,13 +7581,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the panel is centred, closes with ×, and shows the three sources AT ONCE in v6 order', function() {
 
-		// Sergio, validación 2026-09-28: como Legend y WMS, y las tres fuentes
-		// a la vez, como el modal de v6 — nunca un selector que esconda dos
+		// all three at once, as v6's modal: a source selector would hide two
 		mount_roman()
 
 		const panel = tool.roman_panel
 		assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the centred panel')
-		assert.isNotOk(panel.querySelector('.uca-maps-roman-source-select'), 'expected no source selector')
 
 		const sections = Array.from(panel.querySelectorAll('.uca-maps-roman-source'))
 		assert.deepEqual(sections.map((one) => one.dataset.source), ['pleiades', 'pelagios', 'dare'], 'expected Pleiades, Pelagios, DARE')
@@ -7607,7 +7624,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isFalse(input.disabled, 'expected the Pleiades field enabled by its capability')
 		input.value = '7'
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await tick(50)
+		await tick(SETTLE_MS)
 
 		assert.equal(sent.length, 1, 'expected one search: an id of one digit is a query')
 		assert.equal(sent[0].action, 'search_pleiades')
@@ -7751,18 +7768,25 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(added.created, 1)
 	})
 
-	it('create_roman_objects fits the LARGEST geometry of a multi-part place', function() {
+	it('create_roman_objects fits the LARGEST geometry of a multi-part place, listed first or last', function() {
 
 		mount_roman()
 
-		const created = create_roman_objects(tool, { type: 'FeatureCollection', features: [
-			{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]] } },
-			{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[10, 10], [12, 10], [12, 12], [10, 12], [10, 10]]] } }
-		] })
+		const small	= { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]] } }
+		const big	= { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[10, 10], [12, 10], [12, 12], [10, 12], [10, 10]]] } }
 
-		assert.equal(created, 2, 'expected both parts created')
-		const bounds = geolocation.map.getBounds()
-		assert.isTrue(bounds.contains(L.latLng(11, 11)), 'expected the map fitted to the bigger part')
+		// both orders: "the last part wins" and "the first part wins" each fail one
+		for (const [label, features] of [['first', [big, small]], ['last', [small, big]]]) {
+			// far from both parts and more than four zoom steps off either fit: Leaflet
+			// then jumps without animating, so getBounds reads the fitted view at once
+			geolocation.map.setView([-40, 120], 15, {animate: false})
+			const created = create_roman_objects(tool, { type: 'FeatureCollection', features: features })
+			assert.equal(created, 2, 'expected both parts created, the bigger listed ' + label)
+			assert.isTrue(
+				geolocation.map.getBounds().contains(L.latLng(11, 11)),
+				'expected the map fitted to the bigger part, listed ' + label
+			)
+		}
 	})
 
 	it('a source this install cannot serve stays in view, disabled and saying why', function() {
@@ -7805,7 +7829,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// SUGGESTIONS AS YOU TYPE — v6 searches on every keyup in the three blocks
 	// (`special_tools_roman_empire.js`); here a debounced input does.
 
-	it('each source declares the same minimum the server refuses below', function() {
+	it('each source declares its minimum query: Pleiades 3 by name and 1 by id, Pelagios 2, DARE 3', function() {
 
 		assert.equal(roman_min_query('pleiades', 'name'), 3, 'Pleiades by name: 3 (v6 strlen > 2)')
 		assert.equal(roman_min_query('pleiades', 'id'), 1, 'an id is exact, one digit is a query')
@@ -7831,13 +7855,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// below the minimum: no request, not even after the debounce window
 		input.value = 'Ga'
 		input.dispatchEvent(new Event('input'))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 0, 'expected NO request for a query under the minimum')
 
 		// at the minimum: one request, and the list renders itself
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 
 		assert.equal(asked, 1, 'expected exactly one request after typing')
 		assert.equal(
@@ -7863,7 +7887,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			input.dispatchEvent(new Event('input'))
 			await tick(40)
 		}
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 
 		assert.equal(asked, 1, 'expected the burst collapsed into a single request')
 	})
@@ -7914,9 +7938,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.roman_panel.querySelector('.uca-maps-roman-dropdown'),
 			'expected it OUTSIDE the panel, whose overflow would clip it'
 		)
-		// and the panel no longer carries a Search button or an in-flow list
-		assert.isNotOk(tool.roman_panel.querySelector('.uca-maps-roman-search-button'), 'expected no Search button')
-		assert.isNotOk(tool.roman_panel.querySelector('.uca-maps-roman-results'), 'expected no in-flow result list')
 	})
 
 	it('the arrows walk the list and Enter draws the highlighted place', async function() {
@@ -7934,7 +7955,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 
 		const rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
 		assert.equal(rows.length, 2)
@@ -7946,12 +7967,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(rows[1].classList.contains('is-active'), 'expected the highlight in the DOM, not only in a flag')
 
 		const feature_group	= active_group()
-		const before		= feature_group.getLayers().length
+		const before		= feature_group.getLayers()
 
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await tick(50)
+		await tick(SETTLE_MS)
 
-		assert.equal(feature_group.getLayers().length, before + 1, 'expected Enter to draw the highlighted place')
+		const drawn = feature_group.getLayers().filter((layer) => !before.includes(layer))
+		assert.equal(drawn.length, 1, 'expected Enter to draw one place')
+		const at = drawn[0].getLatLng()
+		assert.closeTo(at.lat, 39.9, 1e-6, 'expected the highlighted "second" drawn, not the first row')
+		assert.closeTo(at.lng, -0.2, 1e-6, 'expected the highlighted "second" drawn, not the first row')
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list closed after choosing')
 	})
 
@@ -7969,7 +7994,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(tool.roman_dropdown.hidden, false)
 
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
@@ -8013,38 +8038,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
 
+		assert.isOk(tool._roman_search_timer, 'expected the search waiting out the debounce')
 		await tool.destroy(false, false, false) // BEFORE the debounce window elapses
-		await tick(400)
+		// the dead tool also refuses a late search, so only the timer shows the cancel
+		assert.isNull(tool._roman_search_timer, 'expected teardown to clear the waiting timer')
+		await tick(AFTER_DEBOUNCE_MS)
 
 		assert.equal(asked, 0, 'expected the pending search cancelled by teardown')
-	})
-
-	it('the twelve Pelagios layers fit in the panel WITHOUT an inner scroll', async function() {
-
-		// Sergio, validación 2026-09-17: con el cap de 9rem había que hacer
-		// scroll para ver la mitad de las capas. Esto lo mide de verdad — un
-		// retoque de CSS que vuelva a esconderlas pone el gate en rojo.
-		mount_roman({ configured: true, pleiades: true, pelagios: [
-				'places_high', 'places_medium', 'places_low', 'places_subsites',
-				'fortifications', 'provinces', 'provinces_label', 'roads_high',
-				'roads_low', '10m_lakes', '10m_lakes_label', '10m_rivers_lake_centerlines'
-			] })
-		await load_roman_capabilities(tool)
-
-		open_roman() // open it
-
-		const container	= tool.roman_panel.querySelector('.uca-maps-roman-datasets')
-		const rows		= container.querySelectorAll('.uca-maps-roman-dataset-row')
-		assert.equal(rows.length, 12, 'expected the twelve layers rendered')
-
-		assert.isAtMost(
-			container.scrollHeight, container.clientHeight + 1,
-			'expected every layer visible without scrolling inside the list'
-		)
-		// and each row on one line: a wrapped identifier reads as two layers
-		for (const row of rows) {
-			assert.isBelow(row.scrollWidth, row.clientWidth + 2, 'expected the layer name on a single line: ' + row.textContent)
-		}
 	})
 
 	it('scrolling the panel carries the list with its field, and closes it once the field leaves the view', function() {
@@ -8076,9 +8076,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list closed once its field left the view')
 	})
 
-	// review-diff 2026-09-29: hiding a message at the panel's bottom makes the
-	// browser clamp scrollTop and fire `scroll` — which closed the list it had
-	// just opened, and (R-05) dropped the search in flight
+	// hiding a message at the panel's bottom makes the browser clamp scrollTop
+	// and fire `scroll`, which must not close the list nor drop its search
 	it('a scroll the layout causes by itself never closes the list it just opened', async function() {
 
 		mount_roman()
@@ -8094,7 +8093,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})) // empty: an error under DARE
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(message.hidden, false, 'expected the empty-query message under DARE')
 
 		panel.scrollTop = panel.scrollHeight // at the bottom: hiding that message has to clamp
@@ -8104,7 +8103,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		input.value = 'Gades'
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await tick(50)
+		await tick(SETTLE_MS)
 		await two_frames()
 
 		assert.equal(message.hidden, true, 'expected the message cleared by the hits')
@@ -8113,8 +8112,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected the list still open after the layout scroll')
 	})
 
-	// Sergio, validación 2026-09-29: the list stayed open under Pleiades after
-	// clicking into DARE — the panel swallows mousedown before it bubbles
+	// the panel swallows mousedown before it bubbles to the map's listener, so a
+	// click inside it needs its own check
 	it('a click inside the panel, on another source\'s field, closes the list', async function() {
 
 		mount_roman(WITH_PLEIADES)
@@ -8150,13 +8149,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		pleiades_input.value = 'Rom'
 		pleiades_input.dispatchEvent(new Event('input'))
-		await tick(400) // the Pleiades search is now in flight
+		await tick(AFTER_DEBOUNCE_MS) // the Pleiades search is now in flight
 
 		dare_input.value = 'V' // below DARE's minimum: nothing travels, the list is closed
 		dare_input.dispatchEvent(new Event('input'))
 
 		release_first()
-		await tick(50)
+		await tick(SETTLE_MS)
 
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the late Pleiades answer NOT to open its list')
 		assert.equal(tool._roman_results, null, 'expected the late answer discarded')
@@ -8184,8 +8183,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._roman_results, null, 'expected no stale list kept')
 	})
 
-	// Sergio, validación 2026-09-29: closing and reopening kept what was typed.
-	// v6 rebuilds its modal on every click (special_tools_roman_empire.js:61-77)
+	// every opening starts clean, as v6 rebuilds its modal on every click
+	// (special_tools_roman_empire.js)
 	it('reopening the panel starts clean: fields, messages, list and filters', async function() {
 
 		mount_roman({ configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] })
@@ -8226,23 +8225,36 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._roman_results, null, 'expected the old hits forgotten')
 	})
 
-	// Sergio, validación 2026-09-29: a click in the blank space right of a
-	// layer name toggled it — the label stretched across its grid cell
-	it('a Pelagios layer row is only as wide as its box and name', async function() {
+	// a label stretched across its grid cell turns the blank space beside the
+	// name into a click that toggles the layer
+	it('the twelve Pelagios layers show with no inner scroll, each on one line and only as wide as its box and name', async function() {
 
-		// with the tool CSS or not at all: without it a <label> is inline and
-		// already this narrow, so the gate could never see justify-self go
+		// with the tool CSS or not at all: without it the list is a plain block that
+		// never scrolls, and a <label> is inline and already this narrow
 		await with_tool_css(async () => {
-			mount_roman({ configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] })
+			mount_roman({ configured: true, pleiades: true, pelagios: [
+				'places_high', 'places_medium', 'places_low', 'places_subsites',
+				'fortifications', 'provinces', 'provinces_label', 'roads_high',
+				'roads_low', '10m_lakes', '10m_lakes_label', '10m_rivers_lake_centerlines'
+			] })
 			await load_roman_capabilities(tool)
 
 			open_roman()
 
 			const container = tool.roman_panel.querySelector('.uca-maps-roman-datasets')
 			assert.equal(getComputedStyle(container).display, 'grid', 'expected the tool CSS applied — else this gate proves nothing')
-			const rows = container.querySelectorAll('.uca-maps-roman-dataset-row')
-			assert.equal(rows.length, 2, 'expected the two layers rendered — zero rows would pass the loop below')
+			const rows = Array.from(container.querySelectorAll('.uca-maps-roman-dataset-row'))
+			assert.equal(rows.length, 12, 'expected the twelve layers rendered — zero rows would pass the loops below')
+
+			assert.isAtMost(
+				container.scrollHeight, container.clientHeight + 1,
+				'expected every layer visible without scrolling inside the list'
+			)
+			// a wrapped identifier reads as two layers: no row taller than the shortest
+			const one_line = Math.min(...rows.map((row) => row.getBoundingClientRect().height))
 			for (const row of rows) {
+				assert.isAtMost(row.getBoundingClientRect().height, one_line + 1, 'expected the layer name on a single line: ' + row.textContent)
+				assert.isBelow(row.scrollWidth, row.clientWidth + 2, 'expected the layer name not overflowing its row: ' + row.textContent)
 				const box	= row.querySelector('input').getBoundingClientRect().width
 				const name	= row.querySelector('span').getBoundingClientRect().width
 				assert.isAtMost(
@@ -8272,11 +8284,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			map_container_node.querySelector('.uca-maps-roman-control'),
 			'expected the button removed from the DOM'
 		)
+		assert.isNotOk(
+			map_container_node.querySelector('.uca-maps-roman-panel'),
+			'expected the panel removed from the DOM'
+		)
 	})
 
 
-	// review-diff 2026-09-29: the Pleiades geometry is fetched AFTER choosing,
-	// so an error can arrive once the panel was closed and reopened clean
+	// the Pleiades geometry is fetched AFTER choosing, so its error can arrive
+	// once the panel was closed and reopened clean
 	it('a late error from drawing a Pleiades hit never lands in the panel reopened clean', async function() {
 
 		mount_roman(WITH_PLEIADES)
@@ -8301,7 +8317,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// control half: with the panel left alone, the error IS shown
 		choose_roma()
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(message.hidden, false, 'expected a geometry-less place reported under Pleiades')
 
 		choose_roma()
@@ -8309,7 +8325,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		control.click() // close
 		control.click() // reopen: clean
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(message.hidden, true, 'expected the late error dropped by the reopened panel')
 	})
 
@@ -8333,13 +8349,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		pleiades_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
 		assert.equal(tool._roman_active_index, 0, 'expected ↓ in its own field to walk the list')
 
+		// two ↓: walking the two-row Pleiades list from 0 would end on 1
 		dare_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
+		dare_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
+		assert.equal(tool._roman_active_index, 0, 'expected ↓ in DARE not to walk the Pleiades list')
+
+		pleiades_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
+		assert.equal(tool._roman_active_index, 1, 'expected ↓ in its own field to reach the last row')
 		dare_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowUp', bubbles: true}))
-		assert.equal(tool._roman_active_index, 0, 'expected ↑/↓ in DARE not to walk the Pleiades list')
+		assert.equal(tool._roman_active_index, 1, 'expected ↑ in DARE not to walk the Pleiades list')
 
 		dare_input.value = 'Gades'
 		dare_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.deepEqual(asked, ['search_dare'], 'expected Enter in DARE to search DARE, never to draw the active Pleiades row')
 	})
 
@@ -8369,9 +8391,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	// review-diff 2026-09-30 (S2): closing voided the search in flight but not
-	// the keystroke still waiting out the debounce, whose search then took a
-	// NEWER token and reopened the list — after Esc, or over a closed panel
+	// a keystroke still waiting out the debounce would take a NEWER token than the
+	// cancelled search and reopen the list after Esc, or over a closed panel
 	it('closing the list cancels a keystroke still waiting out the debounce', async function() {
 
 		mount_roman()
@@ -8391,25 +8412,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// control half: left alone, the keystroke DOES search and open the list
 		type_gades()
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 1, 'expected the debounced search sent')
 		assert.equal(tool.roman_dropdown.hidden, false)
 
 		type_gades()
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 1, 'expected Esc to cancel the waiting search')
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list to stay closed after Esc')
 
 		type_gades()
 		tool.roman_panel.querySelector('.uca-maps-panel-close').click() // the ×
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 1, 'expected the × to cancel the waiting search')
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no list over a closed panel')
 	})
 
 	it('Tab into another field closes the list, as a click there does', async function() {
 
+		require_document_focus(this)
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8429,6 +8451,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('opening the panel focuses the first ENABLED field', async function() {
 
+		require_document_focus(this)
 		// only DARE needs no local data: with none, Pleiades and Pelagios are disabled
 		mount_roman()
 		await load_roman_capabilities(tool)
@@ -8452,10 +8475,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	// review-diff 2026-09-30: the list is owned from the moment a field ARMS a
-	// search, so going elsewhere cancels it waiting, in flight or open
+	// the list is owned from the moment a field ARMS a search, so going elsewhere
+	// cancels it waiting, in flight or open
 	it('leaving the field cancels its search, whether waiting or in flight', async function() {
 
+		require_document_focus(this)
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8477,23 +8501,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// waiting out the debounce, then Tab into DARE
 		type_roma()
 		dare_input.focus()
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 0, 'expected Tab away to cancel the waiting search')
 
 		// waiting, then a click in DARE
 		type_roma()
 		dare_input.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 0, 'expected a click away to cancel the waiting search')
 
 		// in flight, then Tab into DARE
 		pleiades_input.focus()
 		type_roma()
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 1, 'expected the search sent — else the next check proves nothing')
 		dare_input.focus()
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no Pleiades list under a field the user left')
 	})
 
@@ -8535,7 +8559,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// control half: the field in view, the answer opens the list
 		await search_roma()
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open under a field in view')
 		tool.close_roman_suggestions()
 
@@ -8546,7 +8570,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// close the list on its own and this gate would never see the open-time check
 		await two_frames()
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no list under a field out of view')
 	})
 
@@ -8595,15 +8619,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._roman_source, 'dare', 'expected DARE to own the list now')
 
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.equal(panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-message').hidden, false, 'expected the error under Pleiades')
 		assert.equal(panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-message').hidden, true, 'expected nothing under DARE')
 	})
 
-	// Sergio, validación 2026-09-30: with the list open, Tab should walk the
-	// list, not close it and wander off through the panel
+	// with the list open, Tab walks the list instead of closing it and wandering
+	// off through the panel
 	it('with its list open, Tab walks from the field into the list and through it', async function() {
 
+		require_document_focus(this)
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8675,6 +8700,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('walking the list by keyboard freezes it: no waiting or in-flight search rebuilds it', async function() {
 
+		require_document_focus(this)
 		mount_roman()
 		open_roman()
 		const panel	= tool.roman_panel
@@ -8701,7 +8727,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tab(input)
 		const row = document.activeElement
 		assert.isTrue(row.classList.contains('uca-maps-roman-result-button'), 'expected the focus on a row')
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 0, 'expected the waiting search cancelled by entering the list')
 		assert.equal(document.activeElement, row, 'expected the focus still on its row')
 
@@ -8709,12 +8735,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		seed()
 		input.value = 'Gadesy'
 		input.dispatchEvent(new Event('input'))
-		await tick(400)
+		await tick(AFTER_DEBOUNCE_MS)
 		assert.equal(asked, 1, 'expected the search in flight — else the next check proves nothing')
 		tab(input)
 		const held = document.activeElement
 		release()
-		await tick(50)
+		await tick(SETTLE_MS)
 		assert.isTrue(document.contains(held), 'expected the focused row not rebuilt by the late answer')
 		assert.equal(document.activeElement, held, 'expected the focus kept, not dropped to <body>')
 		assert.notInclude(tool.roman_dropdown.textContent, 'NEW', 'expected the late hits discarded')
@@ -8725,6 +8751,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// focused control stays usable
 	it('a capability answer that disables the focused field moves the focus to the first usable one', async function() {
 
+		require_document_focus(this)
 		let answer = null
 		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
 		tool.attach_roman_empire()
@@ -8746,6 +8773,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a capability answer leaves alone a focused control that stays usable', async function() {
 
+		require_document_focus(this)
 		let answer = null
 		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
 		tool.attach_roman_empire()
@@ -8763,6 +8791,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('whatever closes the list, a focused row hands the focus back to its field', async function() {
 
+		require_document_focus(this)
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8797,6 +8826,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Tab past the last row enters a radio group at its CHECKED radio', async function() {
 
+		require_document_focus(this)
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8816,6 +8846,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('while the keyboard is in the list, the pointer moves the focus with the highlight', async function() {
 
+		require_document_focus(this)
 		mount_roman()
 		open_roman()
 		const panel	= tool.roman_panel

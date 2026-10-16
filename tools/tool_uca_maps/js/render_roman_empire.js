@@ -25,7 +25,8 @@ import {show_panel_message} from './render_download_line.js'
 * Wait after the last keystroke before searching. v6 fires a request on EVERY keyup
 * (`special_tools_roman_empire.js`): for DARE, one call per character typed.
 */
-const LIVE_SEARCH_DELAY_MS = 300
+// exported for the client gate
+export const LIVE_SEARCH_DELAY_MS = 300
 
 
 
