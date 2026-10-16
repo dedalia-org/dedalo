@@ -5,14 +5,9 @@
 
 /**
 * LEGEND_SYMBOL
-* A legend symbol DRAWN from a shape and two colours, instead of an uploaded
-* file — "this colour = this period" is most of what a heritage map legend
-* says, and one pin for every element says nothing. Not in v6, which only
-* uploads images.
-*
-* Leaf module, no logic imports: `legend.js` (the mutator) and
-* `render_legend.js` (the shape previews) both draw with it, and
-* `legend.js` already imports the render file.
+* A legend symbol DRAWN from a shape and two colours: "this colour = this period" is
+* most of what a heritage legend says. Not in v6, which only uploads images. A leaf:
+* `legend.js` and `render_legend.js` both draw with it, and the first imports the second.
 *
 * @module legend_symbol
 */

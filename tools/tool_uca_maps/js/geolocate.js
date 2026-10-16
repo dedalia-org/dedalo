@@ -6,23 +6,10 @@
 
 /**
 * GEOLOCATE
-* Hito 15, functionality #13 ("Geolocation"). A toggle button with NO panel
-* (the 1x1 shape, onexone.js): armed, it asks the browser for the user's
-* position, centres the map there and DROPS A MARKER at it.
-*
-* The marker is v6's own behaviour (`special_tools_geolocation.js`
-* `location_found_event`: `map.fire('pm:create', {layer: marker})`), not an
-* embellishment — the point of the control on a field survey is to record
-* where you are standing, not just to look at it. What v6 does NOT do, and
-* this port must not either: v6's create path ends in the tool's own save.
-* Here it ends in `commit()` — the record goes dirty and the user's own Save
-* button stays the only thing that writes (second law of
-* component_geolocation, CLAUDE.local.md).
-*
-* The plan (§7) had this row down as a "retirada condicionada" — to be
-* dropped if v7 core already offered it. Hito 0 measured that it does not
-* (`grep -rli "navigator.geolocation"` over `client/` and `src/`: zero), so
-* it is ported.
+* A panel-less toggle: armed, it asks the browser for the position, centres the map
+* and drops a marker there, as v6 (`special_tools_geolocation.js`): on a survey the
+* point is to record where you stand. Unlike v6 it ends in `commit()`, not a save:
+* the record goes dirty and only the user's Save writes.
 *
 * @module geolocate
 */
@@ -53,13 +40,8 @@ const LOCATE_OPTIONS = Object.freeze({
 
 /**
 * ATTACH_GEOLOCATE
-* Builds the button and the two map listeners `map.locate` answers through.
-* Idempotent.
-*
-* The listeners are bound ONCE here rather than per click (v6 re-binds a new
-* pair of handlers on every click of its own control, so an eighth click
-* leaves eight `locationfound` listeners on the map and drops eight markers
-* for one position).
+* The two `map.locate` listeners are bound ONCE, not per click: v6 re-binds a pair on
+* every click, so the eighth click drops eight markers for one position. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -91,10 +73,8 @@ export const attach_geolocate = function(self) {
 			return
 		}
 		set_geolocate_enabled(self, false)
-		// v6 shows its own modal here; this tool's user-visible failure
-		// surface is the global toast (object_console.js report_client_error),
-		// which is also what makes a DENIED browser permission VISIBLE
-		// instead of a button that silently does nothing.
+		// a toast instead of v6's modal: it also makes a DENIED browser permission
+		// visible instead of a button that silently does nothing
 		report_client_error(
 			self.get_tool_label('geolocate_error') || 'Your location could not be determined.'
 		)
@@ -107,8 +87,7 @@ export const attach_geolocate = function(self) {
 
 /**
 * IS_GEOLOCATE_ENABLED
-* The authoritative "is the control armed" read — the button's own DOM class,
-* never a cached flag (toolbar.js file header, onexone.js is_onexone_enabled).
+* Read from the button's own class, never a cached flag.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
@@ -159,10 +138,8 @@ export const toggle_geolocate = function(self) {
 
 /**
 * CREATE_POSITION_MARKER
-* Drops a marker at `latlng` through the REAL `pm:create` pipeline (the same
-* door onexone.js uses), then `commit()`s — dirty record, no write.
-* Exported for direct testability, same reason as onexone.js's
-* create_onexone_rectangle.
+* Through the real `pm:create` pipeline, then `commit()`: dirty record, no write.
+* Exported for the client gate.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} latlng - Leaflet LatLng of the found position
@@ -174,12 +151,9 @@ export const create_position_marker = function(self, latlng) {
 		return null
 	}
 
-	// component_geolocation's own 'pm:create' handler adds the new layer to
-	// `FeatureGroup[active_layer_id]` with no existence check of its own
-	// (component_geolocation.js:1954) — a map whose active layer has no group
-	// yet would throw INSIDE the core handler. onexone.js never meets this
-	// because it starts from a layer that is already IN a group; a position
-	// fix starts from nothing, so the group is checked here.
+	// the core's 'pm:create' handler adds to `FeatureGroup[active_layer_id]` without
+	// checking it exists, and would throw inside. A position fix, unlike 1x1, does
+	// not start from a layer already in a group, so the group is checked here.
 	const layer_id		= self.geolocation.active_layer_id
 	const feature_group	= self.geolocation.FeatureGroup && self.geolocation.FeatureGroup[layer_id]
 	if (!feature_group) {
@@ -203,10 +177,8 @@ export const create_position_marker = function(self, latlng) {
 
 /**
 * DETACH_GEOLOCATE
-* Real teardown (CLAUDE.local.md "destrucción real") — called from
-* tool_uca_maps.prototype.destroy(). Stops any in-flight lookup as well as
-* removing the listeners: `map.locate` with `watch:false` still holds a
-* pending browser request until it answers.
+* Also stops an in-flight lookup: `map.locate` without `watch` still holds a pending
+* browser request until it answers.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

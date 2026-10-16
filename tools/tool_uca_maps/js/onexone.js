@@ -6,11 +6,9 @@
 
 /**
 * ONEXONE
-* Hito 7, functionality #7 ("Create 1x1 polygon"). Arms a mode where
-* clicking a Marker creates a 1 m-radius rectangle around it, auto-flagged
-* as uncertainty. First button this tool builds with NO panel — v6 has none
-* for this row either. Full rationale (why popupopen not v6's per-layer
-* listeners, why uid-linking not v6's multi_id, no cascade delete): `docs/hitos/hito_7.md`.
+* "Create 1x1 polygon" mode: clicking a Marker draws a 1 m-radius rectangle around it,
+* flagged as uncertainty. No panel, as v6. Marker and rectangle are linked by uid, not
+* v6's multi_id: each is valid data on its own, so nothing propagates or cascades.
 */
 
 
@@ -41,9 +39,8 @@ const ENABLED_CLASS = 'uca-maps-onexone-enabled'
 
 /**
 * ATTACH_ONEXONE
-* Builds the "1x1" toggle button (no panel) and the two map listeners it
-* needs: 'popupopen' (arms a rectangle on an eligible Marker click while
-* enabled) and 'pm:remove' (clears a stale onexone_uid). Idempotent.
+* One map-level 'popupopen' listener instead of v6's per-layer hooks: it also covers a
+* marker drawn after arming. 'pm:remove' clears a stale onexone_uid. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -85,9 +82,8 @@ export const attach_onexone = function(self) {
 
 /**
 * IS_ONEXONE_ENABLED
-* The authoritative "is 1x1 mode armed" read — the button's own DOM class,
-* never a cached flag (toolbar.js's same discipline, generalised: this
-* button has no panel to read `hidden` off).
+* Read from the button's own class, never a cached flag: this button has no panel
+* whose `hidden` could be read.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
@@ -101,8 +97,7 @@ export const is_onexone_enabled = function(self) {
 
 /**
 * TOGGLE_ONEXONE
-* Flips the button's own enabled class. Deliberately does NOT auto-disable
-* after one rectangle — v6 stays armed until clicked again (docs/hitos/hito_7.md).
+* Does NOT disarm after one rectangle: v6 stays armed until clicked again.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -115,11 +110,9 @@ const toggle_onexone = function(self) {
 
 /**
 * CREATE_ONEXONE_RECTANGLE
-* Ports v6's `oneXone_event` click handler minus the multi_id/property-
-* propagation machinery (docs/hitos/hito_7.md "Decisiones"): a 1 m-radius
-* rectangle around `marker`, added via the real `pm:create` pipeline, then
-* auto-flagged uncertainty by reusing `toggle_uncertainty`. Exported for
-* direct testability, same reason as object_console.js's toggle_centroid.
+* v6's `oneXone_event` without the multi_id propagation. Goes through the real
+* `pm:create` pipeline and reuses `toggle_uncertainty`, so the rectangle is an ordinary
+* drawn polygon. The uid pointers only stop a second rectangle for the same marker.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} marker - the clicked Leaflet Marker
@@ -163,7 +156,7 @@ export const create_onexone_rectangle = function(self, marker) {
 	// keeps; moving the point stays possible, on purpose, from its checkbox.
 	uca_maps.geoman_edition = false
 
-	toggle_uncertainty(self, rectangle) // auto-uncertainty (row 7) + commit()
+	toggle_uncertainty(self, rectangle) // auto-uncertainty + commit()
 
 }//end create_onexone_rectangle
 
@@ -171,10 +164,8 @@ export const create_onexone_rectangle = function(self, marker) {
 
 /**
 * CLEAR_ORPHANED_ONEXONE_UID
-* Reacts to a removed layer (Geoman's delete tool). A no-op unless it
-* carries `onexone_of` (it WAS a rectangle) — clears the origin marker's now-
-* dangling `onexone_uid` so 1x1 can be used again. Mirrors object_console.js's
-* `unlock_orphaned_centroid` search-by-uid idiom; no cascade delete (hito_7.md).
+* Removing a 1x1 rectangle frees its marker for 1x1 again. Only that pointer is
+* cleared: no cascade delete, and a rectangle's dangling `onexone_of` stays inert.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} removed_layer - the layer Geoman just removed
@@ -205,8 +196,7 @@ const clear_orphaned_onexone_uid = function(self, removed_layer) {
 
 /**
 * DETACH_ONEXONE
-* Real teardown (CLAUDE.local.md "destrucción real") — called from
-* tool_uca_maps.prototype.destroy().
+* Removes both map listeners and the button.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

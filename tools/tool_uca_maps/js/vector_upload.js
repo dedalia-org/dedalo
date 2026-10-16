@@ -6,22 +6,10 @@
 
 /**
 * VECTOR_UPLOAD
-* Fila #11 del audit ("Upload file to map"), VECTOR HALF ONLY — hito 12. The
-* raster/image-overlay half (v6's "Subir imagen") is a separate later hito
-* (`docs/HITOS.md`); the button+panel this file builds is named at the ROW
-* level (`upload_control`/`upload_panel`, `attach_file_upload`/
-* `detach_file_upload`) precisely so that hito can extend the SAME panel
-* instead of renaming anything.
-*
-* v6 (`special_tools_upload.js`) reads .zip/.geojson/.kml CLIENT-SIDE with a
-* 500+ line vendored `L.Shapefile`/`L.KML` reader pair and a hardcoded
-* 18-entry EPSG table (browser proj4js cannot resolve an arbitrary EPSG code
-* without a network fetch). This port uploads the raw file with the engine's
-* own generic transport (`service_upload.js`) and asks the SERVER to convert
-* it to WGS84 GeoJSON with `ogr2ogr` (`server/vector_upload.ts` — GDAL/PROJ
-* carries the full EPSG database, so any embedded CRS reprojects with no
-* lookup table at all); the client only ever draws `L.geoJSON`, same pattern
-* already proven for Catastro/UA (hito 11).
+* "Upload file to map": owns the button and panel the image upload shares. v6 parses
+* .zip/.kml in the browser with a fixed 18-code EPSG table; here the raw file is staged
+* and the server converts it with `ogr2ogr`, whose PROJ database reprojects any
+* embedded CRS. The client only draws `L.geoJSON`.
 */
 
 
@@ -51,7 +39,7 @@ const VECTOR_UPLOAD_KEY_DIR	= 'uca_maps_vector'
 /**
 * ATTACH_FILE_UPLOAD
 * Builds the "Upload file to map" button+panel. No language/section-tipo
-* gate (unlike Catastro/UA) — v6 has none for this row either. Idempotent.
+* gate (unlike Catastro/UA): v6 has none either. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -106,11 +94,9 @@ const toggle_upload_panel = function(self) {
 
 /**
 * UPLOAD_VECTOR_FILE
-* Two-step flow: (1) `service_upload.js`'s generic transport stages the raw
-* file, (2) `upload_vector_layer` (server) converts the staged file to WGS84
-* GeoJSON. EXPORTED (takes plain `file`/`projection` args, not a DOM event) so
-* tests can await it directly — same testability convention as
-* `wms_services.js`'s `search_wms_layers`.
+* The engine's generic upload stages the raw file, then `upload_vector_layer`
+* converts it to WGS84 GeoJSON. Takes plain arguments, not a DOM event, so the client
+* gate can await it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {File} file - the browser File object chosen by the user
@@ -162,9 +148,7 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 			}
 		})
 
-		// the panel may have been closed / the tool torn down while this
-		// request was in flight (same "DOM is truth, discard a late response"
-		// law as check_administrative_unit_at_point, hito 11)
+		// torn down while in flight: a late response is discarded
 		if (!self.upload_panel) {
 			return {ok: false}
 		}
@@ -192,13 +176,8 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 
 /**
 * CREATE_FEATURES_FROM_GEOJSON
-* `L.geoJSON` builds one layer per feature and sets `.feature` on each
-* (Leaflet's own `geometryToLayer`), same as `administrative_units.js`
-* `create_administrative_unit_object` — fired once per layer here because a
-* shapefile/KML upload routinely holds MANY objects, unlike a single
-* Catastro/UA lookup. Fits the map to the WHOLE collection's combined
-* bounds, simpler and more useful than v6's own per-type "fit to the last
-* one processed" logic.
+* One `pm:create` per layer: an upload routinely holds many objects. Fits the WHOLE
+* collection's bounds rather than v6's "last one processed".
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} geojson - a GeoJSON FeatureCollection, or null/undefined
@@ -233,8 +212,8 @@ const create_features_from_geojson = function(self, geojson) {
 
 /**
 * DETACH_FILE_UPLOAD
-* Real teardown (CLAUDE.local.md) — no map listener/overlay to reverse
-* (unlike Catastro/UA): the button+panel, and any pending hide timer.
+* No map listener or overlay to reverse: the button, the panel and any pending
+* message timer.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

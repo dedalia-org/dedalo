@@ -6,11 +6,9 @@
 
 /**
 * XYZ_BASEMAPS
-* Fila #5 del audit. Persistencia SOLO DE SESIÓN por ahora (Sergio,
-* 2026-09-07 — `docs/PREGUNTAS_FORO.md` #7), y arregla el bug real del
-* audit ("OSM duplicado", v6 mutaba `layer_control._layers` mientras lo
-* recorría). Traza completa, incluida la toma de posesión del tile layer
-* raíz para el provider OSM: `docs/hitos/hito_9.md`.
+* Session-only base maps: a tool cannot provision a section to keep them. Fixes v6's
+* duplicated OSM: v6 mutated `layer_control._layers` while walking it; here every
+* rebuild snapshots first, then removes. The tool takes over the map's base tile layer.
 */
 
 
@@ -29,18 +27,15 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 
 
 
-/** Los de fábrica de v6 para `section_tipo` no-numisdata, byte-parity con
-* `class.tool_leaflet_special_tools.php:1181-1198` — EXCEPTO la URL de OSM
-* (nota junto a esa entrada) y SIN Google Maps: `mt1.google.com` no es un
-* endpoint documentado y pedirle teselas salta la Map Tiles API oficial, que
-* sus términos prohíben. Session-only (file header). */
+/** v6's defaults (`class.tool_leaflet_special_tools.php`) for a non-numisdata
+* `section_tipo`, except the OSM URL (see that entry) and WITHOUT Google Maps:
+* `mt1.google.com` is no documented endpoint, and requesting its tiles bypasses the
+* official Map Tiles API, which its terms forbid. */
 // exported for the client gate
 export const DEFAULT_BASEMAPS = [
 	{
-		// v6 usa '//...' (protocolo-relativo); aquí https literal, igual que
-		// TILE_URLS del núcleo (component_geolocation.js) — un http:// de
-		// entrada + redirect forzado de OSM a https rompe CSP en dev
-		// (`docs/revisar_marte_hito_9_xyz.md`).
+		// literal https, not v6's protocol-relative '//', as the core's TILE_URLS: an
+		// http:// tile request that OSM redirects to https breaks the CSP in dev
 		url			: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
 		name		: 'OSM',
 		attribution	: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -60,8 +55,7 @@ export const DEFAULT_BASEMAPS = [
 
 /**
 * ATTACH_XYZ_BASEMAPS
-* Construye el botón+panel "XYZ" (patrón toolbar.js) y toma posesión del
-* ciclo de vida de la capa base del mapa (ver file header). Idempotente.
+* Builds the button and panel, and takes over the map's base layer. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -98,8 +92,8 @@ export const attach_xyz_basemaps = function(self) {
 
 /**
 * TOGGLE_XYZ_PANEL
-* Mismo criterio que el resto del tool (toolbar.js file header): estado
-* leído del propio DOM, nunca una bandera cacheada.
+* Reads the panel's real state, never a flag: a sibling opening closes this one
+* without passing here.
 *
 * @param {Object} self
 * @returns {void}
@@ -120,13 +114,12 @@ const toggle_xyz_panel = function(self) {
 
 /**
 * REBUILD_XYZ_LAYER_CONTROL
-* Único punto de reconstrucción (montaje + toda mutación). Instantánea-y-
-* borra, nunca el array vivo de Leaflet — el bug real de v6 (file header,
-* `docs/hitos/hito_9.md`).
+* The ONE rebuild (attach and every mutation). Snapshot, then remove, never the live
+* Leaflet array: walking it while removing was v6's duplicated-OSM bug.
 *
 * @param {Object} self
 * @param {Object} [options]
-* @param {number} [options.activate_index=0] - entrada de self.basemaps activa tras reconstruir
+* @param {number} [options.activate_index=0] - the self.basemaps entry active after the rebuild
 * @returns {void}
 */
 const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
@@ -134,11 +127,9 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 	const geolocation	= self.geolocation
 	const map			= geolocation.map
 
-	// one-time takeover (review-diff correctness finding, hito 9): a raw
-	// swept map.eachLayer(), not just the OSM branch's named `tile_layer`
-	// property — GOOGLE/ARCGIS never store their own single base layer on
-	// any property at all (component_geolocation.js), so a name-based check
-	// alone missed them, leaving an untracked layer bleeding through
+	// one-time takeover sweeps map.eachLayer(), not the OSM branch's `tile_layer`:
+	// GOOGLE/ARCGIS keep their base layer on no property, so a name check would
+	// leave an untracked layer bleeding through. The theme observer would re-add OSM.
 	if (!self._xyz_took_over_tiles) {
 		if (geolocation.theme_observer && typeof geolocation.theme_observer.disconnect==='function') {
 			geolocation.theme_observer.disconnect()
@@ -158,7 +149,7 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 	}
 	const layer_control = geolocation.layer_control
 
-	// snapshot-then-remove — the actual fix (file header)
+	// snapshot-then-remove: never mutate `_layers` while walking it
 	const existing_tile_entries = Object.values(layer_control._layers || {})
 		.filter((entry) => entry.layer instanceof L.TileLayer)
 	for (const entry of existing_tile_entries) {
@@ -189,15 +180,12 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 
 /**
 * VALIDATE_BASEMAP_FIELDS
-* Zoom 0-22 both ways and min<=max; name AND attribution stripped of tags
-* (review-diff security finding, hito 9 — Leaflet's attribution control
-* renders that string via innerHTML, unlike a layer name). URL must be
-* absolute (`//host/...` or `http(s)://...` — a bare relative string is not
-* a tile-server template) and pass the app's one centralized scheme
-* allowlist, `safe_url` (`util.js`), never a bespoke regex.
+* Name AND attribution are stripped of tags: Leaflet renders the attribution through
+* innerHTML. The URL must be absolute (a relative string is no tile template) and pass
+* `safe_url`, the app's one scheme allowlist.
 *
 * @param {Object} self
-* @param {Object} fields - {url, name, attribution, minzoom, maxzoom} (strings crudos del form)
+* @param {Object} fields - {url, name, attribution, minzoom, maxzoom} (raw form strings)
 * @returns {{ok: boolean, error?: string, basemap?: Object}}
 */
 const validate_basemap_fields = function(self, fields) {
@@ -235,11 +223,10 @@ const validate_basemap_fields = function(self, fields) {
 
 /**
 * ADD_BASEMAP
-* Valida, añade al final de `self.basemaps` y reconstruye activando la
-* recién creada — mismo desenlace que v6 tras un alta con éxito.
+* Appends and activates the new entry, as v6 does after a successful add.
 *
 * @param {Object} self
-* @param {Object} fields - ver validate_basemap_fields
+* @param {Object} fields - see validate_basemap_fields
 * @returns {{ok: boolean, error?: string}}
 */
 export const add_basemap = function(self, fields) {
@@ -259,9 +246,8 @@ export const add_basemap = function(self, fields) {
 
 /**
 * DELETE_BASEMAP
-* Rechaza borrar la última entrada — un mapa sin ninguna capa base queda en
-* blanco, una regresión peor que el descuido de v6 (que no guarda contra
-* esto); mejora deliberada, no paridad estricta.
+* Refuses to delete the last entry: a map with no base layer goes blank, which v6
+* does not guard against.
 *
 * @param {Object} self
 * @param {number} index
@@ -286,14 +272,12 @@ export const delete_basemap = function(self, index) {
 
 /**
 * MOVE_BASEMAP
-* Reordena una posición arriba/abajo (botones ▲/▼) — sustituye el
-* drag-and-drop HTML5 de v6, intestable de forma fiable en Mocha headless;
-* mismo resultado funcional, desviación deliberada (mismo criterio que
-* hito 7's onexone.js: robustez/testabilidad sobre réplica literal).
+* One step up or down (▲/▼) instead of v6's HTML5 drag-and-drop, which headless Mocha
+* cannot drive reliably; same result.
 *
 * @param {Object} self
 * @param {number} index
-* @param {number} direction - -1 (subir) o +1 (bajar)
+* @param {number} direction - -1 (up) or +1 (down)
 * @returns {{ok: boolean}}
 */
 export const move_basemap = function(self, index, direction) {
@@ -314,12 +298,8 @@ export const move_basemap = function(self, index, direction) {
 
 /**
 * DETACH_XYZ_BASEMAPS
-* Destrucción real (CLAUDE.local.md) — llamado desde tool_uca_maps.js
-* destroy(). Además del botón+panel, retira del mapa cada tile layer que
-* este tool añadió y, si fue este tool quien creó el layer_control (provider
-* sin uno propio, ver rebuild_xyz_layer_control), el control entero — un
-* control reutilizado (NUMISDATA/VARIOUS) se deja, solo vacío de los
-* nuestros (review-diff correctness finding, hito 9).
+* Removes every tile layer this tool added, and the layer_control only if this tool
+* created it: a provider's own control is left, emptied of ours.
 *
 * @param {Object} self
 * @returns {void}

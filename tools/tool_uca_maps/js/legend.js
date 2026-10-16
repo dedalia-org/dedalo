@@ -5,24 +5,10 @@
 
 /**
 * LEGEND
-* Fila #12 del audit ("Legend — Leyenda manual"): un editor MANUAL de
-* leyenda (título + N columnas, cada una con elementos icono+texto) y la
-* propia leyenda dibujada sobre el mapa. No genera nada automáticamente a
-* partir de las capas WMS activas — igual que v6, que tampoco pide
-* `GetLegendGraphic`.
-*
-* Estado SOLO DE SESIÓN, como XYZ (#5) y WMS (#6): v6 guarda un JSON por
-* `section_tipo` dentro de la carpeta del tool
-* (`class.tool_leaflet_special_tools.php:1063` `legends()`) y aquí no hay
-* dónde escribirlo — un tool todavía no puede aprovisionar una sección de
-* ontología propia. Consecuencia: NO hay botón "Guardar leyenda" ni los tres
-* auto-guardados con `setTimeout` de 3 s que v6 dispara al escribir; el
-* overlay se repinta en vivo.
-*
-* El overlay NO se registra como toolbar node a propósito: una leyenda es
-* contenido del mapa, así que ENTRA en la descarga de mapa como imagen
-* (`map_image_download.js` excluye solo lo registrado). El botón y el panel
-* de edición sí son chrome y siguen fuera.
+* A MANUAL legend editor (title, columns of icon+text items) and its overlay, as v6:
+* nothing is generated from the WMS layers. Session-only: a tool cannot provision a
+* section to keep it, so there is no Save button and none of v6's 3 s autosaves. The
+* overlay is map content, not a toolbar node, so the map image download includes it.
 *
 * @module legend
 */
@@ -54,20 +40,19 @@ import {
 
 
 
-/** Tipos que v6 acepta como icono (`special_tools_legend.js` change_icon +
-* el `finfo` del PHP). El SVG se mantiene: el icono vive como data URL
-* dentro de un `<img>`, que es un contexto sin scripting, y en esta rama no
-* se guarda ni se sirve desde la instalación. */
+/** The icon types v6 accepts (`special_tools_legend.js` change_icon). SVG stays: the
+* icon is a data URL inside an `<img>`, a context without scripting, never stored or
+* served by the install. */
 // exported for the client gate
 export const ALLOWED_ICON_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-/** Tope de v6, verbatim. */
+/** v6's cap, verbatim. */
 // exported for the client gate
 export const MAX_ICON_BYTES = 2000000
 
-/** Pin por defecto de un elemento nuevo. v6 sirve `img/pin.svg` desde la
-* carpeta del tool; aquí va incrustado para no depender de una URL de
-* asset (`img-src` ya admite `data:`, `static_asset.ts` APP_CSP). */
+/** A new item's default pin. v6 serves `img/pin.svg` from the tool folder; inlined
+* here so it needs no asset URL (`img-src` already admits `data:`). Markup on purpose:
+* it only ever becomes an `<img>` data URI, never a DOM sink. */
 // exported for the client gate
 export const DEFAULT_ELEMENT_ICON = 'data:image/svg+xml;base64,' + btoa(
 	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">' +
@@ -79,10 +64,9 @@ export const DEFAULT_ELEMENT_ICON = 'data:image/svg+xml;base64,' + btoa(
 
 /**
 * EMPTY_LEGEND
-* La misma forma que v6 escribe en el JSON la primera vez
-* (`legends()`: `{"legend":"", "enable":true, "columns":[]}`), para que el
-* día que la pregunta #7 se cierre, persistir sea escribir este objeto tal
-* cual.
+* The same shape v6 writes to its JSON the first time
+* (`{"legend":"", "enable":true, "columns":[]}`), so persisting it later is writing
+* this object as is.
 *
 * @returns {Object}
 */
@@ -95,10 +79,8 @@ export const empty_legend = function() {
 
 /**
 * ATTACH_LEGEND
-* Botón+panel "Legend" (patrón toolbar.js) + el overlay de la leyenda en la
-* esquina 'bottomleft' del mapa — la única libre: 'topleft' la ocupan los
-* botones de este tool, 'topright' la barra de dibujo de Geoman y
-* 'bottomright' la barra de escala (hito 15). Idempotente.
+* The overlay goes 'bottomleft', the only free corner: this tool's buttons, Geoman's
+* toolbar and the scale bar hold the other three. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -138,8 +120,8 @@ export const attach_legend = function(self) {
 
 /**
 * TOGGLE_LEGEND_PANEL
-* Dirección leída del DOM, nunca de una bandera cacheada (toolbar.js file
-* header) — un panel hermano puede haber cerrado este sin pasar por aquí.
+* Reads the panel's real state, never a flag: a sibling opening closes this one
+* without passing here.
 *
 * @param {Object} self
 * @returns {void}
@@ -176,8 +158,8 @@ export const set_legend_title = function(self, text) {
 
 /**
 * SET_LEGEND_VISIBLE
-* El checkbox "Mostrar leyenda" de v6. Solo esconde el overlay: las
-* columnas siguen editables con la leyenda oculta, igual que en v6.
+* v6's "Show legend" checkbox. Only hides the overlay: the columns stay editable,
+* as in v6.
 *
 * @param {Object} self
 * @param {boolean} visible
@@ -422,13 +404,9 @@ export const set_legend_element_symbol = function(self, column_index, element_in
 
 /**
 * SET_LEGEND_ELEMENT_ICON
-* El icono se queda ENTERO en el navegador (data URL): v6 manda el data URL
-* al servidor para que le devuelva el mismo data URL
-* (`legend_icon()` del PHP: olfatea el mime, comprueba el tamaño y hace eco)
-* — sin persistencia no hay nada que el servidor pueda aportar ahí, así que
-* este hito no añade ninguna acción de servidor. Tipo y tamaño se comprueban
-* ANTES de leer el fichero, para no cargar 30 MB en memoria y rechazarlos
-* después.
+* The icon stays in the browser as a data URL: v6's server only echoes it back, and
+* with nothing persisted there is nothing for a server action to add. Type and size
+* are checked BEFORE reading, so a 30 MB file is never loaded only to be refused.
 *
 * @param {Object} self
 * @param {number} column_index
@@ -485,7 +463,7 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 /**
 * READ_FILE_AS_DATA_URL
 * @param {File} file
-* @returns {Promise<string|null>} null si el fichero no se pudo leer
+* @returns {Promise<string|null>} null when the file could not be read
 */
 const read_file_as_data_url = function(file) {
 
@@ -502,8 +480,7 @@ const read_file_as_data_url = function(file) {
 
 /**
 * DETACH_LEGEND
-* Destrucción real (CLAUDE.local.md) — botón, panel y overlay fuera del
-* mapa, estado a null.
+* Button, panel and overlay off the map; state to null.
 *
 * @param {Object} self
 * @returns {void}

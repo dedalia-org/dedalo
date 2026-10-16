@@ -5,29 +5,9 @@
 
 /**
 * SVG
-*
-* The tool draws its own vector chrome — the compass rose (`scale_bar.js`),
-* the uncertainty band strip (`render_object_console.js`) and the eye
-* (`icons.js`). All three were built as HTML STRINGS
-* handed to `inner_html` / `innerHTML`, i.e. an HTML-parsing sink. A node
-* built through a factory is inert — there is no parse to subvert — so the
-* sink stops existing instead of being escaped or excused.
-*
-* WHAT THAT IS AND IS NOT WORTH. `render_escape_tripwire` only counts a sink
-* whose value it cannot prove static, so two of those three were already
-* green; converting them buys the SHAPE, not a gate. The shape is the point:
-* the classifier is textual, so a later edit that interpolates one value into
-* an existing markup string turns a green site red with nothing to warn the
-* author. There is no node to interpolate into.
-*
-* ONE SITE IS DELIBERATELY LEFT AS MARKUP: `legend.js` DEFAULT_ELEMENT_ICON.
-* It is not a DOM sink at all — the string is base64'd into a `data:` URI for
-* an `<img src>`, a document with no scripting and no access to this one, so
-* there is nothing here that would apply to it.
-*
-* Nothing below is a general-purpose DOM library. It is the smallest thing
-* that makes an `<svg>` subtree read as data: a tag, its attributes, its
-* children.
+* The tool's vector chrome (compass, uncertainty strip, eye) is built as nodes, not
+* HTML strings: a factory-built node is inert, so there is no sink to escape. Attributes
+* are SET, never interpolated, so a later edit cannot turn a static string unsafe.
 *
 * @module svg
 */

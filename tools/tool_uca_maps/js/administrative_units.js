@@ -6,19 +6,10 @@
 
 /**
 * ADMINISTRATIVE_UNITS
-* Fila #9 del audit ("Unidades Administrativas", UA). Same gating condition
-* and basemap-swap pattern as `catastro.js` (row #8) — gated on the record's
-* language (`section_lang` es/cat/eus, duplicated here rather than imported
-* from `catastro.js`: a one-line boolean is not worth a cross-file coupling).
-*
-* v6's own toggle (`special_tools_UA_es.js` UA_on/UA_off) does three things
-* at once: shows a level `<select>`, SWAPS the active basemap for the
-* AU.AdministrativeUnit WMS map (confirmed live by Sergio, 2026-09-08
-* validation — same fix as `catastro.js`, see `enable_ua`'s own doc comment),
-* and arms the click listener. This port keeps that single-toggle semantics
-* but expresses "shown" through toolbar.js's own panel-visibility convention
-* — opening the panel IS arming (`toggle_ua_panel` below), closing it
-* disarms — rather than a bespoke show/hide class pair.
+* "Administrative Units" (UA): the same language gate and basemap swap as Catastro.
+* v6's one toggle (`special_tools_UA_es.js` UA_on/UA_off) shows the level select, swaps
+* the basemap for the AU.AdministrativeUnit WMS and arms the click; here opening the
+* panel IS arming, and closing it, by any path, disarms.
 */
 
 
@@ -43,8 +34,7 @@ const UA_URL = 'https://www.ign.es/wms-inspire/unidades-administrativas'
 
 
 
-/** Shared v6 gating condition — see `catastro.js`'s own copy for why this is
-* duplicated rather than imported. */
+/** v6's gate for Catastro and UA: the record's language is Spanish, Catalan or Basque. */
 const is_spanish_official_lang = function(self) {
 	const lang = self.geolocation && self.geolocation.section_lang
 	return lang==='lg-spa' || lang==='lg-cat' || lang==='lg-eus'
@@ -54,9 +44,7 @@ const is_spanish_official_lang = function(self) {
 
 /**
 * ATTACH_ADMINISTRATIVE_UNITS
-* Builds the "UA" button+panel. Idempotent; a no-op when the record's
-* language does not gate this functionality in (v6 parity, same condition as
-* Catastro).
+* Idempotent; a no-op when the record's language does not gate it in (v6).
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -81,10 +69,8 @@ export const attach_administrative_units = function(self) {
 		on_click	: () => toggle_ua_panel(self)
 	})
 
-	// on_hide: the actual fix for the doc comment below's claim — without it,
-	// a SIBLING panel forcing this one shut (toolbar.js close_other_toolbar_
-	// panels) left the overlay+click listener running with no panel visible
-	// to show for it (review-diff finding, hito 11)
+	// on_hide: a SIBLING panel forcing this one shut must disarm too, or the
+	// overlay and click listener keep running with no panel to show for them
 	self.ua_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-ua-panel',
 		centered	: true,
@@ -99,10 +85,8 @@ export const attach_administrative_units = function(self) {
 
 /**
 * TOGGLE_UA_PANEL
-* Opening the panel arms the overlay+click listener; closing it (including a
-* SIBLING panel forcing this one shut via toolbar.js's own exclusivity) must
-* also disarm — read from `is_toolbar_panel_visible` BEFORE the flip, same
-* "DOM is truth" law as every other toggle_X here.
+* Opening arms the overlay and click; closing disarms. Direction read from the
+* panel's real state before the flip, never a flag.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -125,12 +109,8 @@ const toggle_ua_panel = function(self) {
 
 /**
 * ENABLE_UA
-* Swaps the active basemap for the AU.AdministrativeUnit WMS map (v6 parity,
-* confirmed live by Sergio, 2026-09-08 validation — same fix as
-* `catastro.js`'s `enable_catastro`, see its own doc comment for the full
-* rationale: `geolocation.layer_control`'s real API, no simulated radio
-* click). `self._ua_previous_base_layers` remembers whatever was active
-* before the swap so DISABLE_UA can restore it exactly.
+* Swaps the basemap for the AU.AdministrativeUnit WMS, as `enable_catastro`: the layer
+* control's own API, the previous tile layers remembered so disabling restores them.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -162,7 +142,7 @@ const enable_ua = function(self) {
 		opacity		: 1
 	})
 	layer_control.addBaseLayer(self._ua_tile_layer, self.get_tool_label('ua_control_title') || 'Administrative Units')
-	self._ua_tile_layer.addTo(map) // triggers layer_control's own _update() — no radio click to simulate
+	self._ua_tile_layer.addTo(map) // the layer control redraws itself: no radio click to simulate
 
 	self._ua_click_handler = (event) => check_administrative_unit_at_point(self, event.latlng)
 	map.on('click', self._ua_click_handler)
@@ -173,9 +153,8 @@ const enable_ua = function(self) {
 
 /**
 * DISABLE_UA
-* Reverses ENABLE_UA exactly — see `catastro.js`'s `disable_catastro` for the
-* same shape (drop from map+control, restore the previous basemap(s), remove
-* a self-created control).
+* Reverses ENABLE_UA: off the map and the control, previous basemaps back, a
+* self-created control removed.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -215,12 +194,9 @@ const disable_ua = function(self) {
 
 /**
 * CHECK_ADMINISTRATIVE_UNIT_AT_POINT
-* Ports v6's map click handler (`init_UA`), minus the client-side
-* `nationallevel` filtering — the server (`administrative_units.ts`) already
-* returns at most the ONE feature matching the selected level. EXPORTED
-* (takes a plain latlng, not a Leaflet event) so tests can await it directly,
-* same testability convention as `wms_services.js`'s exported
-* `search_wms_layers`.
+* v6's `init_UA` click without its client-side `nationallevel` filter: the server
+* already returns at most the ONE feature of the chosen level. Exported for the
+* client gate.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} latlng - a Leaflet LatLng
@@ -254,10 +230,8 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 			}
 		})
 
-		// the tool may have been torn down, OR the panel may have been closed
-		// (by its own toggle or a sibling forcing it shut) while this request
-		// was in flight — either way a late response must not create an
-		// object nobody asked for any more (review-diff finding, hito 11)
+		// torn down or closed (by any path) while in flight: a late response must
+		// not create an object nobody asks for any more
 		if (!self.ua_panel || !is_toolbar_panel_visible(self.ua_panel)) {
 			return
 		}
@@ -299,11 +273,8 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 
 /**
 * CREATE_ADMINISTRATIVE_UNIT_OBJECT
-* `L.geoJSON` already sets `.feature` on every layer it builds (Leaflet's own
-* `geometryToLayer`) — no manual assignment needed here, unlike
-* `catastro.js`'s hand-built `L.polygon`. Pan to a point, fit bounds to
-* anything with an area/length — v6's own tie-break (`init_UA`), simplified
-* because the server returns exactly one feature, never several to compare.
+* Pans to a point, fits anything with extent (v6's `init_UA`). With one feature from
+* the server there is nothing to compare.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} feature - a GeoJSON Feature
@@ -330,7 +301,7 @@ const create_administrative_unit_object = function(self, feature) {
 
 /**
 * DETACH_ADMINISTRATIVE_UNITS
-* Real teardown (CLAUDE.local.md) — mirrors `wms_services.js`'s detach shape.
+* Disarms first, so the basemap swap and the click listener are reversed.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

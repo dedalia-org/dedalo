@@ -8,30 +8,10 @@ import { svg_node } from './svg.js'
 
 /**
 * SCALE_BAR
-* Hito 15, functionality #2 ("Barra de escala"). A graphic scale bar plus a
-* compass rose, bottom-right. Not a toolbar button and not a panel — the
-* audit says so ("no es un icono clicable de la lista vertical de la
-* izquierda"); it is permanent map furniture, like the attribution line.
-*
-* WHAT v6 ACTUALLY HAS (and my first pass got wrong): a `leaflet-graphicscale`
-* control with `fill:'hollow', doubleLine:true` — a two-row checker bar, NOT
-* Leaflet core's single line — AND a compass rose. The compass is not in the
-* tool's own code at all: v6's vendored copy of the library is PATCHED BY HAND
-* (`external-lib/leaflet-graphicscale/src/Leaflet.GraphicScale.js` `onAdd`
-* builds a `leaflet-control-compass` div; its CSS points that div at
-* `compass_.png`). Sergio caught the omission on the hito-15 validation.
-*
-* WHY THIS IS OWN CODE AND NOT THE VENDORED PLUGIN. Porting v6 here would
-* mean vendoring an unmaintained 2015 plugin AND somebody's undocumented local
-* patch to it, into installs that live for decades. What the plugin actually
-* does — round the width to a nice number, draw divisions, draw a compass — is
-* the ~150 lines below, with no dependency, no binary asset (the rose is
-* inline SVG: crisp at any DPI, and it inherits its colour), and no silent
-* `try/catch` (audit bug #3) because there is no library that can fail to load.
-*
-* The rounding is Leaflet's own `_getRoundNum` criterion (1/2/3/5/10 × 10^n),
-* which is also what the plugin's `_possibleUnitsNum`/`_possibleDivisions`
-* tables approximate — same answers, a tenth of the machinery.
+* Permanent map furniture, bottom-right: v6's two-row checker scale and the compass
+* rose its hand-patched `leaflet-graphicscale` adds. Own code, not that unmaintained
+* 2015 plugin plus an undocumented patch: no dependency, no binary asset, nothing to
+* fail to load. The rounding is Leaflet's own `_getRoundNum` criterion.
 *
 * @module scale_bar
 */
@@ -45,8 +25,7 @@ const MAX_WIDTH = 150
 
 /**
 * ATTACH_SCALE_BAR
-* Idempotent. Metric only — v6's `graphicScale` has no imperial half either,
-* and a heritage record measured in miles is not a case this serves.
+* Idempotent. Metric only, as v6's `graphicScale`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -98,7 +77,7 @@ export const attach_scale_bar = function(self) {
 /**
 * ROUND_DISTANCE
 * Leaflet's own `_getRoundNum` criterion: the largest 1/2/3/5/10 × 10^n that
-* still fits. Exported for direct unit coverage — the whole bar is wrong if
+* still fits. Exported for the client gate: the whole bar is wrong if this is.
 * this is, and it is pure arithmetic.
 *
 * @param {number} max_meters - what MAX_WIDTH px is worth on the ground
@@ -141,12 +120,9 @@ export const format_distance = function(meters) {
 
 /**
 * RENDER_SCALE
-* Rebuilds the bar for the map's current scale: a round distance, split into
-* divisions drawn as TWO offset rows (v6's `doubleLine`) with alternating
-* fill (v6's `fill:'hollow'`), labelled 0 / half / full.
-*
-* A distance whose leading digit is 3 is split in 3, everything else in 4 —
-* four divisions of 0.75 would put labels on numbers no one reads off a map.
+* Two offset rows of alternating divisions (v6's `doubleLine`, `fill:'hollow'`),
+* labelled 0 / half / full. A leading 3 splits in 3, the rest in 4: four divisions
+* of 0.75 would label numbers no one reads off a map.
 *
 * @param {Object} map - the live Leaflet map
 * @param {HTMLElement} scale_node - .uca-maps-scale-graphic
@@ -207,11 +183,9 @@ const render_scale = function(map, scale_node) {
 
 
 /**
-* COMPASS_SVG
-* The rose v6 ships as a 128px PNG, as inline SVG instead: four long cardinal
-* kites, four short diagonal ones, a centre ring and the N/E/S/W letters. No
-* binary asset to keep in step with the CSS, sharp on a retina screen, and it
-* takes its colour from the control (so the exported map image gets it too).
+* COMPASS_NODE
+* v6's 128px PNG rose as inline SVG: sharp at any DPI, no asset to keep in step with
+* the CSS, and it takes the control's colour, also in the exported map image.
 *
 * @returns {SVGElement}
 */
@@ -258,13 +232,8 @@ const compass_node = function() {
 
 /**
 * DETACH_SCALE_BAR
-* Real teardown (CLAUDE.local.md "destrucción real") — called from
-* tool_uca_maps.prototype.destroy(). The 'move' and 'load' listeners come
-* off in the control's own `onRemove`.
-*
-* NOT registered in `self._toolbar_nodes`, and named in `keep_in_map_image`
-* (`map_image_download.js`): a scale bar and a north arrow belong in an
-* exported map image, unlike the controls the capture drops.
+* The 'move' and 'load' listeners come off in the control's `onRemove`. Not a toolbar
+* node: a scale bar belongs in the exported map image (`keep_in_map_image`).
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

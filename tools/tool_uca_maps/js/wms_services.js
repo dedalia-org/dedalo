@@ -6,18 +6,10 @@
 
 /**
 * WMS_SERVICES
-* Fila #6 del audit. Persistencia SOLO DE SESIÓN, mismo criterio que "XYZ"
-* (fila #5, `xyz_basemaps.js` — Sergio, 2026-09-07, `docs/PREGUNTAS_FORO.md`
-* #7): resets to an empty list on every attach, nothing survives F5. Unlike
-* XYZ, WMS layers never touch `geolocation.layer_control` — v6's own
-* equivalent (`special_tools_wms.js`) doesn't register them there either,
-* they are plain `L.TileLayer.WMS` instances added/removed straight from the
-* map, so there is no "OSM duplicated" class of bug to guard against here.
-*
-* The "search" step (GetCapabilities) is the one piece that needs the server
-* — `tools/tool_uca_maps/server/wms.ts` proxies the fetch (SSRF-guarded) and
-* hands back the raw capabilities XML; `parse_wms_capabilities_xml` below
-* parses it client-side with `DOMParser`, same approach v6 used.
+* Session-only WMS layers, as XYZ: a tool cannot provision a section to keep them, so
+* nothing survives F5. As in v6 (`special_tools_wms.js`) they are plain map layers, never
+* in `layer_control`. Only GetCapabilities needs the server (an SSRF-guarded proxy); its
+* XML is parsed here with `DOMParser`, as v6 does.
 */
 
 
@@ -83,8 +75,8 @@ export const attach_wms_services = function(self) {
 
 /**
 * TOGGLE_WMS_PANEL
-* Same "read the DOM, never a cached flag" law as every other panel here
-* (toolbar.js file header).
+* Reads the panel's real state, never a flag: a sibling opening closes this one
+* without passing here.
 *
 * @param {Object} self
 * @returns {void}
@@ -107,8 +99,7 @@ const toggle_wms_panel = function(self) {
 * DIRECT_CHILD
 * First direct-child element named `tag`, never a nested descendant —
 * `Element.getElementsByTagName` searches the WHOLE subtree, which would
-* pull a nested `<Layer>`'s own `<Name>` up into its unnamed parent group
-* (review-diff correctness finding).
+* pull a nested `<Layer>`'s own `<Name>` up into its unnamed parent group.
 *
 * @param {Element} node
 * @param {string} tag
@@ -122,13 +113,9 @@ const direct_child = function(node, tag) {
 
 /**
 * PARSE_WMS_CAPABILITIES_XML
-* Every `<Layer queryable="…">` (v6's own criterion, `special_tools_wms.js`:
-* `getAttribute('queryable') !== null` — a plain layout `<Layer>` group with
-* no `queryable` attribute at all is not addable). A layer with no OWN
-* `<Name>` is a non-leaf grouping node under WMS and is skipped the same way.
-*
-* PURE — no network, no `self` — so this half is unit-testable with a
-* hand-written XML fixture, never a live third-party server.
+* Every `<Layer queryable>` with its OWN `<Name>` (v6's criterion): a layout group
+* without one is not addable. Pure (no network, no `self`), so a hand-written XML
+* fixture tests it.
 *
 * @param {string} xml_text
 * @returns {{ok: boolean, error?: string, layers?: Array<{name: string, title: string}>}}
@@ -164,16 +151,9 @@ export const parse_wms_capabilities_xml = function(xml_text) {
 
 /**
 * SEARCH_WMS_LAYERS
-* Validates the URL is absolute http(s) AND passes the app's one centralized
-* scheme allowlist, `safe_url` (util.js — same two-step order as
-* `xyz_basemaps.js` validate_basemap_fields: `safe_url` alone would resolve a
-* relative string against the PAGE's own origin, wrong for a remote server
-* field, so the absolute check runs first). The real address policy is still
-* server-side (`wms.ts` normalizeWmsBaseUrl + the SSRF guard) — this is UX
-* only. The whole body is a try/catch (object_console.js download_vector /
-* map_image_download.js download_map_image's own "never silent on failure"
-* convention) so an unexpected client-side throw reaches the user instead of
-* an unhandled rejection that leaves the panel's "Search" button disabled.
+* Absolute http(s) first, then `safe_url`: alone it would resolve a relative string
+* against the page's origin. UX only; the address policy is server-side. Never throws:
+* a rejection would leave the panel's Search button disabled.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} raw_url
@@ -201,10 +181,8 @@ export const search_wms_layers = async function(self, raw_url) {
 			}
 		})
 
-		// the tool may have been torn down (record deleted/navigated away)
-		// while this request was in flight — detach_wms_services already
-		// nulled wms_panel; writing search results into a dead instance would
-		// resurrect state nothing shows any more
+		// torn down while in flight (detach nulled wms_panel): writing results
+		// into a dead instance would resurrect state nothing shows
 		if (!self.wms_panel) {
 			return {ok: false}
 		}
@@ -240,7 +218,7 @@ export const search_wms_layers = async function(self, raw_url) {
 
 /**
 * CLEAR_WMS_SEARCH
-* Backs the "Limpiar búsqueda" button (v6 parity — `wms_clear_btn`).
+* Backs the "Clear search" button (v6 `wms_clear_btn`).
 *
 * @param {Object} self
 * @returns {void}
@@ -253,11 +231,8 @@ export const clear_wms_search = function(self) {
 
 /**
 * ADD_WMS_LAYER
-* Builds the live `L.TileLayer.WMS` and appends the session-only entry,
-* immediately visible. A DEPARTURE from v6, decided (Sergio, 2026-09-23): v6
-* files the layer with `view:false` and leaves it off the map until its eye is
-* clicked (`special_tools_wms.js` wms_search_event) — its list is a saved
-* catalogue, this one lives only for the session.
+* Adds the layer already visible. v6 files it with `view:false` until its eye is
+* clicked, but v6's list is a saved catalogue; this one only lives for the session.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} fields - {url, name, title}
@@ -361,10 +336,8 @@ export const delete_wms_layer = function(self, index) {
 
 /**
 * DETACH_WMS_SERVICES
-* Destrucción real (CLAUDE.local.md): every WMS tile layer this tool added
-* comes off the live map — the pane itself is left (Leaflet has no
-* `removePane`, and an empty pane is inert, same acceptance as any other
-* provider-owned map fixture this tool never created from scratch).
+* Every WMS layer this tool added comes off the map. The pane stays: Leaflet has no
+* `removePane`, and an empty pane is inert.
 *
 * @param {Object} self
 * @returns {void}

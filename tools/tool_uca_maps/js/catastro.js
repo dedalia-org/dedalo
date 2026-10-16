@@ -6,26 +6,10 @@
 
 /**
 * CATASTRO
-* Fila #8 del audit. Toggle button with NO panel — v6 has none either
-* (`special_tools_catastro.js`), same "no panel needed" precedent as
-* `onexone.js` (hito 7). Gated on the record's language (`section_lang`
-* es/cat/eus, v6's own condition — `render_tool_leaflet_special_tools.js:
-* 2016-2107` — shared verbatim with UA, `administrative_units.js`).
-*
-* While armed: the cadastral WMS map REPLACES the active basemap (v6 parity —
-* confirmed live by Sergio, 2026-09-08 validation: v6's own UX swaps the base
-* layer and marks it selected in the map's own layer-control, it is not an
-* overlay sitting on top). This port reuses `geolocation.layer_control`'s real
-* API the exact same way `xyz_basemaps.js` (hito 9) already does —
-* `addBaseLayer` + `.addTo(map)`, which Leaflet's own control redraws itself
-* from (`_update()`, driven by `map.hasLayer`) — rather than v6's DOM-fragile
-* `catastro_on` (removes every tile layer by hand, then simulates a click on
-* the LAST `.leaflet-control-layers-selector` radio to select the one it just
-* added). Clicking the map queries the parcel under the cursor — a
-* server-side proxy (`server/catastro.ts`, the browser cannot read that WMS
-* server's HTML/GML replies directly) — and draws the result as a new
-* polygon through the real `pm:create` pipeline, same mechanism as
-* `onexone.js`.
+* Panel-less toggle, as v6 (`special_tools_catastro.js`), offered for es/cat/eus
+* records. Armed, the cadastral WMS REPLACES the basemap, as v6, through the layer
+* control's own API instead of v6's simulated radio click. A map click asks the server
+* for the parcel (the browser cannot read that WMS's replies) and draws it.
 */
 
 
@@ -51,9 +35,8 @@ const CATASTRO_URL	= 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.as
 
 /**
 * IS_SPANISH_OFFICIAL_LANG
-* Shared v6 gating condition for Catastro/UA — a plain record-language read,
-* duplicated (not imported) in `administrative_units.js`: importing a one-line
-* boolean across the two files would be a real coupling for zero reuse benefit.
+* v6's gate for Catastro and UA (`render_tool_leaflet_special_tools.js`): the
+* record's language is Spanish, Catalan or Basque.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
@@ -68,8 +51,7 @@ export const is_spanish_official_lang = function(self) {
 
 /**
 * ATTACH_CATASTRO
-* Builds the "Catastro" toggle button. Idempotent; a no-op entirely when the
-* record's language does not gate this functionality in (v6 parity).
+* Idempotent; a no-op when the record's language does not gate it in (v6).
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -96,8 +78,7 @@ export const attach_catastro = function(self) {
 
 /**
 * IS_CATASTRO_ENABLED
-* Same "read the DOM, never a cached flag" law as every other toggle here
-* (toolbar.js file header, onexone.js is_onexone_enabled).
+* Read from the button's own class, never a cached flag.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
@@ -121,18 +102,9 @@ const toggle_catastro = function(self) {
 
 /**
 * ENABLE_CATASTRO
-* Swaps the active basemap for the cadastral WMS map (file header — v6
-* parity) and arms the map click listener. Reuses `geolocation.layer_control`
-* if one already exists (xyz_basemaps.js's own attach runs first — render_
-* tool_uca_maps.js attach order — so in practice it always does) and creates
-* one itself only as a defensive fallback, same guard `rebuild_xyz_layer_
-* control` uses.
-*
-* `self._catastro_previous_base_layers` remembers whatever tile layer(s) were
-* actually active on the map right before the swap (asked live via
-* `map.hasLayer`, never a cached "current basemap" reference) — DISABLE_
-* CATASTRO restores exactly those, whatever they were (an XYZ custom basemap,
-* the provider's own default, …).
+* Swaps the basemap for the cadastral WMS and arms the click. Remembers the tile
+* layers live on the map right then (asked via the map, never a cached "current"),
+* so disabling restores exactly those. Creates a layer_control only if none exists.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -167,7 +139,7 @@ const enable_catastro = function(self) {
 		maxZoom		: 21
 	})
 	layer_control.addBaseLayer(self._catastro_tile_layer, self.get_tool_label('catastro_control_title') || 'Catastro')
-	self._catastro_tile_layer.addTo(map) // triggers layer_control's own _update() — no radio click to simulate
+	self._catastro_tile_layer.addTo(map) // the layer control redraws itself: no radio click to simulate
 
 	self._catastro_click_handler = (event) => check_catastro_at_point(self, event.latlng)
 	map.on('click', self._catastro_click_handler)
@@ -178,11 +150,8 @@ const enable_catastro = function(self) {
 
 /**
 * DISABLE_CATASTRO
-* Reverses ENABLE_CATASTRO exactly: drops the cadastral layer from both the
-* map and the layer-control (v6's own `catastro_off` also removes it from
-* `layer_control`, not just the map — a stale disabled entry would otherwise
-* linger in the basemap list), restores whatever basemap(s) were active
-* before, and disarms the click listener.
+* Reverses ENABLE_CATASTRO. The cadastral layer also leaves the layer control, as
+* v6's `catastro_off`: a stale entry would linger in the basemap list.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -212,7 +181,7 @@ const disable_catastro = function(self) {
 	}
 	self._catastro_previous_base_layers = null
 
-	// only remove the control if THIS toggle created it (no provider one
+	// only remove the control if THIS toggle created it (no provider one existed)
 	// existed) — same "created_layer_control" convention as xyz_basemaps.js
 	if (self._catastro_created_layer_control && geolocation.layer_control) {
 		map.removeControl(geolocation.layer_control)
@@ -226,13 +195,8 @@ const disable_catastro = function(self) {
 
 /**
 * CHECK_CATASTRO_AT_POINT
-* Ports v6's `map_click` (`special_tools_catastro.js`): a busy flag replaces
-* v6's own setTimeout-based debounce (its `map.off`/`map.on` pair around the
-* request — a race-prone re-subscribe, not a lock) — one lookup in flight at
-* a time, no click queued while it runs. Also skips while Geoman's own edit
-* mode is active, same guard `onexone.js` uses. EXPORTED (takes a plain
-* latlng, not a Leaflet event) so tests can await it directly, same
-* testability convention as `wms_services.js`'s exported `search_wms_layers`.
+* v6's `map_click` with a busy flag instead of its off/on re-subscribe: one lookup at
+* a time, no click queued. Skipped in Geoman's edit mode. Exported for the client gate.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} latlng - a Leaflet LatLng
@@ -265,10 +229,8 @@ export const check_catastro_at_point = async function(self, latlng) {
 			}
 		})
 
-		// the tool may have been torn down, OR the user may have disarmed
-		// Catastro (second click) while this request was in flight — either
-		// way a late response must not create a parcel nobody asked for any
-		// more (review-diff finding, hito 11)
+		// torn down or disarmed while in flight: a late response must not create a
+		// parcel nobody asks for any more
 		if (!self.catastro_control || !is_catastro_enabled(self)) {
 			return
 		}
@@ -308,12 +270,8 @@ export const check_catastro_at_point = async function(self, latlng) {
 
 /**
 * CREATE_CATASTRO_PARCEL
-* `data.points` already arrives as [lat, lon] pairs (server-side GML parse,
-* `catastro.ts` extractParcelPosList) — no reprojection needed, same as
-* `L.polygon(latlngs)` in the v6 oracle. The refcat's own record URL is kept
-* as a REGULAR (not `uca_maps`-namespaced) property — v6 parity: it is meant
-* to show up as a normal, visible key in the object console's properties
-* list, not hidden bookkeeping like `onexone.js`'s own uid links.
+* The points arrive as [lat, lon], so no reprojection. The parcel URL is a REGULAR
+* property, as v6: the console lists it as a visible key, not hidden bookkeeping.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {{points: Array<[number, number]>, url: string}} data
@@ -336,10 +294,8 @@ const create_catastro_parcel = function(self, data) {
 
 /**
 * SHOW_CATASTRO_MESSAGE
-* This button has no anchored panel (file header) to write an in-flow line
-* into (unlike `wms_services.js`/`xyz_basemaps.js`), so feedback goes through
-* the core's own page-level banner instead, scoped to the live map component
-* so it never fights another component's own `component_message`.
+* No panel to hold a line, so the core's banner, scoped to the map component so it
+* never fights another component's message.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} text
@@ -353,7 +309,7 @@ const show_catastro_message = function(self, text) {
 
 /**
 * DETACH_CATASTRO
-* Real teardown (CLAUDE.local.md) — mirrors `onexone.js`'s detach shape.
+* Disarms first, so the basemap swap and the click listener are reversed.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

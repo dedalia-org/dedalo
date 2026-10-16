@@ -6,32 +6,10 @@
 
 /**
 * ROMAN_EMPIRE
-* Hito 18, fila #14 del audit ("Imperio Romano"): search the Roman world's
-* gazetteers and bring a place onto the map as a real object.
-*
-* ONE BUTTON, ONE CENTRED PANEL, THE THREE SOURCES AT ONCE (Sergio,
-* 2026-09-28, reverting the source selector of 2026-09-16): v6's own modal
-* stacks Pleiades, Pelagios and DARE, each with its own field and filters.
-* They are always visible, never collapsible — one functionality served by
-* three gazetteers, so the toolbar law of hito 3c still holds.
-*
-* The three keep their REAL names, which closes audit correction #2: v6 titles
-* one panel "Pelagios D.A.R.E" although it only searches Pelagios, while the
-* actual DARE query (`imperium.ahlfeldt.se`) is a separate panel.
-*
-* TWO DELIBERATE DEVIATIONS FROM v6, both in `docs/hitos/hito_18.md`:
-*  1. **Always available.** v6 only instantiates this control when the record's
-*     `section_tipo` contains `numisdata` (`render_tool_leaflet_special_tools.js:2022`)
-*     — an install's own TLD, which this port may not name at all. It is one
-*     more button, like the other twelve.
-*  2. **Pleiades and Pelagios are capability-gated, not assumed.** Their data
-*     is not vendored into the repo (20 MB of a third party's datasets); an
-*     install points `gazetteer_data_path` at a directory it owns and
-*     `get_capabilities` reports what is there, exactly like GDAL. DARE needs
-*     no local data and is therefore always offered.
-*
-* Session-scoped like every other search here: hits live in
-* `self._roman_results` and die with the map.
+* Searches the Roman world's gazetteers (Pleiades, Pelagios, DARE, stacked as in v6's
+* modal) and draws a hit as a real object. Always offered: v6 gated it on a `numisdata`
+* section_tipo, an install's TLD this port may not name. Pleiades and Pelagios are
+* capability-gated (their data is not vendored); DARE needs no local data.
 *
 * @module roman_empire
 */
@@ -188,13 +166,9 @@ const toggle_roman_panel = function(self) {
 
 /**
 * CLOSE_ROMAN_SUGGESTIONS
-* Hides the floating list and forgets which row was keyboard-active. The ONE
-* place that closes it, so every path (Esc, choosing, clicking outside, the
-* panel closing, teardown) leaves the same state behind. It also voids any
-* search still in flight AND the keystroke still waiting out the debounce:
-* either would reopen a closed list, the timer with a token newer than ours.
-* A focused row would go hidden and drop the focus to <body>: whatever closes
-* the list, the focus goes back to the field that owns it.
+* The ONE place that closes the list, so every path leaves the same state. It voids
+* the search in flight and the waiting keystroke (either would reopen the list), and
+* returns the focus to the owning field, since a hidden focused row drops it to <body>.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -457,13 +431,9 @@ export const add_roman_result = async function(self, index) {
 
 /**
 * CREATE_ROMAN_OBJECTS
-* Fires `pm:create` for every layer in `geojson` — the same door every other
-* import in this tool uses (administrative_units.js, vector_upload.js), so the
-* new objects are real geometry the record saves, not decoration. The map then
-* moves to the LARGEST of them (v6's own tie-break, `special_tools_roman_empire.js`:
-* it fits the biggest polygon rather than whichever came last).
-*
-* EXPORTED for the client gate: it takes a plain GeoJSON value, no request.
+* Fires `pm:create` for every layer, the door every import here uses, so the objects
+* are real geometry the record saves. The map then fits the LARGEST one, as v6
+* (`special_tools_roman_empire.js`). Exported for the client gate.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} geojson - a Feature or FeatureCollection
@@ -543,7 +513,7 @@ export const clear_roman_search = function(self) {
 
 /**
 * DETACH_ROMAN_EMPIRE
-* Real teardown (CLAUDE.local.md "destrucción real").
+* Removes the panel, the floating list and their listeners.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

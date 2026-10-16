@@ -3,10 +3,9 @@
 
 /**
  * RENDER_DOWNLOAD_LINE
- * What every download button shares: the line under it where a failure is
- * shown, and a click that allows one attempt at a time. Used by the object
- * console's three downloads and by the map image panel. Every other panel's
- * in-flow line is built and shown by the same two helpers.
+ * What every download button shares: the line under it where a failure is shown,
+ * and a click that allows one attempt at a time. Every other panel's in-flow line
+ * is built and shown by the same two helpers.
  *
  * @module render_download_line
  */

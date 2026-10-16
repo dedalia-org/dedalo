@@ -5,15 +5,10 @@
 
 /**
 * RENDER_ROMAN_EMPIRE
-* DOM for the "Roma" panel (fila #14). Shell built once at attach: the three
-* sources stacked, as in v6's modal, each with its own field, filters and
-* status line, and ONE floating result list anchored to whichever field
-* searched. Everything it triggers reaches `self.<method>(...)`, never
-* `roman_empire.js` directly.
-*
-* The Pelagios dataset checkboxes are built from what `get_capabilities`
-* reports as PRESENT, never from a client-side copy of the list — the server's
-* `PELAGIOS_DATASETS` stays the only place the layer names are written down.
+* DOM for the "Roma" panel: v6's three sources stacked, each with its field, filters
+* and status line, and ONE floating list for whichever field searched. Pelagios
+* datasets come from `get_capabilities`, never a client copy: the server's list stays
+* the only one. Actions go through `self.<method>`, never `roman_empire.js`.
 *
 * @module render_roman_empire
 */
@@ -27,10 +22,8 @@ import {show_panel_message} from './render_download_line.js'
 
 
 /**
-* Wait after the last keystroke before searching. v6 fires a request on EVERY
-* keyup in all three blocks (`special_tools_roman_empire.js:215/785/1286`),
-* which for DARE is one call to Lund University per character typed. The
-* suggestions stay; the storm does not.
+* Wait after the last keystroke before searching. v6 fires a request on EVERY keyup
+* (`special_tools_roman_empire.js`): for DARE, one call per character typed.
 */
 const LIVE_SEARCH_DELAY_MS = 300
 
@@ -140,10 +133,9 @@ export const render_roman_empire_panel = function(self, panel) {
 
 /**
 * WHOSE IS THE LIST
-* ONE list serves three fields, and `self._roman_source` says whose it is from
-* the moment a field ARMS a search — waiting out the debounce, in flight or
-* showing hits. Three doors decide everything about it; no handler reasons on
-* its own about "open" vs "pending" (every earlier bug lived in that gap).
+* ONE list serves three fields; `self._roman_source` says whose it is from the moment
+* a field ARMS a search (debouncing, in flight or showing hits). These three doors
+* decide everything about it, so no handler reasons about "open" vs "pending" alone.
 */
 
 /**
@@ -220,7 +212,7 @@ const place_roman_list = function(self, panel) {
 
 
 
-/** v6's own order (`special_tools_roman_empire.js:73-75`). */
+/** v6's own order (`special_tools_roman_empire.js`). */
 const ROMAN_SOURCE_ORDER = ['pleiades', 'pelagios', 'dare']
 
 /** Radio groups need a name unique per page: two maps may be open at once. */
@@ -283,11 +275,9 @@ const clear_roman_message = function(block) {
 
 /**
 * RENDER_QUERY_INPUT
-* A source's own search field. There is no Search button and no in-flow result
-* list (Sergio, 2026-09-17): the hits arrive as a TYPEAHEAD anchored to the
-* field — typing opens it, ↑/↓ walk it, Enter or a click draws the place on
-* the map, Esc closes it. v6's three blocks search on every keyup; this keeps
-* that immediacy with the keyboard contract of core `service_autocomplete`.
+* A source's field. No Search button and no in-flow list: hits arrive as a typeahead
+* under the field (↑/↓ walk it, Enter or a click draws the place, Esc closes it),
+* keeping v6's search-on-keyup with the keyboard contract of core `service_autocomplete`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -342,7 +332,7 @@ const render_query_input = function(self, panel, block) {
 			return
 		}
 
-		// Sergio, 2026-09-30: an open list sits "right after" its field, so Tab
+		// an open list sits "right after" its field, so Tab
 		// walks into it instead of leaving for the panel's next control
 		if (event.key==='Tab' && !event.shiftKey && rows.length > 0) {
 			event.preventDefault()
@@ -537,9 +527,8 @@ const control_after = function(panel, node) {
 
 /**
 * CHOOSE_SUGGESTION
-* Draws the chosen place on the map and closes the list (Sergio, 2026-09-17:
-* choosing IS adding — one gesture, like v6). The typed text stays, so a
-* second place from the same search is one more click away.
+* Choosing IS adding, one gesture as in v6: draws the place and closes the list. The
+* typed text stays, so a second place from the same search is one more click away.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -566,7 +555,7 @@ const choose_suggestion = async function(self, panel, index) {
 
 /**
 * RENDER_PLEIADES_FILTERS
-* v6's own two radio options (`special_tools_roman_empire.js:155/174`): search
+* v6's own two radio options (`special_tools_roman_empire.js`): search
 * the index by place name or by Pleiades id.
 *
 * @param {Object} self - tool_uca_maps instance
@@ -664,28 +653,33 @@ const render_dare_filters = function(self, block) {
 	const box = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-dare-filters', parent: block})
 
 	const name_select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-dare-name-type', parent: box})
-	const name_options = [
+	fill_select(name_select, [
 		['mss', self.get_tool_label('roman_dare_modern_name') || 'Modern place name'],
 		['ass', self.get_tool_label('roman_dare_ancient_name') || 'Ancient place name']
-	]
-	for (const [value, text] of name_options) {
-		const option = ui.create_dom_element({element_type: 'option', text_content: text, parent: name_select})
-		option.value = value
-	}
+	])
 
 	const type_select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-dare-type', parent: box})
-	for (const [value, text] of DARE_SITE_TYPES) {
-		const option = ui.create_dom_element({element_type: 'option', text_content: text, parent: type_select})
-		option.value = value
-	}
+	fill_select(type_select, DARE_SITE_TYPES)
 
 	const country_select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-dare-country', parent: box})
-	for (const [value, text] of DARE_COUNTRIES) {
-		const option = ui.create_dom_element({element_type: 'option', text_content: text, parent: country_select})
-		option.value = value
-	}
+	fill_select(country_select, DARE_COUNTRIES)
 
 }//end render_dare_filters
+
+
+
+/**
+* FILL_SELECT
+* @param {HTMLSelectElement} select
+* @param {Array<Array<string>>} pairs - [value, text]
+* @returns {void}
+*/
+const fill_select = (select, pairs) => {
+	for (const [value, text] of pairs) {
+		const option = ui.create_dom_element({element_type: 'option', text_content: text, parent: select})
+		option.value = value
+	}
+}//end fill_select
 
 
 
@@ -753,7 +747,7 @@ export const refresh_roman_sources = function(self, panel) {
 /**
 * RESET_ROMAN_PANEL
 * Every open starts clean, as in v6, whose `load_modal` rebuilds the whole
-* modal on each click (`special_tools_roman_empire.js:61-77`): empty fields,
+* modal on each click (`special_tools_roman_empire.js`): empty fields,
 * no messages, no list, filters back to their defaults. What the capability
 * disabled stays disabled — that is the install, not the user's input.
 *
@@ -855,14 +849,9 @@ const collect_roman_params = function(block, query) {
 
 /**
 * POPULATE_ROMAN_RESULTS
-* Fills the floating suggestion list from `self._roman_results` and opens it
-* under the field. Empty results open it too, with one non-clickable line —
-* in a typeahead "nothing matches" belongs where the matches would be, not in
-* the panel's error line (which stays for real failures: a source down, an
-* install with no local data).
-*
-* The list hangs from the MAP container, not from the panel: see
-* `roman_empire.js` attach for why (the shared panel CSS would clip it).
+* Fills the floating list and opens it under the field. An empty answer opens it too,
+* with one inert line: in a typeahead "nothing matches" goes where matches would be;
+* the panel's line stays for real failures.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -922,12 +911,9 @@ export const populate_roman_results = function(self, panel) {
 			})
 		}
 
-		// mousedown, not click: the field keeps the focus (and the caret)
-		// through the whole gesture, so choosing never closes the list by
-		// blurring it first. Through a11y because a pointer event that is not
-		// `click` is never dispatched by a keyboard, so the row was reachable
-		// by Tab and dead on Enter — the helper wires both to ONE callback
-		// (client_keyboard_activation_tripwire).
+		// mousedown, not click: the field keeps the focus through the gesture, so
+		// choosing never closes the list by blurring it first. Through a11y because a
+		// keyboard never fires mousedown: the helper wires Enter to the same callback.
 		a11y.make_activable(add_btn, {
 			pointer_event	: 'mousedown',
 			on_activate		: (event) => {

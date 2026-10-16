@@ -5,13 +5,9 @@
 
 /**
 * ONEXONE_FLAGS
-* What marks each half of a 1x1 pair (functionality #7, `onexone.js`). A leaf
-* module — no imports — because `object_console.js` and
-* `render_object_console.js` both ask, and the render/logic split forbids the
-* second importing the first: one rule with two copies is two behaviours
-* (same reason as `download_filename.js`). v6 stores an explicit
-* `is_oneXone`/`oneXone_type` pair; this port reads the uid link it already
-* keeps (`docs/hitos/hito_7.md`).
+* What marks each half of a 1x1 pair. A leaf module because both `object_console.js`
+* and `render_object_console.js` ask, and render may not import logic: one rule, one
+* copy. v6 stores `is_oneXone`/`oneXone_type`; this port reads the uid link it keeps.
 *
 * @module onexone_flags
 */

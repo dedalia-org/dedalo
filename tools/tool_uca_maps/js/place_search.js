@@ -6,29 +6,10 @@
 
 /**
 * PLACE_SEARCH
-* Hito 15, functionality #1 ("Buscador de lugares"). Search a toponym, pick a
-* hit, the map flies to it. v6 gets this from `leaflet-control-geocoder`
-* dropped straight onto the map (`render_tool_leaflet_special_tools.js:328`).
-*
-* THREE DELIBERATE DEVIATIONS FROM v6, all in `docs/hitos/hito_15.md`:
-*
-*  1. **The library is not vendored; the search goes through this tool's own
-*     server action** (`server/place_search.ts`). Forced, not preferred: the
-*     app serves `connect-src 'self' blob:`, so ANY library calling Nominatim
-*     from the page is blocked by CSP on every search. The proxy is the shape
-*     the tool already uses for every third-party map service (wms.js,
-*     catastro.js, administrative_units.js).
-*  2. **A button + its own panel**, not a free-floating search box — the "one
-*     button per functionality" law (CLAUDE.local.md, toolbar.js file header)
-*     covers every row of the audit, this one included.
-*  3. **It speaks the record's language.** v6's geocoder is the one control
-*     whose text never passes through translation (audit gap #6): the panel's
-*     own chrome comes from the tool's labels, and the RESULT names come back
-*     in the record's own language (the server sends `Accept-Language`).
-*
-* Session-scoped, like WMS/XYZ: results live in `self._place_results` and die
-* with the map. Nothing here writes to the record — the map moves, that is all
-* (v6's `markgeocode` handler is `map.fitBounds(bbox)` and nothing else).
+* Toponym search; picking a hit moves the map, nothing is written. v6 calls Nominatim
+* from the page (`leaflet-control-geocoder`); here the CSP `connect-src 'self'` blocks
+* that, so the search goes through the server action `place_search`, which also asks
+* for names in the record's language. Results are session-only.
 *
 * @module place_search
 */
@@ -92,9 +73,8 @@ export const attach_place_search = function(self) {
 
 /**
 * TOGGLE_PLACE_SEARCH_PANEL
-* Same "read the DOM, never a cached flag" law as every other panel here
-* (toolbar.js file header). Resets on OPEN, not on close: a sibling panel can
-* close this one without passing through here (close_other_toolbar_panels).
+* Reads the panel's real state, never a flag. Resets on OPEN, not on close: a sibling
+* panel can close this one without passing through here.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -237,8 +217,7 @@ export const clear_place_search = function(self) {
 
 /**
 * DETACH_PLACE_SEARCH
-* Real teardown (CLAUDE.local.md "destrucción real") — called from
-* tool_uca_maps.prototype.destroy().
+* Removes the panel, the button and the stored hits.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

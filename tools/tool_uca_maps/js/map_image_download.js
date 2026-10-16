@@ -6,27 +6,9 @@
 
 /**
 * MAP_IMAGE_DOWNLOAD
-*
-* Hito 3, checkpoint 3b: functionality #10 of
-* `docs/Funcionalidades de tool_leaflet_special_tools.md` ("Download map as
-* image") — a MAP-WIDE action, unlike checkpoint 3a's `download_vector`
-* (per-object). v6 offers 5 formats (GeoTIFF/PNG/JPG/GIF/WebP); this port
-* keeps all 5 (Sergio, plan approval: cheap given ImageMagick is already
-* wired for `get_capabilities`, closes the whole audit row in one hito
-* instead of half now and half in hito 7).
-*
-* PNG stays 100% client-side, same principle as 2b/3a's GeoJSON: no server
-* round-trip for a format the browser already produces natively. JPG/GIF/
-* WebP/GeoTIFF need real conversion (ImageMagick / GDAL are not a browser
-* capability) — server action `raster_download` (`server/raster_download.ts`).
-*
-* TOOLBAR REFACTOR (2026-09-04, before hito 4 — CLAUDE.local.md "Left
-* toolbar: un botón por funcionalidad"): this functionality used to be a
-* collapsed section inside the "UCA" object-console panel
-* (`object_console.js`). It now gets its OWN toggle button + OWN panel
-* (`attach_map_image_download_control`/`detach_map_image_download_control`,
-* below), built through `toolbar.js` — the same substrate every other
-* functionality's button/panel now goes through.
+* "Download map as image", v6's five formats. PNG is produced in the browser; JPG,
+* GIF, WebP and GeoTIFF need ImageMagick/GDAL, so the server converts the same PNG
+* capture (`raster_download`).
 */
 
 
@@ -53,9 +35,7 @@ import {
 
 /**
 * ATTACH_MAP_IMAGE_DOWNLOAD_CONTROL
-* Builds the "Download map as image" toggle button + panel (functionality
-* #10 — see file header). Idempotent — a stray second call (e.g. a refresh)
-* never attaches a duplicate control or panel.
+* Builds the toggle button and its panel. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -88,10 +68,8 @@ export const attach_map_image_download_control = function(self) {
 
 /**
 * TOGGLE_MAP_IMAGE_PANEL
-* Reads the panel's own current state, never a cached flag — see
-* toolbar.js `is_toolbar_panel_visible` file comment: a SIBLING panel
-* opening (mutual exclusion, 2026-09-04) can close this one without going
-* through this function at all.
+* Reads the panel's real state, never a flag: a sibling opening closes this one
+* without passing here.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -104,8 +82,7 @@ const toggle_map_image_panel = function(self) {
 
 /**
 * DETACH_MAP_IMAGE_DOWNLOAD_CONTROL
-* Real teardown (CLAUDE.local.md "destrucción real") — called from
-* `tool_uca_maps.prototype.destroy()` alongside `detach_console`.
+* Removes the button and its panel.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -122,27 +99,16 @@ export const detach_map_image_download_control = function(self) {
 
 
 
+let dom_to_image_load_promise = null
+
 /**
 * LOAD_DOM_TO_IMAGE
-* Loads the vendored `dom-to-image-more` UMD bundle
-* (`js/lib/dom-to-image-more/dom-to-image-more.min.js`) as a CLASSIC
-* `<script>` — deliberately NOT `await import(...)` (tool_qr's own pattern
-* for its vendored EasyQRCodeJS). Verified live in real headless Chrome
-* during 3b's implementation: the library attaches itself with
-* `this.domtoimage = …` at ITS OWN top level, and a dynamically `import()`ed
-* file is always evaluated as an ES MODULE — whose top-level `this` is
-* `undefined` by spec, in every browser, not a quirk of this one — so
-* `import()`ing this exact file throws `Cannot set properties of undefined
-* (setting 'domtoimage')`. A classic script's top-level `this` IS `window`
-* (also spec, also verified), which is what the library's UMD wrapper was
-* written for — long before dynamic `import()` existed. Idempotent (cached
-* promise): a second call while the first is still loading — or after it
-* finished — never injects a second `<script>` tag.
+* A classic `<script>`, not `import()`: the UMD bundle assigns `this.domtoimage`, and
+* a module's top-level `this` is undefined. The cached promise keeps a second call
+* from injecting a second tag.
 *
 * @returns {Promise<void>}
 */
-let dom_to_image_load_promise = null
-
 const load_dom_to_image = function() {
 
 	if (typeof domtoimage!=='undefined') {
@@ -166,20 +132,9 @@ const load_dom_to_image = function() {
 
 /**
 * PROJECTED_BOUNDS
-* The map's current viewport bounds (WGS84, what `map.getBounds()` returns),
-* converted to the ACTUAL Web Mercator meters the captured screenshot's pixel
-* grid represents — `L.CRS.EPSG3857.project(latlng)`, Leaflet's own
-* projection (no reimplementing the Web Mercator formula, no extra library).
-*
-* WHY THIS MATTERS (the "reproyectado de verdad" the plan asks for): a
-* Leaflet map's on-screen pixel grid is uniform in WEB MERCATOR METERS, never
-* in degrees — Mercator compresses degree-spacing away from the equator.
-* Assigning the raw WGS84 corner DEGREES to that pixel grid (as if a degree
-* were a constant pixel distance, v6's implicit assumption per the audit's
-* bug #4) mislabels the georeference everywhere off the equator. Assigning
-* the TRUE Mercator meter corners is the honest, undistorted georeference —
-* no `gdalwarp` resample needed at all, because the pixels already ARE
-* uniform in that CRS.
+* The viewport corners in Web Mercator meters (Leaflet's own projection). The
+* screenshot's pixels are uniform in meters, not degrees, so these corners georeference
+* it without a resample; v6's degree corners drift off the equator.
 *
 * @param {Object} map - the live Leaflet map instance
 * @returns {{west:number, north:number, east:number, south:number}} EPSG:3857 meters
@@ -230,25 +185,10 @@ export const keep_in_map_image = function(self, node) {
 
 /**
 * DOWNLOAD_MAP_IMAGE
-* Captures the live map's container — its content, never the controls around
-* it (`keep_in_map_image`).
-* Validated live by Sergio (2026-09-03): without the filter, the "UCA" panel
-* itself was baked into the exported image — v6's own equivalent
-* is a small icon-only toolbar that happened not to read as intrusive in a
-* screenshot, but that is an accident of its shape, not a behaviour worth
-* porting; our panel is a large floating overlay and DOES intrude. Excluding
-* our own nodes from a screenshot of the user's map is correct regardless of
-* what v6 did.
-*
-* Never silent on failure (same discipline as `download_vector`, 3a
-* review-diff finding): the whole body is a try/catch; a server-reported
-* failure comes back as the text for the panel's line (`tool_error_text`:
-* the page toast only names the code), and an unexpected
-* CLIENT-side exception (dom-to-image-more failing to load, a CORS-tainted
-* canvas from a cross-origin tile layer throwing a `SecurityError` on
-* capture) goes through `report_client_error` instead of only
-* `console.error` (review-diff finding, hito 3b: the original catch
-* contradicted this very doc comment by only logging), and to the same line.
+* Captures the map's content, never the controls around it (`keep_in_map_image`):
+* our panels are large overlays that would be baked into the image. Never silent: a
+* failure comes back as the text for the panel's line, and a client-side throw is
+* also reported.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {'png'|'jpg'|'gif'|'webp'|'geotiff'} format
@@ -277,16 +217,9 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 		await load_dom_to_image()
 
 		const container			= self.geolocation.map.getContainer()
-		// cacheBust + explicit width/height: v6's own equivalent
-		// (`special_tools_map_image_download.js`, `domtoimage.toPng`) passes the
-		// same three options against the same kind of Leaflet pane — ported
-		// verbatim, not reinvented.
-		//
-		// Geoman's toolbar must stay out: dom-to-image-more reads the
-		// `url(#…)` inside its data: SVG icons as URLs and fetches each one.
-		// filterUrls: computed values are always absolute, so a relative URL
-		// with no stylesheet base is an unresolved custom property (core's
-		// --search_icon_url, serialised with a pseudo-element): never painted
+		// cacheBust + width/height as v6 (`domtoimage.toPng`). Geoman's toolbar stays
+		// out: dom-to-image-more fetches the `url(#…)` in its SVG icons. filterUrls: a
+		// relative URL with no base is an unresolved custom property, never painted.
 		const capture_options	= {
 			cacheBust	: true,
 			width		: container.offsetWidth,
