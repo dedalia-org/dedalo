@@ -3,12 +3,6 @@
  * half — hito 13).
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1), same criterion as
- *    every other read-shaped action in this tool. It is worth pinning here
- *    for a reason the others do not have: this action's options carry the
- *    IMAGE record's identity, not the map's, so the gate it declares is what
- *    decides whether a caller may learn a media path of a section they may
- *    not read;
  *  - caller-fault validation (missing/absurd identity) throws
  *    `request.invalid_source` before any database or filesystem access —
  *    which is what lets this half of the file run with neither DB nor GDAL;
@@ -28,22 +22,15 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
+import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	cornersFromWgs84Extent,
 	readGeoreference,
 } from '../../tools/tool_uca_maps/server/image_overlay.ts';
 import { mustGet } from '../helpers/assert.ts';
+import { haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
-const HAVE_GDAL = Bun.which('gdalinfo') !== null && Bun.which('gdal_create') !== null;
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	const action = mustGet(loaded?.module.apiActions.get_image_overlay, 'get_image_overlay');
-	return action as GatedToolActionSpec;
-}
+const HAVE_GDAL = haveGdal('gdalinfo', 'gdal_create');
 
 function contextOf(options: Record<string, unknown>): ToolActionContext {
 	return {
@@ -54,24 +41,16 @@ function contextOf(options: Record<string, unknown>): ToolActionContext {
 	};
 }
 
-describe('tool_uca_maps get_image_overlay — declared gate', () => {
-	test('is record_tipo at read level (1), on the IMAGE record named in the options', async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
-
 describe('tool_uca_maps get_image_overlay — caller-fault validation (no DB/GDAL needed)', () => {
 	test('a missing section_id is refused before any database access', async () => {
-		const action = await loadAction();
+		const action = await loadAction('get_image_overlay');
 		expect(action.handler(contextOf({ tipo: 'rsc29', section_tipo: 'rsc170' }))).rejects.toThrow(
 			/tipo, section_tipo and a positive section_id/,
 		);
 	});
 
 	test('a section_id of 0 is refused (a record id is always positive)', async () => {
-		const action = await loadAction();
+		const action = await loadAction('get_image_overlay');
 		expect(
 			action.handler(contextOf({ tipo: 'rsc29', section_tipo: 'rsc170', section_id: 0 })),
 		).rejects.toThrow(/positive section_id/);

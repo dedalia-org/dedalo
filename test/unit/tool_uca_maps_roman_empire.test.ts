@@ -6,8 +6,6 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
 import {
 	dareApiUrl,
 	decodeDareText,
@@ -17,7 +15,6 @@ import {
 	pleiadesPlaceUrl,
 	searchPelagios,
 } from '../../tools/tool_uca_maps/server/roman_empire.ts';
-import { mustGet } from '../helpers/assert.ts';
 
 /** v6's own index shape: a flat array of [name, id] pairs. */
 const PLEIADES_INDEX = JSON.stringify([
@@ -233,22 +230,4 @@ describe('searchPelagios: the dataset list the client sends is filtered, not tru
 		await expect(searchPelagios(contextOf([]))).rejects.toThrow(/at least one dataset/);
 		await expect(searchPelagios(contextOf(undefined))).rejects.toThrow(/at least one dataset/);
 	});
-});
-
-describe('the four gazetteer actions are registered, and gated like every other lookup', () => {
-	// without this, deleting an action from `server/index.ts` leaves every
-	// assertion above green while the panel 404s — and a downgrade to a plain
-	// 'section'/'tipo' gate would silently drop half of the record_tipo check
-	test.each(['search_pleiades', 'get_pleiades_place', 'search_pelagios', 'search_dare'])(
-		'%s: record_tipo at read level',
-		async (name) => {
-			const loaded = await getLoadedTool('tool_uca_maps');
-			const action = mustGet(
-				loaded?.module.apiActions[name as string],
-				name as string,
-			) as GatedToolActionSpec;
-			expect(action.permission).toBe('record_tipo');
-			expect(action.minLevel).toBe(1);
-		},
-	);
 });

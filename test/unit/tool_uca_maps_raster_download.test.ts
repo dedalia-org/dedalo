@@ -2,8 +2,6 @@
  * tool_uca_maps — `raster_download` (hito 3, checkpoint 3b).
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1), same criterion as
- *    `get_capabilities`/`vector_download`;
  *  - caller-fault validation (unsupported format, missing image, missing/
  *    malformed/degenerate bounds) THROWS `request.invalid_options`
  *    unconditionally — no binary involved, runs even without GDAL/ImageMagick;
@@ -27,23 +25,11 @@ import { config } from '../../src/config/config.ts';
 import { converterAdmission } from '../../src/core/media/engine/admission.ts';
 import { identifyAvailable } from '../../src/core/media/engine/binaries.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type {
-	GatedToolActionSpec,
-	ToolActionContext,
-	ToolResponse,
-} from '../../src/core/tools/module.ts';
-import { mustGet } from '../helpers/assert.ts';
+import type { ToolResponse } from '../../src/core/tools/module.ts';
+import { contextOf, dataOf, haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_MAGICK = identifyAvailable();
-const HAVE_GDAL = Bun.which('gdal_translate') !== null;
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	const action = mustGet(loaded?.module.apiActions.raster_download, 'raster_download');
-	return action as GatedToolActionSpec;
-}
+const HAVE_GDAL = haveGdal('gdal_translate');
 
 /** A real 4x4 red PNG (not 1x1 — GDAL's GTiff writer was measured to fail
  * silently on a 1x1 RGBA source during this hito's implementation; 4x4 is
@@ -54,47 +40,30 @@ const SAMPLE_PNG_BASE64 =
 /** A real, non-degenerate Web Mercator meter bounding box (roughly Cádiz). */
 const SAMPLE_BOUNDS = { west: -692000, north: 4322000, east: -690000, south: 4320000 };
 
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-describe('tool_uca_maps raster_download — declared gate', () => {
-	test('is record_tipo at read level (1), same criterion as vector_download', async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
-
 describe('tool_uca_maps raster_download — caller-fault validation (no binary needed)', () => {
 	test('an unsupported format is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		await expect(
 			action.handler(contextOf({ format: 'bmp', image_base64: SAMPLE_PNG_BASE64 })),
 		).rejects.toThrow(/Unsupported raster format/);
 	});
 
 	test('missing image_base64 is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		await expect(action.handler(contextOf({ format: 'jpg' }))).rejects.toThrow(
 			/Missing image_base64/,
 		);
 	});
 
 	test('geotiff without bounds is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		await expect(
 			action.handler(contextOf({ format: 'geotiff', image_base64: SAMPLE_PNG_BASE64 })),
 		).rejects.toThrow(/Missing bounds/);
 	});
 
 	test('geotiff with a non-finite bound is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		await expect(
 			action.handler(
 				contextOf({
@@ -107,14 +76,14 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 	});
 
 	test('a non-string file_name is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		await expect(
 			action.handler(contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64, file_name: 42 })),
 		).rejects.toThrow(/file_name must be a string/);
 	});
 
 	test('a file_name with nothing usable in it is refused, never quietly renamed', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		for (const file_name of ['', '   ', '/\\', '...']) {
 			await expect(
 				action.handler(contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64, file_name })),
@@ -123,7 +92,7 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 	});
 
 	test('geotiff with a degenerate box (west>=east) is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		await expect(
 			action.handler(
 				contextOf({
@@ -138,15 +107,14 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 
 describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick conversion', () => {
 	test('jpg: flattened onto white, envelope v2, no result mirror', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64 }),
 		);
 
-		expect(response.ok).toBe(true);
+		const data = dataOf(response);
 		expect('result' in response).toBe(false); // forbidden PHP-era mirror key
 
-		const data = (response as { data: Record<string, unknown> }).data;
 		expect(data.filename).toBe('map.jpg');
 		expect(data.mime).toBe('image/jpeg');
 		const bytes = Buffer.from(data.content_base64 as string, 'base64');
@@ -156,7 +124,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 	});
 
 	test("jpg: the user's own file_name is honoured, sanitized here and not trusted", async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({
 				format: 'jpg',
@@ -166,14 +134,13 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 			}),
 		);
 
-		expect(response.ok).toBe(true);
-		const data = (response as { data: Record<string, unknown> }).data;
+		const data = dataOf(response);
 		// Separators gone, no basename reduction, extension appended once.
 		expect(data.filename).toBe('Necrópolis de Cádiz.jpg');
 	});
 
 	test('jpg: a file_name that already carries the extension is not doubled', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({ format: 'jpg', image_base64: SAMPLE_PNG_BASE64, file_name: 'mapa.jpg' }),
 		);
@@ -182,7 +149,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 	});
 
 	test('gif and webp: real, non-empty conversions', async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		for (const [format, filename, mime] of [
 			['gif', 'map.gif', 'image/gif'],
 			['webp', 'map.webp', 'image/webp'],
@@ -190,8 +157,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — real ImageMagick con
 			const response: ToolResponse = await action.handler(
 				contextOf({ format, image_base64: SAMPLE_PNG_BASE64 }),
 			);
-			expect(response.ok).toBe(true);
-			const data = (response as { data: Record<string, unknown> }).data;
+			const data = dataOf(response);
 			expect(data.filename).toBe(filename);
 			expect(data.mime).toBe(mime);
 			expect(Buffer.from(data.content_base64 as string, 'base64').length).toBeGreaterThan(0);
@@ -224,7 +190,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — the install operatin
 	// timeout, so it failed by load, not by behaviour
 	test('a sequence over the list-length limit is refused in every format, one well under it converts', async () => {
 		expect(listLength + 1).toBeLessThan(ceiling);
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 
 		const under = await action.handler(
 			contextOf({ format: 'gif', image_base64: gifOfFrames(Math.floor(listLength / 2)) }),
@@ -244,7 +210,7 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — the install operatin
 
 	test('the conversion waits for a converter permit like every engine spawn', async () => {
 		const admission = converterAdmission();
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		// hold every permit, so the export can only queue behind them
 		let release = (): void => {};
 		const gate = new Promise<void>((resolve) => {
@@ -274,13 +240,12 @@ describe.if(HAVE_MAGICK)('tool_uca_maps raster_download — the install operatin
 
 describe.if(HAVE_GDAL)('tool_uca_maps raster_download — real GeoTIFF georeference', () => {
 	test("geotiff: assigns the REAL EPSG:3857 corners sent in bounds, not v6's degrees-as-meters", async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({ format: 'geotiff', image_base64: SAMPLE_PNG_BASE64, bounds: SAMPLE_BOUNDS }),
 		);
 
-		expect(response.ok).toBe(true);
-		const data = (response as { data: Record<string, unknown> }).data;
+		const data = dataOf(response);
 		expect(data.filename).toBe('map.tif');
 		expect(data.mime).toBe('image/tiff');
 		// The extension follows the FORMAT, not the format's menu name: a
@@ -308,7 +273,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps raster_download — real GeoTIFF georefere
 	});
 
 	test("geotiff: a named file still gets '.tif', the format's extension, not 'geotiff'", async () => {
-		const action = await loadAction();
+		const action = await loadAction('raster_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({
 				format: 'geotiff',

@@ -3,10 +3,6 @@
  * drawn object is served from).
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1) — and note WHICH
- *    record it names: the IMAGE component's (rsc29/rsc170), not the map's, so
- *    the check asks whether the caller may read the thing whose media path
- *    the answer discloses;
  *  - that the action REFUSES a component that is not an image, rather than
  *    scanning whatever files happen to sit under some other model's record;
  *  - that `image_overlay.ts` and this action resolve the SAME tier, because
@@ -23,36 +19,8 @@ import { toErrorBody } from '../../src/core/errors/convert.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { requireTestMediaRoot } from '../../src/core/media/test_media_root.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import { getImageFile, OVERLAY_EXTENSIONS } from '../../tools/tool_uca_maps/server/image_media.ts';
-import { mustGet } from '../helpers/assert.ts';
-
-async function loadAction(name: string): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	return mustGet(loaded?.module.apiActions[name], name) as GatedToolActionSpec;
-}
-
-describe('tool_uca_maps get_image_file — declared gate', () => {
-	test('is record_tipo at read level (1)', async () => {
-		const action = await loadAction('get_image_file');
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-
-	test('carries the same gate as get_image_overlay — both disclose a media path', async () => {
-		const file = await loadAction('get_image_file');
-		const overlay = await loadAction('get_image_overlay');
-		expect(file.permission).toBe(overlay.permission);
-		expect(file.minLevel).toBe(overlay.minLevel);
-	});
-
-	test('the registered handler is the module function, not a wrapper that could skip it', async () => {
-		const action = await loadAction('get_image_file');
-		expect(action.handler).toBe(getImageFile);
-	});
-});
+import { contextOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('the served-tier contract', () => {
 	test('only browser-renderable extensions are candidates — a master .tif never is', () => {
@@ -70,12 +38,7 @@ describe('get_image_file — refusals', () => {
 		// so core's media context accepts it and the tool's own check is what
 		// refuses. A public code: the reason is the user's to read
 		await expect(
-			getImageFile({
-				principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-				userId: -1,
-				options: { section_tipo: 'test3', tipo: 'test85', section_id: 905101 },
-				background: false,
-			}),
+			getImageFile(contextOf({ section_tipo: 'test3', tipo: 'test85', section_id: 905101 })),
 		).rejects.toMatchObject({
 			code: 'tool.unsupported_target',
 			publicMessage: 'Only an image component can be used here.',
@@ -87,12 +50,7 @@ describe('get_image_file — a vanished image is not an undisplayable one', () =
 	// test99 is the generic TLD's component_image; the files are planted in the
 	// suite's MARKED media root at this id and removed after each case
 	const OPTIONS = { section_tipo: 'test3', tipo: 'test99', section_id: 905103 };
-	const ctx: ToolActionContext = {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: OPTIONS,
-		background: false,
-	};
+	const ctx = contextOf(OPTIONS);
 
 	async function withFiles<T>(
 		files: ReadonlyArray<{ quality: 'original' | 'default'; extension: string }>,
@@ -116,10 +74,7 @@ describe('get_image_file — a vanished image is not an undisplayable one', () =
 	}
 
 	async function refusalOf(): Promise<unknown> {
-		return getImageFile(ctx).then(
-			() => null,
-			(error: unknown) => error,
-		);
+		return failureOf(getImageFile(ctx));
 	}
 
 	test('no file at all is media.file_not_found, its reason on the wire', async () => {

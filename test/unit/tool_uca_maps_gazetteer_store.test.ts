@@ -6,7 +6,7 @@
  * throwing somewhere deeper.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,54 +30,37 @@ function buildStore(): { root: string; store: string; outside: string } {
 }
 
 describe('gazetteer store paths', () => {
+	let root = '';
+	let store = '';
+	let outside = '';
+	beforeEach(() => {
+		({ root, store, outside } = buildStore());
+	});
+	afterEach(() => rmSync(root, { recursive: true, force: true }));
+
 	test('resolves the index and a known dataset inside the store', () => {
-		const { root, store } = buildStore();
-		try {
-			expect(pleiadesIndexPath(store)).toBe(join(store, 'pleiades.json'));
-			expect(pelagiosDatasetPath(store, 'provinces')).toBe(
-				join(store, 'pelagios', 'provinces.geojson'),
-			);
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
+		expect(pleiadesIndexPath(store)).toBe(join(store, 'pleiades.json'));
+		expect(pelagiosDatasetPath(store, 'provinces')).toBe(
+			join(store, 'pelagios', 'provinces.geojson'),
+		);
 	});
 
 	test('an absent file is null, never a throw from deeper down', () => {
-		const { root, store } = buildStore();
-		try {
-			expect(pelagiosDatasetPath(store, 'roads_high')).toBeNull();
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
+		expect(pelagiosDatasetPath(store, 'roads_high')).toBeNull();
 	});
 
 	test('a dataset name outside the closed list is refused before touching disk', () => {
-		const { root, store } = buildStore();
-		try {
-			expect(pelagiosDatasetPath(store, '../secret')).toBeNull();
-			expect(pelagiosDatasetPath(store, 'provinces.geojson')).toBeNull();
-			expect(PELAGIOS_DATASETS).toContain('provinces');
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
+		expect(pelagiosDatasetPath(store, '../secret')).toBeNull();
+		expect(pelagiosDatasetPath(store, 'provinces.geojson')).toBeNull();
+		expect(PELAGIOS_DATASETS).toContain('provinces');
 	});
 
 	test('traversal out of the store is refused', () => {
-		const { root, store } = buildStore();
-		try {
-			expect(gazetteerFilePath(store, '../secret.geojson')).toBeNull();
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
+		expect(gazetteerFilePath(store, '../secret.geojson')).toBeNull();
 	});
 
 	test('a SYMLINK pointing out of the store is refused too', () => {
-		const { root, store, outside } = buildStore();
-		try {
-			symlinkSync(outside, join(store, 'pelagios', 'roads_low.geojson'));
-			expect(pelagiosDatasetPath(store, 'roads_low')).toBeNull();
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
+		symlinkSync(outside, join(store, 'pelagios', 'roads_low.geojson'));
+		expect(pelagiosDatasetPath(store, 'roads_low')).toBeNull();
 	});
 });

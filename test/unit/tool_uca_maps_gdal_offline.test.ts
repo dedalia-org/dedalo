@@ -15,7 +15,7 @@
  *    where GDAL is not installed.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import {
 	existsSync,
 	mkdirSync,
@@ -30,8 +30,6 @@ import { join, resolve, sep } from 'node:path';
 import type { TCPSocketListener } from 'bun';
 import { config } from '../../src/config/config.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	assertOfflineGeoJsonCrs,
 	inputDrivers,
@@ -49,45 +47,26 @@ import { readGeoreference } from '../../tools/tool_uca_maps/server/image_overlay
 import { parseStrictGeoJson } from '../../tools/tool_uca_maps/server/vector_upload.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
+import {
+	contextOf,
+	expectCode,
+	failureOf,
+	haveGdal,
+	loadAction,
+} from './fixtures/tool_uca_maps/helpers.ts';
 
-const HAVE_GDAL = [
+const HAVE_GDAL = haveGdal(
 	'ogr2ogr',
 	'ogrinfo',
 	'gdalinfo',
 	'gdal_translate',
 	'gdalwarp',
 	'gdal_create',
-].every((binary) => Bun.which(binary) !== null);
+);
 
-async function loadAction(name: string): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	const tool = mustGet(loaded, 'tool_uca_maps');
-	return mustGet(tool.module.apiActions[name], name) as GatedToolActionSpec;
-}
-
-function contextOf(userId: number, options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId, isGlobalAdmin: true, isDeveloper: true },
-		userId,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-/** The thrown value of a promise expected to reject. */
-async function rejection(promise: Promise<unknown>): Promise<unknown> {
-	return promise.then(
-		() => {
-			throw new Error('expected a rejection');
-		},
-		(error: unknown) => error,
-	);
-}
-
-function expectCode(error: unknown, code: DedaloError['code']): void {
-	expect(error).toBeInstanceOf(DedaloError);
-	expect((error as DedaloError).code).toBe(code);
-}
+/** The staging dir of a scratch uploader: the user ids are this file's own. */
+const stagingOf = (userId: number) =>
+	resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
 
 const POINT_FEATURES =
 	'"features":[{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[-0.375,39.47]}}]';
@@ -212,7 +191,7 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 	test('a GDAL file reader without -if is refused before any spawn', async () => {
 		for (const name of ['ogr2ogr', 'ogrinfo', 'gdalinfo', 'gdal_translate', 'gdalwarp']) {
 			// a path that does not exist: a spawn would fail ENOENT, not with this code
-			const error = await rejection(
+			const error = await failureOf(
 				runToolBinary([`/nonexistent/${name}`, '-json', 'in.tif'], `probe ${name}`, {
 					scratchDir: '/nonexistent/scratch',
 				}),
@@ -247,7 +226,7 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 
 	test('"GDAL is missing" is the not-installed refusal for that binary, never only its code', async () => {
 		const missing = 'uca_maps_no_such_binary' as Parameters<typeof resolveGdalBinary>[0];
-		const notInstalled = await rejection(resolveGdalBinary(missing));
+		const notInstalled = await failureOf(resolveGdalBinary(missing));
 		expect(isMissingGdalBinary(notInstalled, missing)).toBe(true);
 		expect(isMissingGdalBinary(notInstalled, 'gdalinfo')).toBe(false);
 
@@ -365,21 +344,19 @@ describe('tool_uca_maps scratch — inside the media root, never the OS temp dir
 
 // refused before any binary runs, so these hold where GDAL is not installed (CI)
 describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDAL (no GDAL needed)', () => {
+	const UPLOADER = 987685;
+	const staging = stagingOf(UPLOADER);
+	afterEach(() => rmSync(staging, { recursive: true, force: true }));
+
 	test("vector_download refuses the client's linked crs, wherever it sits", async () => {
 		const action = await loadAction('vector_download');
 		for (const geojson of Object.values(LINKED_CRS_SHAPES)) {
-			const error = await rejection(action.handler(contextOf(-1, { format: 'kml', geojson })));
+			const error = await failureOf(action.handler(contextOf({ format: 'kml', geojson })));
 			expectCode(error, 'request.invalid_options');
 		}
 	});
 
 	test('upload_vector_layer refuses a linked crs, lenient JSON and a VRT posing as GeoJSON', async () => {
-		const userId = 987656;
-		const staging = resolve(
-			config.media.rootPath ?? '',
-			config.media.upload.tmpSubdir,
-			String(userId),
-		);
 		const action = await loadAction('upload_vector_layer');
 		const staged: Record<string, string> = {
 			'lenient.geojson': `{"type":"FeatureCollection",${POINT_FEATURES},}`,
@@ -390,20 +367,14 @@ describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDA
 			staged[`${shape}.geojson`] = JSON.stringify(geojson);
 		}
 		mkdirSync(staging, { recursive: true });
-		try {
-			for (const [name, text] of Object.entries(staged)) {
-				writeFileSync(resolve(staging, name), text);
-				const error = await rejection(
-					action.handler(
-						contextOf(userId, {
-							file_data: { key_dir: '', tmp_name: name, extension: 'geojson' },
-						}),
-					),
-				);
-				expectCode(error, 'request.invalid_options');
-			}
-		} finally {
-			rmSync(staging, { recursive: true, force: true });
+		for (const [name, text] of Object.entries(staged)) {
+			writeFileSync(resolve(staging, name), text);
+			const error = await failureOf(
+				action.handler(
+					contextOf({ file_data: { key_dir: '', tmp_name: name, extension: 'geojson' } }, UPLOADER),
+				),
+			);
+			expectCode(error, 'request.invalid_options');
 		}
 	});
 });
@@ -435,6 +406,10 @@ describe.if(HAVE_GDAL)('tool_uca_maps GDAL — zero connections, real binaries',
 	beforeEach(() => {
 		connections = 0;
 	});
+
+	const UPLOADER = 987686;
+	const staging = stagingOf(UPLOADER);
+	afterEach(() => rmSync(staging, { recursive: true, force: true }));
 
 	const linkCrs = (scheme: string, type: string, key: string) =>
 		`{"type":"FeatureCollection","crs":{"type":"${type}","properties":{"${key}":"${scheme}://${base}/crs"}},${POINT_FEATURES}}`;
@@ -468,12 +443,6 @@ describe.if(HAVE_GDAL)('tool_uca_maps GDAL — zero connections, real binaries',
 	});
 
 	test('upload_vector_layer never opens a VRT posing as KML, local or remote', async () => {
-		const userId = 987657;
-		const staging = resolve(
-			config.media.rootPath ?? '',
-			config.media.upload.tmpSubdir,
-			String(userId),
-		);
 		const action = await loadAction('upload_vector_layer');
 		await withScratchDir(async (dir) => {
 			// two lines: GDAL's CSV driver would hand the second back as a feature
@@ -484,21 +453,18 @@ describe.if(HAVE_GDAL)('tool_uca_maps GDAL — zero connections, real binaries',
 				['remote.kml', vectorVrt(`/vsicurl/http://${base}/v.csv`)],
 			];
 			mkdirSync(staging, { recursive: true });
-			try {
-				for (const [name, text] of staged) {
-					writeFileSync(resolve(staging, name), text);
-					const error = await rejection(
-						action.handler(
-							contextOf(userId, {
-								file_data: { key_dir: '', tmp_name: name, extension: name.split('.').pop() },
-							}),
+			for (const [name, text] of staged) {
+				writeFileSync(resolve(staging, name), text);
+				const error = await failureOf(
+					action.handler(
+						contextOf(
+							{ file_data: { key_dir: '', tmp_name: name, extension: name.split('.').pop() } },
+							UPLOADER,
 						),
-					);
-					expectCode(error, 'tool.action_failed');
-					expect(String((error as Error).message)).not.toContain('UCA_MAPS_CANARY');
-				}
-			} finally {
-				rmSync(staging, { recursive: true, force: true });
+					),
+				);
+				expectCode(error, 'tool.action_failed');
+				expect(String((error as Error).message)).not.toContain('UCA_MAPS_CANARY');
 			}
 		});
 		expect(connections).toBe(0);
@@ -526,9 +492,9 @@ describe.if(HAVE_GDAL)('tool_uca_maps GDAL — zero connections, real binaries',
 			for (const source of [canary, `/vsicurl/http://${base}/r.tif`]) {
 				const vrt = rasterVrt(source);
 				expectCode(
-					await rejection(
+					await failureOf(
 						rasterDownload.handler(
-							contextOf(-1, {
+							contextOf({
 								format: 'geotiff',
 								image_base64: Buffer.from(vrt).toString('base64'),
 								bounds: { west: -1, south: 39, east: 0, north: 40 },
@@ -540,12 +506,12 @@ describe.if(HAVE_GDAL)('tool_uca_maps GDAL — zero connections, real binaries',
 
 				const tif = resolve(dir, 'overlay.tif');
 				writeFileSync(tif, vrt);
-				expectCode(await rejection(readGeoreference(tif)), 'tool.action_failed');
+				expectCode(await failureOf(readGeoreference(tif)), 'tool.action_failed');
 
 				const png = resolve(dir, 'drawn.png');
 				writeFileSync(png, vrt);
 				expectCode(
-					await rejection(renderImageDownload(dir, png, corners, 'png', 1)),
+					await failureOf(renderImageDownload(dir, png, corners, 'png', 1)),
 					'tool.action_failed',
 				);
 			}

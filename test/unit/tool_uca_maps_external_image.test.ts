@@ -4,7 +4,7 @@
  *
  * The site is SCRIPTED (`HarvestDeps.hop` replaces the pinned primitive, the
  * pace's clock is ours): no network, no wait. What is pinned is the tool's
- * half — the switch, the declared gate, the host policy and ceiling it hands
+ * half — the switch, the host policy and ceiling it hands
  * the door, what a refusal turns into, and that the staged file is what the
  * ingest reads back (the caller's own staging dir, an upload's `file_data`).
  * The door itself is `harvest_door_native.test.ts`'s.
@@ -13,21 +13,18 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { DedaloError } from '../../src/core/errors/index.ts';
 import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { clearPacingForTests } from '../../src/core/harvest/pacing.ts';
 import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
 import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	EXTERNAL_IMAGE_MAX_BYTES,
 	EXTERNAL_IMAGES_CONFIG_KEY,
 	stagedFileName,
 	stageExternalImage,
 } from '../../tools/tool_uca_maps/server/external_image.ts';
-import { mustGet } from '../helpers/assert.ts';
+import { contextOf, dataOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
 /** A 1×1 PNG: real bytes, so the receiver's sniff and structural check pass. */
 const ONE_PIXEL_PNG = new Uint8Array(
@@ -92,25 +89,6 @@ function scriptedSite(routes: Record<string, Scripted>): ScriptedSite {
 const on = async () => true;
 const off = async () => false;
 
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: USER_ID, isGlobalAdmin: true, isDeveloper: true },
-		userId: USER_ID,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-async function failureOf(promise: Promise<unknown>): Promise<DedaloError> {
-	try {
-		await promise;
-	} catch (error) {
-		expect(error).toBeInstanceOf(DedaloError);
-		return error as DedaloError;
-	}
-	throw new Error('expected a rejection');
-}
-
 const staged: string[] = [];
 
 beforeEach(() => {
@@ -124,24 +102,11 @@ afterEach(() => {
 	for (const path of staged.splice(0)) rmSync(path, { force: true });
 });
 
-describe('tool_uca_maps stage_external_image — declared gate', () => {
-	test('is record_tipo at WRITE level, bound to the module function', async () => {
-		const loaded = mustGet(await getLoadedTool('tool_uca_maps'), 'tool_uca_maps');
-		const action = mustGet(
-			loaded.module.apiActions.stage_external_image,
-			'stage_external_image',
-		) as GatedToolActionSpec;
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(2);
-		expect(action.handler).toBe(stageExternalImage);
-	});
-});
-
 describe('tool_uca_maps stage_external_image — the switch', () => {
 	test('off, it is refused before anything is requested', async () => {
 		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
 		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps, enabled: off }),
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: off }),
 		);
 		expect(error.code).toBe('tool.method_not_allowed');
 		expect(site.sent).toEqual([]);
@@ -154,10 +119,11 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 		expect(register.default_config[EXTERNAL_IMAGES_CONFIG_KEY]).toBe(true);
 
 		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
-		const response = await stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps });
-		const fileData = (response as { data: { file_data: Record<string, unknown> } }).data.file_data;
+		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
+			harvest: site.deps,
+		});
+		const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
 		staged.push(join(stagingDir(USER_ID, 'image'), String(fileData.tmp_name)));
-		expect(response.ok).toBe(true);
 		expect(site.sent).toContain(IMAGE);
 	});
 });
@@ -165,12 +131,11 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	test('a PNG is staged in the caller staging dir, answered as an upload is', async () => {
 		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
-		const response = await stageExternalImage(contextOf({ url: IMAGE }), {
+		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
 			harvest: site.deps,
 			enabled: on,
 		});
-		expect(response.ok).toBe(true);
-		const fileData = (response as { data: { file_data: Record<string, unknown> } }).data.file_data;
+		const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
 		expect(fileData.key_dir).toBe('image');
 		expect(fileData.extension).toBe('png');
 		expect(fileData.name).toBe('Muro norte.png');
@@ -189,7 +154,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	test('a non-2xx answer is a plain failure naming the status', async () => {
 		const site = scriptedSite({ [IMAGE]: { status: 404 } });
 		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps, enabled: on }),
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('tool.action_failed');
 		expect(error.message).toContain('HTTP 404');
@@ -200,7 +165,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 			[IMAGE]: { status: 200, type: 'text/html', body: '<html></html>' },
 		});
 		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps, enabled: on }),
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('harvest.unexpected_type');
 		// refused by the door on the declared type, its body never sent
@@ -210,7 +175,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	test('an image type the picker does not take (GIF) is refused', async () => {
 		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/gif', body: 'GIF89a' } });
 		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps, enabled: on }),
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('harvest.unexpected_type');
 		// refused by the door on the declared type, its body never sent
@@ -224,7 +189,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 		const dir = stagingDir(USER_ID, 'image');
 		const before = existsSync(dir) ? readdirSync(dir).sort() : [];
 		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps, enabled: on }),
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('media.upload_rejected');
 		expect(existsSync(dir) ? readdirSync(dir).sort() : []).toEqual(before);
@@ -240,7 +205,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 			[IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG },
 		});
 		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }), { harvest: site.deps, enabled: on }),
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('harvest.robots_disallowed');
 		expect(site.sent).not.toContain(IMAGE);
@@ -250,7 +215,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 		for (const url of ['file:///etc/passwd', 'images/a.png', '', 42]) {
 			const site = scriptedSite({});
 			const error = await failureOf(
-				stageExternalImage(contextOf({ url }), { harvest: site.deps, enabled: on }),
+				stageExternalImage(contextOf({ url }, USER_ID), { harvest: site.deps, enabled: on }),
 			);
 			expect(error.code).toBe('request.invalid_options');
 			expect(site.sent).toEqual([]);

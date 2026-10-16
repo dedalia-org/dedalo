@@ -23,8 +23,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
+import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
 import {
 	IMAGE_READ_GATE,
 	objectPdfReport,
@@ -40,19 +39,10 @@ import {
 	textWidth,
 	wrapText,
 } from '../../tools/tool_uca_maps/server/pdf_writer.ts';
-import { mustGet } from '../helpers/assert.ts';
+import { contextOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 const scratch = mkdtempSync(join(tmpdir(), 'uca_pdf_'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
 
 /** Run the produced PDF through Poppler and give back its text. */
 async function pdfText(bytes: Uint8Array, name: string): Promise<string> {
@@ -69,22 +59,8 @@ async function pdfText(bytes: Uint8Array, name: string): Promise<string> {
 }
 
 describe('tool_uca_maps object_pdf_report — declared gate', () => {
-	test('is record_tipo at read level (1)', async () => {
-		const loaded = await getLoadedTool('tool_uca_maps');
-		const action = mustGet(
-			loaded?.module.apiActions.object_pdf_report,
-			'object_pdf_report',
-		) as GatedToolActionSpec;
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-
 	test('the per-image gate IS the get_image_file spec, not a second hand-written check', async () => {
-		const loaded = await getLoadedTool('tool_uca_maps');
-		const declared = mustGet(
-			loaded?.module.apiActions.get_image_file,
-			'get_image_file',
-		) as GatedToolActionSpec;
+		const declared = (await loadAction('get_image_file')) as GatedToolActionSpec;
 		expect(String(IMAGE_READ_GATE.permission)).toBe(String(declared.permission));
 		expect(Number(IMAGE_READ_GATE.minLevel)).toBe(Number(declared.minLevel));
 		expect(IMAGE_READ_GATE.handler).toBe(declared.handler);

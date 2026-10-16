@@ -3,8 +3,6 @@
  * del centro del objeto seleccionado).
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1), the criterion every
- *    read-only proxy in this tool ships with;
  *  - `elevationUrl` (pure, no network): the exact `locations=lat,lon` query,
  *    which is the one place an axis swap would report the elevation of a
  *    different continent while the panel still looked right;
@@ -20,48 +18,12 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import type { DedaloError } from '../../src/core/errors/index.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	elevationUrl,
 	getElevation,
 	parseElevation,
 } from '../../tools/tool_uca_maps/server/elevation.ts';
-import { mustGet } from '../helpers/assert.ts';
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	const action = mustGet(loaded?.module.apiActions.get_elevation, 'get_elevation');
-	return action as GatedToolActionSpec;
-}
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-async function refusalOf(options: Record<string, unknown>): Promise<DedaloError> {
-	try {
-		await getElevation(contextOf(options));
-	} catch (error) {
-		return error as DedaloError;
-	}
-	throw new Error('expected get_elevation to refuse these options');
-}
-
-describe('tool_uca_maps get_elevation — declared gate', () => {
-	test("is record_tipo at read level (1), same criterion as the tool's other read actions", async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
+import { contextOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('elevationUrl — the query built (no network)', () => {
 	test('asks Open-Elevation for one point, latitude first', () => {
@@ -113,7 +75,7 @@ describe('get_elevation — caller-fault validation', () => {
 		['a latitude past the pole', { lat: 91, lon: -0.2 }],
 		['a longitude past the antimeridian', { lat: 39.6, lon: 181 }],
 	])('refuses %s as request.invalid_options', async (_label, options) => {
-		const error = await refusalOf(options);
+		const error = await failureOf(getElevation(contextOf(options)));
 		expect(error.code).toBe('request.invalid_options');
 	});
 

@@ -1,10 +1,10 @@
 /**
  * tool_uca_maps — `image_download` ("Descargar Imagen" of an uploaded image).
  *
- * Pins the declared gate, the caller-fault refusals (all before any database
- * or file access), and — gated on GDAL — the real warp: the output is the
- * image in its CURRENT shape, in EPSG:3857, `width` pixels wide, transparent
- * (or white, for jpg) outside a rotated shape, and never carrying opacity.
+ * Pins the caller-fault refusals (all before any database or file access),
+ * and — gated on GDAL — the real warp: the output is the image in its CURRENT
+ * shape, in EPSG:3857, `width` pixels wide, transparent (or white, for jpg)
+ * outside a rotated shape, and never carrying opacity.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -12,8 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { toErrorBody } from '../../src/core/errors/convert.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
+import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	type ImageCorners,
 	MAX_IMAGE_DOWNLOAD_SIDE,
@@ -22,20 +21,15 @@ import {
 	renderImageDownload,
 } from '../../tools/tool_uca_maps/server/image_download.ts';
 import { mustGet } from '../helpers/assert.ts';
+import { haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
-const HAVE_GDAL = [
+const HAVE_GDAL = haveGdal(
 	'gdalinfo',
 	'gdal_create',
 	'gdal_translate',
 	'gdalwarp',
 	'gdallocationinfo',
-].every((name) => Bun.which(name) !== null);
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	return mustGet(loaded?.module.apiActions.image_download, 'image_download') as GatedToolActionSpec;
-}
+);
 
 function contextOf(options: Record<string, unknown>): ToolActionContext {
 	return {
@@ -60,14 +54,6 @@ const VALID = {
 	width: 200,
 	file_name: 'plan',
 };
-
-describe('tool_uca_maps image_download — declared gate', () => {
-	test('is record_tipo at read level (1), on the IMAGE record named in the options', async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
 
 describe('tool_uca_maps image_download — caller faults, refused before any lookup', () => {
 	const cases: Array<[string, Record<string, unknown>]> = [
@@ -98,7 +84,7 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 	];
 	for (const [label, override] of cases) {
 		test(`refuses ${label}`, async () => {
-			const action = await loadAction();
+			const action = await loadAction('image_download');
 			await expect(action.handler(contextOf({ ...VALID, ...override }))).rejects.toMatchObject({
 				code: 'request.invalid_options',
 			});

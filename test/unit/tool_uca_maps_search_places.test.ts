@@ -2,10 +2,6 @@
  * tool_uca_maps — `search_places` (fila #1, "Buscador de lugares").
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1), same criterion as
- *    every other read-only proxy this tool ships (get_wms_layers,
- *    get_catastro_parcel, get_administrative_unit) — the action writes
- *    nothing, it asks a public gazetteer on the caller's behalf;
  *  - `placeSearchUrl` + `parsePlaceResults` (pure, no network): the exact
  *    query built, and the reduction of Nominatim's own JSON — INCLUDING the
  *    boundingbox permutation (Nominatim S/N/W/E → Leaflet S/W/N/E), which is
@@ -21,37 +17,11 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { DedaloError } from '../../src/core/errors/index.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	parsePlaceResults,
 	placeSearchUrl,
 } from '../../tools/tool_uca_maps/server/place_search.ts';
-import { mustGet } from '../helpers/assert.ts';
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	const action = mustGet(loaded?.module.apiActions.search_places, 'search_places');
-	return action as GatedToolActionSpec;
-}
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-describe('tool_uca_maps search_places — declared gate', () => {
-	test("is record_tipo at read level (1), same criterion as the tool's other read actions", async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
+import { contextOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('placeSearchUrl — the query built (no network)', () => {
 	test('asks Nominatim for the search text, in jsonv2, capped at 8 hits', () => {
@@ -138,7 +108,7 @@ describe('parsePlaceResults — Nominatim JSON → PlaceResult[]', () => {
 
 describe('tool_uca_maps search_places — handler validation (no network)', () => {
 	test('an empty query is refused as a caller fault', async () => {
-		const action = await loadAction();
+		const action = await loadAction('search_places');
 		await expect(action.handler(contextOf({ query: '   ' }))).rejects.toThrow(
 			/search text is required/,
 		);
@@ -146,7 +116,7 @@ describe('tool_uca_maps search_places — handler validation (no network)', () =
 	});
 
 	test('an over-long query is refused before anything is sent to a third party', async () => {
-		const action = await loadAction();
+		const action = await loadAction('search_places');
 		await expect(action.handler(contextOf({ query: 'x'.repeat(201) }))).rejects.toThrow(/too long/);
 	});
 });

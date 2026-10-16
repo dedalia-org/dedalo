@@ -19,8 +19,6 @@ import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { clearPacingForTests } from '../../src/core/harvest/pacing.ts';
 import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
 import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	PLEIADES_DUMP_MAX_BYTES,
 	PLEIADES_DUMP_MAX_EXPANDED_BYTES,
@@ -28,7 +26,7 @@ import {
 } from '../../tools/tool_uca_maps/gazetteers/provision.ts';
 import { getPleiadesPlace } from '../../tools/tool_uca_maps/server/roman_empire.ts';
 import { getWmsLayers } from '../../tools/tool_uca_maps/server/wms.ts';
-import { mustGet } from '../helpers/assert.ts';
+import { contextOf, dataOf, failureOf, loadTool } from './fixtures/tool_uca_maps/helpers.ts';
 
 interface Scripted {
 	status: number;
@@ -82,32 +80,6 @@ function scriptedSite(routes: Record<string, Scripted>): ScriptedSite {
 	return { deps, sent, ceilings };
 }
 
-/** The DedaloError a rejected promise carried. */
-async function failureOf(promise: Promise<unknown>): Promise<DedaloError> {
-	try {
-		await promise;
-	} catch (error) {
-		expect(error).toBeInstanceOf(DedaloError);
-		return error as DedaloError;
-	}
-	throw new Error('expected a rejection');
-}
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-/** The envelope's `data` of a successful action. */
-function dataOf(response: unknown): Record<string, unknown> {
-	expect((response as { ok: boolean }).ok).toBe(true);
-	return (response as { data: Record<string, unknown> }).data;
-}
-
 beforeEach(() => {
 	clearRobotsCache();
 	clearPacingForTests();
@@ -119,9 +91,9 @@ afterEach(() => {
 });
 
 test('the tool binds exactly the handlers driven below', async () => {
-	const loaded = mustGet(await getLoadedTool('tool_uca_maps'), 'tool_uca_maps');
-	expect(loaded.module.apiActions.get_wms_layers?.handler).toBe(getWmsLayers);
-	expect(loaded.module.apiActions.get_pleiades_place?.handler).toBe(getPleiadesPlace);
+	const { apiActions } = await loadTool();
+	expect(apiActions.get_wms_layers?.handler).toBe(getWmsLayers);
+	expect(apiActions.get_pleiades_place?.handler).toBe(getPleiadesPlace);
 });
 
 const CAPABILITIES = '<WMS_Capabilities version="1.3.0"><Capability/></WMS_Capabilities>';

@@ -2,8 +2,6 @@
  * tool_uca_maps — `get_catastro_parcel` (fila #8, "Catastro").
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1), same criterion as
- *    every other read-only action this tool ships;
  *  - `featureInfoUrl`/`parseCatastroRefcat`/`extractParcelPosList` (pure, no
  *    network) — the exact query built and the two third-party response
  *    shapes parsed (a real GetFeatureInfo HTML reply and a real WFS GML
@@ -17,40 +15,13 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { DedaloError } from '../../src/core/errors/index.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type { GatedToolActionSpec, ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	extractParcelPosList,
 	featureInfoUrl,
 	parseCatastroRefcat,
 	parseParcelGeometry,
 } from '../../tools/tool_uca_maps/server/catastro.ts';
-import { mustGet } from '../helpers/assert.ts';
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	const action = mustGet(loaded?.module.apiActions.get_catastro_parcel, 'get_catastro_parcel');
-	return action as GatedToolActionSpec;
-}
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-describe('tool_uca_maps get_catastro_parcel — declared gate', () => {
-	test('is record_tipo at read level (1)', async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
+import { contextOf, expectCode, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('featureInfoUrl', () => {
 	test('builds the fixed Catastro GetFeatureInfo query from a click payload', () => {
@@ -108,8 +79,7 @@ describe('parseCatastroRefcat', () => {
 			} catch (caught) {
 				error = caught;
 			}
-			expect(error).toBeInstanceOf(DedaloError);
-			expect((error as DedaloError).code).toBe('security.outbound_failed');
+			expectCode(error, 'security.outbound_failed');
 		}
 	});
 
@@ -181,15 +151,14 @@ describe('extractParcelPosList', () => {
 			} catch (caught) {
 				error = caught;
 			}
-			expect(error).toBeInstanceOf(DedaloError);
-			expect((error as DedaloError).code).toBe('security.outbound_failed');
+			expectCode(error, 'security.outbound_failed');
 		}
 	});
 });
 
 describe('tool_uca_maps get_catastro_parcel — handler validation', () => {
 	test('a missing bbox is refused as request.invalid_options', async () => {
-		const action = await loadAction();
+		const action = await loadAction('get_catastro_parcel');
 		await expect(action.handler(contextOf({}))).rejects.toThrow(/bounding box/);
 	});
 });

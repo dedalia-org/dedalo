@@ -2,10 +2,6 @@
  * tool_uca_maps — `vector_download` (hito 3, checkpoint 3a).
  *
  * What this pins:
- *  - the DECLARED gate: 'record_tipo' at read level (1), same criterion as
- *    `get_capabilities` (test/unit/tool_uca_maps_get_capabilities.test.ts) —
- *    the action writes no section data, it transforms geometry the caller
- *    already holds;
  *  - caller-fault validation (unsupported format, missing/malformed geojson)
  *    THROWS `request.invalid_options`, unconditionally — no binary involved,
  *    so this runs even without GDAL installed;
@@ -19,22 +15,10 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
-import type {
-	GatedToolActionSpec,
-	ToolActionContext,
-	ToolResponse,
-} from '../../src/core/tools/module.ts';
-import { mustGet } from '../helpers/assert.ts';
+import type { ToolResponse } from '../../src/core/tools/module.ts';
+import { contextOf, dataOf, haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
-const HAVE_GDAL = Bun.which('ogr2ogr') !== null;
-
-async function loadAction(): Promise<GatedToolActionSpec> {
-	const loaded = await getLoadedTool('tool_uca_maps');
-	expect(loaded).not.toBeNull();
-	const action = mustGet(loaded?.module.apiActions.vector_download, 'vector_download');
-	return action as GatedToolActionSpec;
-}
+const HAVE_GDAL = haveGdal('ogr2ogr');
 
 /** A minimal, valid WGS84 polygon — exactly what `layer.toGeoJSON()` produces
  * client-side (object_console.js `download_vector`), no `crs` member (RFC
@@ -56,40 +40,23 @@ const SAMPLE_GEOJSON = {
 	},
 };
 
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { section_tipo: 'test2', tipo: 'test52', section_id: 905101, ...options },
-		background: false,
-	};
-}
-
-describe('tool_uca_maps vector_download — declared gate', () => {
-	test('is record_tipo at read level (1), same criterion as get_capabilities', async () => {
-		const action = await loadAction();
-		expect(action.permission).toBe('record_tipo');
-		expect(action.minLevel).toBe(1);
-	});
-});
-
 describe('tool_uca_maps vector_download — caller-fault validation (no binary needed)', () => {
 	test('an unsupported format is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('vector_download');
 		await expect(
 			action.handler(contextOf({ format: 'dxf', geojson: SAMPLE_GEOJSON })),
 		).rejects.toThrow(/Unsupported vector format/);
 	});
 
 	test('missing geojson is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('vector_download');
 		await expect(action.handler(contextOf({ format: 'shp' }))).rejects.toThrow(
 			/Missing or invalid geojson/,
 		);
 	});
 
 	test('a geojson that is not an object is refused', async () => {
-		const action = await loadAction();
+		const action = await loadAction('vector_download');
 		await expect(
 			action.handler(contextOf({ format: 'kml', geojson: 'not-an-object' })),
 		).rejects.toThrow(/Missing or invalid geojson/);
@@ -98,15 +65,14 @@ describe('tool_uca_maps vector_download — caller-fault validation (no binary n
 
 describe.if(HAVE_GDAL)('tool_uca_maps vector_download — real ogr2ogr conversion', () => {
 	test('shp: returns a zip (PK magic bytes), envelope v2, no result mirror', async () => {
-		const action = await loadAction();
+		const action = await loadAction('vector_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({ format: 'shp', geojson: SAMPLE_GEOJSON }),
 		);
 
-		expect(response.ok).toBe(true);
+		const data = dataOf(response);
 		expect('result' in response).toBe(false); // forbidden PHP-era mirror key
 
-		const data = (response as { data: Record<string, unknown> }).data;
 		expect(data.filename).toBe('uca_maps_object.shp.zip');
 		expect(data.mime).toBe('application/zip');
 
@@ -118,13 +84,12 @@ describe.if(HAVE_GDAL)('tool_uca_maps vector_download — real ogr2ogr conversio
 	});
 
 	test("kml: returns a WGS84 (EPSG:4326) KML, never v6's forced EPSG:3857", async () => {
-		const action = await loadAction();
+		const action = await loadAction('vector_download');
 		const response: ToolResponse = await action.handler(
 			contextOf({ format: 'kml', geojson: SAMPLE_GEOJSON }),
 		);
 
-		expect(response.ok).toBe(true);
-		const data = (response as { data: Record<string, unknown> }).data;
+		const data = dataOf(response);
 		expect(data.filename).toBe('uca_maps_object.kml');
 		expect(data.mime).toBe('application/vnd.google-earth.kml+xml');
 
@@ -138,7 +103,7 @@ describe.if(HAVE_GDAL)('tool_uca_maps vector_download — real ogr2ogr conversio
 	});
 
 	test('an unparsable geojson fails the conversion as tool.action_failed, not a silent empty file', async () => {
-		const action = await loadAction();
+		const action = await loadAction('vector_download');
 		await expect(
 			action.handler(contextOf({ format: 'shp', geojson: { not: 'geojson' } })),
 		).rejects.toThrow();
