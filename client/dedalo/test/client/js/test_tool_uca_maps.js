@@ -15,11 +15,12 @@
  * ontology.
  *
  * What it does not do: test the server actions (test/unit/tool_uca_maps_*),
- * or reach a third party. Lookups are stubbed per test and get_elevation in
- * the beforeEach; only basemap and Catastro tiles still load (UA's are
- * blanked), and nothing asserts on them. A few tests round-trip a
- * GDAL/ImageMagick action on the suite's
- * own server. The tool stylesheet is loaded only by with_tool_css() tests.
+ * or reach a third party's answer. Lookups are stubbed per test and
+ * get_elevation in the beforeEach, which also blanks every IGN (UA) tile.
+ * Basemap, Catastro and example.com WMS tiles still load from the network,
+ * and nothing asserts on them. A few tests round-trip a GDAL/ImageMagick
+ * action on the suite's own server. The tool stylesheet is loaded only by
+ * with_tool_css() tests.
  */
 
 import { elements } from './elements.js'
@@ -570,7 +571,28 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	]
 
-	let geolocation, tool, map_container
+	/** A 1x1 transparent GIF: a tile served without the network. */
+	const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
+	/**
+	* Arming UA builds the IGN's AU.AdministrativeUnit WMS: every WMS layer
+	* pointed at www.ign.es takes its tiles from BLANK_TILE while this is in
+	* place (beforeEach), so no test reaches IGN. The layer stays a real
+	* L.TileLayer.WMS. Returns the restore (L is global).
+	*/
+	const offline_ua_wms = function() {
+		const original = L.tileLayer.wms
+		L.tileLayer.wms = function(url, options) {
+			const layer = original.call(this, url, options)
+			if (String(url).startsWith('https://www.ign.es/')) {
+				layer.getTileUrl = () => BLANK_TILE
+			}
+			return layer
+		}
+		return () => { L.tileLayer.wms = original }
+	}
+
+	let geolocation, tool, map_container, restore_ua_wms
 
 	beforeEach(async function() {
 
@@ -594,6 +616,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		map_container = node.content_data[0].map_container
 		await geolocation.get_map(map_container, 0)
 		assert.isOk(geolocation.map, 'expected a live Leaflet map')
+		restore_ua_wms = offline_ua_wms() // L exists once get_map has loaded it
 
 		// get_map() loads only the active layer: the circle and the marker need
 		// the core's own 'full' load to get a FeatureGroup at all
@@ -614,6 +637,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 	afterEach(async function() {
+		if (restore_ua_wms) {
+			restore_ua_wms()
+			restore_ua_wms = null
+		}
 		if (tool) {
 			await tool.destroy(true, true, true)
 		}
@@ -4486,24 +4513,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	/** A 1x1 transparent GIF: a tile served without the network. */
-	const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-
-	/**
-	* Arming UA builds the IGN's AU.AdministrativeUnit WMS: its tiles come from
-	* BLANK_TILE while this is in place, so no test reaches www.ign.es. The
-	* layer stays a real L.TileLayer.WMS. Returns the restore (L is global).
-	*/
-	const offline_ua_wms = function() {
-		const original = L.tileLayer.wms
-		L.tileLayer.wms = function(url, options) {
-			const layer = original.call(this, url, options)
-			layer.getTileUrl = () => BLANK_TILE
-			return layer
-		}
-		return () => { L.tileLayer.wms = original }
-	}
-
 	// UA exists only for es/cat/eus; opening its panel is arming it
 	const arm_ua = function() {
 		geolocation.section_lang = 'lg-spa'
@@ -4511,11 +4520,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.ua_control.getContainer().click()
 	}
 
-	describe('administrative units (UA), IGN tiles served offline', function() {
-
-		let restore_wms = null
-		beforeEach(function() { restore_wms = offline_ua_wms() })
-		afterEach(function() { restore_wms() })
+	describe('administrative units (UA)', function() {
 
 		it('attach_administrative_units builds the button+panel (level select) once section_lang is es/cat/eus', function() {
 
@@ -4725,66 +4730,141 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
+	// basemap_swap.js, shared by Catastro and UA: a map click is the lookup, and
+	// disarming undoes all of the swap, the layer control it had to create included
+	for (const swap of [
+		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', extra: {}},
+		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {level: 'Municipio'}}
+	]) {
+		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks click, layer and the control it made`, async function() {
+
+			const map		= geolocation.map
+			const toggle	= () => tool[swap.control].getContainer().click()
+			const handler	= () => tool[`_${swap.key}_click_handler`]
+
+			geolocation.section_lang = 'lg-spa'
+			tool[swap.attach]()
+
+			let requested = null
+			stub_tool_request(async (options) => {
+				requested = options
+				return {ok: true, data: {found: false}}
+			})
+
+			// with the fixture's own layer control
+			const fixture_control = geolocation.layer_control
+			toggle() // arm
+			const armed_handler	= handler()
+			const tile_layer	= tool[`_${swap.key}_tile_layer`]
+			assert.isTrue(map.listens('click', armed_handler), 'expected the map click armed')
+			assert.isNotOk(tool[`_${swap.key}_created_layer_control`], 'expected the existing control reused, not a new one')
+
+			// a pixel off the diagonal, so x and y cannot stand for each other
+			const latlng = map.containerPointToLatLng(L.point(37, 101))
+			map.fire('click', {latlng})
+			assert.isOk(requested, 'expected the click to reach tool_request')
+			await until(() => !tool[`_${swap.key}_busy`])
+			assert.isFalse(tool[`_${swap.key}_busy`], 'expected the lookup settled')
+
+			const bounds	= map.getBounds()
+			const size		= map.getSize()
+			const point		= map.latLngToContainerPoint(latlng)
+			assert.equal(requested.action, swap.action)
+			assert.deepEqual(requested.options, {
+				tipo			: geolocation.tipo,
+				section_id		: geolocation.section_id,
+				section_tipo	: geolocation.section_tipo,
+				bbox			: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+				width			: size.x,
+				height			: size.y,
+				x				: point.x,
+				y				: point.y,
+				...swap.extra
+			})
+
+			toggle() // disarm
+			assert.isFalse(map.listens('click', armed_handler), 'expected the map click unhooked')
+			assert.strictEqual(geolocation.layer_control, fixture_control, 'expected the fixture\'s control kept')
+			assert.isFalse(
+				Object.values(fixture_control._layers).some((entry) => entry.layer===tile_layer),
+				'expected the WMS out of the basemap list'
+			)
+
+			// without one (the core's OSM branch): the swap creates a control and removes it again.
+			// The fixture's control is removed for real, as in the XYZ takeover
+			map.removeControl(fixture_control)
+			geolocation.layer_control = false
+			const original_base_layer = find_active_tile_layer(map)
+			assert.isOk(original_base_layer, 'expected the fixture basemap on the map')
+
+			toggle() // arm
+			const created_control = geolocation.layer_control
+			assert.isOk(created_control, 'expected a layer control created')
+			assert.isTrue(tool[`_${swap.key}_created_layer_control`], 'expected the creation recorded')
+			assert.isTrue(map.getContainer().contains(created_control.getContainer()), 'expected the created control on the map')
+
+			toggle() // disarm
+			assert.isFalse(map.getContainer().contains(created_control.getContainer()), 'expected the created control gone from the map')
+			assert.strictEqual(geolocation.layer_control, false, 'expected no control left behind')
+			assert.isTrue(map.hasLayer(original_base_layer), 'expected the original basemap back')
+		})
+	}
+
 	// each panel's own lead says what failed; a REASON_CODES refusal adds the
 	// server's reason on its own line, which core's error_text alone drops
 	it('a refusal with a reason shows the panel\'s lead, then the reason: UA, WMS, place and Roman searches', async function() {
 
-		const restore_wms = offline_ua_wms()
-		try {
-			arm_ua()
-			tool.attach_wms_services()
-			tool.attach_place_search()
-			mount_roman(WITH_PLEIADES)
+		arm_ua()
+		tool.attach_wms_services()
+		tool.attach_place_search()
+		mount_roman(WITH_PLEIADES)
 
-			const reason = 'Coordinates out of range'
-			stub_tool_request(async () => ({ok: false, error: {
-				is_api_error	: true,
-				code			: 'request.invalid_options',
-				label_key		: 'error_request_invalid_options',
-				message			: reason,
-				transport		: false
-			}}))
+		const reason = 'Coordinates out of range'
+		stub_tool_request(async () => ({ok: false, error: {
+			is_api_error	: true,
+			code			: 'request.invalid_options',
+			label_key		: 'error_request_invalid_options',
+			message			: reason,
+			transport		: false
+		}}))
 
-			const ua_line = () => tool.ua_panel.querySelector('.uca-maps-ua-message')
-			const rows = [
-				{
-					label	: 'ua',
-					lead	: 'The administrative unit could not be looked up.',
-					run		: async () => {
-						await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
-						assert.equal(ua_line().dataset.type, 'error', 'expected the UA refusal as an error')
-						return ua_line().textContent
-					}
-				},
-				{
-					label	: 'wms search',
-					lead	: 'The WMS server could not be queried.',
-					run		: async () => (await tool.search_wms_layers('https://example.com/geoserver/wms')).error
-				},
-				{
-					label	: 'place search',
-					lead	: 'The place search could not be completed.',
-					run		: async () => (await search_places(tool, 'Sagunto')).error
-				},
-				{
-					label	: 'roman search',
-					lead	: 'The search could not be completed.',
-					run		: async () => (await search_roman(tool, 'pleiades', {query: 'Saguntum', type: 'name'})).error
-				},
-				{
-					label	: 'roman add',
-					lead	: 'The search could not be completed.',
-					run		: async () => {
-						tool._roman_results = [{id: '265849'}]
-						return (await add_roman_result(tool, 0)).error
-					}
+		const ua_line = () => tool.ua_panel.querySelector('.uca-maps-ua-message')
+		const rows = [
+			{
+				label	: 'ua',
+				lead	: 'The administrative unit could not be looked up.',
+				run		: async () => {
+					await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+					assert.equal(ua_line().dataset.type, 'error', 'expected the UA refusal as an error')
+					return ua_line().textContent
 				}
-			]
-			for (const row of rows) {
-				assert.equal(await row.run(), `${row.lead}\n${reason}`, row.label)
+			},
+			{
+				label	: 'wms search',
+				lead	: 'The WMS server could not be queried.',
+				run		: async () => (await tool.search_wms_layers('https://example.com/geoserver/wms')).error
+			},
+			{
+				label	: 'place search',
+				lead	: 'The place search could not be completed.',
+				run		: async () => (await search_places(tool, 'Sagunto')).error
+			},
+			{
+				label	: 'roman search',
+				lead	: 'The search could not be completed.',
+				run		: async () => (await search_roman(tool, 'pleiades', {query: 'Saguntum', type: 'name'})).error
+			},
+			{
+				label	: 'roman add',
+				lead	: 'The search could not be completed.',
+				run		: async () => {
+					tool._roman_results = [{id: '265849'}]
+					return (await add_roman_result(tool, 0)).error
+				}
 			}
-		} finally {
-			restore_wms()
+		]
+		for (const row of rows) {
+			assert.equal(await row.run(), `${row.lead}\n${reason}`, row.label)
 		}
 	})
 
@@ -7578,13 +7658,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	const SETTLE_MS			= 50
 	const AFTER_DEBOUNCE_MS	= LIVE_SEARCH_DELAY_MS + SETTLE_MS
 
-	// a document without focus gets no focus events in Chrome: these gates would
-	// then fail on the runner, not on the code, so they say so and skip
-	const require_document_focus = function(context) {
-		if (!document.hasFocus()) {
-			context.test.title += ' (skipped: the document has no focus)'
-			context.skip()
-		}
+	// a document without focus gets no focus events in Chrome: these gates fail
+	// loudly on the runner's state first, never as a silent pending test
+	const require_document_focus = function() {
+		assert.isTrue(document.hasFocus(), 'the runner page has no focus: the focus gates cannot run')
 	}
 
 	it('attach_roman_empire adds exactly one button and one hidden panel, idempotently', function() {
@@ -8457,7 +8534,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Tab into another field closes the list, as a click there does', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8477,7 +8554,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('opening the panel focuses the first ENABLED field', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		// only DARE needs no local data: with none, Pleiades and Pelagios are disabled
 		mount_roman()
 		await load_roman_capabilities(tool)
@@ -8505,7 +8582,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// cancels it waiting, in flight or open
 	it('leaving the field cancels its search, whether waiting or in flight', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8654,7 +8731,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// off through the panel
 	it('with its list open, Tab walks from the field into the list and through it', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8726,7 +8803,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('walking the list by keyboard freezes it: no waiting or in-flight search rebuilds it', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman()
 		open_roman()
 		const panel	= tool.roman_panel
@@ -8777,7 +8854,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// focused control stays usable
 	it('a capability answer that disables the focused field moves the focus to the first usable one', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		let answer = null
 		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
 		tool.attach_roman_empire()
@@ -8799,7 +8876,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a capability answer leaves alone a focused control that stays usable', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		let answer = null
 		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
 		tool.attach_roman_empire()
@@ -8817,7 +8894,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('whatever closes the list, a focused row hands the focus back to its field', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8852,7 +8929,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Tab past the last row enters a radio group at its CHECKED radio', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 		open_roman()
@@ -8872,7 +8949,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('while the keyboard is in the list, the pointer moves the focus with the highlight', async function() {
 
-		require_document_focus(this)
+		require_document_focus()
 		mount_roman()
 		open_roman()
 		const panel	= tool.roman_panel
