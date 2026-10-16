@@ -31,9 +31,11 @@
 
 import {
 	create_toolbar_button,
-	remove_toolbar_button
+	is_toolbar_button_armed,
+	remove_toolbar_button,
+	set_toolbar_button_armed
 } from './toolbar.js'
-import {commit, ensure_properties, ensure_uid, report_client_error} from './object_console.js'
+import {commit, ensure_uid, remove_map_listeners, report_client_error} from './object_console.js'
 
 
 
@@ -111,10 +113,9 @@ export const attach_geolocate = function(self) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
 */
+// exported for the client gate
 export const is_geolocate_enabled = function(self) {
-	const container = self.geolocate_control && self.geolocate_control.getContainer
-		&& self.geolocate_control.getContainer()
-	return Boolean(container && container.classList.contains(ENABLED_CLASS))
+	return is_toolbar_button_armed(self.geolocate_control, ENABLED_CLASS)
 }//end is_geolocate_enabled
 
 
@@ -126,11 +127,7 @@ export const is_geolocate_enabled = function(self) {
 * @returns {void}
 */
 const set_geolocate_enabled = function(self, enabled) {
-	const container = self.geolocate_control && self.geolocate_control.getContainer
-		&& self.geolocate_control.getContainer()
-	if (container) {
-		container.classList.toggle(ENABLED_CLASS, enabled===true)
-	}
+	set_toolbar_button_armed(self.geolocate_control, ENABLED_CLASS, enabled)
 }//end set_geolocate_enabled
 
 
@@ -144,6 +141,7 @@ const set_geolocate_enabled = function(self, enabled) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
+// exported for the client gate
 export const toggle_geolocate = function(self) {
 
 	if (is_geolocate_enabled(self)) {
@@ -192,8 +190,6 @@ export const create_position_marker = function(self, latlng) {
 	}
 
 	const marker = L.marker(latlng)
-	marker.feature = marker.toGeoJSON()
-	ensure_properties(marker)
 	ensure_uid(marker)
 
 	self.geolocation.map.fire('pm:create', {layer: marker})
@@ -223,20 +219,10 @@ export const detach_geolocate = function(self) {
 		} catch (error) {
 			console.warn('tool_uca_maps detach_geolocate: error stopping the location request', error)
 		}
-		if (self._geolocate_found_handler) {
-			try {
-				self.geolocation.map.off('locationfound', self._geolocate_found_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_geolocate: error removing locationfound listener', error)
-			}
-		}
-		if (self._geolocate_error_handler) {
-			try {
-				self.geolocation.map.off('locationerror', self._geolocate_error_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_geolocate: error removing locationerror listener', error)
-			}
-		}
+		remove_map_listeners(self, 'detach_geolocate', [
+			['locationfound',	'_geolocate_found_handler'],
+			['locationerror',	'_geolocate_error_handler']
+		])
 	}
 
 	remove_toolbar_button(self, self.geolocate_control)

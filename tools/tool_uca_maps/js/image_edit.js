@@ -32,6 +32,7 @@
 
 
 import {commit} from './object_console.js'
+import {carrier_image} from './uca_maps_data.js'
 
 
 
@@ -75,11 +76,7 @@ export const hull_bounds = function(corners) {
 */
 export const is_image_editing = function(carrier) {
 
-	const image = carrier
-		&& carrier.feature
-		&& carrier.feature.properties
-		&& carrier.feature.properties.uca_maps
-		&& carrier.feature.properties.uca_maps.image
+	const image = carrier_image(carrier)
 
 	return !!(image && image.interactive===true)
 }//end is_image_editing

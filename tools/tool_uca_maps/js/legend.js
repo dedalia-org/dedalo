@@ -58,14 +58,17 @@ import {
 * el `finfo` del PHP). El SVG se mantiene: el icono vive como data URL
 * dentro de un `<img>`, que es un contexto sin scripting, y en esta rama no
 * se guarda ni se sirve desde la instalación. */
+// exported for the client gate
 export const ALLOWED_ICON_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
 
 /** Tope de v6, verbatim. */
+// exported for the client gate
 export const MAX_ICON_BYTES = 2000000
 
 /** Pin por defecto de un elemento nuevo. v6 sirve `img/pin.svg` desde la
 * carpeta del tool; aquí va incrustado para no depender de una URL de
 * asset (`img-src` ya admite `data:`, `static_asset.ts` APP_CSP). */
+// exported for the client gate
 export const DEFAULT_ELEMENT_ICON = 'data:image/svg+xml;base64,' + btoa(
 	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">' +
 	'<path fill="' + DEFAULT_SYMBOL_COLOUR + '" d="M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5' +
@@ -83,6 +86,7 @@ export const DEFAULT_ELEMENT_ICON = 'data:image/svg+xml;base64,' + btoa(
 *
 * @returns {Object}
 */
+// exported for the client gate
 export const empty_legend = function() {
 	return {legend: '', enable: true, columns: []}
 }//end empty_legend
@@ -107,8 +111,10 @@ export const attach_legend = function(self) {
 
 	self.legend = empty_legend()
 
+	const title = self.get_tool_label('legend_control_title') || 'Legend'
+
 	self.legend_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('legend_control_title') || 'Legend',
+		title		: title,
 		text		: 'LEG',
 		class_name	: 'uca-maps-legend-control',
 		on_click	: () => toggle_legend_panel(self)
@@ -119,7 +125,7 @@ export const attach_legend = function(self) {
 	self.legend_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-legend-panel',
 		centered	: true,
-		title		: self.get_tool_label('legend_control_title') || 'Legend'
+		title		: title
 	})
 	render_legend_panel(self, self.legend_panel)
 

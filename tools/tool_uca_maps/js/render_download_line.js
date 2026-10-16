@@ -5,7 +5,8 @@
  * RENDER_DOWNLOAD_LINE
  * What every download button shares: the line under it where a failure is
  * shown, and a click that allows one attempt at a time. Used by the object
- * console's three downloads and by the map image panel.
+ * console's three downloads and by the map image panel. Every other panel's
+ * in-flow line is built and shown by the same two helpers.
  *
  * @module render_download_line
  */
@@ -13,15 +14,15 @@
 import { ui } from '../../../core/common/js/ui.js';
 
 /**
- * RENDER_DOWNLOAD_MESSAGE
- * The line under a download button where a failure is shown with its reason,
- * which the page toast does not carry. Each new attempt clears it.
+ * CREATE_PANEL_MESSAGE
+ * A panel's hidden in-flow line — under a download button, where a failure is
+ * shown with the reason the page toast does not carry. Each new attempt clears it.
  *
  * @param {HTMLElement} parent
- * @param {string} [class_name]
+ * @param {string} class_name
  * @returns {HTMLElement}
  */
-export const render_download_message = (parent, class_name = 'uca-maps-download-message') => {
+export const create_panel_message = (parent, class_name) => {
 	const message = ui.create_dom_element({
 		element_type: 'div',
 		class_name: class_name,
@@ -30,7 +31,22 @@ export const render_download_message = (parent, class_name = 'uca-maps-download-
 	message.hidden = true;
 
 	return message;
-}; //end render_download_message
+}; //end create_panel_message
+
+/**
+ * SHOW_PANEL_MESSAGE
+ * Shows `text` on a panel's in-flow line, tinted by `type`.
+ *
+ * @param {HTMLElement} message - the line create_panel_message built
+ * @param {string} text
+ * @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
+ * @returns {void}
+ */
+export const show_panel_message = (message, text, type = 'error') => {
+	message.textContent = text;
+	message.dataset.type = type;
+	message.hidden = false;
+}; //end show_panel_message
 
 /**
  * BIND_DOWNLOAD_BUTTON
@@ -39,7 +55,7 @@ export const render_download_message = (parent, class_name = 'uca-maps-download-
  * download that worked.
  *
  * @param {HTMLButtonElement} button
- * @param {HTMLElement} message - render_download_message's line
+ * @param {HTMLElement} message - create_panel_message's line
  * @param {function(): Promise<{ok: boolean, error?: string}|undefined>} run
  * @returns {void}
  */

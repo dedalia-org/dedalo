@@ -20,6 +20,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {eye_node, eye_off_node} from './icons.js'
+import {show_panel_message} from './render_download_line.js'
 
 
 
@@ -66,10 +67,7 @@ export const render_wms_services_panel = function(self, panel) {
 * @returns {void}
 */
 const show_wms_message = function(panel, text, type='error') {
-	const message = panel.querySelector('.uca-maps-wms-message')
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden			= false
+	show_panel_message(panel.querySelector('.uca-maps-wms-message'), text, type)
 }//end show_wms_message
 
 
@@ -152,6 +150,7 @@ const render_search_form = function(self, panel) {
 * @param {HTMLElement} panel
 * @returns {void}
 */
+// exported for the client gate
 export const populate_wms_search_results = function(self, panel) {
 
 	const list = panel.querySelector('.uca-maps-wms-results')

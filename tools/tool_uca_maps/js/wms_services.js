@@ -33,7 +33,7 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
-import {render_wms_services_panel, populate_wms_search_results, populate_wms_layers} from './render_wms_services.js'
+import {render_wms_services_panel, populate_wms_layers} from './render_wms_services.js'
 import {report_client_error} from './object_console.js'
 
 
@@ -61,8 +61,10 @@ export const attach_wms_services = function(self) {
 	self.geolocation.map.createPane('wms')
 	self.geolocation.map.getPane('wms').style.zIndex = 200
 
+	const title = self.get_tool_label('wms_control_title') || 'WMS services'
+
 	self.wms_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('wms_control_title') || 'WMS services',
+		title		: title,
 		text		: 'WMS',
 		class_name	: 'uca-maps-wms-control',
 		on_click	: () => toggle_wms_panel(self)
@@ -71,7 +73,7 @@ export const attach_wms_services = function(self) {
 	self.wms_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-wms-panel',
 		centered	: true,
-		title		: self.get_tool_label('wms_control_title') || 'WMS services'
+		title		: title
 	})
 	render_wms_services_panel(self, self.wms_panel)
 

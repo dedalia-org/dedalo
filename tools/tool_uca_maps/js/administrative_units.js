@@ -72,8 +72,10 @@ export const attach_administrative_units = function(self) {
 
 	self._ua_level = self._ua_level || 'Municipio'
 
+	const title = self.get_tool_label('ua_control_title') || 'Administrative Units'
+
 	self.ua_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('ua_control_title') || 'Administrative Units',
+		title		: title,
 		text		: 'UA',
 		class_name	: 'uca-maps-ua-control',
 		on_click	: () => toggle_ua_panel(self)
@@ -86,7 +88,7 @@ export const attach_administrative_units = function(self) {
 	self.ua_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-ua-panel',
 		centered	: true,
-		title		: self.get_tool_label('ua_control_title') || 'Administrative Units',
+		title		: title,
 		on_hide		: () => disable_ua(self)
 	})
 	render_administrative_units_panel(self, self.ua_panel)

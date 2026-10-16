@@ -33,6 +33,7 @@ import {
 	default_legend_symbol,
 	legend_symbol_node
 } from './legend_symbol.js'
+import {show_panel_message} from './render_download_line.js'
 
 
 
@@ -122,10 +123,7 @@ export const render_legend_panel = function(self, panel) {
 * @returns {void}
 */
 export const show_legend_message = function(panel, text, type='error') {
-	const message = panel.querySelector('.uca-maps-legend-message')
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden		= false
+	show_panel_message(panel.querySelector('.uca-maps-legend-message'), text, type)
 }//end show_legend_message
 
 

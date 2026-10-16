@@ -75,7 +75,7 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
-import {commit, apply_display, ensure_properties} from './object_console.js'
+import {commit, apply_display, ensure_uca_maps} from './object_console.js'
 import {render_object_viewer_panel, populate_object_viewer} from './render_object_viewer.js'
 
 
@@ -99,8 +99,10 @@ export const attach_object_viewer = function(self) {
 		return
 	}
 
+	const title = self.get_tool_label('object_viewer_control_title') || 'Objects'
+
 	self.object_viewer_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('object_viewer_control_title') || 'Objects',
+		title		: title,
 		icon		: 'list',
 		class_name	: 'uca-maps-object-viewer-control',
 		on_click	: () => toggle_object_viewer_panel(self)
@@ -109,7 +111,7 @@ export const attach_object_viewer = function(self) {
 	self.object_viewer_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-object-viewer-panel',
 		centered	: true,
-		title		: self.get_tool_label('object_viewer_control_title') || 'Objects'
+		title		: title
 	})
 	render_object_viewer_panel(self, self.object_viewer_panel)
 
@@ -151,7 +153,6 @@ export const attach_object_viewer = function(self) {
 const toggle_object_viewer_panel = function(self) {
 
 	const next_visible = !is_toolbar_panel_visible(self.object_viewer_panel)
-	self.object_viewer_panel_visible = next_visible
 
 	if (next_visible) {
 		populate_object_viewer(self, self.object_viewer_panel)
@@ -178,7 +179,6 @@ export const detach_object_viewer = function(self) {
 
 	self.object_viewer_control			= null
 	self.object_viewer_panel			= null
-	self.object_viewer_panel_visible	= false
 
 }//end detach_object_viewer
 
@@ -264,9 +264,7 @@ export const collect_objects = function(self) {
 */
 export const set_object_display = function(self, layer, visible) {
 
-	const properties = ensure_properties(layer)
-	properties.uca_maps = properties.uca_maps || {}
-	properties.uca_maps.display = visible
+	ensure_uca_maps(layer).display = visible
 
 	apply_display(layer, visible)
 	commit(self, layer)

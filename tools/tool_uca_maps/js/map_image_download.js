@@ -31,9 +31,8 @@
 
 
 
-import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {exception_text, tool_error_text} from './tool_error_text.js'
-import {trigger_blob_download, base64_to_blob, report_client_error} from './object_console.js'
+import {exception_text} from './tool_error_text.js'
+import {trigger_blob_download, deliver_download, report_client_error} from './object_console.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -67,8 +66,10 @@ export const attach_map_image_download_control = function(self) {
 		return
 	}
 
+	const title = self.get_tool_label('map_image_download_title') || 'Download map as image'
+
 	self.map_image_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('map_image_download_title') || 'Download map as image',
+		title		: title,
 		icon		: 'download',
 		class_name	: 'uca-maps-map-image-control',
 		on_click	: () => toggle_map_image_panel(self)
@@ -77,7 +78,7 @@ export const attach_map_image_download_control = function(self) {
 	self.map_image_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-map-image-panel',
 		centered	: true,
-		title		: self.get_tool_label('map_image_download_title') || 'Download map as image'
+		title		: title
 	})
 	render_map_image_download_panel(self, self.map_image_panel)
 
@@ -96,8 +97,7 @@ export const attach_map_image_download_control = function(self) {
 * @returns {void}
 */
 const toggle_map_image_panel = function(self) {
-	self.map_image_panel_visible = !is_toolbar_panel_visible(self.map_image_panel)
-	set_toolbar_panel_visible(self, self.map_image_panel, self.map_image_control, self.map_image_panel_visible)
+	set_toolbar_panel_visible(self, self.map_image_panel, self.map_image_control, !is_toolbar_panel_visible(self.map_image_panel))
 }//end toggle_map_image_panel
 
 
@@ -117,7 +117,6 @@ export const detach_map_image_download_control = function(self) {
 
 	self.map_image_control			= null
 	self.map_image_panel			= null
-	self.map_image_panel_visible	= false
 
 }//end detach_map_image_download_control
 
@@ -212,6 +211,7 @@ const projected_bounds = function(map) {
 * @param {Node} node
 * @returns {boolean} false drops the node and its subtree
 */
+// exported for the client gate
 export const keep_in_map_image = function(self, node) {
 
 	if (is_toolbar_node(self, node)) {
@@ -319,16 +319,7 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 			}
 		})
 
-		const data = response_data(response)
-
-		if (!data) {
-			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
-		}
-
-		const {content_base64, filename, mime} = data
-		trigger_blob_download(await base64_to_blob(content_base64, mime), filename)
-
-		return {ok: true}
+		return await deliver_download(response, failed)
 
 	} catch (error) {
 		console.error('tool_uca_maps: download_map_image failed unexpectedly', error)

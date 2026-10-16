@@ -70,8 +70,10 @@ export const attach_place_search = function(self) {
 
 	self._place_results = null
 
+	const title = self.get_tool_label('place_search_control_title') || 'Place search'
+
 	self.place_search_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('place_search_control_title') || 'Place search',
+		title		: title,
 		icon		: 'search',
 		class_name	: 'uca-maps-place-search-control',
 		on_click	: () => toggle_place_search_panel(self)
@@ -80,7 +82,7 @@ export const attach_place_search = function(self) {
 	self.place_search_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-place-search-panel',
 		centered	: true,
-		title		: self.get_tool_label('place_search_control_title') || 'Place search'
+		title		: title
 	})
 	render_place_search_panel(self, self.place_search_panel)
 

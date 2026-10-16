@@ -57,6 +57,7 @@ import {response_data, request_failed, ApiError} from '../../../core/common/js/a
 import {exception_text, tool_error_text} from './tool_error_text.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 import {is_onexone_rectangle} from './onexone_flags.js'
+import {read_uca_maps} from './uca_maps_data.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -129,24 +130,17 @@ export const attach_console = function(self) {
 * Reads the panel's OWN current state (`is_toolbar_panel_visible`), never a
 * cached flag: opening a SIBLING panel (toolbar.js's mutual-exclusion,
 * 2026-09-04) can close this one without going through this module at all,
-* so `self.console_visible` alone would desync (a stray click would then
+* so a cached flag alone would desync (a stray click would then
 * look like a no-op "hide" instead of the reopen the user asked for).
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
-export const toggle_panel = function(self) {
-	set_panel_visibility(self, !is_toolbar_panel_visible(self.panel_node))
-}//end toggle_panel
-
-
-
-const set_panel_visibility = function(self, visible) {
-	self.console_visible = visible
+const toggle_panel = function(self) {
 	if (self.panel_node) {
-		set_toolbar_panel_visible(self, self.panel_node, self.map_control, visible)
+		set_toolbar_panel_visible(self, self.panel_node, self.map_control, !is_toolbar_panel_visible(self.panel_node))
 	}
-}//end set_panel_visibility
+}//end toggle_panel
 
 
 
@@ -303,6 +297,22 @@ export const ensure_properties = function(layer) {
 
 
 /**
+* ENSURE_UCA_MAPS
+* `ensure_properties` plus this tool's own namespace under it — the seed
+* every writer of `properties.uca_maps` needs first.
+*
+* @param {Object} layer
+* @returns {Object} layer.feature.properties.uca_maps, created if missing
+*/
+export const ensure_uca_maps = function(layer) {
+	const properties	= ensure_properties(layer)
+	properties.uca_maps	= properties.uca_maps || {}
+	return properties.uca_maps
+}//end ensure_uca_maps
+
+
+
+/**
 * ENSURE_UID
 * Lazily assigns a random per-OBJECT id under `properties.uca_maps.uid` the
 * first time this console needs to cross-reference one Leaflet layer from
@@ -325,12 +335,11 @@ export const ensure_properties = function(layer) {
 * @returns {string}
 */
 export const ensure_uid = function(layer) {
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
-	if (!properties.uca_maps.uid) {
-		properties.uca_maps.uid = Math.random().toString(36).slice(2) + Date.now().toString(36)
+	const uca_maps = ensure_uca_maps(layer)
+	if (!uca_maps.uid) {
+		uca_maps.uid = Math.random().toString(36).slice(2) + Date.now().toString(36)
 	}
-	return properties.uca_maps.uid
+	return uca_maps.uid
 }//end ensure_uid
 
 
@@ -404,6 +413,20 @@ const mark_dirty = function(self, layer) {
 
 
 /**
+* CIRCLE_MEASURE
+* The one copy of the core popup's circle "area" (`2·π·r`, see
+* `sync_measurements`), so the property and the console cannot disagree.
+*
+* @param {Object} layer - L.Circle
+* @returns {string} two decimals, no unit
+*/
+const circle_measure = function(layer) {
+	return (2 * Math.PI * layer.getRadius()).toFixed(2)
+}//end circle_measure
+
+
+
+/**
 * SYNC_MEASUREMENTS
 * Writes the geometry's own measurement into `feature.properties` so it
 * shows up — editable and deletable — in the properties list, which is what
@@ -445,7 +468,7 @@ export const sync_measurements = function(self, layer) {
 	let uncertainty_changed	= false
 
 	if (layer instanceof L.Circle) {
-		value = (2 * Math.PI * layer.getRadius()).toFixed(2) + ' m'
+		value = circle_measure(layer) + ' m'
 	} else if (layer instanceof L.Polygon) {
 		if (is_onexone_rectangle(layer)) {
 			return false // v6 saves no area for a 1x1 — see compute_info
@@ -484,7 +507,7 @@ export const sync_measurements = function(self, layer) {
 */
 const sync_uncertainty = function(layer, area_m2) {
 
-	const uca_maps	= layer.feature && layer.feature.properties && layer.feature.properties.uca_maps
+	const uca_maps	= read_uca_maps(layer)
 	const stored	= uca_maps && uca_maps.uncertainty
 	if (!stored) {
 		return false
@@ -525,9 +548,8 @@ const sync_uncertainty = function(layer, area_m2) {
 */
 export const set_style_field = function(self, layer, field, value) {
 
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
-	const style			= properties.uca_maps.style = properties.uca_maps.style || {}
+	const uca_maps	= ensure_uca_maps(layer)
+	const style		= uca_maps.style = uca_maps.style || {}
 
 	if (value===null || value==='') {
 		delete style[field]
@@ -565,10 +587,9 @@ export const set_object_color = function(self, layer, value) {
 		return
 	}
 
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
-	const style			= properties.uca_maps.style = properties.uca_maps.style || {}
-	style.fillColor		= value
+	const uca_maps	= ensure_uca_maps(layer)
+	const style		= uca_maps.style = uca_maps.style || {}
+	style.fillColor	= value
 
 	layer.setStyle({color: value, fillColor: value})
 
@@ -589,8 +610,8 @@ export const set_object_color = function(self, layer, value) {
 * @returns {void}
 */
 const reapply_style = function(layer) {
-	const properties	= layer.feature && layer.feature.properties
-	const style			= properties && properties.uca_maps && properties.uca_maps.style
+	const uca_maps	= read_uca_maps(layer)
+	const style		= uca_maps && uca_maps.style
 	if (style && typeof layer.setStyle==='function') {
 		layer.setStyle(style)
 	}
@@ -610,8 +631,8 @@ const reapply_style = function(layer) {
 * @returns {void}
 */
 const reapply_hierarchy = function(layer) {
-	const properties	= layer.feature && layer.feature.properties
-	const hierarchy		= properties && properties.uca_maps && properties.uca_maps.hierarchy
+	const uca_maps	= read_uca_maps(layer)
+	const hierarchy	= uca_maps && uca_maps.hierarchy
 	if (!hierarchy) {
 		return
 	}
@@ -657,8 +678,7 @@ const reapply_hierarchy = function(layer) {
 * @returns {boolean}
 */
 export const is_geoman_edition = function(layer) {
-	const properties = layer && layer.feature && layer.feature.properties
-	const uca_maps = properties && properties.uca_maps
+	const uca_maps = read_uca_maps(layer)
 	return Boolean(uca_maps && uca_maps.geoman_edition)
 }//end is_geoman_edition
 
@@ -668,8 +688,7 @@ export const is_geoman_edition = function(layer) {
 * @returns {boolean} true when the object carries an explicit stored state
 */
 export const has_geoman_edition = function(layer) {
-	const properties = layer && layer.feature && layer.feature.properties
-	const uca_maps = properties && properties.uca_maps
+	const uca_maps = read_uca_maps(layer)
 	return Boolean(uca_maps && typeof uca_maps.geoman_edition==='boolean')
 }//end has_geoman_edition
 
@@ -682,9 +701,7 @@ export const has_geoman_edition = function(layer) {
 */
 export const set_geoman_edition = function(self, layer, enabled) {
 
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
-	properties.uca_maps.geoman_edition = Boolean(enabled)
+	ensure_uca_maps(layer).geoman_edition = Boolean(enabled)
 
 	apply_geoman(layer)
 
@@ -753,13 +770,12 @@ const default_geoman_off = function(self, layer) {
 		return
 	}
 
-	const properties = ensure_properties(layer)
-	properties.uca_maps = properties.uca_maps || {}
-	if (properties.uca_maps.image) {
+	const uca_maps = ensure_uca_maps(layer)
+	if (uca_maps.image) {
 		return
 	}
 
-	properties.uca_maps.geoman_edition = false
+	uca_maps.geoman_edition = false
 
 	mark_dirty(self, layer)
 }//end default_geoman_off
@@ -895,8 +911,7 @@ const set_node_display = function(node, visible) {
 * @returns {void}
 */
 const reapply_display = function(layer) {
-	const properties	= layer.feature && layer.feature.properties
-	const uca_maps		= properties && properties.uca_maps
+	const uca_maps = read_uca_maps(layer)
 	if (uca_maps && uca_maps.display===false) {
 		apply_display(layer, false)
 	}
@@ -1025,14 +1040,11 @@ export const trigger_blob_download = function(blob, filename) {
 * regardless; `await` on a non-Promise is a no-op, so this cannot regress if
 * a future fix finds a CSP-safe bulk path).
 *
-* Exported (hito 3b): `map_image_download.js` reuses it for `raster_download`'s
-* response the same way.
-*
 * @param {string} base64
 * @param {string} mime
 * @returns {Blob}
 */
-export const base64_to_blob = function(base64, mime) {
+const base64_to_blob = function(base64, mime) {
 
 	const binary	= atob(base64)
 	const bytes		= new Uint8Array(binary.length)
@@ -1043,6 +1055,30 @@ export const base64_to_blob = function(base64, mime) {
 
 	return new Blob([bytes], {type: mime})
 }//end base64_to_blob
+
+
+
+/**
+* DELIVER_DOWNLOAD
+* The tail every server-built download shares: a refusal becomes the text
+* for the button's line; an answer is decoded and handed to the browser.
+*
+* @param {Object} response - the tool_request envelope
+* @param {string} failed - the download's own fallback text
+* @returns {Promise<{ok: boolean, error?: string}>}
+*/
+export const deliver_download = async function(response, failed) {
+
+	const data = response_data(response)
+	if (!data) {
+		return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
+	}
+
+	const {content_base64, filename, mime} = data
+	trigger_blob_download(await base64_to_blob(content_base64, mime), filename)
+
+	return {ok: true}
+}//end deliver_download
 
 
 
@@ -1135,16 +1171,7 @@ export const download_vector = async function(self, layer, format) {
 			}
 		})
 
-		const data = response_data(response)
-
-		if (!data) {
-			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
-		}
-
-		const {content_base64, filename, mime} = data
-		trigger_blob_download(await base64_to_blob(content_base64, mime), filename)
-
-		return {ok: true}
+		return await deliver_download(response, failed)
 
 	} catch (error) {
 		console.error('tool_uca_maps: vector_download failed unexpectedly', error)
@@ -1216,14 +1243,7 @@ export const download_object_pdf = async function(self, layer) {
 			}
 		})
 
-		const data = response_data(response)
-		if (!data) {
-			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
-		}
-
-		trigger_blob_download(await base64_to_blob(data.content_base64, data.mime), data.filename)
-
-		return {ok: true}
+		return await deliver_download(response, failed)
 
 	} catch (error) {
 		console.error('tool_uca_maps: object_pdf_report failed unexpectedly', error)
@@ -1261,10 +1281,9 @@ export const download_object_pdf = async function(self, layer) {
 */
 export const toggle_centroid = function(self, layer) {
 
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
+	const uca_maps = ensure_uca_maps(layer)
 
-	if (properties.uca_maps.centroid_uid) {
+	if (uca_maps.centroid_uid) {
 		remove_centroid(self, layer)
 		return
 	}
@@ -1282,12 +1301,8 @@ export const toggle_centroid = function(self, layer) {
 	const center		= layer.getBounds().getCenter()
 	const marker		= L.marker(center)
 
-	marker.feature				= marker.toGeoJSON()
-	marker.feature.properties	= marker.feature.properties || {}
-	marker.feature.properties.uca_maps = {
-		uid			: Math.random().toString(36).slice(2) + Date.now().toString(36),
-		centroid_of	: parent_uid
-	}
+	const centroid_uid = ensure_uid(marker)
+	ensure_uca_maps(marker).centroid_of = parent_uid
 
 	self.geolocation.active_layer_id = layer_id
 	self.geolocation.map.fire('pm:create', {layer: marker})
@@ -1296,7 +1311,7 @@ export const toggle_centroid = function(self, layer) {
 		marker.pm.setOptions({preventMarkerRemoval: true, allowRemoval: false})
 	}
 
-	properties.uca_maps.centroid_uid = marker.feature.properties.uca_maps.uid
+	uca_maps.centroid_uid = centroid_uid
 	commit(self, layer)
 }//end toggle_centroid
 
@@ -1317,8 +1332,8 @@ export const toggle_centroid = function(self, layer) {
 */
 const remove_centroid = function(self, layer) {
 
-	const properties	= ensure_properties(layer)
-	const centroid_uid	= properties.uca_maps && properties.uca_maps.centroid_uid
+	const uca_maps		= read_uca_maps(layer)
+	const centroid_uid	= uca_maps && uca_maps.centroid_uid
 	if (!centroid_uid) {
 		return
 	}
@@ -1327,25 +1342,41 @@ const remove_centroid = function(self, layer) {
 	const feature_group	= layer_id!==null ? self.geolocation.FeatureGroup[layer_id] : null
 
 	if (feature_group) {
-		const centroid_layer = feature_group.getLayers().find((candidate) => {
-			const candidate_properties = candidate.feature && candidate.feature.properties
-			return Boolean(
-				candidate_properties
-				&& candidate_properties.uca_maps
-				&& candidate_properties.uca_maps.uid===centroid_uid
-			)
-		})
-		if (centroid_layer) {
-			if (centroid_layer.pm) {
-				centroid_layer.pm.setOptions({preventMarkerRemoval: false, allowRemoval: true})
-			}
-			feature_group.removeLayer(centroid_layer)
-		}
+		remove_centroid_layer(feature_group, centroid_uid)
 	}
 
-	delete properties.uca_maps.centroid_uid
+	delete uca_maps.centroid_uid
 	commit(self, layer)
 }//end remove_centroid
+
+
+
+/**
+* REMOVE_CENTROID_LAYER
+* Unlocks the centroid marker `toggle_centroid` locked against removal and
+* takes it out of `feature_group`.
+*
+* @param {Object} feature_group - L.FeatureGroup to search
+* @param {string} centroid_uid - the marker's `uca_maps.uid`
+* @returns {boolean} true when the marker was found (and removed)
+*/
+const remove_centroid_layer = function(feature_group, centroid_uid) {
+
+	const centroid_layer = feature_group.getLayers().find((candidate) => {
+		const candidate_uca_maps = read_uca_maps(candidate)
+		return Boolean(candidate_uca_maps && candidate_uca_maps.uid===centroid_uid)
+	})
+	if (!centroid_layer) {
+		return false
+	}
+
+	if (centroid_layer.pm) {
+		centroid_layer.pm.setOptions({preventMarkerRemoval: false, allowRemoval: true})
+	}
+	feature_group.removeLayer(centroid_layer)
+
+	return true
+}//end remove_centroid_layer
 
 
 
@@ -1369,27 +1400,14 @@ const remove_centroid = function(self, layer) {
 */
 const unlock_orphaned_centroid = function(self, removed_layer) {
 
-	const properties	= removed_layer.feature && removed_layer.feature.properties
-	const centroid_uid	= properties && properties.uca_maps && properties.uca_maps.centroid_uid
+	const uca_maps		= read_uca_maps(removed_layer)
+	const centroid_uid	= uca_maps && uca_maps.centroid_uid
 	if (!centroid_uid || !self.geolocation || !self.geolocation.FeatureGroup) {
 		return
 	}
 
 	for (const layer_id in self.geolocation.FeatureGroup) {
-		const feature_group	= self.geolocation.FeatureGroup[layer_id]
-		const centroid_layer	= feature_group.getLayers().find((candidate) => {
-			const candidate_properties = candidate.feature && candidate.feature.properties
-			return Boolean(
-				candidate_properties
-				&& candidate_properties.uca_maps
-				&& candidate_properties.uca_maps.uid===centroid_uid
-			)
-		})
-		if (centroid_layer) {
-			if (centroid_layer.pm) {
-				centroid_layer.pm.setOptions({preventMarkerRemoval: false, allowRemoval: true})
-			}
-			feature_group.removeLayer(centroid_layer)
+		if (remove_centroid_layer(self.geolocation.FeatureGroup[layer_id], centroid_uid)) {
 			return
 		}
 	}
@@ -1436,17 +1454,16 @@ const get_uncertainty = function(area_m2) {
 */
 export const toggle_uncertainty = function(self, layer) {
 
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
+	const uca_maps = ensure_uca_maps(layer)
 
-	if (properties.uca_maps.uncertainty) {
-		delete properties.uca_maps.uncertainty
+	if (uca_maps.uncertainty) {
+		delete uca_maps.uncertainty
 		commit(self, layer)
 		return
 	}
 
 	const area_m2 = turf.area(layer.toGeoJSON())
-	properties.uca_maps.uncertainty = get_uncertainty(area_m2)
+	uca_maps.uncertainty = get_uncertainty(area_m2)
 	commit(self, layer)
 }//end toggle_uncertainty
 
@@ -1470,9 +1487,8 @@ export const toggle_uncertainty = function(self, layer) {
 */
 export const set_hierarchy = function(self, layer, edge, checked) {
 
-	const properties	= ensure_properties(layer)
-	properties.uca_maps	= properties.uca_maps || {}
-	const hierarchy		= properties.uca_maps.hierarchy = properties.uca_maps.hierarchy || {}
+	const uca_maps	= ensure_uca_maps(layer)
+	const hierarchy	= uca_maps.hierarchy = uca_maps.hierarchy || {}
 
 	if (checked) {
 		hierarchy.bringToFront	= edge==='front'
@@ -1565,7 +1581,7 @@ export const compute_info = function(self, layer) {
 	if (layer instanceof L.Circle) {
 		const center	= layer.getLatLng()
 		const radius	= layer.getRadius()
-		const area		= (2 * Math.PI * radius).toFixed(2) // matches get_popup_content verbatim — file header
+		const area		= circle_measure(layer) // matches get_popup_content verbatim — file header
 		return {
 			label_key	: 'center_radius_area',
 			label		: 'Center / Radius / Area',
@@ -1606,6 +1622,7 @@ export const compute_info = function(self, layer) {
 * @param {Object} layer
 * @returns {Object|null} L.LatLng
 */
+// exported for the client gate
 export const layer_center = function(layer) {
 
 	if (!layer) {
@@ -1805,38 +1822,12 @@ export const find_layer_id = function(self, layer) {
 export const detach_console = function(self) {
 
 	if (self.geolocation && self.geolocation.map) {
-
-		if (self._popupopen_handler) {
-			try {
-				self.geolocation.map.off('popupopen', self._popupopen_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_console: error removing popupopen listener', error)
-			}
-		}
-
-		if (self._popupclose_handler) {
-			try {
-				self.geolocation.map.off('popupclose', self._popupclose_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_console: error removing popupclose listener', error)
-			}
-		}
-
-		if (self._pmcreate_handler) {
-			try {
-				self.geolocation.map.off('pm:create', self._pmcreate_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_console: error removing pm:create listener', error)
-			}
-		}
-
-		if (self._pmremove_handler) {
-			try {
-				self.geolocation.map.off('pm:remove', self._pmremove_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_console: error removing pm:remove listener', error)
-			}
-		}
+		remove_map_listeners(self, 'detach_console', [
+			['popupopen',	'_popupopen_handler'],
+			['popupclose',	'_popupclose_handler'],
+			['pm:create',	'_pmcreate_handler'],
+			['pm:remove',	'_pmremove_handler']
+		])
 	}
 
 	// the deferred geoman re-assert may still be queued — a timer that fires
@@ -1856,9 +1847,33 @@ export const detach_console = function(self) {
 	self._pmcreate_handler		= null
 	self._pmremove_handler		= null
 	self.active_console_layer	= null
-	self.console_visible		= false
 
 }//end detach_console
+
+
+
+/**
+* REMOVE_MAP_LISTENERS
+* Unsubscribes each stored map listener a detach_* owns. One failing `off`
+* is reported and does not stop the rest.
+*
+* @param {Object} self - tool_uca_maps instance (its map must exist)
+* @param {string} scope - the detach_* name, for the warning
+* @param {Array<[string, string]>} listeners - [event name, `self` key of the handler]
+* @returns {void}
+*/
+export const remove_map_listeners = function(self, scope, listeners) {
+	for (const [event_name, key] of listeners) {
+		if (!self[key]) {
+			continue
+		}
+		try {
+			self.geolocation.map.off(event_name, self[key])
+		} catch (error) {
+			console.warn(`tool_uca_maps ${scope}: error removing ${event_name} listener`, error)
+		}
+	}
+}//end remove_map_listeners
 
 
 

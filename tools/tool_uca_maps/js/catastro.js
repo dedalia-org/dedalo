@@ -33,7 +33,13 @@
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
 import {tool_error_text} from './tool_error_text.js'
 import {ui} from '../../../core/common/js/ui.js'
-import {create_toolbar_button, register_toolbar_node, remove_toolbar_button} from './toolbar.js'
+import {
+	create_toolbar_button,
+	is_toolbar_button_armed,
+	register_toolbar_node,
+	remove_toolbar_button,
+	set_toolbar_button_armed
+} from './toolbar.js'
 import {report_client_error} from './object_console.js'
 
 
@@ -52,6 +58,7 @@ const CATASTRO_URL	= 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.as
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
 */
+// exported for the client gate
 export const is_spanish_official_lang = function(self) {
 	const lang = self.geolocation && self.geolocation.section_lang
 	return lang==='lg-spa' || lang==='lg-cat' || lang==='lg-eus'
@@ -95,10 +102,9 @@ export const attach_catastro = function(self) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
 */
+// exported for the client gate
 export const is_catastro_enabled = function(self) {
-	const container = self.catastro_control && self.catastro_control.getContainer
-		&& self.catastro_control.getContainer()
-	return Boolean(container && container.classList.contains(ENABLED_CLASS))
+	return is_toolbar_button_armed(self.catastro_control, ENABLED_CLASS)
 }//end is_catastro_enabled
 
 
@@ -136,7 +142,7 @@ const enable_catastro = function(self) {
 	const geolocation	= self.geolocation
 	const map			= geolocation.map
 
-	self.catastro_control.getContainer().classList.add(ENABLED_CLASS)
+	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, true)
 
 	if (!geolocation.layer_control) {
 		geolocation.layer_control = L.control.layers({}).addTo(map)
@@ -186,7 +192,7 @@ const disable_catastro = function(self) {
 	const geolocation	= self.geolocation
 	const map			= geolocation.map
 
-	self.catastro_control.getContainer().classList.remove(ENABLED_CLASS)
+	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, false)
 
 	if (self._catastro_click_handler) {
 		map.off('click', self._catastro_click_handler)

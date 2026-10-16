@@ -17,6 +17,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {show_panel_message} from './render_download_line.js'
 
 
 
@@ -75,10 +76,7 @@ export const render_administrative_units_panel = function(self, panel) {
 * @returns {void}
 */
 export const show_ua_message = function(panel, text, type='error') {
-	const message = panel.querySelector('.uca-maps-ua-message')
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden			= false
+	show_panel_message(panel.querySelector('.uca-maps-ua-message'), text, type)
 }//end show_ua_message
 
 

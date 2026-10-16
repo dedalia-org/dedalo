@@ -291,7 +291,7 @@ const render_centered_panel_header = function(panel, title) {
 * @param {Object} control - the L.Control returned by create_toolbar_button
 * @returns {void}
 */
-export const anchor_panel_to_button = function(panel, control) {
+const anchor_panel_to_button = function(panel, control) {
 
 	const button_container	= control && control.getContainer && control.getContainer()
 	const map_container		= panel.parentNode
@@ -371,11 +371,37 @@ export const set_toolbar_panel_visible = function(self, panel, control, visible)
 * @returns {void}
 */
 const set_toolbar_button_active = function(control, active) {
-	const container = control && control.getContainer && control.getContainer()
-	if (container) {
-		container.classList.toggle(TOOLBAR_BUTTON_ACTIVE_CLASS, active===true)
-	}
+	set_toolbar_button_armed(control, TOOLBAR_BUTTON_ACTIVE_CLASS, active)
 }//end set_toolbar_button_active
+
+
+
+/**
+* IS_TOOLBAR_BUTTON_ARMED / SET_TOOLBAR_BUTTON_ARMED
+* A toggle without a panel (1x1, Catastro, GPS) is armed while its button
+* carries its own class: the DOM is the state, never a JS flag.
+*
+* @param {Object|null} control - the handle create_toolbar_button returned
+* @param {string} class_name - the toggle's own armed class
+* @returns {boolean}
+*/
+export const is_toolbar_button_armed = function(control, class_name) {
+	const container = control?.getContainer?.()
+	return Boolean(container && container.classList.contains(class_name))
+}//end is_toolbar_button_armed
+
+/**
+* @param {Object|null} control
+* @param {string} class_name
+* @param {boolean} armed
+* @returns {void}
+*/
+export const set_toolbar_button_armed = function(control, class_name, armed) {
+	const container = control?.getContainer?.()
+	if (container) {
+		container.classList.toggle(class_name, armed===true)
+	}
+}//end set_toolbar_button_armed
 
 
 

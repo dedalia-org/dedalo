@@ -17,6 +17,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {show_panel_message} from './render_download_line.js'
 
 
 
@@ -57,10 +58,7 @@ export const render_xyz_basemaps_panel = function(self, panel) {
 * @returns {void}
 */
 const show_xyz_message = function(panel, text, type='error') {
-	const message = panel.querySelector('.uca-maps-xyz-message')
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden			= false
+	show_panel_message(panel.querySelector('.uca-maps-xyz-message'), text, type)
 }//end show_xyz_message
 
 

@@ -34,6 +34,7 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 * (nota junto a esa entrada) y SIN Google Maps: `mt1.google.com` no es un
 * endpoint documentado y pedirle teselas salta la Map Tiles API oficial, que
 * sus términos prohíben. Session-only (file header). */
+// exported for the client gate
 export const DEFAULT_BASEMAPS = [
 	{
 		// v6 usa '//...' (protocolo-relativo); aquí https literal, igual que
@@ -73,8 +74,10 @@ export const attach_xyz_basemaps = function(self) {
 
 	self.basemaps = DEFAULT_BASEMAPS.map((basemap) => ({...basemap}))
 
+	const title = self.get_tool_label('xyz_control_title') || 'XYZ basemaps'
+
 	self.xyz_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('xyz_control_title') || 'XYZ basemaps',
+		title		: title,
 		text		: 'XYZ',
 		class_name	: 'uca-maps-xyz-control',
 		on_click	: () => toggle_xyz_panel(self)
@@ -83,7 +86,7 @@ export const attach_xyz_basemaps = function(self) {
 	self.xyz_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-xyz-panel',
 		centered	: true,
-		title		: self.get_tool_label('xyz_control_title') || 'XYZ basemaps'
+		title		: title
 	})
 	render_xyz_basemaps_panel(self, self.xyz_panel)
 

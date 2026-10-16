@@ -60,9 +60,6 @@ import {
 
 
 
-/** The three sources, in the panel's own order. */
-export const ROMAN_SOURCES = ['pleiades', 'pelagios', 'dare']
-
 /** Server action behind each source's search. */
 const SEARCH_ACTION = {
 	pleiades	: 'search_pleiades',
@@ -82,7 +79,7 @@ const POINT_ZOOM = 14
 * as-you-type search reads this so a half-typed word never travels, and the
 * user never reads "at least N characters" as if it were a failure.
 *
-* @param {string} source - one of ROMAN_SOURCES
+* @param {'pleiades'|'pelagios'|'dare'} source
 * @param {string} [type] - Pleiades only: 'name' or 'id'
 * @returns {number}
 */
@@ -119,8 +116,10 @@ export const attach_roman_empire = function(self) {
 	self._roman_active_index	= -1
 	self._roman_panel_opening	= 0 // bumped by every reset: a late answer knows it is late
 
+	const title = self.get_tool_label('roman_control_title') || 'Roman Empire'
+
 	self.roman_control = create_toolbar_button(self, {
-		title		: self.get_tool_label('roman_control_title') || 'Roman Empire',
+		title		: title,
 		text		: 'ROM',
 		class_name	: 'uca-maps-roman-control',
 		on_click	: () => toggle_roman_panel(self)
@@ -132,7 +131,7 @@ export const attach_roman_empire = function(self) {
 	self.roman_panel = create_toolbar_panel(self, {
 		class_name	: 'uca-maps-roman-panel',
 		centered	: true,
-		title		: self.get_tool_label('roman_control_title') || 'Roman Empire',
+		title		: title,
 		on_hide		: () => close_roman_suggestions(self)
 	})
 
@@ -201,10 +200,7 @@ const toggle_roman_panel = function(self) {
 * @returns {void}
 */
 export const close_roman_suggestions = function(self) {
-	if (self._roman_search_timer) {
-		clearTimeout(self._roman_search_timer)
-		self._roman_search_timer = null
-	}
+	hold_roman_suggestions(self)
 	if (self.roman_dropdown) {
 		const owner = self.roman_dropdown.contains(document.activeElement) && self.roman_panel
 			? source_input(self.roman_panel, self._roman_source)
@@ -215,8 +211,7 @@ export const close_roman_suggestions = function(self) {
 			owner.focus({preventScroll: true})
 		}
 	}
-	self._roman_active_index	= -1
-	self._roman_search_token	= (self._roman_search_token || 0) + 1
+	self._roman_active_index = -1
 }//end close_roman_suggestions
 
 
@@ -231,12 +226,23 @@ export const close_roman_suggestions = function(self) {
 * @returns {void}
 */
 export const hold_roman_suggestions = function(self) {
-	if (self._roman_search_timer) {
-		clearTimeout(self._roman_search_timer)
-		self._roman_search_timer = null
-	}
+	cancel_roman_search_timer(self)
 	self._roman_search_token = (self._roman_search_token || 0) + 1
 }//end hold_roman_suggestions
+
+
+
+/**
+* CANCEL_ROMAN_SEARCH_TIMER
+* Drops the keystroke still waiting out the debounce, if any.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+export const cancel_roman_search_timer = function(self) {
+	clearTimeout(self._roman_search_timer)
+	self._roman_search_timer = null
+}//end cancel_roman_search_timer
 
 
 
@@ -250,6 +256,7 @@ export const hold_roman_suggestions = function(self) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {Promise<Object|null>} the gazetteer capability, or null
 */
+// exported for the client gate
 export const load_roman_capabilities = async function(self) {
 
 	try {
@@ -285,7 +292,7 @@ export const load_roman_capabilities = async function(self) {
 * that called it (same contract as place_search.js search_places).
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {string} source - one of ROMAN_SOURCES
+* @param {'pleiades'|'pelagios'|'dare'} source
 * @param {Object} params - that source's own form values
 * @returns {Promise<{ok: boolean, error?: string, results?: Array<Object>}>}
 */
@@ -310,6 +317,8 @@ export const search_roman = async function(self, source, params) {
 	if (source==='pelagios' && (!params.datasets || params.datasets.length===0)) {
 		return {ok: false, error: self.get_tool_label('roman_error_no_dataset') || 'Select at least one dataset.'}
 	}
+
+	const failed = self.get_tool_label('roman_error_failed') || 'The search could not be completed.'
 
 	try {
 
@@ -342,7 +351,6 @@ export const search_roman = async function(self, source, params) {
 		}
 
 		if (request_failed(response)) {
-			const failed = self.get_tool_label('roman_error_failed') || 'The search could not be completed.'
 			return {ok: false, error: tool_error_text(response.error, failed)}
 		}
 
@@ -362,7 +370,7 @@ export const search_roman = async function(self, source, params) {
 		}
 		console.error('tool_uca_maps: roman gazetteer search failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Gazetteer search failed')
-		return {ok: false, error: self.get_tool_label('roman_error_failed') || 'The search could not be completed.'}
+		return {ok: false, error: failed}
 	}
 }//end search_roman
 
@@ -385,6 +393,9 @@ export const add_roman_result = async function(self, index) {
 		return {ok: false}
 	}
 
+	const no_geometry	= self.get_tool_label('roman_error_no_geometry') || 'This result carries no geometry.'
+	const failed		= self.get_tool_label('roman_error_failed') || 'The search could not be completed.'
+
 	try {
 
 		if (result.feature) {
@@ -392,12 +403,12 @@ export const add_roman_result = async function(self, index) {
 			// as a Pleiades place with none — say so, never a silent "ok, 0"
 			const created = create_roman_objects(self, result.feature)
 			return created===0
-				? {ok: false, error: self.get_tool_label('roman_error_no_geometry') || 'This result carries no geometry.'}
+				? {ok: false, error: no_geometry}
 				: {ok: true, created: created}
 		}
 
 		if (!result.id) {
-			return {ok: false, error: self.get_tool_label('roman_error_no_geometry') || 'This result carries no geometry.'}
+			return {ok: false, error: no_geometry}
 		}
 
 		const response = await self.tool_request({
@@ -414,19 +425,18 @@ export const add_roman_result = async function(self, index) {
 			return {ok: false}
 		}
 		if (request_failed(response)) {
-			const failed = self.get_tool_label('roman_error_failed') || 'The search could not be completed.'
 			return {ok: false, error: tool_error_text(response.error, failed)}
 		}
 
 		const data	= response_data(response)
 		const place	= data && data.place
 		if (!place) {
-			return {ok: false, error: self.get_tool_label('roman_error_no_geometry') || 'This result carries no geometry.'}
+			return {ok: false, error: no_geometry}
 		}
 
 		const created = create_roman_objects(self, place)
 		if (created===0) {
-			return {ok: false, error: self.get_tool_label('roman_error_no_geometry') || 'This result carries no geometry.'}
+			return {ok: false, error: no_geometry}
 		}
 
 		return {ok: true, created: created}
@@ -439,7 +449,7 @@ export const add_roman_result = async function(self, index) {
 		}
 		console.error('tool_uca_maps: adding a gazetteer result failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Adding the place failed')
-		return {ok: false, error: self.get_tool_label('roman_error_failed') || 'The search could not be completed.'}
+		return {ok: false, error: failed}
 	}
 }//end add_roman_result
 
@@ -541,10 +551,7 @@ export const clear_roman_search = function(self) {
 export const detach_roman_empire = function(self) {
 
 	// a pending as-you-type search must not fire into a torn-down panel
-	if (self._roman_search_timer) {
-		clearTimeout(self._roman_search_timer)
-		self._roman_search_timer = null
-	}
+	cancel_roman_search_timer(self)
 
 	// the "click outside closes the list" listener lives on the MAP container,
 	// which belongs to component_geolocation and outlives this tool

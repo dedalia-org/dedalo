@@ -17,9 +17,21 @@
 
 import {
 	create_toolbar_button,
-	remove_toolbar_button
+	is_toolbar_button_armed,
+	remove_toolbar_button,
+	set_toolbar_button_armed
 } from './toolbar.js'
-import {ensure_properties, ensure_uid, find_layer_id, toggle_uncertainty, commit} from './object_console.js'
+import {
+	ensure_properties,
+	ensure_uca_maps,
+	ensure_uid,
+	find_layer_id,
+	toggle_uncertainty,
+	commit,
+	remove_map_listeners
+} from './object_console.js'
+import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
+import {read_uca_maps} from './uca_maps_data.js'
 
 
 
@@ -80,10 +92,9 @@ export const attach_onexone = function(self) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {boolean}
 */
+// exported for the client gate
 export const is_onexone_enabled = function(self) {
-	const container = self.onexone_control && self.onexone_control.getContainer
-		&& self.onexone_control.getContainer()
-	return Boolean(container && container.classList.contains(ENABLED_CLASS))
+	return is_toolbar_button_armed(self.onexone_control, ENABLED_CLASS)
 }//end is_onexone_enabled
 
 
@@ -97,8 +108,7 @@ export const is_onexone_enabled = function(self) {
 * @returns {void}
 */
 const toggle_onexone = function(self) {
-	const container = self.onexone_control.getContainer()
-	container.classList.toggle(ENABLED_CLASS, !is_onexone_enabled(self))
+	set_toolbar_button_armed(self.onexone_control, ENABLED_CLASS, !is_onexone_enabled(self))
 }//end toggle_onexone
 
 
@@ -121,10 +131,9 @@ export const create_onexone_rectangle = function(self, marker) {
 		return
 	}
 
-	const properties = ensure_properties(marker)
-	properties.uca_maps = properties.uca_maps || {}
+	const uca_maps = ensure_uca_maps(marker)
 
-	if (properties.uca_maps.centroid_of || properties.uca_maps.onexone_uid) {
+	if (uca_maps.centroid_of || is_onexone_marker(marker)) {
 		return
 	}
 
@@ -141,20 +150,18 @@ export const create_onexone_rectangle = function(self, marker) {
 	const bounds		= marker.getLatLng().toBounds(1) // 1 m radius — v6 `radiusMts = 1`, verbatim
 	const rectangle		= L.rectangle(bounds)
 
-	rectangle.feature				= rectangle.toGeoJSON()
-	rectangle.feature.properties	= rectangle.feature.properties || {}
-	rectangle.feature.properties.uca_maps = {onexone_of: marker_uid}
+	ensure_properties(rectangle).uca_maps = {onexone_of: marker_uid}
 
 	self.geolocation.active_layer_id = layer_id
 	self.geolocation.map.fire('pm:create', {layer: rectangle})
 
-	properties.uca_maps.onexone_uid = ensure_uid(rectangle) // one uid scheme (ensure_uid), not two
+	uca_maps.onexone_uid = ensure_uid(rectangle) // one uid scheme (ensure_uid), not two
 
 	// The marker is locked, as v6 does (`special_tools_onexone.js`): the core's
 	// click sweep would make it draggable, and a drag would leave its uncertainty
 	// box behind. The stored false is what the console's deferred re-assert
 	// keeps; moving the point stays possible, on purpose, from its checkbox.
-	properties.uca_maps.geoman_edition = false
+	uca_maps.geoman_edition = false
 
 	toggle_uncertainty(self, rectangle) // auto-uncertainty (row 7) + commit()
 
@@ -175,21 +182,16 @@ export const create_onexone_rectangle = function(self, marker) {
 */
 const clear_orphaned_onexone_uid = function(self, removed_layer) {
 
-	const properties	= removed_layer.feature && removed_layer.feature.properties
-	const onexone_of	= properties && properties.uca_maps && properties.uca_maps.onexone_of
-	if (!onexone_of || !self.geolocation || !self.geolocation.FeatureGroup) {
+	if (!is_onexone_rectangle(removed_layer) || !self.geolocation || !self.geolocation.FeatureGroup) {
 		return
 	}
+	const onexone_of = read_uca_maps(removed_layer).onexone_of
 
 	for (const layer_id in self.geolocation.FeatureGroup) {
 		const feature_group	= self.geolocation.FeatureGroup[layer_id]
 		const marker_layer		= feature_group.getLayers().find((candidate) => {
-			const candidate_properties = candidate.feature && candidate.feature.properties
-			return Boolean(
-				candidate_properties
-				&& candidate_properties.uca_maps
-				&& candidate_properties.uca_maps.uid===onexone_of
-			)
+			const candidate_uca_maps = read_uca_maps(candidate)
+			return Boolean(candidate_uca_maps && candidate_uca_maps.uid===onexone_of)
 		})
 		if (marker_layer) {
 			delete marker_layer.feature.properties.uca_maps.onexone_uid
@@ -212,20 +214,10 @@ const clear_orphaned_onexone_uid = function(self, removed_layer) {
 export const detach_onexone = function(self) {
 
 	if (self.geolocation && self.geolocation.map) {
-		if (self._onexone_popupopen_handler) {
-			try {
-				self.geolocation.map.off('popupopen', self._onexone_popupopen_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_onexone: error removing popupopen listener', error)
-			}
-		}
-		if (self._onexone_pmremove_handler) {
-			try {
-				self.geolocation.map.off('pm:remove', self._onexone_pmremove_handler)
-			} catch (error) {
-				console.warn('tool_uca_maps detach_onexone: error removing pm:remove listener', error)
-			}
-		}
+		remove_map_listeners(self, 'detach_onexone', [
+			['popupopen',	'_onexone_popupopen_handler'],
+			['pm:remove',	'_onexone_pmremove_handler']
+		])
 	}
 
 	remove_toolbar_button(self, self.onexone_control)

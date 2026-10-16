@@ -128,6 +128,7 @@ export const round_distance = function(max_meters) {
 * @param {number} meters
 * @returns {string}
 */
+// exported for the client gate
 export const format_distance = function(meters) {
 	if (meters>=1000) {
 		const km = meters / 1000

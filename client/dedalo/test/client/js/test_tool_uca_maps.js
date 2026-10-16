@@ -104,8 +104,7 @@ import {
 	add_roman_result,
 	create_roman_objects,
 	load_roman_capabilities,
-	roman_min_query,
-	ROMAN_SOURCES
+	roman_min_query
 } from '../../../tools/tool_uca_maps/js/roman_empire.js'
 import {
 	populate_roman_results,
@@ -143,22 +142,18 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(instance.status, null, 'expected status null')
 		assert.equal(instance.type, null, 'expected type null')
 		assert.equal(instance.caller, null, 'expected caller null')
-		assert.equal(instance.langs, null, 'expected langs null')
 		assert.equal(instance.geolocation, null, 'expected geolocation null')
 		assert.equal(instance.map_ready, false, 'expected map_ready false')
 		assert.equal(instance.map_control, null, 'expected map_control null')
 		assert.equal(instance.panel_node, null, 'expected panel_node null')
-		assert.equal(instance.console_visible, false, 'expected console_visible false')
 		assert.equal(instance.active_console_layer, null, 'expected active_console_layer null')
 		assert.equal(instance._popupopen_handler, null, 'expected _popupopen_handler null')
 		assert.equal(instance._pmcreate_handler, null, 'expected _pmcreate_handler null')
 		assert.equal(instance._pmremove_handler, null, 'expected _pmremove_handler null')
 		assert.equal(instance.map_image_control, null, 'expected map_image_control null')
 		assert.equal(instance.map_image_panel, null, 'expected map_image_panel null')
-		assert.equal(instance.map_image_panel_visible, false, 'expected map_image_panel_visible false')
 		assert.equal(instance.object_viewer_control, null, 'expected object_viewer_control null')
 		assert.equal(instance.object_viewer_panel, null, 'expected object_viewer_panel null')
-		assert.equal(instance.object_viewer_panel_visible, false, 'expected object_viewer_panel_visible false')
 		assert.equal(instance.onexone_control, null, 'expected onexone_control null')
 		assert.equal(instance._onexone_popupopen_handler, null, 'expected _onexone_popupopen_handler null')
 		assert.equal(instance._onexone_pmremove_handler, null, 'expected _onexone_pmremove_handler null')
@@ -7213,7 +7208,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNotOk(panel.querySelector('.uca-maps-roman-source-select'), 'expected no source selector')
 
 		const sections = Array.from(panel.querySelectorAll('.uca-maps-roman-source'))
-		assert.deepEqual(sections.map((one) => one.dataset.source), ROMAN_SOURCES, 'expected Pleiades, Pelagios, DARE')
+		assert.deepEqual(sections.map((one) => one.dataset.source), ['pleiades', 'pelagios', 'dare'], 'expected Pleiades, Pelagios, DARE')
 		for (const section of sections) {
 			assert.equal(section.hidden, false, 'expected every source visible: ' + section.dataset.source)
 			assert.equal(section.querySelectorAll('.uca-maps-roman-input').length, 1, 'expected one field per source')

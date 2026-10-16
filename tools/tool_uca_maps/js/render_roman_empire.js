@@ -22,6 +22,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {a11y} from '../../../core/common/js/a11y.js'
+import {show_panel_message} from './render_download_line.js'
 
 
 
@@ -271,10 +272,7 @@ export const focus_first_roman_field = function(panel) {
 * @returns {void}
 */
 const show_roman_message = function(block, text, type='error') {
-	const message = block.querySelector('.uca-maps-roman-message')
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden		= false
+	show_panel_message(block.querySelector('.uca-maps-roman-message'), text, type)
 }//end show_roman_message
 
 const clear_roman_message = function(block) {
@@ -366,10 +364,7 @@ const render_query_input = function(self, panel, block) {
 				choose_suggestion(self, panel, self._roman_active_index)
 				return
 			}
-			if (self._roman_search_timer) {
-				clearTimeout(self._roman_search_timer)
-				self._roman_search_timer = null
-			}
+			self.cancel_roman_search_timer()
 			claim_roman_list(self, source)
 			run_search(false)
 		}
@@ -380,10 +375,7 @@ const render_query_input = function(self, panel, block) {
 	// server would refuse it, and a refusal is not a suggestion.
 	query_input.addEventListener('input', () => {
 
-		if (self._roman_search_timer) {
-			clearTimeout(self._roman_search_timer)
-			self._roman_search_timer = null
-		}
+		self.cancel_roman_search_timer()
 
 		const params	= collect_roman_params(block, query_input.value)
 		const minimum	= self.roman_min_query(source, params.type)
@@ -876,6 +868,7 @@ const collect_roman_params = function(block, query) {
 * @param {HTMLElement} panel
 * @returns {void}
 */
+// exported for the client gate
 export const populate_roman_results = function(self, panel) {
 
 	const list = self.roman_dropdown

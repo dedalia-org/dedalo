@@ -23,9 +23,10 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
+import {carrier_image} from './uca_maps_data.js'
 import {svg_node} from './svg.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME} from './download_filename.js'
-import {bind_download_button, render_download_message} from './render_download_line.js'
+import {bind_download_button, create_panel_message} from './render_download_line.js'
 
 // Deliberately NO import from './object_console.js' — object_console.js
 // already imports {render_console_panel, render_selected_object,
@@ -377,8 +378,7 @@ const render_geoman_control = function(self, layer, container) {
 * @returns {boolean}
 */
 const is_image_carrier = function(layer) {
-	const properties = layer && layer.feature && layer.feature.properties
-	return !!(properties && properties.uca_maps && properties.uca_maps.image)
+	return Boolean(carrier_image(layer))
 }//end is_image_carrier
 
 
@@ -587,7 +587,7 @@ const render_image_download = function(self, layer, container) {
 		parent			: name_row
 	})
 	button.type = 'button'
-	bind_download_button(button, render_download_message(fieldset), () => self.download_image(
+	bind_download_button(button, create_panel_message(fieldset, 'uca-maps-download-message'), () => self.download_image(
 		layer, format_select.value, parseFloat(quality_select.value), name_input.value
 	))
 
@@ -1037,7 +1037,7 @@ const render_pdf_export = function(self, layer, container) {
 		parent			: container
 	})
 	pdf_btn.type = 'button'
-	bind_download_button(pdf_btn, render_download_message(container), () => self.download_object_pdf(layer))
+	bind_download_button(pdf_btn, create_panel_message(container, 'uca-maps-download-message'), () => self.download_object_pdf(layer))
 
 }//end render_pdf_export
 
@@ -1098,7 +1098,7 @@ const render_download_button = function(self, layer, container) {
 		parent			: row
 	})
 	button.type = 'button'
-	bind_download_button(button, render_download_message(fieldset), () => self.download_vector(layer, select.value))
+	bind_download_button(button, create_panel_message(fieldset, 'uca-maps-download-message'), () => self.download_vector(layer, select.value))
 
 }//end render_download_button
 

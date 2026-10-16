@@ -27,7 +27,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {DEFAULT_MAP_IMAGE_NAME} from './download_filename.js'
-import {bind_download_button, render_download_message} from './render_download_line.js'
+import {bind_download_button, create_panel_message} from './render_download_line.js'
 
 
 
@@ -105,7 +105,7 @@ export const render_map_image_download_panel = function(self, panel) {
 		parent			: row
 	})
 	button.type = 'button'
-	const message = render_download_message(panel, 'uca-maps-map-image-message')
+	const message = create_panel_message(panel, 'uca-maps-map-image-message')
 	bind_download_button(button, message, () => self.download_map_image(select.value, name_input.value))
 
 

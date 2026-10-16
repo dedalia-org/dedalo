@@ -22,6 +22,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {create_panel_message, show_panel_message} from './render_download_line.js'
 
 
 
@@ -364,15 +365,14 @@ const bind_upload_on_pick = function(file_input, message, run) {
 * @returns {HTMLElement} the hidden status line
 */
 const render_upload_message = function(parent) {
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-upload-message', parent})
-	message.hidden = true
-	return message
+	return create_panel_message(parent, 'uca-maps-upload-message')
 }//end render_upload_message
 
 
 
 /** How long a transient line stays: "un par de segundos", the same window as
  * the self-closing "UCA Maps" modal (`tool_uca_maps.js`). */
+// exported for the client gate
 export const UPLOAD_MESSAGE_MS = 2000
 
 /**
@@ -391,9 +391,7 @@ export const UPLOAD_MESSAGE_MS = 2000
 */
 const show_upload_message = function(message, text, hide_after_ms, type='error') {
 	clear_upload_message(message)
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden		= false
+	show_panel_message(message, text, type)
 	if (typeof hide_after_ms==='number') {
 		message._uca_maps_hide_timer = setTimeout(() => clear_upload_message(message), hide_after_ms)
 	}

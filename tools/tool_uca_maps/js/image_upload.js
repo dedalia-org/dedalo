@@ -44,7 +44,8 @@ import {data_manager} from '../../../core/common/js/data_manager.js'
 import {create_source} from '../../../core/common/js/common.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
-import {commit, ensure_properties, report_client_error, trigger_blob_download, base64_to_blob} from './object_console.js'
+import {commit, ensure_properties, ensure_uca_maps, report_client_error, deliver_download} from './object_console.js'
+import {carrier_image} from './uca_maps_data.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME, sanitize_download_name} from './download_filename.js'
 import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
 
@@ -204,6 +205,7 @@ const natural_size = function(url) {
 * @param {Object} size - the image's natural {width, height} in pixels
 * @returns {Object} {top_left, top_right, bottom_left} as [lat, lon] pairs
 */
+// exported for the client gate
 export const corners_from_viewport = function(map, size) {
 
 	const viewport	= map.getSize()
@@ -357,6 +359,23 @@ const ingest_uploaded_file = async function(section_id, file_data) {
 
 
 /**
+* IMAGE_FAILED_TEXT / TRANSPORT_FAILED_TEXT
+* The image half's two fallback texts, one copy each for every door below.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {string}
+*/
+const image_failed_text = function(self) {
+	return self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+}//end image_failed_text
+
+const transport_failed_text = function(self) {
+	return self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.'
+}//end transport_failed_text
+
+
+
+/**
 * INGEST_IMAGE_UPLOAD
 * Doors 1 + 2 of the three in the file header — stage the bytes, mint the
 * record, ingest — with NOTHING about the map in them. Both callers of the
@@ -389,12 +408,12 @@ export const ingest_image_upload = async function(self, file) {
 		tipo				: IMAGE_COMPONENT_TIPO
 	})
 
-	const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+	const failed = image_failed_text(self)
 
 	if (!response_data(upload_response)) {
 		const message = upload_response && upload_response.error
 			? tool_error_text(upload_response.error, failed)
-			: (self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.')
+			: transport_failed_text(self)
 		return {ok: false, error: message}
 	}
 
@@ -418,7 +437,7 @@ export const ingest_image_upload = async function(self, file) {
 */
 export const ingest_staged_image = async function(self, file_data) {
 
-	const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+	const failed = image_failed_text(self)
 
 	const section_id = await create_image_record()
 	if (section_id===null) {
@@ -499,7 +518,7 @@ export const upload_image_file = async function(self, file) {
 		}
 
 		if (request_failed(overlay_response)) {
-			const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
+			const failed = image_failed_text(self)
 			return {ok: false, error: tool_error_text(overlay_response.error, failed)}
 		}
 
@@ -551,7 +570,7 @@ export const upload_image_file = async function(self, file) {
 	} catch (error) {
 		console.error('tool_uca_maps: upload_image_file failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Image upload failed')
-		return {ok: false, error: self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.'}
+		return {ok: false, error: transport_failed_text(self)}
 	} finally {
 		self._image_upload_busy = false
 	}
@@ -588,10 +607,9 @@ export const create_image_object = async function(self, image) {
 	})
 	carrier.feature = carrier.toGeoJSON()
 
-	const properties = ensure_properties(carrier)
-	properties.color		= 'transparent'
-	properties.uca_maps		= properties.uca_maps || {}
-	properties.uca_maps.image	= image
+	ensure_properties(carrier).color = 'transparent'
+	const uca_maps	= ensure_uca_maps(carrier)
+	uca_maps.image	= image
 	// A NEW image arrives EDITABLE, as in v6: a plain image lands at an
 	// arbitrary spot, so the very next gesture is always moving it, and making
 	// the user find a checkbox first is a step v6 never asked for (Sergio,
@@ -606,7 +624,7 @@ export const create_image_object = async function(self, image) {
 	// row lands. This IS that landing — without it every uploaded image would
 	// show up in the VECTOR list as "Untitled object" and the raster list
 	// would stay permanently empty.
-	properties.uca_maps.is_raster = true
+	uca_maps.is_raster = true
 
 	await attach_overlay(self, carrier)
 
@@ -638,12 +656,9 @@ export const create_image_object = async function(self, image) {
 * @param {Object} carrier - the transparent rectangle carrying the descriptor
 * @returns {Promise<Object|null>} the overlay, or null if it could not be built
 */
-export const attach_overlay = async function(self, carrier) {
+const attach_overlay = async function(self, carrier) {
 
-	const image = carrier.feature
-		&& carrier.feature.properties
-		&& carrier.feature.properties.uca_maps
-		&& carrier.feature.properties.uca_maps.image
+	const image = carrier_image(carrier)
 
 	if (!image || !image.corners || carrier._uca_maps_overlay || carrier._uca_maps_overlay_pending) {
 		return null
@@ -663,41 +678,39 @@ export const attach_overlay = async function(self, carrier) {
 	// then reach.
 	carrier._uca_maps_overlay_pending = true
 
+	let overlay
 	try {
 		await load_rotated_overlay()
-	} catch (error) {
-		delete carrier._uca_maps_overlay_pending
-		throw error
-	}
 
-	// the tool may have been torn down while the plugin was loading
-	if (!self.geolocation || !self.geolocation.map) {
-		delete carrier._uca_maps_overlay_pending
-		return null
-	}
-
-	const overlay = L.imageOverlay.rotated(
-		image_url(image),
-		image.corners.top_left,
-		image.corners.top_right,
-		image.corners.bottom_left,
-		{
-			opacity		: typeof image.opacity==='number' ? image.opacity : DEFAULT_IMAGE_OPACITY,
-			zIndex		: image_z_index(image.z_index),
-			// the CARRIER takes the clicks; two interactive stacked targets
-			// would fight over them. `interactive:false` stops Leaflet firing
-			// LAYER events but does not stop the div receiving the pointer at
-			// all — the class carries the `pointer-events:none` that does
-			// (tool_uca_maps.less), or the picture would sit on top of its own
-			// selection handle
-			interactive	: false,
-			className	: 'uca-maps-image-overlay'
+		// the tool may have been torn down while the plugin was loading
+		if (!self.geolocation || !self.geolocation.map) {
+			return null
 		}
-	)
 
-	overlay.addTo(self.geolocation.map)
+		overlay = L.imageOverlay.rotated(
+			image_url(image),
+			image.corners.top_left,
+			image.corners.top_right,
+			image.corners.bottom_left,
+			{
+				opacity		: typeof image.opacity==='number' ? image.opacity : DEFAULT_IMAGE_OPACITY,
+				zIndex		: image_z_index(image.z_index),
+				// the CARRIER takes the clicks; two interactive stacked targets
+				// would fight over them. `interactive:false` stops Leaflet firing
+				// LAYER events but does not stop the div receiving the pointer at
+				// all — the class carries the `pointer-events:none` that does
+				// (tool_uca_maps.less), or the picture would sit on top of its own
+				// selection handle
+				interactive	: false,
+				className	: 'uca-maps-image-overlay'
+			}
+		)
 
-	delete carrier._uca_maps_overlay_pending
+		overlay.addTo(self.geolocation.map)
+	} finally {
+		delete carrier._uca_maps_overlay_pending
+	}
+
 	carrier._uca_maps_overlay = overlay
 	// tracked as a PAIR, not as a bare overlay: the sweep in
 	// hydrate_image_overlays needs to know which carrier each one belongs to
@@ -729,7 +742,7 @@ export const attach_overlay = async function(self, carrier) {
 * @param {Object} carrier
 * @returns {void}
 */
-export const detach_overlay = function(self, carrier) {
+const detach_overlay = function(self, carrier) {
 
 	// the handles come off even when there is no overlay left to move: they
 	// are markers on the map, and nothing else in the engine tracks them
@@ -810,11 +823,7 @@ export const set_image_display = function(self, carrier, values, do_commit) {
 */
 export const get_image_href = function(carrier) {
 
-	const image = carrier
-		&& carrier.feature
-		&& carrier.feature.properties
-		&& carrier.feature.properties.uca_maps
-		&& carrier.feature.properties.uca_maps.image
+	const image = carrier_image(carrier)
 
 	if (!image || !image.section_tipo || !(image.section_id > 0)) {
 		return null
@@ -843,6 +852,7 @@ export const get_image_href = function(carrier) {
 * @param {number} quality - v6's factor, 0.4 … 2
 * @returns {number} output width in pixels, at least 1
 */
+// exported for the client gate
 export const image_download_width = function(map, corners, quality) {
 
 	const zoom	= map.getBoundsZoom(hull_bounds(corners))
@@ -861,6 +871,7 @@ export const image_download_width = function(map, corners, quality) {
 // A large PNG at "Excelente" takes seconds per GDAL run (four, each bounded at
 // 60 s, server/gdal.ts), past data_manager's 5 s per attempt; tool_request
 // cannot raise it, so this request is the tool_request RQO with its own timeout.
+// exported for the client gate
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 4 * 60 * 1000
 
 /**
@@ -881,8 +892,7 @@ export const IMAGE_DOWNLOAD_TIMEOUT_MS = 4 * 60 * 1000
 */
 export const download_image = async function(self, carrier, format, quality, file_name=DEFAULT_IMAGE_DOWNLOAD_NAME) {
 
-	const image = carrier && carrier.feature && carrier.feature.properties
-		&& carrier.feature.properties.uca_maps && carrier.feature.properties.uca_maps.image
+	const image = carrier_image(carrier)
 	if (!image || !self.geolocation || !self.geolocation.map) {
 		return {ok: false}
 	}
@@ -918,14 +928,7 @@ export const download_image = async function(self, carrier, format, quality, fil
 			busy_notice	: true
 		})
 
-		const data = response_data(response)
-		if (!data) {
-			return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
-		}
-
-		trigger_blob_download(await base64_to_blob(data.content_base64, data.mime), data.filename)
-
-		return {ok: true}
+		return await deliver_download(response, failed)
 
 	} catch (error) {
 		console.error('tool_uca_maps: download_image failed unexpectedly', error)
@@ -946,7 +949,7 @@ export const download_image = async function(self, carrier, format, quality, fil
 * @param {Object} self - tool_uca_maps instance
 * @returns {Promise<number>} how many overlays were rebuilt
 */
-export const hydrate_image_overlays = async function(self) {
+const hydrate_image_overlays = async function(self) {
 
 	const feature_groups = self.geolocation && self.geolocation.FeatureGroup
 	if (!feature_groups) {
@@ -956,8 +959,7 @@ export const hydrate_image_overlays = async function(self) {
 	const carriers = []
 	for (const layer_id in feature_groups) {
 		feature_groups[layer_id].eachLayer((layer) => {
-			const properties = layer.feature && layer.feature.properties
-			if (properties && properties.uca_maps && properties.uca_maps.image) {
+			if (carrier_image(layer)) {
 				carriers.push(layer)
 			}
 		})
@@ -972,13 +974,8 @@ export const hydrate_image_overlays = async function(self) {
 	const live = new Set(carriers)
 	for (const entry of (self._image_overlays || [])) {
 		if (!live.has(entry.carrier)) {
-			if (self.geolocation && self.geolocation.map) {
-				self.geolocation.map.removeLayer(entry.overlay)
-			}
 			// the replaced carrier's handles are as orphaned as its overlay
-			detach_handles(self, entry.carrier)
-			detach_carrier_drag(entry.carrier)
-			delete entry.carrier._uca_maps_overlay
+			release_overlay(self, self.geolocation && self.geolocation.map, entry)
 		}
 	}
 	self._image_overlays = (self._image_overlays || []).filter((entry) => live.has(entry.carrier))
@@ -1075,16 +1072,32 @@ export const detach_image_overlays = function(self) {
 	}
 
 	for (const entry of (self._image_overlays || [])) {
-		if (map) {
-			map.removeLayer(entry.overlay)
-		}
-		detach_handles(self, entry.carrier)
-		detach_carrier_drag(entry.carrier)
-		delete entry.carrier._uca_maps_overlay
+		release_overlay(self, map, entry)
 	}
 	self._image_overlays = []
 
 }//end detach_image_overlays
+
+
+
+/**
+* RELEASE_OVERLAY
+* Takes one tracked {carrier, overlay} pair off the map, handles and drag
+* included; the caller owns `self._image_overlays`.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {Object|null} map - the live map, or null when it is already gone
+* @param {{carrier: Object, overlay: Object}} entry
+* @returns {void}
+*/
+const release_overlay = function(self, map, entry) {
+	if (map) {
+		map.removeLayer(entry.overlay)
+	}
+	detach_handles(self, entry.carrier)
+	detach_carrier_drag(entry.carrier)
+	delete entry.carrier._uca_maps_overlay
+}//end release_overlay
 
 
 

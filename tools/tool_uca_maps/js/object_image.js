@@ -40,7 +40,8 @@ import {response_data, request_failed} from '../../../core/common/js/api_error.j
 import {tool_error_text} from './tool_error_text.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {create_source} from '../../../core/common/js/common.js'
-import {commit, ensure_properties, report_client_error} from './object_console.js'
+import {commit, ensure_uca_maps, report_client_error} from './object_console.js'
+import {read_uca_maps} from './uca_maps_data.js'
 import {ingest_image_upload, ingest_staged_image} from './image_upload.js'
 
 
@@ -49,6 +50,7 @@ import {ingest_image_upload, ingest_staged_image} from './image_upload.js'
  * Kept as a real limit, not just a PDF one: a console panel with hundreds of
  * thumbnails in it is not a gallery, and the geometry's properties are saved
  * inline with the record. */
+// exported for the client gate
 export const MAX_OBJECT_IMAGES = 30
 
 const IMAGE_SECTION_TIPO	= 'rsc170'
@@ -71,11 +73,8 @@ const STAGE_EXTERNAL_IMAGE_TIMEOUT_MS = 4 * 60 * 1000
 */
 export const object_images = function(layer) {
 
-	const images = layer
-		&& layer.feature
-		&& layer.feature.properties
-		&& layer.feature.properties.uca_maps
-		&& layer.feature.properties.uca_maps.images
+	const uca_maps	= read_uca_maps(layer)
+	const images	= uca_maps && uca_maps.images
 
 	return Array.isArray(images) ? images : []
 }//end object_images
@@ -217,12 +216,11 @@ const attach_ingested_image = async function(self, layer, section_id, extra) {
 		}
 	}
 
-	const properties = ensure_properties(layer)
-	properties.uca_maps = properties.uca_maps || {}
-	if (!Array.isArray(properties.uca_maps.images)) {
-		properties.uca_maps.images = []
+	const uca_maps = ensure_uca_maps(layer)
+	if (!Array.isArray(uca_maps.images)) {
+		uca_maps.images = []
 	}
-	properties.uca_maps.images.push({
+	uca_maps.images.push({
 		file_path		: data.file_path,
 		quality			: data.quality,
 		section_tipo	: IMAGE_SECTION_TIPO,

@@ -17,6 +17,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
+import {show_panel_message} from './render_download_line.js'
 
 
 
@@ -51,10 +52,7 @@ export const render_place_search_panel = function(self, panel) {
 * @returns {void}
 */
 const show_place_search_message = function(panel, text, type='error') {
-	const message = panel.querySelector('.uca-maps-place-search-message')
-	message.textContent	= text
-	message.dataset.type	= type
-	message.hidden		= false
+	show_panel_message(panel.querySelector('.uca-maps-place-search-message'), text, type)
 }//end show_place_search_message
 
 
@@ -200,6 +198,7 @@ export const reset_place_search_panel = function(self, panel) {
 * @param {HTMLElement} panel
 * @returns {void}
 */
+// exported for the client gate
 export const populate_place_search_results = function(self, panel) {
 
 	const list = panel.querySelector('.uca-maps-place-search-results')

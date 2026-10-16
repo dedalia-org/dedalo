@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global page_globals, SHOW_DEVELOPER, L */
+/*global SHOW_DEVELOPER, L */
 /*eslint no-undef: "error"*/
 
 
@@ -192,14 +192,15 @@
 		clear_roman_search,
 		close_roman_suggestions,
 		hold_roman_suggestions,
+		cancel_roman_search_timer,
 		roman_min_query
 	} from './roman_empire.js'
 
 
 
 /** Deterministic map wait (plan §3.5): budget + poll interval. */
-export const MAP_WAIT_TIMEOUT_MS	= 8000
-export const MAP_WAIT_INTERVAL_MS	= 100
+const MAP_WAIT_TIMEOUT_MS	= 8000
+const MAP_WAIT_INTERVAL_MS	= 100
 
 
 
@@ -217,7 +218,6 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   status        - current lifecycle state (null | 'inited' | 'built' | 'ready')
 *   type          - tool type as declared in register.json
 *   caller        - the component_geolocation instance that opened this tool
-*   langs         - project default languages array from page_globals
 *   geolocation   - the LIVE component_geolocation instance (get_caller_by_model
 *                   result); this is what get_map()/self.map belong to, NOT a
 *                   ddo_map-built clone
@@ -227,7 +227,6 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *                   never leaves a duplicate
 *   panel_node    - the anchored object-console panel (object_console.js),
 *                   appended directly to the map's own DOM container
-*   console_visible - whether panel_node is currently shown (Show/Hide)
 *   active_console_layer - the Leaflet layer the console is currently
 *                   showing, or null before any geometry has been clicked
 *   _popupopen_handler - the map 'popupopen' listener object_console.js
@@ -247,11 +246,9 @@ export const MAP_WAIT_INTERVAL_MS	= 100
 *   map_image_control - the "Download map as image" toolbar button
 *                   (functionality #10, map_image_download.js)
 *   map_image_panel - its anchored panel
-*   map_image_panel_visible - whether map_image_panel is currently shown
 *   object_viewer_control - the "Objects" toolbar button (functionality #4,
 *                   object_viewer.js)
 *   object_viewer_panel - its anchored panel
-*   object_viewer_panel_visible - whether object_viewer_panel is currently shown
 *   onexone_control - the "1x1" toolbar button (functionality #7, onexone.js)
 *                   — the first button with NO panel (v6 has none either;
 *                   see onexone.js file header)
@@ -345,12 +342,10 @@ export const tool_uca_maps = function () {
 	this.status						= null
 	this.type						= null
 	this.caller						= null
-	this.langs						= null
 	this.geolocation				= null
 	this.map_ready					= false
 	this.map_control				= null
 	this.panel_node					= null
-	this.console_visible			= false
 	this.active_console_layer		= null
 	this._popupopen_handler		= null
 	this._popupclose_handler		= null
@@ -358,10 +353,8 @@ export const tool_uca_maps = function () {
 	this._pmremove_handler			= null
 	this.map_image_control			= null
 	this.map_image_panel			= null
-	this.map_image_panel_visible	= false
 	this.object_viewer_control		= null
 	this.object_viewer_panel		= null
-	this.object_viewer_panel_visible	= false
 	this.onexone_control			= null
 	this._onexone_popupopen_handler	= null
 	this._onexone_pmremove_handler	= null
@@ -403,19 +396,10 @@ export const tool_uca_maps = function () {
 
 
 
-// wire_tool performs the standard prototype assignments (render/destroy/refresh
-// from tool_common/common, edit from render_tool_uca_maps). destroy is then
+// wire_tool performs the standard prototype assignments (render/destroy/refresh/
+// tool_request from tool_common/common, edit from render_tool_uca_maps). destroy is then
 // overridden below to add the map-control teardown.
 wire_tool(tool_uca_maps, render_tool_uca_maps)
-
-// (!) wire_tool does NOT copy tool_request (verified against its source: only
-// render/destroy/refresh/edit/list are wired) — every production tool that
-// calls self.tool_request() assigns it explicitly (tools/tool_export/js/tool_export.js:121
-// is the confirmed-working reference). tool_dev_template's own copy calls
-// self.tool_request() without this assignment; that looks like a pre-existing
-// scaffold gap, not a contract this tool can rely on — documented here, not
-// "fixed" in a file outside this tool's directory.
-tool_uca_maps.prototype.tool_request = tool_common.prototype.tool_request
 
 
 
@@ -434,9 +418,6 @@ tool_uca_maps.prototype.init = async function(options) {
 	const common_init = await tool_common.prototype.init.call(this, options);
 
 	try {
-
-		self.lang	= options.lang
-		self.langs	= page_globals.dedalo_projects_default_langs
 
 		// resolve the live map owner. Cycle-safe, depth-agnostic (file header).
 		// self.caller is set by tool_common.prototype.init above.
@@ -854,6 +835,10 @@ tool_uca_maps.prototype.hold_roman_suggestions = function() {
 	return hold_roman_suggestions(this)
 }//end hold_roman_suggestions
 
+tool_uca_maps.prototype.cancel_roman_search_timer = function() {
+	return cancel_roman_search_timer(this)
+}//end cancel_roman_search_timer
+
 
 
 /**
@@ -1036,7 +1021,7 @@ tool_uca_maps.prototype.on_close_actions = function() {
 * close here read as broken rather than "it worked" (Sergio, 2a validation,
 * 2026-09-02) — this constant is the deliberate replacement, chosen with
 * Sergio rather than inherited unexamined. */
-export const TRANSIENT_MODAL_VISIBLE_MS = 2000
+const TRANSIENT_MODAL_VISIBLE_MS = 2000
 
 /**
 * CLOSE_TRANSIENT_MODAL
