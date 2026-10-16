@@ -1,28 +1,40 @@
 /**
- * tool_uca_maps — `get_wms_layers` (fila #6, "WMS services").
- *
- * What this pins:
- *  - `normalizeWmsBaseUrl`/`wmsCapabilitiesUrl` (pure, no network) — caller-
- *    fault validation and the exact GetCapabilities query built;
- *  - the handler actually applies the SSRF guard: a private/loopback target
- *    is refused via `isSsrfRefusal`, with NO real network reached (DNS
- *    resolution of a literal IP is instant) — the live "reaches a real WMS
- *    server" path is NOT exercised here (this repo's tests never depend on
- *    network/a third-party service being up), matching how
- *    `tool_uca_maps_vector_download.test.ts` gates its own binary-dependent
- *    half behind `describe.if(HAVE_GDAL)` rather than assuming the tool it
- *    needs.
+ * tool_uca_maps — `get_wms_layers`: the user's URL vetted and the
+ * GetCapabilities query built, no network, and the handler going through the
+ * harvesting door: a private target is refused by its address policy.
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { isSsrfRefusal } from '../../src/core/security/ssrf_guard.ts';
-import { normalizeWmsBaseUrl, wmsCapabilitiesUrl } from '../../tools/tool_uca_maps/server/wms.ts';
-import { contextOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	getWmsLayers,
+	normalizeWmsBaseUrl,
+	wmsCapabilitiesUrl,
+} from '../../tools/tool_uca_maps/server/wms.ts';
+import { contextOf, expectCode, failureOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('normalizeWmsBaseUrl — caller-fault validation (no network)', () => {
-	test('an empty/missing url is refused', () => {
+	test('an empty/missing url is refused as request.invalid_options, before the door', async () => {
 		expect(() => normalizeWmsBaseUrl('')).toThrow(/URL is required/);
 		expect(() => normalizeWmsBaseUrl('   ')).toThrow(/URL is required/);
+
+		// a scripted site, so a lost guard cannot reach a real one
+		const sent: string[] = [];
+		const site: HarvestDeps = {
+			hop: async (request) => {
+				sent.push(request.url.toString());
+				throw new Error('no site here');
+			},
+		};
+		const error = await failureOf(getWmsLayers(contextOf({}), site));
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/URL is required/);
+		expect(sent).toEqual([]);
+
+		// the positive control: a valid url does reach the scripted site
+		await getWmsLayers(contextOf({ url: 'https://wms.example/wms' }), site).catch(() => null);
+		expect(sent.length).toBeGreaterThan(0);
 	});
 
 	test('a non-absolute or non-http(s) url is refused', () => {
@@ -55,11 +67,6 @@ describe('wmsCapabilitiesUrl', () => {
 });
 
 describe('tool_uca_maps get_wms_layers — handler', () => {
-	test('a missing url is refused as request.invalid_options', async () => {
-		const action = await loadAction('get_wms_layers');
-		await expect(action.handler(contextOf({}))).rejects.toThrow(/URL is required/);
-	});
-
 	test('a private/loopback target is refused by the SSRF guard, no network reached', async () => {
 		const action = await loadAction('get_wms_layers');
 		const error = await action

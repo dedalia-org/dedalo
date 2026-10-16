@@ -23,6 +23,38 @@ interface ThrowSite {
 	file: string;
 	code: string | null;
 	publicMessage: boolean;
+	/** Options absent or one inline object literal without a spread: the only
+	 * shape in which a `publicMessage` cannot hide from the census. */
+	inlineOptions: boolean;
+}
+
+/** Whether the blanked argument text after the code is nothing or one `{…}`
+ * with no spread in it. */
+function isInlineOptions(args: string): boolean {
+	let depth = 0;
+	let comma = -1;
+	for (let i = 0; i < args.length && comma === -1; i++) {
+		const char = args[i] as string;
+		if ('({['.includes(char)) depth++;
+		else if (')}]'.includes(char)) depth--;
+		else if (char === ',' && depth === 0) comma = i;
+	}
+	const rest =
+		comma === -1
+			? ''
+			: args
+					.slice(comma + 1)
+					.trim()
+					.replace(/,$/, '')
+					.trim();
+	if (rest === '') return true;
+	if (!rest.startsWith('{') || rest.includes('...')) return false;
+	depth = 0;
+	for (let i = 0; i < rest.length; i++) {
+		if (rest[i] === '{') depth++;
+		else if (rest[i] === '}' && --depth === 0) return i === rest.length - 1;
+	}
+	return false;
 }
 
 /** Every `new DedaloError(` in the tool's server code, read on two aligned views
@@ -49,6 +81,7 @@ async function throwSites(): Promise<ThrowSite[]> {
 				file: relative,
 				code: literal ? (literal[1] as string) : null,
 				publicMessage: /\bpublicMessage\b/.test(blank.slice(start, end - 1)),
+				inlineOptions: isInlineOptions(blank.slice(start, end - 1)),
 			});
 		}
 	}
@@ -68,6 +101,16 @@ describe('tool_uca_maps — a public message is a message the user reads', () =>
 		const sites = await throwSites();
 		expect(sites.length).toBeGreaterThan(30);
 		expect(sites.filter((site) => site.code === null)).toEqual([]);
+	});
+
+	test('every throw spells its options inline, so a publicMessage cannot hide', async () => {
+		const hidden = (await throwSites()).filter((site) => !site.inlineOptions);
+		expect(hidden.map((site) => `${site.file}: ${site.code}`)).toEqual([]);
+		// the reader itself, on the two shapes that would hide one
+		expect(isInlineOptions(" '', options")).toBe(false);
+		expect(isInlineOptions(" '', { ...options, message }")).toBe(false);
+		expect(isInlineOptions(" '', { message, details: { a: 1 } },")).toBe(true);
+		expect(isInlineOptions(" ''")).toBe(true);
 	});
 
 	test('a publicMessage rides only a public code, the converter keeps it, the panel shows it', async () => {

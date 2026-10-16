@@ -1,6 +1,6 @@
 /**
- * tool_uca_maps — `parseClickParams` (shared by `catastro.ts`/
- * `administrative_units.ts`, fila #8/#9). Pure, no network.
+ * tool_uca_maps — `parseClickParams`, the click payload both Catastro and the
+ * administrative units turn into a query. Pure, no network.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -23,6 +23,11 @@ describe('parseClickParams', () => {
 		expect(() => parseClickParams({ ...VALID, bbox: undefined })).toThrow(/bounding box/);
 		expect(() => parseClickParams({ ...VALID, bbox: [1, 2, 3] })).toThrow(/bounding box/);
 		expect(() => parseClickParams({ ...VALID, bbox: [1, 2, 3, 'x'] })).toThrow(/bounding box/);
+		// both would ship to the third party as text in the bbox param
+		expect(() => parseClickParams({ ...VALID, bbox: [1, 2, 3, Number.NaN] })).toThrow(
+			/bounding box/,
+		);
+		expect(() => parseClickParams({ ...VALID, bbox: [1, 2, 3, Infinity] })).toThrow(/bounding box/);
 	});
 
 	test('a non-positive or missing width/height is refused', () => {

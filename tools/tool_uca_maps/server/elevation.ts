@@ -1,28 +1,8 @@
 /**
- * get_elevation — fila #3 ("Consola de objeto") de
- * `docs/Funcionalidades de tool_leaflet_special_tools.md`: the elevation of
- * the selected geometry's centre, which the v6 console shows as one line
- * ("Elevación del centro: 412 m.").
- *
- * v6 already asks the SERVER for this, not the browser
- * (`class.tool_leaflet_special_tools.php:2378` `get_elevation`, a bare
- * `file_get_contents` on api.open-elevation.com), so this is a port, not a
- * redesign: the page's `connect-src 'self' blob:` (src/core/api/static_asset.ts
- * APP_CSP) would block a browser-side call anyway — the same reason
- * `place_search.ts` exists.
- *
- * What IS new is the transport discipline: `fetchGuardedText` instead of
- * `file_get_contents` (no redirects, timeout, byte cap), and a host this file
- * builds itself as a fixed literal — the client supplies two numbers and
- * nothing else.
- *
- * ONE FAILURE IS NOT A FAILURE. A third-party service being down, slow or
- * rate-limiting must not break selecting an object: the whole console would
- * refuse to open over a line of derived, decorative data. So a transport
- * failure answers `{elevation: null, unavailable: true}` and the client says
- * so, the same "degraded, and it says so" shape `get_image_overlay` uses for
- * a GDAL-less install. A MALFORMED REQUEST (a non-numeric or out-of-range
- * coordinate) still throws — that one is a caller fault.
+ * get_elevation: the selected object's centre elevation. Server-side as in v6
+ * (`class.tool_leaflet_special_tools.php` `get_elevation`), and the page CSP
+ * blocks a browser call. An outage answers `unavailable`, never a failure: a
+ * decorative line must not stop selecting an object. A bad coordinate throws.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
@@ -48,11 +28,9 @@ function invalidCoordinate(message: string): DedaloError {
 }
 
 /**
- * A number, or nothing. NOT `Number(value)`: that reads `null`, `''`, `false`
- * and `[]` as 0, so a missing coordinate would become the Gulf of Guinea and
- * a null elevation would become sea level — both of them plausible-looking
- * values that no error would ever be raised about. Only a real number, or a
- * non-empty numeric string, is one.
+ * A number, or nothing. Not `Number(value)`: it reads `null`, `''` and `[]` as
+ * 0, so a missing coordinate would become the Gulf of Guinea and a null
+ * elevation sea level, plausible values no error would ever flag.
  */
 function finiteNumber(value: unknown): number | null {
 	if (typeof value === 'number') {
@@ -110,7 +88,7 @@ export function elevationUrl(lat: number, lon: number): URL {
 
 export async function getElevation(ctx: ToolActionContext): Promise<ToolResponse> {
 	const lat = readCoordinate(ctx.options.lat, 'latitude', 90);
-	const lon = readCoordinate(ctx.options.lon ?? ctx.options.lng, 'longitude', 180);
+	const lon = readCoordinate(ctx.options.lon, 'longitude', 180);
 
 	let text: string;
 	try {
@@ -119,7 +97,7 @@ export async function getElevation(ctx: ToolActionContext): Promise<ToolResponse
 			timeoutMs: ELEVATION_TIMEOUT_MS,
 		});
 	} catch {
-		// see the module header: the service is optional, the console is not
+		// the service is optional, the console is not
 		return ok({ elevation: null, unavailable: true }, { requestId: toolRequestId(ctx) });
 	}
 

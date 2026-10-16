@@ -1,27 +1,15 @@
 /**
- * tool_uca_maps — `search_places` (fila #1, "Buscador de lugares").
- *
- * What this pins:
- *  - `placeSearchUrl` + `parsePlaceResults` (pure, no network): the exact
- *    query built, and the reduction of Nominatim's own JSON — INCLUDING the
- *    boundingbox permutation (Nominatim S/N/W/E → Leaflet S/W/N/E), which is
- *    the one place a silent axis swap would send the map to the wrong
- *    continent while every row still looked right;
- *  - caller-fault validation (empty/over-long query) refused as
- *    `request.invalid_options`, not as a server failure.
- *
- * No live call to nominatim.openstreetmap.org: this repo's tests never depend
- * on a third-party service being up (same discipline as
- * `tool_uca_maps_get_wms_layers.test.ts`).
+ * tool_uca_maps — `search_places`: the Nominatim query built and its JSON
+ * reduced, no network. The boundingbox reorder is where a silent axis swap
+ * would send the map to the wrong continent with every row looking right.
+ * The handler's refusals: tool_uca_maps_service_handlers.test.ts.
  */
 
 import { describe, expect, test } from 'bun:test';
-import type { DedaloError } from '../../src/core/errors/index.ts';
 import {
 	parsePlaceResults,
 	placeSearchUrl,
 } from '../../tools/tool_uca_maps/server/place_search.ts';
-import { contextOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('placeSearchUrl — the query built (no network)', () => {
 	test('asks Nominatim for the search text, in jsonv2, capped at 8 hits', () => {
@@ -58,13 +46,21 @@ describe('parsePlaceResults — Nominatim JSON → PlaceResult[]', () => {
 		expect(results[0]?.bbox).toEqual([39.6, -0.35, 39.75, -0.2]);
 	});
 
-	test('a hit with no usable boundingbox keeps its point and reports bbox null', () => {
-		const results = parsePlaceResults(
-			JSON.stringify([{ display_name: 'A well', lat: '39.5', lon: '-0.4' }]),
-		);
-		expect(results[0]?.bbox).toBeNull();
-		expect(results[0]?.point).toEqual([39.5, -0.4]);
-	});
+	test.each([
+		['absent', undefined],
+		['too short', ['39.60', '39.75', '-0.35']],
+		['non-numeric', ['39.60', '39.75', 'west', '-0.20']],
+		['not an array', '39.60,39.75,-0.35,-0.20'],
+	])(
+		'a hit whose boundingbox is %s keeps its point and reports bbox null',
+		(_label, boundingbox) => {
+			const results = parsePlaceResults(
+				JSON.stringify([{ display_name: 'A well', lat: '39.5', lon: '-0.4', boundingbox }]),
+			);
+			expect(results[0]?.bbox).toBeNull();
+			expect(results[0]?.point).toEqual([39.5, -0.4]);
+		},
+	);
 
 	test('a hit with no usable coordinates is DROPPED, not returned half-built', () => {
 		const results = parsePlaceResults(
@@ -88,35 +84,16 @@ describe('parsePlaceResults — Nominatim JSON → PlaceResult[]', () => {
 
 	// The distinction the whole panel rests on: "this place does not exist" and
 	// "the service did not answer me" must not reach the user as the same line.
-	test('a service error object is a refusal, not an empty result set', () => {
-		expect(() => parsePlaceResults('{"error":"Bad Request"}')).toThrow(/refused the request/);
-	});
-
-	test('a refusal carries the outbound class, not a caller fault', () => {
-		try {
-			parsePlaceResults('{"error":"Bad Request"}');
-			throw new Error('expected a refusal');
-		} catch (error) {
-			expect((error as DedaloError).code).toBe('security.outbound_failed');
-		}
+	test('a service error object is an outbound refusal, not an empty result set', () => {
+		expect(() => parsePlaceResults('{"error":"Bad Request"}')).toThrow(
+			expect.objectContaining({
+				code: 'security.outbound_failed',
+				message: expect.stringMatching(/refused the request/),
+			}),
+		);
 	});
 
 	test('an unparseable body is a refusal, not a silent empty list', () => {
 		expect(() => parsePlaceResults('<html>502</html>')).toThrow(/unreadable response/);
-	});
-});
-
-describe('tool_uca_maps search_places — handler validation (no network)', () => {
-	test('an empty query is refused as a caller fault', async () => {
-		const action = await loadAction('search_places');
-		await expect(action.handler(contextOf({ query: '   ' }))).rejects.toThrow(
-			/search text is required/,
-		);
-		await expect(action.handler(contextOf({}))).rejects.toThrow(/search text is required/);
-	});
-
-	test('an over-long query is refused before anything is sent to a third party', async () => {
-		const action = await loadAction('search_places');
-		await expect(action.handler(contextOf({ query: 'x'.repeat(201) }))).rejects.toThrow(/too long/);
 	});
 });

@@ -1,10 +1,7 @@
 /**
- * Shared click-position parsing for `catastro.ts`/`administrative_units.ts`
- * (rows #8/#9): both proxy a WMS GetFeatureInfo query built from the SAME
- * five numbers the client already has after a map click — the visible bbox,
- * the map's pixel size, and the clicked pixel. One parser, one shape, so a
- * malformed request is refused identically for both actions instead of two
- * near-duplicate ad hoc checks drifting apart.
+ * The click payload `catastro.ts` and `administrative_units.ts` both turn into
+ * a WMS GetFeatureInfo query: visible bbox, map pixel size, clicked pixel. One
+ * parser, so a malformed click is refused the same way by both actions.
  */
 
 import { DedaloError } from '../../../src/core/errors/index.ts';

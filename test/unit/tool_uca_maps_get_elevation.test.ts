@@ -1,29 +1,12 @@
 /**
- * tool_uca_maps — `get_elevation` (fila #3, "Consola de objeto": la elevación
- * del centro del objeto seleccionado).
- *
- * What this pins:
- *  - `elevationUrl` (pure, no network): the exact `locations=lat,lon` query,
- *    which is the one place an axis swap would report the elevation of a
- *    different continent while the panel still looked right;
- *  - `parseElevation` (pure): a real answer is read, and EVERY malformed one
- *    reads as `null` rather than as 0 — sea level is a legitimate elevation
- *    and must never be how a parse failure looks;
- *  - caller-fault validation: a missing, non-numeric or out-of-range
- *    coordinate is refused as `request.invalid_options`, not swallowed into
- *    the "service unavailable" answer that a transport failure gets.
- *
- * No live call to api.open-elevation.com: this repo's tests never depend on a
- * third-party service being up (same discipline as the search_places gate).
+ * tool_uca_maps — `get_elevation`: the `locations=lat,lon` query, where an
+ * axis swap would report another continent, and the answer read, where every
+ * malformed reply must be null and never 0 (sea level is a real elevation).
+ * The handler's validation: tool_uca_maps_service_handlers.test.ts.
  */
 
 import { describe, expect, test } from 'bun:test';
-import {
-	elevationUrl,
-	getElevation,
-	parseElevation,
-} from '../../tools/tool_uca_maps/server/elevation.ts';
-import { contextOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
+import { elevationUrl, parseElevation } from '../../tools/tool_uca_maps/server/elevation.ts';
 
 describe('elevationUrl — the query built (no network)', () => {
 	test('asks Open-Elevation for one point, latitude first', () => {
@@ -60,27 +43,5 @@ describe('parseElevation — reading the answer', () => {
 		['a null elevation', '{"results":[{"elevation":null}]}'],
 	])('%s reads as null, never as 0', (_label, text) => {
 		expect(parseElevation(text)).toBeNull();
-	});
-});
-
-describe('get_elevation — caller-fault validation', () => {
-	test.each([
-		['no coordinates at all', {}],
-		['a missing longitude', { lat: 39.6 }],
-		['a non-numeric latitude', { lat: 'north', lon: -0.2 }],
-		// `Number(null)` is 0: without a strict reader this one reaches
-		// Open-Elevation as the Gulf of Guinea instead of being refused
-		['a null latitude', { lat: null, lon: -0.2 }],
-		['an empty-string longitude', { lat: 39.6, lon: '' }],
-		['a latitude past the pole', { lat: 91, lon: -0.2 }],
-		['a longitude past the antimeridian', { lat: 39.6, lon: 181 }],
-	])('refuses %s as request.invalid_options', async (_label, options) => {
-		const error = await failureOf(getElevation(contextOf(options)));
-		expect(error.code).toBe('request.invalid_options');
-	});
-
-	test('accepts the exact poles and antimeridian — they are real coordinates', () => {
-		expect(elevationUrl(90, 180).searchParams.get('locations')).toBe('90,180');
-		expect(elevationUrl(-90, -180).searchParams.get('locations')).toBe('-90,-180');
 	});
 });

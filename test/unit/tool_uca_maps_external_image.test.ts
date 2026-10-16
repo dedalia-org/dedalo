@@ -1,13 +1,8 @@
 /**
- * tool_uca_maps — `stage_external_image`: an image an object links to is
- * downloaded through the harvesting door and staged for the ingest.
- *
- * The site is SCRIPTED (`HarvestDeps.hop` replaces the pinned primitive, the
- * pace's clock is ours): no network, no wait. What is pinned is the tool's
- * half — the switch, the host policy and ceiling it hands
- * the door, what a refusal turns into, and that the staged file is what the
- * ingest reads back (the caller's own staging dir, an upload's `file_data`).
- * The door itself is `harvest_door_native.test.ts`'s.
+ * tool_uca_maps — `stage_external_image` against a scripted site (`HarvestDeps.hop`,
+ * our clock): the switch, the host policy and ceiling handed to the door, what a
+ * refusal becomes, and the staged file the ingest reads back. The door itself is
+ * harvest_door_native.test.ts's.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -17,10 +12,12 @@ import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { clearPacingForTests } from '../../src/core/harvest/pacing.ts';
 import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
+import { STAGED_NAME_DIR } from '../../src/core/media/ingest/staged_name_record.ts';
 import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
 import {
 	EXTERNAL_IMAGE_MAX_BYTES,
 	EXTERNAL_IMAGES_CONFIG_KEY,
+	externalImagesOn,
 	stagedFileName,
 	stageExternalImage,
 } from '../../tools/tool_uca_maps/server/external_image.ts';
@@ -91,6 +88,15 @@ const off = async () => false;
 
 const staged: string[] = [];
 
+/** The staged file's path, registered (with its name record) for the sweep
+ * before any assertion can fail and strand it in the suite media root. */
+function stagedPath(fileData: Record<string, unknown>): string {
+	const dir = stagingDir(USER_ID, 'image');
+	const tmpName = String(fileData.tmp_name);
+	staged.push(join(dir, tmpName), join(dir, STAGED_NAME_DIR, tmpName));
+	return join(dir, tmpName);
+}
+
 beforeEach(() => {
 	clearRobotsCache();
 	clearPacingForTests();
@@ -122,9 +128,16 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
 			harvest: site.deps,
 		});
-		const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
-		staged.push(join(stagingDir(USER_ID, 'image'), String(fileData.tmp_name)));
+		stagedPath(dataOf<{ file_data: Record<string, unknown> }>(response).file_data);
 		expect(site.sent).toContain(IMAGE);
+	});
+
+	test.each([
+		['true', true, true],
+		['a JSON false', false, false],
+		['absent', true, undefined],
+	])('the stored option %s reads as on=%p', (_label, on, value) => {
+		expect(externalImagesOn(value)).toBe(on);
 	});
 });
 
@@ -136,13 +149,12 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 			enabled: on,
 		});
 		const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
+		const path = stagedPath(fileData);
 		expect(fileData.key_dir).toBe('image');
 		expect(fileData.extension).toBe('png');
 		expect(fileData.name).toBe('Muro norte.png');
 		expect(fileData.complete).toBe(true);
 
-		const path = join(stagingDir(USER_ID, 'image'), String(fileData.tmp_name));
-		staged.push(path);
 		expect(existsSync(path)).toBe(true);
 		expect(new Uint8Array(readFileSync(path))).toEqual(ONE_PIXEL_PNG);
 
@@ -160,20 +172,11 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 		expect(error.message).toContain('HTTP 404');
 	});
 
-	test('a page instead of an image is refused by its declared type, unread', async () => {
-		const site = scriptedSite({
-			[IMAGE]: { status: 200, type: 'text/html', body: '<html></html>' },
-		});
-		const error = await failureOf(
-			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
-		);
-		expect(error.code).toBe('harvest.unexpected_type');
-		// refused by the door on the declared type, its body never sent
-		expect(site.skipped).toEqual([IMAGE]);
-	});
-
-	test('an image type the picker does not take (GIF) is refused', async () => {
-		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/gif', body: 'GIF89a' } });
+	test.each([
+		['a page instead of an image', 'text/html', '<html></html>'],
+		['an image type the picker does not take (GIF)', 'image/gif', 'GIF89a'],
+	])('%s is refused by its declared type, unread', async (_label, type, body) => {
+		const site = scriptedSite({ [IMAGE]: { status: 200, type, body } });
 		const error = await failureOf(
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
@@ -208,6 +211,8 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('harvest.robots_disallowed');
+		// the recorder's floor: the robots probe went out, so the empty `sent` lists above are measured
+		expect(site.sent.length).toBeGreaterThan(0);
 		expect(site.sent).not.toContain(IMAGE);
 	});
 
@@ -220,6 +225,18 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 			expect(error.code).toBe('request.invalid_options');
 			expect(site.sent).toEqual([]);
 		}
+	});
+});
+
+describe('tool_uca_maps stage_external_image — the ceiling', () => {
+	test("is the associate picker's own (image_upload.js IMAGE_UPLOAD_MAX_BYTES)", () => {
+		const source = readFileSync(
+			new URL('../../tools/tool_uca_maps/js/image_upload.js', import.meta.url),
+			'utf8',
+		);
+		const picker = /\bconst IMAGE_UPLOAD_MAX_BYTES\s*=\s*([\d_]+)/.exec(source);
+		expect(picker).not.toBeNull();
+		expect(EXTERNAL_IMAGE_MAX_BYTES).toBe(Number((picker?.[1] ?? '').replace(/_/g, '')));
 	});
 });
 

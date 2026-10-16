@@ -1,12 +1,8 @@
 /**
- * tool_uca_maps — `js/download_filename.js`, the ONE rule that turns the
- * user's typed download name into a safe one (audit row #10, H-04).
- *
- * It is gated here, in a unit test, rather than only through the browser
- * suite, because BOTH sides run it: the client sets the result on
- * `link.download` and `server/raster_download.ts` puts it in the envelope's
- * `filename`. A rule with one gate on one of its two callers is a rule that
- * can drift on the other.
+ * tool_uca_maps — `js/download_filename.js`, the one rule that turns a typed
+ * download name into a safe one. A unit gate, not only a browser one, because
+ * both sides run it: the client on `link.download`, `server/raster_download.ts`
+ * in the envelope's `filename`.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -41,6 +37,8 @@ describe('tool_uca_maps download_filename — sanitize_download_name', () => {
 
 	test('collapses internal whitespace runs to one space', () => {
 		expect(sanitize_download_name('a \t\n b')).toBe('a b');
+		// blanks that are not controls, so only the collapse can remove them
+		expect(sanitize_download_name('a \u00a0\u3000b')).toBe('a b');
 	});
 
 	test('strips the bidi/format characters that make a name display as another', () => {
@@ -53,8 +51,7 @@ describe('tool_uca_maps download_filename — sanitize_download_name', () => {
 		const astral = '🏺'; // 2 UTF-16 units, 1 code point
 		const name = astral.repeat(120);
 		const out = sanitize_download_name(name);
-		// A UTF-16 `.slice(0, MAX_LENGTH)` would keep 100 UNITS — 50 amphorae
-		// and half of the 51st, ending in a lone surrogate.
+		// A UTF-16 `.slice(0, MAX_LENGTH)` would keep 100 units: 50 amphorae.
 		expect(out).toBe(astral.repeat(100));
 	});
 
@@ -91,32 +88,58 @@ describe('tool_uca_maps download_filename — with_extension', () => {
 	});
 
 	test("the default base name is 'map', and a usable one", () => {
-		// Literal on purpose: the raster tests that also pin it skip without
-		// ImageMagick/GDAL, so this is the one pin that runs on every host.
+		// Literal on purpose: the one pin of the default that needs no ImageMagick.
 		expect(DEFAULT_MAP_IMAGE_NAME).toBe('map');
 		expect(sanitize_download_name(DEFAULT_MAP_IMAGE_NAME)).toBe(DEFAULT_MAP_IMAGE_NAME);
 	});
 });
 
+/** Top-level `let`/`var` and `const … = new Map|Set…`, exported or not. */
+function mutableBindings(source: string): string[] {
+	return source
+		.split('\n')
+		.filter(
+			(line) =>
+				/^(export\s+)?(let|var)\s/.test(line) ||
+				/^(export\s+)?const\s.*\bnew (Map|Set|WeakMap|WeakSet)\(/.test(line),
+		);
+}
+
 /**
- * The shared module is imported by `server/raster_download.ts`, so it is
- * evaluated ONCE in the long-lived Bun process and shared by every concurrent
- * request. `module_state_tripwire` would refuse module-level mutable state
- * here — but its census globs `**\/*.ts` and this file is `.js`, so it never
- * opens it (review-diff, 2026-09-22). Until that lane is covered centrally
- * (a shared gate under `test/unit/`, outside this encargo's surface — Sergio
- * decides), the module's own gate stands in: stateless, and import-free so it
- * stays loadable from both sides.
+ * The server imports this module, so one instance serves every concurrent
+ * request. `module_state_tripwire` reads only `.ts`, so this gate stands in
+ * for it: stateless, and import-free so both sides can load it.
  */
 describe('tool_uca_maps download_filename — stateless, because the server shares it', () => {
-	const SOURCE = readFileSync('tools/tool_uca_maps/js/download_filename.js', 'utf8');
+	const SOURCE = readFileSync(
+		new URL('../../tools/tool_uca_maps/js/download_filename.js', import.meta.url),
+		'utf8',
+	);
+
+	test('the census sees every mutable binding shape', () => {
+		const sample = [
+			'let a = 1',
+			'export let b = 1',
+			'var c',
+			'export var d',
+			'const e = new Map()',
+			'export const f = new Set()',
+			'const g = 1',
+			'export const h = Object.freeze({})',
+			'\tlet local = 1',
+		].join('\n');
+		expect(mutableBindings(sample)).toEqual([
+			'let a = 1',
+			'export let b = 1',
+			'var c',
+			'export var d',
+			'const e = new Map()',
+			'export const f = new Set()',
+		]);
+	});
 
 	test('declares no module-level mutable binding', () => {
-		const offenders = SOURCE.split('\n').filter(
-			(line) =>
-				/^(let|var)\s/.test(line) || /^const\s.*\bnew (Map|Set|WeakMap|WeakSet)\(/.test(line),
-		);
-		expect(offenders).toEqual([]);
+		expect(mutableBindings(SOURCE)).toEqual([]);
 	});
 
 	test('imports nothing, so both the browser and the server can load it', () => {

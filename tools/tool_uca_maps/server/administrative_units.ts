@@ -1,21 +1,8 @@
 /**
- * get_administrative_unit — hito "UA" (fila #9, `docs/Funcionalidades de
- * tool_leaflet_special_tools.md`): given a map click + a selected level
- * (Municipio/Provincia/CCAA), returns the matching administrative-unit
- * feature from the IGN's WMS-INSPIRE service.
- *
- * WHY THIS NEEDS THE SERVER: same reason as `catastro.ts` — v6 oracle
- * (`special_tools_UA_es.js` init_UA) fetches `www.ign.es` directly from the
- * browser today, which only works because that response happens to carry no
- * restrictive CORS header; this port does not assume that stays true, and a
- * server-side proxy is required regardless once a real address policy
- * matters (`fetchGuardedText`). The host is a FIXED literal this file builds
- * itself — no client-supplied URL, so no SSRF surface beyond the fixed fetch.
- *
- * Filtering by `nationallevel` happens HERE, not in the client (v6 fetches
- * `feature_count=3` and filters client-side) — smaller payload, and the
- * "first match wins" tie-break (v6: `break` on the first matching feature)
- * is preserved by simply returning at most one feature.
+ * get_administrative_unit: the IGN administrative unit (Municipio, Provincia,
+ * CCAA) at a map click. v6 (`special_tools_UA_es.js`) fetched it from the
+ * browser; a proxy does not rely on IGN never sending CORS headers. The level
+ * is filtered here, first match wins, as v6's `break` did. The host is fixed.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';

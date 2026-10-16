@@ -1,19 +1,8 @@
 /**
- * external_image — `stage_external_image`: an image an object LINKS to on
- * another site (`properties.images[].url`, v6 `check_if_external_images`,
- * `special_tools.js:7765-7875`) is downloaded and staged, so the client hands
- * it to the SAME ingest a picked file takes (`image_upload.js`
- * `ingest_staged_image`): record, derivatives, empty-record cleanup.
- *
- * On by default, as in v6; an install that does not want its server fetching
- * URLs that came inside data sets `external_images_enabled: false`. Any public
- * site — the harvesting door (`harvestFetch`, engineering/OUTBOUND_SPEC.md §3)
- * refuses internal addresses, obeys robots.txt and paces each site, and only a
- * user who may write the map record, pressing the button, sets it off.
- *
- * Only what the associate picker accepts (JPEG, PNG), refused by the door on
- * the declared type before the body is read; the bytes are then sniffed by the
- * receiver against that type (`receiveUpload`), as an upload's are.
+ * stage_external_image: an image an object links to (v6 `check_if_external_images`,
+ * `special_tools.js`) is fetched through the harvesting door and staged for the
+ * ingest a picked file takes. On by default, as in v6, since only a user who may
+ * write the map record sets it off; `external_images_enabled: false` turns it off.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
@@ -26,7 +15,7 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 
-/** The tool option that turns the import off: only a JSON `false` does. */
+/** The tool option that turns the import off. */
 export const EXTERNAL_IMAGES_CONFIG_KEY = 'external_images_enabled';
 
 /** The associate picker's own ceiling (`image_upload.js` IMAGE_UPLOAD_MAX_BYTES). */
@@ -48,10 +37,17 @@ export interface ExternalImageDeps {
 	readonly enabled?: () => Promise<boolean>;
 }
 
+/** The switch read from the option's stored value: only a JSON `false` turns it off. */
+export function externalImagesOn(value: unknown): boolean {
+	return value !== false;
+}
+
 /** Whether this install allows the import. The fallback covers an install
  * whose registration predates the option. */
 export async function externalImagesEnabled(): Promise<boolean> {
-	return (await getToolConfigValue('tool_uca_maps', EXTERNAL_IMAGES_CONFIG_KEY, true)) !== false;
+	return externalImagesOn(
+		await getToolConfigValue('tool_uca_maps', EXTERNAL_IMAGES_CONFIG_KEY, true),
+	);
 }
 
 /** The linked URL, refused unless it is an absolute http(s) address. */
@@ -90,13 +86,10 @@ export function stagedFileName(url: URL, extension: string): string {
 }
 
 /**
- * STAGE_EXTERNAL_IMAGE — download one linked image into the caller's own
- * staging dir and answer the `file_data` an upload answers.
- *
- * Options: the map component's identity (the `record_tipo` gate, write level:
- * this exists to change that record) + `url`. A non-2xx answer is the site's
- * refusal, a plain failure (same rule as `wms.ts`). The action binds the real
- * door and the real switch.
+ * One linked image into the caller's own staging dir, answered as the
+ * `file_data` of an upload. Only JPEG and PNG, the associate picker's types;
+ * the receiver sniffs the bytes against the declared one. A non-2xx is the
+ * site's refusal, a plain failure. The action binds the real door and switch.
  */
 export async function stageExternalImage(
 	ctx: ToolActionContext,

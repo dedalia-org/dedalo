@@ -1,17 +1,7 @@
 /**
- * tool_uca_maps — `get_catastro_parcel` (fila #8, "Catastro").
- *
- * What this pins:
- *  - `featureInfoUrl`/`parseCatastroRefcat`/`extractParcelPosList` (pure, no
- *    network) — the exact query built and the two third-party response
- *    shapes parsed (a real GetFeatureInfo HTML reply and a real WFS GML
- *    reply, both captured live against `ovc.catastro.meh.es` during hito 11);
- *  - the handler's caller-fault validation (parseClickParams, shared with
- *    `get_administrative_unit`).
- *
- * The live "reaches the real Catastro servers" path is NOT exercised here —
- * same reasoning as `tool_uca_maps_get_wms_layers.test.ts`: this repo's tests
- * never depend on a third-party service being up.
+ * tool_uca_maps — `get_catastro_parcel`: the GetFeatureInfo query built and
+ * the two Catastro replies parsed, no network. The handler's wiring:
+ * tool_uca_maps_service_handlers.test.ts.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -21,7 +11,9 @@ import {
 	parseCatastroRefcat,
 	parseParcelGeometry,
 } from '../../tools/tool_uca_maps/server/catastro.ts';
-import { contextOf, expectCode, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+
+/** A reply that is not an answer: the source unavailable, never "no parcel". */
+const SOURCE_UNAVAILABLE = expect.objectContaining({ code: 'security.outbound_failed' });
 
 describe('featureInfoUrl', () => {
 	test('builds the fixed Catastro GetFeatureInfo query from a click payload', () => {
@@ -35,18 +27,23 @@ describe('featureInfoUrl', () => {
 		expect(url.origin + url.pathname).toBe(
 			'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx',
 		);
-		expect(url.searchParams.get('request')).toBe('getFeatureInfo');
-		expect(url.searchParams.get('layers')).toBe('Catastro');
-		expect(url.searchParams.get('srs')).toBe('EPSG:4326');
-		expect(url.searchParams.get('bbox')).toBe('-1,38,-0.9,38.1');
-		expect(url.searchParams.get('width')).toBe('512');
-		expect(url.searchParams.get('x')).toBe('128'); // rounded
-		expect(url.searchParams.get('y')).toBe('64'); // rounded
+		// a non-square map: a height read from the width queries another pixel
+		expect(Object.fromEntries(url.searchParams)).toEqual({
+			request: 'getFeatureInfo',
+			layers: 'Catastro',
+			query_layers: 'Catastro',
+			srs: 'EPSG:4326',
+			bbox: '-1,38,-0.9,38.1',
+			height: '400',
+			width: '512',
+			x: '128',
+			y: '64',
+		});
 	});
 });
 
 describe('parseCatastroRefcat', () => {
-	// captured live, 2026-09-08, against ovc.catastro.meh.es
+	// captured live against ovc.catastro.meh.es
 	const REAL_HTML =
 		'<?xml version="1.0" encoding="ISO-8859-1"?>\n<!DOCTYPE html \nPUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="sp"  lang="sp" >\n<head><title>Informaci&oacute;n parcelas</title></head><body><p>Referencia catastral de la parcela:</p><p><a href="https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?del=46&muni=225&rc1=6075421&rc2=YJ2667S">6075421YJ2667S</a></p></body></html>';
 
@@ -57,12 +54,12 @@ describe('parseCatastroRefcat', () => {
 		});
 	});
 
-	// captured live, 2026-10-15: a click in the sea and one in France
+	// captured live: a click in the sea and one in France
 	const NO_PARCEL_HTML =
 		'<?xml version="1.0" encoding="ISO-8859-1"?>\n<!DOCTYPE html \nPUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="sp"  lang="sp" >\n<head><title>Informaci&oacute;n parcelas</title></head><body><p>Referencia catastral de la parcela:</p></body></html>';
 
-	// seen 2026-10-14 during a scheduled stop: a 200 carrying this notice and
-	// no result page (its wording, not its bytes, which were not captured)
+	// a scheduled stop answers a 200 with this notice and no result page (its
+	// wording, not its bytes, which were not captured)
 	const MAINTENANCE_HTML =
 		'<html><head><title>Sede Electr&oacute;nica del Catastro</title></head><body>' +
 		'<h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
@@ -73,13 +70,7 @@ describe('parseCatastroRefcat', () => {
 
 	test('a reply that is not the result page (maintenance, empty) is the source unavailable, never "no parcel"', () => {
 		for (const html of [MAINTENANCE_HTML, '', '<html><body></body></html>']) {
-			let error: unknown = null;
-			try {
-				parseCatastroRefcat(html);
-			} catch (caught) {
-				error = caught;
-			}
-			expectCode(error, 'security.outbound_failed');
+			expect(() => parseCatastroRefcat(html)).toThrow(SOURCE_UNAVAILABLE);
 		}
 	});
 
@@ -126,7 +117,7 @@ describe('extractParcelPosList', () => {
 		expect(extractParcelPosList(xml, REFCAT)).toBeNull();
 	});
 
-	// captured live, 2026-10-15: a stored query for a reference with no parcel
+	// captured live: a stored query for a reference with no parcel
 	const NOT_FOUND_XML =
 		'<?xml version=\'1.0\' encoding="ISO-8859-1" standalone="no"?>\n<ExceptionReport xmlns="http://www.opengis.net/ows/1.1" version="2.0.0">\n<Exception exceptionCode="OperationProcessingFailed">\n<ExceptionText><![CDATA[No se han encontrado registros de la referencia 0000000AA0000A]]></ExceptionText>\n</Exception>\n</ExceptionReport>\n';
 
@@ -145,20 +136,7 @@ describe('extractParcelPosList', () => {
 		const maintenance =
 			'<html><body><h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
 		for (const xml of [maintenance, '']) {
-			let error: unknown = null;
-			try {
-				parseParcelGeometry(xml, REFCAT);
-			} catch (caught) {
-				error = caught;
-			}
-			expectCode(error, 'security.outbound_failed');
+			expect(() => parseParcelGeometry(xml, REFCAT)).toThrow(SOURCE_UNAVAILABLE);
 		}
-	});
-});
-
-describe('tool_uca_maps get_catastro_parcel — handler validation', () => {
-	test('a missing bbox is refused as request.invalid_options', async () => {
-		const action = await loadAction('get_catastro_parcel');
-		await expect(action.handler(contextOf({}))).rejects.toThrow(/bounding box/);
 	});
 });

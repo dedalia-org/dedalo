@@ -1,23 +1,8 @@
 /**
- * get_catastro_parcel — hito "Catastro" (fila #8, `docs/Funcionalidades de
- * tool_leaflet_special_tools.md`): given a map click, looks up the official
- * cadastral parcel at that point and returns its boundary.
- *
- * WHY THIS NEEDS THE SERVER: the browser cannot read `ovc.catastro.meh.es`'s
- * replies directly (no CORS), and the server chains THREE outbound calls per
- * click (v6 oracle: `class.tool_leaflet_special_tools.php get_catastro_refcat`
- * + `get_catastro_feature` x2) — a WMS GetFeatureInfo scrape for the parcel's
- * reference, then a WFS GML query for its geometry. Both hosts are FIXED
- * literals this file builds itself; the client never supplies a URL (unlike
- * `wms.ts`'s row #6, where the whole point is a user-chosen server) — so
- * there is no SSRF surface to guard here beyond the fixed-host fetch itself.
- *
- * CORRECTNESS IMPROVEMENT over the v6 oracle: v6 picks the target parcel's
- * `gml:posList` by a hardcoded POSITIONAL index (1 for the "neighbour" query,
- * 0 for the fallback) — an assumption about response ordering, not a check.
- * This port instead matches the `<member>` block whose own id/reference
- * equals the refcat just looked up (`extractParcelPosList` below), which is
- * correct regardless of how many neighbours the stored query returns.
+ * get_catastro_parcel: the cadastral parcel at a map click, as v6
+ * (`class.tool_leaflet_special_tools.php` `get_catastro_refcat`): a WMS
+ * GetFeatureInfo for its reference, then a WFS query for its ring. Server-side
+ * because Catastro sends no CORS headers; both hosts are fixed literals.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
@@ -37,7 +22,7 @@ const WFS_BASE = 'https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx';
 // replies) rides into a SECOND outbound URL as a query param.
 const REFCAT_PATTERN = /^[0-9A-Z]{14}$/i;
 
-/** EXPORTED for direct unit coverage (no network needed for this half). */
+/** Exported for unit coverage. */
 export function featureInfoUrl({ bbox, width, height, x, y }: ClickParams): URL {
 	const url = new URL(WMS_BASE);
 	url.searchParams.set('request', 'getFeatureInfo');
@@ -53,19 +38,10 @@ export function featureInfoUrl({ bbox, width, height, x, y }: ClickParams): URL 
 }
 
 /**
- * Extracts {refcat, url} from the GetFeatureInfo HTML, or null when the
- * result page names no parcel. Scoped to the text AFTER the fixed
- * "Referencia catastral" label (v6's own literal string anchor for the same
- * page) rather than the FIRST `<a>` tag anywhere in the document — a
- * page-wide match would silently pick up an unrelated link (a skip-link, a
- * cookie notice) if the third party's markup ever grows one ahead of the
- * real answer (review-diff finding, hito 11).
- *
- * Catastro answers a point with no parcel with that same result page, label
- * and no link. A 200 without the label is not an answer (its scheduled
- * maintenance page is one): reading it as "no parcel" would tell the user
- * something false. It fails with the code the tool's other proxies use for an
- * unusable answer, which is also what a non-2xx from Catastro already gives.
+ * {refcat, url} from the GetFeatureInfo HTML, or null when the result page
+ * names no parcel. Read after v6's "Referencia catastral" anchor, so a link
+ * ahead of it (a skip-link) is never taken for the answer. A 200 without the
+ * label (its maintenance page) is the source unavailable, never "no parcel".
  */
 export function parseCatastroRefcat(html: string): { refcat: string; url: string } | null {
 	const labelIndex = html.search(/Referencia catastral/i);
@@ -86,12 +62,9 @@ export function parseCatastroRefcat(html: string): { refcat: string; url: string
 }
 
 /**
- * Finds `refcat`'s own `<member>` block and returns its first `posList` as
- * [lat, lon] pairs (GML returns them in that order here, verified live
- * against both stored queries — no axis-order swap needed for Leaflet's own
- * `L.polygon(latlngs)`). A `posList` is a GML leaf element (text-only, no
- * nested markup by schema) — a scoped regex is the correct amount of parsing
- * for it, not a full XML DOM the rest of this codebase has no dependency for.
+ * `refcat`'s own `<member>`, matched by id rather than v6's positional index,
+ * and its first `posList` as [lat, lon] pairs (the order both stored queries
+ * answer). A `posList` is a text-only GML leaf: a scoped regex is enough.
  */
 export function extractParcelPosList(xml: string, refcat: string): [number, number][] | null {
 	const members = xml.match(/<member>[\s\S]*?<\/member>/g) ?? [];
