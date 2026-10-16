@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, beforeEach, afterEach, assert, L, turf, HTMLAnchorElement, DEDALO_CORE_URL, DEDALO_MEDIA_URL */
+/*global it, describe, beforeEach, afterEach, assert, L, turf, domtoimage, HTMLAnchorElement, DEDALO_CORE_URL, DEDALO_MEDIA_URL */
 /*eslint no-undef: "error"*/
 'use strict';
 
@@ -41,6 +41,7 @@ import {
 	set_hierarchy,
 	format_polygon_area,
 	apply_display,
+	detach_console,
 	RESERVED_PROPERTY_KEYS
 } from '../../../tools/tool_uca_maps/js/object_console.js'
 import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
@@ -710,23 +711,37 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		return seen
 	}
 
-	/** Every URL dom-to-image-more asks for while capturing the map (it fetches by XHR). */
-	const capture_png_requests = async function() {
+	/** Every URL dom-to-image-more asks for while `capture` runs (it fetches by XHR). */
+	const xhr_urls_during = async function(capture) {
 		const requested		= []
 		const original_open	= XMLHttpRequest.prototype.open
 		XMLHttpRequest.prototype.open = function(method, url, ...rest) {
 			requested.push(String(url))
 			return original_open.call(this, method, url, ...rest)
 		}
-		let blob
 		try {
-			blob = (await capture_download(() => download_map_image(tool, 'png'))).blob
+			await capture()
 		} finally {
 			XMLHttpRequest.prototype.open = original_open
 		}
+		return requested
+	}//end xhr_urls_during
+
+	/** What a real PNG download asks for: none at all would make a clean list prove nothing. */
+	const capture_png_requests = async function() {
+		let blob
+		const requested = await xhr_urls_during(async () => {
+			blob = (await capture_download(() => download_map_image(tool, 'png'))).blob
+		})
 		assert.isOk(blob, 'expected the capture to finish')
+		assert.isAbove(requested.length, 0, 'expected the capture to fetch by XHR at all')
 		return requested
 	}//end capture_png_requests
+
+	/** The same map with both of download_map_image's guards open: the control a clean list needs. */
+	const capture_unguarded_requests = function() {
+		return xhr_urls_during(() => domtoimage.toBlob(geolocation.map.getContainer(), {filter: () => true, filterUrls: () => true}))
+	}//end capture_unguarded_requests
 
 	/** A saved image's carrier rectangle, in the active FeatureGroup. */
 	const add_image_carrier = function() {
@@ -1635,35 +1650,37 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	}
 
-	it('toggle_centroid creates a linked marker in the same FeatureGroup, and removes it on toggle-off', function() {
+	for (const [layer_id, geometry] of [[1, 'Polygon'], [2, 'Circle']]) {
+		it('toggle_centroid on a ' + geometry + ' creates a linked marker in the same FeatureGroup, and removes it on toggle-off', function() {
 
-		const layer = seeded_layer(1)
-		const layers_before = geolocation.FeatureGroup[1].getLayers().length
+			const layer = seeded_layer(layer_id)
+			const layers_before = geolocation.FeatureGroup[layer_id].getLayers().length
 
-		toggle_centroid(tool, layer)
+			toggle_centroid(tool, layer)
 
-		const centroid_uid = layer.feature.properties.uca_maps.centroid_uid
-		assert.isOk(centroid_uid, 'expected a centroid_uid recorded on the parent')
+			const centroid_uid = layer.feature.properties.uca_maps.centroid_uid
+			assert.isOk(centroid_uid, 'expected a centroid_uid recorded on the parent')
 
-		const layers_after_create = geolocation.FeatureGroup[1].getLayers()
-		assert.equal(layers_after_create.length, layers_before + 1, 'expected one new layer (the centroid marker) added')
+			const layers_after_create = geolocation.FeatureGroup[layer_id].getLayers()
+			assert.equal(layers_after_create.length, layers_before + 1, 'expected one new layer (the centroid marker) added')
 
-		const centroid_layer = layer_by_uid(geolocation.FeatureGroup[1], centroid_uid)
-		assert.isOk(centroid_layer, 'expected to find the centroid marker by its uid')
-		assert.equal(
-			centroid_layer.feature.properties.uca_maps.centroid_of,
-			layer.feature.properties.uca_maps.uid,
-			'expected the centroid marker linked back to the parent by uid'
-		)
+			const centroid_layer = layer_by_uid(geolocation.FeatureGroup[layer_id], centroid_uid)
+			assert.isOk(centroid_layer, 'expected to find the centroid marker by its uid')
+			assert.equal(
+				centroid_layer.feature.properties.uca_maps.centroid_of,
+				layer.feature.properties.uca_maps.uid,
+				'expected the centroid marker linked back to the parent by uid'
+			)
 
-		toggle_centroid(tool, layer)
+			toggle_centroid(tool, layer)
 
-		assert.equal(layer.feature.properties.uca_maps.centroid_uid, undefined, 'expected centroid_uid cleared')
-		assert.equal(
-			geolocation.FeatureGroup[1].getLayers().length, layers_before,
-			'expected the centroid marker removed again'
-		)
-	})
+			assert.equal(layer.feature.properties.uca_maps.centroid_uid, undefined, 'expected centroid_uid cleared')
+			assert.equal(
+				geolocation.FeatureGroup[layer_id].getLayers().length, layers_before,
+				'expected the centroid marker removed again'
+			)
+		})
+	}
 
 	it('toggle_uncertainty stores the area as a number, never v6\'s 1/area string', function() {
 
@@ -1842,7 +1859,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		], 'expected v6\'s own order (special_tools.js set_info_console, polygon branch)')
 
 		// the elevation is the SECTION HEADING the three checkboxes belong to,
-		// not a line above them (2026-09-22)
+		// not a line above them
 		const elevation_section = section.querySelector('.uca-maps-elevation-section')
 		const heading = elevation_section.firstElementChild
 		assert.equal(heading.tagName, 'H6', 'expected the elevation to be the section heading')
@@ -1907,7 +1924,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		dash.dispatchEvent(new Event('change'))
 		assert.equal(layer.feature.properties.uca_maps.style.dashArray, undefined, 'expected 0 to clear the field, not store "0"')
 
-		// ONE colour for border and body (v6's own model, 2026-09-22), and the
+		// ONE colour for border and body (v6's own model), and the
 		// only style value with a split home: the stroke half is the core's
 		// `properties.color`, the fill half nobody restores but this tool
 		const color = tool.panel_node.querySelector('.uca-maps-style-color')
@@ -1932,18 +1949,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('the measurement is an ordinary property: listed, editable, deletable', function() {
+	it('the measurement is an ordinary property: listed with its own value field and delete button', function() {
 
 		const layer = open_console_on(2) // circle: shape + radius come from the core
 
 		assert.isOk(layer.feature.properties.area, 'expected the area written into the feature, as v6 does')
 
-		const listed = Array.from(
-			tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-key')
-		).map(node => node.textContent.replace(':', ''))
+		const rows = new Map(Array.from(
+			tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'),
+			(item) => [item.querySelector('.uca-maps-property-key').textContent.replace(':', ''), item]
+		))
 
 		for (const key of ['shape', 'radius', 'area']) {
-			assert.include(listed, key, 'expected "' + key + '" offered in the properties list (v6 modal_properties)')
+			const row = rows.get(key)
+			assert.isOk(row, 'expected "' + key + '" offered in the properties list (v6 modal_properties)')
+			assert.equal(row.querySelector('.uca-maps-property-value').value, String(layer.feature.properties[key]), 'expected "' + key + '" editable in place')
+			assert.isOk(row.querySelector('.uca-maps-property-delete'), 'expected "' + key + '" deletable')
 		}
 
 		// idempotent: a second pass must not rewrite and re-dirty the record
@@ -1960,13 +1981,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const nodes = Array.from(images.children)
 		const index = selector => nodes.findIndex(node => node.matches(selector))
 
+		// a missing node is index -1, which would sit "above" anything
+		assert.isAtLeast(index('.uca-maps-object-image-file'), 0, 'expected the picker in the images section')
+		assert.isAtLeast(index('.uca-maps-object-gallery'), 0, 'expected the gallery in the images section')
 		assert.isBelow(
 			index('.uca-maps-object-image-file'), index('.uca-maps-object-gallery'),
 			'expected the picker above the gallery: a growing gallery must not push the control down the panel'
 		)
 		assert.isNotOk(
 			images.querySelector('.uca-maps-object-image-associate'),
-			'expected NO confirm button: choosing the file associates it (2026-09-22)'
+			'expected NO confirm button: choosing the file associates it'
 		)
 		assert.isOk(images.querySelector('.uca-maps-object-gallery-title'), 'expected the gallery subtitle (v6 "Galería")')
 	})
@@ -1998,17 +2022,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.equal(tool.has_geoman_edition(layer), false, 'expected no stored state before anyone ticks it')
 
-		const box = tool.panel_node.querySelector('.uca-maps-geoman input')
-		assert.isOk(box, 'expected the "Geoman editing active" checkbox (v6 create_div_geoman_edition_mode)')
+		// each change redraws the console: read the box afresh every time
+		const box = () => tool.panel_node.querySelector('.uca-maps-geoman input')
+		const set_box = function(checked) {
+			box().checked = checked
+			box().dispatchEvent(new Event('change'))
+		}
+		assert.isOk(box(), 'expected the "Geoman editing active" checkbox (v6 create_div_geoman_edition_mode)')
+		assert.equal(layer.pm.enabled(), false, 'expected the handles off before the first tick')
 
-		tool.set_geoman_edition(layer, false)
+		set_box(true)
 		assert.equal(tool.has_geoman_edition(layer), true, 'expected the state stored once ticked')
-		assert.equal(tool.is_geoman_edition(layer), false, 'expected editing off for THIS object')
-		assert.equal(layer.pm.enabled(), false, 'expected geoman actually disabled on the layer')
-
-		tool.set_geoman_edition(layer, true)
 		assert.equal(tool.is_geoman_edition(layer), true, 'expected editing on for THIS object')
 		assert.equal(layer.pm.enabled(), true, 'expected geoman actually enabled on the layer')
+
+		set_box(false)
+		assert.equal(tool.is_geoman_edition(layer), false, 'expected editing off for THIS object')
+		assert.equal(layer.pm.enabled(), false, 'expected geoman actually disabled on the layer')
+		assert.equal(box().checked, false, 'expected the redrawn box to say so')
 
 		// a sibling in another FeatureGroup is untouched: no stored state, no override
 		const other = seeded_layer(2)
@@ -2040,7 +2071,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(section.querySelector('.uca-maps-download-button'), 'expected the download button to still be offered')
 	})
 
-	it('compute_info: Circle shows center/radius/area (core\'s own circumference-as-area formula), has style/centroid/hierarchy but NOT uncertainty', function() {
+	it('compute_info: Circle shows the core\'s circumference-as-area, with style/centroid/hierarchy but NOT uncertainty', function() {
 
 		tool.attach_console()
 		const layer = seeded_layer(2)
@@ -2057,44 +2088,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(section.querySelector('.uca-maps-centroid'), 'expected a centroid checkbox for a circle')
 		assert.isNotOk(section.querySelector('.uca-maps-uncertainty'), 'expected NO uncertainty checkbox for a circle (matches v6: polygon-only)')
 		assert.isOk(section.querySelector('.uca-maps-hierarchy-controls'), 'expected hierarchy checkboxes for a circle')
-	})
-
-	it('toggle_centroid also works for a Circle (not just Polygon)', function() {
-
-		const layer = seeded_layer(2)
-
-		toggle_centroid(tool, layer)
-		assert.isOk(layer.feature.properties.uca_maps.centroid_uid, 'expected a centroid recorded on the circle')
-
-		toggle_centroid(tool, layer)
-		assert.equal(layer.feature.properties.uca_maps.centroid_uid, undefined, 'expected the centroid cleared on toggle-off')
-	})
-
-	it('edit() (the real production entry point) attaches every functionality\'s own button+panel when geolocation+map_ready', async function() {
-
-		// this suite deliberately bypasses init()/get_instance() (file header)
-		// but edit() itself — render_tool_uca_maps.prototype.edit, wired onto
-		// tool_uca_maps.prototype.edit by wire_tool() — was never exercised
-		// directly by any other test here; every assertion so far went
-		// through tool.attach_console() called by hand (review-diff
-		// tests-lens finding, 2026-09-02: the actual gate
-		// `if (self.geolocation && self.map_ready) { self.attach_console() }`
-		// inside edit() had no coverage of its own). Left toolbar refactor
-		// (2026-09-04): edit() now attaches THREE independent button+panel
-		// pairs, one per functionality (CLAUDE.local.md "Left toolbar");
-		// hito 4 adds a fourth ("Objects").
-		assert.isNotOk(tool.map_control, 'expected no control before edit() runs')
-		assert.isNotOk(tool.map_image_control, 'expected no map-image control before edit() runs')
-
-		const wrapper = await run_edit()
-
-		assert.isOk(wrapper, 'expected edit() to return a wrapper node')
-		assert.isOk(tool.map_control, 'expected edit()\'s gate to have called attach_console()')
-		assert.isOk(tool.panel_node, 'expected the "UCA" panel built via edit()')
-		assert.isOk(tool.map_image_control, 'expected edit()\'s gate to have called attach_map_image_download_control()')
-		assert.isOk(tool.map_image_panel, 'expected the map-image-download panel built via edit()')
-		assert.isOk(tool.object_viewer_control, 'expected edit()\'s gate to have called attach_object_viewer()')
-		assert.isOk(tool.object_viewer_panel, 'expected the "Objects" panel built via edit()')
 	})
 
 
@@ -2121,7 +2114,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.isOk(tool.map_image_panel.querySelector('.uca-maps-map-image-button'), 'expected the download button')
 
-		// audit row #10, H-04 (2026-09-22): v6's own name field, restored.
+		// v6's own name field
 		const name_input = tool.map_image_panel.querySelector('.uca-maps-map-image-name')
 		assert.isOk(name_input, 'expected the file-name field')
 		assert.equal(name_input.value, 'map', 'expected it pre-filled with "map", the initial value chosen for this field (v6 opens with "archivo")')
@@ -2133,7 +2126,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.map_image_panel.hidden, true, 'expected the panel hidden again after a second click')
 	})
 
-	it('download_map_image(\'png\') captures the live map client-side, no server round-trip', async function() {
+	it('download_map_image(\'png\') captures the live map client-side under the default name, no server round-trip', async function() {
 
 		tool.attach_console()
 		tool.attach_map_image_download_control()
@@ -2144,12 +2137,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return real_tool_request(options)
 		})
 
-		const captured_blob = (await capture_download(() => download_map_image(tool, 'png'))).blob
+		// no name argument: omitted is the default, unlike an empty field
+		const captured = await capture_download(() => download_map_image(tool, 'png'))
 
-		assert.isOk(captured_blob, 'expected download_map_image to build a Blob')
-		assert.equal(captured_blob.type, 'image/png', 'expected a real PNG capture')
-		assert.isAbove(captured_blob.size, 0, 'expected a non-empty capture')
-		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format (same principle as GeoJSON, 2b/3a)')
+		assert.isOk(captured.blob, 'expected download_map_image to build a Blob')
+		assert.equal(captured.blob.type, 'image/png', 'expected a real PNG capture')
+		assert.isAbove(captured.blob.size, 0, 'expected a non-empty capture')
+		assert.equal(captured.name, `${DEFAULT_MAP_IMAGE_NAME}.png`, 'expected the default base name when the caller passes nothing')
+		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format')
 	})
 
 	it('download_map_image names the PNG with what the user typed, sanitized', async function() {
@@ -2170,6 +2165,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_legend()
 
 		const container = geolocation.map.getContainer()
+		// a panel is no .leaflet-control: only the toolbar-node rule keeps an open one out
+		container.querySelector('.uca-maps-map-image-control').click()
+		assert.isFalse(tool.map_image_panel.hidden, 'expected the panel open on the map')
 		// what dom-to-image-more does with the filter: a dropped node takes its subtree
 		const survives = (node) => {
 			for (let current = node; current && current!==container; current = current.parentNode) {
@@ -2192,7 +2190,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 
 		// floors: each control the filter exists to drop is really on the map
-		for (const selector of ['.leaflet-control-zoom', '.leaflet-control-layers', '.leaflet-pm-toolbar', '[class*="leaflet-pm-icon-"]', '.uca-maps-map-image-control']) {
+		for (const selector of ['.leaflet-control-zoom', '.leaflet-control-layers', '.leaflet-pm-toolbar', '[class*="leaflet-pm-icon-"]', '.uca-maps-map-image-control', '.uca-maps-panel']) {
 			const nodes = [...container.querySelectorAll(selector)]
 			assert.isAbove(nodes.length, 0, `expected ${selector} on the live map`)
 			assert.isFalse(nodes.some(survives), `expected every ${selector} out of the image`)
@@ -2207,9 +2205,46 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// which dom-to-image-more fetched as page URLs (404s and console noise)
 		assert.isOk(geolocation.map.getContainer().querySelector('[class*="leaflet-pm-icon-"]'), 'expected Geoman\'s icons on the map')
 
+		const is_reference = (url) => /#|%23/.test(url)
 		const requested = await capture_png_requests()
 
-		assert.deepEqual(requested.filter((url) => /#|%23/.test(url)), [], 'expected no request built from an SVG #reference')
+		assert.deepEqual(requested.filter(is_reference), [], 'expected no request built from an SVG #reference')
+		assert.isAbove((await capture_unguarded_requests()).filter(is_reference).length, 0, 'expected an unguarded capture to ask for them')
+	})
+
+	it('download_map_image captures through keep_in_map_image: Geoman, zoom and an open panel out, the attribution in', async function() {
+
+		tool.attach_map_image_download_control()
+		const container = geolocation.map.getContainer()
+		container.querySelector('.uca-maps-map-image-control').click()
+
+		// only the options matter here: a stub capture, the real library left as found
+		const had_library	= typeof window.domtoimage!=='undefined'
+		const library		= had_library ? window.domtoimage : (window.domtoimage = {})
+		const real_to_blob	= library.toBlob
+		let seen = null
+		library.toBlob = async function(node, options) {
+			seen = {node, options}
+			return new Blob(['png'], {type: 'image/png'})
+		}
+		try {
+			await capture_download(() => download_map_image(tool, 'png'))
+		} finally {
+			if (had_library) {
+				library.toBlob = real_to_blob
+			} else {
+				delete window.domtoimage
+			}
+		}
+
+		assert.isOk(seen, 'expected the capture to go through domtoimage.toBlob')
+		assert.equal(seen.node, container, 'expected the map container captured')
+		const filter = seen.options.filter
+		assert.isFalse(filter(container.querySelector('.leaflet-pm-toolbar')), 'expected Geoman\'s toolbar out of the image')
+		assert.isFalse(filter(container.querySelector('.leaflet-control-zoom')), 'expected the zoom buttons out of the image')
+		assert.isFalse(filter(tool.map_image_panel), 'expected the open panel out of the image')
+		assert.isTrue(filter(container.querySelector('.leaflet-control-attribution')), 'expected the attribution the tile licence asks for')
+		assert.isTrue(filter(container.querySelector('.leaflet-map-pane')), 'expected the map content kept')
 	})
 
 	it('capturing the map requests no URL held by a CSS custom property', async function() {
@@ -2228,22 +2263,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			.filter((path) => !path.startsWith('data:'))
 		assert.isAbove(token_paths.length, 0, 'expected the map to inherit custom properties holding a url()')
 
+		// the library may resolve a path before asking: match on what follows the ../
+		const is_token = (url) => token_paths.some((path) => url.includes(path.replace(/^(\.\.?\/)+/, '')))
 		const pseudo_rule = document.createElement('style')
 		pseudo_rule.textContent = '.leaflet-map-pane::before { content: ""; }'
 		document.head.appendChild(pseudo_rule)
-		let requested
+		let requested, unguarded
 		try {
 			assert.notEqual(getComputedStyle(pane, '::before').getPropertyValue('content'), 'none', 'expected a pseudo-element in the map')
-			requested = await capture_png_requests()
+			requested	= await capture_png_requests()
+			unguarded	= await capture_unguarded_requests()
 		} finally {
 			pseudo_rule.remove()
 		}
 
-		assert.deepEqual(
-			requested.filter((url) => token_paths.some((path) => url.startsWith(path))),
-			[],
-			'expected no request for a url() a custom property holds'
-		)
+		assert.deepEqual(requested.filter(is_token), [], 'expected no request for a url() a custom property holds')
+		assert.isAbove(unguarded.filter(is_token).length, 0, 'expected an unguarded capture to ask for them')
 	})
 
 	it('download_map_image refuses an EMPTY name (v6 parity) without capturing or calling the server', async function() {
@@ -2279,16 +2314,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(errors.length, 0, 'expected no page toast for a field the user left empty')
 	})
 
-	it('download_map_image with NO name argument keeps the default — omitted and empty are different', async function() {
-
-		tool.attach_console()
-		tool.attach_map_image_download_control()
-
-		const captured = await capture_download(() => download_map_image(tool, 'png'))
-
-		assert.equal(captured.name, `${DEFAULT_MAP_IMAGE_NAME}.png`, 'expected the default base name when the caller passes nothing')
-	})
-
 	it('the panel\'s Download button passes its own field to download_map_image', async function() {
 
 		tool.attach_map_image_download_control()
@@ -2305,57 +2330,60 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(calls, [['jpg', 'plano general']], 'expected the click to carry BOTH the format and the field\'s current value')
 	})
 
-	it('download_map_image SENDS the typed name to the server for a server-side format', async function() {
+	/** The server converts the same PNG capture: the real raster_download, never a stub. */
+	it('download_map_image(\'jpg\') sends the sanitized name and gets a real JPEG back (skipped without ImageMagick)', async function() {
 
 		tool.attach_console()
 		tool.attach_map_image_download_control()
 
-		// The only path the name takes to the server is `options.file_name`;
-		// nothing gated that it travels at all (review-diff, 2026-09-22). The
-		// REAL request still runs — same tolerant shape as the two tests below,
-		// so a container without ImageMagick fails the conversion, not this.
 		let sent = null
+		let response = null
 		stub_tool_request(async function(options) {
-			sent = options
-			return real_tool_request(options)
+			sent		= options
+			response	= await real_tool_request(options)
+			return response
 		})
 
-		await capture_download(() => download_map_image(tool, 'jpg', '../Necrópolis de Cádiz'))
+		const captured = await capture_download(() => download_map_image(tool, 'jpg', '../Necrópolis de Cádiz'))
 
 		assert.isOk(sent, 'expected a server round-trip for a non-PNG format')
 		assert.equal(sent.action, 'raster_download', 'expected the raster_download action')
 		assert.equal(sent.options.file_name, 'Necrópolis de Cádiz', 'expected the SANITIZED name to travel in options.file_name')
-	})
-
-	/**
-	* download_map_image('jpg'/'geotiff') round-trips through the REAL server
-	* action (`raster_download.ts`), with the SHP/KML tests' tolerance of a
-	* missing binary.
-	*/
-	it('download_map_image(\'jpg\') downloads a real flattened JPEG via the server\'s ImageMagick, or reports it unavailable', async function() {
-
-		tool.attach_console()
-		tool.attach_map_image_download_control()
-
-		let response = null
-		stub_tool_request(async function(options) {
-			response = await real_tool_request(options)
-			return response
-		})
-
-		const captured_blob = (await capture_download(() => download_map_image(tool, 'jpg'))).blob
 
 		if (response && response.ok!==true) {
 			assert.equal(response.error && response.error.code, 'tool.dependency_unavailable', 'expected the only acceptable failure to be a missing ImageMagick binary — full response: ' + JSON.stringify(response))
-			return
+			this.skip()
 		}
 
-		assert.isOk(captured_blob, 'expected download_map_image to build a Blob from the server response')
-		assert.equal(captured_blob.type, 'image/jpeg', 'expected the JPEG MIME type')
-		assert.isAbove(captured_blob.size, 0, 'expected a non-empty JPEG')
+		assert.isOk(captured.blob, 'expected download_map_image to build a Blob from the server response')
+		assert.equal(captured.blob.type, 'image/jpeg', 'expected the JPEG MIME type')
+		assert.equal(captured.name, 'Necrópolis de Cádiz.jpg', 'expected the typed name back on the download')
+		const bytes = new Uint8Array(await captured.blob.arrayBuffer())
+		assert.deepEqual(Array.from(bytes.slice(0, 3)), [0xff, 0xd8, 0xff], 'expected real JPEG bytes, not a relabelled PNG')
 	})
 
-	it('download_map_image(\'geotiff\') downloads a real georeferenced TIFF via the server\'s GDAL, or reports it unavailable', async function() {
+	/** IFD0 of a little-endian TIFF, SHORT and DOUBLE tags only: where GDAL puts the georeference. */
+	const read_tiff_tags = function(bytes) {
+		const view	= new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+		const ifd	= view.getUint32(4, true)
+		const tags	= {}
+		for (let i = 0; i < view.getUint16(ifd, true); i++) {
+			const entry	= ifd + 2 + (i * 12)
+			const type	= view.getUint16(entry + 2, true)
+			const count	= view.getUint32(entry + 4, true)
+			const size	= {3: 2, 12: 8}[type]
+			if (!size) {
+				continue
+			}
+			const offset = (count * size) > 4 ? view.getUint32(entry + 8, true) : entry + 8
+			tags[view.getUint16(entry, true)] = Array.from({length: count}, (value, k) => type===3
+				? view.getUint16(offset + (k * 2), true)
+				: view.getFloat64(offset + (k * 8), true))
+		}
+		return tags
+	}
+
+	it('download_map_image(\'geotiff\') gets a GeoTIFF in EPSG:3857 tied at the view\'s north-west corner (skipped without GDAL)', async function() {
 
 		tool.attach_console()
 		tool.attach_map_image_download_control()
@@ -2370,17 +2398,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		if (response && response.ok!==true) {
 			assert.equal(response.error && response.error.code, 'tool.dependency_unavailable', 'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response))
-			return
+			this.skip()
 		}
 
 		assert.isOk(captured_blob, 'expected download_map_image to build a Blob from the server response')
 		assert.equal(captured_blob.type, 'image/tiff', 'expected the GeoTIFF MIME type')
 
 		const bytes = new Uint8Array(await captured_blob.arrayBuffer())
-		assert.isAbove(bytes.length, 0, 'expected a non-empty GeoTIFF')
-		// TIFF magic bytes: little-endian 'II*\0' (0x49 0x49 0x2A 0x00) — GDAL's
-		// own default byte order.
+		// little-endian 'II*\0', GDAL's own default byte order
 		assert.deepEqual(Array.from(bytes.slice(0, 4)), [0x49, 0x49, 0x2a, 0x00], 'expected real TIFF magic bytes')
+
+		const tags		= read_tiff_tags(bytes)
+		const geokeys	= tags[34735] || [] // GeoKeyDirectory: 4 header shorts, then {key, location, count, value}
+		const projected	= Array.from({length: geokeys[3] || 0}, (value, k) => geokeys.slice(4 + (k * 4), 8 + (k * 4)))
+			.find(([key]) => key===3072) // ProjectedCSTypeGeoKey
+		assert.isOk(projected, 'expected a projected CRS key in the GeoTIFF')
+		assert.equal(projected[3], 3857, 'expected EPSG:3857, the grid the screenshot\'s pixels are uniform in')
+
+		const tiepoint		= tags[33922] // ModelTiepoint: raster (0,0) to model (x, y)
+		const north_west	= L.CRS.EPSG3857.project(geolocation.map.getBounds().getNorthWest())
+		assert.isOk(tiepoint, 'expected the model tiepoint')
+		assert.deepEqual(tiepoint.slice(0, 2), [0, 0], 'expected the tiepoint on the top-left pixel')
+		assert.closeTo(tiepoint[3], north_west.x, 0.01, 'expected the image tied at the view\'s west edge')
+		assert.closeTo(tiepoint[4], north_west.y, 0.01, 'expected the image tied at the view\'s north edge')
 	})
 
 
@@ -2389,7 +2429,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// as v6. (!) The 'full' load leaves active_layer_id at 3: load_layer sets
 	// it for each layer it loads, the marker last. Each test sets it first.
 
-	it('attach_object_viewer builds its own button+panel with both (empty, unpopulated) list sections', function() {
+	it('attach_object_viewer builds its button+panel with both lists empty until the first open fills them', function() {
 
 		geolocation.active_layer_id = 1 // the seeded polygon
 		tool.attach_object_viewer()
@@ -2408,9 +2448,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(vector_list, 'expected the Vector Objects list')
 		assert.isOk(raster_list, 'expected the Rasterized Objects list')
 
-		// NOT populated at attach time (review-diff simplification finding,
-		// hito 4 — matches every sibling panel, which also builds its content
-		// lazily on first open, not at attach)
+		// built lazily on the first open, like every sibling panel
 		assert.equal(vector_list.children.length, 0, 'expected the Vector Objects list still empty before the first open')
 		assert.equal(raster_list.children.length, 0, 'expected the Rasterized Objects list still empty before the first open')
 
@@ -2423,7 +2461,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(vector_items.length, 1, 'expected the one seeded polygon in Vector Objects')
 		assert.isOk(
 			raster_list.querySelector('.uca-maps-empty-state'),
-			'expected Rasterized Objects to show its empty-state placeholder — no raster-overlay support ported yet (functionality #11)'
+			'expected Rasterized Objects to show its empty-state placeholder: no image on the map'
 		)
 
 		control.click()
@@ -2437,12 +2475,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		let {vector_objects, raster_objects} = collect_objects(tool)
 		assert.equal(vector_objects.length, 1, 'expected only the active layer\'s (1, polygon) one object')
-		assert.equal(raster_objects.length, 0, 'expected no raster objects (functionality #11 not ported)')
+		assert.equal(raster_objects.length, 0, 'expected no raster objects: no image on the map')
 		assert.equal(vector_objects[0].name, 'Untitled object', 'expected the display-only nameless fallback')
 		assert.equal(vector_objects[0].display, true, 'expected visible by default')
 		assert.equal(
 			seeded_layer(1).feature.properties.name, undefined,
-			'expected collect_objects to NEVER write the nameless fallback back into properties (deliberate v6 deviation, file header)'
+			'expected collect_objects to NEVER write the nameless fallback back into properties, unlike v6'
 		)
 
 		geolocation.active_layer_id = 3 // switch to the seeded marker's FeatureGroup
@@ -2451,7 +2489,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.instanceOf(vector_objects[0].layer, L.Marker, 'expected the seeded marker')
 	})
 
-	it('set_object_display hides/shows a Polygon (DOM style + persisted properties.uca_maps.display) and marks the FeatureGroup dirty', function() {
+	it('set_object_display hides/shows a Polygon (DOM style + stored uca_maps.display) and marks the record dirty', function() {
 
 		tool.attach_console() // hydrate()'s reapply_all/commit plumbing lives here
 		geolocation.active_layer_id = 1
@@ -2460,16 +2498,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const layer = seeded_layer(1)
 		assert.instanceOf(layer, L.Polygon, 'expected the seeded polygon')
 
-		set_object_display(tool, layer, false)
-		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected display persisted false')
-		assert.equal(layer._path.style.display, 'none', 'expected the Path DOM node hidden')
-
-		set_object_display(tool, layer, true)
-		assert.equal(layer.feature.properties.uca_maps.display, true, 'expected display persisted true again')
-		assert.notEqual(layer._path.style.display, 'none', 'expected the Path DOM node shown again')
+		for (const visible of [false, true]) {
+			geolocation.is_data_changed = false
+			set_object_display(tool, layer, visible)
+			assert.equal(layer.feature.properties.uca_maps.display, visible, 'expected display stored ' + visible)
+			assert.equal(layer._path.style.display==='none', !visible, 'expected the Path DOM node ' + (visible ? 'shown' : 'hidden'))
+			assert.isTrue(geolocation.is_data_changed, 'expected the record dirty, or Save drops the change')
+		}
 	})
 
-	it('set_object_display works for a Marker too (icon + shadow, not _path)', function() {
+	it('set_object_display works for a Marker too (icon + shadow, not _path), and marks the record dirty', function() {
 
 		tool.attach_console()
 		geolocation.active_layer_id = 3
@@ -2477,13 +2515,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const layer = seeded_layer(3)
 		assert.instanceOf(layer, L.Marker, 'expected the seeded marker')
+		assert.isOk(layer._shadow, 'expected the default icon\'s shadow drawn')
 
-		set_object_display(tool, layer, false)
-		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected display persisted false')
-		assert.equal(layer._icon.style.display, 'none', 'expected the marker icon hidden')
-
-		set_object_display(tool, layer, true)
-		assert.notEqual(layer._icon.style.display, 'none', 'expected the marker icon shown again')
+		for (const visible of [false, true]) {
+			geolocation.is_data_changed = false
+			set_object_display(tool, layer, visible)
+			assert.equal(layer.feature.properties.uca_maps.display, visible, 'expected display stored ' + visible)
+			assert.equal(layer._icon.style.display==='none', !visible, 'expected the marker icon ' + (visible ? 'shown' : 'hidden'))
+			assert.equal(layer._shadow.style.display==='none', !visible, 'expected its shadow ' + (visible ? 'shown' : 'hidden') + ' with it')
+			assert.isTrue(geolocation.is_data_changed, 'expected the record dirty, or Save drops the change')
+		}
 	})
 
 	it('set_object_display seeds .feature on a layer freshly drawn via Geoman (pm:create never assigns one)', function() {
@@ -2492,12 +2533,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 1
 		tool.attach_object_viewer()
 
-		// simulate a shape Geoman just created and nobody has clicked open in
-		// the "UCA" console yet — component_geolocation.js's own init_feature
-		// never assigns .feature (only the L.geoJson restore path does), so a
-		// FRESH layer genuinely reaches this module with none (review-diff
-		// correctness finding, hito 4: a bare `layer.feature.properties` read
-		// silently no-oped on exactly this layer before)
+		// the core's init_feature never assigns .feature (only the L.geoJson
+		// restore does): a shape just drawn with Geoman reaches this module bare
 		const layer = seeded_layer(1)
 		delete layer.feature
 		assert.isNotOk(layer.feature, 'expected the fixture layer to start with no .feature, matching a freshly-drawn one')
@@ -2528,54 +2565,40 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(layer.feature.properties.uca_maps.display, false, 'expected the checkbox change to reach set_object_display')
 		assert.equal(layer._path.style.display, 'none', 'expected the checkbox change to hide the Path DOM node too')
 
-		// re-checking it must show it again — proves the handler reads
-		// checkbox.checked itself rather than blindly inverting the stored
-		// value every time it fires (review-diff robustness finding, hito 4)
+		// re-checking must show it again: a handler inverting the stored value
+		// would pass the first change and fail this one
 		checkbox.checked = true
 		checkbox.dispatchEvent(new Event('change'))
 		assert.equal(layer.feature.properties.uca_maps.display, true, 'expected display persisted true again')
 		assert.notEqual(layer._path.style.display, 'none', 'expected the Path DOM node shown again')
 	})
 
-	it('the panel refreshes itself while left open, on the next updated_layer_data_<id_base> publish', function() {
+	it('the panel refreshes itself on the next updated_layer_data publish while open, and never while closed', function() {
 
 		geolocation.active_layer_id = 1
-		tool.attach_object_viewer()
+		tool.attach_object_viewer() // never opened yet
 
-		tool.object_viewer_control.getContainer().click() // open — populates once
-		const vector_list = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list')
-		assert.equal(vector_list.querySelectorAll('.uca-maps-object-viewer-item').length, 1, 'expected the one seeded polygon')
+		const vector_list	= tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list')
+		const items			= () => vector_list.querySelectorAll('.uca-maps-object-viewer-item').length
+		// a second object in the SAME FeatureGroup, announced the way every
+		// Geoman pm:* handler of the core announces one: update_draw_data
+		const add_object = function(lat) {
+			const extra = L.circle([lat, -3.70], {radius: 50}).addTo(geolocation.FeatureGroup[1])
+			extra.feature = extra.toGeoJSON()
+			geolocation.update_draw_data(1)
+		}
 
-		// simulate a second object appearing in the SAME FeatureGroup while
-		// the panel is still open (a new Geoman pm:create, or an edit
-		// elsewhere) — the core's own update_draw_data is what every one of
-		// Geoman's pm:create/pm:update/pm:edit/pm:remove handlers already
-		// call (component_geolocation.js), so firing it directly here is the
-		// same signal a real draw/edit/delete would produce
-		const extra = L.circle([40.41, -3.70], {radius: 50}).addTo(geolocation.FeatureGroup[1])
-		extra.feature = extra.toGeoJSON()
-		geolocation.update_draw_data(1)
+		add_object(40.41)
+		assert.equal(vector_list.children.length, 0, 'expected the closed panel left untouched by the publish')
 
-		assert.equal(
-			vector_list.querySelectorAll('.uca-maps-object-viewer-item').length, 2,
-			'expected the panel to pick up the new object WITHOUT being closed and reopened'
-		)
+		tool.object_viewer_control.getContainer().click() // open: populates once
+		assert.equal(items(), 2, 'expected the seeded polygon and the circle on the first open')
+
+		add_object(40.42)
+		assert.equal(items(), 3, 'expected the open panel to pick up the new object WITHOUT being closed and reopened')
 	})
 
-	it('the panel does NOT refresh itself while closed (no wasted rebuild)', function() {
-
-		geolocation.active_layer_id = 1
-		tool.attach_object_viewer() // never opened
-
-		const vector_list = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list')
-		assert.equal(vector_list.children.length, 0, 'expected still unpopulated (never opened)')
-
-		geolocation.update_draw_data(1)
-
-		assert.equal(vector_list.children.length, 0, 'expected the closed panel to stay untouched by the live-refresh subscription')
-	})
-
-	it('center_on_object fits the map to a Polygon\'s bounds, masked via camera_is_moving (component_geolocation.js\'s own dragend/zoomend guard)', function() {
+	it('center_on_object fits a Polygon\'s bounds unanimated under camera_is_moving, and leaves the record clean', function() {
 
 		geolocation.active_layer_id = 1
 		tool.attach_object_viewer()
@@ -2586,20 +2609,25 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		let camera_is_moving_during_call = null
 		const original_fit_bounds = geolocation.map.fitBounds
 		geolocation.map.fitBounds = function(bounds, options) {
-			fit_bounds_called_with = bounds
+			fit_bounds_called_with = {bounds, options}
 			camera_is_moving_during_call = geolocation.camera_is_moving
 			return original_fit_bounds.call(this, bounds, options)
 		}
 
+		geolocation.is_data_changed = false
 		center_on_object(tool, layer)
 
 		assert.isOk(fit_bounds_called_with, 'expected map.fitBounds to be called')
-		assert.isOk(fit_bounds_called_with.equals(layer.getBounds()), 'expected the layer\'s own bounds')
-		assert.equal(camera_is_moving_during_call, true, 'expected camera_is_moving raised DURING the move (CLAUDE.local.md "Tres leyes de component_geolocation")')
+		assert.isOk(fit_bounds_called_with.bounds.equals(layer.getBounds()), 'expected the layer\'s own bounds')
+		// the core's dragend/zoomend guard reads the flag when the move ends: an
+		// animated zoomend would land after it is lowered and mark the record dirty
+		assert.strictEqual(fit_bounds_called_with.options && fit_bounds_called_with.options.animate, false, 'expected an unanimated move')
+		assert.equal(camera_is_moving_during_call, true, 'expected camera_is_moving raised DURING the move')
 		assert.equal(geolocation.camera_is_moving, false, 'expected camera_is_moving lowered again afterwards')
+		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click')
 	})
 
-	it('center_on_object (v6\'s "eye" icon) moves a Marker through move_camera (the single masked door), zoom 16 (v6\'s own hardcoded level)', function() {
+	it('center_on_object (v6\'s "eye" icon) moves a Marker through the masked move_camera at v6\'s zoom 16, record clean', function() {
 
 		geolocation.active_layer_id = 3
 		tool.attach_object_viewer()
@@ -2614,30 +2642,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return original_move_camera.call(this, lat, lon, zoom)
 		}
 
+		geolocation.is_data_changed = false
 		center_on_object(tool, layer)
 
 		assert.isOk(move_camera_called_with, 'expected move_camera to be called — never a bare map.setView')
 		assert.equal(move_camera_called_with.lat, latlng.lat, 'expected the marker\'s own latitude')
 		assert.equal(move_camera_called_with.lon, latlng.lng, 'expected the marker\'s own longitude')
 		assert.equal(move_camera_called_with.zoom, 16, 'expected v6\'s own hardcoded zoom level')
-	})
-
-	it('center_on_object never marks the record dirty — a "Center" click is read-only (functionality #4 has no edit affordance)', function() {
-
-		geolocation.active_layer_id = 1
-		tool.attach_object_viewer()
-
-		const layer = seeded_layer(1)
-
-		geolocation.is_data_changed = false
-		center_on_object(tool, layer)
-		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click on a Polygon')
-
-		geolocation.active_layer_id = 3
-		const marker = seeded_layer(3)
-		geolocation.is_data_changed = false
-		center_on_object(tool, marker)
-		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click on a Marker either')
+		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click')
 	})
 
 	it('a hidden display state survives a reload (reapply_all/reapply_display, hydrate())', function() {
@@ -2722,6 +2734,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 		assert.isOk(rectangle, 'expected to find the rectangle by its uid')
 		assert.instanceOf(rectangle, L.Rectangle, 'expected an L.Rectangle, matching v6\'s own L.rectangle(bounds)')
+		// a 1 m square centred on the point: v6's `radiusMts = 1` fed to toBounds
+		const expected = marker.getLatLng().toBounds(1)
+		const bounds = rectangle.getBounds()
+		for (const corner of ['getSouthWest', 'getNorthEast']) {
+			assert.closeTo(bounds[corner]().lat, expected[corner]().lat, 1e-9, 'expected the ' + corner + ' latitude of a 1 m square')
+			assert.closeTo(bounds[corner]().lng, expected[corner]().lng, 1e-9, 'expected the ' + corner + ' longitude of a 1 m square')
+		}
+		assert.isBelow(bounds.getCenter().distanceTo(marker.getLatLng()), 0.01, 'expected the square centred on the marker')
 		assert.equal(
 			rectangle.feature.properties.uca_maps.onexone_of,
 			marker.feature.properties.uca_maps.uid,
@@ -2729,7 +2749,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 		assert.isOk(
 			rectangle.feature.properties.uca_maps.uncertainty,
-			'expected row 7\'s own description honoured: "marcado automáticamente como incertidumbre"'
+			'expected the rectangle flagged as uncertainty on creation'
 		)
 	})
 
@@ -2752,6 +2772,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		toggle_centroid(tool, parent)
 		const centroid_uid = parent.feature.properties.uca_maps.centroid_uid
 		const centroid = layer_by_uid(geolocation.FeatureGroup[1], centroid_uid)
+		// a missing centroid would leave by the not-a-Marker exit instead
+		assert.instanceOf(centroid, L.Marker, 'expected the centroid marker on the map')
 		const layers_before = geolocation.FeatureGroup[1].getLayers().length
 
 		create_onexone_rectangle(tool, centroid)
@@ -2781,17 +2803,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('popupopen only arms a rectangle while 1x1 mode is on (not before, not after clicking the button)', function() {
+	it('popupopen only arms a rectangle while 1x1 mode is on (not before, not after a second click disarms it)', function() {
 
 		tool.attach_onexone()
 		const marker = seeded_layer(3)
 		const layers_before = geolocation.FeatureGroup[3].getLayers().length
+		const button = tool.onexone_control.getContainer()
 
 		marker.openPopup() // 1x1 mode still off
 		assert.equal(geolocation.FeatureGroup[3].getLayers().length, layers_before, 'expected no rectangle while disarmed')
 		marker.closePopup()
 
-		tool.onexone_control.getContainer().click() // arm it
+		button.click() // arm
+		button.click() // and disarm again
+		marker.openPopup()
+		assert.equal(geolocation.FeatureGroup[3].getLayers().length, layers_before, 'expected no rectangle once the second click disarms it')
+		marker.closePopup()
+
+		button.click() // arm it
 		marker.openPopup()
 		assert.equal(
 			geolocation.FeatureGroup[3].getLayers().length, layers_before + 1,
@@ -2799,7 +2828,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('deleting the rectangle clears the marker\'s onexone_uid (usable again); deleting the marker does NOT cascade-delete the rectangle', function() {
+	it('deleting the rectangle clears the marker\'s onexone_uid (usable again); deleting the marker leaves the rectangle', function() {
 
 		tool.attach_onexone()
 		const marker = seeded_layer(3)
@@ -2841,7 +2870,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* and the handles a new geometry is born with.
 	*/
 
-	it('a geometry created on the map is born with the Geoman handles off and says so; a marker and an image carrier are left alone', async function() {
+	it('a geometry created on the map is born with its Geoman handles off and says so; a marker and an image carrier are not', async function() {
 
 		tool.attach_console()
 		geolocation.active_layer_id = 1
@@ -2853,10 +2882,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the explicit stored false v6 writes on creation (special_tools_onexone.js)'
 		)
 		// the stored flag alone would pass on a layer Geoman never touched:
-		// reproduce the core's own click sweep (`component_geolocation.js`
-		// init_feature runs pm.enable() over every layer of the group) and
-		// check the deferred re-assert takes the handles off again — with
-		// either half of the fix removed, this goes red
+		// replay the core's click sweep (init_feature runs pm.enable() over the
+		// group) and the deferred re-assert must take the handles off again
 		assert.equal(polygon.pm.enabled(), false, 'expected no vertex handles on a shape nobody asked to edit')
 		polygon.pm.enable()
 		assert.equal(polygon.pm.enabled(), true, 'expected the simulated core sweep to paint the handles')
@@ -2878,7 +2905,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.map.fire('pm:create', {layer: carrier})
 		assert.isNotOk(
 			typeof carrier.feature.properties.uca_maps.geoman_edition==='boolean',
-			'expected an image carrier left to image_edit.js own seal (hito 14): a new image arrives editable'
+			'expected an image carrier left to image_edit.js own seal: a new image arrives editable'
 		)
 	})
 
@@ -2901,23 +2928,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// serialisation) runs reapply_all over every layer
 		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
 
-		assert.equal(
-			disables, 0,
-			'expected NO pm.disable() on a layer already disabled: Geoman answers it with pm:edit, '
-			+ 'the core answers pm:edit with another update_draw_data, and the publish comes straight back here'
-		)
+		// pm.disable() answers with pm:edit, the core with update_draw_data, and
+		// that publish comes straight back here: an endless loop
+		assert.equal(disables, 0, 'expected NO pm.disable() on a layer already disabled')
 		assert.equal(enables, 0, 'expected no pm.enable() either — the stored state is off')
 
-		// and the counters are not silent because the re-assert never got
-		// here: put the layer INTO edit mode behind the stored state's back —
-		// which is exactly what the core's click sweep does — and the same
-		// publish must now disable it, once
+		// control: the re-assert does reach this layer. Enable it behind the
+		// stored state's back, as the core's click sweep does
 		real_enable()
 		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
 		assert.equal(disables, 1, 'expected the re-assert to reach this layer and clear a state that disagrees')
 	})
 
-	it('the 1x1 marker console carries v6\'s reference-point line and the uncertainty scale', function() {
+	it('the 1x1 marker console carries v6\'s reference-point line and the uncertainty scale, ringed at tier 1 and titled 1.00 m²', function() {
 
 		tool.attach_console()
 		const marker = seeded_layer(3)
@@ -2930,9 +2953,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			section.querySelector('.uca-maps-onexone-reference'),
 			'expected v6 create_div_oneXone\'s own line: the marker says what it now is'
 		)
-		const svg = section.querySelector('.uca-maps-uncertainty-scale svg')
+		const scale	= section.querySelector('.uca-maps-uncertainty-scale')
+		const svg	= scale && scale.querySelector('svg')
 		assert.isOk(svg, 'expected the scale bar v6 draws as img/escala-1.png')
 		assert.equal(svg.querySelectorAll('rect').length, 6, 'expected v6\'s six bands')
+		assert.equal(scale.getAttribute('title'), '1.00 m²', 'expected the 1x1\'s own area as the scale\'s title, as v6')
+		assert.equal(svg.querySelector('circle').getAttribute('cx'), '20', 'expected the ring on the first band: a 1 m² square is tier 1')
 	})
 
 	it('the 1x1 rectangle console prints the nominal area, stores none, and hides the centroid box', function() {
@@ -3014,6 +3040,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(sweeps, 2, 'expected the second click to reach the core sweep')
 		assert.isFalse(marker.isPopupOpen(), 'expected the second click to close the popup')
 		assert.equal(marker.pm.enabled(), false, 'expected the marker still locked after the closing click')
+
+		// the box is the way out, and no later re-assert locks it back
+		await click()
+		assert.isTrue(marker.isPopupOpen(), 'expected the third click to reopen the popup')
+		const unlock = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-geoman input')
+		unlock.checked = true
+		unlock.dispatchEvent(new Event('change'))
+		assert.equal(marker.pm.enabled(), true, 'expected the ticked box to unlock the marker')
+		await click()
+		assert.isFalse(marker.isPopupOpen(), 'expected the fourth click to close the popup')
+		assert.equal(marker.pm.enabled(), true, 'expected the marker still unlocked after the closing click\'s re-assert')
 	})
 
 	it('a click on the empty map stops editing a ticked object even with its popup open, as v6', async function() {
@@ -3033,6 +3070,50 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(polygon.pm.enabled(), false, 'expected the core map click to stop editing')
 		await tick()
 		assert.equal(polygon.pm.enabled(), false, 'expected the object still off after the deferred re-assert')
+	})
+
+	// switching popups fires popupclose then popupopen in one click
+	it('a full re-assert queued by popupopen wins over the lock-only one of popupclose, in either order', async function() {
+
+		tool.attach_console()
+		const polygon	= seeded_layer(1)
+		const marker	= seeded_layer(3)
+		tool.set_geoman_edition(polygon, true)
+
+		for (const order of [['popupclose', 'popupopen'], ['popupopen', 'popupclose']]) {
+			polygon.pm.disable() // what the core's sweep of another group leaves
+			assert.equal(polygon.pm.enabled(), false, 'expected the ticked object off before ' + order.join(' + '))
+			for (const type of order) {
+				geolocation.map.fire(type, {popup: {_source: marker}})
+			}
+			await tick()
+			assert.equal(polygon.pm.enabled(), true, 'expected the full pass to turn the ticked object back on after ' + order.join(' + '))
+		}
+	})
+
+	it('detach_console takes its four map listeners off and cancels a re-assert still queued', async function() {
+
+		tool.attach_console()
+		const map		= geolocation.map
+		const handlers	= ['popupopen', 'popupclose', 'pm:create', 'pm:remove'].map((type) => {
+			const handler = tool['_' + type.replace('pm:', 'pm') + '_handler']
+			assert.isTrue(map.listens(type, handler), 'expected the console listening to ' + type)
+			return [type, handler]
+		})
+
+		// a lock-only re-assert queued over a locked polygon the core sweep enabled
+		const polygon = seeded_layer(1)
+		tool.set_geoman_edition(polygon, false)
+		polygon.pm.enable()
+		map.fire('popupclose')
+
+		detach_console(tool)
+
+		for (const [type, handler] of handlers) {
+			assert.isFalse(map.listens(type, handler), 'expected ' + type + ' taken off the map')
+		}
+		await tick()
+		assert.equal(polygon.pm.enabled(), true, 'expected the queued re-assert cancelled, not run on a detached console')
 	})
 
 	it('the uncertainty scale rings the STORED tier, on any polygon, not only on a 1x1', function() {
@@ -3078,6 +3159,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('edit() stacks "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS"/"Legend"/"Roma" (attach order = corner order)', async function() {
 
+		assert.isNotOk(geolocation.map.getContainer().querySelector('.uca-maps-toolbar-button'), 'expected no button before edit() runs')
 		await run_edit()
 
 		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
