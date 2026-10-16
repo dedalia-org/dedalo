@@ -111,17 +111,17 @@ describe('readRequestedImages — what may be asked for', () => {
 	test('reads a well-formed entry', () => {
 		expect(
 			readRequestedImages([
-				{ section_tipo: 'rsc170', section_id: 12, tipo: 'rsc29', name: 'a.jpg' },
+				{ section_tipo: 'test3', section_id: 12, tipo: 'test99', name: 'a.jpg' },
 			]),
-		).toEqual([{ section_tipo: 'rsc170', section_id: 12, tipo: 'rsc29', name: 'a.jpg' }]);
+		).toEqual([{ section_tipo: 'test3', section_id: 12, tipo: 'test99', name: 'a.jpg' }]);
 	});
 
 	test('a file path is NOT a way to name an image — only record identity is read', () => {
 		const [first] = readRequestedImages([
 			{
-				section_tipo: 'rsc170',
+				section_tipo: 'test3',
 				section_id: 12,
-				tipo: 'rsc29',
+				tipo: 'test99',
 				file_path: '/etc/passwd',
 				absolutePath: '/etc/passwd',
 			},
@@ -137,12 +137,12 @@ describe('readRequestedImages — what may be asked for', () => {
 
 	test('malformed entries are skipped and the list is capped at 30', () => {
 		const many = Array.from({ length: 40 }, (_value, index) => ({
-			section_tipo: 'rsc170',
+			section_tipo: 'test3',
 			section_id: index,
-			tipo: 'rsc29',
+			tipo: 'test99',
 		}));
 		expect(readRequestedImages(many)).toHaveLength(30);
-		expect(readRequestedImages([{ section_tipo: 'rsc170' }, null, 7])).toEqual([]);
+		expect(readRequestedImages([{ section_tipo: 'test3' }, null, 7])).toEqual([]);
 	});
 
 	test('nothing asked for is not an error', () => {
@@ -152,7 +152,7 @@ describe('readRequestedImages — what may be asked for', () => {
 	test('a non-list is refused as request.invalid_options', () => {
 		let refusal: unknown;
 		try {
-			readRequestedImages('rsc170');
+			readRequestedImages('test3');
 		} catch (error) {
 			refusal = error;
 		}
