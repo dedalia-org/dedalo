@@ -50,6 +50,9 @@ export const ALLOWED_ICON_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'imag
 // exported for the client gate
 export const MAX_ICON_BYTES = 2000000
 
+/** Bytes per String.fromCharCode call: far below any engine's argument limit. */
+const BASE64_CHUNK_BYTES = 0x8000
+
 /** A new item's default pin. v6 serves `img/pin.svg` from the tool folder; inlined
 * here so it needs no asset URL (`img-src` already admits `data:`). Markup on purpose:
 * it only ever becomes an `<img>` data URI, never a DOM sink. */
@@ -462,18 +465,27 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 
 /**
 * READ_FILE_AS_DATA_URL
-* @param {File} file
+* Through Blob.arrayBuffer, not FileReader: the base64 is encoded in chunks, as one
+* String.fromCharCode spread over a whole 2 MB file overflows the call stack. Only a
+* refused read becomes null; a non-Blob still throws.
+*
+* @param {File} file - type already checked against ALLOWED_ICON_TYPES
 * @returns {Promise<string|null>} null when the file could not be read
 */
-const read_file_as_data_url = function(file) {
+const read_file_as_data_url = async function(file) {
 
-	return new Promise((resolve) => {
-		const reader = new FileReader()
-		reader.onload	= () => resolve(String(reader.result || '') || null)
-		reader.onerror	= () => resolve(null)
-		reader.readAsDataURL(file)
-	})
+	const buffer = await file.arrayBuffer().catch(() => null)
+	if (!buffer) {
+		return null
+	}
 
+	const bytes		= new Uint8Array(buffer)
+	const chunks	= []
+	for (let start=0; start<bytes.length; start+=BASE64_CHUNK_BYTES) {
+		chunks.push(String.fromCharCode(...bytes.subarray(start, start + BASE64_CHUNK_BYTES)))
+	}
+
+	return `data:${file.type};base64,${btoa(chunks.join(''))}`
 }//end read_file_as_data_url
 
 

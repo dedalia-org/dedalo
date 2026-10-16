@@ -14,6 +14,7 @@
 
 
 import {strip_tags, safe_url} from '../../../core/common/js/utils/util.js'
+import {escape_html} from '../../../core/common/js/utils/render_escape.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -165,7 +166,9 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 			minZoom		: basemap.minzoom,
 			maxZoom		: basemap.maxzoom
 		})
-		layer_control.addBaseLayer(tile_layer, basemap.name)
+		// the name is text (the panel list sets it as textContent), Leaflet's
+		// control writes it as innerHTML
+		layer_control.addBaseLayer(tile_layer, escape_html(basemap.name))
 		return tile_layer
 	})
 
@@ -180,9 +183,10 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 
 /**
 * VALIDATE_BASEMAP_FIELDS
-* Name AND attribution are stripped of tags: Leaflet renders the attribution through
-* innerHTML. The URL must be absolute (a relative string is no tile template) and pass
-* `safe_url`, the app's one scheme allowlist.
+* strip_tags reduces name and attribution to text and DECODES entities (`&lt;b&gt;` is
+* `<b>`): the attribution is kept escaped, HTML like the defaults' (Leaflet's innerHTML);
+* the name stays text, escaped where it reaches Leaflet. The URL must be absolute (a
+* relative string is no tile template) and pass `safe_url`, the app's scheme allowlist.
 *
 * @param {Object} self
 * @param {Object} fields - {url, name, attribution, minzoom, maxzoom} (raw form strings)
@@ -192,7 +196,7 @@ const validate_basemap_fields = function(self, fields) {
 
 	const raw_url		= String(fields.url || '').trim()
 	const name			= strip_tags(String(fields.name || '').trim())
-	const attribution	= strip_tags(String(fields.attribution || '').trim())
+	const attribution	= escape_html(strip_tags(String(fields.attribution || '').trim()))
 	const minzoom		= parseInt(fields.minzoom, 10)
 	const maxzoom		= parseInt(fields.maxzoom, 10)
 

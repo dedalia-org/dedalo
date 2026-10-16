@@ -354,6 +354,32 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		}
 	})
 
+	it('destroy() while wait_for_map pauses resolves it false, on the last pause and on a mid-wait one', async function() {
+
+		// destroy() nulls `geolocation` before (or, with delete_self=false,
+		// without ever) setting status 'destroyed': the read after the pause
+		// is what used to throw, and build() only logged it
+		const original_now = Date.now
+		try {
+			const last_pause = new tool_uca_maps()
+			last_pause.geolocation = {map: null}
+			const waiting_last = last_pause.wait_for_map()
+			const start = original_now()
+			Date.now = () => start + 60000 // the deadline passes during this pause
+			await last_pause.destroy(true, true, true)
+			assert.isFalse(await waiting_last, 'expected false once the deadline passed after destroy')
+			Date.now = original_now
+
+			const mid_wait = new tool_uca_maps()
+			mid_wait.geolocation = {map: null}
+			const waiting_mid = mid_wait.wait_for_map()
+			await mid_wait.destroy(false, false, false)
+			assert.isFalse(await waiting_mid, 'expected false on the next poll after a destroy that keeps the status')
+		} finally {
+			Date.now = original_now
+		}
+	})
+
 	// the seed is the object v6 writes the first time
 	// (`class.tool_leaflet_special_tools.php` legends()): persisting a legend
 	// is writing this shape verbatim
@@ -3791,6 +3817,35 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[2]), true, 'expected the newly added basemap activated')
 	})
 
+	it('an entity-typed basemap name or attribution shows as text in the layer control and the attribution, never as markup', function() {
+
+		tool.attach_xyz_basemaps()
+		const container		= geolocation.map.getContainer()
+		const control_names	= () => Array.from(
+			container.querySelectorAll('.leaflet-control-layers-base label'),
+			(label) => label.textContent.trim()
+		)
+		const attribution	= () => container.querySelector('.leaflet-control-attribution')
+		const url			= 'https://example.com/{z}/{x}/{y}.png'
+
+		// strip_tags decodes the entities: without the escape, Leaflet's innerHTML
+		// would turn the decoded text back into an element
+		const typed = '&lt;b&gt;x&lt;/b&gt;'
+		assert.deepEqual(tool.add_basemap({url: url, name: typed, attribution: typed, minzoom: 0, maxzoom: 18}), {ok: true})
+		assert.include(control_names(), '<b>x</b>', 'expected the name shown as literal text in the layer control')
+		assert.include(attribution().textContent, '<b>x</b>', 'expected the attribution shown as literal text')
+		assert.isNull(container.querySelector('.leaflet-control-layers b, .leaflet-control-attribution b'), 'expected no <b> element created')
+
+		// an ordinary name is not double-escaped on the way
+		const name = 'Mapa & Cartografía'
+		assert.deepEqual(tool.add_basemap({url: url, name: name, attribution: 'Diputació & Ajuntament', minzoom: 0, maxzoom: 18}), {ok: true})
+		assert.include(control_names(), name, 'expected the "&" and the accent shown as typed in the layer control')
+		assert.include(attribution().textContent, 'Diputació & Ajuntament', 'expected the attribution shown as typed')
+		tool.xyz_control.getContainer().click() // opening the panel lists self.basemaps
+		const panel_names = Array.from(tool.xyz_panel.querySelectorAll('.uca-maps-xyz-item-name'), (node) => node.textContent)
+		assert.include(panel_names, name, 'expected the panel list to show the name as typed')
+	})
+
 	it('delete_basemap refuses to remove the last remaining basemap; removes any other and reactivates index 0', function() {
 
 		tool.attach_xyz_basemaps()
@@ -7195,7 +7250,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.legend.columns.length, 0)
 	})
 
-	it('an icon must be an allowed type under 2 MB; a good one lands as a data URL', async function() {
+	it('an icon must be an allowed type under 2 MB; a good one lands as a data URL of its exact bytes', async function() {
 
 		tool.attach_legend()
 		tool.add_legend_column()
@@ -7220,11 +7275,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 
 		// the ceiling is v6's, inclusive: a file AT 2 MB is accepted — without
-		// this case a `>` turned into a `>=` reads as green
+		// this case a `>` turned into a `>=` reads as green. Varied bytes, so a
+		// base64 chunk that drops or repeats bytes cannot pass for the file
+		const ceiling_bytes = Uint8Array.from({length: MAX_ICON_BYTES}, (_value, index) => (index * 7 + (index >> 15)) & 255)
 		const at_the_ceiling = await tool.set_legend_element_icon(
-			0, 0, new File([new Uint8Array(MAX_ICON_BYTES)], 'exact.png', {type: 'image/png'})
+			0, 0, new File([ceiling_bytes], 'exact.png', {type: 'image/png'})
 		)
 		assert.isTrue(at_the_ceiling.ok, 'expected a file exactly at the 2 MB ceiling accepted')
+		const stored_prefix = 'data:image/png;base64,'
+		const stored_icon = tool.legend.columns[0].elements[0].icon
+		assert.isTrue(stored_icon.startsWith(stored_prefix), 'expected the icon stored as a PNG data URL')
+		const decoded = atob(stored_icon.slice(stored_prefix.length))
+		assert.equal(decoded.length, MAX_ICON_BYTES, 'expected every byte of the file in the data URL')
+		let first_mismatch = -1
+		for (let index=0; index<decoded.length && first_mismatch===-1; index++) {
+			if (decoded.charCodeAt(index)!==ceiling_bytes[index]) first_mismatch = index
+		}
+		assert.equal(first_mismatch, -1, 'expected the data URL to carry the file byte for byte')
 		// back to the pin, so the last case has to land its own icon
 		tool.legend.columns[0].elements[0].icon = DEFAULT_ELEMENT_ICON
 
@@ -7244,7 +7311,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.add_legend_column()
 		tool.add_legend_element(0)
 
-		// NOT a Blob: FileReader.readAsDataURL would THROW on it. So this only
+		// NOT a Blob: file.arrayBuffer() would THROW on it. So this only
 		// returns a refusal if both checks happen before the read — a refactor
 		// that reads first (loading a 30 MB file into memory just to throw it
 		// away) turns this red instead of staying quietly green

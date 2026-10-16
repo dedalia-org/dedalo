@@ -289,7 +289,8 @@ tool_uca_maps.prototype.build = async function(autoload=false) {
 * Polls for `self.geolocation.map`: component_geolocation builds Leaflet lazily
 * (`lazy_in_viewport`, un-awaited) and publishes no "map ready" event. Gives up
 * if this instance is destroyed meanwhile, so a slow map never revives a
-* torn-down tool.
+* torn-down tool. destroy() nulls self.geolocation before its status turns
+* 'destroyed', so every read after a pause checks both.
 *
 * @returns {Promise<boolean>} true once self.geolocation.map exists; false on
 *   timeout or if self.geolocation is null (no map component found at all)
@@ -305,7 +306,7 @@ tool_uca_maps.prototype.wait_for_map = async function() {
 	const deadline = Date.now() + MAP_WAIT_TIMEOUT_MS
 	while (Date.now() < deadline) {
 
-		if (self.status==='destroyed') {
+		if (self.status==='destroyed' || !self.geolocation) {
 			return false
 		}
 		if (self.geolocation.map) {
@@ -315,7 +316,7 @@ tool_uca_maps.prototype.wait_for_map = async function() {
 	}
 
 
-	return Boolean(self.geolocation.map)
+	return Boolean(self.geolocation?.map)
 }//end wait_for_map
 
 
