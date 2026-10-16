@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, beforeEach, afterEach, assert, L, turf, HTMLAnchorElement, DEDALO_CORE_URL */
+/*global it, describe, beforeEach, afterEach, assert, L, turf, HTMLAnchorElement, DEDALO_CORE_URL, DEDALO_MEDIA_URL */
 /*eslint no-undef: "error"*/
 'use strict';
 
@@ -46,7 +46,7 @@ import {
 import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
-import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload, IMAGE_DOWNLOAD_TIMEOUT_MS } from '../../../tools/tool_uca_maps/js/image_upload.js'
+import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload, IMAGE_DOWNLOAD_TIMEOUT_MS, IMAGE_SECTION_TIPO, IMAGE_COMPONENT_TIPO } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
 	associate_image,
 	object_images,
@@ -64,6 +64,7 @@ import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/ren
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
 import { tool_error_text, exception_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
+import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
 import { is_catastro_enabled, is_spanish_official_lang, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
@@ -286,7 +287,7 @@ const image_descriptor = () => JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR))
 /** An object's gallery already at the cap. */
 const full_gallery = () => ({ images: Array.from(
 	{length: MAX_OBJECT_IMAGES},
-	(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'rsc170', section_id:index, tipo:'rsc29', name:null})
+	(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'test3', section_id:index, tipo:'test99', name:null})
 ) })
 
 /** What the server answers once it has staged a linked image under `name`. */
@@ -320,136 +321,39 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 
 	this.timeout(10000)
 
-	it('module exports the tool constructor', function() {
-		assert.equal(typeof tool_uca_maps, 'function', 'expected tool_uca_maps to be a constructor function')
-	})
+	it('a new instance starts unattached and idle, and the prototype carries what no other test calls', function() {
 
-	it('construct seeds the documented instance properties', function() {
+		// what the attach_* guards and destroy() read: an attach that sees a
+		// stale value skips its work, a detach that sees one undoes another's
 		const instance = new tool_uca_maps()
+		const initial = {
+			geolocation						: null,
+			map_ready						: false,
+			map_control						: null,
+			_popupopen_handler				: null,
+			_popupclose_handler				: null,
+			_catastro_busy					: false,
+			_ua_busy						: false,
+			_upload_busy					: false,
+			_image_upload_busy				: false,
+			_xyz_took_over_tiles			: false,
+			_xyz_created_layer_control		: false,
+			_catastro_created_layer_control	: false,
+			_ua_created_layer_control		: false
+		}
+		for (const [key, value] of Object.entries(initial)) {
+			assert.strictEqual(instance[key], value, 'expected ' + key + ' to start as ' + value)
+		}
 
-		assert.equal(typeof instance, 'object', 'expected instance to be an object')
-		assert.equal(instance.id, null, 'expected id null')
-		assert.equal(instance.model, null, 'expected model null')
-		assert.equal(instance.mode, null, 'expected mode null')
-		assert.equal(instance.node, null, 'expected node null')
-		assert.equal(instance.ar_instances, null, 'expected ar_instances null')
-		assert.equal(instance.events_tokens, null, 'expected events_tokens null')
-		assert.equal(instance.status, null, 'expected status null')
-		assert.equal(instance.type, null, 'expected type null')
-		assert.equal(instance.caller, null, 'expected caller null')
-		assert.equal(instance.geolocation, null, 'expected geolocation null')
-		assert.equal(instance.map_ready, false, 'expected map_ready false')
-		assert.equal(instance.map_control, null, 'expected map_control null')
-		assert.equal(instance.panel_node, null, 'expected panel_node null')
-		assert.equal(instance.active_console_layer, null, 'expected active_console_layer null')
-		assert.equal(instance._popupopen_handler, null, 'expected _popupopen_handler null')
-		assert.equal(instance._pmcreate_handler, null, 'expected _pmcreate_handler null')
-		assert.equal(instance._pmremove_handler, null, 'expected _pmremove_handler null')
-		assert.equal(instance.map_image_control, null, 'expected map_image_control null')
-		assert.equal(instance.map_image_panel, null, 'expected map_image_panel null')
-		assert.equal(instance.object_viewer_control, null, 'expected object_viewer_control null')
-		assert.equal(instance.object_viewer_panel, null, 'expected object_viewer_panel null')
-		assert.equal(instance.onexone_control, null, 'expected onexone_control null')
-		assert.equal(instance._onexone_popupopen_handler, null, 'expected _onexone_popupopen_handler null')
-		assert.equal(instance._onexone_pmremove_handler, null, 'expected _onexone_pmremove_handler null')
-		assert.equal(instance.xyz_control, null, 'expected xyz_control null')
-		assert.equal(instance.xyz_panel, null, 'expected xyz_panel null')
-		assert.equal(instance.basemaps, null, 'expected basemaps null')
-		assert.equal(instance._xyz_tile_layers, null, 'expected _xyz_tile_layers null')
-		assert.equal(instance._xyz_took_over_tiles, false, 'expected _xyz_took_over_tiles false')
-		assert.equal(instance._xyz_created_layer_control, false, 'expected _xyz_created_layer_control false')
-		assert.equal(instance.wms_control, null, 'expected wms_control null')
-		assert.equal(instance.wms_panel, null, 'expected wms_panel null')
-		assert.equal(instance.wms_layers, null, 'expected wms_layers null')
-		assert.equal(instance._wms_tile_layers, null, 'expected _wms_tile_layers null')
-		assert.equal(instance._wms_search_results, null, 'expected _wms_search_results null')
-		assert.equal(instance.catastro_control, null, 'expected catastro_control null')
-		assert.equal(instance._catastro_tile_layer, null, 'expected _catastro_tile_layer null')
-		assert.equal(instance._catastro_click_handler, null, 'expected _catastro_click_handler null')
-		assert.equal(instance._catastro_busy, false, 'expected _catastro_busy false')
-		assert.equal(instance.ua_control, null, 'expected ua_control null')
-		assert.equal(instance.ua_panel, null, 'expected ua_panel null')
-		assert.equal(instance._ua_level, null, 'expected _ua_level null')
-		assert.equal(instance._ua_tile_layer, null, 'expected _ua_tile_layer null')
-		assert.equal(instance._ua_click_handler, null, 'expected _ua_click_handler null')
-		assert.equal(instance._ua_busy, false, 'expected _ua_busy false')
-		assert.equal(instance.upload_control, null, 'expected upload_control null')
-		assert.equal(instance.upload_panel, null, 'expected upload_panel null')
-		assert.equal(instance._upload_busy, false, 'expected _upload_busy false')
-		assert.equal(instance._image_upload_busy, false, 'expected _image_upload_busy false')
-		assert.equal(instance._image_overlays, null, 'expected _image_overlays null')
-		assert.equal(instance._image_overlay_token, null, 'expected _image_overlay_token null')
-		assert.equal(instance._toolbar_bar, null, 'expected _toolbar_bar null')
-		assert.equal(instance._toolbar_nodes, null, 'expected _toolbar_nodes null')
+		// wire_tool's delegates and the members the live-map tests never call
+		for (const name of ['render', 'refresh', 'init', 'build', 'wait_for_map', 'close_transient_modal', 'clear_roman_search']) {
+			assert.isFunction(tool_uca_maps.prototype[name], 'expected ' + name + ' on the prototype')
+		}
 	})
 
-	it('prototype is wired with the lifecycle methods', function() {
-		// common lifecycle delegated from tool_common / common via wire_tool
-		assert.equal(typeof tool_uca_maps.prototype.render, 'function', 'expected render wired')
-		assert.equal(typeof tool_uca_maps.prototype.refresh, 'function', 'expected refresh wired')
-		assert.equal(typeof tool_uca_maps.prototype.edit, 'function', 'expected edit wired')
-		// tool-specific overrides defined on the module
-		assert.equal(typeof tool_uca_maps.prototype.init, 'function', 'expected init defined')
-		assert.equal(typeof tool_uca_maps.prototype.build, 'function', 'expected build defined')
-		assert.equal(typeof tool_uca_maps.prototype.destroy, 'function', 'expected destroy defined')
-		assert.equal(typeof tool_uca_maps.prototype.wait_for_map, 'function', 'expected wait_for_map defined')
-		assert.equal(typeof tool_uca_maps.prototype.get_capabilities, 'function', 'expected get_capabilities defined')
-		// hito 2 checkpoint 2a additions
-		assert.equal(typeof tool_uca_maps.prototype.attach_console, 'function', 'expected attach_console defined')
-		// left toolbar refactor (2026-09-04) — one attach_* per functionality
-		assert.equal(typeof tool_uca_maps.prototype.attach_map_image_download_control, 'function', 'expected attach_map_image_download_control defined')
-		// hito 4 — functionality #4, "Objects"
-		assert.equal(typeof tool_uca_maps.prototype.attach_object_viewer, 'function', 'expected attach_object_viewer defined')
-		assert.equal(typeof tool_uca_maps.prototype.collect_objects, 'function', 'expected collect_objects defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_object_display, 'function', 'expected set_object_display defined')
-		assert.equal(typeof tool_uca_maps.prototype.center_on_object, 'function', 'expected center_on_object defined')
-		// hito 7 — functionality #7, "1x1"
-		assert.equal(typeof tool_uca_maps.prototype.attach_onexone, 'function', 'expected attach_onexone defined')
-		// hito 9 — functionality #5, "XYZ basemaps"
-		assert.equal(typeof tool_uca_maps.prototype.attach_xyz_basemaps, 'function', 'expected attach_xyz_basemaps defined')
-		assert.equal(typeof tool_uca_maps.prototype.add_basemap, 'function', 'expected add_basemap defined')
-		assert.equal(typeof tool_uca_maps.prototype.delete_basemap, 'function', 'expected delete_basemap defined')
-		assert.equal(typeof tool_uca_maps.prototype.move_basemap, 'function', 'expected move_basemap defined')
-		// "WMS" — functionality #6, WMS server layers
-		assert.equal(typeof tool_uca_maps.prototype.attach_wms_services, 'function', 'expected attach_wms_services defined')
-		assert.equal(typeof tool_uca_maps.prototype.search_wms_layers, 'function', 'expected search_wms_layers defined')
-		assert.equal(typeof tool_uca_maps.prototype.clear_wms_search, 'function', 'expected clear_wms_search defined')
-		assert.equal(typeof tool_uca_maps.prototype.add_wms_layer, 'function', 'expected add_wms_layer defined')
-		assert.equal(typeof tool_uca_maps.prototype.toggle_wms_layer, 'function', 'expected toggle_wms_layer defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_wms_layer_opacity, 'function', 'expected set_wms_layer_opacity defined')
-		assert.equal(typeof tool_uca_maps.prototype.delete_wms_layer, 'function', 'expected delete_wms_layer defined')
-		// "Catastro" (functionality #8) / "UA" (functionality #9)
-		assert.equal(typeof tool_uca_maps.prototype.attach_catastro, 'function', 'expected attach_catastro defined')
-		assert.equal(typeof tool_uca_maps.prototype.attach_administrative_units, 'function', 'expected attach_administrative_units defined')
-		assert.equal(typeof tool_uca_maps.prototype.on_close_actions, 'function', 'expected on_close_actions defined')
-		assert.equal(typeof tool_uca_maps.prototype.close_transient_modal, 'function', 'expected close_transient_modal defined')
-		assert.equal(typeof tool_uca_maps.prototype.on_geolocation_destroyed, 'function', 'expected on_geolocation_destroyed defined')
-		// "Legend" — functionality #12, the manual legend editor
-		assert.equal(typeof tool_uca_maps.prototype.attach_legend, 'function', 'expected attach_legend defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_legend_title, 'function', 'expected set_legend_title defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_legend_visible, 'function', 'expected set_legend_visible defined')
-		assert.equal(typeof tool_uca_maps.prototype.add_legend_column, 'function', 'expected add_legend_column defined')
-		assert.equal(typeof tool_uca_maps.prototype.delete_legend_column, 'function', 'expected delete_legend_column defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_legend_column_name, 'function', 'expected set_legend_column_name defined')
-		assert.equal(typeof tool_uca_maps.prototype.add_legend_element, 'function', 'expected add_legend_element defined')
-		assert.equal(typeof tool_uca_maps.prototype.delete_legend_element, 'function', 'expected delete_legend_element defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_name, 'function', 'expected set_legend_element_name defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_icon, 'function', 'expected set_legend_element_icon defined')
-		assert.equal(typeof tool_uca_maps.prototype.set_legend_element_symbol, 'function', 'expected set_legend_element_symbol defined')
-		assert.equal(typeof tool_uca_maps.prototype.move_legend_column, 'function', 'expected move_legend_column defined')
-		assert.equal(typeof tool_uca_maps.prototype.move_legend_element, 'function', 'expected move_legend_element defined')
-		// "Imperio Romano" — functionality #14, the three gazetteers
-		assert.equal(typeof tool_uca_maps.prototype.attach_roman_empire, 'function', 'expected attach_roman_empire defined')
-		assert.equal(typeof tool_uca_maps.prototype.search_roman, 'function', 'expected search_roman defined')
-		assert.equal(typeof tool_uca_maps.prototype.add_roman_result, 'function', 'expected add_roman_result defined')
-		assert.equal(typeof tool_uca_maps.prototype.clear_roman_search, 'function', 'expected clear_roman_search defined')
-	})
-
-	// "Legend" (functionality #12, js/legend.js) — PURE, no live map needed.
-	// The seed shape is a CONTRACT, not decoration: it is the exact object v6
-	// writes into its per-section_tipo JSON the first time
-	// (`class.tool_leaflet_special_tools.php` legends()), so the day the foro
-	// question #7 closes, persisting is writing this object verbatim.
+	// the seed is the object v6 writes the first time
+	// (`class.tool_leaflet_special_tools.php` legends()): persisting a legend
+	// is writing this shape verbatim
 	it('empty_legend seeds v6\'s own stored shape, and the default icon is self-contained', function() {
 
 		assert.deepEqual(empty_legend(), {legend: '', enable: true, columns: []})
@@ -468,20 +372,22 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(MAX_ICON_BYTES, 2000000, 'expected v6\'s own 2 MB ceiling')
 	})
 
-	it('tool_error_text: a request.invalid_options refusal is the panel\'s lead, then the server\'s reason', function() {
+	it('tool_error_text: a REASON_CODES refusal is the panel\'s lead, then the server\'s reason', function() {
 
-		const refusal = {
-			is_api_error	: true,
-			code			: 'request.invalid_options',
-			label_key		: 'error_request_invalid_options',
-			message			: "Invalid UTM zone '61' (expected 1 to 60)"
-		}
-
-		assert.equal(
-			tool_error_text(refusal, 'The file could not be loaded.'),
-			"The file could not be loaded.\nInvalid UTM zone '61' (expected 1 to 60)",
-			'expected the reason core\'s generic label hides'
+		assert.includeMembers(
+			Array.from(REASON_CODES),
+			['request.invalid_options', 'tool.unsupported_target', 'media.file_not_found'],
+			'expected the three public codes the server refuses with a reason'
 		)
+		const rows = [
+			// the reason core's generic label hides
+			{code: 'request.invalid_options', lead: 'The file could not be loaded.', message: "Invalid UTM zone '61' (expected 1 to 60)"},
+			...Array.from(REASON_CODES, (code) => ({code: code, lead: 'LEAD', message: 'Why it failed.'}))
+		]
+		for (const row of rows) {
+			const refusal = {is_api_error: true, code: row.code, label_key: 'x', message: row.message}
+			assert.equal(tool_error_text(refusal, row.lead), row.lead + '\n' + row.message, 'expected the reason shown for ' + row.code)
+		}
 	})
 
 	it('tool_error_text: any other code, or a refusal with no reason, is core\'s error_text', function() {
@@ -503,19 +409,6 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 			const text = tool_error_text(api_error, 'LEAD')
 			assert.equal(text, error_text(api_error), 'expected core\'s sentence for ' + api_error.code)
 			assert.notInclude(text, 'LEAD', 'expected no lead without a reason to introduce')
-		}
-	})
-
-	it('tool_error_text: every REASON_CODES refusal carries its reason — a target it cannot process, a file that is gone', function() {
-
-		assert.includeMembers(
-			Array.from(REASON_CODES),
-			['request.invalid_options', 'tool.unsupported_target', 'media.file_not_found'],
-			'expected the three public codes the server refuses with a reason'
-		)
-		for (const code of REASON_CODES) {
-			const refusal = {is_api_error: true, code: code, label_key: 'x', message: 'Why it failed.'}
-			assert.equal(tool_error_text(refusal, 'LEAD'), 'LEAD\nWhy it failed.', 'expected the reason shown for ' + code)
 		}
 	})
 
@@ -548,6 +441,10 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 						<Layer queryable="1">
 							<Name>topo:layer3</Name>
 						</Layer>
+						<Layer queryable="0">
+							<Name>topo:layer4</Name>
+							<Title>Layer Four</Title>
+						</Layer>
 					</Layer>
 				</Capability>
 			</WMS_Capabilities>`
@@ -557,8 +454,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(result.ok, true)
 		assert.deepEqual(result.layers, [
 			{name: 'topo:layer2', title: 'Layer Two'},
-			{name: 'topo:layer3', title: 'topo:layer3'}
-		])
+			{name: 'topo:layer3', title: 'topo:layer3'},
+			{name: 'topo:layer4', title: 'Layer Four'}
+		], 'expected queryable="0" kept: the attribute counts, not its value')
 	})
 
 	it('parse_wms_capabilities_xml reports a parse failure on malformed XML', function() {
@@ -567,10 +465,8 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.isOk(result.error)
 	})
 
-	// review-diff correctness finding: a queryable GROUP layer with no OWN
-	// <Name> must never inherit a nested child's <Name>/<Title> — Name/Title
-	// lookup has to stop at DIRECT children, not search the whole subtree
-	// (Element.getElementsByTagName would otherwise reach into child2 below).
+	// Name/Title are read from DIRECT children: a subtree search would hand an
+	// unnamed group its nested child's Name and list a layer that does not exist
 	it('parse_wms_capabilities_xml never inherits Name/Title from a NESTED child of an unnamed queryable group', function() {
 
 		const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -804,7 +700,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 		stub_tool_request(async function(options) {
 			if (options.action==='get_image_file') {
-				return {ok: true, data: {file_path: '/rsc29/1.5MB/' + options.options.section_id + '.jpg', quality: '1.5MB'}}
+				return {ok: true, data: {file_path: '/image/1.5MB/' + options.options.section_id + '.jpg', quality: '1.5MB'}}
 			}
 			return real_tool_request(options)
 		})
@@ -891,13 +787,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			geolocation.map.getContainer().contains(tool.panel_node), true,
 			'expected the panel appended to the map\'s own DOM container'
 		)
-		// left toolbar refactor (2026-09-04): map-image no longer lives inside
-		// the "UCA" panel — attach_console() builds functionality #3's own
-		// content only
-		assert.isNotOk(
-			tool.panel_node.querySelector('.uca-maps-map-image-row'),
-			'expected map-image-download NOT built into the "UCA" panel any more (moved to its own panel)'
-		)
 	})
 
 	it('the control toggles panel visibility (Show/Hide)', function() {
@@ -913,12 +802,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 
-	/**
-	* ELEVATION — `layer_center` picks the point the server is asked about,
-	* `fetch_elevation` asks it, and NEITHER writes it into the feature: v6
-	* saves `center_elevation` on every click, which dirties a record the user
-	* only looked at.
-	*/
+	// the elevation is asked, never stored: v6 saves `center_elevation` on
+	// every click, which dirties a record the user only looked at
 	it('layer_center is a marker\'s own position and any other geometry\'s bounds centre', function() {
 
 		const marker	= seeded_layer(3)
@@ -950,7 +835,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.equal(asked.action, 'get_elevation', 'expected the get_elevation action')
 		assert.closeTo(asked.options.lat, 40.45, 0.0001, 'expected the bounds centre latitude')
-		assert.closeTo(asked.options.lng ?? asked.options.lon, -3.655, 0.0001, 'expected the bounds centre longitude')
+		assert.closeTo(asked.options.lon, -3.655, 0.0001, 'expected the bounds centre longitude, under the key the server reads')
 		assert.equal(result.elevation, 412, 'expected the reported elevation')
 		assert.equal(result.unavailable, false, 'expected an available verdict')
 
@@ -959,18 +844,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isUndefined(properties.center_elevation, 'expected NOTHING written into the feature')
 	})
 
-	it('fetch_elevation degrades to unavailable instead of throwing when the service fails', async function() {
+	it('fetch_elevation keeps an answer with no elevation, and degrades a throw to unavailable', async function() {
 
 		const layer = seeded_layer(1)
 
+		let calls = 0
 		stub_tool_request(async function() {
+			calls++
 			return { ok:true, data:{ elevation: null, unavailable:true } }
 		})
 
 		const degraded = await fetch_elevation(tool, layer)
 		assert.equal(degraded.elevation, null, 'expected no elevation')
 		assert.equal(degraded.unavailable, true, 'expected the degraded verdict')
+		await fetch_elevation(tool, layer)
+		assert.equal(calls, 1, 'expected "no elevation here" kept as an answer, not asked again')
 
+		// emptied, or the cached answer above would serve the call and the stub never throw
+		tool._elevation = null
 		stub_tool_request(async function() { throw new Error('network down') })
 		const thrown = await fetch_elevation(tool, layer)
 		assert.equal(thrown.unavailable, true, 'expected an unexpected throw to degrade, not to propagate')
@@ -1016,13 +907,67 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	it('a failure still in flight for one object never clears the answer cached for the next', async function() {
 
-	/**
-	* ASSOCIATED IMAGES AND GALLERY — what the association adds to the image
-	* upload: where it is stored, that it is a RELATIVE path (v6 stores an
-	* absolute URL), that removing one leaves the media alone, and that the PDF
-	* export sends record identities, never a file path.
-	*/
+		const first		= seeded_layer(1)
+		const second	= seeded_layer(3)
+
+		const asked		= {first: 0, second: 0}
+		let release		= null
+		const refusal	= {is_api_error: true, code: 'request.invalid_options', message: 'x', transport: false}
+		stub_tool_request(async function(options) {
+			if (Math.abs(options.options.lat - layer_center(first).lat) < 1e-9) {
+				asked.first++
+				await new Promise(function(resolve) { release = resolve })
+				return {ok: false, error: refusal}
+			}
+			asked.second++
+			return { ok:true, data:{ elevation: 7, unavailable:false } }
+		})
+
+		const pending = fetch_elevation(tool, first)
+		assert.equal((await fetch_elevation(tool, second)).elevation, 7, 'expected the second object answered')
+		release()
+		await pending
+
+		assert.strictEqual(tool._elevation && tool._elevation.layer, second, 'expected the second object\'s entry still cached')
+		assert.equal(tool._elevation.elevation, 7, 'expected its elevation kept for the PDF export')
+		await fetch_elevation(tool, second)
+		assert.deepEqual(asked, {first: 1, second: 1}, 'expected the second object not asked again')
+	})
+
+
+	// an associated image is stored as a media-relative path (v6 stores an
+	// absolute URL, which breaks on a host change), and the PDF export sends
+	// record identities, never a path
+
+	/** What `fn` sent by any door: data_manager, an XHR (service_upload) or fetch. */
+	const requests_sent_by = async function(fn) {
+		const sent				= []
+		const original_request	= data_manager.request
+		const original_open		= XMLHttpRequest.prototype.open
+		const original_fetch	= window.fetch
+		data_manager.request = function(options) {
+			sent.push('data_manager ' + JSON.stringify(options && options.body && options.body.action))
+			return original_request.apply(this, arguments)
+		}
+		XMLHttpRequest.prototype.open = function(method, url) {
+			sent.push('xhr ' + url)
+			return original_open.apply(this, arguments)
+		}
+		window.fetch = function(input) {
+			sent.push('fetch ' + ((input && input.url) || input))
+			return original_fetch.apply(this, arguments)
+		}
+		try {
+			return {result: await fn(), sent: sent}
+		} finally {
+			data_manager.request			= original_request
+			XMLHttpRequest.prototype.open	= original_open
+			window.fetch					= original_fetch
+		}
+	}
+
 	it('associate_image refuses with no file and never reaches the server', async function() {
 
 		const layer = seeded_layer(1)
@@ -1031,16 +976,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		let asked = false
 		stub_tool_request(async function() { asked = true; return {} })
 
-		const result = await associate_image(tool, layer, null)
+		const {result, sent} = await requests_sent_by(() => associate_image(tool, layer, null))
 
-		assert.equal(result.ok, false, 'expected a caller-fault verdict')
-		assert.isOk(result.error, 'expected a message to show in the panel')
-		assert.equal(asked, false, 'expected NO request without a file')
+		assert.deepEqual(result, {ok: false, error: 'Please choose a file first.'}, 'expected the no-file sentence for the panel')
+		assert.equal(asked, false, 'expected NO tool request without a file')
+		assert.deepEqual(sent, [], 'expected NO request of any kind without a file')
 		assert.deepEqual(object_images(layer), [], 'expected nothing stored')
 	})
 
-	it('associate_image refuses once the object already holds the maximum', async function() {
+	it('associate_image refuses at v6\'s cap of 30 images before uploading anything', async function() {
 
+		// v6's own number (special_tools.js create_pdf: "Max. 30")
+		assert.equal(MAX_OBJECT_IMAGES, 30, 'expected v6\'s cap')
 		const layer = seeded_layer(1)
 		tool.active_console_layer = layer
 		layer.feature.properties.uca_maps = full_gallery()
@@ -1048,11 +995,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		let asked = false
 		stub_tool_request(async function() { asked = true; return {} })
 
-		const result = await associate_image(tool, layer, new File(['x'], 'x.jpg', {type:'image/jpeg'}))
+		const {result, sent} = await requests_sent_by(() => associate_image(tool, layer, new File(['x'], 'x.jpg', {type:'image/jpeg'})))
 
-		assert.equal(result.ok, false, 'expected a refusal at the cap')
-		assert.isOk(result.error, 'expected a message to show')
-		assert.equal(asked, false, 'expected the cap checked BEFORE any upload')
+		assert.deepEqual(result, {ok: false, error: 'This object already holds the maximum number of images.'}, 'expected the cap sentence')
+		assert.equal(asked, false, 'expected the cap checked BEFORE any tool request')
+		assert.deepEqual(sent, [], 'expected the cap checked BEFORE the upload')
 		assert.equal(object_images(layer).length, MAX_OBJECT_IMAGES, 'expected nothing added')
 	})
 
@@ -1063,28 +1010,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(object_images(null), [], 'expected an array, never null')
 
 		layer.feature.properties.uca_maps = { images: [
-			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
+			{ file_path:'/image/1.5MB/test99_test3_88.jpg', section_tipo:'test3', section_id:88, tipo:'test99', name:'a.jpg' }
 		] }
 
 		assert.equal(object_images(layer).length, 1, 'expected the stored image')
 
-		const url = object_image_url(object_images(layer)[0])
-		assert.isOk(url, 'expected a resolvable url')
-		assert.isTrue(url.endsWith('/rsc29/1.5MB/a.jpg'), 'expected the stored RELATIVE path resolved against the media url')
+		assert.equal(
+			object_image_url(object_images(layer)[0]), DEDALO_MEDIA_URL + '/image/1.5MB/test99_test3_88.jpg',
+			'expected the stored RELATIVE path resolved against the media url'
+		)
 		assert.equal(object_image_url({}), null, 'expected null for a descriptor with no path')
-	})
-
-	it('a stored descriptor holds NO absolute url — v6 stores one and it breaks on a host change', function() {
-
-		const layer = seeded_layer(1)
-		layer.feature.properties.uca_maps = { images: [
-			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
-		] }
-
-		const stored = object_images(layer)[0]
-		assert.isUndefined(stored.url, 'expected NO absolute url stored')
-		assert.isTrue(stored.file_path.startsWith('/'), 'expected a media-root-relative path')
-		assert.isFalse(/^https?:/.test(stored.file_path), 'expected no scheme in the stored path')
 	})
 
 	it('remove_object_image drops the association and refuses an out-of-range index', function() {
@@ -1092,8 +1027,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_console()
 		const layer = seeded_layer(1)
 		layer.feature.properties.uca_maps = { images: [
-			{ file_path:'/a.jpg', section_tipo:'rsc170', section_id:1, tipo:'rsc29', name:'a' },
-			{ file_path:'/b.jpg', section_tipo:'rsc170', section_id:2, tipo:'rsc29', name:'b' }
+			{ file_path:'/a.jpg', section_tipo:'test3', section_id:1, tipo:'test99', name:'a' },
+			{ file_path:'/b.jpg', section_tipo:'test3', section_id:2, tipo:'test99', name:'b' }
 		] }
 
 		assert.equal(remove_object_image(tool, layer, 5), false, 'expected a refusal past the end')
@@ -1103,10 +1038,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(remove_object_image(tool, layer, 0), true, 'expected the first image removed')
 		assert.equal(object_images(layer).length, 1, 'expected one left')
 		assert.equal(object_images(layer)[0].name, 'b', 'expected the RIGHT one left')
-	})
-
-	it('the gallery cap is v6\'s own 30', function() {
-		assert.equal(MAX_OBJECT_IMAGES, 30, 'expected v6\'s documented maximum')
 	})
 
 	/**
@@ -1121,7 +1052,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const link = {url: 'https://images.example/a.jpg'}
 		layer.feature.properties.images = [
 			link,
-			{url: 'https://images.example/b.jpg', section_tipo: 'rsc170', section_id: 4, tipo: 'rsc29'},
+			{url: 'https://images.example/b.jpg', section_tipo: 'test3', section_id: 4, tipo: 'test99'},
 			{url: '   '},
 			{title: 'no url'},
 			null,
@@ -1157,7 +1088,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.active_console_layer = layer
 		const good		= {url: 'https://images.example/good.jpg'}
 		const refused	= {url: 'https://images.example/refused.jpg'}
-		const recorded	= {url: 'https://images.example/kept.jpg', section_tipo: 'rsc170', section_id: 4, tipo: 'rsc29'}
+		const recorded	= {url: 'https://images.example/kept.jpg', section_tipo: 'test3', section_id: 4, tipo: 'test99'}
 		layer.feature.properties.images = [good, refused, recorded]
 		layer.feature.properties.uca_maps = {}
 
@@ -1185,8 +1116,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const images = object_images(layer)
 			assert.equal(images.length, 1, 'expected the image hung off the object')
 			assert.equal(images[0].source_url, good.url, 'expected where it came from kept')
-			assert.equal(images[0].section_tipo, 'rsc170', 'expected a Dédalo record behind it')
+			assert.equal(images[0].section_tipo, IMAGE_SECTION_TIPO, 'expected a Dédalo record behind it')
 			assert.isUndefined(images[0].url, 'expected no absolute url stored')
+			assert.isTrue(images[0].file_path.startsWith('/'), 'expected a media-root-relative path, no scheme or host')
 		} finally {
 			seen.restore()
 		}
@@ -1324,7 +1256,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_console()
 		const layer = seeded_layer(1)
 		layer.feature.properties.uca_maps = { images: [
-			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
+			{ file_path:'/image/1.5MB/a.jpg', section_tipo:IMAGE_SECTION_TIPO, section_id:88, tipo:IMAGE_COMPONENT_TIPO, name:'a.jpg' }
 		] }
 
 		let asked = null
@@ -1345,17 +1277,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(asked.options.images.length, 1, 'expected the associated image listed')
 
 		const sent = asked.options.images[0]
-		assert.equal(sent.section_tipo, 'rsc170', 'expected the record section')
+		assert.equal(sent.section_tipo, IMAGE_SECTION_TIPO, 'expected the record section')
+		assert.equal(sent.tipo, IMAGE_COMPONENT_TIPO, 'expected the record component')
 		assert.equal(sent.section_id, 88, 'expected the record id')
 		assert.isUndefined(sent.file_path, 'expected NO file path sent — the server re-resolves it under its own gate')
 		assert.isUndefined(sent.url, 'expected no url sent either')
 	})
 
-	/**
-	* A refused download used to reach the user only as the page toast, which
-	* names the code ("Invalid request options") and never the reason. Each one
-	* now answers its section's lead and the server's reason, for its own line.
-	*/
+	// the page toast names the code ("Invalid request options"), never the
+	// reason: the download's own line is where the reason reaches the user
 	it('a refused download answers the section\'s lead and the server\'s reason, not only a toast', async function() {
 
 		const layer		= seeded_layer(1)
@@ -1474,6 +1404,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\nBoom.'}, row.label)
 			}
 			assert.equal(toasts.length, rows.length, 'expected one page toast per throw')
+			for (const toast of toasts) {
+				assert.equal(toast.code, 'client.tool_uca_maps_failed', 'expected the client-origin code')
+				assert.equal(toast.message, 'Boom.', 'expected the exception named in the toast')
+				assert.strictEqual(toast.transport, false, 'expected a throw not read as a network failure')
+				assert.equal(resolve_error_policy(toast).action, 'toast', 'expected the page policy to toast it')
+			}
 		} finally {
 			event_manager.unsubscribe(token)
 			restore_image_download()
@@ -1491,14 +1427,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(find_layer_id(tool, {}), null, 'expected null for a layer owned by no FeatureGroup')
 	})
 
-	/**
-	* Selecting is not opening (Sergio, 2026-09-21, functional audit). The
-	* panel used to fly open on any click on any geometry — and, through
-	* toolbar.js's one-panel-at-a-time rule, shut whatever the user had open.
-	* v6 does not do that either: a click only replaces the console's
-	* content. Pinned in both directions, because the regression is invisible
-	* to a test that only checks the content changed.
-	*/
+	// selecting is not opening, as in v6: opening would also shut, through
+	// toolbar.js's one-panel-at-a-time rule, whatever panel the user had open
 	it('opening a drawn layer\'s popup selects it in the console WITHOUT opening the panel', function() {
 
 		const layer = open_console_on(1)
@@ -1548,32 +1478,83 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.map_control, null, 'expected map_control cleared')
 	})
 
+	// core drops the map BEFORE it announces its destroy, so every detach_*
+	// runs against a map that is already gone
+	it('destroying the map component tears the tool down through its event, with the map already gone', async function() {
+
+		await run_edit()
+		assert.isOk(tool.map_control, 'precondition: edit() attached the console')
+
+		let teardown = null
+		const on_destroyed = tool.on_geolocation_destroyed
+		tool.on_geolocation_destroyed = function() {
+			teardown = on_destroyed.call(this)
+			return teardown
+		}
+
+		await geolocation.destroy(true)
+		assert.isNull(geolocation.map, 'precondition: the map is gone before the tool hears of it')
+		assert.isOk(teardown, 'expected the component\'s destroy event to reach the tool')
+		await teardown // a detach_* that needs the map rejects here
+
+		assert.equal(tool.status, 'destroyed', 'expected the tool instance destroyed')
+		assert.isNull(tool.geolocation, 'expected the geolocation reference cleared')
+		for (const key of [
+			'map_control', 'panel_node', 'map_image_control', 'object_viewer_control', 'onexone_control',
+			'xyz_control', 'wms_control', 'catastro_control', 'ua_control', 'upload_control',
+			'place_search_control', 'geolocate_control', 'scale_control', 'legend_control', 'roman_control',
+			'_toolbar_bar'
+		]) {
+			assert.isNull(tool[key], 'expected ' + key + ' released')
+		}
+	})
+
 
 
 	// OBJECT FUNCTIONS — object_console.js's exported mutations (style,
 	// properties, download, centroid, uncertainty, hierarchy), called directly
 	// on the seeded layers.
 
-	it('set_style_field writes properties.uca_maps.style and applies it live', function() {
+	it('set_style_field writes properties.uca_maps.style, applies it live and marks dirty; null or \'\' clears the field', function() {
 
 		const layer = seeded_layer(1)
+		const dirty = []
+		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
 
 		set_style_field(tool, layer, 'fillColor', PICKED_COLOUR)
+		set_style_field(tool, layer, 'weight', 5)
 
-		assert.equal(layer.feature.properties.uca_maps.style.fillColor, PICKED_COLOUR, 'expected style written to properties.uca_maps')
+		assert.deepEqual(layer.feature.properties.uca_maps.style, {fillColor: PICKED_COLOUR, weight: 5}, 'expected style written to properties.uca_maps')
 		assert.equal(layer.options.fillColor, PICKED_COLOUR, 'expected setStyle applied live')
+		assert.deepEqual(dirty, [1, 1], 'expected each change to mark its FeatureGroup dirty')
+
+		set_style_field(tool, layer, 'fillColor', null)
+		set_style_field(tool, layer, 'weight', '')
+		assert.deepEqual(layer.feature.properties.uca_maps.style, {}, 'expected an empty value to clear the field, not store it')
+		assert.deepEqual(dirty, [1, 1, 1, 1], 'expected a clear to mark dirty too')
 	})
 
-	it('set_property/delete_property CRUD custom properties, reserved keys refused', function() {
+	it('set_property/delete_property CRUD custom properties; reserved and empty keys are refused', function() {
 
 		const layer = seeded_layer(1)
 
-		assert.equal(set_property(tool, layer, 'custom_key', 'custom_value'), true, 'expected a non-reserved key accepted')
-		assert.equal(layer.feature.properties.custom_key, 'custom_value', 'expected the value written')
+		// the fields core and the tool manage: a property of the user's must never overwrite them
+		assert.deepEqual(RESERVED_PROPERTY_KEYS, ['color', 'layer_id', 'uca_maps'], 'expected the managed fields reserved')
+
+		assert.equal(set_property(tool, layer, ' custom_key ', 'custom_value'), true, 'expected a non-reserved key accepted')
+		assert.equal(layer.feature.properties.custom_key, 'custom_value', 'expected the value written under the trimmed key')
 
 		for (const reserved of RESERVED_PROPERTY_KEYS) {
 			assert.equal(set_property(tool, layer, reserved, 'x'), false, 'expected reserved key "' + reserved + '" refused')
 		}
+		for (const empty of ['', '   ', null]) {
+			assert.equal(set_property(tool, layer, empty, 'x'), false, 'expected the empty key ' + JSON.stringify(empty) + ' refused')
+		}
+		assert.notProperty(layer.feature.properties, '', 'expected nothing written under an empty key')
+
+		layer.feature.properties.color = PICKED_COLOUR
+		delete_property(tool, layer, 'color')
+		assert.equal(layer.feature.properties.color, PICKED_COLOUR, 'expected a reserved field never deleted')
 
 		delete_property(tool, layer, 'custom_key')
 		assert.equal('custom_key' in layer.feature.properties, false, 'expected the property removed')
@@ -1582,9 +1563,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('download_vector(\'geojson\') stays 100% client-side and downloads the real GeoJSON', async function() {
 
 		const layer = seeded_layer(1)
+		stub_tool_request(async function() { throw new Error('expected no server round trip for GeoJSON') })
 
-		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'geojson'))).blob
+		const captured = await capture_download(async () => {
+			assert.deepEqual(await download_vector(tool, layer, 'geojson'), {ok: true}, 'expected the download to succeed without the server')
+		})
+		const captured_blob = captured.blob
 
+		assert.equal(captured.name, 'uca_maps_object.geojson', 'expected the GeoJSON file name')
 		assert.isOk(captured_blob, 'expected download_vector to build a Blob')
 		assert.equal(captured_blob.type, 'application/geo+json', 'expected the GeoJSON MIME type')
 
@@ -1593,71 +1579,61 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(parsed.geometry.type, 'Polygon', 'expected the seeded polygon\'s own geometry type')
 	})
 
-	/**
-	* download_vector('shp'/'kml') round-trips through the REAL server action
-	* (`vector_download.ts`, hito 3) — this suite's own ephemeral server
-	* (`bun run test:client`, AGENTS.md) runs in the same container as the
-	* GDAL binaries (`tools/tool_uca_maps/dev/Dockerfile.dev`), so this is a
-	* genuine end-to-end exercise, not a mock. Tolerates GDAL being absent on
-	* whatever machine eventually runs this suite (tool.dependency_unavailable
-	* is a legitimate, gated outcome — the shape assertion only runs when the
-	* conversion actually happened), same discipline as the server-side
-	* `HAVE_GDAL`-gated native test (test/unit/tool_uca_maps_vector_download.test.ts).
-	*/
-	it('download_vector(\'shp\') downloads a real zip via the server\'s ogr2ogr, or reports GDAL unavailable', async function() {
-
-		const layer = seeded_layer(1)
-		let response = null
-		stub_tool_request(async function(options) {
-			response = await real_tool_request(options)
-			return response
-		})
-
-		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'shp'))).blob
-
-		if (response && response.ok!==true) {
-			assert.equal(
-				response.error && response.error.code, 'tool.dependency_unavailable',
-				'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response)
-			)
-			return
+	// a real round trip through the suite server's ogr2ogr; a server without
+	// GDAL answers tool.dependency_unavailable and the case is skipped, never passed
+	const server_vector_rows = [
+		{
+			format	: 'shp',
+			title	: 'download_vector(\'shp\') downloads a real zip from the server\'s ogr2ogr (skipped without GDAL)',
+			mime	: 'application/zip',
+			check	: async function(blob) {
+				const bytes = new Uint8Array(await blob.arrayBuffer())
+				// the ZIP local-file-header magic, 'PK\x03\x04'
+				assert.deepEqual(Array.from(bytes.slice(0, 4)), [0x50, 0x4b, 0x03, 0x04], 'expected real ZIP magic bytes')
+			}
+		},
+		{
+			format	: 'kml',
+			title	: 'download_vector(\'kml\') downloads real KML in lon/lat from the server\'s ogr2ogr (skipped without GDAL)',
+			mime	: 'application/vnd.google-earth.kml+xml',
+			check	: async function(blob) {
+				const kml			= new DOMParser().parseFromString(await blob.text(), 'application/xml')
+				const coordinates	= kml.getElementsByTagName('coordinates')[0]
+				assert.isOk(coordinates, 'expected real KML with the polygon\'s coordinates')
+				const pairs = coordinates.textContent.trim().split(/\s+/).map(tuple => tuple.split(',').map(Number))
+				assert.isAtLeast(pairs.length, 4, 'expected the polygon ring')
+				// the seeded polygon spans lon -3.71..-3.60, lat 40.40..40.50: KML is lon,lat in WGS84
+				for (const [lon, lat] of pairs) {
+					assert.isTrue(lon>=-3.711 && lon<=-3.599 && lat>=40.399 && lat<=40.501, 'expected a lon,lat vertex in WGS84, got ' + lon + ',' + lat)
+				}
+			}
 		}
+	]
+	for (const row of server_vector_rows) {
+		it(row.title, async function() {
 
-		assert.isOk(captured_blob, 'expected download_vector to build a Blob from the server response')
-		assert.equal(captured_blob.type, 'application/zip', 'expected the shapefile zip MIME type')
+			const layer = seeded_layer(1)
+			let response = null
+			stub_tool_request(async function(options) {
+				response = await real_tool_request(options)
+				return response
+			})
 
-		const bytes = new Uint8Array(await captured_blob.arrayBuffer())
-		assert.isAbove(bytes.length, 0, 'expected a non-empty zip')
-		// ZIP local-file-header magic ('PK\x03\x04') — the same real-archive
-		// proof the native test asserts server-side.
-		assert.deepEqual(Array.from(bytes.slice(0, 4)), [0x50, 0x4b, 0x03, 0x04], 'expected real ZIP magic bytes')
-	})
+			const captured_blob = (await capture_download(() => download_vector(tool, layer, row.format))).blob
 
-	it('download_vector(\'kml\') downloads real WGS84 KML via the server\'s ogr2ogr, or reports GDAL unavailable', async function() {
+			if (response && response.ok!==true) {
+				assert.equal(
+					response.error && response.error.code, 'tool.dependency_unavailable',
+					'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response)
+				)
+				this.skip()
+			}
 
-		const layer = seeded_layer(1)
-		let response = null
-		stub_tool_request(async function(options) {
-			response = await real_tool_request(options)
-			return response
+			assert.isOk(captured_blob, 'expected download_vector to build a Blob from the server response')
+			assert.equal(captured_blob.type, row.mime, 'expected the ' + row.format + ' MIME type')
+			await row.check(captured_blob)
 		})
-
-		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'kml'))).blob
-
-		if (response && response.ok!==true) {
-			assert.equal(
-				response.error && response.error.code, 'tool.dependency_unavailable',
-				'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response)
-			)
-			return
-		}
-
-		assert.isOk(captured_blob, 'expected download_vector to build a Blob from the server response')
-		assert.equal(captured_blob.type, 'application/vnd.google-earth.kml+xml', 'expected the KML MIME type')
-
-		const text = await captured_blob.text()
-		assert.include(text, '<kml', 'expected real KML content, not an empty/garbage file')
-	})
+	}
 
 	it('toggle_centroid creates a linked marker in the same FeatureGroup, and removes it on toggle-off', function() {
 
@@ -1753,6 +1729,39 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isUndefined(polygon.feature.properties.uca_maps.uncertainty, 'expected an unchecked box never to come back on a reshape')
 	})
 
+	// "changed" is the tier or the area as printed: a stale uncertainty is
+	// rewritten even when `properties.area` is current, and float jitter is not
+	it('sync_measurements resyncs a stale uncertainty under a current area, and ignores a sub-print jitter', function() {
+
+		const polygon	= seeded_layer(1)
+		const square	= function(side_deg) {
+			return [[40.45, -3.655], [40.45, -3.655 + side_deg], [40.45 + side_deg, -3.655 + side_deg], [40.45 + side_deg, -3.655]]
+		}
+		const dirty = []
+		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
+
+		polygon.setLatLngs(square(0.01)) // ~0.94 km² → tier 4
+		toggle_uncertainty(tool, polygon)
+		tool.sync_measurements(polygon) // settles `properties.area`
+		const uca_maps = polygon.feature.properties.uca_maps
+
+		uca_maps.uncertainty = {scale_tier: 6, area_m2: 1}
+		dirty.length = 0
+		assert.equal(tool.sync_measurements(polygon), true, 'expected a stale uncertainty rewritten with the area current')
+		assert.deepEqual(dirty, [1], 'expected the rewrite to mark the record dirty')
+		assert.equal(uca_maps.uncertainty.scale_tier, 4, 'expected the tier of the geometry')
+
+		polygon.setLatLngs(square(0.009)) // ~0.76 km², still tier 4
+		const area_m2 = turf.area(polygon.toGeoJSON())
+		assert.equal(tool.sync_measurements(polygon), true, 'expected a reshape inside the tier to write')
+		assert.strictEqual(uca_maps.uncertainty.area_m2, area_m2, 'expected the stored area to follow inside the same tier')
+
+		uca_maps.uncertainty.area_m2 += 1e-9
+		dirty.length = 0
+		assert.equal(tool.sync_measurements(polygon), false, 'expected a jitter below the printed area to write nothing')
+		assert.deepEqual(dirty, [], 'expected no dirty mark for it')
+	})
+
 	it('set_hierarchy: unchecking clears the flag and restores the order a reload draws', function() {
 
 		const polygon	= seeded_layer(1)
@@ -1798,24 +1807,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(flags_of(circle), [false, true], 'expected the circle\'s own flag untouched')
 		assert.isBelow(index_of(circle), index_of(polygon), 'expected the circle still at the back after the polygon\'s uncheck')
 	})
-
-	it('render_selected_object builds the full 2b section set for a polygon', function() {
-
-		const layer = open_console_on(1)
-
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
-		assert.isOk(section.querySelector('.uca-maps-style-controls'), 'expected style controls for a polygon')
-		assert.isOk(section.querySelector('.uca-maps-centroid'), 'expected a centroid checkbox for a polygon')
-		assert.isOk(section.querySelector('.uca-maps-uncertainty'), 'expected an uncertainty checkbox for a polygon')
-		assert.isOk(section.querySelector('.uca-maps-hierarchy-controls'), 'expected hierarchy checkboxes for a polygon')
-		assert.isOk(section.querySelector('.uca-maps-properties-editor'), 'expected the properties editor')
-		assert.isOk(section.querySelector('.uca-maps-download-format'), 'expected the format select (GeoJSON/SHP/KML)')
-		assert.isOk(section.querySelector('.uca-maps-download-button'), 'expected the download button')
-
-		const options = Array.from(section.querySelectorAll('.uca-maps-download-format option')).map(o => o.value)
-		assert.deepEqual(options, ['geojson', 'shp', 'kml'], 'expected the three vector formats, in menu order')
-	})
-
 
 	/**
 	* THE CONSOLE'S SHAPE, against v6: the order of its sections, the heading
@@ -1876,6 +1867,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the PDF button at the foot of the properties section, not in one of its own'
 		)
 		assert.equal(pdf_btn.textContent, 'Export as PDF', 'expected the button to name what it does')
+
+		const download = section.querySelector('.uca-maps-download-section')
+		assert.isOk(download.querySelector('.uca-maps-download-button'), 'expected the download button')
+		assert.deepEqual(
+			Array.from(download.querySelectorAll('.uca-maps-download-format option'), (option) => option.value),
+			['geojson', 'shp', 'kml'],
+			'expected the three vector formats, in menu order'
+		)
 	})
 
 	it('style offers v6\'s fields, with v6\'s own ranges, and paints border and body with ONE colour', function() {
