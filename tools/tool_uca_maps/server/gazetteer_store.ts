@@ -1,25 +1,9 @@
 /**
- * Local gazetteer store — the ONE door every local-dataset read of fila #14
- * ("Imperio Romano") goes through.
- *
- * WHY THE DATA IS NOT IN THE REPO (Sergio, 2026-09-16): v6 ships both
- * gazetteers INSIDE the tool — `services/pleiades/pleiades.json` (1.8 MB
- * name→id index) and `services/pelagios/data/*.geojson` (18 MB of Roman-world
- * layers). Vendoring 20 MB of a third party's data into a tree headed for a PR
- * to the official repository makes every clone carry a dataset it cannot
- * update and nobody reviews. So the tool ships NO data: an install points the
- * `gazetteer_data_path` tool-config option at a directory it owns, and the
- * functionality announces itself through `get_capabilities` exactly like GDAL
- * and ImageMagick already do (`capabilities.ts`) — present, or honestly absent.
- *
- * The config option is the TOOL's own `default_config` (register.json), not a
- * new core config key: the plan (§7 item 6) already prescribes that same
- * mechanism, empty by default, for the SSRF allowlist.
- *
- * PATH SAFETY: the directory comes from an install administrator, but the
- * dataset NAME arrives from the browser, so it is checked against the fixed
- * list below AND the resolved file is prefix-checked against the resolved
- * directory (a symlinked dataset name must not read outside the store).
+ * The one door every local gazetteer read goes through. v6 ships ~20 MB of
+ * third-party data inside the tool; this tool ships none: the install points the
+ * `gazetteer_data_path` tool option at a directory it owns, and capabilities say
+ * whether it is there. The dataset NAME comes from the browser, so it is checked
+ * against a closed list and the resolved file prefix-checked against the store.
  */
 
 import { existsSync, realpathSync, statSync } from 'node:fs';
@@ -31,7 +15,7 @@ import { getToolConfigValue } from '../../../src/core/tools/config.ts';
 export const GAZETTEER_CONFIG_KEY = 'gazetteer_data_path';
 
 /** v6: `services/pleiades/pleiades.json` — a flat array of [name, id] pairs. */
-export const PLEIADES_INDEX_FILE = 'pleiades.json';
+const PLEIADES_INDEX_FILE = 'pleiades.json';
 
 /**
  * The twelve layers v6 offers as checkboxes (`special_tools_roman_empire.js`
@@ -57,10 +41,8 @@ export const PELAGIOS_DATASETS: readonly string[] = Object.freeze([
 const PELAGIOS_SUBDIR = 'pelagios';
 
 /**
- * The store is not configured, or the configured directory no longer holds
- * the file this action needs. `tool.dependency_unavailable` is the same class
- * a missing GDAL binary already raises (503, operator disclosure): an install
- * gap, never the caller's input.
+ * The store is unset or lacks the file this action needs: an install gap, never
+ * the caller's input, so the same class a missing GDAL binary raises.
  */
 export function gazetteerUnavailable(message: string): DedaloError {
 	return new DedaloError('tool.dependency_unavailable', { message });

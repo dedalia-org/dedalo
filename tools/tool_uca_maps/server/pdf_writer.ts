@@ -1,29 +1,8 @@
 /**
- * pdf_writer — a minimal, dependency-free PDF 1.4 writer: flowing text in the
- * standard-14 Helvetica faces, plus embedded JPEG images.
- *
- * WHY THIS EXISTS AT ALL. v6 produces its properties report by loading
- * `html2pdf` FROM A CDN inside a hidden iframe and waiting on two hardcoded
- * timeouts of 10 s and 20 s (`pdf/layout.html`, `special_tools.js`
- * `create_pdf`). None of that can be ported: the app serves
- * `script-src 'self'` (src/core/api/static_asset.ts APP_CSP), so the CDN
- * script never loads — and a report that is correct only when a race is won
- * is not a report. The alternatives were vendoring ~365 KB of minified
- * library into the repo for one document, or writing the ~1 page of PDF
- * syntax that document actually needs. This is the second.
- *
- * WHAT IT DELIBERATELY DOES NOT DO: fonts. It uses only the standard-14 faces
- * every PDF reader already has, so nothing is embedded and no font file ships.
- * The price is WinAnsi (cp1252) — which covers Spanish, Catalan, Basque and
- * every other Western-European language this engine's own installer offers,
- * and which `encodeWinAnsi` degrades from rather than corrupting.
- *
- * WHAT IT DOES NOT DO EITHER: re-encode images. A JPEG's bytes go into the
- * file untouched as a `/DCTDecode` stream — that is exactly what the format
- * is for, and it means embedding a photograph costs no pixel work at all.
- * Anything that is not a JPEG is REFUSED here rather than converted: the
- * caller decides what to do about it (see `pdf_report.ts`, which lists the
- * image by name instead of silently dropping it).
+ * A minimal PDF 1.4 writer: wrapped text in the standard-14 Helvetica faces (no
+ * font embedded; the price is WinAnsi) and JPEGs embedded untouched as `/DCTDecode`.
+ * v6 loads `html2pdf` from a CDN (`special_tools.js` `create_pdf`), which this
+ * app's `script-src 'self'` blocks.
  */
 
 /** Standard-14 Helvetica advance widths, in 1/1000 em, for the ASCII range —
@@ -134,11 +113,11 @@ const DEFAULT_WIDTH = 556;
 const BOLD_FACTOR = 1.08;
 
 /**
- * The cp1252-only codepoints that are NOT their own byte in Latin-1. Every
- * other codepoint up to 0xFF already IS its byte, which is why the table is
- * this short rather than 256 entries long.
+ * The cp1252-only codepoints that are NOT their own byte in Latin-1 (every other
+ * codepoint up to 0xFF already is its byte). Also read by `roman_empire.ts` to
+ * undo DARE's cp1252 mojibake.
  */
-const WIN_ANSI_HIGH: ReadonlyMap<number, number> = new Map([
+export const WIN_ANSI_HIGH: ReadonlyMap<number, number> = new Map([
 	[0x20ac, 0x80],
 	[0x201a, 0x82],
 	[0x0192, 0x83],
@@ -169,10 +148,9 @@ const WIN_ANSI_HIGH: ReadonlyMap<number, number> = new Map([
 ]);
 
 /**
- * Text → WinAnsi bytes. A codepoint the encoding cannot express becomes '?'
- * — VISIBLY missing rather than silently dropped or turned into mojibake,
- * because a heritage record legitimately holds Greek, Arabic or Chinese and
- * the reader must be able to see that this report could not show it.
+ * Text → WinAnsi bytes. A codepoint the encoding cannot express becomes '?':
+ * a record may hold Greek, Arabic or Chinese, and the reader must see that the
+ * report could not show it rather than lose it silently.
  */
 export function encodeWinAnsi(text: string): Uint8Array {
 	const bytes: number[] = [];
@@ -192,9 +170,9 @@ export function encodeWinAnsi(text: string): Uint8Array {
 }
 
 /**
- * A string of byte values (0-255) → those bytes. PDF content is a byte
- * stream, and every string this module produces is already WinAnsi-encoded
- * one char per byte, so this is the correct writer for all of it.
+ * A string of byte values (0-255) → those bytes. Never a TextEncoder: UTF-8
+ * would write every WinAnsi byte above 0x7F as two, corrupting accents and
+ * desynchronising every stream `/Length`.
  */
 function latin1Bytes(text: string): Uint8Array {
 	const bytes = new Uint8Array(text.length);
@@ -229,10 +207,9 @@ export function textWidth(text: string, size: number, bold: boolean): number {
 }
 
 /**
- * A word wider than the line, cut into line-wide pieces in one pass: summing
- * the width char by char, never re-measuring the rest (that was cubic in the
- * word, and a geometry's coordinates are one word of megabytes). It cuts after
- * the last "]," that fits, between two coordinate pairs as v6's PDF does, and
+ * A word wider than the line, cut in one pass (a geometry's coordinates are one
+ * word of megabytes, and re-measuring the rest per cut is cubic). It cuts after
+ * the last "]," that fits, between coordinate pairs as v6's PDF does, and
  * mid-word only when a piece has none.
  */
 function splitOverlongWord(word: string, size: number, bold: boolean, maxWidth: number): string[] {
@@ -298,15 +275,10 @@ export interface JpegInfo {
 }
 
 /**
- * Reads a JPEG's frame header. Walks the marker segments rather than trusting
- * any fixed offset: EXIF, ICC and comment segments all sit before the frame,
- * and their sizes vary per camera.
- *
- * Returns null for anything that is not a JPEG this writer can embed —
- * including a CMYK one (4 components), whose colours PDF readers render
- * inverted without an `/Decode` array and an Adobe APP14 transform this writer
- * does not interpret. A wrong-coloured photograph of a monument is a worse
- * outcome than a named absence.
+ * A JPEG's frame header, found by walking the marker segments (EXIF, ICC and
+ * comment segments of varying size precede it). Null for anything this writer
+ * cannot embed, CMYK included: readers invert its colours without an Adobe
+ * APP14 transform this writer does not interpret.
  */
 export function readJpegInfo(bytes: Uint8Array): JpegInfo | null {
 	if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
@@ -347,6 +319,8 @@ export function readJpegInfo(bytes: Uint8Array): JpegInfo | null {
 /** One image placed on a page, in PDF user space (origin bottom-left). */
 interface PlacedImage {
 	name: string;
+	/** position in the document's image list, which fixes its object number */
+	index: number;
 	x: number;
 	y: number;
 	width: number;
@@ -361,15 +335,27 @@ interface PageContent {
 
 /** An image the document embeds once and may place on any page. */
 interface EmbeddedImage {
-	name: string;
 	bytes: Uint8Array;
 	info: JpegInfo;
 }
 
-export const PAGE_WIDTH = 595; // A4, points
-export const PAGE_HEIGHT = 842;
-export const MARGIN = 56;
-export const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+const PAGE_WIDTH = 595; // A4, points
+const PAGE_HEIGHT = 842;
+const MARGIN = 56;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+
+/** One stream object; `entries` are the dictionary keys before its `/Length`. */
+function streamObject(id: number, entries: string, bytes: Uint8Array): Uint8Array {
+	const dictionary =
+		entries === '' ? `/Length ${bytes.length}` : `${entries} /Length ${bytes.length}`;
+	const header = latin1Bytes(`${id} 0 obj\n<< ${dictionary} >>\nstream\n`);
+	const footer = latin1Bytes('\nendstream\nendobj\n');
+	const body = new Uint8Array(header.length + bytes.length + footer.length);
+	body.set(header, 0);
+	body.set(bytes, header.length);
+	body.set(footer, header.length + bytes.length);
+	return body;
+}
 
 /**
  * A flowing, paginated document. Callers add text and images in order; the
@@ -377,14 +363,12 @@ export const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
  */
 export class PdfDocument {
 	private pages: PageContent[] = [];
-	private current: PageContent;
-	private cursorY: number;
+	private current!: PageContent;
+	private cursorY!: number;
 	private images: EmbeddedImage[] = [];
 
 	constructor() {
-		this.current = { operators: [], images: [] };
-		this.pages.push(this.current);
-		this.cursorY = PAGE_HEIGHT - MARGIN;
+		this.newPage();
 	}
 
 	private newPage(): void {
@@ -441,8 +425,9 @@ export class PdfDocument {
 		if (info === null) {
 			return false;
 		}
-		const name = `Im${this.images.length + 1}`;
-		this.images.push({ name, bytes, info });
+		const index = this.images.length;
+		const name = `Im${index + 1}`;
+		this.images.push({ bytes, info });
 
 		let width = Math.min(CONTENT_WIDTH, info.width);
 		let height = (width / info.width) * info.height;
@@ -451,30 +436,21 @@ export class PdfDocument {
 			width = (height / info.height) * info.width;
 		}
 		const y = this.reserve(height + 6);
-		this.current.images.push({ name, x: MARGIN, y, width, height });
+		this.current.images.push({ name, index, x: MARGIN, y, width, height });
 		return true;
 	}
 
 	/** The finished file. */
 	build(): Uint8Array {
-		const objects: Uint8Array[] = [];
-		// NOT a TextEncoder: that is UTF-8, and every WinAnsi byte above 0x7F
-		// would be written as the TWO bytes of its UTF-8 form — turning every
-		// accented character in the report into mojibake, and desynchronising
-		// the /Length of every stream containing one. PDF syntax is bytes, and
-		// this writes the byte each character already is.
-		const encoder = { encode: latin1Bytes };
 		// object numbers: 1 catalog, 2 pages, 3 F1, 4 F2, then per-image
 		// XObjects, then per-page (page + content stream)
 		const imageBase = 5;
 		const pageBase = imageBase + this.images.length;
-
-		const push = (body: Uint8Array): void => {
-			objects.push(body);
-		};
-		const pushText = (body: string): void => push(encoder.encode(body));
-
 		const pageIds = this.pages.map((_page, index) => pageBase + index * 2);
+		const objects: Uint8Array[] = [];
+		const pushText = (body: string): void => {
+			objects.push(latin1Bytes(body));
+		};
 
 		pushText(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
 		pushText(
@@ -490,32 +466,24 @@ export class PdfDocument {
 		);
 
 		this.images.forEach((image, index) => {
-			const header = encoder.encode(
-				`${imageBase + index} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${
-					image.info.width
-				} /Height ${image.info.height} /ColorSpace ${
-					image.info.components === 1 ? '/DeviceGray' : '/DeviceRGB'
-				} /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.bytes.length} >>\nstream\n`,
+			const colorSpace = image.info.components === 1 ? '/DeviceGray' : '/DeviceRGB';
+			objects.push(
+				streamObject(
+					imageBase + index,
+					`/Type /XObject /Subtype /Image /Width ${image.info.width} /Height ${image.info.height} ` +
+						`/ColorSpace ${colorSpace} /BitsPerComponent 8 /Filter /DCTDecode`,
+					image.bytes,
+				),
 			);
-			const footer = encoder.encode('\nendstream\nendobj\n');
-			const body = new Uint8Array(header.length + image.bytes.length + footer.length);
-			body.set(header, 0);
-			body.set(image.bytes, header.length);
-			body.set(footer, header.length + image.bytes.length);
-			push(body);
 		});
 
 		this.pages.forEach((page, index) => {
 			const pageId = pageBase + index * 2;
 			const contentId = pageId + 1;
-			// the LEADING SLASH is load-bearing: a PDF dictionary key is a NAME
-			// object, and without it every reader reports "Dictionary key must
-			// be a name object" and then "XObject 'Im1' is unknown" — the
-			// document still opens, still shows all its text, and simply has
-			// no pictures in it. Caught by `pdfimages -list`, never by a text
-			// round trip, which is why there is now an embedding gate too.
+			// the leading slash is load-bearing: a dictionary key is a NAME object,
+			// and without it readers silently drop every image on the page
 			const xobjects = page.images
-				.map((placed) => `/${placed.name} ${imageBase + this.imageIndex(placed.name)} 0 R`)
+				.map((placed) => `/${placed.name} ${imageBase + placed.index} 0 R`)
 				.join(' ');
 			pushText(
 				`${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
@@ -530,23 +498,14 @@ export class PdfDocument {
 						2,
 					)} ${placed.y.toFixed(2)} cm /${placed.name} Do Q`,
 			);
-			const stream = [...page.operators, ...drawn].join('\n');
-			const streamBytes = encoder.encode(stream);
-			const header = encoder.encode(
-				`${contentId} 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n`,
+			objects.push(
+				streamObject(contentId, '', latin1Bytes([...page.operators, ...drawn].join('\n'))),
 			);
-			const footer = encoder.encode('\nendstream\nendobj\n');
-			const body = new Uint8Array(header.length + streamBytes.length + footer.length);
-			body.set(header, 0);
-			body.set(streamBytes, header.length);
-			body.set(footer, header.length + streamBytes.length);
-			push(body);
 		});
 
-		// assemble with a real cross-reference table: the byte offset of every
-		// object, which is what makes the file openable at all
-		// the binary comment on line 2 is what marks the file as non-text to
-		// anything that transfers it (PDF 32000-1 §7.5.2)
+		// the cross-reference table holds every object's byte offset: without it
+		// the file does not open. The binary comment on line 2 marks the file as
+		// non-text to anything that transfers it (PDF 32000-1 §7.5.2)
 		const head = latin1Bytes('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
 		const chunks: Uint8Array[] = [head];
 		const offsets: number[] = [];
@@ -563,7 +522,7 @@ export class PdfDocument {
 			xref += `${String(offset).padStart(10, '0')} 00000 n \n`;
 		}
 		xref += `trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${position}\n%%EOF\n`;
-		chunks.push(encoder.encode(xref));
+		chunks.push(latin1Bytes(xref));
 
 		const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
 		const out = new Uint8Array(total);
@@ -573,9 +532,5 @@ export class PdfDocument {
 			at += chunk.length;
 		}
 		return out;
-	}
-
-	private imageIndex(name: string): number {
-		return this.images.findIndex((image) => image.name === name);
 	}
 }

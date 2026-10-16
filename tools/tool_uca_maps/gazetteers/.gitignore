@@ -1,5 +1,4 @@
-# An install may point `gazetteer_data_path` at THIS directory (provision.ts
-# writes here by default). The data is a third party's, it is 20 MB, and the
-# tool deliberately does not ship it — so it never becomes a repo change.
+# provision.ts --out may name THIS directory: the data it writes is a third
+# party's ~20 MB that the tool does not ship, so it never becomes a repo change.
 pleiades.json
 pelagios/

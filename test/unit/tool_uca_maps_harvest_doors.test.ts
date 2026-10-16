@@ -8,8 +8,7 @@
  * What is pinned is the tool's half of the contract — the host policy it
  * declares, what a redirect, a robots.txt, a non-2xx or an oversized body
  * turn into — not the door itself (`harvest_door_native.test.ts`). The two
- * actions are driven through their handlers, and the tool must bind exactly
- * those handlers: a handler that left the door would never reach the script.
+ * actions are driven through the handlers the action table pins as bound.
  * Robots verdicts and the pace are process-wide: cleared around every test.
  */
 
@@ -26,7 +25,7 @@ import {
 } from '../../tools/tool_uca_maps/gazetteers/provision.ts';
 import { getPleiadesPlace } from '../../tools/tool_uca_maps/server/roman_empire.ts';
 import { getWmsLayers } from '../../tools/tool_uca_maps/server/wms.ts';
-import { contextOf, dataOf, failureOf, loadTool } from './fixtures/tool_uca_maps/helpers.ts';
+import { contextOf, dataOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
 interface Scripted {
 	status: number;
@@ -90,12 +89,6 @@ afterEach(() => {
 	clearPacingForTests();
 });
 
-test('the tool binds exactly the handlers driven below', async () => {
-	const { apiActions } = await loadTool();
-	expect(apiActions.get_wms_layers?.handler).toBe(getWmsLayers);
-	expect(apiActions.get_pleiades_place?.handler).toBe(getPleiadesPlace);
-});
-
 const CAPABILITIES = '<WMS_Capabilities version="1.3.0"><Capability/></WMS_Capabilities>';
 
 describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
@@ -146,29 +139,45 @@ describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades ov
 	const PLACE = 'https://pleiades.stoa.org/places/423025/json';
 
 	test('a place document comes back parsed', async () => {
-		const place = { type: 'FeatureCollection', features: [] };
+		const place = {
+			type: 'FeatureCollection',
+			id: '423025',
+			title: 'Saguntum',
+			features: [
+				{
+					type: 'Feature',
+					properties: { title: 'Saguntum', location_precision: 'precise' },
+					geometry: { type: 'Point', coordinates: [-0.2726, 39.6766] },
+				},
+			],
+		};
 		const site = scriptedSite({ [PLACE]: { status: 200, body: JSON.stringify(place) } });
 		const data = dataOf(await getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
 		expect(data).toEqual({ place });
 		expect(site.sent).toContain(PLACE);
 	});
 
-	test('a redirect off Pleiades is refused by the host policy, never followed', async () => {
-		const site = scriptedSite({
-			[PLACE]: { status: 302, location: 'https://elsewhere.example/places/423025/json' },
-		});
+	test.each([
+		['off Pleiades', 302, 'https://elsewhere.example/places/423025/json'],
+		['down to http', 301, 'http://pleiades.stoa.org/places/423025/json'],
+	])('a redirect %s is refused, never followed', async (_case, status, location) => {
+		const site = scriptedSite({ [PLACE]: { status, location } });
 		const error = await failureOf(getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
 		expect(error.code).toBe('harvest.refused');
-		expect(site.sent.some((url) => url.includes('elsewhere.example'))).toBe(false);
+		expect(site.sent).not.toContain(location);
 	});
 
-	test('a redirect down to http is refused, never followed', async () => {
+	test("Pleiades' robots.txt is obeyed: a disallowed place is never requested", async () => {
 		const site = scriptedSite({
-			[PLACE]: { status: 301, location: 'http://pleiades.stoa.org/places/423025/json' },
+			'https://pleiades.stoa.org/robots.txt': {
+				status: 200,
+				body: 'User-agent: *\nDisallow: /places\n',
+			},
+			[PLACE]: { status: 200, body: '{"features":[]}' },
 		});
 		const error = await failureOf(getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
-		expect(error.code).toBe('harvest.refused');
-		expect(site.sent.some((url) => url.startsWith('http:'))).toBe(false);
+		expect(error.code).toBe('harvest.robots_disallowed');
+		expect(site.sent).not.toContain(PLACE);
 	});
 
 	test('an unknown id (404) is a plain failure, not a retryable transport one', async () => {
@@ -200,6 +209,13 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 		expect(site.ceilings.get(DUMP)).toBe(PLEIADES_DUMP_MAX_BYTES);
 	});
 
+	test('the names dump points at its place through the pid column', async () => {
+		const NAMES = 'https://atlantides.org/downloads/pleiades/dumps/pleiades-names-latest.csv.gz';
+		const csv = 'title,pid\nArse,/places/265849\n';
+		const site = scriptedSite({ [NAMES]: { status: 200, body: Bun.gzipSync(csv) } });
+		expect(await readDump(NAMES, site.deps)).toEqual([['Arse', '265849']]);
+	});
+
 	test('a dump past the byte ceiling is refused, not read into memory', async () => {
 		const site = scriptedSite({
 			[DUMP]: { status: 200, body: new Uint8Array(PLEIADES_DUMP_MAX_BYTES + 1) },
@@ -223,6 +239,28 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 			site: 'https://atlantides.org',
 			max_bytes: PLEIADES_DUMP_MAX_EXPANDED_BYTES,
 		});
+	});
+
+	test('a dump that expands past the download ceiling but within its own is read', async () => {
+		// 65 MiB once expanded: refused if the expansion were capped at the 64 MiB download ceiling
+		const padding = `${' '.repeat(1023)}\n`.repeat(65 * 1024);
+		const csv = `title,path\nSaguntum,/places/265849\n${padding}`;
+		expect(csv.length).toBeGreaterThan(PLEIADES_DUMP_MAX_BYTES);
+		const site = scriptedSite({ [DUMP]: { status: 200, body: Bun.gzipSync(csv) } });
+		expect(await readDump(DUMP, site.deps)).toEqual([['Saguntum', '265849']]);
+	});
+
+	test("Pleiades' robots.txt is obeyed for the dumps too", async () => {
+		const site = scriptedSite({
+			'https://atlantides.org/robots.txt': {
+				status: 200,
+				body: 'User-agent: *\nDisallow: /downloads\n',
+			},
+			[DUMP]: { status: 200, body: Bun.gzipSync('title,path\n') },
+		});
+		const error = await failureOf(readDump(DUMP, site.deps));
+		expect(error.code).toBe('harvest.robots_disallowed');
+		expect(site.sent).not.toContain(DUMP);
 	});
 
 	test('a dump that does not answer 2xx is a plain failure', async () => {

@@ -1,23 +1,13 @@
 /**
- * Fills a gazetteer data directory for fila #14 ("Imperio Romano") — the store
- * the `gazetteer_data_path` tool option points at (`server/gazetteer_store.ts`).
- *
- * The tool ships NO gazetteer data (Sergio, 2026-09-16): 20 MB of a third
- * party's datasets do not belong in the engine's tree. This script is how an
- * install gets them — ops tooling, never part of a request path, and it lives
- * in the tool (not in the local-only `dev/`) because a capability nobody can
- * provision is a capability nobody has.
+ * Fills the directory the `gazetteer_data_path` tool option points at; the tool
+ * ships no gazetteer data. Ops tooling, never on a request path.
  *
  *   bun tools/tool_uca_maps/gazetteers/provision.ts --out <dir> \
  *       [--from-v6 <path to tool_leaflet_special_tools>]
  *
- *  · Pleiades: the name→id index is BUILT here from Pleiades' own published
- *    dumps (atlantides.org), places + names deduplicated — so it can be
- *    rebuilt on any install, at any date, instead of being a frozen copy.
- *  · Pelagios: the Roman-world layers are copied from an existing v6 tool
- *    checkout. No canonical download URL for them is pinned here because none
- *    was verified (DARE publishes at dh.gu.se; `imperium.ahlfeldt.se`'s own
- *    data zip 404s today) — inventing one would be a URL that rots silently.
+ * Pleiades: the name→id index is built from Pleiades' own dumps (atlantides.org),
+ * so any install can rebuild it. Pelagios: the layers are copied from a v6 tool
+ * checkout, as no canonical download URL for them could be verified.
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
@@ -41,7 +31,8 @@ const PLEIADES_DUMPS = [
 	'https://atlantides.org/downloads/pleiades/dumps/pleiades-names-latest.csv.gz',
 ];
 
-/** The layers `gazetteer_store.ts` knows how to serve. */
+/** The layers `gazetteer_store.ts` serves, copied rather than imported: that
+ * module loads the engine's database config, which this script never needs. */
 const PELAGIOS_DATASETS = [
 	'places_high',
 	'places_medium',

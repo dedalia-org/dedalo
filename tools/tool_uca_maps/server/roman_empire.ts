@@ -1,23 +1,9 @@
 /**
- * Fila #14 del audit ("Imperio Romano"): search the Roman world's three
- * gazetteers and bring a place onto the map.
- *
- * THE THREE SOURCES, WITH THEIR REAL NAMES (audit correction #2 — v6 titles
- * one panel "Pelagios D.A.R.E" although it only searches Pelagios, while the
- * actual DARE query lives in a separate panel):
- *   · Pleiades — a local name→id index, geometry fetched per id from
- *     pleiades.stoa.org (v6 used a GitHub mirror, see `pleiadesPlaceUrl`).
- *   · Pelagios — the local Roman-world layers (places, roads, provinces…).
- *   · DARE — the live `imperium.ahlfeldt.se` API (Lund University).
- * The first two read the local store (`gazetteer_store.ts`) and are therefore
- * capability-gated; the third needs no local data at all.
- *
- * WHY THE SERVER: same reason as every other third-party door in this tool
- * (`wms.ts`, `place_search.ts`) — the app serves `connect-src 'self'`, so the
- * page cannot query these services itself, and a local dataset is not the
- * browser's to read at all. A Pleiades place is a document on Pleiades' own
- * site, so it comes through the harvesting door (`harvestFetch`); DARE is an
- * API call, a different door.
+ * Search the Roman world's three gazetteers: Pleiades (local name→id index,
+ * geometry per id from pleiades.stoa.org), Pelagios (local layers) and DARE (the
+ * live `imperium.ahlfeldt.se` API). v6 titles its Pelagios panel "Pelagios
+ * D.A.R.E" though DARE is a separate query. Server-side because the page serves
+ * `connect-src 'self'` and the local data is not the browser's to read.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
@@ -29,12 +15,14 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import {
+	GAZETTEER_CONFIG_KEY,
 	gazetteerUnavailable,
 	PELAGIOS_DATASETS,
 	pelagiosDatasetPath,
 	pleiadesIndexPath,
 	resolveGazetteerDir,
 } from './gazetteer_store.ts';
+import { WIN_ANSI_HIGH } from './pdf_writer.ts';
 
 /** v6's own result count for all three searches (10 result slots per panel). */
 const RESULT_LIMIT = 10;
@@ -69,10 +57,9 @@ export interface GazetteerResult {
 }
 
 /**
- * Pleiades index (v6 shape: a flat array of [name, id] pairs) → up to
- * `limit` hits. `type` 'name' is a case-insensitive substring search, 'id' an
- * exact id match — v6's own two radio options. PURE, exported for unit
- * coverage against a hand-written fixture.
+ * Pleiades index (v6 shape: a flat array of [name, id] pairs) → up to `limit`
+ * hits. `type` 'name' is a case-insensitive substring search, 'id' an exact id
+ * match: v6's own two radio options.
  */
 export function matchPleiadesIndex(
 	text: string,
@@ -133,14 +120,9 @@ function pelagiosNames(properties: Record<string, unknown>): {
 }
 
 /**
- * One Pelagios dataset → up to `limit` hits whose name contains `query`.
- * PURE, exported for unit coverage.
- *
- * DIVERGENCE FROM v6, deliberate: v6 keeps at most ONE hit per dataset (its
- * `$exists` check compares the FILE name, not the feature), so searching a
- * layer of 10.000 places answers with its first match and stops. Here every
- * match counts towards the shared limit, which is what a result list of ten
- * slots is for.
+ * One Pelagios dataset → up to `limit` hits whose name contains `query`. Every
+ * match counts towards the shared limit, where v6 keeps one hit per dataset
+ * (its `$exists` check compares the FILE name, not the feature).
  */
 export function matchPelagiosFeatures(
 	text: string,
@@ -173,7 +155,7 @@ export function matchPelagiosFeatures(
 				? (typed.properties as Record<string, unknown>)
 				: {};
 		const { label, searchable } = pelagiosNames(properties);
-		if (label === '' || !searchable.some((value) => value.toLowerCase().includes(needle))) {
+		if (!searchable.some((value) => value.toLowerCase().includes(needle))) {
 			continue;
 		}
 		results.push({
@@ -190,11 +172,8 @@ export function matchPelagiosFeatures(
 }
 
 /**
- * Builds the DARE query URL. EXPORTED for unit coverage (no network needed).
- *
- * HTTPS, where v6 calls the same API over plaintext `http://`
- * (`class.tool_leaflet_special_tools.php:853`) — the host answers on both, so
- * there is no reason to ship a cleartext third-party call into v7.
+ * The DARE query URL, over HTTPS where v6 uses plaintext `http://`
+ * (`class.tool_leaflet_special_tools.php`): the host answers on both.
  */
 export function dareApiUrl(options: {
 	query: string;
@@ -225,17 +204,16 @@ export function dareApiUrl(options: {
 }
 
 /**
- * DARE serves UTF-8 text that was itself decoded from UTF-8 bytes as CP1252,
- * so "Cádiz" arrives as "CÃ¡diz" (v6 papers over the same thing with
- * `utf8_decode`). This maps each character back to the CP1252 BYTE it stands
- * for and re-reads the sequence as UTF-8; anything that is not valid UTF-8
- * that way was never mojibake, and is returned untouched.
+ * DARE serves UTF-8 that was decoded as CP1252 upstream, so "Cádiz" arrives as
+ * "CÃ¡diz" (v6 papers over it with `utf8_decode`). Each character goes back to
+ * its CP1252 byte and the bytes are re-read as UTF-8; text that is not valid
+ * UTF-8 that way was never mojibake and is returned untouched.
  */
 export function decodeDareText(text: string): string {
 	const bytes = new Uint8Array(text.length);
 	for (let i = 0; i < text.length; i++) {
 		const code = text.codePointAt(i) as number;
-		const byte = code < 0x100 ? code : CP1252_HIGH.get(code);
+		const byte = code < 0x100 ? code : WIN_ANSI_HIGH.get(code);
 		if (byte === undefined) {
 			return text; // not a CP1252-representable string: not this mojibake
 		}
@@ -248,42 +226,10 @@ export function decodeDareText(text: string): string {
 	}
 }
 
-/** CP1252's own 0x80–0x9F block, where it differs from ISO-8859-1. */
-const CP1252_HIGH: ReadonlyMap<number, number> = new Map([
-	[0x20ac, 0x80],
-	[0x201a, 0x82],
-	[0x0192, 0x83],
-	[0x201e, 0x84],
-	[0x2026, 0x85],
-	[0x2020, 0x86],
-	[0x2021, 0x87],
-	[0x02c6, 0x88],
-	[0x2030, 0x89],
-	[0x0160, 0x8a],
-	[0x2039, 0x8b],
-	[0x0152, 0x8c],
-	[0x017d, 0x8e],
-	[0x2018, 0x91],
-	[0x2019, 0x92],
-	[0x201c, 0x93],
-	[0x201d, 0x94],
-	[0x2022, 0x95],
-	[0x2013, 0x96],
-	[0x2014, 0x97],
-	[0x02dc, 0x98],
-	[0x2122, 0x99],
-	[0x0161, 0x9a],
-	[0x203a, 0x9b],
-	[0x0153, 0x9c],
-	[0x017e, 0x9e],
-	[0x0178, 0x9f],
-]);
-
 /**
- * DARE's FeatureCollection → up to `limit` hits. PURE, exported for unit
- * coverage. A body that is not a FeatureCollection is a service REFUSAL, not
- * zero results — same law as `place_search.ts` (hito 15 fix): a user must
- * never read "no places found" for an outage.
+ * DARE's FeatureCollection → up to `limit` hits. A body that is not a
+ * FeatureCollection is a service refusal, not zero results (as in
+ * `place_search.ts`): a user must never read "no places found" for an outage.
  */
 export function parseDareResults(text: string, limit = RESULT_LIMIT): GazetteerResult[] {
 	let payload: unknown;
@@ -327,15 +273,13 @@ export function parseDareResults(text: string, limit = RESULT_LIMIT): GazetteerR
 }
 
 /**
- * The canonical Pleiades place document. v6 reads a third-party GitHub MIRROR
- * (`raw.githubusercontent.com/ryanfb/pleiades-geojson`); this asks Pleiades
- * itself, which answers `/places/<id>/json` directly — one less intermediary
- * to trust and to fall out of date. (Its `/search` endpoint is the one behind
- * an anti-bot wall, which is exactly why the name index stays local.)
+ * Pleiades itself, where v6 reads a GitHub mirror (`ryanfb/pleiades-geojson`):
+ * one intermediary less to trust or to fall out of date. Its `/search` sits
+ * behind an anti-bot wall, which is why the name index stays local.
  */
 const PLEIADES_HOST = 'pleiades.stoa.org';
 
-export function pleiadesPlaceUrl(id: string): URL {
+function pleiadesPlaceUrl(id: string): URL {
 	return new URL(`https://${PLEIADES_HOST}/places/${id}/json`);
 }
 
@@ -344,7 +288,7 @@ async function requireGazetteerDir(): Promise<string> {
 	const dir = await resolveGazetteerDir();
 	if (dir === null) {
 		throw gazetteerUnavailable(
-			'No gazetteer data directory is configured for this install (tool option "gazetteer_data_path").',
+			`No gazetteer data directory is configured for this install (tool option "${GAZETTEER_CONFIG_KEY}").`,
 		);
 	}
 	return dir;
@@ -398,7 +342,7 @@ export async function getPleiadesPlace(
  * answer (an unknown id) is a plain failure, not a retryable transport one.
  * `deps` scripts the site in tests.
  */
-export async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<unknown> {
+async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<unknown> {
 	const response = await harvestFetch(
 		{
 			url: pleiadesPlaceUrl(id).toString(),

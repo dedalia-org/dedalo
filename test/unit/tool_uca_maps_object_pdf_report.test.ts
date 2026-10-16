@@ -1,28 +1,19 @@
 /**
- * tool_uca_maps — `object_pdf_report` (fila #3, "Exportar como PDF") and the
- * dependency-free PDF writer underneath it.
- *
- * THE GATE THAT MATTERS. The request names images to embed. This pins that
- * the per-image gate the handler applies is LITERALLY the spec `get_image_file`
- * declares — not a second, hand-written check that could quietly weaken.
- *
- * THE WRITER IS VERIFIED BY AN OUTSIDE READER, not by asserting on the bytes
- * this repo produced. `pdftotext` (Poppler, already a media-engine dependency
- * — src/core/media/engine/pdf.ts) opens the file and reads its text back: if
- * the cross-reference offsets, the stream lengths or the WinAnsi encoding were
- * wrong, the text would not come back — or would come back as mojibake. That
- * is the whole point of a hand-written writer having a round-trip gate.
- *
- * Accents are the specific trap: the content stream is BYTES, and encoding it
- * as UTF-8 (the obvious mistake) both corrupts every accented character and
- * desynchronises every `/Length`. A Spanish record title is therefore an
- * assertion here, not decoration.
+ * tool_uca_maps — `object_pdf_report` and the dependency-free PDF writer under
+ * it. The writer is verified by an outside reader (Poppler's `pdftotext` and
+ * `pdfimages`), never by asserting on the bytes it wrote: wrong xref offsets,
+ * stream lengths or WinAnsi encoding only show when a real reader opens the file.
  */
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { config } from '../../src/config/config.ts';
+import { scanContextFromItem, scanFilesInfo } from '../../src/core/media/files_info.ts';
+import { buildMediaLocation } from '../../src/core/media/path.ts';
+import { requireTestMediaRoot } from '../../src/core/media/test_media_root.ts';
+import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
 import {
 	IMAGE_READ_GATE,
@@ -39,7 +30,7 @@ import {
 	textWidth,
 	wrapText,
 } from '../../tools/tool_uca_maps/server/pdf_writer.ts';
-import { contextOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import { contextOf, expectCode, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 const scratch = mkdtempSync(join(tmpdir(), 'uca_pdf_'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -58,7 +49,7 @@ async function pdfText(bytes: Uint8Array, name: string): Promise<string> {
 	return await Bun.file(txtPath).text();
 }
 
-describe('tool_uca_maps object_pdf_report — declared gate', () => {
+describe('tool_uca_maps object_pdf_report — the per-image gate', () => {
 	test('the per-image gate IS the get_image_file spec, not a second hand-written check', async () => {
 		const declared = (await loadAction('get_image_file')) as GatedToolActionSpec;
 		expect(String(IMAGE_READ_GATE.permission)).toBe(String(declared.permission));
@@ -68,12 +59,6 @@ describe('tool_uca_maps object_pdf_report — declared gate', () => {
 });
 
 describe('toMercator / reprojectCoordinates', () => {
-	test('the origin stays the origin', () => {
-		const [x, y] = toMercator(0, 0);
-		expect(x).toBeCloseTo(0, 6);
-		expect(y).toBeCloseTo(0, 6);
-	});
-
 	test('a known point lands where EPSG:3857 puts it', () => {
 		// Sagunto, roughly — checked against the standard spherical formula
 		const [x, y] = toMercator(-0.2726, 39.6766);
@@ -81,9 +66,9 @@ describe('toMercator / reprojectCoordinates', () => {
 		expect(y).toBeCloseTo(4819057.36, 1);
 	});
 
-	test('the pole is clamped, never Infinity in the document', () => {
-		expect(Number.isFinite(toMercator(0, 90)[1])).toBe(true);
-		expect(Number.isFinite(toMercator(0, -90)[1])).toBe(true);
+	test('the pole is clamped to the projection limit, never Infinity in the document', () => {
+		expect(toMercator(0, 90)[1]).toBe(toMercator(0, 85.05112878)[1]);
+		expect(toMercator(0, -90)[1]).toBe(toMercator(0, -85.05112878)[1]);
 	});
 
 	test('a nested polygon ring is reprojected at every depth', () => {
@@ -165,7 +150,13 @@ describe('readRequestedImages — what may be asked for', () => {
 	});
 
 	test('a non-list is refused as request.invalid_options', () => {
-		expect(() => readRequestedImages('rsc170')).toThrow();
+		let refusal: unknown;
+		try {
+			readRequestedImages('rsc170');
+		} catch (error) {
+			refusal = error;
+		}
+		expectCode(refusal, 'request.invalid_options');
 	});
 });
 
@@ -189,10 +180,10 @@ describe('pdf_writer — encoding and wrapping', () => {
 
 	test("a geometry's coordinates wrap between pairs, in one pass, without losing a char", () => {
 		const ring: number[][] = [];
-		for (let i = 0; i <= 200; i++) ring.push([-0.4123456789 + i * 1e-5, 39.4123456789 + i * 1e-5]);
+		for (let i = 0; i <= 3000; i++) ring.push([-0.4123456789 + i * 1e-5, 39.4123456789 + i * 1e-5]);
 		const json = JSON.stringify([ring]);
-		// re-measuring the rest per cut took ~19 s here; and it is synchronous,
-		// so it held the whole server, every user, for that long
+		// 3000 vertices: enough for a quadratic cut to take seconds, and the wrap
+		// is synchronous, so it would hold the whole server that long
 		const started = performance.now();
 		const lines = wrapText(json, 9, false, 480);
 		expect(performance.now() - started).toBeLessThan(1000);
@@ -202,9 +193,40 @@ describe('pdf_writer — encoding and wrapping', () => {
 		for (const line of lines) expect(textWidth(line, 9, false)).toBeLessThanOrEqual(480);
 	});
 
+	test('accented, unencodable and bold text wraps within the line, every char kept', () => {
+		const word = 'áéíóú文ñ'.repeat(60);
+		const lines = wrapText(word, 10, true, 200);
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.join('')).toBe(word);
+		for (const line of lines) expect(textWidth(line, 10, true)).toBeLessThanOrEqual(200);
+	});
+
 	test('readJpegInfo refuses what it cannot embed', () => {
 		expect(readJpegInfo(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBeNull(); // a PNG
 		expect(readJpegInfo(new Uint8Array([]))).toBeNull();
+	});
+
+	test('readJpegInfo reads a gray or RGB frame and refuses a CMYK one', () => {
+		// SOI, then an SOF0 segment: precision, height 261, width 519, the component count
+		const frame = (components: number) =>
+			new Uint8Array([
+				0xff,
+				0xd8,
+				0xff,
+				0xc0,
+				0x00,
+				8 + components * 3,
+				0x08,
+				0x01,
+				0x05,
+				0x02,
+				0x07,
+				components,
+				...Array.from({ length: components }, (_value, index) => [index + 1, 0x11, 0x00]).flat(),
+			]);
+		expect(readJpegInfo(frame(1))).toEqual({ width: 519, height: 261, components: 1 });
+		expect(readJpegInfo(frame(3))).toEqual({ width: 519, height: 261, components: 3 });
+		expect(readJpegInfo(frame(4))).toBeNull();
 	});
 });
 
@@ -232,74 +254,71 @@ describe('pdf_writer — the file a real reader sees', () => {
 
 		expect(text).toContain('line number 0');
 		expect(text).toContain('line number 219');
-		// Poppler separates pages with a form feed
-		expect(text).toContain('\f');
+		// 13.5 pt leading on a 730 pt column is 54 lines a page; Poppler ends
+		// every page with a form feed
+		expect(text.split('\f').length - 1).toBe(5);
 	});
 });
 
-/**
- * The smallest real JPEG this suite can assert on: a 2x2 solid block, encoded
- * once and embedded verbatim. Built with ImageMagick at test time rather than
- * checked in as a base64 blob, so the bytes are a real encoder's output.
- */
-async function tinyJpeg(): Promise<Uint8Array | null> {
+/** ImageMagick 7, or 6's `convert`: what builds a real JPEG for these gates. */
+const MAGICK = Bun.which('magick') ?? Bun.which('convert');
+const HAVE_MAGICK = MAGICK !== null;
+
+/** A real encoder's 2x2 JPEG, built at test time rather than checked in as a blob. */
+async function tinyJpeg(): Promise<Uint8Array> {
 	const target = join(scratch, 'tiny.jpg');
-	for (const binary of ['magick', 'convert']) {
-		const proc = Bun.spawn([binary, '-size', '2x2', 'xc:red', target], {
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		if ((await proc.exited) === 0) {
-			return new Uint8Array(await Bun.file(target).arrayBuffer());
-		}
-	}
-	return null;
+	const proc = Bun.spawn([MAGICK ?? 'magick', '-size', '2x2', 'xc:red', target], {
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	expect(await proc.exited).toBe(0);
+	return new Uint8Array(await Bun.file(target).arrayBuffer());
+}
+
+/** Poppler's image listing of `bytes`: one row per image it found. */
+async function pdfImages(
+	bytes: Uint8Array,
+	name: string,
+): Promise<{ rows: string[]; errors: string }> {
+	const pdfPath = join(scratch, `${name}.pdf`);
+	writeFileSync(pdfPath, bytes);
+	const proc = Bun.spawn(['pdfimages', '-list', pdfPath], { stdout: 'pipe', stderr: 'pipe' });
+	const [listing, errors] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+	]);
+	expect(await proc.exited).toBe(0);
+	// a two-line header, then the images
+	return { rows: listing.trim().split('\n').slice(2), errors };
 }
 
 describe('pdf_writer — an embedded image is really IN the file', () => {
-	/**
-	 * THE REGRESSION THIS EXISTS FOR. The `/XObject` resource key was written
-	 * without its leading slash, so every reader rejected the dictionary and
-	 * dropped the image — while the text round trip above stayed perfectly
-	 * green and `pdf.image()` still answered `true`, so the report printed no
-	 * "could not be embedded" note either. A document with captions and no
-	 * pictures, silently. Text is not evidence that an image embedded; only
-	 * an image reader is.
-	 */
-	test('Poppler finds the image, and reports no syntax error doing it', async () => {
-		const jpeg = await tinyJpeg();
-		if (jpeg === null) {
-			// no ImageMagick here: skipping is honest, inventing JPEG bytes is not
-			return;
-		}
+	// the text round trip stays green with a broken `/XObject` key (pdf.image()
+	// still answers true, so no "could not be embedded" note): only an image
+	// reader shows that the pictures are gone
+	test.skipIf(!HAVE_MAGICK)(
+		'Poppler finds the image, and reports no syntax error doing it (needs ImageMagick)',
+		async () => {
+			const pdf = new PdfDocument();
+			pdf.text('con imagen', { size: 12 });
+			expect(pdf.image(await tinyJpeg())).toBe(true);
 
-		const pdf = new PdfDocument();
-		pdf.text('con imagen', { size: 12 });
-		expect(pdf.image(jpeg)).toBe(true);
-
-		const pdfPath = join(scratch, 'embedded.pdf');
-		writeFileSync(pdfPath, pdf.build());
-
-		const proc = Bun.spawn(['pdfimages', '-list', pdfPath], {
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		const [listing, errors] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
-		]);
-		await proc.exited;
-
-		expect(errors).not.toMatch(/Syntax Error/);
-		// the listing has a header row plus one row per image found
-		expect(listing.trim().split('\n').length).toBeGreaterThan(2);
-		expect(listing).toMatch(/jpeg/i);
-	});
+			const { rows, errors } = await pdfImages(pdf.build(), 'embedded');
+			expect(errors).not.toMatch(/Syntax Error/);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatch(/jpeg/i);
+		},
+	);
 });
 
 describe('objectPdfReport — the whole document', () => {
-	test('refuses a request with no geometry at all', async () => {
-		expect(objectPdfReport(contextOf({}))).rejects.toThrow();
+	test('refuses a request with no geometry at all, or one that is not an object', async () => {
+		await expect(objectPdfReport(contextOf({}))).rejects.toMatchObject({
+			code: 'request.invalid_options',
+		});
+		await expect(objectPdfReport(contextOf({ geojson: 'texto' }))).rejects.toMatchObject({
+			code: 'request.invalid_options',
+		});
 	});
 
 	test('builds a readable report from an object with properties and a geometry', async () => {
@@ -333,10 +352,43 @@ describe('objectPdfReport — the whole document', () => {
 		expect(text).toContain('-30345');
 	});
 
-	test('an image the caller may not read is NAMED in the document, never silently dropped', async () => {
+	// test99 is the generic TLD's component_image: a real JPEG is planted at
+	// this id in the suite's MARKED media root, so only the gate can keep it out
+	const IMAGE = { section_tipo: 'test3', tipo: 'test99', section_id: 905104 };
+
+	/** The slot's files and stored items: anything here is a residue. */
+	async function slotResidue(): Promise<string[]> {
+		const { spec, identity, pathOpts, items } = await resolveMediaToolContext(IMAGE);
+		const files = scanFilesInfo(spec, identity, pathOpts, scanContextFromItem(items[0]))
+			.filter((entry) => entry.file_exist)
+			.map((entry) => String(entry.file_path));
+		return items.length === 0 ? files : [...files, `${items.length} stored media item(s)`];
+	}
+
+	/** Runs `body` with a JPEG at the slot's default quality, then removes it and its dirs. */
+	async function withPlantedJpeg<T>(body: () => Promise<T>): Promise<T> {
+		requireTestMediaRoot(config.media.rootPath ?? '', 'tool_uca_maps_object_pdf_report.test');
+		expect(await slotResidue(), 'residue in test3/test99/905104 before planting').toHaveLength(0);
+		const { spec, identity, pathOpts } = await resolveMediaToolContext(IMAGE);
+		const location = buildMediaLocation(spec, identity, spec.defaultQuality, 'jpg', pathOpts);
+		const created = mkdirSync(dirname(location.absolutePath), { recursive: true });
+		try {
+			writeFileSync(location.absolutePath, await tinyJpeg());
+			return await body();
+		} finally {
+			rmSync(location.absolutePath, { force: true });
+			for (let dir = dirname(location.absolutePath); created !== undefined; dir = dirname(dir)) {
+				rmdirSync(dir);
+				if (dir === created) break;
+			}
+			expect(await slotResidue(), 'residue in test3/test99/905104 after the test').toHaveLength(0);
+		}
+	}
+
+	async function reportFor(userId: number, isGlobalAdmin: boolean): Promise<Uint8Array> {
 		const response = await objectPdfReport({
-			principal: { userId: 7, isGlobalAdmin: false, isDeveloper: false },
-			userId: 7,
+			principal: { userId, isGlobalAdmin, isDeveloper: false },
+			userId,
 			options: {
 				section_tipo: 'test2',
 				tipo: 'test52',
@@ -346,20 +398,37 @@ describe('objectPdfReport — the whole document', () => {
 					properties: {},
 					geometry: { type: 'Point', coordinates: [0, 0] },
 				},
-				images: [
-					{ section_tipo: 'rsc170', section_id: 999999, tipo: 'rsc29', name: 'secreta.jpg' },
-				],
+				images: [{ ...IMAGE, name: 'secreta.jpg' }],
 			},
 			background: false,
 		});
-
-		const data = response.data as { content_base64: string };
-		const text = await pdfText(
-			new Uint8Array(Buffer.from(data.content_base64, 'base64')),
-			'forbidden',
+		return new Uint8Array(
+			Buffer.from((response.data as { content_base64: string }).content_base64, 'base64'),
 		);
+	}
 
+	test('an image the caller may not read is NAMED in the document as refused', async () => {
+		const text = await pdfText(await reportFor(7, false), 'forbidden');
 		expect(text).toContain('secreta.jpg');
-		expect(text).toMatch(/Not included/);
+		expect(text).toContain('you may not read this record');
+		expect(text).not.toContain('could not be embedded');
 	});
+
+	test.skipIf(!HAVE_MAGICK)(
+		'a refused image is left out although it embeds for a caller who may read it (needs ImageMagick)',
+		async () => {
+			await withPlantedJpeg(async () => {
+				const refused = await reportFor(7, false);
+				expect(await pdfText(refused, 'forbidden_planted')).toContain(
+					'you may not read this record',
+				);
+				expect((await pdfImages(refused, 'forbidden_planted')).rows).toHaveLength(0);
+
+				// control: the same record, for a caller who may read it, is embedded
+				const allowed = await reportFor(-1, true);
+				expect(await pdfText(allowed, 'allowed')).not.toContain('Not included');
+				expect((await pdfImages(allowed, 'allowed')).rows).toHaveLength(1);
+			});
+		},
+	);
 });

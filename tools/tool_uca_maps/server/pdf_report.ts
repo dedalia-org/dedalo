@@ -1,28 +1,9 @@
 /**
- * object_pdf_report — fila #3 ("Consola de objeto"), the "Exportar como PDF"
- * button: the selected object's properties, geometry and associated images as
- * one document (`special_tools.js` `create_pdf`).
- *
- * WHY THE SERVER BUILDS IT. v6 builds it in the browser, by injecting a DOM
- * into a hidden iframe that pulls `html2pdf` from cdnjs and racing two
- * hardcoded timeouts. The CDN is blocked by this app's own `script-src 'self'`,
- * so that path does not exist here; and the images the document embeds are
- * media this server can read directly, with no round trip through the browser
- * at all. It is also simply where this tool already produces files — the same
- * `{content_base64, filename, mime}` answer `vector_download` and
- * `raster_download` give.
- *
- * THE PERMISSION POINT, and it is the reason this file is longer than the
- * document it builds. The request names images to embed. If it named FILE
- * PATHS, any authenticated user could ask for a PDF of a media file they have
- * no right to read — the report would become a way around per-record
- * permissions. So it names RECORD IDENTITIES only, every one of them is
- * re-resolved server-side through `resolveRenderableImage`, and every one is
- * put through the SAME `record_tipo` gate the `get_image_file` action
- * declares (`assertActionPermission`, the engine's own gate — not a check
- * written here). A record the caller may not read is reported as refused
- * INSIDE the document, never silently dropped: a report missing a picture
- * with no explanation is a report that lies.
+ * `object_pdf_report`: the selected object's properties, geometry and images as
+ * one PDF (v6 `special_tools.js` `create_pdf`, built in the browser from a CDN
+ * script that `script-src 'self'` blocks). The request names images by RECORD
+ * identity only, never a file path, and each one passes the same `record_tipo`
+ * gate as `get_image_file`; a refused image is named in the document.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
@@ -32,16 +13,14 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import { assertActionPermission } from '../../../src/core/tools/security.ts';
-import { getImageFile, resolveEmbeddableImage } from './image_media.ts';
+import { type EmbedRefusal, getImageFile, resolveEmbeddableImage } from './image_media.ts';
 import { PdfDocument } from './pdf_writer.ts';
 
 /** v6's own cap for the same document ("Imágenes asociadas (Max. 30)"). */
 const MAX_IMAGES = 30;
 
-/** The gate every embedded image is put through — the SAME spec
- * `get_image_file` declares in `index.ts`. Written here as a constant so the
- * two cannot drift apart silently; `tool_uca_maps_object_pdf_report.test.ts`
- * asserts they are equal. */
+/** The gate every embedded image passes: the spec `get_image_file` declares in
+ * `index.ts`, pinned equal to it by a unit gate so the two cannot drift. */
 export const IMAGE_READ_GATE = {
 	permission: 'record_tipo',
 	minLevel: 1,
@@ -166,10 +145,8 @@ export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolRespo
 	});
 	pdf.rule();
 
-	// The elevation is passed in rather than re-fetched: the console already
-	// has it on screen, and a second call to a third-party service to print a
-	// number the user is looking at would be both slower and able to disagree
-	// with it.
+	// passed in, not re-fetched: a second third-party call could disagree
+	// with the number the console already shows
 	if (typeof options.elevation === 'number') {
 		pdf.text(`${label('elevation', 'Elevation')}: ${options.elevation} m`, { size: 10 });
 	}
@@ -224,7 +201,7 @@ export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolRespo
 			}
 
 			let embedded = false;
-			let reason: 'format' | 'missing' = 'missing';
+			let reason: EmbedRefusal = 'missing';
 			try {
 				const resolved = await resolveEmbeddableImage(imageOptions);
 				if (typeof resolved === 'string') {
@@ -240,9 +217,7 @@ export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolRespo
 				}
 			} catch {
 				// a deleted record, a swept file, a tier that vanished: named
-				// below, never a failed report — the rest of the document is
-				// still exactly what the user asked for
-				embedded = false;
+				// below, never a failed report
 			}
 
 			if (!embedded) {

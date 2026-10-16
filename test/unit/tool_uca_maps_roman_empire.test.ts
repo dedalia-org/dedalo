@@ -1,8 +1,7 @@
 /**
- * tool_uca_maps — fila #14 ("Imperio Romano"), hito 18. The PURE halves of the
- * three gazetteer searches: index matching, dataset matching, the DARE query
- * URL and its reply parsing. No network, no data directory — every fixture is
- * written here.
+ * tool_uca_maps — the pure halves of the three gazetteer searches: index
+ * matching, dataset matching, the DARE query URL and its reply parsing. No
+ * network, no data directory: every fixture is written here.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -12,9 +11,19 @@ import {
 	matchPelagiosFeatures,
 	matchPleiadesIndex,
 	parseDareResults,
-	pleiadesPlaceUrl,
 	searchPelagios,
 } from '../../tools/tool_uca_maps/server/roman_empire.ts';
+import { expectCode } from './fixtures/tool_uca_maps/helpers.ts';
+
+/** What `run` threw, for asserting its code. */
+function thrownBy(run: () => unknown): unknown {
+	try {
+		run();
+	} catch (error) {
+		return error;
+	}
+	return undefined;
+}
 
 /** v6's own index shape: a flat array of [name, id] pairs. */
 const PLEIADES_INDEX = JSON.stringify([
@@ -76,6 +85,12 @@ describe('matchPleiadesIndex', () => {
 	test('a malformed or non-array index is an install fault, not zero results', () => {
 		expect(() => matchPleiadesIndex('{not json', 'name', 'gad')).toThrow(/not readable/);
 		expect(() => matchPleiadesIndex('{"a":1}', 'name', 'gad')).toThrow(/unexpected shape/);
+		for (const text of ['{not json', '{"a":1}']) {
+			expectCode(
+				thrownBy(() => matchPleiadesIndex(text, 'name', 'gad')),
+				'tool.dependency_unavailable',
+			);
+		}
 	});
 });
 
@@ -114,6 +129,12 @@ describe('matchPelagiosFeatures', () => {
 		expect(() => matchPelagiosFeatures('{"type":"X"}', 'places_high', 'x')).toThrow(
 			/unexpected shape/,
 		);
+		for (const text of ['{not json', '{"type":"X"}']) {
+			expectCode(
+				thrownBy(() => matchPelagiosFeatures(text, 'places_high', 'x')),
+				'tool.dependency_unavailable',
+			);
+		}
 	});
 });
 
@@ -170,8 +191,15 @@ describe('parseDareResults', () => {
 		expect(results[0]?.feature).toBeDefined();
 	});
 
-	test('honours the result limit', () => {
+	test('honours the result limit, keeping the first hits in service order', () => {
 		expect(parseDareResults(REPLY, 0)).toHaveLength(0);
+		const three = JSON.stringify({
+			features: ['Gades', 'Hispalis', 'Corduba'].map((name) => ({
+				properties: { name },
+				geometry: { type: 'Point' },
+			})),
+		});
+		expect(parseDareResults(three, 2).map((hit) => hit.name)).toEqual(['Gades', 'Hispalis']);
 	});
 
 	test('A REFUSAL IS NOT ZERO RESULTS (same law as place_search)', () => {
@@ -181,7 +209,7 @@ describe('parseDareResults', () => {
 });
 
 describe('decodeDareText', () => {
-	// measured live 2026-09-16: DARE answers `ass=Gades` with "CÃ¡diz" and
+	// as measured on the live service: DARE answers `ass=Gades` with "CÃ¡diz" and
 	// "Ã–rektaÅŸÄ±" — UTF-8 bytes that were read as CP1252 upstream
 	test('repairs the CP1252 mojibake DARE serves', () => {
 		expect(decodeDareText('CÃ¡diz')).toBe('Cádiz');
@@ -202,15 +230,6 @@ describe('decodeDareText', () => {
 		expect(hit?.name).toBe('Cádiz');
 		// and the OBJECT the user draws carries the repaired name too
 		expect((hit?.feature as { properties: { name: string } }).properties.name).toBe('Cádiz');
-	});
-});
-
-describe('pleiadesPlaceUrl', () => {
-	test('asks Pleiades itself over HTTPS, not v6’s GitHub mirror', () => {
-		const url = pleiadesPlaceUrl('256135');
-		expect(url.protocol).toBe('https:');
-		expect(url.host).toBe('pleiades.stoa.org');
-		expect(url.pathname).toBe('/places/256135/json');
 	});
 });
 
