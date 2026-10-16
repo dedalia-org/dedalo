@@ -2294,7 +2294,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// only the options matter here: a stub capture, the real library left as found
 		const had_library	= typeof window.domtoimage!=='undefined'
-		const library		= had_library ? window.domtoimage : (window.domtoimage = {})
+		if (!had_library) window.domtoimage = {}
+		const library		= window.domtoimage
 		const real_to_blob	= library.toBlob
 		let seen = null
 		library.toBlob = async function(node, options) {
@@ -4040,7 +4041,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const pending = rows.map((row) => row.run())
 			assert.equal(failures.length, rows.length, 'expected every lookup in flight')
 			await tool.destroy(false, false, false)
-			failures.forEach((fail) => fail(new Error('Boom.')))
+			for (const fail of failures) fail(new Error('Boom.'))
 			await Promise.all(pending)
 
 			assert.deepEqual(

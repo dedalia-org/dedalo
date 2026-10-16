@@ -396,7 +396,8 @@ const sync_uncertainty = function(layer, area_m2) {
 export const set_style_field = function(self, layer, field, value) {
 
 	const uca_maps	= ensure_uca_maps(layer)
-	const style		= uca_maps.style = uca_maps.style || {}
+	uca_maps.style	= uca_maps.style || {}
+	const style		= uca_maps.style
 
 	if (value===null || value==='') {
 		delete style[field]
@@ -432,7 +433,8 @@ export const set_object_color = function(self, layer, value) {
 	}
 
 	const uca_maps	= ensure_uca_maps(layer)
-	const style		= uca_maps.style = uca_maps.style || {}
+	uca_maps.style	= uca_maps.style || {}
+	const style		= uca_maps.style
 	style.fillColor	= value
 
 	layer.setStyle({color: value, fillColor: value})
@@ -744,13 +746,13 @@ const reapply_all = function(self) {
 *
 * @param {Object} self
 * @param {Object} layer
-* @param {string} key
+* @param {string} raw_key - trimmed; an empty or reserved key is refused
 * @param {string} value
 * @returns {boolean} false if key was empty/reserved (nothing written)
 */
-export const set_property = function(self, layer, key, value) {
+export const set_property = function(self, layer, raw_key, value) {
 
-	key = String(key || '').trim()
+	const key = String(raw_key || '').trim()
 	if (!key || RESERVED_PROPERTY_KEYS.includes(key)) {
 		return false
 	}
@@ -1192,7 +1194,8 @@ export const toggle_uncertainty = function(self, layer) {
 export const set_hierarchy = function(self, layer, edge, checked) {
 
 	const uca_maps	= ensure_uca_maps(layer)
-	const hierarchy	= uca_maps.hierarchy = uca_maps.hierarchy || {}
+	uca_maps.hierarchy	= uca_maps.hierarchy || {}
+	const hierarchy		= uca_maps.hierarchy
 
 	if (checked) {
 		hierarchy.bringToFront	= edge==='front'

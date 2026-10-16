@@ -73,12 +73,12 @@ export const render_console_panel = function(self, panel) {
 * controls for a layer that no longer exists.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} [container] - defaults to the panel's own object
+* @param {HTMLElement} [given_container] - defaults to the panel's own object
 *   section (self.panel_node)
 * @returns {void}
 */
-export const render_placeholder = function(self, container) {
-	container = container || (self.panel_node && self.panel_node.querySelector('.uca-maps-object-section'))
+export const render_placeholder = function(self, given_container) {
+	const container = given_container || (self.panel_node && self.panel_node.querySelector('.uca-maps-object-section'))
 	if (!container) {
 		return
 	}
