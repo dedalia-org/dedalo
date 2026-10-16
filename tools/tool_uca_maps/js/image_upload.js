@@ -6,33 +6,10 @@
 
 /**
 * IMAGE_UPLOAD
-* Fila #11 del audit ("Upload file to map"), IMAGE half — hito 13. The vector
-* half is `vector_upload.js` (hito 12); both share the ONE button+panel that
-* file builds, which is why nothing here creates a control of its own.
-*
-* THREE doors, in order, none of them invented here:
-*   1. `create` — a fresh record in the Images section (`rsc170`), the same
-*      thing v6 does (`render_tool_leaflet_special_tools.js:1541`). An image
-*      on a map has to BE media before it can be served, and Dédalo's media
-*      lives on records, so the upload gets one.
-*   2. `service_upload` + `tool_upload::process_uploaded_file` — the engine's
-*      own ingest. It stores the master untouched, builds the web derivative,
-*      and writes files_info back on the record. Nothing in this tool copies,
-*      converts or serves a byte of it.
-*   3. `tool_uca_maps::get_image_overlay` — the one question left: WHERE on
-*      the map the image goes. v6 answers it by pulling the raw GeoTIFF back
-*      into the browser and parsing it there with `georaster` +
-*      `georaster-layer-for-leaflet`; this asks the server, which already has
-*      GDAL, and both libraries disappear (see `server/image_overlay.ts`).
-*
-* WHAT PERSISTS. Not the overlay — Leaflet image overlays are not features and
-* the geolocation component would not save one. What persists is a TRANSPARENT
-* RECTANGLE carrying `properties.uca_maps.image` (v6 does the same, calling it
-* a `clipPolygon`): the rectangle is a normal drawn object, so the component's
-* own save writes it like any other, and `hydrate_image_overlays` rebuilds the
-* overlay from those properties on every load. The record identity is stored,
-* NOT an absolute URL (v6 stores the URL): a host or media-root change would
-* break every saved overlay in the install otherwise.
+* The image half of "Upload file to map"; vector_upload.js builds the shared
+* button and panel. Three engine doors: `create` an Images record, the
+* `tool_upload` ingest, and `get_image_overlay`, which places the image with the
+* server's GDAL instead of v6's two browser GeoTIFF libraries.
 */
 
 
@@ -51,13 +28,11 @@ import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carr
 
 
 
-/** v6's own two constants (`render_tool_leaflet_special_tools.js:1550-1551`,
- * there quoting DD_TIPOS.DEDALO_SECTION_RESOURCES_IMAGE_TIPO /
- * DEDALO_COMPONENT_RESOURCES_IMAGE_TIPO). Seed-shipped ontology, present in
- * every install — not an installation TLD. Making them configurable would go
- * through the tool's `default_config`; see the hito 13 dossier. */
-const IMAGE_SECTION_TIPO	= 'rsc170'
-const IMAGE_COMPONENT_TIPO	= 'rsc29'
+/** v6's own two (`render_tool_leaflet_special_tools.js`: the Resources image
+ * section and component). Seed-shipped ontology in every install, not an
+ * installation TLD. Exported so object_image.js uses the same pair. */
+export const IMAGE_SECTION_TIPO	= 'rsc170'
+export const IMAGE_COMPONENT_TIPO	= 'rsc29'
 
 const IMAGE_UPLOAD_EXTENSIONS	= ['tif', 'tiff', 'jpg', 'jpeg', 'png']
 /** Refused in the BROWSER, before the bytes leave. Not a policy the server
@@ -70,7 +45,7 @@ const IMAGE_UPLOAD_KEY_DIR		= 'image'
  * 200) — kept so a map built in v6 and one built here stack the same way. */
 const DEFAULT_IMAGE_OPACITY	= 1
 const DEFAULT_IMAGE_Z_INDEX	= 200
-/** v6's slider range (`special_tools.js:6517`), and the console's. */
+/** v6's slider range (`special_tools.js`), and the console's. */
 const MAX_IMAGE_Z_INDEX		= 1000
 
 
@@ -95,13 +70,9 @@ const image_z_index = function(value) {
 
 /**
 * LOAD_ROTATED_OVERLAY
-* Loads the vendored `Leaflet.ImageOverlay.Rotated` plugin as a CLASSIC
-* `<script>`, for the same spec reason `map_image_download.js`'s
-* `load_dom_to_image` documents at length: a Leaflet plugin extends the `L`
-* GLOBAL at its own top level, and an `import()`ed file is evaluated as a
-* module, where that global is not what the plugin was written against.
-* Idempotent (cached promise). Rejects LOUDLY on a load failure — v6 wrapped
-* this very plugin in a silent `try{}catch(e){}`, which is audit bug #3.
+* Loads the vendored `Leaflet.ImageOverlay.Rotated` as a CLASSIC `<script>`: the
+* plugin extends the `L` global at its top level, which a module `import()` does
+* not give it. Cached promise; rejects LOUDLY, unlike v6's silent `try{}catch`.
 *
 * @returns {Promise<void>}
 */
@@ -135,14 +106,13 @@ const load_rotated_overlay = function() {
 /**
 * IMAGE_URL
 * The one place a stored image descriptor becomes a URL. `file_path` is
-* media-root-relative (the shape `files_info` stores and every core
-* component_image view already resolves this way), so a moved install still
-* resolves.
+* media-root-relative (as `files_info` stores it) and the record identity is kept,
+* not v6's absolute URL, so a moved install still resolves. Exported for object_image.js.
 *
 * @param {Object} image - properties.uca_maps.image descriptor
 * @returns {string}
 */
-const image_url = function(image) {
+export const image_url = function(image) {
 	return DEDALO_MEDIA_URL + image.file_path
 }//end image_url
 
@@ -154,14 +124,10 @@ const PLAIN_IMAGE_VIEWPORT_FRACTION = 0.5
 
 /**
 * NATURAL_SIZE
-* The image's own pixel dimensions, read from the browser once it has loaded
-* it. Asked here rather than on the server on purpose: `gdalinfo` would
-* answer too, but then a GDAL-less install could not place an ordinary .jpg
-* either — and the browser has to fetch the image anyway to draw it.
-*
-* Falls back to a square on any failure (a 404, a decode error): a wrong
-* aspect ratio is a cosmetic mistake the user can see and fix, whereas
-* failing the upload over it would throw away a file that IS on the server.
+* The image's pixel size, read by the browser, which fetches it anyway: asking
+* `gdalinfo` would leave a GDAL-less install unable to place a plain .jpg. Falls
+* back to a square: a wrong aspect ratio is visible and fixable, failing the
+* upload would discard a file already on the server.
 *
 * @param {string} url
 * @returns {Promise<{width: number, height: number}>}
@@ -183,23 +149,10 @@ const natural_size = function(url) {
 
 /**
 * CORNERS_FROM_VIEWPORT
-* Where a NON-georeferenced image goes. An image with no coordinates has
-* none, so this is not a guess at the right place — it is a starting position
-* the user then moves by hand.
-*
-* TWO DELIBERATE DEVIATIONS FROM v6, both about that last clause:
-*
-*  1. v6 stretches the image onto `map.getBounds()` — the viewport RECTANGLE.
-*     Unless the map happens to be square that DISTORTS every image: a square
-*     plan lands as a wide rectangle. Here the image keeps its own aspect
-*     ratio, computed in CONTAINER PIXELS (degrees of latitude and longitude
-*     are not the same length on screen, so doing this in lat/lon would
-*     reintroduce the distortion it is meant to remove).
-*  2. v6 fills the whole viewport. It gets half the shorter side instead —
-*     visible, obviously placed by default, and with the map still readable
-*     around it to judge the placement against (Sergio, validación hito 13).
-*     Kept after "Activar edición" landed in hito 14: the handles make a
-*     full-viewport image shrinkable, but not judgeable.
+* Starting position for a NON-georeferenced image, which the user then moves.
+* Two departures from v6: the image keeps its aspect ratio, computed in container
+* pixels (v6 stretched it onto the viewport rectangle), and takes half the shorter
+* side, not the whole viewport, so the map stays visible to judge it against.
 *
 * @param {Object} map - the Leaflet map
 * @param {Object} size - the image's natural {width, height} in pixels
@@ -237,9 +190,8 @@ export const corners_from_viewport = function(map, size) {
 
 /**
 * CREATE_IMAGE_RECORD
-* Door 1: a fresh record in the Images section to host the file. Same rqo the
-* core itself uses to mint a record from the client
-* (`component_text_area.js:1558`, the time-machine note case).
+* Door 1: a fresh record in the Images section to host the file, with the rqo
+* the core itself uses to mint a record from the client (`component_text_area.js`).
 *
 * @returns {Promise<number|null>} the new section_id, or null on failure
 */
@@ -263,11 +215,10 @@ const create_image_record = async function() {
 
 
 
-/** Ingest refusals raised BEFORE the staged file moves (gates, tool_upload's
- * context, the pre-move checks of process_uploaded_file.ts) and that a re-run
- * resend would raise again: only these leave the minted record empty for certain.
- * Any other code is an unknown outcome: an idempotency.* replay, a db.* failure
- * after the move, media.file_not_found (a re-run whose staged file was consumed). */
+/** Ingest refusals raised BEFORE the staged file moves, which a resend would raise
+ * again: only these leave the minted record certainly empty. Any other code is an
+ * unknown outcome (an idempotency.* replay, a db.* failure after the move,
+ * media.file_not_found on a re-run whose staged file was consumed). */
 const PRE_MOVE_REFUSALS = new Set([
 	'request.invalid',
 	'request.invalid_options',
@@ -315,17 +266,10 @@ const delete_image_record = async function(section_id) {
 
 /**
 * INGEST_UPLOADED_FILE
-* Door 2b: hand the staged upload to `tool_upload::process_uploaded_file`.
-*
-* The rqo is assembled here rather than through tool_upload's own exported
-* `process_uploaded_file()` helper: that helper refuses any caller whose
-* `model` is not literally 'tool_upload' (`tools/tool_upload/js/tool_upload.js:304`),
-* so using it would mean building a whole second tool instance for the sake
-* of a guard. `source` only needs the tool name + action — the server's
-* dispatcher reads nothing else from it (`dd_tools_api.ts` tool_request →
-* `dispatchToolRequest(principal, userId, {model, action}, options)`), and the
-* permission gate reads the identity out of `options`, which is where it
-* belongs.
+* Door 2: hands the staged upload to `tool_upload::process_uploaded_file`. The
+* rqo is built here because tool_upload's exported `process_uploaded_file()`
+* refuses any caller whose `model` is not 'tool_upload'; the server dispatcher
+* reads only model + action from `source`, and the permission gate reads `options`.
 *
 * @param {number} section_id - the new rsc170 record
 * @param {Object} file_data - what service_upload's transport returned
@@ -377,17 +321,9 @@ const transport_failed_text = function(self) {
 
 /**
 * INGEST_IMAGE_UPLOAD
-* Doors 1 + 2 of the three in the file header — stage the bytes, mint the
-* record, ingest — with NOTHING about the map in them. Both callers of the
-* image pipeline share exactly this much and diverge after it: fila #11 asks
-* where the image goes and draws an overlay; fila #3 ("asociar imagen al
-* objeto", hito 16) asks only where it is served from and hangs it off a
-* geometry.
-*
-* Extracted rather than copied: the ordering decision below (bytes BEFORE the
-* record, to narrow the orphan-record window) is one rule that must hold for
-* every image this tool ingests, and a second copy would eventually stop
-* matching it.
+* Doors 1 + 2 (stage, mint, ingest) with nothing about the map in them: the
+* overlay upload and an object's associated images share exactly this much. One
+* copy, so the bytes-before-record order below holds for every image ingested.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {File} file
@@ -424,12 +360,10 @@ export const ingest_image_upload = async function(self, file) {
 
 /**
 * INGEST_STAGED_IMAGE
-* Door 2 alone: mint the record and ingest a file ALREADY staged — by the
-* upload above, or by the server from an object's linked URL
-* (`stage_external_image`). One copy, so both keep the empty-record cleanup.
-*
-* `staged_untouched` marks a failure that certainly left the staged file
-* where it was, so a caller that staged it itself may release it.
+* Door 2 alone: mint the record and ingest a file ALREADY staged, by the upload
+* above or by the server from a linked URL (`stage_external_image`), so both keep
+* the empty-record cleanup. `staged_untouched` marks a failure that certainly left
+* the staged file in place, so a caller that staged it may release it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} file_data - the staged file's descriptor
@@ -510,9 +444,8 @@ export const upload_image_file = async function(self, file) {
 			}
 		})
 
-		// the tool may have been torn down while all of the above was in
-		// flight (same "DOM is truth, discard a late response" law as
-		// check_administrative_unit_at_point, hito 11)
+		// the tool may have been torn down while all of the above was in flight:
+		// a late response is discarded
 		if (!self.upload_panel || !self.geolocation || !self.geolocation.map) {
 			return {ok: false}
 		}
@@ -581,19 +514,13 @@ export const upload_image_file = async function(self, file) {
 
 /**
 * CREATE_IMAGE_OBJECT
-* Builds the carrier rectangle + its overlay and hands the rectangle to the
-* map as a normal drawn object (`pm:create`), which is what makes it part of
-* the component's data and therefore saveable. The rectangle is the AXIS-
-* ALIGNED hull of the three corners: it is a selection/deletion handle, not
-* the image's own footprint (that lives in `corners`, exactly so a skewed
-* raster is not squared off).
+* Builds the carrier rectangle and its overlay, and fires the rectangle through
+* `pm:create` so it is saved like any drawn object (an overlay is no feature).
+* The carrier is the corners' axis-aligned hull, a selection handle; `corners`
+* keeps the real footprint, so a skewed raster is not squared off.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} image - the descriptor to store under properties.uca_maps.image
-* Exported for the client gate: it is the production builder, and the two
-* properties it writes (`image` + `is_raster`) are a contract other modules
-* read (`object_viewer.js` splits its lists on the second).
-*
 * @returns {Promise<Object>} the carrier layer
 */
 export const create_image_object = async function(self, image) {
@@ -610,38 +537,24 @@ export const create_image_object = async function(self, image) {
 	ensure_properties(carrier).color = 'transparent'
 	const uca_maps	= ensure_uca_maps(carrier)
 	uca_maps.image	= image
-	// A NEW image arrives EDITABLE, as in v6: a plain image lands at an
-	// arbitrary spot, so the very next gesture is always moving it, and making
-	// the user find a checkbox first is a step v6 never asked for (Sergio,
-	// validación hito 14). Defaulted HERE and not in the upload flow because
-	// this is the one production builder — and only a new object, never a
-	// reload, comes through it, so a stored `false` is never overwritten.
+	// A NEW image arrives EDITABLE, as in v6: a plain image lands at an arbitrary
+	// spot, so the next gesture is moving it. Defaulted here, the one builder only
+	// a new object passes through, so a stored `false` is never overwritten.
 	if (typeof image.interactive!=='boolean') {
 		image.interactive = true
 	}
-	// object_viewer.js:215 splits its two lists on exactly this flag, and its
-	// own header says the "Rasterized objects" list stays empty until this
-	// row lands. This IS that landing — without it every uploaded image would
-	// show up in the VECTOR list as "Untitled object" and the raster list
-	// would stay permanently empty.
+	// object_viewer.js splits its vector and raster lists on this flag; without it
+	// every uploaded image would show as an "Untitled object" vector
 	uca_maps.is_raster = true
 
 	await attach_overlay(self, carrier)
 
 	map.fire('pm:create', {layer: carrier})
-	// padded: zooming to the image EXACTLY leaves it edge-to-edge with no map
-	// around it, so there is nothing to judge the placement against (Sergio,
-	// validación hito 13)
+	// padded: an image zoomed edge-to-edge leaves no map to judge its placement by
 	map.fitBounds(hull_bounds(image.corners), {padding: [40, 40]})
 
 	return carrier
 }//end create_image_object
-
-
-
-// `hull_bounds` moved to image_edit.js with the rest of the descriptor's
-// geometry when the drag handles landed (hito 14) — the import direction is
-// one-way, upload → edit, so the two files never become a cycle.
 
 
 
@@ -670,12 +583,9 @@ const attach_overlay = async function(self, carrier) {
 	seal_carrier_from_geoman(carrier)
 	attach_carrier_drag(self, carrier)
 
-	// CLAIM THE CARRIER BEFORE THE FIRST await. `hydrate_image_overlays` runs
-	// un-serialized on every `updated_layer_data_` event, and the plugin load
-	// below suspends: without this flag a geometry edit during that window
-	// starts a SECOND rebuild that passes the `_uca_maps_overlay` guard (still
-	// unset) and paints a duplicate overlay only one of which anything can
-	// then reach.
+	// CLAIM THE CARRIER BEFORE THE FIRST await: `hydrate_image_overlays` runs
+	// un-serialized on every `updated_layer_data_` event, so an edit during the
+	// plugin load would start a second rebuild and paint a duplicate overlay.
 	carrier._uca_maps_overlay_pending = true
 
 	let overlay
@@ -695,12 +605,9 @@ const attach_overlay = async function(self, carrier) {
 			{
 				opacity		: typeof image.opacity==='number' ? image.opacity : DEFAULT_IMAGE_OPACITY,
 				zIndex		: image_z_index(image.z_index),
-				// the CARRIER takes the clicks; two interactive stacked targets
-				// would fight over them. `interactive:false` stops Leaflet firing
-				// LAYER events but does not stop the div receiving the pointer at
-				// all — the class carries the `pointer-events:none` that does
-				// (tool_uca_maps.less), or the picture would sit on top of its own
-				// selection handle
+				// the CARRIER takes the clicks. `interactive:false` only stops Leaflet
+				// layer events; the class's `pointer-events:none` (tool_uca_maps.less)
+				// stops the picture covering its own selection handle
 				interactive	: false,
 				className	: 'uca-maps-image-overlay'
 			}
@@ -768,15 +675,10 @@ const detach_overlay = function(self, carrier) {
 
 /**
 * SET_IMAGE_DISPLAY
-* Opacity/z-index writer for the console panel (functionality #3's image
-* branch). Writes BOTH the live overlay and the stored descriptor: the first
-* is what the user sees now, the second is what survives the save — the same
-* two-step every other console setter in this tool does.
-*
-* `do_commit` is false while a slider is being DRAGGED and true when it is
-* released: `commit()` re-renders the panel (it has to — a committed change
-* can move other fields), and re-rendering an <input type=range> mid-drag
-* replaces the very node the pointer is holding.
+* Opacity/z-index for the console: writes the live overlay (what the user sees)
+* and the stored descriptor (what the save keeps). `do_commit` is false while a
+* slider is DRAGGED: commit() re-renders the panel, which would replace the
+* <input type=range> under the pointer.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier
@@ -814,7 +716,7 @@ export const set_image_display = function(self, carrier, values, do_commit) {
 /**
 * GET_IMAGE_HREF
 * The "Ver imagen" target: the Images RECORD the upload created, in edit mode,
-* as v6 does (`special_tools.js:6446`) — not the bare derivative, which skips
+* as v6 does (`special_tools.js`) — not the bare derivative, which skips
 * the record where the picture is catalogued. Same URL shape as the core's
 * `edit_relation` (render_relation_list.js), but `menu=true`, v6's choice.
 *
@@ -876,11 +778,10 @@ export const IMAGE_DOWNLOAD_TIMEOUT_MS = 4 * 60 * 1000
 
 /**
 * DOWNLOAD_IMAGE
-* "Descargar Imagen": the picture in its CURRENT shape — the live corners,
-* saved or not — rendered by the server from the file the map shows
-* (`image_download.ts`).
-* Opacity is not sent: it is how the image is seen on the map, not the image.
-* An empty name is refused the way v6 refuses it.
+* "Descargar Imagen": the picture in its CURRENT shape (live corners, saved or
+* not), rendered by the server from the file the map shows (`image_download.ts`).
+* Opacity is not sent: it is how the map shows the image, not the image. An empty
+* name is refused as v6 refuses it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier
@@ -965,12 +866,9 @@ const hydrate_image_overlays = async function(self) {
 		})
 	}
 
-	// SWEEP FIRST. `layers_loader` rebuilds a FeatureGroup wholesale on a
-	// layer switch/reload without ever firing 'pm:remove', so the carriers
-	// this tool attached overlays to are simply replaced by new objects. The
-	// old overlays are NOT drawn objects — nothing in the engine tracks them —
-	// so without this they stay painted on the map and the rebuild below
-	// stacks a second copy of every image on top.
+	// SWEEP FIRST: `layers_loader` replaces a FeatureGroup's carriers on a reload
+	// without firing 'pm:remove', and an overlay is no drawn object, so the old
+	// ones would stay painted and the rebuild below would stack a second copy.
 	const live = new Set(carriers)
 	for (const entry of (self._image_overlays || [])) {
 		if (!live.has(entry.carrier)) {
@@ -995,15 +893,9 @@ const hydrate_image_overlays = async function(self) {
 
 /**
 * ATTACH_IMAGE_OVERLAYS
-* The image half's own lifecycle hook. NOT a toolbar entry — the row's button
-* is the one `vector_upload.js` builds — but the overlays need the same
-* attach/detach discipline every other feature here has: rebuild what was
-* saved, follow the data while the tool is open, remove everything on close.
-*
-* Two subscriptions, both mirroring what `object_console.js` already does for
-* its own state: `updated_layer_data_<id_base>` fires on every geometry
-* create/edit/load, which is when a carrier can appear; `pm:remove` is when
-* one goes away and its image must go with it. Idempotent.
+* The image half's lifecycle hook (no toolbar entry: vector_upload.js owns the
+* button). `updated_layer_data_<id_base>` is when a carrier can appear,
+* `pm:remove` when one goes and its image must go with it. Idempotent.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -1047,10 +939,8 @@ export const attach_image_overlays = function(self) {
 
 /**
 * DETACH_IMAGE_OVERLAYS
-* Teardown: every overlay this tool put on the map comes off with it. An
-* overlay is NOT a drawn object, so nothing else in the engine knows it is
-* there — leaving one behind paints an image on a map the tool no longer
-* owns (CLAUDE.local.md's "destrucción real al cerrar").
+* Every overlay this tool put on the map comes off with it: an overlay is no
+* drawn object, so nothing else in the engine would remove it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

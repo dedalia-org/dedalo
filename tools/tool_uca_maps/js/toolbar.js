@@ -6,43 +6,10 @@
 
 /**
 * TOOLBAR
-*
-* Shared substrate for the "one button = one functionality" left-toolbar
-* pattern this tool follows for EVERY functionality from now on (Sergio,
-* 2026-09-04 — see CLAUDE.local.md "Left toolbar: un botón por
-* funcionalidad"). Before this file, the hito-2/3 "UCA" button opened ONE
-* panel that bundled the object console, server capabilities AND the
-* map-image-download picker together in collapsible sections — the audit
-* (`docs/Funcionalidades de tool_leaflet_special_tools.md`) lists 15
-* SEPARATE functionalities, not one growing drawer, and Sergio confirmed
-* live (2026-09-04) that the bundled panel read as an incorrect approach,
-* not as "features still landing". From this revision onward every
-* functionality this tool adds gets its OWN 'topleft' toggle button + its
-* OWN anchored panel, built through this module — never appended as a
-* section inside another functionality's panel.
-*
-* What lives here (the identical boilerplate every button+panel pair would
-* otherwise repeat, hito after hito): adding the toggle button to the one bar,
-* building the floating panel shell and anchoring it to ITS OWN button (so N
-* independently-openable panels never start life stacked on top of each
-* other, however many buttons end up in the corner by hito 7), show/hide —
-* opening one panel closes every OTHER one this tool owns first (Sergio,
-* 2026-09-04: only one open at a time, see SET_TOOLBAR_PANEL_VISIBLE below) —
-* and teardown. What does NOT live here: a panel's actual content — that
-* stays in each functionality's own render_X.js, exactly like
-* render_object_console.js / render_map_image_download.js already did.
-*
-* A panel can instead open CENTERED across the map, near its top, with a × to
-* close it (`centered: true`, Sergio 2026-09-23, first used by "WMS" and meant
-* for the rest): v6's own modals sat there, and a list row needs more width
-* than a column beside the buttons leaves.
-*
-* Every node this module builds is also pushed onto `self._toolbar_nodes` —
-* the ONE registry `map_image_download.js`'s screenshot capture filters out
-* (previously two hardcoded node references, `self.map_control`/
-* `self.panel_node` — correct for exactly one button, silently wrong the
-* moment a second one existed; fixed here rather than left to rot further
-* once a third/fourth button lands).
+* One button + one panel per functionality, never a section inside another
+* panel. Builds the shared bar, the panel shells (beside their button, or
+* centred with a ×) and one-panel-at-a-time show/hide; content stays in each
+* render_X.js. Every node goes to `self._toolbar_nodes`, which the screenshot skips.
 *
 * @module toolbar
 */
@@ -86,9 +53,8 @@ const unregister_toolbar_node = function(self, node) {
 
 /**
 * IS_TOOLBAR_NODE
-* Used by `map_image_download.js`'s screenshot `filter` to exclude every DOM
-* node this tool owns, generically, instead of naming each one — see file
-* header.
+* Used by `map_image_download.js`'s screenshot `filter` to exclude every DOM node
+* this tool owns, without naming each one.
 *
 * @param {Object} self
 * @param {Node} node
@@ -102,13 +68,10 @@ export const is_toolbar_node = function(self, node) {
 
 /**
 * GET_TOOLBAR_BAR
-* The ONE 'topleft' L.Control every button lives in, built on first use.
-* 'topleft' (not 'topright', which Geoman's own draw toolbar already owns —
-* `component_geolocation.js` `map.pm.addControls({position: 'topright', ...})`)
-* matches v6's own `special_tools` control position. One bar, not one control
-* per button: Leaflet spaces separate controls 10px apart and frames each, so
-* only shared bar markup (`.leaflet-bar > a`, as the zoom control and Geoman)
-* stacks the squares flush with a hairline between them.
+* The ONE 'topleft' L.Control every button lives in, built on first use: v6's
+* position, and Geoman's draw toolbar owns 'topright'. One bar, not one control per
+* button: Leaflet spaces and frames separate controls, so only shared bar markup
+* (`.leaflet-bar > a`) stacks the squares flush with a hairline between them.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {Object} the L.Control (self.geolocation.map already has it added)
@@ -142,11 +105,10 @@ const get_toolbar_bar = function(self) {
 
 /**
 * CREATE_TOOLBAR_BUTTON
-* Appends one toggle button to the shared bar (get_toolbar_bar), so the
-* attach order is the top-to-bottom order. The button is Leaflet's own bar
-* link (`a[role=button]`): square, hover and keyboard focus match the zoom
-* and Geoman bars. With no icon the label is drawn instead; the title is
-* the accessible name.
+* Appends one toggle button to the shared bar, so attach order is top-to-bottom
+* order. Leaflet's own bar link (`a[role=button]`), so square, hover and focus match
+* the zoom and Geoman bars. With no icon the label is drawn; the title is the
+* accessible name.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} options
@@ -188,30 +150,20 @@ export const create_toolbar_button = function(self, {title, icon, text, class_na
 
 /**
 * CREATE_TOOLBAR_PANEL
-* Builds a floating panel appended directly to the map's own DOM container
-* (never another L.Control — a bare div holds arbitrary interactive content
-* without fighting Leaflet's control-corner layout, same reasoning as the
-* original object-console panel). Hidden by default. Needs
-* disableClickPropagation/disableScrollPropagation explicitly (unlike an
-* L.Control, which Leaflet wraps with this same guard via its own
-* container) — missing it is why hito 2a's opacity slider dragged the MAP
-* instead of the control the first time this shell was built.
+* A floating panel appended to the map's own container, not another L.Control,
+* so arbitrary content does not fight Leaflet's corner layout. Hidden by default.
+* Unlike an L.Control it needs click/scroll propagation disabled explicitly, or a
+* slider inside drags the map.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} options
 * @param {string} options.class_name - identity class, e.g. 'uca-maps-console'
-* @param {Function} [options.on_hide] - called when THIS panel is force-closed
-*   by a SIBLING panel opening (close_other_toolbar_panels, below) — never
-*   called for the panel's own toggle-off (that path already runs whatever
-*   its own toggle_X handler does). Needed by any functionality whose
-*   "armed" state is tied to panel visibility (administrative_units.js:
-*   without this, a sibling panel forcing UA's panel hidden left its overlay
-*   tile layer and map 'click' listener running with no panel visible to
-*   show for it — review-diff finding, hito 11). A centered panel's × is
-*   the same kind of close and fires it too.
+* @param {Function} [options.on_hide] - called on every close that is not the
+*   panel's own toggle (a sibling opening, a centered panel's ×): a functionality
+*   armed while its panel is open (administrative_units.js) disarms here
 * @param {boolean} [options.centered] - open centred across the map near its
-*   top, not beside the button;
-*   toolbar.js then builds the header itself (title + ×)
+*   top, where v6's modals sat: a list row needs more width than a column
+*   beside the buttons leaves. The header (title + ×) is built here
 * @param {string} [options.title] - the header title of a centered panel
 * @returns {HTMLElement} panel, already appended to the map container
 */
@@ -273,19 +225,10 @@ const render_centered_panel_header = function(panel, title) {
 
 /**
 * ANCHOR_PANEL_TO_BUTTON
-* Positions `panel` directly to the right of `control`'s own button, top-
-* aligned with it — measured live against the DOM (getBoundingClientRect)
-* rather than a hardcoded rem offset, so it stays correct regardless of how
-* many buttons end up stacked above it in the corner (the pre-refactor CSS
-* pinned a single `top`/`left` for the one button that existed then; that
-* value was already wrong the moment a second button existed — this
-* replaces it). Re-run every time the panel is SHOWN (see
-* set_toolbar_panel_visible), not on every resize — matches the level of
-* robustness the rest of this tool's own UI already assumes (e.g. the
-* transient modal's fixed visible window) and keeps this module simple; a
-* panel already open when the map resizes/reflows is a known, accepted gap,
-* not a regression this refactor introduces (the previous hardcoded CSS
-* offset had the exact same gap).
+* Places `panel` right of its button, top-aligned, measured live
+* (getBoundingClientRect) so it holds however many buttons sit above. Re-run on
+* every show, not on resize: a panel already open when the map reflows keeps its
+* place.
 *
 * @param {HTMLElement} panel
 * @param {Object} control - the L.Control returned by create_toolbar_button
@@ -311,13 +254,9 @@ const anchor_panel_to_button = function(panel, control) {
 
 /**
 * IS_TOOLBAR_PANEL_VISIBLE
-* The authoritative "is this panel currently open" read — the DOM `hidden`
-* attribute itself, never a separate JS boolean a caller might keep (see
-* SET_TOOLBAR_PANEL_VISIBLE below: opening one panel force-closes every
-* other one directly in the DOM, so a per-functionality flag mirroring
-* "visible" would desync the instant a SIBLING panel closes it). Every
-* toggle_X function (object_console.js/map_image_download.js/…) computes its next state from this, not from a
-* cached flag.
+* The authoritative "is this panel open": the DOM `hidden` attribute, never a JS
+* flag, because opening a sibling closes this panel directly in the DOM. Every
+* toggle_X computes its next state from this.
 *
 * @param {HTMLElement|null} panel
 * @returns {boolean}
@@ -330,14 +269,9 @@ export const is_toolbar_panel_visible = function(panel) {
 
 /**
 * SET_TOOLBAR_PANEL_VISIBLE
-* Opening a panel closes every OTHER panel this tool owns first — Sergio,
-* 2026-09-04: only one functionality's panel should be open at a time, the
-* same way v6's own separate modals never stacked several open at once.
-* Generic over every current AND future functionality: it walks
-* `self._toolbar_nodes` (toolbar.js's own registry, populated by
-* create_toolbar_panel) and hides every node carrying the shared
-* `.uca-maps-panel` class other than the one being opened — no
-* per-functionality wiring needed as hitos 4-7 add more buttons.
+* Opening a panel first closes every other `.uca-maps-panel` in
+* `self._toolbar_nodes`: one functionality open at a time, as v6's modals never
+* stacked. Generic, so a new functionality needs no wiring here.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -407,10 +341,8 @@ export const set_toolbar_button_armed = function(control, class_name, armed) {
 
 /**
 * CLOSE_OTHER_TOOLBAR_PANELS
-* Fires each hidden panel's own `on_hide` (create_toolbar_panel option), if
-* it has one — the only way a functionality whose "armed" state is tied to
-* panel visibility (administrative_units.js) learns it was force-closed by a
-* SIBLING instead of by its own toggle.
+* Closes every panel but `panel_to_keep_open` through `close_toolbar_panel`, so
+* each one's `on_hide` learns it was closed by a sibling.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel_to_keep_open

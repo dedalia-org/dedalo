@@ -6,27 +6,10 @@
 
 /**
 * IMAGE_EDIT
-* "Activar edición" — the console's image branch lets the user drag an
-* uploaded overlay's three control points to place, scale and rotate it
-* (v6 `special_tools.js:6280-6410` + the checkbox at `:6601`). Hito 14; the
-* descriptor it moves was already being stored by hito 13, so nothing migrates.
-*
-* WHY THREE POINTS AND NOT FOUR. `Leaflet.ImageOverlay.Rotated` maps the image
-* onto an AFFINE transform, which three corners define exactly: top-left,
-* top-right and bottom-left. The fourth is inferred (`corner_bottom_right`),
-* which is also why dragging one handle skews the picture rather than just
-* stretching an edge — that is the feature, not a bug.
-*
-* IMPORT DIRECTION. `image_upload.js` imports from here, never the reverse:
-* this module knows the geometry of a stored descriptor (`hull_bounds`) and
-* owns the handles, and needs nothing from the upload flow. Keeping the arrow
-* one-way is what stops the two files becoming a cycle.
-*
-* NOTHING HERE AUTO-SAVES. A drag ends in `commit()` — the record is marked
-* dirty and the user's own Save button is still the only thing that writes
-* (the second of component_geolocation's three laws). v6 called `save_object()`
-* on every `dragend`, which in v7 would be exactly the auto-save that law
-* forbids.
+* "Activar edición": three draggable points place, scale and rotate an uploaded
+* overlay (v6 `special_tools.js`); the plugin's AFFINE transform infers the
+* fourth corner, so a drag skews. A drag ends in `commit()`, never a save (v6
+* saved on every `dragend`). image_upload.js imports from here, never the reverse.
 */
 
 
@@ -113,13 +96,10 @@ export const set_image_interactive = function(self, carrier, active) {
 
 /**
 * ATTACH_HANDLES
-* Puts the three draggable markers on the map for one carrier. Idempotent, and
-* a no-op when the overlay is not built yet (there is nothing to reposition) —
-* `attach_overlay` calls this again as soon as it is.
-*
-* `pmIgnore`/`snapIgnore` keep Geoman out: a handle is a control, not a drawn
-* object, and without these it would be editable, snappable and — worst —
-* collected into the component's data on save.
+* Puts the three draggable markers on the map for one carrier; idempotent, and a
+* no-op until the overlay exists (`attach_overlay` calls it again then).
+* `pmIgnore`/`snapIgnore` keep Geoman out: a handle is a control, and would
+* otherwise be editable, snappable and saved into the component's data.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier
@@ -228,10 +208,9 @@ const apply_handles = function(carrier, handles) {
 
 /**
 * DETACH_HANDLES
-* Takes one carrier's handles off the map. Called when edit mode is switched
-* off, when the object is deleted, when a layer reload replaces the carrier,
-* and on teardown — a handle is not a drawn object, so nothing else in the
-* engine would ever remove it ("destrucción real al cerrar").
+* Takes one carrier's handles off the map: on edit off, object deletion, carrier
+* replacement by a reload, and teardown. A handle is no drawn object, so nothing
+* else in the engine would remove it.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier
@@ -260,16 +239,10 @@ export const detach_handles = function(self, carrier) {
 
 /**
 * SEAL_CARRIER_FROM_GEOMAN
-* The carrier is a bookkeeping rectangle, not a drawn shape: its vertices are
-* the axis-aligned HULL of the image, so editing them would move a box that is
-* not the picture's own footprint and desync the two. Geoman disagrees —
-* `component_geolocation.js:2529` calls `layer.pm.enable()` on every layer of
-* the clicked FeatureGroup, which is what painted four vertex circles over the
-* image on click, competing with this module's own three handles.
-*
-* `allowRemoval` is deliberately LEFT ALONE: deleting the object with Geoman's
-* remove tool is the supported way to remove an image, and removal never
-* consults `allowEditing`.
+* The carrier's vertices are the image's axis-aligned HULL, not its footprint, so
+* editing them would desync the two, and the core's click sweep (`init_feature`)
+* enables them. `allowRemoval` stays: Geoman's remove tool is how an image is
+* deleted, and removal never consults `allowEditing`.
 *
 * @param {Object} carrier
 * @returns {void}
@@ -292,15 +265,9 @@ export const seal_carrier_from_geoman = function(carrier) {
 
 /**
 * ATTACH_CARRIER_DRAG
-* Makes the PICTURE follow its carrier. Geoman's drag mode grabs the carrier —
-* a transparent rectangle — so before this the user dragged an invisible box
-* and the image stayed behind: the two desynced and nothing appeared to move.
-* v6 had no way to drag an image at all; this is the hole being closed, not
-* parity with it.
-*
-* Translation only. The three handles stay the tool for scaling and rotating,
-* so a drag must not touch the shape — the delta is taken from the carrier's
-* own centre and added to the corners captured when the gesture started, never
+* Makes the PICTURE follow its carrier when Geoman drags it (v6 could not drag an
+* image at all). Translation only, the handles scale and rotate: the delta of the
+* carrier's centre is added to the corners captured at drag start, never
 * accumulated step by step (that drifts).
 *
 * @param {Object} self - tool_uca_maps instance
@@ -398,3 +365,7 @@ export const detach_carrier_drag = function(carrier) {
 	delete carrier._uca_maps_drag_bound
 
 }//end detach_carrier_drag
+
+
+
+// @license-end

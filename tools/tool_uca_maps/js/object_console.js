@@ -6,48 +6,10 @@
 
 /**
 * OBJECT_CONSOLE
-*
-* Hito 2 (plan_implementacion.md §4, functionality #3 of
-* `docs/Funcionalidades de tool_leaflet_special_tools.md`): the per-object
-* console. Checkpoint 2a scope (this file): anchor a persistent panel to the
-* LIVE map, track which drawn geometry is currently selected, and keep that
-* selection fresh across edits. Checkpoint 2b adds the object-specific
-* functions (style/properties/download/centroid/uncertainty/hierarchy) on top
-* of this same plumbing.
-*
-* ARCHITECTURE (see docs/hitos/hito_2.md for the full rationale): the tool
-* opens `open_as: 'modal'`, and `<dd-modal>` mounts a full-viewport overlay
-* that blocks clicks on the map underneath (`client/dedalo/core/common/js/ui.js`
-* `attach_to_modal`) — incompatible with "click a geometry on the live map
-* while the console is available". Sergio confirmed v6/dedalo6's own real
-* behaviour: the tool modal loads and closes itself, leaving its tools
-* anchored to the map. This module is what stays behind after that: attached
-* directly to `self.geolocation.map`, independent of the modal's lifetime.
-* tool_uca_maps.js wires the lifecycle split (on_close_actions keeps the
-* instance alive; on_geolocation_destroyed is the real teardown).
-*
-* Selection tracking reuses the map's own 'popupopen' event rather than
-* binding a second 'click' listener per layer: `component_geolocation.js`
-* already calls `data_layer.bindPopup(...)` on every geometry — existing
-* (via `load_layer`) AND newly drawn (via the `pm:create` handler in
-* `init_draw_editor`) — so 'popupopen' on the map fires for exactly the same
-* gesture, for every layer, with zero extra wiring into the core and zero
-* risk of a second listener fighting the core's own click handler
-* (pm.enable/disable in `init_feature`).
-*
-* Nothing here touches `client/dedalo/core/` — every hook used
-* (`self.geolocation.map`, `.FeatureGroup`, `.get_popup_content`,
-* `.update_draw_data`, the `updated_layer_data_<id_base>` event) is already
-* public on the live instance.
-*
-* TOOLBAR REFACTOR (2026-09-04, before hito 4 — see CLAUDE.local.md "Left
-* toolbar: un botón por funcionalidad"): the "UCA" button+panel built here
-* used to also carry server capabilities and the map-image-download picker
-* as collapsible sections. Sergio confirmed live that reads as an incorrect
-* approach, not as "features still landing" — the audit lists 15 SEPARATE
-* functionalities. This module now owns functionality #3 ONLY; the button/
-* panel plumbing itself moved to `toolbar.js`, shared with every other
-* functionality's own button+panel (map_image_download.js, object_viewer.js).
+* The per-object console ("UCA" button + panel), anchored to the LIVE map so it
+* outlives the transient modal. Selection rides the map's 'popupopen': the core
+* already binds a popup to every geometry, so no second click listener fights
+* its own (`init_feature`).
 */
 
 
@@ -69,35 +31,22 @@ import {
 
 
 
-/** Property keys never offered through the generic custom-properties CRUD
-* (`set_property`/`delete_property`, `render_object_console.js`'s properties
-* editor): the core's own bookkeeping plus this tool's namespace.
-*
-* EXACTLY v6's own filter (`special_tools.js` `modal_properties`: `color` and
-* `layer_id`; `uca_maps` is an object, which v6's own `typeof!=='object'`
-* test drops anyway). `shape`/`radius` were reserved here too until
-* 2026-09-21 — hito 2 chose a deliberately wider list; the functional audit
-* reverted it, because in v6 the measurements ARE ordinary properties the
-* user reads, edits and deletes, and that is the behaviour being ported.
-* Deleting one is cosmetic in both engines: the core re-stamps `shape`/
-* `radius` on the next `update_draw_data`, exactly as v6's own
-* `create_div_radius` rewrote it on every click. */
+/** Keys the custom-properties editor never offers: v6's own filter
+* (`special_tools.js` `modal_properties`: `color`, `layer_id`) plus this tool's
+* namespace. `shape`/`radius` stay editable as in v6; the core re-stamps both on
+* the next `update_draw_data`. */
 export const RESERVED_PROPERTY_KEYS = ['color', 'layer_id', 'uca_maps']
 
-/** v6's exact `get_incertidumbre` thresholds (`special_tools.js:397`), in m²
-* as returned by `turf.area`. Ported verbatim. */
+/** v6's `get_incertidumbre` thresholds (`special_tools.js`), in m² as returned by
+* `turf.area`. */
 const UNCERTAINTY_TIERS = [1000, 10000, 100000, 1000000, 10000000]
 
 
 
 /**
 * ATTACH_CONSOLE
-* Builds and anchors the console UI to the live map: a toggle button ("UCA",
-* functionality #3 ONLY — see toolbar.js file header for why this button no
-* longer also opens server capabilities or the map-image download picker)
-* plus its own panel, both built through toolbar.js so this module owns
-* nothing but functionality #3's own content. Idempotent — a stray second
-* call (e.g. a refresh) never attaches a duplicate control or panel.
+* Builds the "UCA" toolbar button and its panel (toolbar.js) on the live map.
+* Idempotent: a stray second call (e.g. a refresh) attaches no duplicate.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -126,12 +75,8 @@ export const attach_console = function(self) {
 
 /**
 * TOGGLE_PANEL
-* Show/Hide — functionality #3 of the v6 audit is literally named that.
-* Reads the panel's OWN current state (`is_toolbar_panel_visible`), never a
-* cached flag: opening a SIBLING panel (toolbar.js's mutual-exclusion,
-* 2026-09-04) can close this one without going through this module at all,
-* so a cached flag alone would desync (a stray click would then
-* look like a no-op "hide" instead of the reopen the user asked for).
+* Reads the panel's own state (`is_toolbar_panel_visible`), never a cached flag:
+* opening a sibling panel closes this one without passing through here.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -146,17 +91,9 @@ const toggle_panel = function(self) {
 
 /**
 * HYDRATE
-* Subscribes the map-level events the console reacts to. Idempotent (guarded
-* by `self._popupopen_handler`) so a stray second `attach_console` call never
-* double-subscribes.
-*
-* - 'popupopen' — selection (see file header).
-* - 'popupclose' — re-locks (never re-enables) after a click that closes a
-*   marker's popup instead of opening it.
-* - 'updated_layer_data_<id_base>' — already published by
-*   `component_geolocation.prototype.update_draw_data` on every geometry
-*   create/edit/style change; keeps an open console in sync with the object
-*   it is currently showing without polling.
+* Subscribes the map events the console reacts to; idempotent (guarded by
+* `self._popupopen_handler`). 'updated_layer_data_<id_base>', published by the
+* core's `update_draw_data` on every change, keeps an open console in sync.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -179,17 +116,15 @@ const hydrate = function(self) {
 	}
 	self.geolocation.map.on('popupopen', self._popupopen_handler)
 
-	// A second click on a marker CLOSES its popup (Leaflet's toggle; the open
-	// popup also swallows that click's 'preclick') and fires no 'popupopen', yet
-	// the core sweep still enables the marker. Its 'popupclose' fires before the
-	// sweep, so a deferred re-assert lands after it — LOCK-ONLY: a click on the
-	// empty map closes a popup too, and there the core turns editing off for all.
+	// A second click on a marker closes its popup (no 'popupopen') yet the core
+	// sweep still enables it; 'popupclose' fires before that sweep, so a deferred
+	// re-assert lands after it. LOCK-ONLY: a click on the empty map closes a
+	// popup too, and there the core turns editing off for all.
 	self._popupclose_handler = () => schedule_geoman_reassert(self, true)
 	self.geolocation.map.on('popupclose', self._popupclose_handler)
 
-	// 2b: re-apply this tool's own style/hierarchy extras — the core never
-	// reads properties.uca_maps back on load, so this module has to
-	// (plan hydration step 2; reapply_style/reapply_hierarchy above)
+	// the core never reads properties.uca_maps back on load, so new geometry gets
+	// this tool's extras here (reapply_style/reapply_hierarchy, below)
 	self._pmcreate_handler = (event) => {
 		if (event.layer) {
 			default_geoman_off(self, event.layer)
@@ -201,14 +136,9 @@ const hydrate = function(self) {
 	self.geolocation.map.on('pm:create', self._pmcreate_handler)
 	reapply_all(self)
 
-	// 2b: react to a layer being deleted from the map (Geoman's own delete
-	// tool) while this tool's panel is still showing it — without this, an
-	// edit made afterwards on the now-gone layer is silently lost (commit()
-	// can no longer resolve a FeatureGroup for it) and, if the removed layer
-	// had a centroid, that marker is orphaned on the map permanently locked
-	// against removal (created with preventMarkerRemoval:true — only
-	// remove_centroid's own path, requiring the now-gone parent's checkbox,
-	// ever unlocks it). Review-diff correctness finding, 2026-09-02.
+	// Geoman's own delete tool can remove the layer the panel shows: clear the
+	// selection (a later edit on it would be lost) and unlock its centroid, which
+	// only remove_centroid would otherwise ever unlock.
 	self._pmremove_handler = (event) => {
 		const removed_layer = event.layer
 		if (!removed_layer) {
@@ -242,17 +172,9 @@ const hydrate = function(self) {
 
 /**
 * SELECT_LAYER
-* Marks `layer` as the console's current subject and renders its object
-* section — WITHOUT opening the panel.
-*
-* (!) Selecting is not opening (Sergio, 2026-09-21, functional audit). This
-* used to call `set_panel_visibility(self, true)`, so any click on any
-* geometry flung the console open — and, through toolbar.js's one-panel-at-a-
-* time rule, shut whatever the user actually had open. v6 never did that
-* either: its console is visible by default and toggled by its own
-* "Mostrar-Ocultar" button (`special_tools.js` `special_tools_panel_show_hide_events`);
-* a click on a layer only REPLACES the content. The panel is opened and
-* closed by the UCA button, and by nothing else.
+* Marks `layer` as the console's subject and renders it, WITHOUT opening the
+* panel: as in v6 (`special_tools.js` `special_tools_panel_show_hide_events`), a
+* click replaces the content; only the UCA button opens or closes the panel.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer - Leaflet layer (Marker/Circle/Polygon/Polyline)
@@ -269,21 +191,9 @@ const select_layer = function(self, layer) {
 
 /**
 * ENSURE_PROPERTIES
-* `layer.feature.properties` exists on everything loaded through
-* `load_layer`/created through `pm:create` (the core always calls
-* `layer.toGeoJSON()` — component_geolocation.js — which seeds `.feature`),
-* but a bare Leaflet layer built directly in this module (the centroid
-* marker, below, before it is handed to `pm:create`) does not have one yet.
-*
-* Exported (hito 4) so `object_viewer.js`'s `set_object_display` seeds a
-* freshly-drawn, never-yet-clicked layer the exact same way instead of
-* silently no-oping on it — a shape created via Geoman's `pm:create` reaches
-* this module with NO `.feature` at all (`init_feature`,
-* `component_geolocation.js`, never assigns one; only `L.geoJson`'s own
-* `onEachFeature` — the `load_layer`/restore path — does), so a checkbox
-* toggled before the object is ever opened in the "UCA" console needs this
-* same lazy seed, not a second, weaker guard (review-diff correctness
-* finding, hito 4).
+* Layers built here (the centroid marker) or drawn through Geoman's `pm:create`
+* have no `.feature` yet; only the core's `load_layer` path seeds one. Exported so
+* object_viewer.js seeds a never-clicked layer the same way.
 *
 * @param {Object} layer
 * @returns {Object} layer.feature.properties, created if missing
@@ -314,22 +224,10 @@ export const ensure_uca_maps = function(layer) {
 
 /**
 * ENSURE_UID
-* Lazily assigns a random per-OBJECT id under `properties.uca_maps.uid` the
-* first time this console needs to cross-reference one Leaflet layer from
-* another (centroid <-> parent, below). Necessary because the core's own
-* `layer_id` identifies a whole FeatureGroup, not a single object —
-* `update_draw_data(layer_id)` serialises EVERY layer currently in
-* `self.FeatureGroup[layer_id]` as one FeatureCollection
-* (`component_geolocation.js`, confirmed by reading its body: `active_layer.
-* eachLayer(...)` pushes one GeoJSON feature per layer into the SAME
-* layer_id's `features` array) — so two distinct shapes (a polygon and its
-* centroid marker) can share one `layer_id` and need their own identity.
-* Mirrors v6's own `tools_id` (`special_tools.js` `make_id(20)`), same
-* purpose, ported rather than reused (v6's in-memory registry is gone).
-*
-* Exported (hito 7) so `onexone.js`'s `create_onexone_rectangle` links a
-* marker to its newly-created 1x1 rectangle the exact same way toggle_centroid
-* links a parent to its centroid, below — one uid scheme, not two.
+* Lazily assigns a per-OBJECT id under `properties.uca_maps.uid`: the core's
+* `layer_id` names a whole FeatureGroup, which can hold several shapes (a polygon
+* and its centroid). v6's `tools_id` (`special_tools.js` `make_id`). Exported so
+* onexone.js links a marker to its 1x1 rectangle with the same scheme.
 *
 * @param {Object} layer
 * @returns {string}
@@ -346,31 +244,10 @@ export const ensure_uid = function(layer) {
 
 /**
 * COMMIT
-* The one path every 2b mutation funnels through (plan_implementacion.md:
-* "toda mutación de la consola termina en update_draw_data"): marks the
-* owning FeatureGroup dirty via the core's own `update_draw_data` — the ONLY
-* dirty/save-buffer entry point (CLAUDE.local.md "nada auto-guarda": this
-* marks the record dirty, it never talks to the server itself — only the
-* component's own save button commits) — then re-renders the panel so the
-* just-made change is visible immediately, without waiting for the next
-* `updated_layer_data_<id_base>` event `hydrate()` already listens for
-* (that listener also calls render_selected_object, redundantly but
-* harmlessly, once update_draw_data's own publish arrives).
-*
-* (!) If `layer` is no longer registered in any FeatureGroup — e.g. it was
-* removed from the map via Geoman's own delete tool while this tool's panel
-* was still open and still showing it as `active_console_layer` — the
-* mutation stays written into `layer.feature.properties` in memory but there
-* is no dirty/save-buffer entry point left to funnel it through, so it is
-* effectively lost. `hydrate()`'s own `pm:remove` listener (below) reacts to
-* the removal itself and clears a stale selection before this can normally
-* happen; this `console.warn` is the last-resort surfaced signal for
-* whatever narrower race it does not cover (review-diff correctness finding,
-* 2026-09-02 — silent data loss with no user-visible signal was the defect).
-*
-* Exported (hito 4) so `object_viewer.js`'s `set_object_display` — a
-* separate button+panel, not part of this console — funnels through the
-* exact same dirty/save-buffer entry point rather than duplicating it.
+* The one path every console mutation takes: marks the owning FeatureGroup dirty
+* through the core's `update_draw_data` (nothing auto-saves; only the component's
+* save button commits), then re-renders the panel at once. Exported so
+* object_viewer.js's set_object_display marks dirty the same way.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer - the mutated Leaflet layer
@@ -428,35 +305,10 @@ const circle_measure = function(layer) {
 
 /**
 * SYNC_MEASUREMENTS
-* Writes the geometry's own measurement into `feature.properties` so it
-* shows up — editable and deletable — in the properties list, which is what
-* v6 does (`special_tools.js` `create_div_radius`/`create_div_circle_area`/
-* `create_div_polygon_area`, each `properties.<key> = …; save_object()`).
-* Ported 2026-09-21 (functional audit).
-*
-* Only `area` is written here. `shape` and `radius` are NOT: the core
-* already stamps both on every `update_draw_data`
-* (`component_geolocation.js`, "GeoJSON has no native circle type"), and
-* since `layer.toGeoJSON()` shallow-copies the feature, that stamp lands on
-* this very `properties` object. Writing a FORMATTED radius on top of the
-* core's NUMBER would make the two writers overwrite each other on every
-* pass — a dirty loop, not a disagreement about style.
-*
-* The value is the one the panel prints, deliberately: for a circle both
-* come from `2·π·r` — the CIRCUMFERENCE, labelled "Area", wrong in v6
-* (`special_tools.js:5690`) and wrong the same way in the core's own popup
-* (`component_geolocation.js` `get_popup_content`). Fixing it here alone
-* would make the property disagree with the popup the user reads on the same
-* object; the formula is the core's to fix (audit ledger + PREGUNTAS_FORO).
-*
-* A checked uncertainty is resynced on the same pass (`sync_uncertainty`):
-* it stores the area too, and a polygon reshaped after the box was checked
-* would otherwise keep the old size and tier.
-*
-* Dirty is marked ONLY when the value actually changed, so merely selecting
-* an object does not dirty a record the user has not touched (the same
-* criterion hito 16 applied to elevation) and the re-render the event
-* triggers finds nothing to write and stops.
+* Writes the geometry's `area` as an editable property, as v6 does (`special_tools.js`
+* `create_div_circle_area`/`create_div_polygon_area`), and resyncs a checked
+* uncertainty. Not `shape`/`radius`: the core stamps those, and two writers would
+* loop. Dirty only on a real change, so merely selecting an object dirties nothing.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -531,14 +383,9 @@ const sync_uncertainty = function(layer, area_m2) {
 
 /**
 * SET_STYLE_FIELD
-* Fill colour/opacity, stroke weight/opacity/dash — every style field
-* except the object's COLOUR, which is half the core's and is written by
-* `set_object_color` below. Stored under
-* `properties.uca_maps.style` (this tool's own namespace — the core never
-* reads fill/opacity/weight back on load, so re-applying it after every map
-* load is this tool's own job; see `hydrate()`/`reapply_style` below) and
-* applied immediately via `layer.setStyle` so the map reflects the change
-* without waiting for a reload.
+* Every style field but the colour (`set_object_color`). Stored under
+* `properties.uca_maps.style` because the core never restores them on load
+* (`reapply_style` does), and applied at once with `layer.setStyle`.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -568,13 +415,10 @@ export const set_style_field = function(self, layer, field, value) {
 
 /**
 * SET_OBJECT_COLOR
-* ONE colour for border and body, as v6 paints them (`special_tools.js`
-* `polygon_circle_style`), and the only style value with a split home. The
-* STROKE half is the core's: `update_draw_data` copies `layer.options.color`
-* into `properties.color` and `init_feature` re-applies it on load
-* (`component_geolocation.js`), so storing it here too would give one value
-* two homes, free to disagree. The FILL half nobody restores but this tool,
-* so that one is written into its own namespace.
+* One colour for border and body, as v6 paints them (`special_tools.js`
+* `polygon_circle_style`). The stroke half is the core's (`properties.color`,
+* restored by `init_feature`), so only the fill half goes in this namespace: one
+* value, one home.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -600,11 +444,8 @@ export const set_object_color = function(self, layer, value) {
 
 /**
 * REAPPLY_STYLE
-* Re-applies a previously saved `properties.uca_maps.style` to a layer just
-* loaded/created — the core's own `load_layer`/`init_feature` only re-apply
-* `color` (plan_implementacion.md), never this tool's own fill/opacity/
-* weight extras, so this module has to do it itself on every hydration
-* pass. Called from `hydrate()`'s FeatureGroup walk, below.
+* Re-applies a saved `properties.uca_maps.style`: the core's `load_layer`/
+* `init_feature` restore only `color`.
 *
 * @param {Object} layer
 * @returns {void}
@@ -621,11 +462,8 @@ const reapply_style = function(layer) {
 
 /**
 * REAPPLY_HIERARCHY
-* Ports v6's `check_hierarchy` (`special_tools.js:5467`) — runs on every
-* layer load, not just on click, so a saved front/back state visually
-* persists across map reloads even before the layer is ever clicked again.
-* Order (`bringToBack` before `bringToFront`) matches v6 verbatim; harmless
-* either way since `set_hierarchy` never leaves both flags true.
+* v6's `check_hierarchy` (`special_tools.js`), run on every load so a saved
+* front/back order survives a reload before the layer is clicked again.
 *
 * @param {Object} layer
 * @returns {void}
@@ -648,31 +486,10 @@ const reapply_hierarchy = function(layer) {
 
 /**
 * IS_GEOMAN_EDITION / SET_GEOMAN_EDITION / REAPPLY_GEOMAN
-* v6's "Edición Geoman activa" checkbox, per object
-* (`special_tools.js` `create_div_geoman_edition_mode`, `pm_enable`,
-* `pm_disable`, `check_geoman_edition_mode`, `feature.special_tools.
-* geoman_edition`). Ported 2026-09-21 (functional audit; H-01 in the
-* ledger, which hito 2 had left out of scope).
-*
-* (!) THIS FIGHTS THE CORE, AND HAS TO. The core has no per-object notion of
-* editability: its own click handler (`component_geolocation.js`
-* `init_feature`) calls `pm.enable()` on EVERY layer of the clicked
-* FeatureGroup and `pm.disable()` on every layer of all the others. That
-* handler is registered after `bindPopup`'s, so it runs AFTER the
-* 'popupopen' this module selects on — a state written from here during the
-* same click would be overwritten microseconds later. Hence the deferred
-* re-assert in `hydrate()`: the stored per-object state is re-applied once
-* the core's own sweep has finished.
-*
-* Only an object with an EXPLICITLY stored flag is re-asserted. An object
-* nobody has ticked keeps the core's behaviour untouched — porting v6's
-* "default false" literally would silently kill the edit handles every user
-* of every map gets today on a plain click, which is a change to the core's
-* feel, not to this tool's.
-*
-* v6's own `pm_disable` is `pm.enable({allowEditing:false, draggable:false…})`
-* rather than `pm.disable()`; this port uses `pm.disable()`, the same call
-* the core uses for the same intent.
+* v6's per-object "Edición Geoman activa" checkbox (`special_tools.js`
+* `create_div_geoman_edition_mode`). The core's click handler enables every layer
+* of the clicked group AFTER 'popupopen', hence the deferred re-assert in hydrate().
+* Only an explicit stored flag is re-asserted: untouched objects keep the core's.
 *
 * @param {Object} layer
 * @returns {boolean}
@@ -721,12 +538,9 @@ const apply_geoman = function(layer, lock_only=false) {
 		return
 	}
 
-	// (!) NEVER RE-ASSERT A STATE THAT ALREADY HOLDS. `pm.disable()` makes
-	// Geoman fire `pm:edit` ("leaving edit mode"), the core turns that into
-	// `update_draw_data` (`component_geolocation.js:1525`), which publishes
-	// `updated_layer_data_*`, which lands back in this very re-assert: an
-	// endless loop that buries the page in `get_elevation` requests
-	// (functional audit, row #7, 2026-09-22).
+	// (!) NEVER RE-ASSERT A STATE THAT ALREADY HOLDS. `pm.disable()` fires
+	// `pm:edit`, the core turns it into `update_draw_data`, whose event lands back
+	// here: an endless loop of `get_elevation` requests.
 	const enabled = typeof layer.pm.enabled==='function' ? layer.pm.enabled() : null
 
 	if (is_geoman_edition(layer)) {
@@ -746,19 +560,10 @@ const apply_geoman = function(layer, lock_only=false) {
 
 /**
 * DEFAULT_GEOMAN_OFF
-* A geometry the user has just created is born with the edit handles OFF and
-* SAYS so — v6's own default (`special_tools_onexone.js:107` writes
-* `geoman_edition = false` on creation, and `check_geoman_edition_mode`
-* disables anything without a true flag). Without this the core's click sweep
-* paints vertex handles over a shape whose checkbox reads "off", and only a
-* tick+untick clears them (functional audit, row #7).
-*
-* Only at creation: an object already in the record keeps "no opinion", so
-* this never turns the core's behaviour off across an existing map (the
-* reason `is_geoman_edition` reads an EXPLICIT state, C-04/H-01). Markers are
-* left alone — they carry no vertex handles — and so is an image carrier,
-* which `image_edit.js` already seals its own way (`seal_carrier_from_geoman`,
-* hito 14) and drags through Geoman.
+* A just-created geometry is born with edit handles OFF and says so, v6's default
+* (`special_tools_onexone.js`, `check_geoman_edition_mode`). Only at creation, so
+* existing objects keep the core's behaviour. Markers have no vertex handles; an
+* image carrier is sealed by image_edit.js.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -830,16 +635,10 @@ const schedule_geoman_reassert = function(self, lock_only=false) {
 
 /**
 * APPLY_DISPLAY
-* Show/Hide for one object (hito 4, functionality #4 — `object_viewer.js`).
-* Raw DOM visibility toggle, ported from v6's own mechanism
-* (`special_tools_objects.js` `load_modal`'s click handler:
-* `layer._path.style.display`/`layer._icon.style.display`) rather than
-* `map.removeLayer`/`addLayer` — the layer must STAY registered in its
-* FeatureGroup (Geoman's own edit/delete tools, `find_layer_id`,
-* `update_draw_data`'s own FeatureGroup walk all assume it is); only its
-* rendered DOM node hides. Exported for `object_viewer.js`'s
-* `set_object_display`; also used below by `reapply_display` so a hidden
-* state survives a map reload.
+* Show/Hide for one object: v6's raw DOM toggle (`special_tools_objects.js`
+* `load_modal`), not removeLayer, because the layer must stay in its FeatureGroup
+* (Geoman, `find_layer_id`, `update_draw_data`). Exported for object_viewer.js;
+* `reapply_display` reuses it so a hidden state survives a reload.
 *
 * @param {Object} layer
 * @param {boolean} visible
@@ -847,19 +646,15 @@ const schedule_geoman_reassert = function(self, lock_only=false) {
 */
 export const apply_display = function(layer, visible) {
 
-	// An uploaded image (hito 13) is TWO nodes: the transparent carrier
-	// rectangle that takes the clicks, and the overlay that shows the
-	// picture. Hiding only the carrier would leave the image fully painted
-	// and no longer selectable — worse than not hiding it at all. Reached as
-	// a plain property on the layer, never by importing `image_upload.js`:
-	// that module already imports THIS one, and the pair must stay
-	// one-directional (same convention as render_X.js/X.js).
+	// An uploaded image is TWO nodes: the carrier rectangle that takes the clicks
+	// and the overlay that paints it. Read as a layer property, never by importing
+	// image_upload.js, which already imports this module.
 	const overlay = layer._uca_maps_overlay
 	if (overlay) {
 		set_node_display(overlay._image, visible)
 	}
 
-	// and its drag handles, when edit mode is on (hito 14): they are markers on
+	// and its drag handles, when edit mode is on: they are markers on
 	// the map, so hiding the picture without them would leave three circles
 	// floating over nothing — still draggable, still moving an invisible image
 	for (const handle of (layer._uca_maps_handles || [])) {
@@ -901,11 +696,8 @@ const set_node_display = function(node, visible) {
 
 /**
 * REAPPLY_DISPLAY
-* A layer freshly loaded/rebuilt from `layer_data` starts visible — this
-* only has work to do when a previous session left it explicitly hidden
-* (`properties.uca_maps.display===false`, `object_viewer.js`
-* `set_object_display`). Called from `reapply_all`, same reason as
-* `reapply_style`/`reapply_hierarchy` above.
+* Only a layer a previous session left hidden
+* (`properties.uca_maps.display===false`) has work to do: a fresh one starts visible.
 *
 * @param {Object} layer
 * @returns {void}
@@ -921,11 +713,8 @@ const reapply_display = function(layer) {
 
 /**
 * REAPPLY_ALL
-* Walks every layer in every FeatureGroup and re-applies both 2b
-* reapplication steps (plus hito 4's display state). Called once from
-* `hydrate()` (attach time) and again on every `updated_layer_data_<id_base>`
-* event, matching the plan's hydration step 2
-* (`~/.claude/plans/ancient-watching-turing.md`).
+* Re-applies style, hierarchy, display and Geoman state to every layer, at attach
+* and on every `updated_layer_data_<id_base>`: the core restores none of them.
 *
 * @param {Object} self
 * @returns {void}
@@ -949,12 +738,9 @@ const reapply_all = function(self) {
 
 /**
 * SET_PROPERTY / DELETE_PROPERTY
-* Generic custom-properties CRUD over `layer.feature.properties`, guarded
-* against the reserved keys (RESERVED_PROPERTY_KEYS, above) so a user can
-* never shadow a core- or tool-managed field through this editor. No server
-* round-trip (plan_implementacion.md: v6's own `create_property`/
-* `edit_property` were already pure client-side validators before this
-* port; the plan drops the server actions, not the behaviour).
+* Custom-properties CRUD over `layer.feature.properties`, refusing
+* RESERVED_PROPERTY_KEYS so the editor never shadows a core or tool field.
+* Client-side only, as v6's `create_property`/`edit_property` already were.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -992,11 +778,8 @@ export const delete_property = function(self, layer, key) {
 
 /**
 * TRIGGER_BLOB_DOWNLOAD
-* Shared anchor-click download idiom (hito 2b's original `download_geojson`
-* body) — every vector format ends here, whether the Blob was built locally
-* (GeoJSON) or decoded from the server's base64 response (SHP/KML, hito 3).
-* Exported (hito 3b): `map_image_download.js` reuses it for the same reason —
-* one download trigger, not two copies.
+* The anchor-click download every format ends in, local Blob or decoded server
+* answer. Exported so map_image_download.js shares the one trigger.
 *
 * @param {Blob} blob
 * @param {string} filename
@@ -1019,26 +802,10 @@ export const trigger_blob_download = function(blob, filename) {
 
 /**
 * BASE64_TO_BLOB
-* Decodes a base64 string (as returned by the `vector_download`/
-* `raster_download` server actions) into a Blob — no server-generated file
-* ever touches a publicly-servable path (v6 wrote to a web-exposed
-* `downloads/` folder and handed back a URL; this tool has no server route of
-* its own to serve one from — CLAUDE.local.md surface rule — so the bytes
-* travel inside the API envelope instead).
-*
-* Manual `atob()`/`charCodeAt()` loop, NOT `fetch('data:...')` — review-diff
-* (hito 3b) suggested `fetch()` as the browser's own bulk decoder instead of
-* a per-character loop, and it was tried: **it fails for real**, silently, in
-* THIS app. The server's CSP (`src/core/api/static_asset.ts` `APP_CSP`)
-* declares `connect-src 'self' blob:` — no `data:` scheme — and Chrome
-* classifies a `fetch()` of a `data:` URL as a `connect-src` check, so the
-* fetch rejects under the real policy (confirmed live: every `test:client`
-* download assertion failed with a null Blob after switching to `fetch()`,
-* passed again on revert). Loosening `connect-src` is a core-file, app-wide
-* security policy edit — outside this encargo's surface (CLAUDE.local.md) —
-* so the loop stays. Kept synchronous on purpose (every caller `await`s it
-* regardless; `await` on a non-Promise is a no-op, so this cannot regress if
-* a future fix finds a CSP-safe bulk path).
+* Decodes a download carried in the API envelope: unlike v6's web-exposed
+* `downloads/` folder, no generated file reaches a servable path. A manual loop,
+* NOT `fetch('data:…')`: `APP_CSP` (`src/core/api/static_asset.ts`) has no `data:`
+* in `connect-src`, so that fetch fails.
 *
 * @param {string} base64
 * @param {string} mime
@@ -1084,16 +851,10 @@ export const deliver_download = async function(response, failed) {
 
 /**
 * REPORT_CLIENT_ERROR
-* Surfaces a THROWN client-side exception (never reached the server, so
-* there is no envelope for `handle_api_error` to read) through the SAME
-* global toast surface every server-reported failure uses:
-* `event_manager.publish('api_error', …)`, subscribed once in `page.js`
-* (`api_error_handler`) — the identical mechanism `data_manager.js`'s own
-* transport-layer failures publish through. `code` is namespaced `client.*`
-* on purpose — `ApiError`'s own constructor already treats that prefix as
-* the client-origin signal (`this.transport = … : code.startsWith('client.')`)
-* — and falls through `error_policy.js`'s `'*'` wildcard to a plain toast, so
-* nothing needs registering for it.
+* Surfaces a thrown client-side exception (no envelope to read) through the same
+* global toast as server failures (`api_error`, subscribed in page.js). The
+* `client.` prefix marks it client-origin and falls through error_policy.js's '*'
+* wildcard, so nothing needs registering.
 *
 * @param {string} message
 * @returns {void}
@@ -1114,31 +875,10 @@ export const report_client_error = function(message) {
 
 /**
 * DOWNLOAD_VECTOR
-* GeoJSON stays 100% client-side (`layer.toGeoJSON()` + Blob, hito 2b's
-* original behaviour, unchanged — no server round-trip for the format the
-* browser already produces natively). SHP/KML (hito 3) call the server's
-* `vector_download` action: `ogr2ogr` runs server-side (GDAL is not a browser
-* capability), the result comes back base64 in the envelope, decoded into a
-* Blob and downloaded the same way.
-*
-* No client-side reprojection (v6 pre-reprojected to EPSG:3857 by hand with
-* `turf.toMercator` before sending — the resulting GeoJSON was no longer
-* valid WGS84 per RFC 7946). `layer.toGeoJSON()` is already valid WGS84; it
-* travels as-is, and the server assigns `-a_srs EPSG:4326` — an accurate
-* label for data already in that CRS, not a reprojection.
-*
-* Never silent (review-diff correctness finding, hito 3): a server-reported
-* failure (GDAL missing, permission denied, …) comes back as the text for
-* the section's line (`tool_error_text`: the page toast only names the
-* code). The WHOLE function body (including `layer.toGeoJSON()` — review-diff
-* finding, hito 3b: an earlier revision called it BEFORE the try block, so a
-* throw there was not caught by this function's own handling) runs inside one
-* try/catch; an unexpected client-side exception goes through
-* `report_client_error` instead of only `console.error` (review-diff finding,
-* hito 3b: the original catch only logged, contradicting this very doc
-* comment), and to the same line as a refusal — never an unhandled promise
-* rejection from the caller's click handler (`render_object_console.js`),
-* and never a silent no-op either.
+* GeoJSON is built in the browser; SHP/KML go through the server's
+* `vector_download` (ogr2ogr). No reprojection: v6's `turf.toMercator` broke RFC
+* 7946, and `toGeoJSON()` is already WGS84. One try around the whole body: a throw
+* is reported and returned for the line, never an unhandled rejection.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
@@ -1183,16 +923,10 @@ export const download_vector = async function(self, layer, format) {
 
 /**
 * DOWNLOAD_OBJECT_PDF
-* Fila #3's "Exportar como PDF": the selected object's properties, geometry
-* and associated images as one document, built by the server
-* (`server/pdf_report.ts` — and see its header for why it is not built in the
-* browser the way v6 does it).
-*
-* What travels: the object as GeoJSON (same as `download_vector`), the image
-* RECORD IDENTITIES — never their paths, which is what stops the report from
-* becoming a way to read media the caller has no right to — the elevation
-* already on screen, and the tool's own labels, so the document speaks the
-* language of the record rather than the server's default.
+* The object's properties, geometry and images as one server-built PDF
+* (`tools/tool_uca_maps/server/pdf_report.ts`). Images travel as record identities,
+* never paths, so the report cannot read media the caller may not; the labels
+* travel so it speaks the record's language.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
@@ -1256,24 +990,10 @@ export const download_object_pdf = async function(self, layer) {
 
 /**
 * TOGGLE_CENTROID
-* v6 (`special_tools.js` `create_div_centroid`): checking the box creates a
-* marker at the layer's bounds center and fires it through the core's OWN
-* creation pipeline (`map.fire('pm:create', ...)`,
-* `component_geolocation.js init_draw_editor`'s `pm:create` handler —
-* `e.layer.addTo(self.FeatureGroup[self.active_layer_id])` +
-* `update_draw_data` + `init_feature`), rather than adding it to a
-* FeatureGroup directly — so the new marker gets the exact same click/popup
-* wiring as any user-drawn shape, for free. `active_layer_id` is set
-* explicitly first: it is normally set by the core's own click handler on
-* the layer the user just clicked, which IS this layer by the time a
-* checkbox inside its already-open console is clicked — but setting it here
-* removes any dependency on that ordering.
-*
-* Only offered for circle/polygon (`render_hierarchy`... see
-* render_object_console.js `render_centroid_control` — `getBounds` is what
-* both have and markers/polylines conceptually don't need here, matching
-* v6: `create_div_centroid` is only ever called from the circle and polygon
-* branches of v6's `set_info_console`).
+* v6's `create_div_centroid` (`special_tools.js`): a marker at the bounds centre,
+* fired through the core's own `pm:create` so it gets the click/popup wiring of a
+* drawn shape. `active_layer_id` is set first so it lands in this layer's group
+* whatever the click order. Circle/polygon only, as in v6.
 *
 * @param {Object} self
 * @param {Object} layer - the circle/polygon layer (never the centroid itself)
@@ -1319,12 +1039,8 @@ export const toggle_centroid = function(self, layer) {
 
 /**
 * REMOVE_CENTROID
-* Unchecking the centroid box (`toggle_centroid`, above). v6 used
-* `centroid.pm.remove()` alone (its own per-object FeatureGroup model made
-* that sufficient); this tool's FeatureGroups can hold several features
-* (file header of `ensure_uid`), so removal goes through the owning
-* FeatureGroup directly — `removeLayer` — which is the more correct
-* operation for that data model, not a v6 behaviour being changed.
+* v6 used `centroid.pm.remove()`; here a FeatureGroup can hold several features
+* (see `ensure_uid`), so the marker leaves through its owning group.
 *
 * @param {Object} self
 * @param {Object} layer - the parent circle/polygon layer
@@ -1382,17 +1098,9 @@ const remove_centroid_layer = function(feature_group, centroid_uid) {
 
 /**
 * UNLOCK_ORPHANED_CENTROID
-* Reacts to a PARENT layer (circle/polygon) being removed from the map by
-* some path OTHER than this tool's own `remove_centroid` above — typically
-* Geoman's own delete tool — while it still had a centroid marker. That
-* marker was created with `preventMarkerRemoval:true`/`allowRemoval:false`
-* (`toggle_centroid`) — `remove_centroid` is the only path that ever unlocks
-* it, and it never runs here (nobody unchecked a checkbox; the parent is
-* just gone) — so without this, the marker would be left on the map forever
-* locked against removal. Called from `hydrate()`'s `pm:remove` handler for
-* EVERY removed layer; a no-op unless that layer's own
-* `properties.uca_maps.centroid_uid` says it had one (review-diff
-* correctness finding, 2026-09-02).
+* A parent removed by another path (Geoman's delete tool) would leave its centroid
+* locked against removal forever: only `remove_centroid` unlocks it. Called for
+* every removed layer; a no-op unless it had a `centroid_uid`.
 *
 * @param {Object} self
 * @param {Object} removed_layer - the layer Geoman just removed
@@ -1444,9 +1152,8 @@ const get_uncertainty = function(area_m2) {
 
 /**
 * TOGGLE_UNCERTAINTY
-* Polygon only — matches v6 exactly (`create_div_incertidumbre` is only
-* ever called from the polygon branch of `set_info_console`; circles use a
-* different, non-`turf.area`-based measure and never got this checkbox).
+* Polygon only, as in v6 (`create_div_incertidumbre` is only called from the
+* polygon branch of `set_info_console`).
 *
 * @param {Object} self
 * @param {Object} layer - polygon layer
@@ -1471,13 +1178,10 @@ export const toggle_uncertainty = function(self, layer) {
 
 /**
 * SET_HIERARCHY
-* v6's `special_tools.js` `create_div_hierarchy` boxes, minus its bug: v6's
-* uncheck called the OPPOSITE `bringTo*()` without setting that flag, so the
-* map showed an order no reload could reproduce. Unchecking clears the flag
-* and restores the order a reload would draw (`restore_natural_order`).
-*
-* Circle/polygon/polyline only — matches v6 (`create_div_hierarchy` is
-* never called from the marker branch of `set_info_console`).
+* v6's `create_div_hierarchy` boxes (`special_tools.js`), minus its bug: its
+* uncheck called the opposite `bringTo*()` without setting that flag, an order no
+* reload reproduces. Unchecking here restores the reload order
+* (`restore_natural_order`). Not for markers, as in v6.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -1542,29 +1246,10 @@ const restore_natural_order = function(self) {
 
 /**
 * COMPUTE_INFO
-* Mirrors component_geolocation.prototype.get_popup_content's OWN math
-* (v7's native popup, `client/dedalo/core/component_geolocation/js/component_geolocation.js:1781-1866`)
-* — NOT v6's `special_tools.js` — so this panel's numbers always match what
-* the native Leaflet popup already shows for the very same layer on the
-* very same click, rather than a second, possibly-diverging set of
-* formulas. `get_popup_content` itself is not reused directly because it
-* also builds the colour-picker widget this panel deliberately does not
-* duplicate (already free via that native popup, plan_implementacion.md).
-*
-* Circle "area" is deliberately labelled `Area` (not `Circumference`)
-* despite being `2*Math.PI*radius` (a circumference, not an area) — this
-* mislabelling already exists in v7's OWN core (`get_popup_content`,
-* line ~1804), out of scope here (client/dedalo/core/), and showing a
-* different label in this panel for the same layer/same click would just
-* be a second, contradictory answer next to the native popup's.
-*
-* Polygon area does NOT reuse the core's private `readable_area`
-* (`component_geolocation.js:2592`, not exported) verbatim: that helper has
-* its own separate, already-documented pre-existing bug (metric branch
-* < 10,000 m² leaves its result `undefined` — a core defect, not part of
-* this port, out of scope to fix in `client/dedalo/core/`) — `format_polygon_area`
-* below matches its thresholds/precision with that one branch actually
-* assigned.
+* Mirrors the core popup's math (`get_popup_content`), not v6's, so panel and
+* popup agree on the same click. The circle's "Area" is 2·π·r, mislabelled as in
+* the core; another label here would contradict the popup. `format_polygon_area`
+* replaces the core's private `readable_area`, which leaves < 1 ha undefined.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -1581,7 +1266,7 @@ export const compute_info = function(self, layer) {
 	if (layer instanceof L.Circle) {
 		const center	= layer.getLatLng()
 		const radius	= layer.getRadius()
-		const area		= circle_measure(layer) // matches get_popup_content verbatim — file header
+		const area		= circle_measure(layer) // as get_popup_content computes it
 		return {
 			label_key	: 'center_radius_area',
 			label		: 'Center / Radius / Area',
@@ -1643,21 +1328,10 @@ export const layer_center = function(layer) {
 
 /**
 * FETCH_ELEVATION
-* Asks the server for the elevation of the selected object's centre
-* (`server/elevation.ts` — the outbound call is the server's, as it already
-* is in v6).
-*
-* WHAT IT DOES NOT DO: persist. v6 writes the answer into
-* `feature.properties.center_elevation` and calls `save_object()` right there
-* — so merely CLICKING an object dirties the record. That contradicts this
-* tool's own law ("nada auto-guarda: un gesto marca dirty, solo el botón
-* commitea", CLAUDE.local.md), and it stores derived third-party data as if
-* the user had typed it. Here the elevation is DISPLAYED and handed to the
-* PDF export in memory; if the user wants it stored, the properties editor
-* right below already adds any key they like.
-*
-* Never throws: the caller is a render path, and a service outage must not
-* stop the console from opening (see the server module's header).
+* The selected object's centre elevation (`tools/tool_uca_maps/server/elevation.ts`).
+* Not persisted, unlike v6, which saved it on a mere click: nothing auto-saves; it
+* is shown and handed to the PDF in memory. Never throws: a service outage must
+* not stop the console from opening.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
@@ -1670,18 +1344,10 @@ export const fetch_elevation = async function(self, layer) {
 		return {elevation: null, unavailable: true}
 	}
 
-	// THE CACHE IS NOT AN OPTIMISATION, it is what stops a public service being
-	// hammered during ordinary editing. `render_selected_object` rebuilds the
-	// whole object section, and `commit()` calls it after EVERY mutation —
-	// each style field, property edit, property delete, centroid/uncertainty/
-	// hierarchy toggle, image associate and image remove — on top of the
-	// `updated_layer_data_*` re-render. Without this, editing five properties
-	// on one polygon fires ~10 outbound requests about a centre that never
-	// moved, and Open-Elevation rate-limits until the line reads "not
-	// available" (review finding, hito 16).
-	// Keyed on the layer AND the coordinates, so MOVING a shape does re-ask.
-	// The PROMISE is cached the moment the request leaves: a burst of renders
-	// before the first answer shares one request instead of each sending its own.
+	// THE CACHE IS NOT AN OPTIMISATION: commit() re-renders the section after every
+	// mutation and Open-Elevation rate-limits. Keyed on layer AND coordinates, so a
+	// moved shape re-asks; the PROMISE is cached at once, so a burst of renders
+	// shares one request.
 	const cache_key = center.lat + ',' + center.lng
 	const cached = self._elevation
 	if (cached && cached.layer===layer && cached.key===cache_key) {
@@ -1774,14 +1440,9 @@ export const format_polygon_area = function(area_m2) {
 
 /**
 * FIND_LAYER_ID
-* Resolves which FeatureGroup (`self.geolocation.FeatureGroup[layer_id]`)
-* owns `layer`. Deliberately NOT read from `self.geolocation.active_layer_id`
-* — that value is set by the core's own click handler
-* (`init_feature`, `component_geolocation.js`), which is registered AFTER
-* `bindPopup`'s own click-to-open handler on the same layer, so at the exact
-* moment 'popupopen' fires for a click, `active_layer_id` can still be
-* holding the PREVIOUSLY clicked layer's id. Searching FeatureGroup directly
-* has no such ordering dependency.
+* Searches the FeatureGroups instead of reading `active_layer_id`: the core sets
+* that in a click handler registered after `bindPopup`'s, so on 'popupopen' it can
+* still hold the previous layer's id.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer - Leaflet layer to locate
@@ -1808,13 +1469,9 @@ export const find_layer_id = function(self, layer) {
 
 /**
 * DETACH_CONSOLE
-* Real teardown (CLAUDE.local.md "destrucción real") — called from
-* tool_uca_maps.prototype.destroy(), itself only reached from
-* on_geolocation_destroyed() (see file header: the console outlives the
-* modal, never the map). Guarded throughout: the map may already be gone if
-* component_geolocation was destroyed first, in which case its whole DOM
-* subtree — including panel_node, appended as its child — is already gone
-* too, so skipping the explicit removal here is correct, not a leak.
+* Called from tool_uca_maps' destroy(). Guarded: if component_geolocation went
+* first, the map and its DOM (panel_node included) are already gone, so skipping
+* the removal is correct, not a leak.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}

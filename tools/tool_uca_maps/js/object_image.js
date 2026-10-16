@@ -1,37 +1,14 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global DEDALO_MEDIA_URL*/
 /*eslint no-undef: "error"*/
 
 
 
 /**
 * OBJECT_IMAGE
-* Fila #3 del audit ("Consola de objeto"), la parte que faltaba: **asociar una
-* imagen a un objeto vectorial y consultar su galería**
-* (`special_tools.js:4528-4741`, `modal_associate_image`).
-*
-* NOT THE SAME THING as the image overlay of fila #11, which the audit itself
-* warns is easy to confuse ("Riesgo de confusión en nomenclatura"):
-*   - an IMAGE OVERLAY is a picture placed ON the map at its own coordinates,
-*     carried by a transparent rectangle (`image_upload.js`);
-*   - an ASSOCIATED IMAGE is a picture that belongs TO a drawn geometry — a
-*     photograph of the wall that polygon outlines. It is never drawn on the
-*     map, and the geometry keeps its own shape and style.
-* Both travel through the same ingest (`ingest_image_upload`), because both
-* are real Dédalo media; only what happens afterwards differs.
-*
-* WHAT PERSISTS, and why it is not what v6 persists. v6 stores an ABSOLUTE URL
-* per image (`self.tool.base_url() + data.image_src`), so every association in
-* an install breaks the day the host, the protocol or the media root changes.
-* Here the stored descriptor is the record IDENTITY plus the media-root-
-* relative `file_path` — the same decision hito 13 already took for overlays,
-* for the same reason, and the same `DEDALO_MEDIA_URL + file_path` resolution.
-*
-* WHY THE GALLERY COSTS NO REQUESTS. `file_path` is resolved ONCE, when the
-* image is associated, and stored. Rendering thirty thumbnails is then thirty
-* `<img src>` the web server answers directly — no action call per image, and
-* no application process anywhere in the media path
-* (engineering/MEDIA_PROTECTION.md hard rule 1).
+* Associates images with a drawn geometry and shows its gallery (v6
+* `special_tools.js` `modal_associate_image`). Unlike an image overlay
+* (image_upload.js) the picture belongs TO the geometry and is never drawn on the
+* map. Its `file_path` is resolved once and stored, so the gallery costs no requests.
 */
 
 
@@ -42,7 +19,13 @@ import {data_manager} from '../../../core/common/js/data_manager.js'
 import {create_source} from '../../../core/common/js/common.js'
 import {commit, ensure_uca_maps, report_client_error} from './object_console.js'
 import {read_uca_maps} from './uca_maps_data.js'
-import {ingest_image_upload, ingest_staged_image} from './image_upload.js'
+import {
+	ingest_image_upload,
+	ingest_staged_image,
+	image_url,
+	IMAGE_SECTION_TIPO,
+	IMAGE_COMPONENT_TIPO
+} from './image_upload.js'
 
 
 
@@ -52,9 +35,6 @@ import {ingest_image_upload, ingest_staged_image} from './image_upload.js'
  * inline with the record. */
 // exported for the client gate
 export const MAX_OBJECT_IMAGES = 30
-
-const IMAGE_SECTION_TIPO	= 'rsc170'
-const IMAGE_COMPONENT_TIPO	= 'rsc29'
 
 // The server downloads at the site's pace (one request per site every few
 // seconds, robots.txt first) and may follow redirects: far past data_manager's
@@ -83,11 +63,8 @@ export const object_images = function(layer) {
 
 /**
 * OBJECT_IMAGE_URL
-* The one place a stored descriptor becomes a URL — same resolution as
-* `image_upload.js`'s own `image_url`, deliberately duplicated as a one-liner
-* rather than imported, because importing it would be importing the overlay
-* module's private helper across a boundary the two sides do not otherwise
-* share.
+* A stored descriptor's URL through image_upload.js's `image_url`, the one
+* resolver; null for a descriptor with no path.
 *
 * @param {Object} image - a stored descriptor
 * @returns {string|null}
@@ -95,7 +72,7 @@ export const object_images = function(layer) {
 export const object_image_url = function(image) {
 
 	return (image && typeof image.file_path==='string')
-		? DEDALO_MEDIA_URL + image.file_path
+		? image_url(image)
 		: null
 }//end object_image_url
 
@@ -103,17 +80,8 @@ export const object_image_url = function(image) {
 
 /**
 * ASSOCIATE_IMAGE
-* Uploads a picture and hangs it off the selected geometry.
-*
-* The record is minted and ingested by the shared pipeline; the only question
-* left is where the ingested image is SERVED from, which `get_image_file`
-* answers (`server/image_media.ts`). That path is stored, so the gallery never
-* asks again.
-*
-* Marks the record dirty through `commit` — the tool's single dirty/save
-* funnel — and nothing more: associating an image is a user GESTURE, so it
-* dirties; it does not save. That is the same law the elevation line obeys by
-* not writing at all ("nada auto-guarda", CLAUDE.local.md).
+* Uploads a picture and hangs it off the selected geometry, then marks the record
+* dirty through `commit`: associating is a gesture, so it dirties, never saves.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer - the geometry the image belongs to
@@ -173,14 +141,9 @@ export const associate_image = async function(self, layer, file) {
 /**
 * ATTACH_INGESTED_IMAGE
 * Hangs an ingested rsc170 record off `layer`: asks where it is served from
-* (`get_image_file`, `server/image_media.ts`) and stores that path, so the
-* gallery never asks again. Does not commit: the caller decides when the
-* gesture is over.
-*
-* THE ASSOCIATION IS APPLIED REGARDLESS OF WHAT IS SELECTED NOW. An earlier
-* revision bailed out when the user had clicked another shape mid-upload —
-* throwing away a real, successful ingest and saying nothing. `layer` is the
-* captured, correct layer; capturing it is what prevents writing elsewhere.
+* (`get_image_file`, `server/image_media.ts`) and stores that path. Does not
+* commit. Applied whatever is selected now: `layer` was captured at the gesture,
+* so a click elsewhere mid-upload neither loses the ingest nor writes elsewhere.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
@@ -254,7 +217,7 @@ const is_still_shown = function(self, layer) {
 * LINKED_IMAGES
 * The images an object only LINKS to: `properties.images[]` entries with a
 * `url` and no Dédalo record yet — v6's own test (`check_if_external_images`,
-* `special_tools.js:7765-7875`, "section_tipo undefined"), the shape a
+* `special_tools.js`, "section_tipo undefined"), the shape a
 * GeoJSON from another system or a v6-style export carries.
 *
 * @param {Object} layer
@@ -377,12 +340,10 @@ const release_staged_image = async function(file_data) {
 
 /**
 * IMPORT_LINKED_IMAGES
-* The "Import N linked images" gesture: each linked image is downloaded by the
-* server, ingested like a picked file and MOVED into the object's own images
-* (`source_url` keeps where it came from). Three deliberate departures from
-* v6: it runs on this gesture only (v6 fires on click, load and upload); it
-* dirties and never saves; a link that fails STAYS, with its reason (v6 drops
-* it silently).
+* "Import N linked images": each link is downloaded by the server, ingested like a
+* picked file and MOVED into the object's images (`source_url` keeps its origin).
+* Unlike v6 it runs on this gesture only, dirties and never saves, and a failing
+* link STAYS with its reason.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
@@ -494,14 +455,9 @@ export const import_linked_images = async function(self, layer, on_progress) {
 
 /**
 * REMOVE_OBJECT_IMAGE
-* Drops one association. The MEDIA IS NOT DELETED — the rsc170 record and its
-* files stay exactly where they are, and this only stops the geometry
-* pointing at them.
-*
-* That is deliberate, not an omission: the record is a normal Resources/Image
-* record a user may have catalogued, published or linked from elsewhere, and
-* a map tool is not the place that decides to destroy it. v6 does the same
-* (its gallery has no delete at all, so this is strictly more than parity).
+* Drops one association; the media is NOT deleted. The rsc170 record may be
+* catalogued, published or linked elsewhere, and a map tool does not decide to
+* destroy it (v6's gallery has no delete at all).
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer

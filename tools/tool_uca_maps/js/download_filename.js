@@ -5,21 +5,10 @@
 
 /**
 * DOWNLOAD_FILENAME
-*
-* The ONE rule that turns a user-typed download name into a safe one. Both
-* sides import it — the browser sets the result on `link.download`
-* (`map_image_download.js`, PNG branch) and the server puts it in the
-* envelope's `filename` (`server/raster_download.ts`) — because a security
-* rule with two copies is a rule with two behaviours. A leaf module with no
-* imports and no DOM is what makes that possible: the same shape
-* `tsconfig.json`'s `allowJs` already carries for client leaf modules a unit
-* test imports directly.
-*
-* The sanitized string NEVER becomes a path. The server's scratch file keeps
-* its own fixed name, so nothing here reaches `join()`; what it does reach is
-* a download attribute in a browser, which is why separators, control
-* characters and edge dots go, and why the extension is appended by
-* `with_extension` and never read out of the user's text.
+* The ONE rule turning a user-typed download name into a safe one, imported by
+* the browser (`link.download`) and the server (`server/raster_download.ts`), so
+* it cannot have two behaviours; hence a leaf with no imports and no DOM. The
+* result is never a path; the extension is appended, never read from the text.
 *
 * @module download_filename
 */
@@ -40,21 +29,18 @@ export const DEFAULT_IMAGE_DOWNLOAD_NAME = 'image'
 const MAX_LENGTH = 100
 
 /** Path separators plus the set Windows refuses in a file name. A primitive
-* string, not a Set: this module is imported by the SERVER, where a
-* module-level mutable object is the thing `module_state_tripwire` exists to
-* catch — and its census reads `**\/*.ts`, so a .js file would slip past it
-* (review-diff, 2026-09-22). Nothing to mutate is better than a gate. */
+* string, not a Set: the SERVER imports this module, and `module_state_tripwire`
+* reads only `**\/*.ts`, so a module-level mutable object here would slip past
+* it. Nothing to mutate is better than a gate. */
 const UNSAFE_CHARS = '\\/<>:"|?*'
 
 
 
 /**
 * IS_UNSAFE_CODE
-* C0 controls and DEL, plus the Cf format characters that let a name DISPLAY
-* one way and land on disk another — a right-to-left override turns
-* "photo\u202Egnp.exe" into something that reads as a .png. Excluded by code
-* point rather than by a regex class: a literal control character inside one
-* is unreadable, and every linter flags it for that reason.
+* C0 controls and DEL, plus the Cf format characters that make a name DISPLAY one
+* way and land another ("photo\u202Egnp.exe" reads as a .png). By code point, not
+* a regex class: a literal control character inside one is unreadable.
 *
 * @param {number} code
 * @returns {boolean}
@@ -95,11 +81,9 @@ const strip_unsafe = function(value) {
 
 /**
 * SANITIZE_DOWNLOAD_NAME
-* Returns a safe base name, or '' when nothing usable survives — which every
-* caller must treat as a refusal, never as "use the default": a name that
-* sanitizes to nothing means the user typed something we cannot honour, and
-* silently downloading under another name is exactly the kind of quiet
-* substitution this tool does not do.
+* Returns a safe base name, or '' when nothing usable survives, which every caller
+* treats as a refusal, never as "use the default": silently downloading under
+* another name is a substitution this tool does not do.
 *
 * @param {string} raw
 * @returns {string} safe base name, or '' if nothing usable survives
@@ -112,7 +96,7 @@ export const sanitize_download_name = function(raw) {
 
 	// Truncated by CODE POINT (`Array.from`), never by `.slice` — the string
 	// was filtered by code point, and cutting UTF-16 units instead can leave a
-	// lone surrogate at the end (review-diff, 2026-09-22).
+	// lone surrogate at the end.
 	const cleaned = Array.from(strip_unsafe(raw).replace(/\s+/g, ' '))
 		.slice(0, MAX_LENGTH)
 		.join('')

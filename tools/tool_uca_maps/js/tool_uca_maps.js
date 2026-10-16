@@ -6,76 +6,9 @@
 
 /**
  * TOOL_UCA_MAPS
- *
- * Native v7 port of v6 `tool_leaflet_special_tools` (Museu de Prehistòria de
- * València / hispanicode-UCA). Plan: `plan_implementacion.md` (repo root).
- * Per-hito dossiers: `docs/HITOS.md` index + `docs/hitos/hito_<N>.md` (this
- * dir, local, not committed).
- *
- * HITO 1 SCOPE (vertical slice, closed): reach the live map, prove
- * open/close/reopen adds no duplicate control, and show server capabilities.
- *
- * HITO 2 SCOPE (checkpoint 2a, this revision): the object console — see
- * `object_console.js` for the full architecture note. Summary: `open_as:
- * 'modal'` blocks map clicks while open (`<dd-modal>`'s full-viewport
- * overlay), incompatible with "click a geometry on the live map while the
- * console is available". Sergio confirmed v6/dedalo6's own real behaviour:
- * the tool modal loads and closes itself, leaving its tools anchored to the
- * map. So here: `edit()` attaches the console to the live map, then closes
- * its own modal (`on_close_actions` intercepts the default destroy so the
- * INSTANCE survives that close — the console must outlive the modal, tied
- * instead to component_geolocation's own lifecycle). Real teardown now runs
- * from `on_geolocation_destroyed()`. Hito 1's capabilities panel moved from
- * the modal body into the anchored console (same server contract).
- *
- * WHY THIS FILE DOES NOT USE tool_config.ddo_map / self.main_element (unlike
- * tool_dev_template): this tool has no `ontology` entry in register.json, so
- * tool_common's cascade falls to its synthetic fallback, which builds a FRESH
- * component_geolocation instance via get_instance({..., id_variant: self.model})
- * — a different instance key than the one the user is already looking at, so a
- * SEPARATE, unrendered Leaflet map would exist nobody ever sees. This tool
- * targets the LIVE instance instead: `self.caller` is the component itself
- * (`ui.tool.build_component_tool_button` opens tools with `caller: self`, the
- * component), reached via `get_caller_by_model` — never a fixed-depth walk,
- * per CLAUDE.local.md and `test/unit/client_caller_chain_tripwire.test.ts` —
- * so the same code keeps working if this tool is ever opened from a portal.
- * The default ddo_map loader is therefore disabled (see build() below) rather
- * than left to build an instance nothing in this tool reads.
- *
- * LEFT TOOLBAR (2026-09-04, before hito 4 — see CLAUDE.local.md "Left
- * toolbar: un botón por funcionalidad"): the top-right icon still opens this
- * tool's own transient modal (unchanged, `render_tool_uca_maps.js`), which
- * still self-closes onto the live map — but what it leaves behind is no
- * longer ONE "UCA" button with a panel bundling every functionality as
- * collapsible sections. Every functionality now gets its OWN 'topleft'
- * button + its OWN panel, built through `toolbar.js`: "UCA" (functionality
- * #3, the object console — `object_console.js`), "Download map as image"
- * (functionality #10 — `map_image_download.js`). Hito 4 adds "Objects" (functionality #4, the
- * read-only vector/rasterized object list — `object_viewer.js`). Hito 7 adds
- * "1x1" (functionality #7, a 1 m-radius rectangle around a clicked Marker —
- * `onexone.js`), the first of these with NO panel — v6 has none for this row
- * either, just a bare toggle button. Hito 9 adds "XYZ" (functionality #5,
- * custom base-map layers — `xyz_basemaps.js`), session-only persistence for
- * now (`docs/PREGUNTAS_FORO.md` #7). "WMS" (functionality #6, generic WMS
- * server layers — `wms_services.js`) adds one server action of its own
- * (`get_wms_layers`, an SSRF-guarded GetCapabilities proxy — no browser can
- * fetch a third-party WMS endpoint directly) but keeps the same session-only
- * persistence as XYZ. "Catastro" (functionality #8) and "UA" (functionality
- * #9, `administrative_units.js`) add the same fixed-host server proxy shape
- * (`catastro.ts`/`administrative_units.ts` — no client-supplied URL, unlike
- * WMS) behind the v6 record-language gate (es/cat/eus) shared by both. Hito
- * 12 adds "Upload file to map" (functionality #11, VECTOR HALF ONLY —
- * `vector_upload.js`): the raw file is staged via the engine's own generic
- * `service_upload.js` transport, then converted server-side to WGS84 GeoJSON
- * (`upload_vector_layer` — GDAL/PROJ, no vendored shapefile/KML reader or
- * hardcoded EPSG table, unlike v6). Hito 13 completes the SAME row with its
- * IMAGE half (`image_upload.js`), inside the same button/panel — the file is
- * ingested through the engine's own media door onto a fresh rsc170 record,
- * and the server (which already has GDAL) reports the footprint that decides
- * where the overlay goes, so v6's two browser-side GeoTIFF libraries are not
- * ported at all. The rest of the audit's rows land the same way: a new
- * button (+panel where the functionality actually needs one), never a new
- * section inside an existing panel.
+ * Native port of v6 `tool_leaflet_special_tools`. The modal is transient: edit()
+ * attaches one toolbar button (+ panel) per functionality to the LIVE map and
+ * closes the modal; the instance lives until component_geolocation is destroyed.
  */
 
 
@@ -198,7 +131,7 @@
 
 
 
-/** Deterministic map wait (plan §3.5): budget + poll interval. */
+/** wait_for_map budget and poll interval. */
 const MAP_WAIT_TIMEOUT_MS	= 8000
 const MAP_WAIT_INTERVAL_MS	= 100
 
@@ -206,130 +139,9 @@ const MAP_WAIT_INTERVAL_MS	= 100
 
 /**
 * TOOL_UCA_MAPS
-* Tool constructor. Declares every instance property used by this tool.
-*
-* Properties:
-*   id            - unique tool instance identifier (set by tool_common.init)
-*   model         - string model name, always 'tool_uca_maps'
-*   mode          - display mode: 'edit', 'list', etc.
-*   node          - root HTMLElement rendered by render()
-*   ar_instances  - kept empty (see file header); never populated from ddo_map
-*   events_tokens - array of event subscription tokens for cleanup in destroy()
-*   status        - current lifecycle state (null | 'inited' | 'built' | 'ready')
-*   type          - tool type as declared in register.json
-*   caller        - the component_geolocation instance that opened this tool
-*   geolocation   - the LIVE component_geolocation instance (get_caller_by_model
-*                   result); this is what get_map()/self.map belong to, NOT a
-*                   ddo_map-built clone
-*   map_ready     - true once self.geolocation.map was found within budget
-*   map_control   - the "UCA" toolbar button (functionality #3, object
-*                   console); removed in destroy() so closing/reopening
-*                   never leaves a duplicate
-*   panel_node    - the anchored object-console panel (object_console.js),
-*                   appended directly to the map's own DOM container
-*   active_console_layer - the Leaflet layer the console is currently
-*                   showing, or null before any geometry has been clicked
-*   _popupopen_handler - the map 'popupopen' listener object_console.js
-*                   subscribes for selection tracking; kept so destroy() can
-*                   unsubscribe the exact same reference
-*   _popupclose_handler - the map 'popupclose' listener object_console.js
-*                   subscribes to re-assert the stored Geoman state after a
-*                   click that closes a popup; same unsubscribe-by-reference reason
-*   _pmcreate_handler - the map 'pm:create' listener object_console.js (2b)
-*                   subscribes to re-apply style/hierarchy extras to newly
-*                   created geometry; same unsubscribe-by-reference reason
-*   _pmremove_handler - the map 'pm:remove' listener object_console.js (2b)
-*                   subscribes to clear a stale selection and unlock/remove
-*                   an orphaned centroid when a layer is deleted from the
-*                   map by some path other than this tool's own controls
-*                   (typically Geoman's delete tool); same reason
-*   map_image_control - the "Download map as image" toolbar button
-*                   (functionality #10, map_image_download.js)
-*   map_image_panel - its anchored panel
-*   object_viewer_control - the "Objects" toolbar button (functionality #4,
-*                   object_viewer.js)
-*   object_viewer_panel - its anchored panel
-*   onexone_control - the "1x1" toolbar button (functionality #7, onexone.js)
-*                   — the first button with NO panel (v6 has none either;
-*                   see onexone.js file header)
-*   _onexone_popupopen_handler - the map 'popupopen' listener onexone.js
-*                   subscribes to arm a new rectangle on an eligible Marker
-*                   click while 1x1 mode is on
-*   _onexone_pmremove_handler - the map 'pm:remove' listener onexone.js
-*                   subscribes to clear a stale onexone_uid pointer when the
-*                   rectangle itself is deleted
-*   xyz_control   - the "XYZ" toolbar button (functionality #5, xyz_basemaps.js)
-*   xyz_panel     - its anchored panel
-*   basemaps      - session-only array of {url, name, attribution, minzoom,
-*                   maxzoom} (no shared/ontology persistence yet — see
-*                   docs/PREGUNTAS_FORO.md #7); resets to the 3 v6 defaults
-*                   on every attach
-*   _xyz_tile_layers - the live L.TileLayer instances mirroring `basemaps`,
-*                   1:1, rebuilt on every mutation (xyz_basemaps.js)
-*   _xyz_took_over_tiles - true once this tool has removed the map's own
-*                   raw tile layer/theme_observer (xyz_basemaps.js), so a
-*                   second rebuild never repeats that takeover
-*   _xyz_created_layer_control - true when this tool built the layer_control
-*                   itself (no provider one existed) — detach_xyz_basemaps
-*                   removes it entirely in that case, leaves a reused one
-*   wms_control   - the "WMS" toolbar button (functionality #6, wms_services.js)
-*   wms_panel     - its anchored panel
-*   wms_layers    - session-only array of {url, name, title, opacity, visible}
-*                   (no shared/ontology persistence yet, same as basemaps
-*                   above); resets to an empty list on every attach
-*   _wms_tile_layers - the live L.TileLayer.WMS instances mirroring
-*                   `wms_layers`, 1:1 (wms_services.js)
-*   _wms_search_results - {base_url, layers: [{name, title}]} from the last
-*                   successful GetCapabilities search, or null before any
-*                   search/after "Clear search"
-*   catastro_control - the "Catastro" toolbar button (functionality #8,
-*                   catastro.js), null unless the record's language gates it
-*                   in (v6 parity — es/cat/eus). No panel, same shape as
-*                   onexone_control
-*   _catastro_tile_layer - the live cadastral L.TileLayer.WMS while armed
-*                   (SWAPPED IN as the active basemap, v6 parity — not an
-*                   overlay), or null
-*   _catastro_previous_base_layers - the tile layer(s) that were active right
-*                   before arming, restored verbatim on disable
-*   _catastro_created_layer_control - true when THIS toggle created
-*                   geolocation.layer_control itself (no provider/xyz one
-*                   existed) — disable removes it entirely in that case
-*   _catastro_click_handler - the map 'click' listener while armed, or null
-*   _catastro_busy - true while a catastro lookup request is in flight (no
-*                   overlapping lookups)
-*   ua_control    - the "UA" toolbar button (functionality #9,
-*                   administrative_units.js), same language gate as Catastro
-*   ua_panel      - its anchored panel (a level select) — opening it arms the
-*                   basemap swap+click listener, closing it disarms
-*   _ua_level     - selected level ('Municipio'|'Provincia'|'CCAA'), session-only
-*   _ua_tile_layer - the live AU.AdministrativeUnit L.TileLayer.WMS while
-*                   armed (swapped in as the active basemap, v6 parity), or null
-*   _ua_previous_base_layers - the tile layer(s) active before arming,
-*                   restored verbatim on disable
-*   _ua_created_layer_control - true when THIS toggle created
-*                   geolocation.layer_control itself, same reason as Catastro
-*   _ua_click_handler - the map 'click' listener while armed, or null
-*   _ua_busy      - true while a UA lookup request is in flight
-*   upload_control - the "Upload file to map" toolbar button (functionality
-*                   #11, vector half only — hito 12, vector_upload.js)
-*   upload_panel  - its anchored panel (file input + v6's EPSG/zone/band projection)
-*   _upload_busy  - true while a vector upload/conversion request is in
-*                   flight (no overlapping uploads)
-*   _image_upload_busy - the same latch for the image half (hito 13); separate
-*                   from _upload_busy because the two sub-flows share a panel
-*                   but not a request
-*   _image_overlays - every live L.ImageOverlay.Rotated this tool put on the
-*                   map. Overlays are NOT drawn objects, so nothing else in
-*                   the engine tracks them and teardown must
-*   _image_overlay_remove_handler / _image_overlay_token - the 'pm:remove'
-*                   listener and the layer-data subscription that keep those
-*                   overlays following their carrier rectangles
-*   _toolbar_bar - the one Leaflet control every toolbar button lives in
-*                   (toolbar.js), built with the first button, gone with the last
-*   _toolbar_nodes - every DOM node any of this tool's button/panel pairs
-*                   built (toolbar.js registers/unregisters them); the
-*                   registry map_image_download.js's screenshot capture
-*                   filters out generically, instead of naming each node
+* Tool constructor. Declares the base tool fields and the first modules' state.
+* Not exhaustive: later modules create their own fields when they need them and
+* clear them in their detach_X.
 */
 export const tool_uca_maps = function () {
 
@@ -419,8 +231,8 @@ tool_uca_maps.prototype.init = async function(options) {
 
 	try {
 
-		// resolve the live map owner. Cycle-safe, depth-agnostic (file header).
-		// self.caller is set by tool_common.prototype.init above.
+		// never a fixed-depth walk: the caller chain differs between edit, a list
+		// cell and a portal. self.caller is set by tool_common.prototype.init above.
 			self.geolocation = self.caller
 				? get_caller_by_model(self.caller, 'component_geolocation')
 				: null
@@ -442,9 +254,9 @@ tool_uca_maps.prototype.init = async function(options) {
 
 /**
 * BUILD
-* Loads the tool CSS (via tool_common) but skips the default ddo_map loader
-* (see file header) — this tool builds nothing of its own; it waits for the
-* live component_geolocation's map instead.
+* Loads the tool CSS but skips the default ddo_map loader: with no `ontology`
+* entry in register.json it would build a fresh, never-rendered
+* component_geolocation clone. This tool works on the live one (self.geolocation).
 *
 * @param {boolean} [autoload=false]
 * @returns {Promise<boolean>} the common_build sentinel value
@@ -454,7 +266,6 @@ tool_uca_maps.prototype.build = async function(autoload=false) {
 	const self = this
 
 	const common_build = await tool_common.prototype.build.call(this, autoload, {
-		// no ddo_map entries to resolve — see file header
 		load_ddo_map : async () => { self.ar_instances = [] }
 	});
 
@@ -475,17 +286,10 @@ tool_uca_maps.prototype.build = async function(autoload=false) {
 
 /**
 * WAIT_FOR_MAP
-* Deterministic wait for `self.geolocation.map` (plan §3.5: "espera
-* determinista del mapa"). component_geolocation defers Leaflet init to an
-* IntersectionObserver callback (`lazy_in_viewport`, un-awaited at its call
-* site — see `client/dedalo/core/component_geolocation/js/view_default_edit_geolocation.js`),
-* so the map can legitimately not exist yet the instant this tool opens.
-*
-* Polls rather than subscribing to an event because component_geolocation
-* publishes no "map ready" event to hook into. Bails early — WITHOUT setting
-* map_ready — if this tool instance is destroyed while waiting (e.g. the user
-* closes the modal before the map finished loading), so a slow map can never
-* resurrect a torn-down instance.
+* Polls for `self.geolocation.map`: component_geolocation builds Leaflet lazily
+* (`lazy_in_viewport`, un-awaited) and publishes no "map ready" event. Gives up
+* if this instance is destroyed meanwhile, so a slow map never revives a
+* torn-down tool.
 *
 * @returns {Promise<boolean>} true once self.geolocation.map exists; false on
 *   timeout or if self.geolocation is null (no map component found at all)
@@ -548,9 +352,9 @@ tool_uca_maps.prototype.get_capabilities = async function() {
 
 /**
 * ATTACH_CONSOLE
-* Thin prototype wrapper over object_console.js's attach_console (see that
-* file for the full architecture note). Idempotent — a stray extra render
-* pass never attaches a duplicate control/panel.
+* The render files call these self.<method> wrappers instead of importing the
+* logic modules: each X.js already imports its render_X.js (as this file imports
+* render_tool_uca_maps.js), and the reverse import would close a cycle.
 *
 * @returns {void}
 */
@@ -560,13 +364,6 @@ tool_uca_maps.prototype.attach_console = function() {
 
 
 
-/**
-* ATTACH_MAP_IMAGE_DOWNLOAD_CONTROL
-* Thin prototype wrapper over map_image_download.js — same reason as attach_console above. Called alongside it from edit()
-* (render_tool_uca_maps.js): its own button+panel, built
-* through toolbar.js (CLAUDE.local.md "Left toolbar: un botón por
-* funcionalidad").
-*/
 tool_uca_maps.prototype.attach_map_image_download_control = function() {
 	attach_map_image_download_control(this)
 }//end attach_map_image_download_control
@@ -575,25 +372,13 @@ tool_uca_maps.prototype.attach_object_viewer = function() {
 	attach_object_viewer(this)
 }//end attach_object_viewer
 
-/**
-* ATTACH_ONEXONE
-* Thin prototype wrapper over onexone.js's attach_onexone — same reuse
-* reason as the other attach_* wrappers above (functionality #7, "Create
-* 1x1 polygon"). No render_X.js counterpart: this button has no panel
-* (onexone.js file header).
-*/
 tool_uca_maps.prototype.attach_onexone = function() {
 	attach_onexone(this)
 }//end attach_onexone
 
 
 
-/**
-* HITO 9 (fila #5, "XYZ basemaps") — THIN PROTOTYPE WRAPPERS OVER
-* xyz_basemaps.js, same reuse reason as every other block above:
-* render_xyz_basemaps.js calls self.<method>(...), never xyz_basemaps.js
-* directly.
-*/
+/** xyz_basemaps.js wrappers. */
 tool_uca_maps.prototype.attach_xyz_basemaps = function() {
 	attach_xyz_basemaps(this)
 }//end attach_xyz_basemaps
@@ -612,11 +397,7 @@ tool_uca_maps.prototype.move_basemap = function(index, direction) {
 
 
 
-/**
-* "WMS" (functionality #6) — THIN PROTOTYPE WRAPPERS OVER wms_services.js,
-* same reuse reason as every other block here: render_wms_services.js calls
-* self.<method>(...), never wms_services.js directly.
-*/
+/** wms_services.js wrappers. */
 tool_uca_maps.prototype.attach_wms_services = function() {
 	attach_wms_services(this)
 }//end attach_wms_services
@@ -648,13 +429,8 @@ tool_uca_maps.prototype.delete_wms_layer = function(index) {
 
 
 /**
-* "Catastro" (functionality #8) / "UA" (functionality #9) — THIN PROTOTYPE
-* WRAPPERS, same reuse reason as every other block here. Neither
-* catastro.js/administrative_units.js needs a self.<method> call from a
-* render_X.js of its OWN (Catastro has no panel; administrative_units.js's
-* level `<select>` writes straight to self._ua_level from
-* render_administrative_units.js) — attach_X/detach_X are the only entry
-* points tool_uca_maps.js itself needs to call.
+* catastro.js / administrative_units.js: attach only. Catastro has no panel and
+* render_administrative_units.js writes self._ua_level directly.
 */
 tool_uca_maps.prototype.attach_catastro = function() {
 	attach_catastro(this)
@@ -666,12 +442,7 @@ tool_uca_maps.prototype.attach_administrative_units = function() {
 
 
 
-/**
-* "Upload file to map" (functionality #11) — THIN PROTOTYPE WRAPPERS OVER
-* vector_upload.js (vector half) and image_upload.js (image half), same reuse
-* reason as every other block here: render_file_upload.js calls
-* self.<method>(...), never either module directly.
-*/
+/** vector_upload.js (vector half) / image_upload.js / image_edit.js (image half) wrappers. */
 tool_uca_maps.prototype.attach_file_upload = function() {
 	attach_file_upload(this)
 }//end attach_file_upload
@@ -711,11 +482,8 @@ tool_uca_maps.prototype.set_image_interactive = function(layer, active) {
 
 
 /**
-* HITO 15 — THIN PROTOTYPE WRAPPERS OVER place_search.js / geolocate.js /
-* scale_bar.js (functionalities #1, #13 and #2). Same reuse reason as every
-* other block here: render_place_search.js calls self.<method>(...), never
-* place_search.js directly. The scale bar has no wrapper beyond attach: it
-* takes no user input at all.
+* place_search.js / geolocate.js / scale_bar.js wrappers. The scale bar takes no
+* user input, so it needs nothing beyond attach.
 */
 tool_uca_maps.prototype.attach_place_search = function() {
 	attach_place_search(this)
@@ -743,11 +511,7 @@ tool_uca_maps.prototype.attach_scale_bar = function() {
 
 
 
-/**
-* HITO 17 — THIN PROTOTYPE WRAPPERS OVER legend.js (functionality #12).
-* Same reuse reason as every other block here: render_legend.js calls
-* self.<method>(...), never legend.js directly.
-*/
+/** legend.js wrappers. */
 tool_uca_maps.prototype.attach_legend = function() {
 	attach_legend(this)
 }//end attach_legend
@@ -802,11 +566,7 @@ tool_uca_maps.prototype.move_legend_element = function(column_index, element_ind
 
 
 
-/**
-* HITO 18 — THIN PROTOTYPE WRAPPERS OVER roman_empire.js (functionality #14).
-* Same reuse reason as every other block here: render_roman_empire.js calls
-* self.<method>(...), never roman_empire.js directly.
-*/
+/** roman_empire.js wrappers. */
 tool_uca_maps.prototype.attach_roman_empire = function() {
 	attach_roman_empire(this)
 }//end attach_roman_empire
@@ -841,13 +601,7 @@ tool_uca_maps.prototype.cancel_roman_search_timer = function() {
 
 
 
-/**
-* HITO 4 — THIN PROTOTYPE WRAPPERS OVER object_viewer.js
-* Same reuse reason as the checkpoint 2b block below: `render_object_viewer.js`
-* calls `self.collect_objects()`/`self.set_object_display(...)`/
-* `self.center_on_object(...)`, never `object_viewer.js` directly — the same
-* one-directional render/logic convention as every other functionality here.
-*/
+/** object_viewer.js wrappers. */
 tool_uca_maps.prototype.collect_objects = function() {
 	return collect_objects(this)
 }//end collect_objects
@@ -863,26 +617,8 @@ tool_uca_maps.prototype.center_on_object = function(layer) {
 
 
 /**
-* CHECKPOINT 2B — THIN PROTOTYPE WRAPPERS OVER object_console.js's MUTATORS
-*
-* Why these exist (review-diff tripwire-integrity finding, 2026-09-02):
-* render_object_console.js needs to wire its DOM controls to these mutators,
-* but it must never import them directly FROM object_console.js — this file
-* (tool_uca_maps.js) already imports {render_console_panel,
-* render_selected_object, ...} FROM render_object_console.js (the
-* established one-directional convention across every render_X.js/X.js pair
-* in tools/: logic imports render, never the reverse), and a render→logic
-* import back would close a 2-node import cycle between the two 2b files.
-* Every render_object_console.js call site uses `self.<method>(...)` instead
-* — the same pattern `self.get_tool_label(...)`/`self.get_capabilities()`
-* already used there since hito 1 — so render_object_console.js's only
-* imports stay `ui`/`response_data` (core), no cycle.
-*
-* Each wrapper is a one-line passthrough; the real logic and its full
-* documentation live in object_console.js, which still exports every one of
-* these raw for direct testability (test_tool_uca_maps.js exercises them
-* that way, bypassing the tool_common/get_instance ceremony same as the rest
-* of that suite).
+* object_console.js / object_image.js wrappers. Both modules still export the raw
+* functions, which the client gate calls without building a tool instance.
 */
 tool_uca_maps.prototype.compute_info = function(layer) {
 	return compute_info(this, layer)
@@ -952,11 +688,7 @@ tool_uca_maps.prototype.download_object_pdf = function(layer) {
 	return download_object_pdf(this, layer)
 }//end download_object_pdf
 
-/**
-* CHECKPOINT 3B — map-wide raster download (functionality #10). Same thin-
-* wrapper reason as the block above: `render_map_image_download.js` calls
-* `self.download_map_image(...)`, never `map_image_download.js` directly.
-*/
+/** map_image_download.js wrapper. */
 tool_uca_maps.prototype.download_map_image = function(format, file_name) {
 	return download_map_image(this, format, file_name)
 }//end download_map_image
@@ -993,18 +725,9 @@ tool_uca_maps.prototype.set_geoman_edition = function(layer, enabled) {
 
 /**
 * ON_CLOSE_ACTIONS
-* Hook `view_modal` runs INSTEAD of its default destroy+refresh when the
-* modal closes (`client/dedalo/core/tools_common/js/tool_common.js`, the same
-* extension point `tool_export`/`tool_print`/etc. use). Deliberately does
-* NOTHING: this tool's modal is transient scaffolding — `edit()` below closes
-* it programmatically right after attaching the console — and the instance
-* must survive that close with its console still anchored to the live map
-* (file header). Real teardown fires only from on_geolocation_destroyed(),
-* when component_geolocation itself is torn down.
-*
-* view_modal always calls this with the open_as string ('modal' here); no
-* parameter is declared since nothing in this tool needs it (same pattern as
-* tool_ontology.prototype.on_close_actions).
+* view_modal runs this instead of its default destroy+refresh on close. Does
+* nothing on purpose: the modal is transient (close_transient_modal) and the
+* instance must survive it. Real teardown is on_geolocation_destroyed().
 *
 * @returns {boolean} always true
 */
@@ -1014,32 +737,15 @@ tool_uca_maps.prototype.on_close_actions = function() {
 
 
 
-/** How long the transient modal stays visible (spinner) before self-closing.
-* v6's own equivalent (`render_tool_leaflet_special_tools.js`) held a
-* `loading.gif` behind a hardcoded `setTimeout(…, 3000)` with no real work
-* to wait on — an artificial pause purely for perceived feedback. An instant
-* close here read as broken rather than "it worked" (Sergio, 2a validation,
-* 2026-09-02) — this constant is the deliberate replacement, chosen with
-* Sergio rather than inherited unexamined. */
+/** How long the transient modal stays visible before self-closing. v6 held a
+* loading.gif behind a fixed 3 s setTimeout; an instant close read as broken. */
 const TRANSIENT_MODAL_VISIBLE_MS = 2000
 
 /**
 * CLOSE_TRANSIENT_MODAL
-* Schedules this tool's own modal to close itself after a deliberate visible
-* window (see TRANSIENT_MODAL_VISIBLE_MS) — file header: v6's confirmed real
-* behaviour is the tool modal loads and closes itself, spinner-first for
-* feedback. First deferred via dd_request_idle_callback rather than called
-* synchronously from edit() because `self.node.modal` is only set by
-* view_modal AFTER render() resolves (`wrapper.modal = modal`,
-* `client/dedalo/core/tools_common/js/tool_common.js`) — by the time an idle
-* callback fires, that wiring is guaranteed to have already run; the visible
-* window is then held on TOP of that with a plain setTimeout.
-*
-* `transient = true` skips <dd-modal>'s page-wide unsaved-data guard: this
-* modal owns no editable data of its own (the documented use case for the
-* flag — same as ui.confirm()'s yes/no dialogs) — a stray "unsaved changes?"
-* prompt on an auto-close the user never requested would be a bug, not a
-* safety net.
+* Deferred to an idle callback because view_modal sets `self.node.modal` only
+* after render() resolves. `transient = true` skips <dd-modal>'s unsaved-data
+* guard: this modal owns no editable data, so the prompt would be a bug.
 *
 * @returns {void}
 */
@@ -1062,24 +768,10 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 
 /**
 * DESTROY
-* Real teardown (CLAUDE.local.md "destrucción real"): removes every
-* button+panel this tool anchored to the shared map — object_console.js
-* ("UCA"), map_image_download.js ("Download map as image"),
-* object_viewer.js ("Objects"), onexone.js ("1x1", button only, no panel),
-* xyz_basemaps.js ("XYZ"), wms_services.js ("WMS"), catastro.js ("Catastro",
-* button only, no panel — possibly a no-op if the record's language never
-* gated it in), administrative_units.js ("UA"). The map itself belongs to
-* component_geolocation and outlives this tool's (self-closed, see file
-* header) modal, so leaving any control/panel behind
-* would be exactly the v6 "controls stay stuck to the map" defect the plan
-* (§7 item 7) requires fixed. Only reached from on_geolocation_destroyed()
-* now (on_close_actions intercepts the modal-close path) — every detach_*
-* is still internally guarded for the map already being gone, matching the
-* general "component being destroyed" ordering question, not a NEW
-* assumption this revision adds.
-*
-* self.events_tokens is unsubscribed generically by common.prototype.destroy
-* (called at the end here).
+* Detaches every button, panel and listener this tool put on the map. The map
+* belongs to component_geolocation and outlives the tool, so anything left
+* behind would stay stuck to it (the v6 defect). Every detach_* tolerates an
+* already-gone map; common.prototype.destroy then unsubscribes events_tokens.
 *
 * @param {boolean} [delete_self=true]
 * @param {boolean} [delete_dependencies=false]
@@ -1107,9 +799,8 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_roman_empire(self)
 	self.geolocation = null
 
-	// delegate to the standard instance teardown (unsubscribes events_tokens,
-	// removes self from instances_map, nullifies heavy props, DOM removal) —
-	// same pattern as component_geolocation.prototype.destroy's own override
+	// the standard instance teardown, same pattern as component_geolocation's own
+	// destroy override
 		return common.prototype.destroy.call(self, delete_self, delete_dependencies, remove_dom)
 }//end destroy
 
@@ -1117,21 +808,9 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 
 /**
 * ON_GEOLOCATION_DESTROYED
-* Subscribed in render (see render_tool_uca_maps.js) to 'destroy_' + geolocation.id
-* — the ONLY real teardown trigger since hito 2 (file header): this tool's
-* own modal already closed itself right after attaching the console, so the
-* console's lifetime is tied to component_geolocation's, not to the modal's.
-* Runs the full destroy() (control/panel removal, events_tokens unsubscribe,
-* instance removed from the registry) — nothing is left running once the map
-* itself is gone.
-*
-* `async`/`return` (not fire-and-forget): `destroy()` is itself `async` and
-* does real awaited work inside `common.prototype.destroy` (event-token
-* unsubscribe, `status` transition, paginator/services teardown) — without
-* propagating that promise, a caller (or a test) awaiting this method would
-* not actually be waiting for teardown to finish, and any rejection deep
-* inside would become an unhandled rejection instead of surfacing here
-* (review-diff correctness finding, 2026-09-02).
+* Subscribed in render_tool_uca_maps.js to 'destroy_' + geolocation.id: the only
+* real teardown trigger, since the modal closes itself. Returns destroy()'s
+* promise so a caller awaiting it waits for teardown and sees its rejections.
 *
 * @returns {Promise<Object>} same shape as destroy()/common.prototype.destroy
 */

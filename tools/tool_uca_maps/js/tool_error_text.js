@@ -3,6 +3,15 @@
 
 
 
+/**
+* TOOL_ERROR_TEXT
+* The text a panel's line shows for a failed request or a client-side throw.
+*
+* @module tool_error_text
+*/
+
+
+
 import {error_text} from '../../../core/common/js/render_api_error.js'
 
 
@@ -62,3 +71,7 @@ export const exception_text = function(error, lead) {
 		? lead + '\n' + reason
 		: lead
 }//end exception_text
+
+
+
+// @license-end

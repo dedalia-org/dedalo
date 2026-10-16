@@ -3,19 +3,9 @@
 
 
 /**
-* TOOL_UCA_MAPS
-*
-* Barrel entry-point for the tool_uca_maps module (native v7 port of v6
-* `tool_leaflet_special_tools`, Museu de Prehistòria de València /
-* hispanicode-UCA — `plan_implementacion.md` in the repo root).
-*
-* Re-exports the `tool_uca_maps` constructor and every other public symbol
-* defined in `tool_uca_maps.js`, so callers import from the stable path
-* `tools/tool_uca_maps/js/index.js` without depending on the internal module
-* layout.
-*
-* The named export `tool_uca_maps` MUST match the model string the instance
-* loader (`instances.js`) uses to resolve and instantiate the tool.
+* TOOL_UCA_MAPS — index.js
+* Barrel re-exporting tool_uca_maps.js for explicit imports. Not on the loading
+* path: instances.js imports `tools/<model>/js/<model>.js` directly.
 */
 
 
