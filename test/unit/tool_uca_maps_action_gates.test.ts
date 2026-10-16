@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { GatedToolActionSpec, ToolActionSpec } from '../../src/core/tools/module.ts';
 import { getAdministrativeUnit } from '../../tools/tool_uca_maps/server/administrative_units.ts';
+import { getCapabilities } from '../../tools/tool_uca_maps/server/capabilities.ts';
 import { getCatastroParcel } from '../../tools/tool_uca_maps/server/catastro.ts';
 import { getElevation } from '../../tools/tool_uca_maps/server/elevation.ts';
 import { stageExternalImage } from '../../tools/tool_uca_maps/server/external_image.ts';
@@ -31,14 +32,14 @@ import { loadTool } from './fixtures/tool_uca_maps/helpers.ts';
 interface Gate {
 	permission: GatedToolActionSpec['permission'] | null;
 	minLevel?: number;
-	/** The module function; null where index.ts defines the handler itself. */
-	handler: ToolActionSpec['handler'] | null;
+	/** The module function the action must dispatch to. */
+	handler: ToolActionSpec['handler'];
 }
 
 const READ = { permission: 'record_tipo', minLevel: 1 } as const;
 
 const GATES: Readonly<Record<string, Gate>> = {
-	get_capabilities: { ...READ, handler: null },
+	get_capabilities: { ...READ, handler: getCapabilities },
 	vector_download: { ...READ, handler: vectorDownload },
 	raster_download: { ...READ, handler: rasterDownload },
 	get_wms_layers: { ...READ, handler: getWmsLayers },
@@ -77,10 +78,6 @@ describe('tool_uca_maps — the declared gate of every action', () => {
 		} else {
 			expect('gatedInHandler' in spec).toBe(false);
 		}
-		if (gate.handler === null) {
-			expect(typeof spec.handler).toBe('function');
-		} else {
-			expect(spec.handler).toBe(gate.handler);
-		}
+		expect(spec.handler).toBe(gate.handler);
 	});
 });

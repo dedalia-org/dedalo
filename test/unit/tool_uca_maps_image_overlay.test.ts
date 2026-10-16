@@ -1,21 +1,8 @@
 /**
- * tool_uca_maps — `get_image_overlay` (fila #11, "Upload file to map", IMAGE
- * half — hito 13).
- *
- * What this pins:
- *  - caller-fault validation (missing/absurd identity) throws
- *    `request.invalid_source` before any database or filesystem access —
- *    which is what lets this half of the file run with neither DB nor GDAL;
- *  - the wgs84Extent → three-corner mapping, which is the one piece of real
- *    logic in the module: GDAL's ring order (upperLeft, lowerLeft, lowerRight,
- *    upperRight) is NOT the order `L.imageOverlay.rotated` takes (top-left,
- *    top-right, bottom-left), and getting it wrong mirrors every uploaded
- *    raster without failing anything;
- *  - the REAL `gdalinfo` read, GATED on `Bun.which('gdalinfo')` (same idiom as
- *    the vector half's HAVE_GDAL): a GeoTIFF written in UTM 30N reports its
- *    footprint reprojected to WGS84 — i.e. the reprojection this tool relies
- *    on happens in GDAL and no EPSG table is needed anywhere — and a TIFF
- *    with NO CRS reports none instead of guessing.
+ * tool_uca_maps — `get_image_overlay`: where on the map an uploaded image goes.
+ * GDAL's ring order (upperLeft, lowerLeft, lowerRight, upperRight) is not the
+ * order `L.imageOverlay.rotated` takes (top-left, top-right, bottom-left), and
+ * getting it wrong mirrors every uploaded raster without failing anything.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -23,12 +10,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolActionContext } from '../../src/core/tools/module.ts';
+import { DedaloError } from '../../src/core/errors/index.ts';
 import {
 	cornersFromWgs84Extent,
+	overlayFallbackOf,
 	readGeoreference,
 } from '../../tools/tool_uca_maps/server/image_overlay.ts';
 import { mustGet } from '../helpers/assert.ts';
-import { haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import { expectCode, failureOf, haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_GDAL = haveGdal('gdalinfo', 'gdal_create');
 
@@ -42,18 +31,17 @@ function contextOf(options: Record<string, unknown>): ToolActionContext {
 }
 
 describe('tool_uca_maps get_image_overlay — caller-fault validation (no DB/GDAL needed)', () => {
-	test('a missing section_id is refused before any database access', async () => {
+	// a record id is always positive
+	test.each([
+		['missing', {}],
+		['0', { section_id: 0 }],
+	])('a section_id %s is refused before any database access', async (_, id) => {
 		const action = await loadAction('get_image_overlay');
-		expect(action.handler(contextOf({ tipo: 'rsc29', section_tipo: 'rsc170' }))).rejects.toThrow(
-			/tipo, section_tipo and a positive section_id/,
+		const error = await failureOf(
+			action.handler(contextOf({ tipo: 'test99', section_tipo: 'test3', ...id })),
 		);
-	});
-
-	test('a section_id of 0 is refused (a record id is always positive)', async () => {
-		const action = await loadAction('get_image_overlay');
-		expect(
-			action.handler(contextOf({ tipo: 'rsc29', section_tipo: 'rsc170', section_id: 0 })),
-		).rejects.toThrow(/positive section_id/);
+		expectCode(error, 'request.invalid_source');
+		expect(error.message).toMatch(/tipo, section_tipo and a positive section_id/);
 	});
 });
 
@@ -99,64 +87,98 @@ describe('tool_uca_maps get_image_overlay — wgs84Extent → three corners', ()
 	});
 });
 
-describe.if(HAVE_GDAL)('tool_uca_maps get_image_overlay — real gdalinfo read', () => {
-	// `gdal_create` writes a raster from nothing (no source file, no MEM
-	// driver dance), which is exactly what a georeference fixture needs: the
-	// pixels are irrelevant here, only the CRS + corner coordinates are.
-	async function createTiff(dir: string, name: string, argv: readonly string[]): Promise<string> {
-		const path = join(dir, name);
-		const proc = Bun.spawn([mustGet(Bun.which('gdal_create'), 'gdal_create'), ...argv, path], {
-			stdout: 'pipe',
-			stderr: 'pipe',
+describe('tool_uca_maps get_image_overlay — a failed georeference read', () => {
+	const missing = (binary: string) =>
+		new DedaloError('tool.dependency_unavailable', {
+			coordinates: { tool: 'tool_uca_maps', binary },
 		});
-		expect(await proc.exited).toBe(0);
-		return path;
-	}
 
-	test('a GeoTIFF in UTM 30N reports its footprint already reprojected to WGS84', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'uca_maps_overlay_'));
-		try {
-			// A 1 km square anchored in UTM zone 30N (EPSG:25830) over Valencia.
-			const path = await createTiff(dir, 'utm.tif', [
-				'-outsize',
-				'10',
-				'10',
-				'-a_srs',
-				'EPSG:25830',
-				'-a_ullr',
-				'720000',
-				'4380000',
-				'721000',
-				'4379000',
-			]);
-
-			const corners = mustGet(await readGeoreference(path), 'corners');
-
-			// The whole point of asking the server: what comes back is DEGREES,
-			// reprojected by GDAL/PROJ — the client never sees a UTM number and
-			// no EPSG table exists anywhere in this tool.
-			expect(corners.top_left[0]).toBeCloseTo(39.54, 1);
-			expect(corners.top_left[1]).toBeCloseTo(-0.44, 1);
-			// north-up in the source CRS: the top edge is north of the bottom-left
-			// corner, and the right edge east of the left one
-			expect(corners.top_left[0]).toBeGreaterThan(corners.bottom_left[0]);
-			expect(corners.top_right[1]).toBeGreaterThan(corners.top_left[1]);
-			// and the reason three points are stored instead of a bbox: a square
-			// in UTM is NOT axis-aligned once reprojected — the two top corners
-			// do not share a latitude
-			expect(corners.top_left[0]).not.toBe(corners.top_right[0]);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+	test('GDAL missing leaves the image unplaced, flagged so the client says why', () => {
+		expect(overlayFallbackOf(missing('gdalinfo'))).toEqual({
+			corners: null,
+			georeferenceUnavailable: true,
+		});
 	});
 
-	test('a TIFF with no CRS reports no footprint instead of guessing one', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'uca_maps_overlay_'));
+	// a .tif GDAL cannot open is a broken file, and the media root missing is
+	// the same code as GDAL missing without being it
+	test.each([
+		['a file GDAL cannot open', new DedaloError('tool.action_failed', {})],
+		['another binary missing', missing('ogr2ogr')],
+		['the media root missing', new DedaloError('tool.dependency_unavailable', {})],
+		['an error that is no DedaloError', new Error('boom')],
+	])('%s is rethrown as is', (_, error) => {
+		let thrown: unknown = null;
 		try {
-			const plain = await createTiff(dir, 'plain.tif', ['-outsize', '10', '10']);
-			expect(await readGeoreference(plain)).toBeNull();
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			overlayFallbackOf(error);
+		} catch (caught) {
+			thrown = caught;
 		}
+		expect(thrown).toBe(error);
 	});
 });
+
+describe.skipIf(!HAVE_GDAL)(
+	'tool_uca_maps get_image_overlay — real gdalinfo read (needs GDAL)',
+	() => {
+		// `gdal_create` writes a raster from nothing (no source file, no MEM
+		// driver dance), which is exactly what a georeference fixture needs: the
+		// pixels are irrelevant here, only the CRS + corner coordinates are.
+		async function createTiff(dir: string, name: string, argv: readonly string[]): Promise<string> {
+			const path = join(dir, name);
+			const proc = Bun.spawn([mustGet(Bun.which('gdal_create'), 'gdal_create'), ...argv, path], {
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			expect(await proc.exited).toBe(0);
+			return path;
+		}
+
+		test('a GeoTIFF in UTM 30N reports its footprint already reprojected to WGS84', async () => {
+			const dir = mkdtempSync(join(tmpdir(), 'uca_maps_overlay_'));
+			try {
+				// A 1 km square anchored in UTM zone 30N (EPSG:25830) over Valencia.
+				const path = await createTiff(dir, 'utm.tif', [
+					'-outsize',
+					'10',
+					'10',
+					'-a_srs',
+					'EPSG:25830',
+					'-a_ullr',
+					'720000',
+					'4380000',
+					'721000',
+					'4379000',
+				]);
+
+				const corners = mustGet(await readGeoreference(path), 'corners');
+
+				// The whole point of asking the server: what comes back is DEGREES,
+				// reprojected by GDAL/PROJ — the client never sees a UTM number and
+				// no EPSG table exists anywhere in this tool.
+				expect(corners.top_left[0]).toBeCloseTo(39.54, 1);
+				expect(corners.top_left[1]).toBeCloseTo(-0.44, 1);
+				// north-up in the source CRS: the top edge is north of the bottom-left
+				// corner, and the right edge east of the left one
+				expect(corners.top_left[0]).toBeGreaterThan(corners.bottom_left[0]);
+				expect(corners.top_right[1]).toBeGreaterThan(corners.top_left[1]);
+				// and the reason three points are stored instead of a bbox: a square
+				// in UTM is NOT axis-aligned once reprojected — the two top corners
+				// do not share a latitude
+				expect(corners.top_left[0]).not.toBe(corners.top_right[0]);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
+
+		test('a TIFF with no CRS reports no footprint instead of guessing one', async () => {
+			const dir = mkdtempSync(join(tmpdir(), 'uca_maps_overlay_'));
+			try {
+				const plain = await createTiff(dir, 'plain.tif', ['-outsize', '10', '10']);
+				expect(await readGeoreference(plain)).toBeNull();
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
+	},
+);

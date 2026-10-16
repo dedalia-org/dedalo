@@ -1,39 +1,14 @@
 /**
- * vector_upload — fila #11 ("Upload file to map"), vector half only (hito 12;
- * the raster/image-overlay half is a separate later hito — see
- * `docs/hitos/hito_12.md`).
- *
- * v6 (`special_tools_upload.js` + `class.tool_leaflet_special_tools.php:2178`)
- * branches THREE ways client-side (zip/geojson/kml), vendors a 500+ line
- * `L.Shapefile`/`L.KML` reader pair, and reprojects in the BROWSER with a
- * hardcoded 18-entry EPSG table + zone/band UI — proj4js there cannot resolve
- * an arbitrary EPSG code without a network fetch to epsg.io. This port
- * converts all three formats to WGS84 GeoJSON SERVER-SIDE with one `ogr2ogr`
- * call (same `withScratchDir`/`runToolBinary` plumbing as `vector_download.ts`,
- * hito 3), so the client only ever draws `L.geoJSON` — same pattern already
- * proven for Catastro/UA (hito 11). GDAL/PROJ carries the full EPSG database,
- * so a `.prj` sidecar inside the shapefile zip or a legacy GeoJSON `crs`
- * member reprojects automatically with NO lookup table; the one case GDAL
- * cannot solve alone — a source with NO embedded CRS at all (bare UTM
- * numbers) — takes a manual projection, verified live against GDAL 3.13.2 in
- * the dev container (see hito 12 dossier): omitting it on a CRS-less file
- * fails cleanly ("no coordinate system … use -s_srs"), supplying one fixes
- * the reprojection. The manual projection is v6's fields (EPSG, plus zone
- * and band for a UTM code) — see `parseManualProjection`.
- *
- * Confirmed live: GDAL's shapefile-in-zip driver keys off the LITERAL
- * `.shp.zip` extension, not a plain `.zip` — a bare `.zip` (any content)
- * fails to open with every driver tried. The staged upload's real name is
- * never trusted for this; `.shp.zip` is what this file writes for the `zip`
- * case, always.
+ * vector_upload — a shapefile zip, GeoJSON or KML converted server-side by one
+ * `ogr2ogr` to WGS84 GeoJSON (v6 reprojected in the browser from an 18-entry
+ * EPSG table). A source with no CRS of its own takes v6's EPSG/zone/band. GDAL
+ * opens a zipped shapefile only by the literal `.shp.zip`, so the copy has it.
  */
 
 import { existsSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import { config } from '../../../src/config/config.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { sanitizeSegment } from '../../../src/core/media/ingest/add_file.ts';
-import { assertTestMediaRoot } from '../../../src/core/media/test_media_root.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -44,13 +19,12 @@ import {
 	inputDrivers,
 	resolveGdalBinary,
 	runToolBinary,
+	uploadStagingBase,
 	withScratchDir,
 } from './gdal.ts';
 
-// client extension -> the scratch-file extension ogr2ogr needs (the
-// shapefile-in-zip case does NOT match its client extension — see module doc
-// comment) and the only drivers GDAL may open it with (KML: whichever of the
-// two the install has, as before the pin)
+// client extension -> the scratch-file extension ogr2ogr needs and the only
+// drivers GDAL may open it with (KML: whichever of the two the install has)
 const VECTOR_UPLOAD_FORMATS: Readonly<
 	Record<string, { scratchExtension: string; drivers: readonly string[] }>
 > = {
@@ -67,7 +41,7 @@ function invalidVectorUpload(message: string): DedaloError {
 }
 
 /** v6's manual projection: GDAL applies the EPSG; zone+band describe a UTM one. */
-export interface ManualProjection {
+interface ManualProjection {
 	epsg: string;
 	utm: { zone: number; south: boolean } | null;
 }
@@ -77,16 +51,15 @@ export interface ManualProjection {
 const UTM_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
 
 /** Whether any of v6's three fields was typed, before judging their format. */
-export function typesManualProjection(options: Record<string, unknown>): boolean {
+function typesManualProjection(options: Record<string, unknown>): boolean {
 	return ['epsg', 'zone', 'band'].some((key) => String(options[key] ?? '').trim() !== '');
 }
 
 /**
- * v6's fields, format only (no GDAL). v6's table gives non-UTM codes no zone
- * or band (`special_tools_upload.js:402-406`), so the EPSG may come alone and
- * `assertProjectionMatches` decides per code. A partial set is refused where
- * v6 drops it without a word: a typed field that silently does nothing is
- * the failure these fields exist to prevent.
+ * v6's fields, format only (no GDAL). The EPSG may come alone, as v6 lists
+ * non-UTM codes (`special_tools_upload.js:402-406`). A partial set is refused
+ * where v6 drops it silently: a typed field that does nothing is the failure
+ * these fields exist to prevent.
  */
 export function parseManualProjection(options: Record<string, unknown>): ManualProjection | null {
 	if (!typesManualProjection(options)) return null;
@@ -191,12 +164,10 @@ export function parseStrictGeoJson(text: string): unknown {
 }
 
 /**
- * Whether the file names its own CRS. In v6
- * the file's `crs` always wins and a typed code only matters when it equals it
- * (`projections.js:31-46`); here `-s_srs` would override it silently, so a
- * declaring file refuses the fields instead. A GeoJSON without `crs` counts as
- * undeclared although GDAL reads it as WGS84 (RFC 7946): legacy UTM files
- * without it are what the fields are for.
+ * Whether the file names its own CRS. In v6 the file's `crs` always wins
+ * (`projections.js:31-46`); `-s_srs` would override it silently, so a declaring
+ * file refuses the fields. A GeoJSON without `crs` counts as undeclared, though
+ * GDAL reads it as WGS84: legacy UTM files without it are what the fields are for.
  */
 export async function declaresOwnCrs(
 	dir: string,
@@ -227,25 +198,16 @@ export async function declaresOwnCrs(
 }
 
 /**
- * Resolve + confine the staged upload path — same rebuild-from-userId pattern
- * as `tool_import_dedalo_csv`'s `processUploadedFile` (CLAUDE.local.md: never
- * trust a client-supplied path, only a name to sanitize under the CALLER's
- * OWN staging directory, rebuilt server-side from the authenticated user id).
+ * The staged upload, never a client path: two sanitized names under the
+ * caller's own staging dir, rebuilt from the authenticated user id (the
+ * pattern of `tool_import_dedalo_csv`'s `processUploadedFile`).
  */
 function resolveStagedUpload(userId: number, rawKeyDir: string, rawTmpName: string): string {
 	if (rawTmpName === '') throw invalidVectorUpload('Missing staged file (tmp_name)');
 	const keyDir = rawKeyDir === '' ? '' : sanitizeSegment(rawKeyDir);
 	const tmpName = sanitizeSegment(rawTmpName);
-	const configuredRoot = config.media.rootPath;
-	if (configuredRoot === null || configuredRoot === '') {
-		throw new DedaloError('tool.dependency_unavailable', {
-			coordinates: { tool: 'tool_uca_maps' },
-			message: 'media root is not configured',
-		});
-	}
-	const root = assertTestMediaRoot(configuredRoot, 'tool_uca_maps.vectorUpload');
-	const staged = join(root, config.media.upload.tmpSubdir, String(userId), keyDir, tmpName);
-	const stagingBase = join(root, config.media.upload.tmpSubdir);
+	const stagingBase = uploadStagingBase('tool_uca_maps.vectorUpload');
+	const staged = join(stagingBase, String(userId), keyDir, tmpName);
 	if (!staged.startsWith(stagingBase + sep)) {
 		throw new DedaloError('internal.invariant', {
 			message: 'staged path escapes the upload root',
@@ -353,9 +315,10 @@ function singleParts(geometry: unknown): unknown[] {
 	return [geometry];
 }
 
+// exported for the unit gate
 /** Each refusal names the one correction that applies: a field to fill in only
  * where the file has no projection of its own, which is when they are taken. */
-async function outsideLonLatRefusal(
+export async function outsideLonLatRefusal(
 	dir: string,
 	position: [number, number],
 	projection: ManualProjection | null,
@@ -381,6 +344,35 @@ async function outsideLonLatRefusal(
 			`longitude/latitude (${at}): provide its EPSG code (and, for a UTM one, its zone ` +
 			'and band) to reproject it',
 	);
+}
+
+// exported for the unit gate
+/**
+ * What ogr2ogr wrote, checked before it is answered: a FeatureCollection whose
+ * every position is longitude/latitude (else the refusal that applies), one
+ * feature per part.
+ */
+export async function readConvertedLayer(
+	dir: string,
+	outputFile: string,
+	inputFile: string,
+	extension: string,
+	projection: ManualProjection | null,
+): Promise<GeoJsonFeatureCollection> {
+	const parsed = (await Bun.file(outputFile)
+		.json()
+		.catch(() => null)) as GeoJsonFeatureCollection | null;
+	if (parsed === null || parsed.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
+		throw new DedaloError('tool.action_failed', {
+			coordinates: { tool: 'tool_uca_maps' },
+			message: 'vector_upload: ogr2ogr produced no usable GeoJSON',
+		});
+	}
+	const outside = findPositionOutsideLonLat(parsed);
+	if (outside !== null) {
+		throw await outsideLonLatRefusal(dir, outside, projection, inputFile, extension);
+	}
+	return explodeToSingleParts(parsed);
 }
 
 export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolResponse> {
@@ -414,10 +406,8 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 	}
 
 	const geojson = await withScratchDir(async (dir) => {
-		// input/output MUST NOT share a name: the .geojson case would otherwise
-		// collide (scratchExtension IS 'geojson' there) and ogr2ogr refuses with
-		// "Source and destination datasets must be different in non-update
-		// mode" — caught live against GDAL 3.13.2 (hito 12 dossier).
+		// distinct names: for a .geojson they would collide, and ogr2ogr refuses
+		// "Source and destination datasets must be different"
 		const inputFile = join(dir, `uca_maps_upload_in.${format.scratchExtension}`);
 		await Bun.write(
 			inputFile,
@@ -459,13 +449,9 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 				expectedOutput: outputFile,
 			});
 		} catch (error) {
-			// The one failure GDAL cannot recover from on its own: a source with
-			// no embedded CRS and no override given — ogr2ogr's own stderr names
-			// it exactly ("has no coordinate system … Use -s_srs", verified live
-			// against GDAL 3.13.2, see module doc comment). Matched on the actual
-			// message rather than assumed from `projection === null`: a WRONG
-			// override (a real CRS, just not this file's) fails differently and
-			// must keep its own generic error, not this one.
+			// a source with no CRS and no fields: ogr2ogr's stderr says so ("has no
+			// coordinate system … Use -s_srs"). Matched on the message: a wrong
+			// override fails otherwise and keeps its generic error.
 			const message = error instanceof Error ? error.message : String(error);
 			if (projection === null && /coordinate system/i.test(message)) {
 				throw invalidVectorUpload(
@@ -476,20 +462,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 			throw error;
 		}
 
-		const parsed = (await Bun.file(outputFile)
-			.json()
-			.catch(() => null)) as GeoJsonFeatureCollection | null;
-		if (parsed === null || parsed.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
-			throw new DedaloError('tool.action_failed', {
-				coordinates: { tool: 'tool_uca_maps' },
-				message: 'vector_upload: ogr2ogr produced no usable GeoJSON',
-			});
-		}
-		const outside = findPositionOutsideLonLat(parsed);
-		if (outside !== null) {
-			throw await outsideLonLatRefusal(dir, outside, projection, inputFile, extension);
-		}
-		return explodeToSingleParts(parsed);
+		return readConvertedLayer(dir, outputFile, inputFile, extension, projection);
 	});
 
 	return ok({ geojson, feature_count: geojson.features.length }, { requestId: toolRequestId(ctx) });

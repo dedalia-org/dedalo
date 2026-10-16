@@ -1,33 +1,24 @@
 /**
- * GDAL/OGR + ImageMagick availability probe, backing the `get_capabilities`
- * action (v6 oracle: none — this action is NEW, see plan_implementacion.md §3.2).
- *
- * v6's tool assumed GDAL was always on PATH and let a missing binary fail deep
- * inside a conversion (`raster_download`, `vector_download`, hito 3) with a
- * generic error. `get_capabilities` lets the client ask FIRST and grey out the
- * export buttons a binary-less install cannot serve, instead of a user
- * discovering the gap mid-conversion.
- *
- * DISCOVERY: no core config key exists for GDAL (media/engine/binaries.ts's
- * install-configured resolution — CLAUDE.local.md forbids inventing one without
- * asking; Ágora consulta 3, plan §6, is open on whether GDAL conversions should
- * even live behind spawn.ts). Until that answer lands, this probes `$PATH` via
- * `Bun.which` — a plain existence question, not a decision about which install
- * config a later conversion step will read from. `raster_download` /
- * `vector_download` (hito 3) resolve their own binary the same way, once.
- *
- * ImageMagick reuses the CORE resolver (`media/engine/binaries.ts`) — that one
- * IS install-configured (`config.media.binaries.magick`), already reused by the
- * whole media subsystem, and required reading the file, not adding to it.
+ * `get_capabilities`: which binaries this install has, so the client greys out
+ * what it cannot serve instead of failing mid-conversion. Core has no config
+ * key for GDAL, so it is looked up on $PATH; ImageMagick goes through core's
+ * install-configured resolver (`media/engine/binaries.ts`).
  */
 
-import { identifyAvailable, resolveIdentify } from '../../../src/core/media/engine/binaries.ts';
+import { existsSync } from 'node:fs';
+import { ok } from '../../../src/core/errors/index.ts';
+import { resolveIdentify } from '../../../src/core/media/engine/binaries.ts';
 import { runBinary } from '../../../src/core/media/engine/spawn.ts';
+import {
+	type ToolActionContext,
+	type ToolResponse,
+	toolRequestId,
+} from '../../../src/core/tools/module.ts';
 import { externalImagesEnabled } from './external_image.ts';
 import { type GazetteerCapability, probeGazetteers } from './gazetteer_store.ts';
 
 /** One external binary's availability, resolved path and self-reported version. */
-export interface BinaryCapability {
+interface BinaryCapability {
 	available: boolean;
 	path: string | null;
 	version: string | null;
@@ -40,16 +31,9 @@ function firstLine(text: string): string | null {
 }
 
 /**
- * Resolve `name` on $PATH and confirm it actually runs `versionArgs`
- * successfully — a stale/broken binary on PATH must report unavailable, not a
- * path that later fails every real conversion.
- *
- * Exported for reuse by `gdal.ts`'s `resolveGdalBinary` (hito 3, review-diff
- * finding): the actions that spawn a GDAL binary for real must apply the
- * SAME verification this probe does, not a bare `Bun.which` — otherwise a
- * stale/broken binary reads as "unavailable" here and "available" there,
- * and a conversion fails as a generic `tool.action_failed` instead of the
- * `tool.dependency_unavailable` the client already knows how to recognise.
+ * Resolve `name` on $PATH and confirm it runs `versionArgs`. `gdal.ts` resolves
+ * through this too: a broken binary must read as unavailable on both sides, so
+ * a conversion fails `tool.dependency_unavailable`, never `tool.action_failed`.
  */
 export async function probeOnPath(
 	name: string,
@@ -71,45 +55,45 @@ export async function probeOnPath(
 export interface UcaMapsCapabilities {
 	/** `gdalinfo` — raster probing, and the GDAL version every driver shares. */
 	gdal: BinaryCapability;
-	/** `ogr2ogr` — vector format conversion (hito 3: GeoJSON/SHP/KML downloads). */
+	/** `ogr2ogr` — vector format conversion (SHP/KML downloads, vector uploads). */
 	ogr2ogr: BinaryCapability;
-	/** `gdal_translate` — raster conversion + reprojection (hito 3: GeoTIFF export). */
+	/** `gdal_translate` — raster conversion (GeoTIFF export). */
 	gdalTranslate: BinaryCapability;
-	/** Core-resolved ImageMagick (PNG/JPEG map-image export, hito 3). */
+	/** Core-resolved ImageMagick (the map image as jpg/gif/webp). */
 	imagemagick: { available: boolean; path: string | null };
-	/**
-	 * The local gazetteer store (hito 18, fila #14). Not a binary: a data
-	 * directory an install configures, absent from the repo by design — see
-	 * `gazetteer_store.ts`. The client greys out the searches it cannot serve
-	 * instead of failing them one by one.
-	 */
+	/** The local gazetteer store: a data directory an install configures, not a
+	 * binary (`gazetteer_store.ts`). The client greys out what it cannot serve. */
 	gazetteers: GazetteerCapability;
 	/** Whether this install allows importing an object's linked images
 	 * (`external_image.ts`, on unless turned off): the button shows only then. */
 	externalImages: boolean;
 }
 
-/** Probe every binary `get_capabilities` needs to answer. Never throws. */
-export async function probeCapabilities(): Promise<UcaMapsCapabilities> {
+/** Probe every binary `get_capabilities` needs to answer. Never throws.
+ * `externalImagesOn` is a parameter only so a gate can turn the option off. */
+export async function probeCapabilities(
+	externalImagesOn: () => Promise<boolean> = externalImagesEnabled,
+): Promise<UcaMapsCapabilities> {
 	const [gdal, ogr2ogr, gdalTranslate, gazetteers, externalImages] = await Promise.all([
 		probeOnPath('gdalinfo', ['--version']),
 		probeOnPath('ogr2ogr', ['--version']),
 		probeOnPath('gdal_translate', ['--version']),
 		probeGazetteers(),
-		externalImagesEnabled(),
+		externalImagesOn(),
 	]);
-	// resolve once: identifyAvailable() itself calls resolveIdentify() + existsSync,
-	// so calling either twice redoes the same filesystem checks for nothing.
-	const available = identifyAvailable();
+	// what core's identifyAvailable() checks, resolved once for the path too
+	const [identify] = resolveIdentify();
+	const available = identify !== undefined && existsSync(identify);
 	return {
 		gdal,
 		ogr2ogr,
 		gdalTranslate,
-		imagemagick: {
-			available,
-			path: available ? (resolveIdentify()[0] as string) : null,
-		},
+		imagemagick: { available, path: available ? (identify as string) : null },
 		gazetteers,
 		externalImages,
 	};
+}
+
+export async function getCapabilities(context: ToolActionContext): Promise<ToolResponse> {
+	return ok(await probeCapabilities(), { requestId: toolRequestId(context) });
 }

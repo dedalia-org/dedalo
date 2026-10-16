@@ -1,10 +1,8 @@
 /**
- * image_download — "Descargar Imagen" of an uploaded image: the picture in its
- * CURRENT shape, without the display opacity. The SERVED file is warped —
- * the one the map shows and its corners were measured on (v6 redraws that
- * same image, `special_tools.js:1217-1659`) — with GDAL, the three corners as
- * control points, into EPSG:3857, the grid Leaflet draws. `width` is v6's
- * quality: a factor over the on-screen size, map fitted.
+ * image_download — an uploaded image in its CURRENT shape, without the display
+ * opacity: the served file (v6 redraws it, `special_tools.js:1217-1659`) warped
+ * by GDAL into EPSG:3857 with the three corners as control points. `width` is
+ * v6's quality: a factor over the on-screen size.
  */
 
 import { existsSync } from 'node:fs';
@@ -17,22 +15,25 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import {
-	DEFAULT_IMAGE_DOWNLOAD_NAME,
-	sanitize_download_name,
-	with_extension,
-} from '../js/download_filename.js';
+import { DEFAULT_IMAGE_DOWNLOAD_NAME, with_extension } from '../js/download_filename.js';
 import {
 	inputDrivers,
 	rasterDriverOf,
 	readFileBase64,
+	readGdalInfoJson,
 	resolveGdalBinary,
 	runToolBinary,
 	withScratchDir,
 } from './gdal.ts';
 import { OVERLAY_EXTENSIONS, resolveRenderableImage } from './image_media.ts';
+import { downloadBaseName } from './raster_download.ts';
 
-export const IMAGE_DOWNLOAD_FORMATS: readonly string[] = ['geotiff', 'png', 'jpg'];
+/** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
+const IMAGE_DOWNLOAD_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
+	geotiff: { mime: 'image/tiff', extension: 'tif' },
+	png: { mime: 'image/png', extension: 'png' },
+	jpg: { mime: 'image/jpeg', extension: 'jpg' },
+};
 
 /** Largest output SIDE, width or height — the shape decides the height, so
  * both are bounded (`outputSize`). Above v6's own ceiling, "Excelente" (2x)
@@ -43,18 +44,6 @@ export const MAX_IMAGE_DOWNLOAD_SIDE = 8000;
 const MAX_MERCATOR_LAT = 85.0511;
 
 const EARTH_RADIUS = 6378137;
-
-const IMAGE_DOWNLOAD_MIME: Readonly<Record<string, string>> = {
-	geotiff: 'image/tiff',
-	png: 'image/png',
-	jpg: 'image/jpeg',
-};
-
-const IMAGE_DOWNLOAD_EXTENSION: Readonly<Record<string, string>> = {
-	geotiff: 'tif',
-	png: 'png',
-	jpg: 'jpg',
-};
 
 /** A caller fault — bad format, corners, width or name. */
 function invalidImageDownload(message: string): DedaloError {
@@ -71,7 +60,7 @@ export interface ImageCorners {
 
 /** Never trust client geometry: a NaN or an out-of-range degree would warp
  * the image somewhere absurd instead of refusing. */
-export function parseCorners(value: unknown): ImageCorners {
+function parseCorners(value: unknown): ImageCorners {
 	if (value === null || typeof value !== 'object') {
 		throw invalidImageDownload('Missing corners');
 	}
@@ -118,11 +107,10 @@ function toMercator([lat, lon]: [number, number]): [number, number] {
 }
 
 /**
- * The output raster's pixel size: `width` as asked, the height the shape's
- * EPSG:3857 footprint gives it, then both scaled down together if either side
- * passes MAX_IMAGE_DOWNLOAD_SIDE — a tall, thin shape is bounded as surely as
- * a wide one. The footprint is the four corners' box: x is linear in longitude
- * and y monotonic in latitude, so no edge bulges past its end points.
+ * The output size: `width` as asked, the height of the shape's EPSG:3857
+ * footprint, both scaled down if either side passes MAX_IMAGE_DOWNLOAD_SIDE.
+ * The footprint is the four corners' box: x is linear in longitude and y
+ * monotonic in latitude, so no edge bulges past its end points.
  */
 export function outputSize(
 	corners: ImageCorners,
@@ -147,25 +135,11 @@ export function outputSize(
 
 /** A positive integer. Not capped here: `outputSize` bounds the result, so
  * "Excelente" on a very wide screen gets the largest allowed file, not an error. */
-export function parseWidth(value: unknown): number {
+function parseWidth(value: unknown): number {
 	if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
 		throw invalidImageDownload('width must be a positive integer');
 	}
 	return value;
-}
-
-/** Same rule as the map download (`raster_download.ts`), run here whatever
- * the client did: absent takes the default, sanitized-to-nothing is refused. */
-function downloadBaseName(value: unknown): string {
-	if (value === undefined || value === null) return DEFAULT_IMAGE_DOWNLOAD_NAME;
-	if (typeof value !== 'string') {
-		throw invalidImageDownload('file_name must be a string');
-	}
-	const base = sanitize_download_name(value);
-	if (base === '') {
-		throw invalidImageDownload('file_name has no usable characters');
-	}
-	return base;
 }
 
 /** What the conversion needs to know about the source raster. */
@@ -177,35 +151,27 @@ interface RasterShape {
 	sixteenBit: boolean;
 }
 
+// exported for the unit gate
+/**
+ * GDAL reads a CMYK JPEG as RGB bands converted ignoring any ICC profile:
+ * neither what the map shows (the browser applies it) nor what the engine's
+ * derivatives get (CMYK→sRGB by ICC). Only the source colour space says CMYK.
+ */
+export function isCmykSource(info: unknown): boolean {
+	const space = (info as { metadata?: { IMAGE_STRUCTURE?: { SOURCE_COLOR_SPACE?: unknown } } })
+		?.metadata?.IMAGE_STRUCTURE?.SOURCE_COLOR_SPACE;
+	return space === 'CMYK' || space === 'YCbCrK';
+}
+
 async function readRasterShape(dir: string, path: string): Promise<RasterShape> {
-	const gdalinfo = await resolveGdalBinary('gdalinfo');
-	const result = await runToolBinary(
-		[gdalinfo, ...inputDrivers(rasterDriverOf(path)), '-json', path],
-		'gdalinfo (image download)',
-		{ scratchDir: dir },
-	);
-	let info: {
+	const info = (await readGdalInfoJson(dir, path, 'gdalinfo (image download)')) as {
 		size?: unknown;
 		bands?: Array<{ type?: string; colorInterpretation?: string }>;
-		metadata?: { IMAGE_STRUCTURE?: { SOURCE_COLOR_SPACE?: unknown } };
 	};
-	try {
-		info = JSON.parse(result.stdout);
-	} catch {
-		throw new DedaloError('tool.action_failed', {
-			coordinates: { tool: 'tool_uca_maps' },
-			message: 'gdalinfo -json returned output that is not JSON',
-		});
-	}
 	const size = Array.isArray(info.size) ? info.size : [];
 	const bands = Array.isArray(info.bands) ? info.bands : [];
 	const interps = bands.map((band) => String(band.colorInterpretation ?? ''));
-	// GDAL reads a CMYK JPEG as RGB bands converted ignoring any ICC profile:
-	// neither what the map shows (the browser applies it) nor what the engine's
-	// derivatives get (CMYK→sRGB by ICC). Only the source colour space says
-	// CMYK — refused rather than downloaded wrong.
-	const sourceColorSpace = info.metadata?.IMAGE_STRUCTURE?.SOURCE_COLOR_SPACE;
-	if (sourceColorSpace === 'CMYK' || sourceColorSpace === 'YCbCrK') {
+	if (isCmykSource(info)) {
 		throw new DedaloError('tool.unsupported_target', {
 			coordinates: { tool: 'tool_uca_maps' },
 			message: 'image download: CMYK sources are not supported',
@@ -304,7 +270,8 @@ export async function renderImageDownload(
 		return { extension: 'tif', content: await readFileBase64(warped) };
 	}
 
-	const output = join(dir, `uca_maps_image.${IMAGE_DOWNLOAD_EXTENSION[format]}`);
+	const extension = IMAGE_DOWNLOAD_FORMATS[format]?.extension as string;
+	const output = join(dir, `uca_maps_image.${extension}`);
 	const colorBands = shape.palette ? 3 : shape.colorBands;
 	const bandArgs =
 		format === 'jpg' ? (colorBands >= 3 ? ['-b', '1', '-b', '2', '-b', '3'] : ['-b', '1']) : [];
@@ -330,19 +297,14 @@ export async function renderImageDownload(
 		`image_download (${format})`,
 		{ scratchDir: dir, expectedOutput: output },
 	);
-	return {
-		extension: IMAGE_DOWNLOAD_EXTENSION[format] as string,
-		content: await readFileBase64(output),
-	};
+	return { extension, content: await readFileBase64(output) };
 }
 
 /**
- * WHICH FILE is warped: the one the MAP shows, never the master — the corners
- * were measured on it, and a master can differ (a retouched `modified` tier,
- * EXIF rotation the derivatives were built upright from). The descriptor's
- * `file_path` is only MATCHED against this record's drawable tiers; named but
- * gone is null (a refusal), never a quiet swap to another picture. Unnamed —
- * an older descriptor — takes the served tier.
+ * The file warped is the one the map shows, never the master: the corners were
+ * measured on it, and a master can differ (a retouched tier, EXIF rotation).
+ * `file_path` is only matched against the drawable tiers; named but gone is
+ * null, never a swap to another picture. Unnamed takes the served tier.
  */
 export function pickDownloadSource(
 	files_info: readonly FileInfoEntry[],
@@ -364,33 +326,40 @@ export function pickDownloadSource(
 /**
  * IMAGE_DOWNLOAD — options: the IMAGE record's `tipo`/`section_tipo`/
  * `section_id` (so the `record_tipo` gate asks whether the caller may read
- * that image, as `get_image_overlay` does), the descriptor's `file_path`,
- * `corners`, `format`, `width`, `file_name`. Everything the caller sends is validated before a file is read.
+ * that image), the descriptor's `file_path`, `corners`, `format`, `width`,
+ * `file_name`. Everything the caller sends is validated before a file is read.
  */
 export async function imageDownload(ctx: ToolActionContext): Promise<ToolResponse> {
 	const format = String(ctx.options.format ?? '');
-	if (!IMAGE_DOWNLOAD_FORMATS.includes(format)) {
+	const spec = Object.hasOwn(IMAGE_DOWNLOAD_FORMATS, format)
+		? IMAGE_DOWNLOAD_FORMATS[format]
+		: undefined;
+	if (spec === undefined) {
 		throw invalidImageDownload(
 			`Unsupported image format '${format}' (expected 'geotiff', 'png' or 'jpg')`,
 		);
 	}
 	const corners = parseCorners(ctx.options.corners);
 	const width = parseWidth(ctx.options.width);
-	const baseName = downloadBaseName(ctx.options.file_name);
+	const baseName = downloadBaseName(ctx.options.file_name, DEFAULT_IMAGE_DOWNLOAD_NAME);
 
-	const { spec, identity, pathOpts, files_info, served } = await resolveRenderableImage(
-		ctx.options,
-	);
+	const {
+		spec: media,
+		identity,
+		pathOpts,
+		files_info,
+		served,
+	} = await resolveRenderableImage(ctx.options);
 
 	const source = pickDownloadSource(
 		files_info,
-		spec.masterQualities,
+		media.masterQualities,
 		ctx.options.file_path,
 		served,
 	);
 	const location =
 		source && typeof source.extension === 'string'
-			? buildMediaLocation(spec, identity, source.quality, source.extension, pathOpts)
+			? buildMediaLocation(media, identity, source.quality, source.extension, pathOpts)
 			: null;
 	if (!location || !existsSync(location.absolutePath)) {
 		throw new DedaloError('media.file_not_found', {
@@ -408,7 +377,7 @@ export async function imageDownload(ctx: ToolActionContext): Promise<ToolRespons
 		{
 			content_base64: result.content,
 			filename: with_extension(baseName, result.extension),
-			mime: IMAGE_DOWNLOAD_MIME[format],
+			mime: spec.mime,
 		},
 		{ requestId: toolRequestId(ctx) },
 	);

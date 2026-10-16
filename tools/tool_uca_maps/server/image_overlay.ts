@@ -1,68 +1,31 @@
 /**
- * image_overlay — fila #11 ("Upload file to map"), IMAGE half (hito 13; the
- * vector half is `vector_upload.ts`, hito 12).
- *
- * The file itself never passes through this action. The client uploads it
- * through the engine's OWN media door — a fresh `rsc170` (Resources/Image)
- * record + its `rsc29` component_image, staged by `service_upload` and
- * ingested by `tool_upload::process_uploaded_file` — exactly as v6 does
- * (`render_tool_leaflet_special_tools.js:1541`). So by the time this action
- * runs the image is already real, protected media with a served path.
- *
- * What is left is the ONE question the browser cannot answer: WHERE on the
- * map does this image go. v6 answers it by downloading the raw GeoTIFF back
- * into the browser and parsing it there with `georaster` +
- * `georaster-layer-for-leaflet` — two heavy libraries pulled in to read four
- * corner coordinates. This server already has GDAL (hito 3), and `gdalinfo
- * -json` reports `wgs84Extent` directly, so both libraries disappear from the
- * client entirely. Same trade the vector half already made.
- *
- * The corners are returned as the THREE points `L.imageOverlay.rotated` takes
- * (NW / NE / SW), not a bbox: a GeoTIFF is georeferenced in a projected CRS
- * (UTM here), and a projected rectangle reprojected to WGS84 is a skewed
- * quadrilateral, never an axis-aligned lat/lon box. A bbox would misplace
- * every pixel inside it.
- *
- * A non-georeferenced upload (.jpg/.png, or a .tif with no CRS) is NOT an
- * error: it answers `georeferenced:false` and the client places it over the
- * current viewport, v6 parity.
- *
- * NOR is an install with no GDAL. By the time this action runs the record and
- * the media are already written; hard-failing here would leave the user with
- * an error and an image they cannot see. It answers `georeferenced:false`
- * plus `georeference_unavailable:true` — the SAME distinction
- * `get_capabilities` already draws — so the client can say "this server
- * cannot read a GeoTIFF's coordinates" instead of the flat "this image has
- * none". Degraded, and it says so.
+ * get_image_overlay — where on the map an uploaded image goes. v6 parsed the
+ * GeoTIFF in the browser with georaster to read its corners; `gdalinfo -json`
+ * answers here. They are the three `L.imageOverlay.rotated` takes, not a bbox:
+ * a projected rectangle reprojected to WGS84 is a skewed quadrilateral.
  */
 
 import { existsSync } from 'node:fs';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { ok } from '../../../src/core/errors/index.ts';
 import { buildMediaLocation } from '../../../src/core/media/path.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import {
-	inputDrivers,
-	isMissingGdalBinary,
-	rasterDriverOf,
-	resolveGdalBinary,
-	runToolBinary,
-	withScratchDir,
-} from './gdal.ts';
+import { isMissingGdalBinary, readGdalInfoJson, withScratchDir } from './gdal.ts';
 import { resolveRenderableImage } from './image_media.ts';
 
+// exported for the unit gate
 /** Extensions worth asking GDAL about. Only a TIFF carries georeferencing
  * through Dédalo's ingest; a JPEG's EXIF GPS tag is a camera POSITION, not an
  * image footprint, and placing an overlay on it would be wrong, not partial. */
-const GEOREFERENCED_EXTENSIONS: readonly string[] = ['tif', 'tiff'];
+export const GEOREFERENCED_EXTENSIONS: readonly string[] = ['tif', 'tiff'];
 
 /** One corner, `[lat, lon]` — the order `L.latLng` takes. */
 type Corner = [number, number];
 
-export interface OverlayCorners {
+interface OverlayCorners {
 	top_left: Corner;
 	top_right: Corner;
 	bottom_left: Corner;
@@ -96,52 +59,43 @@ export function cornersFromWgs84Extent(extent: unknown): OverlayCorners | null {
 }
 
 /**
- * Ask GDAL where the file sits. `-json` only: no conversion, and the file the
- * engine's own ingest put in place is read where it is; the private scratch
- * dir is only GDAL's temp dir.
- *
- * Two outcomes, both deliberate. A TIFF GDAL opens but that carries no CRS
- * exits 0 and simply has no `wgs84Extent` → null, and the caller places the
- * image over the viewport instead. A TIFF GDAL cannot open at all THROWS
- * (`runToolBinary` asserts the exit code): that is a broken or misnamed file,
- * and v6 refuses it too rather than silently dropping it somewhere on screen.
+ * Ask GDAL where the file sits, read in place. A TIFF with no CRS has no
+ * `wgs84Extent`: null, and the client places it over the viewport (v6 parity).
+ * A TIFF GDAL cannot open throws: a broken or misnamed file, which v6 refuses
+ * too rather than dropping it somewhere on screen.
  */
 export async function readGeoreference(absolutePath: string): Promise<OverlayCorners | null> {
-	const gdalinfo = await resolveGdalBinary('gdalinfo');
-	const result = await withScratchDir((dir) =>
-		runToolBinary(
-			[gdalinfo, ...inputDrivers(rasterDriverOf(absolutePath)), '-json', absolutePath],
-			'gdalinfo (image overlay georeference)',
-			{ scratchDir: dir },
-		),
+	const parsed = await withScratchDir((dir) =>
+		readGdalInfoJson(dir, absolutePath, 'gdalinfo (image overlay georeference)'),
 	);
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(result.stdout);
-	} catch {
-		throw new DedaloError('tool.action_failed', {
-			coordinates: { tool: 'tool_uca_maps' },
-			message: 'gdalinfo -json returned output that is not JSON',
-		});
-	}
 	if (typeof parsed !== 'object' || parsed === null) return null;
 	return cornersFromWgs84Extent((parsed as { wgs84Extent?: unknown }).wgs84Extent);
 }
 
+// exported for the unit gate
 /**
- * GET_IMAGE_OVERLAY — resolve the served path + map footprint of an image
- * already ingested into a component_image record.
- *
- * Options: `tipo` / `section_tipo` / `section_id` — the IMAGE component's
- * identity (rsc29/rsc170/<new id>), not the map record's. The `record_tipo`
- * gate therefore asserts the caller may read that image section, which is the
- * right question: the answer names a media path they will then load.
+ * What a failed georeference read leaves the answer with. GDAL missing is the
+ * one failure swallowed, into the flag the client renders: the media is
+ * already written, so an error would leave an uploaded image the user is told
+ * nothing useful about. Any other failure (a .tif GDAL cannot open) is rethrown.
+ */
+export function overlayFallbackOf(error: unknown): {
+	corners: null;
+	georeferenceUnavailable: true;
+} {
+	if (isMissingGdalBinary(error, 'gdalinfo'))
+		return { corners: null, georeferenceUnavailable: true };
+	throw error;
+}
+
+/**
+ * GET_IMAGE_OVERLAY — the served path and map footprint of an ingested image.
+ * Options name the IMAGE component, not the map record, so the `record_tipo`
+ * gate asks whether the caller may read the media path the answer names.
  */
 export async function getImageOverlay(ctx: ToolActionContext): Promise<ToolResponse> {
 	// WHICH file is served is `image_media.ts`'s single answer, shared with
-	// `get_image_file` (fila #3's associated image) so the two can never
-	// disagree about the tier. Only what follows — the georeference — is this
-	// action's own.
+	// `get_image_file` so the two can never disagree about the tier
 	const { spec, identity, pathOpts, files_info, served } = await resolveRenderableImage(
 		ctx.options,
 	);
@@ -159,19 +113,10 @@ export async function getImageOverlay(ctx: ToolActionContext): Promise<ToolRespo
 	if (master && typeof master.extension === 'string') {
 		const location = buildMediaLocation(spec, identity, master.quality, master.extension, pathOpts);
 		if (existsSync(location.absolutePath)) {
-			// GDAL missing is the ONE failure this swallows, and only into a
-			// named flag the client renders (see the module doc): the media is
-			// already written, so throwing here would leave an uploaded image
-			// the user is told nothing useful about. Every OTHER gdalinfo
-			// failure still throws — a .tif GDAL cannot open is a broken file.
 			try {
 				corners = await readGeoreference(location.absolutePath);
 			} catch (error) {
-				if (isMissingGdalBinary(error, 'gdalinfo')) {
-					georeferenceUnavailable = true;
-				} else {
-					throw error;
-				}
+				({ corners, georeferenceUnavailable } = overlayFallbackOf(error));
 			}
 		}
 	}

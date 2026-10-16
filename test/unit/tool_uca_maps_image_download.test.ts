@@ -15,6 +15,7 @@ import { toErrorBody } from '../../src/core/errors/convert.ts';
 import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	type ImageCorners,
+	isCmykSource,
 	MAX_IMAGE_DOWNLOAD_SIDE,
 	outputSize,
 	pickDownloadSource,
@@ -62,6 +63,7 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 		['a corner that is not a pair', { corners: { ...ROTATED, top_left: [39.48] } }],
 		['a NaN coordinate', { corners: { ...ROTATED, top_right: [Number.NaN, -0.39] } }],
 		['a latitude Web Mercator cannot draw', { corners: { ...ROTATED, bottom_left: [86, -0.39] } }],
+		['a longitude past 180', { corners: { ...ROTATED, top_right: [39.49, 181] } }],
 		[
 			'collinear corners',
 			{
@@ -120,15 +122,14 @@ describe('tool_uca_maps image_download — pickDownloadSource: the file the map 
 	test('no name (an older descriptor) takes the served tier', () => {
 		expect(pickDownloadSource(FILES, MASTERS, undefined, SERVED)?.quality).toBe('1.5MB');
 	});
-	test('a named file that is gone is null — a refusal, never a swap to another picture', () => {
-		expect(pickDownloadSource(FILES, MASTERS, '/image/6MB/0/x_1.jpg', SERVED)).toBeNull();
-	});
-	test('the master is never picked, even when named and drawable', () => {
-		expect(pickDownloadSource(FILES, MASTERS, '/image/original/0/x_1.jpg', SERVED)).toBeNull();
-		expect(pickDownloadSource(FILES, MASTERS, '/image/original/0/x_1.tif', SERVED)).toBeNull();
-	});
-	test("a path outside the record's own list is never returned", () => {
-		expect(pickDownloadSource(FILES, MASTERS, '../../../etc/passwd', SERVED)).toBeNull();
+	// null is a refusal, never a swap to another picture
+	test.each([
+		['a named file that is gone', '/image/6MB/0/x_1.jpg'],
+		['the master, named and drawable', '/image/original/0/x_1.jpg'],
+		['the master, named as its tif', '/image/original/0/x_1.tif'],
+		["a path outside the record's own list", '../../../etc/passwd'],
+	])('%s is never picked', (_, named) => {
+		expect(pickDownloadSource(FILES, MASTERS, named, SERVED)).toBeNull();
 	});
 });
 
@@ -136,8 +137,9 @@ describe('tool_uca_maps image_download — outputSize bounds BOTH sides', () => 
 	test('keeps the width asked and gives the height the shape has', () => {
 		const size = outputSize(ROTATED, 300);
 		expect(size.width).toBe(300);
-		// the diamond spans as much latitude as longitude: roughly square in 3857
-		expect(Math.abs(size.height - 300 * 1.29)).toBeLessThan(10);
+		// the box spans as many degrees of latitude as of longitude, and in 3857
+		// a degree of latitude here is 1/cos(lat) times longer
+		expect(Math.abs(size.height - 300 / Math.cos((39.48 * Math.PI) / 180))).toBeLessThan(2);
 	});
 
 	test('a tall, thin shape cannot turn a legal width into a gigantic raster', () => {
@@ -157,7 +159,29 @@ describe('tool_uca_maps image_download — outputSize bounds BOTH sides', () => 
 	});
 });
 
-describe.if(HAVE_GDAL)('tool_uca_maps image_download — the real warp', () => {
+describe('tool_uca_maps image_download — isCmykSource: only the source colour space says CMYK', () => {
+	const info = (space: unknown) => ({
+		metadata: { IMAGE_STRUCTURE: { SOURCE_COLOR_SPACE: space } },
+	});
+
+	test.each([
+		['CMYK', info('CMYK'), true],
+		["YCbCrK (Adobe's CMYK)", info('YCbCrK'), true],
+		['YCbCr (an ordinary JPEG)', info('YCbCr'), false],
+		['no colour space at all', { metadata: { IMAGE_STRUCTURE: {} } }, false],
+		['no metadata', {}, false],
+		['a colour space that is not a string', info(['CMYK']), false],
+	])('%s', (_, gdalinfo, cmyk) => {
+		expect(isCmykSource(gdalinfo)).toBe(cmyk);
+	});
+});
+
+/** An 8x8 Adobe CMYK JPEG (YCCK, as image editors write it), from
+ * `magick -size 8x8 xc:#c81e1e -colorspace CMYK -strip -quality 50`. */
+const YCCK_JPEG_BASE64 =
+	'/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwAQCwwODAoQDg0OEhEQExgoGhgWFhgxIyUdKDozPTw5Mzg3QEhcTkBEV0U3OFBtUVdfYmdoZz5NcXlwZHhcZWdj/9sAQwEREhIYFRgvGhovY0I4QmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAIBAEiAAIRAQMRAQQiAP/EABYAAQEBAAAAAAAAAAAAAAAAAAAEBv/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAFBv/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAOBAEAAhEDEQQAAD8AsAIoxpAH/9k=';
+
+describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (needs GDAL)', () => {
 	async function run(argv: string[]): Promise<string> {
 		const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe' });
 		const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
@@ -237,13 +261,17 @@ describe.if(HAVE_GDAL)('tool_uca_maps image_download — the real warp', () => {
 	test('the GeoTIFF extent is the footprint of the CURRENT shape, from its corners', async () => {
 		await withDir(async (dir) => {
 			const { info } = await render(dir, await master(dir), 'geotiff');
-			// lon of the left-most corner (top_left / bottom_right mirror) in Web Mercator
+			// the box of the four corners (the fourth mirrors top_left) in Web Mercator
 			const x = (lon: number) => (lon * 20037508.342789244) / 180;
-			const west = info.cornerCoordinates.upperLeft[0];
-			const east = info.cornerCoordinates.lowerRight[0];
-			const pixelSize = (east - west) / info.size[0];
-			expect(Math.abs(west - x(-0.4))).toBeLessThan(pixelSize * 1.5);
-			expect(Math.abs(east - x(-0.38))).toBeLessThan(pixelSize * 1.5);
+			const y = (lat: number) => 6378137 * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+			const [west, north] = info.cornerCoordinates.upperLeft;
+			const [east, south] = info.cornerCoordinates.lowerRight;
+			const pixelWidth = (east - west) / info.size[0];
+			const pixelHeight = (north - south) / info.size[1];
+			expect(Math.abs(west - x(-0.4))).toBeLessThan(pixelWidth * 1.5);
+			expect(Math.abs(east - x(-0.38))).toBeLessThan(pixelWidth * 1.5);
+			expect(Math.abs(north - y(39.49))).toBeLessThan(pixelHeight * 1.5);
+			expect(Math.abs(south - y(39.47))).toBeLessThan(pixelHeight * 1.5);
 		});
 	});
 
@@ -379,25 +407,14 @@ describe.if(HAVE_GDAL)('tool_uca_maps image_download — the real warp', () => {
 		});
 	});
 
-	test.if(Bun.which('magick') !== null)(
-		'an Adobe CMYK JPEG (YCCK, as image editors write it) is refused too — built with ImageMagick',
-		async () => {
-			await withDir(async (dir) => {
-				const ycck = join(mkdtempSync(join(dir, 'served_')), 'served.jpg');
-				await run([
-					mustGet(Bun.which('magick'), 'magick'),
-					'-size',
-					'64x32',
-					'xc:#c81e1e',
-					'-colorspace',
-					'CMYK',
-					ycck,
-				]);
-				expect(await colourOf(ycck)).toEqual({ bands: ['Red', 'Green', 'Blue'], space: 'YCbCrK' });
-				await expectCmykRefusal(dir, ycck);
-			});
-		},
-	);
+	test('an Adobe CMYK JPEG (YCCK, as image editors write it) is refused too', async () => {
+		await withDir(async (dir) => {
+			const ycck = join(mkdtempSync(join(dir, 'served_')), 'served.jpg');
+			await Bun.write(ycck, Buffer.from(YCCK_JPEG_BASE64, 'base64'));
+			expect(await colourOf(ycck)).toEqual({ bands: ['Red', 'Green', 'Blue'], space: 'YCbCrK' });
+			await expectCmykRefusal(dir, ycck);
+		});
+	});
 
 	test('an ordinary RGB JPEG is not mistaken for CMYK: it downloads with its colour', async () => {
 		await withDir(async (dir) => {
