@@ -6,36 +6,19 @@
 /**
  * TEST_TOOL_UCA_MAPS
  *
- * Client-side coverage for tool_uca_maps, hito 2 checkpoint 2a (the object
- * console shell — see tools/tool_uca_maps/js/object_console.js file header
- * for the full architecture: this tool's modal self-closes right after
- * attaching its console to the LIVE map; the console's lifetime is tied to
- * component_geolocation, never to the modal).
+ * Client suite for tool_uca_maps, in two describes. STRUCTURAL: pure exports
+ * and the constructor, no fixture. LIVE MAP: every test builds a real
+ * component_geolocation (TLD `test`, the elements.js record) seeded with a
+ * polygon, a circle and a marker, and wires a tool to it by hand: init() and
+ * tool_common's ceremony are skipped, because production init only resolves
+ * `geolocation` and `map_ready` (get_caller_by_model) and the tool reads no
+ * ontology.
  *
- * LEFT TOOLBAR REFACTOR (2026-09-04, before hito 4 — CLAUDE.local.md "Left
- * toolbar: un botón por funcionalidad"): the "UCA" button's panel used to
- * also carry the map-image-download picker as a collapsible section; it
- * moved to its own button+panel (`map_image_download.js`, built through
- * `toolbar.js`). Assertions that used to read `.uca-maps-map-image-download`
- * inside `tool.panel_node` now read `tool.map_image_panel` instead.
- *
- * Two layers, matching the project convention (test_tool_dev_template.js):
- *
- * 1. STRUCTURAL — module export, constructor-seeded properties, prototype
- *    wiring. Fixture-free, always reliable.
- *
- * 2. LIVE MAP — builds a REAL component_geolocation instance (same fixture/
- *    pattern as test_component_geolocation.js: TLD `test`, tipo `test100`)
- *    with a seeded drawn polygon, then exercises tool_uca_maps' console
- *    plumbing directly against it: attach/idempotency, the toggle control,
- *    popupopen-driven selection, and the on_close_actions/
- *    on_geolocation_destroyed lifecycle split. Deliberately bypasses
- *    tool_common's init()/get_instance() ceremony (ddo_map resolution, tool
- *    registration lookups) — none of that is exercised by this tool (file
- *    header of tool_uca_maps.js: `ontology`-less by design) and none of it
- *    is what checkpoint 2a needs proven; `self.geolocation`/`self.map_ready`
- *    are set directly, matching how tool_uca_maps.prototype.init resolves
- *    them in production (get_caller_by_model, verbatim).
+ * What it does not do: test the server actions (test/unit/tool_uca_maps_*),
+ * or reach a third party. Lookups are stubbed per test and get_elevation in
+ * the beforeEach; only basemap and WMS tiles still load, and nothing asserts
+ * on them. A few tests round-trip a GDAL/ImageMagick action on the suite's
+ * own server. The tool stylesheet is loaded only by with_tool_css() tests.
  */
 
 import { elements } from './elements.js'
@@ -118,6 +101,218 @@ import {
 * (colour_literal_ratchet_tripwire), and seven copies of one test value say
 * nothing seven times. */
 const PICKED_COLOUR = '#ff0000'
+
+const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const two_frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+/** Polls until `done()` holds or the tries run out; the caller asserts what it waited for. */
+const until = async function(done, tries = 200, ms = 10) {
+	for (let i=0; i<tries && !done(); i++) {
+		await tick(ms)
+	}
+}
+
+/**
+* Runs `fn` with the tool's own stylesheet loaded, and removes it after:
+* the suite runs without it, so only a layout or paint test pays for it.
+*/
+const with_tool_css = async function(fn) {
+	const link = document.createElement('link')
+	link.rel	= 'stylesheet'
+	link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
+	await new Promise((resolve, reject) => {
+		link.addEventListener('load', resolve)
+		link.addEventListener('error', reject)
+		document.head.appendChild(link)
+	})
+	try {
+		return await fn()
+	} finally {
+		link.remove()
+	}
+}
+
+/**
+* Runs `fn` with URL.createObjectURL and the anchor's click spied: the Blob a
+* download builds, and the name trigger_blob_download puts on the anchor (the
+* only place a typed name shows on the client-only branches). Stubbing the
+* click also keeps the headless browser from downloading anything.
+* @returns {Promise<{blob: Blob|null, name: string|null}>}
+*/
+const capture_download = async function(fn) {
+	const original_create_object_url	= URL.createObjectURL
+	const original_click				= HTMLAnchorElement.prototype.click
+	const captured = {blob: null, name: null}
+	URL.createObjectURL = (blob) => {
+		captured.blob = blob
+		return 'blob:uca-maps-test-mock'
+	}
+	HTMLAnchorElement.prototype.click = function() {
+		captured.name = this.download
+	}
+	try {
+		await fn()
+	} finally {
+		URL.createObjectURL					= original_create_object_url
+		HTMLAnchorElement.prototype.click	= original_click
+	}
+	return captured
+}//end capture_download
+
+/**
+* "Download image" asks through data_manager.request with its own timeout:
+* `answer` sees the {action, options} a tool_request stub would, plus the
+* transport options. Returns the restore (data_manager outlives the test).
+*/
+const stub_image_download = function(answer) {
+	const original = data_manager.request
+	data_manager.request = async function(options) {
+		const body = options && options.body
+		if (body && body.action==='tool_request' && body.source && body.source.action==='image_download') {
+			return answer({action: body.source.action, options: body.options}, options)
+		}
+		return original.apply(this, arguments)
+	}
+	return () => { data_manager.request = original }
+}
+
+/**
+* create_image_object ends in map.fitBounds(), which starts a ZOOM ANIMATION.
+* A test ending with the frame still queued hands afterEach a map it destroys
+* under a pending _move(), and Leaflet throws inside the NEXT test's beforeEach.
+*/
+const settle_map = function(map) {
+	return new Promise((resolve) => {
+		const settled = () => resolve()
+		map.once('moveend', settled)
+		setTimeout(settled, 1000) // fitBounds on an already-matching view fires nothing
+	})
+}
+
+/** The base tile layer on the map, read off the map itself: Catastro and UA swap it. */
+const find_active_tile_layer = function(map) {
+	let found = null
+	map.eachLayer((layer) => { if (layer instanceof L.TileLayer) found = layer })
+	return found
+}
+
+/** The layer of `feature_group` whose properties.uca_maps.uid is `uid`. */
+const layer_by_uid = function(feature_group, uid) {
+	return feature_group.getLayers().find((candidate) =>
+		candidate.feature
+		&& candidate.feature.properties
+		&& candidate.feature.properties.uca_maps
+		&& candidate.feature.properties.uca_maps.uid===uid
+	)
+}
+
+// without the tool CSS a panel never scrolls: give it the cap it lacks
+const make_panel_scrollable = function(panel) {
+	panel.style.maxHeight	= '160px'
+	panel.style.overflowY	= 'auto'
+}
+
+// hand the picker a real FileList, then fire what the browser fires
+const pick_file = function(input, file) {
+	load_file(input, file)
+	input.dispatchEvent(new Event('change'))
+}
+
+// load the picker without firing anything: the vector half uploads on click
+const load_file = function(input, file) {
+	const transfer = new DataTransfer()
+	transfer.items.add(file)
+	input.files = transfer.files
+}
+
+const vector_file	= () => new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+const image_file	= () => new File(['x'], 'plan.png', {type: 'image/png'})
+const pin_png		= () => new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+
+/** One drawable point, what the real vector upload round trip sends. */
+const SAMPLE_UPLOAD_GEOJSON = {
+	type		: 'FeatureCollection',
+	features	: [{
+		type		: 'Feature',
+		properties	: {},
+		geometry	: { type: 'Point', coordinates: [-3.65, 40.45] }
+	}]
+}
+const sample_vector_file = () => new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+
+/** A GetCapabilities answer with one queryable layer: no WMS server is ever asked. */
+const SAMPLE_CAPABILITIES_XML = `<?xml version="1.0" encoding="UTF-8"?>
+	<WMS_Capabilities xmlns="http://www.opengis.net/wms" version="1.3.0">
+		<Capability>
+			<Layer>
+				<Layer queryable="1">
+					<Name>topo:layer1</Name>
+					<Title>Layer One</Title>
+				</Layer>
+			</Layer>
+		</Capability>
+	</WMS_Capabilities>`
+
+/** A parcel the Catastro proxy found, fresh per call. */
+const parcel_found = (url = 'https://example.com/parcel') => ({
+	found	: true,
+	refcat	: '1234567AB1234C',
+	url		: url,
+	points	: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6], [40.1, -3.6]]
+})
+
+/**
+* A saved image overlay, as a record hands it back on load. No test uploads a
+* real image: that would mint a record and media on every run with no id
+* handed back to sweep them.
+*/
+const IMAGE_DESCRIPTOR = {
+	file_path		: '/image/1.5MB/rsc29_rsc170_1.jpg',
+	quality			: '1.5MB',
+	section_tipo	: 'rsc170',
+	section_id		: 1,
+	tipo			: 'rsc29',
+	corners			: {
+		top_left	: [40.46, -3.66],
+		top_right	: [40.46, -3.64],
+		bottom_left	: [40.44, -3.66]
+	},
+	opacity			: 1,
+	z_index			: 200
+}
+const image_descriptor = () => JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR))
+
+/** An object's gallery already at the cap. */
+const full_gallery = () => ({ images: Array.from(
+	{length: MAX_OBJECT_IMAGES},
+	(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'rsc170', section_id:index, tipo:'rsc29', name:null})
+) })
+
+/** What the server answers once it has staged a linked image under `name`. */
+const staged_answer = (name) => ({ok: true, data: {file_data: {
+	key_dir: 'image', tmp_name: name, name: name, extension: 'jpg', complete: true
+}}})
+
+/** The SVG a drawn legend symbol stores in `icon` (a base64 `data:` URL). */
+const decode_symbol = function(icon) {
+	const prefix = 'data:image/svg+xml;base64,'
+	assert.isTrue(icon.startsWith(prefix), 'expected a drawn symbol stored as an SVG data URL')
+	return new DOMParser().parseFromString(atob(icon.slice(prefix.length)), 'image/svg+xml').documentElement
+}
+
+/** A one-point GeoJSON feature, the shape Pelagios/DARE hits carry. */
+const roman_feature = function(name, lat, lon) {
+	return {
+		type		: 'Feature',
+		properties	: { name: name },
+		geometry	: { type: 'Point', coordinates: [lon, lat] }
+	}
+}
+const roman_hit = (name, lat, lon) => ({ name: name, geometry_type: 'Point', feature: roman_feature(name, lat, lon) })
+
+/** An install that serves Pleiades and no Pelagios layer. */
+const WITH_PLEIADES = { configured: true, pleiades: true, pelagios: [] }
 
 
 
@@ -273,11 +468,6 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(MAX_ICON_BYTES, 2000000, 'expected v6\'s own 2 MB ceiling')
 	})
 
-	// "WMS" (functionality #6, js/wms_services.js) — PURE, no network/live map:
-	// a hand-written GetCapabilities fixture proves the parsing rule (v6
-	// parity: any `queryable` attribute at all, even "0", counts — a plain
-	// `getAttribute()!==null` check — and an unnamed layer is a non-leaf
-	// grouping node, skipped).
 	it('tool_error_text: a request.invalid_options refusal is the panel\'s lead, then the server\'s reason', function() {
 
 		const refusal = {
@@ -337,6 +527,9 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		}
 	})
 
+	// js/wms_services.js, on a hand-written GetCapabilities: v6's rule is that
+	// any `queryable` attribute counts, even "0" (`getAttribute()!==null`), and
+	// an unnamed layer is a grouping node, skipped
 	it('parse_wms_capabilities_xml keeps only queryable, named layers; falls back Title to Name', function() {
 
 		const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -401,6 +594,24 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.deepEqual(result.layers, [{name: 'topo:child2', title: 'Child Two'}], 'expected only the real leaf, never a bogus entry for the unnamed group')
 	})
 
+	it('the scale rounds to a readable distance and labels it in m or km', function() {
+
+		// Leaflet's own _getRoundNum criterion: the largest 1/2/3/5/10 x 10^n
+		// that still fits under the bar's max width
+		assert.equal(round_distance(1234), 1000)
+		assert.equal(round_distance(999), 500)
+		assert.equal(round_distance(3400), 3000)
+		assert.equal(round_distance(78), 50)
+		assert.equal(round_distance(21), 20)
+
+		assert.equal(format_distance(500), '500 m')
+		assert.equal(format_distance(1000), '1 km')
+		assert.equal(format_distance(1500), '1.5 km')
+		// never "2.0 km" — a trailing zero on a map scale reads as precision
+		// the bar does not have
+		assert.equal(format_distance(2000), '2 km')
+	})
+
 })
 
 
@@ -426,16 +637,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 	/**
-	* Three seeded drawn shapes — layer_id 1 = polygon, 2 = circle, 3 = marker —
-	* loaded into their own FeatureGroups by get_map(). One combined fixture
-	* (not per-type beforeEach variants) so every test in this suite can reach
-	* every geometry-type branch without duplicating the get_instance/render/
-	* get_map ceremony per type (review-diff tests-lens finding, 2026-09-02:
-	* only Polygon was covered — style/centroid/hierarchy gating and
-	* compute_info's per-type formulas are untestable against one geometry).
-	* Circle reconstruction: `component_geolocation.js load_layer`'s own
-	* `pointToLayer` rebuilds an `L.Circle` from a Point feature carrying
-	* `properties.shape==='circle'` + `properties.radius` (metres) — verbatim.
+	* One drawn shape per FeatureGroup — layer_id 1 polygon, 2 circle, 3 marker —
+	* so any test reaches every geometry branch. The circle is a Point carrying
+	* `shape: 'circle'` and `radius` (metres), which component_geolocation's
+	* load_layer rebuilds as an L.Circle.
 	*/
 	const seeded_lib_data = () => [
 		{
@@ -492,30 +697,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		await geolocation.get_map(map_container, 0)
 		assert.isOk(geolocation.map, 'expected a live Leaflet map')
 
-		// get_map() only auto-loads self.active_layer_id (1, the polygon) —
-		// layer_id 2/3 (circle/marker) need the SAME 'full' load the core
-		// itself uses for its own multi-layer case (handle_click_no_tag,
-		// component_geolocation.js) to get a FeatureGroup at all
+		// get_map() loads only the active layer: the circle and the marker need
+		// the core's own 'full' load to get a FeatureGroup at all
 		geolocation.layers_loader({ load: 'full', layer_id: null })
 
-		// tool_uca_maps.prototype.init's real work, without the get_instance/
-		// tool_common ceremony this suite deliberately bypasses (see file header)
+		// what production init resolves, without the ceremony (file header)
 		tool					= new tool_uca_maps()
 		tool.model				= 'tool_uca_maps'
 		tool.caller				= geolocation
 		tool.geolocation		= geolocation
 		tool.map_ready			= true
-		// tool_common.prototype.init's own default (`self.mode = options.mode ||
-		// 'edit'`), replicated here because this suite bypasses init() (file
-		// header) — without it `create_source()` (common.js) builds
-		// `source.mode: null`, which the server's rqo schema REJECTS wholesale as
-		// request.invalid_rqo (source.mode). This was a silent, undetected gap:
-		// every self.tool_request() call in this suite — including
-		// self.get_capabilities(), used since hito 1 — has been failing this way
-		// the whole time; nothing before hito 3's vector_download tests actually
-		// asserted the round-trip SUCCEEDED.
+		// init's own default: without it create_source() sends `source.mode:
+		// null` and the server rejects every tool_request as request.invalid_rqo
 		tool.mode				= 'edit'
 		tool.get_tool_label		= () => undefined // force the '||' fallback label strings
+		tool.tool_request		= real_tool_request
 
 	})
 
@@ -530,6 +726,155 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			component_container.removeChild(component_container.firstChild)
 		}
 	})
+
+	/**
+	* The tool's own tool_request, except get_elevation: every popup asks it for
+	* the selected object and the server would ask open-elevation. "Unavailable"
+	* leaves the console's heading as it is drawn.
+	*/
+	const real_tool_request = function(options) {
+		if (options && options.action==='get_elevation') {
+			return Promise.resolve({ok: true, data: {elevation: null, unavailable: true}})
+		}
+		return tool_uca_maps.prototype.tool_request.call(tool, options)
+	}
+
+	// `tool` is rebuilt for every test, so a stub needs no restore
+	const stub_tool_request = function(answer) {
+		tool.tool_request = answer
+	}
+
+	/** The one layer of a seeded FeatureGroup (seeded_lib_data). */
+	const seeded_layer = (layer_id) => geolocation.FeatureGroup[layer_id].getLayers()[0]
+
+	const active_group = () => geolocation.FeatureGroup[geolocation.active_layer_id]
+
+	/** Attaches the console and selects a seeded layer through its real popup. */
+	const open_console_on = function(layer_id) {
+		tool.attach_console()
+		const layer = seeded_layer(layer_id)
+		layer.openPopup()
+		return layer
+	}
+
+	// a hand-built carrier has no popup: fire the selection the console listens
+	// to (its popupopen handler reads popup._source and nothing else)
+	const select_carrier = function(carrier) {
+		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+	}
+
+	// what edit() reads of a tool that went through init()
+	const run_edit = function() {
+		tool.type		= 'tool'
+		tool.mode		= 'edit'
+		tool.context	= { label: 'Mapas UCA' }
+		return tool.edit({})
+	}
+
+	/**
+	* The four requests of one linked-image import: stage (server download),
+	* mint, ingest, where it is served. `stage` answers per url; the rest
+	* succeed. `restore()` puts data_manager back, which outlives the test.
+	*/
+	const stub_linked_import = function(stage, ingest) {
+		const original_request = data_manager.request
+		const seen = {stages: [], created: 0, released: []}
+		let next_id = 9100
+		data_manager.request = async function(options) {
+			const body = options && options.body
+			if (body && body.action==='tool_request' && body.source && body.source.action==='stage_external_image') {
+				seen.stages.push({options: body.options, timeout: options.timeout})
+				return stage(body.options.url)
+			}
+			if (body && body.action==='create') {
+				seen.created++
+				return {ok: true, data: next_id++}
+			}
+			if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
+				return ingest ? ingest(body.options.file_data.tmp_name) : {ok: true, data: true}
+			}
+			if (body && body.action==='delete') {
+				return {ok: true, data: [body.source.section_id]}
+			}
+			if (body && body.action==='delete_uploaded_file') {
+				seen.released.push(body.options)
+				return {ok: true, data: true}
+			}
+			return original_request.apply(this, arguments)
+		}
+		stub_tool_request(async function(options) {
+			if (options.action==='get_image_file') {
+				return {ok: true, data: {file_path: '/rsc29/1.5MB/' + options.options.section_id + '.jpg', quality: '1.5MB'}}
+			}
+			return real_tool_request(options)
+		})
+		seen.restore = function() {
+			data_manager.request = original_request
+		}
+		return seen
+	}
+
+	/** Every URL dom-to-image-more asks for while capturing the map (it fetches by XHR). */
+	const capture_png_requests = async function() {
+		const requested		= []
+		const original_open	= XMLHttpRequest.prototype.open
+		XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+			requested.push(String(url))
+			return original_open.call(this, method, url, ...rest)
+		}
+		let blob
+		try {
+			blob = (await capture_download(() => download_map_image(tool, 'png'))).blob
+		} finally {
+			XMLHttpRequest.prototype.open = original_open
+		}
+		assert.isOk(blob, 'expected the capture to finish')
+		return requested
+	}//end capture_png_requests
+
+	/** A saved image's carrier rectangle, in the active FeatureGroup. */
+	const add_image_carrier = function() {
+		const carrier = L.rectangle([[40.44, -3.66], [40.46, -3.64]], {opacity: 0, fillOpacity: 0})
+		carrier.feature = carrier.toGeoJSON()
+		// the same two properties create_image_object writes in production
+		carrier.feature.properties.uca_maps = {
+			image		: image_descriptor(),
+			is_raster	: true
+		}
+		active_group().addLayer(carrier)
+		return carrier
+	}
+
+	// the overlay plugin loads on demand (classic <script>): the overlay appears asynchronously
+	const await_overlay = (carrier) => until(() => carrier._uca_maps_overlay)
+
+	const add_image_carrier_with_overlay = async function() {
+		const carrier = add_image_carrier()
+		tool.attach_image_overlays()
+		await await_overlay(carrier)
+		return carrier
+	}
+
+	const arm_catastro = function() {
+		geolocation.section_lang = 'lg-spa' // Catastro exists only for es/cat/eus
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click()
+	}
+
+	// the install's answer is stubbed: no test reaches Pleiades, Pelagios or DARE
+	const mount_roman = function(gazetteers = null) {
+		tool.get_capabilities = async () => ({ ok: true, data: { gazetteers: structuredClone(gazetteers) } })
+		tool.attach_roman_empire()
+	}
+
+	const open_roman = () => geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+
+	// called AFTER opening the panel: opening resets it
+	const seed_roman_list = function(source, results) {
+		tool._roman_results	= results
+		tool._roman_source	= source
+		populate_roman_results(tool, tool.roman_panel)
+	}
 
 
 
@@ -569,17 +914,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 	/**
-	* ELEVATION (fila #3, hueco portado) — `layer_center` picks the point the
-	* server is asked about, `fetch_elevation` asks it, and NEITHER writes
-	* anything into the feature: v6 saves `center_elevation` on every click,
-	* which would dirty the record just for selecting an object. That
-	* not-saving is the thing worth pinning — a regression there is invisible
-	* until a user is asked to save a record they only looked at.
+	* ELEVATION — `layer_center` picks the point the server is asked about,
+	* `fetch_elevation` asks it, and NEITHER writes it into the feature: v6
+	* saves `center_elevation` on every click, which dirties a record the user
+	* only looked at.
 	*/
 	it('layer_center is a marker\'s own position and any other geometry\'s bounds centre', function() {
 
-		const marker	= geolocation.FeatureGroup[3].getLayers()[0]
-		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]
+		const marker	= seeded_layer(3)
+		const polygon	= seeded_layer(1)
 
 		const marker_center = layer_center(marker)
 		assert.closeTo(marker_center.lat, 40.42, 0.0001, 'expected the marker\'s own latitude')
@@ -595,14 +938,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('fetch_elevation asks about the centre and never writes it into the feature', async function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		let asked = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			asked = options
 			return { ok:true, data:{ elevation: 412, unavailable:false } }
-		}
+		})
 
 		const result = await fetch_elevation(tool, layer)
 
@@ -615,93 +957,79 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// v6 does `layer.feature.properties.center_elevation = ...; save_object()`
 		const properties = (layer.feature && layer.feature.properties) || {}
 		assert.isUndefined(properties.center_elevation, 'expected NOTHING written into the feature')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('fetch_elevation degrades to unavailable instead of throwing when the service fails', async function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			return { ok:true, data:{ elevation: null, unavailable:true } }
-		}
+		})
 
 		const degraded = await fetch_elevation(tool, layer)
 		assert.equal(degraded.elevation, null, 'expected no elevation')
 		assert.equal(degraded.unavailable, true, 'expected the degraded verdict')
 
-		tool.tool_request = async function() { throw new Error('network down') }
+		stub_tool_request(async function() { throw new Error('network down') })
 		const thrown = await fetch_elevation(tool, layer)
 		assert.equal(thrown.unavailable, true, 'expected an unexpected throw to degrade, not to propagate')
-
-		tool.tool_request = original_tool_request
 	})
 
 	// every commit() re-renders the console, so renders arrive faster than the
 	// third-party answer: caching only the ANSWER let each of them send its own
 	it('fetch_elevation sends one request for renders that arrive before the answer; a failure is asked again', async function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
-		const original_tool_request = tool.tool_request
 		let calls = 0
 		let release = null
 		const answer = new Promise(function(resolve) { release = resolve })
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			calls++
 			await answer
 			return { ok:true, data:{ elevation: 412, unavailable:false } }
-		}
-		try {
-			const burst = [fetch_elevation(tool, layer), fetch_elevation(tool, layer), fetch_elevation(tool, layer)]
-			assert.equal(calls, 1, 'expected ONE request while the first is still in flight')
-			release()
-			const results = await Promise.all(burst)
-			assert.deepEqual(results.map(result => result.elevation), [412, 412, 412], 'expected every render to get the answer')
-			assert.equal(tool._elevation.elevation, 412, 'expected the answer kept for the PDF export')
+		})
+		const burst = [fetch_elevation(tool, layer), fetch_elevation(tool, layer), fetch_elevation(tool, layer)]
+		assert.equal(calls, 1, 'expected ONE request while the first is still in flight')
+		release()
+		const results = await Promise.all(burst)
+		assert.deepEqual(results.map(result => result.elevation), [412, 412, 412], 'expected every render to get the answer')
+		assert.equal(tool._elevation.elevation, 412, 'expected the answer kept for the PDF export')
 
+		await fetch_elevation(tool, layer)
+		assert.equal(calls, 1, 'expected the answered centre not to be asked again')
+
+		// a refusal and a throw are not answers: neither may stick
+		const refusal = {is_api_error: true, code: 'request.invalid_options', message: 'x', transport: false}
+		for (const failing of [
+			async function() { calls++; return {ok: false, error: refusal} },
+			async function() { calls++; throw new Error('network down') }
+		]) {
+			tool._elevation	= null
+			calls			= 0
+			stub_tool_request(failing)
 			await fetch_elevation(tool, layer)
-			assert.equal(calls, 1, 'expected the answered centre not to be asked again')
-
-			// a refusal and a throw are not answers: neither may stick
-			const refusal = {is_api_error: true, code: 'request.invalid_options', message: 'x', transport: false}
-			for (const failing of [
-				async function() { calls++; return {ok: false, error: refusal} },
-				async function() { calls++; throw new Error('network down') }
-			]) {
-				tool._elevation	= null
-				calls			= 0
-				tool.tool_request = failing
-				await fetch_elevation(tool, layer)
-				await fetch_elevation(tool, layer)
-				assert.equal(calls, 2, 'expected a failed request to be asked again on the next render')
-				assert.isNull(tool._elevation, 'expected no cache entry left by a failure')
-			}
-		} finally {
-			tool.tool_request = original_tool_request
+			await fetch_elevation(tool, layer)
+			assert.equal(calls, 2, 'expected a failed request to be asked again on the next render')
+			assert.isNull(tool._elevation, 'expected no cache entry left by a failure')
 		}
 	})
 
 
 	/**
-	* ASSOCIATED IMAGES + GALLERY (fila #3, hito 16). The upload pipeline
-	* itself is the one hito 13 already covers; what is pinned here is what
-	* this feature adds on top of it — WHERE the association is stored, that a
-	* RELATIVE path is stored rather than v6's absolute URL, that removing an
-	* association does not touch the media, and that the PDF export sends
-	* record identities and never a file path.
+	* ASSOCIATED IMAGES AND GALLERY — what the association adds to the image
+	* upload: where it is stored, that it is a RELATIVE path (v6 stores an
+	* absolute URL), that removing one leaves the media alone, and that the PDF
+	* export sends record identities, never a file path.
 	*/
 	it('associate_image refuses with no file and never reaches the server', async function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		tool.active_console_layer = layer
 
 		let asked = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { asked = true; return {} }
+		stub_tool_request(async function() { asked = true; return {} })
 
 		const result = await associate_image(tool, layer, null)
 
@@ -709,23 +1037,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(result.error, 'expected a message to show in the panel')
 		assert.equal(asked, false, 'expected NO request without a file')
 		assert.deepEqual(object_images(layer), [], 'expected nothing stored')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('associate_image refuses once the object already holds the maximum', async function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		tool.active_console_layer = layer
-		layer.feature.properties.uca_maps = { images: Array.from(
-			{length: MAX_OBJECT_IMAGES},
-			(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'rsc170', section_id:index, tipo:'rsc29', name:null})
-		) }
+		layer.feature.properties.uca_maps = full_gallery()
 
 		let asked = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { asked = true; return {} }
+		stub_tool_request(async function() { asked = true; return {} })
 
 		const result = await associate_image(tool, layer, new File(['x'], 'x.jpg', {type:'image/jpeg'}))
 
@@ -733,13 +1054,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(result.error, 'expected a message to show')
 		assert.equal(asked, false, 'expected the cap checked BEFORE any upload')
 		assert.equal(object_images(layer).length, MAX_OBJECT_IMAGES, 'expected nothing added')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('object_images / object_image_url read the stored descriptors', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		assert.deepEqual(object_images(layer), [], 'expected no images on a fresh object')
 		assert.deepEqual(object_images(null), [], 'expected an array, never null')
 
@@ -757,7 +1076,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a stored descriptor holds NO absolute url — v6 stores one and it breaks on a host change', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		layer.feature.properties.uca_maps = { images: [
 			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
 		] }
@@ -771,7 +1090,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('remove_object_image drops the association and refuses an out-of-range index', function() {
 
 		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		layer.feature.properties.uca_maps = { images: [
 			{ file_path:'/a.jpg', section_tipo:'rsc170', section_id:1, tipo:'rsc29', name:'a' },
 			{ file_path:'/b.jpg', section_tipo:'rsc170', section_id:2, tipo:'rsc29', name:'b' }
@@ -798,7 +1117,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	*/
 	it('linked_images picks only links with no Dédalo record, v6\'s own test', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		const link = {url: 'https://images.example/a.jpg'}
 		layer.feature.properties.images = [
 			link,
@@ -808,90 +1127,33 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			null,
 			'https://images.example/c.jpg'
 		]
-		try {
-			assert.deepEqual(linked_images(layer), [link], 'expected only the url entry with no record')
-			layer.feature.properties.images = 'not a list'
-			assert.deepEqual(linked_images(layer), [], 'expected nothing from a non-array')
-			assert.deepEqual(linked_images(null), [], 'expected an array, never null')
-		} finally {
-			delete layer.feature.properties.images
-		}
+		assert.deepEqual(linked_images(layer), [link], 'expected only the url entry with no record')
+		layer.feature.properties.images = 'not a list'
+		assert.deepEqual(linked_images(layer), [], 'expected nothing from a non-array')
+		assert.deepEqual(linked_images(null), [], 'expected an array, never null')
 	})
 
 	it('external_images_enabled asks the install once, and a failed answer is off', async function() {
 
-		const original = tool.get_capabilities
 		let calls = 0
-		try {
-			tool._external_images_enabled = null
-			tool.get_capabilities = async function() { calls++; return {ok: true, data: {externalImages: true}} }
-			assert.equal(await external_images_enabled(tool), true, 'expected the install answer')
-			assert.equal(await external_images_enabled(tool), true, 'expected the same answer again')
-			assert.equal(calls, 1, 'expected ONE capabilities request per tool instance')
+		tool._external_images_enabled = null
+		tool.get_capabilities = async function() { calls++; return {ok: true, data: {externalImages: true}} }
+		assert.equal(await external_images_enabled(tool), true, 'expected the install answer')
+		assert.equal(await external_images_enabled(tool), true, 'expected the same answer again')
+		assert.equal(calls, 1, 'expected ONE capabilities request per tool instance')
 
-			tool._external_images_enabled = null
-			tool.get_capabilities = async function() { throw new Error('network down') }
-			assert.equal(await external_images_enabled(tool), false, 'expected a throw to read as off')
+		tool._external_images_enabled = null
+		tool.get_capabilities = async function() { throw new Error('network down') }
+		assert.equal(await external_images_enabled(tool), false, 'expected a throw to read as off')
 
-			tool._external_images_enabled = null
-			tool.get_capabilities = async function() { return {ok: false, error: {is_api_error: true, code: 'perm.denied', message: 'x', transport: false}} }
-			assert.equal(await external_images_enabled(tool), false, 'expected a refusal to read as off')
-		} finally {
-			tool.get_capabilities		= original
-			tool._external_images_enabled	= null
-		}
+		tool._external_images_enabled = null
+		tool.get_capabilities = async function() { return {ok: false, error: {is_api_error: true, code: 'perm.denied', message: 'x', transport: false}} }
+		assert.equal(await external_images_enabled(tool), false, 'expected a refusal to read as off')
 	})
-
-	// The four requests of one import: stage (server download), mint, ingest,
-	// where it is served. `stage` answers per url; the rest succeed.
-	const stub_linked_import = function(stage, ingest) {
-		const original_request		= data_manager.request
-		const original_tool_request	= tool.tool_request
-		const seen = {stages: [], created: 0, released: []}
-		let next_id = 9100
-		data_manager.request = async function(options) {
-			const body = options && options.body
-			if (body && body.action==='tool_request' && body.source && body.source.action==='stage_external_image') {
-				seen.stages.push({options: body.options, timeout: options.timeout})
-				return stage(body.options.url)
-			}
-			if (body && body.action==='create') {
-				seen.created++
-				return {ok: true, data: next_id++}
-			}
-			if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
-				return ingest ? ingest(body.options.file_data.tmp_name) : {ok: true, data: true}
-			}
-			if (body && body.action==='delete') {
-				return {ok: true, data: [body.source.section_id]}
-			}
-			if (body && body.action==='delete_uploaded_file') {
-				seen.released.push(body.options)
-				return {ok: true, data: true}
-			}
-			return original_request.apply(this, arguments)
-		}
-		tool.tool_request = async function(options) {
-			if (options.action==='get_image_file') {
-				return {ok: true, data: {file_path: '/rsc29/1.5MB/' + options.options.section_id + '.jpg', quality: '1.5MB'}}
-			}
-			return original_tool_request.apply(this, arguments)
-		}
-		seen.restore = function() {
-			data_manager.request	= original_request
-			tool.tool_request		= original_tool_request
-		}
-		return seen
-	}
-
-	const staged_answer = (name) => ({ok: true, data: {file_data: {
-		key_dir: 'image', tmp_name: name, name: name, extension: 'jpg', complete: true
-	}}})
 
 	it('import_linked_images moves what it imports, keeps a failed link and says why', async function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		tool.active_console_layer = layer
 		const good		= {url: 'https://images.example/good.jpg'}
 		const refused	= {url: 'https://images.example/refused.jpg'}
@@ -927,8 +1189,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isUndefined(images[0].url, 'expected no absolute url stored')
 		} finally {
 			seen.restore()
-			delete layer.feature.properties.images
-			delete layer.feature.properties.uca_maps
 		}
 	})
 
@@ -936,8 +1196,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// outcome is unknown is not (the server may still be consuming it)
 	it('import_linked_images releases a staged download only when the ingest certainly left it', async function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		tool.active_console_layer = layer
 		const refused	= {url: 'https://images.example/refused.jpg'}
 		const unknown	= {url: 'https://images.example/unknown.jpg'}
@@ -959,8 +1218,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.deepEqual(object_images(layer), [], 'expected nothing hung off the object')
 		} finally {
 			seen.restore()
-			delete layer.feature.properties.images
-			delete layer.feature.properties.uca_maps
 		}
 	})
 
@@ -969,13 +1226,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('a partial import still lists its failed links in the re-rendered panel', async function() {
 
 		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		const good		= {url: 'https://images.example/good.jpg'}
 		const refused	= {url: 'https://images.example/refused.jpg'}
 		layer.feature.properties.images = [good, refused]
 		layer.feature.properties.uca_maps = {}
 
-		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 		const seen = stub_linked_import(function(url) {
 			return url===good.url
 				? staged_answer('good.jpg')
@@ -984,16 +1240,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.external_images_enabled = async () => true
 		try {
 			layer.openPopup()
-			await settle()
+			await tick()
 			const before = tool.panel_node.querySelector('.uca-maps-object-linked-import')
 			assert.isOk(before, 'expected the import button')
 
 			before.click()
-			for (let i=0; i<100 && before.isConnected; i++) {
-				await settle()
-			}
+			await until(() => !before.isConnected, 100, 0)
 			assert.isFalse(before.isConnected, 'expected the commit to re-render the console')
-			await settle()
+			await tick()
 
 			const lines = [...tool.panel_node.querySelectorAll('.uca-maps-object-linked-failure')]
 			assert.equal(lines.length, 1, 'expected the failed link listed in the new panel')
@@ -1002,17 +1256,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				'expected the button offering the one link left')
 		} finally {
 			seen.restore()
-			delete tool.external_images_enabled
-			tool._linked_import_report = null
-			delete layer.feature.properties.images
-			delete layer.feature.properties.uca_maps
 		}
 	})
 
 	it('import_linked_images drops the emptied images list, and asks nothing at the cap', async function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		tool.active_console_layer = layer
 		layer.feature.properties.images = [{url: 'https://images.example/a.jpg'}]
 		layer.feature.properties.uca_maps = {}
@@ -1027,10 +1276,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 
 		layer.feature.properties.images = [{url: 'https://images.example/b.jpg'}]
-		layer.feature.properties.uca_maps = { images: Array.from(
-			{length: MAX_OBJECT_IMAGES},
-			(value, index) => ({file_path: '/' + index + '.jpg', section_tipo:'rsc170', section_id:index, tipo:'rsc29', name:null})
-		) }
+		layer.feature.properties.uca_maps = full_gallery()
 		seen = stub_linked_import(() => staged_answer('b.jpg'))
 		try {
 			const result = await import_linked_images(tool, layer)
@@ -1041,58 +1287,48 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(layer.feature.properties.images.length, 1, 'expected the link kept')
 		} finally {
 			seen.restore()
-			delete layer.feature.properties.images
-			delete layer.feature.properties.uca_maps
 		}
 	})
 
 	it('the import button shows only when the install allows it and there is something to import', async function() {
 
 		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		layer.feature.properties.images = [{url: 'https://images.example/a.jpg'}, {url: 'https://images.example/b.jpg'}]
 
-		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 		const button = () => tool.panel_node.querySelector('.uca-maps-object-linked-import')
-		try {
-			tool.external_images_enabled = async () => false
-			layer.openPopup()
-			await settle()
-			assert.isNull(button(), 'expected no button when the install has it off')
+		tool.external_images_enabled = async () => false
+		layer.openPopup()
+		await tick()
+		assert.isNull(button(), 'expected no button when the install has it off')
 
-			tool.external_images_enabled = async () => true
-			layer.closePopup()
-			layer.openPopup()
-			await settle()
-			assert.isOk(button(), 'expected the button when on and the object links images')
-			assert.include(button().textContent, '2', 'expected the count of linked images')
+		tool.external_images_enabled = async () => true
+		layer.closePopup()
+		layer.openPopup()
+		await tick()
+		assert.isOk(button(), 'expected the button when on and the object links images')
+		assert.include(button().textContent, '2', 'expected the count of linked images')
 
-			let asked = null
-			tool.import_linked_images = async function(asked_layer) {
-				asked = asked_layer
-				return {ok: true, imported: 0, failures: [], still_shown: true}
-			}
-			button().click()
-			await settle()
-			assert.equal(asked, layer, 'expected the click to import this object\'s links')
-		} finally {
-			delete tool.external_images_enabled
-			delete tool.import_linked_images
-			delete layer.feature.properties.images
+		let asked = null
+		tool.import_linked_images = async function(asked_layer) {
+			asked = asked_layer
+			return {ok: true, imported: 0, failures: [], still_shown: true}
 		}
+		button().click()
+		await tick()
+		assert.equal(asked, layer, 'expected the click to import this object\'s links')
 	})
 
 	it('download_object_pdf sends record identities and NEVER a file path', async function() {
 
 		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		layer.feature.properties.uca_maps = { images: [
 			{ file_path:'/rsc29/1.5MB/a.jpg', section_tipo:'rsc170', section_id:88, tipo:'rsc29', name:'a.jpg' }
 		] }
 
 		let asked = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			asked = options
 			// a real, minimal PDF so the blob path runs for real
 			return { ok:true, data:{
@@ -1100,7 +1336,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				filename		: 'uca_maps_object.pdf',
 				mime			: 'application/pdf'
 			} }
-		}
+		})
 
 		await download_object_pdf(tool, layer)
 
@@ -1113,8 +1349,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(sent.section_id, 88, 'expected the record id')
 		assert.isUndefined(sent.file_path, 'expected NO file path sent — the server re-resolves it under its own gate')
 		assert.isUndefined(sent.url, 'expected no url sent either')
-
-		tool.tool_request = original_tool_request
 	})
 
 	/**
@@ -1124,33 +1358,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	*/
 	it('a refused download answers the section\'s lead and the server\'s reason, not only a toast', async function() {
 
-		tool.attach_console()
-		tool.attach_map_image_download_control()
-		const layer		= geolocation.FeatureGroup[1].getLayers()[0]
+		const layer		= seeded_layer(1)
 		const refusal	= {is_api_error: true, code: 'request.invalid_options', message: 'The object could not be read.', transport: false}
 
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			return {ok: false, error: refusal}
+		})
+		const rows = [
+			{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
+			{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
+			{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
+		]
+		for (const row of rows) {
+			assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\n' + refusal.message}, row.label)
 		}
-		try {
-			const rows = [
-				{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
-				{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
-				{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
-			]
-			for (const row of rows) {
-				assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\n' + refusal.message}, row.label)
-			}
 
-			// an answer without an envelope error still says what failed
-			tool.tool_request = async function() {
-				return {ok: false}
-			}
-			assert.deepEqual(await download_vector(tool, layer, 'kml'), {ok: false, error: 'The object could not be downloaded.'})
-		} finally {
-			tool.tool_request = original_tool_request
-		}
+		// an answer without an envelope error still says what failed
+		stub_tool_request(async function() {
+			return {ok: false}
+		})
+		assert.deepEqual(await download_vector(tool, layer, 'kml'), {ok: false, error: 'The object could not be downloaded.'})
 	})
 
 	/**
@@ -1162,91 +1389,79 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_console()
 		tool.attach_map_image_download_control()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		const calls		= {}
-		const originals	= {}
 		let answer		= null
 		for (const name of ['download_vector', 'download_object_pdf', 'download_image', 'download_map_image']) {
-			originals[name] = tool[name]
 			tool[name] = function() {
 				calls[name] = (calls[name] || 0) + 1
 				return new Promise(resolve => { answer = resolve })
 			}
 		}
-		const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 		const object_section = () => tool.panel_node.querySelector('.uca-maps-object-section')
 
-		try {
-			const rows = [
-				{
-					label	: 'vector', name: 'download_vector', open: () => layer.openPopup(),
-					box		: () => object_section().querySelector('.uca-maps-download-section'),
-					button	: '.uca-maps-download-button', line: '.uca-maps-download-message'
-				},
-				{
-					label	: 'pdf', name: 'download_object_pdf', open: () => layer.openPopup(),
-					box		: () => object_section().querySelector('.uca-maps-properties-editor'),
-					button	: '.uca-maps-property-pdf-button', line: '.uca-maps-download-message'
-				},
-				{
-					label	: 'image', name: 'download_image',
-					open	: () => geolocation.map.fire('popupopen', {popup: {_source: add_image_carrier()}}),
-					box		: () => tool.panel_node.querySelector('.uca-maps-image-download-section'),
-					button	: '.uca-maps-image-download-button', line: '.uca-maps-download-message'
-				},
-				{
-					label	: 'map image', name: 'download_map_image', open: () => {},
-					box		: () => tool.map_image_panel,
-					button	: '.uca-maps-map-image-button', line: '.uca-maps-map-image-message'
-				}
-			]
-			for (const row of rows) {
-				row.open()
-				const box		= row.box()
-				const line		= box.querySelector(row.line)
-				const button	= box.querySelector(row.button)
-				assert.isOk(line, 'expected a failure line: ' + row.label)
-				assert.isTrue(line.hidden, 'expected no line before any attempt: ' + row.label)
-
-				button.click()
-				assert.isTrue(button.disabled, 'expected the button busy while it asks: ' + row.label)
-				button.click()
-				assert.equal(calls[row.name], 1, 'expected a click in flight to ask nothing more: ' + row.label)
-
-				answer({ok: false, error: 'LEAD\nREASON'})
-				await settle()
-				assert.isFalse(button.disabled, 'expected the button free once answered: ' + row.label)
-				assert.isFalse(line.hidden, 'expected the failure shown: ' + row.label)
-				assert.equal(line.textContent, 'LEAD\nREASON', row.label)
-
-				button.click()
-				assert.isTrue(line.hidden, 'expected the next attempt to clear it: ' + row.label)
-				answer({ok: true})
-				await settle()
-				assert.isTrue(line.hidden, 'expected no line after a download that worked: ' + row.label)
+		const rows = [
+			{
+				label	: 'vector', name: 'download_vector', open: () => layer.openPopup(),
+				box		: () => object_section().querySelector('.uca-maps-download-section'),
+				button	: '.uca-maps-download-button', line: '.uca-maps-download-message'
+			},
+			{
+				label	: 'pdf', name: 'download_object_pdf', open: () => layer.openPopup(),
+				box		: () => object_section().querySelector('.uca-maps-properties-editor'),
+				button	: '.uca-maps-property-pdf-button', line: '.uca-maps-download-message'
+			},
+			{
+				label	: 'image', name: 'download_image',
+				open	: () => select_carrier(add_image_carrier()),
+				box		: () => tool.panel_node.querySelector('.uca-maps-image-download-section'),
+				button	: '.uca-maps-image-download-button', line: '.uca-maps-download-message'
+			},
+			{
+				label	: 'map image', name: 'download_map_image', open: () => {},
+				box		: () => tool.map_image_panel,
+				button	: '.uca-maps-map-image-button', line: '.uca-maps-map-image-message'
 			}
-		} finally {
-			for (const name in originals) {
-				tool[name] = originals[name]
-			}
+		]
+		for (const row of rows) {
+			row.open()
+			const box		= row.box()
+			const line		= box.querySelector(row.line)
+			const button	= box.querySelector(row.button)
+			assert.isOk(line, 'expected a failure line: ' + row.label)
+			assert.isTrue(line.hidden, 'expected no line before any attempt: ' + row.label)
+
+			button.click()
+			assert.isTrue(button.disabled, 'expected the button busy while it asks: ' + row.label)
+			button.click()
+			assert.equal(calls[row.name], 1, 'expected a click in flight to ask nothing more: ' + row.label)
+
+			answer({ok: false, error: 'LEAD\nREASON'})
+			await tick()
+			assert.isFalse(button.disabled, 'expected the button free once answered: ' + row.label)
+			assert.isFalse(line.hidden, 'expected the failure shown: ' + row.label)
+			assert.equal(line.textContent, 'LEAD\nREASON', row.label)
+
+			button.click()
+			assert.isTrue(line.hidden, 'expected the next attempt to clear it: ' + row.label)
+			answer({ok: true})
+			await tick()
+			assert.isTrue(line.hidden, 'expected no line after a download that worked: ' + row.label)
 		}
 	})
 
 	it('a download that throws in the browser answers its lead and the exception, and keeps the page toast', async function() {
 
-		tool.attach_console()
-		tool.attach_map_image_download_control()
-		const layer		= geolocation.FeatureGroup[1].getLayers()[0]
+		const layer		= seeded_layer(1)
 		const carrier	= add_image_carrier()
 
 		// no envelope ever reached data_manager, so nothing else toasts it
 		const toasts	= []
 		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			throw new Error('Boom.')
-		}
+		})
 		const restore_image_download = stub_image_download(async () => { throw new Error('Boom.') })
 		try {
 			const rows = [
@@ -1261,14 +1476,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(toasts.length, rows.length, 'expected one page toast per throw')
 		} finally {
 			event_manager.unsubscribe(token)
-			tool.tool_request = original_tool_request
 			restore_image_download()
 		}
 	})
 
 	it('find_layer_id resolves the FeatureGroup that owns a layer', function() {
-
-		tool.attach_console()
 
 		const feature_group = geolocation.FeatureGroup[1]
 		assert.isOk(feature_group, 'expected FeatureGroup[1] loaded from the seeded lib_data')
@@ -1289,10 +1501,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	*/
 	it('opening a drawn layer\'s popup selects it in the console WITHOUT opening the panel', function() {
 
-		tool.attach_console()
-
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		assert.strictEqual(tool.active_console_layer, layer, 'expected the clicked layer selected')
 		assert.equal(tool.panel_node.hidden, true, 'expected the panel to stay closed when a geometry is selected')
@@ -1305,7 +1514,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// (`map_control` is the L.Control; the clickable node is its container)
 		geolocation.map.getContainer().querySelector('.uca-maps-control').click()
 		assert.equal(tool.panel_node.hidden, false, 'expected the UCA button to open it')
-		geolocation.FeatureGroup[3].getLayers()[0].openPopup()
+		seeded_layer(3).openPopup()
 		assert.equal(tool.panel_node.hidden, false, 'expected a selection not to close an open panel either')
 	})
 
@@ -1341,15 +1550,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// checkpoint 2b — object functions over the same selection plumbing 2a
-	// proved (style/properties/download/centroid/uncertainty/hierarchy).
-	// Exercises object_console.js's exported mutation functions directly
-	// (same rationale as the rest of this describe block: no get_instance/
-	// tool_common ceremony needed) against the seeded polygon layer.
+	// OBJECT FUNCTIONS — object_console.js's exported mutations (style,
+	// properties, download, centroid, uncertainty, hierarchy), called directly
+	// on the seeded layers.
 
 	it('set_style_field writes properties.uca_maps.style and applies it live', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		set_style_field(tool, layer, 'fillColor', PICKED_COLOUR)
 
@@ -1359,7 +1566,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('set_property/delete_property CRUD custom properties, reserved keys refused', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		assert.equal(set_property(tool, layer, 'custom_key', 'custom_value'), true, 'expected a non-reserved key accepted')
 		assert.equal(layer.feature.properties.custom_key, 'custom_value', 'expected the value written')
@@ -1372,77 +1579,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal('custom_key' in layer.feature.properties, false, 'expected the property removed')
 	})
 
-	/**
-	* Shared URL.createObjectURL spy — every download_vector format ends by
-	* building a Blob and handing it to this same global (review-diff
-	* tests-lens finding, 2026-09-02, against the original download_geojson: a
-	* throw-only assertion would still pass for a bug that serialized {} or
-	* the wrong layer). Restored in a `finally` so a failing assertion can
-	* never leak the spy into a later test.
-	* @param {Function} fn - runs with the spy installed
-	* @returns {Promise<Blob|null>} the captured Blob, or null if none was built
-	*/
-	/**
-	* Like `capture_download_blob`, but also reads the name
-	* `trigger_blob_download` put on the anchor — the only place the user's
-	* typed name is observable on the client-only PNG branch. Stubbing
-	* `click` also keeps the headless browser from actually downloading.
-	*/
-	// "Download image" asks through data_manager.request with its own timeout:
-	// `answer` sees the {action, options} a tool_request stub would, plus the
-	// transport options. Returns the restore.
-	const stub_image_download = function(answer) {
-		const original = data_manager.request
-		data_manager.request = async function(options) {
-			const body = options && options.body
-			if (body && body.action==='tool_request' && body.source && body.source.action==='image_download') {
-				return answer({action: body.source.action, options: body.options}, options)
-			}
-			return original.apply(this, arguments)
-		}
-		return () => { data_manager.request = original }
-	}
-
-	const capture_download = async function(fn) {
-		const original_create_object_url	= URL.createObjectURL
-		const original_click				= HTMLAnchorElement.prototype.click
-		let captured = {blob: null, name: null}
-		URL.createObjectURL = (blob) => {
-			captured.blob = blob
-			return 'blob:uca-maps-test-mock'
-		}
-		HTMLAnchorElement.prototype.click = function() {
-			captured.name = this.download
-		}
-		try {
-			await fn()
-		} finally {
-			URL.createObjectURL					= original_create_object_url
-			HTMLAnchorElement.prototype.click	= original_click
-		}
-		return captured
-	}//end capture_download
-
-	const capture_download_blob = async function(fn) {
-		const original_create_object_url = URL.createObjectURL
-		let captured_blob = null
-		URL.createObjectURL = (blob) => {
-			captured_blob = blob
-			return 'blob:uca-maps-test-mock'
-		}
-		try {
-			await fn()
-		} finally {
-			URL.createObjectURL = original_create_object_url
-		}
-		return captured_blob
-	}//end capture_download_blob
-
 	it('download_vector(\'geojson\') stays 100% client-side and downloads the real GeoJSON', async function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
-		const captured_blob = await capture_download_blob(() => download_vector(tool, layer, 'geojson'))
+		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'geojson'))).blob
 
 		assert.isOk(captured_blob, 'expected download_vector to build a Blob')
 		assert.equal(captured_blob.type, 'application/geo+json', 'expected the GeoJSON MIME type')
@@ -1465,15 +1606,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	*/
 	it('download_vector(\'shp\') downloads a real zip via the server\'s ogr2ogr, or reports GDAL unavailable', async function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		let response = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
-			response = await original_tool_request.call(tool, options)
+		stub_tool_request(async function(options) {
+			response = await real_tool_request(options)
 			return response
-		}
+		})
 
-		const captured_blob = await capture_download_blob(() => download_vector(tool, layer, 'shp'))
+		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'shp'))).blob
 
 		if (response && response.ok!==true) {
 			assert.equal(
@@ -1495,15 +1635,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('download_vector(\'kml\') downloads real WGS84 KML via the server\'s ogr2ogr, or reports GDAL unavailable', async function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		let response = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
-			response = await original_tool_request.call(tool, options)
+		stub_tool_request(async function(options) {
+			response = await real_tool_request(options)
 			return response
-		}
+		})
 
-		const captured_blob = await capture_download_blob(() => download_vector(tool, layer, 'kml'))
+		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'kml'))).blob
 
 		if (response && response.ok!==true) {
 			assert.equal(
@@ -1522,7 +1661,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('toggle_centroid creates a linked marker in the same FeatureGroup, and removes it on toggle-off', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		const layers_before = geolocation.FeatureGroup[1].getLayers().length
 
 		toggle_centroid(tool, layer)
@@ -1533,12 +1672,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const layers_after_create = geolocation.FeatureGroup[1].getLayers()
 		assert.equal(layers_after_create.length, layers_before + 1, 'expected one new layer (the centroid marker) added')
 
-		const centroid_layer = layers_after_create.find((candidate) =>
-			candidate.feature
-			&& candidate.feature.properties
-			&& candidate.feature.properties.uca_maps
-			&& candidate.feature.properties.uca_maps.uid===centroid_uid
-		)
+		const centroid_layer = layer_by_uid(geolocation.FeatureGroup[1], centroid_uid)
 		assert.isOk(centroid_layer, 'expected to find the centroid marker by its uid')
 		assert.equal(
 			centroid_layer.feature.properties.uca_maps.centroid_of,
@@ -1557,7 +1691,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('toggle_uncertainty stores the area as a number, never v6\'s 1/area string', function() {
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		const area_m2 = turf.area(layer.toGeoJSON())
 		assert.isAbove(area_m2, 1, 'expected a seeded polygon bigger than 1 m², or 1/area and area coincide')
 
@@ -1577,7 +1711,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('the uncertainty badge prints the stored area, formatted', function() {
 
 		tool.attach_console()
-		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		const polygon = seeded_layer(1)
 		toggle_uncertainty(tool, polygon)
 
 		polygon.openPopup()
@@ -1593,7 +1727,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a checked uncertainty follows the geometry when the polygon is reshaped', function() {
 
-		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]
+		const polygon	= seeded_layer(1)
 		const square	= function(side_deg) {
 			return [[40.45, -3.655], [40.45, -3.655 + side_deg], [40.45 + side_deg, -3.655 + side_deg], [40.45 + side_deg, -3.655]]
 		}
@@ -1621,8 +1755,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('set_hierarchy: unchecking clears the flag and restores the order a reload draws', function() {
 
-		const polygon	= geolocation.FeatureGroup[1].getLayers()[0]
-		const circle	= geolocation.FeatureGroup[2].getLayers()[0]
+		const polygon	= seeded_layer(1)
+		const circle	= seeded_layer(2)
 		const index_of	= (layer) => Array.prototype.indexOf.call(layer._path.parentNode.childNodes, layer._path)
 		const flags_of	= (layer) => {
 			const hierarchy = layer.feature.properties.uca_maps.hierarchy
@@ -1667,10 +1801,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('render_selected_object builds the full 2b section set for a polygon', function() {
 
-		tool.attach_console() // panel_node only exists once the console is attached (2a)
-
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		const section = tool.panel_node.querySelector('.uca-maps-object-section')
 		assert.isOk(section.querySelector('.uca-maps-style-controls'), 'expected style controls for a polygon')
@@ -1687,17 +1818,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 	/**
-	* FUNCTIONAL AUDIT, 2026-09-21 — the console's SHAPE, not its plumbing.
-	* Each of these pins one thing Sergio found by walking row #3 against v6
-	* in the browser; every one of them was green before, because no gate
-	* looked at the order of the sections, the heading of one, or the kind of
-	* widget a field uses.
+	* THE CONSOLE'S SHAPE, against v6: the order of its sections, the heading
+	* of one, the kind of widget a field uses — none of which the plumbing
+	* tests above look at.
 	*/
 	it('the object section follows v6\'s order: the checkboxes hang from the elevation heading, properties LAST', function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		const section = tool.panel_node.querySelector('.uca-maps-object-section')
 
@@ -1753,9 +1880,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('style offers v6\'s fields, with v6\'s own ranges, and paints border and body with ONE colour', function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		const controls = tool.panel_node.querySelector('.uca-maps-style-controls')
 
@@ -1810,9 +1935,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the measurement is an ordinary property: listed, editable, deletable', function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[2].getLayers()[0] // circle: shape + radius come from the core
-		layer.openPopup()
+		const layer = open_console_on(2) // circle: shape + radius come from the core
 
 		assert.isOk(layer.feature.properties.area, 'expected the area written into the feature, as v6 does')
 
@@ -1832,9 +1955,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the associate-image picker stays above the gallery it fills, and is the ONLY step', function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		const images = tool.panel_node.querySelector('.uca-maps-object-images')
 		const nodes = Array.from(images.children)
@@ -1853,9 +1974,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('choosing a file is what associates it: the picker\'s own change event runs the upload', async function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		const picker = tool.panel_node.querySelector('.uca-maps-object-image-file')
 
@@ -1867,22 +1986,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return {ok: true, still_shown: true}
 		}
 
-		try {
-			picker.dispatchEvent(new Event('change'))
-			await new Promise(resolve => setTimeout(resolve, 0))
+		picker.dispatchEvent(new Event('change'))
+		await tick()
 
-			assert.equal(asked_for, layer, 'expected the association fired for the selected object, with no second click')
-			assert.equal(disabled_during, true, 'expected the picker disabled for the round trip')
-		} finally {
-			delete tool.associate_image
-		}
+		assert.equal(asked_for, layer, 'expected the association fired for the selected object, with no second click')
+		assert.equal(disabled_during, true, 'expected the picker disabled for the round trip')
 	})
 
 	it('the Geoman checkbox is per object and only overrides an explicit state', function() {
 
-		tool.attach_console()
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
-		layer.openPopup()
+		const layer = open_console_on(1)
 
 		assert.equal(tool.has_geoman_edition(layer), false, 'expected no stored state before anyone ticks it')
 
@@ -1899,24 +2012,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(layer.pm.enabled(), true, 'expected geoman actually enabled on the layer')
 
 		// a sibling in another FeatureGroup is untouched: no stored state, no override
-		const other = geolocation.FeatureGroup[2].getLayers()[0]
+		const other = seeded_layer(2)
 		assert.equal(tool.has_geoman_edition(other), false, 'expected the state to be per object, not per map')
 	})
 
 
 
-	// review-diff tests-lens finding, 2026-09-02: the suite above only ever
-	// selected the seeded Polygon (layer_id 1) — style/centroid/uncertainty/
-	// hierarchy gating and compute_info's per-type formulas are untestable
-	// against one geometry. Circle (layer_id 2) and Marker (layer_id 3) close
-	// the two gaps the reviewer flagged as the required minimum; Polyline was
-	// explicitly graded optional by the same review and is left for a future
-	// checkpoint.
+	// CIRCLE AND MARKER — the per-geometry branches: which sections each type
+	// gets, and compute_info's formula for each. No polyline is seeded.
 
 	it('compute_info: Marker shows coordinates only, no style/centroid/uncertainty/hierarchy sections', function() {
 
 		tool.attach_console()
-		const layer = geolocation.FeatureGroup[3].getLayers()[0]
+		const layer = seeded_layer(3)
 		assert.instanceOf(layer, L.Marker, 'expected the seeded marker to load as an L.Marker')
 
 		const info = tool.compute_info(layer)
@@ -1936,7 +2044,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('compute_info: Circle shows center/radius/area (core\'s own circumference-as-area formula), has style/centroid/hierarchy but NOT uncertainty', function() {
 
 		tool.attach_console()
-		const layer = geolocation.FeatureGroup[2].getLayers()[0]
+		const layer = seeded_layer(2)
 		assert.instanceOf(layer, L.Circle, 'expected the seeded circle to reconstruct as an L.Circle (shape:"circle"+radius)')
 
 		const info = tool.compute_info(layer)
@@ -1954,7 +2062,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('toggle_centroid also works for a Circle (not just Polygon)', function() {
 
-		const layer = geolocation.FeatureGroup[2].getLayers()[0]
+		const layer = seeded_layer(2)
 
 		toggle_centroid(tool, layer)
 		assert.isOk(layer.feature.properties.uca_maps.centroid_uid, 'expected a centroid recorded on the circle')
@@ -1976,14 +2084,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// (2026-09-04): edit() now attaches THREE independent button+panel
 		// pairs, one per functionality (CLAUDE.local.md "Left toolbar");
 		// hito 4 adds a fourth ("Objects").
-		tool.type		= 'tool'
-		tool.mode		= 'edit'
-		tool.context	= { label: 'Mapas UCA' }
-
 		assert.isNotOk(tool.map_control, 'expected no control before edit() runs')
 		assert.isNotOk(tool.map_image_control, 'expected no map-image control before edit() runs')
 
-		const wrapper = await tool.edit({})
+		const wrapper = await run_edit()
 
 		assert.isOk(wrapper, 'expected edit() to return a wrapper node')
 		assert.isOk(tool.map_control, 'expected edit()\'s gate to have called attach_console()')
@@ -1996,10 +2100,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// hito 3, checkpoint 3b — "Download map as image" (functionality #10).
-	// Left toolbar refactor (2026-09-04): its own button+panel, no longer a
-	// section inside the "UCA" panel — see map_image_download.js
-	// attach_map_image_download_control / render_map_image_download_panel.
+	// MAP AS IMAGE (map_image_download.js) — its own button and panel: PNG is
+	// captured in the browser, the other formats are converted by the server.
 
 	it('attach_map_image_download_control builds its own button+panel with all 5 formats, in order', function() {
 
@@ -2038,20 +2140,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_map_image_download_control()
 
 		let tool_request_called = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			tool_request_called = true
-			return original_tool_request.call(tool, options)
-		}
+			return real_tool_request(options)
+		})
 
-		const captured_blob = await capture_download_blob(() => download_map_image(tool, 'png'))
+		const captured_blob = (await capture_download(() => download_map_image(tool, 'png'))).blob
 
 		assert.isOk(captured_blob, 'expected download_map_image to build a Blob')
 		assert.equal(captured_blob.type, 'image/png', 'expected a real PNG capture')
 		assert.isAbove(captured_blob.size, 0, 'expected a non-empty capture')
 		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format (same principle as GeoJSON, 2b/3a)')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('download_map_image names the PNG with what the user typed, sanitized', async function() {
@@ -2100,24 +2199,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isFalse(nodes.some(survives), `expected every ${selector} out of the image`)
 		}
 	})
-
-	// every URL dom-to-image-more asks for while capturing (it fetches by XHR)
-	const capture_png_requests = async function() {
-		const requested		= []
-		const original_open	= XMLHttpRequest.prototype.open
-		XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-			requested.push(String(url))
-			return original_open.call(this, method, url, ...rest)
-		}
-		let blob
-		try {
-			blob = await capture_download_blob(() => download_map_image(tool, 'png'))
-		} finally {
-			XMLHttpRequest.prototype.open = original_open
-		}
-		assert.isOk(blob, 'expected the capture to finish')
-		return requested
-	}//end capture_png_requests
 
 	it('capturing the map requests no URL made out of an SVG icon\'s own #reference', async function() {
 
@@ -2172,11 +2253,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_map_image_download_control()
 
 		let tool_request_called = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			tool_request_called = true
-			return original_tool_request.call(tool, options)
-		}
+			return real_tool_request(options)
+		})
 
 		// The refusal has to be VISIBLE, not just "nothing happened": it comes
 		// back for the panel's line, under the field it is about, and nothing
@@ -2198,8 +2278,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool_request_called, false, 'expected no server round-trip either')
 		assert.deepEqual(result, {ok: false, error: 'Please enter a name for the file'}, 'expected the reason for the panel\'s line')
 		assert.equal(errors.length, 0, 'expected no page toast for a field the user left empty')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('download_map_image with NO name argument keeps the default — omitted and empty are different', async function() {
@@ -2217,7 +2295,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_map_image_download_control()
 
 		const calls = []
-		const original = tool.download_map_image
 		tool.download_map_image = function(format, file_name) {
 			calls.push([format, file_name])
 		}
@@ -2227,17 +2304,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.map_image_panel.querySelector('.uca-maps-map-image-button').click()
 
 		assert.deepEqual(calls, [['jpg', 'plano general']], 'expected the click to carry BOTH the format and the field\'s current value')
-
-		tool.download_map_image = original
 	})
 
-	/**
-	* download_map_image('jpg'/'geotiff') round-trips through the REAL server
-	* action (`raster_download.ts`, hito 3b) — same tolerant-of-a-missing-
-	* binary discipline as 3a's SHP/KML tests (this suite's own ephemeral
-	* server runs in the same container that now has both GDAL and
-	* ImageMagick).
-	*/
 	it('download_map_image SENDS the typed name to the server for a server-side format', async function() {
 
 		tool.attach_console()
@@ -2248,34 +2316,35 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// REAL request still runs — same tolerant shape as the two tests below,
 		// so a container without ImageMagick fails the conversion, not this.
 		let sent = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			sent = options
-			return original_tool_request.call(tool, options)
-		}
+			return real_tool_request(options)
+		})
 
 		await capture_download(() => download_map_image(tool, 'jpg', '../Necrópolis de Cádiz'))
 
 		assert.isOk(sent, 'expected a server round-trip for a non-PNG format')
 		assert.equal(sent.action, 'raster_download', 'expected the raster_download action')
 		assert.equal(sent.options.file_name, 'Necrópolis de Cádiz', 'expected the SANITIZED name to travel in options.file_name')
-
-		tool.tool_request = original_tool_request
 	})
 
+	/**
+	* download_map_image('jpg'/'geotiff') round-trips through the REAL server
+	* action (`raster_download.ts`), with the SHP/KML tests' tolerance of a
+	* missing binary.
+	*/
 	it('download_map_image(\'jpg\') downloads a real flattened JPEG via the server\'s ImageMagick, or reports it unavailable', async function() {
 
 		tool.attach_console()
 		tool.attach_map_image_download_control()
 
 		let response = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
-			response = await original_tool_request.call(tool, options)
+		stub_tool_request(async function(options) {
+			response = await real_tool_request(options)
 			return response
-		}
+		})
 
-		const captured_blob = await capture_download_blob(() => download_map_image(tool, 'jpg'))
+		const captured_blob = (await capture_download(() => download_map_image(tool, 'jpg'))).blob
 
 		if (response && response.ok!==true) {
 			assert.equal(response.error && response.error.code, 'tool.dependency_unavailable', 'expected the only acceptable failure to be a missing ImageMagick binary — full response: ' + JSON.stringify(response))
@@ -2293,13 +2362,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_map_image_download_control()
 
 		let response = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
-			response = await original_tool_request.call(tool, options)
+		stub_tool_request(async function(options) {
+			response = await real_tool_request(options)
 			return response
-		}
+		})
 
-		const captured_blob = await capture_download_blob(() => download_map_image(tool, 'geotiff'))
+		const captured_blob = (await capture_download(() => download_map_image(tool, 'geotiff'))).blob
 
 		if (response && response.ok!==true) {
 			assert.equal(response.error && response.error.code, 'tool.dependency_unavailable', 'expected the only acceptable failure to be a missing GDAL binary — full response: ' + JSON.stringify(response))
@@ -2318,19 +2386,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// hito 4 — functionality #4 of the audit, "Objects" (object_viewer.js):
-	// read-only vector/rasterized object lists over the ACTIVE FeatureGroup
-	// (v6 parity, object_viewer.js file header).
-	//
-	// (!) tool.geolocation.active_layer_id is NOT 1 after this suite's own
-	// beforeEach: `layers_loader({load:'full', layer_id:null})` calls the
-	// core's own `load_layer` once per seeded layer_id (1, then 2, then 3,
-	// `component_geolocation.js` array order) and `load_layer` unconditionally
-	// sets `self.active_layer_id = layer_id` at ITS OWN end — so after the
-	// 'full' load, active_layer_id is 3 (the LAST one loaded, the marker), not
-	// 1. Every test below sets `geolocation.active_layer_id` EXPLICITLY before
-	// asserting which FeatureGroup is "active", rather than relying on
-	// whatever the fixture happens to leave behind.
+	// OBJECTS (object_viewer.js) — read-only lists of the ACTIVE FeatureGroup,
+	// as v6. (!) The 'full' load leaves active_layer_id at 3: load_layer sets
+	// it for each layer it loads, the marker last. Each test sets it first.
 
 	it('attach_object_viewer builds its own button+panel with both (empty, unpopulated) list sections', function() {
 
@@ -2384,7 +2442,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(vector_objects[0].name, 'Untitled object', 'expected the display-only nameless fallback')
 		assert.equal(vector_objects[0].display, true, 'expected visible by default')
 		assert.equal(
-			geolocation.FeatureGroup[1].getLayers()[0].feature.properties.name, undefined,
+			seeded_layer(1).feature.properties.name, undefined,
 			'expected collect_objects to NEVER write the nameless fallback back into properties (deliberate v6 deviation, file header)'
 		)
 
@@ -2400,7 +2458,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 1
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		assert.instanceOf(layer, L.Polygon, 'expected the seeded polygon')
 
 		set_object_display(tool, layer, false)
@@ -2418,7 +2476,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 3
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[3].getLayers()[0]
+		const layer = seeded_layer(3)
 		assert.instanceOf(layer, L.Marker, 'expected the seeded marker')
 
 		set_object_display(tool, layer, false)
@@ -2441,7 +2499,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// FRESH layer genuinely reaches this module with none (review-diff
 		// correctness finding, hito 4: a bare `layer.feature.properties` read
 		// silently no-oped on exactly this layer before)
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		delete layer.feature
 		assert.isNotOk(layer.feature, 'expected the fixture layer to start with no .feature, matching a freshly-drawn one')
 
@@ -2458,7 +2516,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 1 // the seeded polygon
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		tool.object_viewer_control.getContainer().click() // show + populate
 		const checkbox = tool.object_viewer_panel.querySelector('.uca-maps-object-viewer-vector-list .uca-maps-object-viewer-checkbox')
@@ -2523,7 +2581,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 1
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		let fit_bounds_called_with = null
 		let camera_is_moving_during_call = null
@@ -2540,8 +2598,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(fit_bounds_called_with.equals(layer.getBounds()), 'expected the layer\'s own bounds')
 		assert.equal(camera_is_moving_during_call, true, 'expected camera_is_moving raised DURING the move (CLAUDE.local.md "Tres leyes de component_geolocation")')
 		assert.equal(geolocation.camera_is_moving, false, 'expected camera_is_moving lowered again afterwards')
-
-		geolocation.map.fitBounds = original_fit_bounds
 	})
 
 	it('center_on_object (v6\'s "eye" icon) moves a Marker through move_camera (the single masked door), zoom 16 (v6\'s own hardcoded level)', function() {
@@ -2549,7 +2605,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 3
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[3].getLayers()[0]
+		const layer = seeded_layer(3)
 		const latlng = layer.getLatLng()
 
 		let move_camera_called_with = null
@@ -2565,8 +2621,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(move_camera_called_with.lat, latlng.lat, 'expected the marker\'s own latitude')
 		assert.equal(move_camera_called_with.lon, latlng.lng, 'expected the marker\'s own longitude')
 		assert.equal(move_camera_called_with.zoom, 16, 'expected v6\'s own hardcoded zoom level')
-
-		geolocation.move_camera = original_move_camera
 	})
 
 	it('center_on_object never marks the record dirty — a "Center" click is read-only (functionality #4 has no edit affordance)', function() {
@@ -2574,14 +2628,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 1
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 
 		geolocation.is_data_changed = false
 		center_on_object(tool, layer)
 		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click on a Polygon')
 
 		geolocation.active_layer_id = 3
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		geolocation.is_data_changed = false
 		center_on_object(tool, marker)
 		assert.equal(geolocation.is_data_changed, false, 'expected NO dirty flag from a read-only "Center" click on a Marker either')
@@ -2593,7 +2647,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 1
 		tool.attach_object_viewer()
 
-		const layer = geolocation.FeatureGroup[1].getLayers()[0]
+		const layer = seeded_layer(1)
 		set_object_display(tool, layer, false)
 		assert.equal(layer._path.style.display, 'none', 'expected hidden before the reload event')
 
@@ -2629,11 +2683,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// hito 7 — functionality #7 of the audit, "1x1" (onexone.js): a toggle
-	// button (NO panel — see onexone.js file header) that arms a mode where
-	// clicking an existing Marker creates a 1 m-radius rectangle around it,
-	// auto-flagged as uncertainty (functionality #3). layer_id 3 (the seeded
-	// marker) is this block's own subject throughout.
+	// 1x1 (onexone.js) — a toggle with no panel: while armed, clicking a marker
+	// draws a 1 m rectangle around it, flagged as uncertainty. The seeded
+	// marker (layer_id 3) is the subject throughout.
 
 	it('attach_onexone builds a bare toggle button (no panel), off by default; clicking flips it', function() {
 
@@ -2652,7 +2704,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('create_onexone_rectangle adds a 1 m rectangle to the marker\'s own FeatureGroup, linked by uid, auto-flagged uncertainty', function() {
 
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		const layers_before = geolocation.FeatureGroup[3].getLayers().length
 
 		create_onexone_rectangle(tool, marker)
@@ -2684,7 +2736,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('create_onexone_rectangle is idempotent — a marker that already has one does not get a second', function() {
 
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		create_onexone_rectangle(tool, marker)
 		const layers_after_first = geolocation.FeatureGroup[3].getLayers().length
 
@@ -2697,13 +2749,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('create_onexone_rectangle skips a centroid marker — not a real drawn point a user could 1x1', function() {
 
-		const parent = geolocation.FeatureGroup[1].getLayers()[0] // seeded polygon
+		const parent = seeded_layer(1) // seeded polygon
 		toggle_centroid(tool, parent)
 		const centroid_uid = parent.feature.properties.uca_maps.centroid_uid
-		const centroid = geolocation.FeatureGroup[1].getLayers().find((candidate) =>
-			candidate.feature && candidate.feature.properties.uca_maps
-			&& candidate.feature.properties.uca_maps.uid===centroid_uid
-		)
+		const centroid = layer_by_uid(geolocation.FeatureGroup[1], centroid_uid)
 		const layers_before = geolocation.FeatureGroup[1].getLayers().length
 
 		create_onexone_rectangle(tool, centroid)
@@ -2716,7 +2765,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('create_onexone_rectangle skips a Marker while Geoman is mid-edit elsewhere on the map (v6\'s geoman_edition_mode guard)', function() {
 
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		const layers_before = geolocation.FeatureGroup[3].getLayers().length
 
 		const original_global_edit_mode_enabled = geolocation.map.pm.globalEditModeEnabled
@@ -2736,7 +2785,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('popupopen only arms a rectangle while 1x1 mode is on (not before, not after clicking the button)', function() {
 
 		tool.attach_onexone()
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		const layers_before = geolocation.FeatureGroup[3].getLayers().length
 
 		marker.openPopup() // 1x1 mode still off
@@ -2754,14 +2803,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('deleting the rectangle clears the marker\'s onexone_uid (usable again); deleting the marker does NOT cascade-delete the rectangle', function() {
 
 		tool.attach_onexone()
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		create_onexone_rectangle(tool, marker)
 
 		const onexone_uid = marker.feature.properties.uca_maps.onexone_uid
-		const rectangle = geolocation.FeatureGroup[3].getLayers().find((candidate) =>
-			candidate.feature && candidate.feature.properties.uca_maps
-			&& candidate.feature.properties.uca_maps.uid===onexone_uid
-		)
+		const rectangle = layer_by_uid(geolocation.FeatureGroup[3], onexone_uid)
 
 		geolocation.FeatureGroup[3].removeLayer(rectangle)
 		geolocation.map.fire('pm:remove', {layer: rectangle})
@@ -2781,10 +2827,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the reverse direction: deleting the MARKER must not touch its rectangle
 		const second_uid = marker.feature.properties.uca_maps.onexone_uid
-		const second_rectangle = geolocation.FeatureGroup[3].getLayers().find((candidate) =>
-			candidate.feature && candidate.feature.properties.uca_maps
-			&& candidate.feature.properties.uca_maps.uid===second_uid
-		)
+		const second_rectangle = layer_by_uid(geolocation.FeatureGroup[3], second_uid)
 		geolocation.FeatureGroup[3].removeLayer(marker)
 		geolocation.map.fire('pm:remove', {layer: marker})
 
@@ -2795,9 +2838,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 	/**
-	* FUNCTIONAL AUDIT, 2026-09-22 — row #7 walked against v6. All of it was
-	* green before: no gate looked at what the console says about a 1x1, nor
-	* at the handles a geometry is born with.
+	* 1x1 AND GEOMAN HANDLES, against v6: what the console says about a 1x1,
+	* and the handles a new geometry is born with.
 	*/
 
 	it('a geometry created on the map is born with the Geoman handles off and says so; a marker and an image carrier are left alone', async function() {
@@ -2820,7 +2862,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		polygon.pm.enable()
 		assert.equal(polygon.pm.enabled(), true, 'expected the simulated core sweep to paint the handles')
 		polygon.openPopup()
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await tick()
 		assert.equal(polygon.pm.enabled(), false, 'expected the stored false to clear the handles the core sweep painted')
 
 		const marker = L.marker([40.42, -3.68])
@@ -2844,7 +2886,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('re-asserting a stored geoman state that already holds touches nothing — the loop guard', function() {
 
 		tool.attach_console()
-		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		const polygon = seeded_layer(1)
 
 		// an object with the handles explicitly off, already applied
 		tool.set_geoman_edition(polygon, false)
@@ -2874,15 +2916,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		real_enable()
 		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
 		assert.equal(disables, 1, 'expected the re-assert to reach this layer and clear a state that disagrees')
-
-		polygon.pm.disable	= real_disable
-		polygon.pm.enable	= real_enable
 	})
 
 	it('the 1x1 marker console carries v6\'s reference-point line and the uncertainty scale', function() {
 
 		tool.attach_console()
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		create_onexone_rectangle(tool, marker)
 
 		marker.openPopup()
@@ -2900,15 +2939,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('the 1x1 rectangle console prints the nominal area, stores none, and hides the centroid box', function() {
 
 		tool.attach_console()
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		create_onexone_rectangle(tool, marker)
 
 		const onexone_uid	= marker.feature.properties.uca_maps.onexone_uid
-		const rectangle		= geolocation.FeatureGroup[3].getLayers().find((candidate) =>
-			candidate.feature
-			&& candidate.feature.properties.uca_maps
-			&& candidate.feature.properties.uca_maps.uid===onexone_uid
-		)
+		const rectangle		= layer_by_uid(geolocation.FeatureGroup[3], onexone_uid)
 
 		assert.equal(
 			tool.compute_info(rectangle).value, '1 m²',
@@ -2928,7 +2963,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected no stored area: v6 saves one only in its non-1x1 branch'
 		)
 
-		const plain_polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		const plain_polygon = seeded_layer(1)
 		plain_polygon.openPopup()
 		assert.isOk(
 			plain_polygon.feature.properties.area,
@@ -2944,7 +2979,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('the 1x1 marker is born locked, as v6, and stays locked whatever a real click does to its popup', async function() {
 
 		tool.attach_console()
-		const marker = geolocation.FeatureGroup[3].getLayers()[0]
+		const marker = seeded_layer(3)
 		create_onexone_rectangle(tool, marker)
 
 		assert.equal(
@@ -2961,7 +2996,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		marker.pm.enable = function(options) { sweeps++; return real_enable(options) }
 		const click = async () => {
 			marker._icon.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
-			await new Promise((resolve) => setTimeout(resolve, 0))
+			await tick()
 		}
 
 		await click()
@@ -2980,17 +3015,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(sweeps, 2, 'expected the second click to reach the core sweep')
 		assert.isFalse(marker.isPopupOpen(), 'expected the second click to close the popup')
 		assert.equal(marker.pm.enabled(), false, 'expected the marker still locked after the closing click')
-
-		marker.pm.enable = real_enable
 	})
 
 	it('a click on the empty map stops editing a ticked object even with its popup open, as v6', async function() {
 
 		tool.attach_console()
-		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		const polygon = seeded_layer(1)
 		tool.set_geoman_edition(polygon, true)
 		polygon.openPopup()
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await tick()
 		assert.equal(polygon.pm.enabled(), true, 'expected the ticked object in edit mode, its popup open')
 
 		// a REAL click on the empty map: the open popup closes on that click's
@@ -2999,14 +3032,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.map.getContainer().dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
 		assert.isFalse(polygon.isPopupOpen(), 'expected the click to close the popup')
 		assert.equal(polygon.pm.enabled(), false, 'expected the core map click to stop editing')
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await tick()
 		assert.equal(polygon.pm.enabled(), false, 'expected the object still off after the deferred re-assert')
 	})
 
 	it('the uncertainty scale rings the STORED tier, on any polygon, not only on a 1x1', function() {
 
 		tool.attach_console()
-		const polygon = geolocation.FeatureGroup[1].getLayers()[0]
+		const polygon = seeded_layer(1)
 		toggle_uncertainty(tool, polygon)
 
 		polygon.openPopup()
@@ -3041,16 +3074,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// left toolbar refinements (2026-09-04, Sergio's validation feedback on
-	// hito 3c): opening one panel closes any other one already open.
+	// TOOLBAR (toolbar.js) — one Leaflet bar, one button per functionality,
+	// one panel open at a time.
 
 	it('edit() stacks "UCA"/"IMG"/"OBJ"/"1x1"/"XYZ"/"WMS"/"UP"/"Search"/"GPS"/"Legend"/"Roma" (attach order = corner order)', async function() {
 
-		tool.type		= 'tool'
-		tool.mode		= 'edit'
-		tool.context	= { label: 'Mapas UCA' }
-
-		await tool.edit({})
+		await run_edit()
 
 		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
 		assert.isOk(corner, 'expected the "UCA" button inside Leaflet\'s topleft corner')
@@ -3080,11 +3109,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('edit() also stacks "Catastro"/"UA" last when section_lang gates them in', async function() {
 
 		geolocation.section_lang = 'lg-spa'
-		tool.type		= 'tool'
-		tool.mode		= 'edit'
-		tool.context	= { label: 'Mapas UCA' }
-
-		await tool.edit({})
+		await run_edit()
 
 		const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
 		const buttons = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'))
@@ -3185,21 +3210,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// label, and no gap between them. Layout, so it loads the tool sheet.
 	it('with the tool CSS, every toolbar button is the same square and they stack with no gap', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			geolocation.section_lang = 'lg-spa' // gates Catastro and UA in
-			tool.type		= 'tool'
-			tool.mode		= 'edit'
-			tool.context	= { label: 'Mapas UCA' }
-			await tool.edit({})
+			await run_edit()
 
 			const corner	= tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
 			assert.equal(corner.querySelectorAll('.uca-maps-toolbar').length, 1, 'expected ONE bar')
@@ -3241,9 +3254,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			for (const node of links) {
 				assert.isAtMost(node.scrollWidth, node.clientWidth, 'expected the label to fit its square: "' + node.textContent + '"')
 			}
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	// Layout and paint, so it loads the tool sheet: a panel header is the tool
@@ -3251,16 +3262,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// buttons that once copied the action chrome by hand now share it.
 	it('with the tool CSS, a panel header carries the hue as an edge, and every action button shares one chrome', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			tool.attach_xyz_basemaps()
 			tool.attach_map_image_download_control()
 			geolocation.map.getContainer().querySelector('.uca-maps-xyz-control').click()
@@ -3284,23 +3286,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const image_btn	= tool.map_image_panel.querySelector('.uca-maps-map-image-button')
 			assert.isOk(image_btn, 'expected the map-image download button')
 			assert.equal(chrome(image_btn), chrome(xyz_add), 'expected the map-image button on the shared action chrome')
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	it('with the tool CSS, a panel line takes the tint of its type: error by default, success, warning, working', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			tool.attach_file_upload()
 			const message = tool.upload_panel.querySelector('.uca-maps-upload-message')
 			message.hidden = false
@@ -3327,23 +3318,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				message.dataset.type = type
 				assert.equal(getComputedStyle(message).backgroundColor, expected[type], 'expected the ' + type + ' tint')
 			}
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	it('with the tool CSS, every "nothing here yet" line looks the same: the console\'s and the object list\'s', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			tool.attach_console()
 			tool.attach_object_viewer()
 			tool.object_viewer_control.getContainer().click() // populate: no objects yet
@@ -3364,9 +3344,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.panel_node.appendChild(probe)
 			assert.equal(getComputedStyle(console_line).color, getComputedStyle(probe).color, 'expected the muted ink')
 			assert.equal(getComputedStyle(console_line).fontStyle, 'italic')
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	// Sergio (2026-10-15): every panel opens centred, as WMS, Roman and Legend
@@ -3405,16 +3383,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// app's 1rem), with one smaller step for secondary text.
 	it('with the tool CSS, a panel reads in the page\'s font and base size, not Leaflet\'s', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			tool.attach_xyz_basemaps()
 			const panel	= tool.xyz_panel
 			const root	= getComputedStyle(document.documentElement)
@@ -3432,28 +3401,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			const secondary = panel.querySelector('.uca-maps-xyz-list-title')
 			assert.closeTo(parseFloat(getComputedStyle(secondary).fontSize), parseFloat(root.fontSize) * 0.85, 0.05, 'expected the one smaller step')
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	// Sergio (2026-10-16): the console is wider than a plain panel, and the
 	// opacity/stroke sliders no longer push past its edge (sideways scroll).
 	it('with the tool CSS, the console is wider than a panel and an object\'s controls never scroll it sideways', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			tool.attach_console()
 			tool.map_control.getContainer().click()
-			geolocation.FeatureGroup[1].getLayers()[0].openPopup()
+			seeded_layer(1).openPopup()
 
 			// a plain panel anchored by its button, as the console is
 			const plain = create_toolbar_panel(tool, {class_name: 'uca-maps-test-plain-panel'})
@@ -3471,9 +3429,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			panel.style.width = '16rem'
 			assert.isAtMost(panel.scrollWidth, panel.clientWidth, 'expected the sliders to shrink with a narrow console, not scroll it sideways')
 			panel.style.width = ''
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	it('a button reads pressed exactly while its panel is open, however the panel closes', function() {
@@ -3508,12 +3464,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// hito 9 — functionality #5, "XYZ basemaps" (js/xyz_basemaps.js). This
-	// suite's default fixture (elements.js, no context.features.geo_provider
-	// stamped) falls to component_geolocation's own 'VARIOUS' default branch,
-	// which already builds a real layer_control seeded with arcgis+osm —
-	// exactly the "existing control" path xyz_basemaps.js must clean up
-	// (v6's real "OSM duplicated" bug, file header of xyz_basemaps.js).
+	// XYZ BASEMAPS (xyz_basemaps.js). The fixture has no geo_provider, so the
+	// core takes its VARIOUS branch and builds a layer_control with arcgis and
+	// osm: the "existing control" path this module must clean up (v6 listed
+	// OSM twice).
 
 	it('attach_xyz_basemaps seeds the v6 defaults minus Google Maps, replaces the core\'s own arcgis/osm base layers (no duplicates), and activates the first', function() {
 
@@ -3733,27 +3687,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// "WMS" (functionality #6, js/wms_services.js). Unlike XYZ, this
-	// functionality never touches geolocation.layer_control (v6's own
-	// equivalent doesn't either — plain L.TileLayer.WMS instances added/
-	// removed straight from the map), so there is no layer_control-takeover
-	// scenario to cover here. The GetCapabilities network call is always
-	// MOCKED (tool.tool_request stubbed) — the real SSRF-guarded proxy +
-	// XML fetch is covered server-side, hermetically, in
-	// test/unit/tool_uca_maps_get_wms_layers.test.ts; a client suite must
-	// never depend on a live third-party WMS server being reachable.
-
-	const SAMPLE_CAPABILITIES_XML = `<?xml version="1.0" encoding="UTF-8"?>
-		<WMS_Capabilities xmlns="http://www.opengis.net/wms" version="1.3.0">
-			<Capability>
-				<Layer>
-					<Layer queryable="1">
-						<Name>topo:layer1</Name>
-						<Title>Layer One</Title>
-					</Layer>
-				</Layer>
-			</Capability>
-		</WMS_Capabilities>`
+	// WMS (wms_services.js) — plain WMS tile layers on the map, as v6: the
+	// layer_control is never touched. GetCapabilities is always stubbed; the
+	// guarded fetch is test/unit/tool_uca_maps_get_wms_layers.test.ts's.
 
 	it('attach_wms_services seeds an empty session-only layer list and builds the button+panel', function() {
 
@@ -3772,15 +3708,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_wms_services()
 
 		let called = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
+		stub_tool_request(async function(options) { called = true; return real_tool_request(options) })
 
 		const result = await tool.search_wms_layers('not-a-url')
 
 		assert.equal(result.ok, false)
 		assert.equal(called, false, 'expected the server never contacted for an invalid URL')
-
-		tool.tool_request = original_tool_request
 	})
 
 	// review-diff correctness finding: an unexpected throw must resolve to a
@@ -3790,7 +3723,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('search_wms_layers never rejects, even when tool_request throws unexpectedly', async function() {
 
 		tool.attach_wms_services()
-		tool.tool_request = async function() { throw new Error('boom') }
+		stub_tool_request(async function() { throw new Error('boom') })
 
 		const result = await tool.search_wms_layers('https://example.com/geoserver/wms')
 
@@ -3806,7 +3739,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_wms_services()
 
 		let resolve_tool_request
-		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+		stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
 
 		const pending = tool.search_wms_layers('https://example.com/geoserver/wms')
 
@@ -3843,8 +3776,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const toasts	= []
 		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		const failures	= []
-		const original_tool_request = tool.tool_request
-		tool.tool_request = () => new Promise((resolve, reject) => { failures.push(reject) })
+		stub_tool_request(() => new Promise((resolve, reject) => { failures.push(reject) }))
 		try {
 			// control: alive, each exception reaches the page toast
 			for (const row of rows) {
@@ -3868,7 +3800,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			)
 		} finally {
 			event_manager.unsubscribe(token)
-			tool.tool_request = original_tool_request
 		}
 	})
 
@@ -3883,10 +3814,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const panel = tool.wms_panel
 
 		let requested_options = null
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			requested_options = options
 			return {ok: true, data: {url: 'https://example.com/geoserver/wms', xml: SAMPLE_CAPABILITIES_XML}}
-		}
+		})
 
 		const result = await tool.search_wms_layers('https://example.com/geoserver/wms?ignored=1')
 
@@ -4078,16 +4009,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// than at the 18rem anchored default.
 	it('with the tool CSS, a WMS layer name keeps its width and the panel sits centred near the map top', async function() {
 
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
+		await with_tool_css(async () => {
 			tool.attach_wms_services()
 			for (let i = 1; i <= 3; i++) {
 				tool.add_wms_layer({
@@ -4115,9 +4037,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const dy = (panel_rect.top - map_rect.top) - 5 * rem
 			assert.isAtMost(Math.abs(dx), 2, `expected the panel centred horizontally on the map (off by ${dx}px)`)
 			assert.isAtMost(Math.abs(dy), 2, `expected the panel 5rem below the map top (off by ${dy}px)`)
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	it('detach_wms_services removes the button/panel AND every WMS tile layer it added from the live map', async function() {
@@ -4141,22 +4061,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	// "Catastro" (functionality #8, js/catastro.js) / "UA" (functionality #9,
-	// js/administrative_units.js). Both gated on section_lang (v6 parity —
-	// es/cat/eus); the shared fixture (elements.js) sets no section_lang, so
-	// it defaults to the "not gated in" case unless a test opts in. Every
-	// outbound call is MOCKED (tool.tool_request stubbed) — the real proxies
-	// are covered hermetically server-side (test/unit/tool_uca_maps_get_
-	// catastro_parcel.test.ts / …get_administrative_unit.test.ts); a client
-	// suite must never depend on a live third-party server being reachable.
-	// Both SWAP the active basemap (v6 parity, confirmed live by Sergio,
-	// 2026-09-08 validation) — this helper reads it straight off the map,
-	// same "DOM/map is truth" law as everything else in this suite.
-	const find_active_tile_layer = function(map) {
-		let found = null
-		map.eachLayer((layer) => { if (layer instanceof L.TileLayer) found = layer })
-		return found
-	}
+	// CATASTRO (catastro.js) AND UA (administrative_units.js) — both exist only
+	// for an es/cat/eus section_lang, which the fixture does not set, and both
+	// SWAP the base map (find_active_tile_layer). Every lookup is stubbed.
 
 	it('attach_catastro/attach_administrative_units are a no-op unless section_lang is es/cat/eus (v6 parity)', function() {
 
@@ -4210,23 +4117,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('check_catastro_at_point (found) creates a polygon with a visible "url" property, not hidden uca_maps bookkeeping', async function() {
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_catastro()
-		tool.catastro_control.getContainer().click() // arm
+		arm_catastro()
 
 		let requested_options = null
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			requested_options = options
-			return {ok: true, data: {found: true, refcat: '1234567AB1234C', url: 'https://example.com/parcel', points: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6], [40.1, -3.6]]}}
-		}
+			return {ok: true, data: parcel_found()}
+		})
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before_layer_count = active_group().getLayers().length
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 
 		assert.equal(requested_options.action, 'get_catastro_parcel')
 		assert.isOk(Array.isArray(requested_options.options.bbox) && requested_options.options.bbox.length===4, 'expected a 4-number bbox')
 
-		const layers = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers()
+		const layers = active_group().getLayers()
 		assert.equal(layers.length, before_layer_count + 1, 'expected one new polygon added to the active FeatureGroup')
 		const created = layers[layers.length - 1]
 		assert.equal(created.feature.properties.url, 'https://example.com/parcel', 'expected a REGULAR, visible "url" property (v6 parity)')
@@ -4237,16 +4142,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// the parcel's own url, titled "Catastro" (Sergio, 2026-09-24).
 	it('the console shows a parcel\'s url as a read-only "Catastro" link; the same key typed by hand stays editable text', async function() {
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_catastro()
 		tool.attach_console()
-		tool.catastro_control.getContainer().click() // arm
-		tool.tool_request = async function() {
-			return {ok: true, data: {found: true, refcat: '1234567AB1234C', url: 'https://example.com/parcel?rc1=1&rc2=2', points: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6], [40.1, -3.6]]}}
-		}
+		arm_catastro()
+		stub_tool_request(async function() {
+			return {ok: true, data: parcel_found('https://example.com/parcel?rc1=1&rc2=2')}
+		})
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 
-		const layers	= geolocation.FeatureGroup[geolocation.active_layer_id].getLayers()
+		const layers	= active_group().getLayers()
 		const parcel	= layers[layers.length - 1]
 		parcel.openPopup()
 
@@ -4290,17 +4193,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('check_catastro_at_point (not found) shows a message, creates nothing', async function() {
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_catastro()
-		tool.catastro_control.getContainer().click() // arm
+		arm_catastro()
 
-		tool.tool_request = async () => ({ok: true, data: {found: false}})
+		stub_tool_request(async () => ({ok: true, data: {found: false}}))
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before_layer_count = active_group().getLayers().length
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 
 		assert.equal(
-			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			active_group().getLayers().length,
 			before_layer_count,
 			'expected no polygon created on a "not found" result'
 		)
@@ -4312,25 +4213,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('a refusal\'s reason sits on its own line: Catastro\'s core banner and the panel lines', async function() {
 
 		// with the tool CSS or not at all: without it white-space is never pre-line
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
-			geolocation.section_lang = 'lg-spa'
-			tool.attach_catastro()
-			tool.catastro_control.getContainer().click() // arm
-			tool.tool_request = async () => ({ok: false, error: {
+		await with_tool_css(async () => {
+			arm_catastro()
+			stub_tool_request(async () => ({ok: false, error: {
 				is_api_error	: true,
 				code			: 'request.invalid_options',
 				label_key		: 'error_request_invalid_options',
 				message			: 'Coordinates out of range'
-			}})
+			}}))
 			await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 
 			const text = geolocation.node.querySelector('.uca-maps-catastro-message .text')
@@ -4342,23 +4232,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.attach_file_upload()
 			const line = tool.upload_panel.querySelector('.uca-maps-upload-message')
 			assert.equal(getComputedStyle(line).whiteSpace, 'pre-line', 'expected the line break kept in a panel line')
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	it('check_catastro_at_point refuses overlapping lookups (busy guard) — only the first reaches tool_request', async function() {
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_catastro()
-		tool.catastro_control.getContainer().click() // arm
+		arm_catastro()
 
 		let call_count = 0
 		let resolve_first
-		tool.tool_request = () => new Promise((resolve) => {
+		stub_tool_request(() => new Promise((resolve) => {
 			call_count++
 			resolve_first = () => resolve({ok: true, data: {found: false}})
-		})
+		}))
 
 		const first = check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 		const second = check_catastro_at_point(tool, L.latLng(40.16, -3.66)) // dropped: busy
@@ -4391,24 +4277,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// Catastro (second click) must not resurrect a parcel after the fact.
 	it('check_catastro_at_point drops a response that arrives after the user disarms Catastro mid-request', async function() {
 
-		geolocation.section_lang = 'lg-spa'
-		tool.attach_catastro()
-		tool.catastro_control.getContainer().click() // arm
+		arm_catastro()
 
 		let resolve_tool_request
-		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+		stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before_layer_count = active_group().getLayers().length
 		const pending = check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 
 		tool.catastro_control.getContainer().click() // disarm WHILE the request is in flight
 		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro disarmed')
 
-		resolve_tool_request({ok: true, data: {found: true, refcat: '1234567AB1234C', url: 'https://example.com/parcel', points: [[40.1, -3.7], [40.2, -3.7], [40.2, -3.6]]}})
+		resolve_tool_request({ok: true, data: parcel_found()})
 		await pending
 
 		assert.equal(
-			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			active_group().getLayers().length,
 			before_layer_count,
 			'expected the late "found" response NOT to create a parcel after Catastro was disarmed'
 		)
@@ -4486,22 +4370,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.ua_control.getContainer().click() // arm, level defaults to 'Municipio'
 
 		let requested_options = null
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			requested_options = options
 			return {ok: true, data: {found: true, feature: {
 				type: 'Feature',
 				geometry: {type: 'Polygon', coordinates: [[[-3.71,40.40],[-3.60,40.40],[-3.60,40.50],[-3.71,40.50],[-3.71,40.40]]]},
 				properties: {nameunit: 'Test municipality'}
 			}}}
-		}
+		})
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before_layer_count = active_group().getLayers().length
 		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
 
 		assert.equal(requested_options.action, 'get_administrative_unit')
 		assert.equal(requested_options.options.level, 'Municipio')
 
-		const layers = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers()
+		const layers = active_group().getLayers()
 		assert.equal(layers.length, before_layer_count + 1, 'expected one new object added to the active FeatureGroup')
 		assert.equal(layers[layers.length - 1].feature.properties.nameunit, 'Test municipality', 'expected the raw IGN properties kept, v6 parity')
 	})
@@ -4512,13 +4396,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_administrative_units()
 		tool.ua_control.getContainer().click() // arm
 
-		tool.tool_request = async () => ({ok: true, data: {found: false}})
+		stub_tool_request(async () => ({ok: true, data: {found: false}}))
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before_layer_count = active_group().getLayers().length
 		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
 
 		assert.equal(
-			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			active_group().getLayers().length,
 			before_layer_count,
 			'expected no object created on a "not found" result'
 		)
@@ -4537,9 +4421,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.ua_control.getContainer().click() // arm
 
 		let resolve_tool_request
-		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+		stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before_layer_count = active_group().getLayers().length
 		const pending = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
 
 		tool.ua_control.getContainer().click() // close WHILE the request is in flight
@@ -4553,7 +4437,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		await pending
 
 		assert.equal(
-			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			active_group().getLayers().length,
 			before_layer_count,
 			'expected the late "found" response NOT to create an object after the panel was closed'
 		)
@@ -4580,22 +4464,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// hito 12 — functionality #11, "Upload file to map", VECTOR HALF ONLY
-	// (js/vector_upload.js). No language/section_tipo gate, unlike Catastro/
-	// UA. The real round-trip tests exercise BOTH the engine's own generic
-	// service_upload.js transport AND this tool's own upload_vector_layer
-	// server action — tolerant of a missing GDAL binary the same way
-	// download_vector('shp'/'kml') already are (file header above): the
-	// suite's dev container has GDAL (hito 3), so these are exercised for
-	// real there, not merely mocked.
-	const SAMPLE_UPLOAD_GEOJSON = {
-		type		: 'FeatureCollection',
-		features	: [{
-			type		: 'Feature',
-			properties	: {},
-			geometry	: { type: 'Point', coordinates: [-3.65, 40.45] }
-		}]
-	}
+	// UPLOAD FILE TO MAP, vector half (vector_upload.js). The round-trip tests
+	// run the real service_upload transport and upload_vector_layer action,
+	// and accept a missing GDAL as the only failure.
 
 	it('attach_file_upload builds its own button+panel', function() {
 
@@ -4612,23 +4483,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_file_upload()
 
 		let called = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
+		stub_tool_request(async function(options) { called = true; return real_tool_request(options) })
 
 		const result = await tool.upload_vector_file(null, {})
 
 		assert.equal(result.ok, false)
 		assert.equal(called, false, 'expected the server never contacted with no file selected')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('upload_vector_file (real round trip) uploads a .geojson file and creates a matching object, or reports GDAL unavailable', async function() {
 
 		tool.attach_file_upload()
 
-		const before_layer_count = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
-		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+		const before_layer_count = active_group().getLayers().length
+		const file = sample_vector_file()
 
 		const result = await tool.upload_vector_file(file, {})
 
@@ -4642,7 +4510,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.equal(result.feature_count, 1, 'expected exactly the one uploaded feature')
 		assert.equal(
-			geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length,
+			active_group().getLayers().length,
 			before_layer_count + 1,
 			'expected one new object added to the active FeatureGroup via pm:create'
 		)
@@ -4654,14 +4522,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		let response	= null
 		let sent		= null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			sent		= options
-			response	= await original_tool_request.call(tool, options)
+			response	= await real_tool_request(options)
 			return response
-		}
+		})
 
-		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+		const file = sample_vector_file()
 
 		// the EPSG format check runs BEFORE the ogr2ogr call (vector_upload.ts),
 		// so this exercises the real staged-upload + server round trip without
@@ -4687,18 +4554,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_file_upload()
 
 		let resolve_tool_request
-		tool.tool_request = () => new Promise((resolve) => { resolve_tool_request = resolve })
+		stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
 
-		const file = new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)], 'test.geojson', {type: 'application/geo+json'})
+		const file = sample_vector_file()
 		const pending = tool.upload_vector_file(file, {})
 
 		// wait for the (real) service_upload transport to finish staging the
 		// file and reach the point where it calls tool.tool_request — polling
 		// is the only signal available, tool_request itself has no "about to
 		// call" hook
-		for (let i=0; i<200 && !resolve_tool_request; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await until(() => resolve_tool_request)
 		assert.isOk(resolve_tool_request, 'expected tool_request reached within the wait budget')
 
 		await tool.destroy(false, false, false)
@@ -4711,59 +4576,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 
-	// hito 13 — functionality #11, IMAGE HALF (js/image_upload.js), inside the
-	// SAME button+panel the vector half builds.
-	//
-	// NO real end-to-end upload here, deliberately. Doing one would mint an
-	// rsc170 record + real media on every run with no id handed back to sweep
-	// it, so the suite DB would accumulate orphans run after run — the exact
-	// thing "DB writes in tests only on scratch surfaces; clean up after"
-	// forbids. The server half is pinned by
-	// test/unit/tool_uca_maps_image_overlay.test.ts (real gdalinfo), the
-	// staging transport is the same service_upload the vector tests above
-	// exercise for real, and the full round trip is a manual-validation step
-	// in the hito 13 dossier. What IS covered here is everything that lives
-	// only in the browser: the panel, the refusal, and the overlay lifecycle
-	// (hydrate / console / teardown) driven off a carrier built by hand — the
-	// same shape a saved record hands back on load.
-	const IMAGE_DESCRIPTOR = {
-		file_path		: '/image/1.5MB/rsc29_rsc170_1.jpg',
-		quality			: '1.5MB',
-		section_tipo	: 'rsc170',
-		section_id		: 1,
-		tipo			: 'rsc29',
-		corners			: {
-			top_left	: [40.46, -3.66],
-			top_right	: [40.46, -3.64],
-			bottom_left	: [40.44, -3.66]
-		},
-		opacity			: 1,
-		z_index			: 200
-	}
-
-	// create_image_object ends in map.fitBounds(), which starts a ZOOM
-	// ANIMATION. Ending a test with the frame still queued hands afterEach a
-	// map it destroys under a pending _move(), and Leaflet throws inside the
-	// NEXT test's beforeEach. Every create_image_object test waits on this.
-	function settle_map(map) {
-		return new Promise((resolve) => {
-			const settled = () => resolve()
-			map.once('moveend', settled)
-			setTimeout(settled, 1000) // fitBounds on an already-matching view fires nothing
-		})
-	}
-
-	function add_image_carrier() {
-		const carrier = L.rectangle([[40.44, -3.66], [40.46, -3.64]], {opacity: 0, fillOpacity: 0})
-		carrier.feature = carrier.toGeoJSON()
-		// the same two properties create_image_object writes in production
-		carrier.feature.properties.uca_maps = {
-			image		: JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)),
-			is_raster	: true
-		}
-		geolocation.FeatureGroup[geolocation.active_layer_id].addLayer(carrier)
-		return carrier
-	}
+	// UPLOAD FILE TO MAP, image half (image_upload.js), in the same panel. Only
+	// the browser half is here — the panel, the refusal, the overlay lifecycle
+	// — on carriers built by hand (IMAGE_DESCRIPTOR); the server half is
+	// test/unit/tool_uca_maps_image_overlay.test.ts's.
 
 	it('the upload panel carries the image sub-flow as well as the vector one', function() {
 
@@ -4785,14 +4601,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected v6\'s projections toggle and the vector Upload button, nothing in the image half'
 		)
 	})
-
-	// hand the picker a real FileList, then fire what the browser fires
-	function pick_file(input, file) {
-		const transfer = new DataTransfer()
-		transfer.items.add(file)
-		input.files = transfer.files
-		input.dispatchEvent(new Event('change'))
-	}
 
 	it('each half owns its status line: under the vector Upload button, under the image picker', function() {
 
@@ -4893,7 +4701,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-image-file')
 		const messages	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')
-		const file		= new File(['x'], 'plan.png', {type: 'image/png'})
+		const file		= image_file()
 
 		let asked_for		= null
 		let disabled_during	= null
@@ -4903,29 +4711,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return {ok: true, georeferenced: true}
 		}
 
-		try {
-			pick_file(picker, file)
-			await new Promise(resolve => setTimeout(resolve, 0))
+		pick_file(picker, file)
+		await tick()
 
-			assert.equal(asked_for, file, 'expected the upload fired by the pick, with no second click')
-			assert.equal(disabled_during, true, 'expected the picker disabled for the round trip')
-			assert.equal(picker.disabled, false, 'expected the picker enabled again afterwards')
-			assert.equal(picker.value, '', 'expected the picker emptied, so the same file can be picked again')
-			assert.equal(messages[0].hidden, true, 'expected the vector half\'s line untouched')
-			assert.equal(messages[1].hidden, false, 'expected the result in the image half')
-			assert.equal(messages[1].textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
-			assert.equal(messages[1].dataset.type, 'ok', 'expected a success, not the error tint')
-		} finally {
-			delete tool.upload_image_file
-		}
+		assert.equal(asked_for, file, 'expected the upload fired by the pick, with no second click')
+		assert.equal(disabled_during, true, 'expected the picker disabled for the round trip')
+		assert.equal(picker.disabled, false, 'expected the picker enabled again afterwards')
+		assert.equal(picker.value, '', 'expected the picker emptied, so the same file can be picked again')
+		assert.equal(messages[0].hidden, true, 'expected the vector half\'s line untouched')
+		assert.equal(messages[1].hidden, false, 'expected the result in the image half')
+		assert.equal(messages[1].textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
+		assert.equal(messages[1].dataset.type, 'ok', 'expected a success, not the error tint')
 	})
-
-	// load the picker without firing anything: the vector half uploads on click
-	function load_file(input, file) {
-		const transfer = new DataTransfer()
-		transfer.items.add(file)
-		input.files = transfer.files
-	}
 
 	it('the vector half says how many objects an upload created, or that it read none', async function() {
 
@@ -4934,27 +4731,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
 		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
 		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
-		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+		const file		= vector_file()
 
 		let answer = {ok: true, feature_count: 0}
 		tool.upload_vector_file = async function() { return answer }
 
-		try {
-			load_file(picker, file)
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.textContent, tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.')
-			assert.equal(message.dataset.type, 'warning', 'expected "nothing read" as a warning, not an error')
+		load_file(picker, file)
+		submit.click()
+		await tick()
+		assert.equal(message.textContent, tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.')
+		assert.equal(message.dataset.type, 'warning', 'expected "nothing read" as a warning, not an error')
 
-			answer = {ok: true, feature_count: 3}
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (3)')
-			assert.equal(message.dataset.type, 'ok', 'expected a success, not the error tint')
-			assert.equal(picker.value, '', 'expected the picker emptied after a success')
-		} finally {
-			delete tool.upload_vector_file
-		}
+		answer = {ok: true, feature_count: 3}
+		submit.click()
+		await tick()
+		assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (3)')
+		assert.equal(message.dataset.type, 'ok', 'expected a success, not the error tint')
+		assert.equal(picker.value, '', 'expected the picker emptied after a success')
 	})
 
 	it('an upload that outlives the panel writes nothing to it', async function() {
@@ -4970,24 +4763,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return new Promise((resolve) => { settle = resolve })
 		}
 
-		try {
-			load_file(picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.isOk(settle, 'expected the upload in flight')
+		load_file(picker, vector_file())
+		submit.click()
+		await tick()
+		assert.isOk(settle, 'expected the upload in flight')
 
-			await tool.destroy(false, false, false)
-			assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
-			settle({ok: false, error: 'late answer'})
-			await new Promise(resolve => setTimeout(resolve, 0))
+		await tool.destroy(false, false, false)
+		assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
+		settle({ok: false, error: 'late answer'})
+		await tick()
 
-			assert.equal(message.isConnected, false, 'expected the panel gone')
-			assert.equal(message.hidden, true, 'expected the late answer never written')
-			assert.equal(picker.disabled, true, 'expected the detached picker left as it was')
-			assert.equal(submit.disabled, true, 'expected the detached button left as it was')
-		} finally {
-			delete tool.upload_vector_file
-		}
+		assert.equal(message.isConnected, false, 'expected the panel gone')
+		assert.equal(message.hidden, true, 'expected the late answer never written')
+		assert.equal(picker.disabled, true, 'expected the detached picker left as it was')
+		assert.equal(submit.disabled, true, 'expected the detached button left as it was')
 	})
 
 	// the former window: errors hid after it, and a long refusal could not be read
@@ -5001,33 +4790,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-image-file')
 		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[1]
-		const file		= new File(['x'], 'plan.png', {type: 'image/png'})
+		const file		= image_file()
 
 		let answer = {ok: true, georeferenced: false}
 		tool.upload_image_file = async function() { return answer }
 
-		try {
-			pick_file(picker, file)
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.hidden, false, 'expected the placement message shown first')
-			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
-			assert.equal(message.hidden, true, 'expected it gone after a couple of seconds')
+		pick_file(picker, file)
+		await tick()
+		assert.equal(message.hidden, false, 'expected the placement message shown first')
+		await tick(UPLOAD_MESSAGE_MS + 200)
+		assert.equal(message.hidden, true, 'expected it gone after a couple of seconds')
 
-			answer = {ok: false, error: 'the ingest refused it'}
-			pick_file(picker, file)
-			await new Promise(resolve => setTimeout(resolve, FORMER_ERROR_MESSAGE_MS + 200))
-			assert.equal(message.hidden, false, 'expected the error still there past the former window')
-			assert.equal(message.textContent, 'the ingest refused it')
-			assert.equal(message.dataset.type, 'error')
+		answer = {ok: false, error: 'the ingest refused it'}
+		pick_file(picker, file)
+		await tick(FORMER_ERROR_MESSAGE_MS + 200)
+		assert.equal(message.hidden, false, 'expected the error still there past the former window')
+		assert.equal(message.textContent, 'the ingest refused it')
+		assert.equal(message.dataset.type, 'error')
 
-			// the next pick is the gesture that replaces it, before its own answer
-			tool.upload_image_file = () => new Promise(() => {})
-			pick_file(picker, file)
-			assert.equal(message.textContent, 'Uploading the image…', 'expected the next pick to replace the error with its working line')
-			assert.equal(message.dataset.type, 'info', 'expected the working line neutral, not still the error tint')
-		} finally {
-			delete tool.upload_image_file
-		}
+		// the next pick is the gesture that replaces it, before its own answer
+		tool.upload_image_file = () => new Promise(() => {})
+		pick_file(picker, file)
+		assert.equal(message.textContent, 'Uploading the image…', 'expected the next pick to replace the error with its working line')
+		assert.equal(message.dataset.type, 'info', 'expected the working line neutral, not still the error tint')
 	})
 
 	it('a vector success goes away by itself, as the image one does; a vector error stays until the next Upload', async function() {
@@ -5039,33 +4824,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const picker	= tool.upload_panel.querySelector('.uca-maps-upload-file')
 		const submit	= tool.upload_panel.querySelector('.uca-maps-upload-submit')
 		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[0]
-		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+		const file		= vector_file()
 
 		let answer = {ok: true, feature_count: 2}
 		tool.upload_vector_file = async function() { return answer }
 
-		try {
-			load_file(picker, file)
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.hidden, false, 'expected the success shown first')
-			await new Promise(resolve => setTimeout(resolve, UPLOAD_MESSAGE_MS + 200))
-			assert.equal(message.hidden, true, 'expected it gone after the image message\'s window')
+		load_file(picker, file)
+		submit.click()
+		await tick()
+		assert.equal(message.hidden, false, 'expected the success shown first')
+		await tick(UPLOAD_MESSAGE_MS + 200)
+		assert.equal(message.hidden, true, 'expected it gone after the image message\'s window')
 
-			answer = {ok: false, error: 'zone and band do not match'}
-			load_file(picker, file)
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, FORMER_ERROR_MESSAGE_MS + 200))
-			assert.equal(message.hidden, false, 'expected the error still there past the former window')
-			assert.equal(message.textContent, 'zone and band do not match')
+		answer = {ok: false, error: 'zone and band do not match'}
+		load_file(picker, file)
+		submit.click()
+		await tick(FORMER_ERROR_MESSAGE_MS + 200)
+		assert.equal(message.hidden, false, 'expected the error still there past the former window')
+		assert.equal(message.textContent, 'zone and band do not match')
 
-			// the next Upload is the gesture that clears it, before its own answer
-			tool.upload_vector_file = () => new Promise(() => {})
-			submit.click()
-			assert.equal(message.hidden, true, 'expected the next Upload to clear the error')
-		} finally {
-			delete tool.upload_vector_file
-		}
+		// the next Upload is the gesture that clears it, before its own answer
+		tool.upload_vector_file = () => new Promise(() => {})
+		submit.click()
+		assert.equal(message.hidden, true, 'expected the next Upload to clear the error')
 	})
 
 	it('UP closed by a SIBLING panel reopens clean too, in both halves', async function() {
@@ -5080,31 +4861,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.upload_vector_file	= async function() { return {ok: false, error: 'vector refused'} }
 		tool.upload_image_file	= async function() { return {ok: false, error: 'image refused'} }
 
-		try {
-			tool.upload_control.getContainer().click()
+		tool.upload_control.getContainer().click()
 
-			load_file(vector_picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
-			panel.querySelector('.uca-maps-upload-epsg').value = '25830'
-			panel.querySelector('.uca-maps-upload-submit').click()
-			pick_file(image_picker, new File(['x'], 'plan.png', {type: 'image/png'}))
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(messages[0].hidden, false, 'expected the vector error shown')
-			assert.equal(messages[1].hidden, false, 'expected the image error shown')
+		load_file(vector_picker, vector_file())
+		panel.querySelector('.uca-maps-upload-epsg').value = '25830'
+		panel.querySelector('.uca-maps-upload-submit').click()
+		pick_file(image_picker, image_file())
+		await tick()
+		assert.equal(messages[0].hidden, false, 'expected the vector error shown')
+		assert.equal(messages[1].hidden, false, 'expected the image error shown')
 
-			// closed by toolbar.js close_other_toolbar_panels, never by UP's own toggle
-			tool.map_image_control.getContainer().click()
-			assert.equal(panel.hidden, true, 'expected UP closed by the sibling')
-			tool.upload_control.getContainer().click()
+		// closed by toolbar.js close_other_toolbar_panels, never by UP's own toggle
+		tool.map_image_control.getContainer().click()
+		assert.equal(panel.hidden, true, 'expected UP closed by the sibling')
+		tool.upload_control.getContainer().click()
 
-			assert.equal(messages[0].hidden, true, 'expected no vector message')
-			assert.equal(messages[1].hidden, true, 'expected no image message')
-			assert.equal(vector_picker.files.length, 0, 'expected no vector file chosen')
-			assert.equal(image_picker.value, '', 'expected no image file chosen')
-			assert.equal(panel.querySelector('.uca-maps-upload-epsg').value, '', 'expected EPSG empty')
-		} finally {
-			delete tool.upload_vector_file
-			delete tool.upload_image_file
-		}
+		assert.equal(messages[0].hidden, true, 'expected no vector message')
+		assert.equal(messages[1].hidden, true, 'expected no image message')
+		assert.equal(vector_picker.files.length, 0, 'expected no vector file chosen')
+		assert.equal(image_picker.value, '', 'expected no image file chosen')
+		assert.equal(panel.querySelector('.uca-maps-upload-epsg').value, '', 'expected EPSG empty')
 	})
 
 	it('reopening UP mid-upload leaves that half\'s file and working line alone', async function() {
@@ -5121,25 +4897,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return new Promise((resolve) => { settle = resolve })
 		}
 
-		try {
-			toggle()
-			pick_file(picker, new File(['x'], 'plan.png', {type: 'image/png'}))
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.isOk(settle, 'expected the upload in flight')
-			assert.equal(message.hidden, false, 'expected the working line shown')
+		toggle()
+		pick_file(picker, image_file())
+		await tick()
+		assert.isOk(settle, 'expected the upload in flight')
+		assert.equal(message.hidden, false, 'expected the working line shown')
 
-			toggle()
-			toggle()
-			assert.equal(message.hidden, false, 'expected the working line kept while the upload runs')
-			assert.equal(picker.disabled, true, 'expected the picker still locked')
+		toggle()
+		toggle()
+		assert.equal(message.hidden, false, 'expected the working line kept while the upload runs')
+		assert.equal(picker.disabled, true, 'expected the picker still locked')
 
-			settle({ok: true, georeferenced: true})
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
-			assert.equal(picker.disabled, false)
-		} finally {
-			delete tool.upload_image_file
-		}
+		settle({ok: true, georeferenced: true})
+		await tick()
+		assert.equal(message.textContent, tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.')
+		assert.equal(picker.disabled, false)
 	})
 
 	it('reopening UP mid vector upload leaves its file, fields and controls alone', async function() {
@@ -5152,37 +4924,33 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const submit	= panel.querySelector('.uca-maps-upload-submit')
 		const message	= panel.querySelectorAll('.uca-maps-upload-message')[0]
 		const inputs	= Array.from(panel.querySelectorAll('.uca-maps-upload-epsg-row input'))
-		const file		= new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
+		const file		= vector_file()
 
 		let settle = null
 		tool.upload_vector_file = function() {
 			return new Promise((resolve) => { settle = resolve })
 		}
 
-		try {
-			toggle()
-			load_file(picker, file)
-			inputs[0].value = '25830'
-			inputs[1].value = '30'
-			inputs[2].value = 'N'
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.isOk(settle, 'expected the upload in flight')
+		toggle()
+		load_file(picker, file)
+		inputs[0].value = '25830'
+		inputs[1].value = '30'
+		inputs[2].value = 'N'
+		submit.click()
+		await tick()
+		assert.isOk(settle, 'expected the upload in flight')
 
-			toggle()
-			toggle()
-			assert.equal(picker.files[0], file, 'expected the file kept while the upload runs')
-			assert.deepEqual(inputs.map(i => i.value), ['25830', '30', 'N'], 'expected the fields kept')
-			assert.equal(picker.disabled, true, 'expected the picker still locked')
-			assert.equal(submit.disabled, true, 'expected Upload still locked')
+		toggle()
+		toggle()
+		assert.equal(picker.files[0], file, 'expected the file kept while the upload runs')
+		assert.deepEqual(inputs.map(i => i.value), ['25830', '30', 'N'], 'expected the fields kept')
+		assert.equal(picker.disabled, true, 'expected the picker still locked')
+		assert.equal(submit.disabled, true, 'expected Upload still locked')
 
-			settle({ok: true, feature_count: 1})
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (1)')
-			assert.equal(submit.disabled, false)
-		} finally {
-			delete tool.upload_vector_file
-		}
+		settle({ok: true, feature_count: 1})
+		await tick()
+		assert.equal(message.textContent, (tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (1)')
+		assert.equal(submit.disabled, false)
 	})
 
 	it('reopening UP starts clean, as v6\'s rebuilt modal: no message, no file, no projection', async function() {
@@ -5198,35 +4966,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const message	= panel.querySelectorAll('.uca-maps-upload-message')[0]
 		tool.upload_vector_file = async function() { return {ok: false, error: 'Please choose a file first.'} }
 
-		try {
-			toggle()
-			assert.equal(panel.hidden, false, 'expected UP open')
+		toggle()
+		assert.equal(panel.hidden, false, 'expected UP open')
 
-			load_file(picker, new File(['{}'], 'plan.geojson', {type: 'application/geo+json'}))
-			epsg.value = '25830'
-			epsg.dispatchEvent(new Event('input'))
-			panel.querySelector('.uca-maps-upload-zone').value = '30'
-			panel.querySelector('.uca-maps-upload-band').value = 'N'
-			panel.querySelector('.uca-maps-upload-projections-button').click()
-			panel.querySelector('.uca-maps-upload-submit').click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(message.hidden, false, 'expected the error shown')
+		load_file(picker, vector_file())
+		epsg.value = '25830'
+		epsg.dispatchEvent(new Event('input'))
+		panel.querySelector('.uca-maps-upload-zone').value = '30'
+		panel.querySelector('.uca-maps-upload-band').value = 'N'
+		panel.querySelector('.uca-maps-upload-projections-button').click()
+		panel.querySelector('.uca-maps-upload-submit').click()
+		await tick()
+		assert.equal(message.hidden, false, 'expected the error shown')
 
-			toggle()
-			assert.equal(panel.hidden, true, 'expected UP closed')
-			toggle()
+		toggle()
+		assert.equal(panel.hidden, true, 'expected UP closed')
+		toggle()
 
-			assert.equal(message.hidden, true, 'expected no message on reopening')
-			assert.equal(picker.files.length, 0, 'expected no file chosen')
-			assert.deepEqual(
-				Array.from(panel.querySelectorAll('.uca-maps-upload-epsg-row input')).map(i => i.value),
-				['', '', ''], 'expected EPSG, zone and band empty'
-			)
-			assert.equal(link.getAttribute('href'), 'https://epsg.io/', 'expected the epsg.io link back to its base')
-			assert.equal(list.hidden, true, 'expected the projections list closed')
-		} finally {
-			delete tool.upload_vector_file
-		}
+		assert.equal(message.hidden, true, 'expected no message on reopening')
+		assert.equal(picker.files.length, 0, 'expected no file chosen')
+		assert.deepEqual(
+			Array.from(panel.querySelectorAll('.uca-maps-upload-epsg-row input')).map(i => i.value),
+			['', '', ''], 'expected EPSG, zone and band empty'
+		)
+		assert.equal(link.getAttribute('href'), 'https://epsg.io/', 'expected the epsg.io link back to its base')
+		assert.equal(list.hidden, true, 'expected the projections list closed')
 	})
 
 	it('the teardown cancels a pending hide timer', async function() {
@@ -5237,16 +5001,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const message	= tool.upload_panel.querySelectorAll('.uca-maps-upload-message')[1]
 		tool.upload_image_file = async function() { return {ok: true, georeferenced: true} }
 
-		try {
-			pick_file(picker, new File(['x'], 'plan.png', {type: 'image/png'}))
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.isOk(message._uca_maps_hide_timer, 'expected a hide timer armed')
+		pick_file(picker, image_file())
+		await tick()
+		assert.isOk(message._uca_maps_hide_timer, 'expected a hide timer armed')
 
-			await tool.destroy(false, false, false)
-			assert.equal(message._uca_maps_hide_timer, null, 'expected the timer cancelled with the panel')
-		} finally {
-			delete tool.upload_image_file
-		}
+		await tool.destroy(false, false, false)
+		assert.equal(message._uca_maps_hide_timer, null, 'expected the timer cancelled with the panel')
 	})
 
 	it('choosing a vector file uploads nothing; Upload sends it with the EPSG, zone and band typed, and a failure keeps it', async function() {
@@ -5266,27 +5026,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return {ok: false, error: 'no coordinate system'}
 		}
 
-		try {
-			const file = new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
-			pick_file(picker, file)
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(asked_for, null, 'expected choosing the file to upload nothing')
+		const file = vector_file()
+		pick_file(picker, file)
+		await tick()
+		assert.equal(asked_for, null, 'expected choosing the file to upload nothing')
 
-			submit.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
+		submit.click()
+		await tick()
 
-			assert.deepEqual(
-				asked_for, {file, projection: {epsg: '25830', zone: '30', band: 'N'}},
-				'expected Upload to send the chosen file with the three fields\' values'
-			)
-			// the retry is: correct the fields, press Upload again
-			assert.equal(picker.files[0], file, 'expected the file kept after a failure')
-			assert.equal(submit.disabled, false, 'expected Upload enabled again')
-			assert.equal(messages[0].textContent, 'no coordinate system', 'expected the error in the vector half')
-			assert.equal(messages[1].hidden, true, 'expected the image half\'s line untouched')
-		} finally {
-			delete tool.upload_vector_file
-		}
+		assert.deepEqual(
+			asked_for, {file, projection: {epsg: '25830', zone: '30', band: 'N'}},
+			'expected Upload to send the chosen file with the three fields\' values'
+		)
+		// the retry is: correct the fields, press Upload again
+		assert.equal(picker.files[0], file, 'expected the file kept after a failure')
+		assert.equal(submit.disabled, false, 'expected Upload enabled again')
+		assert.equal(messages[0].textContent, 'no coordinate system', 'expected the error in the vector half')
+		assert.equal(messages[1].hidden, true, 'expected the image half\'s line untouched')
 	})
 
 	it('upload_image_file refuses without a file, never touching the network', async function() {
@@ -5294,15 +5050,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_file_upload()
 
 		let called = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { called = true; return original_tool_request.apply(this, arguments) }
+		stub_tool_request(async function(options) { called = true; return real_tool_request(options) })
 
 		const result = await tool.upload_image_file(null)
 
 		assert.equal(result.ok, false)
 		assert.equal(called, false, 'expected the server never contacted with no file selected')
-
-		tool.tool_request = original_tool_request
 	})
 
 	// The stub stands in for create, ingest and delete only, so no record is
@@ -5412,9 +5165,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the plugin loads on demand (classic <script>), so the overlay
 		// appears asynchronously
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 
 		assert.isOk(carrier._uca_maps_overlay, 'expected the overlay rebuilt from properties.uca_maps.image')
 		assert.equal(
@@ -5466,7 +5217,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// splits its two lists on properties.uca_maps.is_raster and its own
 		// header names THIS row as what fills the raster one, so the flag has
 		// to be written where the object is actually created
-		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
+		const carrier = await create_image_object(tool, image_descriptor())
 
 		await settle_map(geolocation.map)
 
@@ -5487,7 +5238,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// a plain image lands at an arbitrary spot, so the next gesture is
 		// always moving it: v6 uploads straight into edit mode and making the
 		// user find a checkbox first is a step it never asked for
-		const descriptor = JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR))
+		const descriptor = image_descriptor()
 		delete descriptor.interactive
 
 		const carrier = await create_image_object(tool, descriptor)
@@ -5503,7 +5254,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the guard that keeps the default from becoming a rule: the builder
 		// fills a MISSING flag, it does not decide for a caller that set one
-		const descriptor = JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR))
+		const descriptor = image_descriptor()
 		descriptor.interactive = false
 
 		const carrier = await create_image_object(tool, descriptor)
@@ -5518,7 +5269,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// every layer of the clicked FeatureGroup — which painted four vertex
 		// circles over the image, competing with this module's three handles.
 		// Removal must survive: Geoman's remove tool is how an image is deleted
-		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
+		const carrier = await create_image_object(tool, image_descriptor())
 		await settle_map(geolocation.map)
 
 		assert.equal(carrier.pm.options.allowEditing, false, 'expected Geoman editing refused on the carrier')
@@ -5535,7 +5286,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// this the user dragged an invisible box and the image stayed behind:
 		// the two desynced and nothing appeared to move (Sergio, validación
 		// hito 14, 2ª ronda). v6 could not drag an image at all
-		const carrier = await create_image_object(tool, JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR)))
+		const carrier = await create_image_object(tool, image_descriptor())
 		await settle_map(geolocation.map)
 
 		const before	= JSON.parse(JSON.stringify(carrier.feature.properties.uca_maps.image.corners))
@@ -5582,11 +5333,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
 		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
 
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 		// let any racing rebuild finish before counting
-		await new Promise((r) => setTimeout(r, 100))
+		await tick(100)
 
 		assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay, not a stacked duplicate')
 	})
@@ -5595,9 +5344,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 
 		apply_display(carrier, false)
 
@@ -5615,14 +5362,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const carrier = add_image_carrier()
 		tool.attach_console()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 
 		// the carrier is built by hand here, so it carries no popup — fire the
 		// selection event the console actually listens to (object_console.js
 		// hydrate's 'popupopen' handler reads popup._source and nothing else)
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		const section = tool.panel_node.querySelector('.uca-maps-object-section')
 		assert.isOk(section.querySelector('.uca-maps-image-view'), 'expected the "View image" link')
@@ -5650,7 +5395,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_console()
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		const section	= tool.panel_node.querySelector('.uca-maps-object-section')
 		const download	= section.querySelector('.uca-maps-image-download-section')
@@ -5677,7 +5422,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const image = carrier.feature.properties.uca_maps.image
 		image.opacity = 0.3
 		tool.attach_console()
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		// a handle drag that nobody saved yet: the download must follow it
 		image.corners.top_right = [40.47, -3.63]
@@ -5695,9 +5440,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			download.querySelector('.uca-maps-image-download-quality').value = '2'
 			download.querySelector('.uca-maps-image-download-format').value = 'jpg'
 			download.querySelector('.uca-maps-image-download-button').click()
-			for (let i=0; i<100 && !sent; i++) {
-				await new Promise(r => setTimeout(r, 10))
-			}
+			await until(() => sent, 100)
 
 			assert.equal(sent.action, 'image_download')
 			assert.equal(sent.options.section_tipo, IMAGE_DESCRIPTOR.section_tipo)
@@ -5736,7 +5479,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_console()
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		const gone		= 'The image shown on the map is no longer on the server.'
 		const restore	= stub_image_download(async function() {
@@ -5748,9 +5491,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isTrue(line.hidden, 'expected no line before any attempt')
 
 			download.querySelector('.uca-maps-image-download-button').click()
-			for (let i=0; i<100 && line.hidden; i++) {
-				await new Promise(r => setTimeout(r, 10))
-			}
+			await until(() => !line.hidden, 100)
 
 			assert.isFalse(line.hidden, 'expected the refusal shown under the button')
 			assert.equal(line.textContent, 'The image could not be downloaded.\n' + gone)
@@ -5762,7 +5503,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('image_download_width is v6\'s quality over the fitted on-screen size, and never moves the map', function() {
 
 		const map		= geolocation.map
-		const corners	= JSON.parse(JSON.stringify(IMAGE_DESCRIPTOR.corners))
+		const corners	= image_descriptor().corners
 		const center	= map.getCenter()
 		const zoom		= map.getZoom()
 
@@ -5799,7 +5540,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		for (const missing of ['section_id', 'section_tipo']) {
 			const carrier = add_image_carrier()
 			delete carrier.feature.properties.uca_maps.image[missing]
-			geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+			select_carrier(carrier)
 
 			assert.equal(tool.get_image_href(carrier), null, 'expected no target without ' + missing)
 			assert.isNotOk(tool.panel_node.querySelector('.uca-maps-image-view'), 'expected no link without ' + missing)
@@ -5815,7 +5556,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_console()
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		const link = tool.panel_node.querySelector('.uca-maps-image-view')
 		const url = new URL(link.href, window.location.href)
@@ -5834,10 +5575,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		carrier.feature.properties.uca_maps.image.z_index = 640
 		tool.attach_console()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		await await_overlay(carrier)
+		select_carrier(carrier)
 
 		const slider = tool.panel_node.querySelector('.uca-maps-image-z-index')
 		assert.equal(slider.type, 'range', 'expected a slider, as v6, not a number box')
@@ -5850,18 +5589,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original = geolocation.update_draw_data
 		geolocation.update_draw_data = function() { commits++; return original.apply(this, arguments) }
 
-		try {
-			slider.value = '850'
-			slider.dispatchEvent(new Event('input'))
-			assert.equal(carrier.feature.properties.uca_maps.image.z_index, 850, 'expected the preview written while dragging')
-			assert.equal(carrier._uca_maps_overlay.options.zIndex, 850, 'expected the live overlay restacked while dragging')
-			assert.equal(commits, 0, 'expected NO commit mid-drag')
+		slider.value = '850'
+		slider.dispatchEvent(new Event('input'))
+		assert.equal(carrier.feature.properties.uca_maps.image.z_index, 850, 'expected the preview written while dragging')
+		assert.equal(carrier._uca_maps_overlay.options.zIndex, 850, 'expected the live overlay restacked while dragging')
+		assert.equal(commits, 0, 'expected NO commit mid-drag')
 
-			slider.dispatchEvent(new Event('change'))
-			assert.equal(commits, 1, 'expected exactly one commit on release')
-		} finally {
-			geolocation.update_draw_data = original
-		}
+		slider.dispatchEvent(new Event('change'))
+		assert.equal(commits, 1, 'expected exactly one commit on release')
 	})
 
 	it('a z-index outside 0..1000 is bounded where it is used, so the slider and the overlay agree', async function() {
@@ -5871,10 +5606,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		carrier.feature.properties.uca_maps.image.z_index = 1500
 		tool.attach_console()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		await await_overlay(carrier)
+		select_carrier(carrier)
 
 		const slider = tool.panel_node.querySelector('.uca-maps-image-z-index')
 		assert.equal(slider.value, '1000', 'expected the slider at its top')
@@ -5889,9 +5622,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 
 		tool.set_image_display(carrier, {opacity: 0.4, z_index: 300}, false)
 
@@ -5912,21 +5643,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// nothing in the engine would take the old ones off the map.
 		const stale = add_image_carrier()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !stale._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(stale)
 		const stale_overlay = stale._uca_maps_overlay
 		assert.equal(geolocation.map.hasLayer(stale_overlay), true, 'expected the first overlay on the map')
 
 		// the reload: the old carrier is gone from the group, a new one takes
 		// its place, and only the layer-data event announces it
-		geolocation.FeatureGroup[geolocation.active_layer_id].removeLayer(stale)
+		active_group().removeLayer(stale)
 		const fresh = add_image_carrier()
 		event_manager.publish('updated_layer_data_' + geolocation.id_base, {})
 
-		for (let i=0; i<200 && !fresh._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(fresh)
 
 		assert.isOk(fresh._uca_maps_overlay, 'expected the new carrier to get its overlay')
 		assert.equal(geolocation.map.hasLayer(stale_overlay), false, 'expected the stale overlay swept off the map')
@@ -5937,9 +5664,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 		const overlay = carrier._uca_maps_overlay
 
 		geolocation.map.fire('pm:remove', {layer: carrier})
@@ -5952,9 +5677,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await await_overlay(carrier)
 		const overlay = carrier._uca_maps_overlay
 
 		await tool.destroy(false, false, false)
@@ -5962,31 +5685,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(geolocation.map.hasLayer(overlay), false, 'expected the overlay removed on teardown')
 	})
 
-	// hito 14 — "Activar edición" (js/image_edit.js): the overlay's three
-	// control points as draggable handles. Same carrier-by-hand approach as the
-	// hito 13 block above, and the same reason: the browser half is all that
-	// lives here.
-	async function add_image_carrier_with_overlay() {
-		const carrier = add_image_carrier()
-		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_overlay; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
-		return carrier
-	}
+	// IMAGE EDIT MODE (image_edit.js) — the overlay's three control points as
+	// draggable handles, on the same hand-built carriers.
 
 	it('the console offers "Activar edición" and it reflects the stored state', async function() {
 
 		const carrier = await add_image_carrier_with_overlay()
 		tool.attach_console()
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		const checkbox = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-image-edit')
 		assert.isOk(checkbox, 'expected the "Activar edición" checkbox in the image branch')
 		assert.equal(checkbox.checked, false, 'expected edit mode off for a descriptor that never stored it')
 
 		tool.set_image_interactive(carrier, true)
-		geolocation.map.fire('popupopen', {popup: {_source: carrier}})
+		select_carrier(carrier)
 
 		assert.equal(
 			tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-image-edit').checked, true,
@@ -6052,8 +5765,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		handle.fire('dragend')
 		assert.equal(commits, 1, 'expected exactly one commit when the gesture ends')
-
-		geolocation.update_draw_data = original
 	})
 
 	it('switching edit mode off removes the handles', async function() {
@@ -6078,9 +5789,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		carrier.feature.properties.uca_maps.image.interactive = true
 
 		tool.attach_image_overlays()
-		for (let i=0; i<200 && !carrier._uca_maps_handles; i++) {
-			await new Promise((r) => setTimeout(r, 10))
-		}
+		await until(() => carrier._uca_maps_handles)
 
 		assert.isOk(carrier._uca_maps_handles, 'expected the stored edit mode restored, not silently dropped')
 		assert.equal(carrier._uca_maps_handles.length, 3)
@@ -6143,14 +5852,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 	/**
-	* HITO 15 — the three always-present controls (audit rows #1 "Buscador de
-	* lugares", #13 "Geolocation", #2 "Barra de escala").
-	*
-	* The place search NEVER reaches nominatim.openstreetmap.org from a test:
-	* `tool_request` is stubbed with a hand-written envelope, the same way the
-	* PNG capture test above stubs it to prove the opposite (no round-trip).
-	* A gate that needs a third party to be up is a gate that goes red for
-	* reasons that have nothing to do with this code.
+	* PLACE SEARCH, GEOLOCATION AND SCALE BAR — the three always-present
+	* controls. The place search never reaches Nominatim: tool_request is
+	* stubbed with a hand-written envelope.
 	*/
 
 	it('attach_place_search adds exactly one button and one hidden panel, idempotently', function() {
@@ -6170,31 +5874,27 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tool.attach_place_search()
 
 		let asked = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { asked = true; return {} }
+		stub_tool_request(async function() { asked = true; return {} })
 
 		const result = await search_places(tool, '   ')
 
 		assert.equal(result.ok, false, 'expected a caller-fault verdict')
 		assert.isOk(result.error, 'expected a message to show in the panel')
 		assert.equal(asked, false, 'expected NO request for an empty query')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('search_places stores the hits and the panel renders one clickable row each', async function() {
 
 		tool.attach_place_search()
 
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			assert.equal(options.action, 'search_places')
 			assert.equal(options.options.query, 'Sagunto')
 			return { ok: true, data: { results: [
 				{ name: 'Sagunt', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
 				{ name: 'Sagunto, Spain', point: [39.67, -0.28], bbox: null }
 			] } }
-		}
+		})
 
 		const result = await search_places(tool, ' Sagunto ')
 		assert.equal(result.ok, true)
@@ -6206,8 +5906,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const rows = tool.place_search_panel.querySelectorAll('.uca-maps-place-search-result-button')
 		assert.equal(rows.length, 2, 'expected one row per hit')
 		assert.equal(rows[0].textContent, 'Sagunt')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('search_places toasts a request that throws, but not once the tool is torn down mid-flight', async function() {
@@ -6216,9 +5914,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const toasts	= []
 		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
-		const original_tool_request = tool.tool_request
 		let fail = null
-		tool.tool_request = () => new Promise((resolve, reject) => { fail = reject })
+		stub_tool_request(() => new Promise((resolve, reject) => { fail = reject }))
 		try {
 			// control: alive, the exception reaches the page toast
 			const alive = search_places(tool, 'Sagunto')
@@ -6236,7 +5933,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(toasts.length, 1, 'expected NO toast for a search the closed tool left in flight')
 		} finally {
 			event_manager.unsubscribe(token)
-			tool.tool_request = original_tool_request
 		}
 	})
 
@@ -6271,37 +5967,32 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const message	= panel.querySelector('.uca-maps-place-search-message')
 		const rows		= () => panel.querySelectorAll('.uca-maps-place-search-result-button').length
 
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			return { ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } }
+		})
+
+		const search = async (text) => {
+			input.value = text
+			panel.querySelector('.uca-maps-place-search-button').click()
+			await tick()
 		}
 
-		try {
-			const search = async (text) => {
-				input.value = text
-				panel.querySelector('.uca-maps-place-search-button').click()
-				await new Promise(resolve => setTimeout(resolve, 0))
-			}
+		toggle()
+		await search('Sagunto')
+		assert.equal(rows(), 1, 'expected the hit listed')
+		toggle()
+		toggle()
+		assert.equal(input.value, '', 'expected the field emptied on reopen')
+		assert.equal(rows(), 0, 'expected no hits on reopen')
+		assert.equal(tool._place_results, null, 'expected the stored hits dropped')
 
-			toggle()
-			await search('Sagunto')
-			assert.equal(rows(), 1, 'expected the hit listed')
-			toggle()
-			toggle()
-			assert.equal(input.value, '', 'expected the field emptied on reopen')
-			assert.equal(rows(), 0, 'expected no hits on reopen')
-			assert.equal(tool._place_results, null, 'expected the stored hits dropped')
-
-			await search('   ')
-			assert.equal(message.hidden, false, 'expected the empty-query message shown')
-			// closed by toolbar.js close_other_toolbar_panels, never by Search's own toggle
-			tool.map_image_control.getContainer().click()
-			assert.equal(panel.hidden, true, 'expected Search closed by the sibling')
-			toggle()
-			assert.equal(message.hidden, true, 'expected no message on reopen')
-		} finally {
-			tool.tool_request = original_tool_request
-		}
+		await search('   ')
+		assert.equal(message.hidden, false, 'expected the empty-query message shown')
+		// closed by toolbar.js close_other_toolbar_panels, never by Search's own toggle
+		tool.map_image_control.getContainer().click()
+		assert.equal(panel.hidden, true, 'expected Search closed by the sibling')
+		toggle()
+		assert.equal(message.hidden, true, 'expected no message on reopen')
 	})
 
 	it('reopening Search mid-search keeps its query, and the answer still lands', async function() {
@@ -6314,29 +6005,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const button	= panel.querySelector('.uca-maps-place-search-button')
 
 		let settle = null
-		const original_tool_request = tool.tool_request
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			return new Promise((resolve) => { settle = resolve })
-		}
+		})
 
-		try {
-			toggle()
-			input.value = 'Sagunto'
-			button.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.isOk(settle, 'expected the search in flight')
+		toggle()
+		input.value = 'Sagunto'
+		button.click()
+		await tick()
+		assert.isOk(settle, 'expected the search in flight')
 
-			toggle()
-			toggle()
-			assert.equal(input.value, 'Sagunto', 'expected the query kept while the search runs')
+		toggle()
+		toggle()
+		assert.equal(input.value, 'Sagunto', 'expected the query kept while the search runs')
 
-			settle({ ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } })
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(panel.querySelectorAll('.uca-maps-place-search-result-button').length, 1, 'expected the late hit listed')
-			assert.equal(button.disabled, false)
-		} finally {
-			tool.tool_request = original_tool_request
-		}
+		settle({ ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } })
+		await tick()
+		assert.equal(panel.querySelectorAll('.uca-maps-place-search-result-button').length, 1, 'expected the late hit listed')
+		assert.equal(button.disabled, false)
 	})
 
 	it('a search in flight refuses Enter and locks Clear until it answers', async function() {
@@ -6350,39 +6036,34 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const enter		= () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
 
 		const pending = []
-		const original_tool_request = tool.tool_request
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			return new Promise((resolve) => { pending.push(resolve) })
-		}
+		})
 
-		try {
-			tool.place_search_control.getContainer().click()
-			input.value = 'Sagunto'
-			enter()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(pending.length, 1, 'expected Enter to start the first search')
-			assert.equal(button.disabled, true, 'expected Search locked while it runs')
-			assert.equal(clear.disabled, true, 'expected Clear locked while it runs')
+		tool.place_search_control.getContainer().click()
+		input.value = 'Sagunto'
+		enter()
+		await tick()
+		assert.equal(pending.length, 1, 'expected Enter to start the first search')
+		assert.equal(button.disabled, true, 'expected Search locked while it runs')
+		assert.equal(clear.disabled, true, 'expected Clear locked while it runs')
 
-			enter()
-			button.click()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(pending.length, 1, 'expected no second search while the first runs')
+		enter()
+		button.click()
+		await tick()
+		assert.equal(pending.length, 1, 'expected no second search while the first runs')
 
-			pending[0]({ ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } })
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(button.disabled, false, 'expected Search unlocked by the answer')
-			assert.equal(clear.disabled, false, 'expected Clear unlocked by the answer')
-			assert.equal(input.value, 'Sagunto', 'expected the query kept under its hits')
+		pending[0]({ ok: true, data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] } })
+		await tick()
+		assert.equal(button.disabled, false, 'expected Search unlocked by the answer')
+		assert.equal(clear.disabled, false, 'expected Clear unlocked by the answer')
+		assert.equal(input.value, 'Sagunto', 'expected the query kept under its hits')
 
-			enter()
-			await new Promise(resolve => setTimeout(resolve, 0))
-			assert.equal(pending.length, 2, 'expected Enter to search again once unlocked')
-			pending[1]({ ok: true, data: { results: [] } })
-			await new Promise(resolve => setTimeout(resolve, 0))
-		} finally {
-			tool.tool_request = original_tool_request
-		}
+		enter()
+		await tick()
+		assert.equal(pending.length, 2, 'expected Enter to search again once unlocked')
+		pending[1]({ ok: true, data: { results: [] } })
+		await tick()
 	})
 
 	it('detach_place_search removes the button and panel', async function() {
@@ -6451,12 +6132,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.update_draw_data	= function() { commits++; return original_update.apply(this, arguments) }
 		geolocation.save				= function() { saves++ }
 
-		const before = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const before = active_group().getLayers().length
 
 		const marker = create_position_marker(tool, L.latLng(40.44, -3.70))
 
 		assert.isOk(marker, 'expected a marker created')
-		const after = geolocation.FeatureGroup[geolocation.active_layer_id].getLayers().length
+		const after = active_group().getLayers().length
 		assert.equal(after, before + 1, 'expected exactly one new object in the active layer')
 		assert.isAbove(commits, 0, 'expected the record marked dirty')
 		assert.equal(saves, 0, 'expected NO save — nothing here writes')
@@ -6469,7 +6150,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_geolocate()
 
-		const group		= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const group		= active_group()
 		const before	= group.getLayers().length
 
 		// armed: one fix, one marker, and the control disarms itself
@@ -6488,7 +6169,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_geolocate()
 		const map_container_node	= geolocation.map.getContainer()
-		const group					= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const group					= active_group()
 		const before				= group.getLayers().length
 
 		await tool.destroy(false, false, false)
@@ -6500,24 +6181,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// were still bound — firing proves it is really off the map
 		geolocation.map.fire('locationfound', {latlng: L.latLng(40.44, -3.70)})
 		assert.equal(group.getLayers().length, before, 'expected a torn-down tool to ignore the map entirely')
-	})
-
-	it('the scale rounds to a readable distance and labels it in m or km', function() {
-
-		// Leaflet's own _getRoundNum criterion: the largest 1/2/3/5/10 x 10^n
-		// that still fits under the bar's max width
-		assert.equal(round_distance(1234), 1000)
-		assert.equal(round_distance(999), 500)
-		assert.equal(round_distance(3400), 3000)
-		assert.equal(round_distance(78), 50)
-		assert.equal(round_distance(21), 20)
-
-		assert.equal(format_distance(500), '500 m')
-		assert.equal(format_distance(1000), '1 km')
-		assert.equal(format_distance(1500), '1.5 km')
-		// never "2.0 km" — a trailing zero on a map scale reads as precision
-		// the bar does not have
-		assert.equal(format_distance(2000), '2 km')
 	})
 
 	it('attach_scale_bar adds exactly one graphic scale WITH its compass rose, idempotently', function() {
@@ -6766,7 +6429,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 
 		const accepted = await tool.set_legend_element_icon(
-			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+			0, 0, pin_png()
 		)
 		assert.isTrue(accepted.ok, 'expected a small PNG accepted')
 		assert.isTrue(
@@ -6882,7 +6545,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(message.textContent, 'nope')
 
 		const accepted = await tool.set_legend_element_icon(
-			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+			0, 0, pin_png()
 		)
 		assert.isTrue(accepted.ok)
 
@@ -6918,13 +6581,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		button.click()
 		assert.isFalse(tool.legend_panel.hidden, 'expected one click to reopen it')
 	})
-
-	/** The SVG a drawn legend symbol stores in `icon` (a base64 `data:` URL). */
-	const decode_symbol = function(icon) {
-		const prefix = 'data:image/svg+xml;base64,'
-		assert.isTrue(icon.startsWith(prefix), 'expected a drawn symbol stored as an SVG data URL')
-		return new DOMParser().parseFromString(atob(icon.slice(prefix.length)), 'image/svg+xml').documentElement
-	}
 
 	it('the Legend panel is centered, labels its fields, and adds where the new item appears', function() {
 
@@ -7071,7 +6727,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// an uploaded image replaces the drawn symbol
 		const uploaded = await tool.set_legend_element_icon(
-			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+			0, 0, pin_png()
 		)
 		assert.isTrue(uploaded.ok)
 		assert.notProperty(element, 'symbol', 'expected the symbol dropped once an image replaces it')
@@ -7161,29 +6817,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 	/**
-	* HITO 18 — "Roma" (fila #14, roman_empire.js): three gazetteers searched
-	* from one centred panel, and the hit becomes a REAL object of the record.
-	*
-	* No gazetteer is ever reached from a test: `tool_request`/
-	* `get_capabilities` are stubbed with hand-written envelopes, same as the
-	* place-search block above. A gate that needs Pleiades or Lund University
-	* to be up is a gate that goes red for reasons unrelated to this code.
+	* ROMAN EMPIRE (roman_empire.js) — three gazetteers searched from one
+	* centred panel; a hit becomes a REAL object of the record. No gazetteer is
+	* reached: the install's answer (mount_roman) and every search are stubbed.
 	*/
-
-	/** A one-point GeoJSON feature, the shape Pelagios/DARE hits carry. */
-	const roman_feature = function(name, lat, lon) {
-		return {
-			type		: 'Feature',
-			properties	: { name: name },
-			geometry	: { type: 'Point', coordinates: [lon, lat] }
-		}
-	}
 
 	it('attach_roman_empire adds exactly one button and one hidden panel, idempotently', function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-
-		tool.attach_roman_empire()
+		mount_roman()
 		tool.attach_roman_empire() // second call: a no-op, never a duplicate
 
 		const map_container_node = geolocation.map.getContainer()
@@ -7200,8 +6841,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// Sergio, validación 2026-09-28: como Legend y WMS, y las tres fuentes
 		// a la vez, como el modal de v6 — nunca un selector que esconda dos
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		const panel = tool.roman_panel
 		assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the centred panel')
@@ -7214,7 +6854,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(section.querySelectorAll('.uca-maps-roman-input').length, 1, 'expected one field per source')
 		}
 
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		assert.equal(panel.hidden, false)
 		panel.querySelector('.uca-maps-panel-close').click()
 		assert.equal(panel.hidden, true, 'expected × to close the panel')
@@ -7222,8 +6862,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Pleiades picks name or id with two radios, and the choice reaches the search', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool) // Pleiades enabled BEFORE it is driven
 
 		const section	= tool.roman_panel.querySelector('.uca-maps-roman-pleiades')
@@ -7235,17 +6874,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(radios[0].checked, 'expected "by name" chosen by default, as in v6')
 
 		const sent = []
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			sent.push(options)
 			return { ok: true, data: { results: [] } }
-		}
+		})
 
 		radios[1].click()
 		const input = section.querySelector('.uca-maps-roman-input')
 		assert.isFalse(input.disabled, 'expected the Pleiades field enabled by its capability')
 		input.value = '7'
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 
 		assert.equal(sent.length, 1, 'expected one search: an id of one digit is a query')
 		assert.equal(sent[0].action, 'search_pleiades')
@@ -7254,12 +6893,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('search_roman refuses an empty query, and Pelagios with no layer, without asking the server', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		let asked = false
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() { asked = true; return {} }
+		stub_tool_request(async function() { asked = true; return {} })
 
 		const empty = await search_roman(tool, 'pleiades', { query: '   ' })
 		assert.equal(empty.ok, false, 'expected a caller-fault verdict')
@@ -7270,21 +6907,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(no_layer.error)
 
 		assert.equal(asked, false, 'expected NO request in either case')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('each source sends its OWN action and its own fields', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		const sent = []
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			sent.push(options)
 			return { ok: true, data: { results: [] } }
-		}
+		})
 
 		await search_roman(tool, 'pleiades', { query: 'Gades', type: 'id' })
 		await search_roman(tool, 'pelagios', { query: 'Gades', datasets: ['provinces'] })
@@ -7297,24 +6930,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(sent[2].options.name_type, 'ass')
 		assert.equal(sent[2].options.type_id, '11')
 		assert.equal(sent[2].options.country, 'ES')
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('the hits render one clickable row each, and a row DRAWS the place on the map', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 		// open: a list never shows over a closed panel
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 
-		const original_tool_request = tool.tool_request
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			return { ok: true, data: { results: [
-				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.53, -6.29) },
-				{ name: 'Gadir', geometry_type: 'Point', feature: roman_feature('Gadir', 36.54, -6.30) }
+				roman_hit('Gades', 36.53, -6.29),
+				roman_hit('Gadir', 36.54, -6.30)
 			] } }
-		}
+		})
 
 		const result = await search_roman(tool, 'dare', { query: 'Gad', name_type: 'mss' })
 		assert.equal(result.ok, true)
@@ -7330,7 +6959,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// unlike the place search (which only moves the view), adding a hit
 		// creates a real object through the SAME pm:create door every import
 		// in this tool uses
-		const feature_group	= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const feature_group	= active_group()
 		const before		= feature_group.getLayers().length
 		const added			= await add_roman_result(tool, 0)
 		assert.equal(added.ok, true, 'expected the place added')
@@ -7339,14 +6968,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			feature_group.getLayers().length, before + 1,
 			'expected one more object in the active FeatureGroup'
 		)
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('a hit whose geometry Leaflet cannot build is reported, never a silent success', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		tool._roman_results = [{ name: 'no geometry', feature: { type: 'Feature', properties: {}, geometry: null } }]
 		const added = await add_roman_result(tool, 0)
@@ -7357,19 +6983,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a Pleiades hit carries only an id, so its geometry is fetched before drawing', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
-		const original_tool_request = tool.tool_request
 		let asked_action = null
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			asked_action = options.action
 			assert.equal(options.options.id, '256135', 'expected the hit id forwarded')
 			return { ok: true, data: { place: {
 				type		: 'FeatureCollection',
 				features	: [roman_feature('Gades', 36.53, -6.29)]
 			} } }
-		}
+		})
 
 		tool._roman_results = [{ name: 'Gades', id: '256135' }]
 		const added = await add_roman_result(tool, 0)
@@ -7377,14 +7001,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(asked_action, 'get_pleiades_place', 'expected the geometry fetched by id')
 		assert.equal(added.ok, true)
 		assert.equal(added.created, 1)
-
-		tool.tool_request = original_tool_request
 	})
 
 	it('create_roman_objects fits the LARGEST geometry of a multi-part place', function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		const created = create_roman_objects(tool, { type: 'FeatureCollection', features: [
 			{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]] } },
@@ -7398,8 +7019,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a source this install cannot serve stays in view, disabled and saying why', function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		tool._roman_gazetteers = { configured: false, pleiades: false, pelagios: [] }
 		refresh_roman_sources(tool, tool.roman_panel)
@@ -7420,10 +7040,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the layer checkboxes come from the INSTALL, never from a client-side copy of the list', async function() {
 
-		tool.get_capabilities = async function() {
-			return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] } } }
-		}
-		tool.attach_roman_empire()
+		mount_roman({ configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] })
 
 		await load_roman_capabilities(tool)
 
@@ -7437,9 +7054,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	// SUGGESTIONS AS YOU TYPE — v6 searches on every keyup in all three blocks
-	// (`special_tools_roman_empire.js:215/785/1286`). Sergio, validación
-	// 2026-09-17: el port solo buscaba con el botón/Enter.
+	// SUGGESTIONS AS YOU TYPE — v6 searches on every keyup in the three blocks
+	// (`special_tools_roman_empire.js`); here a debounced input does.
 
 	it('each source declares the same minimum the server refuses below', function() {
 
@@ -7451,30 +7067,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('typing searches by itself, and below the minimum nothing travels', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click() // a list shows only over an open panel
+		mount_roman()
+		open_roman() // a list shows only over an open panel
 
 		let asked = 0
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			asked++
 			return { ok: true, data: { results: [
-				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.53, -6.29) }
+				roman_hit('Gades', 36.53, -6.29)
 			] } }
-		}
+		})
 
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 
 		// below the minimum: no request, not even after the debounce window
 		input.value = 'Ga'
 		input.dispatchEvent(new Event('input'))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 0, 'expected NO request for a query under the minimum')
 
 		// at the minimum: one request, and the list renders itself
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 
 		assert.equal(asked, 1, 'expected exactly one request after typing')
 		assert.equal(
@@ -7486,44 +7101,42 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a burst of keystrokes is ONE request, not one per character (v6 fires per keyup)', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		let asked = 0
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			asked++
 			return { ok: true, data: { results: [] } }
-		}
+		})
 
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		for (const value of ['Gad', 'Gade', 'Gades', 'Gadesx']) {
 			input.value = value
 			input.dispatchEvent(new Event('input'))
-			await new Promise((resolve) => setTimeout(resolve, 40))
+			await tick(40)
 		}
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 
 		assert.equal(asked, 1, 'expected the burst collapsed into a single request')
 	})
 
 	it('a slow early search never overwrites the results of the last one typed', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		let release_first
 		let call = 0
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			call++
 			if (call===1) {
 				return new Promise((resolve) => { release_first = () => resolve({ ok: true, data: { results: [
-					{ name: 'STALE', geometry_type: 'Point', feature: roman_feature('STALE', 0, 0) }
+					roman_hit('STALE', 0, 0)
 				] } }) })
 			}
 			return Promise.resolve({ ok: true, data: { results: [
-				{ name: 'FRESH', geometry_type: 'Point', feature: roman_feature('FRESH', 1, 1) }
+				roman_hit('FRESH', 1, 1)
 			] } })
-		}
+		})
 
 		const first	= search_roman(tool, 'dare', { query: 'Gades', name_type: 'mss' })
 		const second	= await search_roman(tool, 'pelagios', { query: 'Gadir', datasets: ['provinces'] })
@@ -7538,13 +7151,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._roman_source, 'pelagios', 'expected the list owned by the newest search, across fields')
 	})
 
-	// THE TYPEAHEAD ITSELF (Sergio, 2026-09-17): the hits are a list anchored to
-	// the field, not a block inside the panel — and choosing one IS adding it.
+	// THE TYPEAHEAD — the hits are a list anchored to the field, not a block
+	// inside the panel, and choosing one IS adding it.
 
 	it('the suggestion list hangs from the MAP, not from the panel (the panel would clip it)', function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		const map_container_node = geolocation.map.getContainer()
 		assert.isOk(tool.roman_dropdown, 'expected the list built')
@@ -7561,21 +7173,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the arrows walk the list and Enter draws the highlighted place', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click() // a list shows only over an open panel
+		mount_roman()
+		open_roman() // a list shows only over an open panel
 
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			return { ok: true, data: { results: [
-				{ name: 'first', geometry_type: 'Point', feature: roman_feature('first', 36.5, -6.2) },
-				{ name: 'second', geometry_type: 'Point', feature: roman_feature('second', 39.9, -0.2) }
+				roman_hit('first', 36.5, -6.2),
+				roman_hit('second', 39.9, -0.2)
 			] } }
-		}
+		})
 
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 
 		const rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
 		assert.equal(rows.length, 2)
@@ -7586,11 +7197,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._roman_active_index, 1, 'expected the second row highlighted')
 		assert.isTrue(rows[1].classList.contains('is-active'), 'expected the highlight in the DOM, not only in a flag')
 
-		const feature_group	= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const feature_group	= active_group()
 		const before		= feature_group.getLayers().length
 
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 
 		assert.equal(feature_group.getLayers().length, before + 1, 'expected Enter to draw the highlighted place')
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list closed after choosing')
@@ -7598,20 +7209,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Escape closes the list without clearing what was typed', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click() // a list shows only over an open panel
+		mount_roman()
+		open_roman() // a list shows only over an open panel
 
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			return { ok: true, data: { results: [
-				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }
+				roman_hit('Gades', 36.5, -6.2)
 			] } }
-		}
+		})
 
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(tool.roman_dropdown.hidden, false)
 
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
@@ -7623,14 +7233,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a click on the map closes the list, and closing the panel takes it with it', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 		const map_container_node = geolocation.map.getContainer()
 		map_container_node.querySelector('.uca-maps-roman-control').click() // open the panel, as a user would
-		tool._roman_results = [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
-		tool._roman_source	= 'dare' // seeded AFTER opening: opening resets the panel
-
-		populate_roman_results(tool, tool.roman_panel)
+		seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)])
 		assert.equal(tool.roman_dropdown.hidden, false)
 
 		map_container_node.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))
@@ -7650,18 +7256,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('teardown cancels a pending as-you-type search instead of firing it into a dead panel', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		let asked = 0
-		tool.tool_request = async function() { asked++; return { ok: true, data: { results: [] } } }
+		stub_tool_request(async function() { asked++; return { ok: true, data: { results: [] } } })
 
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
 
 		await tool.destroy(false, false, false) // BEFORE the debounce window elapses
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 
 		assert.equal(asked, 0, 'expected the pending search cancelled by teardown')
 	})
@@ -7671,17 +7276,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// Sergio, validación 2026-09-17: con el cap de 9rem había que hacer
 		// scroll para ver la mitad de las capas. Esto lo mide de verdad — un
 		// retoque de CSS que vuelva a esconderlas pone el gate en rojo.
-		tool.get_capabilities = async function() {
-			return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [
+		mount_roman({ configured: true, pleiades: true, pelagios: [
 				'places_high', 'places_medium', 'places_low', 'places_subsites',
 				'fortifications', 'provinces', 'provinces_label', 'roads_high',
 				'roads_low', '10m_lakes', '10m_lakes_label', '10m_rivers_lake_centerlines'
-			] } } }
-		}
-		tool.attach_roman_empire()
+			] })
 		await load_roman_capabilities(tool)
 
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click() // open it
+		open_roman() // open it
 
 		const container	= tool.roman_panel.querySelector('.uca-maps-roman-datasets')
 		const rows		= container.querySelectorAll('.uca-maps-roman-dataset-row')
@@ -7699,19 +7301,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('scrolling the panel carries the list with its field, and closes it once the field leaves the view', function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		mount_roman()
+		open_roman()
 		const panel = tool.roman_panel
-		panel.style.maxHeight	= '160px' // the suite has no tool CSS: make the panel scroll
-		panel.style.overflowY	= 'auto'
-		tool._roman_results	= [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
-		tool._roman_source	= 'dare' // seeded AFTER opening: opening resets the panel
+		make_panel_scrollable(panel)
 
 		// DARE's field in the middle of the view, then the list opened under it
 		const input = panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		panel.scrollTop += input.getBoundingClientRect().top - panel.getBoundingClientRect().top - panel.clientHeight / 2
-		populate_roman_results(tool, panel)
+		seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)])
 		const anchored_top = tool.roman_dropdown.style.top
 
 		panel.scrollTop -= 20
@@ -7735,22 +7333,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// just opened, and (R-05) dropped the search in flight
 	it('a scroll the layout causes by itself never closes the list it just opened', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		mount_roman()
+		open_roman()
 		const panel = tool.roman_panel
-		panel.style.maxHeight	= '160px'
-		panel.style.overflowY	= 'auto'
+		make_panel_scrollable(panel)
 
 		const block		= panel.querySelector('.uca-maps-roman-dare')
 		const input		= block.querySelector('.uca-maps-roman-input')
 		const message	= block.querySelector('.uca-maps-roman-message')
-		tool.tool_request = async function() {
-			return { ok: true, data: { results: [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }] } }
-		}
+		stub_tool_request(async function() {
+			return { ok: true, data: { results: [roman_hit('Gades', 36.5, -6.2)] } }
+		})
 
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})) // empty: an error under DARE
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(message.hidden, false, 'expected the empty-query message under DARE')
 
 		panel.scrollTop = panel.scrollHeight // at the bottom: hiding that message has to clamp
@@ -7760,8 +7356,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		input.value = 'Gades'
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await new Promise((resolve) => setTimeout(resolve, 50))
-		await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+		await tick(50)
+		await two_frames()
 
 		assert.equal(message.hidden, true, 'expected the message cleared by the hits')
 		assert.isBelow(panel.scrollTop, bottom, 'expected the browser to clamp scrollTop — else this gate proves nothing')
@@ -7773,13 +7369,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// clicking into DARE — the panel swallows mousedown before it bubbles
 	it('a click inside the panel, on another source\'s field, closes the list', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool) // Pleiades enabled BEFORE it is driven
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
-		tool._roman_results	= [{ name: 'Roma', id: '423025' }]
-		tool._roman_source	= 'pleiades' // seeded AFTER opening: opening resets the panel
-		populate_roman_results(tool, tool.roman_panel)
+		open_roman()
+		seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }])
 
 		const own_input		= tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const other_input	= tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
@@ -7793,30 +7386,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a search still in flight never opens its list once the user has moved to another field', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click() // open: a closed panel hides any list anyway
+		open_roman() // open: a closed panel hides any list anyway
 
 		let release_first
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			return new Promise((resolve) => { release_first = () => resolve({ ok: true, data: { results: [
 				{ name: 'Roma', id: '423025' }
 			] } }) })
-		}
+		})
 
 		const pleiades_input	= tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const dare_input		= tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 
 		pleiades_input.value = 'Rom'
 		pleiades_input.dispatchEvent(new Event('input'))
-		await new Promise((resolve) => setTimeout(resolve, 400)) // the Pleiades search is now in flight
+		await tick(400) // the Pleiades search is now in flight
 
 		dare_input.value = 'V' // below DARE's minimum: nothing travels, the list is closed
 		dare_input.dispatchEvent(new Event('input'))
 
 		release_first()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the late Pleiades answer NOT to open its list')
 		assert.equal(tool._roman_results, null, 'expected the late answer discarded')
@@ -7824,15 +7416,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a search refused before travelling still outdates the older one in flight', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 
 		let release_first
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			return new Promise((resolve) => { release_first = () => resolve({ ok: true, data: { results: [
-				{ name: 'STALE', geometry_type: 'Point', feature: roman_feature('STALE', 0, 0) }
+				roman_hit('STALE', 0, 0)
 			] } }) })
-		}
+		})
 
 		const first		= search_roman(tool, 'dare', { query: 'Gades', name_type: 'mss' })
 		const refused	= await search_roman(tool, 'pelagios', { query: 'Gadir', datasets: [] })
@@ -7849,10 +7440,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// v6 rebuilds its modal on every click (special_tools_roman_empire.js:61-77)
 	it('reopening the panel starts clean: fields, messages, list and filters', async function() {
 
-		tool.get_capabilities = async function() {
-			return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] } } }
-		}
-		tool.attach_roman_empire()
+		mount_roman({ configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] })
 		await load_roman_capabilities(tool)
 
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-roman-control')
@@ -7870,9 +7458,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const message = panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-message')
 		message.textContent	= 'an old error'
 		message.hidden		= false
-		tool._roman_results	= [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
-		tool._roman_source	= 'dare'
-		populate_roman_results(tool, panel)
+		seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)])
 
 		control.click() // close
 		control.click() // reopen
@@ -7898,23 +7484,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// with the tool CSS or not at all: without it a <label> is inline and
 		// already this narrow, so the gate could never see justify-self go
-		const link = document.createElement('link')
-		link.rel	= 'stylesheet'
-		link.href	= new URL('../../../tools/tool_uca_maps/css/tool_uca_maps.css', import.meta.url).href
-		await new Promise((resolve, reject) => {
-			link.addEventListener('load', resolve)
-			link.addEventListener('error', reject)
-			document.head.appendChild(link)
-		})
-
-		try {
-			tool.get_capabilities = async function() {
-				return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] } } }
-			}
-			tool.attach_roman_empire()
+		await with_tool_css(async () => {
+			mount_roman({ configured: true, pleiades: true, pelagios: ['provinces', 'roads_high'] })
 			await load_roman_capabilities(tool)
 
-			geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+			open_roman()
 
 			const container = tool.roman_panel.querySelector('.uca-maps-roman-datasets')
 			assert.equal(getComputedStyle(container).display, 'grid', 'expected the tool CSS applied — else this gate proves nothing')
@@ -7928,15 +7502,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 					'expected no clickable blank space beside the layer: ' + row.textContent
 				)
 			}
-		} finally {
-			link.remove()
-		}
+		})
 	})
 
 	it('detach_roman_empire removes the button and panel', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 		const map_container_node = geolocation.map.getContainer()
 
 		await tool.destroy(false, false, false)
@@ -7960,8 +7531,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// so an error can arrive once the panel was closed and reopened clean
 	it('a late error from drawing a Pleiades hit never lands in the panel reopened clean', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
 
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-roman-control')
@@ -7969,14 +7539,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const message	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-message')
 		let release
 		let asked = 0
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			asked++
 			return new Promise((resolve) => { release = () => resolve({ ok: true, data: { place: null } }) })
-		}
+		})
 		const choose_roma = () => {
-			tool._roman_results	= [{ name: 'Roma', id: '423025' }]
-			tool._roman_source	= 'pleiades'
-			populate_roman_results(tool, panel)
+			seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }])
 			tool.roman_dropdown.querySelector('.uca-maps-roman-result-button')
 				.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}))
 		}
@@ -7985,7 +7553,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// control half: with the panel left alone, the error IS shown
 		choose_roma()
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(message.hidden, false, 'expected a geometry-less place reported under Pleiades')
 
 		choose_roma()
@@ -7993,28 +7561,25 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		control.click() // close
 		control.click() // reopen: clean
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(message.hidden, true, 'expected the late error dropped by the reopened panel')
 	})
 
 	it('↑/↓ and Enter in one source\'s field never walk nor pick another source\'s list', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 
 		const panel				= tool.roman_panel
 		const pleiades_input	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const dare_input		= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		const asked = []
-		tool.tool_request = async function(options) {
+		stub_tool_request(async function(options) {
 			asked.push(options.action)
 			return { ok: true, data: { results: [] } }
-		}
-		tool._roman_results	= [{ name: 'Roma', id: '423025' }, { name: 'Roma Vecchia', id: '423026' }]
-		tool._roman_source	= 'pleiades'
-		populate_roman_results(tool, panel)
+		})
+		seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }, { name: 'Roma Vecchia', id: '423026' }])
 
 		// control: the list's OWN field walks it
 		pleiades_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))
@@ -8026,7 +7591,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		dare_input.value = 'Gades'
 		dare_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.deepEqual(asked, ['search_dare'], 'expected Enter in DARE to search DARE, never to draw the active Pleiades row')
 	})
 
@@ -8046,8 +7611,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 
 		try {
-			tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-			tool.attach_roman_empire()
+			mount_roman()
 			assert.equal(added.length, 1, 'expected ONE capture mousedown listener on the map container')
 			await tool.destroy(false, false, false)
 			assert.include(removed, added[0], 'expected teardown to remove that same listener, in capture')
@@ -8062,16 +7626,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// NEWER token and reopened the list — after Esc, or over a closed panel
 	it('closing the list cancels a keystroke still waiting out the debounce', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-roman-control')
 		control.click() // open
 
 		let asked = 0
-		tool.tool_request = async function() {
+		stub_tool_request(async function() {
 			asked++
-			return { ok: true, data: { results: [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }] } }
-		}
+			return { ok: true, data: { results: [roman_hit('Gades', 36.5, -6.2)] } }
+		})
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		const type_gades = () => {
 			input.value = 'Gades'
@@ -8080,36 +7643,33 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// control half: left alone, the keystroke DOES search and open the list
 		type_gades()
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 1, 'expected the debounced search sent')
 		assert.equal(tool.roman_dropdown.hidden, false)
 
 		type_gades()
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 1, 'expected Esc to cancel the waiting search')
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list to stay closed after Esc')
 
 		type_gades()
 		tool.roman_panel.querySelector('.uca-maps-panel-close').click() // the ×
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 1, 'expected the × to cancel the waiting search')
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no list over a closed panel')
 	})
 
 	it('Tab into another field closes the list, as a click there does', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 
 		const panel				= tool.roman_panel
 		const pleiades_input	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const dare_input		= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
-		tool._roman_results	= [{ name: 'Roma', id: '423025' }]
-		tool._roman_source	= 'pleiades'
-		populate_roman_results(tool, panel)
+		seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }])
 
 		pleiades_input.focus() // its own field: the list stays
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected focus on the list\'s own field to keep it open')
@@ -8122,8 +7682,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('opening the panel focuses the first ENABLED field', async function() {
 
 		// only DARE needs no local data: with none, Pleiades and Pelagios are disabled
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
+		mount_roman()
 		await load_roman_capabilities(tool)
 		const control = geolocation.map.getContainer().querySelector('.uca-maps-roman-control')
 		control.click()
@@ -8149,20 +7708,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// search, so going elsewhere cancels it waiting, in flight or open
 	it('leaving the field cancels its search, whether waiting or in flight', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 
 		const panel				= tool.roman_panel
 		const pleiades_input	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const dare_input		= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		let asked = 0
 		let release = null
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			asked++
 			return new Promise((resolve) => { release = () => resolve({ ok: true, data: { results: [{ name: 'Roma', id: '423025' }] } }) })
-		}
+		})
 		const type_roma = () => {
 			pleiades_input.value = 'Roma'
 			pleiades_input.dispatchEvent(new Event('input'))
@@ -8171,35 +7729,32 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// waiting out the debounce, then Tab into DARE
 		type_roma()
 		dare_input.focus()
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 0, 'expected Tab away to cancel the waiting search')
 
 		// waiting, then a click in DARE
 		type_roma()
 		dare_input.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 0, 'expected a click away to cancel the waiting search')
 
 		// in flight, then Tab into DARE
 		pleiades_input.focus()
 		type_roma()
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 1, 'expected the search sent — else the next check proves nothing')
 		dare_input.focus()
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no Pleiades list under a field the user left')
 	})
 
 	it('pressing the panel\'s scrollbar keeps the list; pressing a control closes it', function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		mount_roman()
+		open_roman()
 		const panel = tool.roman_panel
-		tool._roman_results	= [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
-		tool._roman_source	= 'dare'
-		populate_roman_results(tool, panel)
+		seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)])
 		assert.equal(tool.roman_dropdown.hidden, false)
 
 		// Chrome targets the scrolling element itself when its scrollbar is pressed
@@ -8212,29 +7767,27 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a late answer never opens the list under a field scrolled out of view', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const panel = tool.roman_panel
-		panel.style.maxHeight	= '160px' // the suite has no tool CSS: make the panel scroll
-		panel.style.overflowY	= 'auto'
+		make_panel_scrollable(panel)
 
 		const input = panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		let release = null
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			return new Promise((resolve) => { release = () => resolve({ ok: true, data: { results: [{ name: 'Roma', id: '423025' }] } }) })
-		}
+		})
 		const search_roma = async () => {
 			input.value = 'Roma'
 			input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-			await new Promise((resolve) => setTimeout(resolve, 20))
+			await tick(20)
 		}
 
 		// control half: the field in view, the answer opens the list
 		await search_roma()
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open under a field in view')
 		tool.close_roman_suggestions()
 
@@ -8243,22 +7796,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isBelow(input.getBoundingClientRect().top, panel.getBoundingClientRect().top + 1, 'expected the field scrolled out of view — else this gate proves nothing')
 		// let that scroll's event pass FIRST: dispatched after the answer, it would
 		// close the list on its own and this gate would never see the open-time check
-		await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+		await two_frames()
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no list under a field out of view')
 	})
 
 	it('a source that turns out unavailable takes its open list with it', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const seed_pleiades = () => {
-			tool._roman_results	= [{ name: 'Roma', id: '423025' }]
-			tool._roman_source	= 'pleiades'
-			populate_roman_results(tool, tool.roman_panel)
+			seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }])
 			assert.equal(tool.roman_dropdown.hidden, false)
 		}
 
@@ -8276,22 +7826,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('a Pleiades error lands under Pleiades even after DARE took the list', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const panel = tool.roman_panel
 
 		let release = null
-		tool.tool_request = function(options) {
+		stub_tool_request(function(options) {
 			if (options.action==='search_dare') {
 				return Promise.resolve({ ok: true, data: { results: [] } })
 			}
 			return new Promise((resolve) => { release = () => resolve({ ok: true, data: { place: null } }) })
-		}
-		tool._roman_results	= [{ name: 'Roma', id: '423025' }]
-		tool._roman_source	= 'pleiades'
-		populate_roman_results(tool, panel)
+		})
+		seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }])
 		tool.roman_dropdown.querySelector('.uca-maps-roman-result-button')
 			.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}))
 		assert.isFunction(release, 'expected the Pleiades geometry request in flight')
@@ -8300,7 +7847,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._roman_source, 'dare', 'expected DARE to own the list now')
 
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.equal(panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-message').hidden, false, 'expected the error under Pleiades')
 		assert.equal(panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-message').hidden, true, 'expected nothing under DARE')
 	})
@@ -8309,10 +7856,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// list, not close it and wander off through the panel
 	it('with its list open, Tab walks from the field into the list and through it', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 
 		const panel	= tool.roman_panel
 		const input	= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
@@ -8322,12 +7868,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return event
 		}
 		const seed = () => {
-			tool._roman_results	= [
-				{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) },
-				{ name: 'Gadir', geometry_type: 'Point', feature: roman_feature('Gadir', 36.6, -6.3) }
-			]
-			tool._roman_source	= 'dare'
-			populate_roman_results(tool, panel)
+			seed_roman_list('dare', [
+				roman_hit('Gades', 36.5, -6.2),
+				roman_hit('Gadir', 36.6, -6.3)
+			])
 			input.focus()
 		}
 
@@ -8370,12 +7914,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// Enter in a row draws it and hands the focus back to the field
 		seed()
-		const feature_group	= geolocation.FeatureGroup[geolocation.active_layer_id]
+		const feature_group	= active_group()
 		const before		= feature_group.getLayers().length
 		key(input, 'Tab')
 		const fresh_rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
 		key(fresh_rows[0], 'Enter')
-		await new Promise((resolve) => setTimeout(resolve, 20))
+		await tick(20)
 		assert.equal(feature_group.getLayers().length, before + 1, 'expected Enter on the focused row to draw it')
 		assert.equal(tool.roman_dropdown.hidden, true)
 		assert.equal(document.activeElement, input, 'expected the focus back in the field, not lost on <body>')
@@ -8383,25 +7927,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('walking the list by keyboard freezes it: no waiting or in-flight search rebuilds it', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		mount_roman()
+		open_roman()
 		const panel	= tool.roman_panel
 		const input	= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		const tab	= (target) => target.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true}))
 
 		let asked = 0
 		let release = null
-		tool.tool_request = function() {
+		stub_tool_request(function() {
 			asked++
 			return new Promise((resolve) => { release = () => resolve({ ok: true, data: { results: [
-				{ name: 'NEW', geometry_type: 'Point', feature: roman_feature('NEW', 0, 0) }
+				roman_hit('NEW', 0, 0)
 			] } }) })
-		}
+		})
 		const seed = () => {
-			tool._roman_results	= [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
-			tool._roman_source	= 'dare'
-			populate_roman_results(tool, panel)
+			seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)])
 			input.focus()
 		}
 
@@ -8412,7 +7953,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		tab(input)
 		const row = document.activeElement
 		assert.isTrue(row.classList.contains('uca-maps-roman-result-button'), 'expected the focus on a row')
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 0, 'expected the waiting search cancelled by entering the list')
 		assert.equal(document.activeElement, row, 'expected the focus still on its row')
 
@@ -8420,12 +7961,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		seed()
 		input.value = 'Gadesy'
 		input.dispatchEvent(new Event('input'))
-		await new Promise((resolve) => setTimeout(resolve, 400))
+		await tick(400)
 		assert.equal(asked, 1, 'expected the search in flight — else the next check proves nothing')
 		tab(input)
 		const held = document.activeElement
 		release()
-		await new Promise((resolve) => setTimeout(resolve, 50))
+		await tick(50)
 		assert.isTrue(document.contains(held), 'expected the focused row not rebuilt by the late answer')
 		assert.equal(document.activeElement, held, 'expected the focus kept, not dropped to <body>')
 		assert.notInclude(tool.roman_dropdown.textContent, 'NEW', 'expected the late hits discarded')
@@ -8439,13 +7980,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		let answer = null
 		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
 		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const panel		= tool.roman_panel
 		const pleiades	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		assert.equal(document.activeElement, pleiades, 'expected the panel opened on Pleiades — else the answer disables nothing focused')
 
 		answer({ ok: true, data: { gazetteers: { configured: false, pleiades: false, pelagios: [] } } })
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await tick()
 
 		assert.isTrue(pleiades.disabled, 'expected Pleiades disabled by the answer')
 		assert.equal(
@@ -8460,13 +8001,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		let answer = null
 		tool.get_capabilities = function() { return new Promise((resolve) => { answer = resolve }) }
 		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const select = tool.roman_panel.querySelector('.uca-maps-roman-dare-filters select')
 		select.focus()
 		assert.equal(document.activeElement, select)
 
 		answer({ ok: true, data: { gazetteers: { configured: false, pleiades: false, pelagios: [] } } })
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		await tick()
 
 		assert.isTrue(tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input').disabled, 'expected the answer applied')
 		assert.equal(document.activeElement, select, 'expected the focus kept on the DARE filter')
@@ -8474,18 +8015,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('whatever closes the list, a focused row hands the focus back to its field', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const panel = tool.roman_panel
-		panel.style.maxHeight	= '160px' // the suite has no tool CSS: make the panel scroll
-		panel.style.overflowY	= 'auto'
+		make_panel_scrollable(panel)
 		const dare = panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
 		const focus_a_row = (source) => {
-			tool._roman_results	= [{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) }]
-			tool._roman_source	= source
-			populate_roman_results(tool, panel)
+			seed_roman_list(source, [roman_hit('Gades', 36.5, -6.2)])
 			const row = tool.roman_dropdown.querySelector('.uca-maps-roman-result-button')
 			row.focus()
 			assert.equal(document.activeElement, row, 'expected a row focused — else nothing below is lost')
@@ -8512,18 +8049,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Tab past the last row enters a radio group at its CHECKED radio', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: { configured: true, pleiades: true, pelagios: [] } } } }
-		tool.attach_roman_empire()
+		mount_roman(WITH_PLEIADES)
 		await load_roman_capabilities(tool)
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		open_roman()
 		const panel		= tool.roman_panel
 		const input		= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const by_id		= panel.querySelector('.uca-maps-roman-pleiades-type input[value="id"]')
 		by_id.checked = true
 
-		tool._roman_results	= [{ name: 'Roma', id: '423025' }]
-		tool._roman_source	= 'pleiades'
-		populate_roman_results(tool, panel)
+		seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }])
 		input.focus()
 		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true}))
 		document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true}))
@@ -8534,18 +8068,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('while the keyboard is in the list, the pointer moves the focus with the highlight', async function() {
 
-		tool.get_capabilities = async function() { return { ok: true, data: { gazetteers: null } } }
-		tool.attach_roman_empire()
-		geolocation.map.getContainer().querySelector('.uca-maps-roman-control').click()
+		mount_roman()
+		open_roman()
 		const panel	= tool.roman_panel
 		const input	= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
-		tool._roman_results	= [
-			{ name: 'Gades', geometry_type: 'Point', feature: roman_feature('Gades', 36.5, -6.2) },
-			{ name: 'Gadir', geometry_type: 'Point', feature: roman_feature('Gadir', 36.6, -6.3) },
-			{ name: 'Gadara', geometry_type: 'Point', feature: roman_feature('Gadara', 32.6, 35.7) }
-		]
-		tool._roman_source	= 'dare'
-		populate_roman_results(tool, panel)
+		seed_roman_list('dare', [
+			roman_hit('Gades', 36.5, -6.2),
+			roman_hit('Gadir', 36.6, -6.3),
+			roman_hit('Gadara', 32.6, 35.7)
+		])
 		const rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
 
 		// control half: typing in the field, hovering only highlights
