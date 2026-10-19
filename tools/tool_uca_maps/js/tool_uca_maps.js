@@ -161,6 +161,7 @@ export const tool_uca_maps = function () {
 	this.active_console_layer		= null
 	this._popupopen_handler		= null
 	this._popupclose_handler		= null
+	this._click_handler				= null
 	this._pmcreate_handler			= null
 	this._pmremove_handler			= null
 	this.map_image_control			= null

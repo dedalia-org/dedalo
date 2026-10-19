@@ -335,6 +335,7 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 			map_control						: null,
 			_popupopen_handler				: null,
 			_popupclose_handler				: null,
+			_click_handler					: null,
 			_catastro_busy					: false,
 			_ua_busy						: false,
 			_upload_busy					: false,
@@ -2966,6 +2967,42 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
+	it('deleting the rectangle gives the marker back the editing state the 1x1 locked, unless the box was used since', function() {
+
+		tool.attach_onexone()
+		const marker = seeded_layer(3)
+		const uca_maps = () => marker.feature.properties.uca_maps
+		const rows = [
+			{label: 'no state before', before: undefined, since: [], after: undefined},
+			{label: 'ticked before', before: true, since: [], after: true},
+			{label: 'locked before', before: false, since: [], after: false},
+			{label: 'ticked since', before: undefined, since: [true], after: true},
+			{label: 'ticked then unticked since', before: true, since: [true, false], after: false}
+		]
+		for (const row of rows) {
+			if (row.before===undefined) {
+				delete (marker.feature.properties.uca_maps || {}).geoman_edition
+			} else {
+				tool.set_geoman_edition(marker, row.before)
+			}
+			create_onexone_rectangle(tool, marker)
+			assert.equal(uca_maps().geoman_edition, false, 'expected the 1x1 to lock the marker: ' + row.label)
+			for (const enabled of row.since) {
+				tool.set_geoman_edition(marker, enabled)
+			}
+
+			const rectangle = layer_by_uid(geolocation.FeatureGroup[3], uca_maps().onexone_uid)
+			geolocation.FeatureGroup[3].removeLayer(rectangle)
+			geolocation.map.fire('pm:remove', {layer: rectangle})
+
+			assert.equal(uca_maps().geoman_edition, row.after, 'expected the editing state after the delete: ' + row.label)
+			assert.notProperty(uca_maps(), 'onexone_prior_geoman_edition', 'expected no trace of the 1x1 left: ' + row.label)
+			if (row.after===true) {
+				assert.equal(marker.pm.enabled(), true, 'expected a ticked marker unlocked at once: ' + row.label)
+			}
+		}
+	})
+
 	/**
 	* 1x1 AND GEOMAN HANDLES, against v6: what the console says about a 1x1,
 	* and the handles a new geometry is born with.
@@ -3174,7 +3211,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 	// switching popups fires popupclose then popupopen in one click
-	it('a full re-assert queued by popupopen wins over the lock-only one of popupclose, in either order', async function() {
+	it('switching popups turns a ticked object of another group back on, whichever of popupclose and popupopen comes first', async function() {
 
 		tool.attach_console()
 		const polygon	= seeded_layer(1)
@@ -3192,17 +3229,70 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('detach_console takes its four map listeners off and cancels a re-assert still queued', async function() {
+	// the core's click sweep enables the clicked group and stops every other
+	it('a click that closes a marker\'s popup turns a ticked object of another group back on', async function() {
+
+		tool.attach_console()
+		const polygon	= seeded_layer(1)
+		const marker	= seeded_layer(3)
+		tool.set_geoman_edition(polygon, true)
+
+		const click = async () => {
+			marker._icon.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
+			await tick()
+		}
+		await click()
+		assert.isTrue(marker.isPopupOpen(), 'expected the first click to open the marker\'s popup')
+		assert.equal(polygon.pm.enabled(), true, 'expected the ticked object on after the opening click')
+
+		await click()
+		assert.isFalse(marker.isPopupOpen(), 'expected the second click to close the popup')
+		assert.equal(polygon.pm.enabled(), true, 'expected the ticked object back on after the closing click')
+	})
+
+	// with a popup, Leaflet stops the click at the polygon; without one it
+	// reaches the map's own click too, and that is still not the empty map
+	it('a real click on a ticked polygon, another popup open, leaves it in edit mode, with or without its own popup', async function() {
+
+		tool.attach_console()
+		const polygon	= seeded_layer(1)
+		const marker	= seeded_layer(3)
+		tool.set_geoman_edition(polygon, true)
+		const popup		= polygon.getPopup()
+		assert.isOk(popup, 'expected the core to bind the polygon a popup')
+
+		try {
+			for (const with_popup of [true, false]) {
+				if (!with_popup) {
+					polygon.unbindPopup()
+				}
+				marker.openPopup()
+				await tick()
+
+				assert.isOk(polygon._path, 'expected the polygon drawn on the map')
+				polygon._path.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
+				assert.isFalse(marker.isPopupOpen(), 'expected the click to close the marker\'s popup')
+				await tick()
+				assert.equal(polygon.pm.enabled(), true, 'expected the ticked polygon in edit mode after the deferred re-assert, ' + (with_popup ? 'with' : 'without') + ' its popup')
+				polygon.closePopup()
+				await tick()
+			}
+		} finally {
+			polygon.bindPopup(popup)
+		}
+	})
+
+	it('detach_console takes its five map listeners off and cancels a re-assert still queued', async function() {
 
 		tool.attach_console()
 		const map		= geolocation.map
-		const handlers	= ['popupopen', 'popupclose', 'pm:create', 'pm:remove'].map((type) => {
+		const handlers	= ['popupopen', 'popupclose', 'click', 'pm:create', 'pm:remove'].map((type) => {
 			const handler = tool['_' + type.replace('pm:', 'pm') + '_handler']
 			assert.isTrue(map.listens(type, handler), 'expected the console listening to ' + type)
 			return [type, handler]
 		})
 
-		// a lock-only re-assert queued over a locked polygon the core sweep enabled
+		// a re-assert queued over a locked polygon the core sweep enabled
 		const polygon = seeded_layer(1)
 		tool.set_geoman_edition(polygon, false)
 		polygon.pm.enable()

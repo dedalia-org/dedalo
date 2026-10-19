@@ -117,11 +117,22 @@ const hydrate = function(self) {
 	self.geolocation.map.on('popupopen', self._popupopen_handler)
 
 	// A second click on a marker closes its popup (no 'popupopen') yet the core
-	// sweep still enables it; 'popupclose' fires before that sweep, so a deferred
-	// re-assert lands after it. LOCK-ONLY: a click on the empty map closes a
-	// popup too, and there the core turns editing off for all.
-	self._popupclose_handler = () => schedule_geoman_reassert(self, true)
+	// sweep still enables its group and disables the rest: a FULL pass, or a
+	// ticked object of another group stays off. A click on the empty map closes
+	// a popup too, but there the core stops editing for all: its map click
+	// narrows the pending pass to lock-only.
+	self._popupclose_handler = () => schedule_geoman_reassert(self)
 	self.geolocation.map.on('popupclose', self._popupclose_handler)
+
+	// a path without a popup passes its click on to the map (a popup stops it):
+	// only a click on no object is the empty map
+	self._click_handler = (event) => {
+		const target = event.originalEvent && event.originalEvent.target
+		if (!(target instanceof Element) || !target.closest('.leaflet-interactive')) {
+			narrow_geoman_reassert(self)
+		}
+	}
+	self.geolocation.map.on('click', self._click_handler)
 
 	// the core never reads properties.uca_maps back on load, so new geometry gets
 	// this tool's extras here (reapply_style/reapply_hierarchy, below)
@@ -520,7 +531,10 @@ export const has_geoman_edition = function(layer) {
 */
 export const set_geoman_edition = function(self, layer, enabled) {
 
-	ensure_uca_maps(layer).geoman_edition = Boolean(enabled)
+	const uca_maps = ensure_uca_maps(layer)
+	uca_maps.geoman_edition = Boolean(enabled)
+	// a choice made on the box outranks the state a 1x1 would give back
+	delete uca_maps.onexone_prior_geoman_edition
 
 	apply_geoman(layer)
 
@@ -612,9 +626,8 @@ const reapply_geoman_all = function(self, lock_only=false) {
 /**
 * SCHEDULE_GEOMAN_REASSERT
 * One pending re-assert at a time: one click can fire both 'popupclose' and
-* 'popupopen', and teardown can only cancel the timer it still holds. A full
-* pass replaces a pending lock-only one; a lock-only request leaves any pending
-* pass alone, since every pass locks.
+* 'popupopen', and teardown can only cancel the timer it still holds. The
+* latest request replaces a pending one.
 *
 * @param {Object} self
 * @param {boolean} [lock_only=false] - see `apply_geoman`
@@ -622,9 +635,6 @@ const reapply_geoman_all = function(self, lock_only=false) {
 */
 const schedule_geoman_reassert = function(self, lock_only=false) {
 	if (self._geoman_reassert) {
-		if (lock_only) {
-			return
-		}
 		clearTimeout(self._geoman_reassert)
 	}
 	self._geoman_reassert = setTimeout(() => {
@@ -632,6 +642,22 @@ const schedule_geoman_reassert = function(self, lock_only=false) {
 		reapply_geoman_all(self, lock_only)
 	}, 0)
 }//end schedule_geoman_reassert
+
+
+/**
+* NARROW_GEOMAN_REASSERT
+* A click on the empty map: the core has just stopped editing for all, so a
+* pending pass may only lock, as v6 leaves a ticked object until it is clicked.
+*
+* @param {Object} self
+* @returns {void}
+*/
+const narrow_geoman_reassert = function(self) {
+	if (!self._geoman_reassert) {
+		return
+	}
+	schedule_geoman_reassert(self, true)
+}//end narrow_geoman_reassert
 
 
 
@@ -1485,6 +1511,7 @@ export const detach_console = function(self) {
 		remove_map_listeners(self, 'detach_console', [
 			['popupopen',	'_popupopen_handler'],
 			['popupclose',	'_popupclose_handler'],
+			['click',		'_click_handler'],
 			['pm:create',	'_pmcreate_handler'],
 			['pm:remove',	'_pmremove_handler']
 		])
@@ -1504,6 +1531,7 @@ export const detach_console = function(self) {
 	self.panel_node				= null
 	self._popupopen_handler	= null
 	self._popupclose_handler	= null
+	self._click_handler			= null
 	self._pmcreate_handler		= null
 	self._pmremove_handler		= null
 	self.active_console_layer	= null

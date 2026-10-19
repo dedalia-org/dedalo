@@ -26,6 +26,8 @@ import {
 	find_layer_id,
 	toggle_uncertainty,
 	commit,
+	has_geoman_edition,
+	set_geoman_edition,
 	remove_map_listeners
 } from './object_console.js'
 import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
@@ -154,7 +156,9 @@ export const create_onexone_rectangle = function(self, marker) {
 	// click sweep would make it draggable, and a drag would leave its uncertainty
 	// box behind. The stored false is what the console's deferred re-assert
 	// keeps; moving the point stays possible, on purpose, from its checkbox.
-	uca_maps.geoman_edition = false
+	// The state it overrides is kept, so deleting the 1x1 gives it back.
+	uca_maps.onexone_prior_geoman_edition	= has_geoman_edition(marker) ? uca_maps.geoman_edition : null
+	uca_maps.geoman_edition				= false
 
 	toggle_uncertainty(self, rectangle) // auto-uncertainty + commit()
 
@@ -164,8 +168,9 @@ export const create_onexone_rectangle = function(self, marker) {
 
 /**
 * CLEAR_ORPHANED_ONEXONE_UID
-* Removing a 1x1 rectangle frees its marker for 1x1 again. Only that pointer is
-* cleared: no cascade delete, and a rectangle's dangling `onexone_of` stays inert.
+* Removing a 1x1 rectangle frees its marker for 1x1 again and gives back the
+* editing state the 1x1 locked. No cascade delete, and a rectangle's dangling
+* `onexone_of` stays inert.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} removed_layer - the layer Geoman just removed
@@ -185,7 +190,19 @@ const clear_orphaned_onexone_uid = function(self, removed_layer) {
 			return Boolean(candidate_uca_maps && candidate_uca_maps.uid===onexone_of)
 		})
 		if (marker_layer) {
-			delete marker_layer.feature.properties.uca_maps.onexone_uid
+			const uca_maps	= marker_layer.feature.properties.uca_maps
+			// the key is gone once the box is used: that choice stays
+			const restore	= 'onexone_prior_geoman_edition' in uca_maps
+			const prior		= uca_maps.onexone_prior_geoman_edition
+			delete uca_maps.onexone_uid
+			delete uca_maps.onexone_prior_geoman_edition
+			if (restore && typeof prior==='boolean') {
+				set_geoman_edition(self, marker_layer, prior) // applies and commits
+				return
+			}
+			if (restore) {
+				delete uca_maps.geoman_edition
+			}
 			commit(self, marker_layer)
 			return
 		}
