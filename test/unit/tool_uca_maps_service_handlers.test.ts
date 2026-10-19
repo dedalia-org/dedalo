@@ -136,7 +136,9 @@ describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
 	const REFCAT = '6075421YJ2667S';
 	const RESULT_PAGE = `<p>Referencia catastral de la parcela:</p><p><a href="https://example.com/rc">${REFCAT}</a></p>`;
 	const NOT_FOUND =
-		'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="OperationProcessingFailed"/></ExceptionReport>';
+		'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="OperationProcessingFailed"><ExceptionText><![CDATA[No se han encontrado registros de la referencia]]></ExceptionText></Exception></ExceptionReport>';
+	const FAULT =
+		'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="NoApplicableCode"><ExceptionText><![CDATA[Error interno]]></ExceptionText></Exception></ExceptionReport>';
 	const PARCEL = `<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0"><member><cp:CadastralParcel gml:id="ES.SDGC.CP.${REFCAT}"><gml:posList>39.1 -0.1 39.2 -0.2 39.3 -0.3</gml:posList></cp:CadastralParcel></member></FeatureCollection>`;
 	const MAINTENANCE = '<html><body><h1>INTERRUPCI&Oacute;N DEL SERVICIO</h1></body></html>';
 
@@ -172,6 +174,16 @@ describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
 			null,
 			'getneighbourparcel',
 			'getparcel',
+		]);
+	});
+
+	test('an exception report other than "not found" is the source unavailable: no fallback, no "no parcel"', async () => {
+		reply = catastro({ getneighbourparcel: FAULT, getparcel: PARCEL });
+		const error = await failureOf(getCatastroParcel(contextOf(VALID_CLICK)));
+		expectCode(error, 'security.outbound_failed');
+		expect(sent.map((uri) => new URL(uri).searchParams.get('STOREDQUERIE_ID'))).toEqual([
+			null,
+			'getneighbourparcel',
 		]);
 	});
 

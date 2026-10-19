@@ -132,6 +132,30 @@ describe('extractParcelPosList', () => {
 		expect(parseParcelGeometry(NOT_FOUND_XML, REFCAT)).toBeNull();
 	});
 
+	test('"not found" is read in both its numbers; any other exception report is the source unavailable', () => {
+		const report = (code: string, text: string) =>
+			`<ExceptionReport xmlns="http://www.opengis.net/ows/1.1" version="2.0.0"><Exception exceptionCode="${code}"><ExceptionText><![CDATA[${text}]]></ExceptionText></Exception></ExceptionReport>`;
+		expect(
+			parseParcelGeometry(
+				report('OperationProcessingFailed', 'No se ha encontrado la referencia'),
+				REFCAT,
+			),
+		).toBeNull();
+		expect(
+			parseParcelGeometry(
+				'<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1"><ows:Exception exceptionCode="OperationProcessingFailed"><ows:ExceptionText>No se han encontrado registros</ows:ExceptionText></ows:Exception></ows:ExceptionReport>',
+				REFCAT,
+			),
+		).toBeNull();
+		for (const xml of [
+			report('InvalidParameterValue', 'El parámetro refcat no es válido'),
+			report('NoApplicableCode', 'Error interno del servidor'),
+			'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="OperationProcessingFailed"/></ExceptionReport>',
+		]) {
+			expect(() => parseParcelGeometry(xml, REFCAT)).toThrow(SOURCE_UNAVAILABLE);
+		}
+	});
+
 	test('a WFS reply that is neither (maintenance, empty) is the source unavailable, never "no parcel"', () => {
 		const maintenance =
 			'<html><body><h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';

@@ -92,15 +92,26 @@ export function extractParcelPosList(xml: string, refcat: string): [number, numb
 	return points.length >= 3 ? points : null; // a ring needs at least a triangle
 }
 
+/** The one exception that means "no parcel": "No se ha(n) encontrado…". */
+const NOT_FOUND_EXCEPTION =
+	/<(?:\w+:)?ExceptionText[^>]*>\s*(?:<!\[CDATA\[)?\s*No se han? encontrado/i;
+
 /**
  * The WFS reply read as the parcel's ring. A stored query that finds nothing
- * answers an OWS `ExceptionReport` (null: the caller falls back, as v6 did);
- * a reply that is neither that nor a `FeatureCollection` (its maintenance
- * page) is not an answer, and reading it as "no parcel" would be false.
+ * answers an OWS `ExceptionReport` saying so (null: the caller falls back, as
+ * v6 did). Any other report (a refused parameter, a server fault) and a reply
+ * that is no `FeatureCollection` either (its maintenance page) are the source
+ * failing: reading them as "no parcel" would be false.
  */
 export function parseParcelGeometry(xml: string, refcat: string): [number, number][] | null {
 	if (/<(?:\w+:)?ExceptionReport[\s>]/.test(xml)) {
-		return null;
+		if (NOT_FOUND_EXCEPTION.test(xml)) {
+			return null;
+		}
+		const code = xml.match(/exceptionCode="([\w.-]{1,64})"/)?.[1] ?? 'none';
+		throw new DedaloError('security.outbound_failed', {
+			message: `Catastro WFS answered an exception other than "not found" (exceptionCode: ${code})`,
+		});
 	}
 	if (!/<(?:\w+:)?FeatureCollection[\s>]/.test(xml)) {
 		throw new DedaloError('security.outbound_failed', {
