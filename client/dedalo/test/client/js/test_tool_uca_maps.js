@@ -4574,6 +4574,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const banner = geolocation.node.querySelector('.uca-maps-catastro-message .text')
 		assert.isOk(banner, 'expected an in-component message banner')
 		assert.equal(banner.textContent, 'No parcel could be found at this point.', 'expected the not-found line, not the lookup failure\'s')
+		assert.isTrue(banner.parentElement.classList.contains('warning'), 'expected a warning, as UA\'s: nothing failed')
+	})
+
+	// the banner tints every line it holds with the last type
+	it('each Catastro lookup replaces the banner line: a failure, then "not found", leaves one warning', async function() {
+
+		arm_catastro()
+
+		stub_tool_request(async () => ({ok: false, error: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true}}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		const banner = () => geolocation.node.querySelector('.uca-maps-catastro-message')
+		assert.isTrue(banner().classList.contains('error'), 'expected the failure as an error')
+
+		stub_tool_request(async () => ({ok: true, data: {found: false}}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		const lines = Array.from(banner().querySelectorAll('.text'), (node) => node.textContent)
+		assert.deepEqual(lines, ['No parcel could be found at this point.'], 'expected the failure line replaced')
+		assert.isTrue(banner().classList.contains('warning') && !banner().classList.contains('error'), 'expected the banner a warning only')
 	})
 
 	it('a refusal\'s reason sits on its own line: Catastro\'s core banner and the panel lines', async function() {

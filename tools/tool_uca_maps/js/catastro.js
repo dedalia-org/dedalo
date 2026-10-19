@@ -171,9 +171,11 @@ export const check_catastro_at_point = async function(self, latlng) {
 
 		const data = response_data(response)
 		if (!data || !data.found) {
+			// nothing failed: as UA's, a warning
 			show_catastro_message(
 				self,
-				self.get_tool_label('catastro_not_found') || 'No parcel could be found at this point.'
+				self.get_tool_label('catastro_not_found') || 'No parcel could be found at this point.',
+				'warning'
 			)
 			return
 		}
@@ -223,14 +225,16 @@ const create_catastro_parcel = function(self, data) {
 /**
 * SHOW_CATASTRO_MESSAGE
 * No panel to hold a line, so the core's banner, scoped to the map component so it
-* never fights another component's message.
+* never fights another component's message. Each message replaces the line
+* before it: the banner tints all its lines with the last type.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} text
+* @param {string} [type='error'] - 'error' | 'warning'
 * @returns {void}
 */
-const show_catastro_message = function(self, text) {
-	ui.show_message(self.geolocation.node, text, 'error', 'uca-maps-catastro-message')
+const show_catastro_message = function(self, text, type='error') {
+	ui.show_message(self.geolocation.node, text, type, 'uca-maps-catastro-message', true)
 }//end show_catastro_message
 
 
