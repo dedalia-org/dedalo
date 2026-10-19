@@ -130,6 +130,8 @@ const disable_catastro = function(self) {
 
 	disable_basemap_swap(self, 'catastro')
 
+	clear_catastro_message(self)
+
 }//end disable_catastro
 
 
@@ -180,6 +182,8 @@ export const check_catastro_at_point = async function(self, latlng) {
 			return
 		}
 
+		// the parcel is the answer: an earlier "No parcel" or failure no longer is
+		clear_catastro_message(self)
 		create_catastro_parcel(self, data)
 
 	} catch (error) {
@@ -236,6 +240,25 @@ const create_catastro_parcel = function(self, data) {
 const show_catastro_message = function(self, text, type='error') {
 	ui.show_message(self.geolocation.node, text, type, 'uca-maps-catastro-message', true)
 }//end show_catastro_message
+
+
+
+/**
+* CLEAR_CATASTRO_MESSAGE
+* Takes the banner away: a found parcel or a disarmed Catastro leaves no line
+* about a lookup that is over. Guarded, the component may already be gone.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+const clear_catastro_message = function(self) {
+	const banner = self.geolocation && self.geolocation.node
+		? self.geolocation.node.querySelector('.uca-maps-catastro-message')
+		: null
+	if (banner) {
+		banner.remove()
+	}
+}//end clear_catastro_message
 
 
 

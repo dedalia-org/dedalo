@@ -4653,6 +4653,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
+	it('a found parcel, or disarming Catastro, takes the banner of an earlier lookup away', async function() {
+
+		const banner = () => geolocation.node.querySelector('.uca-maps-catastro-message')
+
+		arm_catastro()
+		stub_tool_request(async () => ({ok: true, data: {found: false}}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		assert.isOk(banner(), 'expected the not-found banner first')
+
+		stub_tool_request(async () => ({ok: true, data: parcel_found()}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		assert.isNull(banner(), 'expected no banner beside the parcel just found')
+
+		stub_tool_request(async () => ({ok: true, data: {found: false}}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		assert.isOk(banner(), 'expected the not-found banner again')
+		tool.catastro_control.getContainer().click() // disarm
+		assert.isNull(banner(), 'expected no banner once Catastro is disarmed')
+	})
+
 	it('check_catastro_at_point refuses overlapping lookups (busy guard) — only the first reaches tool_request', async function() {
 
 		arm_catastro()
