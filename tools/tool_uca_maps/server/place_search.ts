@@ -6,6 +6,7 @@
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { getAlpha2FromCode } from '../../../src/core/resolve/lang_names.ts';
 import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
@@ -19,24 +20,6 @@ const NOMINATIM_SEARCH = 'https://nominatim.openstreetmap.org/search';
 const RESULT_LIMIT = 8;
 
 const USER_AGENT = 'Dedalo/7 (tool_uca_maps place search)';
-
-/**
- * Dédalo lang code → the ISO 639-1 tag of Nominatim's `Accept-Language`, so
- * the result names come back in the record's language. An unmapped lang sends
- * no header and gets Nominatim's default naming rather than a guessed tag.
- */
-const LANG_ISO: Readonly<Record<string, string>> = Object.freeze({
-	'lg-eng': 'en',
-	'lg-spa': 'es',
-	'lg-cat': 'ca',
-	'lg-eus': 'eu',
-	'lg-fra': 'fr',
-	'lg-por': 'pt',
-	'lg-deu': 'de',
-	'lg-ita': 'it',
-	'lg-ell': 'el',
-	'lg-nep': 'ne',
-});
 
 /** A caller fault — empty or over-long search text. */
 function invalidSearchRequest(message: string): DedaloError {
@@ -145,7 +128,9 @@ export async function searchPlaces(ctx: ToolActionContext): Promise<ToolResponse
 		throw invalidSearchRequest('The search text is too long.');
 	}
 
-	const iso = LANG_ISO[String(ctx.options.lang ?? '')];
+	// Nominatim names its results in the record's language; an unmapped lang
+	// sends no header and gets its default naming rather than a guessed tag
+	const iso = getAlpha2FromCode(String(ctx.options.lang ?? ''));
 	const headers: Record<string, string> = { 'User-Agent': USER_AGENT };
 	if (iso) {
 		headers['Accept-Language'] = iso;

@@ -15,6 +15,8 @@ const REAL_SSRF_GUARD = { ...realSsrfGuard };
 
 /** Every URL the handlers asked for, and the scripted answer by URL. */
 const sent: string[] = [];
+/** The request headers of each of those, in the same order. */
+const sentHeaders: Record<string, string>[] = [];
 let reply: (url: URL) => string = () => {
 	throw new Error('no scripted answer');
 };
@@ -28,8 +30,12 @@ let getCatastroParcel: Handler;
 beforeAll(async () => {
 	mock.module(SSRF_GUARD, () => ({
 		...REAL_SSRF_GUARD,
-		fetchGuardedText: async (uri: string) => {
+		fetchGuardedText: async (
+			uri: string,
+			opts?: { init?: { headers?: Record<string, string> } },
+		) => {
 			sent.push(uri);
+			sentHeaders.push({ ...(opts?.init?.headers ?? {}) });
 			return reply(new URL(uri));
 		},
 	}));
@@ -48,6 +54,7 @@ afterAll(() => {
 
 beforeEach(() => {
 	sent.length = 0;
+	sentHeaders.length = 0;
 	reply = () => {
 		throw new Error('no scripted answer');
 	};
@@ -73,6 +80,32 @@ describe('search_places — a caller fault is refused before anything is sent', 
 		expectCode(error, 'request.invalid_options');
 		expect(error.message).toMatch(message);
 		expect(sent).toEqual([]);
+	});
+});
+
+describe("search_places — results named in the record's language", () => {
+	test.each([
+		['lg-spa', 'es'],
+		['lg-vlca', 'ca'],
+		['lg-glg', 'gl'],
+		['lg-eng', 'en'],
+	])('%s asks Nominatim for %s', async (lang, iso) => {
+		reply = () => '[]';
+		await searchPlaces(contextOf({ query: 'Sagunto', lang }));
+		expect(sentHeaders).toHaveLength(1);
+		expect(sentHeaders[0]?.['Accept-Language']).toBe(iso);
+	});
+
+	test('an unmapped or missing lang sends no Accept-Language, only the User-Agent', async () => {
+		reply = () => '[]';
+		for (const options of [{ query: 'Sagunto', lang: 'lg-xyz' }, { query: 'Sagunto' }]) {
+			await searchPlaces(contextOf(options));
+		}
+		expect(sentHeaders).toHaveLength(2);
+		for (const headers of sentHeaders) {
+			expect(headers['Accept-Language']).toBeUndefined();
+			expect(headers['User-Agent']).toMatch(/tool_uca_maps/);
+		}
 	});
 });
 
