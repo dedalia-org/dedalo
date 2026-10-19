@@ -3417,14 +3417,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				assert.isAtMost(node.scrollWidth, node.clientWidth, 'expected the label to fit its square: "' + node.textContent + '"')
 			}
 
+			// the exact set, so a new icon button has to be added here to be measured
 			const glyphs = links.map((node) => node.querySelector(':scope > .uca-maps-toolbar-glyph')).filter(Boolean)
-			assert.isAtLeast(glyphs.length, 6, 'expected the icon buttons to be measured at all')
+			const icon_of = (glyph) => [...glyph.classList].find((c) => c.startsWith('uca-maps-icon-')).slice('uca-maps-icon-'.length)
+			assert.deepEqual(glyphs.map(icon_of).sort(), ['download', 'info', 'list', 'pointer', 'search', 'upload'], 'expected every icon button measured')
 			for (const glyph of glyphs) {
 				const name	= glyph.parentElement.getAttribute('aria-label')
 				const style	= getComputedStyle(glyph)
 				const mask	= style.maskImage || style.webkitMaskImage
 				const url	= /^url\("(.+)"\)$/.exec(mask)
 				assert.isOk(url, 'expected a mask image on the "' + name + '" icon, got ' + mask)
+				// a rule is written by hand per icon: a slip paints another core icon, served too
+				assert.isTrue(new URL(url[1], location.href).pathname.endsWith('/core/themes/default/icons/' + icon_of(glyph) + '.svg'), 'expected the "' + name + '" button to paint its own icon, got ' + url[1])
 				const response = await fetch(url[1])
 				assert.equal(response.status, 200, 'expected the "' + name + '" icon served: ' + url[1])
 			}
