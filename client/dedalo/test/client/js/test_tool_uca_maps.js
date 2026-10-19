@@ -406,12 +406,13 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 
 		assert.includeMembers(
 			Array.from(REASON_CODES),
-			['request.invalid_options', 'tool.unsupported_target', 'media.file_not_found'],
-			'expected the three public codes the server refuses with a reason'
+			['request.invalid_options', 'tool.unsupported_target', 'media.file_not_found', 'media.upload_rejected'],
+			'expected the public codes the server refuses with a reason, the upload receiver\'s included'
 		)
 		const rows = [
 			// the reason core's generic label hides
 			{code: 'request.invalid_options', lead: 'The file could not be loaded.', message: "Invalid UTM zone '61' (expected 1 to 60)"},
+			{code: 'media.upload_rejected', lead: 'The image could not be loaded.', message: 'File content verification failed: not a JPEG — rejected'},
 			...Array.from(REASON_CODES, (code) => ({code: code, lead: 'LEAD', message: 'Why it failed.'}))
 		]
 		for (const row of rows) {

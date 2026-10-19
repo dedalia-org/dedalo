@@ -18,12 +18,14 @@ import {error_text} from '../../../core/common/js/render_api_error.js'
 
 /** The public codes this tool's server refuses with, the concrete reason as
 * their public message: a bad input, a target it cannot process, a file that
-* is gone. A new public code thrown with a reason belongs here too
+* is gone, a file the upload receiver refused (core's own reason). A new public
+* code thrown with a reason belongs here too
 * (test/unit/tool_uca_maps_error_disclosure.test.ts). */
 export const REASON_CODES = new Set([
 	'request.invalid_options',
 	'tool.unsupported_target',
-	'media.file_not_found'
+	'media.file_not_found',
+	'media.upload_rejected'
 ])
 
 

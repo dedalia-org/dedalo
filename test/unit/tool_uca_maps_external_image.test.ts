@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { toErrorBody } from '../../src/core/errors/convert.ts';
+import { ERROR_REGISTRY } from '../../src/core/errors/registry.ts';
 import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { clearPacingForTests } from '../../src/core/harvest/pacing.ts';
 import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
@@ -31,8 +33,17 @@ const ONE_PIXEL_PNG = new Uint8Array(
 	),
 );
 
+/** A 1×1 baseline JPEG, metadata stripped. */
+const ONE_PIXEL_JPEG = new Uint8Array(
+	Buffer.from(
+		'/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==',
+		'base64',
+	),
+);
+
 const USER_ID = -1;
 const IMAGE = 'https://images.example/collection/Muro%20norte.png';
+const JPEG = 'https://images.example/collection/Fachada.jpg';
 
 interface Scripted {
 	status: number;
@@ -166,6 +177,22 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 		expect(site.sent).toContain('https://images.example/robots.txt');
 	});
 
+	// a JPEG labelled with a type no registry knows is still a JPEG: the bytes decide
+	test.each(['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/jpeg; charset=binary'])(
+		'a JPEG served as %s is staged as a .jpg',
+		async (type) => {
+			const site = scriptedSite({ [JPEG]: { status: 200, type, body: ONE_PIXEL_JPEG } });
+			const response = await stageExternalImage(contextOf({ url: JPEG }, USER_ID), {
+				harvest: site.deps,
+				enabled: on,
+			});
+			const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
+			const path = stagedPath(fileData);
+			expect(fileData.extension).toBe('jpg');
+			expect(new Uint8Array(readFileSync(path))).toEqual(ONE_PIXEL_JPEG);
+		},
+	);
+
 	test('a non-2xx answer is a plain failure naming the status', async () => {
 		const site = scriptedSite({ [IMAGE]: { status: 404 } });
 		const error = await failureOf(
@@ -198,6 +225,10 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
 		expect(error.code).toBe('media.upload_rejected');
+		// the panel shows this code's reason: the receiver's own, never the generic label
+		const body = toErrorBody(error);
+		expect(body.message.length).toBeGreaterThan(0);
+		expect(body.message).not.toBe(ERROR_REGISTRY['media.upload_rejected'].message);
 		expect(existsSync(dir) ? readdirSync(dir).sort() : []).toEqual(before);
 	});
 

@@ -25,9 +25,13 @@ export const EXTERNAL_IMAGE_MAX_BYTES = 100_000_000;
  * IMAGE_UPLOAD_KEY_DIR): the ingest reads the file back from there. */
 const IMAGE_KEY_DIR = 'image';
 
-/** Declared media type → the extension the receiver sniffs the bytes against. */
+/** Declared media type → the extension the receiver sniffs the bytes against.
+ * `image/jpg` and `image/pjpeg` are not registered types, but servers still send
+ * them for a JPEG: the bytes decide, not the label. */
 const EXTENSION_BY_TYPE: Readonly<Record<string, string>> = {
 	'image/jpeg': 'jpg',
+	'image/jpg': 'jpg',
+	'image/pjpeg': 'jpg',
 	'image/png': 'png',
 };
 
