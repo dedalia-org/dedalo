@@ -216,9 +216,9 @@ const create_image_record = async function() {
 
 
 /** Ingest refusals raised BEFORE the staged file moves, which a resend would raise
- * again: only these leave the minted record certainly empty. Any other code is an
- * unknown outcome (an idempotency.* replay, a db.* failure after the move,
- * media.file_not_found on a re-run whose staged file was consumed). */
+ * again. Any other code is an unknown outcome (an idempotency.* replay, a db.*
+ * failure after the move, media.file_not_found on a re-run whose staged file was
+ * consumed). Necessary, not sufficient: `holds_no_image_file` confirms it. */
 const PRE_MOVE_REFUSALS = new Set([
 	'request.invalid',
 	'request.invalid_options',
@@ -232,6 +232,35 @@ const PRE_MOVE_REFUSALS = new Set([
 	'perm.out_of_scope',
 	'media.upload_rejected'
 ])
+
+
+
+/**
+* HOLDS_NO_IMAGE_FILE
+* Whether the minted record has no file of its image component on disk, asked to
+* the server's own lookup. The code list above is a belief about where core
+* raises each refusal; this checks the fact, so a refusal core one day raises
+* after the move cannot get a record holding the file deleted. A failed check keeps it.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {number} section_id
+* @returns {Promise<boolean>}
+*/
+const holds_no_image_file = async function(self, section_id) {
+
+	const file_response = await self.tool_request({
+		action	: 'get_image_file',
+		options	: {
+			tipo			: IMAGE_COMPONENT_TIPO,
+			section_tipo	: IMAGE_SECTION_TIPO,
+			section_id		: section_id
+		}
+	})
+
+	return request_failed(file_response)
+		&& Boolean(file_response.error)
+		&& file_response.error.code==='media.file_not_found'
+}//end holds_no_image_file
 
 
 
@@ -390,7 +419,9 @@ export const ingest_staged_image = async function(self, file_data) {
 		// refusal raised before the file moved does. Any other answer leaves the
 		// record named, never deleted (the server may still be filling it)
 		const pre_move	= PRE_MOVE_REFUSALS.has(ingest_response.error.code)
-		const removed	= pre_move && await delete_image_record(section_id)
+		const removed	= pre_move
+			&& await holds_no_image_file(self, section_id)
+			&& await delete_image_record(section_id)
 		return {
 			ok					: false,
 			error				: removed

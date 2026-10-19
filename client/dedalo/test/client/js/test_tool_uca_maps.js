@@ -5635,13 +5635,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	)
 
 	/**
-	* Stands in for core's create, the ingest and delete, so no record is ever
-	* written; the staging upload stays real (service_upload). `ingest` answers
-	* per call; every staged file is kept for release_staged.
+	* Stands in for core's create, the ingest, the file check and delete, so no
+	* record is ever written; the staging upload stays real (service_upload).
+	* `ingest` answers per call; every staged file is kept for release_staged.
+	* The file check answers "no file" unless `file_check` says otherwise.
 	*/
-	const stub_image_record_doors = function(new_id, ingest, delete_answer) {
+	const no_image_file = () => ({ok: false, error: {is_api_error: true, code: 'media.file_not_found', message: 'The image is no longer on the server.', transport: false}})
+	const stub_image_record_doors = function(new_id, ingest, delete_answer, file_check=no_image_file) {
 		const original_request = data_manager.request
-		const seen = {created: [], deleted: [], staged: []}
+		const seen = {created: [], deleted: [], staged: [], checked: []}
 		data_manager.request = async function(options) {
 			const body = options && options.body
 			if (body && body.action==='create') {
@@ -5651,6 +5653,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			if (body && body.action==='tool_request' && body.source && body.source.action==='process_uploaded_file') {
 				seen.staged.push(body.options.file_data)
 				return ingest()
+			}
+			if (body && body.action==='tool_request' && body.source && body.source.action==='get_image_file') {
+				seen.checked.push(body.options)
+				return file_check()
 			}
 			if (body && body.action==='delete') {
 				seen.deleted.push(body)
@@ -5665,9 +5671,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		return seen
 	}
 
-	// only a refusal raised before the file moved proves the record empty; any
-	// other answer may still be filling it, so it is named, never deleted
-	it('only a refusal raised before the file moved deletes the minted record; any other failure names it', async function() {
+	// only a refusal raised before the file moved, with no file found after it,
+	// proves the record empty; any other answer may still be filling it, so it
+	// is named, never deleted
+	it('only a refusal raised before the file moved, on a record with no file, deletes it; any other failure names it', async function() {
 
 		const NEW_ID	= 987654
 		const reason	= 'The staged file is not an image'
@@ -5733,6 +5740,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				answer	: {ok: true, data: []},
 				deletes	: true,
 				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+			},
+			{
+				// a refusal core raises after the move one day: the file is the fact
+				label	: 'an envelope refusal on a record that holds a file',
+				ingest	: refusal,
+				check	: () => ({ok: true, data: {file_path: '/image/1.5MB/0/rsc29_rsc170_' + NEW_ID + '.jpg', quality: '1.5MB'}}),
+				answer	: null,
+				deletes	: false,
+				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+			},
+			{
+				label	: 'an envelope refusal whose file check fails',
+				ingest	: refusal,
+				check	: () => ({ok: false, error: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true}}),
+				answer	: null,
+				deletes	: false,
+				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
 			}
 		]
 
@@ -5741,7 +5765,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const seen = stub_image_record_doors(
 				NEW_ID,
 				() => (row.ingest ? {ok: false, error: row.ingest} : {ok: true, data: true}),
-				() => row.answer
+				() => row.answer,
+				row.check
 			)
 			let result
 			try {
@@ -5753,6 +5778,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(seen.created.length, 1, `expected the record minted before the ingest: ${row.label}`)
 			assert.equal(seen.created[0].source.section_tipo, IMAGE_SECTION_TIPO, `expected it minted in the Images section: ${row.label}`)
 			assert.deepEqual(result, row.result, row.label)
+			const pre_move = row.ingest===refusal
+			assert.deepEqual(seen.checked, pre_move
+				? [{tipo: IMAGE_COMPONENT_TIPO, section_tipo: IMAGE_SECTION_TIPO, section_id: NEW_ID}]
+				: [], `expected the minted record's file checked only after a pre-move refusal: ${row.label}`)
 			if (row.deletes) {
 				assert.deepEqual(seen.deleted, [{
 					action	: 'delete',
