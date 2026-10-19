@@ -1497,6 +1497,39 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(find_layer_id(tool, {}), null, 'expected null for a layer owned by no FeatureGroup')
 	})
 
+	it('the object kind heading and DARE\'s "all" options speak the user\'s language', function() {
+
+		const spanish = {
+			geometry_polygon			: 'Polígono',
+			geometry_circle				: 'Círculo',
+			geometry_marker				: 'Marcador',
+			geometry_polyline			: 'Línea',
+			geometry_object				: 'Objeto',
+			roman_dare_all_types		: 'Todos los tipos',
+			roman_dare_all_countries	: 'Todos los países'
+		}
+		tool.get_tool_label = (key) => spanish[key]
+
+		tool.attach_console()
+		const heading = () => tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-object-type').textContent
+		for (const [layer_id, expected] of [[1, 'Polígono'], [2, 'Círculo'], [3, 'Marcador']]) {
+			seeded_layer(layer_id).openPopup()
+			assert.equal(heading(), expected, 'expected the translated kind of layer ' + layer_id)
+		}
+		const line = L.polyline([[40.41, -3.70], [40.43, -3.66]])
+		active_group().addLayer(line)
+		line.bindPopup('line').openPopup()
+		assert.equal(heading(), 'Línea', 'expected the translated kind of a line')
+
+		mount_roman()
+		const first_option = (selector) => tool.roman_panel.querySelector(selector).options[0]
+		for (const [selector, expected] of [['.uca-maps-roman-dare-type', 'Todos los tipos'], ['.uca-maps-roman-dare-country', 'Todos los países']]) {
+			assert.equal(first_option(selector).value, '', 'expected the "all" option first, with no value: ' + selector)
+			assert.equal(first_option(selector).textContent, expected, 'expected it translated: ' + selector)
+			assert.isFalse(Array.from(tool.roman_panel.querySelector(selector).options).slice(1).some((option) => option.value===''), 'expected one "all" option only: ' + selector)
+		}
+	})
+
 	// selecting is not opening, as in v6: opening would also shut, through
 	// toolbar.js's one-panel-at-a-time rule, whatever panel the user had open
 	it('opening a drawn layer\'s popup selects it in the console WITHOUT opening the panel', function() {

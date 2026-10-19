@@ -93,13 +93,24 @@ export const render_placeholder = function(self, given_container) {
 
 
 
-const GEOMETRY_LABELS = {
-	marker		: 'Marker',
-	circle		: 'Circle',
-	polygon		: 'Polygon',
-	polyline	: 'Polyline',
-	unknown		: 'Object'
-}
+/**
+* GEOMETRY_LABEL
+* The object's kind as the console heads it. One literal key per kind, so the
+* label census sees every one.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {string} kind - get_geometry_kind's answer
+* @returns {string}
+*/
+const geometry_label = function(self, kind) {
+	switch (kind) {
+		case 'marker'	: return self.get_tool_label('geometry_marker') || 'Marker'
+		case 'circle'	: return self.get_tool_label('geometry_circle') || 'Circle'
+		case 'polygon'	: return self.get_tool_label('geometry_polygon') || 'Polygon'
+		case 'polyline'	: return self.get_tool_label('geometry_polyline') || 'Polyline'
+		default			: return self.get_tool_label('geometry_object') || 'Object'
+	}
+}//end geometry_label
 
 /** v6's `img/escala-<tier>.png` bands (240x32, six 40px bands) as one inline
 * SVG: no binary to serve, and it scales. The hues live in the sheet
@@ -358,7 +369,7 @@ export const render_selected_object = function(self, layer) {
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-object-type',
-		text_content	: GEOMETRY_LABELS[kind],
+		text_content	: geometry_label(self, kind),
 		parent			: object_section
 	})
 

@@ -30,9 +30,10 @@ export const LIVE_SEARCH_DELAY_MS = 300
 
 
 
-/** DARE's own site vocabulary (`special_tools_roman_empire.js` imperium_type_object). */
+/** DARE's own site vocabulary (`special_tools_roman_empire.js` imperium_type_object),
+ * kept in DARE's English; the "all" option is the tool's own, translated. */
 const DARE_SITE_TYPES = [
-	['', 'All types'], ['11', 'City'], ['13', 'Civitas'], ['12', 'Town'], ['14', 'Villa'],
+	['11', 'City'], ['13', 'Civitas'], ['12', 'Town'], ['14', 'Villa'],
 	['16', 'Station'], ['56', 'Port'], ['57', 'Mine'], ['58', 'Production'], ['17', 'Fortress'],
 	['18', 'Fort'], ['53', 'Fortlet/tower'], ['15', 'Camp'], ['41', 'River'], ['43', 'Rapid'],
 	['46', 'Mountain'], ['47', 'Island'], ['50', 'Cape'], ['76', 'Lighthouse'], ['49', 'Pass'],
@@ -41,7 +42,7 @@ const DARE_SITE_TYPES = [
 
 /** DARE's country filter (v6's own list, ISO 3166-1 alpha-2 + its own labels). */
 const DARE_COUNTRIES = [
-	['', 'All countries'], ['AL', 'Albania'], ['DZ', 'Algeria'], ['AM', 'Armenia'], ['AT', 'Austria'],
+	['AL', 'Albania'], ['DZ', 'Algeria'], ['AM', 'Armenia'], ['AT', 'Austria'],
 	['AZ', 'Azerbaijan'], ['BH', 'Bahrain'], ['BE', 'Belgium'], ['BA', 'Bosnia and Herzegovina'],
 	['BG', 'Bulgaria'], ['HR', 'Croatia'], ['CZ', 'Czech Republic'], ['DK', 'Denmark'],
 	['DJ', 'Djibouti'], ['EG', 'Egypt'], ['ER', 'Eritrea'], ['ET', 'Ethiopia'], ['FR', 'France'],
@@ -660,10 +661,10 @@ const render_dare_filters = function(self, block) {
 	])
 
 	const type_select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-dare-type', parent: box})
-	fill_select(type_select, DARE_SITE_TYPES)
+	fill_select(type_select, [['', self.get_tool_label('roman_dare_all_types') || 'All types'], ...DARE_SITE_TYPES])
 
 	const country_select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-roman-dare-country', parent: box})
-	fill_select(country_select, DARE_COUNTRIES)
+	fill_select(country_select, [['', self.get_tool_label('roman_dare_all_countries') || 'All countries'], ...DARE_COUNTRIES])
 
 }//end render_dare_filters
 
