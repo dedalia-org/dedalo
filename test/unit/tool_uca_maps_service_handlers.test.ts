@@ -165,6 +165,55 @@ describe('get_administrative_unit — handler validation', () => {
 	});
 });
 
+describe('get_administrative_unit — the IGN reply wired into the handler', () => {
+	const LEVEL = 'https://inspire.ec.europa.eu/codelist/AdministrativeHierarchyLevel/';
+	const unit = (order: string, name: string, lon: number) => ({
+		type: 'Feature',
+		geometry: { type: 'Point', coordinates: [lon, 38.05] },
+		properties: { nationallevel: LEVEL + order, nameunit: name },
+	});
+	const UNITS = [
+		unit('3rdOrder', 'Alicante', -0.5),
+		unit('4thOrder', 'Elche', -0.7),
+		unit('4thOrder', 'Crevillent', -0.8),
+	];
+	// IGN answers every level under the click; the asked one is picked
+	const REPLY = JSON.stringify({ features: UNITS });
+
+	test.each([
+		['Municipio', 1],
+		['Provincia', 0],
+	] as const)(
+		'%s answers its own level, the first one IGN lists, as drawn',
+		async (level, index) => {
+			reply = () => REPLY;
+			expect(dataOf(await getAdministrativeUnit(contextOf({ ...VALID_CLICK, level })))).toEqual({
+				found: true,
+				feature: UNITS[index],
+			});
+			expect(sent).toHaveLength(1);
+		},
+	);
+
+	test('a level IGN did not list is not found, with no feature', async () => {
+		reply = () => REPLY;
+		expect(
+			dataOf(await getAdministrativeUnit(contextOf({ ...VALID_CLICK, level: 'CCAA' }))),
+		).toEqual({
+			found: false,
+			feature: null,
+		});
+	});
+
+	test('an unreadable reply is security.outbound_failed, not a crash', async () => {
+		reply = () => '<html>maintenance</html>';
+		const error = await failureOf(
+			getAdministrativeUnit(contextOf({ ...VALID_CLICK, level: 'Municipio' })),
+		);
+		expectCode(error, 'security.outbound_failed');
+	});
+});
+
 describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
 	const REFCAT = '6075421YJ2667S';
 	const RESULT_PAGE = `<p>Referencia catastral de la parcela:</p><p><a href="https://example.com/rc">${REFCAT}</a></p>`;

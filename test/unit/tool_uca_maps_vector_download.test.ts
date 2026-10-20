@@ -32,7 +32,7 @@ const SAMPLE_GEOJSON = {
 
 describe('tool_uca_maps vector_download — caller-fault validation (no binary needed)', () => {
 	// a key every object inherits is no format: the format table is read by own keys only
-	test.each(['dxf', 'toString', 'constructor', '__proto__'])(
+	test.each(['xlsx', 'toString', 'constructor', '__proto__'])(
 		"an unsupported format ('%s') is refused",
 		async (format) => {
 			const action = await loadAction('vector_download');
