@@ -4549,6 +4549,52 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
 	})
 
+	// both swap the basemap: one at a time, as v6's only_one_active_control.
+	// Before, UA remembered Catastro's WMS as "the previous basemap" and put it
+	// back after Catastro had let go — a cadastral layer nothing could remove
+	it('Catastro and UA take turns on the basemap: CAT → UA → CAT → UA, then closing UA, leaves only the original basemap', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		tool.attach_administrative_units()
+
+		const map				= geolocation.map
+		const original			= find_active_tile_layer(map)
+		const wms_on_map		= () => {
+			const layers = []
+			map.eachLayer((layer) => { if (layer instanceof L.TileLayer.WMS) layers.push(layer) })
+			return layers
+		}
+		const click_cat	= () => tool.catastro_control.getContainer().click()
+		const click_ua	= () => tool.ua_control.getContainer().click()
+		assert.isOk(original, 'expected a basemap on the map before arming (test fixture default)')
+
+		click_cat()
+		const cat_layer = tool._catastro_tile_layer
+		assert.deepEqual(wms_on_map(), [cat_layer], 'expected Catastro alone on the map')
+
+		click_ua()
+		assert.equal(is_catastro_enabled(tool), false, 'expected arming UA to disarm Catastro')
+		assert.equal(map.hasLayer(cat_layer), false, 'expected Catastro\'s WMS off the map')
+		assert.deepEqual(wms_on_map(), [tool._ua_tile_layer], 'expected UA alone on the map')
+
+		click_cat()
+		assert.equal(tool.ua_panel.hidden, true, 'expected arming Catastro to close the UA panel')
+		assert.equal(tool._ua_tile_layer, null, 'expected arming Catastro to disarm UA')
+		assert.deepEqual(wms_on_map(), [tool._catastro_tile_layer], 'expected Catastro alone on the map')
+
+		click_ua()
+		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro disarmed again')
+		assert.deepEqual(wms_on_map(), [tool._ua_tile_layer], 'expected UA alone on the map')
+
+		click_ua()
+		assert.deepEqual(wms_on_map(), [], 'expected no WMS left once both are off')
+		assert.equal(map.hasLayer(original), true, 'expected the original basemap back')
+		const entries = geolocation.layer_control ? Object.values(geolocation.layer_control._layers) : []
+		assert.isFalse(entries.some((entry) => entry.layer instanceof L.TileLayer.WMS), 'expected no WMS left in the layer control')
+		assert.equal(tool._basemap_swap_armed, null, 'expected no swap holding the basemap')
+	})
+
 	it('check_catastro_at_point (found) creates a polygon with a visible "url" property, not hidden uca_maps bookkeeping', async function() {
 
 		arm_catastro()

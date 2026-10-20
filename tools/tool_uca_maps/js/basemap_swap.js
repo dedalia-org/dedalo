@@ -9,7 +9,8 @@
 * What Catastro and UA share: v6's language gate, swapping the basemap for one WMS
 * and back, and the point a map click asks the server about. Each feature keeps its
 * state on the tool under its own key (`_<key>_tile_layer`, `_<key>_click_handler`,
-* `_<key>_previous_base_layers`, `_<key>_created_layer_control`), never a shared slot.
+* `_<key>_previous_base_layers`, `_<key>_created_layer_control`). The one shared
+* slot, `_basemap_swap_armed`, holds the swap that owns the basemap right now.
 */
 
 
@@ -44,16 +45,26 @@ const slot = (key, name) => `_${key}_${name}`
 * simulated radio click, and arms the click. Remembers the tile layers live on the map
 * right then (asked via the map, never a cached "current"), so disabling restores
 * exactly those. Creates a layer_control only if none exists.
+* One swap at a time, as v6's `only_one_active_control`: another armed swap is
+* disarmed first, through its feature's own `disarm` (button, banner, panel), so
+* the basemap it took is back on the map before this one remembers it. Otherwise
+* this swap would remember the other's WMS and restore it after its owner let go.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} key - the feature's state key ('catastro' | 'ua')
-* @param {{url: string, wms_options: Object, label: string, on_click: function(Object): void}} swap
+* @param {{url: string, wms_options: Object, label: string, on_click: function(Object): void, disarm: function(): void}} swap
 * @returns {void}
 */
-export const enable_basemap_swap = function(self, key, {url, wms_options, label, on_click}) {
+export const enable_basemap_swap = function(self, key, {url, wms_options, label, on_click, disarm}) {
 
 	const geolocation	= self.geolocation
 	const map			= geolocation.map
+
+	const armed = self._basemap_swap_armed
+	if (armed && armed.key!==key) {
+		armed.disarm()
+	}
+	self._basemap_swap_armed = {key, disarm}
 
 	if (!geolocation.layer_control) {
 		geolocation.layer_control = L.control.layers({}).addTo(map)
@@ -117,6 +128,10 @@ export const disable_basemap_swap = function(self, key) {
 		layer.addTo(map)
 	}
 	self[slot(key, 'previous_base_layers')] = null
+
+	if (self._basemap_swap_armed?.key===key) {
+		self._basemap_swap_armed = null
+	}
 
 	// only remove the control if THIS feature created it (no provider one existed):
 	// the same "created_layer_control" convention as xyz_basemaps.js

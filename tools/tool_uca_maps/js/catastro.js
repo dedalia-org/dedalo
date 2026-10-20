@@ -110,7 +110,8 @@ const enable_catastro = function(self) {
 			maxZoom		: 21
 		},
 		label		: self.get_tool_label('catastro_control_title') || 'Catastro',
-		on_click	: (latlng) => check_catastro_at_point(self, latlng)
+		on_click	: (latlng) => check_catastro_at_point(self, latlng),
+		disarm		: () => disable_catastro(self)
 	})
 
 }//end enable_catastro
@@ -284,6 +285,9 @@ export const detach_catastro = function(self) {
 	self._catastro_busy				= false
 	self._catastro_previous_base_layers	= null
 	self._catastro_created_layer_control	= false
+	if (self._basemap_swap_armed?.key==='catastro') {
+		self._basemap_swap_armed = null
+	}
 
 }//end detach_catastro
 

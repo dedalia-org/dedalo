@@ -122,7 +122,12 @@ const enable_ua = function(self) {
 			opacity		: 1
 		},
 		label		: self.get_tool_label('ua_control_title') || 'Administrative Units',
-		on_click	: (latlng) => check_administrative_unit_at_point(self, latlng)
+		on_click	: (latlng) => check_administrative_unit_at_point(self, latlng),
+		// the panel goes with the swap: an open panel over a disarmed map lies
+		disarm		: () => {
+			set_toolbar_panel_visible(self, self.ua_panel, self.ua_control, false)
+			disable_ua(self)
+		}
 	})
 
 }//end enable_ua
@@ -256,6 +261,9 @@ export const detach_administrative_units = function(self) {
 	self._ua_busy				= false
 	self._ua_previous_base_layers	= null
 	self._ua_created_layer_control	= false
+	if (self._basemap_swap_armed?.key==='ua') {
+		self._basemap_swap_armed = null
+	}
 
 }//end detach_administrative_units
 
