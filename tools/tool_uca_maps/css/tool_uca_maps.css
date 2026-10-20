@@ -1035,6 +1035,12 @@
 .uca-maps-scale .uca-maps-scale-row > .uca-maps-scale-division:last-child {
   border-right-width: 1px;
 }
+.uca-maps-scale .uca-maps-scale-row + .uca-maps-scale-row {
+  height: 5px;
+}
+.uca-maps-scale .uca-maps-scale-row + .uca-maps-scale-row > .uca-maps-scale-division {
+  border-top-width: 0;
+}
 .uca-maps-scale .uca-maps-scale-labels {
   display: flex;
   justify-content: space-between;

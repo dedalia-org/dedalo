@@ -7262,7 +7262,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isFalse(map.listens('locationerror', error_handler), 'expected the error listener off the map')
 	})
 
-	it('attach_scale_bar adds exactly one graphic scale WITH its compass rose, idempotently', function() {
+	it('attach_scale_bar adds exactly one graphic scale WITH its compass rose, idempotently', async function() {
 
 		tool.attach_scale_bar()
 		tool.attach_scale_bar()
@@ -7292,6 +7292,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			rows[1].children[0].classList.contains('filled'),
 			'expected the second row offset by one division — that is what makes the checker'
 		)
+
+		// one stroke between the rows, not the first row's bottom plus the
+		// second's top; and the same fill height in both rows
+		await with_tool_css(() => {
+			const top_division		= rows[0].children[0]
+			const bottom_division	= rows[1].children[0]
+			assert.equal(getComputedStyle(top_division).borderBottomWidth, '1px', 'expected the shared stroke on the first row')
+			assert.equal(getComputedStyle(bottom_division).borderTopWidth, '0px', 'expected no second stroke on top of the second row')
+			assert.isAbove(top_division.clientHeight, 0, 'expected the bar laid out')
+			assert.equal(bottom_division.clientHeight, top_division.clientHeight, 'expected both rows to fill the same height')
+		})
 
 		assert.isOk(
 			scales[0].querySelector('.uca-maps-scale-labels').textContent.trim(),

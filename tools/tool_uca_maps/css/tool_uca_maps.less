@@ -1129,6 +1129,17 @@
 		}
 	}
 
+	// the rows share the first one's bottom stroke: a second top border would
+	// draw the middle line twice as thick as the outline. One pixel shorter so
+	// both rows keep the same fill between their lines.
+	.uca-maps-scale-row + .uca-maps-scale-row {
+		height: 5px;
+
+		>.uca-maps-scale-division {
+			border-top-width: 0;
+		}
+	}
+
 	.uca-maps-scale-labels {
 		display: flex;
 		justify-content: space-between;
