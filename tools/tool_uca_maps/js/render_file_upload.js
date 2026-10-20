@@ -16,7 +16,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {create_panel_message, show_panel_message} from './render_download_line.js'
+import {create_panel_message, render_new_tab_link, show_panel_message} from './render_download_line.js'
 
 
 
@@ -133,15 +133,7 @@ const render_projection_fields = function(self, panel) {
 	const zone_input = field('zone', 'uca-maps-upload-zone', '19')
 	const band_input = field('band', 'uca-maps-upload-band', 'N')
 
-	const epsg_link = ui.create_dom_element({
-		element_type	: 'a',
-		class_name		: 'uca-maps-upload-epsg-link',
-		text_content	: EPSG_IO_URL,
-		parent			: row
-	})
-	epsg_link.href		= EPSG_IO_URL
-	epsg_link.target	= '_blank'
-	epsg_link.rel		= 'noopener noreferrer'
+	const epsg_link = render_new_tab_link('uca-maps-upload-epsg-link', EPSG_IO_URL, EPSG_IO_URL, row)
 
 	// `input`, not v6's keyup: a pasted code has to move the link too
 	epsg_input.addEventListener('input', () => {

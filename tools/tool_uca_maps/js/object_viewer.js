@@ -25,6 +25,7 @@ import {
 } from './toolbar.js'
 import {commit, apply_display, ensure_uca_maps} from './object_console.js'
 import {render_object_viewer_panel, populate_object_viewer} from './render_object_viewer.js'
+import {read_uca_maps} from './uca_maps_data.js'
 
 
 
@@ -138,7 +139,7 @@ export const collect_objects = function(self) {
 	feature_group.eachLayer((layer) => {
 
 		const properties	= (layer.feature && layer.feature.properties) || {}
-		const uca_maps		= properties.uca_maps || {}
+		const uca_maps		= read_uca_maps(layer) || {}
 		const name			= properties.name || properties.title
 			|| (self.get_tool_label('object_viewer_nameless') || 'Untitled object')
 		const display		= uca_maps.display!==false

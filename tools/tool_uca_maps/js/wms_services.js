@@ -169,6 +169,8 @@ export const search_wms_layers = async function(self, raw_url) {
 		return {ok: false, error: self.get_tool_label('wms_error_url_invalid') || 'Please enter a valid URL.'}
 	}
 
+	const unreadable = self.get_tool_label('wms_error_parse') || 'Could not read the server response.'
+
 	try {
 
 		const response = await self.tool_request({
@@ -195,7 +197,7 @@ export const search_wms_layers = async function(self, raw_url) {
 		const data		= response_data(response)
 		const parsed	= parse_wms_capabilities_xml(data && data.xml)
 		if (!parsed.ok) {
-			return {ok: false, error: self.get_tool_label('wms_error_parse') || 'Could not read the server response.'}
+			return {ok: false, error: unreadable}
 		}
 
 		self._wms_search_results = {base_url: data.url, layers: parsed.layers}
@@ -210,7 +212,7 @@ export const search_wms_layers = async function(self, raw_url) {
 		}
 		console.error('tool_uca_maps: search_wms_layers failed unexpectedly', error)
 		report_client_error((error && error.message) || 'WMS layer search failed')
-		return {ok: false, error: self.get_tool_label('wms_error_parse') || 'Could not read the server response.'}
+		return {ok: false, error: unreadable}
 	}
 }//end search_wms_layers
 

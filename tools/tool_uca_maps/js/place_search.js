@@ -122,6 +122,8 @@ export const search_places = async function(self, raw_query) {
 		return {ok: false}
 	}
 
+	const failed = self.get_tool_label('place_search_error_failed') || 'The place search could not be completed.'
+
 	try {
 
 		const response = await self.tool_request({
@@ -144,7 +146,6 @@ export const search_places = async function(self, raw_query) {
 		}
 
 		if (request_failed(response)) {
-			const failed = self.get_tool_label('place_search_error_failed') || 'The place search could not be completed.'
 			return {ok: false, error: tool_error_text(response.error, failed)}
 		}
 
@@ -163,7 +164,7 @@ export const search_places = async function(self, raw_query) {
 		}
 		console.error('tool_uca_maps: search_places failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Place search failed')
-		return {ok: false, error: self.get_tool_label('place_search_error_failed') || 'The place search could not be completed.'}
+		return {ok: false, error: failed}
 	}
 }//end search_places
 

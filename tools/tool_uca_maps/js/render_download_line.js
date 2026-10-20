@@ -48,6 +48,31 @@ export const show_panel_message = (message, text, type = 'error') => {
 }; //end show_panel_message
 
 /**
+ * RENDER_NEW_TAB_LINK
+ * A link that opens in a new tab without handing the opened page
+ * `window.opener`.
+ *
+ * @param {string} class_name
+ * @param {string|undefined} text
+ * @param {string} href
+ * @param {HTMLElement} parent
+ * @returns {HTMLAnchorElement}
+ */
+export const render_new_tab_link = (class_name, text, href, parent) => {
+	const link = ui.create_dom_element({
+		element_type: 'a',
+		class_name: class_name,
+		text_content: text,
+		parent: parent,
+	});
+	link.href = href;
+	link.target = '_blank';
+	link.rel = 'noopener noreferrer';
+
+	return link;
+}; //end render_new_tab_link
+
+/**
  * BIND_DOWNLOAD_BUTTON
  * The button stays disabled until the answer is in: two attempts in flight
  * could answer out of order, and a slow refusal would land under a later

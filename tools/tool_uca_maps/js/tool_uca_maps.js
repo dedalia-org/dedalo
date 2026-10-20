@@ -17,6 +17,7 @@
 	import {pause} from '../../../core/common/js/utils/index.js'
 	import {get_caller_by_model} from '../../../core/common/js/utils/util.js'
 	import {common} from '../../../core/common/js/common.js'
+	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {dd_request_idle_callback} from '../../../core/common/js/events.js'
 	import {tool_common, wire_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {render_tool_uca_maps} from './render_tool_uca_maps.js'
@@ -810,6 +811,13 @@ tool_uca_maps.prototype.destroy = async function(delete_self=true, delete_depend
 	detach_legend(self)
 	detach_roman_empire(self)
 	self.geolocation = null
+
+	// common.destroy drops events_tokens only with delete_self; with the map
+	// detached above, a kept subscription would only fire into a torn-down tool
+	for (const token of self.events_tokens || []) {
+		event_manager.unsubscribe(token)
+	}
+	self.events_tokens = []
 
 	// the standard instance teardown, same pattern as component_geolocation's own
 	// destroy override

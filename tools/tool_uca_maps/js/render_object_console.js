@@ -20,7 +20,7 @@ import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
 import {carrier_image} from './uca_maps_data.js'
 import {svg_node} from './svg.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME} from './download_filename.js'
-import {bind_download_button, create_panel_message, show_panel_message} from './render_download_line.js'
+import {bind_download_button, create_panel_message, render_new_tab_link, show_panel_message} from './render_download_line.js'
 
 // No import from './object_console.js': it imports this file (logic imports
 // render, never the reverse), and an import back would close a cycle. Every
@@ -270,34 +270,6 @@ const set_range = (input, min, max, step, value) => {
 	input.step	= step
 	input.value	= value
 }//end set_range
-
-
-
-/**
-* RENDER_NEW_TAB_LINK
-* A link that opens in a new tab without handing the opened page
-* `window.opener`.
-*
-* @param {string} class_name
-* @param {string|undefined} text
-* @param {string} href
-* @param {HTMLElement} parent
-* @returns {HTMLAnchorElement}
-*/
-const render_new_tab_link = (class_name, text, href, parent) => {
-
-	const link = ui.create_dom_element({
-		element_type	: 'a',
-		class_name		: class_name,
-		text_content	: text,
-		parent			: parent
-	})
-	link.href	= href
-	link.target	= '_blank'
-	link.rel	= 'noopener noreferrer'
-
-	return link
-}//end render_new_tab_link
 
 
 

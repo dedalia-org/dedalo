@@ -3495,6 +3495,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(polygon.pm.enabled(), true, 'expected the queued re-assert cancelled, not run on a detached console')
 	})
 
+	// the core drops events_tokens only on destroy(true): the tool drops its own
+	it('destroy(false) leaves no subscription of the tool behind', async function() {
+
+		tool.attach_console()
+		tool.attach_object_viewer()
+		const tokens = [...tool.events_tokens]
+		assert.isAtLeast(tokens.length, 2, 'expected the console and the viewer subscribed')
+		const live = () => event_manager.get_events().filter((event) => tokens.includes(event.token))
+		assert.equal(live().length, tokens.length, 'expected every token live before teardown')
+
+		await tool.destroy(false, false, false)
+
+		assert.deepEqual(live(), [], 'expected the tool\'s subscriptions gone after destroy(false)')
+	})
+
 	it('detach_onexone removes the button and takes both map listeners off', async function() {
 
 		tool.attach_onexone()
@@ -8462,7 +8477,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		for (const value of ['Gad', 'Gade', 'Gades', 'Gadesx']) {
 			input.value = value
 			input.dispatchEvent(new Event('input'))
-			await tick(40)
+			await tick(LIVE_SEARCH_DELAY_MS / 4) // well inside the debounce window
 		}
 		await tick(AFTER_DEBOUNCE_MS)
 
@@ -9128,9 +9143,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return new Promise((resolve) => { release = () => resolve({ ok: true, data: { results: [{ name: 'Roma', id: '423025' }] } }) })
 		})
 		const search_roma = async () => {
+			release = null
 			input.value = 'Roma'
 			input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
-			await tick(20)
+			await until(() => release!==null)
+			assert.isNotNull(release, 'expected the search sent')
 		}
 
 		// control half: the field in view, the answer opens the list
@@ -9269,7 +9286,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		key(input, 'Tab')
 		const fresh_rows = tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button')
 		key(fresh_rows[0], 'Enter')
-		await tick(20)
+		await until(() => feature_group.getLayers().length===before + 1)
 		assert.equal(feature_group.getLayers().length, before + 1, 'expected Enter on the focused row to draw it')
 		assert.equal(tool.roman_dropdown.hidden, true)
 		assert.equal(document.activeElement, input, 'expected the focus back in the field, not lost on <body>')

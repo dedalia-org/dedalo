@@ -115,6 +115,8 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 
 	self._upload_busy = true
 
+	const not_uploaded = self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.'
+
 	try {
 
 		const upload_response = await upload({
@@ -131,7 +133,7 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 		if (!response_data(upload_response)) {
 			const message = upload_response && upload_response.error
 				? tool_error_text(upload_response.error, rejected)
-				: (self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.')
+				: not_uploaded
 			return {ok: false, error: message}
 		}
 
@@ -165,7 +167,7 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 	} catch (error) {
 		console.error('tool_uca_maps: upload_vector_file failed unexpectedly', error)
 		report_client_error((error && error.message) || 'Vector file upload failed')
-		return {ok: false, error: self.get_tool_label('upload_error_transport') || 'The file could not be uploaded.'}
+		return {ok: false, error: not_uploaded}
 	} finally {
 		self._upload_busy = false
 	}
