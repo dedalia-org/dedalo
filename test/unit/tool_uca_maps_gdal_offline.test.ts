@@ -317,18 +317,46 @@ const SPAWN_EXEMPT: Readonly<Record<string, string>> = {
 
 describe('tool_uca_maps spawn census — every binary runs through runToolBinary', () => {
 	const SERVER = resolve(import.meta.dir, '../../tools/tool_uca_maps/server');
-	const SPAWN = /\brunBinary\b|\bBun\.spawn(Sync)?\b|\bBun\.\$|node:child_process/;
+	// a textual census, not a binding analysis: core's door, `Bun.` members,
+	// a named import from 'bun', and node's module with or without `node:`.
+	// A namespace import or a destructure of Bun would escape it
+	const SPAWN =
+		/\brunBinary\b|\bBun\.spawn(Sync)?\b|\bBun\.\$|['"](node:)?child_process['"]|import\s*\{[^}]*(\bspawn(Sync)?\b|\$)[^}]*\}\s*from\s*['"]bun['"]/;
 	/** Code lines only: a comment may name a spawn without making one. */
-	const codeLines = (file: string) =>
-		readFileSync(join(SERVER, file), 'utf-8')
+	const codeOf = (text: string) =>
+		text
 			.split('\n')
 			.map((line) => line.trim())
-			.filter((line) => !/^(\/\/|\*|\/\*)/.test(line));
+			.filter((line) => !/^(\/\/|\*|\/\*)/.test(line))
+			.join('\n');
+	const spawns = (file: string) => SPAWN.test(codeOf(readFileSync(join(SERVER, file), 'utf-8')));
+
+	test.each([
+		'await runBinary(argv, opts);',
+		"Bun.spawn(['gdalinfo']);",
+		"Bun.spawnSync(['gdalinfo']);",
+		'await Bun.$`gdalinfo`;',
+		"import { spawn } from 'bun';",
+		'import { $ } from "bun";',
+		"import {\n\tGlob,\n\tspawnSync,\n} from 'bun';",
+		"import { execFile } from 'node:child_process';",
+		"const cp = require('child_process');",
+	])('the census sees the spelling %p', (code) => {
+		expect(SPAWN.test(codeOf(code))).toBe(true);
+	});
+
+	test.each([
+		'// Bun.spawn would bypass the offline env',
+		"import { Glob } from 'bun';",
+		'const spawned = 0;',
+	])('the census ignores %p', (code) => {
+		expect(SPAWN.test(codeOf(code))).toBe(false);
+	});
 
 	test('only gdal.ts spawns, once, inside runToolBinary; the exemptions still spawn', () => {
 		const files = [...new Glob('**/*.ts').scanSync({ cwd: SERVER })];
 		expect(files.length).toBeGreaterThanOrEqual(15);
-		const spawning = files.filter((file) => codeLines(file).some((line) => SPAWN.test(line)));
+		const spawning = files.filter(spawns);
 		expect(spawning.sort()).toEqual(['gdal.ts', ...Object.keys(SPAWN_EXEMPT)].sort());
 		// one call, and it is runToolBinary's own
 		const gdal = readFileSync(join(SERVER, 'gdal.ts'), 'utf-8');

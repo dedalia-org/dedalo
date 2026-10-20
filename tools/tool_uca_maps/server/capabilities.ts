@@ -5,7 +5,7 @@
  * install-configured resolver (`media/engine/binaries.ts`).
  */
 
-import { ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, logError, ok, toDedaloError } from '../../../src/core/errors/index.ts';
 import { identifyAvailable, resolveIdentify } from '../../../src/core/media/engine/binaries.ts';
 import { runBinary } from '../../../src/core/media/engine/spawn.ts';
 import {
@@ -93,18 +93,39 @@ export interface UcaMapsCapabilities {
 	externalImages: boolean;
 }
 
-/** Probe every binary `get_capabilities` needs to answer. Never throws.
- * `externalImagesOn` is a parameter only so a gate can turn the option off. */
-export async function probeCapabilities(
-	externalImagesOn: () => Promise<boolean> = externalImagesEnabled,
-): Promise<UcaMapsCapabilities> {
+/** Seams: a gate scripts the binaries and the option without the machine's. */
+export interface CapabilitiesDeps {
+	readonly probe?: typeof probeOnPath;
+	readonly externalImagesOn?: () => Promise<boolean>;
+}
+
+/** The option is a DB read: an outage reads as "off", never a 500, but it is
+ * logged, or a broken config would silently hide the button. */
+async function externalImagesOrOff(read: () => Promise<boolean>): Promise<boolean> {
+	try {
+		return await read();
+	} catch (error) {
+		const typed = toDedaloError(error);
+		logError(
+			new DedaloError('tool.action_failed', {
+				message: `get_capabilities could not read external_images_enabled (${typed.code}): ${typed.message}`,
+				cause: error,
+			}),
+			{ subsystem: 'tool_uca_maps' },
+		);
+		return false;
+	}
+}
+
+/** Probe every binary `get_capabilities` needs to answer. Never throws. */
+export async function probeCapabilities(deps: CapabilitiesDeps = {}): Promise<UcaMapsCapabilities> {
+	const probe = deps.probe ?? probeOnPath;
 	const [gdal, ogr2ogr, gdalTranslate, gazetteers, externalImages] = await Promise.all([
-		probeOnPath('gdalinfo', ['--version']).then(gdalCapability),
-		probeOnPath('ogr2ogr', ['--version']).then(gdalCapability),
-		probeOnPath('gdal_translate', ['--version']).then(gdalCapability),
+		probe('gdalinfo', ['--version']).then(gdalCapability),
+		probe('ogr2ogr', ['--version']).then(gdalCapability),
+		probe('gdal_translate', ['--version']).then(gdalCapability),
 		probeGazetteers(),
-		// the option is a DB read: an outage reads as "off", never a 500
-		externalImagesOn().catch(() => false),
+		externalImagesOrOff(deps.externalImagesOn ?? externalImagesEnabled),
 	]);
 	// the predicate `resolveMagickBinary` gates on, so the two never disagree
 	const available = identifyAvailable();

@@ -58,6 +58,14 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 			'ogr2ogr',
 		]);
 
+		// the default probe is this machine's own $PATH, through the floor
+		for (const [key, name] of [
+			['gdal', 'gdalinfo'],
+			['ogr2ogr', 'ogr2ogr'],
+			['gdalTranslate', 'gdal_translate'],
+		] as const) {
+			expect(data[key]).toEqual(gdalCapability(await probeOnPath(name, ['--version'])));
+		}
 		for (const key of ['gdal', 'ogr2ogr', 'gdalTranslate'] as const) {
 			const binary = data[key] as { available: unknown; path: unknown; version: unknown };
 			expect(Object.keys(binary).sort()).toEqual(['available', 'path', 'version']);
@@ -82,8 +90,12 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 	});
 
 	test('reports what the injected linked-images reader answers', async () => {
-		expect((await probeCapabilities(async () => false)).externalImages).toBe(false);
-		expect((await probeCapabilities(async () => true)).externalImages).toBe(true);
+		expect((await probeCapabilities({ externalImagesOn: async () => false })).externalImages).toBe(
+			false,
+		);
+		expect((await probeCapabilities({ externalImagesOn: async () => true })).externalImages).toBe(
+			true,
+		);
 	});
 
 	test('the default linked-images reader is externalImagesEnabled', async () => {
@@ -98,11 +110,22 @@ describe('tool_uca_maps get_capabilities — handler contract', () => {
 		}
 	});
 
-	test('a reader that fails reads as off: the probe never throws', async () => {
+	test('a reader that fails reads as off, and says so in the log: the probe never throws', async () => {
 		const failing = async (): Promise<boolean> => {
 			throw new Error('config read failed');
 		};
-		expect((await probeCapabilities(failing)).externalImages).toBe(false);
+		const lines: string[] = [];
+		const spies = (['error', 'warn', 'info'] as const).map((level) =>
+			spyOn(console, level).mockImplementation((line: unknown) => {
+				lines.push(String(line));
+			}),
+		);
+		try {
+			expect((await probeCapabilities({ externalImagesOn: failing })).externalImages).toBe(false);
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
+		expect(lines.filter((line) => line.startsWith('[tool_uca_maps]'))).toHaveLength(1);
 	});
 });
 
@@ -125,4 +148,27 @@ describe('tool_uca_maps get_capabilities — the GDAL version floor', () => {
 	test('a binary that did not run stays unavailable whatever its banner', () => {
 		expect(gdalCapability(probe('GDAL 3.6.2, released 2023/01/02', false)).available).toBe(false);
 	});
+
+	// the handler's own wiring: each of the three GDAL binaries goes through
+	// the floor, not only the helper
+	test.each([
+		['GDAL 3.1.4, released 2020/10/20', false],
+		['GDAL 3.6.2, released 2023/01/02', true],
+	] as const)(
+		'probeCapabilities reports %s as available: %p for all three',
+		async (banner, available) => {
+			const asked: string[] = [];
+			const capabilities = await probeCapabilities({
+				probe: async (name) => {
+					asked.push(name);
+					return probe(banner);
+				},
+				externalImagesOn: async () => true,
+			});
+			expect(asked.sort()).toEqual(['gdal_translate', 'gdalinfo', 'ogr2ogr']);
+			for (const key of ['gdal', 'ogr2ogr', 'gdalTranslate'] as const) {
+				expect(capabilities[key].available).toBe(available);
+			}
+		},
+	);
 });

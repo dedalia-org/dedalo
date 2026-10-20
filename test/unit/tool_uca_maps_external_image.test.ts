@@ -5,7 +5,7 @@
  * harvest_door_native.test.ts's.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { toErrorBody } from '../../src/core/errors/convert.ts';
@@ -16,9 +16,11 @@ import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
 import { STAGED_NAME_DIR } from '../../src/core/media/ingest/staged_name_record.ts';
 import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
+import * as toolConfig from '../../src/core/tools/config.ts';
 import {
 	EXTERNAL_IMAGE_MAX_BYTES,
 	EXTERNAL_IMAGES_CONFIG_KEY,
+	externalImagesEnabled,
 	externalImagesOn,
 	stagedFileName,
 	stageExternalImage,
@@ -152,6 +154,20 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 		['undefined', false, undefined],
 	])('the stored option %s reads as on=%p', (_label, on, value) => {
 		expect(externalImagesOn(value)).toBe(on);
+	});
+
+	// an install whose registration predates the option has neither an install
+	// value nor a register default: the reader's own fallback decides
+	test('an option nobody stored reads as on', async () => {
+		const read = spyOn(toolConfig, 'getToolConfigValue').mockImplementation(
+			async (_tool, _key, fallback) => fallback,
+		);
+		try {
+			expect(await externalImagesEnabled()).toBe(true);
+			expect(read).toHaveBeenCalledWith('tool_uca_maps', EXTERNAL_IMAGES_CONFIG_KEY, true);
+		} finally {
+			read.mockRestore();
+		}
 	});
 });
 
