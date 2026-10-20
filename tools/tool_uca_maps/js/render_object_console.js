@@ -375,14 +375,17 @@ export const render_selected_object = function(self, layer) {
 
 	render_onexone_reference(self, layer, object_section)
 
-	const info = self.compute_info(layer)
-	if (info) {
-		ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'uca-maps-object-info',
-			text_content	: (self.get_tool_label('info_' + info.label_key) || info.label) + ': ' + info.value,
-			parent			: object_section
-		})
+	const info_rows = self.compute_info(layer)
+	if (info_rows) {
+		const info = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-object-info', parent: object_section})
+		for (const row of info_rows) {
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'uca-maps-object-info-row',
+				text_content	: (self.get_tool_label('info_' + row.label_key) || row.label) + ': ' + row.value,
+				parent			: info
+			})
+		}
 	}
 
 	// v6's order (`special_tools.js` `set_info_console`, polygon branch): the
@@ -885,7 +888,12 @@ const render_properties_editor = function(self, layer, container) {
 
 	const reserved_keys = self.get_reserved_property_keys()
 	const computed_keys = self.get_computed_property_keys(layer)
-	for (const key in properties) {
+	// the geometry's keys lead, in their own order; the user's follow as stored
+	const keys = [
+		...computed_keys.filter((key) => Object.hasOwn(properties, key)),
+		...Object.keys(properties).filter((key) => !computed_keys.includes(key))
+	]
+	for (const key of keys) {
 		if (reserved_keys.includes(key)) {
 			continue
 		}

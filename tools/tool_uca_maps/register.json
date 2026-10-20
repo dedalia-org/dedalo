@@ -94,8 +94,11 @@
 		{ "lang": "lg-eng", "name": "info_coordinates", "value": "Coordinates" },
 		{ "lang": "lg-spa", "name": "info_coordinates", "value": "Coordenadas" },
 
-		{ "lang": "lg-eng", "name": "info_center_radius_area", "value": "Center / Radius / Area" },
-		{ "lang": "lg-spa", "name": "info_center_radius_area", "value": "Centro / Radio / Área" },
+		{ "lang": "lg-eng", "name": "info_center", "value": "Center" },
+		{ "lang": "lg-spa", "name": "info_center", "value": "Centro" },
+
+		{ "lang": "lg-eng", "name": "info_radius", "value": "Radius" },
+		{ "lang": "lg-spa", "name": "info_radius", "value": "Radio" },
 
 		{ "lang": "lg-eng", "name": "info_area", "value": "Area" },
 		{ "lang": "lg-spa", "name": "info_area", "value": "Área" },

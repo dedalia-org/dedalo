@@ -39,16 +39,16 @@ export const RESERVED_PROPERTY_KEYS = ['color', 'layer_id', 'uca_maps']
 /**
 * COMPUTED_PROPERTY_KEYS
 * What is rewritten from this layer's geometry: `area` by `sync_measurements` (same
-* branches), a circle's `shape` and `radius` by the core's `update_draw_data`. The editor shows
-* them read-only and never writes or deletes them: v6 offered them as editable text
-* and lost the edit on the next click. On any other layer they are the user's own.
+* branches), a circle's `shape` and `radius` by the core's `update_draw_data`. The editor lists
+* them first, in this order, read-only: v6 offered them as editable text and lost the
+* edit on the next click. On any other layer they are the user's own.
 *
 * @param {Object} layer
 * @returns {string[]}
 */
 export const computed_property_keys = function(layer) {
 	if (layer instanceof L.Circle) {
-		return ['area', 'radius', 'shape']
+		return ['shape', 'radius', 'area']
 	}
 	if (layer instanceof L.Polygon && !is_onexone_rectangle(layer)) {
 		return ['area']
@@ -332,16 +332,19 @@ const mark_dirty = function(self, layer) {
 
 
 /**
-* CIRCLE_MEASURE
-* The one copy of the core popup's circle "area" (`2·π·r`, see
-* `sync_measurements`), so the property and the console cannot disagree.
+* CIRCLE_AREA
+* π·r², printed as a polygon's area, so the property and the console cannot
+* disagree. v6 (`create_div_circle_area`) and the core popup print 2·π·r in m
+* under "Area": the circumference. A circle saved that way is rewritten on its
+* next selection (`sync_measurements`).
 *
 * @param {Object} layer - L.Circle
-* @returns {string} two decimals, no unit
+* @returns {string}
 */
-const circle_measure = function(layer) {
-	return (2 * Math.PI * layer.getRadius()).toFixed(2)
-}//end circle_measure
+const circle_area = function(layer) {
+	const radius = layer.getRadius()
+	return format_polygon_area(Math.PI * radius * radius)
+}//end circle_area
 
 
 
@@ -362,7 +365,7 @@ export const sync_measurements = function(self, layer) {
 	let uncertainty_changed	= false
 
 	if (layer instanceof L.Circle) {
-		value = circle_measure(layer) + ' m'
+		value = circle_area(layer)
 	} else if (layer instanceof L.Polygon) {
 		if (is_onexone_rectangle(layer)) {
 			return false // v6 saves no area for a 1x1 — see compute_info
@@ -1308,31 +1311,29 @@ const restore_natural_order = function(self) {
 /**
 * COMPUTE_INFO
 * Mirrors the core popup's math (`get_popup_content`), not v6's, so panel and
-* popup agree on the same click. The circle's "Area" is 2·π·r, mislabelled as in
-* the core; another label here would contradict the popup. `format_polygon_area`
-* replaces the core's private `readable_area`, which leaves < 1 ha undefined.
+* popup agree on the same click — save the circle, whose area is π·r² here and
+* 2·π·r there (`circle_area`). `format_polygon_area` replaces the core's
+* private `readable_area`, which leaves < 1 ha undefined. One row per line:
+* a circle's centre, radius and area read as three.
 *
 * @param {Object} self
 * @param {Object} layer
-* @returns {{label: string, value: string}|null}
+* @returns {Array<{label_key: string, label: string, value: string}>|null}
 */
 export const compute_info = function(self, layer) {
 
 	const geolocation = self.geolocation
 
 	if (layer instanceof L.Marker) {
-		return {label_key: 'coordinates', label: 'Coordinates', value: geolocation.str_lat_lng(layer.getLatLng())}
+		return [{label_key: 'coordinates', label: 'Coordinates', value: geolocation.str_lat_lng(layer.getLatLng())}]
 	}
 
 	if (layer instanceof L.Circle) {
-		const center	= layer.getLatLng()
-		const radius	= layer.getRadius()
-		const area		= circle_measure(layer) // as get_popup_content computes it
-		return {
-			label_key	: 'center_radius_area',
-			label		: 'Center / Radius / Area',
-			value		: geolocation.str_lat_lng(center) + ' · ' + geolocation.round_coordinate(radius, 2) + ' m · ' + area + ' m'
-		}
+		return [
+			{label_key: 'center', label: 'Center', value: geolocation.str_lat_lng(layer.getLatLng())},
+			{label_key: 'radius', label: 'Radius', value: geolocation.round_coordinate(layer.getRadius(), 2) + ' m'},
+			{label_key: 'area', label: 'Area', value: circle_area(layer)}
+		]
 	}
 
 	if (layer instanceof L.Polygon) {
@@ -1340,10 +1341,10 @@ export const compute_info = function(self, layer) {
 		// (`create_div_polygon_area`, the is_oneXone branch): the rectangle
 		// is a 1 m² reference around a point, not a shape the user drew.
 		if (is_onexone_rectangle(layer)) {
-			return {label_key: 'area', label: 'Area', value: '1 m²'}
+			return [{label_key: 'area', label: 'Area', value: '1 m²'}]
 		}
 		const area_m2 = turf.area(layer.toGeoJSON())
-		return {label_key: 'area', label: 'Area', value: format_polygon_area(area_m2)}
+		return [{label_key: 'area', label: 'Area', value: format_polygon_area(area_m2)}]
 	}
 
 	if (layer instanceof L.Polyline) {
@@ -1352,7 +1353,7 @@ export const compute_info = function(self, layer) {
 		for (let i=0; i<latlngs.length-1; i++) {
 			distance += latlngs[i].distanceTo(latlngs[i+1])
 		}
-		return {label_key: 'distance', label: 'Distance', value: geolocation.round_coordinate(distance, 2) + ' m'}
+		return [{label_key: 'distance', label: 'Distance', value: geolocation.round_coordinate(distance, 2) + ' m'}]
 	}
 
 	return null

@@ -1667,7 +1667,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// what is rewritten from THIS layer's geometry: neither typed over nor
 		// deleted, the next render or update_draw_data would put it back
 		assert.deepEqual(computed_property_keys(layer), ['area'], 'expected a polygon\'s area computed')
-		assert.deepEqual(computed_property_keys(seeded_layer(2)), ['area', 'radius', 'shape'], 'expected a circle\'s area, radius and shape computed')
+		assert.deepEqual(computed_property_keys(seeded_layer(2)), ['shape', 'radius', 'area'], 'expected a circle\'s shape, radius and area computed, in that order')
 		assert.deepEqual(computed_property_keys(seeded_layer(3)), [], 'expected nothing computed on a marker')
 		layer.feature.properties.area = '12.00 m²'
 		assert.equal(set_property(tool, layer, 'area', '999 m²'), false, 'expected the computed key refused')
@@ -2075,20 +2075,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('a circle lists its area, radius and shape read-only; "Add" refuses each with a message and dirties nothing', function() {
+	it('a circle lists its shape, radius and area first and read-only; "Add" refuses each with a message and dirties nothing', function() {
 
 		const layer = open_console_on(2) // circle: shape + radius come from the core
 
 		assert.isOk(layer.feature.properties.area, 'expected the area written into the feature, as v6 does')
+
+		// stored order as a jsonb read gives it back (keys by length): area first
+		const properties = layer.feature.properties
+		for (const key of ['shape', 'radius']) {
+			const value = properties[key]
+			delete properties[key]
+			properties[key] = value
+		}
+		layer.closePopup()
+		layer.openPopup()
 
 		const rows = () => new Map(Array.from(
 			tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'),
 			(item) => [item.querySelector('.uca-maps-property-key').textContent.replace(':', ''), item]
 		))
 
-		// still listed, since exports and the PDF carry them; v6 offered them as
-		// editable text and lost the edit on the next click
-		for (const key of ['area', 'radius', 'shape']) {
+		// still listed, first and in this order, since exports and the PDF carry
+		// them; v6 offered them as editable text and lost the edit on the next click
+		assert.deepEqual(Array.from(rows().keys()).slice(0, 3), ['shape', 'radius', 'area'], 'expected shape, radius and area leading the list')
+		for (const key of ['shape', 'radius', 'area']) {
 			const row = rows().get(key)
 			assert.isOk(row, 'expected "' + key + '" listed with the other properties')
 			assert.equal(row.querySelector('.uca-maps-property-computed').textContent, String(layer.feature.properties[key]), 'expected "' + key + '" shown as text')
@@ -2119,6 +2130,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const before = layer.feature.properties.area
 		assert.equal(tool.sync_measurements(layer), false, 'expected no write when the measurement has not changed')
 		assert.equal(layer.feature.properties.area, before, 'expected the same value')
+	})
+
+	it('a circle stores its real area (π·r² in m²); one saved with v6\'s circumference is rewritten once', function() {
+
+		const layer		= open_console_on(2)
+		const radius	= layer.getRadius()
+		const expected	= format_polygon_area(Math.PI * radius * radius)
+		assert.equal(layer.feature.properties.area, expected, 'expected π·r² printed as a polygon\'s area')
+		assert.notProperty(layer.feature.properties, 'perimeter', 'expected no perimeter key: the core keeps radius')
+
+		const dirty = []
+		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
+		layer.feature.properties.area = (2 * Math.PI * radius).toFixed(2) + ' m' // as v6 saved it
+		assert.equal(tool.sync_measurements(layer), true, 'expected the circumference rewritten')
+		assert.equal(layer.feature.properties.area, expected, 'expected the real area stored')
+		assert.equal(dirty.length, 1, 'expected the record dirtied once')
+		assert.equal(tool.sync_measurements(layer), false, 'expected the resync to stop once in step')
 	})
 
 	it('with the tool CSS, every "nothing here yet" line has the one look: legend, gallery, Roma dropdown', async function() {
@@ -2240,8 +2268,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.instanceOf(layer, L.Marker, 'expected the seeded marker to load as an L.Marker')
 
 		const info = tool.compute_info(layer)
-		assert.equal(info.label_key, 'coordinates', 'expected the Marker info label')
-		assert.equal(info.value, geolocation.str_lat_lng(layer.getLatLng()), 'expected the same formatting as the core\'s own popup')
+		assert.deepEqual(info, [{label_key: 'coordinates', label: 'Coordinates', value: geolocation.str_lat_lng(layer.getLatLng())}], 'expected one Coordinates row, formatted as the core\'s own popup')
 
 		layer.openPopup()
 		const section = tool.panel_node.querySelector('.uca-maps-object-section')
@@ -2253,19 +2280,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(section.querySelector('.uca-maps-download-button'), 'expected the download button to still be offered')
 	})
 
-	it('compute_info: Circle shows the core\'s circumference-as-area, with style/centroid/hierarchy but NOT uncertainty', function() {
+	it('compute_info: Circle shows centre, radius and real area (π·r², not v6\'s 2·π·r) one per line, with style/centroid/hierarchy but NOT uncertainty', function() {
 
 		tool.attach_console()
 		const layer = seeded_layer(2)
 		assert.instanceOf(layer, L.Circle, 'expected the seeded circle to reconstruct as an L.Circle (shape:"circle"+radius)')
 
-		const info = tool.compute_info(layer)
-		assert.equal(info.label_key, 'center_radius_area')
-		const expected_area = (2 * Math.PI * layer.getRadius()).toFixed(2)
-		assert.isOk(info.value.includes(expected_area), 'expected the same circumference-as-"area" formula as get_popup_content')
+		const radius	= layer.getRadius()
+		const center	= geolocation.str_lat_lng(layer.getLatLng())
+		const area		= format_polygon_area(Math.PI * radius * radius)
+		assert.deepEqual(tool.compute_info(layer).map((row) => [row.label_key, row.value]), [
+			['center', center],
+			['radius', geolocation.round_coordinate(radius, 2) + ' m'],
+			['area', area]
+		], 'expected the area as π·r², printed as a polygon\'s, after centre and radius')
 
 		layer.openPopup()
 		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const lines = Array.from(section.querySelectorAll('.uca-maps-object-info > .uca-maps-object-info-row'), (row) => row.textContent)
+		assert.deepEqual(lines, [
+			(tool.get_tool_label('info_center') || 'Center') + ': ' + center,
+			(tool.get_tool_label('info_radius') || 'Radius') + ': ' + geolocation.round_coordinate(radius, 2) + ' m',
+			(tool.get_tool_label('info_area') || 'Area') + ': ' + area
+		], 'expected one line per measure: Centre, Radius, Area')
 		assert.isOk(section.querySelector('.uca-maps-style-controls'), 'expected style controls for a circle')
 		assert.isOk(section.querySelector('.uca-maps-centroid'), 'expected a centroid checkbox for a circle')
 		assert.isNotOk(section.querySelector('.uca-maps-uncertainty'), 'expected NO uncertainty checkbox for a circle (matches v6: polygon-only)')
@@ -3216,7 +3253,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const rectangle		= layer_by_uid(geolocation.FeatureGroup[3], onexone_uid)
 
 		assert.equal(
-			tool.compute_info(rectangle).value, '1 m²',
+			tool.compute_info(rectangle)[0].value, '1 m²',
 			'expected v6\'s nominal area (create_div_polygon_area, is_oneXone branch), not turf\'s measurement'
 		)
 		assert.equal(
