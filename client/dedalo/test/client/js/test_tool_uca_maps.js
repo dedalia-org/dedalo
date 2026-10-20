@@ -3470,6 +3470,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
+	// the re-assert is a microtask: done before the browser paints, so a locked
+	// object never flashes the handles the core sweep gave it
+	it('a real click on a locked polygon takes the sweep\'s handles off before the browser can paint', async function() {
+
+		tool.attach_console()
+		const polygon = seeded_layer(1)
+		tool.set_geoman_edition(polygon, false)
+		let sweeps = 0
+		const real_enable = polygon.pm.enable.bind(polygon.pm)
+		polygon.pm.enable = function(options) { sweeps++; return real_enable(options) }
+
+		try {
+			assert.isOk(polygon._path, 'expected the polygon drawn on the map')
+			polygon._path.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}))
+			assert.equal(sweeps, 1, 'expected the click to reach the core sweep')
+			assert.equal(polygon.pm.enabled(), true, 'expected the sweep to have turned the handles on')
+			// microtasks only: a paint needs a task boundary, and none has passed
+			await Promise.resolve()
+			assert.equal(polygon.pm.enabled(), false, 'expected the handles off before any later task could paint them')
+		} finally {
+			polygon.pm.enable = real_enable
+			polygon.closePopup()
+		}
+	})
+
 	it('detach_console takes its five map listeners off and cancels a re-assert still queued', async function() {
 
 		tool.attach_console()

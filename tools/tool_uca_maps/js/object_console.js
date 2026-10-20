@@ -659,22 +659,25 @@ const reapply_geoman_all = function(self, lock_only=false) {
 
 /**
 * SCHEDULE_GEOMAN_REASSERT
-* One pending re-assert at a time: one click can fire both 'popupclose' and
-* 'popupopen', and teardown can only cancel the timer it still holds. The
-* latest request replaces a pending one.
+* A microtask, not a timer: it runs once Leaflet's whole click dispatch (the core
+* sweep included) returns and before the browser paints, so a locked object never
+* shows the handles the sweep gave it. One pending at a time, the latest wins;
+* teardown cancels it by dropping the token.
 *
 * @param {Object} self
 * @param {boolean} [lock_only=false] - see `apply_geoman`
 * @returns {void}
 */
 const schedule_geoman_reassert = function(self, lock_only=false) {
-	if (self._geoman_reassert) {
-		clearTimeout(self._geoman_reassert)
-	}
-	self._geoman_reassert = setTimeout(() => {
+	const token = {}
+	self._geoman_reassert = token
+	queueMicrotask(() => {
+		if (self._geoman_reassert!==token) {
+			return
+		}
 		self._geoman_reassert = null
 		reapply_geoman_all(self, lock_only)
-	}, 0)
+	})
 }//end schedule_geoman_reassert
 
 
@@ -1550,12 +1553,9 @@ export const detach_console = function(self) {
 		])
 	}
 
-	// the deferred geoman re-assert may still be queued — a timer that fires
-	// after teardown would touch a map this tool no longer owns
-	if (self._geoman_reassert) {
-		clearTimeout(self._geoman_reassert)
-		self._geoman_reassert = null
-	}
+	// the deferred geoman re-assert may still be queued — run after teardown,
+	// it would touch a map this tool no longer owns
+	self._geoman_reassert = null
 
 	remove_toolbar_button(self, self.map_control)
 	remove_toolbar_panel(self, self.panel_node)
