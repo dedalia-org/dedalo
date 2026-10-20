@@ -132,6 +132,26 @@ describe('tool_uca_maps register.json', () => {
 		).toEqual([]);
 	});
 
+	// the console's measure rows name their label by `label_key`; the family's
+	// prefix check passes whatever happens to one member, this one does not
+	test('every label_key compute_info answers ships its info_ label, in every language', async () => {
+		const labels =
+			authoringRegisterSchema.parse(await Bun.file(new URL('register.json', TOOL_DIR)).json())
+				.labels ?? [];
+		const langs = [...new Set(labels.map((label) => label.lang))];
+		const source = await Bun.file(new URL('js/object_console.js', TOOL_DIR)).text();
+		const keys = [
+			...new Set([...source.matchAll(/\blabel_key\s*:\s*'([a-z_]+)'/g)].map((m) => m[1])),
+		];
+		expect(keys.sort()).toEqual(['area', 'center', 'coordinates', 'distance', 'radius']);
+		const bare = keys.flatMap((key) =>
+			langs
+				.filter((lang) => !labels.some((l) => l.lang === lang && l.name === `info_${key}`))
+				.map((lang) => `info_${key} (${lang})`),
+		);
+		expect(bare).toEqual([]);
+	});
+
 	// the members are computed at run time; at least one per family proves the
 	// prefix is spelled as the labels are, so the family can resolve at all
 	test('every computed family has labels under its prefix, in every language', async () => {

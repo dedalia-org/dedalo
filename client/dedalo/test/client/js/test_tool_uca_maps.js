@@ -1681,6 +1681,41 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notProperty(marker.feature.properties, 'area', 'expected the marker\'s own "area" deletable')
 	})
 
+	// computed_property_keys repeats sync_measurements' branches: they must agree
+	// on every geometry, or a key is locked that nothing rewrites (or the reverse)
+	it('"area" is computed exactly where sync_measurements writes it, the 1x1 included', function() {
+
+		tool.attach_console()
+		const marker = seeded_layer(3)
+		create_onexone_rectangle(tool, marker)
+		const rectangle	= layer_by_uid(geolocation.FeatureGroup[3], marker.feature.properties.uca_maps.onexone_uid)
+		const polyline	= L.polyline([[40.40, -3.71], [40.45, -3.65]]).addTo(geolocation.FeatureGroup[1])
+
+		try {
+			const measured = []
+			for (const [label, layer] of [['polygon', seeded_layer(1)], ['circle', seeded_layer(2)], ['marker', marker], ['1x1', rectangle], ['polyline', polyline]]) {
+				if (layer.feature && layer.feature.properties) {
+					delete layer.feature.properties.area
+				}
+				tool.sync_measurements(layer)
+				const written = Boolean(layer.feature && layer.feature.properties && 'area' in layer.feature.properties)
+				assert.equal(computed_property_keys(layer).includes('area'), written, 'expected computed ⇔ written for the ' + label)
+				if (written) {
+					measured.push(label)
+				}
+			}
+			assert.deepEqual(measured, ['polygon', 'circle'], 'expected the polygon and the circle measured, and nothing else')
+
+			// v6 never measures a 1x1: its "area" is the user's own key
+			assert.deepEqual(computed_property_keys(rectangle), [], 'expected nothing computed on a 1x1')
+			assert.equal(set_property(tool, rectangle, 'area', 'about 1 m²'), true, 'expected "area" accepted on a 1x1')
+			delete_property(tool, rectangle, 'area')
+			assert.notProperty(rectangle.feature.properties, 'area', 'expected the 1x1\'s own "area" deletable')
+		} finally {
+			geolocation.FeatureGroup[1].removeLayer(polyline)
+		}
+	})
+
 	it('download_vector(\'geojson\') stays 100% client-side and downloads the real GeoJSON', async function() {
 
 		const layer = seeded_layer(1)
@@ -2125,6 +2160,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 		assert.deepEqual(dirty, [], 'expected a refused "Add" to dirty nothing')
 		assert.deepEqual({area: layer.feature.properties.area, radius: layer.feature.properties.radius, shape: layer.feature.properties.shape}, values_before, 'expected the three values untouched')
+
+		// a valid key after a refusal: the message goes, the property is written
+		// and the record dirtied
+		add_row.querySelector('.uca-maps-property-add-key').value	= 'note'
+		add_row.querySelector('.uca-maps-property-add-value').value	= 'kept'
+		add_row.querySelector('.uca-maps-property-add-button').click()
+		assert.isTrue(message.hidden, 'expected the refusal message taken away by a valid "Add"')
+		assert.equal(layer.feature.properties.note, 'kept', 'expected the valid property written')
+		assert.equal(dirty.length, 1, 'expected the valid "Add" to dirty the record once')
 
 		// idempotent: a second pass must not rewrite and re-dirty the record
 		const before = layer.feature.properties.area
