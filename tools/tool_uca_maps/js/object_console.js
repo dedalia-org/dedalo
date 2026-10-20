@@ -33,9 +33,40 @@ import {
 
 /** Keys the custom-properties editor never offers: v6's own filter
 * (`special_tools.js` `modal_properties`: `color`, `layer_id`) plus this tool's
-* namespace. `shape`/`radius` stay editable as in v6; the core re-stamps both on
-* the next `update_draw_data`. */
+* namespace. */
 export const RESERVED_PROPERTY_KEYS = ['color', 'layer_id', 'uca_maps']
+
+/**
+* COMPUTED_PROPERTY_KEYS
+* What is rewritten from this layer's geometry: `area` by `sync_measurements` (same
+* branches), a circle's `shape` and `radius` by the core's `update_draw_data`. The editor shows
+* them read-only and never writes or deletes them: v6 offered them as editable text
+* and lost the edit on the next click. On any other layer they are the user's own.
+*
+* @param {Object} layer
+* @returns {string[]}
+*/
+export const computed_property_keys = function(layer) {
+	if (layer instanceof L.Circle) {
+		return ['area', 'radius', 'shape']
+	}
+	if (layer instanceof L.Polygon && !is_onexone_rectangle(layer)) {
+		return ['area']
+	}
+	return []
+}//end computed_property_keys
+
+/**
+* IS_PROTECTED_PROPERTY_KEY
+* A key no hand may write or delete on this layer: reserved or computed.
+*
+* @param {Object} layer
+* @param {string} key
+* @returns {boolean}
+*/
+export const is_protected_property_key = function(layer, key) {
+	return RESERVED_PROPERTY_KEYS.includes(key) || computed_property_keys(layer).includes(key)
+}//end is_protected_property_key
 
 /** v6's `get_incertidumbre` thresholds (`special_tools.js`), in m² as returned by
 * `turf.area`. */
@@ -767,19 +798,20 @@ const reapply_all = function(self) {
 /**
 * SET_PROPERTY / DELETE_PROPERTY
 * Custom-properties CRUD over `layer.feature.properties`, refusing
-* RESERVED_PROPERTY_KEYS so the editor never shadows a core or tool field.
+* the protected keys (IS_PROTECTED_PROPERTY_KEY) so the editor never shadows a
+* core or tool field.
 * Client-side only, as v6's `create_property`/`edit_property` already were.
 *
 * @param {Object} self
 * @param {Object} layer
-* @param {string} raw_key - trimmed; an empty or reserved key is refused
+* @param {string} raw_key - trimmed; an empty, reserved or computed key is refused
 * @param {string} value
-* @returns {boolean} false if key was empty/reserved (nothing written)
+* @returns {boolean} false if key was empty/reserved/computed (nothing written)
 */
 export const set_property = function(self, layer, raw_key, value) {
 
 	const key = String(raw_key || '').trim()
-	if (!key || RESERVED_PROPERTY_KEYS.includes(key)) {
+	if (!key || is_protected_property_key(layer, key)) {
 		return false
 	}
 
@@ -792,7 +824,7 @@ export const set_property = function(self, layer, raw_key, value) {
 
 export const delete_property = function(self, layer, key) {
 
-	if (RESERVED_PROPERTY_KEYS.includes(key)) {
+	if (is_protected_property_key(layer, key)) {
 		return
 	}
 

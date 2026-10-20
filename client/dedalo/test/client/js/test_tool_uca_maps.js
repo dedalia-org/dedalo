@@ -44,7 +44,8 @@ import {
 	format_polygon_area,
 	apply_display,
 	detach_console,
-	RESERVED_PROPERTY_KEYS
+	RESERVED_PROPERTY_KEYS,
+	computed_property_keys
 } from '../../../tools/tool_uca_maps/js/object_console.js'
 import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
@@ -1662,6 +1663,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		delete_property(tool, layer, 'custom_key')
 		assert.equal('custom_key' in layer.feature.properties, false, 'expected the property removed')
+
+		// what is rewritten from THIS layer's geometry: neither typed over nor
+		// deleted, the next render or update_draw_data would put it back
+		assert.deepEqual(computed_property_keys(layer), ['area'], 'expected a polygon\'s area computed')
+		assert.deepEqual(computed_property_keys(seeded_layer(2)), ['area', 'radius', 'shape'], 'expected a circle\'s area, radius and shape computed')
+		assert.deepEqual(computed_property_keys(seeded_layer(3)), [], 'expected nothing computed on a marker')
+		layer.feature.properties.area = '12.00 m²'
+		assert.equal(set_property(tool, layer, 'area', '999 m²'), false, 'expected the computed key refused')
+		delete_property(tool, layer, 'area')
+		assert.equal(layer.feature.properties.area, '12.00 m²', 'expected the computed value never written nor deleted by hand')
+
+		// where nothing computes it, `area` is the user's own key
+		const marker = seeded_layer(3)
+		assert.equal(set_property(tool, marker, 'area', 'about 2 ha'), true, 'expected "area" accepted on a marker')
+		delete_property(tool, marker, 'area')
+		assert.notProperty(marker.feature.properties, 'area', 'expected the marker\'s own "area" deletable')
 	})
 
 	it('download_vector(\'geojson\') stays 100% client-side and downloads the real GeoJSON', async function() {
@@ -2058,23 +2075,45 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
-	it('the measurement is an ordinary property: listed with its own value field and delete button', function() {
+	it('a circle lists its area, radius and shape read-only; "Add" refuses each with a message and dirties nothing', function() {
 
 		const layer = open_console_on(2) // circle: shape + radius come from the core
 
 		assert.isOk(layer.feature.properties.area, 'expected the area written into the feature, as v6 does')
 
-		const rows = new Map(Array.from(
+		const rows = () => new Map(Array.from(
 			tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'),
 			(item) => [item.querySelector('.uca-maps-property-key').textContent.replace(':', ''), item]
 		))
 
-		for (const key of ['shape', 'radius', 'area']) {
-			const row = rows.get(key)
-			assert.isOk(row, 'expected "' + key + '" offered in the properties list (v6 modal_properties)')
-			assert.equal(row.querySelector('.uca-maps-property-value').value, String(layer.feature.properties[key]), 'expected "' + key + '" editable in place')
-			assert.isOk(row.querySelector('.uca-maps-property-delete'), 'expected "' + key + '" deletable')
+		// still listed, since exports and the PDF carry them; v6 offered them as
+		// editable text and lost the edit on the next click
+		for (const key of ['area', 'radius', 'shape']) {
+			const row = rows().get(key)
+			assert.isOk(row, 'expected "' + key + '" listed with the other properties')
+			assert.equal(row.querySelector('.uca-maps-property-computed').textContent, String(layer.feature.properties[key]), 'expected "' + key + '" shown as text')
+			assert.isNotOk(row.querySelector('input'), 'expected no field to type over "' + key + '"')
+			assert.isNotOk(row.querySelector('.uca-maps-property-delete'), 'expected no ✕ on "' + key + '"')
 		}
+
+		// nor through the add form: refused with its reason, nothing written or
+		// dirtied, and the form keeps what was typed
+		const dirty = []
+		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
+		const values_before = {area: layer.feature.properties.area, radius: layer.feature.properties.radius, shape: layer.feature.properties.shape}
+		const add_row = tool.panel_node.querySelector('.uca-maps-property-add')
+		const message = tool.panel_node.querySelector('.uca-maps-property-add-message')
+		assert.isTrue(message.hidden, 'expected no message before any refusal')
+		for (const key of ['area', ' radius ', 'shape']) {
+			add_row.querySelector('.uca-maps-property-add-key').value	= key
+			add_row.querySelector('.uca-maps-property-add-value').value	= '999'
+			add_row.querySelector('.uca-maps-property-add-button').click()
+			assert.isFalse(message.hidden, 'expected the refusal of "' + key + '" said')
+			assert.include(message.textContent, key.trim(), 'expected the message to name the refused key')
+			assert.equal(add_row.querySelector('.uca-maps-property-add-key').value, key, 'expected the refused entry left in the form')
+		}
+		assert.deepEqual(dirty, [], 'expected a refused "Add" to dirty nothing')
+		assert.deepEqual({area: layer.feature.properties.area, radius: layer.feature.properties.radius, shape: layer.feature.properties.shape}, values_before, 'expected the three values untouched')
 
 		// idempotent: a second pass must not rewrite and re-dirty the record
 		const before = layer.feature.properties.area

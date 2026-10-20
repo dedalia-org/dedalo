@@ -26,6 +26,8 @@
 		compute_info,
 		fetch_elevation,
 		RESERVED_PROPERTY_KEYS,
+		computed_property_keys,
+		is_protected_property_key,
 		set_style_field,
 		set_object_color,
 		set_property,
@@ -665,6 +667,14 @@ tool_uca_maps.prototype.import_linked_images = function(layer, on_progress) {
 tool_uca_maps.prototype.get_reserved_property_keys = function() {
 	return RESERVED_PROPERTY_KEYS
 }//end get_reserved_property_keys
+
+tool_uca_maps.prototype.get_computed_property_keys = function(layer) {
+	return computed_property_keys(layer)
+}//end get_computed_property_keys
+
+tool_uca_maps.prototype.is_protected_property_key = function(layer, key) {
+	return is_protected_property_key(layer, key)
+}//end is_protected_property_key
 
 tool_uca_maps.prototype.set_style_field = function(layer, field, value) {
 	return set_style_field(this, layer, field, value)

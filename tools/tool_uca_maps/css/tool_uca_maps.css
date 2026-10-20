@@ -902,6 +902,30 @@
 .uca-maps-console > .uca-maps-object-section .uca-maps-download-message[hidden] {
   display: none;
 }
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add-message {
+  background-color: var(--uca_maps_msg_error_bg);
+  color: var(--uca_maps_msg_error_fg);
+  border-radius: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  white-space: pre-line;
+  margin-top: 0.3rem;
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add-message[data-type="ok"] {
+  background-color: var(--uca_maps_msg_ok_bg);
+  color: var(--uca_maps_msg_ok_fg);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add-message[data-type="warning"] {
+  background-color: var(--uca_maps_msg_warning_bg);
+  color: var(--uca_maps_msg_warning_fg);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add-message[data-type="info"] {
+  background-color: var(--bg_surface_alt);
+  color: var(--fg_default);
+}
+.uca-maps-console > .uca-maps-object-section .uca-maps-property-add-message[hidden] {
+  display: none;
+}
 .uca-maps-console > .uca-maps-object-section button {
   flex: 0 0 auto;
   white-space: nowrap;

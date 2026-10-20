@@ -20,7 +20,7 @@ import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
 import {carrier_image} from './uca_maps_data.js'
 import {svg_node} from './svg.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME} from './download_filename.js'
-import {bind_download_button, create_panel_message} from './render_download_line.js'
+import {bind_download_button, create_panel_message, show_panel_message} from './render_download_line.js'
 
 // No import from './object_console.js': it imports this file (logic imports
 // render, never the reverse), and an import back would close a cycle. Every
@@ -860,7 +860,8 @@ const render_hierarchy_controls = function(self, layer, container) {
 /**
 * RENDER_PROPERTIES_EDITOR
 * Generic key/value CRUD over `layer.feature.properties`, excluding
-* RESERVED_PROPERTY_KEYS (core- and tool-managed fields). Each property is
+* RESERVED_PROPERTY_KEYS (core- and tool-managed fields) and showing the
+* layer's computed keys as read-only text. Each property is
 * edited in place and commits on change, a deliberate gesture; never a
 * `window.prompt`, untestable headless and worse to use.
 *
@@ -883,6 +884,7 @@ const render_properties_editor = function(self, layer, container) {
 	const list = ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-properties-list', parent: fieldset})
 
 	const reserved_keys = self.get_reserved_property_keys()
+	const computed_keys = self.get_computed_property_keys(layer)
 	for (const key in properties) {
 		if (reserved_keys.includes(key)) {
 			continue
@@ -907,6 +909,18 @@ const render_properties_editor = function(self, layer, container) {
 			parent			: item
 		})
 
+		// still listed, since the exports and the PDF carry it, but not offered for
+		// editing: the tool rewrites it from the geometry
+		if (computed_keys.includes(key)) {
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'uca-maps-property-value uca-maps-property-computed',
+				text_content	: String(value),
+				parent			: item
+			})
+			continue
+		}
+
 		const value_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-property-value', parent: item})
 		value_input.type  = 'text'
 		value_input.value = String(value)
@@ -930,7 +944,19 @@ const render_properties_editor = function(self, layer, container) {
 			parent			: add_row
 		})
 		add_btn.type = 'button'
+		// a refused key says why, instead of the silent no-op it was in v6
+		const add_message = create_panel_message(fieldset, 'uca-maps-property-add-message')
 		add_btn.addEventListener('click', () => {
+			const key = key_input.value.trim()
+			if (key && self.is_protected_property_key(layer, key)) {
+				show_panel_message(
+					add_message,
+					self.get_tool_label('properties_key_refused', key) || `"${key}" is already part of this object and cannot be added as a property.`,
+					'warning'
+				)
+				return
+			}
+			add_message.hidden = true
 			if (self.set_property(layer, key_input.value, value_input.value)) {
 				key_input.value	= ''
 				value_input.value	= ''

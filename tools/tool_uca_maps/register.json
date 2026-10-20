@@ -151,6 +151,8 @@
 
 		{ "lang": "lg-eng", "name": "properties_add_button", "value": "Add" },
 		{ "lang": "lg-spa", "name": "properties_add_button", "value": "Añadir" },
+		{ "lang": "lg-eng", "name": "properties_key_refused", "value": "\"%s\" is already part of this object and cannot be added as a property." },
+		{ "lang": "lg-spa", "name": "properties_key_refused", "value": "«%s» ya forma parte de este objeto y no se puede añadir como propiedad." },
 
 		{ "lang": "lg-eng", "name": "image_download_title", "value": "Image download" },
 		{ "lang": "lg-spa", "name": "image_download_title", "value": "Descarga de imagen" },
