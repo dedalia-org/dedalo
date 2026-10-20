@@ -1081,6 +1081,9 @@
   gap: 0.3rem;
   padding: 0.5rem 0.75rem;
 }
+.uca-maps-legend-panel .uca-maps-legend-form input {
+  min-width: 0;
+}
 .uca-maps-legend-panel .uca-maps-legend-message {
   background-color: var(--uca_maps_msg_error_bg);
   color: var(--uca_maps_msg_error_fg);
@@ -1463,9 +1466,11 @@
   filter: none;
 }
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button .uca-maps-roman-result-name {
-  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button .uca-maps-roman-result-detail {
   flex: 0 0 auto;

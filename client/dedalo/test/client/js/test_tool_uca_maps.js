@@ -2227,6 +2227,25 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
+	it('with the tool CSS, a long Roman name cuts with an ellipsis and its detail stays in the row', async function() {
+
+		await with_tool_css(async () => {
+			mount_roman(WITH_PLEIADES)
+			open_roman()
+			seed_roman_list('pleiades', [{ name: 'Colonia Iulia Augusta Faventia Paterna Barcino '.repeat(4).trim(), id: '246343' }])
+
+			const button	= geolocation.map.getContainer().querySelector('.uca-maps-roman-dropdown .uca-maps-roman-result-button')
+			const name		= button.querySelector('.uca-maps-roman-result-name')
+			const detail	= button.querySelector('.uca-maps-roman-result-detail')
+			assert.isAbove(name.scrollWidth, name.clientWidth, 'expected the name cut, not run past the row')
+			assert.equal(getComputedStyle(name).textOverflow, 'ellipsis', 'expected the cut shown as an ellipsis')
+			const row = button.getBoundingClientRect()
+			const tail = detail.getBoundingClientRect()
+			assert.isAtMost(tail.right, row.right + 0.5, 'expected the detail inside the row')
+			assert.isAbove(tail.width, 0, 'expected the detail still drawn')
+		})
+	})
+
 	it('the associate-image picker stays above the gallery it fills, and is the ONLY step', function() {
 
 		const layer = open_console_on(1)

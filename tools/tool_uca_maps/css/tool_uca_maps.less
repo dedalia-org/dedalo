@@ -1172,10 +1172,7 @@
 .uca-maps-legend-panel {
 
 	.uca-maps-legend-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-		padding: 0.5rem 0.75rem;
+		.uca-maps-column-form();
 	}
 
 	.uca-maps-legend-message {
@@ -1565,9 +1562,7 @@
 			}
 
 			.uca-maps-roman-result-name {
-				white-space: nowrap;
-				overflow: hidden;
-				text-overflow: ellipsis;
+				.uca-maps-ellipsis();
 			}
 
 			.uca-maps-roman-result-detail {
