@@ -147,7 +147,7 @@ export const populate_legend_columns = function(self, panel) {
 	if (!self.legend.columns.length) {
 		ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'uca-maps-legend-empty',
+			class_name		: 'uca-maps-empty-state uca-maps-legend-empty',
 			text_content	: self.get_tool_label('legend_empty') || 'The legend has no groups yet.',
 			parent			: list
 		})

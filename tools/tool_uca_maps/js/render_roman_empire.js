@@ -878,7 +878,7 @@ export const populate_roman_results = function(self, panel) {
 	if (results.length===0) {
 		const empty = ui.create_dom_element({
 			element_type	: 'li',
-			class_name		: 'uca-maps-roman-empty',
+			class_name		: 'uca-maps-empty-state uca-maps-roman-empty',
 			text_content	: self.get_tool_label('roman_no_results') || 'No places found.',
 			parent			: list
 		})

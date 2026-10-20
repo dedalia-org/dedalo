@@ -1324,7 +1324,7 @@ const populate_object_gallery = function(self, layer, gallery) {
 	if (images.length===0) {
 		ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'uca-maps-object-gallery-empty',
+			class_name		: 'uca-maps-empty-state uca-maps-object-gallery-empty',
 			text_content	: self.get_tool_label('object_images_empty') || 'No images associated yet.',
 			parent			: gallery
 		})

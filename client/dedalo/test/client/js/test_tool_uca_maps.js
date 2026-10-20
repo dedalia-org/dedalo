@@ -2082,6 +2082,40 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(layer.feature.properties.area, before, 'expected the same value')
 	})
 
+	it('with the tool CSS, every "nothing here yet" line has the one look: legend, gallery, Roma dropdown', async function() {
+
+		await with_tool_css(async () => {
+			const look = (node) => {
+				const style = getComputedStyle(node)
+				return style.color + ' · ' + style.fontStyle + ' · ' + style.fontSize + ' · ' + style.opacity
+			}
+
+			tool.attach_console()
+			const reference = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-empty-state')
+			assert.isOk(reference, 'expected the console\'s own placeholder to compare with')
+			// read now: selecting an object below replaces the placeholder
+			const reference_look = look(reference)
+			assert.include(reference_look, 'italic', 'expected the reference itself styled')
+
+			open_console_on(1)
+			const gallery_empty = tool.panel_node.querySelector('.uca-maps-object-gallery-empty')
+
+			tool.attach_legend()
+			tool.legend_control.getContainer().click()
+			const legend_empty = tool.legend_panel.querySelector('.uca-maps-legend-empty')
+
+			mount_roman()
+			open_roman()
+			seed_roman_list('dare', [])
+			const roman_empty = geolocation.map.getContainer().querySelector('.uca-maps-roman-dropdown .uca-maps-roman-empty')
+
+			for (const [label, node] of [['legend', legend_empty], ['gallery', gallery_empty], ['Roma', roman_empty]]) {
+				assert.isOk(node, 'expected the empty line: ' + label)
+				assert.equal(look(node), reference_look, 'expected the shared look: ' + label)
+			}
+		})
+	})
+
 	it('the associate-image picker stays above the gallery it fills, and is the ONLY step', function() {
 
 		const layer = open_console_on(1)

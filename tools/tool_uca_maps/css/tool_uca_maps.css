@@ -137,6 +137,12 @@
 .uca-maps-onexone-control.uca-maps-onexone-enabled {
   box-shadow: inset 3px 0 0 var(--tool_uca_maps), inset 0 -1px 5px 2px var(--uca_maps_toolbar_pressed);
 }
+.uca-maps-empty-state {
+  color: var(--fg_muted);
+  font-style: italic;
+  margin: 0;
+  padding: 0.2rem 0;
+}
 .uca-maps-panel {
   position: absolute;
   z-index: 1000;
@@ -153,12 +159,6 @@
 }
 .uca-maps-panel[hidden] {
   display: none;
-}
-.uca-maps-panel .uca-maps-empty-state {
-  color: var(--fg_muted);
-  font-style: italic;
-  margin: 0;
-  padding: 0.2rem 0;
 }
 .uca-maps-panel > .uca-maps-panel-header {
   position: sticky;
@@ -732,7 +732,9 @@
   line-height: 1;
   padding: 0 0.2rem;
 }
-.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-empty,
+.uca-maps-console > .uca-maps-object-section .uca-maps-object-gallery-empty {
+  margin: 0.35rem 0;
+}
 .uca-maps-console > .uca-maps-object-section .uca-maps-object-image-status {
   margin: 0.35rem 0;
   font-style: italic;
@@ -1105,8 +1107,6 @@
 }
 .uca-maps-legend-panel .uca-maps-legend-empty {
   padding: 0 0 0.5rem;
-  font-size: 0.85rem;
-  color: var(--fg_muted);
 }
 .uca-maps-legend-panel .uca-maps-legend-columns {
   padding: 0 0.75rem;
@@ -1444,7 +1444,5 @@
 }
 .uca-maps-roman-dropdown > .uca-maps-roman-empty {
   padding: 0.35rem 0.6rem;
-  opacity: 0.7;
-  font-style: italic;
 }
 /*# sourceMappingURL=tool_uca_maps.css.map */

@@ -356,6 +356,15 @@
 	.uca-maps-toolbar-pressed();
 }
 
+// "nothing here yet": one look everywhere (panels, the gallery, the Roma
+// dropdown, which hangs outside any panel); a place may add its own spacing
+.uca-maps-empty-state {
+	color: var(--fg_muted);
+	font-style: italic;
+	margin: 0;
+	padding: 0.2rem 0;
+}
+
 // shared panel chrome, anchored to the live map's container, NOT the tool's
 // modal, which closes itself as in v6. toolbar.js anchor_panel_to_button
 // places it by its OWN button, never at a hardcoded offset.
@@ -370,14 +379,6 @@
 
 	&[hidden] {
 		display: none;
-	}
-
-	// "nothing here yet": one look for every panel (console, object list)
-	.uca-maps-empty-state {
-		color: var(--fg_muted);
-		font-style: italic;
-		margin: 0;
-		padding: 0.2rem 0;
 	}
 
 	>.uca-maps-panel-header {
@@ -832,7 +833,10 @@
 			padding: 0 0.2rem;
 		}
 
-		.uca-maps-object-gallery-empty,
+		.uca-maps-object-gallery-empty {
+			margin: 0.35rem 0;
+		}
+
 		.uca-maps-object-image-status {
 			margin: 0.35rem 0;
 			font-style: italic;
@@ -1202,8 +1206,6 @@
 
 	.uca-maps-legend-empty {
 		padding: 0 0 0.5rem;
-		font-size: @uca_maps_text_small;
-		color: var(--fg_muted);
 	}
 
 	.uca-maps-legend-columns {
@@ -1561,7 +1563,5 @@
 
 	>.uca-maps-roman-empty {
 		padding: 0.35rem 0.6rem;
-		opacity: 0.7;
-		font-style: italic;
 	}
 }//end uca-maps-roman-dropdown
