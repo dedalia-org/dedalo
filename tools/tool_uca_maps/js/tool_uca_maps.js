@@ -750,15 +750,13 @@ tool_uca_maps.prototype.on_close_actions = function() {
 
 
 
-/** How long the transient modal stays visible before self-closing. v6 held a
-* loading.gif behind a fixed 3 s setTimeout; an instant close read as broken. */
-const TRANSIENT_MODAL_VISIBLE_MS = 2000
-
 /**
 * CLOSE_TRANSIENT_MODAL
-* Deferred to an idle callback because view_modal sets `self.node.modal` only
-* after render() resolves. `transient = true` skips <dd-modal>'s unsaved-data
-* guard: this modal owns no editable data, so the prompt would be a bug.
+* Closes the modal as soon as the tool is on the map: core's own spinner already
+* covered the load, so no fixed wait (v6's loading.gif + 3 s) is kept. Deferred to
+* an idle callback because view_modal sets `self.node.modal` only after render()
+* resolves. `transient = true` skips <dd-modal>'s unsaved-data guard: this modal
+* owns no editable data, so the prompt would be a bug.
 *
 * @returns {void}
 */
@@ -767,13 +765,11 @@ tool_uca_maps.prototype.close_transient_modal = function() {
 	const self = this
 
 	dd_request_idle_callback(() => {
-		setTimeout(() => {
-			const modal = self.node && self.node.modal
-			if (modal && typeof modal.close==='function') {
-				modal.transient = true
-				modal.close()
-			}
-		}, TRANSIENT_MODAL_VISIBLE_MS)
+		const modal = self.node && self.node.modal
+		if (modal && typeof modal.close==='function') {
+			modal.transient = true
+			modal.close()
+		}
 	})
 }//end close_transient_modal
 

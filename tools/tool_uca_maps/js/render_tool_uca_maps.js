@@ -12,9 +12,9 @@
 /**
 * RENDER_TOOL_UCA_MAPS
 * Client-side render module for tool_uca_maps. The real UI lives on the live
-* map, one toolbar button (+panel) per functionality; the modal body is only
-* a transient notice, closed right after edit() attaches them (tool_uca_maps.js
-* close_transient_modal).
+* map, one toolbar button (+panel) per functionality; the modal is closed right
+* after edit() attaches them (tool_uca_maps.js close_transient_modal) and only
+* stays open to say why the map could not be reached.
 *
 * @module render_tool_uca_maps
 */
@@ -88,8 +88,8 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 			// rebuilds the overlays already saved on this record and keeps
 			// them following their carrier objects (image_upload.js)
 			self.attach_image_overlays()
+			self.close_transient_modal()
 		}
-		self.close_transient_modal()
 
 
 	return wrapper
@@ -99,12 +99,17 @@ render_tool_uca_maps.prototype.edit = async function(options) {
 
 /**
 * GET_CONTENT_DATA
-* Builds the tool's transient modal body: just the map status.
+* Builds the tool's modal body: empty once the map is ready (the modal closes at
+* once), otherwise the reason it is not.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {HTMLElement} content_data node
 */
 const get_content_data = function(self) {
+
+	if (self.geolocation && self.map_ready) {
+		return ui.tool.build_content_data(self)
+	}
 
 	const fragment = new DocumentFragment()
 
@@ -127,21 +132,6 @@ const get_content_data = function(self) {
 			class_name		: 'notice notice_warning',
 			text_content	: self.get_tool_label('waiting_for_map') || 'Waiting for the map to finish loading…',
 			parent			: map_status_container
-		})
-	}else{
-		// visible for the window close_transient_modal() waits out: an instant
-		// flash reads as broken, not as "it worked" (v6 showed a loading.gif
-		// before its own self-close)
-		const spinner_container = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'notice notice_ok activating',
-			text_content	: self.get_tool_label('activating_console') || 'Activating UCA Maps…',
-			parent			: map_status_container
-		})
-		ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'spinner medium',
-			parent			: spinner_container
 		})
 	}
 

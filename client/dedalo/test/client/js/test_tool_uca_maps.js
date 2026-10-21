@@ -1589,6 +1589,62 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.map_control, null, 'expected map_control cleared')
 	})
 
+	// core's spinner covers the load, so the modal closes at the first idle
+	// tick, not after a fixed wait; it stays open only to say why there is no map
+	const stub_modal = function() {
+		const modal = {closed: 0, transient: false, close() { this.closed++ }}
+		tool.node = {modal: modal}
+		return modal
+	}
+	// past dd_request_idle_callback's own 1 s ceiling, short of the old 2 s wait
+	const within_idle = function(modal) {
+		const deadline = Date.now() + 1500
+		return new Promise(function(resolve) {
+			const poll = function() {
+				if (modal.closed>0 || Date.now()>deadline) { resolve(); return }
+				setTimeout(poll, 25)
+			}
+			poll()
+		})
+	}
+
+	it('a ready map closes the modal at the first idle tick, with an empty body', async function() {
+
+		const modal = stub_modal()
+		const wrapper = await run_edit()
+		await within_idle(modal)
+
+		assert.equal(modal.closed, 1, 'expected the modal closed once, without a fixed wait')
+		assert.isTrue(modal.transient, 'expected the unsaved-data guard skipped')
+		assert.isNull(wrapper.querySelector('.map_status_container'), 'expected no status box on a ready map')
+	})
+
+	it('a map that never became ready keeps the modal open with its notice', async function() {
+
+		tool.map_ready = false
+		const modal = stub_modal()
+		const wrapper = await run_edit()
+		await within_idle(modal)
+
+		assert.equal(modal.closed, 0, 'expected the modal left open to be read')
+		assert.isOk(wrapper.querySelector('.map_status_container .notice.notice_warning'), 'expected the waiting notice')
+	})
+
+	it('a tool with no map component keeps the modal open with its error', async function() {
+
+		tool.geolocation = null
+		const modal = stub_modal()
+		try {
+			const wrapper = await run_edit()
+			await within_idle(modal)
+
+			assert.equal(modal.closed, 0, 'expected the modal left open to be read')
+			assert.isOk(wrapper.querySelector('.map_status_container .notice.notice_error'), 'expected the error notice')
+		} finally {
+			tool.geolocation = geolocation // afterEach tears down through it
+		}
+	})
+
 	// core drops the map BEFORE it announces its destroy, so every detach_*
 	// runs against a map that is already gone
 	it('destroying the map component tears the tool down through its event, with the map already gone', async function() {

@@ -245,10 +245,6 @@
 // holds the map-status notice; every panel hangs from the MAP's container.
 .wrapper_tool.tool_uca_maps {
 
-	.spinner {
-		background-color: @tool_color;
-	}
-
 	>.content_data {
 
 		>.map_status_container {
@@ -259,14 +255,6 @@
 				border-radius: 0.25rem;
 				font-size: 1rem;
 
-				&.notice_ok {
-					// (!) NOT fade(@tool_color, …): @tool_color is a var(), and
-					// LESS colour functions need a literal at compile time
-					// ("Argument cannot be evaluated to a color"). A fixed
-					// success tint reads correctly either way.
-					background-color: var(--uca_maps_msg_ok_bg);
-					color: var(--uca_maps_msg_ok_fg);
-				}
 				&.notice_warning {
 					background-color: var(--uca_maps_msg_warning_bg);
 					color: var(--uca_maps_msg_warning_fg);
@@ -274,15 +262,6 @@
 				&.notice_error {
 					background-color: var(--uca_maps_msg_error_bg);
 					color: var(--uca_maps_msg_error_fg);
-				}
-				// the transient modal's spinner-then-close state: core's
-				// .spinner centres itself in the nearest positioned ancestor,
-				// so this needs position:relative and the height to put it
-				// below the label, not on it
-				&.activating {
-					position: relative;
-					min-height: 4.5rem;
-					padding-top: 0.75rem;
 				}
 			}
 		}//end map_status_container

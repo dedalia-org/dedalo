@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -31,8 +31,6 @@
 		{ "lang": "lg-spa", "name": "no_object_selected", "value": "Clica una geometría dibujada para inspeccionarla." },
 
 
-		{ "lang": "lg-eng", "name": "activating_console", "value": "Activating UCA Maps…" },
-		{ "lang": "lg-spa", "name": "activating_console", "value": "Activando Mapas UCA…" },
 
 		{ "lang": "lg-eng", "name": "properties_pdf_button", "value": "Export as PDF" },
 		{ "lang": "lg-spa", "name": "properties_pdf_button", "value": "Exportar como PDF" },
