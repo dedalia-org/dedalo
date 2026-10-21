@@ -142,4 +142,10 @@ describe('tool_uca_maps assertZipInflatesWithin — the end record (pure)', () =
 		expect(await refusalWithEnd((v, e) => v.setUint32(e + 16, 0xffffffff, true))).toMatch(/ZIP64/);
 		expect(await refusalWithEnd((v, e) => v.setUint32(e + 12, 0xffffffff, true))).toMatch(/ZIP64/);
 	});
+
+	test('more than 1000 entries is refused before any is read', async () => {
+		expect(await refusalWithEnd((v, e) => v.setUint16(e + 10, 1001, true))).toMatch(
+			/holds 1001 files \(at most 1000\)/,
+		);
+	});
 });
