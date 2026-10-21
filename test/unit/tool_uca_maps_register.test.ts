@@ -140,9 +140,11 @@ describe('tool_uca_maps register.json', () => {
 				.labels ?? [];
 		const langs = [...new Set(labels.map((label) => label.lang))];
 		const source = await Bun.file(new URL('js/object_console.js', TOOL_DIR)).text();
-		const keys = [
-			...new Set([...source.matchAll(/\blabel_key\s*:\s*'([a-z_]+)'/g)].map((m) => m[1])),
-		];
+		const literals = [...source.matchAll(/\blabel_key\s*:\s*'([a-z_]+)'/g)];
+		// a key written any other way (double-quoted, computed) would escape the check
+		const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+		expect(literals.length).toBe([...code.matchAll(/\blabel_key\s*:/g)].length);
+		const keys = [...new Set(literals.map((m) => m[1]))];
 		expect(keys.sort()).toEqual(['area', 'center', 'coordinates', 'distance', 'radius']);
 		const bare = keys.flatMap((key) =>
 			langs
