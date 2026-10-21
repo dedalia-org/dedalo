@@ -62,7 +62,9 @@ describe('tool_uca_maps assertZipInflatesWithin (pure)', () => {
 		const zip = await zipOf([{ name: 'bomb.dbf', bytes: zeros(1_000_000) }]);
 		const view = new DataView(zip.buffer);
 		view.setUint32(centralOffset(zip) + 24, 10, true);
-		expectCode(await failureOf(assertZipInflatesWithin(zip, 100_000)), 'request.invalid_options');
+		const error = await failureOf(assertZipInflatesWithin(zip, 100_000));
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/inflates to more than 100000 bytes/);
 	});
 
 	test('entries sharing one compressed stream each count against the budget', async () => {
