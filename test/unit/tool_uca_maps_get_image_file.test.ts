@@ -5,16 +5,11 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { toErrorBody } from '../../src/core/errors/convert.ts';
-import { scanContextFromItem, scanFilesInfo } from '../../src/core/media/files_info.ts';
-import { buildMediaLocation } from '../../src/core/media/path.ts';
-import { requireTestMediaRoot } from '../../src/core/media/test_media_root.ts';
-import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import { getImageFile } from '../../tools/tool_uca_maps/server/image_media.ts';
 import { contextOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
+import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
 
 describe('get_image_file — refusals', () => {
 	test('a component that is not an image is refused, not scanned', async () => {
@@ -31,58 +26,14 @@ describe('get_image_file — refusals', () => {
 });
 
 describe('get_image_file — a vanished image is not an undisplayable one', () => {
-	// test99 is the generic TLD's component_image; the files are planted in the
-	// suite's MARKED media root at this id and removed after each case
+	// the files are planted at this id and removed after each case
 	const OPTIONS = { section_tipo: 'test3', tipo: 'test99', section_id: 905103 };
 	const ctx = contextOf(OPTIONS);
 
-	/** The slot's files and stored items: a leftover would be blamed on the engine. */
-	async function slotResidue(): Promise<string[]> {
-		const { spec, identity, pathOpts, items } = await resolveMediaToolContext(OPTIONS);
-		const files = scanFilesInfo(spec, identity, pathOpts, scanContextFromItem(items[0]))
-			.filter((entry) => entry.file_exist)
-			.map((entry) => String(entry.file_path));
-		return items.length === 0 ? files : [...files, `${items.length} stored media item(s)`];
-	}
-
-	/** `larger` is the tier listed just above the default, so it is scanned first. */
-	type Tier = 'original' | 'larger' | 'default';
-
-	async function withFiles<T>(
-		files: ReadonlyArray<{ quality: Tier; extension: string }>,
+	const withFiles = <T>(
+		files: Parameters<typeof withImageFiles>[1],
 		body: (planted: string[]) => Promise<T>,
-	): Promise<T> {
-		requireTestMediaRoot(config.media.rootPath ?? '', 'tool_uca_maps_get_image_file.test');
-		expect(await slotResidue(), 'residue in test3/test99/905103 before planting').toHaveLength(0);
-		const { spec, identity, pathOpts } = await resolveMediaToolContext(OPTIONS);
-		const tiers: Record<Tier, string | undefined> = {
-			original: spec.originalQuality,
-			larger: spec.qualities[spec.qualities.indexOf(spec.defaultQuality) - 1],
-			default: spec.defaultQuality,
-		};
-		const planted = files.map(({ quality, extension }) =>
-			buildMediaLocation(spec, identity, tiers[quality] ?? '', extension, pathOpts),
-		);
-		// the first directory each plant created, if any: removed in reverse order
-		const created: Array<{ leaf: string; top: string | undefined }> = [];
-		try {
-			for (const location of planted) {
-				const leaf = dirname(location.absolutePath);
-				created.push({ leaf, top: mkdirSync(leaf, { recursive: true }) });
-				writeFileSync(location.absolutePath, 'planted by a gate');
-			}
-			return await body(planted.map((location) => location.relativePath));
-		} finally {
-			for (const location of planted) rmSync(location.absolutePath, { force: true });
-			for (const { leaf, top } of created.reverse()) {
-				for (let dir = leaf; top !== undefined; dir = dirname(dir)) {
-					rmdirSync(dir);
-					if (dir === top) break;
-				}
-			}
-			expect(await slotResidue(), 'residue in test3/test99/905103 after the test').toHaveLength(0);
-		}
-	}
+	) => withImageFiles(OPTIONS, files, body);
 
 	async function refusalOf(): Promise<unknown> {
 		return failureOf(getImageFile(ctx));

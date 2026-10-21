@@ -5,19 +5,27 @@
  * getting it wrong mirrors every uploaded raster without failing anything.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import type { ToolActionContext } from '../../src/core/tools/module.ts';
+import * as gdal from '../../tools/tool_uca_maps/server/gdal.ts';
 import {
 	cornersFromWgs84Extent,
 	overlayFallbackOf,
 	readGeoreference,
 } from '../../tools/tool_uca_maps/server/image_overlay.ts';
 import { mustGet } from '../helpers/assert.ts';
-import { expectCode, failureOf, haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	dataOf,
+	expectCode,
+	failureOf,
+	haveGdal,
+	loadAction,
+} from './fixtures/tool_uca_maps/helpers.ts';
+import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
 
 const HAVE_GDAL = haveGdal('gdalinfo', 'gdal_create');
 
@@ -87,12 +95,12 @@ describe('tool_uca_maps get_image_overlay — wgs84Extent → three corners', ()
 	});
 });
 
-describe('tool_uca_maps get_image_overlay — a failed georeference read', () => {
-	const missing = (binary: string) =>
-		new DedaloError('tool.dependency_unavailable', {
-			coordinates: { tool: 'tool_uca_maps', binary },
-		});
+const missing = (binary: string) =>
+	new DedaloError('tool.dependency_unavailable', {
+		coordinates: { tool: 'tool_uca_maps', binary },
+	});
 
+describe('tool_uca_maps get_image_overlay — a failed georeference read', () => {
 	test('GDAL missing leaves the image unplaced, flagged so the client says why', () => {
 		expect(overlayFallbackOf(missing('gdalinfo'))).toEqual({
 			corners: null,
@@ -115,6 +123,46 @@ describe('tool_uca_maps get_image_overlay — a failed georeference read', () =>
 			thrown = caught;
 		}
 		expect(thrown).toBe(error);
+	});
+});
+
+// the handler's own catch: what the answer says when the TIFF master cannot be read
+describe('tool_uca_maps get_image_overlay — the handler on a planted TIFF master', () => {
+	const SLOT = { section_tipo: 'test3', tipo: 'test99', section_id: 905105 };
+	const FILES = [
+		{ quality: 'original', extension: 'tif' },
+		{ quality: 'default', extension: 'jpg' },
+	] as const;
+
+	/** The handler's answer (or refusal) with the georeference read throwing `error`. */
+	async function overlayWhenReadThrows(error: unknown) {
+		const read = spyOn(gdal, 'readGdalInfoJson').mockImplementation(async () => {
+			throw error;
+		});
+		try {
+			return await withImageFiles(SLOT, FILES, async (planted) => {
+				const handler = (await loadAction('get_image_overlay')).handler;
+				return { planted, outcome: await handler(contextOf(SLOT)).catch((thrown) => thrown) };
+			});
+		} finally {
+			read.mockRestore();
+		}
+	}
+
+	test('GDAL missing answers the served image unplaced, flagged unavailable', async () => {
+		const { planted, outcome } = await overlayWhenReadThrows(missing('gdalinfo'));
+		expect(dataOf<Record<string, unknown>>(outcome)).toEqual({
+			file_path: planted[1],
+			quality: expect.any(String),
+			georeferenced: false,
+			georeference_unavailable: true,
+			corners: null,
+		});
+	});
+
+	test('any other read failure is not swallowed into an unplaced image', async () => {
+		const broken = new DedaloError('tool.action_failed', { message: 'gdalinfo: not a TIFF' });
+		expect((await overlayWhenReadThrows(broken)).outcome).toBe(broken);
 	});
 });
 
