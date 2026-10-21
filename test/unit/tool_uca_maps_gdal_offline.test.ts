@@ -315,53 +315,184 @@ const SPAWN_EXEMPT: Readonly<Record<string, string>> = {
 	'capabilities.ts': '--version only, no input file: probeOnPath bounds it itself',
 };
 
+// A binding census (after agent_confinement_tripwire's), one hop deep: what a
+// file reaches of `bun`, child_process or core's spawn door, however bound.
+// Core wrappers that spawn are not followed. The spelling census stays as a
+// backstop: a re-export or a `globalThis.Bun` still spells the door or module.
+const PROCESS_MODULES = new Set(['bun', 'node:child_process', 'child_process']);
+/** Core's spawn door: only its `runBinary` (or the whole namespace) starts a process. */
+const SPAWN_DOOR = resolve(import.meta.dir, '../../src/core/media/engine/spawn.ts');
+const SERVER = resolve(import.meta.dir, '../../tools/tool_uca_maps/server');
+/** `Bun.<member>` reads (or named imports from 'bun') that cannot start a process. Closed. */
+const BUN_INERT = new Set(['file', 'write', 'which', 'Glob']);
+const PROCESS_REF = '__UCA_PROCESS_REF__';
+const BUN_GLOBAL = '__UCA_BUN_GLOBAL__';
+const IMPORT_LINE = /^import\s+([^;"'`]+?)\s+from\s*["']([^"']+)["'];?[ \t]*$/gm;
+const EXPORT_FROM_LINE = /^export\s+([^;"'`]+?)\s+from\s*["']([^"']+)["'];?[ \t]*$/gm;
+const SPELLED_SPAWN =
+	/\brunBinary\b|\bBun\.spawn(Sync)?\b|\bBun\.\$|['"](node:)?child_process['"]|import\s*\{[^}]*(\bspawn(Sync)?\b|\$)[^}]*\}\s*from\s*['"]bun['"]/;
+const TS = new Bun.Transpiler({ loader: 'ts' });
+
+/** The locals an import clause binds, with what each imports (`*`, `default` or a name). */
+function importBindings(clause: string): { imported: string; local: string }[] {
+	const out: { imported: string; local: string }[] = [];
+	const namespace = clause.match(/\*\s*as\s+([\w$]+)/);
+	if (namespace?.[1]) out.push({ imported: '*', local: namespace[1] });
+	for (const part of (clause.match(/\{([^}]*)\}/)?.[1] ?? '').split(',')) {
+		const [imported, local] = part.trim().split(/\s+as\s+/);
+		if (imported) out.push({ imported, local: local ?? imported });
+	}
+	const fallback = clause
+		.replace(/\{[^}]*\}/, '')
+		.replace(/\*\s*as\s+[\w$]+/, '')
+		.replace(/,/g, ' ')
+		.trim();
+	if (fallback) out.push({ imported: 'default', local: fallback });
+	return out;
+}
+
+/** Whether `specifier`, imported from a server file, is the door: by the module it resolves to. */
+function isDoor(specifier: string): boolean {
+	try {
+		return Bun.resolveSync(specifier, SERVER) === SPAWN_DOOR;
+	} catch {
+		return false;
+	}
+}
+
+/** Process-capable references in one server source, or the dynamic loads no scan resolves. */
+function processRefs(code: string): { refs: number; unresolvable: string[]; spelled: boolean } {
+	const transpiled = TS.transformSync(code);
+	const unresolvable = TS.scanImports(transpiled)
+		.filter((entry) => entry.kind !== 'import-statement')
+		.filter((entry) => PROCESS_MODULES.has(entry.path) || isDoor(entry.path))
+		.map((entry) => `${entry.kind} ${entry.path}`);
+	for (const [, , from] of transpiled.matchAll(EXPORT_FROM_LINE)) {
+		if (from !== undefined && (PROCESS_MODULES.has(from) || isDoor(from))) {
+			unresolvable.push(`re-export ${from}`);
+		}
+	}
+	const bindings: string[] = [];
+	const js = transpiled.replace(IMPORT_LINE, (line, clause: string, from: string) => {
+		const door = isDoor(from);
+		if (!door && !PROCESS_MODULES.has(from)) return line;
+		for (const { imported, local } of importBindings(clause)) {
+			const counted = door
+				? imported === '*' || imported === 'runBinary'
+				: !(from === 'bun' && BUN_INERT.has(imported));
+			if (counted) bindings.push(local);
+		}
+		return '';
+	});
+	const define: Record<string, string> = { Bun: BUN_GLOBAL };
+	for (const name of bindings) define[name] = PROCESS_REF;
+	const out = new Bun.Transpiler({ loader: 'js', define }).transformSync(js);
+	let refs = out.split(PROCESS_REF).length - 1;
+	for (const match of out.matchAll(
+		new RegExp(`${BUN_GLOBAL}(\\s*\\.\\s*([A-Za-z_$][\\w$]*))?`, 'g'),
+	)) {
+		if (!(match[2] && BUN_INERT.has(match[2]))) refs++;
+	}
+	return { refs, unresolvable, spelled: SPELLED_SPAWN.test(transpiled) };
+}
+
+const reaches = (reach: ReturnType<typeof processRefs>) =>
+	reach.refs > 0 || reach.unresolvable.length > 0 || reach.spelled;
+
 describe('tool_uca_maps spawn census — every binary runs through runToolBinary', () => {
-	const SERVER = resolve(import.meta.dir, '../../tools/tool_uca_maps/server');
-	// a textual census, not a binding analysis: core's door, `Bun.` members,
-	// a named import from 'bun', and node's module with or without `node:`.
-	// A namespace import or a destructure of Bun would escape it
-	const SPAWN =
-		/\brunBinary\b|\bBun\.spawn(Sync)?\b|\bBun\.\$|['"](node:)?child_process['"]|import\s*\{[^}]*(\bspawn(Sync)?\b|\$)[^}]*\}\s*from\s*['"]bun['"]/;
-	/** Code lines only: a comment may name a spawn without making one. */
-	const codeOf = (text: string) =>
-		text
-			.split('\n')
-			.map((line) => line.trim())
-			.filter((line) => !/^(\/\/|\*|\/\*)/.test(line))
-			.join('\n');
-	const spawns = (file: string) => SPAWN.test(codeOf(readFileSync(join(SERVER, file), 'utf-8')));
+	const DOOR = "import { runBinary } from '../../../src/core/media/engine/spawn.ts';\n";
 
 	test.each([
-		'await runBinary(argv, opts);',
-		"Bun.spawn(['gdalinfo']);",
-		"Bun.spawnSync(['gdalinfo']);",
-		'await Bun.$`gdalinfo`;',
-		"import { spawn } from 'bun';",
-		'import { $ } from "bun";',
-		"import {\n\tGlob,\n\tspawnSync,\n} from 'bun';",
-		"import { execFile } from 'node:child_process';",
-		"const cp = require('child_process');",
-	])('the census sees the spelling %p', (code) => {
-		expect(SPAWN.test(codeOf(code))).toBe(true);
+		['the door', `${DOOR}export const go = () => runBinary(['/bin/true'], {});`],
+		[
+			'the door aliased',
+			`${DOOR.replace('runBinary', 'runBinary as run')}export const go = () => run([]);`,
+		],
+		[
+			'the door as a namespace',
+			"import * as door from '../../../src/core/media/engine/spawn.ts';\nexport const go = () => door.runBinary([]);",
+		],
+		[
+			'the door without its extension',
+			"import { runBinary } from '../../../src/core/media/engine/spawn';\nexport const go = () => runBinary([]);",
+		],
+		['Bun.spawn', "export const go = () => Bun.spawn(['gdalinfo']);"],
+		['Bun.$', 'export const go = () => Bun.$`gdalinfo`;'],
+		['an alias of Bun', "const B = Bun;\nexport const go = () => B.spawn(['gdalinfo']);"],
+		[
+			'a destructure of Bun',
+			"const { spawnSync } = Bun;\nexport const go = () => spawnSync(['x']);",
+		],
+		[
+			'a named import from bun',
+			"import { spawn as s } from 'bun';\nexport const go = () => s(['x']);",
+		],
+		[
+			'a namespace import of bun',
+			"import * as B from 'bun';\nexport const go = () => B.spawn(['x']);",
+		],
+		[
+			'node child_process',
+			"import { execFile } from 'node:child_process';\nexport const go = () => execFile('x');",
+		],
+		[
+			'a re-export of the door',
+			"export { runBinary as go } from '../../../src/core/media/engine/spawn.ts';",
+		],
+		['a re-export of child_process', "export * from 'node:child_process';"],
+		['Bun through globalThis', "export const go = () => globalThis.Bun.spawn(['x']);"],
+		[
+			'child_process through import.meta',
+			"export const go = () => import.meta.require('child_process').spawn('x');",
+		],
+	])('the census sees %s', (_, code) => {
+		expect(reaches(processRefs(code))).toBe(true);
+	});
+
+	test('a dynamic import or require of a process module is unresolvable, never counted as none', () => {
+		for (const code of [
+			"export const go = async () => (await import('node:child_process')).spawn('x');",
+			"export const go = () => require('child_process').spawn('x');",
+			"export const go = async () => (await import('../../../src/core/media/engine/spawn')).runBinary([]);",
+		]) {
+			expect(processRefs(code).unresolvable.length).toBeGreaterThan(0);
+		}
 	});
 
 	test.each([
-		'// Bun.spawn would bypass the offline env',
-		"import { Glob } from 'bun';",
-		'const spawned = 0;',
-	])('the census ignores %p', (code) => {
-		expect(SPAWN.test(codeOf(code))).toBe(false);
+		['a comment', '// Bun.spawn would bypass the offline env\nexport const n = 0;'],
+		['an inert Bun read', "export const f = () => Bun.file('/x');"],
+		['an inert import from bun', "import { Glob } from 'bun';\nexport const g = new Glob('*');"],
+		[
+			'a type-only door import',
+			"import type { SpawnResult } from '../../../src/core/media/engine/spawn.ts';\nexport let r: SpawnResult;",
+		],
+		[
+			'another door export',
+			"import { assertSpawnOk } from '../../../src/core/media/engine/spawn.ts';\nexport const f = assertSpawnOk;",
+		],
+	])('the census ignores %s', (_, code) => {
+		expect(reaches(processRefs(code))).toBe(false);
 	});
 
 	test('only gdal.ts spawns, once, inside runToolBinary; the exemptions still spawn', () => {
 		const files = [...new Glob('**/*.ts').scanSync({ cwd: SERVER })];
 		expect(files.length).toBeGreaterThanOrEqual(15);
-		const spawning = files.filter(spawns);
-		expect(spawning.sort()).toEqual(['gdal.ts', ...Object.keys(SPAWN_EXEMPT)].sort());
-		// one call, and it is runToolBinary's own
+		const census = Object.fromEntries(
+			files
+				.map((file) => [file, processRefs(readFileSync(join(SERVER, file), 'utf-8'))] as const)
+				.filter(([, reach]) => reaches(reach)),
+		);
+		const expected = Object.fromEntries(
+			['gdal.ts', ...Object.keys(SPAWN_EXEMPT)].map((file) => [
+				file,
+				{ refs: 1, unresolvable: [], spelled: true },
+			]),
+		);
+		expect(census).toEqual(expected);
+		// and gdal.ts's one reference is runToolBinary's own call
 		const gdal = readFileSync(join(SERVER, 'gdal.ts'), 'utf-8');
 		const from = gdal.slice(gdal.indexOf('export async function runToolBinary('));
-		expect(gdal.match(/\brunBinary\(/g)?.length).toBe(1);
 		expect(from.slice(0, from.indexOf('\n}\n'))).toContain('await runBinary(argv,');
 	});
 });
