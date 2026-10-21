@@ -8,7 +8,7 @@ with a CSS affine transform.
 |---|---|
 | Upstream | https://github.com/IvanSanchez/Leaflet.ImageOverlay.Rotated |
 | Version | 0.1.4 (`bower.json` in the v6 vendor copy declares `0.0.0`; the file is upstream's last release) |
-| License | Beerware (see `LICENSE`) — permissive, but NOT one of the usual OSI names: flagged for the Ágora thread, `docs/PREGUNTAS_FORO.md` |
+| License | Beerware (see `LICENSE`) — permissive, but NOT one of the usual OSI names: its acceptance for the engine is a maintainers' decision, pending |
 | Source of this copy | `tool_leaflet_special_tools/external-lib/Leaflet.ImageOverlay.Rotated/` (the v6 tool's own vendor dir) |
 
 **Why three points and not a bbox.** A GeoTIFF is georeferenced in a PROJECTED
@@ -20,7 +20,6 @@ misplace every pixel inside it. This is needed for a plain upload, before any
 
 **One deliberate difference from the v6 copy**: v6 wrapped the whole file in a
 silent `try { … } catch(e){}`, so a load failure left `L.imageOverlay.rotated`
-undefined with nothing on screen and nothing in the console — the same silent
-swallow the audit lists as bug #3 (`docs/Funcionalidades de
-tool_leaflet_special_tools.md`, "Bugs"). Removed here: the loader
+undefined with nothing on screen and nothing in the console: a failure no
+user or maintainer could see. Removed here: the loader
 (`image_upload.js` `load_rotated_overlay`) rejects loudly instead.
