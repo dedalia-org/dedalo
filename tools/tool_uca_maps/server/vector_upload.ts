@@ -22,6 +22,7 @@ import {
 	uploadStagingBase,
 	withScratchDir,
 } from './gdal.ts';
+import { assertZipInflatesWithin } from './zip_inflated_size.ts';
 
 // client extension -> the scratch-file extension ogr2ogr needs and the only
 // drivers GDAL may open it with (KML: whichever of the two the install has)
@@ -35,6 +36,12 @@ const VECTOR_UPLOAD_FORMATS: Readonly<
 
 // v6 parity (`process_uploaded_vector`'s own $response->size check).
 const MAX_UPLOAD_BYTES = 10_000_000;
+
+// What a shapefile zip may inflate to (GDAL reads it), and what of ogr2ogr's
+// output is read back whole into this process and the browser: neither may
+// grow unbounded behind the 10 MB upload. 20x the upload covers a padded .dbf.
+const MAX_INFLATED_BYTES = 200_000_000;
+const MAX_OUTPUT_BYTES = 200_000_000;
 
 function invalidVectorUpload(message: string): DedaloError {
 	return new DedaloError('request.invalid_options', { message, publicMessage: message });
@@ -361,6 +368,13 @@ export async function readConvertedLayer(
 	extension: string,
 	projection: ManualProjection | null,
 ): Promise<GeoJsonFeatureCollection> {
+	const outputSize = existsSync(outputFile) ? statSync(outputFile).size : 0;
+	if (outputSize > MAX_OUTPUT_BYTES) {
+		throw invalidVectorUpload(
+			`The converted layer (${outputSize} bytes) exceeds the ${MAX_OUTPUT_BYTES}-byte limit: ` +
+				'upload a smaller file',
+		);
+	}
 	const parsed = (await Bun.file(outputFile)
 		.json()
 		.catch(() => null)) as GeoJsonFeatureCollection | null;
@@ -404,6 +418,13 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 	if (size > MAX_UPLOAD_BYTES) {
 		throw invalidVectorUpload(
 			`The uploaded file (${size} bytes) exceeds the ${MAX_UPLOAD_BYTES}-byte limit`,
+		);
+	}
+	// before any GDAL call opens it: declaresOwnCrs runs ogrinfo on the zip too
+	if (extension === 'zip') {
+		await assertZipInflatesWithin(
+			new Uint8Array(await Bun.file(staged).arrayBuffer()),
+			MAX_INFLATED_BYTES,
 		);
 	}
 

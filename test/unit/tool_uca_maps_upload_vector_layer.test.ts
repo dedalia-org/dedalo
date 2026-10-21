@@ -6,10 +6,11 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
+import { openZipStream } from '../../src/core/files/zip.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import {
 	resolveGdalBinary,
@@ -507,6 +508,32 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 			}),
 		).rejects.toThrow(/exceeds the .* limit/);
 	});
+
+	test('a zip under the 10 MB cap that inflates past 200 MB is refused before GDAL opens it', async () => {
+		const chunks: Uint8Array[] = [];
+		const writer = openZipStream({ write: async (chunk) => void chunks.push(chunk.slice()) });
+		const block = new Uint8Array(1_000_000);
+		await writer.addStream(
+			'bomb.dbf',
+			(function* () {
+				for (let i = 0; i < 201; i++) yield block;
+			})(),
+		);
+		await writer.finish();
+		const userStaging = stagingOf(SCRATCH_USER);
+		mkdirSync(userStaging, { recursive: true });
+		writeFileSync(resolve(userStaging, 'bomb.zip'), Buffer.concat(chunks));
+		const error = await failureOf(
+			callUpload(SCRATCH_USER, {
+				file_data: { key_dir: '', tmp_name: 'bomb.zip', extension: 'zip' },
+				epsg: '25830',
+				zone: '30',
+				band: 'N',
+			}),
+		);
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/inflates to more than 200000000 bytes/);
+	});
 });
 
 // what ogr2ogr wrote, checked without GDAL: the GeoJSON and KML inputs say
@@ -587,6 +614,21 @@ describe("tool_uca_maps upload_vector_layer — ogr2ogr's output, checked before
 		]) {
 			expectCode(await failureOf(converted(output)), 'tool.action_failed');
 		}
+	});
+
+	test('an output over 200 MB is refused before it is read', async () => {
+		const refusal = await failureOf(
+			withScratchDir(async (dir) => {
+				const outputFile = resolve(dir, 'out.geojson');
+				const inputFile = resolve(dir, 'in.geojson');
+				writeFileSync(outputFile, '');
+				truncateSync(outputFile, 200_000_001);
+				writeFileSync(inputFile, pointsAt([-0.375, 39.47]));
+				return readConvertedLayer(dir, outputFile, inputFile, 'geojson', null);
+			}),
+		);
+		expectCode(refusal, 'request.invalid_options');
+		expect(refusal.message).toMatch(/converted layer \(200000001 bytes\) exceeds/);
 	});
 
 	test('a position that is not longitude/latitude is refused, not answered', async () => {
