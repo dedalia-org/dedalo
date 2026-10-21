@@ -79,12 +79,12 @@ import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/r
 import { attach_scale_bar, detach_scale_bar, format_distance, round_distance } from '../../../tools/tool_uca_maps/js/scale_bar.js'
 import {
 	empty_legend,
-	DEFAULT_ELEMENT_ICON,
+	default_element_icon,
 	ALLOWED_ICON_TYPES,
 	MAX_ICON_BYTES
 } from '../../../tools/tool_uca_maps/js/legend.js'
 import { populate_legend_columns } from '../../../tools/tool_uca_maps/js/render_legend.js'
-import { DEFAULT_SYMBOL_COLOUR } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
+import { default_symbol_colour, default_legend_symbol } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
 import { is_toolbar_node, create_toolbar_panel, remove_toolbar_panel } from '../../../tools/tool_uca_maps/js/toolbar.js'
 import {
 	search_roman,
@@ -101,11 +101,15 @@ import {
 
 
 
-/** The colour a cataloguer picks in the style field. Named once: a colour
-* spelled in a shipped file is counted wherever it is spelled
-* (colour_literal_ratchet_tripwire), and seven copies of one test value say
-* nothing seven times. */
-const PICKED_COLOUR = '#ff0000'
+/** The colour a cataloguer picks in the style field: the tool's own hue
+* (`--tool_uca_maps` is Dédalo's orange, main.css), which no default shares. Read
+* from the token, not spelled: a colour spelled in a shipped file is counted
+* (colour_literal_ratchet_tripwire). Lowercase hex, what `<input type=color>` yields. */
+const picked_colour = function() {
+	const value = getComputedStyle(document.documentElement).getPropertyValue('--color_orange_dedalo').trim().toLowerCase()
+	assert.match(value, /^#[0-9a-f]{6}$/, 'expected the orange token as a hex colour')
+	return value
+}
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -385,16 +389,10 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 	// the seed is the object v6 writes the first time
 	// (`class.tool_leaflet_special_tools.php` legends()): persisting a legend
 	// is writing this shape verbatim
-	it('empty_legend seeds v6\'s own stored shape, and the default icon is self-contained', function() {
+	it('empty_legend seeds v6\'s own stored shape', function() {
 
 		assert.deepEqual(empty_legend(), {legend: '', enable: true, columns: []})
 
-		// no asset URL to resolve: `img-src` admits `data:` (APP_CSP), a tool
-		// asset path would have to be built and served
-		assert.isTrue(
-			DEFAULT_ELEMENT_ICON.startsWith('data:image/svg+xml;base64,'),
-			'expected the default pin embedded as a data URL'
-		)
 		assert.deepEqual(
 			ALLOWED_ICON_TYPES,
 			['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'],
@@ -1688,11 +1686,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const dirty = []
 		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
 
-		set_style_field(tool, layer, 'fillColor', PICKED_COLOUR)
+		set_style_field(tool, layer, 'fillColor', picked_colour())
 		set_style_field(tool, layer, 'weight', 5)
 
-		assert.deepEqual(layer.feature.properties.uca_maps.style, {fillColor: PICKED_COLOUR, weight: 5}, 'expected style written to properties.uca_maps')
-		assert.equal(layer.options.fillColor, PICKED_COLOUR, 'expected setStyle applied live')
+		assert.deepEqual(layer.feature.properties.uca_maps.style, {fillColor: picked_colour(), weight: 5}, 'expected style written to properties.uca_maps')
+		assert.equal(layer.options.fillColor, picked_colour(), 'expected setStyle applied live')
 		assert.deepEqual(dirty, [1, 1], 'expected each change to mark its FeatureGroup dirty')
 
 		set_style_field(tool, layer, 'fillColor', null)
@@ -1719,9 +1717,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 		assert.notProperty(layer.feature.properties, '', 'expected nothing written under an empty key')
 
-		layer.feature.properties.color = PICKED_COLOUR
+		layer.feature.properties.color = picked_colour()
 		delete_property(tool, layer, 'color')
-		assert.equal(layer.feature.properties.color, PICKED_COLOUR, 'expected a reserved field never deleted')
+		assert.equal(layer.feature.properties.color, picked_colour(), 'expected a reserved field never deleted')
 
 		delete_property(tool, layer, 'custom_key')
 		assert.equal('custom_key' in layer.feature.properties, false, 'expected the property removed')
@@ -2158,12 +2156,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected NO separate stroke-colour field'
 		)
 
-		color.value = PICKED_COLOUR
+		color.value = picked_colour()
 		color.dispatchEvent(new Event('change'))
-		assert.equal(layer.options.color, PICKED_COLOUR, 'expected the border painted live')
-		assert.equal(layer.options.fillColor, PICKED_COLOUR, 'expected the body painted live, with the same colour')
+		assert.equal(layer.options.color, picked_colour(), 'expected the border painted live')
+		assert.equal(layer.options.fillColor, picked_colour(), 'expected the body painted live, with the same colour')
 		assert.equal(
-			layer.feature.properties.uca_maps.style.fillColor, PICKED_COLOUR,
+			layer.feature.properties.uca_maps.style.fillColor, picked_colour(),
 			'expected the fill half stored in this tool\'s namespace, which is the only thing that restores it'
 		)
 		assert.isUndefined(
@@ -3849,7 +3847,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			probe.style.cssText = 'background-color: var(--tool_uca_maps)'
 			tool.xyz_panel.appendChild(probe)
 			const hue = getComputedStyle(probe).backgroundColor
-			assert.notEqual(hue, 'rgba(0, 0, 0, 0)', 'expected the tool hue to resolve')
+			const unpainted = document.createElement('div')
+			tool.xyz_panel.appendChild(unpainted)
+			assert.notEqual(hue, getComputedStyle(unpainted).backgroundColor, 'expected the tool hue to resolve')
+			unpainted.remove()
 
 			const header = getComputedStyle(tool.xyz_panel.querySelector('.uca-maps-panel-header'))
 			assert.equal(header.borderTopColor, hue, 'expected the hue as the header\'s top edge')
@@ -7682,6 +7683,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(tool.legend, empty_legend(), 'expected the session legend seeded empty')
 	})
 
+	// one default blue on the map: a new pin and a new symbol wear the colour
+	// Leaflet gives a new object (v6's editor used that blue too)
+	it('a new pin and a new symbol start in the blue of a new map object', function() {
+
+		const new_object_blue = L.polygon([[39.4, -0.4], [39.5, -0.4], [39.5, -0.3]]).options.color
+		tool.attach_legend()
+		tool.add_legend_column()
+		tool.add_legend_element(0)
+
+		const icon = tool.legend.columns[0].elements[0].icon
+		assert.equal(decode_symbol(icon).querySelector('path').getAttribute('fill'), new_object_blue, 'expected the pin in the map\'s blue')
+		assert.deepEqual(default_legend_symbol(), {shape: 'point', fill: new_object_blue, stroke: new_object_blue}, 'expected the symbol editor to start there')
+	})
+
 	it('the legend overlay is map CONTENT, not tool chrome — so it stays in the exported image', function() {
 
 		tool.attach_legend()
@@ -7741,7 +7756,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(overlay.querySelector('.uca-maps-legend-overlay-column-name').textContent, 'Periodo')
 		const element_node = overlay.querySelector('.uca-maps-legend-overlay-element')
 		assert.equal(element_node.querySelector('span').textContent, 'Neolítico')
-		assert.equal(element_node.querySelector('img').getAttribute('src'), DEFAULT_ELEMENT_ICON)
+		assert.equal(element_node.querySelector('img').getAttribute('src'), default_element_icon())
 
 		// "Mostrar leyenda" off hides the drawing, it does not wipe the data
 		tool.set_legend_visible(false)
@@ -7798,7 +7813,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isFalse(rejected_size.ok, 'expected an oversized icon refused')
 		assert.isOk(rejected_size.error, 'expected the refusal to say why')
 		assert.equal(
-			tool.legend.columns[0].elements[0].icon, DEFAULT_ELEMENT_ICON,
+			tool.legend.columns[0].elements[0].icon, default_element_icon(),
 			'expected a refused icon to leave the pin in place'
 		)
 
@@ -7821,7 +7836,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 		assert.equal(first_mismatch, -1, 'expected the data URL to carry the file byte for byte')
 		// back to the pin, so the last case has to land its own icon
-		tool.legend.columns[0].elements[0].icon = DEFAULT_ELEMENT_ICON
+		tool.legend.columns[0].elements[0].icon = default_element_icon()
 
 		const accepted = await tool.set_legend_element_icon(
 			0, 0, pin_png()
@@ -7851,7 +7866,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const by_size = await tool.set_legend_element_icon(0, 0, oversized)
 		assert.isFalse(by_size.ok, 'expected the size refused without reading')
 
-		assert.equal(tool.legend.columns[0].elements[0].icon, DEFAULT_ELEMENT_ICON)
+		assert.equal(tool.legend.columns[0].elements[0].icon, default_element_icon())
 	})
 
 	it('the panel edits the same legend the overlay draws', function() {
@@ -7920,7 +7935,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the row carries its pin and its upload button
 		const row = panel.querySelector('.uca-maps-legend-element')
-		assert.equal(row.querySelector('img').getAttribute('src'), DEFAULT_ELEMENT_ICON)
+		assert.equal(row.querySelector('img').getAttribute('src'), default_element_icon())
 		assert.isOk(row.querySelector('.uca-maps-legend-upload-icon'), 'expected the icon button')
 	})
 
@@ -7956,7 +7971,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isFalse(message.hidden, 'expected the refusal shown in the panel')
 		assert.equal(message.textContent, 'Icon file type not allowed (PNG, JPEG, GIF, WebP or SVG only).')
 		assert.equal(message.dataset.type, 'error')
-		assert.equal(row_src(), DEFAULT_ELEMENT_ICON, 'expected the pin kept')
+		assert.equal(row_src(), default_element_icon(), 'expected the pin kept')
 
 		// a file the browser fails to read, whichever reading API asks for it
 		const original_read		= FileReader.prototype.readAsDataURL
@@ -7973,9 +7988,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 		assert.isFalse(message.hidden, 'expected the failed read shown in the panel')
 		assert.equal(message.textContent, 'The icon could not be read.')
-		assert.equal(row_src(), DEFAULT_ELEMENT_ICON, 'expected the pin kept')
+		assert.equal(row_src(), default_element_icon(), 'expected the pin kept')
 
-		await pick(pin_png(), () => row_src()!==DEFAULT_ELEMENT_ICON)
+		await pick(pin_png(), () => row_src()!==default_element_icon())
 		assert.isTrue(message.hidden, 'expected the old message cleared by the next pick')
 		assert.isTrue(row_src().startsWith('data:image/png;base64,'), 'expected the row repainted with the uploaded icon')
 		assert.equal(row_src(), tool.legend.columns[0].elements[0].icon, 'expected the row to show the stored icon')
@@ -8115,36 +8130,36 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const element = tool.legend.columns[0].elements[0]
 
 		for (const bad of [
-			{shape: 'star', fill: PICKED_COLOUR, stroke: PICKED_COLOUR},
-			{shape: 'area', fill: PICKED_COLOUR.slice(1), stroke: PICKED_COLOUR},
-			{shape: 'area', fill: PICKED_COLOUR, stroke: '"/><script>x</script>'},
+			{shape: 'star', fill: picked_colour(), stroke: picked_colour()},
+			{shape: 'area', fill: picked_colour().slice(1), stroke: picked_colour()},
+			{shape: 'area', fill: picked_colour(), stroke: '"/><script>x</script>'},
 			// String([x]) === x: a coercing check would pass it and then throw
-			{shape: 'area', fill: [PICKED_COLOUR], stroke: PICKED_COLOUR},
+			{shape: 'area', fill: [picked_colour()], stroke: picked_colour()},
 			null
 		]) {
 			assert.deepEqual(tool.set_legend_element_symbol(0, 0, bad), {ok: false})
 		}
-		assert.equal(element.icon, DEFAULT_ELEMENT_ICON, 'expected a refused symbol to leave the pin')
+		assert.equal(element.icon, default_element_icon(), 'expected a refused symbol to leave the pin')
 		assert.notProperty(element, 'symbol')
-		assert.deepEqual(tool.set_legend_element_symbol(0, 7, {shape: 'area', fill: PICKED_COLOUR, stroke: PICKED_COLOUR}), {ok: false})
+		assert.deepEqual(tool.set_legend_element_symbol(0, 7, {shape: 'area', fill: picked_colour(), stroke: picked_colour()}), {ok: false})
 
-		assert.deepEqual(tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: PICKED_COLOUR, stroke: DEFAULT_SYMBOL_COLOUR}), {ok: true})
+		assert.deepEqual(tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: picked_colour(), stroke: default_symbol_colour()}), {ok: true})
 		const rect = decode_symbol(element.icon).querySelector('rect')
 		assert.isOk(rect, 'expected an area drawn as a rectangle')
-		assert.equal(rect.getAttribute('fill'), PICKED_COLOUR)
-		assert.equal(rect.getAttribute('stroke'), DEFAULT_SYMBOL_COLOUR)
-		assert.deepEqual(element.symbol, {shape: 'area', fill: PICKED_COLOUR, stroke: DEFAULT_SYMBOL_COLOUR}, 'expected the values kept to reopen the editor')
+		assert.equal(rect.getAttribute('fill'), picked_colour())
+		assert.equal(rect.getAttribute('stroke'), default_symbol_colour())
+		assert.deepEqual(element.symbol, {shape: 'area', fill: picked_colour(), stroke: default_symbol_colour()}, 'expected the values kept to reopen the editor')
 		assert.equal(tool.legend_overlay.getContainer().querySelector('.uca-maps-legend-overlay-element img').getAttribute('src'), element.icon, 'expected the overlay to draw it')
 
-		tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: PICKED_COLOUR.toUpperCase(), stroke: PICKED_COLOUR})
-		assert.equal(element.symbol.fill, PICKED_COLOUR, 'expected the colour stored lowercase')
+		tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: picked_colour().toUpperCase(), stroke: picked_colour()})
+		assert.equal(element.symbol.fill, picked_colour(), 'expected the colour stored lowercase')
 
-		tool.set_legend_element_symbol(0, 0, {shape: 'line', fill: PICKED_COLOUR, stroke: PICKED_COLOUR})
+		tool.set_legend_element_symbol(0, 0, {shape: 'line', fill: picked_colour(), stroke: picked_colour()})
 		const line = decode_symbol(element.icon).querySelector('line')
 		assert.isOk(line, 'expected a line drawn as a line')
 		assert.isNull(line.getAttribute('fill'), 'expected a line with no fill')
 
-		tool.set_legend_element_symbol(0, 0, {shape: 'point', fill: PICKED_COLOUR, stroke: PICKED_COLOUR})
+		tool.set_legend_element_symbol(0, 0, {shape: 'point', fill: picked_colour(), stroke: picked_colour()})
 		assert.isOk(decode_symbol(element.icon).querySelector('circle'), 'expected a point drawn as a circle')
 
 		// an uploaded image replaces the drawn symbol
@@ -8166,7 +8181,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const symbol_btn	= panel.querySelector('.uca-maps-legend-symbol-button')
 		const row_icon		= symbol_btn.querySelector('img')
 		const editor		= panel.querySelector('.uca-maps-legend-symbol-editor')
-		assert.equal(row_icon.getAttribute('src'), DEFAULT_ELEMENT_ICON, 'expected the pin inside the symbol button')
+		assert.equal(row_icon.getAttribute('src'), default_element_icon(), 'expected the pin inside the symbol button')
 		assert.isTrue(editor.hidden, 'expected the editor closed')
 		assert.equal(symbol_btn.getAttribute('aria-expanded'), 'false')
 
@@ -8185,26 +8200,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the colour input survives its own input event: a rebuild would close the native picker
 		const fill_input = editor.querySelector('.uca-maps-legend-symbol-fill')
-		fill_input.value = PICKED_COLOUR
+		fill_input.value = picked_colour()
 		fill_input.dispatchEvent(new Event('input'))
-		assert.equal(element.symbol.fill, PICKED_COLOUR, 'expected the fill to reach the symbol')
+		assert.equal(element.symbol.fill, picked_colour(), 'expected the fill to reach the symbol')
 		assert.isTrue(fill_input.isConnected, 'expected the colour input kept')
 		assert.isFalse(editor.hidden, 'expected the editor still open')
-		assert.equal(decode_symbol(row_icon.getAttribute('src')).querySelector('rect').getAttribute('fill'), PICKED_COLOUR)
+		assert.equal(decode_symbol(row_icon.getAttribute('src')).querySelector('rect').getAttribute('fill'), picked_colour())
 
 		const stroke_label = editor.querySelector('.uca-maps-legend-symbol-stroke').closest('label').querySelector('.uca-maps-legend-field-label')
 		const border_text = stroke_label.textContent
 		editor.querySelector('[data-shape="line"]').click()
 		assert.isTrue(fill_input.closest('label').hidden, 'expected no fill for a line')
 		assert.notEqual(stroke_label.textContent, border_text, 'expected the one line colour not called a border')
-		assert.equal(element.symbol.fill, PICKED_COLOUR, 'expected the fill kept for a later area or point')
+		assert.equal(element.symbol.fill, picked_colour(), 'expected the fill kept for a later area or point')
 
 		// a rebuilt list reopens the editor on the STORED symbol, not the defaults
 		populate_legend_columns(tool, panel)
 		const rebuilt = panel.querySelector('.uca-maps-legend-symbol-editor')
 		assert.notEqual(rebuilt, editor, 'expected a fresh editor')
 		assert.equal(rebuilt.querySelector('[data-shape="line"]').getAttribute('aria-pressed'), 'true', 'expected the stored shape pressed')
-		assert.equal(rebuilt.querySelector('.uca-maps-legend-symbol-fill').value, PICKED_COLOUR, 'expected the stored fill')
+		assert.equal(rebuilt.querySelector('.uca-maps-legend-symbol-fill').value, picked_colour(), 'expected the stored fill')
 	})
 
 	it('detach removes the button, the panel and the overlay', async function() {

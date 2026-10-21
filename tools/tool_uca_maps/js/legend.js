@@ -33,7 +33,7 @@ import {
 	remove_legend_overlay
 } from './render_legend.js'
 import {
-	DEFAULT_SYMBOL_COLOUR,
+	default_symbol_colour,
 	is_legend_symbol,
 	legend_symbol_data_url
 } from './legend_symbol.js'
@@ -57,11 +57,13 @@ const BASE64_CHUNK_BYTES = 0x8000
 * here so it needs no asset URL (`img-src` already admits `data:`). Markup on purpose:
 * it only ever becomes an `<img>` data URI, never a DOM sink. */
 // exported for the client gate
-export const DEFAULT_ELEMENT_ICON = 'data:image/svg+xml;base64,' + btoa(
-	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">' +
-	'<path fill="' + DEFAULT_SYMBOL_COLOUR + '" d="M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5' +
-	'a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>'
-)
+export const default_element_icon = function() {
+	return 'data:image/svg+xml;base64,' + btoa(
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">' +
+		'<path fill="' + default_symbol_colour() + '" d="M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5' +
+		'a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>'
+	)
+}//end default_element_icon
 
 
 
@@ -266,7 +268,7 @@ export const add_legend_element = function(self, column_index) {
 		return {ok: false}
 	}
 
-	column.elements.push({name: '', icon: DEFAULT_ELEMENT_ICON})
+	column.elements.push({name: '', icon: default_element_icon()})
 	render_legend_overlay(self)
 
 	return {ok: true, index: column.elements.length - 1}

@@ -1,4 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
+/*global L */
 /*eslint no-undef: "error"*/
 
 
@@ -18,11 +19,13 @@ import {svg_node} from './svg.js'
 
 
 
-/** The blue of the default pin (`legend.js` DEFAULT_ELEMENT_ICON) and the
-* first colour a symbol editor offers. Named once: a colour spelled in a
-* shipped string is counted wherever it is spelled
-* (colour_literal_ratchet_tripwire). */
-export const DEFAULT_SYMBOL_COLOUR = '#1a73e8'
+/** The blue of the default pin (`legend.js` default_element_icon) and the
+* first colour a symbol editor offers: Leaflet's own default path colour, so a
+* new pin matches a new object on the map (v6's editor used that blue too,
+* `special_tools.js`). Read when used: Leaflet is the map's global, loaded with it. */
+export const default_symbol_colour = function() {
+	return L.Path.prototype.options.color
+}//end default_symbol_colour
 
 /** The three geometry kinds a map object has (marker, line, polygon). */
 export const LEGEND_SYMBOL_SHAPES = ['point', 'line', 'area']
@@ -39,7 +42,8 @@ const HEX_COLOUR_RE = /^#[0-9a-f]{6}$/i
 * @returns {{shape: string, fill: string, stroke: string}}
 */
 export const default_legend_symbol = function() {
-	return {shape: 'point', fill: DEFAULT_SYMBOL_COLOUR, stroke: DEFAULT_SYMBOL_COLOUR}
+	const colour = default_symbol_colour()
+	return {shape: 'point', fill: colour, stroke: colour}
 }//end default_legend_symbol
 
 

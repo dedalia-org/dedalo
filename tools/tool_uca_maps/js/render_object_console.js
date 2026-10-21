@@ -653,7 +653,7 @@ const render_style_controls = function(self, layer, container) {
 		})
 		const color_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-color', parent: color_row})
 		color_input.type  = 'color'
-		color_input.value = String(properties.color || layer.options.color || style.fillColor || '#3388ff').slice(0, 7)
+		color_input.value = String(properties.color || layer.options.color || style.fillColor || L.Path.prototype.options.color).slice(0, 7)
 		color_input.addEventListener('change', () => self.set_object_color(layer, color_input.value))
 
 	// fill opacity
