@@ -148,4 +148,10 @@ describe('tool_uca_maps assertZipInflatesWithin — the end record (pure)', () =
 			/holds 1001 files \(at most 1000\)/,
 		);
 	});
+
+	test('a central directory that runs past the end record is refused', async () => {
+		expect(
+			await refusalWithEnd((v, e) => v.setUint32(e + 12, v.getUint32(e + 12, true) + 1000, true)),
+		).toMatch(/corrupt/);
+	});
 });
