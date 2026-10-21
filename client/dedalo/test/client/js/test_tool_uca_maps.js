@@ -1522,6 +1522,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		active_group().addLayer(line)
 		line.bindPopup('line').openPopup()
 		assert.equal(heading(), 'Línea', 'expected the translated kind of a line')
+		// no drawing tool makes one today, but a kind the console does not
+		// classify still heads as an object, translated, never blank
+		const unknown = L.circleMarker([40.42, -3.68])
+		active_group().addLayer(unknown)
+		unknown.bindPopup('unknown').openPopup()
+		assert.equal(heading(), 'Objeto', 'expected the translated fallback kind of an unclassified layer')
 
 		mount_roman()
 		const first_option = (selector) => tool.roman_panel.querySelector(selector).options[0]
