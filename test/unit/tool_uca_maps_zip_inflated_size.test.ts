@@ -39,6 +39,30 @@ function centralOffset(bytes: Uint8Array): number {
 	throw new Error('no central directory header');
 }
 
+/** Offset of the end-of-central-directory record (PK\x05\x06), from the end. */
+function eocdOffset(bytes: Uint8Array): number {
+	for (let at = bytes.length - 22; at >= 0; at--) {
+		if (
+			bytes[at] === 0x50 &&
+			bytes[at + 1] === 0x4b &&
+			bytes[at + 2] === 5 &&
+			bytes[at + 3] === 6
+		) {
+			return at;
+		}
+	}
+	throw new Error('no end of central directory');
+}
+
+/** The refusal of a one-entry archive whose end record `patch` rewrote. */
+async function refusalWithEnd(patch: (view: DataView, eocd: number) => void): Promise<string> {
+	const zip = await zipOf([{ name: 'a.shp', bytes: zeros(100) }]);
+	patch(new DataView(zip.buffer), eocdOffset(zip));
+	const error = await failureOf(assertZipInflatesWithin(zip, 1000));
+	expectCode(error, 'request.invalid_options');
+	return error.message;
+}
+
 describe('tool_uca_maps assertZipInflatesWithin (pure)', () => {
 	test('the inflated total of stored and deflated entries is measured, at and under the budget', async () => {
 		const zip = await zipOf([
@@ -104,5 +128,12 @@ describe('tool_uca_maps assertZipInflatesWithin (pure)', () => {
 		zip[data] = 0xff;
 		zip[data + 1] = 0xff;
 		expect((await failureOf(assertZipInflatesWithin(zip, 1000))).message).toMatch(/corrupt/);
+	});
+});
+
+describe('tool_uca_maps assertZipInflatesWithin — the end record (pure)', () => {
+	test('an archive split across disks is refused', async () => {
+		expect(await refusalWithEnd((v, e) => v.setUint16(e + 4, 1, true))).toMatch(/split/);
+		expect(await refusalWithEnd((v, e) => v.setUint16(e + 6, 1, true))).toMatch(/split/);
 	});
 });
