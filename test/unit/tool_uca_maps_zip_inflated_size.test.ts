@@ -136,4 +136,10 @@ describe('tool_uca_maps assertZipInflatesWithin — the end record (pure)', () =
 		expect(await refusalWithEnd((v, e) => v.setUint16(e + 4, 1, true))).toMatch(/split/);
 		expect(await refusalWithEnd((v, e) => v.setUint16(e + 6, 1, true))).toMatch(/split/);
 	});
+
+	test('a ZIP64 marker in the end record is refused', async () => {
+		expect(await refusalWithEnd((v, e) => v.setUint16(e + 10, 0xffff, true))).toMatch(/ZIP64/);
+		expect(await refusalWithEnd((v, e) => v.setUint32(e + 16, 0xffffffff, true))).toMatch(/ZIP64/);
+		expect(await refusalWithEnd((v, e) => v.setUint32(e + 12, 0xffffffff, true))).toMatch(/ZIP64/);
+	});
 });
