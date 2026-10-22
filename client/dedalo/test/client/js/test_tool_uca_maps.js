@@ -143,6 +143,30 @@ const with_tool_css = async function(fn) {
 }
 
 /**
+* Runs `fn` with the tool sheet's phone rules applied at the suite's desktop
+* width, where the phone @media never matches: the rules inside it whose
+* selector names `selector_part` are lifted out of the loaded sheet and applied
+* unconditionally. Call inside with_tool_css.
+* @returns {Promise<*>}
+*/
+const with_phone_rules = async function(selector_part, fn) {
+	const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+	const rules = [...sheet.cssRules]
+		.filter((rule) => rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
+		.flatMap((rule) => [...rule.cssRules])
+		.filter((rule) => rule.selectorText && rule.selectorText.includes(selector_part))
+	assert.isAbove(rules.length, 0, 'expected phone rules for ' + selector_part)
+	const style = document.createElement('style')
+	style.textContent = rules.map((rule) => rule.cssText).join('\n')
+	document.head.appendChild(style)
+	try {
+		return await fn()
+	} finally {
+		style.remove()
+	}
+}
+
+/**
 * Runs `fn` with URL.createObjectURL and the anchor's click spied: the Blob a
 * download builds, and the name trigger_blob_download puts on the anchor (the
 * only place a typed name shows on the client-only branches). Stubbing the
@@ -4016,50 +4040,75 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
-	// the suite runs at desktop width, where the phone @media never matches: its
-	// own rules are lifted out of the loaded sheet and applied unconditionally
 	it('on a phone every panel lies beside the bar and below the view box, so another button switches panels', async function() {
 
-		await with_tool_css(async () => {
-			const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
-			const phone_rules = [...sheet.cssRules]
-				.filter((rule) => rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
-				.flatMap((rule) => [...rule.cssRules])
-				.filter((rule) => rule.selectorText && rule.selectorText.includes('.uca-maps-panel'))
-			assert.isAbove(phone_rules.length, 0, 'expected the phone rule for the panels')
-			const style = document.createElement('style')
-			style.textContent = phone_rules.map((rule) => rule.cssText).join('\n')
-			document.head.appendChild(style)
-			try {
-				tool.attach_console()
-				tool.attach_xyz_basemaps()
-				tool.attach_file_upload()
-				const map_node	= geolocation.map.getContainer()
-				const map_rect	= map_node.getBoundingClientRect()
-				const view_box	= map_node.parentNode.querySelector(':scope > .map_inputs')
-				const cases = [
-					[tool.map_control, tool.panel_node, 'console'],
-					[tool.xyz_control, tool.xyz_panel, 'XYZ (centred on a desktop)'],
-					[tool.upload_control, tool.upload_panel, 'upload (centred on a desktop)']
-				]
-				let previous = null
-				for (const [control, panel, name] of cases) {
-					// no close in between: the bar stays reachable while a panel is open
-					control.getContainer().click()
-					assert.isFalse(panel.hidden, name + ': expected open')
-					if (previous) assert.isTrue(previous.hidden, name + ': expected the previous panel switched off')
-					const rect		= panel.getBoundingClientRect()
-					const bar_rect	= control.getContainer().parentNode.getBoundingClientRect()
-					assert.isAtLeast(Math.round(rect.left), Math.round(bar_rect.right), name + ': expected beside the bar, not over it')
-					assert.isAtLeast(Math.round(rect.top), Math.round(view_box.getBoundingClientRect().bottom), name + ': expected below the view box')
-					assert.isAtMost(Math.round(rect.right), Math.round(map_rect.right), name + ': expected inside the map')
-					assert.isAtMost(Math.round(rect.bottom), Math.round(map_rect.bottom), name + ': expected inside the map')
-					previous = panel
-				}
-			} finally {
-				style.remove()
+		await with_tool_css(() => with_phone_rules('.uca-maps-panel', () => {
+			tool.attach_console()
+			tool.attach_xyz_basemaps()
+			tool.attach_file_upload()
+			const map_node	= geolocation.map.getContainer()
+			const map_rect	= map_node.getBoundingClientRect()
+			const view_box	= map_node.parentNode.querySelector(':scope > .map_inputs')
+			const cases = [
+				[tool.map_control, tool.panel_node, 'console'],
+				[tool.xyz_control, tool.xyz_panel, 'XYZ (centred on a desktop)'],
+				[tool.upload_control, tool.upload_panel, 'upload (centred on a desktop)']
+			]
+			let previous = null
+			for (const [control, panel, name] of cases) {
+				// no close in between: the bar stays reachable while a panel is open
+				control.getContainer().click()
+				assert.isFalse(panel.hidden, name + ': expected open')
+				if (previous) assert.isTrue(previous.hidden, name + ': expected the previous panel switched off')
+				const rect		= panel.getBoundingClientRect()
+				const bar_rect	= control.getContainer().parentNode.getBoundingClientRect()
+				assert.isAtLeast(Math.round(rect.left), Math.round(bar_rect.right), name + ': expected beside the bar, not over it')
+				assert.isAtLeast(Math.round(rect.top), Math.round(view_box.getBoundingClientRect().bottom), name + ': expected below the view box')
+				assert.isAtMost(Math.round(rect.right), Math.round(map_rect.right), name + ': expected inside the map')
+				assert.isAtMost(Math.round(rect.bottom), Math.round(map_rect.bottom), name + ': expected inside the map')
+				previous = panel
 			}
-		})
+		}))
+	})
+
+	it('on a phone the bar keeps the size of the map\'s other controls, and a map shorter than the bar scrolls it in its own box', async function() {
+
+		await with_tool_css(() => with_phone_rules('.uca-maps-toolbar', () => {
+			// the whole bar, in the tool's order: 13 squares, taller than the map
+			geolocation.section_lang = 'lg-spa' // gates UA in
+			tool.attach_console()
+			tool.attach_map_image_download_control()
+			tool.attach_object_viewer()
+			tool.attach_onexone()
+			tool.attach_xyz_basemaps()
+			tool.attach_wms_services()
+			tool.attach_catastro()
+			tool.attach_administrative_units()
+			tool.attach_file_upload()
+			tool.attach_place_search()
+			tool.attach_geolocate()
+			tool.attach_legend()
+			tool.attach_roman_empire()
+			const map_node	= geolocation.map.getContainer()
+			const bar		= map_node.querySelector('.uca-maps-toolbar')
+			const buttons	= [...bar.querySelectorAll('.uca-maps-toolbar-button')]
+			assert.equal(buttons.length, 13, 'expected the whole bar built')
+			// the same squares as Leaflet's zoom beside it, and the zoom bar, now a
+			// flex item of the corner, as wide as its own buttons
+			const zoom		= map_node.querySelector('.leaflet-control-zoom')
+			const zoom_link	= zoom.querySelector('a').getBoundingClientRect()
+			for (const button of buttons) {
+				const rect = button.getBoundingClientRect()
+				assert.deepEqual([Math.round(rect.width), Math.round(rect.height)], [Math.round(zoom_link.width), Math.round(zoom_link.height)], button.className + ': expected the zoom\'s square')
+			}
+			assert.isAtMost(zoom.getBoundingClientRect().width - zoom_link.width, 6, 'expected the zoom bar as wide as its own buttons')
+
+			const bar_rect	= bar.getBoundingClientRect()
+			const map_rect	= map_node.getBoundingClientRect()
+			assert.isAbove(bar.scrollHeight, bar.clientHeight + 1, 'expected the bar to scroll in its own box')
+			assert.isAtMost(Math.round(bar_rect.bottom), Math.round(map_rect.bottom), 'expected the bar inside the map')
+			assert.equal(getComputedStyle(bar).overflowY, 'auto', 'expected the bar\'s own scroll')
+		}))
 	})
 
 	// The panels live inside Leaflet's container, which sets its own 12px

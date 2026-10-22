@@ -280,6 +280,26 @@
 .leaflet-control.uca-maps-toolbar {
 	margin-top: 30px;
 }
+
+// phone: the bar keeps the 30px squares of the map's other controls (Leaflet's
+// zoom, Geoman), and scrolls in its own box when the map is shorter than its
+// 13 buttons. The top-left corner, holding this bar, spans the map's height so
+// the bar can shrink inside it; Leaflet's corners take no pointer events, so
+// the map under it still pans.
+@media screen and (max-width: @width_break_point_phone) {
+	.leaflet-top.leaflet-left:has(> .uca-maps-toolbar) {
+		bottom: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.leaflet-control.uca-maps-toolbar {
+		flex: 0 1 auto;
+		min-height: 0;
+		margin-bottom: 10px;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+}
 .uca-maps-toolbar > .uca-maps-toolbar-button {
 	display: flex;
 	align-items: center;

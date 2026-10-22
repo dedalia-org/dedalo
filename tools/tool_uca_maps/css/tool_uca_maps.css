@@ -69,6 +69,20 @@
 .leaflet-control.uca-maps-toolbar {
   margin-top: 30px;
 }
+@media screen and (max-width: 600px) {
+  .leaflet-top.leaflet-left:has(> .uca-maps-toolbar) {
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .leaflet-control.uca-maps-toolbar {
+    flex: 0 1 auto;
+    min-height: 0;
+    margin-bottom: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
 .uca-maps-toolbar > .uca-maps-toolbar-button {
   display: flex;
   align-items: center;
