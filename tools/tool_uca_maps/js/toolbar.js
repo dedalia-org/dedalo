@@ -107,19 +107,19 @@ const get_toolbar_bar = function(self) {
 * CREATE_TOOLBAR_BUTTON
 * Appends one toggle button to the shared bar, so attach order is top-to-bottom
 * order. Leaflet's own bar link (`a[role=button]`), so square, hover and focus match
-* the zoom and Geoman bars. With no icon the label is drawn; the title is the
+* the zoom and Geoman bars. The icon is a glyph only; the title is the
 * accessible name.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} options
 * @param {string} options.title - hover title and accessible name (get_tool_label result)
-* @param {string} [options.icon] - core theme icon name, e.g. 'upload'
-* @param {string} [options.text] - visible label when there is no icon
+* @param {string} options.icon - icon name: a core theme icon ('upload') or one of
+*	the tool's own in img/ ('xyz_basemaps'), each with its `.uca-maps-icon-<name>` rule
 * @param {string} options.class_name - identity class, e.g. 'uca-maps-control'
 * @param {Function} options.on_click
 * @returns {{getContainer: function(): HTMLElement}} the button handle
 */
-export const create_toolbar_button = function(self, {title, icon, text, class_name, on_click}) {
+export const create_toolbar_button = function(self, {title, icon, class_name, on_click}) {
 
 	const bar = get_toolbar_bar(self)
 
@@ -128,12 +128,7 @@ export const create_toolbar_button = function(self, {title, icon, text, class_na
 	button.title	= title
 	button.setAttribute('role', 'button')
 	button.setAttribute('aria-label', title)
-	if (icon) {
-		L.DomUtil.create('span', 'uca-maps-toolbar-glyph uca-maps-icon-' + icon, button)
-	} else {
-		button.classList.add('uca-maps-toolbar-text')
-		button.textContent = text
-	}
+	L.DomUtil.create('span', 'uca-maps-toolbar-glyph uca-maps-icon-' + icon, button)
 	button.addEventListener('click', (event) => {
 		event.preventDefault() // the '#' href must not navigate
 		on_click(event)

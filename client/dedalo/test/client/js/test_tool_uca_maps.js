@@ -3760,7 +3760,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.panel_node.hidden, false, 'expected UCA to stay open — 1x1 has no panel, so it never enters the exclusivity set')
 	})
 
-	it('toolbar buttons are links of ONE Leaflet bar: an icon, or a label while it has none; the title names each', async function() {
+	it('toolbar buttons are links of ONE Leaflet bar: an icon each, no visible label; the title names each', async function() {
 
 		tool.attach_console()
 		tool.attach_xyz_basemaps()
@@ -3778,9 +3778,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const xyz_link = geolocation.map.getContainer().querySelector('.uca-maps-xyz-control')
 		assert.equal(xyz_link.parentElement, bar, 'expected the second button in the SAME bar, not a control of its own')
-		assert.isNull(xyz_link.querySelector('.uca-maps-toolbar-glyph'), 'expected no glyph for a button without an icon')
-		assert.isTrue(xyz_link.classList.contains('uca-maps-toolbar-text'))
-		assert.equal(xyz_link.textContent, 'XYZ')
+		assert.isOk(xyz_link.querySelector(':scope > .uca-maps-toolbar-glyph.uca-maps-icon-xyz_basemaps'), 'expected the tool\'s own "xyz_basemaps" icon')
+		assert.equal(xyz_link.textContent, '', 'expected no visible label: the icon replaced "XYZ"')
 
 		// the '#' href must not navigate the page
 		const click = new MouseEvent('click', {bubbles: true, cancelable: true})
@@ -3797,8 +3796,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNull(tool._toolbar_bar, 'expected no stale bar handle')
 	})
 
-	// an icon is a CSS mask of a core theme icon: a name with no rule, or a
-	// rule on a missing file, paints an empty square that only the sheet shows
+	// an icon is a CSS mask of a core theme icon or of the tool's own (img/): a
+	// name with no rule, or a rule on a missing file, paints an empty square
 	it('with the tool CSS, every toolbar button is the same square, they stack with no gap, and each icon paints', async function() {
 
 		await with_tool_css(async () => {
@@ -3841,14 +3840,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			for (let i = 1; i < rects.length; i++) {
 				assert.closeTo(rects[i].top, rects[i - 1].bottom, 0.5, 'expected no gap above "' + (links[i].textContent || links[i].getAttribute('aria-label')) + '"')
 			}
-			for (const node of links) {
-				assert.isAtMost(node.scrollWidth, node.clientWidth, 'expected the label to fit its square: "' + node.textContent + '"')
-			}
 
 			// the exact set, so a new icon button has to be added here to be measured
 			const glyphs = links.map((node) => node.querySelector(':scope > .uca-maps-toolbar-glyph')).filter(Boolean)
 			const icon_of = (glyph) => [...glyph.classList].find((c) => c.startsWith('uca-maps-icon-')).slice('uca-maps-icon-'.length)
-			assert.deepEqual(glyphs.map(icon_of).sort(), ['download', 'info', 'list', 'pointer', 'search', 'upload'], 'expected every icon button measured')
+			assert.equal(glyphs.length, links.length, 'expected an icon on every button')
+			const CORE_ICONS = ['download', 'info', 'search', 'upload']
+			const OWN_ICONS = ['administrative_units', 'catastro', 'geolocate', 'legend', 'object_viewer', 'onexone', 'roman_empire', 'wms_services', 'xyz_basemaps']
+			assert.deepEqual(glyphs.map(icon_of).sort(), [...CORE_ICONS, ...OWN_ICONS].sort(), 'expected every icon button measured')
 			for (const glyph of glyphs) {
 				const name	= glyph.parentElement.getAttribute('aria-label')
 				const style	= getComputedStyle(glyph)
@@ -3856,7 +3855,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				const url	= /^url\("(.+)"\)$/.exec(mask)
 				assert.isOk(url, 'expected a mask image on the "' + name + '" icon, got ' + mask)
 				// a rule is written by hand per icon: a slip paints another core icon, served too
-				assert.isTrue(new URL(url[1], location.href).pathname.endsWith('/core/themes/default/icons/' + icon_of(glyph) + '.svg'), 'expected the "' + name + '" button to paint its own icon, got ' + url[1])
+				const home = CORE_ICONS.includes(icon_of(glyph)) ? '/core/themes/default/icons/' : '/tools/tool_uca_maps/img/'
+				assert.isTrue(new URL(url[1], location.href).pathname.endsWith(home + icon_of(glyph) + '.svg'), 'expected the "' + name + '" button to paint its own icon, got ' + url[1])
 				const response = await fetch(url[1])
 				assert.equal(response.status, 200, 'expected the "' + name + '" icon served: ' + url[1])
 			}

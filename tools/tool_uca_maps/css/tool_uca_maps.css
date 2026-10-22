@@ -92,13 +92,6 @@
   color: var(--uca_maps_toolbar_glyph);
   cursor: pointer;
 }
-.uca-maps-toolbar > .uca-maps-toolbar-text {
-  padding: 0;
-  font-weight: bold;
-  font-size: 0.65rem;
-  white-space: nowrap;
-  overflow: hidden;
-}
 .uca-maps-toolbar-glyph {
   display: block;
   width: 18px;
@@ -119,10 +112,6 @@
   -webkit-mask-image: url('../../../core/themes/default/icons/download.svg');
   mask-image: url('../../../core/themes/default/icons/download.svg');
 }
-.uca-maps-icon-list {
-  -webkit-mask-image: url('../../../core/themes/default/icons/list.svg');
-  mask-image: url('../../../core/themes/default/icons/list.svg');
-}
 .uca-maps-icon-upload {
   -webkit-mask-image: url('../../../core/themes/default/icons/upload.svg');
   mask-image: url('../../../core/themes/default/icons/upload.svg');
@@ -131,9 +120,41 @@
   -webkit-mask-image: url('../../../core/themes/default/icons/search.svg');
   mask-image: url('../../../core/themes/default/icons/search.svg');
 }
-.uca-maps-icon-pointer {
-  -webkit-mask-image: url('../../../core/themes/default/icons/pointer.svg');
-  mask-image: url('../../../core/themes/default/icons/pointer.svg');
+.uca-maps-icon-object_viewer {
+  -webkit-mask-image: url('../img/object_viewer.svg');
+  mask-image: url('../img/object_viewer.svg');
+}
+.uca-maps-icon-onexone {
+  -webkit-mask-image: url('../img/onexone.svg');
+  mask-image: url('../img/onexone.svg');
+}
+.uca-maps-icon-xyz_basemaps {
+  -webkit-mask-image: url('../img/xyz_basemaps.svg');
+  mask-image: url('../img/xyz_basemaps.svg');
+}
+.uca-maps-icon-wms_services {
+  -webkit-mask-image: url('../img/wms_services.svg');
+  mask-image: url('../img/wms_services.svg');
+}
+.uca-maps-icon-catastro {
+  -webkit-mask-image: url('../img/catastro.svg');
+  mask-image: url('../img/catastro.svg');
+}
+.uca-maps-icon-administrative_units {
+  -webkit-mask-image: url('../img/administrative_units.svg');
+  mask-image: url('../img/administrative_units.svg');
+}
+.uca-maps-icon-geolocate {
+  -webkit-mask-image: url('../img/geolocate.svg');
+  mask-image: url('../img/geolocate.svg');
+}
+.uca-maps-icon-legend {
+  -webkit-mask-image: url('../img/legend.svg');
+  mask-image: url('../img/legend.svg');
+}
+.uca-maps-icon-roman_empire {
+  -webkit-mask-image: url('../img/roman_empire.svg');
+  mask-image: url('../img/roman_empire.svg');
 }
 .uca-maps-toolbar-button-active,
 .uca-maps-onexone-control.uca-maps-onexone-enabled {

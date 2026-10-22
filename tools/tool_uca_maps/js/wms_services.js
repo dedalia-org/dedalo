@@ -57,7 +57,7 @@ export const attach_wms_services = function(self) {
 
 	self.wms_control = create_toolbar_button(self, {
 		title		: title,
-		text		: 'WMS',
+		icon		: 'wms_services',
 		class_name	: 'uca-maps-wms-control',
 		on_click	: () => toggle_wms_panel(self)
 	})

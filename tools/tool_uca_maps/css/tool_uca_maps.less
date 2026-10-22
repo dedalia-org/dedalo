@@ -309,15 +309,6 @@
 	color: var(--uca_maps_toolbar_glyph);
 	cursor: pointer;
 }
-// a label still without its icon: a code of three characters at most, so
-// every square keeps exactly Leaflet's size
-.uca-maps-toolbar > .uca-maps-toolbar-text {
-	padding: 0;
-	font-weight: bold;
-	font-size: 0.65rem;
-	white-space: nowrap;
-	overflow: hidden;
-}
 .uca-maps-toolbar-glyph {
 	display: block;
 	// core's solid glyphs read larger than Geoman's line art in the same
@@ -339,10 +330,24 @@
 }
 .uca-maps-icon-info		{ .uca-maps-icon(info); }
 .uca-maps-icon-download	{ .uca-maps-icon(download); }
-.uca-maps-icon-list		{ .uca-maps-icon(list); }
 .uca-maps-icon-upload	{ .uca-maps-icon(upload); }
 .uca-maps-icon-search	{ .uca-maps-icon(search); }
-.uca-maps-icon-pointer	{ .uca-maps-icon(pointer); }
+
+// the tool's own icons (img/), drawn to match Geoman's line art, for what the
+// core set has no picture of
+.uca-maps-own-icon(@name) {
+	-webkit-mask-image: url('../img/@{name}.svg');
+			mask-image: url('../img/@{name}.svg');
+}
+.uca-maps-icon-object_viewer			{ .uca-maps-own-icon(object_viewer); }
+.uca-maps-icon-onexone					{ .uca-maps-own-icon(onexone); }
+.uca-maps-icon-xyz_basemaps				{ .uca-maps-own-icon(xyz_basemaps); }
+.uca-maps-icon-wms_services				{ .uca-maps-own-icon(wms_services); }
+.uca-maps-icon-catastro					{ .uca-maps-own-icon(catastro); }
+.uca-maps-icon-administrative_units		{ .uca-maps-own-icon(administrative_units); }
+.uca-maps-icon-geolocate				{ .uca-maps-own-icon(geolocate); }
+.uca-maps-icon-legend					{ .uca-maps-own-icon(legend); }
+.uca-maps-icon-roman_empire				{ .uca-maps-own-icon(roman_empire); }
 
 // pressed: Geoman's own inset shade, plus the tool colour as a thin edge
 // (decoration only, never under text). One look for an open panel and for

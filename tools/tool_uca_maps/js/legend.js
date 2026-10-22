@@ -102,7 +102,7 @@ export const attach_legend = function(self) {
 
 	self.legend_control = create_toolbar_button(self, {
 		title		: title,
-		text		: 'LEG',
+		icon		: 'legend',
 		class_name	: 'uca-maps-legend-control',
 		on_click	: () => toggle_legend_panel(self)
 	})

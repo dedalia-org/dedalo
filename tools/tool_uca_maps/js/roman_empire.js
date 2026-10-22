@@ -98,7 +98,7 @@ export const attach_roman_empire = function(self) {
 
 	self.roman_control = create_toolbar_button(self, {
 		title		: title,
-		text		: 'ROM',
+		icon		: 'roman_empire',
 		class_name	: 'uca-maps-roman-control',
 		on_click	: () => toggle_roman_panel(self)
 	})

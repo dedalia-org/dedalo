@@ -61,7 +61,7 @@ export const attach_administrative_units = function(self) {
 
 	self.ua_control = create_toolbar_button(self, {
 		title		: title,
-		text		: 'UA',
+		icon		: 'administrative_units',
 		class_name	: 'uca-maps-ua-control',
 		on_click	: () => toggle_ua_panel(self)
 	})

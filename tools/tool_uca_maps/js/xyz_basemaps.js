@@ -73,7 +73,7 @@ export const attach_xyz_basemaps = function(self) {
 
 	self.xyz_control = create_toolbar_button(self, {
 		title		: title,
-		text		: 'XYZ',
+		icon		: 'xyz_basemaps',
 		class_name	: 'uca-maps-xyz-control',
 		on_click	: () => toggle_xyz_panel(self)
 	})

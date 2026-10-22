@@ -46,7 +46,7 @@ export const attach_object_viewer = function(self) {
 
 	self.object_viewer_control = create_toolbar_button(self, {
 		title		: title,
-		icon		: 'list',
+		icon		: 'object_viewer',
 		class_name	: 'uca-maps-object-viewer-control',
 		on_click	: () => toggle_object_viewer_panel(self)
 	})

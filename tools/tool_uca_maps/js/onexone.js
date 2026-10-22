@@ -55,7 +55,7 @@ export const attach_onexone = function(self) {
 
 	self.onexone_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('onexone_control_title') || 'Create 1x1 polygon',
-		text		: '1x1',
+		icon		: 'onexone',
 		class_name	: 'uca-maps-onexone-control',
 		on_click	: () => toggle_onexone(self)
 	})
