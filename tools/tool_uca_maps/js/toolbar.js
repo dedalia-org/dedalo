@@ -245,10 +245,51 @@ const anchor_panel_to_button = function(panel, control) {
 	const button_rect	= button_container.getBoundingClientRect()
 	const map_rect		= map_container.getBoundingClientRect()
 
-	panel.style.top		= Math.round(button_rect.top - map_rect.top) + 'px'
-	panel.style.left		= Math.round(button_rect.right - map_rect.left + 8) + 'px'
+	// custom properties, not top/left: an inline top/left would beat the phone
+	// rule that lays every panel beside the bar instead
+	panel.style.setProperty('--uca_maps_anchor_top', Math.round(button_rect.top - map_rect.top) + 'px')
+	panel.style.setProperty('--uca_maps_anchor_left', Math.round(button_rect.right - map_rect.left + 8) + 'px')
 
 }//end anchor_panel_to_button
+
+
+
+/**
+* MEASURE_BAR_EDGE
+* Where the toolbar ends, and where the core's view box (`.map_inputs`, a
+* sibling the map cannot stack above) ends, measured live like
+* anchor_panel_to_button. Only the phone rule reads them: there every panel
+* fills the map beside the bar and below that box, so the bar stays reachable
+* to switch panels and the panel's header is never under the box.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const measure_bar_edge = function(self, panel) {
+
+	const bar_container	= self._toolbar_bar && self._toolbar_bar.getContainer()
+	const map_container	= panel.parentNode
+	if (!bar_container || !map_container) {
+		return
+	}
+
+	const bar_rect	= bar_container.getBoundingClientRect()
+	const map_rect	= map_container.getBoundingClientRect()
+	const left		= Math.round(bar_rect.right - map_rect.left + 8)
+	panel.style.setProperty('--uca_maps_bar_edge', left + 'px')
+
+	let top = 8
+	const view_box = map_container.parentNode && map_container.parentNode.querySelector(':scope > .map_inputs')
+	if (view_box) {
+		const box_rect = view_box.getBoundingClientRect()
+		if (box_rect.height > 0 && box_rect.right > map_rect.left + left && box_rect.bottom > map_rect.top) {
+			top = Math.max(top, Math.round(box_rect.bottom - map_rect.top + 8))
+		}
+	}
+	panel.style.setProperty('--uca_maps_panel_top', top + 'px')
+
+}//end measure_bar_edge
 
 
 
@@ -286,6 +327,7 @@ export const set_toolbar_panel_visible = function(self, panel, control, visible)
 		if (!panel.classList.contains('uca-maps-panel-centered')) {
 			anchor_panel_to_button(panel, control)
 		}
+		measure_bar_edge(self, panel)
 	}
 	panel.hidden = !visible
 	// remembered so a close that does not come through here clears it too

@@ -350,6 +350,8 @@
 .uca-maps-panel {
 	position: absolute;
 	z-index: 1000;
+	top: var(--uca_maps_anchor_top);
+	left: var(--uca_maps_anchor_left);
 	width: 18rem;
 	max-width: calc(100% - 1rem);
 	max-height: 70%;
@@ -412,6 +414,24 @@
 					opacity: 0.75;
 				}
 			}
+		}
+	}
+
+	// phone: every panel fills the map beside the bar and below the core's
+	// view box (toolbar.js measure_bar_edge), never over either, so another
+	// button switches panels without closing this one; the console's own
+	// width included
+	@media screen and (max-width: @width_break_point_phone) {
+		&,
+		&.uca-maps-panel-centered,
+		&.uca-maps-console {
+			top: var(--uca_maps_panel_top, 0.5rem);
+			left: var(--uca_maps_bar_edge, 0.5rem);
+			right: 0.5rem;
+			width: auto;
+			max-width: none;
+			max-height: calc(100% - var(--uca_maps_panel_top, 0.5rem) - 0.5rem);
+			transform: none;
 		}
 	}
 }//end uca-maps-panel

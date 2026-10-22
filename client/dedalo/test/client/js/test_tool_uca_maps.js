@@ -3974,13 +3974,92 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const title_node = panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-title')
 			assert.equal(title_node && title_node.textContent, title, panel_key + ': expected the header titled')
 			assert.isOk(panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-close'), panel_key + ': expected the ×')
-			assert.equal(panel.style.top + panel.style.left, '', panel_key + ': expected no anchoring beside its button')
+			assert.equal(panel.style.getPropertyValue('--uca_maps_anchor_top') + panel.style.getPropertyValue('--uca_maps_anchor_left'), '', panel_key + ': expected no anchoring beside its button')
 		}
 
 		tool.attach_console()
 		tool.map_control.getContainer().click()
 		assert.isFalse(tool.panel_node.classList.contains('uca-maps-panel-centered'), 'expected the console not centred')
-		assert.notEqual(tool.panel_node.style.left, '', 'expected the console anchored beside its button')
+		assert.notEqual(tool.panel_node.style.getPropertyValue('--uca_maps_anchor_left'), '', 'expected the console anchored beside its button')
+
+		// what the phone rule lays every panel against: the bar's live right edge
+		const map_rect	= geolocation.map.getContainer().getBoundingClientRect()
+		const bar_rect	= tool.map_control.getContainer().parentNode.getBoundingClientRect()
+		assert.equal(
+			tool.panel_node.style.getPropertyValue('--uca_maps_bar_edge'),
+			Math.round(bar_rect.right - map_rect.left + 8) + 'px',
+			'expected the bar\'s edge measured on show'
+		)
+		// and below the core's view box, which the map cannot stack above
+		const view_box = geolocation.map.getContainer().parentNode.querySelector(':scope > .map_inputs')
+		assert.isOk(view_box, 'expected the core\'s view box beside the map')
+		const box_bottom = Math.round(view_box.getBoundingClientRect().bottom - map_rect.top + 8)
+		assert.equal(
+			tool.panel_node.style.getPropertyValue('--uca_maps_panel_top'),
+			Math.max(8, box_bottom) + 'px',
+			'expected the panel\'s phone top measured below the view box'
+		)
+	})
+
+	it('with the tool CSS, the console renders beside its button, with no inline top/left', async function() {
+
+		await with_tool_css(async () => {
+			tool.attach_console()
+			tool.map_control.getContainer().click()
+			const panel			= tool.panel_node
+			const map_rect		= geolocation.map.getContainer().getBoundingClientRect()
+			const button_rect	= tool.map_control.getContainer().getBoundingClientRect()
+			const rect			= panel.getBoundingClientRect()
+			assert.equal(panel.style.top + panel.style.left, '', 'expected no inline top/left: it would beat the phone rule')
+			assert.equal(Math.round(rect.left - map_rect.left), Math.round(button_rect.right - map_rect.left + 8), 'expected the console right of its button')
+			assert.equal(Math.round(rect.top - map_rect.top), Math.round(button_rect.top - map_rect.top), 'expected the console level with its button')
+		})
+	})
+
+	// the suite runs at desktop width, where the phone @media never matches: its
+	// own rules are lifted out of the loaded sheet and applied unconditionally
+	it('on a phone every panel lies beside the bar and below the view box, so another button switches panels', async function() {
+
+		await with_tool_css(async () => {
+			const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+			const phone_rules = [...sheet.cssRules]
+				.filter((rule) => rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
+				.flatMap((rule) => [...rule.cssRules])
+				.filter((rule) => rule.selectorText && rule.selectorText.includes('.uca-maps-panel'))
+			assert.isAbove(phone_rules.length, 0, 'expected the phone rule for the panels')
+			const style = document.createElement('style')
+			style.textContent = phone_rules.map((rule) => rule.cssText).join('\n')
+			document.head.appendChild(style)
+			try {
+				tool.attach_console()
+				tool.attach_xyz_basemaps()
+				tool.attach_file_upload()
+				const map_node	= geolocation.map.getContainer()
+				const map_rect	= map_node.getBoundingClientRect()
+				const view_box	= map_node.parentNode.querySelector(':scope > .map_inputs')
+				const cases = [
+					[tool.map_control, tool.panel_node, 'console'],
+					[tool.xyz_control, tool.xyz_panel, 'XYZ (centred on a desktop)'],
+					[tool.upload_control, tool.upload_panel, 'upload (centred on a desktop)']
+				]
+				let previous = null
+				for (const [control, panel, name] of cases) {
+					// no close in between: the bar stays reachable while a panel is open
+					control.getContainer().click()
+					assert.isFalse(panel.hidden, name + ': expected open')
+					if (previous) assert.isTrue(previous.hidden, name + ': expected the previous panel switched off')
+					const rect		= panel.getBoundingClientRect()
+					const bar_rect	= control.getContainer().parentNode.getBoundingClientRect()
+					assert.isAtLeast(Math.round(rect.left), Math.round(bar_rect.right), name + ': expected beside the bar, not over it')
+					assert.isAtLeast(Math.round(rect.top), Math.round(view_box.getBoundingClientRect().bottom), name + ': expected below the view box')
+					assert.isAtMost(Math.round(rect.right), Math.round(map_rect.right), name + ': expected inside the map')
+					assert.isAtMost(Math.round(rect.bottom), Math.round(map_rect.bottom), name + ': expected inside the map')
+					previous = panel
+				}
+			} finally {
+				style.remove()
+			}
+		})
 	})
 
 	// The panels live inside Leaflet's container, which sets its own 12px
@@ -4580,8 +4659,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		control.click()
 		assert.equal(panel.hidden, false, 'expected the panel open after its own click')
-		assert.equal(panel.style.top, '', 'expected no inline top: anchor_panel_to_button must not run')
-		assert.equal(panel.style.left, '', 'expected no inline left: anchor_panel_to_button must not run')
+		assert.equal(panel.style.getPropertyValue('--uca_maps_anchor_top'), '', 'expected no anchor top: anchor_panel_to_button must not run')
+		assert.equal(panel.style.getPropertyValue('--uca_maps_anchor_left'), '', 'expected no anchor left: anchor_panel_to_button must not run')
 
 		const close = panel.querySelector('.uca-maps-panel-header > .uca-maps-panel-close')
 		assert.isOk(close, 'expected the × in the header')

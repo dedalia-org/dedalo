@@ -134,6 +134,8 @@
 .uca-maps-panel {
   position: absolute;
   z-index: 1000;
+  top: var(--uca_maps_anchor_top);
+  left: var(--uca_maps_anchor_left);
   width: 18rem;
   max-width: calc(100% - 1rem);
   max-height: 70%;
@@ -188,6 +190,19 @@
 }
 .uca-maps-panel.uca-maps-panel-centered > .uca-maps-panel-header > .uca-maps-panel-close:hover {
   opacity: 0.75;
+}
+@media screen and (max-width: 600px) {
+  .uca-maps-panel,
+  .uca-maps-panel.uca-maps-panel-centered,
+  .uca-maps-panel.uca-maps-console {
+    top: var(--uca_maps_panel_top, 0.5rem);
+    left: var(--uca_maps_bar_edge, 0.5rem);
+    right: 0.5rem;
+    width: auto;
+    max-width: none;
+    max-height: calc(100% - var(--uca_maps_panel_top, 0.5rem) - 0.5rem);
+    transform: none;
+  }
 }
 .uca-maps-map-image-panel > .uca-maps-map-image-row {
   display: flex;
