@@ -4140,6 +4140,35 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}))
 	})
 
+	// 'nearest': a line that appears already in view moves neither the panel nor
+	// the page, or every refusal would jump the form the user is filling
+	it('a panel message that appears in view keeps the panel and the page still', async function() {
+
+		await with_tool_css(async () => {
+			tool.attach_xyz_basemaps()
+			tool.xyz_control.getContainer().click()
+			const panel		= tool.xyz_panel
+			const form		= panel.querySelector('.uca-maps-xyz-add-form')
+			// a panel that scrolls, the form's top line (where the message lands)
+			// 60px into its view: 'start' would lift it to the top, 'nearest' must not
+			panel.style.maxHeight = '200px'
+			const into = form.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop
+			panel.scrollTop = into - 60
+			assert.isAbove(panel.scrollHeight - panel.clientHeight, panel.scrollTop + 60, 'expected room to scroll further')
+			const scroller	= document.scrollingElement
+			const page_top	= scroller.scrollTop
+			const panel_top	= panel.scrollTop
+
+			form.querySelector('.uca-maps-xyz-add-button').click() // no URL: refused
+			const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+			for (let i = 0; i < 15; i++) await frames()
+
+			assert.isFalse(panel.querySelector('.uca-maps-xyz-message').hidden, 'expected the refusal shown')
+			assert.equal(panel.scrollTop, panel_top, 'expected the panel still')
+			assert.equal(scroller.scrollTop, page_top, 'expected the page still')
+		})
+	})
+
 	it('on a phone the bar keeps the size of the map\'s other controls, and a map shorter than the bar scrolls it in its own box', async function() {
 
 		await with_tool_css(() => with_phone_rules('.uca-maps-toolbar', () => {
