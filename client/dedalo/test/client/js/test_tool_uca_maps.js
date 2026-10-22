@@ -1649,7 +1649,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		await within_idle(modal)
 
 		assert.equal(modal.closed, 0, 'expected the modal left open to be read')
-		assert.isOk(wrapper.querySelector('.map_status_container .notice.notice_warning'), 'expected the waiting notice')
+		const notice = wrapper.querySelector('.map_status_container .notice.notice_warning')
+		assert.isOk(notice, 'expected the notice')
+		// read after wait_for_map gave up: it says the map did not load, never "waiting"
+		assert.equal(
+			notice.textContent,
+			tool.get_tool_label('map_not_ready') || 'The map did not finish loading. Close the tool and open it again with the map in view.',
+			'expected the notice to say the map did not load and what to do'
+		)
 	})
 
 	it('a tool with no map component keeps the modal open with its error', async function() {

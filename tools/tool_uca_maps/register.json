@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -18,8 +18,8 @@
 	"active": true,
 	"properties": { "open_as": "modal", "windowFeatures": { "width": "60rem", "maxWidth": "100%" } },
 	"labels": [
-		{ "lang": "lg-eng", "name": "waiting_for_map", "value": "Waiting for the map to finish loading…" },
-		{ "lang": "lg-spa", "name": "waiting_for_map", "value": "Esperando a que el mapa termine de cargar…" },
+		{ "lang": "lg-eng", "name": "map_not_ready", "value": "The map did not finish loading. Close the tool and open it again with the map in view." },
+		{ "lang": "lg-spa", "name": "map_not_ready", "value": "El mapa no terminó de cargar. Cierra la herramienta y vuelve a abrirla con el mapa a la vista." },
 
 		{ "lang": "lg-eng", "name": "map_not_found", "value": "No map component found for this tool." },
 		{ "lang": "lg-spa", "name": "map_not_found", "value": "No se ha encontrado ningún componente de mapa para esta herramienta." },

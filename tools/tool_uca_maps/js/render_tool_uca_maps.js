@@ -127,10 +127,12 @@ const get_content_data = function(self) {
 			parent			: map_status_container
 		})
 	}else if (!self.map_ready) {
+		// rendered after wait_for_map gave up: the wait is over, so say so and
+		// what to do (the map builds only once it is in view)
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'notice notice_warning',
-			text_content	: self.get_tool_label('waiting_for_map') || 'Waiting for the map to finish loading…',
+			text_content	: self.get_tool_label('map_not_ready') || 'The map did not finish loading. Close the tool and open it again with the map in view.',
 			parent			: map_status_container
 		})
 	}
