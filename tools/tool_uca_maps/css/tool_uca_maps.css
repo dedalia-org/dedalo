@@ -217,6 +217,19 @@
     max-height: calc(100% - var(--uca_maps_panel_top, 0.5rem) - 0.5rem);
     transform: none;
   }
+  .uca-maps-panel input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .uca-maps-panel select,
+  .uca-maps-panel textarea {
+    max-width: 100%;
+    font-size: max(16px, 1em);
+  }
+  .uca-maps-panel input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  .uca-maps-panel select,
+  .uca-maps-panel button,
+  .uca-maps-panel [role="button"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 .uca-maps-map-image-panel > .uca-maps-map-image-row {
   display: flex;
@@ -630,6 +643,16 @@
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 0.85rem;
+}
+@media screen and (max-width: 600px) {
+  .uca-maps-upload-panel .uca-maps-upload-epsg-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+  .uca-maps-upload-panel .uca-maps-upload-epsg-row .uca-maps-upload-epsg-link {
+    grid-column: 1 / -1;
+  }
 }
 .uca-maps-upload-panel .uca-maps-upload-projections-button {
   flex: 0 0 auto;

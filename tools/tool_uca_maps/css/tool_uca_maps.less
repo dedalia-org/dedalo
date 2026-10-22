@@ -453,6 +453,24 @@
 			max-height: calc(100% - var(--uca_maps_panel_top, 0.5rem) - 0.5rem);
 			transform: none;
 		}
+
+		// the panels live in the map, outside .wrapper_tool, so the shared
+		// phone tier (tools_common/css/tool_responsive.less) does not reach
+		// them: its control rules, restated. 44px = its @phone_hit_target;
+		// 16px text, or iOS Safari zooms the page on focus
+		input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+		select,
+		textarea {
+			max-width: 100%;
+			font-size: max(16px, 1em);
+		}
+		input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+		select,
+		button,
+		[role="button"] {
+			min-width: 44px;
+			min-height: 44px;
+		}
 	}
 }//end uca-maps-panel
 
@@ -733,6 +751,18 @@
 			min-width: 0;
 			overflow-wrap: anywhere;
 			font-size: @uca_maps_text_small;
+		}
+
+		// phone: three label/field pairs in one row left each label one
+		// letter wide; one pair per line, the link on its own
+		@media screen and (max-width: @width_break_point_phone) {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr);
+			align-items: center;
+
+			.uca-maps-upload-epsg-link {
+				grid-column: 1 / -1;
+			}
 		}
 	}
 

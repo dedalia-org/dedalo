@@ -4071,6 +4071,37 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}))
 	})
 
+	it('on a phone every control in a panel is a 44px target with 16px text, and the projection fields stand one per line', async function() {
+
+		await with_tool_css(() => with_phone_rules('.uca-maps-', () => {
+			tool.attach_xyz_basemaps()
+			tool.attach_file_upload()
+			// the phone tier's own selector (scripts/tool_viewport_check.ts): a
+			// checkbox or radio is judged by its label
+			const controls = 'button, select, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea, [role=button]'
+			for (const [control, panel, name] of [[tool.xyz_control, tool.xyz_panel, 'XYZ'], [tool.upload_control, tool.upload_panel, 'upload']]) {
+				control.getContainer().click()
+				const rendered = [...panel.querySelectorAll(controls)].filter((el) => el.getBoundingClientRect().width > 0)
+				assert.isAtLeast(rendered.length, 3, name + ': expected its controls rendered')
+				for (const el of rendered) {
+					const rect = el.getBoundingClientRect()
+					assert.isAtLeast(Math.round(Math.min(rect.width, rect.height)), 44, name + ': ' + el.className + ' expected a 44px target')
+					if (el.matches('input, select, textarea')) {
+						assert.isAtLeast(parseFloat(getComputedStyle(el).fontSize), 16, name + ': ' + el.className + ' expected 16px text')
+					}
+				}
+			}
+
+			const row		= tool.upload_panel.querySelector('.uca-maps-upload-epsg-row')
+			const fields	= ['.uca-maps-upload-epsg', '.uca-maps-upload-zone', '.uca-maps-upload-band'].map((selector) => row.querySelector(selector))
+			const tops		= fields.map((field) => Math.round(field.getBoundingClientRect().top))
+			assert.isTrue(tops[0] < tops[1] && tops[1] < tops[2], 'expected EPSG, zone and band one per line')
+			for (const label of row.querySelectorAll(':scope > span')) {
+				assert.isAtMost(label.getBoundingClientRect().height, parseFloat(getComputedStyle(label).fontSize) * 2, label.textContent + ' expected its label on one line, not one letter per line')
+			}
+		}))
+	})
+
 	it('on a phone the bar keeps the size of the map\'s other controls, and a map shorter than the bar scrolls it in its own box', async function() {
 
 		await with_tool_css(() => with_phone_rules('.uca-maps-toolbar', () => {
