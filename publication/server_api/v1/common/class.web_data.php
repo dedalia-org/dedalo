@@ -1132,6 +1132,10 @@ class web_data {
 						$resolve_portals_custom = false;
 						break;
 				}
+				// invalid JSON decodes as null; only valid objects are usable below
+				if (!is_object($resolve_portals_custom)) {
+					$resolve_portals_custom = false;
+				}
 
 			// resolve_portal. publication_schema
 				// When options 'resolve_portal' is true, we create a virtual 'resolve_portals_custom' options
@@ -1143,6 +1147,11 @@ class web_data {
 						$resolve_portals_custom = (object)$resolve_portals_custom;
 					}elseif (is_string($resolve_portals_custom) && !empty($resolve_portals_custom)) {
 						$resolve_portals_custom = json_decode($resolve_portals_custom);
+					}
+					// publication_schema table or data can be missing (get_publication_schema returns a message string, null or false)
+					if (!is_object($resolve_portals_custom)) {
+						error_log(__METHOD__ .' resolve_portal requested but publication_schema is not available: '. to_string($resolve_portals_custom));
+						$resolve_portals_custom = false;
 					}
 				}
 
@@ -1736,8 +1745,8 @@ class web_data {
 						: null;
 					break;
 
-				case ($resolve_portals_custom!==false):
-					// resolve_portals_custom is received
+				case ($resolve_portals_custom!==false && !empty($resolve_portals_custom->{$current_field})):
+					// resolve_portals_custom is received (null-valued entries fall to default case)
 					$current_field_ar_id	= $current_field;	//in_array($current_field, (array)$resolve_portals_custom);
 					$table					= $resolve_portals_custom->{$current_field};
 					break;
