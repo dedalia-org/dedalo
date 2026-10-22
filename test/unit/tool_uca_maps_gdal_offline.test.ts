@@ -316,12 +316,24 @@ const SPAWN_EXEMPT: Readonly<Record<string, string>> = {
 };
 
 // A binding census (after agent_confinement_tripwire's), one hop deep: what a
-// file reaches of `bun`, child_process or core's spawn door, however bound.
-// Core wrappers that spawn are not followed. The spelling census stays as a
-// backstop: a re-export or a `globalThis.Bun` still spells the door or module.
+// file reaches of `bun`, child_process or core's media engine, however bound.
+// Every engine export counts as a spawn unless ENGINE_INERT names it, so a core
+// wrapper that spawns (`runIdentify`) is red by default. The spelling census
+// stays as a backstop: a re-export or a `globalThis.Bun` still spells it.
 const PROCESS_MODULES = new Set(['bun', 'node:child_process', 'child_process']);
-/** Core's spawn door: only its `runBinary` (or the whole namespace) starts a process. */
-const SPAWN_DOOR = resolve(import.meta.dir, '../../src/core/media/engine/spawn.ts');
+const ENGINE_DIR = resolve(import.meta.dir, '../../src/core/media/engine');
+/** Engine exports that start no process, by module. Closed: a new import is a spawn until listed. */
+const ENGINE_INERT: Readonly<Record<string, readonly string[]>> = {
+	'admission.ts': ['withConverterSlot'],
+	'binaries.ts': [
+		'identifyAvailable',
+		'magickPolicyEnv',
+		'magickResourceLimitArgs',
+		'resolveIdentify',
+		'resolveMagick',
+	],
+	'spawn.ts': ['assertSpawnOk'],
+};
 const SERVER = resolve(import.meta.dir, '../../tools/tool_uca_maps/server');
 /** `Bun.<member>` reads (or named imports from 'bun') that cannot start a process. Closed. */
 const BUN_INERT = new Set(['file', 'write', 'which', 'Glob']);
@@ -351,14 +363,16 @@ function importBindings(clause: string): { imported: string; local: string }[] {
 	return out;
 }
 
-/** Whether `specifier`, imported from a server file, is the door: by the module it resolves to. */
-function isDoor(specifier: string): boolean {
+/** The engine module `specifier` resolves to from a server file (relative to ENGINE_DIR), or null. */
+function engineModule(specifier: string): string | null {
 	try {
-		return Bun.resolveSync(specifier, SERVER) === SPAWN_DOOR;
+		const resolved = Bun.resolveSync(specifier, SERVER);
+		return resolved.startsWith(ENGINE_DIR + sep) ? resolved.slice(ENGINE_DIR.length + 1) : null;
 	} catch {
-		return false;
+		return null;
 	}
 }
+const isDoor = (specifier: string) => engineModule(specifier) !== null;
 
 /** Process-capable references in one server source, or the dynamic loads no scan resolves. */
 function processRefs(code: string): { refs: number; unresolvable: string[]; spelled: boolean } {
@@ -374,12 +388,13 @@ function processRefs(code: string): { refs: number; unresolvable: string[]; spel
 	}
 	const bindings: string[] = [];
 	const js = transpiled.replace(IMPORT_LINE, (line, clause: string, from: string) => {
-		const door = isDoor(from);
-		if (!door && !PROCESS_MODULES.has(from)) return line;
+		const engine = engineModule(from);
+		if (engine === null && !PROCESS_MODULES.has(from)) return line;
 		for (const { imported, local } of importBindings(clause)) {
-			const counted = door
-				? imported === '*' || imported === 'runBinary'
-				: !(from === 'bun' && BUN_INERT.has(imported));
+			const counted =
+				engine !== null
+					? !(ENGINE_INERT[engine] ?? []).includes(imported)
+					: !(from === 'bun' && BUN_INERT.has(imported));
 			if (counted) bindings.push(local);
 		}
 		return '';
@@ -440,6 +455,18 @@ describe('tool_uca_maps spawn census — every binary runs through runToolBinary
 			"export { runBinary as go } from '../../../src/core/media/engine/spawn.ts';",
 		],
 		['a re-export of child_process', "export * from 'node:child_process';"],
+		[
+			'an engine wrapper that spawns',
+			"import { runIdentify } from '../../../src/core/media/engine/binaries.ts';\nexport const go = () => runIdentify([]);",
+		],
+		[
+			'an engine module as a namespace',
+			"import * as bin from '../../../src/core/media/engine/binaries.ts';\nexport const go = () => bin.resolveMagick();",
+		],
+		[
+			'an unlisted engine export',
+			"import { producerSpawnOptions } from '../../../src/core/media/engine/ffmpeg.ts';\nexport const go = () => producerSpawnOptions();",
+		],
 		['Bun through globalThis', "export const go = () => globalThis.Bun.spawn(['x']);"],
 		[
 			'child_process through import.meta',
@@ -471,8 +498,21 @@ describe('tool_uca_maps spawn census — every binary runs through runToolBinary
 			'another door export',
 			"import { assertSpawnOk } from '../../../src/core/media/engine/spawn.ts';\nexport const f = assertSpawnOk;",
 		],
+		[
+			'the inert engine exports',
+			"import { identifyAvailable, resolveMagick } from '../../../src/core/media/engine/binaries.ts';\nimport { withConverterSlot } from '../../../src/core/media/engine/admission.ts';\nexport const f = () => withConverterSlot('x', async () => identifyAvailable() && resolveMagick());",
+		],
 	])('the census ignores %s', (_, code) => {
 		expect(reaches(processRefs(code))).toBe(false);
+	});
+
+	test('every inert engine name is still a function its module exports', async () => {
+		for (const [file, names] of Object.entries(ENGINE_INERT)) {
+			const module = (await import(join(ENGINE_DIR, file))) as Record<string, unknown>;
+			for (const name of names) {
+				expect([file, name, typeof module[name]]).toEqual([file, name, 'function']);
+			}
+		}
 	});
 
 	test('only gdal.ts spawns, once, inside runToolBinary; the exemptions still spawn', () => {
