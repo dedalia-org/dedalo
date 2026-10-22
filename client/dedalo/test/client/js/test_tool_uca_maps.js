@@ -4109,6 +4109,37 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}))
 	})
 
+	// a refusal lands under the form that fired it; in a panel that scrolls (a
+	// phone) it would sit below the fold, so it is scrolled into view
+	it('on a phone a panel message below the fold is scrolled into the panel\'s view', async function() {
+
+		await with_tool_css(() => with_phone_rules('.uca-maps-', async () => {
+			tool.attach_file_upload()
+			tool.upload_control.getContainer().click()
+			const panel		= tool.upload_panel
+			assert.isAbove(panel.scrollHeight, panel.clientHeight + 1, 'expected the upload panel to scroll')
+			panel.scrollTop = 0
+			const message	= panel.querySelector('.uca-maps-upload-message')
+			const submit	= panel.querySelector('.uca-maps-upload-submit')
+			// the line is hidden (no box) until shown; the button it sits under is not
+			assert.isAbove(submit.getBoundingClientRect().bottom, panel.getBoundingClientRect().bottom, 'expected the form\'s button, and the line under it, below the fold')
+
+			submit.click() // no file chosen: refused
+			const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+			// the scroll is smooth: wait for it to start, then to settle
+			let last = -1
+			for (let i = 0; i < 90 && (message.hidden || panel.scrollTop===0 || panel.scrollTop!==last); i++) {
+				last = panel.scrollTop
+				await frames()
+			}
+			assert.isFalse(message.hidden, 'expected the refusal shown')
+			const rect	= message.getBoundingClientRect()
+			const view	= panel.getBoundingClientRect()
+			assert.isAtLeast(Math.round(rect.top), Math.round(view.top), 'expected the message inside the panel\'s view')
+			assert.isAtMost(Math.round(rect.bottom), Math.round(view.bottom), 'expected the message inside the panel\'s view')
+		}))
+	})
+
 	it('on a phone the bar keeps the size of the map\'s other controls, and a map shorter than the bar scrolls it in its own box', async function() {
 
 		await with_tool_css(() => with_phone_rules('.uca-maps-toolbar', () => {

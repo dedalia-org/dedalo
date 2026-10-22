@@ -34,7 +34,9 @@ export const create_panel_message = (parent, class_name) => {
 
 /**
  * SHOW_PANEL_MESSAGE
- * Shows `text` on a panel's in-flow line, tinted by `type`.
+ * Shows `text` on a panel's in-flow line, tinted by `type`, and scrolls it into
+ * view: the line sits under the form that fired it, and in a panel that scrolls
+ * (a phone) it would land below the fold. 'nearest' leaves a visible line still.
  *
  * @param {HTMLElement} message - the line create_panel_message built
  * @param {string} text
@@ -45,6 +47,7 @@ export const show_panel_message = (message, text, type = 'error') => {
 	message.textContent = text;
 	message.dataset.type = type;
 	message.hidden = false;
+	ui.reveal(message, { block: 'nearest' });
 }; //end show_panel_message
 
 /**
