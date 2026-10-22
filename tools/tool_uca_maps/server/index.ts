@@ -11,6 +11,7 @@ import { getCapabilities } from './capabilities.ts';
 import { getCatastroParcel } from './catastro.ts';
 import { getElevation } from './elevation.ts';
 import { stageExternalImage } from './external_image.ts';
+import { startScratchSweep } from './gdal.ts';
 import { imageDownload } from './image_download.ts';
 import { getImageFile } from './image_media.ts';
 import { getImageOverlay } from './image_overlay.ts';
@@ -54,4 +55,5 @@ export const tool: ToolServerModule = {
 	// affected_models governs the STAMP (whether the button ships at all), not
 	// what a directly-addressed tool_request would accept.
 	isAvailable: (context) => context.callerModel === 'component_geolocation',
+	onBoot: () => startScratchSweep(),
 };

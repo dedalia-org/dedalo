@@ -17,6 +17,7 @@ import {
 	type SpawnResult,
 } from '../../../src/core/media/engine/spawn.ts';
 import { assertTestMediaRoot } from '../../../src/core/media/test_media_root.ts';
+import type { ToolBootHandle } from '../../../src/core/tools/module.ts';
 import { GDAL_MIN_VERSION, meetsGdalMinVersion, probeOnPath } from './capabilities.ts';
 
 /** Bounded — these are single-object/single-screenshot conversions, never a
@@ -228,8 +229,8 @@ function lastActivity(path: string): number {
 
 /**
  * Remove the orphaned `scratch_*` dirs under `root`. On the media volume they
- * would otherwise outlive every restart; a cheap readdir run on each action.
- * Best-effort: a dir that vanishes or cannot be read is skipped.
+ * would otherwise outlive every restart. Best-effort: a dir that vanishes or
+ * cannot be read is skipped.
  */
 function sweepScratchOrphans(root: string): number {
 	const now = Date.now();
@@ -254,14 +255,41 @@ function sweepScratchOrphans(root: string): number {
  * never a shared/predictable path, nor the OS temp dir.
  */
 export async function withScratchDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-	const root = scratchRoot();
-	sweepScratchOrphans(root);
-	const dir = mkdtempSync(join(root, SCRATCH_PREFIX));
+	const dir = mkdtempSync(join(scratchRoot(), SCRATCH_PREFIX));
 	try {
 		return await fn(dir);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+}
+
+/**
+ * The tool's `onBoot`: a sweep at boot and then every TTL, armed and returned
+ * at once (the hook must not block). An orphan only exists once a process died
+ * mid-action; one younger than the TTL at boot is collected by a later pass.
+ * A sweep that cannot reach the media root only warns: it must never stop the
+ * server. The TTL spares a dir another engine process on the same root uses.
+ */
+export function startScratchSweep(
+	configured: string | null = config.media.rootPath,
+	periodMs: number = SCRATCH_ORPHAN_TTL_MS,
+): ToolBootHandle {
+	const sweep = () => {
+		try {
+			sweepScratchOrphans(scratchRoot(configured));
+		} catch (error) {
+			console.warn('[tool_uca_maps] scratch sweep skipped:', error);
+		}
+	};
+	const first = setTimeout(sweep, 0);
+	const every = setInterval(sweep, periodMs);
+	every.unref();
+	return {
+		stop: () => {
+			clearTimeout(first);
+			clearInterval(every);
+		},
+	};
 }
 
 /** Options for `runToolBinary` beyond the argv/context every call needs. */
