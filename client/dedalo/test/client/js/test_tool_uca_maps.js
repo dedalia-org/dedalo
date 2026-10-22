@@ -84,7 +84,7 @@ import {
 	MAX_ICON_BYTES
 } from '../../../tools/tool_uca_maps/js/legend.js'
 import { populate_legend_columns } from '../../../tools/tool_uca_maps/js/render_legend.js'
-import { default_symbol_colour, default_legend_symbol } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
+import { default_symbol_colour } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
 import { is_toolbar_node, create_toolbar_panel, remove_toolbar_panel } from '../../../tools/tool_uca_maps/js/toolbar.js'
 import {
 	search_roman,
@@ -7689,12 +7689,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const new_object_blue = L.polygon([[39.4, -0.4], [39.5, -0.4], [39.5, -0.3]]).options.color
 		tool.attach_legend()
-		tool.add_legend_column()
-		tool.add_legend_element(0)
+		tool.legend_control.getContainer().click()
+		const panel = tool.legend_panel
+		panel.querySelector('.uca-maps-legend-add-column').click()
+		panel.querySelector('.uca-maps-legend-add-element').click()
 
 		const icon = tool.legend.columns[0].elements[0].icon
 		assert.equal(decode_symbol(icon).querySelector('path').getAttribute('fill'), new_object_blue, 'expected the pin in the map\'s blue')
-		assert.deepEqual(default_legend_symbol(), {shape: 'point', fill: new_object_blue, stroke: new_object_blue}, 'expected the symbol editor to start there')
+
+		// the editor as opened, not the helper: what seeds its colour inputs
+		panel.querySelector('.uca-maps-legend-symbol-button').click()
+		const editor = panel.querySelector('.uca-maps-legend-symbol-editor')
+		assert.isFalse(editor.hidden, 'expected the editor open')
+		assert.equal(editor.querySelector('.uca-maps-legend-symbol-fill').value, new_object_blue, 'expected the editor\'s fill to start in the map\'s blue')
+		assert.equal(editor.querySelector('.uca-maps-legend-symbol-stroke').value, new_object_blue, 'expected the editor\'s border to start in the map\'s blue')
 	})
 
 	it('the legend overlay is map CONTENT, not tool chrome — so it stays in the exported image', function() {
