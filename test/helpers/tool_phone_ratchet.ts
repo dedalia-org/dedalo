@@ -283,6 +283,22 @@ export const PHONE_CASES: Record<string, ToolPhoneProbe> = {
 	},
 	tool_transcription: { kind: 'section_tool', section_tool: 'test6877', build: 'target' },
 	tool_update_cache: test3Section(),
+	// 2026-10-22: the tool lives on the map, not in .wrapper_tool (its modal
+	// only bridges the load). Judged: its largest panel, which must be OPEN (the
+	// last tap needs it visible). Not its bar: on a phone it keeps the 30px
+	// squares of the map's other controls (Leaflet's zoom, Geoman, both core),
+	// as one set of map chrome, and scrolls in its own box instead
+	tool_uca_maps: {
+		kind: 'click',
+		url: 'tipo=test3&section_id=1&mode=edit',
+		clicks: [
+			'.wrapper_component.test100 > .label',
+			'.wrapper_component.test100 .button.tool[data-tool="tool_uca_maps"]',
+			'.wrapper_component.test100 .uca-maps-upload-control',
+			'.wrapper_component.test100 .uca-maps-upload-panel:not([hidden]) .uca-maps-panel-title',
+		],
+		root: '.wrapper_component.test100 .uca-maps-upload-panel',
+	},
 	tool_upload: test3('test26', 'component_3d'),
 };
 
