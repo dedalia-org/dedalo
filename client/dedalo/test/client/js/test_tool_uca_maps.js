@@ -334,6 +334,26 @@ const decode_symbol = function(icon) {
 	return new DOMParser().parseFromString(atob(icon.slice(prefix.length)), 'image/svg+xml').documentElement
 }
 
+/** How many pixels an SVG source paints when drawn at 24x24 (0 if it does not load). */
+const opaque_pixels = async function(source) {
+	const image = new Image()
+	image.src = URL.createObjectURL(new Blob([source], {type: 'image/svg+xml'}))
+	try {
+		await image.decode()
+	} catch {
+		return 0
+	} finally {
+		URL.revokeObjectURL(image.src)
+	}
+	const canvas = Object.assign(document.createElement('canvas'), {width: 24, height: 24})
+	const context = canvas.getContext('2d')
+	context.drawImage(image, 0, 0, 24, 24)
+	const {data} = context.getImageData(0, 0, 24, 24)
+	let count = 0
+	for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++
+	return count
+}
+
 /** A one-point GeoJSON feature, the shape Pelagios/DARE hits carry. */
 const roman_feature = function(name, lat, lon) {
 	return {
@@ -3859,6 +3879,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				assert.isTrue(new URL(url[1], location.href).pathname.endsWith(home + icon_of(glyph) + '.svg'), 'expected the "' + name + '" button to paint its own icon, got ' + url[1])
 				const response = await fetch(url[1])
 				assert.equal(response.status, 200, 'expected the "' + name + '" icon served: ' + url[1])
+				const source = await response.text()
+				// served is not painted: an SVG that fails to parse, or draws nothing,
+				// leaves the mask empty. A <text> paints in whatever font the machine has
+				if (OWN_ICONS.includes(icon_of(glyph))) {
+					assert.isNull(new DOMParser().parseFromString(source, 'image/svg+xml').querySelector('text'), 'expected the "' + name + '" icon drawn in outlines, not <text>')
+				}
+				assert.isAtLeast(await opaque_pixels(source), 24, 'expected the "' + name + '" icon to paint at 24x24')
 			}
 		})
 	})
