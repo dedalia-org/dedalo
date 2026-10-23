@@ -3866,7 +3866,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const icon_of = (glyph) => [...glyph.classList].find((c) => c.startsWith('uca-maps-icon-')).slice('uca-maps-icon-'.length)
 			assert.equal(glyphs.length, links.length, 'expected an icon on every button')
 			const CORE_ICONS = ['download', 'info', 'search', 'upload']
-			const OWN_ICONS = ['administrative_units', 'catastro', 'geolocate', 'legend', 'object_viewer', 'onexone', 'roman_empire', 'wms_services', 'xyz_basemaps']
+			// pixels each own icon paints at 24x24, as banked: a frame alone clears
+			// any fixed floor, so a lost inner mark is caught against its own count
+			const OWN_ICON_PIXELS = {administrative_units: 229, catastro: 268, geolocate: 207, legend: 152, object_viewer: 308, onexone: 301, roman_empire: 286, wms_services: 280, xyz_basemaps: 240}
+			const OWN_ICONS = Object.keys(OWN_ICON_PIXELS)
 			assert.deepEqual(glyphs.map(icon_of).sort(), [...CORE_ICONS, ...OWN_ICONS].sort(), 'expected every icon button measured')
 			for (const glyph of glyphs) {
 				const name	= glyph.parentElement.getAttribute('aria-label')
@@ -3882,10 +3885,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				const source = await response.text()
 				// served is not painted: an SVG that fails to parse, or draws nothing,
 				// leaves the mask empty. A <text> paints in whatever font the machine has
+				const painted = await opaque_pixels(source)
+				assert.isAtLeast(painted, 24, 'expected the "' + name + '" icon to paint at 24x24')
 				if (OWN_ICONS.includes(icon_of(glyph))) {
 					assert.isNull(new DOMParser().parseFromString(source, 'image/svg+xml').querySelector('text'), 'expected the "' + name + '" icon drawn in outlines, not <text>')
+					const floor = Math.floor(OWN_ICON_PIXELS[icon_of(glyph)] * 0.9)
+					assert.isAtLeast(painted, floor, 'expected the "' + name + '" icon to paint all its marks; redrawn on purpose, bank its count in OWN_ICON_PIXELS')
 				}
-				assert.isAtLeast(await opaque_pixels(source), 24, 'expected the "' + name + '" icon to paint at 24x24')
 			}
 		})
 	})
