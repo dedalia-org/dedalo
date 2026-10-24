@@ -190,17 +190,17 @@
 		},
 		"swagger-ui": {
 			"root": "publication/server_api/v1/docu/ui/swagger-ui",
-			"version": "5.32.14",
-			"upstream": "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.32.14.tgz",
-			"archive_sha256": "609702d791d8d3cdcbc3a52632f6be2f9b743eadf6ba49ca9737dac2a6e0b2a3",
-			"tree_sha256": "6a42858741b30313c7005d6d7df8fbcd4790d5dfd108a8b8b04baea9cb357fc7",
+			"version": "5.34.0",
+			"upstream": "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.34.0.tgz",
+			"archive_sha256": "15cdd55151558cf29ee70fb485332251a9911ebe27414b243ddd10fef9942394",
+			"tree_sha256": "9ba8fc8186dfd9c21f0794372d278a28281a286319b882425226cd607027e70b",
 			"files": 9,
-			"reviewed": "2026-09-04",
-			"note": "The Swagger UI page of the v1 PHP publication API (publication/server_api/v1/docu/ui/index.html). WHY NOT UNDER vendor/: the v1 tree is a self-contained Apache+PHP folder deployed on its own — it has no node_modules and no engine to serve /dedalo/lib/, and release_archive_tripwire refuses symlinks, so the bytes must sit inside that folder; the explicit `root` is what lets this manifest hash them there. Bumped 2026-09-04 (PUB-12) from 4.5.2 (2022-02-21, built from a dirty tree, 16 MB with every map and es bundle, no pin, no reason) to 5.32.14, the npm dist-tag latest. TRIMMED to what index.html loads plus the licence texts: swagger-ui-bundle.js, swagger-ui-standalone-preset.js, swagger-ui.css, the two favicons, LICENSE, NOTICE and the two *.LICENSE.txt. DROPPED: every .map, swagger-ui.js and the es bundles (nothing loads them), the upstream index.html/index.css/index.js/swagger-initializer.js/absolute-path.js/README/package.json/log.* (not served), and oauth2-redirect.html — its 5.x form loads oauth2-redirect.js and this API has no OAuth2 flow, so shipping the page without the script would be a broken page, and shipping both would be dead code. Every kept file is byte-identical to the archive's copy (archive_sha256 is the sha256 of the .tgz, verified on download). Reviewed 2026-09-04 against the GitHub advisory feed (swagger-ui-dist@5.32.14): none.",
+			"reviewed": "2026-10-24",
+			"note": "The Swagger UI page of the v1 PHP publication API (publication/server_api/v1/docu/ui/index.html). WHY NOT UNDER vendor/: the v1 tree is a self-contained Apache+PHP folder deployed on its own — it has no node_modules and no engine to serve /dedalo/lib/, and release_archive_tripwire refuses symlinks, so the bytes must sit inside that folder; the explicit `root` is what lets this manifest hash them there. Bumped 2026-09-04 (PUB-12) from 4.5.2 (2022-02-21, built from a dirty tree, 16 MB with every map and es bundle, no pin, no reason) to 5.32.14, the npm dist-tag latest. TRIMMED to what index.html loads plus the licence texts: swagger-ui-bundle.js, swagger-ui-standalone-preset.js, swagger-ui.css, the two favicons, LICENSE, NOTICE and the two *.LICENSE.txt. DROPPED: every .map, swagger-ui.js and the es bundles (nothing loads them), the upstream index.html/index.css/index.js/swagger-initializer.js/absolute-path.js/README/package.json/log.* (not served), and oauth2-redirect.html — its 5.x form loads oauth2-redirect.js and this API has no OAuth2 flow, so shipping the page without the script would be a broken page, and shipping both would be dead code. Every kept file is byte-identical to the archive's copy (archive_sha256 is the sha256 of the .tgz, verified on download). Reviewed 2026-09-04 against the GitHub advisory feed (swagger-ui-dist@5.32.14): none. Bumped 2026-10-24 to 5.34.0 (the npm dist-tag latest, the same release publication/server_api/v2 locks) with scripts/vendor_fetch.ts and the SAME nine-file trim; the .tgz matched the registry sha512 integrity (= the v2 bun.lock entry) before its sha256 was recorded. Reviewed 2026-10-24 against the GitHub advisory feed (swagger-ui-dist@5.34.0): none.",
 			"advisory": {
 				"ecosystem": "npm",
 				"package": "swagger-ui-dist",
-				"version": "5.32.14",
+				"version": "5.34.0",
 				"unkeyable_reason": null,
 				"review_window_days": 180,
 				"advisories": []
@@ -210,7 +210,7 @@
 				"clauses": [
 					{
 						"file": "publication/server_api/v1/docu/ui/swagger-ui/swagger-ui-bundle.js",
-						"must_contain": "\"5.32.14\""
+						"must_contain": "\"5.34.0\""
 					}
 				]
 			},

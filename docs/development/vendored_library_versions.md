@@ -108,7 +108,7 @@ bound to the bytes. A bump updates the manifest row and this table together.
 | transformers | *(vendor)* | 4.3.0 | The in-browser AI runtime (`tool_transcription`, `tool_lang`, the remove-background processor). **Vendored 2026-09-04** — was the `@huggingface/transformers` npm pin, which no engine module imported and which shipped 567 MB of native Node code to every install. Moves together with the `onnxruntime` pin. See below. |
 | lz-string | *(vendor)* | 1.5.0 | URL-state compression (`tool_common`, `component_text_area`). UMD-only upstream; committed with one declared patch. See below. |
 | json-view | *(vendor)* | — | The bundle carries no version string at all. See below. |
-| swagger-ui | *(vendor)* | 5.32.14 | Not a client lib: the v1 publication API's Swagger page, rooted inside that folder. **Bumped 2026-09-04** from 4.5.2. See below. |
+| swagger-ui | *(vendor)* | 5.34.0 | Not a client lib: the v1 publication API's Swagger page, rooted inside that folder. **Bumped 2026-10-24** from 5.32.14 (2026-09-04 from 4.5.2). See below. |
 
 Two files are not byte-identical to the old copies, both benignly: `highlightjs`
 differs by the build hash in its banner (same 11.9.0 release), and the old `chai`
@@ -232,7 +232,7 @@ Each carries its `reason` in the registry, next to the code, not only here.
   (`publication/server_api/v1/docu/ui/swagger-ui`). Bumped 2026-09-04 from a 4.5.2
   drop (2022, built from a dirty tree, 16 MB with every map and es bundle) to
   5.32.14, trimmed to the two bundles, the stylesheet, the favicons and the licence
-  texts.
+  texts; 2026-10-24 to 5.34.0 with the same trim.
 
 - **transformers** — on npm as `@huggingface/transformers`, and the registry package
   is a *Node-side* bundle first: its `dependencies` pull `onnxruntime-node` (211 MB of
