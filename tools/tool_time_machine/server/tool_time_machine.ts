@@ -100,6 +100,7 @@ import {
 import { principalCanAccessRecord } from '../../../src/core/security/record_scope.ts';
 import { authorizeRecordAccess } from '../../../src/core/security/write_door.ts';
 import { readRowLaneState, restoredLaneValue } from '../../../src/core/tm_record/lane_state.ts';
+import { restorableRelationValue } from '../../../src/core/tm_record/relation_snapshot_shape.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -282,7 +283,38 @@ async function snapshotColumns(
 	// sweep would convert (external remote ids and junk pass verbatim), so
 	// restores CONVERGE on the canonical form instead of undoing the sweep.
 	await normalizeRestoredSectionIds(columns);
+	if (columns.relation !== undefined) {
+		columns.relation = restorableRelationColumn(columns.relation, tmId, sectionTipo, sectionId);
+	}
 	return { table, columns };
+}
+
+/**
+ * A whole-record snapshot's `relation` column through the relation shape gate
+ * (tm_record/relation_snapshot_shape.ts), key by key: one non-locator value
+ * refuses the WHOLE restore (`tool.snapshot_unrestorable`) before anything is
+ * written — never a live relation key holding a non-locator. A single locator
+ * object is written as `[locator]`. Absent / non-object column → verbatim.
+ */
+function restorableRelationColumn(
+	relation: unknown,
+	tmId: number,
+	sectionTipo: string,
+	sectionId: number,
+): unknown {
+	if (relation === null || typeof relation !== 'object' || Array.isArray(relation)) {
+		return relation;
+	}
+	const restored: Record<string, unknown> = {};
+	for (const [tipo, value] of Object.entries(relation as Record<string, unknown>)) {
+		restored[tipo] = restorableRelationValue(value, {
+			tm_id: tmId,
+			section_tipo: sectionTipo,
+			section_id: sectionId,
+			tipo,
+		});
+	}
+	return restored;
 }
 
 /**
@@ -558,6 +590,18 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 	// the main int-form and its frames string-form — half a convergence, and the
 	// legacy form re-injected on exactly the rows the sweep just fixed.
 	const canonicalRow = { ...tmRow, data: await canonicalImage(tmRow.data) };
+	// THE RELATION SHAPE GATE (WC-2026-10-24-tm-malformed-relation-cell): a
+	// relation snapshot that is not a locator array (a pre-v6 bare id, label
+	// strings…) is REFUSED before anything is locked or written — restored, it
+	// would put a non-locator into the live relation column. No conversion.
+	if (getColumnNameByModel(model) === 'relation') {
+		canonicalRow.data = restorableRelationValue(canonicalRow.data, {
+			tm_id: tmRow.id,
+			section_tipo: sectionTipo,
+			section_id: sectionId,
+			tipo,
+		});
+	}
 
 	// Overwrite the live component value.
 	const column = getColumnNameByModel(model);

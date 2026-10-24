@@ -357,6 +357,7 @@
 	"error_tool_rdf_class_unmapped": "Nothing imported: the external ontology maps no class of this record's section to the RDF type ${type}",
 	"error_tool_rdf_graph_too_large": "The RDF document is too large or too deeply nested to read (limit ${limit})",
 	"error_tool_rdf_identifier_unwritable": "Not created: the record could not hold the identifier that finds it again (${reason})",
+	"error_tool_snapshot_unrestorable": "This history entry stores a value in an old format that is not a valid link, so it cannot be restored. The current value is unchanged",
 	"error_tool_source_unavailable": "The server ${site} is not responding or is out of service. Contact its maintainer",
 	"error_tool_target_not_found": "The tool target does not exist",
 	"error_tool_too_many_items": "Too many items in one request: ${count} sent, at most ${limit} at a time",

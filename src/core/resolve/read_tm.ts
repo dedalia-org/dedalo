@@ -77,8 +77,9 @@ import { loadRecordCached } from '../section/record_loader.ts';
 import { injectComponentData } from '../section_record/index.ts';
 import { ddoIsAuthorized, type Principal, SUPERUSER_ID } from '../security/permissions.ts';
 import { readLaneValueAt } from '../tm_record/lane_state.ts';
+import { MALFORMED_RELATION_VALUE_ERROR } from '../tm_record/relation_snapshot_shape.ts';
 import {
-	buildTmSectionRecord,
+	buildTmSectionRecordWithRefusal,
 	TM_COLUMN_BULK_PROCESS_ID as TIPO_BULK_PROCESS,
 	TM_COLUMN_TIPO as TIPO_COMPONENT,
 	TM_COLUMN_DATA as TIPO_DATA,
@@ -89,6 +90,7 @@ import {
 	TM_COLUMN_TIMESTAMP as TIPO_TIMESTAMP,
 	TM_COLUMN_USER_ID as TIPO_USER,
 	TM_NOTES_SECTION_TIPO,
+	type TmRecordRefusal,
 } from '../tm_record/tm_record.ts';
 import { EmissionContext } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
@@ -1007,6 +1009,67 @@ async function withholdUnreadableRawValue(
 }
 
 /**
+ * The flagged cell of a column emitTmRow cannot render, or null when it can.
+ * TWO NAMED EXEMPTIONS, both decade-scale TM facts on a long-lived install:
+ *
+ * - `unresolved_component_tipo` — the column's ontology node no longer
+ *   resolves a model (emitDdoData THROWS on one where the old emitScalarCell
+ *   silently emitted nothing; a removed node must not 500 the history browse);
+ * - `malformed_relation_value` — the dd15 builder refused the row's own
+ *   relation value (tm_record/relation_snapshot_shape.ts): not a locator array
+ *   (a pre-v6 bare id, label strings, a foreign object). Converting such data
+ *   is the v6→v7 upgrade's job, not this reader's. Through the relation readers
+ *   it 500'd the read (a bare value reached compareLocators); dropped, it would
+ *   hide history. The raw bytes stay in the dd1574 column.
+ *
+ * Either cell announces itself (error + reason, the reason lives HERE rather
+ * than in a ledger only); `entries: []` keeps the client's array contract.
+ */
+function flaggedTmCell(
+	row: TmRow,
+	tipo: string,
+	model: string | null,
+	refusal: TmRecordRefusal | null,
+): Record<string, unknown> | null {
+	if (model === null || getColumnNameByModel(model) === null) {
+		return flaggedCellShape(
+			row,
+			tipo,
+			'unresolved_component_tipo',
+			'This Time Machine row references a component whose ontology node no longer resolves a model. The snapshot is kept; the column cannot be rendered.',
+		);
+	}
+	if (refusal === null || refusal.tipo !== tipo) return null;
+	return flaggedCellShape(
+		row,
+		tipo,
+		MALFORMED_RELATION_VALUE_ERROR,
+		`This Time Machine row stores a malformed relation value that cannot be shown as a record link: ${refusal.reason}. The snapshot is kept unchanged.`,
+	);
+}
+
+function flaggedCellShape(
+	row: TmRow,
+	tipo: string,
+	error: string,
+	reason: string,
+): Record<string, unknown> {
+	return {
+		section_id: row.id,
+		section_tipo: TM_SECTION_TIPO,
+		tipo,
+		mode: 'list',
+		lang: 'lg-nolan',
+		parent_tipo: TM_SECTION_TIPO,
+		row_section_id: row.id,
+		entries: [],
+		fallback_value: null,
+		error,
+		reason,
+	};
+}
+
+/**
  * Emit ONE dd15 row's data items — one generic cell per requested ddo, resolved
  * from the virtual dd15 record that `tm_record.ts` materializes for the row.
  *
@@ -1044,7 +1107,7 @@ async function emitTmRow(
 	// built once per row now rather than lazily: every branch needs it.
 	// TmRow is TimeMachineRow minus the parity `dataText` twin (unused here).
 	const declaredSlots = await snapshotDeclaredSlots(row);
-	const tmRecord = await buildTmSectionRecord(
+	const { record: tmRecord, refusal } = await buildTmSectionRecordWithRefusal(
 		row as unknown as TimeMachineRow,
 		lang,
 		declaredSlots,
@@ -1076,27 +1139,12 @@ async function emitTmRow(
 	for (const tipo of requestedTipos) {
 		const model = await getModelByTipo(tipo);
 
-		// NAMED EXEMPTION — an unresolvable component tipo. emitDdoData THROWS on
-		// one where the old emitScalarCell silently emitted nothing, and a TM log
-		// is decade-scale on a long-lived install: a column whose ontology node has
-		// since been removed must not 500 the whole history browse. Emit an
-		// explicitly flagged empty cell instead. NOT a silent narrowing — the cell
-		// announces itself, and the reason lives here rather than in a ledger only.
-		if (model === null || getColumnNameByModel(model) === null) {
-			emission.items.push({
-				section_id: row.id,
-				section_tipo: TM_SECTION_TIPO,
-				tipo,
-				mode: 'list',
-				lang: 'lg-nolan',
-				parent_tipo: TM_SECTION_TIPO,
-				row_section_id: row.id,
-				entries: [],
-				fallback_value: null,
-				error: 'unresolved_component_tipo',
-				reason:
-					'This Time Machine row references a component whose ontology node no longer resolves a model. The snapshot is kept; the column cannot be rendered.',
-			} as never);
+		// The two NAMED EXEMPTIONS (flaggedTmCell): a column that cannot be
+		// rendered emits an explicitly flagged empty cell instead of 500ing the
+		// whole history browse — never a silent narrowing.
+		const flagged = flaggedTmCell(row, tipo, model, refusal);
+		if (flagged !== null || model === null) {
+			emission.items.push(flagged as never);
 			continue;
 		}
 

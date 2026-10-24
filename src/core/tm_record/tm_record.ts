@@ -37,6 +37,11 @@
  *                     "column" is the section_id PK): the own-tipo inject is
  *                     skipped (it would throw), matching PHP set_component_data
  *                     which logs + continues. The dd1574 copy still carries it.
+ *                     A RELATION-column model's datum passes the shape gate
+ *                     (relation_snapshot_shape.ts) before it lands under its
+ *                     own tipo: a non-locator shape (a pre-v6 bare id, label
+ *                     strings…) is NOT converted — it is refused and reported
+ *                     (buildTmSectionRecordWithRefusal) for a flagged cell.
  */
 
 import { getComponentModel } from '../components/registry.ts';
@@ -58,6 +63,7 @@ import {
 	injectComponentData,
 	makeVirtualRecord,
 } from '../section_record/virtual_record.ts';
+import { classifyRelationSnapshot, type RelationSnapshotShape } from './relation_snapshot_shape.ts';
 
 /** dd15 virtual-section column-component tipos (PHP dd_tipos.php:208-220). */
 /** The TM ROW's own PK — the `id` column, surfaced as `matrix_id`. NOT dd1212:
@@ -287,13 +293,37 @@ async function injectComponentSnapshot(
 	row: TimeMachineRow,
 	sourceModel: string | null,
 	declaredSlots: readonly string[],
-): Promise<void> {
+): Promise<TmRecordRefusal | null> {
 	const stored = snapshotItems(row.data);
 	const dataParsed = isSecretModel(sourceModel) ? maskSecretItems(stored) : stored;
 	await injectTmField(record, TM_COLUMN_DATA, dataParsed);
-	if (!hasStorableColumn(sourceModel) || sourceModel === DATAFRAME_MODEL) return;
-	injectComponentData(record, row.tipo, sourceModel, splitComposed(dataParsed).main);
-	await injectSnapshotSlots(record, row.tipo, dataParsed, declaredSlots);
+	if (!hasStorableColumn(sourceModel) || sourceModel === DATAFRAME_MODEL) return null;
+	const componentItems = componentSnapshotItems(row, sourceModel, dataParsed);
+	if (componentItems.kind === 'refused') {
+		return { tipo: row.tipo, reason: componentItems.reason };
+	}
+	injectComponentData(record, row.tipo, sourceModel, splitComposed(componentItems.items).main);
+	await injectSnapshotSlots(record, row.tipo, componentItems.items, declaredSlots);
+	return null;
+}
+
+/**
+ * The items a per-component snapshot lands under its own tipo. A RELATION-column
+ * model's datum passes the shape gate first (relation_snapshot_shape.ts): a
+ * non-locator shape is REFUSED, never converted — the own column stays empty
+ * (the dd1574 copy keeps the raw bytes) and the caller flags the cell. Wrapping
+ * a bare `2` as `[2]` is how a pre-v6 id used to reach compareLocators and 500
+ * the whole history read.
+ */
+function componentSnapshotItems(
+	row: TimeMachineRow,
+	sourceModel: string,
+	dataParsed: unknown[] | null,
+): RelationSnapshotShape {
+	if (getColumnNameByModel(sourceModel) !== 'relation') {
+		return { kind: 'locators', items: dataParsed };
+	}
+	return classifyRelationSnapshot(row.data);
 }
 
 /** Whether the row's component is a credential (descriptor `secretValue`). */
@@ -340,7 +370,27 @@ export async function buildTmSectionRecord(
 	lang: string,
 	declaredSlots: readonly string[] = [],
 ): Promise<MatrixRecord> {
+	return (await buildTmSectionRecordWithRefusal(row, lang, declaredSlots)).record;
+}
+
+/**
+ * A component cell the builder could NOT project: the row's own tipo held a
+ * relation value that is not a locator array (relation_snapshot_shape.ts). The history reader renders it as a flagged
+ * cell carrying `reason` (read_tm.ts) — never a silent empty, never a 500.
+ */
+export interface TmRecordRefusal {
+	readonly tipo: string;
+	readonly reason: string;
+}
+
+/** buildTmSectionRecord + the refused own-tipo cell, when there is one. */
+export async function buildTmSectionRecordWithRefusal(
+	row: TimeMachineRow,
+	lang: string,
+	declaredSlots: readonly string[] = [],
+): Promise<{ record: MatrixRecord; refusal: TmRecordRefusal | null }> {
 	const record = makeVirtualRecord(TIME_MACHINE_SECTION_TIPO, row.id);
+	let refusal: TmRecordRefusal | null = null;
 
 	// --- data (the snapshot) — done first so the meta overlay merges cleanly ---
 	const sourceModel = await getModelByTipo(row.tipo);
@@ -354,7 +404,7 @@ export async function buildTmSectionRecord(
 			}
 		}
 	} else {
-		await injectComponentSnapshot(record, row, sourceModel, declaredSlots);
+		refusal = await injectComponentSnapshot(record, row, sourceModel, declaredSlots);
 	}
 
 	// --- id / who / when / where / what ---
@@ -399,5 +449,5 @@ export async function buildTmSectionRecord(
 	// annotation (rsc329): the rsc832/rsc835 notes lookup (PHP tm_record :690-755).
 	await injectTmField(record, TM_NOTES_TEXT, await tmNoteValue(row.id));
 
-	return record;
+	return { record, refusal };
 }

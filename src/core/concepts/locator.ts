@@ -135,6 +135,12 @@ function sectionIdLooselyEquals(valueA: unknown, valueB: unknown): boolean {
  * - `section_id` compares loosely (int 5 == "5"); every OTHER property
  *   compares strictly (===): tag_id 5 vs "5" is NOT equal here.
  * Relation add/remove integrity depends on these exact rules.
+ * - a NON-OBJECT side (a bare legacy id `2`, a label string, null) is not a
+ *   locator and equals NOTHING → false. PHP typed both params `object` and
+ *   threw a TypeError; here the stored data is untrusted (decade-scale TM
+ *   history carries pre-v7 shapes), and one non-locator entry must not take a
+ *   whole read down through `in` on a primitive. Between two objects the rules
+ *   above are unchanged.
  */
 export function compareLocators(
 	locatorA: Locator,
@@ -142,8 +148,22 @@ export function compareLocators(
 	properties: readonly string[] = [],
 	excludeProperties: readonly string[] = [],
 ): boolean {
-	const recordA = locatorA as Record<string, unknown>;
-	const recordB = locatorB as Record<string, unknown>;
+	if (!isLocatorObject(locatorA) || !isLocatorObject(locatorB)) return false;
+	return compareLocatorRecords(
+		locatorA as Record<string, unknown>,
+		locatorB as Record<string, unknown>,
+		properties,
+		excludeProperties,
+	);
+}
+
+/** compareLocators over two objects (the rules in its doc comment). */
+function compareLocatorRecords(
+	recordA: Record<string, unknown>,
+	recordB: Record<string, unknown>,
+	properties: readonly string[],
+	excludeProperties: readonly string[],
+): boolean {
 	let compareList: readonly string[] = properties;
 	if (compareList.length === 0) {
 		const excluded = new Set(excludeProperties);
@@ -168,6 +188,11 @@ export function compareLocators(
 		}
 	}
 	return true;
+}
+
+/** Whether a value can be a locator at all (a non-null object, not an array). */
+function isLocatorObject(value: unknown): boolean {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
