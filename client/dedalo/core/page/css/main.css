@@ -24571,8 +24571,7 @@ body.inspector_resizing {
 */
 .component_iri.edit .component_dataframe .column_section_id,
 .component_iri.edit .component_dataframe .column_remove,
-.component_iri.edit > .content_data > .content_value > .button.remove,
-.component_iri.edit > .content_data > .content_value > .button.link {
+.component_iri.edit > .content_data > .content_value > .content_actions:not(:focus-within) {
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition-fast);
@@ -24591,10 +24590,8 @@ body.inspector_resizing {
 .component_iri.edit.active .component_dataframe .column_section_id,
 .component_iri.edit:hover .component_dataframe .column_remove,
 .component_iri.edit.active .component_dataframe .column_remove,
-.component_iri.edit:hover > .content_data > .content_value > .button.remove,
-.component_iri.edit.active > .content_data > .content_value > .button.remove,
-.component_iri.edit:hover > .content_data > .content_value > .button.link,
-.component_iri.edit.active > .content_data > .content_value > .button.link {
+.component_iri.edit:hover > .content_data > .content_value > .content_actions,
+.component_iri.edit.active > .content_data > .content_value > .content_actions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -24613,12 +24610,14 @@ body.inspector_resizing {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
+  row-gap: 1rem;
 }
 .component_iri.edit > .content_data > .content_value.read_only > .iri {
   padding-left: 0.5rem;
 }
 .component_iri.edit > .content_data > .content_value > .component_dataframe {
-  width: calc(30% - 0.5rem);
+  flex: 0 1 30%;
+  min-width: 8rem;
   height: 2rem;
 }
 .component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record {
@@ -24644,55 +24643,36 @@ body.inspector_resizing {
   padding-right: 0.5rem;
 }
 .component_iri.edit > .content_data > .content_value > .input_value.title {
-  width: calc(20% - 0.5rem);
+  flex: 1 1 15rem;
+  min-width: 12rem;
   padding-left: 0.5rem;
 }
 .component_iri.edit > .content_data > .content_value > .input_value.url {
-  width: 50%;
-}
-.component_iri.edit > .content_data > .content_value > .input_value.url:focus {
-  padding-right: 3.15rem;
+  flex: 2 1 25rem;
+  min-width: 20rem;
 }
 @media screen and (max-width: 960px) {
   .component_iri.edit > .content_data > .content_value > .input_value {
     margin-right: 1px;
   }
   .component_iri.edit > .content_data > .content_value > .input_value.title {
-    width: 100%;
+    flex: 0 0 100%;
   }
   .component_iri.edit > .content_data > .content_value > .input_value.url {
-    width: 100%;
-    margin-bottom: 1rem;
+    flex: 0 0 100%;
   }
 }
-.component_iri.edit > .content_data > .content_value > .button {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.7rem;
-  z-index: 1;
+.component_iri.edit > .content_data > .content_value > .content_actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
 }
-.component_iri.edit > .content_data > .content_value > .button.active_check {
-  margin-right: 1.5rem;
+.component_iri.edit > .content_data > .content_value > .content_actions > .button {
+  display: inline-flex;
+  margin-left: 0.4rem;
 }
-.component_iri.edit > .content_data > .content_value > .button:hover {
+.component_iri.edit > .content_data > .content_value > .content_actions > .button:hover {
   background-color: var(--color_orange_dark);
-}
-.component_iri.edit > .content_data > .content_value > .button.link {
-  right: 2.25rem;
-}
-.component_iri.edit > .content_data > .content_value > .button.remove {
-  right: 0.66rem;
-}
-@media screen and (max-width: 960px) {
-  .component_iri.edit > .content_data > .content_value > .button {
-    top: 5.2rem;
-  }
-  .component_iri.edit > .content_data > .content_value > .button.remove {
-    right: 0.45rem;
-  }
-  .component_iri.edit > .content_data > .content_value > .button.link {
-    right: 2.2rem;
-  }
 }
 .component_iri.edit > .content_data > .content_value .transliterate_value {
   width: 100%;
@@ -24731,7 +24711,7 @@ body.inspector_resizing {
 .component_iri.view_line > .content_data > .content_value > .input_value.url {
   padding-right: 0px;
 }
-.component_iri.view_line > .content_data > .content_value .button.hidden_button {
+.component_iri.view_line > .content_data > .content_value > .content_actions {
   display: none;
 }
 .component_iri.view_print .content_value > .title {

@@ -386,6 +386,17 @@ const get_content_value = (i, current_value, self) => {
 					}
 					input_iri.addEventListener('keyup', input_iri_keyup_handler)
 
+			// actions cluster: active checkbox + remove/link icons live together
+			// in one flow element at the row end. As a flex item it wraps WITH the
+			// row (and right-aligns itself on its own line), instead of the old
+			// absolutely positioned icons that overlayed the inputs whenever the
+			// row wrapped.
+				const content_actions = ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'content_actions',
+					parent			: content_value
+				})
+
 			// active checkbox
 				const use_active_check = typeof(self.context?.properties?.use_active_check) !== 'undefined'
 					? self.context.properties.use_active_check
@@ -400,7 +411,7 @@ const get_content_value = (i, current_value, self) => {
 						element_type	: 'input',
 						type			: 'checkbox',
 						class_name		: 'input_iri_active',
-						parent			: content_value
+						parent			: content_actions
 					})
 					input_iri_active.checked = dataframe_data
 					// change event
@@ -433,7 +444,7 @@ const get_content_value = (i, current_value, self) => {
 					element_type	: 'span',
 					title			: get_label.delete || 'Delete',
 					class_name		: 'button remove hidden_button '+ active_check_class,
-					parent			: content_value
+					parent			: content_actions
 				})
 				// mousedown event
 				const button_remove_mousedown_handler = async (e) => {
@@ -513,7 +524,7 @@ const get_content_value = (i, current_value, self) => {
 					element_type	: 'span',
 					title			: get_label.link_resource || 'Link resource',
 					class_name		: 'button link hidden_button '+ active_check_class,
-					parent			: content_value
+					parent			: content_actions
 				})
 				// mousedown event
 				const button_link_mousedown_handler = (e) => {
