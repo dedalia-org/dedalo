@@ -1,6 +1,6 @@
 // Biome config (JSONC so rule decisions can carry their justification inline).
 {
-	"$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
 	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"formatter": {
 		"enabled": true,
@@ -13,7 +13,7 @@
 			"semicolons": "always"
 		}
 	},
-	// MARKDOWN AND YAML: LINTED, NOT REFORMATTED (biome 2.6.2, 2026-10-24).
+	// MARKDOWN AND YAML: LINTED, NOT REFORMATTED (biome 2.6, 2026-10-24).
 	// 2.6.0 turned the formatter on for both languages by default: 701 .md + 9 .yml
 	// files went red with nothing in them changed. Up to 2.5.15 biome read neither, so
 	// switching the FORMATTER off keeps the pre-upgrade scope exactly — it narrows

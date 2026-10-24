@@ -1,7 +1,7 @@
 /**
  * Gate: the Anthropic wire shape — asserted on the PURE request builder so no
  * API key is needed. Load-bearing invariants:
- *   - NO sampling params (temperature/top_p/top_k are rejected by Opus 4.8);
+ *   - NO sampling params (temperature/top_p/top_k: a 400 on every model under API version 2026-10-21, SDK 1.x);
  *   - adaptive thinking, always;
  *   - prompt-caching breakpoints: one on the system block (caches tools +
  *     system), one on the last content block of the last message;

@@ -15,6 +15,15 @@
  * requires for adaptive thinking + tool use. Foreign turns (scripted
  * provider, client history) are reconstructed from text/tool_uses as before.
  *
+ * API VERSION 2026-10-21 (SDK 1.x, 2026-10-24): the SDK now sends that
+ * `anthropic-version` and the key as `Authorization: Bearer` (was X-Api-Key).
+ * Under it `temperature`/`top_p`/`top_k` are a 400 on every model, a
+ * `document` block in an assistant message is a 400, and so is a user `text`
+ * block carrying `citations`. The request below sends none of them — the
+ * no-sampling-params leg of agent_anthropic_request_shape pins the first, and
+ * replayed assistant content is the model's own output (text / thinking /
+ * tool_use). Exactly one credential is passed (`apiKey`), as 1.x requires.
+ *
  * The offline gates use the scripted provider instead; this class is the
  * one-module swap the seam exists for.
  */
