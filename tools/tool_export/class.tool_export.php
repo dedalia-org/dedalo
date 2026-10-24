@@ -8,6 +8,14 @@ class tool_export extends tool_common {
 
 
 	/**
+	* CLASS CONSTANTS
+	*/
+		// int EXPORT_CHUNK_SIZE. Rows loaded per search when building the grid (bounds memory on large exports)
+		const EXPORT_CHUNK_SIZE = 1000;
+
+
+
+	/**
 	* CLASS VARS
 	*/
 		// string data_format. Values: 'standard', 'dedalo'
@@ -130,6 +138,49 @@ class tool_export extends tool_common {
 				'model'			=> $model,
 				'section_tipo'	=> $section_tipo
 			]);
+			// ndjson stream. One JSON line per record and a final header line, flushed as built
+			// no response object is returned. A missing 'end' line means the export was aborted
+				if (($options->ndjson_stream ?? false) === true) {
+
+					header('Content-Type: application/x-ndjson; charset=utf-8', true);
+					header('X-Accel-Buffering: no');
+					header('Cache-Control: no-cache, no-store, must-revalidate');
+						header('Content-Encoding: identity'); // disable mod_deflate / gzip, it holds chunks until a threshold
+
+						// 4KB padding line. Proxies hold the first chunk until their buffer fills.
+						// The client skips whitespace-only lines
+						echo str_repeat(' ', 4096)."\n";
+						while (ob_get_level() > 0) {
+							ob_end_flush();
+						}
+						flush();
+
+					foreach ($tool_export->iterate_export_lines() as $line) {
+
+						// client gone. Stop without the 'end' line
+						if (connection_aborted()) {
+							break;
+						}
+
+						$json_line = json_encode($line, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+						if ($json_line===false) {
+							debug_log(__METHOD__
+								." json_encode failed on export line. Stream aborted: ". json_last_error_msg()
+								, logger::ERROR
+							);
+							break;
+						}
+						echo $json_line."\n";
+
+						while (ob_get_level() > 0) {
+							ob_end_flush();
+						}
+						flush();
+					}//end foreach
+
+					exit(0);
+				}//end if ndjson_stream
+
 			$export_grid = $tool_export->build_export_grid();
 
 		// response OK
@@ -143,135 +194,157 @@ class tool_export extends tool_common {
 
 	/**
 	* BUILD_EXPORT_GRID
-	* @return array
+	* Legacy non-stream build. Drains iterate_export_lines() into the full array
+	* @return array [header_row, ...row_objects]
 	*/
 	protected function build_export_grid() : array {
 
+		$section_grid_values	= [];
+		$section_grid_header	= null;
+
+		foreach ($this->iterate_export_lines() as $line) {
+			if ($line['t']==='row') {
+				$section_grid_values[] = $line['row'];
+			}else{
+				$section_grid_header = $line['header'];
+			}
+		}//end foreach
+
+		return array_merge([$section_grid_header], $section_grid_values);
+	}//end build_export_grid
+
+
+
+	/**
+	* ITERATE_EXPORT_LINES
+	* Builds the export grid as a stream of lines.
+	* Yields ['t'=>'row', 'row'=>dd_grid_cell_object] for every record, in order,
+	* and exactly one ['t'=>'end', 'header'=>section_grid_row] as the last line.
+	* Only the column registry and the rows count sum survive between chunks.
+	* @return Generator $lines
+	*/
+	public function iterate_export_lines() : Generator {
+
 		$ar_ddo_map	= $this->ar_ddo_map;
-		$records	= $this->get_records();
 
-		// get the section values
-		$section_grid_values = [];
-
-		$ar_head_columns = [];
-
-		// store the rows count for every portal inside the section
-			$ar_section_rows_count = [];
-		// store the head rows to sum up with the total rows
-			$rows_max_count = [];
-		// rows values
-			$ar_row_values 	= [];
 		// full unique columns for create the head
 			$ar_columns_obj	= [];
+		// sum of the rows count of every record, across chunks
+			$total_rows_count = 0;
 
-		foreach ($records as $row) {
+		// chunked load. Search runs in pages of EXPORT_CHUNK_SIZE rows, in the client sqo order.
+		// Legacy single load (get_records) is kept for portal, children_recursive and tm
+		$is_chunked	= $this->is_chunked_export();
+		$offset		= (int)($this->sqo->offset ?? 0);
+		$max_rows	= (int)($this->sqo->limit ?? 0); // 0 means all rows
+		$exported	= 0;
 
-			$ar_row_value = $this->get_grid_value($ar_ddo_map, $row);
-			// take the maximum number of rows (the rows can has 1, 2, 55 rows and we need the highest value, 55)
-			$row_count = !empty($ar_row_value->ar_row_count)
-				? max($ar_row_value->ar_row_count)
-				: 0;
-			// store the result to sum with the head rows
-			$rows_max_count[] = $row_count;
+		do {
 
-			// take the columns
-			$columns_count = $ar_row_value->ar_column_count;
+			if ($is_chunked) {
+				$chunk_limit	= ($max_rows>0)
+					? min(self::EXPORT_CHUNK_SIZE, $max_rows - $exported)
+					: self::EXPORT_CHUNK_SIZE;
+				$records		= $this->get_chunk_records($offset, $chunk_limit);
+			}else{
+				$records		= $this->get_records();
+			}
+			$chunk_count	= sizeof($records);
+			$exported		+= $chunk_count;
 
-			// current_ar_columns_obj
-			$current_ar_columns_obj = $ar_row_value->ar_columns_obj;
+			foreach ($records as $row) {
 
-			$row_grid = new dd_grid_cell_object();
-				$row_grid->set_type('row');
-				$row_grid->set_row_count($row_count);
-				$row_grid->set_column_count($columns_count);
-				$row_grid->set_ar_columns_obj($current_ar_columns_obj);
-				// $row_grid->set_class_list($row_class_list);
-				// $row_grid->set_render_label($row_render_label);
-				$row_grid->set_value($ar_row_value->ar_cells);
+				$ar_row_value = $this->get_grid_value($ar_ddo_map, $row);
+				// take the maximum number of rows (the rows can has 1, 2, 55 rows and we need the highest value, 55)
+				$row_count = !empty($ar_row_value->ar_row_count)
+					? max($ar_row_value->ar_row_count)
+					: 0;
+				// store the result to sum with the head rows
+				$total_rows_count += $row_count;
 
-			$ar_row_values[] = $row_grid;
+				// take the columns
+				$columns_count = $ar_row_value->ar_column_count;
 
-			// get the columns position to re-order the ar_columns_obj
-			// it will join the columns see if the column is a column created by the locator
-			// when the component is portal inside portal, like 'photograph' inside 'identifying image' inside 'interview'.
-			// 'photograph' locators will be exploded in columns not in rows and the column is identify by the section_id of the photograph
-			// the final format will be: name ; surname ; name|1 ; surname|1 ; name|2 etc of the photograph
-			foreach ($ar_row_value->ar_columns_obj as $current_column_obj) {
-				// check if the current column exists in the full column array
-				$id_obj = array_find($ar_columns_obj, function($el) use($current_column_obj){
-					return ($el->id===$current_column_obj->id);
-				});
-				// if not exist we need add it, the columns are joined from the deep of the portals to the parents
-				if($id_obj===null){
-					// check if the current column_id is a locator column, else add the column_object at the end
-					$current_column_path = explode('|', $current_column_obj->id);
-					if(sizeof($current_column_path)>1){
-						// get the last position of the column group
-						$position = false;
-						foreach ($ar_columns_obj as $column_key => $column_value) {
-							if(isset($column_value->group) &&  $column_value->group === $current_column_obj->group){
-								$position = $column_key;
+				// current_ar_columns_obj
+				$current_ar_columns_obj = $ar_row_value->ar_columns_obj;
+
+				// get the columns position to re-order the ar_columns_obj
+				// it will join the columns see if the column is a column created by the locator
+				// when the component is portal inside portal, like 'photograph' inside 'identifying image' inside 'interview'.
+				// 'photograph' locators will be exploded in columns not in rows and the column is identify by the section_id of the photograph
+				// the final format will be: name ; surname ; name|1 ; surname|1 ; name|2 etc of the photograph
+				foreach ($ar_row_value->ar_columns_obj as $current_column_obj) {
+					// check if the current column exists in the full column array
+					$id_obj = array_find($ar_columns_obj, function($el) use($current_column_obj){
+						return ($el->id===$current_column_obj->id);
+					});
+					// if not exist we need add it, the columns are joined from the deep of the portals to the parents
+					if($id_obj===null){
+						// check if the current column_id is a locator column, else add the column_object at the end
+						$current_column_path = explode('|', $current_column_obj->id);
+						if(sizeof($current_column_path)>1){
+							// get the last position of the column group
+							$position = false;
+							foreach ($ar_columns_obj as $column_key => $column_value) {
+								if(isset($column_value->group) &&  $column_value->group === $current_column_obj->group){
+									$position = $column_key;
+								}
 							}
-						}
-						// if the position is set, insert the columns after the last column_object found
-						// if not add the current column_object at the end
-						if($position){
-							array_splice($ar_columns_obj, $position+1, 0, [$current_column_obj]);
+							// if the position is set, insert the columns after the last column_object found
+							// if not add the current column_object at the end
+							if($position){
+								array_splice($ar_columns_obj, $position+1, 0, [$current_column_obj]);
+							}else{
+								$ar_columns_obj[] = $current_column_obj;
+							}
 						}else{
 							$ar_columns_obj[] = $current_column_obj;
 						}
-					}else{
-						$ar_columns_obj[] = $current_column_obj;
+						// labels are set once on the shared column object, before its first row is streamed
+						$this->set_column_labels($current_column_obj);
 					}
+				}//end foreach ($locator_column_obj as $column_pos => $current_column_obj)
+
+				$row_grid = new dd_grid_cell_object();
+					$row_grid->set_type('row');
+					$row_grid->set_row_count($row_count);
+					$row_grid->set_column_count($columns_count);
+					$row_grid->set_ar_columns_obj($current_ar_columns_obj);
+					// $row_grid->set_class_list($row_class_list);
+					// $row_grid->set_render_label($row_render_label);
+					$row_grid->set_value($ar_row_value->ar_cells);
+
+				yield ['t'=>'row', 'row'=>$row_grid];
+			}//end foreach ($records as $row)
+
+			// release the chunk before loading the next one. Only the grid vars survive
+				if ($is_chunked) {
+					unset($records);
+					// the static instance caches keep the records of the chunk alive (up to 1200 entries each)
+					// drop them so memory stays flat. Cache misses are rebuilt on demand
+					section::$ar_section_instances				= [];
+					component_common::$ar_component_instances	= [];
+					gc_collect_cycles();
+					$offset += $chunk_limit;
 				}
-			}//end foreach ($locator_column_obj as $column_pos => $current_column_obj)
+
+		} while ($is_chunked && $chunk_count===$chunk_limit && ($max_rows<=0 || $exported<$max_rows));//end do
+
+		// build the header grid cells. The labels were set on the columns when they were registered
+		$ar_head_columns			= [];
+		$ar_section_columns_count	= sizeof($ar_columns_obj);
+		foreach ($ar_columns_obj as $column_obj) {
+
+			// create the grid cell of the section
+				$section_grid = new dd_grid_cell_object();
+					$section_grid->set_type('column');
+					$section_grid->set_ar_columns_obj($column_obj); // note that only one column is expected here !
+					$section_grid->set_render_label(true);
+					$section_grid->set_class_list('caption section');
+					$section_grid->set_cell_type('header');
+
+			$ar_head_columns[] = $section_grid;
 		}
-		// sum the total rows for this locator
-		$ar_section_rows_count[] = array_sum($rows_max_count);
-		// take the maximum number of columns (the columns can has 1, 2, 55 columns and we need the highest value, 55)
-		$ar_section_columns_count = sizeof($ar_columns_obj) ?? 0;
-		// build the header labels
-			for ($i=0; $i < $ar_section_columns_count; $i++) {
-
-				$column_obj			= $ar_columns_obj[$i];
-				$column_path		= explode('|', $column_obj->id);
-				$column_tipos		= explode('_', $column_path[0]);
-				$column_labels		= [];
-				$column_tipos_len	= sizeof($column_tipos)-1;
-				foreach ($column_tipos as $column_key => $column_tipo) {
-					// set the column name, if the format is Dédalo use the $tipo and section_id
-					// for standard format use the name
-					if($this->data_format==='dedalo_raw'){
-						$model_name = RecordObj_dd::get_modelo_name_by_tipo($column_tipo);
-						$column_labels[] = ($model_name === 'component_section_id')
-							? 'section_id'
-							: $column_tipo;
-					}else{
-						$column_label = RecordObj_dd::get_termino_by_tipo($column_tipo, DEDALO_APPLICATION_LANG, true);
-						if (empty($column_label)) {
-							$column_label = $column_tipo;
-						}
-						$column_labels[] = (sizeof($column_path)>1 && ($column_key === $column_tipos_len))
-							? $column_label.' '.(isset($column_path[1]) ? $column_path[1]+1 : '1')
-							: $column_label;
-					}
-				}
-				$column_obj->ar_labels	= $column_labels;
-				$column_obj->label_tipo	= end($column_tipos);
-				$column_obj->ar_tipos 	= $column_tipos;
-
-				// create the grid cell of the section
-					$section_grid = new dd_grid_cell_object();
-						$section_grid->set_type('column');
-						// $section_grid->set_label($ar_ddo_map[$i]->label);
-						$section_grid->set_ar_columns_obj($column_obj); // note that only one column is expected here !
-						// $section_grid->set_column_obj($column_obj);
-						$section_grid->set_render_label(true);
-						$section_grid->set_class_list('caption section');
-						$section_grid->set_cell_type('header');
-
-				$ar_head_columns[] = $section_grid;
-			}
 
 		// dd_grid_cell_object
 			$section_grid_row = new dd_grid_cell_object();
@@ -281,13 +354,87 @@ class tool_export extends tool_common {
 				$section_grid_row->set_row_count(1);
 				$section_grid_row->set_column_count($ar_section_columns_count);
 
-		// section_grid_values
-			$section_grid_values[] = $section_grid_row;
-			$section_grid_values = array_merge($section_grid_values, $ar_row_values);
+		// paged: true when the sqo was split in pages (client requests the next page). false: whole result
+		yield ['t'=>'end', 'header'=>$section_grid_row, 'paged'=>$is_chunked];
+	}//end iterate_export_lines
 
 
-		return $section_grid_values;
-	}//end build_export_grid
+
+	/**
+	* SET_COLUMN_LABELS
+	* Sets the header labels of a column object: ar_labels, label_tipo and ar_tipos
+	* @param object $column_obj
+	* @return void
+	*/
+	protected function set_column_labels(object $column_obj) : void {
+
+		$column_path		= explode('|', $column_obj->id);
+		$column_tipos		= explode('_', $column_path[0]);
+		$column_labels		= [];
+		$column_tipos_len	= sizeof($column_tipos)-1;
+		foreach ($column_tipos as $column_key => $column_tipo) {
+			// set the column name, if the format is Dédalo use the $tipo and section_id
+			// for standard format use the name
+			if($this->data_format==='dedalo_raw'){
+				$model_name = RecordObj_dd::get_modelo_name_by_tipo($column_tipo);
+				$column_labels[] = ($model_name === 'component_section_id')
+					? 'section_id'
+					: $column_tipo;
+			}else{
+				$column_label = RecordObj_dd::get_termino_by_tipo($column_tipo, DEDALO_APPLICATION_LANG, true);
+				if (empty($column_label)) {
+					$column_label = $column_tipo;
+				}
+				$column_labels[] = (sizeof($column_path)>1 && ($column_key === $column_tipos_len))
+					? $column_label.' '.(isset($column_path[1]) ? $column_path[1]+1 : '1')
+					: $column_label;
+			}
+		}
+
+		$column_obj->ar_labels	= $column_labels;
+		$column_obj->label_tipo	= end($column_tipos);
+		$column_obj->ar_tipos 	= $column_tipos;
+	}//end set_column_labels
+
+
+
+	/**
+	* IS_CHUNKED_EXPORT
+	* Chunked load is used for sections only. Portal, children_recursive and tm keep the single load
+	* @return bool
+	*/
+	protected function is_chunked_export() : bool {
+
+		return !empty($this->sqo)
+			&& $this->model!=='component_portal'
+			&& ($this->sqo->children_recursive ?? false)!==true
+			&& !in_array($this->sqo->mode ?? null, ['tm', 'related'], true);
+	}//end is_chunked_export
+
+
+
+	/**
+	* GET_CHUNK_RECORDS
+	* Loads one page of the search, keeping the client sqo order.
+	* Offset pages are stable because search appends 'section_id ASC' as last sort key
+	* (default order when no order is set). order_custom has no such key: it is kept as sent
+	* Does not store the result in ar_records
+	* @param int $offset
+	* @param int $limit
+	* @return array $records
+	*/
+	protected function get_chunk_records(int $offset, int $limit) : array {
+
+		// chunk sqo. Clone to keep this->sqo unchanged. Order is the one sent by the client
+			$chunk_sqo = clone $this->sqo;
+			$chunk_sqo->limit		= $limit;
+			$chunk_sqo->offset		= $offset;
+
+		// sections
+			$sections = sections::get_instance(null, $chunk_sqo, $this->section_tipo);
+
+		return $sections->get_dato();
+	}//end get_chunk_records
 
 
 

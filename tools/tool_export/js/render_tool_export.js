@@ -316,7 +316,23 @@ const get_content_data_edit = async function(self) {
 						fill_the_gaps		: fill_the_gaps,
 						view				: 'table'
 					}
-					const dd_grid				= await self.get_export_grid(export_grid_options)
+					let dd_grid = null
+					try {
+						dd_grid = await self.get_export_grid(export_grid_options)
+					}catch (error) {
+						// restore the UI the same way as the success path below
+						console.error('Error:', error.message)
+						alert(`An error has occurred in the export\n\n${error.message}`)
+						data_spinner.remove()
+						;[button_export, activate_all_columns, deactivate_all_columns].map(
+							el => el.classList.remove('hide')
+						)
+						spinner.remove()
+						;[components_list_container, selection_list_contaniner, export_buttons_options].map(
+							el => el.classList.remove('loading')
+						)
+						return
+					}
 					const dd_grid_export_node	= await dd_grid.render()
 
 					const clone_node = dd_grid_export_node.cloneNode(true)
@@ -453,18 +469,11 @@ const get_content_data_edit = async function(self) {
 			button_export_csv.addEventListener('click', async function() {
 
 				try {
-					// dd_grid
-						const dd_grid		= self.dd_grid
-						dd_grid.view		= 'csv'
-						await dd_grid.build(false)
-						const csv_string	= await dd_grid.render()
+					// built page by page, see export_text_blob
+						const csv_blob = await self.export_text_blob('csv')
 
 					// Download it
-						download_file(
-							csv_string,
-							'text/csv;charset=utf-8',
-							filename + '.csv'
-						)
+						self.download_export_blob(csv_blob, filename + '.csv')
 				} catch (error) {
 					console.error('Error on export CSV:', error);
 					ui.show_message(export_buttons_options, 'Error on export CSV: ' + error.message)
@@ -481,18 +490,11 @@ const get_content_data_edit = async function(self) {
 			button_export_tsv.addEventListener('click', async function() {
 
 				try {
-					// dd_grid
-						const dd_grid		= self.dd_grid
-						dd_grid.view		= 'tsv'
-						await dd_grid.build(false)
-						const tsv_string	= await dd_grid.render()
+					// built page by page, see export_text_blob
+						const tsv_blob = await self.export_text_blob('tsv')
 
 					// Download it
-						download_file(
-							tsv_string,
-							'text/tab-separated-values;charset=utf-8',
-							filename + '.tsv'
-						)
+						self.download_export_blob(tsv_blob, filename + '.tsv')
 				} catch (error) {
 					console.error('Error on export TSV:', error);
 					ui.show_message(export_buttons_options, 'Error on export TSV: ' + error.message)
@@ -509,19 +511,8 @@ const get_content_data_edit = async function(self) {
 			button_export_ods.addEventListener('click', async function() {
 
 				try {
-					// Download it
-						const file	= filename+ '.ods';
-
-						const dd_grid		= self.dd_grid
-						dd_grid.view		= 'table_export'
-						await dd_grid.build(false)
-						const table_export	= await dd_grid.render()
-
-						// note that the call is awaited to be able to catch the library errors
-						await self.export_table_with_xlsx_lib({
-							table		: table_export,
-							filename	: file
-						})
+					// note that the call is awaited to be able to catch the library errors
+						await self.export_workbook('ods', filename + '.ods')
 				} catch (error) {
 					console.error('Error on export ODS:', error);
 					ui.show_message(export_buttons_options, 'Error on export ODS: ' + error.message)
@@ -538,19 +529,8 @@ const get_content_data_edit = async function(self) {
 			button_export_excel.addEventListener('click', async function() {
 
 				try {
-					// Download it
-					const file	= filename+ '.xlsx';
-
-					const dd_grid		= self.dd_grid
-					dd_grid.view		= 'table_export'
-					await dd_grid.build(false)
-					const table_export	= await dd_grid.render()
-
 					// note that the call is awaited to be able to catch the library errors
-					await self.export_table_with_xlsx_lib({
-						table		: table_export,
-						filename	: file
-					})
+						await self.export_workbook('xlsx', filename + '.xlsx')
 				} catch (error) {
 					console.error('Error on export XLSX:', error);
 					ui.show_message(export_buttons_options, 'Error on export XLSX: ' + error.message)
@@ -564,29 +544,14 @@ const get_content_data_edit = async function(self) {
 				inner_html		: (get_label.download || 'Export') + ' HTML',
 				parent			: export_buttons_options
 			})
-			button_export_html.addEventListener('click', function() {
+			button_export_html.addEventListener('click', async function() {
 
 				try {
+					// built page by page from the data (no DOM), see export_html_blob
+						const html_blob = await self.export_html_blob()
+
 					// Download it
-						const file	= filename + '.html';
-
-					// html_string. Note that the export data container is cloned. Else the node
-					// is moved out of the tool DOM and the grid disappears from the current view
-						const html_string = '<!DOCTYPE html>' + "\n"
-							+ '<html>' + "\n"
-							+ '<head>' + "\n"
-							+ '<meta charset="utf-8">' + "\n"
-							+ '</head>' + "\n"
-							+ '<body>' + "\n"
-							+ export_data_container.cloneNode(true).outerHTML + "\n"
-							+ '</body>' + "\n"
-							+ '</html>'
-
-						download_file(
-							html_string,
-							'text/html;charset=utf-8',
-							file
-						)
+						self.download_export_blob(html_blob, filename + '.html')
 				} catch (error) {
 					console.error('Error on export HTML:', error);
 					ui.show_message(export_buttons_options, 'Error on export HTML: ' + error.message)
