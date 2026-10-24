@@ -47,7 +47,8 @@ jobs:
           tools: phpmd
 
       - name: Run PHPMD
-        run: phpmd . sarif codesize --reportfile phpmd-results.sarif
+        # PHPMD 3 (setup-php installs the latest): subcommand `analyze`, options for format/ruleset/report.
+        run: phpmd analyze . --ruleset codesize --reportfile-sarif phpmd-results.sarif --no-progress
         continue-on-error: true
 
       - name: Upload analysis results to GitHub
