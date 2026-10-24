@@ -329,20 +329,6 @@ Merged since the last release; these ship with the next one.
     regenerated: one **Regenerate files** click in the media versions tool clears it,
     and the record then shows the normal empty placeholder.
 
-- **An administrator's saved search in the Time Machine list survives a reload.**
-
-    A history list now never takes a remembered search of another section from the session
-    (see the entry on *Latest changes* and *Component history*). In this release's first build
-    that rule also applied to the Time Machine list an administrator opens on its own, with no
-    section named: a reload dropped the administrator's saved search and showed the whole
-    history, and the saved search was overwritten with the empty one.
-
-    The rule now applies only to a history list opened for a section, for every user,
-    administrators included. The administrator's own Time Machine list keeps its saved search
-    across a reload. That list stays refused for any user who is not an administrator.
-
-    Wire contract: `WC-2026-10-22-tm-scope-whole-request`.
-
 - **Turning pages in *Latest changes* no longer fails with a permission error for users who are not administrators.**
 
     A user allowed to see a section's change history could open the inspector's *Latest changes*,
@@ -443,7 +429,8 @@ Merged since the last release; these ship with the next one.
     history sees the changes of every record of that section, also of records outside their projects
     and of deleted records.
     A history list shows only the section it was opened for, for every user: a search of another
-    section remembered in the session no longer replaces it after a reload.
+    section remembered in the session no longer replaces it after a reload. An administrator's own
+    Time Machine list, opened with no section, keeps its saved search across a reload.
     The history never shows the past values of a field the user's profile does not let them read on
     the record: those cells stay empty, the rest of the change (who, when, which field) is shown.
 
