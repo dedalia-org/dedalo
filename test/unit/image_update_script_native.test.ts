@@ -57,6 +57,7 @@ import { BUILD_INFO_PATH, readReleaseIdentityOf } from '../../src/core/update/bu
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
 import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
 import { engineCliAt } from '../helpers/engine_cli_tree.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 // realpath: the script resolves its env file against the PHYSICAL cwd (/private/var on macOS).
@@ -1096,7 +1097,7 @@ describe('red → rollback', () => {
 		const retag = at(
 			result.calls,
 			new RegExp(
-				`^docker tag ${rollbackRef.replace(/[.]/g, '\\.')} ghcr\\.io/dedalia-org/dedalo:7\\.0\\.0$`,
+				`^docker tag ${escapeRegExp(rollbackRef)} ghcr\\.io/dedalia-org/dedalo:7\\.0\\.0$`,
 			),
 		);
 		const back = at(result.calls, /\[DEDALO_VERSION=7\.0\.0\] up -d --no-build dedalo backup$/);

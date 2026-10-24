@@ -598,7 +598,9 @@ describe('case 1b: a v2-only draft converges with no PHP anywhere; a second run 
       expect(w.host.lstat(`${w.profile.fpm.poolDir}/dedalo_test_v1.conf`)).toBeNull();
       expect(w.host.lstat('/var/lib/dedalo_publication_host/test')).toBeNull();
       expect(w.host.lstat('/etc/logrotate.d/dedalo_test_v1')).toBeNull();
-      expect(w.host.body(`${w.layout.instanceDir}/web.apache.conf`)).not.toMatch(/^Alias |SetHandler|fcgi/m);
+      const apacheConf = w.host.body(`${w.layout.instanceDir}/web.apache.conf`);
+      expect(apacheConf).not.toMatch(/^Alias /m);
+      expect(apacheConf).not.toMatch(/SetHandler|fcgi/);
       expect(w.host.body(w.layout.envFile)).not.toContain('PHP_BIN');
       // No PHP binary ran, no PHP item was printed, no v1 secret was asked.
       expect(w.host.calls.some(call => /php/i.test(call))).toBe(false);

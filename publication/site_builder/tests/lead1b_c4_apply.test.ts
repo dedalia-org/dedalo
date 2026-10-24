@@ -43,6 +43,7 @@ import { renderAll } from '../src/provision/render';
 import { parseManifest } from '../src/provision/schema';
 import { caught, gateManifestDoc, identityName, loadRule, type AgentLedger, type LedgerAccount, type LedgerGroup } from './support/lead1b_contract';
 import { type FakeAccount, fakeLedger, useraddAccount, usermodAccount } from './support/fake_accounts';
+import { escapeRegExp } from '../../../test/helpers/regex_escape.ts';
 
 const prefixes: string[] = [];
 afterAll(() => {
@@ -440,7 +441,7 @@ describe('G18 — provision apply, in the spec §5 order', () => {
     expect(unitWrites.length).toBe(2 * 3 * 3);
     const reload = lastIndex(s, isExec(/^systemctl daemon-reload$/));
     const sockets = execs(s).filter(({ op }) => /^systemctl enable --now .*\.socket/.test(argvOf(op)) || /^systemctl enable .*--now.*\.socket/.test(argvOf(op)));
-    const start = lastIndex(s, isExec(new RegExp(`^systemctl (start|restart|enable --now) ${s.layout.unitName.replace(/[@.]/g, '\\$&')}$`)));
+    const start = lastIndex(s, isExec(new RegExp(`^systemctl (start|restart|enable --now) ${escapeRegExp(s.layout.unitName)}$`)));
     const rule = lastIndex(s, writes(s.layout.agentPolicyPath));
     const env = lastIndex(s, writes(s.layout.envFile));
     expect({
@@ -484,7 +485,7 @@ describe('G18 — provision apply, in the spec §5 order', () => {
     const s = synthetic(['alpha', 'beta']);
     legacyHost(s);
     runApply(s);
-    const unitName = s.layout.unitName.replace(/[@.]/g, '\\$&');
+    const unitName = escapeRegExp(s.layout.unitName);
     const stop = firstIndex(s, isExec(new RegExp(`^systemctl stop ${unitName}$`)));
     const start = lastIndex(s, isExec(new RegExp(`^systemctl (start|restart) ${unitName}$`)));
     const normalise = execs(s).filter(({ op }) => (op.args[0] as string[])[0] === 'chown');
@@ -606,7 +607,7 @@ describe('G18 — provision apply, in the spec §5 order', () => {
     const { modes } = svcEraHost(s);
     const before = modes();
     runApply(s);
-    const unitName = s.layout.unitName.replace(/[@.]/g, '\\$&');
+    const unitName = escapeRegExp(s.layout.unitName);
     const stop = firstIndex(s, isExec(new RegExp(`^systemctl stop ${unitName}$`)));
     const start = lastIndex(s, isExec(new RegExp(`^systemctl (start|restart) ${unitName}$`)));
     const finds = execs(s).filter(({ op }) => (op.args[0] as string[])[0] === 'find');
@@ -648,7 +649,7 @@ describe('G18 — provision apply, in the spec §5 order', () => {
     s.host.liveUids = new Set([LEGACY]);
     const actions = plan(s.layout, s.manifest, observe(s));
     const report = apply(actions, s.io);
-    const unitName = s.layout.unitName.replace(/[@.]/g, '\\$&');
+    const unitName = escapeRegExp(s.layout.unitName);
     expect({
       ok: report.ok,
       failedAt: report.failure?.action.kind === 'exec' ? report.failure.action.step : null,
@@ -680,7 +681,7 @@ describe('G18 — provision apply, in the spec §5 order', () => {
       },
     });
     const first = apply(plan(s.layout, s.manifest, observe(s)), exdev);
-    const unitName = s.layout.unitName.replace(/[@.]/g, '\\$&');
+    const unitName = escapeRegExp(s.layout.unitName);
     const envAfterFirst = readFileSync(onHost(s.prefix, s.layout.envFile), 'utf8');
     expect({
       ok: first.ok,

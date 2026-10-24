@@ -10,7 +10,7 @@
  * always runs with a stub streamToFile.
  */
 
-import { afterAll, afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
 	existsSync,
@@ -277,11 +277,6 @@ describe('confinedPath', () => {
 });
 
 describe('downloadCountryDb', () => {
-	afterEach(() => {
-		// process-wide: never leave it set for the rest of the suite
-		delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-	});
-
 	test('walks the month candidates in order and returns the LAST error, without rejecting', async () => {
 		const dir = join(SCRATCH, 'loop');
 		const seen: string[] = [];
@@ -386,17 +381,27 @@ describe('downloadCountryDb', () => {
 	});
 
 	test('NODE_TLS_REJECT_UNAUTHORIZED=0 refuses before any transfer', async () => {
+		// The engine reads the variable itself (download.ts readEnv), so the gate
+		// must set it — process-wide. It is RESTORED in `finally`, never left off
+		// for the rest of the process even when an assertion throws, and nothing
+		// here opens a connection while it is set (streamToFile is a stub).
+		const saved = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
 		process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-		let called = false;
-		const result = await downloadCountryDb(join(SCRATCH, 'tls'), undefined, {
-			streamToFile: async () => {
-				called = true;
-				return 1;
-			},
-		});
-		expect(called).toBe(false);
-		expect(result.ok).toBe(false);
-		expect(result.error).toMatch(/NODE_TLS_REJECT_UNAUTHORIZED=0/);
+		try {
+			let called = false;
+			const result = await downloadCountryDb(join(SCRATCH, 'tls'), undefined, {
+				streamToFile: async () => {
+					called = true;
+					return 1;
+				},
+			});
+			expect(called).toBe(false);
+			expect(result.ok).toBe(false);
+			expect(result.error).toMatch(/NODE_TLS_REJECT_UNAUTHORIZED=0/);
+		} finally {
+			if (saved === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+			else process.env.NODE_TLS_REJECT_UNAUTHORIZED = saved;
+		}
 	});
 });
 

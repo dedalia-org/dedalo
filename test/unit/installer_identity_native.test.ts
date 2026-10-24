@@ -39,6 +39,7 @@ import { RELEASE_IDENTITY } from '../../src/core/update/build_stamp.ts';
 import { compareReleaseIdentities, imageTagOf } from '../../src/core/update/release_identity.ts';
 import { DEDALO_VERSION } from '../../src/core/update/version.ts';
 import { PINNED_IDENTITY, withInstallerIdentity } from '../helpers/installer_identity.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const TRIAL = { route: 'trial', entity: 'trial_museum' };
@@ -180,10 +181,7 @@ describe('gate 12: the install docs say what the installer does', () => {
 				docker.indexOf('### Which official image the installer asks for'),
 				docker.indexOf("### Dédalo's registries"),
 			)
-			.replace(
-				new RegExp(`\\b${DOCS_EXAMPLE_TRIPLE.replace(/\./g, '\\.')}\\b`, 'g'),
-				DEDALO_VERSION,
-			);
+			.replace(new RegExp(`\\b${escapeRegExp(DOCS_EXAMPLE_TRIPLE)}\\b`, 'g'), DEDALO_VERSION);
 		expect(section).toContain(`a stable release (\`${DEDALO_VERSION}\`)`);
 		const rows = section
 			.split('\n')

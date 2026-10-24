@@ -34,6 +34,7 @@ import {
 } from '../src/provision/selinux_module';
 import { unixDeclaration } from './fixtures/provision_declaration';
 import { FakeInitHost } from './support/provision_fake_host';
+import { escapeRegExp } from '../../../test/helpers/regex_escape.ts';
 
 /* ── the renderer ─────────────────────────────────────────────────────────────────── */
 
@@ -231,7 +232,7 @@ describe('every layout: written, installed before the import that names its type
       expect(list.indexOf(later), later).toBeGreaterThan(at);
     }
     const imp = actions.find(a => a.op === 'selinux-import') as SelinuxImportAction;
-    expect(imp.lines).toContain(`fcontext -a -f a -t ${V2_TREE_TYPE} '${l.state.apis.v2.root.replace(/\./g, '\\.')}(/.*)?'`);
+    expect(imp.lines).toContain(`fcontext -a -f a -t ${V2_TREE_TYPE} '${escapeRegExp(l.state.apis.v2.root)}(/.*)?'`);
   });
 
   test("a fresh system host: the state root's missing parent (/srv/dedalo_publication_host) is created root 0755, under a temporary name", () => {
@@ -284,7 +285,7 @@ describe('every layout: written, installed before the import that names its type
     expect(list.indexOf('selinux-module-install')).toBeGreaterThanOrEqual(0);
     expect(list.indexOf('selinux-module-install')).toBeLessThan(list.indexOf('selinux-import'));
     const imp = actions.find(a => a.op === 'selinux-import') as SelinuxImportAction;
-    expect(imp.lines).toContain(`fcontext -a -f a -t ${V2_TREE_TYPE} '${l.state.apis.v2.root.replace(/\./g, '\\.')}(/.*)?'`);
+    expect(imp.lines).toContain(`fcontext -a -f a -t ${V2_TREE_TYPE} '${escapeRegExp(l.state.apis.v2.root)}(/.*)?'`);
     expect(imp.lines.some(line => line.includes('data_home_t'))).toBe(false);
     expect(apply(actions, host).failure).toBeNull();
     for (const path of [l.state.apis.v2.root, l.state.apis.v2.shared]) expect(host.labels.get(path), path).toBe(V2_TREE_TYPE);
@@ -348,7 +349,7 @@ function seedHome(host: Host): void {
  */
 function legacyHome(): { l: AgentLayout; host: Host; spec: string } {
   const { l, host } = converged(homeDecl());
-  const spec = `${l.state.apis.v2.root.replace(/\./g, '\\.')}(/.*)?`;
+  const spec = `${escapeRegExp(l.state.apis.v2.root)}(/.*)?`;
   const rule = host.fcontext.find(r => r.spec === spec);
   expect(rule?.type).toBe(V2_TREE_TYPE);
   if (rule !== undefined) rule.type = 'data_home_t';

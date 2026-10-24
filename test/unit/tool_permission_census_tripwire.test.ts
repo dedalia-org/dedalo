@@ -73,6 +73,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Glob } from 'bun';
 import { ERROR_REGISTRY } from '../../src/core/errors/registry.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
@@ -566,7 +567,7 @@ function gateScanCode(src: string): string {
 }
 
 /** A name as a regex: `$` and the `.` of a namespace path (`scope.assertX`) are literal. */
-const escapeName = (name: string): string => name.replace(/[$.]/g, '\\$&');
+const escapeName = (name: string): string => escapeRegExp(name);
 /** A FREE occurrence of `token`: not a property read (`principal.isGlobalAdmin`). */
 const freeToken = (token: string): RegExp =>
 	new RegExp(`(?<![\\w$.])${escapeName(token)}(?![\\w$])`, 'g');

@@ -35,6 +35,7 @@ import {
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
@@ -299,7 +300,7 @@ describe('engine-version single source (core/update/version.ts)', () => {
 	// bump instead of silently scanning for a version nobody ships any more.
 	// Quote-anchored: '<v>' / "<v>.dev" / `<v>` — never bare (would
 	// false-positive on '127.0.0.1'); plus the [M, m, p] array form.
-	const escaped = DEDALO_VERSION.replace(/\./g, '\\.');
+	const escaped = escapeRegExp(DEDALO_VERSION);
 	const stringLiteral = new RegExp(`['"\`]${escaped}(\\.dev)?['"\`]`);
 	const arrayLiteral = new RegExp(`\\[\\s*${DEDALO_VERSION_TRIPLE.join('\\s*,\\s*')}\\s*\\]`);
 

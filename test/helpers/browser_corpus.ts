@@ -71,7 +71,9 @@ export const browserSourcesUnfiltered = (): string[] => gitBrowserView();
  * untracked (a module not yet `git add`ed is still served), never ignored.
  */
 export const browserSources = (): string[] =>
-	gitBrowserView().filter((f) => !/\/(lib|vendor|node_modules)\/|\.min\.js$/.test(f));
+	gitBrowserView().filter(
+		(f) => !/\/(?:lib|vendor|node_modules)\//.test(f) && !f.endsWith('.min.js'),
+	);
 
 function walk(dir: string, out: string[]): void {
 	for (const name of readdirSync(dir).sort()) {

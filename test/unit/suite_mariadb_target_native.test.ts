@@ -113,6 +113,7 @@ import {
 	type MariadbErrorLike,
 } from '../../src/diffusion/targets/mariadb/db.ts';
 import { mariadbSqlWriter } from '../../src/diffusion/writers/mariadb_sql.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 import {
 	SUITE_SOCKET_ABSENT_REFUSAL,
 	SUITE_UNARMED_REFUSAL,
@@ -1599,7 +1600,7 @@ process.exit(0);`;
 				expect(onlySelf.faults).toContainEqual(
 					expect.stringMatching(
 						new RegExp(
-							`^${file.replace(/[.]/g, '\\.')}: the suite user's rows_\\w+ did not rise during ITS OWN run`,
+							`^${escapeRegExp(file)}: the suite user's rows_\\w+ did not rise during ITS OWN run`,
 						),
 					),
 				);
@@ -1635,7 +1636,7 @@ process.exit(0);`;
 					file === direct || file === transitive || file.includes('tier_one_contact') ? 4 : 0,
 			});
 			expect(contacted.code).toBe(1);
-			const escaped = (file: string) => file.replace(/[.]/g, '\\.');
+			const escaped = (file: string) => escapeRegExp(file);
 			expect(contacted.faults).toEqual(
 				[direct, transitive]
 					.sort((a, b) => set.noContact.indexOf(a) - set.noContact.indexOf(b))
@@ -1681,7 +1682,7 @@ process.exit(0);`;
 			expect(wrapped.faults).toEqual([
 				expect.stringMatching(
 					new RegExp(
-						`^${direct.replace(/[.]/g, '\\.')}: acquired the suite target during the no-contact batch`,
+						`^${escapeRegExp(direct)}: acquired the suite target during the no-contact batch`,
 					),
 				),
 			]);

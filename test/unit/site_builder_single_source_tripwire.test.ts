@@ -267,8 +267,8 @@ describe('B1 — the host observer reads exactly what the renderers write, plus 
 			mkdirSync(root, { recursive: true });
 			writeFileSync(join(root, INSTANCE_MARKER), markerContent(layout.instance), 'utf8');
 		}
-		const secretPaths = observedPaths(layout, manifest).filter((path) =>
-			/SERVICE_TOKEN|_KEY$/.test(path),
+		const secretPaths = observedPaths(layout, manifest).filter(
+			(path) => path.includes('SERVICE_TOKEN') || path.endsWith('_KEY'),
 		);
 		expect(secretPaths.length).toBeGreaterThan(0);
 		for (const path of secretPaths) {

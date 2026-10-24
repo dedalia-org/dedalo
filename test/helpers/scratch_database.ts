@@ -50,6 +50,7 @@
  */
 
 import { type DbConnDescriptor, runPsql } from '../../src/core/install/pg_exec.ts';
+import { escapeLikePattern } from './regex_escape.ts';
 
 /** True when `pid` still names a live process (EPERM = alive, just not ours). */
 export function pidIsAlive(pid: number): boolean {
@@ -82,7 +83,7 @@ export async function sweepOrphanScratchDatabases(
 ): Promise<void> {
 	// In LIKE, `_` matches ANY single character: escape the literal underscores
 	// so the pattern cannot reach past the caller's own prefix.
-	const pattern = `${prefix.replace(/_/g, '\\_')}%`;
+	const pattern = `${escapeLikePattern(prefix)}%`;
 	const listed = await runPsql(admin, [
 		'-tAc',
 		`SELECT datname FROM pg_database WHERE datname LIKE '${pattern}'`,

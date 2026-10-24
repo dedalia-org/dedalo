@@ -132,6 +132,7 @@ import {
 	pinInstallerIdentity,
 	withInstallerIdentity,
 } from '../helpers/installer_identity.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 // The installer's release identity is the checkout's (a tagged commit says `-beta.N`, the
 // next commit `.dev`) and the image decisions follow its kind: these cases are written for
@@ -835,9 +836,7 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 			expect(log.filter((line) => line.startsWith(`${DOCKER} pull`))).toEqual([
 				`${DOCKER} pull ${BETA_REF}`,
 			]);
-			expect(envOf(host)).toMatch(
-				new RegExp(`^DEDALO_VERSION=${BETA.replace(/\./g, '\\.')}$`, 'm'),
-			);
+			expect(envOf(host)).toMatch(new RegExp(`^DEDALO_VERSION=${escapeRegExp(BETA)}$`, 'm'));
 		});
 	});
 

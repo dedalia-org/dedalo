@@ -164,7 +164,8 @@ describe('committed rendered examples', () => {
     expect(v2Only.map(a => a.kind)).not.toContain('logrotate_v1');
     const include = v2Only.find(a => a.kind === 'web_include')?.body ?? '';
     expect(include).toContain('ProxyPass        http://127.0.0.1:3100/');
-    expect(include).not.toMatch(/^Alias |SetHandler|FilesMatch|fcgi|php|server_api\/v1/m);
+    expect(include).not.toMatch(/^Alias /m);
+    expect(include).not.toMatch(/SetHandler|FilesMatch|fcgi|php|server_api\/v1/);
     expect(v2Only.find(a => a.kind === 'env')?.body).not.toContain('PHP_BIN');
     for (const a of v2Only) expect(a.body).not.toContain('publication_api/v1');
     expect(layoutOf('site-v2-only').servedApis).toEqual(['v2']);

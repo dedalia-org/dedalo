@@ -66,6 +66,7 @@ import {
 	pgClientEnv,
 	runPsql,
 } from '../../src/core/install/pg_exec.ts';
+import { escapeLikePattern } from '../helpers/regex_escape.ts';
 import { pidIsAlive, sweepOrphanScratchDatabases } from '../helpers/scratch_database.ts';
 
 const PREFIX = 'dedalo_install_reset_';
@@ -136,7 +137,7 @@ const roleConnOf = (database: string): DbConnDescriptor => ({
 
 /** Drop `<prefix><dead pid>_role` roles a killed run left (their databases were swept first). */
 async function sweepOrphanRoles(): Promise<void> {
-	const pattern = `${PREFIX.replace(/_/g, '\\_')}%`;
+	const pattern = `${escapeLikePattern(PREFIX)}%`;
 	const listed = await runPsql(admin, [
 		'-tAc',
 		`SELECT rolname FROM pg_roles WHERE rolname LIKE '${pattern}'`,

@@ -35,6 +35,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const ROOT = resolve(import.meta.dir, '../..');
@@ -138,7 +139,7 @@ function rootedNames(source: string): Set<string> {
 	return rooted;
 }
 
-const escapeRegex = (text: string): string => text.replace(/[$.]/g, '\\$&');
+const escapeRegex = (text: string): string => escapeRegExp(text);
 
 /** Every write call whose arguments reach a checkout-rooted path: `line: call`. */
 function inTreeWrites(raw: string): string[] {

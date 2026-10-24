@@ -125,6 +125,7 @@ import {
 	REPO_ROOT,
 	variantName,
 } from '../helpers/install_host_scratch.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 const CLAIMED = '192.168.1.20';
 const SECOND = '192.168.1.21';
@@ -329,7 +330,7 @@ describe('A. renders — every row × nginx|apache, 0/1/2 instances', () => {
 				expect(text).toContain(line);
 				expect(site).toContain(line);
 			}
-			expect(site).toMatch(new RegExp(`ServerAlias [^\\n]*${CLAIMED.replace(/\./g, '\\.')}`));
+			expect(site).toMatch(new RegExp(`ServerAlias [^\\n]*${escapeRegExp(CLAIMED)}`));
 			const enable = siteCommands(ctx).filter(
 				(command) => command.kind === 'exec' && command.argv.includes('dedalo-00-default'),
 			);

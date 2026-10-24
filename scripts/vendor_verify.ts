@@ -114,6 +114,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, posix, resolve, sep } from 'node:path';
+import { escapeRegExp } from '../test/helpers/regex_escape.ts';
 
 export const REPO_ROOT = resolve(import.meta.dir, '..');
 export const VENDOR_ROOT = join(REPO_ROOT, 'vendor');
@@ -980,7 +981,7 @@ export function checkVendorAdvisoriesIn(
 			// substring — "1.2.1" is inside "1.2.10", and a drift check that accepted
 			// that would be lax in exactly the direction that matters.
 			const boundedVersion = new RegExp(
-				`(^|[^0-9.])${(block.version as string).replace(/\./g, '\\.')}([^0-9.]|$)`,
+				`(^|[^0-9.])${escapeRegExp(block.version as string)}([^0-9.]|$)`,
 			);
 			if (!boundedVersion.test(entry.version)) {
 				problems.push(

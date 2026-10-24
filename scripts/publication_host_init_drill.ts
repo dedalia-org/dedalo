@@ -54,6 +54,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
+import { escapeRegExp } from '../test/helpers/regex_escape.ts';
 
 export const REPO_ROOT = resolve(import.meta.dir, '..');
 export const AGENT_DIR = join(REPO_ROOT, 'publication/host_agent');
@@ -1861,7 +1862,7 @@ export const LEGS: readonly Leg[] = Object.freeze([
 			check(
 				// The agent's unit runs in its home's host_agent/ (a runuser above runs elsewhere).
 				new RegExp(
-					`${NGINX_INSTANCE}_agent : .*PWD=/home/${NGINX_DOMAIN.replace(/\./g, '\\.')}/host_agent ; .*COMMAND=/usr/sbin/nginx -t`,
+					`${NGINX_INSTANCE}_agent : .*PWD=/home/${escapeRegExp(NGINX_DOMAIN)}/host_agent ; .*COMMAND=/usr/sbin/nginx -t`,
 				).test(auth),
 				`no sudo line names ${NGINX_INSTANCE}_agent running /usr/sbin/nginx -t since ${since}: the configtest did not go through sudo`,
 			);
@@ -2355,7 +2356,7 @@ export const LEGS: readonly Leg[] = Object.freeze([
 			const unit = await instanceUnits(INSTANCE);
 			const home = `/home/${DOMAIN}`;
 			const v2 = `${unit.stateRoot}/publication_api/v2`;
-			const spec = `${v2.replace(/\./g, '\\.')}(/.*)?`;
+			const spec = `${escapeRegExp(v2)}(/.*)?`;
 			const stateFile = `/etc/dedalo_publication_host/${INSTANCE}/selinux.state`;
 			const paths = [v2, `${v2}/shared`, `${v2}/shared/v2.env`, `${v2}/current`];
 			const typesOf = async (): Promise<string[]> =>

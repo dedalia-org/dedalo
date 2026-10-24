@@ -60,6 +60,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { browserSources } from './browser_corpus.ts';
+import { escapeRegExp } from './regex_escape.ts';
 import { stripComments } from './strip_comments.ts';
 import { writePathSourceFiles } from './write_path_corpus.ts';
 
@@ -466,7 +467,7 @@ function chunkTaint(
 	for (const [ns, from] of namespaces) {
 		// A namespace used whole (passed on, spread, iterated) hands every export on.
 		const bare = new RegExp(
-			`(?<![\\w$.])${ns.replace(/\$/g, '\\$')}(?!\\s*\\??\\.\\s*[A-Za-z_$])(?![\\w$])`,
+			`(?<![\\w$.])${escapeRegExp(ns)}(?!\\s*\\??\\.\\s*[A-Za-z_$])(?![\\w$])`,
 		);
 		const own = facts.blank.slice(chunk.start, chunk.end);
 		const declaresIt = chunk.dynamics.some((d) => d.local === ns);
@@ -946,7 +947,7 @@ function classify(
 		}
 		// An inner local: follow its initializer (const/let/var, a parameter default).
 		const decl = new RegExp(
-			`(?:\\b(?:const|let|var)\\s+|[(,]\\s*)${ref.replace(/\$/g, '\\$')}\\s*=(?![=>])`,
+			`(?:\\b(?:const|let|var)\\s+|[(,]\\s*)${escapeRegExp(ref)}\\s*=(?![=>])`,
 		).exec(body);
 		if (decl && !chunk.names.includes(ref)) {
 			const begin = decl.index + decl[0].length;
@@ -1112,10 +1113,7 @@ export function clientNumericReads(source: string, field = 'dedalo_version'): Cl
 	const result: ClientIdentityReads = { sources: [], numeric: [] };
 	const lineOf = (at: number) => blank.slice(0, at).split('\n').length;
 	const usesOf = (name: string) =>
-		new RegExp(
-			`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])(?!\\s*:(?!:))(?!\\s*=[^=>])`,
-			'g',
-		);
+		new RegExp(`(?<![\\w$.])${escapeRegExp(name)}(?![\\w$])(?!\\s*:(?!:))(?!\\s*=[^=>])`, 'g');
 	/** Visit every use of a local that holds the identity, from offset `from` on. */
 	const followBinding = (
 		name: string,

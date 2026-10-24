@@ -74,6 +74,7 @@ import {
 	MEDIA_DIR,
 	mediaSourceFiles,
 } from '../helpers/engine_source_corpus.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 import { testTreeSourceFiles } from '../helpers/test_tree_corpus.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -599,7 +600,7 @@ describe('magick policy: ImageMagick may not fork Ghostscript', () => {
 
 	test.each([...DENIED_DELEGATES])('policy denies the %s delegate', (pattern: string) => {
 		const denied = new RegExp(
-			`<policy\\s+domain="delegate"\\s+rights="none"\\s+pattern="${pattern.replace(':', ':')}"`,
+			`<policy\\s+domain="delegate"\\s+rights="none"\\s+pattern="${escapeRegExp(pattern)}"`,
 		).test(policy);
 		expect(
 			denied,

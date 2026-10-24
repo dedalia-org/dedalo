@@ -116,6 +116,7 @@ import {
 import { lastReconcileRun, REGISTERED_NAMES } from '../../src/core/reconcile/registry.ts';
 import { getServerState, setServerState } from '../../src/core/resolve/server_state.ts';
 import { useScratchMediaCopyStores } from '../helpers/media_copy_mock_agent.ts';
+import { escapeLikePattern } from '../helpers/regex_escape.ts';
 import { sweepOrphanScratchDatabases } from '../helpers/scratch_database.ts';
 import { requireSuiteMariadb, SUITE_MARIADB_DATABASES } from '../helpers/suite_mariadb.ts';
 
@@ -204,7 +205,7 @@ async function scalar(database: string, query: string): Promise<string> {
 async function databasesLike(prefix: string): Promise<string[]> {
 	const out = await scalar(
 		'postgres',
-		`SELECT coalesce(string_agg(datname, ',' ORDER BY datname), '') FROM pg_database WHERE datname LIKE '${prefix.replace(/_/g, '\\_')}%'`,
+		`SELECT coalesce(string_agg(datname, ',' ORDER BY datname), '') FROM pg_database WHERE datname LIKE '${escapeLikePattern(prefix)}%'`,
 	);
 	return out === '' ? [] : out.split(',');
 }

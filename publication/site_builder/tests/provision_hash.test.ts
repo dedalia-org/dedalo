@@ -92,7 +92,10 @@ describe('stamp / parseStamp round trip', () => {
   });
 
   test('a CRLF stamp line still parses, and the body stays byte-exact', () => {
-    const text = stamp(KIND, INSTANCE, BODY).replace('\n', '\r\n');
+    // CR on the FIRST line break only (the stamp line), spelled out: the body keeps LF.
+    const stamped = stamp(KIND, INSTANCE, BODY);
+    const firstBreak = stamped.indexOf('\n');
+    const text = `${stamped.slice(0, firstBreak)}\r\n${stamped.slice(firstBreak + 1)}`;
     const parsed = parseStamp(text);
     expect(parsed).not.toBeNull();
     expect(parsed!.instance).toBe(INSTANCE);

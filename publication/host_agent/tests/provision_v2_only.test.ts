@@ -116,7 +116,8 @@ describe('renderers on a v2-only instance', () => {
   test('the web include carries the v2 proxy only: no v1 Alias/location, no PHP handler (apache and nginx)', () => {
     const apache = apacheWebInclude(l);
     expect(apache).toContain('<Location /dedalo/publication/server_api/v2/>');
-    expect(apache).not.toMatch(/^Alias |SetHandler|FilesMatch|php_admin_flag|fcgi|server_api\/v1/m);
+    expect(apache).not.toMatch(/^Alias /m);
+    expect(apache).not.toMatch(/SetHandler|FilesMatch|php_admin_flag|fcgi|server_api\/v1/);
     const nginx = nginxWebInclude(derive(v2OnlySiteDeclaration({ web: { server: 'nginx', unit: 'nginx' } })));
     expect(nginx).toContain('location /dedalo/publication/server_api/v2/ {');
     expect(nginx).not.toMatch(/fastcgi|\^~|server_api\/v1/);

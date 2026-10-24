@@ -104,6 +104,7 @@ import {
 	reach,
 } from '../../publication/site_builder/tests/support/systemd_reach.ts';
 import { SITE_BUILDER_SRC, siteBuilderDaemonFiles } from '../helpers/publication_corpus.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const PACKAGE = join(REPO_ROOT, 'publication/site_builder');
@@ -1004,9 +1005,7 @@ describe('the rendered env leaves the daemon no unconfined mode to fall into', (
 				expect(socket?.body).toContain('SocketMode=0600');
 				// Stopped in the daemon's own stop transaction: a socket with a stop pending
 				// accepts nothing, so no connect during the stop can cancel it.
-				expect(socket?.body).toMatch(
-					new RegExp(`^PartOf=${layout.unitName.replace(/[.@]/g, '\\$&')}$`, 'm'),
-				);
+				expect(socket?.body).toMatch(new RegExp(`^PartOf=${escapeRegExp(layout.unitName)}$`, 'm'));
 			}
 		}
 		// Each proxy door's egress directory is ROOT's (tmpfiles.d): root:<site group> 0770
@@ -1133,7 +1132,7 @@ function resolvesTo(fromFile: string, specifier: string, target: string): boolea
 }
 
 /** Escape a binding name for a pattern (`$` is legal in one). */
-const escapeName = (name: string) => name.replace(/[$]/g, '\\$');
+const escapeName = (name: string) => escapeRegExp(name);
 
 /** Does transpiled code hand a local binding on as an export (a list, a default, an alias)? */
 function exportsBinding(js: string, local: string): boolean {

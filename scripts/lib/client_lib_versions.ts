@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ClientLib } from '../../src/core/client_libs/registry.ts';
+import { escapeMarkdownCell } from '../../test/helpers/regex_escape.ts';
 
 export const DOC_PATH = 'docs/development/vendored_library_versions.md';
 
@@ -108,9 +109,9 @@ export function npmRows(libs: Readonly<Record<string, ClientLib>>, pkg: PackageJ
 	return rows;
 }
 
-/** A markdown cell: no raw pipe or newline may break the row. */
+/** A markdown cell: no raw pipe, backslash or newline may break the row. */
 function cell(text: string): string {
-	return text.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+	return escapeMarkdownCell(text);
 }
 
 export function renderNpmRegion(

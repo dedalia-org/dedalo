@@ -65,7 +65,7 @@ const browserSources = (): string[] =>
 	})
 		.split('\n')
 		.filter(Boolean)
-		.filter((f) => !/\/(lib|vendor|node_modules)\/|\.min\.js$/.test(f));
+		.filter((f) => !/\/(?:lib|vendor|node_modules)\//.test(f) && !f.endsWith('.min.js'));
 
 /** The brace-balanced body starting at the `{` at `open`. */
 const balancedBody = (source: string, open: number): string => {

@@ -104,6 +104,7 @@ import {
 	unitEnvironment,
 	variantName,
 } from '../helpers/install_host_scratch.ts';
+import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 /** The effective unit of `template` for the instance of `ctx` (its drop-in, when it has one). */
 function effective(ctx: HostPlanCtx, template: UnitTemplate): Map<string, string[]> {
@@ -885,7 +886,7 @@ describe('Apache: every vhost refuses any Host but its own (g — campaign 3 C3-
 		test(`${variantName(variant)}: both vhosts guard the name (421) before anything else rewrites or proxies`, () => {
 			const ctx = productionPlanCtx(variant);
 			const text = siteText(ctx, certificatePaths(ctx));
-			const name = ctx.answers.server_name.replace(/\./g, '\\.');
+			const name = escapeRegExp(ctx.answers.server_name);
 			for (const port of [ctx.answers.http_port, ctx.answers.https_port]) {
 				const vhost = text.slice(text.indexOf(`<VirtualHost *:${port}>`));
 				const body = vhost.slice(0, vhost.indexOf('</VirtualHost>'));
