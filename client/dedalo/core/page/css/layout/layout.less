@@ -678,6 +678,14 @@
 				// login, tool forms, modals) keep the surface they sit on.
 				background-color: var(--field_rest_bg);
 			}
+
+			// A read-only value (permissions < 2, Time Machine preview) is a plain
+			// block, not an input: it carries no bleed of its own, so give it back
+			// or its text lands --field_box_bleed left of the label above it.
+			// iri is excluded: it pads its own link (component_iri.less).
+			&:not(.component_iri) >.content_data >.content_value.read_only {
+				padding-left: var(--field_box_bleed);
+			}
 		}
 
 		// The text_area's half of the grid is NOT here: its editor surface is

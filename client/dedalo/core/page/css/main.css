@@ -5484,6 +5484,15 @@ dd-modal .wrapper_component > .content_data.vertical,
   line-height: var(--field_line_h);
   background-color: var(--field_rest_bg);
 }
+.wrapper_component.edit.component_input_text:not(.component_iri) > .content_data > .content_value.read_only,
+.wrapper_component.edit.component_number:not(.component_iri) > .content_data > .content_value.read_only,
+.wrapper_component.edit.component_date:not(.component_iri) > .content_data > .content_value.read_only,
+.wrapper_component.edit.component_email:not(.component_iri) > .content_data > .content_value.read_only,
+.wrapper_component.edit.component_url:not(.component_iri) > .content_data > .content_value.read_only,
+.wrapper_component.edit.component_password:not(.component_iri) > .content_data > .content_value.read_only,
+.wrapper_component.edit.component_iri:not(.component_iri) > .content_data > .content_value.read_only {
+  padding-left: var(--field_box_bleed);
+}
 .section_record.edit .wrapper_component.edit {
   transition: background-color var(--transition-fast);
 }

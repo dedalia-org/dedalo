@@ -137,6 +137,10 @@ literals (`layout.less`, the `FIELD GRID` block), on the editor surface for
 `component_text_area` (that component's own sheet owns the deepest selector, so
 the shared grid has to speak through it).
 
+A read-only value (a view-only user, a Time Machine preview, a print view) is a
+plain block with no box of its own, so the literal components hand the bleed
+back to it: the value's text still lands on `--field_inset_x`, under its label.
+
 `--field_value_pad_t` is derived, not tuned:
 `calc((--field_row_h - --field_line_h) / 2)` — the top pad that drops a block
 value's first line onto the row where an input centres its single line. Because
