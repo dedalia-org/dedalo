@@ -2586,6 +2586,26 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: true,
 	},
+	/**
+	 * A Time Machine restore (tool_time_machine apply_value, a whole-record
+	 * restore/undelete) refused because the snapshot's RELATION value is not a
+	 * locator array — a pre-v6 shape no upgrade converted (a bare section_id,
+	 * label strings, a foreign object; tm_record/relation_snapshot_shape.ts).
+	 * Written back it would put a non-locator into a live relation column, so
+	 * nothing is written (WC-2026-10-24-tm-malformed-relation-cell). `conflict`:
+	 * the stored history, not the request, is what prevents it; the same row is
+	 * refused every time. The offending value rides `coordinates` (log-only):
+	 * it is stored record data.
+	 */
+	'tool.snapshot_unrestorable': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_snapshot_unrestorable',
+		message: 'The history entry stores a value that is not a valid link and cannot be restored',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'tool.dependency_unavailable': {
 		category: 'unavailable',
 		status: 503,

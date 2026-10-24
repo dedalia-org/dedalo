@@ -122,13 +122,18 @@ jobs:
     # green hosted run (576f9d7087), and over 40 once the unit tier gained 43 floored
     # files (a430210bc0, cancelled at the cap). 60 is headroom, still well short of
     # what a hang would burn.
-    timeout-minutes: 60
+    # 2026-10-24 → 90: MEASURED 55–58 min on hosted runners for every green run of
+    # 10-19..10-22, then cancelled at the 60 cap on 9d74d07839 (unit tier 39 min, the
+    # MariaDB no-contact phase still running) — the same tier is 41 min in the CI image
+    # on the developer Mac. The cap is a hang detector, not a budget; the durable fix is
+    # sharding this job (scripts/test_shard.ts partition), not a higher number.
+    timeout-minutes: 90
     # THE CI IMAGE (ci/image.json — scripts/lib/ci_image.ts), the one ci:local and GitLab
     # run: bun = .bun-version, pg18 client, Chromium, media tools, git. As uid 1001, the
     # runner user that owns the mounted workspace — never root, which defeats the
     # uid/permission gates. ci_workflow_tripwire holds this digest equal to the lock.
     container:
-      image: ghcr.io/dedalia-org/dedalo-ci@sha256:9efcb7236aeab1b7d49abeeb7d3b7f9186ac731aa2824050252332ba4dfe4e07
+      image: ghcr.io/dedalia-org/dedalo-ci@sha256:1a22e11dd7d8137306401dcfe23a19a445ffd427e0ef50bd74bcc763cf6092c4
       options: --user 1001 --shm-size 1g
     # In a container job a service is reached by its NAME, not localhost (the tier
     # scripts default DB_HOST to 127.0.0.1 — hosted_env.sh — and honour this).
@@ -197,7 +202,7 @@ jobs:
     # runner user that owns the mounted workspace — never root, which defeats the
     # uid/permission gates. ci_workflow_tripwire holds this digest equal to the lock.
     container:
-      image: ghcr.io/dedalia-org/dedalo-ci@sha256:9efcb7236aeab1b7d49abeeb7d3b7f9186ac731aa2824050252332ba4dfe4e07
+      image: ghcr.io/dedalia-org/dedalo-ci@sha256:1a22e11dd7d8137306401dcfe23a19a445ffd427e0ef50bd74bcc763cf6092c4
       options: --user 1001 --shm-size 1g
     # In a container job a service is reached by its NAME, not localhost (the tier
     # scripts default DB_HOST to 127.0.0.1 — hosted_env.sh — and honour this).

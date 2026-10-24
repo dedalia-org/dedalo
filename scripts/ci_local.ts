@@ -878,6 +878,79 @@ done < /ci-in/steps.lst
 exec bash "$DEDALO_CI_TIER_SCRIPT"
 `;
 
+/** A compose-labelled volume: its name and the project that created it. */
+export interface CiVolumeRow {
+	readonly name: string;
+	readonly project: string;
+}
+
+/**
+ * The volumes a KILLED run left behind: a `dedalo-ci-<pid>-<tier>` project whose
+ * ci:local process is gone AND that no container still holds. Teardown is `down -v`;
+ * this is for the runs that never reached it (SIGKILL, a Docker restart). A live pid
+ * is skipped even with no container yet — another gate between `run` and its first
+ * container must not lose its database.
+ */
+export function orphanCiVolumes(
+	rows: readonly CiVolumeRow[],
+	projectsWithContainers: ReadonlySet<string>,
+	isAlive: (pid: number) => boolean,
+): string[] {
+	return rows
+		.filter((row) => {
+			const pid = /^dedalo-ci-(\d+)-[a-z]+$/.exec(row.project)?.[1];
+			return pid !== undefined && !projectsWithContainers.has(row.project) && !isAlive(Number(pid));
+		})
+		.map((row) => row.name);
+}
+
+function pidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM: the pid exists, owned by someone else — alive, not ours to judge.
+		return (error as NodeJS.ErrnoException).code === 'EPERM';
+	}
+}
+
+function sweepOrphanCiVolumes(): void {
+	const label = 'com.docker.compose.project';
+	const volumes = docker([
+		'volume',
+		'ls',
+		'--filter',
+		`label=${label}`,
+		'--format',
+		`{{.Name}}\t{{.Label "${label}"}}`,
+	]);
+	const containers = docker([
+		'ps',
+		'-a',
+		'--filter',
+		`label=${label}`,
+		'--format',
+		`{{.Label "${label}"}}`,
+	]);
+	if (volumes.code !== 0 || containers.code !== 0) return;
+	const rows = volumes.stdout
+		.split('\n')
+		.filter((line) => line !== '')
+		.map((line) => {
+			const [name = '', project = ''] = line.split('\t');
+			return { name, project };
+		});
+	const held = new Set(containers.stdout.split('\n').filter((line) => line !== ''));
+	for (const name of orphanCiVolumes(rows, held, pidAlive)) {
+		const removed = docker(['volume', 'rm', name]);
+		console.log(
+			removed.code === 0
+				? `== ci:local: removed volume ${name} (left by a killed run)`
+				: `== ci:local: WARNING — could not remove leftover volume ${name}: ${removed.stderr}`,
+		);
+	}
+}
+
 function docker(
 	args: string[],
 	options: { quiet?: boolean; env?: Record<string, string | undefined> } = {},
@@ -1103,6 +1176,7 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	const image = ensureImage(args.flags.has('--build'));
 	if (docker(['volume', 'create', BUN_CACHE_VOLUME]).code !== 0)
 		fail(`could not create volume ${BUN_CACHE_VOLUME}.`);
+	sweepOrphanCiVolumes();
 
 	// What to run: an exact commit (--ref), or HEAD + the working tree as one commit.
 	const ref = args.values.get('--ref');

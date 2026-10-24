@@ -307,6 +307,20 @@ Merged since the last release; these ship with the next one.
     not available; the field opens and works as usual. Content and data language are
     unaffected.
 
+- **Change history no longer fails, and restore no longer writes a broken value, when an old history entry holds a malformed link value.**
+
+    Opening the history of a linked field (for example a user's profile in the inspector's
+    *Component history*) could answer with an unexpected error, and no entry at all was shown, when one
+    very old history entry stored the value in a shape earlier versions used (a bare record number
+    instead of a link). The history now opens: every well-formed entry shows as usual, and an entry
+    whose stored value cannot be read as a link is shown empty instead (the response flags it with the
+    reason, for developers). The same entry previews empty in the Time Machine tool, and restoring it
+    is refused with a message saying the entry is in an old format, instead of writing the broken value
+    into the record (before, the restore stored it and the field showed nothing usable). The current
+    value stays as it is. The stored history itself is not changed.
+
+    Wire contract: `WC-2026-10-24-tm-malformed-relation-cell`.
+
 - **Image derivatives are encoded at full quality again — sharper web and list images, and somewhat larger files**
 
     Every generated image size (`1.5MB`, `6MB`, `thumb`, the alternative-format
@@ -1906,7 +1920,7 @@ Merged since the last release; these ship with the next one.
     like an answer, so you replace it with `--dev-port` or `--dev-host`. `--tls none` over a kept pair clears it. No other route
     writes any of these keys.
 
-??? note "Wire contract — 26 entries"
+??? note "Wire contract — 27 entries"
 
     - `WC-2026-10-09-build-install-version-owned-mode`
     - `WC-2026-10-15-release-identity-from-tag`
@@ -1934,6 +1948,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-22-tm-scope-whole-request`
     - `WC-2026-10-23-lock-section-tipo-grammar`
     - `WC-2026-10-23-own-lock-cleanup-ungated`
+    - `WC-2026-10-24-tm-malformed-relation-cell`
 
 ## 7.0.0-beta.6 — 2026-10-15
 

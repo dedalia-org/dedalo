@@ -112,6 +112,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    # NAMED, not the image's anonymous VOLUME: compose labels it with the project, so a
+    # run killed before its `down -v` leaves a volume ci:local can attribute and sweep
+    # (orphanCiVolumes). An anonymous one (~1.8 GB of suite DB) leaked forever.
+    volumes:
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ['CMD', 'pg_isready', '-U', 'postgres']
       interval: 2s
@@ -132,6 +137,7 @@ services:
         condition: service_healthy
 
 volumes:
+  pgdata: {}
   bun-cache:
     name: dedalo-ci-bun-cache
     external: true

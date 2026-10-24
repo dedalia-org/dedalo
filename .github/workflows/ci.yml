@@ -117,7 +117,7 @@ jobs:
     # runner user that owns the mounted workspace — never root, which defeats the
     # uid/permission gates. ci_workflow_tripwire holds this digest equal to the lock.
     container:
-      image: ghcr.io/dedalia-org/dedalo-ci@sha256:9efcb7236aeab1b7d49abeeb7d3b7f9186ac731aa2824050252332ba4dfe4e07
+      image: ghcr.io/dedalia-org/dedalo-ci@sha256:1a22e11dd7d8137306401dcfe23a19a445ffd427e0ef50bd74bcc763cf6092c4
       options: --user 1001 --shm-size 1g
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

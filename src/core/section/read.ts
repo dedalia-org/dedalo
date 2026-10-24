@@ -75,6 +75,10 @@ import {
 } from '../security/permissions.ts';
 import type { LaneValue, RowLaneState } from '../tm_record/lane_state.ts';
 import {
+	classifyRelationSnapshot,
+	MALFORMED_RELATION_VALUE_ERROR,
+} from '../tm_record/relation_snapshot_shape.ts';
+import {
 	currentTimeMachineScopeSection,
 	isTimeMachineRead,
 } from './list_definitions/tm_scope_context.ts';
@@ -866,13 +870,15 @@ async function resolveTmPreview(
 	tipo: string,
 	sectionTipo: string,
 	sectionId: number,
+	refusal: TmPreviewRefusal,
 ): Promise<TmPreview> {
 	if (source.data_source !== 'tm' || source.matrix_id === null || source.matrix_id === undefined) {
 		return { served: true, graft: null, asOf: null, siblingSlot: false };
 	}
 	const { readTimeMachineRow } = await import('../db/time_machine.ts');
-	const tmRow = await readTimeMachineRow(Number(source.matrix_id));
-	if (tmRow === null) return TM_PREVIEW_NOT_SERVED;
+	const storedRow = await readTimeMachineRow(Number(source.matrix_id));
+	if (storedRow === null) return TM_PREVIEW_NOT_SERVED;
+	const tmRow = shapedPreviewRow(storedRow, model, tipo, refusal);
 	if (await tmRowServable(tmRow, sectionTipo, sectionId, model, tipo)) {
 		const graft = await tmPreviewGraft(
 			tmRow,
@@ -888,6 +894,50 @@ async function resolveTmPreview(
 		return { served: true, graft: null, asOf: await tmAsOfRow(tmRow), siblingSlot: true };
 	}
 	return TM_PREVIEW_NOT_SERVED;
+}
+
+/**
+ * The preview's half of the relation shape gate (WC-2026-10-24-tm-malformed-relation-cell,
+ * tm_record/relation_snapshot_shape.ts — the dd15 list's twin). The row of the
+ * previewed relation component itself: a non-locator value (a pre-v6 bare id,
+ * label strings…) previews as the EMPTY value, never handed to the relation
+ * readers (it threw there) nor to the client, and its reason is recorded in
+ * `refusal` for readComponentData to flag the item; a single locator object
+ * previews as `[locator]`. Not converted. Every other row passes verbatim.
+ */
+function shapedPreviewRow<T extends { tipo: string; data: unknown }>(
+	tmRow: T,
+	model: string,
+	tipo: string,
+	refusal: TmPreviewRefusal,
+): T {
+	if (tmRow.tipo !== tipo || model === 'component_dataframe') return tmRow;
+	if (getColumnNameByModel(model) !== 'relation' || tmRow.data === null) return tmRow;
+	const shape = classifyRelationSnapshot(tmRow.data);
+	if (shape.kind === 'locators') return { ...tmRow, data: shape.items };
+	refusal.reason = shape.reason;
+	return { ...tmRow, data: [] };
+}
+
+/** Where resolveTmPreview records a refused relation snapshot (shapedPreviewRow). */
+interface TmPreviewRefusal {
+	reason: string | null;
+}
+
+/**
+ * readComponentData's flag of a refused preview: the requested component's
+ * item(s) carry `error: 'malformed_relation_value'` + the reason — the same
+ * named exemption the history list's cell carries (read_tm.ts flaggedTmCell).
+ */
+function flagRefusedPreview(items: DataItem[], tipo: string, reason: string | null): DataItem[] {
+	if (reason === null) return items;
+	for (const item of items) {
+		if (item.tipo !== tipo) continue;
+		const flagged = item as DataItem & { error?: string; reason?: string };
+		flagged.error = MALFORMED_RELATION_VALUE_ERROR;
+		flagged.reason = `This Time Machine row stores a malformed relation value that cannot be shown as a record link: ${reason}. The snapshot is kept unchanged.`;
+	}
+	return items;
 }
 
 /**
@@ -1132,6 +1182,16 @@ function stampSearchShellItems(items: DataItem[], sectionId: unknown, searchShel
 }
 
 export async function readComponentData(rqo: Rqo): Promise<DataItem[]> {
+	const refusal: TmPreviewRefusal = { reason: null };
+	const items = await readComponentDataUnflagged(rqo, refusal);
+	return flagRefusedPreview(items, String(rqo.source?.tipo ?? ''), refusal.reason);
+}
+
+/** readComponentData's body; a refused TM preview row is recorded in `refusal`. */
+async function readComponentDataUnflagged(
+	rqo: Rqo,
+	refusal: TmPreviewRefusal,
+): Promise<DataItem[]> {
 	const source = rqo.source ?? {};
 	const tipo = source.tipo;
 	const sectionTipo = source.section_tipo;
@@ -1263,7 +1323,14 @@ export async function readComponentData(rqo: Rqo): Promise<DataItem[]> {
 	// datalist stay live (real section_tipo/section_id), only the value changes.
 	// Without this, every preview shows the live value regardless of the row the
 	// user picked (the "always the last value" bug).
-	const preview = await resolveTmPreview(source, model, tipo, sectionTipo, numericSectionId);
+	const preview = await resolveTmPreview(
+		source,
+		model,
+		tipo,
+		sectionTipo,
+		numericSectionId,
+		refusal,
+	);
 	// PHP get_data returns null (empty) when the snapshot is absent — or, since
 	// P0-14, when it belongs to a dead generation at the same address.
 	if (preview.served === false) return [];

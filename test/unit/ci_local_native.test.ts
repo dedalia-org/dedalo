@@ -79,6 +79,7 @@ import {
 	DRIVER_SCRIPT,
 	failFastSkip,
 	gitScrubbedEnv,
+	orphanCiVolumes,
 	parseStages,
 	recordArgsFault,
 	recordCopyFault,
@@ -925,5 +926,29 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('leftover CI volumes — only a dead run’s, never a live one’s', () => {
+	const rows = [
+		{ name: 'dedalo-ci-111-db_pgdata', project: 'dedalo-ci-111-db' }, // killed run
+		{ name: 'dedalo-ci-222-db_pgdata', project: 'dedalo-ci-222-db' }, // live pid, no container yet
+		{ name: 'dedalo-ci-333-instance_pgdata', project: 'dedalo-ci-333-instance' }, // container still there
+		{ name: 'other_pgdata', project: 'other' }, // not ours
+		{ name: 'dedalo-ci-bun-cache', project: '' },
+	];
+	const alive = (pid: number) => pid === 222;
+
+	test('a dead pid with no container is swept; a live pid, a held project and a foreign project are not', () => {
+		expect(orphanCiVolumes(rows, new Set(['dedalo-ci-333-instance']), alive)).toEqual([
+			'dedalo-ci-111-db_pgdata',
+		]);
+	});
+
+	test('the postgres service mounts a NAMED volume (an anonymous one cannot be attributed)', () => {
+		const compose = readFileSync(join(REPO_ROOT, 'ci', 'compose.yml'), 'utf8');
+		const postgres = /\n {2}postgres:\n([\s\S]*?)\n {2}\S/.exec(compose)?.[1] ?? '';
+		expect(/^ {6}- pgdata:\/var\/lib\/postgresql$/m.test(postgres)).toBe(true);
+		expect(/^volumes:\n(?: {2}.*\n)*? {2}pgdata:/m.test(compose)).toBe(true);
 	});
 });
