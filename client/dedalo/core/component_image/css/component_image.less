@@ -67,6 +67,33 @@
 
 		}//end .content_data
 
+		// quality chip: hidden at rest, revealed by hover / activation / focus
+		// inside the component. opacity (not display/visibility) keeps it in the
+		// tab order, so keyboard users reach it and the reveal follows the focus.
+		// (!important beats the quiet grid's
+		// `.section_record.edit .wrapper_component.edit … select { opacity: 1 }`
+		// (0,5,0) in general.less; the reveal rules are !important too, so they win.)
+		.quality_selector {
+			opacity: 0 !important;
+			pointer-events: none;
+			transition: opacity 0.15s ease-out;
+
+			// a finger has no hover to reveal it, and the SVG <object> swallows
+			// taps (so .active cannot be relied on there): leave it on screen
+			@media (pointer: coarse) {
+				opacity: 1 !important;
+				pointer-events: auto;
+			}
+		}
+		&:hover,
+		&.active, // ui.component.activate() adds .active on mousedown
+		&:focus-within {
+			.quality_selector {
+				opacity: 1 !important;
+				pointer-events: auto;
+			}
+		}
+
 		>.buttons_container {
 			white-space: unset !important;
 

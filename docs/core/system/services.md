@@ -233,6 +233,11 @@ tags, and tracking an `is_dirty` flag that drives `save()` →
 `caller.save_value(key, value)`. **Consumed by** `component_text_area`
 (`self.service_text_editor = service_ckeditor`).
 
+The editor bundle is shared by every field on a page, so it is loaded once per
+page (`preload_ckeditor`, memoized) and warmed during browser idle as soon as an
+editable text area renders (`schedule_ckeditor_preload`). Only the per-field
+editor instance is created on activation.
+
 ### service_time_machine
 
 The data/render logic of the [Time Machine](../../development/tools/reference/tool_time_machine.md)
@@ -300,7 +305,9 @@ service. *(All are instance methods on the JS prototype unless noted.)*
 
 | method | purpose |
 | --- | --- |
-| `init(options)` | Load CKEditor + lang JSON, create the editor (`ddEditor`/`InlineEditor`). |
+| `init(options)` | Create the editor (`ddEditor`/`InlineEditor`) for one field, awaiting the shared engine preload. |
+| `preload_ckeditor()` | Load the CKEditor bundle + language JSON once per page (memoized). |
+| `schedule_ckeditor_preload()` | Warm that load during browser idle when an editable text area renders (once per page; skipped under data saver). |
 | `create_ddEditor(cfg)` / `create_InlineEditor(cfg)` | Build the two editor flavours and wire toolbar/events. |
 | `save()` | If dirty, `caller.save_value(key, editor.getData())`. |
 | `get_value()` | Editor content as raw HTML string. |

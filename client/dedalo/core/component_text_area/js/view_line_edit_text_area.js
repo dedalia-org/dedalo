@@ -364,6 +364,13 @@ const get_content_value = (i, current_value, self) => {
 					.catch(function(error) {
 						value_container.classList.remove('loading')
 						console.error('[get_content_value] Error initializing text editor on click:', error)
+						// the listener was removed up front; re-arm it so a failed
+						// LOAD is retried by a click instead of leaving the component
+						// dead until a reload. Only when no editor was produced — a
+						// failure AFTER the editor attached must not build a second one.
+						if (!self.service_text_editor_instance[i]?.editor) {
+							content_value.addEventListener('mousedown', click_handler)
+						}
 					})
 					// once only. Remove event to prevent duplicates
 					content_value.removeEventListener('mousedown', click_handler)

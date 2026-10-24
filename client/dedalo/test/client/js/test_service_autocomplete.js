@@ -94,6 +94,99 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 
 
 	// ───────────────────────────────────────────────────────────
+	// HIGH-SEVERITY #1b — the open list must never be a band of EMPTY rows
+	// The old render_datalist appended every <li> immediately and filled it in a
+	// .then(); it resolved while all rows were still empty, so a slow record
+	// render painted a tall blank dropdown over the form (the "results out of
+	// layout" report). The function must resolve with every appended row already
+	// rendered, in result order.
+	// ───────────────────────────────────────────────────────────
+
+	describe("render_datalist appends a row only when its record is rendered", function() {
+
+		it("returns with every row complete (no empty placeholder band)", async function() {
+
+			let portal	= null
+			let service	= null
+			try {
+				// real suite portal (test80): its request_config targets test3 and
+				// carries test52, whose records contain the searched word.
+				portal = await get_instance({
+					model			: 'component_portal',
+					tipo			: 'test80',
+					section_tipo	: section_tipo,
+					section_id		: 2,
+					mode			: 'edit',
+					lang			: lang,
+					id_variant		: 'sa_rows_portal_' + Math.random()
+				})
+				await portal.build(true)
+
+				service = await get_instance({
+					model			: 'service_autocomplete',
+					caller			: portal,
+					tipo			: 'test80',
+					section_tipo	: section_tipo,
+					request_config	: portal.context.request_config,
+					id_variant		: 'sa_rows_service_' + Math.random()
+				})
+				assert.equal(await service.build(), true, 'precondition: the service builds from the portal request_config')
+
+				service.operator = '$or'
+				service.ar_search_section_tipo = [section_tipo]
+				service.rqo_search.sqo.section_tipo = [section_tipo]
+				for (const clause of Object.values(service.rqo_search.sqo_options.filter_free).flat()) {
+					clause.q = 'one' // test3 test52 = 'input text content of one'
+				}
+				service.search_cache = {}
+
+				await service.render()
+				const response = await service.autocomplete_search()
+				assert.equal(response.ok, true, 'precondition: the suite search answers')
+
+				const data = response_data(response)
+				await render_datalist(service, data)
+
+				const rows = [...service.datalist.querySelectorAll('.autocomplete_data_li')]
+				assert.ok(rows.length > 0, 'the search must return rows')
+				for (const li of rows) {
+					assert.equal(li.children.length, 1, 'a row carries exactly its section_record')
+					assert.ok(li.querySelector('.section_record'), 'and that section_record is already rendered')
+				}
+
+				// order is the API's order, not the render resolution order
+				const entries = data.data.find(el => el.typo==='sections').entries
+				assert.deepEqual(
+					rows.map(li => li.title),
+					entries.map(entry => ' [' + entry.section_tipo + '-' + entry.section_id + ']'),
+					'rows keep the result order'
+				)
+
+				// a superseded render must not append its rows over the newer list
+				await Promise.all([
+					render_datalist(service, data),
+					render_datalist(service, data)
+				])
+				const after_superseded = service.datalist.querySelectorAll('.autocomplete_data_li')
+				assert.equal(
+					after_superseded.length,
+					entries.length,
+					'a superseded render must not append its rows'
+				)
+			} finally {
+				if (service) {
+					await service.destroy(true, true, true)
+				}
+				if (portal) {
+					await portal.destroy(true, true, true)
+				}
+			}
+		})
+	})//end describe render_datalist complete rows
+
+
+
+	// ───────────────────────────────────────────────────────────
 	// HIGH-SEVERITY #2 — the external search must go through the ENGINE
 	// (2026-08-06). external_engine used to be zenon_engine and issued a
 	// cross-origin XHR at the DAI search endpoint from this browser: outside

@@ -161,6 +161,14 @@ describe(`COMPONENT_INPUT_TEXT LIFECYCLE`, function() {
 						// edit print: permissions forced to 1, read_only content
 						const read_only = node.querySelector('.read_only')
 						assert.isOk(read_only, 'expected read_only element in edit/print')
+						// FIELD GRID: a read-only value is a plain block with no input
+						// to carry --field_box_bleed, so its text must still land on the
+						// same left inset as the label above it.
+						const label = node.querySelector(':scope > .label')
+						assert.isOk(label, 'expected label in edit/print')
+						const text_left = (el) => el.getBoundingClientRect().left
+							+ parseFloat(getComputedStyle(el).paddingLeft || 0)
+						assert.closeTo(text_left(read_only), text_left(label), 1, 'read-only value text must align with its label')
 					}
 
 					if (pair.mode==='list' && pair.view==='default') {

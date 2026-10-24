@@ -1,6 +1,6 @@
 {
   "_comment": "Page paths as last PUBLISHED to dedalo.dev/docs/v7/. Rewritten by `bun run docs:publish` on every successful upload, so it records what is actually being served rather than what we intend to serve. docs_versioning_tripwire fails if a path listed here has left docs/ without gaining a redirect_maps entry in mkdocs.yml — that is the difference between a rename and a 404. Empty until the first publish: no v7 URL is public yet, so no v7 rename can break anything yet.",
-  "published_at": "2026-10-22",
+  "published_at": "2026-10-24",
   "paths": [
     "",
     "api/",

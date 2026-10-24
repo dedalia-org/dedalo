@@ -9,6 +9,7 @@
 	import {view_mini_text_area} from './view_mini_text_area.js'
 	import {view_line_edit_text_area} from './view_line_edit_text_area.js'
 	import {ui} from '../../common/js/ui.js'
+	import {schedule_ckeditor_preload} from '../../services/service_ckeditor/js/service_ckeditor.js'
 
 
 
@@ -62,6 +63,13 @@ render_edit_component_text_area.prototype.edit = async function(options) {
 
 	// view
 		const view = self.context.view || 'default'
+
+	// warm the shared CKEditor engine (bundle + langs) off the click path.
+	// Instance creation stays on demand — see schedule_ckeditor_preload().
+	// 'mini' and 'print' never build an editor.
+		if (self.permissions > 1 && view !== 'mini' && view !== 'print') {
+			schedule_ckeditor_preload()
+		}
 
 	switch(view) {
 

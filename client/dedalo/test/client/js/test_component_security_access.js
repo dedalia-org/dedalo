@@ -9,6 +9,13 @@ import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {is_empty} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
+import {
+	MATCH_LIMIT,
+	filter_tree,
+	item_matches,
+	normalize_text,
+	parse_query
+} from '../../../core/component_security_access/js/security_access_filter.js'
 
 
 
@@ -421,6 +428,246 @@ describe(`COMPONENT_SECURITY_ACCESS SEARCH DATA OPERATIONS`, function() {
 			}
 	});
 });
+
+
+
+/**
+* The permission tree is ~32k entries rendered lazily, so its search layer is a
+* DOM-free module: filter_tree() answers the only question the renderer asks —
+* which flat subset to draw (matches + their ancestor path). The fixture mirrors
+* the REAL datalist shape, including the two facts a naive filter gets wrong:
+*   - a tipo REPEATS (a section_group shared by several sections appears once per
+*     section), so tipo is not a node identity;
+*   - an entry can be UNREACHABLE (its area is denied), so it never paints and
+*     must not be counted.
+*/
+describe(`COMPONENT_SECURITY_ACCESS TREE FILTER`, function() {
+
+	const datalist = [
+		{tipo:'areaA', section_tipo:'areaA', model:'area_root', label:'Catalogue', parent:'dd1'},
+		{tipo:'secX', section_tipo:'secX', model:'section', label:'Coins', parent:'areaA'},
+		{tipo:'grp1', section_tipo:'secX', model:'section_group', label:'General', parent:'secX'},
+		{tipo:'comp1', section_tipo:'secX', model:'component_input_text', label:'Name field', parent:'grp1'},
+		{tipo:'secY', section_tipo:'secY', model:'section', label:'Users', parent:'areaA'},
+		{tipo:'grp1', section_tipo:'secY', model:'section_group', label:'General', parent:'secY'},
+		{tipo:'comp1', section_tipo:'secY', model:'component_text_area', label:'Mail field', parent:'grp1'},
+		{tipo:'areaB', section_tipo:'areaB', model:'area_root', label:'Tesauro', parent:'dd1'},
+		{tipo:'secZ', section_tipo:'secZ', model:'section', label:'Dirección oculta', parent:'deniedArea'},
+		{tipo:'comp9', section_tipo:'secZ', model:'component_input_text', label:'Hidden field', parent:'secZ'}
+	]
+
+	// entries kept, as `${section_tipo}/${tipo}`: tipo alone repeats on purpose
+	const kept = (result) => result.items.map(el => `${el.section_tipo}/${el.tipo}`)
+	const filtered = (query) => filter_tree(datalist, query)
+
+	it('normalize_text folds case and diacritics', function() {
+		assert.equal(normalize_text('España'), 'espana', 'expected diacritics stripped and lowercased')
+		assert.equal(normalize_text(null), '', 'expected null to fold to empty string')
+	})
+
+	it('parse_query splits on whitespace and drops empties', function() {
+		assert.deepEqual(parse_query('  Name  comp1 '), ['name','comp1'], 'expected trimmed tokens')
+		assert.deepEqual(parse_query('   '), [], 'expected whitespace-only to yield no tokens')
+	})
+
+	it('an empty query means no filter', function() {
+		assert.equal(filter_tree(datalist, ''), null, 'expected null (render the normal lazy tree)')
+		assert.equal(filter_tree(datalist, '   '), null, 'expected whitespace-only to mean no filter')
+	})
+
+	it('matches by name, by tipo, and diacritic-insensitively', function() {
+		assert.deepEqual(kept(filtered('users')).sort(), ['areaA/areaA','secY/secY'], 'expected the section + its area')
+		assert.deepEqual(kept(filtered('secY')).sort(), ['areaA/areaA','secY/secY'], 'expected a section tipo match')
+		assert.deepEqual(kept(filtered('direccion')), kept(filtered('Dirección')), 'expected the accent to be ignored')
+		assert.deepEqual(kept(filtered('zzz')), [], 'expected a dead end to keep nothing')
+	})
+
+	it('keeps the ancestor path, in datalist order, and counts matches only', function() {
+		const result = filtered('comp1')
+		assert.equal(result.match_count, 2, 'expected BOTH occurrences of the repeated tipo to match')
+		assert.equal(result.truncated, false, 'expected no truncation')
+		assert.equal(result.matches.size, 2, 'expected the highlight set to hold the matches only')
+		assert.deepEqual(
+			kept(result),
+			['areaA/areaA','secX/secX','secX/grp1','secX/comp1','secY/secY','secY/grp1','secY/comp1'],
+			'expected original order, each occurrence with its OWN path'
+		)
+	})
+
+	it('marks the matches, not the ancestors kept for their path', function() {
+		// the entry objects are the highlight identity: a tipo would collide
+		const result = filtered('name field')
+		const marked = [...result.matches].map(el => `${el.section_tipo}/${el.tipo}`)
+		assert.deepEqual(marked, ['secX/comp1'], 'expected ONE marked entry, the match itself')
+		assert.equal(result.matches.has(result.items[0]), false, 'expected the root area NOT to be marked')
+	})
+
+	it('does not confuse two occurrences of the same tipo', function() {
+		const result = filtered('mail field')
+		assert.equal(result.match_count, 1, 'expected one entry')
+		assert.deepEqual(
+			kept(result),
+			['areaA/areaA','secY/secY','secY/grp1','secY/comp1'],
+			'expected the chain through secY, not the same-tipo chain of secX'
+		)
+	})
+
+	it('tokens are ANDed and order-independent', function() {
+		assert.deepEqual(kept(filtered('name field')).sort(), kept(filtered('field name')).sort(), 'expected order not to matter')
+		assert.deepEqual(kept(filtered('users name')), [], 'expected tokens to have to match the SAME entry')
+	})
+
+	it('item_matches searches label and tipo, never the model', function() {
+		const node = {tipo:'comp1', label:'Name field', model:'component_input_text'}
+		assert.equal(item_matches(node, parse_query('component')), false, 'expected model NOT to be searched')
+		assert.equal(item_matches(node, parse_query('comp1')), true, 'expected tipo to be searched')
+	})
+
+	it('caps the rendered matches and reports the real total', function() {
+		const big = [{tipo:'root', section_tipo:'root', model:'area_root', label:'Root', parent:'dd1'}]
+		for (let i = 0; i < MATCH_LIMIT + 5; i++) {
+			big.push({tipo:'n'+i, section_tipo:'root', model:'component_input_text', label:'Item', parent:'root'})
+		}
+		const result = filter_tree(big, 'item')
+		assert.equal(result.match_count, MATCH_LIMIT + 5, 'expected the REAL total in the counter')
+		assert.equal(result.truncated, true, 'expected the truncated flag')
+		assert.equal(
+			result.items.filter(el => el.label==='Item').length,
+			MATCH_LIMIT,
+			'expected the rendered matches to stop at MATCH_LIMIT'
+		)
+		assert.equal(result.matches.size, MATCH_LIMIT, 'expected only the PAINTED matches to be marked')
+	})
+
+	it('an unreachable entry is neither painted nor counted', function() {
+		// secZ/comp9 sit under deniedArea, which is not in the list: the tree starts
+		// at parent==='dd1', so they can never paint — counting them would be a lie
+		const result = filtered('hidden field')
+		assert.equal(result.match_count, 0, 'expected the unreachable match not to be counted')
+		assert.deepEqual(kept(result), [], 'expected nothing painted')
+	})
+})
+
+
+
+describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
+
+	this.timeout(15000);
+
+	let instance	= null
+	let node		= null
+
+	it(`renders the filter box and narrows the tree`, async function() {
+
+		const options = {
+			model			: 'component_security_access',
+			tipo			: tipo,
+			section_tipo	: section_tipo,
+			section_id		: section_id,
+			lang			: lang,
+			mode			: 'edit',
+			view			: 'default',
+			id_variant		: 'tree_filter_' + Math.random()
+		}
+
+		instance = await get_instance(options)
+		await instance.build(true)
+		node = await instance.render()
+		component_container.appendChild(node)
+
+		const tree = node.querySelector('.tree_root')
+		assert.isOk(tree, 'expected the tree ul')
+		const filter_input = tree.querySelector('.tree_filter_input')
+		assert.isOk(filter_input, 'expected the tree filter input')
+		const clear_button = tree.querySelector('.tree_filter_clear')
+		assert.isOk(clear_button, 'expected the clear button')
+
+		// a component entry this filter can actually paint: query its own tipo and
+		// keep the first candidate with a non-empty result. Tipos repeat in the real
+		// datalist, so the assertion compares against what the filter resolved, not
+		// against a hard-coded 1. Bounded to 25 probes: each one is a full scan.
+		const datalist = instance.data.datalist || []
+		const candidates = datalist
+			.filter(el => el.tipo!==el.section_tipo && (el.model || '').startsWith('component_') && el.label)
+			.slice(0, 25)
+		let leaf = null
+		let resolved = null
+		for (const candidate of candidates) {
+			const result = filter_tree(datalist, candidate.tipo)
+			if (result && result.match_count > 0) {
+				leaf = candidate
+				resolved = result
+				break
+			}
+		}
+		assert.isOk(leaf, 'expected a component entry the filter can resolve')
+
+		const root_nodes_before = tree.querySelectorAll('.li_item').length
+		assert.isAbove(root_nodes_before, 0, 'expected the unfiltered tree to render its root nodes')
+		assert.isTrue(clear_button.classList.contains('hide'), 'expected no clear button with an empty query')
+
+		// filter by the node's own tipo
+		filter_input.value = leaf.tipo
+		filter_input.dispatchEvent(new Event('input'))
+
+		assert.include(tree.textContent, leaf.tipo, 'expected the matched node rendered with its tipo')
+		assert.include(
+			tree.querySelector('.tree_filter_count').textContent,
+			resolved.match_count + ' / ',
+			'expected the counter to report what the filter resolved'
+		)
+		const marked = tree.querySelectorAll('.li_item.match')
+		assert.equal(marked.length, resolved.matches.size, 'expected every painted match marked')
+		assert.isAbove(marked.length, 0, 'expected at least one highlighted row')
+		assert.include(marked[0].textContent, leaf.tipo, 'expected the highlight on the matched entry')
+		assert.isFalse(clear_button.classList.contains('hide'), 'expected the clear button once a query is set')
+		assert.isFalse(
+			tree.querySelector('.tree_filter_count').classList.contains('hide'),
+			'expected the match counter while filtering'
+		)
+		assert.isTrue(
+			tree.querySelector('.tree_filter_status').getAttribute('role')==='status',
+			'expected the filter status to be announced'
+		)
+		assert.isTrue(
+			tree.querySelector('.tree_filter_status').textContent===''
+			|| tree.querySelector('.tree_filter_status').classList.contains('hide'),
+			'expected no dead-end notice for a match'
+		)
+
+		// a dead end says so instead of leaving a blank panel
+		filter_input.value = 'zzz_no_such_label'
+		filter_input.dispatchEvent(new Event('input'))
+		assert.isFalse(
+			tree.querySelector('.tree_filter_status').classList.contains('hide'),
+			'expected an explicit no-matches notice'
+		)
+
+		// clearing restores the normal lazy tree
+		clear_button.dispatchEvent(new MouseEvent('click', {bubbles:false}))
+		assert.equal(filter_input.value, '', 'expected the query to be cleared')
+		assert.equal(
+			tree.querySelectorAll('.li_item').length,
+			root_nodes_before,
+			'expected the unfiltered tree back'
+		)
+		assert.isTrue(clear_button.classList.contains('hide'), 'expected the clear button hidden again')
+	})
+
+	it(`destroy after the tree filter test`, async function() {
+
+		if (instance) {
+			await instance.destroy(true)
+		}
+
+		assert.equal(instance.status, 'destroyed', 'status expected destroyed')
+
+		// clean DOM
+			while (component_container.firstChild) {
+				component_container.removeChild(component_container.firstChild)
+			}
+	})
+})
 
 
 

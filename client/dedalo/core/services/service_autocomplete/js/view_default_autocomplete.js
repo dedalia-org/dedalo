@@ -1550,8 +1550,11 @@ const render_operator_selector = function(self) {
 *  7. For each section_record creates a `<li class="autocomplete_data_li">` with:
 *       - mouseenter/mouseleave: toggle 'selected' class
 *       - click: calls selection_handler (see below)
-*       - async render() call appended via .then() so the list appears
-*         progressively without blocking the loop
+*     Rows are appended ONLY after their section_record has rendered, in result
+*     order, and the function resolves when every row is complete. Appending the
+*     empty `<li>`s first (the old `.then()` shape) painted the open list as a
+*     tall band of empty rows until each record resolved — a blank dropdown that
+*     covered the page on a slow render.
 *
 * selection_handler logic:
 *  - Checks self.properties.events for a custom 'add_value' event handler.
@@ -1572,6 +1575,12 @@ const render_operator_selector = function(self) {
 * @returns {Promise<HTMLElement>} The populated (or cleared) datalist `<ul>`
 */
 export const render_datalist = async function(self, result) {
+
+	// render token. A newer render_datalist supersedes this one: without it a
+	// slow older render would append its rows AFTER the newer render cleared
+	// the list, leaving results that no longer match the typed query.
+		self._render_token = (self._render_token || 0) + 1
+		const render_token = self._render_token
 
 	// datalist container node
 		const datalist = self.datalist
@@ -1676,6 +1685,11 @@ export const render_datalist = async function(self, result) {
 		// store to allow destroy later
 		self.ar_instances.push(...ar_section_record)
 
+	// a newer render superseded this one while the records were being built
+		if (render_token !== self._render_token) {
+			return datalist
+		}
+
 	// mouseenter_handler
 		const mouseenter_handler = async (e) => {
 			e.stopPropagation()
@@ -1766,6 +1780,7 @@ export const render_datalist = async function(self, result) {
 
 	// iterate the section_records
 		const ar_section_record_length = ar_section_record.length
+		const row_promises = []
 		for (let i = 0; i < ar_section_record_length; i++) {
 
 			// section_record
@@ -1782,12 +1797,13 @@ export const render_datalist = async function(self, result) {
 			// const current_row = data.filter((item)=> item.section_tipo===section_tipo && item.section_id===section_id )
 				// const section_record_node = await current_section_record.render()
 
-			// li_node container
+			// li_node container. NOT appended yet: a row is appended only after its
+			// section_record renders (see below), so the open list never paints as a
+			// tall band of empty rows while the records are still being built.
 				const li_node = ui.create_dom_element({
 					element_type	: 'li',
 					class_name		: 'autocomplete_data_li',
-					title			: ' [' + locator.section_tipo + '-' + locator.section_id + ']',
-					parent			: datalist
+					title			: ' [' + locator.section_tipo + '-' + locator.section_id + ']'
 				})
 				li_node.locator = locator
 				// click event. When the user do click in one row send the data to the caller_instance for save it.
@@ -1806,13 +1822,32 @@ export const render_datalist = async function(self, result) {
 				// mouseleave event
 				li_node.addEventListener('mouseleave', mouseleave_handler);
 
-			// render and add section_record_node
-				// li_node.appendChild(section_record_node)
-				current_section_record.render()
-				.then(function(section_record_node){
-					li_node.appendChild(section_record_node)
-				})
+			// render the row, then hand it back for the ordered append. A row whose
+			// render rejects is NAMED and skipped: one broken record must not blank
+			// the whole list (and must not leave an empty row behind either).
+				row_promises.push((async () => {
+					try {
+						const section_record_node = await current_section_record.render()
+						li_node.appendChild(section_record_node)
+						return li_node
+					} catch (error) {
+						console.error('(!) [service_autocomplete] refused: result row could not be rendered. Skipped:',
+							locator.section_tipo + '_' + locator.section_id, error)
+						return null
+					}
+				})())
 		}//end for of current_section (section_tipo)
+
+	// append in result order. render_datalist resolves only when every row is
+	// COMPLETE, so callers can remove their loading UI without exposing blanks.
+		const li_nodes = await Promise.all(row_promises)
+
+		// a newer render superseded this one while the rows were rendering:
+		// drop them (the newer render owns the list now).
+		if (render_token !== self._render_token) {
+			return datalist
+		}
+		datalist.append(...li_nodes.filter(Boolean))
 
 
 	return datalist

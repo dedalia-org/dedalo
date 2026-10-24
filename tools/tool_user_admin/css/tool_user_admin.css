@@ -40,6 +40,7 @@
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd330 {
   grid-row: 1;
   opacity: 1;
+  margin-bottom: 1rem;
 }
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd132 {
   display: block;
@@ -53,20 +54,18 @@
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd452 {
   grid-row: 2;
   grid-column: span 3;
-  background-color: var(--color_hilite_2);
 }
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd133 {
   grid-row: 2;
   grid-column: span 3;
-  background-color: var(--color_hilite_2);
 }
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd134 {
   grid-row: 3;
   grid-column: span 6;
-  background-color: var(--color_hilite_2);
 }
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd522 {
   grid-row: 1 / span 4;
   grid-column: span 4;
+  height: 26rem;
 }
 /*# sourceMappingURL=tool_user_admin.css.map */

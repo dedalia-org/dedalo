@@ -51,6 +51,27 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Image quality selector now appears only on hover or on an active component; touch screens keep it visible.**
+
+    Before, the quality chip ("1.5MB ▴▾") sat permanently on top of the image in the edit view, overlaying the picture's top-right corner. Now it stays hidden while the component rests: it appears when the pointer is over the component, when the component is active (clicked), or when it takes keyboard focus, and it fades back out.
+
+    The chip is still keyboard-reachable (it keeps its place in the tab order, and focusing it reveals it), and at rest it no longer intercepts clicks in that corner of the image. On touch screens — which have no hover — the chip keeps working as before, always visible.
+
+    Applies to the edit view of `component_image` only.
+
+- **Opening a rich-text field no longer downloads the editor on the first click.**
+
+    Clicking into a description, transcription or any other rich-text field used to
+    start the download and parsing of the editor itself, so the first click sat
+    there for a moment before the cursor appeared.
+
+    The editor's engine is now fetched in the background while the edit form
+    settles — once per page, only when the form actually shows an editable
+    rich-text field — and the first click only creates the editor for that field.
+    Fields are still not loaded until used, so a form with many text areas does not
+    carry one editor per field. On a metered connection (browser "data saver") the
+    background fetch is skipped.
+
 - **CSV import guesses the target section from more file names and remembers your correction.**
 
     In the *Import Dédalo CSV* tool, the target section tipo is now read from any word of the file name that has the tipo shape, so names such as `export_Mint_07-10-2026-numisdata6-raw.csv` resolve to `numisdata6` instead of `raw`. When a name holds several tipos, the field offers them as suggestions.
@@ -150,6 +171,28 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The profile permission tree can be filtered by name or tipo.**
+
+    A profile's **Access and permissions** tree lists the whole ontology, and a node
+    several levels down (a component inside a section inside an area) was hard to
+    find: you had to open the branches one by one.
+
+    The tree now has a search box above it. Typing part of a node's **name** or its
+    **tipo** keeps that node together with the path to it, and opens the branches on
+    the way down, so the permission radios are in front of you instead of hidden.
+
+    - Matching ignores case and accents (`administracion` finds `Administración`).
+    - Several words must all match the same node (`user name`, not one each).
+    - Matching nodes are highlighted in yellow, so a result is easy to spot among the
+      open branches that lead to it.
+    - The counter shows how many nodes match; a very broad query renders the first
+      500 matches and says so — type more to narrow it.
+    - The filter only changes what is *shown*. Permission values, and the propagation
+      of a checkbox or a global `x / r / rw` radio, still apply to every node,
+      visible or not. Clearing the box restores the tree exactly as you had it.
+    - Jumping to a section from **Latest changes** clears the filter: that jump exists
+      to show you the section, and a query could hide it.
+
 - **The address bar now names the open record, so an edit page can be copied and reopened**
 
     While editing a record, the address bar now carries its id (`?tipo=…&mode=edit&id=…`),
@@ -230,6 +273,45 @@ Merged since the last release; these ship with the next one.
     selector, not replacing its contents. Desktop (side-by-side levels) is unchanged.
 
 #### Fixed
+
+- **The autocomplete result list no longer opens as a blank band**
+
+    An autocomplete field painted its dropdown the moment the search answered, but
+    before the matched records had been built: every result was an empty row. On a
+    slow render the open list became a tall blank panel over the form, with rows
+    appearing one by one — which read as broken layout.
+
+    Rows are now appended only once their record is rendered, in result order, and
+    the picker answers only when the whole list is ready: the open list is either
+    empty or complete, never a band of blank rows. A row that fails to render is
+    skipped and named in the console instead of leaving another blank band. The fix
+    is in `core/services/service_autocomplete/js/view_default_autocomplete.js`.
+
+- **component_iri edit row lays out on one aligned line**
+
+    The component_iri edit row mixed wrapped widths (30% + 20% + 50% plus the active checkbox forced an overflow) so the label, title and url fields scattered across misaligned lines. The three now share one line with stable proportions when the container is wide, and wrap to neat full-width lines when it is not. The active checkbox also joins the component's hide-at-rest rule: it is only visible on hover, on the active component or on keyboard focus. Checkbox and remove/link icons render inside one flow cluster at the row end (content_actions) that wraps with the row, so the icons no longer overlay the inputs on narrow, wrapped rows.
+
+- **A read-only field's value starts under its own label again**
+
+    When a text field is not editable — a view-only user, a Time Machine preview, a
+    print view — its value sat about half a character to the left of the label above
+    it, while an editable field's value sat exactly on it. The two looked like two
+    different grids in the same record.
+
+    The value now starts on the same left inset as its label, editable or not. The
+    alignment covers every single-line field that renders as plain text (text,
+    number, date, e-mail, URL), not just the one that was reported.
+
+- **Rich-text fields in a language with no bundled editor translation now open in English instead of not opening at all.**
+
+    The editor that backs the `html_text` view ships a UI translation only for some
+    languages (70 of the 138 application languages). For the rest — Georgian,
+    Welsh, Icelandic, Tamil and others — the editor refused to start, so those
+    fields could not be opened or edited at all.
+
+    The editor now falls back to its English interface when its translation file is
+    not available; the field opens and works as usual. Content and data language are
+    unaffected.
 
 - **Change history no longer fails, and restore no longer writes a broken value, when an old history entry holds a malformed link value.**
 
