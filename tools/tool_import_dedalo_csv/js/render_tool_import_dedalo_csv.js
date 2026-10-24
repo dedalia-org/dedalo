@@ -1149,7 +1149,7 @@ export const render_columns_mapper = async function(self, item) {
 			const point_option = ui.create_dom_element({
 				element_type	: 'option',
 				value			: '.',
-				inner_html 		: point_name + ': .',
+				text_content	: point_name + ': .',
 				parent			: decimal_select
 			})
 			point_option.checked = true
@@ -1157,7 +1157,7 @@ export const render_columns_mapper = async function(self, item) {
 			ui.create_dom_element({
 				element_type	: 'option',
 				value			: ',',
-				inner_html 		: comma_name + ': ,',
+				text_content	: comma_name + ': ,',
 				parent			: decimal_select
 			})
 			ar_columns_map[i].decimal	= decimal_select.value
@@ -1587,7 +1587,7 @@ const render_id_block = (self, parent, label_key, fallback_label, ids) => {
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'label',
-		inner_html		: (self.get_tool_label(label_key) || fallback_label) + ' (' + ids.length + ')',
+		text_content	: (self.get_tool_label(label_key) || fallback_label) + ' (' + ids.length + ')',
 		parent			: header
 	})
 
@@ -1625,7 +1625,7 @@ const render_issue_block = (self, parent, label_key, fallback_label, issues, css
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'label',
-		inner_html		: (self.get_tool_label(label_key) || fallback_label) + ' (' + issues.length + ')',
+		text_content	: (self.get_tool_label(label_key) || fallback_label) + ' (' + issues.length + ')',
 		parent			: header
 	})
 

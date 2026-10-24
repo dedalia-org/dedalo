@@ -2275,7 +2275,7 @@ section.prototype.change_mode = async function(options) {
 				return node || ui.create_dom_element({
 					element_type	: 'div',
 					class_name		: 'error',
-					inner_html		: 'Error on render element ' + new_instance.model
+					text_content	: 'Error on render element ' + new_instance.model
 				})
 			}
 		})

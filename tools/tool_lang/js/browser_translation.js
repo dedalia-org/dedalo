@@ -625,7 +625,7 @@ export const translate_component_browser = async function(options) {
 							? ''
 							: ' : 00%'
 					if (status_container) {
-						status_container.innerHTML = `${label}${loaded}`
+						status_container.textContent = `${label}${loaded}`
 					}
 					break;
 				}

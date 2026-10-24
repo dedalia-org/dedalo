@@ -238,7 +238,7 @@ const get_content_data = async function(self) {
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'displayed_total_records',
-					inner_html		: `${total} `,
+					text_content	: `${total} `,
 					parent			: fragment
 				})
 
@@ -327,7 +327,7 @@ const get_content_data = async function(self) {
 					ui.create_dom_element({
 						element_type	: 'span',
 						class_name		: 'page_info',
-						inner_html		: `${page_number}-${total_pages}`,
+						text_content	: `${page_number}-${total_pages}`,
 						parent			: paginator_info
 					})
 
@@ -365,7 +365,7 @@ const get_content_data = async function(self) {
 			ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'displayed_total_records',
-				inner_html		: `: ${total}`,
+				text_content	: `: ${total}`,
 				parent			: paginator_info
 			})
 		}

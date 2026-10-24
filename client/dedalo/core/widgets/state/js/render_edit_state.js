@@ -730,7 +730,7 @@ const get_value_element = (i, data, self) => {
 						const total_value = ui.create_dom_element({
 							element_type	: 'span',
 							class_name		: 'value',
-							inner_html 		: state_total.value +'%',
+							text_content	: state_total.value +'%',
 							parent 			: state_total_node
 						})
 						// meter + keyboard access (see situation above)
@@ -821,7 +821,7 @@ const get_value_element = (i, data, self) => {
 					: matches[0]
 				// set the new value
 				if(new_data){
-					node.node_value.innerHTML = new_data.value +'%'
+					node.node_value.textContent = new_data.value +'%'
 					// repaint the bar from the same number, or it would freeze at the
 					// value the widget was built with
 					if(node.node_total){

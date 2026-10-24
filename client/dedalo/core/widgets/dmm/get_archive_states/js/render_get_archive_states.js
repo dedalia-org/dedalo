@@ -224,7 +224,7 @@ const get_value_element = (i, data, values_container, self) => {
 		const closed_label_node = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'states_label closed_label',
-			inner_html		: closed_label + ':',
+			text_content	: closed_label + ':',
 			parent			: closed_node
 		})
 			// closed_text
@@ -270,7 +270,7 @@ const get_value_element = (i, data, values_container, self) => {
 		const answer_label_node = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'states_label answer_label',
-			inner_html		: answer_label + ':',
+			text_content	: answer_label + ':',
 			parent			: answer_node
 		})
 			// answer_text

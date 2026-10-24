@@ -539,7 +539,7 @@ const get_content_data_edit = function(self) {
 						ui.create_dom_element({
 							element_type	: 'span',
 							class_name		: 'label',
-							inner_html		: (self.get_tool_label('chars_per_line') || 'Characters per line') + ' (default 90)',
+							text_content	: (self.get_tool_label('chars_per_line') || 'Characters per line') + ' (default 90)',
 							parent			: subtitles_block
 						})
 

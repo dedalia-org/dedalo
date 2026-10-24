@@ -276,7 +276,7 @@ const get_content_data_edit = async function(self) {
 				ui.create_dom_element({
 					element_type	: 'div',
 					class_name		: '',
-					inner_html		: label,
+					text_content	: label,
 					parent			: info_node
 				})
 			}

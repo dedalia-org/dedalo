@@ -571,7 +571,7 @@ const render_components_list = function(self) {
 					ui.create_dom_element({
 						element_type	: 'div',
 						class_name		: 'info_node',
-						inner_html		: `${element.model} - ${element.tipo}`,
+						text_content	: `${element.model} - ${element.tipo}`,
 						parent			: li_container
 					})
 				break;
@@ -981,7 +981,7 @@ const render_response_report = function (self, api_response) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'msg_detail',
-			inner_html		: label,
+			text_content	: label,
 			parent			: report_node
 		})
 	}
@@ -995,7 +995,7 @@ const render_response_report = function (self, api_response) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'msg_detail',
-			inner_html		: label,
+			text_content	: label,
 			parent			: report_node
 		})
 	}
@@ -1009,7 +1009,7 @@ const render_response_report = function (self, api_response) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'msg_detail',
-			inner_html		: label,
+			text_content	: label,
 			parent			: report_node
 		})
 	}

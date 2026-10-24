@@ -224,7 +224,7 @@ const fragment = new DocumentFragment()
 		const period_label = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'label',
-			inner_html		: `${period.label}`,
+			text_content	: `${period.label}`,
 			parent			: li
 		})
 
@@ -232,7 +232,7 @@ const fragment = new DocumentFragment()
 		const period_count = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'value',
-			inner_html		: `${period.count}`,
+			text_content	: `${period.count}`,
 			parent			: li
 		})
 	}

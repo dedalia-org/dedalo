@@ -242,7 +242,7 @@ export const build_pinned_chip = function(section_self) {
 	ui.create_dom_element({
 		element_type	: 'span',
 		class_name		: 'chip_label',
-		inner_html		: label_text,
+		text_content	: label_text,
 		parent			: chip
 	})
 

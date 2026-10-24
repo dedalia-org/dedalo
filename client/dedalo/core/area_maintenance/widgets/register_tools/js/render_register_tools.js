@@ -978,7 +978,7 @@ const render_report = (container, api_response) => {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'report_title',
-			inner_html		: ok
+			text_content	: ok
 				? imported.length + ' ' + tools_registered
 				: imported.length + '/' + report.length + ' ' + tools_registered + ' · ' +
 					failed.length + ' ' + (get_label.with_errors || 'with errors'),
@@ -991,7 +991,7 @@ const render_report = (container, api_response) => {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'report_counters',
-			inner_html		: (report.length - deactivated.length) + ' ' + (get_label.active || 'Active').toLowerCase() +
+			text_content	: (report.length - deactivated.length) + ' ' + (get_label.active || 'Active').toLowerCase() +
 				' · ' + deactivated.length + ' ' + (get_label.disabled || 'disabled'),
 			parent			: report_node
 		})
@@ -1066,7 +1066,7 @@ const render_report = (container, api_response) => {
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'report_tool',
-					inner_html		: names.length + '×',
+					text_content	: names.length + '×',
 					parent			: row
 				})
 				const detail = ui.create_dom_element({

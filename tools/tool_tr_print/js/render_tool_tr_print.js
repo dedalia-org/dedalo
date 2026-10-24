@@ -1254,7 +1254,7 @@ const render_header = function(self) {
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name 		: 'component_label',
-					inner_html		: label + ': ',
+					text_content	: label + ': ',
 					parent			: component_container
 				})
 				ui.create_dom_element({

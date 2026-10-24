@@ -828,7 +828,7 @@ const render_horizontal_bars = function(d3, host, rows, opts) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_where_more',
-			inner_html		: `+${hidden} more`,
+			text_content	: `+${hidden} more`,
 			parent			: host
 		})
 	}

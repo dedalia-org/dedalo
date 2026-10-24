@@ -193,7 +193,7 @@ const get_content_data_edit = async function(self) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'counters_total',
-			inner_html		: 'Counters total: ' + datalist.length,
+			text_content	: 'Counters total: ' + datalist.length,
 			parent			: content_data
 		})
 
@@ -238,7 +238,7 @@ const get_content_data_edit = async function(self) {
 			const button_repair_all = ui.create_dom_element({
 				element_type	: 'button',
 				class_name		: 'light button_action repair_all_counters',
-				inner_html		: 'Repair all counters (' + lagging_count + ')',
+				text_content	: 'Repair all counters (' + lagging_count + ')',
 				parent			: repair_all_container
 			})
 			button_repair_all.addEventListener('click', async function(e){

@@ -196,7 +196,7 @@ const render_info_container = (self) => {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'qr_totals',
-			inner_html		: totals_value,
+			text_content	: totals_value,
 			parent			: fragment
 		})
 		// truncated. The selection exceeds what one request returns (the

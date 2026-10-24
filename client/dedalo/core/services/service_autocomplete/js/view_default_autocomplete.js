@@ -364,7 +364,7 @@ const render_source_selector = function(self) {
 					element_type	: 'option',
 					parent			: select,
 					value			: i.toString(), // pass key as string option
-					inner_html		: label
+					text_content	: label
 				})
 
 				if (search_engine===self.search_engine) {
@@ -1080,7 +1080,7 @@ const build_filter = function(self, filter_items, filter_name, filter_id) {
 		const label = get_label.all || 'All'
 		const all_section_label = ui.create_dom_element({
 			element_type	: 'label',
-			inner_html		: label + ' ' + filter_name,
+			text_content	: label + ' ' + filter_name,
 			parent			: all_selector
 		})
 

@@ -1198,7 +1198,7 @@ const view_modal = async function(options) {
 								: `Called from: ${caller.label} (${caller.model} - ${caller.tipo})`
 							const wrapper = ui.create_dom_element({
 								element_type	: 'div',
-								inner_html		: msg,
+								text_content	: msg,
 								class_name		: 'body content'
 							});
 							wrapper.slot = 'body';
@@ -1208,7 +1208,7 @@ const view_modal = async function(options) {
 								ui.create_dom_element({
 									element_type	: 'div',
 									class_name		: 'content_data tool tool_error content_data_error',
-									inner_html		: 'Error: ' + (error.message || error) + '. Try to close the tool and re-open it',
+									text_content	: 'Error: ' + (error.message || error) + '. Try to close the tool and re-open it',
 									parent			: wrapper
 								});
 							}

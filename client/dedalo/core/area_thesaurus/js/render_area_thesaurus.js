@@ -515,7 +515,7 @@ export const render_root_term = function (options) {
 	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'loading',
-		inner_html		: `Loading ${section_tipo}`,
+		text_content	: `Loading ${section_tipo}`,
 		parent			: placeholder_wrapper
 	})
 

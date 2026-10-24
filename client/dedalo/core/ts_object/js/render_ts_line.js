@@ -93,7 +93,7 @@ export const render_ts_line = function(self) {
 		const id_info = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'id_info ontology',
-			inner_html		: '['+ self.section_tipo +'] non-installed hierarchy',
+			text_content	: '['+ self.section_tipo +'] non-installed hierarchy',
 			parent			: fragment
 		})
 		return fragment
@@ -174,7 +174,7 @@ export const render_ts_line = function(self) {
 				const id_info = ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'id_info ontology',
-					inner_html		: '['+ term_id +']',
+					text_content	: '['+ term_id +']',
 					title			: section,
 					data_set		: {
 						section : section,

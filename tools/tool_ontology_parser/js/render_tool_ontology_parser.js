@@ -110,7 +110,7 @@ const paint_status = async function(self, container) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'status_headline',
-			inner_html		: (self.get_tool_label('status_unavailable') || 'Status unavailable') + ': ' + (err?.message || err),
+			text_content	: (self.get_tool_label('status_unavailable') || 'Status unavailable') + ': ' + (err?.message || err),
 			parent			: container
 		})
 		return

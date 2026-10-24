@@ -281,14 +281,14 @@ const get_content_data = async function(self) {
 							return node || ui.create_dom_element({
 								element_type	: 'div',
 								class_name		: 'error_alert',
-								inner_html		: 'Error on render element ' + current_instance.model
+								text_content	: 'Error on render element ' + current_instance.model
 							})
 						} catch (e) {
 							console.error(`Exception building/rendering "${current_instance.model}":`, e)
 							return ui.create_dom_element({
 								element_type	: 'div',
 								class_name		: 'error_alert',
-								inner_html		: `Exception on element "${current_instance.model}": ` + e.message
+								text_content	: `Exception on element "${current_instance.model}": ` + e.message
 							})
 						}
 					}

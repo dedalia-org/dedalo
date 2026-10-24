@@ -351,7 +351,7 @@ const item_value_factory = function(widget_id, label, data) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'label',
-			inner_html		: label + ':',
+			text_content	: label + ':',
 			parent			: wrapper
 		})
 

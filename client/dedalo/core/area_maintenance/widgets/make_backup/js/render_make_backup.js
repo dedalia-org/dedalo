@@ -258,13 +258,20 @@ const get_content_data = async function(self) {
 		}
 
 	// info text
-		const text = `Force to make a full backup now like:<br><div>${backup_path}/<br>${file_name}</div>`
+		// built as nodes: the server paths are text, never spliced into markup
 		const info = ui.create_dom_element({
 			element_type	: 'div',
-			inner_html		: text,
+			text_content	: 'Force to make a full backup now like:',
 			class_name		: 'info_text',
 			parent			: content_data
 		})
+		const info_path = ui.create_dom_element({
+			element_type	: 'div',
+			text_content	: `${backup_path}/`,
+			parent			: info
+		})
+		info_path.appendChild(document.createElement('br'))
+		info_path.appendChild(document.createTextNode(file_name ?? ''))
 
 	// body_response
 		// Serves as the SSE process-status output zone. Injected into

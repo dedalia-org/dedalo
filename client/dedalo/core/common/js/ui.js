@@ -741,7 +741,7 @@ export const ui = {
 
 					const component_label = ui.create_dom_element({
 						element_type	: 'div',
-						inner_html		: final_label,
+						text_content	: final_label,
 						title			: title,
 						parent			: fragment
 					})
@@ -1484,7 +1484,7 @@ export const ui = {
 					ui.create_dom_element({
 						element_type	: 'div',
 						class_name		: 'label',
-						inner_html		: label + ' [' + instance.lang.substring(3) + ']',
+						text_content	: label + ' [' + instance.lang.substring(3) + ']',
 						parent			: fragment
 					})
 				}
@@ -1630,7 +1630,7 @@ export const ui = {
 						const component_label = ui.create_dom_element({
 							element_type	: 'div',
 							class_name		: 'label',
-							inner_html		: string_label,
+							text_content	: string_label,
 							parent			: tool_name_container
 						})
 
@@ -3142,8 +3142,8 @@ export const ui = {
 	*
 	* @param {Object} options - Configuration.
 	* @param {HTMLElement|string} options.header - Dialog title. A string is wrapped in
-	*   div.header > span.label, matching render_delete_record_dialog. HTML is allowed,
-	*   so it must never carry record data — use options.note for that.
+	*   div.header > span.label, matching render_delete_record_dialog, and rendered as
+	*   TEXT (never parsed as HTML). Pass a node for a styled title.
 	* @param {string|null} [options.note] - Optional '[context]' suffix appended to the
 	*   header label (the '[Oral History]' of the delete-record dialog). Rendered as
 	*   TEXT, so it is the safe slot for record data: section labels, thesaurus terms.
@@ -3177,10 +3177,13 @@ export const ui = {
 						element_type	: 'div',
 						class_name		: 'header'
 					})
+					// (!) TEXT, never parsed: a title is a sentence, and the callers
+					// build it from labels plus ids — a markup header would be a
+					// sink every caller would have to escape for
 					const label_node = ui.create_dom_element({
 						element_type	: 'span',
 						class_name		: 'label',
-						inner_html		: options.header,
+						text_content	: options.header,
 						parent			: header_node
 					})
 
@@ -4656,7 +4659,7 @@ export const ui = {
 			ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'label',
-				inner_html		: (get_label.edit || 'Edit') + ' ' + self.label + ' - ID: ' + self.section_id,
+				text_content	: (get_label.edit || 'Edit') + ' ' + self.label + ' - ID: ' + self.section_id,
 				parent			: header
 			})
 

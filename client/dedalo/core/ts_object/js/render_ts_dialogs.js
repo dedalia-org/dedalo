@@ -88,11 +88,18 @@ export const render_delete_record_dialog = function (options) {
 			element_type	: 'div',
 			class_name		: 'header'
 		})
-		ui.create_dom_element({
+		// built as nodes: no value is spliced into markup
+		const header_label = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'label',
-			inner_html		: (get_label.delete || 'Delete') + ` ID: ${section_id} <span class="note">[${section_tipo}]</span>`,
+			text_content	: (get_label.delete || 'Delete') + ` ID: ${section_id} `,
 			parent			: header
+		})
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'note',
+			text_content	: `[${section_tipo}]`,
+			parent			: header_label
 		})
 
 	// body

@@ -312,7 +312,7 @@ const get_value_element = (i, data, inputs_container, self) => {
 			const label_after =  ui.create_dom_element({
 				element_type	: "label",
 				class_name		: 'after',
-				inner_html		: ' '+(get_label[current_label_after] || current_label_after) + separator,
+				text_content	: ' '+(get_label[current_label_after] || current_label_after) + separator,
 				parent			: li
 			})
 

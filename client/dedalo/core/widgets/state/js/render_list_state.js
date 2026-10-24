@@ -401,14 +401,14 @@ const get_value_tooltip = (output_item, data, self) => {
 			// build the label with the lang name
 			const label_situation = ui.create_dom_element({
 				element_type	: 'label',
-				inner_html		: (situation_translatable) ? project_langs[j].label+': ' : 'total :',
+				text_content	: (situation_translatable) ? project_langs[j].label+': ' : 'total :',
 				parent			: situation_detail
 			})
 			// create the node with the value
 			const item_situation = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'value',
-				inner_html		: (situation_items_data) ? situation_items_data.value+'%' : '0%',
+				text_content	: (situation_items_data) ? situation_items_data.value+'%' : '0%',
 				parent			: situation_detail
 			})
 			// build the label with the list name
@@ -452,7 +452,7 @@ const get_value_tooltip = (output_item, data, self) => {
 			const total_value = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'value',
-				inner_html		: state_total.value+'%',
+				text_content	: state_total.value+'%',
 				parent			: total_node
 			})
 
@@ -475,7 +475,7 @@ const get_value_tooltip = (output_item, data, self) => {
 			// label_state. build the label with the lang
 			ui.create_dom_element({
 				element_type	: 'label',
-				inner_html		: (state_translatable) ? project_langs[k].label+': ' : 'total :',
+				text_content	: (state_translatable) ? project_langs[k].label+': ' : 'total :',
 				parent			: detail
 			})
 
@@ -483,7 +483,7 @@ const get_value_tooltip = (output_item, data, self) => {
 			ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'value',
-				inner_html		: (state_item_data) ? state_item_data.value+'%' : '0%',
+				text_content	: (state_item_data) ? state_item_data.value+'%' : '0%',
 				parent			: detail
 			})
 

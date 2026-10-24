@@ -1753,7 +1753,7 @@ tool_transcription.prototype.assign_speakers = function( options ) {
 				const jump = ui.create_dom_element({
 					element_type	: 'button',
 					class_name		: 'light speaker_listen',
-					inner_html		: `▶ ${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`,
+					text_content	: `▶ ${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`,
 					parent			: row_node
 				})
 				jump.addEventListener('click', function(e){
@@ -1782,7 +1782,9 @@ tool_transcription.prototype.assign_speakers = function( options ) {
 				ui.create_dom_element({
 					element_type	: 'option',
 					value			: String(j),
-					inner_html		: `${person.full_name}${person.role ? ` (${person.role})` : ''}`,
+					// (!) person name / role are RECORD values (the people section): TEXT,
+					// never parsed as markup — stored XSS across users otherwise
+					text_content	: `${person.full_name}${person.role ? ` (${person.role})` : ''}`,
 					parent			: person_select
 				})
 			}

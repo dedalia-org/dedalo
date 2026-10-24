@@ -581,7 +581,7 @@ render_tool_image_crop.update_crop_area = function() {
 		height	: Math.round(height * scale_y),
 	}
 
-	self.nodes.status_container.innerHTML = `
+	self.nodes.status_container.textContent = `
 		x: ${self.crop_area.x}, y: ${self.crop_area.y} | ${self.crop_area.width}x${self.crop_area.height}
 	`;
 

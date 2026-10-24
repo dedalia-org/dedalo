@@ -66,7 +66,7 @@
  *     ARRAY SLOT (`o.out = raw`, `[out] = …`) is not tracked — the scan
  *     resolves plain identifiers only. A wrapper HELPER that forwards a
  *     caller's string into a sink is counted at its own sink and at the call
- *     sites of the FOUR enumerated ui.js forwarders (HELPER_OPTIONS); a NEW
+ *     sites of the THREE enumerated ui.js forwarders (HELPER_OPTIONS); a NEW
  *     forwarding helper — in ui.js or anywhere else — is counted once, in its
  *     own file, until it is added there. Adding one is the census's price of
  *     admission, not an optional tidy-up.
@@ -742,7 +742,7 @@ function classifyAtom(atom: string, src: string, pos: number, depth: number): Cl
 		return combine([classifyAtom(joined[1] as string, src, pos, depth), sep]);
 	}
 	// a DOM NODE is never parsed: the helper options that accept `string |
-	// Node` (attach_to_modal header/body/footer, confirm header) append a node
+	// Node` (attach_to_modal header/body/footer) append a node
 	// as-is, and a node's own content was built through sinks this census
 	// already counts. Only a call to a node FACTORY is a node here — an
 	// instance's `render()` (the wrapper node), ui.create_dom_element,
@@ -945,18 +945,19 @@ function censusSource(file: string, src: string): Sink[] {
  * The HTML-FORWARDING HELPERS of ui.js: an option string a caller hands them
  * reaches `inner_html` / insertAdjacentHTML unchanged, so the CALL SITE is a
  * sink of its own — `ui.attach_to_modal({header|body|footer})`,
- * `ui.confirm({header})`, `ui.build_button({label})` and
- * `ui.update_node_content(node, value)`. A census that stopped at the helper's
+ * `ui.build_button({label})` and `ui.update_node_content(node, value)`.
+ * (`ui.confirm({header})` left the list 2026-10-25: its string header is now
+ * built with text_content — a return to inner_html is counted at that ui.js
+ * sink by the ratchet.) A census that stopped at the helper's
  * body would count these once (in ui.js's ratchet) and bless every caller.
  * Shorthand properties (`{ header }`) resolve as the identifier; an options
  * argument that is not an object literal is the whole unread value: dynamic.
  */
 const HELPER_OPTIONS: Readonly<Record<string, readonly string[]>> = {
 	attach_to_modal: ['header', 'body', 'footer'],
-	confirm: ['header'],
 	build_button: ['label'],
 };
-const HELPER_CALL_RE = /\bui\.(attach_to_modal|confirm|build_button|update_node_content)\s*\(/g;
+const HELPER_CALL_RE = /\bui\.(attach_to_modal|build_button|update_node_content)\s*\(/g;
 
 /**
  * Source with comments blanked (strings and regex literals respected), same
@@ -1130,175 +1131,94 @@ const RENDER_SURFACE_EXEMPTIONS: ReadonlyArray<{ file: string; expr: string; rea
  */
 const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/area_graph/js/render_area_graph.js': 2,
-	'client/dedalo/core/area_maintenance/js/render_area_maintenance.js': 8,
+	'client/dedalo/core/area_maintenance/js/render_area_maintenance.js': 6,
 	'client/dedalo/core/area_maintenance/widgets/ai_models/js/render_ai_models.js': 2,
-	'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js': 2,
+	'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/check_config/js/render_check_config.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/counters_status/js/render_counters_status.js': 2,
 	'client/dedalo/core/area_maintenance/widgets/diffusion_server_control/js/render_diffusion_server_control.js': 2,
 	'client/dedalo/core/area_maintenance/widgets/diffusion_server_control/js/rollup_panel.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/export_hierarchy/js/render_export_hierarchy.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/lock_components/js/render_lock_components.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/make_backup/js/render_make_backup.js': 2,
+	'client/dedalo/core/area_maintenance/widgets/make_backup/js/render_make_backup.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/media_control/js/render_media_control.js': 2,
 	'client/dedalo/core/area_maintenance/widgets/move_lang/js/render_move_lang.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/move_locator/js/render_move_locator.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/move_tld/js/render_move_tld.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/move_to_portal/js/render_move_to_portal.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/move_to_table/js/render_move_to_table.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/publication_api/js/render_publication_api.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/register_tools/js/render_register_tools.js': 4,
+	'client/dedalo/core/area_maintenance/widgets/register_tools/js/render_register_tools.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/runtime_info/js/render_runtime_info.js': 1,
 	// moved out of render_update_ontology.js with the serving readout (2026-09-28), not new
 	'client/dedalo/core/area_maintenance/widgets/serve_ontology/js/render_serve_ontology.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/update_code/js/render_update_code.js': 2,
+	'client/dedalo/core/area_maintenance/widgets/update_code/js/render_update_code.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js': 4,
-	'client/dedalo/core/area_thesaurus/js/render_area_thesaurus.js': 5,
-	'client/dedalo/core/common/js/common.js': 2,
+	'client/dedalo/core/area_thesaurus/js/render_area_thesaurus.js': 4,
 	'client/dedalo/core/common/js/dd-modal.js': 1,
 	'client/dedalo/core/common/js/render_common.js': 3,
-	'client/dedalo/core/common/js/ui.js': 23,
+	'client/dedalo/core/common/js/ui.js': 18,
 	'client/dedalo/core/common/js/utils/util.js': 1,
 	'client/dedalo/core/inspector/js/render_inspector.js': 2,
 	'client/dedalo/core/menu/js/menu.js': 1,
 	'client/dedalo/core/menu/js/render_menu_mobile.js': 1,
 	'client/dedalo/core/menu/js/render_menu_tree.js': 1,
-	'client/dedalo/core/page/js/render_page.js': 3,
-	'client/dedalo/core/paginator/js/render_paginator_micro.js': 3,
-	'client/dedalo/core/paginator/js/render_paginator_mini.js': 1,
+	'client/dedalo/core/page/js/render_page.js': 1,
 	'client/dedalo/core/relation_list/js/render_relation_list.js': 1,
 	'client/dedalo/core/search/js/render_search.js': 5,
-	'client/dedalo/core/search/js/render_semantic.js': 1,
-	'client/dedalo/core/section/js/render_common_section.js': 2,
 	'client/dedalo/core/section/js/render_open_list_with_direct_relations.js': 2,
-	'client/dedalo/core/section/js/section.js': 2,
 	'client/dedalo/core/section/js/view_default_list_section.js': 1,
 	'client/dedalo/core/section/js/view_graph_list_section.js': 2,
 	'client/dedalo/core/section/js/view_graph_solved_section.js': 1,
-	'client/dedalo/core/section/js/view_tm_list_section.js': 1,
 	'client/dedalo/core/section_group/js/render_section_group.js': 1,
 	'client/dedalo/core/section_record/js/view_mini_section_record.js': 1,
 	'client/dedalo/core/section_record/js/view_text_section_record.js': 2,
 	'client/dedalo/core/section_tab/js/render_section_tab.js': 1,
-	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 4,
+	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 2,
 	'client/dedalo/core/services/service_ckeditor/js/render_text_editor.js': 2,
-	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 5,
-	'client/dedalo/core/tools_common/js/render_tool_common.js': 1,
-	'client/dedalo/core/tools_common/js/tool_common.js': 2,
-	'client/dedalo/core/ts_object/js/render_ts_dialogs.js': 1,
-	'client/dedalo/core/ts_object/js/render_ts_line.js': 5,
-	'client/dedalo/core/widgets/calculation/js/render_calculation.js': 4,
-	'client/dedalo/core/widgets/dd/user_activity/js/render_user_activity.js': 6,
-	'client/dedalo/core/widgets/dmm/get_archive_states/js/render_get_archive_states.js': 4,
+	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 2,
+	'client/dedalo/core/ts_object/js/render_ts_line.js': 2,
+	'client/dedalo/core/widgets/calculation/js/render_calculation.js': 3,
+	'client/dedalo/core/widgets/dd/user_activity/js/render_user_activity.js': 5,
+	'client/dedalo/core/widgets/dmm/get_archive_states/js/render_get_archive_states.js': 2,
 	'client/dedalo/core/widgets/mdcat/sum_dates/js/render_sum_dates.js': 2,
 	'client/dedalo/core/widgets/numisdata/get_archive_weights/js/render_get_archive_weights.js': 8,
-	'client/dedalo/core/widgets/numisdata/get_coins_by_period/js/render_get_coins_by_period.js': 2,
-	'client/dedalo/core/widgets/oh/descriptors/js/render_edit_descriptors.js': 1,
 	'client/dedalo/core/widgets/oh/media_icons/js/render_media_icons.js': 2,
-	'client/dedalo/core/widgets/oh/tags/js/render_tags.js': 2,
-	'client/dedalo/core/widgets/state/js/render_edit_state.js': 4,
-	'client/dedalo/core/widgets/state/js/render_list_state.js': 7,
+	'client/dedalo/core/widgets/oh/tags/js/render_tags.js': 1,
+	'client/dedalo/core/widgets/state/js/render_edit_state.js': 2,
+	'client/dedalo/core/widgets/state/js/render_list_state.js': 2,
 	'tools/tool_assistant/js/chat_render.js': 2,
 	'tools/tool_dd_label/js/render_tool_dd_label.js': 2,
 	'tools/tool_dev_template/js/render_tool_dev_template.js': 4,
 	'tools/tool_diffusion/js/render_tool_diffusion.js': 2,
 	'tools/tool_hierarchy/js/render_tool_hierarchy.js': 5,
-	'tools/tool_image_rotation/js/render_tool_image_crop.js': 1,
 	'tools/tool_image_rotation/js/render_tool_image_rotation.js': 5,
-	'tools/tool_image_rotation/js/tool_image_rotation.js': 3,
-	'tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js': 11,
-	'tools/tool_import_files/js/render_tool_import_files.js': 15,
+	'tools/tool_image_rotation/js/tool_image_rotation.js': 2,
+	'tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js': 7,
+	'tools/tool_import_files/js/render_tool_import_files.js': 11,
 	'tools/tool_import_rdf/js/render_tool_import_rdf.js': 1,
-	'tools/tool_indexation/js/render_tool_indexation.js': 7,
+	'tools/tool_indexation/js/render_tool_indexation.js': 5,
 	'tools/tool_indexation/js/tag_note.js': 1,
-	'tools/tool_lang/js/browser_translation.js': 5,
+	'tools/tool_lang/js/browser_translation.js': 4,
 	'tools/tool_lang/js/render_tool_lang.js': 9,
 	'tools/tool_lang_multi/js/render_tool_lang_multi.js': 4,
 	'tools/tool_lang_multi/js/tool_lang_multi.js': 4,
-	'tools/tool_media_versions/js/render_tool_media_versions.js': 9,
-	'tools/tool_numisdata_epigraphy/js/render_tool_numisdata_epigraphy.js': 1,
-	'tools/tool_ontology/js/render_tool_ontology.js': 3,
-	'tools/tool_ontology_parser/js/render_tool_ontology_parser.js': 12,
+	'tools/tool_media_versions/js/render_tool_media_versions.js': 8,
+	'tools/tool_ontology/js/render_tool_ontology.js': 1,
+	'tools/tool_ontology_parser/js/render_tool_ontology_parser.js': 11,
 	'tools/tool_pdf_extractor/js/render_tool_pdf_extractor.js': 5,
 	'tools/tool_posterframe/js/render_tool_posterframe.js': 2,
 	'tools/tool_print/js/canvas_tool_print.js': 1,
-	'tools/tool_print/js/render_box_tool_print.js': 6,
-	'tools/tool_print/js/render_tool_print.js': 15,
+	'tools/tool_print/js/render_box_tool_print.js': 4,
+	'tools/tool_print/js/render_tool_print.js': 10,
 	'tools/tool_propagate_component_data/js/render_tool_propagate_component_data.js': 7,
-	'tools/tool_qr/js/render_tool_qr.js': 2,
+	'tools/tool_qr/js/render_tool_qr.js': 1,
 	'tools/tool_sitebuilder/js/sitebuilder_controller.js': 1,
 	'tools/tool_subtitles/js/render_tool_subtitles.js': 8,
 	'tools/tool_tc/js/render_tool_tc.js': 1,
 	'tools/tool_time_machine/js/render_tool_time_machine.js': 3,
 	'tools/tool_time_machine/js/tool_time_machine.js': 1,
-	'tools/tool_tr_print/js/render_tool_tr_print.js': 8,
-	'tools/tool_transcription/js/render_tool_transcription.js': 24,
-	'tools/tool_transcription/js/tool_transcription.js': 7,
-	'tools/tool_update_cache/js/render_tool_update_cache.js': 11,
-};
-
-/**
- * Per-file SHRINK-ONLY ratchet of MARKUP CONCATENATIONS (concatenatesDynamic)
- * over the WHOLE census — render surface, remainder and tools alike. Stricter
- * than REMAINDER_RATCHET: a sink here is not merely unproven, it SPLICES a
- * value into a string the HTML parser reads, the exact shape of the stored
- * XSS CodeQL found (#7930 vector_editor delete-layer dialog, #7940
- * render_search label_add, both closed 2026-10-25 and therefore absent). The
- * fix is never an exemption: build the markup as nodes and hand the value to
- * text_content (or render_value with the server's class). Exact counts; a
- * file not listed holds zero; a file reaching zero is deleted. Measured
- * 2026-10-25 — most entries splice a count or an ontology label, but the
- * classifier cannot tell those from a record value, so every one stays red
- * until it is built as nodes.
- */
-const CONCAT_RATCHET: Readonly<Record<string, number>> = {
-	'client/dedalo/core/area_maintenance/js/render_area_maintenance.js': 2,
-	'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/counters_status/js/render_counters_status.js': 2,
-	'client/dedalo/core/area_maintenance/widgets/lock_components/js/render_lock_components.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/make_backup/js/render_make_backup.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/publication_api/js/render_publication_api.js': 1,
-	'client/dedalo/core/area_maintenance/widgets/register_tools/js/render_register_tools.js': 3,
-	'client/dedalo/core/area_thesaurus/js/render_area_thesaurus.js': 1,
-	'client/dedalo/core/common/js/common.js': 2,
-	'client/dedalo/core/common/js/ui.js': 4,
-	'client/dedalo/core/page/js/render_page.js': 2,
-	'client/dedalo/core/paginator/js/render_paginator_micro.js': 3,
-	'client/dedalo/core/paginator/js/render_paginator_mini.js': 1,
-	'client/dedalo/core/search/js/render_semantic.js': 1,
-	'client/dedalo/core/section/js/render_common_section.js': 2,
-	'client/dedalo/core/section/js/section.js': 2,
-	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 2,
-	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 3,
-	'client/dedalo/core/tools_common/js/render_tool_common.js': 1,
-	'client/dedalo/core/tools_common/js/tool_common.js': 2,
-	'client/dedalo/core/ts_object/js/render_ts_dialogs.js': 1,
-	'client/dedalo/core/ts_object/js/render_ts_line.js': 3,
-	'client/dedalo/core/widgets/calculation/js/render_calculation.js': 1,
-	'client/dedalo/core/widgets/dd/user_activity/js/render_user_activity.js': 1,
-	'client/dedalo/core/widgets/dmm/get_archive_states/js/render_get_archive_states.js': 2,
-	'client/dedalo/core/widgets/numisdata/get_coins_by_period/js/render_get_coins_by_period.js': 2,
-	'client/dedalo/core/widgets/oh/descriptors/js/render_edit_descriptors.js': 1,
-	'client/dedalo/core/widgets/oh/tags/js/render_tags.js': 1,
-	'client/dedalo/core/widgets/state/js/render_edit_state.js': 2,
-	'client/dedalo/core/widgets/state/js/render_list_state.js': 5,
-	'tools/tool_image_rotation/js/render_tool_image_crop.js': 1,
-	'tools/tool_image_rotation/js/tool_image_rotation.js': 1,
-	'tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js': 4,
-	'tools/tool_import_files/js/render_tool_import_files.js': 4,
-	'tools/tool_indexation/js/render_tool_indexation.js': 2,
-	'tools/tool_lang/js/browser_translation.js': 1,
-	'tools/tool_media_versions/js/render_tool_media_versions.js': 1,
-	'tools/tool_numisdata_epigraphy/js/render_tool_numisdata_epigraphy.js': 1,
-	'tools/tool_ontology_parser/js/render_tool_ontology_parser.js': 1,
-	'tools/tool_ontology/js/render_tool_ontology.js': 2,
-	'tools/tool_print/js/render_box_tool_print.js': 2,
-	'tools/tool_print/js/render_tool_print.js': 5,
-	'tools/tool_qr/js/render_tool_qr.js': 1,
-	'tools/tool_tr_print/js/render_tool_tr_print.js': 1,
-	'tools/tool_transcription/js/render_tool_transcription.js': 1,
-	'tools/tool_transcription/js/tool_transcription.js': 2,
-	'tools/tool_update_cache/js/render_tool_update_cache.js': 4,
+	'tools/tool_tr_print/js/render_tool_tr_print.js': 7,
+	'tools/tool_transcription/js/render_tool_transcription.js': 23,
+	'tools/tool_transcription/js/tool_transcription.js': 5,
+	'tools/tool_update_cache/js/render_tool_update_cache.js': 7,
 };
 
 // ---------------------------------------------------------------------------
@@ -1422,30 +1342,22 @@ describe('one escaper at the render boundary — the census', () => {
 		expect(Object.keys(REMAINDER_RATCHET).length).toBeGreaterThan(50); // the ratchet has a corpus
 	});
 
-	test('no NEW record value is concatenated into markup (per-file shrink-only, exact)', () => {
-		const actual: Record<string, number> = {};
-		for (const s of sinks) if (s.concat) actual[s.file] = (actual[s.file] ?? 0) + 1;
-		// RENDER_ESCAPE_DUMP=3 lists every concatenation sink
-		if (process.env.RENDER_ESCAPE_DUMP === '3')
-			for (const s of sinks) if (s.concat) console.log(describeSink(s));
-		const problems: string[] = [];
-		for (const [file, count] of Object.entries(actual)) {
-			const allowed = CONCAT_RATCHET[file] ?? 0;
-			if (count > allowed)
-				problems.push(
-					`${file}: ${count} value(s) spliced into markup, ratchet allows ${allowed} — build the markup as nodes and pass the value as text_content`,
-				);
-			else if (count < allowed)
-				problems.push(
-					`${file}: ${count} concatenation sinks, ratchet says ${allowed} — lower it (shrink-only, exact)`,
-				);
-		}
-		for (const file of Object.keys(CONCAT_RATCHET))
-			if (actual[file] === undefined)
-				problems.push(`${file}: zero concatenation sinks — delete it from the ratchet`);
-		expect(problems).toEqual([]);
-		// non-vacuous: the census sees concatenations at all
-		expect(sinks.filter((s) => s.concat).length).toBeGreaterThan(20);
+	test('NO value is concatenated into markup — the whole census, zero, no exemption', () => {
+		// MARKUP CONCATENATION (concatenatesDynamic) — the shape of the stored XSS
+		// CodeQL found (#7930 vector_editor delete-layer dialog, #7940 render_search
+		// label_add): a value the classifier cannot prove safe SPLICED into a string
+		// the HTML parser reads. Burned to zero 2026-10-25 (90 sinks: record values,
+		// counts, labels — every one rebuilt as nodes / text_content). There is no
+		// exemption list on purpose: the markup half is always the renderer's own,
+		// so it can always be built as nodes with the value handed to text_content
+		// (or render_value with the server's class).
+		const offenders = sinks.filter((s) => s.concat).map(describeSink);
+		// RENDER_ESCAPE_DUMP=3 lists them
+		if (process.env.RENDER_ESCAPE_DUMP === '3') for (const o of offenders) console.log(o);
+		expect(
+			offenders,
+			'a value is spliced into markup: build the markup as nodes and pass the value as text_content',
+		).toEqual([]);
 	});
 
 	test('positive control: the concatenation shapes CodeQL found are flagged, their fixes are not', () => {
@@ -1692,7 +1604,6 @@ describe('one escaper at the render boundary — the census', () => {
 		for (const shape of [
 			'ui.attach_to_modal({ header: item.value, body: item.label })',
 			'ui.attach_to_modal({ header: item.value, body: item.label, footer: item.other })',
-			'ui.confirm({ header: item.value })',
 			'ui.build_button({ label: item.value })',
 			'ui.update_node_content(self.node, item.value)',
 			// shorthand property, resolved as the identifier
@@ -1752,14 +1663,15 @@ describe('one escaper at the render boundary — the census', () => {
 				shape,
 			).toEqual(list.map(() => cls));
 		}
-		// and the real tree holds them: every ui.attach_to_modal / confirm /
+		// and the real tree holds them: every ui.attach_to_modal /
 		// build_button / update_node_content call site is in the census
 		const files = clientFiles();
 		const callSites = files.reduce(
 			(n, f) => n + [...stripComments(read(f)).matchAll(HELPER_CALL_RE)].length,
 			0,
 		);
-		expect(callSites).toBeGreaterThan(50);
+		// 40, not 50: the 15 ui.confirm sites left the list 2026-10-25 (its header is text)
+		expect(callSites).toBeGreaterThan(40);
 		const counted = files.flatMap(censusFile).filter((s) => s.kind === 'helper_option');
 		expect(counted.length).toBeGreaterThanOrEqual(callSites);
 		expect(counted.filter((s) => s.cls === 'static').length).toBeGreaterThan(30); // node-fed

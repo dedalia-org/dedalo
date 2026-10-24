@@ -894,7 +894,7 @@ const render_related_list = function(self){
 				const current_value = current_locator.section_top_tipo + '_' + current_locator.section_top_id
 				const option = ui.create_dom_element({
 					element_type	: 'option',
-					inner_html		: label,
+					text_content	: label,
 					value			: current_value,
 					parent			: select
 				})
@@ -1178,7 +1178,7 @@ const render_viewer_selector = function(self, left_container){
 			// option
 			const option = ui.create_dom_element({
 				element_type	: 'option',
-				inner_html		: item.icon
+				text_content	: item.icon
 					? (item.icon + ' ' + item.label)
 					: item.label,
 				value			: item.value,

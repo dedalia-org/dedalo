@@ -904,12 +904,20 @@ export const build_map_view = function(self, widgets, opts={}) {
 			const warn_nodes = MAP_NODES.filter(n => status_by_id[n.id]==='warn' || status_by_id[n.id]==='bad')
 			const known = MAP_NODES.filter(n => status_by_id[n.id]!=='idle')
 			const healthy = known.length - warn_nodes.length
-			let html = '<span class="s_seg"><span class="map_dot ok"></span><b>' + healthy + '</b>&nbsp;healthy</span>'
-			if (warn_nodes.length) {
-				html += '<span class="s_seg warn"><span class="map_dot warn"></span><b>' + warn_nodes.length +
-					'</b>&nbsp;need attention — ' + warn_nodes.map(n => n.title).join(', ') + '</span>'
+			// built as nodes: counts and titles are text, never spliced into markup
+			const segment = (class_name, dot_class, count, text) => {
+				const seg = ui.create_dom_element({ element_type : 'span', class_name : class_name })
+				ui.create_dom_element({ element_type : 'span', class_name : 'map_dot ' + dot_class, parent : seg })
+				ui.create_dom_element({ element_type : 'b', text_content : String(count), parent : seg })
+				seg.appendChild(document.createTextNode('\u00a0' + text))
+				return seg
 			}
-			summary.innerHTML = html
+			const segments = [segment('s_seg', 'ok', healthy, 'healthy')]
+			if (warn_nodes.length) {
+				segments.push(segment('s_seg warn', 'warn', warn_nodes.length,
+					'need attention — ' + warn_nodes.map(n => n.title).join(', ')))
+			}
+			summary.replaceChildren(...segments)
 			const warn_seg = summary.querySelector('.s_seg.warn')
 			if (warn_seg && warn_nodes.length) {
 				warn_seg.addEventListener('click', () => select_node(warn_nodes[0].id))
@@ -991,16 +999,21 @@ export const build_map_view = function(self, widgets, opts={}) {
 			// available tools for this node (served ids only), preserving order
 			const tools = n.tools.filter(tid => by_id[tid])
 
-			context.innerHTML =
-				'<div class="ctx_head">' +
-					'<span class="map_dot ' + (status_by_id[id]==='idle' ? '' : status_by_id[id]) + '"></span>' +
-					'<span class="ctx_title"></span>' +
-					'<span class="ctx_widget_id"></span>' +
-					'<span class="ctx_state"></span>' +
-					'<span class="ctx_sub"></span>' +
-				'</div>' +
-				'<div class="ctx_tools"></div>' +
-				'<div class="ctx_body"></div>'
+			// built as nodes: the status class is set as a class, never spliced into markup
+			const ctx_head = ui.create_dom_element({ element_type : 'div', class_name : 'ctx_head' })
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'map_dot ' + (status_by_id[id]==='idle' ? '' : status_by_id[id]),
+				parent			: ctx_head
+			})
+			for (const class_name of ['ctx_title', 'ctx_widget_id', 'ctx_state', 'ctx_sub']) {
+				ui.create_dom_element({ element_type : 'span', class_name : class_name, parent : ctx_head })
+			}
+			context.replaceChildren(
+				ctx_head,
+				ui.create_dom_element({ element_type : 'div', class_name : 'ctx_tools' }),
+				ui.create_dom_element({ element_type : 'div', class_name : 'ctx_body' })
+			)
 			context.querySelector('.ctx_title').textContent = n.title
 			context.querySelector('.ctx_state').textContent = state_by_id[id] || ''
 			context.querySelector('.ctx_sub').textContent = sub_by_id[id] || ''

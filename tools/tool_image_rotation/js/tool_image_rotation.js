@@ -387,7 +387,7 @@ tool_image_rotation.prototype.automatic_background_removal = async function(opti
 							? ''
 							: ' : 00%'
 					const procesing = `${label}${loaded}`;
-					nodes.status_container.innerHTML = procesing;
+					nodes.status_container.textContent = procesing;
 
 					break;
 				// on new chunk start empty the status_container, new phrase will be processed

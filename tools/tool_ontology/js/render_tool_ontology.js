@@ -134,7 +134,7 @@ const get_content_data = async function(self) {
 	ui.create_dom_element({
 		element_type	: 'h3',
 		class_name		: 'user_info',
-		inner_html		: `${tool_label}: `,
+		text_content	: `${tool_label}: `,
 		parent			: fragment
 	})
 
@@ -197,7 +197,7 @@ const get_content_data = async function(self) {
 		ui.create_dom_element({
 			element_type	: 'h3',
 			class_name		: 'user_info total',
-			inner_html		: `${get_label.total}: ${total}`,
+			text_content	: `${get_label.total}: ${total}`,
 			parent			: fragment
 		})
 

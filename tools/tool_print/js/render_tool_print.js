@@ -497,9 +497,9 @@ const render_toolbar = async function(self, container) {
 		const snap_label = ui.create_dom_element({
 			element_type	: 'label',
 			class_name		: 'toolbar_check',
-			inner_html		: '<span>' + L('snap_to_grid','Snap to grid') + '</span>',
 			parent			: view_group
 		})
+		ui.create_dom_element({ element_type : 'span', text_content : L('snap_to_grid','Snap to grid'), parent : snap_label })
 		const snap_check = ui.create_dom_element({
 			element_type	: 'input',
 			parent			: snap_label
@@ -514,9 +514,9 @@ const render_toolbar = async function(self, container) {
 		const fill_label = ui.create_dom_element({
 			element_type	: 'label',
 			class_name		: 'toolbar_check',
-			inner_html		: '<span>' + L('fill_with_record','Preview with record data') + '</span>',
 			parent			: view_group
 		})
+		ui.create_dom_element({ element_type : 'span', text_content : L('fill_with_record','Preview with record data'), parent : fill_label })
 		const fill_check = ui.create_dom_element({
 			element_type	: 'input',
 			parent			: fill_label
@@ -698,9 +698,9 @@ const render_inspector = function(self, container) {
 			const row = ui.create_dom_element({
 				element_type	: 'label',
 				class_name		: 'inspector_row',
-				inner_html		: '<span>' + label + '</span>',
 				parent			: layout_section
 			})
+			ui.create_dom_element({ element_type : 'span', text_content : label, parent : row })
 			const input = ui.create_dom_element({ element_type:'input', parent:row })
 			input.type = 'number'
 			input.step = '0.5'
@@ -924,7 +924,8 @@ const render_inspector = function(self, container) {
 		const inputs  = {}
 		const clampv  = (x) => { let v = parseFloat(x); if (!isFinite(v)||v<0) v=0; if (v>60) v=60; return v }
 		sides.forEach(([side, lbl]) => {
-			const f = ui.create_dom_element({ element_type:'label', class_name:'margin_field', inner_html:'<span>'+lbl+'</span>', parent:mg_grid })
+			const f = ui.create_dom_element({ element_type:'label', class_name:'margin_field', parent:mg_grid })
+			ui.create_dom_element({ element_type:'span', text_content:lbl, parent:f })
 			const inp = ui.create_dom_element({ element_type:'input', parent:f })
 			inp.type='number'; inp.min='0'; inp.max='60'; inp.step='1'; inp.value = cur_m[side]
 			inputs[side] = inp
@@ -1206,8 +1207,14 @@ const render_table_columns_ui = function(self, box) {
 		const row	= ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'inspector_row column_row column_addable',
-			inner_html		: '<span class="column_name">' + (addable[i].label || '') + '</span>',
 			parent			: container
+		})
+		// the column label is the component's: text, never spliced into markup
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'column_name',
+			text_content	: addable[i].label || '',
+			parent			: row
 		})
 		ui.create_dom_element({
 			element_type	: 'span',

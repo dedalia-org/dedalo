@@ -1476,7 +1476,7 @@ const render_job_progress = function(job, parent) {
 		if (typeof progress==='number' && isFinite(progress)) {
 			bar_track.classList.remove('indeterminate')
 			bar_fill.style.width = `${Math.max(0, Math.min(100, progress))}%`
-			label.innerHTML = `${(get_label.processing || 'Processing')} ${Math.round(progress)}%`
+			label.textContent = `${(get_label.processing || 'Processing')} ${Math.round(progress)}%`
 		}else{
 			// No percentage is knowable — say "working", not a number.
 			bar_track.classList.add('indeterminate')

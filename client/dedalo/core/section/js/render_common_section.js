@@ -158,11 +158,18 @@ render_common_section.render_delete_record_dialog = async (options) => {
 			element_type	: 'div',
 			class_name		: 'header'
 		})
-		ui.create_dom_element({
+		// built as nodes: the section label is never spliced into markup
+		const header_label = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'label',
-			inner_html		: (get_label.delete || 'Delete') + ` ID: ${id_label} <span class="note">[${label}]</span>`,
+			text_content	: (get_label.delete || 'Delete') + ` ID: ${id_label} `,
 			parent			: header
+		})
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'note',
+			text_content	: `[${label}]`,
+			parent			: header_label
 		})
 
 	// body
@@ -192,7 +199,7 @@ render_common_section.render_delete_record_dialog = async (options) => {
 						element_type	: 'h3',
 						class_name		: 'warning',
 						parent			: body,
-						inner_html		:
+						text_content	:
 							(get_label.warning || 'Warning') + '. ' +
 							(get_label.delete_found_records || 'All records found will be deleted.') + ' ' +
 							(get_label.total || 'Total') + ': '  + total

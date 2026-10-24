@@ -449,7 +449,7 @@ export const render_info = function(self) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: (max_mb < 100) ? 'warning' : '',
-			inner_html		: max_mb.toLocaleString() + ' MB',
+			text_content	: max_mb.toLocaleString() + ' MB',
 			parent			: info
 		})
 
@@ -468,7 +468,7 @@ export const render_info = function(self) {
 			: JSON.stringify(self.upload_service_chunk_files)
 		ui.create_dom_element({
 			element_type	: 'div',
-			inner_html		: chunk_text,
+			text_content	: chunk_text,
 			parent			: info
 		})
 
@@ -522,7 +522,7 @@ export const render_info = function(self) {
 		})
 		ui.create_dom_element({
 			element_type	: 'div',
-			inner_html	 	: session_cache_expire + ' [' + self.session_cache_expire.toLocaleString() + ' minutes]',
+			text_content	: session_cache_expire + ' [' + self.session_cache_expire.toLocaleString() + ' minutes]',
 			parent 			: info
 		})
 

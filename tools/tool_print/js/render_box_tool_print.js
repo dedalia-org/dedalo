@@ -874,7 +874,7 @@ const build_relation_node = function(component) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'relation_empty',
-			inner_html		: entries.length + '',
+			text_content	: entries.length + '',
 			parent			: wrap
 		})
 	}
@@ -1151,7 +1151,7 @@ const render_error_placeholder = function(box, label) {
 	ui.create_dom_element({
 		element_type	: 'span',
 		class_name		: 'box_placeholder box_unavailable',
-		inner_html		: '⚠ ' + label,
+		text_content	: '⚠ ' + label,
 		parent			: content
 	})
 }//end render_error_placeholder

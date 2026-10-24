@@ -202,7 +202,7 @@ const render_build_install_version = function (self, value) {
 		const text = `Compiles the install database from the repository sources (${source_db}) in a scratch database (${target_db}), verifies it with a fresh install and writes it to: ${target_file}`
 		ui.create_dom_element({
 			element_type	: 'div',
-			inner_html		: text,
+			text_content	: text,
 			class_name		: 'info_text',
 			parent			: fragment
 		})

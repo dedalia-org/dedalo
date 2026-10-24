@@ -214,7 +214,7 @@ const get_value_element = async (i, data, self) => {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'label',
-			inner_html 		: (get_label.total || 'Total') + ' ' +  (value+''),
+			text_content	: (get_label.total || 'Total') + ' ' +  (value+''),
 			parent			: fragment
 		})
 

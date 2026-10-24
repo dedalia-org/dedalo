@@ -308,7 +308,7 @@ const get_content_data = async function(self) {
 			element_type	: 'span',
 			class_name		: 'page_info',
 			// compact row-range: e.g. "11–20 of 1,234"
-			inner_html		: `${page_row_begin}-${page_row_end} ${of_label} ${total_label}`,
+			text_content	: `${page_row_begin}-${page_row_end} ${of_label} ${total_label}`,
 			parent			: paginator_info
 		})
 

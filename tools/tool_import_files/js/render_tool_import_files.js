@@ -894,7 +894,7 @@ export const render_file_processor_selector = function (self, options_container,
 	ui.create_dom_element({
 		element_type	: 'label',
 		class_name		: 'processor label',
-		inner_html		: label + ': ',
+		text_content	: label + ': ',
 		parent			: processor_selector_container
 	})
 
@@ -994,7 +994,7 @@ export const render_target_field_selector = function (self, options_container, o
 	ui.create_dom_element({
 		element_type	: 'label',
 		class_name		: 'target_component label',
-		inner_html		: target_component_label + ': ',
+		text_content	: target_component_label + ': ',
 		parent			: target_field_selector_container
 	})
 
@@ -1085,7 +1085,7 @@ export const render_quality_selector = function (self, options_container, ar_qua
 	ui.create_dom_element({
 		element_type	: 'label',
 		class_name		: 'quality label',
-		inner_html		: quality_label + ': ',
+		text_content	: quality_label + ': ',
 		parent			: quality_selector_container
 	})
 
@@ -1484,7 +1484,7 @@ export const render_configuration_options = function (self, options_container, c
 			// option_node
 			ui.create_dom_element({
 				element_type	: 'option',
-				inner_html		: map_name + option.label,
+				text_content	: map_name + option.label,
 				parent			: info_options
 			})
 		}//end for (let i = 0; i < option_components.length; i++)

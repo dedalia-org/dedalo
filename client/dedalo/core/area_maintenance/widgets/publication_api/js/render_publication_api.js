@@ -173,7 +173,7 @@ const get_content_data_edit = async function(self) {
 				const button_open = ui.create_dom_element({
 					element_type	: 'button',
 					class_name		: 'light',
-					inner_html		: `Open Swagger UI ${item.db_name}`,
+					text_content	: `Open Swagger UI ${item.db_name}`,
 					parent			: content_data
 				})
 				// click event

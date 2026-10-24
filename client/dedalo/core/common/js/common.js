@@ -465,7 +465,7 @@ common.prototype.render = async function (options={}) {
 			const node = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'no_access',
-				inner_html		: label
+				text_content	: label
 			})
 			self.node = node
 
@@ -614,7 +614,7 @@ common.prototype.render = async function (options={}) {
 								const new_content_data_node = ui.create_dom_element({
 									element_type	: 'div',
 									class_name		: 'no_access',
-									inner_html		: label
+									text_content	: label
 								})
 								requestAnimationFrame(()=>{
 									self.node.appendChild(new_content_data_node)

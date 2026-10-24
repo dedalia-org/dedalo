@@ -6,6 +6,7 @@
 /**
 * TEST_CLIENT_XSS_ESCAPES
 * A RECORD / USER value is TEXT at the sinks CodeQL found (#7930, #7940, #7941)
+* and at the speaker binding dialog of tool_transcription (people records),
 * and a query-string / typed-query key cannot re-parent an object (#8032,
 * #8033, #8105).
 *
@@ -22,6 +23,8 @@ import {search} from '../../../core/search/js/search.js'
 import {extract_node_fields} from '../../../core/section/js/build_graph_data.js'
 import {url_vars_to_object} from '../../../core/common/js/utils/index.js'
 import {service_autocomplete} from '../../../core/services/service_autocomplete/js/service_autocomplete.js'
+import {tool_transcription} from '../../../tools/tool_transcription/js/tool_transcription.js'
+import {ui} from '../../../core/common/js/ui.js'
 
 
 
@@ -142,5 +145,47 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		service.search_cache.set('__proto__', ['hit'])
 		assert.deepEqual(service.search_cache.get('__proto__'), ['hit'], 'a __proto__ query is an ordinary key')
 		assert.equal(Object.getPrototypeOf(service.search_cache), Map.prototype)
+	})
+
+	it('tool_transcription: a person name / role with markup is TEXT in the speaker binding dialog', async function() {
+
+		const self = Object.create(tool_transcription.prototype)
+		self.get_tool_label				= () => null
+		self.transcription_component	= { data : {}, tags_to_html : () => '' }
+
+		const opened = self.assign_speakers({
+			value	: '[TC_00:00:01.000_TC][person-a-1-P1-data::data] hello',
+			persons	: [{ full_name : XSS, role : XSS, tag : '[person-a-2-X-data::data]', data : {} }]
+		})
+		const body = document.querySelector('.transcription_speakers_map')
+		try {
+			assert.ok(body, 'the speaker dialog expected in the document')
+			const options = [...body.querySelectorAll('option')]
+			assert.equal(options.length, 2, 'the unassigned option plus the one person')
+			assert.equal(body.querySelector('img'), null, 'the person must not be parsed as markup')
+			assert.equal(options[1].textContent, XSS + ' (' + XSS + ')', 'the exact name (role) expected as text')
+			assert.equal(window.__xss_fired, undefined, 'no payload may run')
+		} finally {
+			const modal = (body && body.closest('dd-modal')) || window.modal || null
+			if (modal && typeof modal.close==='function') await modal.close()
+			if (modal && modal.isConnected) modal.remove()
+		}
+		assert.equal(await opened, null, 'closing the dialog binds nothing')
+	})
+
+	it('ui.confirm: a string header is TEXT, never parsed', async function() {
+
+		const pending = ui.confirm({ header : 'Duplicate ' + XSS, body : 'x' })
+		const header = document.querySelector('dd-modal .header .label') || [...document.querySelectorAll('.header .label')].pop()
+		try {
+			assert.ok(header, 'the confirm header expected in the document')
+			assert.equal(header.querySelector('img'), null, 'the header must not be parsed as markup')
+			assert.ok(header.textContent.includes('Duplicate ' + XSS), 'the exact header expected as text')
+		} finally {
+			const modal = (header && header.closest('dd-modal')) || window.modal || null
+			if (modal && typeof modal.close==='function') await modal.close()
+			if (modal && modal.isConnected) modal.remove()
+		}
+		assert.equal(await pending, false, 'a dismissed confirm resolves false')
 	})
 })
