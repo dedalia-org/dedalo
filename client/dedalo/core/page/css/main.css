@@ -24010,6 +24010,23 @@ body.inspector_resizing {
   opacity: 1;
   z-index: 1;
 }
+.component_image.edit .quality_selector {
+  opacity: 0 !important;
+  pointer-events: none;
+  transition: opacity 0.15s ease-out;
+}
+@media (pointer: coarse) {
+  .component_image.edit .quality_selector {
+    opacity: 1 !important;
+    pointer-events: auto;
+  }
+}
+.component_image.edit:hover .quality_selector,
+.component_image.edit.active .quality_selector,
+.component_image.edit:focus-within .quality_selector {
+  opacity: 1 !important;
+  pointer-events: auto;
+}
 .component_image.edit > .buttons_container {
   white-space: unset !important;
 }

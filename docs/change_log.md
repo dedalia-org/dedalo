@@ -51,6 +51,14 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Image quality selector now appears only on hover or on an active component; touch screens keep it visible.**
+
+    Before, the quality chip ("1.5MB ▴▾") sat permanently on top of the image in the edit view, overlaying the picture's top-right corner. Now it stays hidden while the component rests: it appears when the pointer is over the component, when the component is active (clicked), or when it takes keyboard focus, and it fades back out.
+
+    The chip is still keyboard-reachable (it keeps its place in the tab order, and focusing it reveals it), and at rest it no longer intercepts clicks in that corner of the image. On touch screens — which have no hover — the chip keeps working as before, always visible.
+
+    Applies to the edit view of `component_image` only.
+
 - **CSV import guesses the target section from more file names and remembers your correction.**
 
     In the *Import Dédalo CSV* tool, the target section tipo is now read from any word of the file name that has the tipo shape, so names such as `export_Mint_07-10-2026-numisdata6-raw.csv` resolve to `numisdata6` instead of `raw`. When a name holds several tipos, the field offers them as suggestions.
