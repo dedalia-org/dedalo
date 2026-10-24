@@ -696,6 +696,11 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 		scope:
 			'browser JS, core client and tool client alike (SCAN_ROOTS — WHOLE trees; the tools glob is `**/*.js`, not the `*/js/**` sub-path of GATE-31): its own discoverFiles scan, plus the two sites client_error_contract_tripwire feeds from the same exported SCAN_ROOTS (its corpus scan and its `git ls-files` ⊆ scan totality check)',
 	},
+	'scripts/lib/predictable_tmp_census.ts': {
+		roots: [['client/dedalo/test', 'publication', 'scripts', 'test']],
+		scope:
+			'the gate/script/probe trees whose temp-path construction predictable_tmp_tripwire measures — PREDICTABLE_TMP_SCAN_GLOBS: test/**, scripts/**, publication/**/tests/** and publication/**/deploy/probes/**, client/dedalo/test/** (deploy/probes/** is globbed too and is absent today), node_modules and fixtures/ excluded',
+	},
 	'scripts/lib/tld_census.ts': {
 		roots: [
 			['client/dedalo/test/client/js', 'src/core/test_data', 'test'],

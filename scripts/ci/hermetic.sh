@@ -232,6 +232,9 @@ HERMETIC_TRIPWIRES=(
 	test/unit/ontology_single_writer_tripwire.test.ts
 	test/unit/client_caller_chain_tripwire.test.ts
 	test/unit/generic_tld_tripwire.test.ts
+	# 2026-10-25: AST census of predictable temp paths + the scratch helper RUN
+	#     (mkdtemp under the OS temp dir). No config, no DB: verified DB-less (DB_PORT=59999).
+	test/unit/predictable_tmp_tripwire.test.ts
 	# --- 2026-08-24: the 53 gates that ran on NO executing tier. Each entry below
 	#     was classified by reading its import closure (dynamic imports included)
 	#     and then EMPIRICALLY re-verified with DB_PORT closed: 343 pass / 0 fail.
