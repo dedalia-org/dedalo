@@ -9,8 +9,10 @@
 	import {set_before_unload} from '../../common/js/events.js'
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
+	import {printf} from '../../common/js/utils/index.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {dd_request_idle_callback, when_in_viewport} from '../../common/js/events.js'
+	import {filter_tree, MATCH_LIMIT} from './security_access_filter.js'
 
 
 
@@ -46,6 +48,12 @@
 *
 * Lazy rendering: branch children are built on first expand using
 * `requestAnimationFrame`, keeping initial paint cost low for large trees.
+*
+* Tree filter: a search box (`build_tree_filter`) above the tree narrows it to the
+* nodes whose LABEL or TIPO match, rebuilt from that subset — matches plus their
+* ancestor chain, every branch open — because the ~13k-node tree is lazy and the
+* matches are not in the DOM to hide. It is VISUAL ONLY: permission values and the
+* propagation walks always read the full datalist. See `security_access_filter.js`.
 *
 * Exports a single named factory function `view_default_edit_security_access`
 * plus a static `.render` method consumed by the component render dispatch.
@@ -119,16 +127,15 @@ view_default_edit_security_access.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Builds the main content area containing the permission tree and the
-* change-history selector.
+* Builds the main content area containing the permission tree, its filter box and
+* the change-history selector.
 *
 * Branches on `self.permissions`:
-*   - 1 (read-only viewer): renders the static read tree via
-*     `render_tree_items_read` and returns immediately without adding the Save
-*     button or its associated event subscriptions.
-*   - >1 (editor): renders the interactive editable tree via `render_tree_items`,
-*     subscribes to `show_save_button_<id>` events, and attaches a Save button
-*     that calls `self.save_changes()` on click.
+*   - 1 (read-only viewer): renders the static read tree via the filter's paint
+*     and returns immediately without adding the Save button or its associated
+*     event subscriptions.
+*   - >1 (editor): subscribes to `show_save_button_<id>` events and attaches a
+*     Save button that calls `self.save_changes()` on click.
 *
 * The `content_data` element carries a `.content_data` pointer on the returned
 * `wrapper` node so callers can reach the inner DOM without querying.
@@ -178,28 +185,23 @@ const get_content_data = async function(self) {
 		const changes_files_selector = render_changes_files_selector({
 			self			: self,
 			changes_files	: changes_files,
-			datalist		: datalist,
-			value 			: value,
 			ul 				: ul
 		})
 
 		content_data.appendChild(changes_files_selector)
 		content_data.appendChild(ul)
 
-	// root level nodes. Filtered form full datalist
-		const root_level_items = datalist.filter(el => el.parent==='dd1')
+	// tree filter. It is the FIRST child of the tree ul (so a tree repaint keeps it)
+	// and the only owner of the tree paint: initial render, filter, and the
+	// changes-panel jump all go through it.
+		const tree_filter = build_tree_filter(self, datalist, value, ul)
+		ul.appendChild(tree_filter.node)
+		ul.paint = tree_filter.paint
 
 
 	// Read only
 		 if(self.permissions === 1){
-		 	// tree_nodes. create nodes and add to tree_object
-			const tree_nodes = render_tree_items_read(
-				root_level_items, // array of objects as [{"label":"Inventory","model":"area_root","parent":"dd1","section_tipo":"dd242","tipo":"dd242"},...]
-				datalist, // array of objects. Full items list
-				value, // array of objects. Full list of data as [{"section_tipo":"mupi2","tipo":"mupi23","value":2},...]
-				self // object this instance
-			)// return DocumentFragment with li nodes
-			ul.appendChild(tree_nodes)
+			tree_filter.paint('')
 
 			return content_data
 		 }
@@ -265,18 +267,220 @@ const get_content_data = async function(self) {
 				// console.log('numisdata1017 item:', datalist.filter(el => el.tipo==='numisdata1017'));
 				// console.log('numisdata1017 value:', value.filter(el => el.tipo==='numisdata1017'));
 
-			// tree_nodes. create nodes and add to tree_object
-				const tree_nodes = render_tree_items(
-					root_level_items, // array of objects as [{"label":"Inventory","model":"area_root","parent":"dd1","section_tipo":"dd242","tipo":"dd242"},...]
-					datalist, // array of objects. Full items list
-					value, // array of objects. Full list of data as [{"section_tipo":"mupi2","tipo":"mupi23","value":2},...]
-					self // object this instance
-				)// return DocumentFragment with li nodes
-				ul.appendChild(tree_nodes)
+			// initial tree (unfiltered)
+				tree_filter.paint('')
 
 
 	return content_data
 }//end get_content_data
+
+
+
+/**
+* BUILD_TREE_FILTER
+* Builds the tree search box and returns it with the one function that paints the
+* tree: `paint(query)`.
+*
+* The bar is a `li` inside the tree `ul` (not a sibling of it): the tree column is
+* already laid out, and the bar repeats the left column's rhythm (one label row,
+* then the control row) so the search box and the "Latest changes" selector sit on
+* the same visual line. It paints no surface of its own — see the .less.
+*
+* `paint` is the ONLY place that renders the tree, and it is shared by three
+* callers — the initial render, the search box, and the "Latest changes" panel's
+* jump to a section (through the `ul.paint` expando, which passes no query and so
+* RESETS the filter: the jump's whole point is to reveal one section, and an
+* active query would hide it). The box is cleared with it, so input and tree agree.
+* None of the callers can wipe the filter box or paint a different tree.
+*
+* A filtered paint clears the tree back to the filter `li`, renders the subset
+* (`filter_tree`: matches + their ancestor path) with the OFF-SCREEN branches open
+* and eager, and updates the counter / dead-end copy. The empty query restores the
+* normal lazy tree — no collapse state is written while filtering, so the user's
+* open/closed branches come back untouched.
+*
+* Subscription hygiene: each paint subscribes per-node handlers through
+* `event_manager` (inside the renderers), so the previous paint's tokens are
+* released here — its DOM nodes are gone, and without this every keystroke would
+* leave the whole previous tree subscribed forever. See `release_painted`.
+*
+* @param {Object} self - component_security_access instance
+* @param {Array} datalist - complete flat ontology list (self.data.datalist)
+* @param {Array} value - self.filled_value
+* @param {HTMLElement} ul - the tree `ul` (ul.paint is set by the caller)
+* @returns {Object} {node, paint} - the filter `li` and the tree painter
+*/
+const build_tree_filter = function(self, datalist, value, ul) {
+
+	// filter li
+		const filter_node = ui.create_dom_element({
+			element_type	: 'li',
+			class_name		: 'tree_filter'
+		})
+
+	// label. A bare <label>, the same box as the "Latest changes" header opposite:
+	// that shared rhythm is what puts this box and the changes <select> on one line
+		ui.create_dom_element({
+			element_type	: 'label',
+			class_name		: 'tree_filter_label',
+			text_content	: get_label.search || 'Search',
+			parent			: filter_node
+		})
+
+		const input = ui.create_dom_element({
+			element_type	: 'input',
+			type			: 'search',
+			class_name		: 'tree_filter_input',
+			placeholder		: get_label.filter_by_name_or_tipo || 'Filter by name or tipo…',
+			aria			: {label: get_label.filter_by_name_or_tipo || 'Filter by name or tipo'},
+			parent			: filter_node
+		})
+
+		const clear_button = ui.create_dom_element({
+			element_type	: 'button',
+			type			: 'button',
+			class_name		: 'tree_filter_clear hide',
+			text_content	: '×',
+			aria			: {label: get_label.remove_filter || 'Remove filter'},
+			parent			: filter_node
+		})
+
+		const count_node = ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'tree_filter_count hide',
+			parent			: filter_node
+		})
+
+	// status: dead end, or the truncated-list notice. role=status announces it,
+	// so a filtered-to-nothing tree is not a silent empty panel for a screen reader
+		const status_node = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'tree_filter_status hide',
+			role			: 'status',
+			parent			: filter_node
+		})
+
+	// tokens of the subscriptions created by the last paint (see release_painted).
+	// `painted_tokens` keeps the ARRAY IDENTITY: destroy() replaces self.events_tokens,
+	// and an index alone would then point into somebody else's list.
+		let painted_from	= null
+		let painted_tokens	= null
+
+	/**
+	* RELEASE_PAINTED
+	* Unsubscribes every handler the last paint created and drops its tokens from
+	* `self.events_tokens`: the nodes they served are being replaced, and without
+	* this every keystroke would leave the whole previous tree subscribed forever.
+	* Tokens pushed AFTER a paint belong to it too (the global radio groups are
+	* built in an idle callback), which is why the range runs to the end.
+	*/
+	const release_painted = function() {
+
+		if (painted_from===null || painted_tokens!==self.events_tokens) {
+			// nothing painted yet, or the instance was destroyed/rebuilt meanwhile
+			painted_from	= null
+			painted_tokens	= null
+			return
+		}
+
+		const stale = self.events_tokens.splice(painted_from)
+		for (const token of stale) {
+			event_manager.unsubscribe(token)
+		}
+
+		painted_from	= null
+		painted_tokens	= null
+	}//end release_painted
+
+	/**
+	* PAINT
+	* @param {string} [query] - raw search box value. OMITTED (undefined) means
+	*   "reset": the "Latest changes" jump calls `ul.paint()` because it paints the
+	*   tree to reveal one section, and a stale query would hide that section. The
+	*   box is cleared with it, so the input and the tree never disagree.
+	*/
+	const paint = function(query) {
+
+		// undefined = external repaint (changes-panel jump): drop the filter, not just
+		// its effect. The box is cleared with it, so input and tree never disagree.
+			const external	= query===undefined
+			const effective	= external ? '' : query
+			if (external) {
+				input.value = ''
+			}
+
+		// release the previous paint's subscriptions (its nodes are replaced)
+			release_painted()
+
+		// subset. null means no filter → normal lazy tree
+			const filtered = filter_tree(datalist, effective)
+			// the renderers read these to render branches open/eager and to mark matches
+			self.filter_query	= filtered ? String(effective) : ''
+			self.filter_matches	= filtered ? filtered.matches : null
+
+		// tree items. Root level is filtered from the effective list
+			const items			= filtered ? filtered.items : datalist
+			const root_items	= items.filter(el => el.parent==='dd1')
+
+		// clear the tree, keep the filter li (always the first child)
+			while (ul.lastChild && ul.lastChild!==filter_node) {
+				ul.removeChild(ul.lastChild)
+			}
+
+		// tree
+			painted_from		= self.events_tokens.length
+			painted_tokens		= self.events_tokens
+			const tree_nodes	= (self.permissions===1)
+				? render_tree_items_read(root_items, items, value, self)
+				: render_tree_items(root_items, items, value, self)
+			ul.appendChild(tree_nodes)
+
+		// counters
+			count_node.classList.toggle('hide', !filtered)
+			if (filtered) {
+				count_node.replaceChildren(document.createTextNode(
+					filtered.match_count + ' / ' + datalist.length
+				)) // SEC-031: text node
+			}
+
+			const status_text = !filtered
+				? ''
+				: filtered.match_count===0
+					? (get_label.no_items_match || 'No items match your search')
+					: filtered.truncated
+						? printf(
+							get_label.filter_showing_first || 'Showing the first {0} matches — type more to narrow the list.',
+							MATCH_LIMIT
+						)
+						: ''
+			status_node.textContent = status_text // SEC-031: text content
+			status_node.classList.toggle('hide', status_text==='')
+
+			clear_button.classList.toggle('hide', input.value==='')
+	}//end paint
+
+	// events
+		input.addEventListener('input', () => paint(input.value))
+		input.addEventListener('keydown', (e) => {
+			if (e.key==='Escape' && input.value!=='') {
+				e.stopPropagation() // do not let Escape close the page while it still clears a query
+				input.value = ''
+				paint('')
+			}
+		})
+		clear_button.addEventListener('click', (e) => {
+			e.stopPropagation()
+			input.value = ''
+			paint('')
+			input.focus()
+		})
+
+
+	return {
+		node	: filter_node,
+		paint	: paint
+	}
+}//end build_tree_filter
 
 
 
@@ -301,8 +505,9 @@ const get_content_data = async function(self) {
 *
 * @param {Array} items - datalist entries to render (may be a root-level
 *   subset or a full datalist for a branch)
-* @param {Array} datalist - complete flat ontology list used to resolve
-*   children during lazy branch expansion
+* @param {Array} datalist - list to build the tree FROM: the complete flat
+*   ontology list, or the filtered subset (matches + ancestors) while the tree
+*   filter is active. It resolves children for lazy branch expansion.
 * @param {Array} value - self.filled_value array; each entry:
 *   {section_tipo: string, tipo: string, value: number}
 * @param {Object} self - component_security_access instance
@@ -394,6 +599,10 @@ const render_tree_item = function(item, datalist, value, self) {
 		)
 		// attach item object as pointer
 		tree_item_node.item = item
+		// the entry IS a match (not an ancestor kept for the path): mark it for highlight
+		if (self.filter_matches?.has(item)) {
+			tree_item_node.classList.add('match')
+		}
 
 
 	return tree_item_node
@@ -434,8 +643,17 @@ const render_tree_item = function(item, datalist, value, self) {
 * using the key `security_acccess_<tipo>` (note: double-c typo in the key is
 * intentional and must remain stable to avoid breaking stored states).
 *
+* FILTERED TREE: when `self.filter_query` is set (see `build_tree_filter`), the
+* branch renders EAGER and open instead of lazily, because a match is usually
+* several collapsed levels down. No collapse state is read or written then, so
+* clearing the query restores the user's own open/closed branches. The children
+* resolved here come from the `datalist` passed in — the filtered subset in that
+* case — while the VALUE walks below always use the full `self.data.datalist`:
+* filtering may hide nodes, never narrow what a checkbox or a global radio grants.
+*
 * @param {Object} item - datalist current item
-* @param {Array} datalist - full list of section elements from ontology
+* @param {Array} datalist - list to build the tree FROM: the full ontology list, or
+*   the filtered subset (matches + ancestors) while a filter is active
 * @param {Array} value - full list of elements in self.data (DB) at key zero
 *   (this component has only one value but format is array)
 * @param {Object} self - self component instance
@@ -451,6 +669,10 @@ const render_area_item = function(item, datalist, value, self) {
 			: datalist.filter(el => el.parent===tipo)
 		const direct_children_length = direct_children.length
 		const has_child_section		 = direct_children.find(el => el.tipo===el.section_tipo)
+
+	// full ontology list. `datalist` may be the filtered subset; value propagation
+	// must always see every node or a parent would be cleared over hidden children
+		const full_datalist = self.data?.datalist || datalist
 
 	// item_value. get the current item value
 		const item_value	= value.find(el => el.section_tipo===section_tipo && el.tipo===tipo)
@@ -557,7 +779,7 @@ const render_area_item = function(item, datalist, value, self) {
 								// children
 								// only direct children are necessary
 								// because the children of the children give the access of its parent (the sibling of the node)
-								const current_children			= datalist.filter(el => el.parent===current_parent.tipo)
+								const current_children			= full_datalist.filter(el => el.parent===current_parent.tipo)
 								const current_children_length	= current_children.length
 								for (let j = 0; j < current_children_length; j++) {
 
@@ -596,8 +818,10 @@ const render_area_item = function(item, datalist, value, self) {
 
 	// label
 			const css_selectors = ['area_label']
-			// add icon arrow when element has children
-			if (direct_children_length>0) {
+			// add icon arrow when element has children. NOT while filtering: filtered
+			// branches are always open and carry no toggle, so an arrow would be a
+			// pointer-cursor control that does nothing.
+			if (direct_children_length>0 && !self.filter_query) {
 				css_selectors.push('icon_arrow')
 			}
 			// add selected when item matches a search (self.selected_tipo)
@@ -631,38 +855,52 @@ const render_area_item = function(item, datalist, value, self) {
 				})
 				li.branch = branch
 
-			// track collapse toggle state of content
-				const collapse = function() {
-					label.classList.remove('up')
-						// clean container
-						// while (branch.firstChild) {
-						// 	branch.removeChild(branch.firstChild);
-						// }
-				}
-				const expose = function() {
-					label.classList.add('up')
-					if (!branch.hasChildNodes()) {
-						const callback = () => {
-							// direct_children render (return hierarchized children nodes)
-							const tree_node = render_tree_items(
-								direct_children,
-								datalist,
-								value,
-								self
-							) // return li node
-							branch.appendChild(tree_node)
+			// tree filter: branches render open and EAGER. A filtered match is usually
+			// several collapsed levels down, so lazy expansion would hide exactly what
+			// the user is looking for. collapse_toggle_track is skipped on purpose: it
+			// would persist filtered-view state over the user's own open/closed branches.
+				if (self.filter_query) {
+					branch.classList.remove('hide')
+					branch.appendChild(render_tree_items(
+						direct_children,
+						datalist,
+						value,
+						self
+					))
+				}else{
+					// track collapse toggle state of content
+						const collapse = function() {
+							label.classList.remove('up')
+								// clean container
+								// while (branch.firstChild) {
+								// 	branch.removeChild(branch.firstChild);
+								// }
 						}
-						window.requestAnimationFrame(callback);
-					}
+						const expose = function() {
+							label.classList.add('up')
+							if (!branch.hasChildNodes()) {
+								const callback = () => {
+									// direct_children render (return hierarchized children nodes)
+									const tree_node = render_tree_items(
+										direct_children,
+										datalist,
+										value,
+										self
+									) // return li node
+									branch.appendChild(tree_node)
+								}
+								window.requestAnimationFrame(callback);
+							}
+						}
+						ui.collapse_toggle_track({
+							toggler				: label,
+							container			: branch,
+							collapsed_id		: 'security_acccess_' + item.tipo,
+							collapse_callback	: collapse,
+							expose_callback		: expose,
+							default_state		: 'closed'
+						})
 				}
-				ui.collapse_toggle_track({
-					toggler				: label,
-					container			: branch,
-					collapsed_id		: 'security_acccess_' + item.tipo,
-					collapse_callback	: collapse,
-					expose_callback		: expose,
-					default_state		: 'closed'
-				})
 
 			// permissions_global container (radio buttons)
 				const permissions_global = ui.create_dom_element({
@@ -683,7 +921,9 @@ const render_area_item = function(item, datalist, value, self) {
 					dd_request_idle_callback(
 						() => {
 
-							const children = self.get_children(item, datalist)
+							// full datalist (not the filtered subset): the global radio
+							// speaks for EVERY child, visible or not
+							const children = self.get_children(item, full_datalist)
 
 							const radio_group = create_global_radio_group(
 								self,
@@ -764,7 +1004,7 @@ const render_permissions_item = function(item, datalist, value, self) {
 			class_name		: 'radio_buttons_container',
 			parent			: li
 		})
-		const radio_group = create_permissions_radio_group(self, item, permissions, datalist)
+		const radio_group = create_permissions_radio_group(self, item, permissions)
 		radio_buttons_container.appendChild(radio_group)
 
 	// label
@@ -821,10 +1061,6 @@ const render_permissions_item = function(item, datalist, value, self) {
 *
 * A temporary "Propagating…" span is inserted into the grandparent node while
 * the idle-callback runs, giving visual feedback during the propagation.
-*
-* (!) The `datalist` parameter is declared in the signature of the outer
-* function but is NOT referenced inside the body.  It is kept for API
-* consistency with `create_global_radio_group`.
 *
 * @param {Object} self - component_security_access instance
 * @param {Object} item - ontology item: {tipo, section_tipo, label, model, parent}
@@ -1183,13 +1419,15 @@ const get_buttons = (self) => {
 *
 * @param {Array} items - datalist entries to render (root-level subset or a
 *   full datalist for a branch)
-* @param {Array} datalist - complete flat ontology list
+* @param {Array} datalist - list to build the tree FROM: the full ontology list, or
+*   the filtered subset (matches + ancestors) while a filter is active
 * @param {Array} value - self.filled_value; each entry:
 *   {section_tipo: string, tipo: string, value: number}
+* @param {Object} self - component_security_access instance
 * @returns {DocumentFragment} fragment whose direct children are the
 *   root-level `li` nodes of the read-only sub-tree
 */
-const render_tree_items_read = function(items, datalist, value) {
+const render_tree_items_read = function(items, datalist, value, self) {
 
 	// tree_object . Object with all li nodes rendered sequentially
 		const tree_object = {}
@@ -1204,7 +1442,8 @@ const render_tree_items_read = function(items, datalist, value) {
 				const tree_node	= render_tree_item_read(
 					current_item,
 					datalist,
-					value
+					value,
+					self
 				)// li node
 
 			// store in the tree_object
@@ -1247,11 +1486,12 @@ const render_tree_items_read = function(items, datalist, value) {
 * Sets the `tree_item_node.item` expando for the hierarchisation pass.
 *
 * @param {Object} item - single datalist entry
-* @param {Array} datalist - full flat ontology list
+* @param {Array} datalist - list to build the tree FROM (full, or the filtered subset)
 * @param {Array} value - self.filled_value
+* @param {Object} self - component_security_access instance
 * @returns {HTMLElement} `li` element with `.item` expando set
 */
-const render_tree_item_read = function(item, datalist, value) {
+const render_tree_item_read = function(item, datalist, value, self) {
 
 	// single item case.
 		const fn_render = (item.tipo===item.section_tipo)
@@ -1262,10 +1502,15 @@ const render_tree_item_read = function(item, datalist, value) {
 		const tree_item_node = fn_render(
 			item,
 			datalist,
-			value
+			value,
+			self
 		)
 		// attach item object as pointer
 		tree_item_node.item = item
+		// the entry IS a match (not an ancestor kept for the path): mark it for highlight
+		if (self.filter_matches?.has(item)) {
+			tree_item_node.classList.add('match')
+		}
 
 
 	return tree_item_node
@@ -1286,18 +1531,20 @@ const render_tree_item_read = function(item, datalist, value) {
 * avoid blocking the main thread.  Collapse/expand state is persisted
 * through the same `security_acccess_<tipo>` key used by the editable tree.
 *
-* (!) `self.selected_tipo` is referenced at line 1335 but `self` is NOT a
-* parameter of this function — it is captured from the outer module scope.
-* This is a latent `no-undef` / scoping issue in the original code; do NOT
-* fix it here; document only.
+* FILTERED TREE: same rule as `render_area_item` — when `self.filter_query` is
+* set the branch renders eager and open, and no collapse state is touched.
 *
 * @param {Object} item - datalist current item
-* @param {Array} datalist - full list of section elements from ontology
+* @param {Array} datalist - list to build the tree FROM: the full ontology list, or
+*   the filtered subset (matches + ancestors) while a filter is active
 * @param {Array} value - full list of elements in self.data (DB) at key zero
 *   (this component has only one value but format is array)
+* @param {Object} self - component_security_access instance (also the source of
+*   `selected_tipo`, the highlighted node, which the read view used to read from
+*   the global scope)
 * @returns {HTMLElement} li element with optional expando `.branch`
 */
-const render_area_item_read = function(item, datalist, value) {
+const render_area_item_read = function(item, datalist, value, self) {
 
 	// direct_children check and set
 		const tipo					= item.tipo
@@ -1328,8 +1575,8 @@ const render_area_item_read = function(item, datalist, value) {
 
 	// label
 		const css_selectors = ['area_label']
-			// add icon arrow when element has children
-			if (direct_children_length>0) {
+			// add icon arrow when element has children. Not while filtering (no toggle)
+			if (direct_children_length>0 && !self.filter_query) {
 				css_selectors.push('icon_arrow')
 			}
 			// add selected when item matches a search (self.selected_tipo)
@@ -1356,33 +1603,45 @@ const render_area_item_read = function(item, datalist, value) {
 				})
 				li.branch = branch
 
-			// track collapse toggle state of content
-				const collapse = function() {
-					label.classList.remove('up')
-				}
-				const expose = function() {
-					label.classList.add('up')
-					if (!branch.hasChildNodes()) {
-						// direct_children render (return hierarchized children nodes)
-						const callback = () => {
-							const tree_node = render_tree_items_read(
-								direct_children,
-								datalist,
-								value
-							) // return li node
-							branch.appendChild(tree_node)
+			// tree filter: branches open and EAGER (see the editable renderer)
+				if (self.filter_query) {
+					branch.classList.remove('hide')
+					branch.appendChild(render_tree_items_read(
+						direct_children,
+						datalist,
+						value,
+						self
+					)) // return li node
+				}else{
+					// track collapse toggle state of content
+						const collapse = function() {
+							label.classList.remove('up')
 						}
-						window.requestAnimationFrame(callback);
-					}
+						const expose = function() {
+							label.classList.add('up')
+							if (!branch.hasChildNodes()) {
+								// direct_children render (return hierarchized children nodes)
+								const callback = () => {
+									const tree_node = render_tree_items_read(
+										direct_children,
+										datalist,
+										value,
+										self
+									) // return li node
+									branch.appendChild(tree_node)
+								}
+								window.requestAnimationFrame(callback);
+							}
+						}
+						ui.collapse_toggle_track({
+							toggler				: label,
+							container			: branch,
+							collapsed_id		: 'security_acccess_' + item.tipo,
+							collapse_callback	: collapse,
+							expose_callback		: expose,
+							default_state		: 'closed'
+						})
 				}
-				ui.collapse_toggle_track({
-					toggler				: label,
-					container			: branch,
-					collapsed_id		: 'security_acccess_' + item.tipo,
-					collapse_callback	: collapse,
-					expose_callback		: expose,
-					default_state		: 'closed'
-				})
 
 			// add branch at last position
 			li.appendChild(branch)
@@ -1491,8 +1750,6 @@ const render_permissions_item_read = function(item, datalist, value) {
 * @param {Object} options.self - component_security_access instance
 * @param {Array} options.changes_files - ordered array of change-log file names
 *   (most recent first); each entry is a string filename
-* @param {Array} options.datalist - full flat ontology list
-* @param {Array} options.value - self.filled_value
 * @param {HTMLElement} options.ul - the main tree `ul` element; passed through
 *   to `render_changes_data` for tree re-rendering on section click
 * @returns {HTMLElement} changes_container div encompassing the label, selector,
@@ -1504,8 +1761,6 @@ const render_changes_files_selector = function (options) {
 
 	const self			= options.self
 	const changes_files	= options.changes_files
-	const datalist		= options.datalist
-	const value			= options.value
 	const ul			= options.ul
 
 	// remove the extension and the fixed name and show the date and time in human way.
@@ -1562,8 +1817,6 @@ const render_changes_files_selector = function (options) {
 					// render result resulting a DocumentFragment
 					const changes_data_node = render_changes_data({
 						changes_data	: changes_data,
-						datalist		: datalist,
-						value			: value,
 						self			: self,
 						ul				: ul
 					})
@@ -1628,9 +1881,10 @@ const render_changes_files_selector = function (options) {
 *          and the section itself under the key `security_acccess_<tipo>`.
 *          Setting these keys to `false` instructs `ui.collapse_toggle_track`
 *          to restore the nodes as open on the next render.
-*       2. Re-renders the entire permission tree from the root, which will
-*          honour the stored open-state and display the targeted section
-*          with all its parent nodes already expanded.
+*       2. Repaints the permission tree through `ul.paint` (owned by the tree
+*          filter), which honours the stored open-state, shows the targeted
+*          section with all its parent nodes expanded, and keeps an active
+*          filter query and the filter box untouched.
 *       3. Preserves the tree container height during the re-render to prevent
 *          layout jump; clears `minHeight` after ~1.5 s via `setTimeout`.
 *   - A `children_container` `ul` listing the newly added child ontology
@@ -1643,19 +1897,15 @@ const render_changes_files_selector = function (options) {
 * @param {Object} options - configuration bag
 * @param {Array} options.changes_data - array of change objects, each:
 *   {parents: Array<{tipo, label}>, section: {tipo, label}, children: Array<{label}>}
-* @param {Array} options.datalist - all ontology nodes (full flat list)
-* @param {Array} options.value - data permissions of the profile (self.filled_value)
 * @param {Object} options.self - component_security_access instance
 * @param {HTMLElement} options.ul - main `ul` node housing the permission tree;
-*   cleared and repopulated when a section label is clicked
+*   its `.paint` clears and repopulates it when a section label is clicked
 * @returns {DocumentFragment} fragment containing one `.change` div per entry
 *   in `changes_data`
 */
 const render_changes_data = function (options) {
 
 	const changes_data	= options.changes_data
-	const datalist		= options.datalist
-	const value			= options.value
 	const self			= options.self
 	const ul			= options.ul
 
@@ -1728,24 +1978,16 @@ const render_changes_data = function (options) {
 						'status'
 					)
 
-				// get the main children to render all of them (as first loading)
-				const items = datalist.filter(el => el.parent === 'dd1')
-
 				// get the size of the tree container and set as min height to maintain the changes container with his height
 					const ul_size	= ul.getBoundingClientRect()
 					const ul_height	= ul_size.height
 
 					ul.style.minHeight = ul_height+'px'
 
-				// remove old rendered nodes
-					while (ul.firstChild) {
-						ul.removeChild(ul.firstChild);
-					}
-
-				// render the tree and fill the main ul
-				// when the render check the nodes will be open the parents and the section to show it
-					const node = render_tree_items(items, datalist, value, self)
-					ul.appendChild(node)
+				// repaint the tree. The filter owns the paint (it keeps the filter box
+				// and honours an active query); when the render checks the nodes will be
+				// open the parents and the section to show it
+					ul.paint()
 
 				// remove the min_heigth when the component was rendered (+/- 1.5seg)
 					setTimeout(function() {

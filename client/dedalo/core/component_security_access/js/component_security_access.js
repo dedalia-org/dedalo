@@ -111,6 +111,19 @@ export const component_security_access = function() {
 	this.tools
 
 	this.worker_path
+
+	// active tree-filter query ('' = no filter). Set by the view's tree filter and
+	// read by the renderers to paint branches open and eager; never persisted.
+	this.filter_query = ''
+
+	// the matching ENTRIES of that query (the datalist objects, by reference). The
+	// renderers mark them with `.match`; ancestors kept for the path are not here.
+	this.filter_matches = null
+
+	// get_children() memo for the full datalist ('' → built on first call, dropped
+	// by build()). The filtered tree paints every area open, so without it each
+	// paint re-scanned the whole ~32k-entry datalist once per area.
+	this.children_memo = null
 }//end component_security_access
 
 
@@ -260,6 +273,9 @@ component_security_access.prototype.build = async function(options) {
 			return value_map.has(key) ? value_map.get(key) : { tipo: item.tipo, section_tipo: item.section_tipo, value: 0 };
 		});
 
+	// the payload may be fresh on every build: drop the get_children memo
+		self.children_memo = null
+
 	// debug
 		console.log(`__Time to build ${self.model} ${Math.round(performance.now()-t0)} ms`);
 
@@ -383,10 +399,7 @@ component_security_access.prototype.get_parents = function(item, datalist) {
 
 	const current_datalist = datalist || self.data.datalist
 
-	const parents = current_datalist.filter(el =>{
-		const ar_parent_set = new Set(item.ar_parent);
-		return ar_parent_set.has(el.tipo);
-	})
+	const parents = current_datalist.filter(el => item.ar_parent?.includes(el.tipo))
 
 
 	return parents;
@@ -410,6 +423,11 @@ component_security_access.prototype.get_parents = function(item, datalist) {
 * can be set or cleared). The render layer may offload this call to the web
 * worker (`worker_security_access.js`) on large datalists.
 *
+* Calls that use the FULL datalist (no override) are memoized on the instance:
+* the tree filter paints every area open, so one paint used to run this ~32k-entry
+* scan once per area (measured ~13 ms each). `data.datalist` is immutable for the
+* instance's life, and `build()` drops the memo when it is rebuilt.
+*
 * @param {Object} item - Datalist node whose descendants are needed.
 *   Must be a valid datalist entry with a `tipo` property.
 * @param {Array|undefined} datalist - Optional override; defaults to `self.data.datalist`.
@@ -422,10 +440,20 @@ component_security_access.prototype.get_children = function(item, datalist) {
 
 	const current_datalist = datalist || self.data.datalist
 
-	const children = current_datalist.filter(el => {
-		const ar_parent_set = new Set(el.ar_parent);
-		return ar_parent_set.has(item.tipo);
-	});
+	// memo, full list only (an override list is the caller's own business)
+		const memoized = datalist===undefined
+		if (memoized && self.children_memo?.has(item.tipo)) {
+			return self.children_memo.get(item.tipo)
+		}
+
+	const children = current_datalist.filter(el => el.ar_parent?.includes(item.tipo))
+
+	if (memoized) {
+		if (!self.children_memo) {
+			self.children_memo = new Map()
+		}
+		self.children_memo.set(item.tipo, children)
+	}
 
 
 	return children

@@ -86,12 +86,99 @@
 				flex-wrap: wrap;
 				height: inherit;
 				max-height: inherit;
-				font-size: 13px;
 				border-left: 0.1rem solid @color_grey_14;
 
 				@media screen and (max-width: @width_break_point_0) {
 					border-left: none;
 					padding-bottom: 1.5rem;
+				}
+
+				// tree filter (search box). First child of the tree ul, in the SAME
+				// rhythm as the "Latest changes" column: one label row, then the
+				// control row — that is what puts the box and the selector on one
+				// visual line without a magic offset.
+				// It STICKS at the same `top` as `.changes_container` (the left column
+				// pins there while the tree scrolls), so that line survives scrolling.
+				// Its surface: the resting panel surface, and the wrapper's TINT when
+				// the component is active — inside a tinted field the tint IS the
+				// surface (layout.less: nested surfaces stop painting), so a white bar
+				// would cut a band across it. Both are invisible when not stuck.
+				>.tree_filter {
+					display: flex;
+					flex-wrap: wrap;
+					align-items: center;
+					gap: 0.5rem;
+					position: sticky;
+					top: 5rem;
+					z-index: 2;
+					background-color: @color_grey_16;
+					padding: 0 0 0.5rem 0.5rem;
+
+					// same box as `.changes_files_label` (a bare <label>, line box only)
+					>.tree_filter_label {
+						flex: 0 0 100%;
+					}
+
+					>.tree_filter_input {
+						flex: 1 1 16rem;
+						max-width: 26rem;
+						box-sizing: border-box;
+						// the shared field rule (general.less) covers input[type=text] but
+						// NOT [type=search]: without these the box would not measure like
+						// the <select> opposite. `2em` in the PANEL's type size (the bar
+						// inherits it; the tree rows set their own 13px) is the same box.
+						font-size: 1em;
+						height: 2em;
+						padding: 0 1.5rem 0 1em;
+						border: 1px solid @color_grey_12;
+						border-radius: 3px;
+						// the SAME resting surface as that <select> (which keeps the
+						// browser default): the box must read as a field, not as a hole
+						// in the panel — and it never paints a band across the wrapper
+						// (the bar itself is transparent, see above)
+						background-color: @color_grey_16;
+						color: inherit;
+
+						&:focus {
+							outline: none;
+							border-color: @color_primary;
+						}
+
+						// the bar draws its own × ; the WebKit one would double it
+						&::-webkit-search-cancel-button {
+							-webkit-appearance: none;
+							appearance: none;
+						}
+					}
+
+					>.tree_filter_clear {
+						width: 1.4rem;
+						height: 1.4rem;
+						padding: 0;
+						line-height: 1.4rem;
+						font-size: 1.1rem;
+						background: none;
+						border: none;
+						color: @color_grey_8;
+						cursor: pointer;
+
+						&:hover {
+							color: @color_grey_4;
+						}
+					}
+
+					// N / total, and the dead-end / truncated-list notice
+					>.tree_filter_count {
+						color: @color_grey_8;
+						font-size: 0.9rem;
+						white-space: nowrap;
+					}
+
+					>.tree_filter_status {
+						flex: 0 0 100%;
+						color: @color_grey_8;
+						font-size: 0.9rem;
+					}
 				}
 
 				// all ul
@@ -115,6 +202,11 @@
 					align-items: center;
 					max-height: inherit;
 					margin-left: 1.5rem;
+					// the tree ROWS carry the 13px list type. It used to sit on the ul,
+					// which dragged the filter bar (a child of the same ul) below the
+					// panel's type size and left its input shorter than the changes
+					// <select> opposite. The bar must inherit the panel, the rows must not.
+					font-size: 13px;
 
 					&.permissions {
 						color: @color_grey_5;
@@ -200,12 +292,29 @@
 						color: @color_tag_indexation_normal;
 					}
 
+
 					.info_text {
 						color: @color_grey_10;
 						padding-left: 0.5rem;
 						padding-right: 0.25rem;
 						font-weight: 300;
 						font-size: 14px;
+					}
+				}
+
+				// a tree-filter MATCH (an ancestor kept only for the path is NOT marked).
+				// Same token the thesaurus uses to highlight a found term: the point is to
+				// spot the result among open branches, so it must not read as .selected.
+				.li_item.match {
+					>.area_label {
+						background-color: @color_hilite_yellow;
+						border-radius: 0.2rem;
+						font-weight: 600;
+
+						>.info_text {
+							color: inherit;
+							opacity: 0.7;
+						}
 					}
 				}
 
@@ -277,10 +386,36 @@
 
 		}//end >.content_data
 
+		// ACTIVE FIELD: the tint is the surface (layout.less), so the sticky tree
+		// filter repaints with it instead of cutting a light band across the tint.
+		// 6 classes vs the base rule's 5: it must BEAT it, not merely follow it.
+		&.active {
+			>.content_data {
+				>.tree_root {
+					>.tree_filter {
+						background-color: @color_hilite;
+					}
+				}
+			}
+		}
+
 		>.buttons_container {
 
 		}
 	}//end &.edit
+
+	// print view is a static read-only rendering: no interactive filter box.
+	// Specificity must BEAT the base .tree_filter rule (6 classes vs its 5), not
+	// merely come later in the file.
+	&.edit.view_print {
+		>.content_data {
+			>.tree_root {
+				>.tree_filter {
+					display: none;
+				}
+			}
+		}
+	}
 
 	&.list {
 		>span {

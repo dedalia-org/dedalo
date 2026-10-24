@@ -27040,7 +27040,6 @@ body.inspector_resizing {
   flex-wrap: wrap;
   height: inherit;
   max-height: inherit;
-  font-size: 13px;
   border-left: 0.1rem solid var(--color_grey_14);
 }
 @media screen and (max-width: 1024px) {
@@ -27048,6 +27047,64 @@ body.inspector_resizing {
     border-left: none;
     padding-bottom: 1.5rem;
   }
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  position: sticky;
+  top: 5rem;
+  z-index: 2;
+  background-color: var(--color_grey_16);
+  padding: 0 0 0.5rem 0.5rem;
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_label {
+  flex: 0 0 100%;
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_input {
+  flex: 1 1 16rem;
+  max-width: 26rem;
+  box-sizing: border-box;
+  font-size: 1em;
+  height: 2em;
+  padding: 0 1.5rem 0 1em;
+  border: 1px solid var(--color_grey_12);
+  border-radius: 3px;
+  background-color: var(--color_grey_16);
+  color: inherit;
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_input:focus {
+  outline: none;
+  border-color: var(--color_primary);
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_clear {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  line-height: 1.4rem;
+  font-size: 1.1rem;
+  background: none;
+  border: none;
+  color: var(--color_grey_8);
+  cursor: pointer;
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_clear:hover {
+  color: var(--color_grey_4);
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_count {
+  color: var(--color_grey_8);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.component_security_access.edit > .content_data > .tree_root > .tree_filter > .tree_filter_status {
+  flex: 0 0 100%;
+  color: var(--color_grey_8);
+  font-size: 0.9rem;
 }
 .component_security_access.edit > .content_data > .tree_root .ul_item {
   width: 100%;
@@ -27066,6 +27123,7 @@ body.inspector_resizing {
   align-items: center;
   max-height: inherit;
   margin-left: 1.5rem;
+  font-size: 13px;
 }
 .component_security_access.edit > .content_data > .tree_root .li_item.permissions {
   color: var(--color_grey_5);
@@ -27134,6 +27192,15 @@ body.inspector_resizing {
   font-weight: 300;
   font-size: 14px;
 }
+.component_security_access.edit > .content_data > .tree_root .li_item.match > .area_label {
+  background-color: var(--color_hilite_yellow);
+  border-radius: 0.2rem;
+  font-weight: 600;
+}
+.component_security_access.edit > .content_data > .tree_root .li_item.match > .area_label > .info_text {
+  color: inherit;
+  opacity: 0.7;
+}
 .component_security_access.edit > .content_data > .tree_root .radio_buttons_container,
 .component_security_access.edit > .content_data > .tree_root .permissions_global {
   display: flex;
@@ -27191,6 +27258,12 @@ body.inspector_resizing {
 .component_security_access.edit > .content_data > .tree_root .icon_arrow.up:after {
   transform: rotate(360deg);
   opacity: 0.5;
+}
+.component_security_access.edit.active > .content_data > .tree_root > .tree_filter {
+  background-color: var(--color_hilite);
+}
+.component_security_access.edit.view_print > .content_data > .tree_root > .tree_filter {
+  display: none;
 }
 .component_security_access.list > span {
   display: block;
