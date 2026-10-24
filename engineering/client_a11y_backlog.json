@@ -202,12 +202,12 @@
 			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
 		},
 		"client/dedalo/core/component_text_area/js/view_default_edit_text_area.js": {
-			"pointer_only_sites": 6,
-			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
+			"pointer_only_sites": 7,
+			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch. 6→7 (2026-10-24): bb15e679e6 re-ARMS this same handler on this same node after a failed editor load, so the census counts one more CALL, not one more unreachable element — no accessibility change, hence banked rather than rewritten."
 		},
 		"client/dedalo/core/component_text_area/js/view_line_edit_text_area.js": {
-			"pointer_only_sites": 1,
-			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
+			"pointer_only_sites": 2,
+			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch. 1→2 (2026-10-24): bb15e679e6 re-ARMS this same handler on this same node after a failed editor load, so the census counts one more CALL, not one more unreachable element — no accessibility change, hence banked rather than rewritten."
 		},
 		"client/dedalo/core/component_text_area/js/view_note_text_area.js": {
 			"pointer_only_sites": 1,

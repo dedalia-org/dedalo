@@ -1579,7 +1579,8 @@ export const render_datalist = async function(self, result) {
 	// render token. A newer render_datalist supersedes this one: without it a
 	// slow older render would append its rows AFTER the newer render cleared
 	// the list, leaving results that no longer match the typed query.
-		const render_token = self._render_token = (self._render_token || 0) + 1
+		self._render_token = (self._render_token || 0) + 1
+		const render_token = self._render_token
 
 	// datalist container node
 		const datalist = self.datalist
