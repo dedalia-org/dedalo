@@ -134,6 +134,7 @@ function refuse(message: string, coordinates: Record<string, string | number> = 
  */
 export function syntheticHierarchyARowCount(): number {
 	const offset = config.ops.searchLateRowLookupOffset;
+	// biome-ignore lint/complexity/useMathMinMax: NaN-absorbing clamp: Math.max(NaN, x) is NaN, this ternary yields the floor.
 	return Math.max(SYNTHETIC_VOLUME_FLOOR, (offset > 0 ? offset : 0) + 300);
 }
 

@@ -2628,6 +2628,7 @@ export function createExportAtomRun(options: { cacheLimit?: number } = {}): Expo
 	// Floor at 1: a zero/negative/NaN bound would clear on every insert (a
 	// memo that remembers nothing), never an unbounded one.
 	const requested = Math.floor(options.cacheLimit ?? EXPORT_RUN_CACHE_LIMIT);
+	// biome-ignore lint/complexity/useMathMinMax: NaN-absorbing clamp: Math.max(NaN, x) is NaN, this ternary yields the floor. (the NaN case above)
 	const cacheLimit = requested >= 1 ? requested : 1;
 	return {
 		tableCache: new Map(),

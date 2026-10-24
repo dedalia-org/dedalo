@@ -85,12 +85,12 @@
 		"format": "biome format --write ."
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.131.0",
+		"@anthropic-ai/sdk": "^0.137.0",
 		"@geoman-io/leaflet-geoman-free": "2.20.2",
 		"@highlightjs/cdn-assets": "11.12.0",
 		"@jaames/iro": "5.5.2",
 		"@modelcontextprotocol/sdk": "^1.32.1",
-		"@opentui/core": "0.6.1",
+		"@opentui/core": "0.6.6",
 		"@svgedit/svgcanvas": "7.4.2",
 		"@turf/turf": "7.4.0",
 		"cheerio": "1.2.0",
@@ -107,8 +107,8 @@
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
-		"@babel/parser": "8.0.6",
-		"@biomejs/biome": "2.5.15",
+		"@babel/parser": "8.0.7",
+		"@biomejs/biome": "2.6.2",
 		"@types/bun": "^1.4.3",
 		"@types/less": "3.0.8",
 		"axe-core": "^4.14.0",

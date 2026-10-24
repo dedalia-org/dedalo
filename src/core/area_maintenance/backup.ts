@@ -215,6 +215,7 @@ export function newestScheduledBackupName(
 		.map(({ name }) => name)
 		.filter((name) => isScheduledDumpOf(name, database));
 	// Newest BY NAME (the timestamp leads it), as getBackupFiles lists them.
+	// biome-ignore lint/complexity/useMathMinMax: STRINGS compared by code unit — Math.max would coerce them to NaN.
 	return scheduled.length === 0 ? null : scheduled.reduce((a, b) => (b > a ? b : a));
 }
 

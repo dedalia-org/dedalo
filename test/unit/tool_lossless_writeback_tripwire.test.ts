@@ -431,7 +431,11 @@ else {
 		}
 		if (typeof container.innerHTML === 'string' && container.innerHTML !== '')
 			lines.push(container.innerHTML);
+		// innerText is a WRITE channel the client could use on this fake node: reading it
+		// back is what catches such a write — textContent would read a different property.
+		// biome-ignore lint/performance/useDomNodeTextContent: reads the fake node's innerText slot (see above).
 		if (typeof container.innerText === 'string' && container.innerText !== '')
+			// biome-ignore lint/performance/useDomNodeTextContent: same slot as above.
 			lines.push(container.innerText);
 		return lines;
 	}

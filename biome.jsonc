@@ -1,6 +1,6 @@
 // Biome config (JSONC so rule decisions can carry their justification inline).
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
 	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"formatter": {
 		"enabled": true,
@@ -13,6 +13,24 @@
 			"semicolons": "always"
 		}
 	},
+	// MARKDOWN AND YAML: LINTED, NOT REFORMATTED (biome 2.6.2, 2026-10-24).
+	// 2.6.0 turned the formatter on for both languages by default: 701 .md + 9 .yml
+	// files went red with nothing in them changed. Up to 2.5.15 biome read neither, so
+	// switching the FORMATTER off keeps the pre-upgrade scope exactly — it narrows
+	// nothing that was measured before, and the 2.6 linters for both stay ON.
+	// Why not adopt the reformat:
+	//   - markdown here is hand-authored prose (docs/ is excluded for the same reason)
+	//     and much of it is MACHINE-READ: engineering/TRIPWIRES.md (verify.ts must equal
+	//     it), the engineering/wire_contract/ entries, the changes/ fragments that
+	//     render docs/change_log.md. A formatter three days old must not rewrite
+	//     contract bytes as a side effect of a dev-dependency bump;
+	//   - the YAML formatter re-indents aligned trailing comments into a different
+	//     reading (.github/codeql/codeql-config.yml's two-line comment becomes a
+	//     comment under the list item) and requotes every workflow — the files the
+	//     ci_workflow_tripwire and Dependabot both read textually.
+	// Adopting either is a deliberate, reviewed pass of its own, not a lockfile bump.
+	"markdown": { "formatter": { "enabled": false } },
+	"yaml": { "formatter": { "enabled": false } },
 	"linter": {
 		"enabled": true,
 		"rules": {

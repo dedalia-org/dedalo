@@ -43,8 +43,13 @@ try {
 		url: location.href,
 		// The session cookie is HttpOnly — document.cookie never sees it. The
 		// logged-in app shell (menu + username chip) is the visible proof.
+		// innerText, not textContent: the proof is the RENDERED shell — textContent
+		// also reads hidden nodes and inline <script> bodies.
 		loggedIn:
-			location.pathname.includes('/core/page/') && document.body.innerText.includes('Inventario'),
+			location.pathname.includes('/core/page/') &&
+			// biome-ignore lint/performance/useDomNodeTextContent: rendered text IS the proof (see above).
+			document.body.innerText.includes('Inventario'),
+		// biome-ignore lint/performance/useDomNodeTextContent: rendered text IS the proof (see above).
 		body: document.body.innerText.slice(0, 200),
 	}));
 	console.log('[ui] after login:', JSON.stringify({ url: whoami.url, loggedIn: whoami.loggedIn }));

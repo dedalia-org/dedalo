@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@scalar/api-reference": "^1.72.4",
-    "swagger-ui-dist": "^5.33.1",
+    "@scalar/api-reference": "^1.76.0",
+    "swagger-ui-dist": "^5.34.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

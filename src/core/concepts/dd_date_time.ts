@@ -48,6 +48,7 @@ function nonNegative(value: number | undefined): number {
 
 function oneBasedOffset(value: number | undefined): number {
 	const offset = (value ?? 0) - 1;
+	// biome-ignore lint/complexity/useMathMinMax: NaN-absorbing clamp: Math.max(NaN, x) is NaN, this ternary yields the floor.
 	return offset > 0 ? offset : 0;
 }
 
