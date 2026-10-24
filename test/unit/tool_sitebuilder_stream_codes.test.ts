@@ -646,7 +646,10 @@ describe('G-W1 — the relay’s own edges', () => {
 		);
 		if (typeof cap !== 'number') return;
 		const huge = `data: ${'y'.repeat(cap + 1)}`;
-		const out = await relay([huge.slice(0, cap / 2), huge.slice(cap / 2), '\n\n']);
+		// NO terminator: the cap is "outgrew before its terminator", and a `\n\n` chunk may
+		// reach the relay in the SAME socket read as the second half (the record then
+		// completes before the cap is measured) — that made this gate a coalescing lottery.
+		const out = await relay([huge.slice(0, cap / 2), huge.slice(cap / 2)]);
 		const frame = records(out).find((record) => record.event === 'error');
 		expect(frame?.data?.code).toBe('site_builder.stream_lost');
 		expect(out.includes('y'.repeat(1024))).toBe(false);

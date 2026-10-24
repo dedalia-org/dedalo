@@ -37,7 +37,9 @@
  * (`writeSync`/`fsyncSync`/…) is in the sync-I/O gate's forbidden class
  * (test/unit/sync_io_on_request_path_tripwire.test.ts): this kernel is where
  * such calls belong, and every other module that still makes one is a ledgered,
- * reasoned exception there.
+ * reasoned exception there. Its own exported sync doors are in that class too
+ * (derived from this file's exports): a caller pays the device time it asks
+ * for, so a reachable caller is ledgered there with its own reason.
  */
 
 import {

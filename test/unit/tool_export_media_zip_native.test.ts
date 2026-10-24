@@ -43,6 +43,12 @@
  *  M. 60,000 refused candidates: the writer's heap stays within a few MB (the
  *     failure list lives in an unlinked temp, the candidate memo is a bounded
  *     window) and info.txt is still byte-exact JSON.stringify(failures, null, 2).
+ *     The heap is read in its own child (test/helpers/media_zip_heap_child.ts —
+ *     the heap holds that writer and nothing else) over 15,000 and 60,000
+ *     refusals: under 8 MB at 60,000, and 4x the refusals may add only a small
+ *     fraction of the extra archive bytes to the sampled peak (a writer that
+ *     keeps the list adds about all of them). Measured in-process, against the
+ *     gate's own allocations, the same leg went red in the full unit tier.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -106,6 +112,7 @@ import {
 } from '../../tools/tool_export/server/writers/media_zip.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { markExportArtifactsRoot } from '../helpers/media_scratch_root.ts';
+import type { MediaZipHeapReport } from '../helpers/media_zip_heap_child.ts';
 import {
 	installScopeBindingFixture,
 	removeScopeBindingFixture,
@@ -375,6 +382,60 @@ function expectNoArtifact(job: ArtifactJobRef): void {
 }
 
 const text = (entry: { data: Uint8Array }): string => new TextDecoder().decode(entry.data);
+
+/** The measured process of leg M (test/helpers/media_zip_heap_child.ts). */
+const M_HEAP_CHILD = join(import.meta.dir, '..', 'helpers', 'media_zip_heap_child.ts');
+/** Leg M refusal counts: the large spool is M_SCALE × the small one. */
+const M_SMALL_REFUSED = 15_000;
+const M_SCALE = 4;
+
+/** Leg M's k-th candidate: outside the grammar, with chars JSON escapes. */
+const refusedCandidate = (k: number): string => `/nowhere/refused-${k}-${'ñ"\\'.repeat(40)}.jpg`;
+
+/**
+ * An ended job whose every candidate is refused 'unidentified' without a DB
+ * read: one media column with NO path (no row fallback) and names outside the
+ * grammar.
+ */
+async function refusedJob(store: ArtifactStore, refused: number): Promise<ArtifactJobRef> {
+	const lines: Line[] = [
+		{ t: 'meta', v: 1, data_format: 'standard', breakdown: 'rows', section_tipo: SECTION },
+		{ t: 'col', i: 0, key: 'id', label: 'Id', cell_type: 'section_id', after: null },
+		{
+			t: 'col',
+			i: 1,
+			key: 'img',
+			label: 'Image',
+			cell_type: 'img',
+			model: 'component_image',
+			after: 0,
+		},
+	];
+	for (let k = 1; k <= refused; k++) {
+		lines.push({ t: 'row', rec: k, sub: 0, c: { '0': String(k), '1': refusedCandidate(k) } });
+	}
+	lines.push({ t: 'end', columns: [0, 1], rows: refused, records: refused });
+	return endedJob(store, lines);
+}
+
+/** Run mediaZipWriter over `job` in a fresh child; its report. */
+async function measureMediaZipHeap(job: ArtifactJobRef): Promise<MediaZipHeapReport> {
+	const child = Bun.spawn(
+		[process.execPath, 'run', M_HEAP_CHILD, job.dir],
+		// the preload-repointed env: the child's module graph opens the SUITE pool
+		// (A's principal) and the marked SUITE media root, never the app's
+		{ env: { ...process.env }, stdout: 'pipe', stderr: 'pipe' },
+	);
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	if (exitCode !== 0) {
+		throw new Error(`media zip heap child exited ${exitCode}: ${stderr.slice(-2000)}`);
+	}
+	return JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as MediaZipHeapReport;
+}
 
 /**
  * Sweep everything a describe block of this file created — planted files,
@@ -1239,76 +1300,73 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 
 	test('M. refused candidates never stay in memory: info.txt lists all of them, byte-exact, streamed from disk', async () => {
 		const store = markedStore();
-		// One media column with NO path (no row fallback) and names outside the
-		// grammar: every candidate is refused 'unidentified' without a DB read.
-		const REFUSED = 60_000;
-		const lines: Line[] = [
-			{ t: 'meta', v: 1, data_format: 'standard', breakdown: 'rows', section_tipo: SECTION },
-			{ t: 'col', i: 0, key: 'id', label: 'Id', cell_type: 'section_id', after: null },
-			{
-				t: 'col',
-				i: 1,
-				key: 'img',
-				label: 'Image',
-				cell_type: 'img',
-				model: 'component_image',
-				after: 0,
-			},
-		];
-		const candidate = (k: number): string => `/nowhere/refused-${k}-${'ñ"\\'.repeat(40)}.jpg`;
-		for (let k = 1; k <= REFUSED; k++) {
-			lines.push({ t: 'row', rec: k, sub: 0, c: { '0': String(k), '1': candidate(k) } });
-		}
-		lines.push({ t: 'end', columns: [0, 1], rows: REFUSED, records: REFUSED });
-		const job = await endedJob(store, lines);
-		const manifest = await store.readManifest(job);
+		const small = M_SMALL_REFUSED;
+		const large = M_SCALE * M_SMALL_REFUSED;
+		const smallJob = await refusedJob(store, small);
+		const largeJob = await refusedJob(store, large);
 
-		// The archive goes to a file (nothing of it held here), and the heap is
-		// sampled at every write — the last writes are info.txt's, when a list
-		// held in memory would be whole.
-		const archivePath = join(job.dir, 'probe_media_zip.bin');
-		Bun.gc(true);
-		const baseline = process.memoryUsage().heapUsed;
-		// The FIRST write (info.txt's local header, right after the rows walk) is
-		// not sampled: the walk's last spool chunk can still be conservatively
-		// reachable at that instant (measured: one 12 MB sample, gone at the next
-		// write). Every write while info.txt streams IS sampled — a list held in
-		// memory is whole through all of them.
-		let peak = 0;
-		let writes = 0;
+		// THE HEAP, in a child per size (the heap holds the writer and nothing else)
+		const atSmall = await measureMediaZipHeap(smallJob);
+		const atLarge = await measureMediaZipHeap(largeJob);
+		for (const report of [atSmall, atLarge]) {
+			expect(report.rows).toBe(0);
+			// anti-vacuity: info.txt streamed in many writes, every one after the first sampled
+			expect(report.writes).toBeGreaterThan(3);
+			expect(report.samples).toBe(report.writes - 1);
+		}
+		// bounded, absolutely: 60,000 refusals of ~150 characters held in memory
+		// are tens of MB (measured 25-47 MB for the in-memory list / an unbounded
+		// memo); on disk the writer's heap stays within a few MB of where it started
+		expect(
+			atLarge.peakGrowth,
+			`${large} refusals: peak live heap growth ${atLarge.peakGrowth}`,
+		).toBeLessThan(8 * 1024 * 1024);
+		// bounded, by scaling: M_SCALE× the refusals adds ~(M_SCALE-1)× the list to
+		// a writer that keeps it (an array of failures, the pretty text) — at
+		// least every extra candidate's text, held as UTF-16 (the 'ñ'), so >= 2
+		// bytes a character (measured: +16 MB here); a streaming writer's live
+		// heap is one buffer whatever the count (measured: +60 KB typical, one
+		// conservatively-reachable 1.7 MB spike in ~1 of 20 pairs), so the bound
+		// is a quarter of the smallest list a keeping writer could hold. (The
+		// archive's own bytes are no yardstick here: info.txt deflates the
+		// repetitive list to a few percent.)
+		let listGrowth = 0;
+		for (let k = small + 1; k <= large; k++) listGrowth += refusedCandidate(k).length;
+		const heapGrowth = atLarge.peakGrowth - atSmall.peakGrowth;
+		expect(
+			heapGrowth,
+			`${M_SCALE}× the refusals grew the peak live heap by ${heapGrowth} (peaks ${atSmall.peakGrowth} → ${atLarge.peakGrowth}) for ${listGrowth} more candidate characters`,
+		).toBeLessThan(listGrowth / 2);
+
+		// THE CONTENT, in-process (no heap read here): the archive goes to a file
+		// in the job directory, read back once and removed
+		const archivePath = join(largeJob.dir, 'probe_media_zip.bin');
 		const sink = {
 			bytes: 0,
-			// scratch metering is test N's subject; here the heap is
 			async admitScratch() {},
 			async write(chunk: string | Uint8Array) {
 				appendFileSync(archivePath, chunk);
 				this.bytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
-				if (writes++ === 0) return;
-				Bun.gc(true);
-				peak = Math.max(peak, process.memoryUsage().heapUsed - baseline);
 			},
 		};
 		const result = await mediaZipWriter(
 			{
-				spool: openSpoolReader(job.dir, { indexEvery: 4 }),
-				manifest,
+				spool: openSpoolReader(largeJob.dir, { indexEvery: 4 }),
+				manifest: await store.readManifest(largeJob),
 				options: { origin: '', showTipoInLabel: false },
 			},
 			sink,
 			new AbortController().signal,
 		);
 		expect(result.rows).toBe(0);
-		// 60,000 refusals of ~150 characters held in memory are tens of MB
-		// (measured 25-47 MB for the in-memory list / an unbounded memo); on disk
-		// the writer's heap stays within a few MB of where it started.
-		expect(writes).toBeGreaterThan(3);
-		expect(peak).toBeLessThan(8 * 1024 * 1024);
+		// the child walked the same spool to the same archive size
+		expect(sink.bytes).toBe(atLarge.bytes);
 
 		const archive = new Uint8Array(readFileSync(archivePath));
 		rmSync(archivePath);
 		const info = zipText(readZip(archive), MEDIA_ZIP_INFO_NAME);
-		const expected = Array.from({ length: REFUSED }, (_, k) => ({
-			file: candidate(k + 1),
+		const expected = Array.from({ length: large }, (_, k) => ({
+			file: refusedCandidate(k + 1),
 			reason: 'unidentified',
 		}));
 		// byte-exact: the streamed list IS JSON.stringify(failures, null, 2)
@@ -1317,9 +1375,14 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 				'Downloaded files: []\n' +
 				`Failed files: ${JSON.stringify(expected, null, 2)}\n`,
 		);
-		// and the unlinked failure log left nothing in the job directory
-		expect(readdirSync(job.dir).filter((name) => name.includes('media_zip_failures'))).toEqual([]);
-	});
+		// and the unlinked failure logs (the children's and this one) left
+		// nothing in the job directories
+		for (const job of [smallJob, largeJob]) {
+			expect(readdirSync(job.dir).filter((name) => name.includes('media_zip_failures'))).toEqual(
+				[],
+			);
+		}
+	}, 120_000);
 
 	test('N. the unlinked failure log is METERED: past the owner quota the build stops mid-walk, not after the whole log landed on disk', async () => {
 		// The same refusal-only shape as M (no row fallback, names outside the

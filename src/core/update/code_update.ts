@@ -1538,13 +1538,17 @@ export function refuseUnaccountedLiveEntries(codeRoot: string, targetRoot: strin
 	const shipped = new Set(readdirSync(codeRoot));
 	const previouslyShipped = installedRootEntriesOf(targetRoot);
 	const repoOnly = releaseExcludedRootEntriesOf(codeRoot);
-	const unaccounted = readdirSync(targetRoot).filter(
-		(name) =>
-			!shipped.has(name) &&
-			!PRESERVE_ROOT_ENTRIES.has(name) &&
-			!IGNORED_ROOT_ENTRIES.has(name) &&
-			name !== 'node_modules',
-	);
+	// Sorted: readdir order is filesystem-defined (APFS sorts, ext4 does
+	// not), and the operator messages below must read the same everywhere.
+	const unaccounted = readdirSync(targetRoot)
+		.sort()
+		.filter(
+			(name) =>
+				!shipped.has(name) &&
+				!PRESERVE_ROOT_ENTRIES.has(name) &&
+				!IGNORED_ROOT_ENTRIES.has(name) &&
+				name !== 'node_modules',
+		);
 	// A checkout carries the export-ignored aliases as SYMLINKS; a real
 	// `.claude/` dir or a hand-written CLAUDE.md is operator content.
 	// One lstat per name: the three lists must partition `unaccounted`.

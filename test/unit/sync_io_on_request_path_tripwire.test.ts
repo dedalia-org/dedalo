@@ -26,7 +26,11 @@
  * `fdatasyncSync` (a flush that waits on the DEVICE, for as long as the dirty
  * pages and the journal take). The durability kernel (core/files/durable.ts) is
  * where those belong — every other reachable module making one is a ledgered,
- * reasoned exception below. `readSync` stays OUT deliberately: each call reads
+ * reasoned exception below — and a call through one of the kernel's EXPORTED
+ * DOORS (`writeFileDurably`, `fsyncFile`, `new DirectoryBarrier(` …, derived
+ * from durable.ts, never listed) counts against its CALLER exactly as the raw
+ * call would, so hiding a flush behind the wrapper is not a way out of the
+ * census (2026-10-24). `readSync` stays OUT deliberately: each call reads
  * at most the `length` its caller passes, and it is the primitive of the
  * bounded-read kernel (core/files/bounded_read.ts, a byte ceiling per read) —
  * a readSync LOOP over a whole file is the residual this class does not see.
@@ -140,6 +144,94 @@ const FORBIDDEN_SYNC_CALLS = [
 
 const FORBIDDEN_RE = new RegExp(`\\b(${FORBIDDEN_SYNC_CALLS.join('|')})\\s*\\(`, 'g');
 
+/**
+ * THE KERNEL'S DOORS ARE IN THE CLASS TOO (review of the 2026-10-21 widening).
+ * core/files/durable.ts is where the raw descriptor calls belong, and it is
+ * exempt for making them — but its exported sync wrappers (`writeFileDurably`,
+ * `fsyncFile`, `fsyncDirectory`, …) run those same calls on the same event
+ * loop. Were they not counted, moving a raw `fsyncSync(fd)` behind
+ * `fsyncFile(path)` would turn a caller green and the shrink-only ratchet would
+ * credit it as progress while every served request paid the same device time.
+ * So a call to a kernel door counts against the CALLER, exactly as a raw call
+ * would: "its cost is the caller's" is a census here, not a sentence.
+ *
+ * DERIVED, never a hand list: every top-level declaration of the kernel is
+ * classified by its own body — a door if it makes a raw forbidden call or calls
+ * another door (fixpoint) — and only the EXPORTED doors are kept. A pure helper
+ * (`directoryFsyncUnsupported`, an error classifier) is therefore not a door,
+ * and a new exported wrapper is one the moment it exists. A door CLASS
+ * (`DirectoryBarrier`, whose `flush` fsyncs every pending directory) is counted
+ * where it is CONSTRUCTED — `new DirectoryBarrier(` — because its I/O method
+ * has a name (`flush`) too common to scan for, and a barrier is only ever built
+ * to be flushed.
+ */
+const DURABLE_KERNEL = 'src/core/files/durable.ts';
+
+function deriveKernelDoors(source: string): {
+	exported: string[];
+	functions: string[];
+	classes: string[];
+} {
+	const lines = stripComments(source).split('\n');
+	const declarations: {
+		name: string;
+		kind: 'function' | 'class';
+		exported: boolean;
+		body: string;
+	}[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const head = /^(export\s+)?(function|class)\s+(\w+)/.exec(lines[i] as string);
+		if (head === null) continue;
+		// A top-level declaration ends at the first column-0 closing brace (biome formatting).
+		let end = i;
+		while (end < lines.length && !/^\}/.test(lines[end] as string)) end++;
+		declarations.push({
+			name: head[3] as string,
+			kind: head[2] as 'function' | 'class',
+			exported: head[1] !== undefined,
+			body: lines.slice(i + 1, end).join('\n'),
+		});
+		i = end;
+	}
+	const raw = new RegExp(`\\b(${FORBIDDEN_SYNC_CALLS.join('|')})\\s*\\(`);
+	const doors = new Set(declarations.filter((d) => raw.test(d.body)).map((d) => d.name));
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const d of declarations) {
+			if (doors.has(d.name)) continue;
+			if ([...doors].some((door) => new RegExp(`\\b${door}\\s*\\(`).test(d.body))) {
+				doors.add(d.name);
+				grew = true;
+			}
+		}
+	}
+	const exportedDoors = declarations.filter((d) => d.exported && doors.has(d.name));
+	return {
+		exported: declarations.filter((d) => d.exported).map((d) => d.name),
+		functions: exportedDoors.filter((d) => d.kind === 'function').map((d) => d.name),
+		classes: exportedDoors.filter((d) => d.kind === 'class').map((d) => d.name),
+	};
+}
+
+const KERNEL_DOORS = deriveKernelDoors(readFileSync(resolve(REPO_ROOT, DURABLE_KERNEL), 'utf8'));
+
+// Never an empty alternation (it would match every position): `(?!)` matches nothing,
+// and the floor test below is what turns an empty derivation red.
+const KERNEL_DOOR_RE = new RegExp(
+	[
+		KERNEL_DOORS.functions.length > 0
+			? `\\b(${KERNEL_DOORS.functions.join('|')})\\s*\\(`
+			: '(?!)()',
+		KERNEL_DOORS.classes.length > 0
+			? `\\bnew\\s+(${KERNEL_DOORS.classes.join('|')})\\s*\\(`
+			: '(?!)()',
+	].join('|'),
+	'g',
+);
+
+/** Floor on the derived doors: a parser that stopped finding them would silently re-open the hole. */
+const KERNEL_DOOR_FLOOR = 6;
+
 /** Floor on the derived reachable set — a closure that collapsed is not a census. */
 const REACHABLE_MODULE_FLOOR = 500;
 
@@ -166,7 +258,13 @@ const SCANNED_CALL_FLOOR = 60;
 // widened (writeSync/writevSync/fsyncSync/fdatasyncSync) and four reachable modules
 // that were always making those calls became visible: durable.ts (the kernel itself),
 // atomic_json.ts, publication_host/secrets.ts and diffusion/writers/rdf.ts.
-const CEILING_FILES = 40;
+// 40 → 48 (2026-10-24, merge review): NOT a regression — the CLASS widened again, to
+// the kernel's own exported doors (KERNEL_DOORS, derived), so a call moved behind a
+// durable.ts wrapper counts against its caller. Eight reachable callers that always
+// made those calls became visible: widgets/export_hierarchy.ts,
+// diffusion_bridge/diffusion_delete.ts, ontology/recovery_file.ts,
+// mediastore/media_index.ts and the csv/json/markdown/xml writers.
+const CEILING_FILES = 48;
 // 93 → 88 (2026-09-30, OPS-2 review): the backup's hand-written process-record
 // writes left backup.ts when the dump became a registered maintenance job.
 // 88 → 86 (2026-10-01, DIFF-1/PERF-2): files.ts stages through a numeric fd
@@ -181,7 +279,12 @@ const CEILING_FILES = 40;
 // into the backup instead of refusing every update (releaseExcludedRootEntriesOf);
 // operator-driven pipeline. MEASURED on the merged tree: 94 — the new call fits
 // under the 94 ceiling, so it holds rather than summing to 95.
-const CEILING_CALLS = 94;
+// 94 → 135 (2026-10-24, merge review, the kernel-door widening above): 41 newly
+// visible door calls — 27 in files already ledgered (files.ts 13, rdf.ts 5,
+// secrets.ts 4, backup.ts 3, atomic_json.ts 2: backup.ts's three "converted" calls
+// count again, as they always should have) and 14 in the eight new entries.
+// Converting a raw call onto durable.ts no longer lowers this ceiling.
+const CEILING_CALLS = 135;
 
 const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
@@ -210,7 +313,7 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
 		file: 'src/core/area_maintenance/backup.ts',
 		reason:
-			'operator-driven backup/restore admin action: the pg_dump log tail and the verification sidecars (a few hundred bytes each)',
+			"operator-driven backup/restore admin action: the pg_dump log tail and the verification sidecars (a few hundred bytes each), written and its promotions' directories flushed through the durable.ts doors",
 	},
 	{
 		file: 'src/core/files/atomic_json.ts',
@@ -218,9 +321,19 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 			"the atomic JSON state-file kernel fsyncs a file it has already refused to write past the store's maxBytes (the publication-host registry and runtime results, a few KB) on operator-driven pairing and host actions; its bytes go through durable.ts writeAllSync — the remaining fsyncSync is a conversion candidate onto durable.ts writeFileDurably",
 	},
 	{
+		file: 'src/core/area_maintenance/widgets/export_hierarchy.ts',
+		reason:
+			"operator-driven hierarchy export (a maintenance widget action): one directory fsync after each dumped table's rename, and the export manifest (a few KB of JSON) written through durable.ts writeFileDurably",
+	},
+	{
+		file: 'src/core/diffusion_bridge/diffusion_delete.ts',
+		reason:
+			"the files-unlink door of a SERVED record delete (unlinkRecordFiles): after unlinking the record's published files it fsyncs their ONE directory (durable.ts fsyncDirectory) so the absence survives a power cut — a flush of one directory's entries, not of a file's bytes, and only when something was unlinked",
+	},
+	{
 		file: 'src/core/files/durable.ts',
 		reason:
-			"THE durability kernel, the one door for descriptor writes and flushes: every call writes or fsyncs exactly what its caller hands it (a proof sidecar, a state file, a diffusion part, a directory entry), so its cost is the caller's and is judged at the caller (backup, diffusion runs, publication-host state). The one served-request use is the unpublish door's DIRECTORY fsync on a record delete (diffusion_delete.ts): a flush of one directory's entries, not of a file's bytes",
+			"THE durability kernel, the one door for descriptor writes and flushes: every call writes or fsyncs exactly what its caller hands it (a proof sidecar, a state file, a diffusion part, a directory entry), so its cost is the caller's — and is COUNTED at the caller: its exported doors (KERNEL_DOORS, derived from this file) are in the forbidden class for every other module, each reachable caller carrying its own entry here. Only the raw calls inside the kernel are exempted by this line",
 	},
 	{
 		file: 'src/core/geoip/download.ts',
@@ -286,6 +399,11 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 		reason: 'copies the gzipped ontology definition file into the update target; operator-driven',
 	},
 	{
+		file: 'src/core/ontology/recovery_file.ts',
+		reason:
+			'KNOWN COST, operator-driven and single-flight: Build database version (a maintenance widget action) fsyncs the whole gzipped ontology recovery dump (durable.ts fsyncFile, possibly hundreds of MB, device time scaling with it) and then its directory; the power-cut gate observes only synchronous fsyncs, so an async flush is not yet provable — kept visible instead of silent',
+	},
+	{
 		file: 'src/core/publication_host/secrets.ts',
 		reason:
 			'writes one publication-host secret file (a few hundred bytes) at pairing, an operator action, and fsyncs it before the rename; its private temp+fsync+rename copy is a conversion candidate onto durable.ts writeFileDurably (exact-mode chmod kept)',
@@ -347,14 +465,39 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 		reason: 'reads the repo-owned transform definition JSONs applied during an update',
 	},
 	{
+		file: 'src/diffusion/targets/mediastore/media_index.ts',
+		reason:
+			'the media publication marker store: its markers are ZERO-BYTE files written async, and what it does sync is one DirectoryBarrier flush per batch (durable.ts) over the marker directories it changed, plus the parents of levels mkdir created — directory-entry flushes bounded by the directories touched, never by media bytes; reached from a publication run and from the unpublish of a record delete',
+	},
+	{
+		file: 'src/diffusion/writers/csv.ts',
+		reason:
+			'creates the diffusion run target directory once per run (durable.ts mkdirDurably: a parent-directory fsync per created level); a background operator-driven publication, not a served request',
+	},
+	{
 		file: 'src/diffusion/writers/files.ts',
 		reason:
 			'reads one manifest part file while a diffusion close merges/zips the run; the diffusion run is a background operator-driven publication, not a served request',
 	},
 	{
+		file: 'src/diffusion/writers/json.ts',
+		reason:
+			'creates the diffusion run target directory once per run (durable.ts mkdirDurably: a parent-directory fsync per created level); a background operator-driven publication, not a served request',
+	},
+	{
+		file: 'src/diffusion/writers/markdown.ts',
+		reason:
+			'creates the diffusion run target directory once per run (durable.ts mkdirDurably: a parent-directory fsync per created level); a background operator-driven publication, not a served request',
+	},
+	{
 		file: 'src/diffusion/writers/rdf.ts',
 		reason:
 			'the RDF writer fsyncs the merged document before its rename at commit; the diffusion run is a background operator-driven publication, not a served request',
+	},
+	{
+		file: 'src/diffusion/writers/xml.ts',
+		reason:
+			'creates the diffusion run target directory once per run (durable.ts mkdirDurably: a parent-directory fsync per created level); a background operator-driven publication, not a served request',
 	},
 	{
 		file: 'src/server.ts',
@@ -465,11 +608,14 @@ const WALK_EXEMPTIONS: { file: string; reason: string }[] = [
 
 /** Strip block and line comments so prose about an anti-pattern is not a hit. */
 function stripComments(source: string): string {
-	return source
-		.replace(/\/\*[\s\S]*?\*\//g, '')
-		.split('\n')
-		.map((line) => line.replace(/\/\/.*$/, ''))
-		.join('\n');
+	return (
+		source
+			// A block comment keeps its newlines, so a reported hit's line is the file's line.
+			.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ''))
+			.split('\n')
+			.map((line) => line.replace(/\/\/.*$/, ''))
+			.join('\n')
+	);
 }
 
 /**
@@ -506,15 +652,23 @@ function walkCallsIn(source: string): { name: string; line: number }[] {
 	return hits;
 }
 
-/** Every forbidden CALL SITE in `source` (import/export statements excluded). */
-function forbiddenCallsIn(source: string): { name: string; line: number }[] {
+/**
+ * Every forbidden CALL SITE in `source` (import/export statements excluded): the
+ * raw calls, plus — in every file but the kernel itself — the kernel's doors.
+ */
+function forbiddenCallsIn(source: string, file = ''): { name: string; line: number }[] {
 	const hits: { name: string; line: number }[] = [];
+	const countDoors = file !== DURABLE_KERNEL;
 	const lines = stripComments(source).split('\n');
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] as string;
 		if (/^\s*(import|export)\b/.test(line)) continue;
 		for (const match of line.matchAll(FORBIDDEN_RE)) {
 			hits.push({ name: match[1] as string, line: i + 1 });
+		}
+		if (!countDoors) continue;
+		for (const match of line.matchAll(KERNEL_DOOR_RE)) {
+			hits.push({ name: `durable.${match[1] ?? match[2]}`, line: i + 1 });
 		}
 	}
 	return hits;
@@ -528,8 +682,9 @@ const REACHABLE = reachableModules();
 /** file (repo-relative) -> forbidden call sites, for every offending reachable module. */
 const OFFENDERS = new Map<string, { name: string; line: number }[]>();
 for (const absolute of REACHABLE) {
-	const hits = forbiddenCallsIn(readFileSync(absolute, 'utf8'));
-	if (hits.length > 0) OFFENDERS.set(absolute.slice(REPO_ROOT.length + 1), hits);
+	const file = absolute.slice(REPO_ROOT.length + 1);
+	const hits = forbiddenCallsIn(readFileSync(absolute, 'utf8'), file);
+	if (hits.length > 0) OFFENDERS.set(file, hits);
 }
 
 /** file (repo-relative) -> loop-scoped metadata syscalls (the walk class). */
@@ -601,6 +756,62 @@ describe('sync I/O on the request path: the detector', () => {
 				.map((h) => h.name)
 				.sort(),
 		).toEqual(['fdatasyncSync', 'fsyncSync', 'writeSync', 'writevSync']);
+	});
+
+	test('the kernel doors are DERIVED from durable.ts and discriminate', () => {
+		expect(KERNEL_DOORS.functions.length).toBeGreaterThanOrEqual(KERNEL_DOOR_FLOOR);
+		expect(KERNEL_DOORS.classes.length).toBeGreaterThanOrEqual(1);
+		// A strict subset of the exports: the classifier tells a door from a pure helper.
+		const doors = [...KERNEL_DOORS.functions, ...KERNEL_DOORS.classes];
+		expect(doors.length).toBeLessThan(KERNEL_DOORS.exported.length);
+		for (const door of doors) expect(KERNEL_DOORS.exported).toContain(door);
+	});
+
+	test('the door classifier is transitive and ignores pure helpers (planted kernel)', () => {
+		const planted = deriveKernelDoors(
+			[
+				"import { fsyncSync } from 'node:fs';",
+				'export function pure(x: number): number {',
+				'\treturn x + 1;',
+				'}',
+				'function rawFlush(fd: number): void {',
+				'\tfsyncSync(fd);',
+				'}',
+				'export function wrapper(fd: number): void {',
+				'\trawFlush(fd);',
+				'}',
+				'export class Batch {',
+				'\tflush(): void {',
+				'\t\twrapper(3);',
+				'\t}',
+				'}',
+			].join('\n'),
+		);
+		expect(planted.functions).toEqual(['wrapper']);
+		expect(planted.classes).toEqual(['Batch']);
+		expect(planted.exported).toEqual(['pure', 'wrapper', 'Batch']);
+	});
+
+	test('positive control — a call behind a kernel door counts against its CALLER', () => {
+		// Moving a raw fsyncSync behind durable.ts must not turn a caller green.
+		const planted = [
+			"import { DirectoryBarrier, fsyncFile, writeFileDurably } from '../files/durable.ts';",
+			'writeFileDurably(target, payload);',
+			'fsyncFile(target);',
+			'const barrier = new DirectoryBarrier();',
+		].join('\n');
+		expect(
+			forbiddenCallsIn(planted, 'src/core/some/caller.ts')
+				.map((h) => h.name)
+				.sort(),
+		).toEqual(['durable.DirectoryBarrier', 'durable.fsyncFile', 'durable.writeFileDurably']);
+		// Inside the kernel the doors are its own definitions, not call sites against it.
+		expect(forbiddenCallsIn(planted, DURABLE_KERNEL)).toEqual([]);
+	});
+
+	test('a reported hit carries the FILE line (block comments keep their newlines)', () => {
+		const source = ['/**', ' * prose', ' */', 'copyFileSync(a, b);'].join('\n');
+		expect(forbiddenCallsIn(source)).toEqual([{ name: 'copyFileSync', line: 4 }]);
 	});
 
 	test('negative control — metadata syscalls are NOT flagged', () => {
