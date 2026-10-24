@@ -57,6 +57,19 @@ Merged since the last release; these ship with the next one.
 
     A section tipo typed by hand is remembered in your browser for that file name and comes back after a reload, marked *remembered*; click the mark to forget it. Nothing is stored on the server.
 
+- **The Import files tool's options panel reads as three clear blocks, and the import button stays in reach.**
+
+    The panel at the top of **Tools → Import files** spread five groups of different heights
+    and widths across the bare page, each label on its own line height, so the options read as
+    unrelated fields. It is now one card above the file queue, in three columns: what the files
+    go into (Processor, Target field and Quality, stacked), *Replace existing files*, and *New
+    files*. Each option is a label above its own control, and each group heading has room under
+    it. When the tool is narrower than three columns allow (below 1024 px wide, or in a narrow
+    window), the columns become one, in that same order.
+
+    The **Import** button used to sit far below the last field, off screen on a long queue. It
+    now stays in a bar along the bottom of the tool while you scroll.
+
 - **The inspector's Data box keeps its size when you select another component, and you can resize it.**
 
     Before, the inspector rebuilt the component information each time you selected a
@@ -68,13 +81,6 @@ Merged since the last release; these ship with the next one.
     the box to fit it to its content for a moment. The Copy button sits in the Data
     header, so you can reach it without scrolling, and it also works when a value is too
     large to display. An empty value now reads "Empty".
-
-- **An active component's background is now a lighter tint.**
-
-    Clicking a component in a section put a light-orange field behind it; the tint is now a
-    lighter cream (#fef1e4), so the active field reads more gently while its orange label
-    still marks it. The same tint is used by the search highlight and text selection, which
-    lighten with it.
 
 - **A relation table is framed, with no rules between its column titles**
 
@@ -140,7 +146,7 @@ Merged since the last release; these ship with the next one.
 
     Before: clicking the calendar opened a third-party picker that only understood complete CE dates in a four-digit year (it also showed English month names regardless of the interface language). Opening it on a year-only, year+month or BCE value fell back to *today*, and picking a day there replaced the value with a full modern date.
 
-    Now: the calendar is built into the component and speaks the same date model the catalogue stores. The year field accepts any signed year (with a CE/BCE toggle and decade steps), the month and weekday names follow the interface language, and the footer commits the precision you need — the bare year (`-205`), the year and month (`04/2022`) or a full day. The picker is fully keyboard driven (arrows, PageUp/PageDown, Home/End, Escape; the calendar button is a tab stop, and Alt+ArrowDown opens it from the field), its touch targets grow on phones and tablets, and it follows the light and dark themes. In the search panel the calendar button appears on the field's top-left corner when the field takes focus, a range's two dates share the row in full and its `<>` hangs under the gap between them, so the card keeps the same height as every other search field. The separate clock picker now uses the operating system's own time wheels on touch devices.
+    Now: the calendar is built into the component and speaks the same date model the catalogue stores. The year field accepts any signed year (with a CE/BCE toggle and decade steps), the month and weekday names follow the interface language, and the footer commits the precision you need — the bare year (`-205`), the year and month (`04/2022`) or a full day. The picker is fully keyboard driven (arrows, PageUp/PageDown, Home/End, Escape; the calendar button is a tab stop, and Alt+ArrowDown opens it from the field; pressing the calendar button again closes the open calendar instead of reopening it), its touch targets grow on phones and tablets, and it follows the light and dark themes. In the search panel the calendar button appears on the field's top-left corner when the field takes focus, a range's two dates share the row in full and its `<>` hangs under the gap between them, so the card keeps the same height as every other search field. The separate clock picker now uses the operating system's own time wheels on touch devices, and its button closes it on a second press too.
 
 #### Added
 
@@ -233,7 +239,7 @@ Merged since the last release; these ship with the next one.
     instead of a link). The history now opens: every well-formed entry shows as usual, and an entry
     whose stored value cannot be read as a link is shown empty instead (the response flags it with the
     reason, for developers). The same entry previews empty in the Time Machine tool, and restoring it
-    is refused with a message saying the entry is in an old format, instead of writing the broken value
+    (the field alone, the whole record, or a deleted record) is refused with a message saying the entry is in an old format, instead of writing the broken value
     into the record (before, the restore stored it and the field showed nothing usable). The current
     value stays as it is. The stored history itself is not changed.
 
@@ -322,6 +328,20 @@ Merged since the last release; these ship with the next one.
     A record emptied before this fix keeps its leftover envelope until it is
     regenerated: one **Regenerate files** click in the media versions tool clears it,
     and the record then shows the normal empty placeholder.
+
+- **An administrator's saved search in the Time Machine list survives a reload.**
+
+    A history list now never takes a remembered search of another section from the session
+    (see the entry on *Latest changes* and *Component history*). In this release's first build
+    that rule also applied to the Time Machine list an administrator opens on its own, with no
+    section named: a reload dropped the administrator's saved search and showed the whole
+    history, and the saved search was overwritten with the empty one.
+
+    The rule now applies only to a history list opened for a section, for every user,
+    administrators included. The administrator's own Time Machine list keeps its saved search
+    across a reload. That list stays refused for any user who is not an administrator.
+
+    Wire contract: `WC-2026-10-22-tm-scope-whole-request`.
 
 - **Turning pages in *Latest changes* no longer fails with a permission error for users who are not administrators.**
 
@@ -422,6 +442,8 @@ Merged since the last release; these ship with the next one.
     The history follows the same rule as the Time Machine tool: a user allowed to see a section's
     history sees the changes of every record of that section, also of records outside their projects
     and of deleted records.
+    A history list shows only the section it was opened for, for every user: a search of another
+    section remembered in the session no longer replaces it after a reload.
     The history never shows the past values of a field the user's profile does not let them read on
     the record: those cells stay empty, the rest of the change (who, when, which field) is shown.
 
@@ -493,6 +515,30 @@ Merged since the last release; these ship with the next one.
     the Execute button. Before, an older clean preview could reveal it after your newer
     preview had failed.
 
+- **The selected field is fully tinted in a light orange — its list surfaces included — and its label stays readable in both themes.**
+
+    When you clicked a field, only its label turned orange: the tint behind the component was
+    `#fffaf5`, 1.02:1 on the light card — invisible, so an active field looked much like an
+    inactive one.
+
+    The active field now paints the palette's orange field tint on the whole component (label
+    and value): a light cream, `#fff7ef`, in the light theme and a warm brown, `#4a3424`, in
+    dark, following the theme a reader has chosen. The search panel's highlight of a field
+    with a value uses the same tint, which is lighter than before (it was `#fce8d2`). Text you
+    select is not painted in this tint: a selection has its own colour, which stands out
+    against it (see the entry on selected text).
+
+    The label on that tint is the palette's deep orange — 5.6:1 in both themes. The bright
+    Dédalo orange it was painted with before is a *fill* colour: on the tint it measures
+    2.3:1, which is why the header of a selected Date or Text field was hard to read.
+
+    Nothing paints a slab of its own over that tint any more. A portal's list draws a card —
+    white in light, near-black in dark — for its rows to sit on, and each row carries a grey
+    remove column; both sat as boxes in the middle of the lit field. Inside a selected field
+    those surfaces no longer paint, at every depth, so a portal nested in a row behaves like
+    the one holding it, and an empty portal reads as the fields around it. The rows, their
+    columns and every control keep their place: only the paint goes, so nothing moves.
+
 - **A record restored from an archive no longer shows the history of a deleted record that had the same id.**
 
     Restoring an archive re-creates each record with the id it had when it was archived. If
@@ -543,6 +589,18 @@ Merged since the last release; these ship with the next one.
     In the maintenance move panels (move TLD, language, locators, to portal, to table),
     a run whose start the server did not confirm is no longer shown as refused: the
     panel says it may have started and asks you to check before running it again.
+
+- **Pasting into the search panel's Id field adds to what is already there instead of replacing it.**
+
+    In the search panel, pasting into a section's *Id* field replaced the whole field with the
+    clipboard, so ids you had already typed were lost, and a single pasted line went in
+    unfiltered, letters included.
+
+    A paste now goes where the cursor is, or replaces only the selected text, like a paste
+    anywhere else. A single line keeps only the characters the field accepts (digits and the
+    search operators `.` `,` `>` `<` `=`). A list pasted from a spreadsheet column, one id per
+    line, still becomes a comma-separated list, and a comma is added between it and the ids
+    already on either side.
 
 - **The reference picker of a text area separates the term and its thesaurus part (… | …), instead of gluing them.**
 
@@ -667,28 +725,16 @@ Merged since the last release; these ship with the next one.
 
     In the search panel, the *Id* field of a section rendered its value box at its content width: the box stayed short and left dead space inside the card, while every other field's box spanned the card. It now fills the card like the rest, in both the empty and the valued (highlighted) state.
 
-- **The selected field is fully tinted orange — its list surfaces included — and its label stays readable in both themes**
+- **Orange warning buttons are readable — white text on a deeper orange in the light theme.**
 
-    When you clicked a field, only its label turned orange: the tint behind the whole
-    component was `#fffaf5`, 1.02:1 on the light card — invisible, so an active field
-    looked much like an inactive one.
+    Warning buttons were painted in the bright brand orange, with dark text. White text on
+    that orange measured 2.44:1, under the readable minimum, so it could not be used.
 
-    The active field now paints the palette's own orange field tint, on the whole
-    component (label and value), in light and dark, and follows the theme a
-    reader has chosen.
-
-    The label on that tint is the palette's deep orange — 5.0:1 in light, 5.6:1 in
-    dark. The bright Dédalo orange
-    it was painted with before is a *fill* colour: on the tint it measured 2.05:1,
-    which is why the header of a selected Date or Text field was hard to read.
-
-    Nothing paints a slab of its own over that tint any more. A portal's list draws a
-    card — white in light, near-black in dark — for its rows to sit on, and each row
-    carries a grey remove column; both sat as boxes in the middle of the lit field.
-    Inside a selected field those surfaces no longer paint, at every depth, so a
-    portal nested in a row behaves like the one holding it, and an empty portal reads
-    as the fields around it. The rows, their columns and every control keep their
-    place: only the paint goes, so nothing moves.
+    Warning buttons now use the same orange as the warning messages: white text and icon on a
+    deeper orange in the light theme (4.62:1), near-black on a bright orange in the dark theme
+    (6.76:1). Hovering deepens the colour and keeps the text readable (5.21:1 light, 7.86:1
+    dark). The section toolbar's warning buttons, transparent until you hover them, light up in
+    the same colours.
 
 - **Dark mode: the page canvas no longer sits above the cards, and empty-field hints are legible**
 
@@ -787,7 +833,7 @@ Merged since the last release; these ship with the next one.
 
     The panel at the top of **Tools → Import files** — Processor, Target field, Quality, and the matching / new-files switches — was laid out for a wide window. On a phone its labels and their drop-downs landed at different left edges, the drop-downs ran off the right edge of the screen, the section headings were centred over left-aligned content, and each switch caption sat a full space away from its own switch.
 
-    On a phone the panel is now one option per row: the label sits above its drop-down, every drop-down spans the full width and starts at the same left edge, the headings read left like the rows beneath them, and each switch row is a full-height tap target with its caption beside its switch. The suffix-to-field legend ("- A -> Obverse") drops to its own full-width line instead of squeezing in beside its caption. Desktop is unchanged.
+    On a phone the panel is now one option per row: the label sits above its drop-down, every drop-down spans the full width and starts at the same left edge, the headings read left like the rows beneath them, and each switch row is a full-height tap target with its caption beside its switch. The suffix-to-field legend ("- A -> Obverse") drops to its own full-width line instead of squeezing in beside its caption. On a wider screen the panel is the three-block card described in its own entry.
 
 - **Ontology and thesaurus search: the result highlight and the loading state are now in sync.**
 
@@ -870,6 +916,18 @@ Merged since the last release; these ship with the next one.
 
     The checkbox carries its label again — **All** (in the interface language) — and the label is part of the control, so tapping the word ticks the box just like tapping the box itself. Each file's own Delete checkbox is unchanged.
 
+- **The search panel keeps the values you typed when the page reloads.**
+
+    The search panel saves what you are building as you go, so a reload brings it back. That
+    automatic save could store only the fields of the search and drop their values: after a
+    reload the panel showed the right fields, all empty, and the search had to be typed again.
+    This happened when the panel's working copy carried the *save values* switch set to *No*,
+    a switch that belongs to named presets and cannot be changed on that working copy.
+
+    The automatic save now always keeps the values. The *save values* switch still decides,
+    as before, whether a named preset you save stores its values or only its fields (a
+    template).
+
 - **The autocomplete options panel no longer clips its section list**
 
     In a search or edit field that offers an autocomplete, the gear panel that lists
@@ -947,6 +1005,21 @@ Merged since the last release; these ship with the next one.
     that is not a regular file counts as no marker), which each command already
     reports. Regular files — including an operator's symlinked password file — are
     read as before.
+
+- **Outbound fetches judge an IPv6 address through every NAT64 prefix that holds it, so nested prefixes cannot reach an internal address.**
+
+    Before the server fetches a URL on a user's behalf, it judges an IPv6 address that carries
+    an IPv4 address through NAT64 by that IPv4 address. NAT64 prefixes can sit one inside
+    another: two translators, a name server answering with two addresses, or an outer and an
+    inner prefix declared in `DEDALO_NAT64_PREFIXES`. The same address then carries a different
+    IPv4 address through each, and the check read only the first prefix in its list. Depending
+    on the order, an address could pass as a public site while, through the inner prefix the
+    network actually routes by, it reached the cloud metadata endpoint.
+
+    Now the address is read through every prefix that holds it, the most specific first, and it
+    is refused if any of those readings is not a public address. Nothing to configure; the
+    prefixes are declared as before (see
+    [Declaring the NAT64 prefixes](./config/config.md)).
 
 - **Bun no longer fetches packages by name outside the lockfile.**
 
