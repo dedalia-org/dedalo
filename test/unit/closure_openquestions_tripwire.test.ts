@@ -52,6 +52,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { absentScratchPath } from '../helpers/scratch_dir.ts';
 
 const REPO_ROOT = new URL('../../', import.meta.url).pathname;
 const AUDIT_DIR = `${REPO_ROOT}audits/2026-08-26_deep/`;
@@ -420,7 +421,7 @@ describe('THE BUILT SITUATION: the record checker, run on a synthetic audit tree
 	});
 
 	test('a missing tree reads as absent, never throws', () => {
-		expect(readAuditRecord(join(tmpdir(), 'dd-closure-oq-never-created'))).toBeNull();
+		expect(readAuditRecord(absentScratchPath('closure_oq_never_created'))).toBeNull();
 	});
 
 	const CASES: [Offence, Leg[], (v: AuditVerdicts) => void][] = [

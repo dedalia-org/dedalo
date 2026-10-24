@@ -88,8 +88,9 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { handleRequest } from '../../src/server.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_ingest_props_${process.pid}`;
+const ROOT = scratchDir('ingest_props');
 const USER_ID = -1;
 /**
  * The two wire-door cases go through the real HTTP route, which takes NO media

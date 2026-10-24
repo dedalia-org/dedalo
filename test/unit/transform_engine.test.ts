@@ -15,16 +15,13 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readEnv } from '../../src/config/env.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { rebaseLocatorsInValue } from '../../src/core/update/transform/locator_rewrite.ts';
 import { TransformRecorder } from '../../src/core/update/transform/report.ts';
 import { executeChangesInTipos } from '../../src/core/update/transform/tipos.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const SCRATCH_ROOT = join(
-	readEnv('TMPDIR') ?? '/tmp',
-	`dedalo_transform_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const SCRATCH_ROOT = scratchDir('transform');
 afterAll(() => rmSync(SCRATCH_ROOT, { recursive: true, force: true }));
 
 // ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ import {
 } from '../../src/core/install/media_tree.ts';
 import { subtitlesPath, subtitlesRelativePath } from '../../src/core/media/path.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { absentScratchPath } from '../helpers/scratch_dir.ts';
 import { TEST_MEDIA_MARKER } from '../helpers/test_media_root.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -76,7 +77,8 @@ function withScratchRoot(run: (root: string) => void): void {
  * root), so the descriptor assertions need one. A synthetic path keeps them pure:
  * nothing here touches the filesystem, and nothing can reach the configured root.
  */
-const DESCRIPTOR_ROOT = join(tmpdir(), 'dedalo_media_tree_descriptor_root');
+// Under a path that cannot exist, not the shared temp dir: synthetic means nobody can plant it.
+const DESCRIPTOR_ROOT = join('/', 'nonexistent_dedalo_synthetic', 'media_tree_descriptor_root');
 
 /** Every relative path the descriptor declares (the media root is ''). */
 function entryPaths(root: string = DESCRIPTOR_ROOT): string[] {
@@ -376,7 +378,9 @@ describe('media tree folder names come from the config catalog', () => {
 
 	test('an external export path whose PARENT is missing is reported, never invented', () => {
 		withScratchRoot((root) => {
-			const absent = join(tmpdir(), 'dedalo_absent_volume_xyz', 'deeper', 'bundles');
+			// The volume's mount point: absent, under a random name nobody else can predict.
+			const volume = absentScratchPath('absent_volume');
+			const absent = join(volume, 'deeper', 'bundles');
 			withEnv({ DEDALO_TOOL_EXPORT_FOLDER_PATH: absent }, () => {
 				const report = provisionMediaTree({ root, create: true });
 				const problem = report.problems.find((p) => p.absolute === absent);
@@ -386,7 +390,7 @@ describe('media tree folder names come from the config catalog', () => {
 				expect(report.result).toBe(false);
 				// Creating the mount point of a volume that has not come up is how an
 				// export bundle ends up filling the system disk.
-				expect(existsSync(join(tmpdir(), 'dedalo_absent_volume_xyz'))).toBe(false);
+				expect(existsSync(volume)).toBe(false);
 				// One broken entry never hides the rest: the media tree is still there.
 				expect(existsSync(join(root, 'av', 'subtitles'))).toBe(true);
 			});
@@ -997,12 +1001,6 @@ const DIR_MODE_REGISTER: Readonly<Record<string, DirModeRow>> = Object.freeze({
 		kind: 'not_media',
 		reason:
 			"publication-host drill scene: the agent's credentials dir (0700), its state root and the host locks dir (0750, the provisioner's layout: layout.ts MODES hostLocks) and the host-map renderer's identities dir (0755) in the drill's scratch HOST_BASE, NOT under the media root",
-	},
-	'scripts/ci/bun_pin_hashes.ts': {
-		modes: ['0o700'],
-		kind: 'not_media',
-		reason:
-			"the Bun hash-table signature check's scratch keyring home under /tmp (gpgv's dearmored release key), owner-only by design, NOT under the media root",
 	},
 	'scripts/lib/publication_host_engine_drill_kit.ts': {
 		modes: ['0o700'],

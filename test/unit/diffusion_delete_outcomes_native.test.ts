@@ -20,7 +20,6 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
 	activityTable,
@@ -35,6 +34,7 @@ import { getSectionDiffusionTargets } from '../../src/core/diffusion_bridge/diff
 import { diffusionFilesRoot } from '../../src/core/diffusion_bridge/published_files.ts';
 import { ensureDiffusionScratchTables } from '../helpers/diffusion_scratch_tables.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import {
 	countZzdOntology,
 	dropZzdOntology,
@@ -55,7 +55,7 @@ process.env.DIFFUSION_ACTIVITY_TABLE = SCRATCH_ACTIVITY_TABLE;
 // A MARKED scratch root (test/helpers/media_scratch_root.ts): the producer both
 // sides use (published_files.ts) asks the test-media guard for any root it
 // resolves, the explicit one a gate passes included.
-const FILE_ROOT = `${tmpdir()}/dedalo_ts_zzd_diffusion_${process.pid}`;
+const FILE_ROOT = scratchDir('ts_zzd_diffusion');
 
 /** dd1758 rows of one processed record (dd1763), ordered by element. */
 async function activityRowsFor(

@@ -38,7 +38,6 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { componentAvApiActions } from '../../src/core/api/handlers/dd_component_av_api.ts';
@@ -74,9 +73,10 @@ import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { toolTimeMachineApplyValue } from '../../tools/tool_time_machine/server/tool_time_machine.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
 
-const ROOT = join(tmpdir(), `dedalo_media_lifecycle_${process.pid}`);
+const ROOT = scratchDir('media_lifecycle');
 const SECTION_TIPO = 'test3';
 /** A scratch section_id: nothing exists on disk or in the DB at this id. */
 const SECTION_ID = 987654;

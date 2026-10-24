@@ -58,6 +58,7 @@ import { devServeIsolationEnv, devServeSocketArgs } from '../helpers/dev_serve_i
 import { freeTcpPort } from '../helpers/free_tcp_port.ts';
 import { markExportArtifactsRoot, markMediaRoot } from '../helpers/media_scratch_root.ts';
 import { sweepOrphanScratchDatabases } from '../helpers/scratch_database.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 import { markProcessesDir } from '../helpers/test_media_root.ts';
 
 /** The developer listener's port for every run of this file (one value: a resume compares answers). */
@@ -69,7 +70,7 @@ const SCRATCH_PREFIX = 'dedalo_install_tldprov_';
 const SCRATCH_DB = `${SCRATCH_PREFIX}${process.pid}`;
 const scratchDir = mkdtempSync(join(tmpdir(), 'dedalo_tldprov_'));
 // Short: macOS caps a unix socket path at 104 bytes.
-const SOCKET = join(tmpdir(), `zztldprov_${process.pid}.sock`);
+const SOCKET = scratchFile('zztldprov', 'zztldprov.sock');
 /** A marked media root (+ its export store sibling) under scratchDir, swept with it. */
 function scratchMediaRoot(): string {
 	const root = markMediaRoot(join(scratchDir, 'media'));

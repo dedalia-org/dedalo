@@ -12,7 +12,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { AUDIO_TR_QUALITY, mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { updateMatrixKeysData } from '../../src/core/db/matrix_write.ts';
@@ -38,8 +37,9 @@ import { deleteSectionRecord } from '../../src/core/section/record/delete_record
 import { mustGet } from '../helpers/assert.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_ingest_${process.pid}`;
+const ROOT = scratchDir('media_ingest');
 const image = mediaTypeOf('component_image')!;
 const av = mediaTypeOf('component_av')!;
 const HAVE_MAGICK = existsSync(resolveMagick());

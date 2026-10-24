@@ -27,7 +27,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
@@ -37,8 +36,9 @@ import type { MediaIdentity, MediaPathOptions } from '../../src/core/media/path.
 import { rebuildThumb, resolveThumbSource, thumbIsMissing } from '../../src/core/media/thumb.ts';
 import { posterframeAbsolutePath } from '../../src/core/media/tools/posterframe.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_thumb_rule_${process.pid}`;
+const ROOT = scratchDir('thumb_rule');
 const av = mediaTypeOf('component_av')!;
 const threeD = mediaTypeOf('component_3d')!;
 const HAVE_FFMPEG = existsSync(config.media.binaries.ffmpeg);

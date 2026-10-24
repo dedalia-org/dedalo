@@ -31,7 +31,6 @@
 
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
@@ -46,8 +45,9 @@ import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_derivative_failure_${process.pid}`;
+const ROOT = scratchDir('media_derivative_failure');
 const image = mustGet(mediaTypeOf('component_image'), 'component_image spec');
 const pathOpts: MediaPathOptions = { initialMediaPath: '', maxItemsFolder: null, mediaRoot: ROOT };
 const USER = -1; // the ROOT user (PHP logged_user_id()), a valid staging owner

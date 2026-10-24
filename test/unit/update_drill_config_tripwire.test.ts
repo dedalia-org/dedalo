@@ -40,7 +40,6 @@
 
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
 	composeOperatorConfig,
@@ -61,6 +60,7 @@ import {
 	prereleaseTagAbove,
 	releaseTagsNewestFirst,
 } from '../../src/core/update/code_build_plan.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = resolve(import.meta.dir, '../..');
 const DRILL = 'scripts/update_drill.ts';
@@ -218,7 +218,7 @@ describe('update drill config — operator config, catalog keys only', () => {
 	});
 
 	test('4. the release clone cuts its commit on the release branch from a DETACHED source (the pull_request checkout shape)', async () => {
-		const scratch = join(tmpdir(), `dedalo_release_clone_gate_${process.pid}_${Date.now()}`);
+		const scratch = scratchDir('release_clone_gate');
 		mkdirSync(scratch, { recursive: true });
 		const git = (cwd: string, ...args: string[]) => runGit(['-C', cwd, ...args], args[0] as string);
 		const commit = (cwd: string, msg: string) =>
@@ -339,7 +339,7 @@ describe('update drill config — operator config, catalog keys only', () => {
 	});
 
 	test('5. the drill tests the WORKING TREE: uncommitted edits reach the clone and the consumer export; each prerelease-leg tag gets its own annotated commit', async () => {
-		const scratch = join(tmpdir(), `dedalo_overlay_gate_${process.pid}_${Date.now()}`);
+		const scratch = scratchDir('overlay_gate');
 		mkdirSync(scratch, { recursive: true });
 		const git = (cwd: string, ...args: string[]) => runGit(['-C', cwd, ...args], args[0] as string);
 		const stdout = (cwd: string, ...args: string[]) =>

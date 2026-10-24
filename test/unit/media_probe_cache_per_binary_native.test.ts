@@ -25,11 +25,11 @@
 
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as REAL_CONFIG_MODULE from '../../src/config/config.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_probe_cache_${process.pid}`;
+const ROOT = scratchDir('probe_cache');
 const BIN = join(ROOT, 'bin');
 
 const REAL_CONFIG = REAL_CONFIG_MODULE.config;

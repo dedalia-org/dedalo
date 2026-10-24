@@ -40,7 +40,7 @@
  * probe and exercise it against a stub server.
  */
 
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readEnv } from '../src/config/env.ts';
@@ -224,8 +224,22 @@ export function suiteServerPaths(pid: number = process.pid): {
 	sessionDbPath: string;
 	stateFilePath: string;
 } {
+	// A FIXED name on purpose: the runner and the server it spawns derive these
+	// paths independently (pid-keyed), so the directory is a rendezvous, not a
+	// scratch. A fixed name in a shared temp dir is squattable, so it is VERIFIED
+	// rather than trusted: a real directory (never a symlink), owned by this uid,
+	// mode 0700 — anything else is refused before a socket or session store lands
+	// in it (predictable_tmp_tripwire names this exemption).
 	const dir = join(tmpdir(), 'dedalo_client_test');
-	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	mkdirSync(dir, { recursive: true }); // 0700 enforced below, after the owner check
+	const stat = lstatSync(dir);
+	const uid = process.getuid?.();
+	if (!stat.isDirectory() || stat.isSymbolicLink() || (uid !== undefined && stat.uid !== uid)) {
+		throw new Error(
+			`client suite: REFUSING '${dir}' — not a real directory owned by this user (a squatted temp name?). Remove it and rerun.`,
+		);
+	}
+	if ((stat.mode & 0o077) !== 0) chmodSync(dir, 0o700);
 	return {
 		socketPath: join(dir, `server_${pid}.sock`),
 		sessionDbPath: join(dir, `sessions_${pid}.sqlite`),

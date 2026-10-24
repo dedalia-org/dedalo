@@ -17,12 +17,12 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import { rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { buildJobFollowStream } from '../../src/diffusion/api/actions.ts';
 import type { ProgressData } from '../../src/diffusion/jobs/sse.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 
 const REPO_ROOT = new URL('../../', import.meta.url).pathname;
-const PROBE_SCRIPT = `${tmpdir()}/dedalo_ts_s1_15_probe_${process.pid}.ts`;
+const PROBE_SCRIPT = scratchFile('ts_s1_15_probe', 'ts_s1_15_probe.ts');
 
 afterAll(() => {
 	rmSync(PROBE_SCRIPT, { force: true });

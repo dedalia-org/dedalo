@@ -19,7 +19,6 @@
 
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import {
 	ensureDir,
@@ -30,8 +29,9 @@ import {
 import type { MediaIdentity, MediaPathOptions } from '../../src/core/media/path.ts';
 import { copyToQuality } from '../../src/core/media/processing.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_atomic_${process.pid}`;
+const ROOT = scratchDir('media_atomic');
 const DIR = `${ROOT}/thumb`;
 const TARGET = `${DIR}/test99_test3_440866.jpg`;
 

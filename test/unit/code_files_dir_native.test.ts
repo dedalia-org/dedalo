@@ -28,12 +28,10 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { CODE_DIR_MODE, ensureCodeFilesDir } from '../../src/core/update/code_files_dir.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
-const ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_code_files_dir_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const ROOT = scratchDir('code_files_dir');
 /** Root ignores permission bits, so a "cannot create" case cannot mean anything. */
 const asRoot = process.getuid?.() === 0;
 

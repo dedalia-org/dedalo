@@ -32,7 +32,6 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractArchive } from '../../src/core/archive/extract.ts';
 import { restoreArchive } from '../../src/core/archive/restore.ts';
@@ -53,6 +52,7 @@ import {
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { interleave } from '../helpers/lock_interleave.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const TLD = 'zzarp';
 const SECTION = `${TLD}1`;
@@ -60,7 +60,7 @@ const COMPONENT = `${TLD}2`;
 const SOURCE_SECTION = `${TLD}0`;
 const SOURCE_ID = 50;
 const SOURCE_NODE = `${TLD}${SOURCE_ID}`;
-const SCRATCH = join(tmpdir(), `dedalo_archive_projection_${process.pid}`);
+const SCRATCH = scratchDir('archive_projection');
 const ARCHIVE = join(SCRATCH, 'archive');
 let mediaRoot = '';
 

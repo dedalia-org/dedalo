@@ -22,13 +22,13 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { scanFilesInfo } from '../../src/core/media/files_info.ts';
 import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
 import { dropTestCorpus, ensureTestCorpus } from '../../src/core/test_data/test_corpus/ensure.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 /** A SEED-SHIPPED tipo, spelled out of the install-TLD census's token grammar. */
 const seed = (tld: string, id: number): string => `${tld}${id}`;
@@ -43,7 +43,7 @@ const IMAGE_COMPONENT = seed('rsc', 29);
  * test/helpers/media_scratch_root.ts) — the installation's media tree is never
  * reachable from here.
  */
-const ROOT = markMediaRoot(`${tmpdir()}/dedalo_media_fi_diff_${process.pid}`);
+const ROOT = markMediaRoot(scratchDir('media_fi_diff'));
 const image = mediaTypeOf('component_image')!;
 
 interface StoredEntry {

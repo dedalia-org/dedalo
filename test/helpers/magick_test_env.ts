@@ -15,15 +15,18 @@
  * MAGICK_CONFIGURE_PATH (directly, or through this helper / magickPolicyEnv).
  *
  * The pixel-cache spill (MAGICK_TMPDIR, required by magickPolicyEnv) goes to a
- * per-process directory under the OS temp dir: a test fixture is a few hundred
+ * per-process PRIVATE directory under the OS temp dir (scratch_dir.ts): a test fixture is a few hundred
  * pixels and never spills, and the OS temp dir is the suite's scratch, not an
  * installation's database volume.
  */
 
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { magickPolicyEnv } from '../../src/core/media/engine/binaries.ts';
+import { scratchDir } from './scratch_dir.ts';
+
+/** One private spill dir per process (scratch_dir.ts: mkdtemp, 0700), made on first use. */
+let spillDir: string | undefined;
 
 export function magickTestEnv(): Record<string, string> {
-	return magickPolicyEnv(join(tmpdir(), `dedalo-test-magick-spill-${process.pid}`));
+	spillDir ??= scratchDir('test_magick_spill');
+	return magickPolicyEnv(spillDir);
 }

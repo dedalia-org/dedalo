@@ -14,7 +14,6 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import {
 	activityTable,
 	deleteDiffusionRecord,
@@ -25,6 +24,7 @@ import {
 import { getSectionDiffusionTargets } from '../../src/core/diffusion_bridge/diffusion_map.ts';
 import { ensureDiffusionScratchTables } from '../helpers/diffusion_scratch_tables.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import {
 	countZzdOntology,
 	dropZzdOntology,
@@ -216,7 +216,7 @@ describe('diffusion pending retry queue (dd1758)', () => {
 describe('diffusion published-file unlinks', () => {
 	// A MARKED scratch root: the producer both sides use (published_files.ts)
 	// resolves a root that gets written under, so it asks the test-media guard.
-	const FILE_ROOT = markMediaRoot(`${tmpdir()}/dedalo_ts_diffusion_files_${process.pid}`);
+	const FILE_ROOT = markMediaRoot(scratchDir('ts_diffusion_files'));
 
 	afterAll(() => {
 		rmSync(FILE_ROOT, { recursive: true, force: true });

@@ -18,8 +18,7 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   KIT_DOT_SEGMENT_PATTERN,
@@ -32,11 +31,12 @@ import {
   KIT_SOURCE_DIR,
   SOURCE_MANIFEST,
 } from '../src/provision/init/constants';
+import { scratchDir } from '../../../test/helpers/scratch_dir.ts';
 
 const INSTALL_SH = join(import.meta.dir, '..', 'deploy', 'install.sh');
 const TEXT = readFileSync(INSTALL_SH, 'utf8');
 /** Outside the checkout: this gate plants FIFOs and escaping links (see init_install_sh.test.ts). */
-const SCRATCH = join(realpathSync(tmpdir()), `dd_kit_sh_${process.pid}`);
+const SCRATCH = scratchDir('dd_kit_sh', { realpath: true });
 const KIT = join(SCRATCH, 'kit');
 
 function lib(fn: string, ...args: string[]): { code: number; out: string; err: string } {

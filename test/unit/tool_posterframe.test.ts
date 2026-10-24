@@ -13,7 +13,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
@@ -34,8 +33,9 @@ import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_posterframe_${process.pid}`;
+const ROOT = scratchDir('posterframe');
 const av = mediaTypeOf('component_av')!;
 const image = mediaTypeOf('component_image')!;
 const HAVE_FFMPEG = existsSync(config.media.binaries.ffmpeg);

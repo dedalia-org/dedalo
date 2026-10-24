@@ -12,7 +12,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initExec } from '../src/exec';
@@ -24,6 +24,7 @@ import { READ_CAP_BYTES } from '../src/provision/init/host_io';
 import type { OperatorFile } from '../src/provision/init/types';
 import { BINARY_READ_CAP_BYTES } from '../src/provision/init/types';
 import { fakeBun, fakeBunZip, shaTable } from './fixtures/bun/zip_store';
+import { scratchDir } from '../../../test/helpers/scratch_dir.ts';
 
 const PIN = '9.9.9';
 const ASSET = 'bun-linux-x64';
@@ -284,7 +285,7 @@ describe('installBun (fake ports)', () => {
 
 /* ── layer 2: real unzip, real spawns, real files ────────────────────────────────── */
 
-const SCRATCH = join(realpathSync(tmpdir()), `dd_p5_bun_install_${process.pid}`);
+const SCRATCH = scratchDir('dd_p5_bun_install', { realpath: true });
 
 /** Real fs doors; the ONE seam: files this user owns are reported as uid 0 (non-root gate). */
 function realPorts(stateDir: string): BunInstallPorts {

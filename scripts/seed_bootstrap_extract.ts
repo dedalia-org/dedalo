@@ -32,9 +32,8 @@
  * database is read.
  */
 
-import { rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { projectRoot } from '../src/config/env.ts';
 import { ddOntologyScaffoldQuery } from '../src/core/db/dd_ontology.ts';
@@ -59,6 +58,7 @@ import {
 } from '../src/core/install/seed_sources.ts';
 import { REGISTRY_PROVISION_INPUTS_SQL } from '../src/core/ontology/hierarchy_state.ts';
 import { gzipStreamToFile } from '../src/core/ontology/recovery_file.ts';
+import { removeScratchDir, scratchFile } from '../test/helpers/scratch_dir.ts';
 
 const conn = connFromConfig();
 
@@ -147,7 +147,7 @@ const commit = Bun.spawnSync(['git', 'rev-parse', rev], { cwd: projectRoot, stdo
 console.log(`source: ${seedInGit} (${commit})`);
 
 const scratch = await createScratch(conn, `dedalo_seed_extract_${process.pid}`, 'extract');
-const restoreFile = join(tmpdir(), `dedalo_seed_extract_${process.pid}.sql`);
+const restoreFile = scratchFile('seed_extract', 'seed_extract.sql');
 try {
 	writeFileSync(restoreFile, gunzipSync(shown.stdout));
 	await psql(scratch.name, ['-f', restoreFile]);
@@ -193,7 +193,7 @@ try {
 	await copyOut(scratch.name, 'matrix_hierarchy_main', SEED_REGISTRY_PATH);
 	console.log(`wrote ${SEED_SCHEMA_PATH}, ${SEED_LANGS_PATH}, ${SEED_REGISTRY_PATH}`);
 } finally {
-	rmSync(restoreFile, { force: true });
+	removeScratchDir(dirname(restoreFile));
 	await dropScratch(conn, scratch);
 }
 process.exit(0);

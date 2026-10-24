@@ -16,11 +16,9 @@ import {
 	resolveCodeReleaseFile,
 	serveCodeReleaseRequest,
 } from '../../src/core/update/code_serving.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_code_serving_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const ROOT = scratchDir('code_serving');
 const FILES_DIR = join(ROOT, 'files');
 const ARCHIVE = join(FILES_DIR, '7', '7.0', '7.0.1.zip');
 const DEV_ARCHIVE = join(FILES_DIR, '7', '7.0', '7.0.1-dev.zip');

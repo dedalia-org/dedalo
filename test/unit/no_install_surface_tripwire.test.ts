@@ -60,6 +60,7 @@ import {
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { RESTART_EXIT_CODE } from '../../src/core/update/restart.ts';
 import { REPO_ROOT, reachableModules } from '../helpers/request_path_closure.ts';
+import { removeScratchDir, scratchDir } from '../helpers/scratch_dir.ts';
 
 /**
  * THE pre-auth surface, frozen. Widening it is a security decision taken HERE, in the
@@ -228,9 +229,10 @@ async function boot(
 		port: 0,
 		socket: { open: () => void portContacts++, data: () => {} },
 	});
-	// Short path: macOS caps a unix socket path at 104 bytes.
-	const socketPath = join(tmpdir(), `zznis_${process.pid}_${name}.sock`);
-	rmSync(socketPath, { force: true });
+	// Short path: macOS caps a unix socket path at 104 bytes — a private
+	// scratch dir of its own (never a guessable name in the shared temp dir).
+	const socketDir = scratchDir('nis');
+	const socketPath = join(socketDir, 's.sock');
 	const heldSocket = Bun.listen({ unix: socketPath, socket: { data: () => {} } });
 
 	try {
@@ -271,7 +273,7 @@ async function boot(
 		heldSocket.stop(true);
 		held.stop(true);
 		postgres.stop(true);
-		rmSync(socketPath, { force: true });
+		removeScratchDir(socketDir);
 	}
 }
 

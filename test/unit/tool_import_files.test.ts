@@ -19,7 +19,6 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { readMatrixRecord } from '../../src/core/db/matrix.ts';
@@ -45,6 +44,7 @@ import {
 } from '../../tools/tool_import_files/server/index.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 // ── scratch twins (collection-time probe → visible SKIP when DB absent) ──
 // The twins live in the test3 PLAYGROUND, which every suite DB carries. They
@@ -100,7 +100,7 @@ const testIfDb = test.if(hasDb);
 // target_date capture-date drive: the reader shells out to pdfinfo (config-
 // resolved path) — absent binary = visible SKIP, never a silent fake-pass.
 const hasPdfinfo = existsSync(config.media.binaries.pdfinfo);
-const FIXTURE_DIR = join(tmpdir(), `dedalo_import_files_${process.pid}`);
+const FIXTURE_DIR = scratchDir('import_files');
 mkdirSync(FIXTURE_DIR, { recursive: true });
 
 /** A minimal one-page PDF whose Info dict carries the given /CreationDate. */

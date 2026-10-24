@@ -47,7 +47,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
 	type DataframeScanBudgets,
 	dataframeControlScan,
@@ -57,8 +57,11 @@ import { ALL_WIDGET_MODULES } from '../../src/core/area_maintenance/widgets/regi
 import { MAINTENANCE_LOCK_TIMEOUT, sql } from '../../src/core/db/postgres.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { childDriver, driverResult, repoModule } from '../helpers/child_driver.ts';
+import { removeScratchDir, scratchFile } from '../helpers/scratch_dir.ts';
 
 const PID = process.pid;
+/** The background update's log — in a private scratch dir, never a guessable temp name. */
+const BG_LOG_PATH = scratchFile('perf11_bg', 'perf11_bg.log');
 const SECTION = 'zzmdu1';
 const SOURCE = 'matrix_test';
 const TARGET = 'matrix_list';
@@ -214,7 +217,7 @@ const results = {};
 		{
 			catalog: { '701': descriptor },
 			currentVersion: [7, 0, 0],
-			logPath: ${JSON.stringify(join(tmpdir(), `dedalo_perf11_bg_${PID}.log`))},
+			logPath: ${JSON.stringify(BG_LOG_PATH)},
 			writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${BG_VER}" (version) VALUES ($1)', [v]); },
 			readVersionInTx: async () => {
 				const rows = await sql.unsafe('SELECT version FROM "${BG_VER}" ORDER BY id DESC LIMIT 1', []);
@@ -472,7 +475,7 @@ afterAll(async () => {
 	)) as { n: number }[];
 	expect(moveLeft[0]?.n).toBe(0);
 	rmSync(definitionsDir, { recursive: true, force: true });
-	rmSync(join(tmpdir(), `dedalo_perf11_bg_${PID}.log`), { force: true });
+	removeScratchDir(dirname(BG_LOG_PATH));
 	driver.dispose();
 });
 

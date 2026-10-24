@@ -15,7 +15,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
@@ -57,8 +56,9 @@ import { issuePollHandle } from '../../tools/tool_transcription/server/poll_hand
 import { mustGet } from '../helpers/assert.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { removeScratchDir, scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_transcription_${process.pid}`;
+const ROOT = scratchDir('transcription');
 const av = mediaTypeOf('component_av')!;
 const HAVE_FFMPEG = existsSync(config.media.binaries.ffmpeg);
 const identity: MediaIdentity = {
@@ -1940,9 +1940,10 @@ describe('tool_transcription readiness facts', () => {
 		get_lang_label: (lang: string) => string;
 	};
 
-	afterAll(() =>
-		rmSync(`${tmpdir()}/dedalo_lang_probe_${process.pid}`, { recursive: true, force: true }),
-	);
+	// its OWN directory, not ROOT: ROOT is shared with the media half of this
+	// file, which creates and removes trees under it while these tests run.
+	const LANG_PROBE_DIR = scratchDir('lang_probe');
+	afterAll(() => removeScratchDir(LANG_PROBE_DIR));
 
 	/**
 	 * The two functions, run as the REAL bytes that ship — sliced out of the
@@ -1968,10 +1969,7 @@ describe('tool_transcription readiness facts', () => {
 			}
 			slices.push(raw.slice(from, to + 1).replace('export const', 'const'));
 		}
-		// its OWN directory, not ROOT: ROOT is shared with the media half of this
-		// file, which creates and removes trees under it while these tests run.
-		const dir = `${tmpdir()}/dedalo_lang_probe_${process.pid}`;
-		mkdirSync(dir, { recursive: true });
+		const dir = LANG_PROBE_DIR;
 		const probe = `${dir}/lang_info_${langs.length}.probe.mjs`;
 		await Bun.write(
 			probe,
@@ -2043,6 +2041,8 @@ describe('tool_transcription interrupted-run recovery', () => {
 	};
 
 	/** The real bytes, sliced — see the lang probe above for why not imported. */
+	const PARTIAL_PROBE_DIR = scratchDir('partial_probe');
+
 	async function loadPartialProbe(): Promise<PartialProbe> {
 		const raw = await Bun.file(`${TOOL_DIR}/js/tool_transcription.js`).text();
 		const slices: string[] = [];
@@ -2054,16 +2054,13 @@ describe('tool_transcription interrupted-run recovery', () => {
 			}
 			slices.push(raw.slice(from, to + 1));
 		}
-		const dir = `${tmpdir()}/dedalo_partial_probe_${process.pid}`;
-		mkdirSync(dir, { recursive: true });
+		const dir = PARTIAL_PROBE_DIR;
 		const probe = `${dir}/partials.probe.mjs`;
 		await Bun.write(probe, slices.join('\n'));
 		return (await import(probe)) as unknown as PartialProbe;
 	}
 
-	afterAll(() =>
-		rmSync(`${tmpdir()}/dedalo_partial_probe_${process.pid}`, { recursive: true, force: true }),
-	);
+	afterAll(() => removeScratchDir(PARTIAL_PROBE_DIR));
 
 	test('two models keep two partials — neither can overwrite the other', async () => {
 		const probe = await loadPartialProbe();

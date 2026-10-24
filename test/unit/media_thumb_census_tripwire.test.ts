@@ -29,7 +29,6 @@
 
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import {
@@ -47,6 +46,7 @@ import {
 	posterframeLocation,
 } from '../../src/core/media/path.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const REPO_ROOT = join(import.meta.dir, '../..');
 const MODELS: MediaModel[] = [
@@ -125,7 +125,7 @@ describe('one grammar: the posterframe path has a single producer', () => {
 	 * refuses an undeclared one under the test-media seam, and a gate that asked
 	 * for an exemption from that would be asking for the hole back.
 	 */
-	const CENSUS_ROOT = markMediaRoot(join(tmpdir(), 'dedalo_thumb_census_root'));
+	const CENSUS_ROOT = markMediaRoot(scratchDir('thumb_census_root'));
 	/** The shapes that used to disagree — the override is the one a copy ignored. */
 	const OPTION_SHAPES: MediaPathOptions[] = [
 		{ initialMediaPath: '', maxItemsFolder: null, mediaRoot: CENSUS_ROOT },

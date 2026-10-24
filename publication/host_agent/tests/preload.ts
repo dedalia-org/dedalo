@@ -23,5 +23,11 @@ const marker = join(scratch, INSTANCE_MARKER);
 const declared = existsSync(marker) && readFileSync(marker, 'utf8') === markerContent(PRELOAD_INSTANCE);
 if (!declared && (!existsSync(scratch) || readdirSync(scratch).length === 0)) {
   mkdirSync(scratch, { recursive: true });
-  writeFileSync(marker, markerContent(PRELOAD_INSTANCE));
+  // Exclusive create: no exists-then-write window — a concurrent preload that won
+  // the race wrote the same declaration, and an existing marker is never replaced.
+  try {
+    writeFileSync(marker, markerContent(PRELOAD_INSTANCE), { flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
 }

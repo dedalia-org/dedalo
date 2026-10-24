@@ -67,6 +67,7 @@ import {
 import { compareVersionArrays, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
 import { ageMinutes, buildRealArchive, truncatedCopy } from '../helpers/real_backup_archive.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 // Capture the REAL modules ONCE at top level; mock.restore() does NOT revert
 // mock.module, so afterAll re-installs them — a per-test `await import()` would
@@ -84,10 +85,7 @@ if (STATE_PATH === undefined) {
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as Principal;
 
-const ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_code_update_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const ROOT = scratchDir('code_update');
 let zipAvailable = false;
 
 beforeAll(async () => {

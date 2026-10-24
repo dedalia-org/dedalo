@@ -33,7 +33,6 @@ import {
 	statSync,
 	utimesSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { assertNormalizedExtensionForTier, mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
@@ -62,8 +61,9 @@ import { applyRotationCore } from '../../src/core/media/tools/rotation.ts';
 import { buildVersionCore, deleteAndResyncCore } from '../../src/core/media/tools/versions.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_two_masters_${process.pid}`;
+const ROOT = scratchDir('two_masters');
 const image = mediaTypeOf('component_image')!;
 const av = mediaTypeOf('component_av')!;
 const pdf = mediaTypeOf('component_pdf')!;

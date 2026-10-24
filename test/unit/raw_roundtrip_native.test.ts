@@ -38,7 +38,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractArchive } from '../../src/core/archive/extract.ts';
 import {
@@ -69,6 +68,7 @@ import {
 } from '../../src/core/section_record/save_event.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import {
 	dropSituation,
 	ensureZzarc,
@@ -92,7 +92,7 @@ import {
 } from '../helpers/zzarc_archive_situation.ts';
 import { zzarcMediaDigests } from '../helpers/zzarc_media_digests.ts';
 
-const SCRATCH = join(tmpdir(), `dedalo_archive_roundtrip_${process.pid}`);
+const SCRATCH = scratchDir('archive_roundtrip');
 const MEDIA_ROOT = join(SCRATCH, 'media_root');
 const ARCHIVE = join(SCRATCH, 'archive');
 const VIRTUAL_ALONE = join(SCRATCH, 'archive_virtual_alone');

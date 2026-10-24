@@ -26,11 +26,11 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preValidateArchive } from '../../src/core/update/code_update.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = join(tmpdir(), `dedalo_archive_precheck_${process.pid}`);
+const ROOT = scratchDir('archive_precheck');
 
 /** Build a zip whose single entry DECLARES `megabytes` of uncompressed zeroes. */
 function buildArchive(name: string, megabytes: number): string {

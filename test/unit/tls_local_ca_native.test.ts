@@ -51,15 +51,12 @@ import {
 	utimesSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = resolve(import.meta.dir, '../..');
 const SCRIPT = join(ROOT, 'deploy/dedalo-tls-rotate.sh');
-const SCRATCH = join(
-	tmpdir(),
-	`dedalo_tls_local_ca_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const SCRATCH = scratchDir('tls_local_ca');
 mkdirSync(SCRATCH, { recursive: true });
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 

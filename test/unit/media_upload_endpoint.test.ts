@@ -21,6 +21,7 @@ import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { handleRequest } from '../../src/server.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 
 /** Create a session and return { token, csrf }. */
 function newSession(userId: number): { token: string; csrf: string } {
@@ -54,7 +55,7 @@ const API_URL = 'http://localhost/dedalo/core/api/v1/json/';
 const HAVE_MAGICK = existsSync(resolveMagick());
 
 async function jpegBlob(): Promise<Blob> {
-	const tmp = `${process.env.TMPDIR ?? '/tmp'}/dedalo_upload_ep_${process.pid}.jpg`;
+	const tmp = scratchFile('upload_ep', 'upload_ep.jpg');
 	await runBinary([resolveMagick(), '-size', '120x120', 'xc:teal', tmp], {
 		nice: false,
 		env: magickTestEnv(),

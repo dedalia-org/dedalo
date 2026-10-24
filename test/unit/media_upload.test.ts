@@ -11,7 +11,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
@@ -29,8 +28,9 @@ import type { MediaIdentity, MediaPathOptions } from '../../src/core/media/path.
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_upload_${process.pid}`;
+const ROOT = scratchDir('media_upload');
 const image = mediaTypeOf('component_image')!;
 const HAVE_MAGICK = existsSync(resolveMagick());
 const USER = 3;

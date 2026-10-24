@@ -21,7 +21,6 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import {
 	isOntologyIoFileName,
@@ -30,6 +29,7 @@ import {
 import { legacyAwareDefaultDir } from '../../src/config/catalog/media.ts';
 import { privateDir, projectRoot } from '../../src/config/env.ts';
 import { runtimePathsInsideTree } from '../../src/core/install/runtime_paths.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const KEY = 'ONTOLOGY_DATA_IO_DIR';
 
@@ -72,10 +72,7 @@ function stickyRecorded(): unknown {
 }
 
 beforeEach(() => {
-	scratch = join(
-		tmpdir(),
-		`ontology_io_default_${process.pid}_${Math.random().toString(36).slice(2)}`,
-	);
+	scratch = scratchDir('ontology_io_default');
 	legacyDir = join(scratch, 'tree', 'install', 'import', 'ontology');
 	modernDir = join(scratch, 'private', 'import', 'ontology');
 	statePath = join(scratch, 'ts_state.json');

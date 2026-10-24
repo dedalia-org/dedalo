@@ -125,6 +125,7 @@ import { DEDALO_ENGINE_VERSION, readReleaseIdentityOf } from '../src/core/update
 import { UPDATE_CATALOG, type UpdateDescriptor } from '../src/core/update/catalog.ts';
 import { parseReleaseVersion } from '../src/core/update/release_identity.ts';
 import { compareVersionArrays, DEDALO_VERSION } from '../src/core/update/version.ts';
+import { scratchDir } from '../test/helpers/scratch_dir.ts';
 import {
 	assertServedDatabase,
 	findFreePort,
@@ -1351,7 +1352,7 @@ async function main(): Promise<void> {
 	);
 	await ensureSuiteLoginPassword('root', SUITE_LOGIN_PASSWORD);
 
-	const scratch = join(tmpdir(), `dedalo_update_drill_${process.pid}_${Date.now()}`);
+	const scratch = scratchDir('update_drill');
 	mkdirSync(scratch, { recursive: true });
 	// Each instance's job registry (instanceEnvironment: `<role>_processes`),
 	// DECLARED: the instances run armed (DEDALO_TEST_MEDIA_ROOT), and an armed job

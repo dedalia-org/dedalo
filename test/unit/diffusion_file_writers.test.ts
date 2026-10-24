@@ -39,7 +39,6 @@ import {
 	truncateSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { isDedaloError } from '../../src/core/errors/index.ts';
 import { openZipStream, type ZipStreamWriter } from '../../src/core/files/zip.ts';
 import type { FieldPlan, PublicationPlan, SectionPlan } from '../../src/diffusion/plan/types.ts';
@@ -64,8 +63,9 @@ import type { WriterSession } from '../../src/diffusion/writers/types.ts';
 import { writeMergedXml, xmlWriter } from '../../src/diffusion/writers/xml.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
 import { startPowerLossModel } from '../helpers/power_loss_model.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_ts_diffusion_file_writers_${process.pid}`;
+const ROOT = scratchDir('ts_diffusion_file_writers');
 let savedRoot: string | undefined;
 
 beforeAll(() => {

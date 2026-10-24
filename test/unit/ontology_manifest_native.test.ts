@@ -42,6 +42,7 @@ import {
 } from '../../src/core/test_data/ontology_package_fixture.ts';
 import { DEDALO_VERSION } from '../../src/core/update/version.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
+import { absentScratchPath } from '../helpers/scratch_dir.ts';
 
 const DOMAIN: FixtureOntologyTld = {
 	tld: 'zzma',
@@ -301,7 +302,7 @@ describe('readLocalOntologyManifest / parseOntologyManifest — the offline sour
 	});
 
 	test('a missing directory is a reason, not a throw', () => {
-		const result = readLocalOntologyManifest(join(tmpdir(), 'zz_manifest_missing_dir_', 'nope'));
+		const result = readLocalOntologyManifest(absentScratchPath('zz_manifest_missing_dir', 'nope'));
 		expect(failure(result)).toMatch(/^the ontology directory cannot be read/);
 	});
 

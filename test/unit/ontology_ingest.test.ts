@@ -43,11 +43,9 @@ import {
 	updateOntology,
 } from '../../src/core/ontology/ontology_update.ts';
 import { sweepOrphanScratchDatabases } from '../helpers/scratch_database.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const SCRATCH_ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_ontology_ingest_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const SCRATCH_ROOT = scratchDir('ontology_ingest');
 const VENDORED = join(process.cwd(), 'install', 'import', 'ontology', '7.0');
 
 beforeAll(() => {

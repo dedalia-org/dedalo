@@ -12,7 +12,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { probeStreams } from '../../src/core/media/engine/ffmpeg.ts';
@@ -41,8 +40,9 @@ import {
 } from '../../src/core/media/processing.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_proc_${process.pid}`;
+const ROOT = scratchDir('media_proc');
 const image = mediaTypeOf('component_image')!;
 const pdf = mediaTypeOf('component_pdf')!;
 const pathOpts: MediaPathOptions = { initialMediaPath: '', maxItemsFolder: null, mediaRoot: ROOT };

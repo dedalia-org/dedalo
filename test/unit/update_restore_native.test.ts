@@ -63,6 +63,7 @@ import {
 import { INSTALL_STAMP_PATH } from '../../src/core/update/install_stamp.ts';
 import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const STATE_PATH = readEnv('DEDALO_TS_STATE_PATH');
 if (STATE_PATH === undefined) {
@@ -75,10 +76,7 @@ if (STATE_PATH === undefined) {
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as Principal;
 const RUNNING = DEDALO_VERSION_TRIPLE.join('.');
 
-const ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_code_restore_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const ROOT = scratchDir('code_restore');
 
 beforeAll(() => {
 	mkdirSync(ROOT, { recursive: true });

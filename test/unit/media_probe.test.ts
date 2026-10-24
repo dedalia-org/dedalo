@@ -18,7 +18,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
 import {
 	canCarryMetaChannel,
@@ -28,8 +27,9 @@ import {
 } from '../../src/core/media/engine/probe.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_probe_${process.pid}`;
+const ROOT = scratchDir('media_probe');
 const HAVE_MAGICK = existsSync(resolveMagick());
 
 /** Run a real `magick` command building a fixture; a failure must be loud. */

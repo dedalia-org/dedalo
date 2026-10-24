@@ -26,6 +26,7 @@ import {
 	readReleaseNotes,
 	releaseArchiveNameOf,
 } from '../../src/core/update/code_manifest.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 /** A minimal descriptor: only the target triple drives the linear walk. */
 function target(
@@ -132,10 +133,7 @@ describe('linearUpgradeTargets (the linear walk, injected catalog)', () => {
 	});
 });
 
-const ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_code_manifest_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const ROOT = scratchDir('code_manifest');
 /** <ROOT>/files/<major>/<major.minor>/<version>.zip — the release layout. */
 const FILES_DIR = join(ROOT, 'files');
 

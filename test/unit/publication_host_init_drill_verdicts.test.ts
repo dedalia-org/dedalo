@@ -23,6 +23,7 @@
  */
 
 import { describe, expect, spyOn, test } from 'bun:test';
+import { dirname } from 'node:path';
 import {
 	BOGUS_DIRECTIVE,
 	directiveProbeOutput,
@@ -34,6 +35,7 @@ import {
 	SCAFFOLD_DIRECTIVE,
 	unknownSkips,
 } from '../../scripts/publication_host_init_drill.ts';
+import { removeScratchDir, scratchFile } from '../helpers/scratch_dir.ts';
 
 describe('the directive probe: accepted only when it ran clean', () => {
 	test('a refusal is refused, whatever the status', () => {
@@ -58,11 +60,12 @@ describe('the directive probe: accepted only when it ran clean', () => {
 	});
 
 	test('measured: the real probe script, on a host without systemd-analyze, is unrun', () => {
-		const scratch = `/tmp/dd_probe_verdict_${process.pid}.service`;
+		const scratch = scratchFile('probe_verdict', 'probe_verdict.service');
 		const done = Bun.spawnSync(['sh', '-c', directiveProbeScript(scratch)], {
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
+		removeScratchDir(dirname(scratch));
 		const out = done.stdout.toString();
 		expect(out).toMatch(/^rc=\d+$/m); // the status survives the trailing rm
 		if (Bun.which('systemd-analyze') === null) expect(directiveProbeVerdict(out)).toBe('unrun');

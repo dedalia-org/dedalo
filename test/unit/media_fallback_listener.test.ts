@@ -27,6 +27,7 @@ import { setServerState } from '../../src/core/resolve/server_state.ts';
 import { createSession, SESSION_COOKIE } from '../../src/core/security/session_store.ts';
 import { createRequestContext, handleRequest } from '../../src/server.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
+import { writeMarkerOnce } from '../helpers/test_media_root.ts';
 
 registerSessionCleanup();
 
@@ -41,7 +42,7 @@ beforeAll(() => {
 	if (mediaRoot === null) return;
 	const full = join(mediaRoot, REL_PATH);
 	mkdirSync(dirname(full), { recursive: true });
-	if (!existsSync(full)) writeFileSync(full, 'fake-media-bytes');
+	writeMarkerOnce(full, 'fake-media-bytes'); // exclusive create: an existing file is kept
 	cookie = `${SESSION_COOKIE}=${createSession(-1, 'root', true)}`;
 });
 

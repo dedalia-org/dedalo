@@ -22,7 +22,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import type { FieldPlan, PublicationPlan, SectionPlan } from '../../src/diffusion/plan/types.ts';
 import type { ProjectedRow } from '../../src/diffusion/project/lang_ladder.ts';
 import { localCloseContext } from '../../src/diffusion/writers/files.ts';
@@ -31,8 +30,9 @@ import { rdfWriter } from '../../src/diffusion/writers/rdf.ts';
 import type { DiffusionWriter, WriterSession } from '../../src/diffusion/writers/types.ts';
 import { xmlWriter } from '../../src/diffusion/writers/xml.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_ts_diffusion_consolidated_withdrawn_${process.pid}`;
+const ROOT = scratchDir('ts_diffusion_consolidated_withdrawn');
 let savedRoot: string | undefined;
 
 beforeAll(() => {

@@ -193,6 +193,8 @@ const EXEMPT_WRITERS: Readonly<Record<string, string>> = {
 		'THE GUARD ITSELF — it is the only writer of the marker row, and a guard that guarded itself could never be written the first time.',
 	'test/helpers/test_media_root.ts':
 		'WRITES NO DATA — it creates the suite MEDIA root and plants its `.dedalo_test_media` marker. It is the filesystem twin of this file and holds no database connection at all (importing config.ts there would freeze the connection before the preload repoints it); its own guard is test/unit/test_media_root_tripwire.test.ts.',
+	'test/helpers/scratch_dir.ts':
+		"WRITES NO DATA — the ONE door to OS-temp scratch space: `mkdtempSync` (atomic, random suffix, 0700) and the removal of a `dedalo_*` dir directly under the temp dir (refusing any other path). It creates and removes empty directories only, holds no database connection and imports no config; what a gate writes INTO a scratch dir goes through that gate's own guarded doors. Its own gate is test/unit/predictable_tmp_tripwire.test.ts.",
 	'test/helpers/media_scratch_root.ts':
 		"WRITES NO DATA — it plants the `.dedalo_test_media` marker in a gate's scratch directory so the media doors will write there. Filesystem only, no database.",
 	'test/helpers/seed_contract.ts':

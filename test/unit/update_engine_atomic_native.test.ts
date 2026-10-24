@@ -49,8 +49,6 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { readEnv } from '../../src/config/env.ts';
 import {
 	isInTransaction,
 	registerCommitAction,
@@ -69,6 +67,7 @@ import * as engineModule from '../../src/core/update/engine.ts';
 import { COMMIT_ONLY_ACTIONS_DROPPED_LINE } from '../../src/core/update/scripts.ts';
 import { childDriver, driverResult, repoModule } from '../helpers/child_driver.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 
 // ---------------------------------------------------------------------------
 // the FINAL engine surface (spec §2.3), typed here so this gate compiles on the
@@ -97,7 +96,7 @@ const VER = `dedalo_ts_test_upd_${PID}_ver`;
 const LOCKED = `dedalo_ts_test_upd_${PID}_h`;
 /** (o): a SEQUENCE — nextval is non-transactional, so a statement that was SENT shows after rollback. */
 const SEQ = `dedalo_ts_test_upd_${PID}_seq`;
-const LOG_PATH = join(readEnv('TMPDIR') ?? '/tmp', `dedalo_update_atomic_${PID}.log`);
+const LOG_PATH = scratchFile('update_atomic', 'update_atomic.log');
 /** The (m) legs' own log, made UNWRITABLE mid-run by a script step. */
 const LOG_RO = `${LOG_PATH}.unwritable`;
 /** What LOG_RO held when the script made it unwritable (the (m) non-vacuity read). */

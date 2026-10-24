@@ -46,7 +46,6 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { type MediaTypeSpec, mediaTypeOf } from '../../src/core/concepts/media.ts';
 import {
@@ -74,8 +73,9 @@ import { applyRotationCore } from '../../src/core/media/tools/rotation.ts';
 import { buildVersionCore, deleteAndResyncCore } from '../../src/core/media/tools/versions.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_alternate_versions_${process.pid}`;
+const ROOT = scratchDir('alternate_versions');
 const image = mediaTypeOf('component_image') as MediaTypeSpec;
 const pdf = mediaTypeOf('component_pdf') as MediaTypeSpec;
 const HAVE_MAGICK = existsSync(resolveMagick());

@@ -55,6 +55,7 @@ import { ROLLED_BACK_LINE, updateVersion } from '../../src/core/update/engine.ts
 import * as realOwnership from '../../src/core/update/ownership.ts';
 import { PANEL_WAIT_MS } from '../../src/core/update/preconditions.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 
 const STATE_PATH = readEnv('DEDALO_TS_STATE_PATH');
 if (STATE_PATH === undefined) {
@@ -117,7 +118,7 @@ async function inlineRefusal(principal: Principal): Promise<DedaloError> {
 	throw new Error('the inline run did not refuse');
 }
 
-const LOG_PATH = join(readEnv('TMPDIR') ?? '/tmp', `dedalo_update_engine_${process.pid}.log`);
+const LOG_PATH = scratchFile('update_engine', 'update_engine.log');
 afterAll(() => rmSync(LOG_PATH, { force: true }));
 
 const FIXTURE: DataUpdateDescriptor = {

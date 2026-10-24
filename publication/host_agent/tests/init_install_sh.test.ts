@@ -19,8 +19,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUN_ASSETS } from '../src/provision/exec_contract';
 import { INIT_FLAGS } from '../src/provision/init/args';
@@ -38,6 +37,7 @@ import { OS_SUPPORT } from '../src/provision/init/parse/os';
 import { BUN_KERNEL_FLOOR, INSTANCE_PATTERN } from '../src/provision/layout';
 import { INIT_BASE } from '../src/provision/lock';
 import { fakeBunZip, shaTable } from './fixtures/bun/zip_store';
+import { scratchDir } from '../../../test/helpers/scratch_dir.ts';
 
 const INSTALL_SH = join(import.meta.dir, '..', 'deploy', 'install.sh');
 const OS_RELEASE = join(import.meta.dir, 'fixtures', 'bun', 'os-release');
@@ -45,7 +45,7 @@ const OS_RELEASE = join(import.meta.dir, 'fixtures', 'bun', 'os-release');
  * OUTSIDE the checkout on purpose: this gate plants FIFOs and dangling links, which a
  * repo-walking gate running in parallel must never meet (a FIFO blocks a reader).
  */
-const SCRATCH = join(realpathSync(tmpdir()), `dd_p5_install_sh_${process.pid}`);
+const SCRATCH = scratchDir('dd_p5_install_sh', { realpath: true });
 const TEXT = readFileSync(INSTALL_SH, 'utf8');
 const LINUX = process.platform === 'linux';
 
@@ -445,7 +445,7 @@ describe('install.sh main', () => {
  * read before the hand-over and refuses with the line that trusts that Bun — never an EPERM trace.
  */
 describe('install.sh fapolicyd_gate', () => {
-  const dir = join(realpathSync(tmpdir()), `dd_install_sh_fapolicyd_${process.pid}`);
+  const dir = scratchDir('dd_install_sh_fapolicyd', { realpath: true });
   const shims = join(dir, 'bin');
   const bun = join(dir, 'bun');
   const marker = join(dir, 'ran');

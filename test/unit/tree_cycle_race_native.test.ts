@@ -54,7 +54,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setField } from '../../src/ai/mcp/tools/fields_write.ts';
 import { config } from '../../src/config/config.ts';
@@ -96,6 +95,7 @@ import {
 	waitUntilBlockedBy,
 } from '../helpers/lock_wait.ts';
 import { buildWriterClosure, MATRIX_WRITE, rawCallsIn } from '../helpers/matrix_writer_closure.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 import {
@@ -1251,7 +1251,7 @@ const DOORS: Record<string, () => Promise<DoorProbe>> = {
 		const [a] = await newNodes(holder, 1);
 		await seedLinks(parents, q, [{ parent: r, itemId: 1 }]);
 		await seedRawParents(holder, a, [crossLink(holder, parents, q, 1)]);
-		archiveDir = join(tmpdir(), `dedalo_tree_cycle_archive_${process.pid}`);
+		archiveDir = scratchDir('tree_cycle_archive');
 		rmSync(archiveDir, { recursive: true, force: true });
 		await extractArchive({ sectionTipos: [holder.section], outDir: archiveDir });
 		await assertTestDatabase('tree_cycle_race archive.restore');

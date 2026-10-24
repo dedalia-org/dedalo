@@ -43,7 +43,6 @@ import {
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
@@ -57,8 +56,9 @@ import {
 } from '../../src/core/media/ingest/upload.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = join(tmpdir(), `dedalo_upload_cap_${process.pid}`);
+const ROOT = scratchDir('upload_cap');
 const USER = 7;
 
 /** A REAL 1x1 PNG (base64), so the under-cap leg passes content verification. */

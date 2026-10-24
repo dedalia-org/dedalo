@@ -85,7 +85,6 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
 	allowlistCensusConflicts,
@@ -108,6 +107,7 @@ import {
 import { tlsCommands as stackTlsCommands } from '../../src/core/install/host/stack/tls.ts';
 import { engineSourceFiles } from '../helpers/engine_source_corpus.ts';
 import { stackPlanCtx } from '../helpers/install_host_scratch.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = resolve(import.meta.dir, '../..');
 const DOCKERIGNORE = readFileSync(join(ROOT, '.dockerignore'), 'utf-8');
@@ -306,10 +306,7 @@ describe('B. the artifacts are DERIVED from the tracked tree + the census', () =
 		// A synthetic checkout: its own git repo, its own nested .gitignore, its own
 		// Dockerfile markers. A --check that has only ever run on a current tree has
 		// never been observed to refuse anything.
-		const scratch = join(
-			tmpdir(),
-			`dedalo_ops01_check_${process.pid}_${Math.random().toString(36).slice(2)}`,
-		);
+		const scratch = scratchDir('ops01_check');
 		try {
 			const write = (path: string, body: string) => {
 				mkdirSync(join(scratch, dirname(path)), { recursive: true });
@@ -383,10 +380,7 @@ describe('B. the artifacts are DERIVED from the tracked tree + the census', () =
 		// exactly that shape must make the generator exit non-zero and SAY which
 		// entry and which tracked file. A refusal never observed refusing is not
 		// a refusal.
-		const scratch = join(
-			tmpdir(),
-			`dedalo_ops01_conflict_${process.pid}_${Math.random().toString(36).slice(2)}`,
-		);
+		const scratch = scratchDir('ops01_conflict');
 		try {
 			const write = (path: string, body: string) => {
 				mkdirSync(join(scratch, dirname(path)), { recursive: true });
@@ -908,10 +902,7 @@ describe('H. a key that already shipped in an image can be ROTATED', () => {
 	}
 
 	describe.if(OPENSSL !== null)('the drill (issue, then rotate)', () => {
-		const dir = join(
-			tmpdir(),
-			`dedalo_ops01_rotate_${process.pid}_${Math.random().toString(36).slice(2)}`,
-		);
+		const dir = scratchDir('ops01_rotate');
 		mkdirSync(dir, { recursive: true });
 
 		test('first issue produces a working chain with a protected key', () => {
@@ -1178,10 +1169,7 @@ describe('I. walking an operator tree sends the code and nothing else', () => {
 	});
 
 	test('a synthetic install host: only the code is sent', () => {
-		const root = join(
-			tmpdir(),
-			`dedalo_ops01_context_${process.pid}_${Math.random().toString(36).slice(2)}`,
-		);
+		const root = scratchDir('ops01_context');
 		// What a machine that ran ./install.sh actually holds.
 		const planted = [
 			'src/server.ts',

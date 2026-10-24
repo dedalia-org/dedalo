@@ -13,6 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { confirmBootedCodeUpdate } from '../../src/core/update/boot_confirm.ts';
+import { absentScratchPath } from '../helpers/scratch_dir.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const DIGEST_NEW = 'b'.repeat(64);
@@ -76,7 +77,7 @@ describe('confirmBootedCodeUpdate afterConfirmed hook', () => {
 		};
 		await confirmBootedCodeUpdate(scratchSentinel('confirmed'), '7.0.3', DIGEST_NEW, hook);
 		await confirmBootedCodeUpdate(
-			join(tmpdir(), 'no_such_dedalo_sentinel.json'),
+			absentScratchPath('no_such_sentinel', 'sentinel.json'),
 			'7.0.3',
 			DIGEST_NEW,
 			hook,

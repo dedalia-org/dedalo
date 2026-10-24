@@ -20,7 +20,6 @@
 
 import { describe, expect, test } from 'bun:test';
 import { existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildLlmMap } from '../../src/ai/mcp/tools/llm_map.ts';
 import {
@@ -38,6 +37,7 @@ import {
 	runExportOntologies,
 } from '../../tools/tool_ontology_parser/server/tool_ontology_parser.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 /** Seed-shipped tipo, spelled so the census sees a reference, not a binding. */
 const seed = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;
@@ -123,7 +123,7 @@ describe('COMP-06 identifier validation', () => {
 
 describe('setOntologyIoPath', () => {
 	test('creates and returns the versioned <base>/<major>.<minor> dir', () => {
-		const base = join(tmpdir(), `dd_ontology_io_test_${process.pid}_${Date.now()}`);
+		const base = scratchDir('dd_ontology_io_test');
 		try {
 			const ioPath = setOntologyIoPath(base);
 			expect(ioPath).toBe(join(base, '7.0'));

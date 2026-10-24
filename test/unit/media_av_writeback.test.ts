@@ -30,7 +30,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
@@ -50,8 +49,9 @@ import { createSectionRecord } from '../../src/core/section/record/create_record
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { markMediaRoot, markProcessesDir } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_av_writeback_${process.pid}`;
+const ROOT = scratchDir('av_writeback');
 // The job-manager test seam (jobs.ts processesDir): without it this file's real
 // transcode jobs write their pfiles into the LIVE ../private/processes tree.
 // Restored in afterAll: this dir is deleted there, and a key left pointing at

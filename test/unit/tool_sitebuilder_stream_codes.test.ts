@@ -38,7 +38,6 @@
 
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config as daemonConfig } from '../../publication/site_builder/src/config.ts';
 import {
@@ -62,6 +61,7 @@ import type { Principal } from '../../src/core/security/permissions.ts';
 import { instanceFingerprint } from '../../src/core/site_builder/pairing.ts';
 import type { ToolActionContext, ToolServerModule } from '../../src/core/tools/module.ts';
 import * as wire from '../../tools/tool_sitebuilder/server/wire.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const REAL_CONFIG_MODULE = { ...realConfigModule };
 
@@ -227,10 +227,7 @@ async function drain(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
 
 /** A declared-unconfined policy with a state root of this test's own. */
 function nonePolicy(): ConfinementPolicy {
-	const root = join(
-		tmpdir(),
-		`zzstream-state-${process.pid}-${Math.random().toString(36).slice(2)}`,
-	);
+	const root = scratchDir('zzstream_state');
 	scratch.push(root);
 	return { ...policyFromConfig(), mode: 'none', agentStateRoot: root };
 }
@@ -247,11 +244,13 @@ function throwingPolicy(error: Error): ConfinementPolicy {
 
 /** A confined policy of its own (its lease is keyed by the socket dir), with no identity at all. */
 function confinedPolicy(): ConfinementPolicy {
+	const socketDir = scratchDir('zzstream_sock');
+	scratch.push(socketDir);
 	return {
 		...policyFromConfig(),
 		mode: 'systemd_scope',
 		identities: new Map(),
-		agentSocketDir: join(tmpdir(), `zzstream-sock-${Math.random().toString(36).slice(2)}`),
+		agentSocketDir: socketDir,
 	};
 }
 

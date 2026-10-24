@@ -50,7 +50,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractArchive } from '../../src/core/archive/extract.ts';
 import { restoreArchive } from '../../src/core/archive/restore.ts';
@@ -69,10 +68,11 @@ import { assertTestDatabase } from '../../src/core/test_data/test_database_marke
 import { DB_READY } from '../helpers/db_ready.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
 import { MIGRATIONS_DIR, migrationFileNames } from '../helpers/migrations_corpus.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const TLD = 'zzgram';
 const MIGRATION_SUFFIX = '_dd_ontology_identifier_grammar.sql';
-const SCRATCH = join(tmpdir(), `dedalo_surf1_grammar_${process.pid}`);
+const SCRATCH = scratchDir('surf1_grammar');
 
 /** The six columns of the law and the CHECK that enforces each (hand-written, not imported). */
 const CONSTRAINT_OF = {

@@ -20,6 +20,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { smokeBootQuarantine } from '../../src/core/update/smoke_boot.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { removeScratchDir, scratchDir } from '../helpers/scratch_dir.ts';
 
 /**
  * THE ROOT MUST KEEP THE SOCKET PATH UNDER 104 BYTES.
@@ -39,13 +40,14 @@ import { refusalOf } from '../helpers/refusal.ts';
 const SOCKET_PATH_MAX = 104;
 /** The deepest path any case builds under the root, relative to it. */
 const DEEPEST_CHILD = '/neutralised/staging/smoke_boot.sock';
-const ROOT_NAME = `dedalo_smoke_boot_${process.pid}_${Math.random().toString(36).slice(2)}`;
+const SCRATCH_LABEL = 'smoke_boot';
 
+/** A PRIVATE scratch root (mkdtemp, 0700), under `$TMPDIR` unless its deepest socket would not fit. */
 function scratchRoot(): string {
-	const preferred = join(process.env.TMPDIR ?? '/tmp', ROOT_NAME);
-	return `${preferred}${DEEPEST_CHILD}`.length <= SOCKET_PATH_MAX
-		? preferred
-		: join('/tmp', ROOT_NAME);
+	const preferred = scratchDir(SCRATCH_LABEL);
+	if (`${preferred}${DEEPEST_CHILD}`.length <= SOCKET_PATH_MAX) return preferred;
+	removeScratchDir(preferred);
+	return scratchDir(SCRATCH_LABEL, { parent: '/tmp' });
 }
 
 const ROOT = scratchRoot();

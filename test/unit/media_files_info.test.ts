@@ -11,7 +11,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import {
@@ -23,8 +22,9 @@ import {
 import { ddDateFromMtime, scanFilesInfo } from '../../src/core/media/files_info.ts';
 import type { MediaIdentity, MediaPathOptions } from '../../src/core/media/path.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_fi_${process.pid}`;
+const ROOT = scratchDir('media_fi');
 /** The repo root — a child bun process is booted from it (see the pdf-cover gate). */
 const REPO_ROOT = join(import.meta.dir, '../..');
 const image = mediaTypeOf('component_image')!;

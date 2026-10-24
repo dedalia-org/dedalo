@@ -29,7 +29,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { sanitizePublishedFileName } from '../../src/core/diffusion_bridge/diffusion_delete.ts';
 import type { FieldPlan, PublicationPlan, SectionPlan } from '../../src/diffusion/plan/types.ts';
 import type { ProjectedRow } from '../../src/diffusion/project/lang_ladder.ts';
@@ -60,8 +59,9 @@ import {
 	mergeRdfPartsOracle as mergeRdfParts,
 	mergeXmlPartsOracle as mergeXmlParts,
 } from '../helpers/merge_oracle.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_ts_diffusion_rdfxml_writers_${process.pid}`;
+const ROOT = scratchDir('ts_diffusion_rdfxml_writers');
 let savedRoot: string | undefined;
 
 beforeAll(() => {

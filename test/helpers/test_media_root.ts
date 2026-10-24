@@ -53,6 +53,19 @@ import { testDatabaseName } from './test_database.ts';
  */
 export const TEST_MEDIA_MARKER = '.dedalo_test_media';
 
+/**
+ * Plant a marker file ONCE: created exclusively (`wx`), an existing one left as it
+ * is. No exists-then-write window — two processes declaring the same root race
+ * on the create itself, and the loser simply finds the marker there.
+ */
+export function writeMarkerOnce(path: string, body: string): void {
+	try {
+		writeFileSync(path, body, { flag: 'wx' });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+	}
+}
+
 /** `<repo>/../private/test_media` — the parent of every suite's tree. */
 export function testMediaBaseDir(): string {
 	return resolve(projectRoot, '..', 'private', 'test_media');
@@ -123,23 +136,20 @@ export function assertDistinctFromInstallMediaRoot(testRoot: string): string {
 export function ensureTestMediaRoot(suiteDb?: string): string {
 	const root = assertDistinctFromInstallMediaRoot(testMediaRootPath(suiteDb));
 	mkdirSync(root, { recursive: true, mode: 0o775 });
-	const marker = join(root, TEST_MEDIA_MARKER);
-	if (!existsSync(marker)) {
-		writeFileSync(
-			marker,
-			[
-				'This directory is a DÉDALO TEST MEDIA ROOT.',
-				'',
-				'Its presence is what every media-root door in the engine checks before it',
-				'writes, when the process runs under DEDALO_TEST_MEDIA_ROOT',
-				'(src/core/media/test_media_root.ts). Everything under this directory is',
-				'disposable and is rebuilt by `bun run test:db:setup`.',
-				'',
-				"NEVER place this file in an installation's media root.",
-				'',
-			].join('\n'),
-		);
-	}
+	writeMarkerOnce(
+		join(root, TEST_MEDIA_MARKER),
+		[
+			'This directory is a DÉDALO TEST MEDIA ROOT.',
+			'',
+			'Its presence is what every media-root door in the engine checks before it',
+			'writes, when the process runs under DEDALO_TEST_MEDIA_ROOT',
+			'(src/core/media/test_media_root.ts). Everything under this directory is',
+			'disposable and is rebuilt by `bun run test:db:setup`.',
+			'',
+			"NEVER place this file in an installation's media root.",
+			'',
+		].join('\n'),
+	);
 	// Its job-registry sibling, declared in the same breath: under the seam the
 	// job manager writes pfiles only into a marked dir and never plants the
 	// marker itself (src/core/media/jobs.ts assertProcessesDirDeclared).
@@ -207,9 +217,10 @@ export const TEST_PROCESSES_MARKER = '.dedalo_test_processes';
  */
 export function markProcessesDir(dir: string): string {
 	mkdirSync(dir, { recursive: true });
-	const marker = join(dir, TEST_PROCESSES_MARKER);
-	if (!existsSync(marker))
-		writeFileSync(marker, 'scratch job-registry dir — a test gate created this\n');
+	writeMarkerOnce(
+		join(dir, TEST_PROCESSES_MARKER),
+		'scratch job-registry dir — a test gate created this\n',
+	);
 	return dir;
 }
 

@@ -56,15 +56,15 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as REAL_CONFIG_MODULE from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import type { MediaIdentity, MediaPathOptions } from '../../src/core/media/path.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { markMediaRoot, markProcessesDir } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_encode_integrity_${process.pid}`;
+const ROOT = scratchDir('encode_integrity');
 const BIN = join(ROOT, 'bin');
 const FASTSTART_LOG = join(BIN, 'faststart.log');
 // The job-manager seam: without it the failing job below writes its pfile into

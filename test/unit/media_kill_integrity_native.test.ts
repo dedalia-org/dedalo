@@ -46,11 +46,11 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as REAL_CONFIG_MODULE from '../../src/config/config.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_kill_integrity_${process.pid}`;
+const ROOT = scratchDir('kill_integrity');
 const BIN = join(ROOT, 'bin');
 const WORK = join(ROOT, 'work');
 const FAKE_MAGICK = join(BIN, 'magick');

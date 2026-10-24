@@ -31,7 +31,6 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
@@ -61,6 +60,7 @@ import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 /** The canonical test3 playground (matrix_test) — the suite's only write surface. */
 const SCRATCH_SECTION = 'test3';
@@ -427,7 +427,7 @@ describe('media tool identity follows the REQUEST data lang', () => {
  */
 describe('repair: a twin this host cannot write is REPORTED, and costs nothing else', () => {
 	const REPO_ROOT = join(import.meta.dir, '../..');
-	const MEDIA_ROOT = `${tmpdir()}/dedalo_repair_twin_errors_${process.pid}`;
+	const MEDIA_ROOT = scratchDir('repair_twin_errors');
 	// Skipped HONESTLY (S2-40 posture) rather than returning early from the body:
 	// a test that returns green on a box with no ImageMagick is indistinguishable
 	// from one that asserted something.
@@ -536,7 +536,7 @@ describe('repair: a twin this host cannot write is REPORTED, and costs nothing e
  * alone — repair never re-encodes what an operator may have authored.
  */
 describe('repair: the normalized master copy is built when MISSING, and only then', () => {
-	const MEDIA_ROOT = `${tmpdir()}/dedalo_repair_master_copy_${process.pid}`;
+	const MEDIA_ROOT = scratchDir('repair_master_copy');
 	const HAVE_MAGICK = existsSync(resolveMagick());
 	const spec = mediaTypeOf('component_image')!;
 	const identity = { componentTipo: 'test99', sectionTipo: 'test3', sectionId: 71, lang: null };
@@ -609,7 +609,7 @@ describe('repair: the normalized master copy is built when MISSING, and only the
  * placeholder instead of the browser's broken-image icon.
  */
 describe('repair: the SVG envelope of an empty record is retired', () => {
-	const MEDIA_ROOT = `${tmpdir()}/dedalo_repair_empty_envelope_${process.pid}`;
+	const MEDIA_ROOT = scratchDir('repair_empty_envelope');
 	const spec = mediaTypeOf('component_image')!;
 	const identity = { componentTipo: 'test99', sectionTipo: 'test3', sectionId: 73, lang: null };
 	const pathOpts = { initialMediaPath: '', maxItemsFolder: null, mediaRoot: MEDIA_ROOT };

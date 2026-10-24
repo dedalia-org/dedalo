@@ -27,7 +27,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import {
@@ -37,8 +36,9 @@ import {
 import { getFfmpegProfile } from '../../src/core/media/engine/ffmpeg_profiles.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { mustGet } from '../helpers/assert.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = join(tmpdir(), `dedalo_deinterlace_${process.pid}`);
+const ROOT = scratchDir('deinterlace');
 const FFMPEG = config.media.binaries.ffmpeg;
 const PROFILE = mustGet(getFfmpegProfile('576_pal_4x3'), '576_pal_4x3 profile');
 const MULTIPLE_FILTER = /Multiple -filter/i;

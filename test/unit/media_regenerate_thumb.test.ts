@@ -13,17 +13,17 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { regenerateMissingDerivatives } from '../../src/core/media/repair.ts';
 import { buildVersionCore } from '../../src/core/media/tools/versions.ts';
 import { markMediaRoot, resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const spec = mediaTypeOf('component_image');
 const identity = { componentTipo: 'test99', sectionTipo: 'test3', sectionId: 1, lang: null };
-const scratchRoot = join(tmpdir(), `dedalo_thumb_parity_${process.pid}`);
+const scratchRoot = scratchDir('thumb_parity');
 const pathOpts = { initialMediaPath: '', maxItemsFolder: 1000, mediaRoot: scratchRoot };
 
 /** The real default-quality sample on this box (skip when absent). */

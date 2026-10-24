@@ -39,6 +39,7 @@ import {
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { getOntologyIoPath } from '../../src/core/ontology/data_io_import.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const HANDLER_SOURCE_PATH = join(import.meta.dir, '../../src/core/api/handlers/dd_utils_api.ts');
 
@@ -46,10 +47,7 @@ const HANDLER_SOURCE_PATH = join(import.meta.dir, '../../src/core/api/handlers/d
  * BUILT here, never borrowed from the ambient `ONTOLOGY_DATA_IO_DIR` (its default
  * moved to `<private>/import/ontology`, which a checkout need not have). */
 function scratchOntologyIoDir(): string {
-	const dir = join(
-		process.env.TMPDIR ?? '/tmp',
-		`dedalo_ontology_io_${process.pid}_${Math.random().toString(36).slice(2)}`,
-	);
+	const dir = scratchDir('ontology_io');
 	mkdirSync(join(dir, '7.0'), { recursive: true });
 	return dir;
 }
@@ -550,10 +548,7 @@ describe('publicOriginIsLocal — the predicate BOTH the refusal above and the b
 describe('get_code_update_info: the prerelease channel, through the door', () => {
 	const HANDLER = join(import.meta.dir, '../../src/core/api/handlers/dd_utils_api.ts');
 	const CODE = 'zzcode';
-	const FILES = join(
-		process.env.TMPDIR ?? '/tmp',
-		`dedalo_prerelease_door_${process.pid}_${Math.random().toString(36).slice(2)}`,
-	);
+	const FILES = scratchDir('prerelease_door');
 
 	interface Manifest {
 		files?: { version: string; release?: string; channel?: string }[];

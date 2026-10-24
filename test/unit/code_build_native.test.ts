@@ -29,16 +29,14 @@ import {
 } from '../../src/core/update/code_build_plan.ts';
 import { MIN_GIT_FOR_DESCRIBE } from '../../src/core/update/release_identity.ts';
 import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 // Snapshot the REAL config module ONCE at top level: mock.restore() does NOT
 // revert mock.module, so afterAll must re-install it or the mocked config
 // leaks into every other file of this suite.
 const REAL_CONFIG = { ...realConfigModule };
 
-const ROOT = join(
-	process.env.TMPDIR ?? '/tmp',
-	`dedalo_code_build_${process.pid}_${Math.random().toString(36).slice(2)}`,
-);
+const ROOT = scratchDir('code_build');
 
 const OK_CFG = {
 	isCodeServer: true,

@@ -27,7 +27,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractArchive } from '../../src/core/archive/extract.ts';
 import {
@@ -46,6 +45,7 @@ import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { ensureSituation, situation } from '../../src/core/test_data/situations/situation.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import {
 	dropSituation,
 	ensureZzarc,
@@ -60,7 +60,7 @@ import {
 	zzarcSituation,
 } from '../helpers/zzarc_archive_situation.ts';
 
-const SCRATCH = join(tmpdir(), `dedalo_archive_locators_${process.pid}`);
+const SCRATCH = scratchDir('archive_locators');
 const MEDIA_ROOT = join(SCRATCH, 'media_root');
 const ARCHIVE = join(SCRATCH, 'archive');
 const s = zzarcSituation();

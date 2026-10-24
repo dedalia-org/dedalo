@@ -20,6 +20,7 @@ import {
 	checkUpdatePreconditions,
 	requireFreshBackup,
 } from '../../src/core/update/preconditions.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 /** The DedaloError a thunk threw (fails the test when it threw nothing typed). */
 function thrownBy(run: () => unknown): DedaloError {
@@ -105,10 +106,7 @@ function stub(dir: string, name: string, hoursOld: number): void {
 }
 
 describe('backupWarningsWithin — the data-migration WARNING (never refuses)', () => {
-	const scratch = join(
-		readEnv('TMPDIR') ?? '/tmp',
-		`dedalo_precond_backup_${process.pid}_${Math.random().toString(36).slice(2)}`,
-	);
+	const scratch = scratchDir('precond_backup');
 
 	test('no backup dir / no *.backup files → warns, still ok', async () => {
 		expect(await backupWarningsWithin(60_000, join(scratch, 'absent'))).toEqual([
@@ -161,10 +159,7 @@ describe('backupWarningsWithin — the data-migration WARNING (never refuses)', 
 });
 
 describe('requireFreshBackup — the code-update REFUSAL', () => {
-	const scratch = join(
-		readEnv('TMPDIR') ?? '/tmp',
-		`dedalo_precond_require_${process.pid}_${Math.random().toString(36).slice(2)}`,
-	);
+	const scratch = scratchDir('precond_require');
 
 	test('no backup → update.refused (never a warning), naming the waiver', async () => {
 		const error = await rejectedBy(() => requireFreshBackup(join(scratch, 'absent')));

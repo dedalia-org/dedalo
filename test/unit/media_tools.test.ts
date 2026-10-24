@@ -11,7 +11,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { getDimensions, resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
@@ -38,8 +37,9 @@ import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_media_tools_${process.pid}`;
+const ROOT = scratchDir('media_tools');
 const image = mediaTypeOf('component_image')!;
 const pdf = mediaTypeOf('component_pdf')!;
 const av = mediaTypeOf('component_av')!;

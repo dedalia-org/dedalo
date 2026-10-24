@@ -25,11 +25,11 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { legacyAwareDefaultDir } from '../../src/config/catalog/media.ts';
 import { privateDir, projectRoot } from '../../src/config/env.ts';
 import { RUNTIME_PATH_CENSUS } from '../../src/core/install/runtime_paths.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const KEY = 'MEDIA_PATH'; // real key name; the sticky store is scratch, so nothing leaks
 
@@ -61,10 +61,7 @@ function stickyRecorded(): unknown {
 }
 
 beforeEach(() => {
-	scratch = join(
-		tmpdir(),
-		`media_root_sticky_${process.pid}_${Math.random().toString(36).slice(2)}`,
-	);
+	scratch = scratchDir('media_root_sticky');
 	legacyDir = join(scratch, 'legacy_media');
 	modernDir = join(scratch, 'private_media');
 	statePath = join(scratch, 'ts_state.json');

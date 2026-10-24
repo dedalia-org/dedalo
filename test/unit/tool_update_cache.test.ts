@@ -10,7 +10,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, statSync, utimesSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { readMatrixRecord } from '../../src/core/db/matrix.ts';
@@ -33,6 +32,7 @@ import { mustGet } from '../helpers/assert.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const SECTION = 'test2';
 /**
@@ -540,7 +540,7 @@ describe('tool_update_cache module', () => {
  * kernel calls per item — so the gate needs no DB and writes only under tmpdir.
  */
 describe('tool_update_cache: the twin pass is MISSING-ONLY', () => {
-	const MEDIA_ROOT = `${tmpdir()}/dedalo_update_cache_twins_${process.pid}`;
+	const MEDIA_ROOT = scratchDir('update_cache_twins');
 	const image = mediaTypeOf('component_image')!;
 	const HAVE_MAGICK = existsSync(resolveMagick());
 	const identity: MediaIdentity = {

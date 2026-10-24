@@ -18,7 +18,6 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import {
 	findOrCreate,
 	portalLink,
@@ -29,6 +28,7 @@ import { loadMediaSource } from '../../src/ai/mcp/tools/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
@@ -246,8 +246,8 @@ describe('write gate chain (denied user is denied everywhere)', () => {
 });
 
 describe('media source gating (pure — no DB, no ingest)', () => {
-	const ROOT = `${tmpdir()}/dedalo_mcp_media_${process.pid}`;
-	const OUTSIDE = `${tmpdir()}/dedalo_mcp_outside_${process.pid}`;
+	const ROOT = scratchDir('mcp_media');
+	const OUTSIDE = scratchDir('mcp_outside');
 
 	function withImportDir<T>(dir: string | undefined, run: () => Promise<T>): Promise<T> {
 		const saved = process.env.DEDALO_MCP_MEDIA_IMPORT_DIR;

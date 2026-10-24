@@ -68,6 +68,7 @@ import {
 	sha256Hex,
 } from '../../src/core/ontology/hierarchy_manifest_format.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { absentScratchPath } from '../helpers/scratch_dir.ts';
 
 /** The scratch hierarchy: tld, thesaurus and model tipos of the ACTIVE row. */
 const SCRATCH_TLD = 'zzeh';
@@ -286,9 +287,7 @@ describe('the psql command and its neighbours', () => {
 	});
 
 	test('a missing destination is refused, the real one is accepted', () => {
-		expect(exportDirRefusal(join(tmpdir(), 'no_such_dedalo_export_dir'))).toContain(
-			'does not exist',
-		);
+		expect(exportDirRefusal(absentScratchPath('no_such_export_dir'))).toContain('does not exist');
 		expect(exportDirRefusal(HIERARCHY_IMPORT_DIR)).toBeNull();
 	});
 });
@@ -361,7 +360,7 @@ describe('a real dump of a scratch active hierarchy', () => {
 	test('an unusable destination refuses the whole run without throwing', async () => {
 		const response = await exportHierarchy(
 			{ section_tipo: SCRATCH_TIPO },
-			{ outDir: join(tmpdir(), 'no_such_dedalo_export_dir') },
+			{ outDir: absentScratchPath('no_such_export_dir') },
 		);
 		expect(response.data).toBe(false);
 		expect(response.errors?.[0]).toContain('does not exist');
@@ -424,7 +423,7 @@ describe('hierarchy.json — the manifest action', () => {
 
 	test('an unusable destination writes nothing and says so', async () => {
 		const response = await exportHierarchyJson({
-			outDir: join(tmpdir(), 'no_such_dedalo_export_dir'),
+			outDir: absentScratchPath('no_such_export_dir'),
 		});
 		expect(response.data).toBe(false);
 		expect(response.errors?.[0]).toContain('does not exist');

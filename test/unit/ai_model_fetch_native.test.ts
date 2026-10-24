@@ -26,6 +26,7 @@ import {
 } from '../../src/core/ai/model_fetch.ts';
 import { expectedDigest, expectedSize } from '../../src/core/ai/model_manifest.ts';
 import type { PinTable } from '../../src/core/ai/model_pins.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 
 let scratch = '';
 
@@ -475,7 +476,7 @@ describe('the fallback transport is bounded by silence, not by hope', () => {
 		left: boolean;
 	}> {
 		const server = peer(mode);
-		const target = join(tmpdir(), `dedalo_plainfetch_${mode}_${process.pid}`);
+		const target = scratchFile(`plainfetch_${mode}`, 'weights.bin');
 		if (existsSync(target)) rmSync(target);
 		const started = Date.now();
 		try {
@@ -515,7 +516,7 @@ describe('the fallback transport is bounded by silence, not by hope', () => {
 		// FetchFile's contract is `false = not obtained`, never a throw: a refused
 		// connection is the ordinary air-gapped case, and it must cost one file,
 		// not the whole seed.
-		const target = join(tmpdir(), `dedalo_plainfetch_refused_${process.pid}`);
+		const target = scratchFile('plainfetch_refused', 'weights.bin');
 		// port 1 is reserved and nothing listens on it
 		expect(await plainFetch(target, 'http://127.0.0.1:1/w', IDLE_MS)).toBe(false);
 		expect(existsSync(target)).toBe(false);
@@ -530,7 +531,7 @@ describe('the fallback transport is bounded by silence, not by hope', () => {
 	test('a healthy peer still downloads the bytes', async () => {
 		// The converse: a bound that also breaks the working case is not a fix.
 		const server = peer('complete');
-		const target = join(tmpdir(), `dedalo_plainfetch_ok_${process.pid}`);
+		const target = scratchFile('plainfetch_ok', 'weights.bin');
 		try {
 			expect(await plainFetch(target, `http://localhost:${server.port}/w`, IDLE_MS)).toBe(true);
 			expect(readFileSync(target, 'utf8')).toBe('WEIGHTS');

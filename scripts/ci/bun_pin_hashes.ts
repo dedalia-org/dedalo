@@ -34,8 +34,8 @@
  * Exit codes: 0 ok; 1 verification failed; 2 usage, or a needed tool (gpgv / gpg) is missing.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { BUN_ASSETS } from '../../publication/host_agent/src/provision/exec_contract.ts';
 
@@ -291,10 +291,12 @@ export interface VerifyTools {
 	readonly gpgv: string;
 }
 
+/**
+ * gpgv's private home: created ATOMICALLY with an unpredictable name and mode 0700
+ * (mkdtemp). Under `/tmp`, not `$TMPDIR`: gpg's agent socket path must stay short.
+ */
 function scratchHome(): string {
-	const dir = `/tmp/dd_bun_pin_${randomBytes(4).toString('hex')}`;
-	mkdirSync(dir, { mode: 0o700 });
-	return dir;
+	return mkdtempSync(join('/tmp', 'dd_bun_pin_'));
 }
 
 /**

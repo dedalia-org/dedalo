@@ -16,7 +16,6 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { resolveIdentify } from '../../src/core/media/engine/imagemagick.ts';
@@ -31,8 +30,9 @@ import {
 	parseTimestampDdDate,
 	withDedaloTime,
 } from '../../src/core/media/file_date.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const FIXTURE_DIR = join(tmpdir(), `dedalo_file_date_${process.pid}`);
+const FIXTURE_DIR = scratchDir('file_date');
 mkdirSync(FIXTURE_DIR, { recursive: true });
 afterAll(() => {
 	rmSync(FIXTURE_DIR, { recursive: true, force: true });

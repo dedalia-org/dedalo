@@ -25,12 +25,12 @@
 
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDedaloError } from '../../src/core/errors/index.ts';
 import { buildInstallPlan, INSTALL_STEP_IDS } from '../../src/core/install/install_plan.ts';
 import { STEP_RUNS } from '../../src/core/install/step_runs.ts';
 import { INSTALL_STEPS } from '../../src/core/install/steps.ts';
+import { absentScratchPath, scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 
@@ -123,7 +123,7 @@ function runScratchChild(snippet: string, scratch: string): Record<string, unkno
 
 describe('install_ontologies', () => {
 	test('with nothing staged REFUSES install.state_conflict (a child on a scratch root)', () => {
-		const scratch = join(tmpdir(), `dedalo_zzi_ontology_steps_${process.pid}`);
+		const scratch = scratchDir('zzi_ontology_steps');
 		const outcome = runScratchChild(
 			[
 				"const { STEP_RUNS } = await import('./src/core/install/step_runs.ts');",
@@ -141,7 +141,8 @@ describe('install_ontologies', () => {
 	});
 });
 
-const SCRATCH_ROOT = join(tmpdir(), `dedalo_zzi_install_${process.pid}`);
+// Inside a fresh private dir, and itself ABSENT: the case asserts nothing is created.
+const SCRATCH_ROOT = absentScratchPath('zzi_install');
 
 const CHECK_DIRS_SNIPPET = [
 	"const scratch = process.env.ZZI_SCRATCH_ROOT ?? '';",

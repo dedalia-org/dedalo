@@ -33,7 +33,6 @@
 
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { Glob } from 'bun';
 import { CONFIG_CATALOG } from '../../src/config/catalog/index.ts';
@@ -46,6 +45,7 @@ import {
 } from '../../src/core/install/runtime_paths.ts';
 import { registryPath } from '../../src/core/publication_host/registry.ts';
 import { secretsRoot } from '../../src/core/publication_host/secrets.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -159,7 +159,7 @@ describe('runtime_paths_census_tripwire', () => {
 	// Leg 3 — POSITIVE CONTROL: the containment question can answer YES.
 	// -----------------------------------------------------------------------
 	test('runtimePathsInsideTree reports a planted in-tree media root (the gate can fail)', () => {
-		const scratch = join(tmpdir(), `runtime_paths_census_${process.pid}_${Date.now()}`);
+		const scratch = scratchDir('runtime_paths_census');
 		const planted = join(scratch, 'media');
 		mkdirSync(planted, { recursive: true });
 		// DEDALO_TEST_MEDIA_ROOT is the highest-precedence media root and the
@@ -191,7 +191,7 @@ describe('runtime_paths_census_tripwire', () => {
 	// Boundary exactness: a SIBLING whose name shares the root as a prefix is
 	// NOT inside (the `root + sep` check, not a bare startsWith).
 	test('containment is path-segment exact, not a string prefix', () => {
-		const scratch = join(tmpdir(), `runtime_paths_prefix_${process.pid}_${Date.now()}`);
+		const scratch = scratchDir('runtime_paths_prefix');
 		const sibling = `${scratch}_sibling`;
 		mkdirSync(join(sibling, 'media'), { recursive: true });
 		const previous = process.env.DEDALO_TEST_MEDIA_ROOT;

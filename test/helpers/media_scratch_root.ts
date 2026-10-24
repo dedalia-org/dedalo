@@ -18,23 +18,22 @@
  * already has a directory (a subdirectory of its own scratch tree, say).
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXPORT_ARTIFACTS_TEST_MARKER } from '../../tools/tool_export/server/artifact_store.ts';
-import { TEST_MEDIA_MARKER } from './test_media_root.ts';
+import { scratchDir } from './scratch_dir.ts';
+import { TEST_MEDIA_MARKER, writeMarkerOnce } from './test_media_root.ts';
 
 /** Plant the marker in an existing directory (created if missing). Returns it. */
 export function markMediaRoot(dir: string): string {
 	mkdirSync(dir, { recursive: true });
-	const marker = join(dir, TEST_MEDIA_MARKER);
-	if (!existsSync(marker)) writeFileSync(marker, 'scratch media root — a test gate created this\n');
+	writeMarkerOnce(join(dir, TEST_MEDIA_MARKER), 'scratch media root — a test gate created this\n');
 	return dir;
 }
 
-/** A fresh, MARKED scratch media root under the OS temp dir. */
-export function scratchMediaRoot(prefix = 'dedalo_media_scratch_'): string {
-	return markMediaRoot(mkdtempSync(join(tmpdir(), prefix)));
+/** A fresh, MARKED, private scratch media root under the OS temp dir (scratch_dir.ts). */
+export function scratchMediaRoot(label = 'media_scratch'): string {
+	return markMediaRoot(scratchDir(label));
 }
 
 /**
@@ -54,10 +53,10 @@ export function resetMediaRoot(dir: string): string {
  */
 export function markExportArtifactsRoot(dir: string): string {
 	mkdirSync(dir, { recursive: true });
-	const marker = join(dir, EXPORT_ARTIFACTS_TEST_MARKER);
-	if (!existsSync(marker)) {
-		writeFileSync(marker, 'scratch export artifacts root — a test gate created this\n');
-	}
+	writeMarkerOnce(
+		join(dir, EXPORT_ARTIFACTS_TEST_MARKER),
+		'scratch export artifacts root — a test gate created this\n',
+	);
 	return dir;
 }
 

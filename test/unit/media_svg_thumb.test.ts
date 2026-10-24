@@ -24,7 +24,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { config } from '../../src/config/config.ts';
 import { assertValidQuality, mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
@@ -34,8 +33,9 @@ import type { MediaIdentity, MediaPathOptions } from '../../src/core/media/path.
 import { regenerateSvg } from '../../src/core/media/processing.ts';
 import { buildVersionCore } from '../../src/core/media/tools/versions.ts';
 import { resetMediaRoot } from '../helpers/media_scratch_root.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
 
-const ROOT = `${tmpdir()}/dedalo_svg_thumb_${process.pid}`;
+const ROOT = scratchDir('svg_thumb');
 const svg = mediaTypeOf('component_svg')!;
 const HAVE_RSVG = rsvgAvailable();
 const HAVE_MAGICK = existsSync(resolveMagick());

@@ -38,8 +38,6 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { readEnv } from '../../src/config/env.ts';
 import * as postgresModule from '../../src/core/db/postgres.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { runWithQueryTap } from '../../src/core/db/query_tap.ts';
@@ -52,6 +50,7 @@ import {
 } from '../../src/core/update/catalog.ts';
 import { SCRIPT_REGISTRY, updateVersion } from '../../src/core/update/engine.ts';
 import { childDriver, driverResult, repoModule } from '../helpers/child_driver.ts';
+import { scratchFile } from '../helpers/scratch_dir.ts';
 
 // ---------------------------------------------------------------------------
 // the FINAL surface (spec §1.9, §2.1), resolved by name so this gate loads on
@@ -84,7 +83,7 @@ function exported<T>(module: object, name: string): T {
 
 const PID = process.pid;
 const TABLE = `dedalo_ts_test_upd_${PID}_desc`;
-const LOG_PATH = join(readEnv('TMPDIR') ?? '/tmp', `dedalo_update_descriptor_${PID}.log`);
+const LOG_PATH = scratchFile('update_descriptor', 'update_descriptor.log');
 const SCRIPT_IDS = ['zz.ok'];
 const SCRIPTS = { 'zz.ok': async () => ({ ok: true }) };
 
