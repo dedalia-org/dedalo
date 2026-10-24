@@ -106,6 +106,8 @@ interface Sink {
 	kind: 'inner_html' | 'value_string' | 'innerHTML' | 'insertAdjacentHTML' | 'helper_option';
 	expr: string;
 	cls: Cls;
+	/** a dynamic piece SPLICED into a built string (see concatenatesDynamic) */
+	concat: boolean;
 }
 
 const ESCAPER_NAMES = [
@@ -810,6 +812,98 @@ function classifyExpr(expr: string, src: string, pos: number, depth = 0): Cls {
 }
 
 /**
+ * The depth-0 `+` operands of an expression (string / template literals and
+ * brackets respected). One element when the expression is not a `+` chain.
+ */
+function plusOperands(expr: string): string[] {
+	const ops: string[] = [];
+	let depth = 0;
+	let cur = '';
+	let i = 0;
+	while (i < expr.length) {
+		const c = expr[i] as string;
+		if (c === '"' || c === "'" || c === '`') {
+			let k = i + 1;
+			let td = 0;
+			while (k < expr.length) {
+				if (expr[k] === '\\') {
+					k += 2;
+					continue;
+				}
+				if (c === '`' && expr[k] === '$' && expr[k + 1] === '{') {
+					td++;
+					k += 2;
+					continue;
+				}
+				if (c === '`' && td > 0 && expr[k] === '}') {
+					td--;
+					k++;
+					continue;
+				}
+				if (expr[k] === c && td === 0) break;
+				k++;
+			}
+			cur += expr.slice(i, k + 1);
+			i = k + 1;
+			continue;
+		}
+		if ('([{'.includes(c)) depth++;
+		if (')]}'.includes(c)) depth--;
+		if (depth === 0 && c === '+' && expr[i + 1] !== '+' && expr[i - 1] !== '+') {
+			ops.push(cur);
+			cur = '';
+			i++;
+			continue;
+		}
+		cur += c;
+		i++;
+	}
+	ops.push(cur);
+	return ops.map((o) => o.trim()).filter((o) => o !== '');
+}
+
+/**
+ * MARKUP CONCATENATION — the shape of the audit's stored-XSS findings
+ * (CodeQL #7930 vector_editor `'Layer: ' + layer.user_layer_name + '<br>'`,
+ * #7940 render_search `first_item.name + ' ' + label_add.innerHTML`): a
+ * string BUILT for an HTML sink by `+`, a `${}` template or a `+=`
+ * accumulator, one of whose pieces the classifier cannot prove safe. A bare
+ * dynamic value handed to a sink is the ratchet's business; a value SPLICED
+ * INTO MARKUP is never legitimate — the markup half is the renderer's own, so
+ * the renderer can always build it as nodes and hand the value to
+ * text_content. One hop of the same scoped data flow the classifier uses:
+ * `inner_html: body` resolves `body`'s nearest visible declaration, and a
+ * `body += …` append with a dynamic piece is a concatenation too.
+ */
+function concatenatesDynamic(expr: string, src: string, pos: number, depth = 0): boolean {
+	const e = expr.trim();
+	if (e.startsWith('(') && e.endsWith(')') && balanced(e.slice(1, -1)))
+		return concatenatesDynamic(e.slice(1, -1), src, pos, depth);
+	const ops = plusOperands(e);
+	if (ops.length > 1) return ops.some((o) => classifyExpr(o, src, pos) === 'dynamic');
+	if (e.startsWith('`') && e.endsWith('`') && e.includes('${'))
+		return templateParts(e).some((p) => classifyExpr(p, src, pos) === 'dynamic');
+	// the branches of `||` / `??` / `? :` are each rendered: any one of them
+	// may be the concatenation
+	const atoms = splitAtoms(e);
+	if (atoms.length > 1) return atoms.some((a) => concatenatesDynamic(a, src, pos, depth));
+	if (/^[A-Za-z_$][\w$]*$/.test(e) && depth < 2) {
+		const param = paramScope(src, e, pos);
+		const decl = findDecl(src, e, pos, param === null ? -1 : param.bodyStart);
+		if (decl === null) return false;
+		const esc = e.replace(/\$/g, '\\$');
+		const appends = decl.appended.filter((x) =>
+			new RegExp(`(^|[^\\w$.])${esc}\\s*\\+=\\s*$`).test(
+				src.slice(Math.max(0, x.pos - 200), x.pos),
+			),
+		);
+		if (appends.some((x) => classifyExpr(x.expr, src, x.pos) === 'dynamic')) return true;
+		return concatenatesDynamic(decl.expr, src, decl.pos, depth + 1);
+	}
+	return false;
+}
+
+/**
  * The sinks: the `inner_html:` option of ui.create_dom_element, the
  * `value_string:` option of ui.component.build_wrapper_list/mini (it is
  * inserted as HTML), `.innerHTML =`/`+=` and `.outerHTML =`, the payload of
@@ -839,7 +933,10 @@ function censusSource(file: string, src: string): Sink[] {
 		const start = at + m[0].length;
 		const expr =
 			kind === 'innerHTML' ? scanExpr(src, start, ';', true) : scanExpr(src, start, ',', false);
-		sinks.push({ file, line: lineOf(at), kind, expr, cls: classifyExpr(expr, src, at) });
+		const cls = classifyExpr(expr, src, at);
+		// `.innerHTML += x` IS a concatenation: it splices x into the node's markup
+		const concat = cls === 'dynamic' && (m[1] === '+=' || concatenatesDynamic(expr, src, at));
+		sinks.push({ file, line: lineOf(at), kind, expr, cls, concat });
 	}
 	return sinks;
 }
@@ -946,12 +1043,14 @@ function helperSinks(file: string, src: string): Sink[] {
 	const sinks: Sink[] = [];
 	const lineOf = (i: number): number => src.slice(0, i).split('\n').length;
 	const add = (at: number, expr: string): void => {
+		const cls = classifyExpr(expr, src, at);
 		sinks.push({
 			file,
 			line: lineOf(at),
 			kind: 'helper_option',
 			expr,
-			cls: classifyExpr(expr, src, at),
+			cls,
+			concat: cls === 'dynamic' && concatenatesDynamic(expr, src, at),
 		});
 	};
 	const code = stripComments(src); // same length: positions hold
@@ -1014,18 +1113,6 @@ const RENDER_SURFACE_EXEMPTIONS: ReadonlyArray<{ file: string; expr: string; rea
 		reason:
 			"External record entries carry a per-ENTRY kind on the wire, not a per-model class: the ONE 'markup' branch is server-sanitised (src/external/fields_map.ts sanitizeMarkup) and enters the escaper as trusted 'html'; every other kind is a text node. The literal is the wire kind's translation, not a renderer's own decision — routes through a per-entry render_class when the external wire carries one.",
 	},
-	{
-		file: 'client/dedalo/core/component_image/js/vector_editor.js',
-		expr: 'active_layer.layer_id',
-		reason:
-			'SVG layer editor: the layer id of the active vector layer. Owned by P2-25 (component_image); routes through the escaper there.',
-	},
-	{
-		file: 'client/dedalo/core/component_image/js/vector_editor.js',
-		expr: 'layer.user_layer_name',
-		reason:
-			'SVG layer editor: the user-typed layer name in the delete confirmation. Owned by P2-25 (component_image); routes through the escaper there.',
-	},
 ];
 
 /**
@@ -1080,13 +1167,12 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/paginator/js/render_paginator_micro.js': 3,
 	'client/dedalo/core/paginator/js/render_paginator_mini.js': 1,
 	'client/dedalo/core/relation_list/js/render_relation_list.js': 1,
-	'client/dedalo/core/search/js/render_search.js': 6,
+	'client/dedalo/core/search/js/render_search.js': 5,
 	'client/dedalo/core/search/js/render_semantic.js': 1,
 	'client/dedalo/core/section/js/render_common_section.js': 2,
 	'client/dedalo/core/section/js/render_open_list_with_direct_relations.js': 2,
 	'client/dedalo/core/section/js/section.js': 2,
 	'client/dedalo/core/section/js/view_default_list_section.js': 1,
-	'client/dedalo/core/section/js/view_graph_edit_section.js': 10,
 	'client/dedalo/core/section/js/view_graph_list_section.js': 2,
 	'client/dedalo/core/section/js/view_graph_solved_section.js': 1,
 	'client/dedalo/core/section/js/view_tm_list_section.js': 1,
@@ -1094,7 +1180,7 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/section_record/js/view_mini_section_record.js': 1,
 	'client/dedalo/core/section_record/js/view_text_section_record.js': 2,
 	'client/dedalo/core/section_tab/js/render_section_tab.js': 1,
-	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 5,
+	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 4,
 	'client/dedalo/core/services/service_ckeditor/js/render_text_editor.js': 2,
 	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 5,
 	'client/dedalo/core/tools_common/js/render_tool_common.js': 1,
@@ -1149,6 +1235,70 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'tools/tool_transcription/js/render_tool_transcription.js': 24,
 	'tools/tool_transcription/js/tool_transcription.js': 7,
 	'tools/tool_update_cache/js/render_tool_update_cache.js': 11,
+};
+
+/**
+ * Per-file SHRINK-ONLY ratchet of MARKUP CONCATENATIONS (concatenatesDynamic)
+ * over the WHOLE census — render surface, remainder and tools alike. Stricter
+ * than REMAINDER_RATCHET: a sink here is not merely unproven, it SPLICES a
+ * value into a string the HTML parser reads, the exact shape of the stored
+ * XSS CodeQL found (#7930 vector_editor delete-layer dialog, #7940
+ * render_search label_add, both closed 2026-10-25 and therefore absent). The
+ * fix is never an exemption: build the markup as nodes and hand the value to
+ * text_content (or render_value with the server's class). Exact counts; a
+ * file not listed holds zero; a file reaching zero is deleted. Measured
+ * 2026-10-25 — most entries splice a count or an ontology label, but the
+ * classifier cannot tell those from a record value, so every one stays red
+ * until it is built as nodes.
+ */
+const CONCAT_RATCHET: Readonly<Record<string, number>> = {
+	'client/dedalo/core/area_maintenance/js/render_area_maintenance.js': 2,
+	'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js': 1,
+	'client/dedalo/core/area_maintenance/widgets/counters_status/js/render_counters_status.js': 2,
+	'client/dedalo/core/area_maintenance/widgets/lock_components/js/render_lock_components.js': 1,
+	'client/dedalo/core/area_maintenance/widgets/make_backup/js/render_make_backup.js': 1,
+	'client/dedalo/core/area_maintenance/widgets/publication_api/js/render_publication_api.js': 1,
+	'client/dedalo/core/area_maintenance/widgets/register_tools/js/render_register_tools.js': 3,
+	'client/dedalo/core/area_thesaurus/js/render_area_thesaurus.js': 1,
+	'client/dedalo/core/common/js/common.js': 2,
+	'client/dedalo/core/common/js/ui.js': 4,
+	'client/dedalo/core/page/js/render_page.js': 2,
+	'client/dedalo/core/paginator/js/render_paginator_micro.js': 3,
+	'client/dedalo/core/paginator/js/render_paginator_mini.js': 1,
+	'client/dedalo/core/search/js/render_semantic.js': 1,
+	'client/dedalo/core/section/js/render_common_section.js': 2,
+	'client/dedalo/core/section/js/section.js': 2,
+	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 2,
+	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 3,
+	'client/dedalo/core/tools_common/js/render_tool_common.js': 1,
+	'client/dedalo/core/tools_common/js/tool_common.js': 2,
+	'client/dedalo/core/ts_object/js/render_ts_dialogs.js': 1,
+	'client/dedalo/core/ts_object/js/render_ts_line.js': 3,
+	'client/dedalo/core/widgets/calculation/js/render_calculation.js': 1,
+	'client/dedalo/core/widgets/dd/user_activity/js/render_user_activity.js': 1,
+	'client/dedalo/core/widgets/dmm/get_archive_states/js/render_get_archive_states.js': 2,
+	'client/dedalo/core/widgets/numisdata/get_coins_by_period/js/render_get_coins_by_period.js': 2,
+	'client/dedalo/core/widgets/oh/descriptors/js/render_edit_descriptors.js': 1,
+	'client/dedalo/core/widgets/oh/tags/js/render_tags.js': 1,
+	'client/dedalo/core/widgets/state/js/render_edit_state.js': 2,
+	'client/dedalo/core/widgets/state/js/render_list_state.js': 5,
+	'tools/tool_image_rotation/js/render_tool_image_crop.js': 1,
+	'tools/tool_image_rotation/js/tool_image_rotation.js': 1,
+	'tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js': 4,
+	'tools/tool_import_files/js/render_tool_import_files.js': 4,
+	'tools/tool_indexation/js/render_tool_indexation.js': 2,
+	'tools/tool_lang/js/browser_translation.js': 1,
+	'tools/tool_media_versions/js/render_tool_media_versions.js': 1,
+	'tools/tool_numisdata_epigraphy/js/render_tool_numisdata_epigraphy.js': 1,
+	'tools/tool_ontology_parser/js/render_tool_ontology_parser.js': 1,
+	'tools/tool_ontology/js/render_tool_ontology.js': 2,
+	'tools/tool_print/js/render_box_tool_print.js': 2,
+	'tools/tool_print/js/render_tool_print.js': 5,
+	'tools/tool_qr/js/render_tool_qr.js': 1,
+	'tools/tool_tr_print/js/render_tool_tr_print.js': 1,
+	'tools/tool_transcription/js/render_tool_transcription.js': 1,
+	'tools/tool_transcription/js/tool_transcription.js': 2,
+	'tools/tool_update_cache/js/render_tool_update_cache.js': 4,
 };
 
 // ---------------------------------------------------------------------------
@@ -1270,6 +1420,73 @@ describe('one escaper at the render boundary — the census', () => {
 		}
 		expect(problems).toEqual([]);
 		expect(Object.keys(REMAINDER_RATCHET).length).toBeGreaterThan(50); // the ratchet has a corpus
+	});
+
+	test('no NEW record value is concatenated into markup (per-file shrink-only, exact)', () => {
+		const actual: Record<string, number> = {};
+		for (const s of sinks) if (s.concat) actual[s.file] = (actual[s.file] ?? 0) + 1;
+		// RENDER_ESCAPE_DUMP=3 lists every concatenation sink
+		if (process.env.RENDER_ESCAPE_DUMP === '3')
+			for (const s of sinks) if (s.concat) console.log(describeSink(s));
+		const problems: string[] = [];
+		for (const [file, count] of Object.entries(actual)) {
+			const allowed = CONCAT_RATCHET[file] ?? 0;
+			if (count > allowed)
+				problems.push(
+					`${file}: ${count} value(s) spliced into markup, ratchet allows ${allowed} — build the markup as nodes and pass the value as text_content`,
+				);
+			else if (count < allowed)
+				problems.push(
+					`${file}: ${count} concatenation sinks, ratchet says ${allowed} — lower it (shrink-only, exact)`,
+				);
+		}
+		for (const file of Object.keys(CONCAT_RATCHET))
+			if (actual[file] === undefined)
+				problems.push(`${file}: zero concatenation sinks — delete it from the ratchet`);
+		expect(problems).toEqual([]);
+		// non-vacuous: the census sees concatenations at all
+		expect(sinks.filter((s) => s.concat).length).toBeGreaterThan(20);
+	});
+
+	test('positive control: the concatenation shapes CodeQL found are flagged, their fixes are not', () => {
+		const at = (code: string): Array<{ cls: Cls; concat: boolean }> =>
+			censusSource('positive_control.js', code).map((s) => ({ cls: s.cls, concat: s.concat }));
+		// #7930: a user-typed record value spliced between markup
+		expect(
+			at(
+				"ui.create_dom_element({ inner_html: 'Layer: ' + layer.user_layer_name + '<br><br>' + (get_label.sure || 'Sure?') })",
+			),
+		).toEqual([{ cls: 'dynamic', concat: true }]);
+		// #7940: a stored path name prepended by round-tripping innerHTML
+		expect(at("label_add.innerHTML = first_item.name +' '+ label_add.innerHTML")).toEqual([
+			{ cls: 'dynamic', concat: true },
+		]);
+		// template, `+=` sink, one hop through a local, a `+=` accumulator, a ternary branch
+		expect(at('node.innerHTML = `<b>${row.term}</b>`')).toEqual([{ cls: 'dynamic', concat: true }]);
+		expect(at('node.innerHTML += row.term')).toEqual([{ cls: 'dynamic', concat: true }]);
+		expect(at("const html = '<i>' + row.term\nnode.innerHTML = html")).toEqual([
+			{ cls: 'dynamic', concat: true },
+		]);
+		expect(at("let html = '<ul>'\nhtml += '<li>' + row.term\nnode.innerHTML = html")).toEqual([
+			{ cls: 'dynamic', concat: true },
+		]);
+		expect(at("ui.create_dom_element({ inner_html: ok ? '<b>' + row.term : '' })")).toEqual([
+			{ cls: 'dynamic', concat: true },
+		]);
+		// a bare dynamic value is the ratchet's, not a concatenation
+		expect(at('ui.create_dom_element({ inner_html: row.term })')).toEqual([
+			{ cls: 'dynamic', concat: false },
+		]);
+		// the fixes: escaped pieces, labels and literals concatenate freely
+		expect(
+			at(
+				"import {render_value} from '../../common/js/utils/render_escape.js'\nui.create_dom_element({ inner_html: '<b>' + render_value(row.term, 'text') + '</b>' + (get_label.sure || 'Sure?') })",
+			),
+		).toEqual([{ cls: 'escaped', concat: false }]);
+		// a text sink is not a sink at all
+		expect(
+			at("ui.create_dom_element({ text_content: 'Layer: ' + layer.user_layer_name })"),
+		).toEqual([]);
 	});
 
 	test('positive control: the classifier flags the audit shape and clears the escaper', () => {

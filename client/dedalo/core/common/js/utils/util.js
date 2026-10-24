@@ -443,15 +443,16 @@ export function url_vars_to_object(query_string) {
 	// parse query string
 		const params = new URLSearchParams(query_string);
 
-	// iterate over all keys
-		const vars_obj = {};
-		for (const key of params.keys()) {
-			if (params.getAll(key).length > 1) {
-				vars_obj[key] = params.getAll(key);
-			}else{
-				vars_obj[key] = params.get(key);
-			}
-		}
+	// one entry per distinct key. Built with Object.fromEntries (CreateDataProperty),
+	// never `vars_obj[key] = …`: the key is URL text, and an assignment to
+	// `__proto__` on a literal re-parents the object (CodeQL #8032/#8033).
+	// fromEntries makes `__proto__` an ordinary OWN key, like any other.
+		const vars_obj = Object.fromEntries(
+			[...new Set(params.keys())].map((key) => {
+				const values = params.getAll(key)
+				return [key, values.length > 1 ? values : values[0]]
+			})
+		);
 
 	return vars_obj;
 }//end url_vars_to_object

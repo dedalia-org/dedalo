@@ -391,7 +391,7 @@ const walk_entry = async function(entry, path, depth, state) {
 		// roots can never alias each other on the identical `fullPath` Chrome hands
 		// every dropped item. `path` is only a fallback: a traversal path grows
 		// monotonically and can never repeat, so it identifies nothing on its own.
-		const identity = filesystem_id(state, entry) + ' ' + (entry.fullPath || path)
+		const identity = filesystem_id(state, entry) + '\u0000' + (entry.fullPath || path)
 		if (state.visited_directories.has(identity)) {
 			add_error(state, 'cycle', path, 'Directory already visited (symlink loop?)')
 			return

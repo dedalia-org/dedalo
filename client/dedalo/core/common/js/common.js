@@ -5,7 +5,7 @@
 
 
 // imports
-	import {clone, load_style, load_script} from '../../common/js/utils/index.js'
+	import {clone, load_style, load_script, strip_tags} from '../../common/js/utils/index.js'
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {delete_instance} from '../../common/js/instances.js'
@@ -2642,7 +2642,10 @@ common.prototype.calculate_component_path = function(component_context, path) {
 		component_tipo			: component_context.tipo,
 		ar_target_section_tipo	: component_context.ar_target_section_tipo,
 		model					: component_context.model,
-		name					: (component_context.label ?? '').replace(/<[^>]*>/g, '')
+		// path[].name is display TEXT (inert <template> parse, entities decoded):
+		// one parse, no incomplete regex strip (CodeQL #7940). Every reader renders
+		// it as text (render_search.js label_add) — never as markup.
+		name					: strip_tags(component_context.label ?? '')
 	})
 
 	return calculate_component_path

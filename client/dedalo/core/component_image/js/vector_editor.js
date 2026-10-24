@@ -924,7 +924,8 @@ vector_editor.prototype.render_tools_buttons = function(self) {
 				buttons.push(layer_selector_button)
 
 				const active_layer_handler = (active_layer) => {
-					layer_selector_button.innerHTML = active_layer.layer_id
+					// text, never markup: the layer id comes out of the record's layer data
+					layer_selector_button.textContent = active_layer.layer_id
 				}
 				self.events_tokens.push(
 					event_manager.subscribe('active_layer_'+self.id, active_layer_handler)
@@ -2344,11 +2345,22 @@ vector_editor.prototype.render_layer_row = function(self, layer) {
 					})
 
 				// body
+					// (!) user_layer_name is free text typed by ANY editor and stored in the
+					// record's layer data: it is rendered as a text node, never parsed as
+					// markup (stored XSS between users, CodeQL #7930).
 					const body = ui.create_dom_element({
 						element_type	: 'h3',
-						class_name		: 'content delete_layer',
-						inner_html		: 'Layer: ' + layer.user_layer_name + '<br><br>' + (get_label.sure || 'Sure?')
+						class_name		: 'content delete_layer'
 					})
+					ui.create_dom_element({
+						element_type	: 'span',
+						class_name		: 'delete_layer_name',
+						text_content	: 'Layer: ' + (layer.user_layer_name ?? ''),
+						parent			: body
+					})
+					body.appendChild(document.createElement('br'))
+					body.appendChild(document.createElement('br'))
+					body.appendChild(document.createTextNode(get_label.sure || 'Sure?'))
 
 				// footer
 					const footer = ui.create_dom_element({

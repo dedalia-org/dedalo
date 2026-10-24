@@ -50,7 +50,7 @@ export const service_autocomplete = function() {
 	this.events_tokens	= []
 	this.type			= null
 	this.caller			= null
-	this.search_cache	= {}
+	this.search_cache	= new Map() // keyed by the user's typed query: a Map, never `{}` (q may be '__proto__')
 	this.limit			= 30
 }//end service_autocomplete
 

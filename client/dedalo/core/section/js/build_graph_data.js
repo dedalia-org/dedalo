@@ -47,7 +47,7 @@
 
 // imports
 	import {data_manager} from '../../common/js/data_manager.js'
-	import {clone} from '../../common/js/utils/index.js'
+	import {clone, strip_tags} from '../../common/js/utils/index.js'
 	import {get_term_tipos, get_fields_separator} from '../../common/js/section_map.js'
 	import {request_failed, response_data} from '../../common/js/api_error.js'
 
@@ -124,22 +124,26 @@ export const build_model_map = function(datum) {
 
 /**
 * STRIP_HTML
-* Remove HTML tags from a string using a simple regex pass.
+* Reduce a stored value to its human-readable TEXT (tags removed, entities
+* decoded) through the inert <template> parser of util.strip_tags — one parse,
+* no regex pass (a `/<[^>]*>/` strip is incomplete on nested fragments like
+* `<scr<b>ipt>`, CodeQL #7941).
 *
-* Only used for human-readable label text; not a security sanitiser —
-* do not rely on this for any XSS-sensitive context.
+* Not a sanitiser and never needs to be one: every label/value it feeds is
+* rendered as a text node (view_graph_edit_section.js text_content), and the
+* server terms that bypass it (get_section_terms) are rendered the same way.
 * Non-string / falsy input is returned as-is (preserves null/undefined
 * so callers can still distinguish "no value" from "empty string").
 *
 * @param {string} str - Raw string possibly containing HTML markup
-* @returns {string} The input with all `<tag>` sequences removed, or the
-*   original value unchanged when it is not a non-empty string
+* @returns {string} The text content of `str`, or the original value
+*   unchanged when it is not a non-empty string
 */
 const strip_html = function(str) {
 
 	if (!str || typeof str !== 'string') return str
 
-	return str.replace(/<[^>]*>/g, '')
+	return strip_tags(str)
 }//end strip_html
 
 

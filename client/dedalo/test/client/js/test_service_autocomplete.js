@@ -138,7 +138,7 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 				for (const clause of Object.values(service.rqo_search.sqo_options.filter_free).flat()) {
 					clause.q = 'one' // test3 test52 = 'input text content of one'
 				}
-				service.search_cache = {}
+				service.search_cache = new Map()
 
 				await service.render()
 				const response = await service.autocomplete_search()
@@ -371,7 +371,7 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 
 			const self = {
 				_search_seq	: 7,
-				search_cache: {},
+				search_cache: new Map(),
 				datalist	: datalist,
 				autocomplete_search : async function() {
 					throw new Error('simulated network failure')

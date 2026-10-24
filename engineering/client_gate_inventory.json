@@ -1,7 +1,7 @@
 {
 	"rule": "SHRINK-ONLY inventory floor for the browser client tier (bun run test:client). suite_floor: the run must observe at least this many non-deferred suite cards; mocha_test_floor: those cards must have RUN at least this many mocha tests in total (per-card data-test-count MINUS data-pending-count, posted by frame_runner.js from runner.stats.tests / runner.stats.pending — mocha counts a pending test inside `tests`); assertion_free_it_budget: the static count of it() bodies with no assertion across the registered suites (test/helpers/client_suite_census.ts) — may only fall; skipped_registration_budget: the static count of registrations that can never run (it.skip, xit, a callback-less it(), describe.skip, xdescribe, xcontext, context.skip) — may only fall. Banked by `bun run scripts/client_test_runner.ts --update` after a green run, which REFUSES to lower a floor or raise a budget; a legitimate drop is a hand edit whose commit message says which suites went and why. Read by scripts/lib/client_gate_verdict.ts and test/unit/client_gate_inventory_tripwire.test.ts.",
-	"suite_floor": 163,
-	"mocha_test_floor": 4366,
+	"suite_floor": 164,
+	"mocha_test_floor": 4371,
 	"assertion_free_it_budget": 24,
 	"skipped_registration_budget": 0
 }

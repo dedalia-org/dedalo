@@ -1080,7 +1080,11 @@ render_search.prototype.build_search_component = async function(options) {
 			//console.log("first_item:",first_item);
 			const label_add = parent_div.querySelector('span.label_add')
 			if (label_add) {
-				label_add.innerHTML = first_item.name +' '+ label_add.innerHTML
+				// (!) first_item.name comes from the JSON filter path (saved state /
+				// shareable dd623 presets): TEXT, prepended as a text node — never
+				// concatenated into markup nor round-tripped through innerHTML
+				// (stored XSS across users, CodeQL #7940)
+				label_add.prepend(document.createTextNode((first_item.name ?? '') + ' '))
 			}
 		}
 

@@ -306,7 +306,7 @@ const get_content_data = function(self) {
 * suffix is appended.
 *
 * On change:
-*  1. Resets self.search_cache.
+*  1. Resets self.search_cache (a Map).
 *  2. Clones the selected request_config entry and calls self.build() with it
 *     (first resetting self.status to 'initialized' so build() does not
 *     short-circuit its 'built' guard).
@@ -376,7 +376,7 @@ const render_source_selector = function(self) {
 		select.addEventListener('change', async function(e){
 
 			// reset search cache
-			self.search_cache = {}
+			self.search_cache = new Map()
 
 			const key = e.target.value
 
@@ -419,7 +419,7 @@ const render_source_selector = function(self) {
 *  - 'paste' fires input_handler immediately and sets is_searching to true to
 *    prevent a duplicate search from the subsequent keyup event.
 *  - input_handler debounces the API call: 320 ms by default, collapsed to 1 ms
-*    when the query is already cached (self.search_cache[q]).
+*    when the query is already cached (self.search_cache.has(q)).
 *  - A spinner `<div>` is inserted after the input while the request is in
 *    flight and removed on completion or error.
 *  - self.split_q() is called to distribute multi-field queries across
@@ -558,7 +558,7 @@ const render_search_input = function(self) {
 
 				// search fire is delayed to enable multiple simultaneous selections
 				// get final value (input events are fired one by one)
-					const ms = self.search_cache[q] || is_paste===true
+					const ms = self.search_cache.has(q) || is_paste===true
 						? 1
 						: 320 * 1
 					timeout = setTimeout(async()=>{
@@ -737,8 +737,9 @@ export const execute_search_render = async function(self, options) {
 		// api_response. Get from cache if exists. A cache hit is replayed as a
 		// plain SUCCESS envelope: only clean, non-degraded answers are ever
 		// cached (see the cache-write guard below), so it carries no notice.
-			const api_response = q.length && self.search_cache[q]
-				? { ok : true, data : self.search_cache[q], result : self.search_cache[q] }
+			const cached = q.length ? self.search_cache.get(q) : undefined
+			const api_response = cached
+				? { ok : true, data : cached, result : cached }
 				: await self.autocomplete_search()
 
 		// a newer search superseded this one: drop the stale response
@@ -768,8 +769,10 @@ export const execute_search_render = async function(self, options) {
 		// typing session, and the source coming back up would never be noticed.
 			const degraded = (Array.isArray(api_response.notices) && api_response.notices.length > 0)
 				|| (!!api_response.source_status && api_response.source_status.state !== 'ok')
-			if (!degraded && !self.search_cache[q] && Object.keys(self.search_cache).length < 100) {
-				self.search_cache[q] = response_data(api_response)
+		// A Map, never a plain object keyed by the typed query: q is user text, and
+		// q='__proto__' would re-parent a `{}` cache (CodeQL #8105).
+			if (!degraded && !self.search_cache.has(q) && self.search_cache.size < 100) {
+				self.search_cache.set(q, response_data(api_response))
 			}
 
 		// render datalist (call API and render the response result)
@@ -914,7 +917,7 @@ const render_filters_selector = function(self) {
 					change	: function(input_node){
 
 						// reset search cache
-						self.search_cache = {}
+						self.search_cache = new Map()
 
 						// State-idempotent sync (same defect as the filter_by_list
 						// callback, 2026-07-09): ar_sections MIRRORS the checked
@@ -987,7 +990,7 @@ const render_filters_selector = function(self) {
 						change	: function(input_node){
 
 							// reset search cache
-							self.search_cache = {}
+							self.search_cache = new Map()
 
 							// State-idempotent sync: ar_filter_by_list MIRRORS the checked
 							// boxes. The previous transition-based logic broke unchecking:
@@ -1091,7 +1094,7 @@ const build_filter = function(self, filter_items, filter_name, filter_id) {
 		// change event
 		const change_handler = (e) => {
 			// reset search cache
-			self.search_cache = {}
+			self.search_cache = new Map()
 
 			const checked_value	= e.target.checked
 			const inputs		= filter_node.querySelectorAll('input')
@@ -1206,7 +1209,7 @@ const render_option_checkbox = function(self, datalist_item) {
 		// event change
 			const change_handler = async function(e) {
 				// reset search cache
-				self.search_cache = {}
+				self.search_cache = new Map()
 
 				change(this) // caller callback function
 
@@ -1354,7 +1357,7 @@ const render_inputs_list = function(self) {
 					return
 				}
 				// reset search cache (a per-field input changes the query, like every other control)
-				self.search_cache = {}
+				self.search_cache = new Map()
 				// update filter_item q value from input
 				filter_item.q = component_input.value
 				// force search (sequenced to avoid out-of-order renders)
@@ -1447,7 +1450,7 @@ const render_operator_selector = function(self) {
 		select.addEventListener('change', async function(e){
 
 			// reset search cache
-			self.search_cache = {}
+			self.search_cache = new Map()
 
 			// set the new operator selected
 			self.operator	= e.target.value
@@ -1498,7 +1501,7 @@ const render_operator_selector = function(self) {
 		async function fn_change(e) {
 
 			// reset search cache
-			self.search_cache = {}
+			self.search_cache = new Map()
 
 			const value = parseInt( e.target.value )
 			if (value<1) {
@@ -2104,7 +2107,8 @@ view_default_autocomplete.render_grid_choose = async function( self, section_rec
 		const header = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'grid_choose_header text_unselectable dragger',
-			inner_html		: label,
+			// the selected record's own value: TEXT, never parsed as markup
+			text_content	: label,
 			parent			: grid_choose_container
 		});
 		// drag move set

@@ -434,7 +434,7 @@ const render_detail_placeholder = function(node_detail) {
 			ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'graph_legend_text',
-				inner_html		: item.text,
+				text_content	: item.text,
 				parent			: row
 			})
 		}
@@ -802,10 +802,10 @@ add_children(root_node, result)
 		if (remaining > 0) {
 			const show_count = Math.min(INVERSE_BATCH, remaining)
 			btn.style.display = ''
-			btn.innerHTML = (get_label.show_more || 'Show') + ' ' + show_count + ' ' + (get_label.more || 'more') + ' (' + remaining + ' ' + (get_label.remaining || 'remaining') + ')'
+			btn.textContent = (get_label.show_more || 'Show') + ' ' + show_count + ' ' + (get_label.more || 'more') + ' (' + remaining + ' ' + (get_label.remaining || 'remaining') + ')'
 		} else {
 			btn.style.display = 'none'
-			btn.innerHTML = ''
+			btn.textContent = ''
 		}
 	}//end update_more_button
 
@@ -1281,7 +1281,9 @@ add_children(root_node, result)
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'node_label',
-				inner_html		: node.label,
+				// (!) record terms (get_section_terms / strip_html) are TEXT: never parsed
+				// as markup — a stored term like <img onerror> would run (CodeQL #7941)
+				text_content	: node.label,
 				parent			: title_row
 			})
 
@@ -1294,7 +1296,7 @@ add_children(root_node, result)
 			ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'node_meta_item',
-				inner_html		: node.section_tipo + ' · ' + node.section_id,
+				text_content	: node.section_tipo + ' · ' + node.section_id,
 				parent			: meta
 			})
 			if (node.is_root) {
@@ -1317,13 +1319,13 @@ add_children(root_node, result)
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'node_relation_label',
-					inner_html		: relation_info.relation_label,
+					text_content	: relation_info.relation_label,
 					parent			: relation_row
 				})
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'node_relation_parent',
-					inner_html		: relation_info.other_label,
+					text_content	: relation_info.other_label,
 					parent			: relation_row
 				})
 			}
@@ -1397,7 +1399,7 @@ add_children(root_node, result)
 						ctx && ctx.model==='section' && (ctx.tipo===node.section_tipo || ctx.section_tipo===node.section_tipo)
 					)
 					if (section_ctx && section_ctx.label) {
-						section_name.innerHTML = section_ctx.label
+						section_name.textContent = section_ctx.label
 					}
 					// merge section_maps from fetched datum
 					const new_maps = build_section_maps(datum)
@@ -1429,19 +1431,19 @@ add_children(root_node, result)
 						ui.create_dom_element({
 							element_type	: 'span',
 							class_name		: 'node_field_label',
-							inner_html		: field.label,
+							text_content	: field.label,
 							parent			: label_row
 						})
 						ui.create_dom_element({
 							element_type	: 'span',
 							class_name		: 'node_field_tipo',
-							inner_html		: field.tipo,
+							text_content	: field.tipo,
 							parent			: label_row
 						})
 						ui.create_dom_element({
 							element_type	: 'span',
 							class_name		: 'node_field_value',
-							inner_html		: field.value,
+							text_content	: field.value,
 							parent			: row
 						})
 					}
