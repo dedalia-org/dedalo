@@ -56,18 +56,31 @@ const PRIVATE_CACHE = 'private, max-age=10800';
 /** Query param carrying the client's badge-renderer fingerprint (cache key only). */
 const VERSION_PARAM = 'v';
 
-/** Fail-closed 404 — generic, no existence leak. */
-function notFound(): Response {
+/**
+ * Longest `?id=` the endpoint parses (UTF-16 units, after URL-decoding). A real
+ * tag — even a `-data:…:data` draw tag or a locator JSON — is well under 1 KB;
+ * the cap is only there so an unauthenticated caller cannot hand the parser an
+ * arbitrarily long string (CodeQL #7958: the tag strip was O(n²) on `<<<…`).
+ * Over it ⇒ `request.invalid` (400), refused BEFORE any decode or regex runs.
+ * Wire: WC-2026-10-25-tag-id-length-cap.
+ */
+export const MAX_TAG_ID_LENGTH = 4096;
+
+/** A converter-made failure response for this static route. */
+function errorResponse(error: DedaloError): Response {
 	// Converter-made body (ERRORS_SPEC §4): this is a STATIC route, so it never
 	// entered the dispatch chokepoint and has no correlation id to reuse — the
 	// envelope gets a fresh one rather than a fake constant.
-	const { status, body } = toErrorEnvelope(new DedaloError('resource.not_found'), {
-		requestId: crypto.randomUUID(),
-	});
+	const { status, body } = toErrorEnvelope(error, { requestId: crypto.randomUUID() });
 	return new Response(JSON.stringify(body), {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
+}
+
+/** Fail-closed 404 — generic, no existence leak. */
+function notFound(): Response {
+	return errorResponse(new DedaloError('resource.not_found'));
 }
 
 /**
@@ -156,6 +169,14 @@ async function resolveLocatorTag(tag: LocatorTag, request: Request): Promise<Res
 export async function handleTagRequest(request: Request, url: URL): Promise<Response> {
 	const rawId = url.searchParams.get('id');
 	if (rawId === null || rawId === '') return notFound();
+	if (rawId.length > MAX_TAG_ID_LENGTH) {
+		return errorResponse(
+			new DedaloError('request.invalid', {
+				publicMessage: `Tag id longer than ${MAX_TAG_ID_LENGTH} characters`,
+				coordinates: { route: 'component_text_area/tag', id_length: rawId.length },
+			}),
+		);
+	}
 
 	// SEC-027 JSON-aware xss decode, then classify.
 	const parsed = parseTagId(safeDecodeTagId(rawId));

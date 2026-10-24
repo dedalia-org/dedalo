@@ -36,6 +36,7 @@
 
 import type { StoredSectionId } from '../../concepts/locator.ts';
 import { canonicalizeStoredSectionId } from '../../concepts/section_id.ts';
+import { stripTags } from '../../resolve/html_text.ts';
 
 /** Fixed <img> widths the client requests per type (tr.js). Height is always 15. */
 export const TAG_WIDTHS = {
@@ -120,7 +121,9 @@ export function safeDecodeTagId(raw: string): string {
 		// not JSON — fall through to sanitisation
 	}
 	// Strip any complete HTML tag; the renderer owns XML-escaping of what remains.
-	return raw.replace(/<[^>]*>/g, '');
+	// Linear: the regex form `/<[^>]*>/g` is O(n²) on a run of unclosed `<`
+	// (CodeQL #7958) and this input is unauthenticated (html_text.ts).
+	return stripTags(raw);
 }
 
 /** URL-decode a per-type label the way PHP does (guarded — a bad `%` is left as-is). */

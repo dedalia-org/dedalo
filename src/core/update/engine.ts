@@ -77,15 +77,7 @@
  * disable has no TS twin to disable — the engine path writes no activity rows.
  */
 
-import {
-	appendFileSync,
-	closeSync,
-	existsSync,
-	fsyncSync,
-	openSync,
-	writeFileSync,
-	writeSync,
-} from 'node:fs';
+import { appendFileSync, closeSync, fsyncSync, openSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { privateDir, readEnv } from '../../config/env.ts';
 import { appendMatrixUpdateRow } from '../db/matrix_write.ts';
@@ -667,9 +659,11 @@ export async function updateVersion(
 }
 
 /** PHP's log-file precondition: the failure response, or null when the log is usable. */
-function ensureLogFile(logPath: string): UpdateRunResponse | null {
+export function ensureLogFile(logPath: string): UpdateRunResponse | null {
 	try {
-		if (!existsSync(logPath)) writeFileSync(logPath, '');
+		// ONE syscall (CodeQL #9566): append-mode open creates a missing log and
+		// never truncates one another process created after a separate exists check.
+		writeFileSync(logPath, '', { flag: 'a' });
 		return null;
 	} catch {
 		return {

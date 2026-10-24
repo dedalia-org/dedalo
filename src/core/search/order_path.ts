@@ -29,6 +29,8 @@
 import { ACTIVITY_SECTION_TIPO, ACTIVITY_WHEN_TIPO } from '../concepts/section.ts';
 import { termByTipo } from '../ontology/labels.ts';
 import { getModelByTipo, getNode } from '../ontology/resolver.ts';
+// strip_tags (PHP get_query_path names the step with a tag-stripped term).
+import { stripTags } from '../resolve/html_text.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 
 /**
@@ -95,11 +97,6 @@ const RELATION_MODELS: ReadonlySet<string> = new Set([
 	'component_select',
 	'component_select_lang',
 ]);
-
-/** strip_tags (PHP get_query_path names the step with a tag-stripped term). */
-function stripTags(value: string): string {
-	return value.replace(/<[^>]*>/g, '');
-}
 
 async function stepFor(componentTipo: string, sectionTipo: string): Promise<OrderPathStep> {
 	return {

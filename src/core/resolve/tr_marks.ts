@@ -11,6 +11,7 @@
  */
 
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { decodeHtmlSpecialChars, stripTags } from './html_text.ts';
 
 /** [TC_…_TC] full-tag pattern; group 1 = full tag, group 2 = timecode value. */
 export const TC_PATTERN = /\[TC_([0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}(\.[0-9]{1,3})?)_TC\]/g;
@@ -128,16 +129,9 @@ export function charsInfo(rawText: string): { total_chars: number; total_chars_n
 	for (const pattern of DELETE_PATTERNS) {
 		clean = clean.replace(pattern, '');
 	}
-	// strip_tags
-	clean = clean.replace(/<[^>]*>/g, '');
-	// htmlspecialchars_decode + &nbsp; → space
-	clean = clean
-		.replace(/&amp;/g, '&')
-		.replace(/&quot;/g, '"')
-		.replace(/&#0?39;/g, "'")
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&nbsp;/g, ' ');
+	// strip_tags, then htmlspecialchars_decode + &nbsp; → space — ONE pass, so a
+	// literal `&amp;lt;` counts as `&lt;` (4 chars), not `<` (CodeQL #7935).
+	clean = decodeHtmlSpecialChars(stripTags(clean), { nbsp: ' ' });
 	const totalChars = [...clean].length;
 	const noSpaces = [...clean.replace(/[ \n]/g, '').replace(/ /g, '')].length;
 	return { total_chars: totalChars, total_chars_no_spaces: noSpaces };

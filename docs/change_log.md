@@ -1028,6 +1028,27 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **Server hardening from the CodeQL review — the tag-badge address refuses over-long requests, rich text keeps only raster-image `data:` links, and literal `&lt;` text is no longer turned into `<`.**
+
+    - The address that draws the small tag badges in transcriptions (`…/component_text_area/tag/?id=…`)
+      needs no login, and a long run of `<` in it made the server spend over a second of processing per
+      request. Such an address (longer than 4096 characters, far beyond any real tag) is now refused
+      with a `400` before it is read, and the tag clean-up itself runs in linear time — as do the
+      other places that strip markup from text (search ordering, publication values, thesaurus empty
+      checks, list previews).
+    - Rich text keeps a `data:` link in an attribute only when it is a raster image (PNG, JPEG, GIF,
+      WebP, AVIF, BMP). Any other `data:` link — an SVG image, XML, plain text — is replaced by `#` when
+      the text is saved. Descriptive attributes (`alt`, `title`, …) are not affected, so an alternative
+      text that starts with "Data:" is kept.
+    - Text in which a cataloguer literally typed `&lt;` is now shown, counted and indexed as `&lt;`,
+      not as `<`: the indexation grid, the transcription character count and the semantic index decode
+      each entity once.
+    - Two small file races are closed: the update log and the media access markers are created in one
+      step that never empties an existing file, and the staged upload name is size-checked and read
+      through the same open file.
+
+    Wire contract: `WC-2026-10-25-tag-id-length-cap`, `WC-2026-10-25-rich-text-data-url-raster-only`.
+
 - **Third-party packages updated to their latest stable releases, closing every known advisory against them.**
 
     The engine and the publication packages (the v2 publication API, the site builder and
@@ -2008,7 +2029,7 @@ Merged since the last release; these ship with the next one.
     like an answer, so you replace it with `--dev-port` or `--dev-host`. `--tls none` over a kept pair clears it. No other route
     writes any of these keys.
 
-??? note "Wire contract — 27 entries"
+??? note "Wire contract — 29 entries"
 
     - `WC-2026-10-09-build-install-version-owned-mode`
     - `WC-2026-10-15-release-identity-from-tag`
@@ -2037,6 +2058,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-23-lock-section-tipo-grammar`
     - `WC-2026-10-23-own-lock-cleanup-ungated`
     - `WC-2026-10-24-tm-malformed-relation-cell`
+    - `WC-2026-10-25-rich-text-data-url-raster-only`
+    - `WC-2026-10-25-tag-id-length-cap`
 
 ## 7.0.0-beta.6 — 2026-10-15
 

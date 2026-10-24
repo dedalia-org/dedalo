@@ -41,10 +41,14 @@
  */
 
 import {
+	closeSync,
+	constants,
 	existsSync,
+	fstatSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
-	readFileSync,
+	readSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -143,9 +147,20 @@ export function readStagedDisplayName(stagingDirPath: string, stagedName: string
 	} catch {
 		return null;
 	}
+	// ONE open (CodeQL #8089): the size bound and the read apply to the SAME
+	// inode. A path-based stat then a path-based read could size one file and read
+	// another a concurrent re-upload renamed in between — and the read itself is
+	// bounded to MAX_RECORD_BYTES whatever the file grew to after the fstat.
+	let fd: number;
 	try {
-		if (!existsSync(path)) return null;
-		const stat = statSync(path);
+		// O_NONBLOCK: a FIFO planted at the record path must not hang the open (the
+		// fstat below then refuses it as not-a-file), as the old stat-first order did.
+		fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+	} catch {
+		return null; // absent (the ordinary "no record" case) or unreadable
+	}
+	try {
+		const stat = fstatSync(fd);
 		if (!stat.isFile() || stat.size === 0) return null;
 		if (stat.size > MAX_RECORD_BYTES) {
 			console.warn(
@@ -153,10 +168,19 @@ export function readStagedDisplayName(stagingDirPath: string, stagedName: string
 			);
 			return null;
 		}
-		const value = readFileSync(path, 'utf8').trim();
+		const buffer = Buffer.alloc(stat.size);
+		let filled = 0;
+		while (filled < buffer.length) {
+			const read = readSync(fd, buffer, filled, buffer.length - filled, filled);
+			if (read === 0) break;
+			filled += read;
+		}
+		const value = buffer.subarray(0, filled).toString('utf8').trim();
 		return value === '' ? null : value;
 	} catch {
 		return null;
+	} finally {
+		closeSync(fd);
 	}
 }
 

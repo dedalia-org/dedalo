@@ -1262,7 +1262,9 @@ function layValidMarkers(dir: string, values: string[]): Set<string> {
 		}
 		keep.add(value);
 		const marker = join(dir, value);
-		if (!existsSync(marker)) writeFileSync(marker, '');
+		// ONE syscall (CodeQL #9503): create-if-absent, never truncate — no window
+		// between an existence check and the write.
+		writeFileSync(marker, '', { flag: 'a' });
 	}
 	return keep;
 }
@@ -1359,7 +1361,8 @@ export function layAuthMarker(value: string): void {
 	}
 	mkdirSync(dir, { recursive: true, mode: AUTH_MARKER_DIR_MODE });
 	const marker = join(dir, value);
-	if (!existsSync(marker)) writeFileSync(marker, '');
+	// ONE syscall (CodeQL #9413): create-if-absent, never truncate.
+	writeFileSync(marker, '', { flag: 'a' });
 }
 
 /**

@@ -59,6 +59,8 @@ import {
 } from '../ontology/resolver.ts';
 import { getTldFromTipo } from '../ontology/tld.ts';
 import { buildRequestConfigForElement } from '../relations/request_config/build.ts';
+// PHP htmlspecialchars_decode default (ENT_QUOTES) — single pass (CodeQL #7936).
+import { decodeHtmlSpecialChars } from '../resolve/html_text.ts';
 import { optimizeTcIn, optimizeTcOut, secondsToTc, tcToSeconds } from '../resolve/optimize_tc.ts';
 import { currentApplicationLang, currentDataLang } from '../resolve/request_lang.ts';
 import { truncateHtml } from '../resolve/truncate_html.ts';
@@ -731,16 +733,6 @@ function deleteMarks(text: string): string {
 		.replace(/\[\/?person-[a-z]-[0-9]{0,6}-[^-]{0,22}(-data:.*?:data)?\]/g, '')
 		.replace(/\[\/?lang-[a-z]-[0-9]{1,6}-[^-]{0,22}(-data:.*?:data)?\]/g, '')
 		.replace(/\[\/?svg-[a-z]-[0-9]{1,6}(-[^-]{0,22})?(-data:.*?:data)?\]/g, '');
-}
-
-/** PHP htmlspecialchars_decode default (ENT_QUOTES|ENT_SUBSTITUTE|ENT_HTML401). */
-function decodeHtmlSpecialChars(text: string): string {
-	return text
-		.replace(/&amp;/g, '&')
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&quot;/g, '"')
-		.replace(/&#0?39;/g, "'");
 }
 
 /**

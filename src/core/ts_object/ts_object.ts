@@ -63,6 +63,7 @@ import {
 	getChildrenRecursive,
 	getComponentOrderTipo,
 } from '../relations/children.ts';
+import { stripTags } from '../resolve/html_text.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import { countInverseReferences } from '../search/search_related.ts';
 import type { Principal } from '../security/permissions.ts';
@@ -544,7 +545,7 @@ export function isEmptyData(value: unknown): boolean {
 		if ('value' in entries) return isEmptyData(entries.value);
 		return Object.values(entries).every(isEmptyData);
 	}
-	if (typeof value === 'string') return value.replace(/<[^>]*>/g, '').trim() === '';
+	if (typeof value === 'string') return stripTags(value).trim() === '';
 
 	return false;
 }

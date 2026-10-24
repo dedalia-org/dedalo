@@ -48,8 +48,10 @@
  *      base, meta, link, applet, frame, frameset.
  *   3. On EVERY remaining element: every `on*` attribute is removed, and EVERY
  *      attribute value whose decoded form starts with a dangerous scheme
- *      (javascript:, vbscript:, data:text/html, data:application/) is set to
- *      `#` — every attribute, not an href allowlist, because formaction, xlink,
+ *      (javascript:, vbscript:, or any data: URL that is not a raster
+ *      image/png|jpeg|gif|webp|avif|bmp — the prose attributes listed in
+ *      isProseAttribute keep only the old data:text/html + data:application/
+ *      denylist) is set to `#` — every attribute, not an href allowlist, because formaction, xlink,
  *      poster, srcset and future attributes all carry URLs; a scheme allowlist
  *      would rewrite legitimate urn:/doi:/ftp: links instead. ONE verdict per
  *      attribute NAME: a duplicated name keeps its FIRST value, as a browser
@@ -200,14 +202,44 @@ export function decodeForSchemeCheck(raw: string): string {
 	);
 }
 
-/** True when an already-decoded URL value uses a dangerous scheme. */
-function isDangerousUrl(normalized: string): boolean {
+/**
+ * The only `data:` URLs an attribute may keep: RASTER images (CodeQL #9673,
+ * 2026-10-25). The scheme check stays a denylist (urn:/doi:/ftp: must survive),
+ * but `data:` is inverted to an allowlist — a denylist of media types missed
+ * `data:image/svg+xml` (scriptable), `data:text/xml`, and `data: text/html`
+ * (the data-URL parser strips the space). Anything else after `data:` → `#`.
+ */
+const RASTER_DATA_URL = /^data:image\/(?:png|jpeg|jpg|gif|webp|avif|bmp)(?:[;,]|$)/;
+
+/**
+ * Attributes a browser never resolves as a URL, so a value that merely STARTS
+ * with "data:" there is prose (`alt="Data: 1923"`), not a data URL. Only the
+ * `data:` allowlist skips them; the javascript:/vbscript: denylist still
+ * applies to every attribute. A name not listed (including any future URL
+ * attribute) gets the allowlist — the safe default.
+ */
+function isProseAttribute(name: string): boolean {
 	return (
-		normalized.startsWith('javascript:') ||
-		normalized.startsWith('vbscript:') ||
-		normalized.startsWith('data:text/html') ||
-		normalized.startsWith('data:application/')
+		name === 'alt' ||
+		name === 'title' ||
+		name === 'class' ||
+		name === 'id' ||
+		name === 'lang' ||
+		name === 'dir' ||
+		name.startsWith('aria-') ||
+		name.startsWith('data-')
 	);
+}
+
+/** True when an already-decoded attribute value uses a dangerous scheme. */
+function isDangerousUrl(normalized: string, attributeName: string): boolean {
+	if (normalized.startsWith('javascript:') || normalized.startsWith('vbscript:')) return true;
+	if (!normalized.startsWith('data:')) return false;
+	if (isProseAttribute(attributeName)) {
+		// Prose attribute: the historical media-type denylist only.
+		return normalized.startsWith('data:text/html') || normalized.startsWith('data:application/');
+	}
+	return !RASTER_DATA_URL.test(normalized);
 }
 
 /** The tag of the end-of-input probe (see {@link endsInDataState}). */
@@ -492,7 +524,7 @@ function judgeAttributeName(element: HTMLRewriterTypes.Element, name: string, co
 		return;
 	}
 	const first = element.getAttribute(name) ?? '';
-	const judged = judgedAttributeValue(first);
+	const judged = judgedAttributeValue(name, first);
 	if (count === 1) {
 		if (judged !== first) element.setAttribute(name, judged);
 		return;
@@ -507,8 +539,8 @@ function judgeAttributeName(element: HTMLRewriterTypes.Element, name: string, co
 }
 
 /** Rule 3's verdict on one attribute value: a dangerous URL becomes `#`. */
-function judgedAttributeValue(value: string): string {
-	return isDangerousUrl(decodeForSchemeCheck(value)) ? '#' : value;
+function judgedAttributeValue(name: string, value: string): string {
+	return isDangerousUrl(decodeForSchemeCheck(value), name) ? '#' : value;
 }
 
 /** Remove every occurrence of `name` (removeAttribute touches only the first). */

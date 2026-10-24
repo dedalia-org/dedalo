@@ -223,7 +223,7 @@ export async function testDatabaseFingerprint(): Promise<string | null> {
 							marker.git_rev,
 							marker.seed_sha256,
 							marker.ontology_sha256,
-						].join(' '),
+						].join('\0'),
 					)
 					.digest('hex');
 	fingerprintCache.set(CACHE_KEY, fingerprint);

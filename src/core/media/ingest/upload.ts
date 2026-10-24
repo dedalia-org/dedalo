@@ -366,7 +366,7 @@ function assertUploadId(raw: string): string {
 function resolveUploadId(parsed: ParsedUpload): string {
 	if (parsed.uploadId !== null) return assertUploadId(parsed.uploadId);
 	const digest = new Bun.CryptoHasher('sha256')
-		.update(`${parsed.keyDir} ${parsed.fileName} ${parsed.totalChunks}`)
+		.update(`${parsed.keyDir}\0${parsed.fileName}\0${parsed.totalChunks}`)
 		.digest('hex');
 	return `d${digest.slice(0, 32)}`;
 }

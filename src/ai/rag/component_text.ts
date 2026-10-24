@@ -10,6 +10,7 @@
 
 import { readMatrixRecord } from '../../core/db/matrix.ts';
 import { resolveComponentValue } from '../../core/resolve/component_data.ts';
+import { decodeHtmlSpecialChars, replaceHtmlTags } from '../../core/resolve/html_text.ts';
 
 /** A stored string item: `{ id, value, lang }`. */
 interface StringItem {
@@ -18,16 +19,15 @@ interface StringItem {
 
 /** Strip HTML tags + decode the common entities, then collapse whitespace. */
 export function htmlToPlainText(html: string): string {
-	return html
-		.replace(/<br\s*\/?>/gi, '\n')
-		.replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
-		.replace(/<[^>]+>/g, ' ')
-		.replace(/&nbsp;/gi, ' ')
-		.replace(/&amp;/gi, '&')
-		.replace(/&lt;/gi, '<')
-		.replace(/&gt;/gi, '>')
-		.replace(/&quot;/gi, '"')
-		.replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+	const blocks = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n');
+	// Tags → ' ' (linear twin of `/<[^>]+>/g`), then ONE entity pass: chained
+	// replaces decoded `&amp;lt;` to `<` (CodeQL #7934), and an out-of-range
+	// `&#…;` threw a RangeError out of fromCodePoint — it now stays verbatim.
+	return decodeHtmlSpecialChars(replaceHtmlTags(blocks, ' ', true), {
+		nbsp: ' ',
+		numeric: true,
+		ignoreCase: true,
+	})
 		.replace(/[ \t]+/g, ' ')
 		.replace(/\n{3,}/g, '\n\n')
 		.trim();

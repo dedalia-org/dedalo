@@ -7,6 +7,7 @@
  * parser_text::text_format (oracle port of PHP class.pattern_replacer.php).
  */
 
+import { stripTags } from '../../core/resolve/html_text.ts';
 import { phpTrim } from './php_string.ts';
 import type { ItemParserFn, ParserItem } from './types.ts';
 
@@ -217,7 +218,7 @@ export const merge: ItemParserFn = (items, options, ctx) => {
 				// and uses trim() solely as its emptiness test; the real trim happens on
 				// the component READ (see default_value.ts component_input_text).
 				if (col.model !== 'component_input_text' || v === '') return v;
-				const stripped = v.replace(/<[^>]*>/g, '');
+				const stripped = stripTags(v);
 				// phpTrim, not JS trim: PHP's charlist excludes U+00A0, so a decoded
 				// &nbsp; slot is NON-empty to v6 and must survive here too.
 				return phpTrim(stripped) === '' ? '' : stripped;

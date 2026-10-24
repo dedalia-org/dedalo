@@ -4,6 +4,7 @@
  * parser_info.ts, parser_map.ts (behavior parity).
  */
 
+import { stripTags } from '../../core/resolve/html_text.ts';
 import {
 	hasCoordinate,
 	isStudioDefault,
@@ -316,12 +317,7 @@ export const mapCustom: ItemParserFn = (items, options) => {
 		const group = groups.get(key) as { idMap: Map<string, string[]> };
 		const raw = item.value;
 		// v6 resolves via get_locator_value → strip_tags(trim($value))
-		const str =
-			raw !== null && raw !== undefined
-				? String(raw)
-						.replace(/<[^>]*>/g, '')
-						.trim()
-				: '';
+		const str = raw !== null && raw !== undefined ? stripTags(String(raw)).trim() : '';
 		const idKey = String(item.id);
 		if (group.idMap.has(idKey)) {
 			(group.idMap.get(idKey) as string[]).push(str);

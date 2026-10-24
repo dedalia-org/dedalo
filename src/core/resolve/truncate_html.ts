@@ -15,8 +15,13 @@
  * The lazy dot forms backtrack catastrophically on a long run of unclosed `<`
  * (a stored CKEditor value is attacker-controllable) — a 200 KB value froze the
  * event loop ~19 s. `<[^>]*>` stops at the first `>` exactly like the lazy form
- * for well-formed markup, but scans linearly and never backtracks.
+ * for well-formed markup and never backtracks — but it is still O(n²) on a run
+ * of unclosed `<` (each attempt scans to the end; CodeQL #7958, 2026-10-25). So
+ * the plain-length strips use the linear `stripTags` (html_text.ts) and the pair
+ * scan below stays bounded by MAX_SCAN_CHARS.
  */
+
+import { stripTags } from './html_text.ts';
 
 const VOID_ELEMENT_PATTERN =
 	/^<(\s*.+?\/\s*|\s*(area|base|basefont|br|col|embed|frame|hr|img|input|isindex|link|meta|param|source|track|wbr|command|keygen|menuitem)(\s.+?)?)>$/is;
@@ -48,7 +53,7 @@ export function truncateHtml(
 
 	if (considerHtml) {
 		// Whole text fits? (plain length, tags stripped)
-		if (text.replace(/<[^>]*>/g, '').length <= length) {
+		if (stripTags(text).length <= length) {
 			return text;
 		}
 		// Split into (tag?, text) pairs — PHP preg_match_all('/(<.+?>)?([^<>]*)/s').
@@ -103,7 +108,7 @@ export function truncateHtml(
 
 	// Word-boundary cut.
 	if (!exact) {
-		const plainTruncate = considerHtml ? truncate.replace(/<[^>]*>/g, '') : truncate;
+		const plainTruncate = considerHtml ? stripTags(truncate) : truncate;
 		const spacePosition = plainTruncate.lastIndexOf(' ');
 		if (spacePosition !== -1) {
 			if (considerHtml) {
