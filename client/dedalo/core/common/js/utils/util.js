@@ -365,6 +365,10 @@ export function load_script(src, content=null) {
 
 			element.addEventListener('error', function() {
 				pending_scripts.delete(src);
+				// Remove the FAILED tag: the "already loaded" check above resolves
+				// on finding a matching <script src>, so leaving it would make every
+				// later attempt resolve without loading anything (no retry possible).
+				element.remove();
 				reject(src);
 			});
 

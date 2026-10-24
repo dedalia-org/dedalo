@@ -296,13 +296,15 @@ const get_content_data_edit = function(self) {
 *     └── [dataframe node]  — appended by attach_item_dataframe when applicable
 *
 * Editor initialisation strategy (lazy vs. eager):
-*   The CKEditor instance (service_ckeditor) is expensive to initialise. Two paths exist:
+*   The CKEditor instance (service_ckeditor) is expensive to initialise, so the
+*   shared engine (bundle + langs) is warmed at page idle by the view dispatcher
+*   (schedule_ckeditor_preload) and only the instance is left for activation:
 *     - auto_init_editor === true  → initialise immediately via dd_request_idle_callback
 *       (used when the component is opened in 'content' render_level or when explicitly
 *        configured via ontology property or tool call, e.g. tool_indexation).
 *     - auto_init_editor === false → attach a one-shot mousedown handler on content_value;
 *       the editor is created the first time the user clicks inside the component and the
-*       handler removes itself to avoid double-init.
+*       handler removes itself to avoid double-init (re-armed if the init fails).
 *
 * Tag URL pre-selection:
 *   After init, the idle callback inspects window.location.search for a `raw_data`
@@ -587,6 +589,13 @@ const get_content_value = (i, current_value, self) => {
 					.catch(function(error) {
 						value_container.classList.remove('loading')
 						console.error('[get_content_value] Error initializing text editor on click:', error)
+						// the listener was removed up front; re-arm it so a failed
+						// LOAD is retried by a click instead of leaving the component
+						// dead until a reload. Only when no editor was produced — a
+						// failure AFTER the editor attached must not build a second one.
+						if (!self.service_text_editor_instance[i]?.editor) {
+							content_value.addEventListener('mousedown', click_handler)
+						}
 					})
 					// once only. Remove event to prevent duplicates
 					content_value.removeEventListener('mousedown', click_handler)

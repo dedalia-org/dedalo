@@ -59,6 +59,19 @@ Merged since the last release; these ship with the next one.
 
     Applies to the edit view of `component_image` only.
 
+- **Opening a rich-text field no longer downloads the editor on the first click.**
+
+    Clicking into a description, transcription or any other rich-text field used to
+    start the download and parsing of the editor itself, so the first click sat
+    there for a moment before the cursor appeared.
+
+    The editor's engine is now fetched in the background while the edit form
+    settles — once per page, only when the form actually shows an editable
+    rich-text field — and the first click only creates the editor for that field.
+    Fields are still not loaded until used, so a form with many text areas does not
+    carry one editor per field. On a metered connection (browser "data saver") the
+    background fetch is skipped.
+
 - **CSV import guesses the target section from more file names and remembers your correction.**
 
     In the *Import Dédalo CSV* tool, the target section tipo is now read from any word of the file name that has the tipo shape, so names such as `export_Mint_07-10-2026-numisdata6-raw.csv` resolve to `numisdata6` instead of `raw`. When a name holds several tipos, the field offers them as suggestions.
@@ -233,6 +246,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **component_iri edit row lays out on one aligned line**
+
+    The component_iri edit row mixed wrapped widths (30% + 20% + 50% plus the active checkbox forced an overflow) so the label, title and url fields scattered across misaligned lines. The three now share one line with stable proportions when the container is wide, and wrap to neat full-width lines when it is not. The active checkbox also joins the component's hide-at-rest rule: it is only visible on hover, on the active component or on keyboard focus.
+
 - **A read-only field's value starts under its own label again**
 
     When a text field is not editable — a view-only user, a Time Machine preview, a
@@ -243,6 +260,17 @@ Merged since the last release; these ship with the next one.
     The value now starts on the same left inset as its label, editable or not. The
     alignment covers every single-line field that renders as plain text (text,
     number, date, e-mail, URL), not just the one that was reported.
+
+- **Rich-text fields in a language with no bundled editor translation now open in English instead of not opening at all.**
+
+    The editor that backs the `html_text` view ships a UI translation only for some
+    languages (70 of the 138 application languages). For the rest — Georgian,
+    Welsh, Icelandic, Tamil and others — the editor refused to start, so those
+    fields could not be opened or edited at all.
+
+    The editor now falls back to its English interface when its translation file is
+    not available; the field opens and works as usual. Content and data language are
+    unaffected.
 
 - **Image derivatives are encoded at full quality again — sharper web and list images, and somewhat larger files**
 

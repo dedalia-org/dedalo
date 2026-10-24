@@ -6,9 +6,85 @@
 
 // imports
 	import {event_manager} from '../../../common/js/event_manager.js'
+	import {dd_request_idle_callback} from '../../../common/js/events.js'
 	import {common} from '../../../common/js/common.js'
 	import {clone, get_json_langs, load_script} from '../../../common/js/utils/index.js'
 	import {render_button, render_find_and_replace} from './render_text_editor.js'
+
+
+
+// ckeditor_load_promise: module-level memo for the ONE shared engine load per page.
+let ckeditor_load_promise = null
+
+/**
+* PRELOAD_CKEDITOR
+* Load the shared CKEditor bundle (~1.5 MB JS, ≈360 KB gzipped) and the language
+* data ONCE per page, ahead of the first activation.
+*
+* Why: the bundle + its parse used to be paid inside the first mousedown, which
+* is what the user read as "the editor is slow". It is per PAGE, not per
+* component, so warming it costs one download on pages that show an editable
+* text area and nothing per field — editor INSTANCES stay created on demand,
+* which is the deferral that avoids one editor per text area.
+*
+* The memo collapses concurrent first clicks (and a preload already in flight)
+* onto a single load; a rejected load clears it so the next activation retries.
+* @returns {Promise<void>}
+*/
+export const preload_ckeditor = function() {
+
+	if (typeof ckeditor !== 'undefined') {
+		return Promise.resolve()
+	}
+	if (ckeditor_load_promise) {
+		return ckeditor_load_promise
+	}
+
+	const ckeditor_file = DEDALO_ROOT_WEB + '/lib/ckeditor/build/ckeditor.js'
+	ckeditor_load_promise = Promise.all([
+		load_script(ckeditor_file),
+		get_json_langs()
+	])
+	.then(() => {})
+	.catch((error) => {
+		ckeditor_load_promise = null
+		throw error
+	})
+
+	return ckeditor_load_promise
+}//end preload_ckeditor
+
+
+
+// preload_scheduled: one idle warm-up per page (reset only if that attempt fails).
+let preload_scheduled = false
+
+/**
+* SCHEDULE_CKEDITOR_PRELOAD
+* Start the shared engine load during browser idle time, once per page, as soon
+* as an editable text area renders. Metered connections (`saveData`) skip it:
+* the user may never open the editor, and the deferred design exists for that.
+* @returns {void}
+*/
+export const schedule_ckeditor_preload = function() {
+
+	if (preload_scheduled) {
+		return
+	}
+	if (navigator.connection && navigator.connection.saveData === true) {
+		return
+	}
+	preload_scheduled = true
+	dd_request_idle_callback(
+		() => {
+			preload_ckeditor()
+			.catch(() => {
+				// let a later render schedule another attempt
+				preload_scheduled = false
+			})
+		}
+	)
+}//end schedule_ckeditor_preload
 
 
 
@@ -80,9 +156,10 @@ export const service_ckeditor = function() {
 	* the interface is created inside the toolbar_container with custom icons and functionalities
 	*
 	* Initialization sequence:
-	*   1. If `ckeditor` global is undefined, lazily loads ckeditor.js and
-	*      JSON language data in parallel (Promise.all).
-	*   2. Waits up to indefinitely (50 ms polling) for `ckeditor` to become
+	*   1. Awaits preload_ckeditor() — the shared ckeditor.js + JSON language
+	*      data, normally already warming/loaded at page idle (see
+	*      schedule_ckeditor_preload), so the click pays for the instance only.
+	*   2. Waits (50 ms polling, only when needed) for `ckeditor` to become
 	*      available in the global scope (webpack async chunk may not be
 	*      synchronous even after the script tag loads).
 	*   3. Delegates to create_ddEditor or create_InlineEditor depending on
@@ -119,26 +196,8 @@ export const service_ckeditor = function() {
 			self.key				= key
 			self.fallback_value		= fallback_value
 
-		// load ckeditor files if not already loaded
-			if(typeof ckeditor==='undefined'){
-
-				// load dependencies
-					const load_promises = []
-
-				// load ckeditor JS file
-					const ckeditor_file = DEDALO_ROOT_WEB + '/lib/ckeditor/build/ckeditor.js'
-					load_promises.push(
-						load_script(ckeditor_file)
-					)
-
-				// load and set JSON langs file
-					load_promises.push(
-						get_json_langs()
-					)
-
-				// wait for all
-					await Promise.all(load_promises)
-			}
+		// load ckeditor files if not already loaded (shared, memoized, warm)
+			await preload_ckeditor()
 
 		// set json_langs (loaded once and set to global var)
 			self.json_langs = await get_json_langs()
@@ -158,15 +217,22 @@ export const service_ckeditor = function() {
 				}
 			}
 
-		return new Promise(function(resolve){
-			// try lo create every x milliseconds (editor parse takes time...)
-			const wait_ckeditor = setInterval(async function() {
+		return new Promise(function(resolve, reject){
+			let wait_ckeditor = null
+			const create_editor = function() {
+				clearInterval(wait_ckeditor)
+				create().then(resolve, reject)
+			}
+			// fast path: a script's load event fires after it ran, so after the
+			// preload the global is normally already defined — no 50 ms tick lost
+			if ( typeof ckeditor !=='undefined' ) {
+				create_editor()
+				return
+			}
+			// slow path: the webpack async chunk may expose the global later
+			wait_ckeditor = setInterval(function() {
 				if ( typeof ckeditor !=='undefined' ) {
-					clearInterval(wait_ckeditor);
-
-					const current_editor = await create()
-
-					resolve(current_editor)
+					create_editor()
 				}
 			}, 50);
 		})
@@ -211,13 +277,21 @@ export const service_ckeditor = function() {
 			}
 			const dedalo_lang	= page_globals.dedalo_data_lang
 			const lang_obj		= json_langs.find(item => item.dd_lang===dedalo_lang)
-			const lang			= lang_obj
+			let lang			= lang_obj
 				? lang_obj.tld2
 				: 'en'
 
 			if(lang !== 'en'){
 				const ck_translation_file = DEDALO_ROOT_WEB + '/lib/ckeditor/build/translations/'+lang+'.js'
-				await load_script(ck_translation_file)
+				try {
+					await load_script(ck_translation_file)
+				} catch (error) {
+					// Most tld2 codes (76 of 138) ship no CKEditor translation. Fall
+					// back to English: a missing UI language must not make the field
+					// impossible to open.
+					console.error('service_ckeditor: no CKEditor translation for "'+lang+'". Falling back to English.', error)
+					lang = 'en'
+				}
 			}
 
 		// remove loading class of value_container before is changed by ckeditor
@@ -230,7 +304,7 @@ export const service_ckeditor = function() {
 				? [null]
 				: ['reference']
 
-		return new Promise(function(resolve){
+		return new Promise(function(resolve, reject){
 
 			// editor.
 			// InlineEditor is created from lib ckeditor source using webpack.
@@ -360,6 +434,9 @@ export const service_ckeditor = function() {
 			.catch( error => {
 				console.error( 'Oops, something went wrong!' );
 				console.error( error );
+				// reject, don't leave the caller awaiting forever: init() now
+				// propagates failures and the view re-arms the click
+				reject(error)
 			});
 		})
 	}//end create_InlineEditor
