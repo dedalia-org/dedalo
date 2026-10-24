@@ -405,7 +405,7 @@ function collectUsages(entries: MapEntry[]): Usage[] {
 				if (!source.includes(entry.specifier)) continue;
 				for (const use of importUsesOf(source, entry.specifier, entry.prefix)) {
 					const url = moduleUrlFor(entry, use.importPath);
-					const key = `${fileUrl} ${use.importPath} ${url ?? ''}`;
+					const key = `${fileUrl}\u0000${use.importPath}\u0000${url ?? ''}`;
 					if (seen.has(key)) continue;
 					seen.add(key);
 					usages.push({ fileUrl, entry, use, url });
