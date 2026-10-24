@@ -246,6 +246,11 @@ Both share ONE ranking engine (`rankLocatorsByColumns`). The keys ride the parse
 - **Values:** an object (service-autocomplete configuration) or `null`.
 - **Effect:** passed straight to the `service_autocomplete` instance the edit render spins up when the user activates the picker (`render_edit_component_portal.js`). Configures the external autocomplete service used to find target records.
 
+The result list is painted **complete**: a row is appended only after its
+`section_record` has rendered, and the search call resolves only when every row is
+ready. The open list is therefore either empty or complete — it never shows a band
+of empty rows over the form.
+
 !!! note "Standard context properties"
     Like every component, `component_portal` also honours the generic ontology context blocks carried into the datum `context`: `css` (style stamped on `.wrapper_component`), `request_config` (the parsed RQO) and `view` (the render view to use). Observer/observable wiring (`observe` / `observers`) is configured here too — see [Notes](#notes). Any other custom key seen in production should be **verified in the ontology**.
 
