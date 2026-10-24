@@ -1083,7 +1083,7 @@ render_search.prototype.build_search_component = async function(options) {
 				// (!) first_item.name comes from the JSON filter path (saved state /
 				// shareable dd623 presets): TEXT, prepended as a text node — never
 				// concatenated into markup nor round-tripped through innerHTML
-				// (stored XSS across users, CodeQL #7940)
+				// (stored XSS across users, CodeQL alert 7940)
 				label_add.prepend(document.createTextNode((first_item.name ?? '') + ' '))
 			}
 		}

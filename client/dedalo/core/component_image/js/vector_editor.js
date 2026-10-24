@@ -2347,7 +2347,7 @@ vector_editor.prototype.render_layer_row = function(self, layer) {
 				// body
 					// (!) user_layer_name is free text typed by ANY editor and stored in the
 					// record's layer data: it is rendered as a text node, never parsed as
-					// markup (stored XSS between users, CodeQL #7930).
+					// markup (stored XSS between users, CodeQL alert 7930).
 					const body = ui.create_dom_element({
 						element_type	: 'h3',
 						class_name		: 'content delete_layer'

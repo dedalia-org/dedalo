@@ -770,7 +770,7 @@ export const execute_search_render = async function(self, options) {
 			const degraded = (Array.isArray(api_response.notices) && api_response.notices.length > 0)
 				|| (!!api_response.source_status && api_response.source_status.state !== 'ok')
 		// A Map, never a plain object keyed by the typed query: q is user text, and
-		// q='__proto__' would re-parent a `{}` cache (CodeQL #8105).
+		// q='__proto__' would re-parent a `{}` cache (CodeQL alert 8105).
 			if (!degraded && !self.search_cache.has(q) && self.search_cache.size < 100) {
 				self.search_cache.set(q, response_data(api_response))
 			}

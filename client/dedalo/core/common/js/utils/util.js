@@ -445,7 +445,7 @@ export function url_vars_to_object(query_string) {
 
 	// one entry per distinct key. Built with Object.fromEntries (CreateDataProperty),
 	// never `vars_obj[key] = …`: the key is URL text, and an assignment to
-	// `__proto__` on a literal re-parents the object (CodeQL #8032/#8033).
+	// `__proto__` on a literal re-parents the object (CodeQL alert 8032/alert 8033).
 	// fromEntries makes `__proto__` an ordinary OWN key, like any other.
 		const vars_obj = Object.fromEntries(
 			[...new Set(params.keys())].map((key) => {

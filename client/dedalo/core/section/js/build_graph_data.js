@@ -127,7 +127,7 @@ export const build_model_map = function(datum) {
 * Reduce a stored value to its human-readable TEXT (tags removed, entities
 * decoded) through the inert <template> parser of util.strip_tags — one parse,
 * no regex pass (a `/<[^>]*>/` strip is incomplete on nested fragments like
-* `<scr<b>ipt>`, CodeQL #7941).
+* `<scr<b>ipt>`, CodeQL alert 7941).
 *
 * Not a sanitiser and never needs to be one: every label/value it feeds is
 * rendered as a text node (view_graph_edit_section.js text_content), and the

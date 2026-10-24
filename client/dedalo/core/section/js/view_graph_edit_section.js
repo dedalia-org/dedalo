@@ -1282,7 +1282,7 @@ add_children(root_node, result)
 				element_type	: 'div',
 				class_name		: 'node_label',
 				// (!) record terms (get_section_terms / strip_html) are TEXT: never parsed
-				// as markup — a stored term like <img onerror> would run (CodeQL #7941)
+				// as markup — a stored term like <img onerror> would run (CodeQL alert 7941)
 				text_content	: node.label,
 				parent			: title_row
 			})

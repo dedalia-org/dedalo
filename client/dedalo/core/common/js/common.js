@@ -2643,7 +2643,7 @@ common.prototype.calculate_component_path = function(component_context, path) {
 		ar_target_section_tipo	: component_context.ar_target_section_tipo,
 		model					: component_context.model,
 		// path[].name is display TEXT (inert <template> parse, entities decoded):
-		// one parse, no incomplete regex strip (CodeQL #7940). Every reader renders
+		// one parse, no incomplete regex strip (CodeQL alert 7940). Every reader renders
 		// it as text (render_search.js label_add) — never as markup.
 		name					: strip_tags(component_context.label ?? '')
 	})

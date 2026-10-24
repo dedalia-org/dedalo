@@ -5,10 +5,10 @@
 
 /**
 * TEST_CLIENT_XSS_ESCAPES
-* A RECORD / USER value is TEXT at the sinks CodeQL found (#7930, #7940, #7941)
+* A RECORD / USER value is TEXT at the sinks CodeQL found (alert 7930, alert 7940, alert 7941)
 * and at the speaker binding dialog of tool_transcription (people records),
-* and a query-string / typed-query key cannot re-parent an object (#8032,
-* #8033, #8105).
+* and a query-string / typed-query key cannot re-parent an object (alert 8032,
+* alert 8033, alert 8105).
 *
 * WHY THESE ASSERTIONS. Each case drives the SHIPPED code path with the payload
 * `<img src=x onerror=…>` and asserts the outcome in the DOM: no <img> element
@@ -36,7 +36,7 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 
 	this.timeout(10000)
 
-	it('vector_editor: a layer named with markup renders as TEXT in the delete dialog (#7930)', async function() {
+	it('vector_editor: a layer named with markup renders as TEXT in the delete dialog (alert 7930)', async function() {
 
 		const editor = new vector_editor()
 		editor.stage = {
@@ -74,7 +74,7 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		}
 	})
 
-	it('render_search: a filter path name with markup is prepended as TEXT (#7940)', async function() {
+	it('render_search: a filter path name with markup is prepended as TEXT (alert 7940)', async function() {
 
 		const self = new search()
 		self.id					= 'xss_search_' + Date.now()
@@ -111,7 +111,7 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		}
 	})
 
-	it('build_graph_data: a field value is reduced to its text (one parse, entities decoded) (#7941)', function() {
+	it('build_graph_data: a field value is reduced to its text (one parse, entities decoded) (alert 7941)', function() {
 
 		const datum = {
 			context	: [],
@@ -129,7 +129,7 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		assert.equal(fields[0].value, 'a & b', 'the value expected as decoded text')
 	})
 
-	it('url_vars_to_object: a __proto__ key is an ordinary own key (#8032/#8033)', function() {
+	it('url_vars_to_object: a __proto__ key is an ordinary own key (alert 8032/alert 8033)', function() {
 
 		const vars = url_vars_to_object('?__proto__=a&__proto__=b&x=1')
 		assert.equal(Object.getPrototypeOf(vars), Object.prototype, 'the object must keep its prototype')
@@ -138,7 +138,7 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		assert.equal(vars.x, '1')
 	})
 
-	it('service_autocomplete: the query cache is a Map, never a plain object (#8105)', function() {
+	it('service_autocomplete: the query cache is a Map, never a plain object (alert 8105)', function() {
 
 		const service = new service_autocomplete()
 		assert.ok(service.search_cache instanceof Map, 'search_cache expected as a Map')
