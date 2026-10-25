@@ -129,12 +129,15 @@ jobs:
       created: ${{ steps.plan.outputs.created }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 2
         with:
           fetch-depth: 0 # the release tags, for a release dispatch
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        timeout-minutes: 1
         with:
           bun-version-file: .bun-version # the load-bearing pin — never inline a version
       - name: Resolve the release this run publishes (or refuse)
+        timeout-minutes: 7
         id: plan
         env:
           INPUT_CHANNEL: ${{ inputs.channel }}
@@ -166,6 +169,7 @@ jobs:
       digest_arm64: ${{ steps.smoke.outputs.digest_arm64 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 3
         with:
           ref: ${{ needs.plan.outputs.source_sha }}
           # The archive's build_info.txt expands %(describe) from the TAGS this clone has:
@@ -173,12 +177,14 @@ jobs:
           # from the plan's (the context step refuses) and an image calling itself .dev.
           fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        timeout-minutes: 1
         with:
           bun-version-file: .bun-version # the load-bearing pin — never inline a version
 
       # The SAME archive the plan hashed: a different digest here would give the two
       # arches different provenance, so the context step refuses it.
       - name: Build context (git archive of the release commit)
+        timeout-minutes: 11
         id: context
         env:
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
@@ -191,6 +197,7 @@ jobs:
       # source deploy/dedalo-image-lib.sh (dedalo_image_labels) of the release commit just
       # checked out. A lib without one of them fails the build (`:?`), never a blank label.
       - name: Image labels (deploy/dedalo-image-lib.sh)
+        timeout-minutes: 1
         id: labels
         shell: bash
         run: |
@@ -203,8 +210,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        timeout-minutes: 2
 
       - name: Log in to ghcr.io (the staging repository)
+        timeout-minutes: 1
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -212,6 +221,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and push to staging
+        timeout-minutes: 38
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -248,6 +258,7 @@ jobs:
       # expected_engine_version (the tag's identity). On success it hands the digest on as
       # digest_<arch>.
       - name: Smoke test the pushed image
+        timeout-minutes: 31
         id: smoke
         env:
           IMAGE: ${{ needs.plan.outputs.staging }}@${{ steps.build.outputs.digest }}
@@ -269,15 +280,19 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        timeout-minutes: 2
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        timeout-minutes: 1
         with:
           bun-version-file: .bun-version # the load-bearing pin — never inline a version
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        timeout-minutes: 2
 
       # The ONLY secret references in .github/workflows/ (rule 11 carve-out): exactly the
       # names engineering/image_registries.json declares, in this environment-bound job.
       # An empty one skips its registry loudly; it never fails the others.
       - name: Index, immutability, sign, copy + sign per target, verify, record
+        timeout-minutes: 23
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           TAG: ${{ needs.plan.outputs.tag }}
@@ -298,6 +313,7 @@ jobs:
           bun run scripts/ci/image_release.ts publish
 
       - name: Keep the publication record
+        timeout-minutes: 1
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

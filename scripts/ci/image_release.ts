@@ -145,29 +145,32 @@ export type Runner = (
  * Seams: IMAGE_RELEASE_COMMAND_TIMEOUT_MS, IMAGE_RELEASE_DEADLINE_MS.
  */
 export const VERB_BUDGET_MS: Readonly<Record<string, number>> = {
-	plan: 7 * 60_000,
+	plan: 6 * 60_000,
 	context: 10 * 60_000,
 	smoke: 30 * 60_000,
 	publish: 22 * 60_000,
 };
 /**
- * The time each job's NON-verb steps are allowed (the gate adds it to the budgets): the
- * steps the job runs before and after `image_release.ts`, which share GitHub's job clock.
+ * The time each job's NON-verb steps are allowed. ENFORCED, not hoped: every non-verb step
+ * of the job carries its own step `timeout-minutes`, and the gate holds their sum ≤ this
+ * (the remainder is the job's set-up and post steps, which take no timeout). The gate also
+ * holds budgets + this ≤ the job's `timeout-minutes`, and each verb step's own timeout
+ * above its verb's budget (the program's deadline fires first).
  */
 export const JOB_OVERHEAD_MS: Readonly<Record<string, { ms: number; reason: string }>> = {
 	plan: {
-		ms: 3 * 60_000,
-		reason: 'full-history checkout (fetch-depth 0, tags) + setup-bun before `plan`',
+		ms: 4 * 60_000,
+		reason: 'checkout (full history + tags) 2 + setup-bun 1, +1 for set-up/post steps',
 	},
 	build: {
-		ms: 45 * 60_000,
+		ms: 47 * 60_000,
 		reason:
-			'checkout + setup-bun + setup-buildx + login, and the native-arch docker build-push of the product image between `context` and `smoke`',
+			'checkout 3 + setup-bun 1 + labels 1 + setup-buildx 2 + login 1 + the native-arch docker build-push 38, +1 for set-up/post steps',
 	},
 	publish: {
-		ms: 5 * 60_000,
+		ms: 7 * 60_000,
 		reason:
-			'checkout + setup-bun + setup-buildx before `publish`, upload-artifact of the record after it',
+			'checkout 2 + setup-bun 1 + setup-buildx 2 + upload-artifact of the record 1, +1 for set-up/post steps',
 	},
 };
 export const COMMAND_TIMEOUT_MS: Readonly<Record<string, number>> = {
@@ -1219,7 +1222,7 @@ function registriesOf(env: Env): ImageRegistryList {
 }
 
 /**
- * Once the plan is known, EVERY outcome leaves a record: a refusal raised after this point
+ * Once the plan is known, EVERY outcome leaves a record: any error raised after this point
  * (a staging mismatch, the cosign pin, a login, the index, the immutability or anchor
  * check, a deadline before the per-target loop) records each publish target `failed` with
  * that reason (digest null), and is then rethrown for main's ::error:: and summary.
@@ -1230,9 +1233,28 @@ function publish(env: Env, run: Runner, deadline: number): number {
 	try {
 		return publishPlanned(env, run, deadline, list, plan);
 	} catch (error) {
-		if (error instanceof Refusal)
-			writeRecord(env, refusedRecord(plan, classifyTargets(list, env), error.message), list);
+		recordFailure(env, list, plan, error);
 		throw error;
+	}
+}
+
+/**
+ * ANY error after the plan (a Refusal, or a plain one — a malformed pin file, a bug)
+ * leaves a record naming it. Writing it may fail too (an unwritable path): that is a
+ * warning, never a replacement for the original error, which the caller rethrows.
+ */
+function recordFailure(
+	env: Env,
+	list: ImageRegistryList,
+	plan: PublishContext['plan'],
+	error: unknown,
+): void {
+	const reason = error instanceof Error ? error.message : String(error);
+	try {
+		writeRecord(env, refusedRecord(plan, classifyTargets(list, env), reason), list);
+	} catch (writeError) {
+		const why = writeError instanceof Error ? writeError.message : String(writeError);
+		console.log(`::warning::record not written: ${why}`);
 	}
 }
 

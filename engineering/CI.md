@@ -974,15 +974,19 @@ as unavailable. Gate: `image_registries_tripwire`.
   answers fails commands, not the verb: past the deadline no command starts and the
   remaining targets are recorded `failed` (`deadline exceeded`).
 - **What the gate holds.** `image_release_native` reads the workflow and requires, per
-  job, the sum of its verbs' budgets plus its declared non-verb allowance
-  (`JOB_OVERHEAD_MS`, a reason per job: setup steps; the image build for `build`; the
-  record upload for `publish`) to be ≤ the job's `timeout-minutes`. So the verb finishes
-  before GitHub kills the job as long as the other steps stay within their declared
-  allowance, which this program does not bound.
-- **A planned publish always leaves a record.** Once the plan is read, every outcome
-  writes `image-release.json` and the summary: a refusal before the per-target loop
-  (staging mismatch, cosign pin, a login, the index, the immutability or anchor check, a
-  deadline) records every publish target `failed` with that reason and `digest: null`.
+  job: every step carries its own step `timeout-minutes`; the non-verb steps' timeouts sum
+  to ≤ the job's declared allowance (`JOB_OVERHEAD_MS`, with a reason — setup steps, the
+  image build for `build`, the record upload for `publish`; the remainder covers the
+  set-up/post steps, which take no timeout); each verb step's timeout exceeds its verb's
+  budget (the program's deadline fires first); the verbs' budgets plus the allowance, and
+  all step timeouts together, are ≤ the job's `timeout-minutes`. So a hung step is killed
+  by its own timeout, and the verb's deadline fires before GitHub kills the job.
+- **A planned publish always leaves a record.** Once the plan is read, ANY error — a
+  refusal before the per-target loop (staging mismatch, cosign pin, a login, the index,
+  the immutability or anchor check, a deadline) or a plain one (a malformed pin file) —
+  writes `image-release.json` and the summary with every publish target `failed`, the
+  reason, and `digest: null`. If that record cannot be written, a `::warning::` says so
+  and the original error still decides the run.
 - **Never `cosign copy`.** cosign 3 signs in the OCI 1.1 referrers bundle format, which
   the deprecated `cosign copy` does not carry: the first real run (v7.0.0-beta.7, run
   40186147345) copied the image but not the signature, and both mirrors held the release

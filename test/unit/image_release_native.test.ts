@@ -222,6 +222,8 @@ interface Run {
 	stdout: string;
 	log: string[];
 	record: Record<string, unknown> | null;
+	/** The job summary the run appended ($GITHUB_STEP_SUMMARY), '' when none. */
+	summary: string;
 	state: (ref: string) => string | null;
 	/**
 	 * Every tag `repository` holds after the run: the preset references plus every one
@@ -310,6 +312,9 @@ function publish(options: {
 		code: proc.exitCode ?? 1,
 		stdout: proc.stdout.toString() + proc.stderr.toString(),
 		log: existsSync(logPath) ? readFileSync(logPath, 'utf8').trimEnd().split('\n') : [],
+		summary: existsSync(env.GITHUB_STEP_SUMMARY as string)
+			? readFileSync(env.GITHUB_STEP_SUMMARY as string, 'utf8')
+			: '',
 		record: existsSync(env.RECORD_PATH as string)
 			? (JSON.parse(readFileSync(env.RECORD_PATH as string, 'utf8')) as Record<string, unknown>)
 			: null,
@@ -767,6 +772,36 @@ describe('publish — immutability of a release', () => {
 			expect(reasonOf(run, id)).toContain(THIS_RELEASE_REFUSAL);
 			expect(rowOf(run, id)?.verified).toBe(false);
 		}
+		// The summary an operator reads says the same — and never prints a null digest.
+		expect(run.summary).toContain('digest: none');
+		expect(run.summary).toContain(`| ghcr | \`${GHCR}\` | failed | no | release 7.0.1`);
+		expect(run.summary).toContain(`| dockerhub | \`${HUB}\` | failed | no | release 7.0.1`);
+		expect(run.summary).not.toContain('@null');
+		expect(run.summary).not.toContain('`null`');
+	});
+
+	test('a PLAIN error after the plan (a malformed cosign pin file) is recorded too: all targets failed, digest null', () => {
+		const badPin = join(scratch, `bad-pin-${runCounter}.json`);
+		writeFileSync(badPin, '{ not json');
+		const run = publish({ env: { COSIGN_PIN_FILE: badPin } });
+		expect(run.code).not.toBe(0);
+		expect(run.record?.digest).toBeNull();
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('failed');
+			expect(reasonOf(run, id)?.length ?? 0).toBeGreaterThan(0);
+		}
+		expect(run.log).toEqual([]);
+	});
+
+	test('a record that cannot be WRITTEN is a warning — the ORIGINAL error still decides the run', () => {
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7) },
+			env: { RECORD_PATH: join(scratch, 'no-such-dir', 'image-release.json') },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('::warning::record not written');
+		expect(run.stdout).toContain(`::error::release 7.0.1 already exists`);
+		expect(run.record).toBeNull();
 	});
 
 	test('a hang BEFORE the per-target loop (a registry login) hits the deadline — and the record is still written', () => {
@@ -1060,8 +1095,31 @@ describe('time bounds — every verb finishes (and records) before GitHub kills 
 		);
 		expect(runs.length).toBeGreaterThan(0);
 		for (const match of runs) expect(Object.keys(VERB_JOBS)).toContain(match[1] as string);
-		// Every job that runs a verb declares its non-verb allowance, with a reason.
+		// Every job that runs a verb declares its non-verb allowance, with a reason — and the
+		// allowance is ENFORCED: every step carries a step timeout; the non-verb steps' sum
+		// fits the allowance, each verb step outlasts its verb's budget (the program's own
+		// deadline fires first), and all step timeouts together fit the job's.
 		expect(Object.keys(JOB_OVERHEAD_MS).sort()).toEqual([...perJob.keys()].sort());
+		for (const job of perJob.keys()) {
+			const steps = workflow.jobs[job]?.steps ?? [];
+			let nonVerb = 0;
+			let all = 0;
+			for (const step of steps) {
+				const minutes = (step as { 'timeout-minutes'?: number })['timeout-minutes'];
+				expect(minutes, `${job}: every step has timeout-minutes`).toBeGreaterThan(0);
+				all += (minutes as number) * 60_000;
+				const verb = /image_release\.ts (\w+)/.exec(step.run ?? '')?.[1];
+				if (verb === undefined) nonVerb += (minutes as number) * 60_000;
+				else
+					expect((minutes as number) * 60_000, `${job}/${verb}`).toBeGreaterThan(
+						VERB_BUDGET_MS[verb] as number,
+					);
+			}
+			expect(nonVerb, `${job} non-verb steps`).toBeLessThanOrEqual(JOB_OVERHEAD_MS[job]?.ms ?? 0);
+			expect(all, `${job} all steps`).toBeLessThanOrEqual(
+				(workflow.jobs[job]?.['timeout-minutes'] ?? 0) * 60_000,
+			);
+		}
 		for (const [job, budget] of perJob) {
 			const limit = workflow.jobs[job]?.['timeout-minutes'];
 			const overhead = JOB_OVERHEAD_MS[job];
