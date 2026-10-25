@@ -41,10 +41,11 @@ import {
 	installScopeBindingFixture,
 	removeScopeBindingFixture,
 	SB_GRANTED_SECTION,
-	SB_PROFILE_A,
-	SB_PROJECT_OF_A,
-	SB_USER_A,
+	type ScopeBindingFixture,
 } from '../helpers/scope_binding_fixture.ts';
+
+/** THIS file's instance of the scope-binding fixture (ids allocated at install). */
+let sb: ScopeBindingFixture;
 
 const REAL = 'zzhr1';
 const TEXT = 'zzhr2';
@@ -115,7 +116,7 @@ async function setGrantsOfA(twins: string[]): Promise<void> {
 	];
 	await sql.unsafe(
 		`UPDATE matrix_profiles SET misc = $1::text::jsonb WHERE section_tipo = 'dd234' AND section_id = $2`,
-		[encodeForJsonb({ dd774: rows }), SB_PROFILE_A],
+		[encodeForJsonb({ dd774: rows }), sb.profileA],
 	);
 	clearPrincipalCache();
 	clearUserProjectsCache();
@@ -134,7 +135,7 @@ async function stampHost(hostId: number, targetSection: string, targetId: number
 					{
 						id: 1,
 						type: 'dd675',
-						section_id: SB_PROJECT_OF_A,
+						section_id: sb.projectOfA,
 						section_tipo: config.features.filterSectionTipo,
 						from_component_tipo: 'test101',
 					},
@@ -187,10 +188,10 @@ describe.if(DB_READY)(
 		let root: Principal;
 
 		beforeAll(async () => {
-			await installScopeBindingFixture();
+			sb = await installScopeBindingFixture();
 			await ensureSituation(S);
-			hostToReal = await createSectionRecord(HOST, SB_USER_A);
-			hostToVirt = await createSectionRecord(HOST, SB_USER_A);
+			hostToReal = await createSectionRecord(HOST, sb.userA);
+			hostToVirt = await createSectionRecord(HOST, sb.userA);
 			await stampHost(hostToReal, REAL, R1);
 			await stampHost(hostToVirt, VIRT, V1);
 			root = await resolvePrincipal(-1);
@@ -199,7 +200,7 @@ describe.if(DB_READY)(
 			if (hostToReal > 0) await deleteSectionRecord(HOST, hostToReal, -1);
 			if (hostToVirt > 0) await deleteSectionRecord(HOST, hostToVirt, -1);
 			await dropSituation(S);
-			await removeScopeBindingFixture();
+			await removeScopeBindingFixture(sb);
 		});
 
 		test('non-degeneracy: root reaches both twins through the hop', async () => {
@@ -209,7 +210,7 @@ describe.if(DB_READY)(
 
 		test('A granted on REAL only: reaches REAL, NOT the virtual twin (the leak, closed)', async () => {
 			await setGrantsOfA([REAL]);
-			A = await resolvePrincipal(SB_USER_A);
+			A = await resolvePrincipal(sb.userA);
 			expect(A.isGlobalAdmin).toBe(false);
 			expect(await hostsFor(A, 'zzreal visible')).toEqual([hostToReal]);
 			expect(await hostsFor(A, 'zzreal secret')).toEqual([]);
@@ -219,14 +220,14 @@ describe.if(DB_READY)(
 
 		test('A granted on both twins: reaches both', async () => {
 			await setGrantsOfA([REAL, VIRT]);
-			A = await resolvePrincipal(SB_USER_A);
+			A = await resolvePrincipal(sb.userA);
 			expect(await hostsFor(A, 'zzreal visible')).toHaveLength(1);
 			expect(await hostsFor(A, 'zzreal secret')).toEqual([hostToVirt]);
 		});
 
 		test('A with no grant on either twin: the hop reaches nothing', async () => {
 			await setGrantsOfA([]);
-			A = await resolvePrincipal(SB_USER_A);
+			A = await resolvePrincipal(sb.userA);
 			expect(await hostsFor(A, 'zzreal visible')).toEqual([]);
 			expect(await hostsFor(A, 'zzreal secret')).toEqual([]);
 		});

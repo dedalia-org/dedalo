@@ -116,12 +116,12 @@ import type { MediaZipHeapReport } from '../helpers/media_zip_heap_child.ts';
 import {
 	installScopeBindingFixture,
 	removeScopeBindingFixture,
-	SB_PROFILE_A,
-	SB_PROJECT_OF_A,
-	SB_USER_A,
-	SB_USER_B,
+	type ScopeBindingFixture,
 } from '../helpers/scope_binding_fixture.ts';
 import { readZip, type ZipReadResult, zipText } from '../helpers/zip_xml_reader.ts';
+
+/** THIS file's instance of the scope-binding fixture (ids allocated at install). */
+let sb: ScopeBindingFixture;
 
 const SECTION = 'test3';
 const IMAGE = 'test99';
@@ -315,13 +315,13 @@ async function endedJob(
 ): Promise<ArtifactJobRef> {
 	const options = { data_format: dataFormat, breakdown: 'rows', ...(recorded.options ?? {}) };
 	const { job } = await store.createJob({
-		userId: SB_USER_A,
+		userId: sb.userA,
 		sectionTipo: SECTION,
 		// exactly what the build records: every section the export READS
 		sections: exportReadSections({ section_tipo: SECTION, ...options }),
 		options,
 		// A's real scope: leg L reaches the job through the owned-job door.
-		recordScope: await exportRecordScope(await resolvePrincipal(SB_USER_A)),
+		recordScope: await exportRecordScope(await resolvePrincipal(sb.userA)),
 		applicationLang: 'lg-eng',
 	});
 	const writer = await store.openSpoolWriter(job, { indexEvery: 4 });
@@ -483,7 +483,7 @@ async function sweepCreated(): Promise<void> {
 	)) as { n: number | string }[];
 	sweepMediaTraces();
 	for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true });
-	await removeScopeBindingFixture();
+	await removeScopeBindingFixture(sb);
 	createdRecords.length = 0;
 	createdFiles.length = 0;
 	scratchDirs.length = 0;
@@ -496,12 +496,12 @@ async function sweepCreated(): Promise<void> {
 describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized per file', () => {
 	beforeAll(async () => {
 		await assertTestDatabase('tool_export_media_zip_native');
-		await installScopeBindingFixture();
+		sb = await installScopeBindingFixture();
 		imageOpts = await resolveMediaPathOptions(IMAGE, SECTION);
 		pdfOpts = await resolveMediaPathOptions(PDF, SECTION);
 
 		// A: default + master present
-		recFull = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recFull = await newRecord(sb.userA, sb.projectOfA);
 		planted.fullDefault = plant(image, IMAGE, recFull, DEFAULT, imageOpts);
 		planted.fullMaster = plant(image, IMAGE, recFull, MASTER, imageOpts);
 		planted.pdfWeb = plant(pdf, PDF, recFull, pdf.defaultQuality, pdfOpts, 'pdf');
@@ -519,7 +519,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// A: master listed but absent
-		recMissing = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recMissing = await newRecord(sb.userA, sb.projectOfA);
 		planted.missingDefault = plant(image, IMAGE, recMissing, DEFAULT, imageOpts);
 		const missingMaster = locationOf(image, IMAGE, recMissing, MASTER, imageOpts);
 		await setMedia(recMissing, {
@@ -541,7 +541,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		writeFileSync(outsideFile, OUTSIDE_BYTES);
 
 		// A: master file_path climbs out of the media root
-		recTraversal = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recTraversal = await newRecord(sb.userA, sb.projectOfA);
 		planted.travDefault = plant(image, IMAGE, recTraversal, DEFAULT, imageOpts);
 		await setMedia(recTraversal, {
 			[IMAGE]: [
@@ -556,7 +556,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// A: master is a symlink leaving the root
-		recSymlink = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recSymlink = await newRecord(sb.userA, sb.projectOfA);
 		planted.symDefault = plant(image, IMAGE, recSymlink, DEFAULT, imageOpts);
 		const symMaster = locationOf(image, IMAGE, recSymlink, MASTER, imageOpts);
 		mkdirSync(dirname(symMaster.absolutePath), { recursive: true });
@@ -575,7 +575,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// A: files renamed outside the grammar (properties.image_id-style)
-		recRenamed = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recRenamed = await newRecord(sb.userA, sb.projectOfA);
 		const renamedDir = dirname(
 			locationOf(image, IMAGE, recRenamed, MASTER, imageOpts).absolutePath,
 		);
@@ -606,7 +606,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// A: renamed files that FIT the grammar and parse to a wrong address
-		recGrammarRenamed = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recGrammarRenamed = await newRecord(sb.userA, sb.projectOfA);
 		const grName = grammarRenamedName(recGrammarRenamed);
 		const grMasterAbs = join(
 			dirname(locationOf(image, IMAGE, recGrammarRenamed, MASTER, imageOpts).absolutePath),
@@ -642,7 +642,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// A: only the default quality stored
-		recNoMaster = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recNoMaster = await newRecord(sb.userA, sb.projectOfA);
 		planted.noMasterDefault = plant(image, IMAGE, recNoMaster, DEFAULT, imageOpts);
 		await setMedia(recNoMaster, {
 			[IMAGE]: [{ id: 1, files_info: [fileInfo(DEFAULT, planted.noMasterDefault.relativePath)] }],
@@ -650,7 +650,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 
 		// A: master listed but file_exist false (a file planted there anyway: the
 		// flag, not the disk, is what says there is no master)
-		recNotExist = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recNotExist = await newRecord(sb.userA, sb.projectOfA);
 		planted.notExistDefault = plant(image, IMAGE, recNotExist, DEFAULT, imageOpts);
 		planted.notExistMaster = plant(image, IMAGE, recNotExist, MASTER, imageOpts);
 		await setMedia(recNotExist, {
@@ -666,7 +666,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// A: master is an external source (a URL, not a file on disk)
-		recExternal = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		recExternal = await newRecord(sb.userA, sb.projectOfA);
 		planted.externalDefault = plant(image, IMAGE, recExternal, DEFAULT, imageOpts);
 		await setMedia(recExternal, {
 			[IMAGE]: [
@@ -684,7 +684,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		});
 
 		// B: outside A's projects
-		recOut = await newRecord(SB_USER_B, config.features.defaultProject);
+		recOut = await newRecord(sb.userB, config.features.defaultProject);
 		planted.outDefault = plant(image, IMAGE, recOut, DEFAULT, imageOpts);
 		planted.outMaster = plant(image, IMAGE, recOut, MASTER, imageOpts);
 		await setMedia(recOut, {
@@ -859,7 +859,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		// properties.image_id renames may hold ANY name; a drive-like prefix is one
 		// the zip writer refuses (normalizeZipEntryName). Its good twin sits in the
 		// same record, same folder.
-		const rec = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+		const rec = await newRecord(sb.userA, sb.projectOfA);
 		const dirOf = (quality: string) => ({
 			rel: dirname(locationOf(image, IMAGE, rec, quality, imageOpts).relativePath),
 			abs: dirname(locationOf(image, IMAGE, rec, quality, imageOpts).absolutePath),
@@ -906,7 +906,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		const root = config.media.rootPath as string;
 		const tag = `mz_forge_${process.pid}_${Date.now()}`;
 		// Files the web server denies to EVERYONE, logged in or not.
-		const importDir = join(root, 'import', 'files', String(SB_USER_B));
+		const importDir = join(root, 'import', 'files', String(sb.userB));
 		const pubDir = join(root, '.publication', 'pub');
 		const madeDirs: string[] = [];
 		for (const dir of [
@@ -931,7 +931,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		try {
 			const forged: { id: number; master: string }[] = [];
 			const forge = async (master: (id: number) => string): Promise<void> => {
-				const id = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+				const id = await newRecord(sb.userA, sb.projectOfA);
 				const def = plant(image, IMAGE, id, DEFAULT, imageOpts);
 				planted[`forged_${id}`] = def;
 				const path = master(id);
@@ -942,7 +942,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 					],
 				});
 			};
-			await forge(() => `/import/files/${SB_USER_B}/${tag}.csv`);
+			await forge(() => `/import/files/${sb.userB}/${tag}.csv`);
 			await forge(() => `/.publication/pub/${tag}_marker`);
 			// B's master: same model, same bucket — another record's canonical file
 			await forge(() => planted.outMaster!.relativePath);
@@ -1178,12 +1178,12 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		// reach the writer, and the file name must hash the whole choice.
 		const store = markedStore();
 		const job = await endedJob(store, standardLines());
-		const principal = await resolvePrincipal(SB_USER_A);
+		const principal = await resolvePrincipal(sb.userA);
 		const run = (extra: Record<string, unknown>) =>
 			runBuildExportFile({
 				store,
 				principal,
-				userId: SB_USER_A,
+				userId: sb.userA,
 				options: {
 					section_tipo: SECTION,
 					job_id: job.jobId,
@@ -1414,7 +1414,7 @@ describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized
 		const manifest = await creating.readManifest(job);
 		// The log for 20,000 refusals is ~5 MB; the quota leaves the build 512 KiB
 		// over what the export already holds (its spool), so ~1/10 of the walk fits.
-		const held = await creating.usedBytes(SB_USER_A);
+		const held = await creating.usedBytes(sb.userA);
 		const budget = 512 * 1024;
 		const metered = openArtifactStore({
 			root: job.root,
@@ -1692,12 +1692,12 @@ describe.if(DB_READY)(
 
 		beforeAll(async () => {
 			await assertTestDatabase('tool_export_media_zip_native related media');
-			await installScopeBindingFixture();
+			sb = await installScopeBindingFixture();
 			imageOpts = await resolveMediaPathOptions(IMAGE, SECTION);
 			pdfOpts = await resolveMediaPathOptions(PDF, SECTION);
 			store = markedStore();
 
-			t1 = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+			t1 = await newRecord(sb.userA, sb.projectOfA);
 			const p1 = plantPair(t1);
 			files.t1Def = p1.def;
 			files.t1Master = p1.master;
@@ -1716,7 +1716,7 @@ describe.if(DB_READY)(
 			});
 			await setString(t1, 'Photographer One');
 
-			t2 = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+			t2 = await newRecord(sb.userA, sb.projectOfA);
 			const p2 = plantPair(t2);
 			files.t2Def = p2.def;
 			files.t2Master = p2.master;
@@ -1732,7 +1732,7 @@ describe.if(DB_READY)(
 				],
 			});
 
-			t4 = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+			t4 = await newRecord(sb.userA, sb.projectOfA);
 			const p4 = plantPair(t4);
 			files.t4Def = p4.def;
 			files.t4Master = p4.master;
@@ -1748,13 +1748,13 @@ describe.if(DB_READY)(
 				],
 			});
 
-			t5 = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+			t5 = await newRecord(sb.userA, sb.projectOfA);
 			files.t5Def = plant(image, IMAGE, t5, DEFAULT, imageOpts);
 			await setMedia(t5, {
 				[IMAGE]: [{ id: 1, files_info: [fileInfo(DEFAULT, files.t5Def.relativePath)] }],
 			});
 
-			t6 = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+			t6 = await newRecord(sb.userA, sb.projectOfA);
 			files.t6Master = plant(image, IMAGE, t6, MASTER, imageOpts);
 			await setMedia(t6, {
 				[IMAGE]: [{ id: 1, files_info: [fileInfo(MASTER, files.t6Master.relativePath)] }],
@@ -1765,7 +1765,7 @@ describe.if(DB_READY)(
 			outside = join(outsideDir, 'secret.jpg');
 			writeFileSync(outside, OUTSIDE_TEXT);
 
-			t3 = await newRecord(SB_USER_A, SB_PROJECT_OF_A);
+			t3 = await newRecord(sb.userA, sb.projectOfA);
 			const p3 = plantPair(t3, `renamed photo ${t3}.jpg`);
 			files.t3Def = p3.def;
 			files.t3Master = p3.master;
@@ -1800,7 +1800,7 @@ describe.if(DB_READY)(
 				`UPDATE matrix_profiles SET misc = jsonb_set(misc, '{dd774}', (misc->'dd774') || $2::text::jsonb)
 			 WHERE section_tipo = 'dd234' AND section_id = $1`,
 				[
-					SB_PROFILE_A,
+					sb.profileA,
 					encodeForJsonb([
 						{ id: 90, tipo: ZZMZ_HOST, section_tipo: ZZMZ_HOST, value: 2 },
 						{ id: 91, tipo: ZZMZ_PORTAL, section_tipo: ZZMZ_HOST, value: 2 },
@@ -1845,11 +1845,11 @@ describe.if(DB_READY)(
 			ids: number[] = [...ZZMZ_HOST_IDS],
 		): Promise<ArtifactJobRef> {
 			// T2 is inside A's scope while the export walks, outside it once it ended
-			await setProject(t2, SB_PROJECT_OF_A);
+			await setProject(t2, sb.projectOfA);
 			const summary = await runExportArtifact({
 				store,
-				principal: await resolvePrincipal(SB_USER_A),
-				userId: SB_USER_A,
+				principal: await resolvePrincipal(sb.userA),
+				userId: sb.userA,
 				applicationLang: 'lg-eng',
 				options: {
 					section_tipo: section,
@@ -1867,7 +1867,7 @@ describe.if(DB_READY)(
 				},
 			});
 			await setProject(t2, config.features.defaultProject);
-			return store.jobRef(SB_USER_A, summary.job_id);
+			return store.jobRef(sb.userA, summary.job_id);
 		}
 
 		/** The archive's media entries (info.txt excluded), name → text. */
@@ -1985,8 +1985,8 @@ describe.if(DB_READY)(
 			const job = await run(BARE, 'value');
 			const preview = await readExportPreview({
 				store,
-				principal: await resolvePrincipal(SB_USER_A),
-				userId: SB_USER_A,
+				principal: await resolvePrincipal(sb.userA),
+				userId: sb.userA,
 				sectionTipo: ZZMZ_HOST,
 				jobId: job.jobId,
 				page: 0,
@@ -2007,8 +2007,8 @@ describe.if(DB_READY)(
 			expect(failed).toEqual([{ file: expect.any(String), reason: 'rerun_required' }]);
 			const preview = await readExportPreview({
 				store,
-				principal: await resolvePrincipal(SB_USER_A),
-				userId: SB_USER_A,
+				principal: await resolvePrincipal(sb.userA),
+				userId: sb.userA,
 				sectionTipo: ZZMZ_HOST,
 				jobId: job.jobId,
 				page: 0,
