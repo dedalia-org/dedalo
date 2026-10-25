@@ -438,9 +438,19 @@ remote's level from its URL.
   verdict — the verdict is the job's exit code). GitHub uploads `ci-logs/hermetic` as the
   `hermetic-logs` artifact (`if: always()`); GitLab exports `DEDALO_CI_LOG_DIR` (before_script) into
   `$CI_PROJECT_DIR` and keeps it as a job artifact (`when: always`); `ci:local --docker`
-  sets it to `/ci-out/logs` and copies that to `<repo>/ci-logs/docker-<sha>-<pid>/`
-  (`keepRunLogs`). `/ci-logs/` is gitignored. Gate: `ci_workflow_tripwire` rule 15b runs
-  `dump_log` with stdout closed and requires the file kept and the call to succeed.
+  sets it to `/ci-out/logs` (`dockerComposeEnv`) and, at the end of the run
+  (`finishDockerRun`), copies that to `<repo>/ci-logs/docker-<sha>-<pid>/` BEFORE the
+  scratch mounts are removed, then PRUNES `<repo>/ci-logs/` to the newest
+  `KEPT_DOCKER_RUN_LOGS` (10) `docker-*` run dirs by mtime (`pruneRunLogs`; a host run's
+  `hermetic/` is never pruned). The driver's root half `chmod -R a+rwX /ci-out` before the
+  container exits (uid 1001's 0755 tree is otherwise unremovable by a Linux host user), and
+  a mount the host still cannot remove is reported, never thrown over the verdict.
+  `/ci-logs/` is gitignored. Gates: `ci_workflow_tripwire` rule 15b runs `dump_log` with
+  stdout closed (file kept, call succeeds) and requires both upload sides to survive a red
+  tier (ci.yml: a SHA-pinned `upload-artifact` step AFTER `bash scripts/ci/hermetic.sh` with
+  `if: always()` and `path: ci-logs/hermetic`; GitLab: the hermetic job's `artifacts:` with
+  `when: always` and `ci-logs/hermetic/`); `ci_local_native` the env mapping, the
+  keep-before-remove order, the pruning and the driver's chmod.
   `DEDALO_HERMETIC_SERIAL=1` runs the whole list in one serial process: the nightly full
   gate sets it, so a coupling the lane missed shows as a parallel-green push against a
   serial-red night on the same sha. **Refresh the timings** when files are added or get

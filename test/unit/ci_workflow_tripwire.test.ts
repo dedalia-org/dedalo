@@ -2647,13 +2647,44 @@ describe('CI workflow tripwire', () => {
 			expect(hermeticRaw, `${pkg}'s log is not dumped through dump_log`).toMatch(
 				new RegExp(`^dump_log "\\$\\w+" ${pkg.replace(/[/.]/g, '\\$&')}$`, 'm'),
 			);
-		// …and the upload sides name the directory it writes.
-		expect(readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8')).toContain(
-			'path: ci-logs/hermetic',
-		);
-		expect(readFileSync(join(repoRoot, '.gitlab-ci.yml'), 'utf8')).toContain(
-			'export DEDALO_CI_LOG_DIR="$CI_PROJECT_DIR/ci-logs"',
-		);
+		// …and the upload sides keep that directory WHATEVER the tier said — a red run is
+		// the one case the kept file exists for. Planted controls first.
+		const tierStep = '      - name: t\n        run: bash scripts/ci/hermetic.sh\n';
+		const upload = (cond: string | null, path = 'ci-logs/hermetic', pin = 'a'.repeat(40)) =>
+			`      - name: keep\n${cond === null ? '' : `        if: ${cond}\n`}        uses: actions/upload-artifact@${pin} # v7\n        with:\n          path: ${path}\n`;
+		const gh = (steps: string) =>
+			`jobs:\n  hermetic:\n    runs-on: x\n    steps:\n${steps}  other:\n    steps:\n${upload('always()')}`;
+		expect(githubLogUploadFaults(gh(tierStep + upload('always()')))).toEqual([]);
+		for (const [label, yml] of [
+			['condition removed (default success())', gh(tierStep + upload(null))],
+			['if: success()', gh(tierStep + upload('success()'))],
+			['upload BEFORE the tier', gh(upload('always()') + tierStep)],
+			['another path', gh(tierStep + upload('always()', 'ci-logs'))],
+			['unpinned action', gh(tierStep + upload('always()', 'ci-logs/hermetic', 'v7'))],
+			['only another job uploads', gh(tierStep)],
+		] as const)
+			expect(githubLogUploadFaults(yml).length, `planted: ${label}`).toBeGreaterThan(0);
+		const gl = (artifacts: string, exportLine = true) =>
+			`hermetic:\n  before_script:\n${exportLine ? '    - export DEDALO_CI_LOG_DIR="$CI_PROJECT_DIR/ci-logs"\n' : ''}    - cd /tmp/x\n  script:\n    - bash scripts/ci/hermetic.sh\n${artifacts}other:\n  artifacts:\n    when: always\n    paths:\n      - ci-logs/hermetic/\n`;
+		const art = (when: string | null, path = 'ci-logs/hermetic/') =>
+			`  artifacts:\n${when === null ? '' : `    when: ${when}\n`}    paths:\n      - ${path}\n`;
+		expect(gitlabLogArtifactFaults(gl(art('always')))).toEqual([]);
+		for (const [label, yml] of [
+			['when: on_success', gl(art('on_success'))],
+			['when removed (default on_success)', gl(art(null))],
+			['another path', gl(art('always', 'ci-logs/'))],
+			['no artifacts on the job', gl('')],
+			['the log dir not pointed into the clone', gl(art('always'), false)],
+		] as const)
+			expect(gitlabLogArtifactFaults(yml).length, `planted: ${label}`).toBeGreaterThan(0);
+		expect(
+			githubLogUploadFaults(readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8')),
+			'ci.yml: the hermetic job must keep its logs on a red run',
+		).toEqual([]);
+		expect(
+			gitlabLogArtifactFaults(readFileSync(join(repoRoot, '.gitlab-ci.yml'), 'utf8')),
+			'.gitlab-ci.yml: the hermetic job must keep its logs on a red run',
+		).toEqual([]);
 
 		const lines = Number(tail) + 50;
 		const dir = mkdtempSync(join(tmpdir(), 'dedalo-dump-log-'));
@@ -3513,3 +3544,49 @@ describe('the official image (image-release.yml) is labelled from deploy/dedalo-
 		}
 	});
 });
+
+/**
+ * Rule 15b, upload side (GitHub): the faults of ci.yml's `hermetic` job against "its logs
+ * survive a red tier" — a SHA-pinned `actions/upload-artifact` step AFTER the step running
+ * `bash scripts/ci/hermetic.sh`, carrying `if: always()` and `path: ci-logs/hermetic`.
+ * Empty = holds.
+ */
+function githubLogUploadFaults(yml: string): string[] {
+	const job = /^ {2}hermetic:\n([\s\S]*?)(?=^ {2}[A-Za-z0-9_-]+:\s*$|(?![\s\S]))/m.exec(yml)?.[1];
+	if (job === undefined) return ['no `hermetic` job'];
+	const starts = [...job.matchAll(/^ {6}- /gm)].map((m) => m.index as number);
+	const steps = starts.map((a, i) => job.slice(a, starts[i + 1] ?? job.length));
+	const tierAt = steps.findIndex((step) =>
+		/^ {6}(?:- | {2})run: bash scripts\/ci\/hermetic\.sh\s*$/m.test(step),
+	);
+	if (tierAt === -1) return ['no step runs `bash scripts/ci/hermetic.sh`'];
+	const keeps = steps
+		.slice(tierAt + 1)
+		.filter((step) => /^ {6}(?:- | {2})uses: actions\/upload-artifact@[0-9a-f]{40}\b/m.test(step));
+	if (keeps.length === 0) return ['no SHA-pinned upload-artifact step after the tier step'];
+	const good = keeps.some(
+		(step) =>
+			/^ {6}(?:- | {2})if: always\(\)\s*$/m.test(step) &&
+			/^ {10}path: ci-logs\/hermetic\s*$/m.test(step),
+	);
+	return good ? [] : ['the upload after the tier lacks `if: always()` or `path: ci-logs/hermetic`'];
+}
+
+/**
+ * Rule 15b, upload side (GitLab): the faults of the top-level `hermetic` job — its
+ * before_script points DEDALO_CI_LOG_DIR into the clone, and `artifacts:` keeps
+ * `ci-logs/hermetic/` with `when: always`. Empty = holds.
+ */
+function gitlabLogArtifactFaults(yml: string): string[] {
+	const job = /^hermetic:\n([\s\S]*?)(?=^[^\s#]|(?![\s\S]))/m.exec(yml)?.[1];
+	if (job === undefined) return ['no `hermetic` job'];
+	const faults: string[] = [];
+	if (!/^ {4}- export DEDALO_CI_LOG_DIR="\$CI_PROJECT_DIR\/ci-logs"\s*$/m.test(job))
+		faults.push('before_script does not export DEDALO_CI_LOG_DIR into $CI_PROJECT_DIR');
+	const artifacts = /^ {2}artifacts:\n((?: {4,}.*\n|\s*#.*\n)*)/m.exec(job)?.[1];
+	if (artifacts === undefined) return [...faults, 'no `artifacts:`'];
+	if (!/^ {4}when: always\s*$/m.test(artifacts)) faults.push('artifacts lack `when: always`');
+	if (!/^ {6}- ci-logs\/hermetic\/?\s*$/m.test(artifacts))
+		faults.push('artifacts do not keep `ci-logs/hermetic/`');
+	return faults;
+}
