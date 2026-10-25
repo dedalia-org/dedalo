@@ -38,8 +38,9 @@
 # `cosign copy`, which does not carry cosign 3's OCI 1.1 referrers signatures (the first
 # real run, v7.0.0-beta.7, left both mirrors unsigned through it) — and checks every target
 # holds the SAME digest and passes the operator's own `cosign verify`. An existing release
-# is accepted only when its digest verifies somewhere official (a holder, or staging@X); a
-# holder lacking the signature is then signed in place. It records the result in the job
+# is accepted only when its digest carries a signature of THIS release (exact identity
+# @refs/tags/v<tag>) somewhere official (a holder, or staging@X); a holder lacking the
+# signature is then signed in place; a release tag is never re-pointed. It records the result in the job
 # summary and an `image-release` artifact.
 #
 # TRIGGERS. push of a release tag (stable or prerelease); workflow_dispatch (channel dev | release; release

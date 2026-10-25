@@ -20,8 +20,10 @@
  *     copy` is never invoked (it does not carry cosign 3's referrers signatures — the
  *     v7.0.0-beta.7 incident);
  *   - release channel: holders that disagree refuse before signing or copying; an
- *     existing release whose digest verifies NOWHERE official (no holder, not staging@X)
- *     refuses before copying; agreeing holders are kept, the missing target receives
+ *     existing release whose digest carries no signature of THIS release (exact identity
+ *     @refs/tags/v<tag> — a dev or other-tag signature never counts) at a holder or at
+ *     staging@X refuses before copying; a tag appearing between check and copy is never
+ *     re-pointed; a hanging command fails its target at the ceiling, record written; agreeing holders are kept, the missing target receives
  *     THEIR digest (never a rebuild), and a holder without the signature in its own
  *     registry is signed in place when X verifies elsewhere (the recovery door);
  *   - dev channel: the mutable tag is overwritten;
@@ -147,6 +149,12 @@ case "$me" in
         else put "$5" "$STUB_BUILT"; fi
         exit 0 ;;
       "buildx imagetools inspect")
+        # STUB_APPEAR_REF: absent at the first inspect, then written (STUB_APPEAR_DIGEST) by
+        # "someone else" before the next — a tag that appears between check and copy.
+        if [ -n "\${STUB_APPEAR_REF:-}" ] && [ "$4" = "$STUB_APPEAR_REF" ]; then
+          if [ -f "$STUB_STATE.appear" ]; then printf '%s' "$STUB_APPEAR_DIGEST" > "$STUB_STATE/$(key "$4")"
+          else touch "$STUB_STATE.appear"; fi
+        fi
         if [ -n "\${STUB_INSPECT_ERROR:-}" ] && [ "$4" = "$STUB_INSPECT_ERROR" ]; then echo "unauthorized: denied" >&2; exit 1; fi
         d="$(digest_of "$4")"
         if [ -z "$d" ]; then echo "ERROR: $4: not found" >&2; exit 1; fi
@@ -158,17 +166,22 @@ case "$me" in
       sign)
         [ "\${STUB_SIGN_RC:-0}" = 0 ] || exit "$STUB_SIGN_RC"
         [ -n "\${STUB_SIGN_FAIL:-}" ] && [ "$3" = "$STUB_SIGN_FAIL" ] && { echo "denied" >&2; exit 1; }
-        touch "$STUB_STATE/sig_$(key "$3")"; exit 0 ;;
+        [ -n "\${STUB_SIGN_HANG:-}" ] && [ "$3" = "$STUB_SIGN_HANG" ] && exec sleep 30
+        # STUB_SIGNER = the certificate identity (SAN) the run's keyless signature carries,
+        # recorded per signature (a reference may hold several, one per line).
+        printf '%s\n' "$STUB_SIGNER" >> "$STUB_STATE/sig_$(key "$3")"; exit 0 ;;
       copy) echo 'Command "copy" is deprecated' >&2; exit 0 ;;
       verify)
-        [ -f "$STUB_STATE/sig_$(key "$2")" ] || { echo "no signatures found" >&2; exit 1; }
-        # STUB_SIGNER = the certificate identity (SAN) the run's keyless signature carries:
-        # verify then passes only when --certificate-identity-regexp accepts it, as cosign does.
-        if [ -n "\${STUB_SIGNER:-}" ]; then
-          re=""; while [ $# -gt 0 ]; do [ "$1" = "--certificate-identity-regexp" ] && re="$2"; shift; done
-          printf '%s' "$STUB_SIGNER" | grep -Eq -- "$re" || { echo "none of the expected identities matched" >&2; exit 1; }
-        fi
-        exit 0 ;;
+        sigs="$STUB_STATE/sig_$(key "$2")"
+        [ -f "$sigs" ] || { echo "no signatures found" >&2; exit 1; }
+        # As cosign does: --certificate-identity-regexp matches a pattern, --certificate-identity
+        # an EXACT identity; one recorded signature satisfying it is enough.
+        re=""; exact=""; while [ $# -gt 0 ]; do
+          [ "$1" = "--certificate-identity-regexp" ] && re="$2"
+          [ "$1" = "--certificate-identity" ] && exact="$2"; shift; done
+        if [ -n "$exact" ]; then grep -qxF -- "$exact" "$sigs" && exit 0
+        elif [ -n "$re" ]; then grep -Eq -- "$re" "$sigs" && exit 0; fi
+        echo "none of the expected identities matched" >&2; exit 1 ;;
     esac ;;
 esac
 exit 0
@@ -218,8 +231,10 @@ let runCounter = 0;
 function publish(options: {
 	channel?: 'master' | 'prerelease' | 'dev';
 	preset?: Record<string, string>;
-	/** `<repository>@<digest>` references whose registry already carries the signature. */
+	/** `<repository>@<digest>` references signed by THIS run's release identity. */
 	signed?: string[];
+	/** `<repository>@<digest>` → the identity its signature carries (another tag, master…). */
+	signedBy?: Record<string, string>;
 	env?: Record<string, string>;
 	pin?: { version: string | null; linux_amd64_sha256: string | null };
 }): Run {
@@ -229,7 +244,15 @@ function publish(options: {
 	const key = (ref: string) => ref.replaceAll(/[/:@]/g, '_');
 	for (const [ref, digest] of Object.entries(options.preset ?? {}))
 		writeFileSync(join(state, key(ref)), digest);
-	for (const ref of options.signed ?? []) writeFileSync(join(state, `sig_${key(ref)}`), '');
+	const channel = options.channel ?? 'master';
+	const tag = { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel];
+	const signer = channel === 'dev' ? SIGNER('refs/heads/master') : SIGNER(`refs/tags/v${tag}`);
+	const signatures: Record<string, string> = {
+		...Object.fromEntries((options.signed ?? []).map((ref) => [ref, signer])),
+		...options.signedBy,
+	};
+	for (const [ref, identity] of Object.entries(signatures))
+		writeFileSync(join(state, `sig_${key(ref)}`), `${identity}\n`);
 	const pinFile = join(dir, 'cosign.json');
 	writeFileSync(
 		pinFile,
@@ -237,7 +260,6 @@ function publish(options: {
 			options.pin ?? { version: '9.9.9', linux_amd64_sha256: sha256File(cosignSource) },
 		),
 	);
-	const channel = options.channel ?? 'master';
 	const env: Record<string, string> = {
 		PATH: `${stubDir}:/usr/bin:/bin`,
 		HOME: dir,
@@ -253,7 +275,10 @@ function publish(options: {
 		DIGEST_AMD64: ARCH_AMD64,
 		DIGEST_ARM64: ARCH_ARM64,
 		VERSION: '7.0.1',
-		TAG: { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel],
+		TAG: tag,
+		GITHUB_REPOSITORY: 'dedalia-org/dedalo',
+		GITHUB_SERVER_URL: 'https://github.com',
+		STUB_SIGNER: signer,
 		CHANNEL: channel,
 		STAGING,
 		RUN_ID: '42',
@@ -305,6 +330,7 @@ const COPY_TO_TARGET = new RegExp(
 	`^docker buildx imagetools create -t (${GHCR}|${HUB}):\\S+ \\S+$`,
 );
 /** Any registry write of the publish step: a sign or a copy to a target. */
+const THIS_RELEASE_REFUSAL = 'carries a signature of THIS release';
 const touchesRelease = (line: string): boolean =>
 	line.startsWith('cosign sign ') || line.startsWith('cosign copy') || COPY_TO_TARGET.test(line);
 
@@ -462,11 +488,14 @@ describe('publish — immutability of a release', () => {
 		expect(statuses).toEqual(['skipped', 'unchanged', 'pushed']);
 	});
 
-	test('RECOVERY (v7.0.0-beta.7): holders of X unsigned, staging@X signed → each holder signed IN PLACE and verified', () => {
+	test('RECOVERY (v7.0.0-beta.7): holders of X unsigned, staging@X signed by the TAG run → each holder signed IN PLACE (from master) and verified', () => {
 		const existing = D(7);
 		const run = publish({
 			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			// staging@X: the tag-push run's signature (refs/tags/v7.0.1), as on the real run.
 			signed: [`${STAGING}@${existing}`],
+			// The recovery door is a release dispatch from master: it signs as heads/master.
+			env: { STUB_SIGNER: SIGNER('refs/heads/master') },
 		});
 		expect(run.code, run.stdout).toBe(0);
 		// Nothing is rebuilt, copied or re-pointed: only signatures are added, AT X.
@@ -525,7 +554,7 @@ describe('publish — immutability of a release', () => {
 			signed: [`${STAGING}@${BUILT}`],
 		});
 		expect(run.code).toBe(1);
-		expect(run.stdout).toContain('carries the official signature NOWHERE');
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
 		expect(run.log.some(touchesRelease)).toBe(false);
 		// Every official place was asked: each holder, then staging@X.
 		for (const ref of [`${GHCR}@${D(7)}`, `${HUB}@${D(7)}`, `${STAGING}@${D(7)}`])
@@ -535,10 +564,121 @@ describe('publish — immutability of a release', () => {
 	test('a single unsigned holder with no anchor refuses, and the missing target is NOT filled', () => {
 		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) } });
 		expect(run.code).toBe(1);
-		expect(run.stdout).toContain('carries the official signature NOWHERE');
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
 		expect(run.log.some(touchesRelease)).toBe(false);
 		expect(run.state(`${HUB}:7.0.1`)).toBeNull();
 	});
+
+	test.each([
+		['a DEV build (heads/master)', SIGNER('refs/heads/master')],
+		['ANOTHER release tag (v7.0.0)', SIGNER('refs/tags/v7.0.0')],
+	])(
+		'S2: staging@X signed only by %s never anchors this release — refused before any sign or copy',
+		(_, identity) => {
+			const run = publish({
+				preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(7) },
+				signedBy: { [`${STAGING}@${D(7)}`]: identity },
+			});
+			expect(run.code).toBe(1);
+			expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
+			expect(run.log.some(touchesRelease)).toBe(false);
+			// The anchor is asked with the EXACT identity of this release, not the shared regexp.
+			expect(
+				run.log.some((line) =>
+					line.startsWith(
+						`cosign verify ${STAGING}@${D(7)} --certificate-identity ${SIGNER('refs/tags/v7.0.1')} `,
+					),
+				),
+			).toBe(true);
+		},
+	);
+
+	test('S2: a holder signed only by heads/master passes the shared verify but does not anchor; with no release signature anywhere → refused', () => {
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7) },
+			signedBy: { [`${GHCR}@${D(7)}`]: SIGNER('refs/heads/master') },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test('RECOVERY copy: X held unsigned by one target, missing at another, staging@X anchors → copied FROM staging and both signed', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing },
+			signed: [`${STAGING}@${existing}`],
+		});
+		expect(run.code, run.stdout).toBe(0);
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${HUB}:7.0.1 ${STAGING}@${existing}`,
+		]);
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${GHCR}@${existing}`,
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'signed', true],
+			['dockerhub', 'pushed', true],
+		]);
+	});
+
+	test('RECOVERY: an in-place signature that fails fails THAT holder (record failed/unverified), the run is red, nothing copied', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			signed: [`${STAGING}@${existing}`],
+			env: { STUB_SIGN_FAIL: `${HUB}@${existing}` },
+		});
+		expect(run.code).toBe(1);
+		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'signed', true],
+			['dockerhub', 'failed', false],
+		]);
+	});
+
+	test('a release tag that APPEARS between the immutability check and the copy is never re-pointed', () => {
+		const run = publish({ env: { STUB_APPEAR_REF: `${HUB}:7.0.1`, STUB_APPEAR_DIGEST: D(9) } });
+		expect(run.code).toBe(1);
+		expect(
+			run.log.some((line) => line.startsWith(`docker buildx imagetools create -t ${HUB}:`)),
+		).toBe(false);
+		expect(run.state(`${HUB}:7.0.1`)).toBe(D(9));
+		const hub = (run.record?.registries as { id: string; status: string; reason: string }[]).find(
+			(item) => item.id === 'dockerhub',
+		);
+		expect(hub?.status).toBe('failed');
+		expect(hub?.reason).toContain(`appeared as ${D(9)}`);
+		expect(run.state(`${GHCR}:7.0.1`)).toBe(BUILT); // the other target still published
+	});
+
+	test('a command that HANGS is killed at the per-command ceiling: that target fails, the record is still written', () => {
+		const run = publish({
+			env: { STUB_SIGN_HANG: `${HUB}@${BUILT}`, IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '5000' },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('timed out after 5000 ms');
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'pushed', true],
+			['dockerhub', 'failed', false],
+		]);
+	}, 30_000);
 
 	test('a failing staging signature refuses before anything leaves staging', () => {
 		const run = publish({ env: { STUB_SIGN_RC: '1' } });

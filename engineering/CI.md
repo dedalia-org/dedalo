@@ -939,11 +939,26 @@ as unavailable. Gate: `image_registries_tripwire`.
   is downloaded or pushed.
 - **The same-digest rule.** For a release, every registry that already holds `:X.Y.Z`
   must hold the same digest X (a disagreement refuses before anything is signed), and X
-  must carry the official signature SOMEWHERE OFFICIAL — at a holder, or at the staging
-  repository the workflow built it in (`<staging>@X`); X verifiable nowhere refuses. X is
-  then copied to the registries that lack it and signed there, a holder whose registry
-  lacks the signature is signed IN PLACE (that attests only what the workflow provably
-  built), and nothing is rebuilt; a release tag is never re-pointed to another digest.
+  must carry a signature of THIS release SOMEWHERE OFFICIAL — at a holder, or at the
+  staging repository the workflow built it in (`<staging>@X`) — verified with the EXACT
+  identity `…/image-release.yml@refs/tags/v<tag>` (`releaseSignerIdentity`, which must
+  also lie inside the list's `signing.identity_regexp`). The shared regexp is NOT enough
+  for this anchor: it also accepts a dev build (`heads/master`) and every other release
+  tag, neither of which may be minted into this release. X with no such signature
+  anywhere refuses. X is then copied to the registries that lack it and signed there, a
+  holder whose registry lacks the signature is signed IN PLACE (that attests only what
+  the workflow provably built for this tag), and nothing is rebuilt; a release tag is
+  never re-pointed to another digest — right before each copy the target's tag is read
+  again, and one that appeared since the immutability check with another digest fails
+  that target, untouched (`imagetools create` would overwrite it).
+- **Two identities, on purpose.** The ANCHOR check uses the exact tag identity; the
+  final per-target verify (and the operator's, the installer's) uses the shared regexp,
+  because the signature a recovery run adds is made from `refs/heads/master` (the
+  `release` dispatch runs there) — valid for consumers, never accepted as an anchor.
+- **Per-command ceiling.** Every command `image_release.ts` runs has a timeout (publish:
+  8 min, `commandTimeoutMs`): a registry, Fulcio or Rekor that never answers fails that
+  one target, and the record is still written, instead of stalling the job until its
+  `timeout-minutes` kills it with no record.
   Otherwise D is signed first in staging (`cosign sign`, keyless, recorded in Rekor — the
   anchor a later run recovers from), then each target receives a carbon copy of the digest
   (`docker buildx imagetools create -t <target>:<tag> <source>@D`, one source, so the
@@ -957,7 +972,8 @@ as unavailable. Gate: `image_registries_tripwire`.
 - **Recovering a release left unsigned** (holders = X, no signature at them, a valid one
   at `<staging>@X`): a re-run of the tag's run uses the TAG's script, so dispatch the
   `release` channel from `master` with the existing tag — master's script finds the
-  staging anchor and signs each holder in place. The `image-release` environment's
+  staging anchor (signed by the tag run, `refs/tags/v<tag>`) and signs each holder in
+  place. The `image-release` environment's
   deployment policy must allow branch `master` (runbook step 8).
 - **Verify, as an operator does** (identity and issuer: `signing` of the list):
 
