@@ -990,9 +990,10 @@ as unavailable. Gate: `image_registries_tripwire`.
   `interrupted: <error>` appended; every other publish target is `failed` with the error;
   `digest` is the chosen one when known, else null. The record file is written atomically
   (`<path>.part`, then a rename — never a truncated file for the upload step). The
-  terminal record is the publish's last act; if writing it fails, the error record is
-  tried once from the same rows, and if that fails too a single `::warning::record not
-  written` says so while the original error decides the run. The job summary is a separate best-effort
+  terminal record is the publish's last act; if writing it fails, it is NOT retried (every
+  row is final by then, so a retry would look like a finished publication): a single
+  `::warning::record not written (terminal write, not retried)`, the previous file (if
+  any) intact, and the original error decides the run. The job summary is a separate best-effort
   part: a failed append is a `::warning::summary not written` and never fails the record.
 - **Never `cosign copy`.** cosign 3 signs in the OCI 1.1 referrers bundle format, which
   the deprecated `cosign copy` does not carry: the first real run (v7.0.0-beta.7, run

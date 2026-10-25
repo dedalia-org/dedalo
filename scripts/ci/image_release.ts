@@ -1175,7 +1175,11 @@ function writeRecord(env: Env, record: ReleaseRecord, list: ImageRegistryList): 
 		writeFileSync(part, `${JSON.stringify(record, null, '\t')}\n`);
 		renameSync(part, path);
 	} catch (error) {
-		rmSync(part, { force: true });
+		try {
+			rmSync(part, { force: true });
+		} catch {
+			// best effort: a .part that cannot be removed never hides why the write failed
+		}
 		throw error;
 	}
 	console.log(`record: ${path}`);
@@ -1277,21 +1281,30 @@ function registriesOf(env: Env): ImageRegistryList {
  * row (`final: true`, step 7 ran). An error record is built from THIS — never a blanket
  * "all failed" over targets that were in fact pushed or signed. The terminal record is the
  * LAST thing publishPlanned does, so an error after it cannot exist; a failed terminal write
- * itself falls through to the error record (which retries the write from the same rows).
+ * is a single warning and is not retried (see publish).
  */
 interface PublishProgress {
 	digest: string | null;
 	rows: Map<string, { row: RegistryRecord; final: boolean }>;
+	/** The terminal record is being written: a failure now is NOT retried as an error record. */
+	terminal: boolean;
 }
 
 function publish(env: Env, run: Runner, deadline: number): number {
 	const list = registriesOf(env);
 	const plan = publishPlan(env);
-	const progress: PublishProgress = { digest: null, rows: new Map() };
+	const progress: PublishProgress = { digest: null, rows: new Map(), terminal: false };
 	try {
 		return publishPlanned(env, run, deadline, list, plan, progress);
 	} catch (error) {
-		recordFailure(env, list, plan, progress, error);
+		// A failed TERMINAL write is not retried: every row is final by then, so the retry
+		// would look like a finished publication with no trace of the failure. One warning,
+		// and the original error decides the run.
+		if (progress.terminal)
+			console.log(
+				`::warning::record not written (terminal write, not retried): ${messageOf(error)}`,
+			);
+		else recordFailure(env, list, plan, progress, error);
 		throw error;
 	}
 }
@@ -1400,6 +1413,7 @@ function publishPlanned(
 		digest: chosen.digest,
 		registries: records,
 	};
+	progress.terminal = true;
 	writeRecord(env, record, list); // the terminal record — the last thing this does
 	return records.every((item) => item.status === 'skipped' || item.verified) ? 0 : 1;
 }

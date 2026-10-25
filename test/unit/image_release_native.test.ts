@@ -937,12 +937,14 @@ describe('publish — immutability of a release', () => {
 		expect(statusOf(early, 'dockerhub')).toBe('failed');
 	});
 
-	test('a TERMINAL record that cannot be written: one fallback attempt, one warning, the original error, no partial file', () => {
+	test('a TERMINAL record that cannot be written: NOT retried, one warning, the original error, no partial file', () => {
+		const NOT_RETRIED = /::warning::record not written \(terminal write, not retried\)/g;
 		const dir = join(scratch, `gone-${runCounter}`);
 		const recordPath = join(dir, 'image-release.json');
 		const run = publish({ env: { RECORD_PATH: recordPath } });
 		expect(run.code).not.toBe(0);
-		expect(run.stdout.match(/::warning::record not written/g)?.length).toBe(1);
+		expect(run.stdout.match(NOT_RETRIED)?.length).toBe(1);
+		expect(run.stdout.match(/record not written/g)?.length).toBe(1); // no error-record retry
 		expect(run.stdout).toContain('ENOENT'); // the original error decides the run
 		expect(existsSync(recordPath)).toBe(false);
 		expect(existsSync(`${recordPath}.part`)).toBe(false);
@@ -951,8 +953,24 @@ describe('publish — immutability of a release', () => {
 		mkdirSync(join(blocked, 'occupied'), { recursive: true });
 		const second = publish({ env: { RECORD_PATH: blocked } });
 		expect(second.code).not.toBe(0);
-		expect(second.stdout.match(/::warning::record not written/g)?.length).toBe(1);
+		expect(second.stdout.match(NOT_RETRIED)?.length).toBe(1);
 		expect(existsSync(`${blocked}.part`)).toBe(false);
+	});
+
+	test('ATOMIC: a write that fails leaves the PREVIOUS record byte-for-byte (an in-place write would clobber it)', () => {
+		const dir = join(scratch, `atomic-${runCounter}`);
+		mkdirSync(dir, { recursive: true });
+		const recordPath = join(dir, 'image-release.json');
+		const previous = '{"previous":"bytes","must":"survive"}\n';
+		writeFileSync(recordPath, previous);
+		// The .part cannot be created (it is a directory) — and cannot be removed either.
+		mkdirSync(`${recordPath}.part`);
+		const run = publish({ env: { RECORD_PATH: recordPath } });
+		expect(run.code).not.toBe(0);
+		expect(readFileSync(recordPath, 'utf8')).toBe(previous);
+		// The ORIGINAL error (the .part open) is reported — not the failed cleanup's rm error.
+		expect(run.stdout).toContain(`illegal operation on a directory, open '${recordPath}.part'`);
+		expect(run.stdout).not.toContain('rm returned');
 	});
 
 	test('a failing staging signature refuses before anything leaves staging', () => {
