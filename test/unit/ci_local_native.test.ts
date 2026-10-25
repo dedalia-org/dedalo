@@ -1036,11 +1036,11 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 			mkdirSync(locked, { recursive: true });
 			writeFileSync(join(locked, 'y.log'), 'kept too\n');
 			chmodSync(locked, 0o555);
-			let kept: string | null = null;
+			const finished: { kept: string | null } = { kept: null };
 			expect(() => {
-				kept = finishDockerRun(join(dir, 'in2'), outputs2, root, 'docker-b');
+				finished.kept = finishDockerRun(join(dir, 'in2'), outputs2, root, 'docker-b');
 			}).not.toThrow();
-			expect(kept).toBe(join(root, 'docker-b'));
+			expect(finished.kept).toBe(join(root, 'docker-b'));
 			expect(readFileSync(join(root, 'docker-b', 'hermetic', 'y.log'), 'utf8')).toBe('kept too\n');
 		} finally {
 			// cpSync keeps the 0555 mode on the copy too.
