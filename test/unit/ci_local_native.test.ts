@@ -1001,6 +1001,10 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 		auditBase: '',
 		overlay: false,
 		args: { flags: new Set<string>() },
+		mounts: [
+			{ host: '/h/src', container: CONTAINER_SRC },
+			{ host: '/h/git', container: CONTAINER_GIT },
+		],
 	});
 
 	test('the env maps the tier log dir to the container log dir, under the writable mount', () => {
@@ -1009,6 +1013,7 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 		expect(env.DEDALO_CI_OUT).toBe('/tmp/out-x');
 		expect(CONTAINER_LOG_DIR.startsWith(`${CONTAINER_OUT}/`)).toBe(true);
 		expect(env.DEDALO_CI_TIER_SCRIPT).toBe('none');
+		expect([env.DEDALO_CI_SRC, env.DEDALO_CI_GIT]).toEqual(['/h/src', '/h/git']);
 		// compose passes it through to the tier, which is what makes the mapping reach hermetic.sh.
 		expect(readFileSync(join(REPO_ROOT, 'ci', 'compose.yml'), 'utf8')).toContain(
 			'DEDALO_CI_LOG_DIR: ${DEDALO_CI_LOG_DIR:-}',

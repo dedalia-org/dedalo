@@ -400,20 +400,22 @@ export interface DockerRunFacts {
 	readonly auditBase: string;
 	readonly overlay: boolean;
 	readonly args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> };
+	/** The source mounts ({@link containerMounts} — resolved by the caller: it inspects the repo). */
+	readonly mounts: readonly { host: string; container: string }[];
 }
 
 /**
  * The compose environment of a docker run — every key ci/compose.yml interpolates.
- * Pure over the run's facts, so the gate reads the real mapping (the writable mount, the
+ * Pure over the run's facts (the mounts included — never inspected here), so the gate reads the real mapping (the writable mount, the
  * tier log dir, the record mode), not a spelling.
  */
 export function dockerComposeEnv(facts: DockerRunFacts): Record<string, string | undefined> {
-	const { image, inputs, outputs, sha, branch, base, auditBase, overlay, args } = facts;
+	const { image, inputs, outputs, sha, branch, base, auditBase, overlay, args, mounts } = facts;
 	return {
 		...gitScrubbedEnv(),
 		DEDALO_CI_IMAGE_REF: image,
 		...Object.fromEntries(
-			containerMounts().map((mount) => [
+			mounts.map((mount) => [
 				mount.container === CONTAINER_SRC ? 'DEDALO_CI_SRC' : 'DEDALO_CI_GIT',
 				mount.host,
 			]),
@@ -1393,6 +1395,7 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 		auditBase,
 		overlay,
 		args,
+		mounts: containerMounts(),
 	});
 	const teardown = (project: string) => {
 		const down = docker(
