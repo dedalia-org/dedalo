@@ -128,7 +128,6 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ciImageFingerprint, lockedImageRef, readCiImageLock } from './lib/ci_image.ts';
-import { UNIT_TIER } from './unit_baseline.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..');
 
@@ -1382,15 +1381,8 @@ function copyRecordedBaseline(outputs: string, args: Args, db: TierResult | unde
 	JSON.parse(text);
 	writeFileSync(join(REPO_ROOT, UNIT_BASELINE), text);
 	const reason = args.values.get('--reason');
-	// The record is stamped with this image (red_baseline.ts stampBaseline); while the
-	// pre-stamp transition is still live in code, --check refuses the stamped file beside it,
-	// so the first stamped record and the transition's removal are ONE commit.
-	const transition = UNIT_TIER.unstampedTransition ?? null;
 	console.log(
 		`\n== ci:local: RECORDED ${UNIT_BASELINE} (in the CI image). Commit it on its own` +
-			(transition === null
-				? ''
-				: ` — together with UNIT_TIER.unstampedTransition set to null in scripts/unit_baseline.ts: this is the first CI-image-stamped record, and --check refuses a stamped baseline beside a live transition`) +
 			(reason === undefined
 				? '.'
 				: `, with the accepted regressions' reason in the message:\n   ${reason}`),
