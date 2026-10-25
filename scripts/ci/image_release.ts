@@ -82,7 +82,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	appendFileSync,
+	chmodSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
 	DEV_REF,
@@ -1155,13 +1163,21 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 }
 
 /**
- * The record file, then the job summary. The summary is a separate, best-effort part: a
- * failed append is a named warning and never undoes or fails the record file (the
- * artifact consumers read).
+ * The record file, then the job summary. The file is written ATOMICALLY (`<path>.part`,
+ * then a rename): a failed write leaves no truncated record for the upload step, only the
+ * previous state, and throws. The summary is a separate, best-effort part: a failed append
+ * is a named warning and never undoes or fails the record file (the artifact consumers read).
  */
 function writeRecord(env: Env, record: ReleaseRecord, list: ImageRegistryList): void {
 	const path = env.RECORD_PATH || join(env.RUNNER_TEMP as string, 'image-release.json');
-	writeFileSync(path, `${JSON.stringify(record, null, '\t')}\n`);
+	const part = `${path}.part`;
+	try {
+		writeFileSync(part, `${JSON.stringify(record, null, '\t')}\n`);
+		renameSync(part, path);
+	} catch (error) {
+		rmSync(part, { force: true });
+		throw error;
+	}
 	console.log(`record: ${path}`);
 	if (!env.GITHUB_STEP_SUMMARY) return;
 	try {
@@ -1257,24 +1273,25 @@ function registriesOf(env: Env): ImageRegistryList {
  */
 /**
  * What has actually happened so far, kept as the publication progresses: the chosen
- * digest, each target's row (its step-6 outcome, then its verified row), and whether the
- * terminal record was already written. An error record is built from THIS — never a blanket
- * "all failed" over targets that were in fact pushed or signed.
+ * digest and each target's row — its step-6 outcome (`final: false`), then its verified
+ * row (`final: true`, step 7 ran). An error record is built from THIS — never a blanket
+ * "all failed" over targets that were in fact pushed or signed. The terminal record is the
+ * LAST thing publishPlanned does, so an error after it cannot exist; a failed terminal write
+ * itself falls through to the error record (which retries the write from the same rows).
  */
 interface PublishProgress {
 	digest: string | null;
-	rows: Map<string, RegistryRecord>;
-	written: boolean;
+	rows: Map<string, { row: RegistryRecord; final: boolean }>;
 }
 
 function publish(env: Env, run: Runner, deadline: number): number {
 	const list = registriesOf(env);
 	const plan = publishPlan(env);
-	const progress: PublishProgress = { digest: null, rows: new Map(), written: false };
+	const progress: PublishProgress = { digest: null, rows: new Map() };
 	try {
 		return publishPlanned(env, run, deadline, list, plan, progress);
 	} catch (error) {
-		if (!progress.written) recordFailure(env, list, plan, progress, error);
+		recordFailure(env, list, plan, progress, error);
 		throw error;
 	}
 }
@@ -1301,10 +1318,10 @@ function recordFailure(
 }
 
 /**
- * The record of an interrupted publish: a target with a row keeps its real status (a
- * verified row stays verified; a step-6 outcome is kept, unverified, with the error as its
- * reason), every other publish target is failed with the error; the digest is the chosen
- * one when known, else null.
+ * The record of an interrupted publish: a FINAL row (step 7 ran) is kept exactly — its own
+ * status, verdict and reason; a step-6 row keeps its status and its own reason, unverified,
+ * with the interruption appended; every other publish target is failed with the error. The
+ * digest is the chosen one when known, else null.
  */
 function progressRecord(
 	plan: PublishContext['plan'],
@@ -1314,12 +1331,13 @@ function progressRecord(
 ): ReleaseRecord {
 	const registries = verdicts.map((verdict) => {
 		if (!verdict.publish) return skippedRecord(verdict);
-		const row = progress.rows.get(verdict.entry.id);
-		if (row?.verified) return row;
+		const known = progress.rows.get(verdict.entry.id);
+		if (known?.final) return known.row;
+		if (known !== undefined) return interruptedRow(known.row, reason);
 		return {
 			id: verdict.entry.id,
 			repository: verdict.repository,
-			status: row?.status ?? ('failed' as const),
+			status: 'failed' as const,
 			reason,
 			verified: false,
 		};
@@ -1327,6 +1345,12 @@ function progressRecord(
 	const { version, tag, channel, source_sha, archive_sha256 } = plan;
 	const digest = progress.digest;
 	return { schema: 1, version, tag, channel, source_sha, archive_sha256, digest, registries };
+}
+
+/** A step-6 row whose verify never ran: its status and own reason, plus the interruption. */
+function interruptedRow(row: RegistryRecord, error: string): RegistryRecord {
+	const own = row.reason === null ? '' : `${row.reason}; `;
+	return { ...row, reason: `${own}interrupted: ${error}`, verified: false };
 }
 
 function publishPlanned(
@@ -1357,13 +1381,13 @@ function publishPlanned(
 	for (const target of targets) {
 		const outcome = publishTo(ctx, target, chosen);
 		statuses.set(target, outcome);
-		progress.rows.set(target.entry.id, rowOf(target, outcome, false));
+		progress.rows.set(target.entry.id, { row: rowOf(target, outcome, false), final: false });
 	}
 	const records = verdicts.map((verdict) => {
 		if (!verdict.publish) return skippedRecord(verdict);
 		const outcome = statuses.get(verdict) ?? { status: 'failed', reason: 'not attempted' };
 		const row = verifiedRecord(ctx, verdict, outcome, chosen.digest);
-		progress.rows.set(verdict.entry.id, row);
+		progress.rows.set(verdict.entry.id, { row, final: true });
 		return row;
 	});
 	const record: ReleaseRecord = {
@@ -1376,8 +1400,7 @@ function publishPlanned(
 		digest: chosen.digest,
 		registries: records,
 	};
-	progress.written = true; // the terminal record: never overwritten by an error record
-	writeRecord(env, record, list);
+	writeRecord(env, record, list); // the terminal record — the last thing this does
 	return records.every((item) => item.status === 'skipped' || item.verified) ? 0 : 1;
 }
 

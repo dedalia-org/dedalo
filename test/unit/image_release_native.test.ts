@@ -61,6 +61,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -318,7 +319,7 @@ function publish(options: {
 		summary: existsSync(env.GITHUB_STEP_SUMMARY as string)
 			? readFileSync(env.GITHUB_STEP_SUMMARY as string, 'utf8')
 			: '',
-		record: existsSync(env.RECORD_PATH as string)
+		record: isFile(env.RECORD_PATH as string)
 			? (JSON.parse(readFileSync(env.RECORD_PATH as string, 'utf8')) as Record<string, unknown>)
 			: null,
 		state: (ref) =>
@@ -335,6 +336,8 @@ function publish(options: {
 		},
 	};
 }
+
+const isFile = (path: string): boolean => existsSync(path) && statSync(path).isFile();
 
 function spawnPublish(env: Record<string, string>): { code: number; stdout: string } {
 	const proc = Bun.spawnSync([process.execPath, PROGRAM, 'publish'], {
@@ -367,10 +370,20 @@ function inProcessPublish(
 			stderr: result.stderr.toString(),
 		};
 	};
+	// What main prints is part of the outcome (::error::, ::warning::, record lines):
+	// captured for the call, restored after, returned like spawnPublish's stdout.
+	const printed: string[] = [];
+	const { log, error: logError } = console;
+	console.log = (...parts: unknown[]) => void printed.push(parts.map(String).join(' '));
+	console.error = console.log;
 	try {
-		return { code: main(['publish'], env, runner), stdout: '' };
+		const code = main(['publish'], env, runner);
+		return { code, stdout: printed.join('\n') };
 	} catch (error) {
-		return { code: 99, stdout: String(error), thrown: error };
+		return { code: 99, stdout: `${printed.join('\n')}\n${String(error)}`, thrown: error };
+	} finally {
+		console.log = log;
+		console.error = logError;
 	}
 }
 
@@ -386,7 +399,13 @@ const COPY_TO_TARGET = new RegExp(
 );
 /** Any registry write of the publish step: a sign or a copy to a target. */
 const THIS_RELEASE_REFUSAL = 'carries a signature of THIS release';
-type RecordRow = { id: string; status: string; reason: string | null; verified: boolean };
+type RecordRow = {
+	id: string;
+	repository: string | null;
+	status: string;
+	reason: string | null;
+	verified: boolean;
+};
 const rowOf = (run: Run, id: string): RecordRow | undefined =>
 	(run.record?.registries as RecordRow[] | undefined)?.find((item) => item.id === id);
 const statusOf = (run: Run, id: string) => rowOf(run, id)?.status;
@@ -876,11 +895,64 @@ describe('publish — immutability of a release', () => {
 		const run = publish({ throwOn: `cosign verify ${HUB}@` });
 		expect(run.code).toBe(99); // main rethrows a non-Refusal
 		expect(run.stdout).toContain('injected failure at: cosign verify');
+		// The error record was written (no fallback warning), and ghcr's verify ran clean.
+		expect(run.stdout).toContain('record: ');
+		expect(run.stdout).not.toContain('record not written');
+		expect(run.stdout).not.toContain('::error::ghcr');
 		expect(run.record?.digest).toBe(BUILT);
 		expect(rowOf(run, 'ghcr')).toMatchObject({ status: 'pushed', verified: true, reason: null });
 		// dockerhub WAS pushed (step 6) — kept, unverified, with the error as its reason.
 		expect(rowOf(run, 'dockerhub')).toMatchObject({ status: 'pushed', verified: false });
-		expect(reasonOf(run, 'dockerhub')).toContain('injected failure');
+		expect(reasonOf(run, 'dockerhub')).toBe(
+			`interrupted: injected failure at: cosign verify ${HUB}@${BUILT} --certificate-identity-regexp ${LIST.signing.identity_regexp} --certificate-oidc-issuer ${LIST.signing.issuer}`,
+		);
+	});
+
+	test("an interrupted record keeps a target's OWN finished verdict and reason — never the other target's error", () => {
+		// ghcr's copy fails on its own (step 6 'copy failed', step 7 final); then a plain Error
+		// is thrown at dockerhub's verify.
+		const run = publish({
+			throwOn: `cosign verify ${HUB}@`,
+			env: { STUB_COPY_FAIL: `${GHCR}:7.0.1` },
+		});
+		expect(run.code).toBe(99);
+		expect(run.stdout).toContain(`::error::ghcr: ${GHCR}:7.0.1 is not ${BUILT}`);
+		expect(rowOf(run, 'ghcr')).toEqual({
+			id: 'ghcr',
+			repository: GHCR,
+			status: 'failed',
+			reason: 'copy failed',
+			verified: false,
+		});
+		expect(reasonOf(run, 'dockerhub')).toStartWith('interrupted: injected failure');
+		// A step-6 row whose verify never ran keeps its OWN reason, the interruption appended.
+		const early = publish({
+			throwOn: `cosign verify ${GHCR}@`,
+			env: { STUB_SIGN_FAIL: `${HUB}@${BUILT}` },
+		});
+		expect(early.code).toBe(99);
+		expect(reasonOf(early, 'dockerhub')).toStartWith(
+			'signing failed; interrupted: injected failure',
+		);
+		expect(statusOf(early, 'dockerhub')).toBe('failed');
+	});
+
+	test('a TERMINAL record that cannot be written: one fallback attempt, one warning, the original error, no partial file', () => {
+		const dir = join(scratch, `gone-${runCounter}`);
+		const recordPath = join(dir, 'image-release.json');
+		const run = publish({ env: { RECORD_PATH: recordPath } });
+		expect(run.code).not.toBe(0);
+		expect(run.stdout.match(/::warning::record not written/g)?.length).toBe(1);
+		expect(run.stdout).toContain('ENOENT'); // the original error decides the run
+		expect(existsSync(recordPath)).toBe(false);
+		expect(existsSync(`${recordPath}.part`)).toBe(false);
+		// The rename itself fails (the path is a directory): the written .part is removed.
+		const blocked = join(scratch, `blocked-${runCounter}`);
+		mkdirSync(join(blocked, 'occupied'), { recursive: true });
+		const second = publish({ env: { RECORD_PATH: blocked } });
+		expect(second.code).not.toBe(0);
+		expect(second.stdout.match(/::warning::record not written/g)?.length).toBe(1);
+		expect(existsSync(`${blocked}.part`)).toBe(false);
 	});
 
 	test('a failing staging signature refuses before anything leaves staging', () => {
