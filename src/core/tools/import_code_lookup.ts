@@ -47,6 +47,7 @@
  */
 
 import { DedaloError } from '../errors/index.ts';
+import { decodeHtmlSpecialChars } from '../resolve/html_text.ts';
 import type { Principal } from '../security/permissions.ts';
 
 /** The component an identifier is matched against: the section's CODE component. */
@@ -115,18 +116,14 @@ export function textAsParagraph(text: string): string {
 /**
  * The text of a stored HTML identifier: ONE wrapping paragraph removed and the
  * escaping {@link textAsParagraph} applies undone (plus the apostrophe forms an
- * editor writes). Anything else is kept as it is: an identifier holding more
+ * editor writes, and the numeric spellings of `& < > " '`), in ONE pass. Anything else is kept as it is: an identifier holding more
  * markup than one paragraph is compared on that markup, and matches nothing.
  */
 export function paragraphAsText(markup: string): string {
 	const inner = /^\s*<p>([\s\S]*)<\/p>\s*$/i.exec(markup)?.[1] ?? markup;
-	return inner
-		.replaceAll('&lt;', '<')
-		.replaceAll('&gt;', '>')
-		.replaceAll('&quot;', '"')
-		.replaceAll('&#39;', "'")
-		.replaceAll('&apos;', "'")
-		.replaceAll('&amp;', '&');
+	// ONE pass (html_text): a chain decodes `&amp;` last to stay single-decode,
+	// and the html_text_tripwire refuses any `&amp;` decode outside html_text.
+	return decodeHtmlSpecialChars(inner, { apos: true });
 }
 
 /**

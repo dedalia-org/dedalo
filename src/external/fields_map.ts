@@ -30,6 +30,7 @@
  * engineering/wire_contract/ entry the day this is wired into section reads.
  */
 
+import { htmlTags } from '../core/resolve/html_text.ts';
 import type { ExternalEntriesResult, ExternalRowView } from './api/types.ts';
 import type {
 	ExternalFormat,
@@ -289,7 +290,58 @@ const ALLOWED_MARKUP_TAGS: ReadonlySet<string> = new Set([
 ]);
 
 /** Elements whose CONTENT is executable/styling, not text — removed wholesale. */
-const RAW_CONTENT_ELEMENTS = /<(script|style|iframe|object|embed|svg|math)\b[\s\S]*?<\/\1\s*>/gi;
+const RAW_CONTENT_OPENER = /<(script|style|iframe|object|embed|svg|math)\b/iy;
+
+/** A tag the re-emitter considers: `<name…>` / `</name…>` up to the first `>`. */
+const MARKUP_TAG_OPENER = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b/y;
+
+/**
+ * Drop every raw-content element (opener through its own `</name\s*>`) and every
+ * `<!-- … -->` comment. Same output as
+ * `raw.replace(/<(script|…)\b[\s\S]*?<\/\1\s*>/gi, '').replace(/<!--[\s\S]*?-->/g, '')`,
+ * in linear time: those lazy forms rescan to the end of a REMOTE value for every
+ * unclosed `<script` / `<!--` (O(n²), the CodeQL #7958 shape). Once an element
+ * has no closer after some point, no later opener of that name has one either,
+ * so each name is searched for at most once past its last closer.
+ */
+function dropRawContent(raw: string): string {
+	let out = '';
+	let from = 0;
+	const unclosedFrom = new Map<string, number>();
+	let open = raw.indexOf('<');
+	while (open !== -1) {
+		RAW_CONTENT_OPENER.lastIndex = open;
+		const opener = RAW_CONTENT_OPENER.exec(raw);
+		const name = opener?.[1]?.toLowerCase();
+		if (opener === null || name === undefined || open >= (unclosedFrom.get(name) ?? Infinity)) {
+			open = raw.indexOf('<', open + 1);
+			continue;
+		}
+		const closer = new RegExp(`<\\/${name}\\s*>`, 'gi');
+		closer.lastIndex = open + opener[0].length;
+		const closed = closer.exec(raw);
+		if (closed === null) {
+			unclosedFrom.set(name, open);
+			open = raw.indexOf('<', open + 1);
+			continue;
+		}
+		out += raw.slice(from, open);
+		from = closed.index + closed[0].length;
+		open = raw.indexOf('<', from);
+	}
+	const kept = out + raw.slice(from);
+	let text = '';
+	let cursor = 0;
+	let comment = kept.indexOf('<!--');
+	while (comment !== -1) {
+		const end = kept.indexOf('-->', comment + 4);
+		if (end === -1) break;
+		text += kept.slice(cursor, comment);
+		cursor = end + 3;
+		comment = kept.indexOf('<!--', cursor);
+	}
+	return text + kept.slice(cursor);
+}
 
 function escapeText(text: string): string {
 	return text
@@ -309,17 +361,17 @@ function escapeText(text: string): string {
  * rather than a stripper — a stripper leaves whatever it failed to recognise.
  */
 export function sanitizeMarkup(raw: string): string {
-	const withoutRawElements = raw.replace(RAW_CONTENT_ELEMENTS, '').replace(/<!--[\s\S]*?-->/g, '');
+	const withoutRawElements = dropRawContent(raw);
 	let output = '';
 	let cursor = 0;
-	const tagPattern = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
-	for (const match of withoutRawElements.matchAll(tagPattern)) {
-		const index = match.index ?? 0;
-		output += escapeText(withoutRawElements.slice(cursor, index));
-		cursor = index + match[0].length;
-		const tag = (match[1] ?? '').toLowerCase();
+	// Linear tag walk (html_text): `/<\/?(name)\b[^>]*>/g` is O(n²) on a remote
+	// value holding a run of unclosed `<a` (CodeQL #7958 shape).
+	for (const match of htmlTags(withoutRawElements, MARKUP_TAG_OPENER)) {
+		output += escapeText(withoutRawElements.slice(cursor, match.index));
+		cursor = match.index + match.tag.length;
+		const tag = (match.opener[1] ?? '').toLowerCase();
 		if (!ALLOWED_MARKUP_TAGS.has(tag)) continue; // drop the tag, keep the text around it
-		output += match[0].startsWith('</') ? `</${tag}>` : `<${tag}>`;
+		output += match.tag.startsWith('</') ? `</${tag}>` : `<${tag}>`;
 	}
 	output += escapeText(withoutRawElements.slice(cursor));
 	return output;

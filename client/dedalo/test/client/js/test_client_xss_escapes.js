@@ -23,6 +23,7 @@ import {search} from '../../../core/search/js/search.js'
 import {extract_node_fields} from '../../../core/section/js/build_graph_data.js'
 import {url_vars_to_object} from '../../../core/common/js/utils/index.js'
 import {service_autocomplete} from '../../../core/services/service_autocomplete/js/service_autocomplete.js'
+import {execute_search_render} from '../../../core/services/service_autocomplete/js/view_default_autocomplete.js'
 import {tool_transcription} from '../../../tools/tool_transcription/js/tool_transcription.js'
 import {ui} from '../../../core/common/js/ui.js'
 
@@ -138,13 +139,39 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		assert.equal(vars.x, '1')
 	})
 
-	it('service_autocomplete: the query cache is a Map, never a plain object (alert 8105)', function() {
+	it('service_autocomplete: a typed "__proto__" query is an ordinary cache key on the SHIPPED search path (alert 8105)', async function() {
 
+		// The real search→cache→render path (execute_search_render) on a real
+		// service instance; only the network call is stubbed. With bracket access
+		// (`search_cache[q]`) the FIRST lookup of '__proto__' already "hits" the
+		// object's prototype (no request is made) and the write re-parents the
+		// cache — both fail below.
 		const service = new service_autocomplete()
-		assert.ok(service.search_cache instanceof Map, 'search_cache expected as a Map')
-		service.search_cache.set('__proto__', ['hit'])
-		assert.deepEqual(service.search_cache.get('__proto__'), ['hit'], 'a __proto__ query is an ordinary key')
-		assert.equal(Object.getPrototypeOf(service.search_cache), Map.prototype)
+		assert.ok(service.search_cache instanceof Map, 'precondition: the constructor builds a Map')
+		const datalist		= document.createElement('ul')
+		const search_input	= document.createElement('input')
+		service.datalist	= datalist
+		service._search_seq	= 1
+		let requests = 0
+		const answer = { context : [], data : [] }
+		service.autocomplete_search = async function() {
+			requests++
+			return { ok : true, data : answer, result : answer }
+		}
+		const search = () => execute_search_render(service, {
+			q				: '__proto__',
+			my_seq			: 1,
+			loading_label	: null,
+			spinner			: null,
+			search_input	: search_input
+		})
+
+		await search()
+		assert.equal(requests, 1, 'the first "__proto__" search must reach the source (no phantom cache hit)')
+		assert.equal(Object.getPrototypeOf(service.search_cache), Map.prototype, 'the cache keeps its prototype')
+		assert.equal(service.search_cache.get('__proto__'), answer, 'the answer is cached under the typed key')
+		await search()
+		assert.equal(requests, 1, 'the repeated search is served from the cache')
 	})
 
 	it('tool_transcription: a person name / role with markup is TEXT in the speaker binding dialog', async function() {
@@ -173,14 +200,22 @@ describe('CLIENT XSS ESCAPES (record values are text)', function() {
 		assert.equal(await opened, null, 'closing the dialog binds nothing')
 	})
 
-	it('ui.confirm: a string header is TEXT, never parsed', async function() {
+	it('ui.confirm: a string header AND a string body are TEXT, never parsed', async function() {
 
-		const pending = ui.confirm({ header : 'Duplicate ' + XSS, body : 'x' })
+		const pending = ui.confirm({ header : 'Duplicate ' + XSS, body : 'Delete the restore point ' + XSS + '?' })
 		const header = document.querySelector('dd-modal .header .label') || [...document.querySelectorAll('.header .label')].pop()
+		const modal_node = header ? header.closest('dd-modal') : null
+		const body = modal_node
+			? modal_node.querySelector('.body.content')
+			: [...document.querySelectorAll('.body.content')].pop()
 		try {
 			assert.ok(header, 'the confirm header expected in the document')
 			assert.equal(header.querySelector('img'), null, 'the header must not be parsed as markup')
 			assert.ok(header.textContent.includes('Duplicate ' + XSS), 'the exact header expected as text')
+			assert.ok(body, 'the confirm body expected in the document')
+			assert.equal(body.querySelector('img'), null, 'the body must not be parsed as markup')
+			assert.equal(body.textContent, 'Delete the restore point ' + XSS + '?', 'the exact body expected as text')
+			assert.equal(window.__xss_fired, undefined, 'no payload may run')
 		} finally {
 			const modal = (header && header.closest('dd-modal')) || window.modal || null
 			if (modal && typeof modal.close==='function') await modal.close()

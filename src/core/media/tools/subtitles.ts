@@ -29,6 +29,7 @@
  * tc_in_secs/tc_out_secs (build_fragment).
  */
 
+import { stripTagsExcept } from '../../resolve/html_text.ts';
 import { secondsToTc, tcToSeconds } from '../../resolve/tr_marks.ts';
 
 // ---------------------------------------------------------------------------
@@ -70,8 +71,9 @@ const NON_TC_MARK_PATTERNS: readonly RegExp[] = [
  * (PHP calls html_entity_decode without using the result — preserved as no-op.)
  */
 export function cleanTextForSubtitles(text: string): string {
-	// strip_tags($string, '<br><strong><em>') — remove all other tags.
-	let out = text.replace(/<(?!\/?(?:br|strong|em)\b)[^>]*>/gi, '');
+	// strip_tags($string, '<br><strong><em>') — remove all other tags (linear:
+	// the regex form is O(n²) on a run of unclosed `<`, CodeQL #7958).
+	let out = stripTagsExcept(text, ['br', 'strong', 'em']);
 	out = out.replaceAll('<br />', ' ');
 	out = out.replaceAll('<strong>', '<b>').replaceAll('</strong>', '</b>');
 	out = out.replaceAll('<em>', '<i>').replaceAll('</em>', '</i>');

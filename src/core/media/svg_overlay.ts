@@ -19,6 +19,7 @@ import { config } from '../../config/config.ts';
 import { type MediaTypeSpec, mediaTypeOf } from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { getModelByTipo } from '../ontology/resolver.ts';
+import { replaceFirstHtmlTag } from '../resolve/html_text.ts';
 import { writeAtomically } from './atomic.ts';
 import { getDimensions } from './engine/imagemagick.ts';
 import { managedFileSlots, moveToDeleted } from './file_ops.ts';
@@ -200,7 +201,7 @@ export function repointEnvelopeRaster(
 ): string {
 	let out = content;
 	// Root <svg …> attributes (the first tag only).
-	out = out.replace(/<svg\b[^>]*>/i, (tag) => {
+	out = replaceFirstHtmlTag(out, /<svg\b/iy, (tag) => {
 		let next = tag;
 		next = next.replace(/\swidth="[^"]*"/i, ` width="${String(width)}"`);
 		next = next.replace(/\sheight="[^"]*"/i, ` height="${String(height)}"`);
@@ -209,7 +210,7 @@ export function repointEnvelopeRaster(
 	});
 	// The raster <image …>: the FIRST one, which is the envelope's raster group
 	// (the default template puts it there and every editor export preserves it).
-	out = out.replace(/<image\b[^>]*>/i, (tag) => {
+	out = replaceFirstHtmlTag(out, /<image\b/iy, (tag) => {
 		let next = tag;
 		next = next.replace(/\swidth="[^"]*"/i, ` width="${String(width)}"`);
 		next = next.replace(/\sheight="[^"]*"/i, ` height="${String(height)}"`);

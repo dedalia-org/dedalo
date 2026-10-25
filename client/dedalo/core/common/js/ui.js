@@ -3147,8 +3147,9 @@ export const ui = {
 	* @param {string|null} [options.note] - Optional '[context]' suffix appended to the
 	*   header label (the '[Oral History]' of the delete-record dialog). Rendered as
 	*   TEXT, so it is the safe slot for record data: section labels, thesaurus terms.
-	* @param {HTMLElement|string} options.body - The question. A string is wrapped in
-	*   div.body.content by attach_to_modal.
+	* @param {HTMLElement|string} options.body - The question. A string is TEXT
+	*   (div.body.content, text_content — never parsed): callers splice names and
+	*   server messages into it. Pass a node for structured content.
 	* @param {string} [options.accept_label] - Accept button caption. Default: get_label.continue.
 	* @param {string} [options.cancel_label] - Cancel button caption. Default: get_label.cancel.
 	* @param {string|null} [options.accept_class='brand'] - Class list for the accept button.
@@ -3206,6 +3207,18 @@ export const ui = {
 					return header_node
 				  })()
 				: options.header
+
+		// body. A string is built as div.body.content — the box attach_to_modal's
+		// string path makes — but as TEXT: the callers splice record names, restore
+		// point names and server error text into the question, so a parsed body
+		// would be a sink every caller had to escape for. A node passes through.
+			const body = (typeof options.body==='string' && options.body!=='')
+				? ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'body content',
+					text_content	: options.body
+				  })
+				: options.body
 
 		// footer
 			const footer = ui.create_dom_element({
@@ -3268,7 +3281,7 @@ export const ui = {
 			// above; they run after this line executes, so the forward reference is safe.
 				const modal = ui.attach_to_modal({
 					header		: header,
-					body		: options.body,
+					body		: body,
 					footer		: footer,
 					size		: size,
 					minimizable	: false,

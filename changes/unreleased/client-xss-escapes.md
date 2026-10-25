@@ -14,8 +14,8 @@ names listed by the **Lock components** maintenance panel. A value containing
 markup — for example a layer named `<img src=x onerror=…>` — ran as script for
 any other user who opened it. These values are now always shown as plain text,
 and the same rule now holds for every label, count and message the interface
-builds around a value: a confirmation dialog's title, for example, is always
-text.
+builds around a value: a confirmation dialog's title and its question, for
+example, are always text.
 Two internal lookups keyed by text a user controls (URL parameters and the
 autocomplete search cache) were also hardened so such a key cannot alter them.
 No action is needed on update.

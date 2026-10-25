@@ -946,9 +946,12 @@ function censusSource(file: string, src: string): Sink[] {
  * reaches `inner_html` / insertAdjacentHTML unchanged, so the CALL SITE is a
  * sink of its own — `ui.attach_to_modal({header|body|footer})`,
  * `ui.build_button({label})` and `ui.update_node_content(node, value)`.
- * (`ui.confirm({header})` left the list 2026-10-25: its string header is now
- * built with text_content — a return to inner_html is counted at that ui.js
- * sink by the ratchet.) A census that stopped at the helper's
+ * (`ui.confirm` left the list 2026-10-25: BOTH its string slots — header and
+ * body — are now built with text_content, so a confirm call site hands no
+ * string to the parser. Its own `attach_to_modal({header, body})` call is
+ * counted in ui.js's ratchet entry, and the OUTCOME — markup in either slot
+ * renders as text — is driven by the client gate test_client_xss_escapes.js;
+ * a revert to a parsed body goes red there.) A census that stopped at the helper's
  * body would count these once (in ui.js's ratchet) and bless every caller.
  * Shorthand properties (`{ header }`) resolve as the identifier; an options
  * argument that is not an object literal is the whole unread value: dynamic.
@@ -1670,7 +1673,7 @@ describe('one escaper at the render boundary — the census', () => {
 			(n, f) => n + [...stripComments(read(f)).matchAll(HELPER_CALL_RE)].length,
 			0,
 		);
-		// 40, not 50: the 15 ui.confirm sites left the list 2026-10-25 (its header is text)
+		// 40, not 50: the 15 ui.confirm sites left the list 2026-10-25 (header AND body are text)
 		expect(callSites).toBeGreaterThan(40);
 		const counted = files.flatMap(censusFile).filter((s) => s.kind === 'helper_option');
 		expect(counted.length).toBeGreaterThanOrEqual(callSites);

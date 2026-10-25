@@ -212,6 +212,7 @@ const TRIPWIRES = [
 	'test/unit/test_db_marker_tripwire.test.ts',
 	'test/unit/test_media_root_tripwire.test.ts',
 	'test/unit/predictable_tmp_tripwire.test.ts',
+	'test/unit/html_text_tripwire.test.ts',
 	'test/unit/core_tool_edge_tripwire.test.ts',
 	'test/unit/test_rag_db_tripwire.test.ts',
 	'test/unit/test_timeout_tripwire.test.ts',

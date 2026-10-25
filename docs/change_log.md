@@ -1040,8 +1040,8 @@ Merged since the last release; these ship with the next one.
     markup — for example a layer named `<img src=x onerror=…>` — ran as script for
     any other user who opened it. These values are now always shown as plain text,
     and the same rule now holds for every label, count and message the interface
-    builds around a value: a confirmation dialog's title, for example, is always
-    text.
+    builds around a value: a confirmation dialog's title and its question, for
+    example, are always text.
     Two internal lookups keyed by text a user controls (URL parameters and the
     autocomplete search cache) were also hardened so such a key cannot alter them.
     No action is needed on update.
@@ -1053,14 +1053,16 @@ Merged since the last release; these ship with the next one.
       request. Such an address (longer than 4096 characters, far beyond any real tag) is now refused
       with a `400` before it is read, and the tag clean-up itself runs in linear time — as do the
       other places that strip markup from text (search ordering, publication values, thesaurus empty
-      checks, list previews).
+      checks, list previews, subtitle files, external-record markup, image annotation envelopes,
+      merged RDF publications).
     - Rich text keeps a `data:` link in an attribute only when it is a raster image (PNG, JPEG, GIF,
       WebP, AVIF, BMP). Any other `data:` link — an SVG image, XML, plain text — is replaced by `#` when
       the text is saved. Descriptive attributes (`alt`, `title`, …) are not affected, so an alternative
       text that starts with "Data:" is kept.
     - Text in which a cataloguer literally typed `&lt;` is now shown, counted and indexed as `&lt;`,
-      not as `<`: the indexation grid, the transcription character count and the semantic index decode
-      each entity once.
+      not as `<`: the indexation grid, the transcription character count, the semantic index and the
+      import code lookup decode each entity once. The numeric spellings of the five special characters
+      (`&#60;`, `&#x27;`, …) are decoded there too, exactly as the previous engine did.
     - Two small file races are closed: the update log and the media access markers are created in one
       step that never empties an existing file, and the staged upload name is size-checked and read
       through the same open file.

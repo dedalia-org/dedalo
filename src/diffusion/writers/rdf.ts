@@ -75,6 +75,7 @@ import {
 import { DedaloError } from '../../core/errors/index.ts';
 import { fsyncDirectory, mkdirDurably, writeAllSync } from '../../core/files/durable.ts';
 import { tempPathFor } from '../../core/files/temp_path.ts';
+import { firstHtmlTag } from '../../core/resolve/html_text.ts';
 import type { PublicationPlan, SectionPlan } from '../plan/types.ts';
 import type { ProjectedRow } from '../project/lang_ladder.ts';
 import {
@@ -99,6 +100,9 @@ import type {
 	WriterRunSummary,
 	WriterSession,
 } from './types.ts';
+
+/** The `<rdf:RDF …>` opener, matched linearly (html_text — CodeQL #7958 shape). */
+const RDF_OPENER = /<rdf:RDF/y;
 
 /**
  * WriterRunSummary side-channel (shape per writers/types.ts — no new fields):
@@ -435,10 +439,10 @@ function isMergeablePart(part: string): boolean {
 
 /** The rdf part's inner block (between its <rdf:RDF …> and its last </rdf:RDF>), trimmed. */
 function rdfInnerBlock(part: string): string {
-	const open = part.match(/<rdf:RDF[^>]*>/s);
+	const open = firstHtmlTag(part, RDF_OPENER);
 	const closeIndex = part.lastIndexOf('</rdf:RDF>');
 	if (!open || closeIndex === -1) return '';
-	const bodyStart = (open.index ?? 0) + open[0].length;
+	const bodyStart = open.index + open.tag.length;
 	return part.slice(bodyStart, closeIndex).trim();
 }
 
@@ -480,7 +484,7 @@ export async function writeMergedRdf(
 				continue;
 			}
 			if (parts === 2) {
-				const openingTag = first.match(/<rdf:RDF[^>]*>/s)?.[0] ?? '<rdf:RDF>';
+				const openingTag = firstHtmlTag(first, RDF_OPENER)?.tag ?? '<rdf:RDF>';
 				await output.write(`<?xml version="1.0" encoding="utf-8"?>\n${openingTag}\n\n`);
 				await writeBlock(rdfInnerBlock(first));
 			}

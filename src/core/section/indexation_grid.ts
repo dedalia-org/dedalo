@@ -689,8 +689,12 @@ async function atomsCell(
 // text_area indexation custom columns (component_text_area_value.php).
 // ---------------------------------------------------------------------------
 
-/** PHP TR::get_mark_pattern indexIn/indexOut with id + the (.*) fragment. */
-function fragmentFromTag(
+/**
+ * PHP TR::get_mark_pattern indexIn/indexOut with id + the (.*) fragment.
+ * Exported for its outcome gate (server_codeql_hardening_native: the fragment
+ * text is decoded ONCE — `&amp;lt;` stays `&lt;`, CodeQL #7936).
+ */
+export function fragmentFromTag(
 	tagId: string,
 	rawText: string,
 ): {
