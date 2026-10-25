@@ -54,8 +54,10 @@
  *      where the workflow built it — else refuse), and X is what the missing targets
  *      receive; a holder of X whose registry lacks the signature is signed in place; a
  *      target tag that appeared since this check with another digest is never re-pointed;
- *   5. a fresh D is signed FIRST in staging (`cosign sign` keyless on staging@D; Rekor):
- *      the anchor a recovery run finds if this one dies after a copy;
+ *   5. a fresh D (no holder) only from the release's OWN tag ref (GITHUB_REF =
+ *      refs/tags/v<tag> — the identity step 4 demands of an anchor; a dispatch from
+ *      master never mints a release), signed FIRST in staging (`cosign sign` keyless on
+ *      staging@D; Rekor): the anchor a recovery run finds if this one dies after a copy;
  *   6. per target: carbon-copy the digest (`docker buildx imagetools create -t
  *      <target>:<tag> <source>@D`, one source → same digest), then `cosign sign` AT
  *      <target>@D — one signature per registry. NEVER `cosign copy`: cosign 3 signs in
@@ -66,13 +68,16 @@
  *   8. record: the job summary + image-release.json (uploaded as an artifact).
  * Nothing leaves staging before D is signed there; nothing is signed before step 4
  * passes; an unpinned or tampered cosign refuses before the first push.
- * Every command runs under a per-verb ceiling (commandTimeoutMs): a hung registry fails
- * one target and the record is still written.
+ * Every verb has a deadline below its job's timeout-minutes and every command a ceiling
+ * (VERB_BUDGET_MS / COMMAND_TIMEOUT_MS): a hung registry fails targets, the record is
+ * still written.
  *
  * I/O: inputs come from the environment the workflow composes (static names, every
  * expression through `env:`); outputs go to $GITHUB_OUTPUT and $GITHUB_STEP_SUMMARY.
  * The only process boundary is ONE injectable command runner. Test seams:
- * IMAGE_REGISTRIES_FILE (another list), COSIGN_PIN_FILE (another pin).
+ * IMAGE_REGISTRIES_FILE (another list), COSIGN_PIN_FILE (another pin),
+ * IMAGE_RELEASE_COMMAND_TIMEOUT_MS (another per-command ceiling), IMAGE_RELEASE_DEADLINE_MS
+ * (another verb budget).
  */
 
 import { createHash } from 'node:crypto';
@@ -124,32 +129,68 @@ export type Runner = (
 ) => CommandResult;
 
 /**
- * The per-command ceiling, per verb: a registry, Fulcio or Rekor that accepts the
- * connection and never answers must fail ONE command — that target is recorded `failed`
- * and the record is still written — never stall the job until GitHub kills it (publish:
- * `timeout-minutes: 30`, which would leave no record). IMAGE_RELEASE_COMMAND_TIMEOUT_MS
- * overrides it (test seam).
+ * Time is bounded twice, so a registry, Fulcio or Rekor that accepts the connection and
+ * never answers fails commands — never the job, which GitHub would kill at its
+ * `timeout-minutes` before any record is written:
+ *  - VERB_BUDGET_MS: the whole verb's deadline, kept BELOW the timeout-minutes of the job
+ *    that runs it (VERB_JOBS; the gate reads the workflow and sums the budgets per job).
+ *    Past it, no command starts (it answers `deadline exceeded`), the remaining publish
+ *    targets are recorded `failed` (`deadline exceeded`), and the record is still written;
+ *  - COMMAND_TIMEOUT_MS: one command's ceiling, never above its verb's budget; each command
+ *    gets min(ceiling, time left before the deadline).
+ * Seams: IMAGE_RELEASE_COMMAND_TIMEOUT_MS, IMAGE_RELEASE_DEADLINE_MS.
  */
-const COMMAND_TIMEOUT_MS: Readonly<Record<string, number>> = {
-	publish: 8 * 60_000,
+export const VERB_BUDGET_MS: Readonly<Record<string, number>> = {
+	plan: 8 * 60_000,
+	context: 10 * 60_000,
 	smoke: 30 * 60_000,
-	plan: 15 * 60_000,
-	context: 15 * 60_000,
+	publish: 25 * 60_000,
 };
+export const COMMAND_TIMEOUT_MS: Readonly<Record<string, number>> = {
+	plan: 5 * 60_000,
+	context: 10 * 60_000,
+	smoke: 30 * 60_000,
+	publish: 8 * 60_000,
+};
+/** The image-release.yml job each verb runs in (the deadline gate's map). */
+export const VERB_JOBS: Readonly<Record<string, string>> = {
+	plan: 'plan',
+	context: 'build',
+	smoke: 'build',
+	publish: 'publish',
+};
+const DEFAULT_LIMIT_MS = 5 * 60_000;
 
-/** The ceiling a verb's commands run under (ms). */
+function positiveInt(raw: string | undefined): number | null {
+	const value = Number.parseInt(raw ?? '', 10);
+	return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** The ceiling one of a verb's commands runs under (ms). */
 export function commandTimeoutMs(verb: string, env: Env): number {
-	const override = Number.parseInt(env.IMAGE_RELEASE_COMMAND_TIMEOUT_MS ?? '', 10);
-	if (Number.isFinite(override) && override > 0) return override;
-	return COMMAND_TIMEOUT_MS[verb] ?? 15 * 60_000;
+	return (
+		positiveInt(env.IMAGE_RELEASE_COMMAND_TIMEOUT_MS) ??
+		COMMAND_TIMEOUT_MS[verb] ??
+		DEFAULT_LIMIT_MS
+	);
+}
+
+/** The whole verb's budget (ms): its deadline is the start plus this. */
+export function verbBudgetMs(verb: string, env: Env): number {
+	return positiveInt(env.IMAGE_RELEASE_DEADLINE_MS) ?? VERB_BUDGET_MS[verb] ?? DEFAULT_LIMIT_MS;
 }
 
 /**
- * The real runner. Passwords travel on stdin, never in argv, so the echo is safe. A
- * command past `timeoutMs` is killed and answers a non-zero result naming the timeout.
+ * The real runner. Passwords travel on stdin, never in argv, so the echo is safe. Each
+ * command runs under min(`capMs`, time left before `deadline`) and is killed past it,
+ * answering a non-zero result that names why; past the deadline nothing is started.
  */
-export function spawnRunner(timeoutMs: number): Runner {
+export function spawnRunner(capMs: number, deadline: number): Runner {
 	return (argv, options) => {
+		const left = deadline - Date.now();
+		if (left <= 0)
+			return { code: 124, stdout: '', stderr: `${argv[0]}: not started — deadline exceeded` };
+		const timeoutMs = Math.min(capMs, left);
 		console.log(`$ ${argv.join(' ')}`);
 		const result = Bun.spawnSync([...argv], {
 			cwd: options?.cwd,
@@ -275,14 +316,17 @@ function devPlanFor(facts: PlanFacts, git: PlanGit, staging: string): ReleasePla
 }
 
 /**
- * A release dispatch publishes an EXISTING tag. It must run from a ref the signing
- * identity accepts (the release tag itself or the dev branch), or every copy would fail
- * the very verify step that operators run.
+ * A release dispatch publishes an EXISTING tag. It runs from the dev branch (which may only
+ * fill or sign a release already anchored — publish's fresh-path rule) or from THAT SAME
+ * tag (whose signature is this release's own identity) — never from another release tag,
+ * whose identity would sign this release as that one.
  */
 function dispatchedReleasePlan(facts: PlanFacts, git: PlanGit, staging: string): ReleasePlan {
-	if (facts.ref !== DEV_BRANCH_REF && releaseTagIdentity(facts.ref) === null)
+	const wanted = releaseTagIdentity(facts.inputTag);
+	const sameTag = wanted !== null && releaseTagIdentity(facts.ref) === wanted;
+	if (facts.ref !== DEV_BRANCH_REF && !sameTag)
 		throw new Refusal(
-			`a release dispatch runs from ${DEV_BRANCH_REF} or a release tag (this run is on ${facts.ref})`,
+			`a release dispatch of ${facts.inputTag} runs from ${DEV_BRANCH_REF} or from that same tag (this run is on ${facts.ref})`,
 		);
 	return releasePlanFor(facts.inputTag, git, staging);
 }
@@ -734,6 +778,8 @@ export interface ReleaseRecord {
 interface PublishContext {
 	env: Env;
 	run: Runner;
+	/** Epoch ms past which no target is attempted (verbBudgetMs). */
+	deadline: number;
 	list: ImageRegistryList;
 	plan: ReleasePlan & { archive_sha256: string; run_id: string };
 	cosign: string;
@@ -882,11 +928,28 @@ function chooseSource(
 	}));
 	const verdict = immutabilityVerdict(ctx.plan.channel, existing);
 	if (verdict.kind === 'existing') return existingRelease(ctx, existing, verdict.digest);
+	const refFault = freshReleaseRefFault(ctx);
+	if (refFault !== null) throw new Refusal(refFault);
 	// The ANCHOR signature, before anything leaves staging: a run that dies after a copy
 	// leaves a digest whose official signature is provably somewhere (recovery, below).
 	const source = `${ctx.plan.staging}@${built}`;
 	must(ctx.run([ctx.cosign, 'sign', '--yes', source]), 'signing the image in staging');
 	return { source, digest: built, holders: new Map() };
+}
+
+/**
+ * The anchor's WRITER must be what its reader accepts: a never-published release (no
+ * holder) is signed only by its OWN tag's run — the identity officialAnchor demands
+ * (`refs/tags/v<tag>`). A dispatch from master (or any other ref) may only fill or sign
+ * an EXISTING anchored release; minting one would leave signatures no later run can
+ * anchor on. Dev tags are mutable and anchor nothing. Null = may publish fresh.
+ */
+function freshReleaseRefFault(ctx: PublishContext): string | null {
+	if (ctx.plan.channel === 'dev') return null;
+	const own = `refs/tags/v${ctx.plan.tag}`;
+	const ref = ctx.env.GITHUB_REF ?? '';
+	if (ref === own) return null;
+	return `release ${ctx.plan.tag} is published nowhere yet, and this run is on ${ref || '<no GITHUB_REF>'}: a never-published release is published only from its own tag (${own} — the tag push, or a release dispatch run on that tag); a dispatch from another ref only fills or signs an existing release`;
 }
 
 /**
@@ -945,6 +1008,7 @@ function publishTo(
 ): TargetOutcome {
 	const holder = chosen.holders.get(target.repository);
 	if (holder?.signed) return { status: 'unchanged', reason: null };
+	if (Date.now() >= ctx.deadline) return { status: 'failed', reason: 'deadline exceeded' };
 	if (holder !== undefined) return signedOutcome(ctx, target, chosen.digest, 'signed');
 	const moved = tagMovedFault(ctx, target, chosen.digest);
 	if (moved !== null) return { status: 'failed', reason: moved };
@@ -1127,7 +1191,7 @@ function registriesOf(env: Env): ImageRegistryList {
 	return parseImageRegistries(JSON.parse(readFileSync(file, 'utf8')), file);
 }
 
-function publish(env: Env, run: Runner): number {
+function publish(env: Env, run: Runner, deadline: number): number {
 	const list = registriesOf(env);
 	const plan = publishPlan(env);
 	if (plan.staging !== list.ci.staging_repository)
@@ -1136,7 +1200,7 @@ function publish(env: Env, run: Runner): number {
 		);
 	smokedDigests(env); // refuse a missing digest before the first download or push
 	const cosign = installCosign(env, run);
-	const ctx: PublishContext = { env, run, list, plan, cosign };
+	const ctx: PublishContext = { env, run, deadline, list, plan, cosign };
 	const verdicts = classifyTargets(list, env);
 	const targets = verdicts.filter((verdict): verdict is PublishTarget => verdict.publish);
 	if (targets.length === 0)
@@ -1242,7 +1306,7 @@ function contextVerb(env: Env, run: Runner): number {
 	return 0;
 }
 
-const VERBS: Readonly<Record<string, (env: Env, run: Runner) => number>> = {
+const VERBS: Readonly<Record<string, (env: Env, run: Runner, deadline: number) => number>> = {
 	plan: planVerb,
 	context: contextVerb,
 	smoke,
@@ -1256,9 +1320,10 @@ export function main(argv: readonly string[], env: Env = process.env, runner?: R
 		console.error('usage: bun run scripts/ci/image_release.ts plan|context|smoke|publish');
 		return 2;
 	}
-	const run = runner ?? spawnRunner(commandTimeoutMs(name, env));
+	const deadline = Date.now() + verbBudgetMs(name, env);
+	const run = runner ?? spawnRunner(commandTimeoutMs(name, env), deadline);
 	try {
-		return verb(env, run);
+		return verb(env, run, deadline);
 	} catch (error) {
 		if (!(error instanceof Refusal)) throw error;
 		console.log(`::error::${error.message}`);

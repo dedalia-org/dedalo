@@ -143,6 +143,7 @@ case "$me" in
       "buildx imagetools create")
         # ONE source = a carbon copy (same digest); several = the assembled index.
         if [ $# -eq 6 ]; then
+          [ -n "\${STUB_COPY_FAIL:-}" ] && [ "$5" = "$STUB_COPY_FAIL" ] && { echo "denied" >&2; exit 1; }
           d="$(digest_of "$6")"
           [ -n "\${STUB_COPY_WRONG:-}" ] && [ "$5" = "$STUB_COPY_WRONG" ] && d="sha256:$(printf 'f%.0s' $(seq 64))"
           put "$5" "$d"
@@ -151,6 +152,10 @@ case "$me" in
       "buildx imagetools inspect")
         # STUB_APPEAR_REF: absent at the first inspect, then written (STUB_APPEAR_DIGEST) by
         # "someone else" before the next — a tag that appears between check and copy.
+        if [ -n "\${STUB_INSPECT_ERROR_AFTER_FIRST:-}" ] && [ "$4" = "$STUB_INSPECT_ERROR_AFTER_FIRST" ]; then
+          [ -f "$STUB_STATE.seen" ] && { echo "unauthorized: denied" >&2; exit 1; }
+          touch "$STUB_STATE.seen"
+        fi
         if [ -n "\${STUB_APPEAR_REF:-}" ] && [ "$4" = "$STUB_APPEAR_REF" ]; then
           if [ -f "$STUB_STATE.appear" ]; then printf '%s' "$STUB_APPEAR_DIGEST" > "$STUB_STATE/$(key "$4")"
           else touch "$STUB_STATE.appear"; fi
@@ -245,8 +250,11 @@ function publish(options: {
 	for (const [ref, digest] of Object.entries(options.preset ?? {}))
 		writeFileSync(join(state, key(ref)), digest);
 	const channel = options.channel ?? 'master';
-	const tag = { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel];
-	const signer = channel === 'dev' ? SIGNER('refs/heads/master') : SIGNER(`refs/tags/v${tag}`);
+	const tag =
+		options.env?.TAG ?? { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel];
+	// The run's own ref, as GitHub sets it: the release tag's push, or master for dev.
+	const ref = channel === 'dev' ? 'refs/heads/master' : `refs/tags/v${tag}`;
+	const signer = SIGNER(ref);
 	const signatures: Record<string, string> = {
 		...Object.fromEntries((options.signed ?? []).map((ref) => [ref, signer])),
 		...options.signedBy,
@@ -278,6 +286,7 @@ function publish(options: {
 		TAG: tag,
 		GITHUB_REPOSITORY: 'dedalia-org/dedalo',
 		GITHUB_SERVER_URL: 'https://github.com',
+		GITHUB_REF: ref,
 		STUB_SIGNER: signer,
 		CHANNEL: channel,
 		STAGING,
@@ -331,6 +340,11 @@ const COPY_TO_TARGET = new RegExp(
 );
 /** Any registry write of the publish step: a sign or a copy to a target. */
 const THIS_RELEASE_REFUSAL = 'carries a signature of THIS release';
+type RecordRow = { id: string; status: string; reason: string | null; verified: boolean };
+const rowOf = (run: Run, id: string): RecordRow | undefined =>
+	(run.record?.registries as RecordRow[] | undefined)?.find((item) => item.id === id);
+const statusOf = (run: Run, id: string) => rowOf(run, id)?.status;
+const reasonOf = (run: Run, id: string) => rowOf(run, id)?.reason;
 const touchesRelease = (line: string): boolean =>
 	line.startsWith('cosign sign ') || line.startsWith('cosign copy') || COPY_TO_TARGET.test(line);
 
@@ -495,7 +509,7 @@ describe('publish — immutability of a release', () => {
 			// staging@X: the tag-push run's signature (refs/tags/v7.0.1), as on the real run.
 			signed: [`${STAGING}@${existing}`],
 			// The recovery door is a release dispatch from master: it signs as heads/master.
-			env: { STUB_SIGNER: SIGNER('refs/heads/master') },
+			env: { STUB_SIGNER: SIGNER('refs/heads/master'), GITHUB_REF: 'refs/heads/master' },
 		});
 		expect(run.code, run.stdout).toBe(0);
 		// Nothing is rebuilt, copied or re-pointed: only signatures are added, AT X.
@@ -637,6 +651,7 @@ describe('publish — immutability of a release', () => {
 		});
 		expect(run.code).toBe(1);
 		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+		expect(reasonOf(run, 'dockerhub')).toBe('signing failed');
 		expect(
 			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
 				(item) => [item.id, item.status, item.verified],
@@ -678,6 +693,67 @@ describe('publish — immutability of a release', () => {
 			['ghcr', 'pushed', true],
 			['dockerhub', 'failed', false],
 		]);
+	}, 30_000);
+
+	test('S2: a release dispatch from master never MINTS a release — no holder → refused before any sign or copy', () => {
+		const run = publish({
+			env: { GITHUB_REF: 'refs/heads/master', STUB_SIGNER: SIGNER('refs/heads/master') },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('a never-published release is published only from its own tag');
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test('S2: a run on ANOTHER release tag never mints this one either', () => {
+		const run = publish({ env: { GITHUB_REF: 'refs/tags/v7.0.0' } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('a never-published release is published only from its own tag');
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test('the fork guard: a release identity outside the list (GITHUB_REPOSITORY=someone/fork) refuses, nothing touched', () => {
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7) },
+			signed: [`${STAGING}@${D(7)}`],
+			env: { GITHUB_REPOSITORY: 'someone/fork' },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain("is not inside the list's signing identity");
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test("a copy that fails is recorded 'copy failed' — and nothing is signed there", () => {
+		const run = publish({ env: { STUB_COPY_FAIL: `${HUB}:7.0.1` } });
+		expect(run.code).toBe(1);
+		expect(reasonOf(run, 'dockerhub')).toBe('copy failed');
+		expect(run.log.some((line) => line.startsWith(`cosign sign --yes ${HUB}@`))).toBe(false);
+	});
+
+	test("a target's tag that becomes UNREADABLE before the copy is not copied to (unreadable is not absent)", () => {
+		const run = publish({ env: { STUB_INSPECT_ERROR_AFTER_FIRST: `${HUB}:7.0.1` } });
+		expect(run.code).toBe(1);
+		expect(
+			run.log.some((line) => line.startsWith(`docker buildx imagetools create -t ${HUB}:`)),
+		).toBe(false);
+		expect(statusOf(run, 'dockerhub')).toBe('failed');
+		expect(reasonOf(run, 'dockerhub')).toContain('unreadable');
+		expect(statusOf(run, 'ghcr')).toBe('pushed');
+	});
+
+	test('past the verb DEADLINE no target is attempted: the rest fail "deadline exceeded", the record is still written', () => {
+		// GHCR's signature hangs; the per-command ceiling is far away, the 4 s budget is not.
+		const run = publish({
+			env: {
+				STUB_SIGN_HANG: `${GHCR}@${BUILT}`,
+				IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '60000',
+				IMAGE_RELEASE_DEADLINE_MS: '4000',
+			},
+		});
+		expect(run.code).toBe(1);
+		expect(run.record).not.toBeNull();
+		expect(statusOf(run, 'ghcr')).toBe('failed');
+		expect(reasonOf(run, 'dockerhub')).toBe('deadline exceeded');
+		expect(run.log.some((line) => line.includes(HUB) && !line.includes('inspect'))).toBe(false);
 	}, 30_000);
 
 	test('a failing staging signature refuses before anything leaves staging', () => {
@@ -915,6 +991,55 @@ describe('the trigger — every release tag reaches `plan`, which validates it e
 		expect(matching).toContain('7.0.0-beta.01'); // the glob is wider than the grammar
 		for (const name of ordering.not_identities)
 			expect(() => planOf(`v${name}`), name).toThrow('is not a release tag');
+	});
+});
+
+describe('time bounds — every verb finishes (and records) before GitHub kills its job', () => {
+	test('the per-command ceilings and verb budgets are the documented defaults; bad overrides fall back', async () => {
+		const { commandTimeoutMs, verbBudgetMs } = await import('../../scripts/ci/image_release.ts');
+		expect(commandTimeoutMs('publish', {})).toBe(8 * 60_000);
+		expect(verbBudgetMs('publish', {})).toBe(25 * 60_000);
+		expect(commandTimeoutMs('plan', {})).toBe(5 * 60_000);
+		for (const bad of ['0', 'abc', '-5', ''])
+			expect(commandTimeoutMs('publish', { IMAGE_RELEASE_COMMAND_TIMEOUT_MS: bad })).toBe(
+				8 * 60_000,
+			);
+		expect(commandTimeoutMs('publish', { IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '1234' })).toBe(1234);
+		expect(verbBudgetMs('publish', { IMAGE_RELEASE_DEADLINE_MS: 'x' })).toBe(25 * 60_000);
+	});
+
+	test("each job's verbs: budgets sum BELOW its timeout-minutes; each ceiling within its verb's budget", async () => {
+		const { COMMAND_TIMEOUT_MS, VERB_BUDGET_MS, VERB_JOBS } = await import(
+			'../../scripts/ci/image_release.ts'
+		);
+		const workflow = Bun.YAML.parse(
+			readFileSync(join(ROOT, '.github', 'workflows', 'image-release.yml'), 'utf8'),
+		) as { jobs: Record<string, { 'timeout-minutes'?: number; steps: { run?: string }[] }> };
+		const perJob = new Map<string, number>();
+		for (const [verb, job] of Object.entries(VERB_JOBS)) {
+			const definition = workflow.jobs[job];
+			expect(definition, job).toBeDefined();
+			// The map is honest: that job really runs that verb.
+			expect(
+				definition?.steps.some((step) =>
+					new RegExp(`image_release\\.ts ${verb}\\b`).test(step.run ?? ''),
+				),
+				`${job} runs ${verb}`,
+			).toBe(true);
+			expect(COMMAND_TIMEOUT_MS[verb], verb).toBeLessThanOrEqual(VERB_BUDGET_MS[verb] as number);
+			perJob.set(job, (perJob.get(job) ?? 0) + (VERB_BUDGET_MS[verb] as number));
+		}
+		// Every verb the workflow runs is mapped.
+		const runs = Object.values(workflow.jobs).flatMap((job) =>
+			job.steps.flatMap((step) => [...(step.run ?? '').matchAll(/image_release\.ts (\w+)/g)]),
+		);
+		expect(runs.length).toBeGreaterThan(0);
+		for (const match of runs) expect(Object.keys(VERB_JOBS)).toContain(match[1] as string);
+		for (const [job, budget] of perJob) {
+			const limit = workflow.jobs[job]?.['timeout-minutes'];
+			expect(limit, `${job} timeout-minutes`).toBeGreaterThan(0);
+			expect(budget, job).toBeLessThan((limit as number) * 60_000);
+		}
 	});
 });
 
@@ -1317,6 +1442,19 @@ describe('plan — which release a run publishes', () => {
 		});
 		expect(missing.code).toBe(1);
 		expect(missing.text).toContain('does not exist');
+	});
+
+	test("a release dispatch run on ANOTHER release tag's ref is refused at plan (no v7.0.2-beta.1 run publishing v7.0.1)", () => {
+		const other = plan({
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/tags/v7.0.2-beta.1',
+			GITHUB_SHA: betaSha,
+			INPUT_CHANNEL: 'release',
+			INPUT_TAG: 'v7.0.1',
+		});
+		expect(other.code).toBe(1);
+		expect(other.text).toContain('runs from refs/heads/master or from that same tag');
+		expect(other.out).toEqual({});
 	});
 
 	// A release is cut only from a commit the FULL gate passed on GitHub (2026-10-10):

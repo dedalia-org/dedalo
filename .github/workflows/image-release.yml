@@ -46,7 +46,10 @@
 # TRIGGERS. push of a release tag (stable or prerelease); workflow_dispatch (channel dev | release; release
 # publishes an EXISTING tag with master's script — e.g. to fill a newly provisioned mirror,
 # or to sign in place a release left unsigned by an older script; the environment's
-# deployment policy must allow branch master for it). NO pull_request,
+# deployment policy must allow branch master for it). A dispatch never MINTS a release: a
+# tag no registry holds yet is published only from its own tag ref (the push, or a release
+# dispatch run on that tag); a release dispatch runs from master or that same tag only.
+# NO pull_request,
 # pull_request_target, workflow_run or schedule: publishing needs `packages: write`,
 # `id-token: write` and the registry secrets, which fork or scheduled code must never
 # reach (ci_workflow_tripwire rule 11's carve-out holds exactly this).

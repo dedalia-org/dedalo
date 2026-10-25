@@ -949,22 +949,32 @@ as unavailable. Gate: `image_registries_tripwire`.
   holder whose registry lacks the signature is signed IN PLACE (that attests only what
   the workflow provably built for this tag), and nothing is rebuilt; a release tag is
   never re-pointed to another digest — right before each copy the target's tag is read
-  again, and one that appeared since the immutability check with another digest fails
-  that target, untouched (`imagetools create` would overwrite it).
+  again, and one that appeared since the immutability check with another digest (or that
+  can no longer be read) fails that target, untouched (`imagetools create` would overwrite it).
+  Otherwise — NO registry holds the release yet — it is published FRESH, and only by its
+  own tag's run (`GITHUB_REF` = `refs/tags/v<tag>`: the tag push, or a release dispatch
+  run on that tag): the anchor's writer must be the identity its reader demands. A
+  dispatch from `master` (or any other ref) refuses to mint a release; it only fills or
+  signs one that is already anchored. Fresh: D is signed first in staging (`cosign sign`,
+  keyless, recorded in Rekor — the anchor a later run recovers from), then each target
+  receives a carbon copy of the digest (`docker buildx imagetools create -t
+  <target>:<tag> <source>@D`, one source, so the digest is kept) and its OWN signature
+  (`cosign sign --yes <target>@D`): one Rekor entry per registry. Every target must then
+  hold the SAME digest and pass the operator's own verify. Order executed by
+  `image_release_native`.
 - **Two identities, on purpose.** The ANCHOR check uses the exact tag identity; the
   final per-target verify (and the operator's, the installer's) uses the shared regexp,
   because the signature a recovery run adds is made from `refs/heads/master` (the
-  `release` dispatch runs there) — valid for consumers, never accepted as an anchor.
-- **Per-command ceiling.** Every command `image_release.ts` runs has a timeout (publish:
-  8 min, `commandTimeoutMs`): a registry, Fulcio or Rekor that never answers fails that
-  one target, and the record is still written, instead of stalling the job until its
-  `timeout-minutes` kills it with no record.
-  Otherwise D is signed first in staging (`cosign sign`, keyless, recorded in Rekor — the
-  anchor a later run recovers from), then each target receives a carbon copy of the digest
-  (`docker buildx imagetools create -t <target>:<tag> <source>@D`, one source, so the
-  digest is kept) and its OWN signature (`cosign sign --yes <target>@D`): one Rekor entry
-  per registry, all with the workflow identity. Every target must then hold the SAME
-  digest and pass the operator's own verify. Order executed by `image_release_native`.
+  `release` dispatch runs there) — valid for consumers, never accepted as an anchor. A
+  release dispatch runs only from `master` or from the SAME tag it publishes (`plan`
+  refuses another tag's ref).
+- **Time is bounded twice** (`VERB_BUDGET_MS`, `COMMAND_TIMEOUT_MS` in
+  `image_release.ts`): each verb has a deadline below its job's `timeout-minutes`, and
+  each command runs under min(its ceiling, time left). A registry, Fulcio or Rekor that
+  never answers fails commands, not the job: past the deadline no command starts, the
+  remaining targets are recorded `failed` (`deadline exceeded`), and the record is still
+  written. `image_release_native` reads the workflow's `timeout-minutes` per job and holds
+  the budgets below it.
 - **Never `cosign copy`.** cosign 3 signs in the OCI 1.1 referrers bundle format, which
   the deprecated `cosign copy` does not carry: the first real run (v7.0.0-beta.7, run
   40186147345) copied the image but not the signature, and both mirrors held the release
