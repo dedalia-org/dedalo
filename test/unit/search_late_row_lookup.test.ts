@@ -69,8 +69,10 @@ describe('late row lookup SQL shape', () => {
 		} as never);
 		expect(builtSql).toContain('JOIN (');
 		expect(builtSql).toContain('page ON page.section_id');
-		// The page subquery carries the LIMIT/OFFSET; the outer re-orders.
-		expect(builtSql).toContain(`OFFSET ${THRESHOLD}`);
+		// The page subquery carries the LIMIT/OFFSET; the outer re-orders. On
+		// this fixture offset THRESHOLD is a far-half page, so the unfiltered
+		// browse ORDER-FLIPS (small mirror OFFSET, section_id DESC inside).
+		expect(builtSql).toMatch(/LIMIT 30 OFFSET \d+\n\) page ON/);
 		expect(builtSql).toMatch(/ORDER BY\s+\w+\.section_id ASC;$/);
 	});
 

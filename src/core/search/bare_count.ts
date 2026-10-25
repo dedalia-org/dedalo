@@ -10,8 +10,10 @@
  * freshness backstop for out-of-band inserts. TTL 0 disables (exact every call
  * — the parity-environment setting).
  *
- * TWO SCOPES, one cache:
- * - BARE: the UNFILTERED browse of ONE section (WHERE section_tipo = $1 only).
+ * TWO SCOPES, one cache, one door (scopedBrowseCount — both consumers, the
+ * paginator total and the deep-page flip, go through sql_assembler
+ * cachedBrowseTotal, so they share one key):
+ * - BARE: the UNFILTERED browse of ONE section.
  * - ACL-SCOPED: the same browse as a NON-ADMIN sees it — the projects /
  *   filter_records predicate and nothing else (PERF-10). That paint is the
  *   ordinary case, not the exception: a non-admin's ACL predicate lands in
@@ -59,16 +61,6 @@ async function cachedCount(cacheKey: string, countSql: string, params: unknown[]
 	const value = Number(first === undefined ? 0 : (Object.values(first)[0] ?? 0));
 	if (ttl > 0) browseCountCache.set(cacheKey, { value, at: Date.now() });
 	return value;
-}
-
-/** COUNT(*) of one section's rows in `matrixTable`, cached + save-event wired. */
-export async function bareBrowseCount(matrixTable: string, sectionTipo: string): Promise<number> {
-	assertMatrixTable(matrixTable);
-	return cachedCount(
-		`bare ${matrixTable} ${sectionTipo}`,
-		`SELECT count(*)::int AS c FROM ${matrixTable} WHERE section_tipo = $1`,
-		[sectionTipo],
-	);
 }
 
 /**

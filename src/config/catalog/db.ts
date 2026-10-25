@@ -276,6 +276,12 @@ and only those rows' full data is fetched. Same rows, same order — measured ~7
 faster at offset 300000 on a 438k-record section, because a plain \`OFFSET\` makes
 PostgreSQL read and discard every skipped row's data columns.
 
+A page in the far half of the list is fetched from the other end with a small offset
+(the last page costs milliseconds). This applies to the unfiltered browse and to a
+browse filtered only by the user's own access (projects, record allow-list), whose
+cached total makes the flip exact — so a non-administrator stepping through the newest
+records is as fast as an administrator. Pages in the middle gain nothing from the flip.
+
 Shallow pages keep the plain query (the rewrite would gain nothing there). Set \`-1\`
 to disable the rewrite entirely.
 

@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 781,
-		"functions": 12869,
+		"files": 783,
+		"functions": 12913,
 		"functionsOverCap": 669,
 		"filesOverCap": 258
 	},
@@ -357,7 +357,7 @@
 		"src/core/search/conform.ts": 31,
 		"src/core/search/order_path.ts": 13,
 		"src/core/search/search_related.ts": 15,
-		"src/core/search/sql_assembler.ts": 75,
+		"src/core/search/sql_assembler.ts": 69,
 		"src/core/section/buttons.ts": 17,
 		"src/core/section/indexation_grid.ts": 42,
 		"src/core/section/list_definitions/section_list.ts": 8,

@@ -19,6 +19,15 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Paging to the last records of a large section is fast for users limited to their projects.**
+
+    A user who is not an administrator, and who sees a section through their projects, waited
+    around half a second or more for every page near the end of a large section (for example
+    stepping through records in edit mode from the newest one). Administrators were already
+    fast there. Those pages are now read from the nearer end of the list, as they already
+    were for administrators, so the last records open in milliseconds. Pages in the middle of
+    a very large section are no slower than before. The records and their order are unchanged.
+
 - **User profile editor opens for ordinary users**
 
     The user profile editor (avatar menu) failed with "Insufficient permissions" for any user whose profile grants no access to the Users section. Your own name, email, password and image are readable and editable again; other users' records stay protected.
