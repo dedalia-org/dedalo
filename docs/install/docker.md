@@ -324,20 +324,27 @@ cosign verify \
 
 The update script also checks that the signed image says it **is** the version you asked for (its `org.opencontainers.image.version` label): a signature alone only proves Dédalo built the image, not which release it is.
 
+Each registry in the table carries its **own** signature of the image, made by the same workflow: the signature is stored in the registry beside the image, so it does not travel when an image is copied elsewhere. The check above works against any Dédalo registry; to check a copy you made, verify its digest against a Dédalo registry instead (see the next section).
+
 ### A registry of your own
 
-Copy the published image into your registry **keeping its digest** — a copy that re-packs the image is no longer the image Dédalo signed:
+Copy the published image into your registry **keeping its digest** — a copy that re-packs the image is no longer the image Dédalo signed. Verify it at Dédalo's registry first, then copy exactly that digest:
 
 ```shell
-# image only
-docker buildx imagetools create --tag registry.example.org/heritage/dedalo:7.0.1 \
+# 1. check the signature at a Dédalo registry (prints the signed digest)
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/dedalia-org/dedalo/\.github/workflows/image-release\.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?|heads/master)$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   <repository>:7.0.1
 
-# image AND its signature
-cosign copy <repository>:7.0.1 registry.example.org/heritage/dedalo:7.0.1
+# 2. copy that digest into your registry, unchanged
+docker buildx imagetools create --tag registry.example.org/heritage/dedalo:7.0.1 \
+  <repository>@sha256:<digest>
 ```
 
-Then install with `--image-source custom --image-repository registry.example.org/heritage/dedalo`. Mirror each new release before you update to it.
+The copy carries the image, not Dédalo's signature: the signature stays at Dédalo's registries. To prove later that your copy is the signed image, compare its digest (`docker buildx imagetools inspect registry.example.org/heritage/dedalo:7.0.1`) with the one `cosign verify` reports at a Dédalo registry. Do not use `cosign copy`: it is deprecated and does not carry the signatures current `cosign` makes.
+
+Then install with `--image-source custom --image-repository registry.example.org/heritage/dedalo`. The installer and the updater check a custom image's version label, not a signature. Mirror each new release before you update to it.
 
 ### A local build
 
