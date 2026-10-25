@@ -594,9 +594,17 @@ export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<
 		// level 0 on. Mirrors the section-read path's per-ddo ddoIsAuthorized
 		// (read.ts:181). Level 0 ⇒ PHP empty shell (never the data), same as the
 		// record-scope branch above — never a 403 that reveals the component exists.
+		// The dd128 own-user-record rules apply first, as in Gate A: tool_user_admin
+		// reads the actor's own name/email/password/image with a zero dd128 grant.
 		if (typeof source.section_tipo === 'string' && typeof source.tipo === 'string') {
-			const { ddoIsAuthorized } = await import('../security/permissions.ts');
-			if (!(await ddoIsAuthorized(principal, source.section_tipo, source.tipo))) {
+			const { getRecordComponentPermission } = await import('../security/permissions.ts');
+			const level = await getRecordComponentPermission(
+				principal,
+				source.section_tipo,
+				source.tipo,
+				source.section_id,
+			);
+			if (level < 1) {
 				return emptyShell();
 			}
 		}

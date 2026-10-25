@@ -15,6 +15,14 @@ shape by the id under which the source tree records each one
 
 Merged since the last release; these ship with the next one.
 
+### For users
+
+#### Fixed
+
+- **User profile editor opens for ordinary users**
+
+    The user profile editor (avatar menu) failed with "Insufficient permissions" for any user whose profile grants no access to the Users section. Your own name, email, password and image are readable and editable again; other users' records stay protected.
+
 ### For administrators
 
 #### Fixed

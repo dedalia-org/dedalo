@@ -48,8 +48,8 @@ There are no settings to configure — the panel simply renders your own account
 !!! tip
     Set a clear avatar and a correct full name early — they are how colleagues recognise your edits across the catalogue.
 
-!!! warning
-    Saving your changes requires that your profile grants at least **write** access to the Users section. If it does not, the panel still opens and shows the fields, but the save is refused by the ordinary permission check — there is no special case that lets a low-privilege account edit its own record regardless of its profile. If your edits will not save, ask an administrator to check your profile's Users-section permission.
+!!! note
+    Your profile does not need any access to the Users section. On your **own** record you can always edit your name, password, email and image, and you can never change your username, profile or administrator status — whatever your profile grants. Other users' records stay governed by your profile. (Up to version 7.0.0-beta.7 the panel failed with *Insufficient permissions* for users without Users-section access; this is fixed.)
 
 !!! note
     On a shared demonstration account the panel refuses to edit, so the demo's credentials cannot be changed.

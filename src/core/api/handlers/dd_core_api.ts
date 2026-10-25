@@ -33,7 +33,11 @@ import {
 	isLangSlicedModel,
 	saveComponentData,
 } from '../../section/record/save_component.ts';
-import { getPermissions, type Principal } from '../../security/permissions.ts';
+import {
+	getPermissions,
+	getRecordComponentPermission,
+	type Principal,
+} from '../../security/permissions.ts';
 import { getTermByLocator, getTermTipos } from '../../ts_object/term_resolver.ts';
 import {
 	type ActionHandler,
@@ -91,11 +95,18 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 /**
  * Gate A: the request source (section_tipo, tipo). For a dd15 source the level
  * is the Time Machine floor, which reads the TM scope — so the caller must run
- * this inside withTimeMachineReadScope.
+ * this inside withTimeMachineReadScope. The dd128 own-user-record rules apply
+ * first (PHP resolve_component_read_permission): tool_user_admin reads the
+ * actor's own name/email/password/image, which most profiles grant 0 on.
  */
 async function gateReadSource(source: RqoSource, principal: Principal): Promise<void> {
 	if (source.section_tipo === undefined || source.tipo === undefined) return;
-	const level = await getPermissions(principal, source.section_tipo, source.tipo);
+	const level = await getRecordComponentPermission(
+		principal,
+		source.section_tipo,
+		source.tipo,
+		source.section_id,
+	);
 	if (level < 1) {
 		throw new DedaloError('perm.denied', {
 			coordinates: { section_tipo: source.section_tipo, tipo: source.tipo },
