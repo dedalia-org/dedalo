@@ -186,6 +186,7 @@ install/import/ontology/*
 !install/import/ontology/7.0
 install/import/ontology/*/recovery
 install/db/*.part
+ci-logs
 publication/host_agent/.env
 publication/host_agent/**/*/.env
 publication/host_agent/node_modules
