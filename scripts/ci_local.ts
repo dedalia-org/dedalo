@@ -117,6 +117,7 @@
 
 import {
 	chmodSync,
+	cpSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -290,6 +291,35 @@ export function gitScrubbedEnv(
 
 /** Where the container sees the run's one WRITABLE mount (the recorded baseline's way out). */
 export const CONTAINER_OUT = '/ci-out';
+
+/**
+ * The tier logs' way out (hermetic.sh HERMETIC_LOG_DIR's parent, DEDALO_CI_LOG_DIR): a
+ * subdir of the writable mount, copied by {@link keepRunLogs} before the mount is removed.
+ */
+export const CONTAINER_LOG_DIR = `${CONTAINER_OUT}/logs`;
+
+/**
+ * Copy the logs a docker run kept (`<outputs>/logs`, the container's
+ * {@link CONTAINER_LOG_DIR}) to `<intoRoot>/<runId>/` — <repo>/ci-logs/ is gitignored, and
+ * one dir per run, so concurrent runs never overwrite each other. Returns the destination,
+ * or null when the run kept nothing. Best-effort REPORTING: a copy failure is printed, never
+ * a verdict.
+ */
+export function keepRunLogs(outputs: string, intoRoot: string, runId: string): string | null {
+	const kept = join(outputs, 'logs');
+	if (!existsSync(kept)) return null;
+	const dest = join(intoRoot, runId);
+	try {
+		mkdirSync(intoRoot, { recursive: true });
+		cpSync(kept, dest, { recursive: true });
+		return dest;
+	} catch (error) {
+		console.error(
+			`== ci:local: WARNING — could not keep the run's logs (${kept} → ${dest}): ${String(error)}`,
+		);
+		return null;
+	}
+}
 
 /**
  * `--record-unit-baseline` → db_tier.sh's record mode. ALWAYS both keys, set explicitly
@@ -1206,7 +1236,8 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	chmodSync(inputs, 0o755);
 	writeFileSync(join(inputs, 'driver.sh'), IN_CONTAINER_DRIVER, { mode: 0o644 });
 	// The ONE writable mount (/ci-out): empty, world-writable (the container writes as
-	// uid 1001, not as you), removed after the run. Only a recording writes to it.
+	// uid 1001, not as you), removed after the run. A recording writes its baseline there,
+	// and hermetic.sh its daemon logs (/ci-out/logs, kept by keepRunLogs).
 	const outputs = mkdtempSync(join(tmpdir(), 'dedalo-ci-out-'));
 	chmodSync(outputs, 0o777);
 	let overlay = false;
@@ -1253,6 +1284,7 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 		DEDALO_CI_BASE_REF: base ?? '',
 		DEDALO_CI_AUDIT_BASE: auditBase,
 		DEDALO_CI_OVERLAY: overlay ? '1' : '0',
+		DEDALO_CI_LOG_DIR: CONTAINER_LOG_DIR,
 		...recordEnv(args, CONTAINER_OUT),
 		// compose.yml REQUIRES this (`:?`) for every command it parses, `down` included —
 		// without it the teardown fails to interpolate and leaks the project's network.
@@ -1331,6 +1363,12 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	} finally {
 		process.off('SIGINT', onSignal);
 		process.off('SIGTERM', onSignal);
+		const logs = keepRunLogs(
+			outputs,
+			join(REPO_ROOT, 'ci-logs'),
+			`docker-${sha.slice(0, 12)}-${process.pid}`,
+		);
+		if (logs !== null) console.log(`\n== ci:local: tier logs kept in ${logs}`);
 		rmSync(inputs, { recursive: true, force: true });
 		rmSync(outputs, { recursive: true, force: true });
 	}

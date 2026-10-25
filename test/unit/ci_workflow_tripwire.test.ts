@@ -2621,6 +2621,89 @@ describe('CI workflow tripwire', () => {
 	});
 
 	/**
+	 * Rule 15b — A DAEMON LOG IS KEPT AS A FILE BEFORE IT IS PRINTED (2026-10-25). The
+	 * container's stdout can turn non-blocking (EAGAIN: "cat: write error: Resource
+	 * temporarily unavailable"); the retry kept the verdicts but the printed copy was the
+	 * only one, so the log was lost. hermetic.sh's REAL `dump_log` is run here, under
+	 * `set -euo pipefail` as in the tier, with stdout CLOSED: it must keep the file
+	 * byte-for-byte in HERMETIC_LOG_DIR, succeed (printing is never a verdict), and remove
+	 * its temp log. With stdout open it prints a BOUNDED tail. Every daemon package's
+	 * log must go through it.
+	 */
+	test('daemon logs are kept as files first, then a bounded tail is printed best-effort (rule 15b)', () => {
+		const hermeticRaw = readFileSync(join(repoRoot, 'scripts/ci/hermetic.sh'), 'utf8');
+		const fn = /^dump_log\(\) \{\n[\s\S]*?\n\}$/m.exec(hermeticRaw)?.[0];
+		expect(
+			fn,
+			'hermetic.sh no longer defines dump_log() — the rule has nothing to run',
+		).toBeDefined();
+		const tail = /^HERMETIC_LOG_TAIL=(\d+)$/m.exec(hermeticRaw)?.[1];
+		expect(tail, 'hermetic.sh must bound the printed tail (HERMETIC_LOG_TAIL=<n>)').toBeDefined();
+		expect(hermeticRaw).toMatch(
+			/^HERMETIC_LOG_DIR="\$\{DEDALO_CI_LOG_DIR:-\$REPO_ROOT\/ci-logs\}\/hermetic"$/m,
+		);
+		// Every backgrounded package is dumped through it — none printed by a bare cat.
+		for (const pkg of DAEMON_PACKAGES)
+			expect(hermeticRaw, `${pkg}'s log is not dumped through dump_log`).toMatch(
+				new RegExp(`^dump_log "\\$\\w+" ${pkg.replace(/[/.]/g, '\\$&')}$`, 'm'),
+			);
+		// …and the upload sides name the directory it writes.
+		expect(readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8')).toContain(
+			'path: ci-logs/hermetic',
+		);
+		expect(readFileSync(join(repoRoot, '.gitlab-ci.yml'), 'utf8')).toContain(
+			'export DEDALO_CI_LOG_DIR="$CI_PROJECT_DIR/ci-logs"',
+		);
+
+		const lines = Number(tail) + 50;
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-dump-log-'));
+		try {
+			const run = (closeStdout: boolean) => {
+				const log = join(dir, `daemon.${closeStdout ? 'closed' : 'open'}.log`);
+				const body = `${Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join('\n')}\n`;
+				writeFileSync(log, body);
+				const logDir = join(dir, closeStdout ? 'kept-closed' : 'kept-open');
+				const script = [
+					'set -euo pipefail',
+					closeStdout ? 'exec 1>&-' : '',
+					`HERMETIC_LOG_DIR=${JSON.stringify(logDir)}`,
+					`HERMETIC_LOG_TAIL=${tail}`,
+					fn as string,
+					`dump_log ${JSON.stringify(log)} publication/site_builder`,
+					'echo "after dump_log" >&2',
+				].join('\n');
+				const proc = Bun.spawnSync(['bash', '-c', script], { stdout: 'pipe', stderr: 'pipe' });
+				return {
+					body,
+					log,
+					kept: join(logDir, 'publication_site_builder.log'),
+					code: proc.exitCode,
+					out: proc.stdout.toString(),
+					err: proc.stderr.toString(),
+				};
+			};
+			const closed = run(true);
+			expect(closed.code, `dump_log failed with stdout closed:\n${closed.err}`).toBe(0);
+			expect(closed.err).toContain('after dump_log');
+			expect(existsSync(closed.kept), 'the log was not kept as a file').toBe(true);
+			expect(readFileSync(closed.kept, 'utf8')).toBe(closed.body);
+			expect(existsSync(closed.log), 'the temp log was not removed').toBe(false);
+
+			const open = run(false);
+			expect(open.code, open.err).toBe(0);
+			expect(readFileSync(open.kept, 'utf8')).toBe(open.body);
+			expect(open.out).toContain(`full log (${lines} lines): ${open.kept}`);
+			expect(open.out).toContain(`line ${lines}\n`);
+			// Bounded: the first lines past the tail are not printed.
+			expect(open.out).not.toContain('line 1\n');
+			expect(open.out).not.toContain(`line ${lines - Number(tail)}\n`);
+			expect(open.out).toContain(`line ${lines - Number(tail) + 1}\n`);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	/**
 	 * Rule 16 — NO STAGE MAY ABORT THE TIER. Every stage command in
 	 * `scripts/ci/hermetic.sh` records its own verdict; none runs bare under
 	 * `set -e`.

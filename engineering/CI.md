@@ -228,7 +228,7 @@ desk number is a floor, in either direction. So:
   `DEDALO_CI_UNIT_RECORD_ALLOW`): the same suite build, MariaDB start, installs and
   DB-tripwire stage the check runs after — one preparation, no copy of it to drift. The
   written JSON leaves the container through the ONE writable mount, `/ci-out` (a scratch
-  dir, deleted after; the source mounts stay read-only), and is copied into the checkout
+  dir, deleted after — its `logs/` copied out first; the source mounts stay read-only), and is copied into the checkout
   only when the writer did not refuse AND the whole db tier ended GREEN
   (`ci_local.ts recordCopyFault`): a red suite build, DB-tripwire, parity or MariaDB
   stage means the floors were measured on a broken run, so the copy is refused loudly,
@@ -430,6 +430,17 @@ remote's level from its URL.
   its reason; every lane entry is also a `HERMETIC_TRIPWIRES` entry, and
   `tier_execution_tripwire` proves (bun stubbed) that each entry reaches bun exactly once.
   The tier reds when the run CHANGED the checkout (`git status` before vs after).
+  **Daemon logs are FILES first, printed second (2026-10-25).** A non-blocking stdout
+  (EAGAIN, `cat: write error: Resource temporarily unavailable`) once lost the only copy of
+  a daemon's log. Each package's log is now copied to `HERMETIC_LOG_DIR` =
+  `${DEDALO_CI_LOG_DIR:-<repo>/ci-logs}/hermetic/<package, / as _>.log` BEFORE a bounded
+  tail (400 lines) is printed best-effort (retried; an unwritable stdout is said, never a
+  verdict — the verdict is the job's exit code). GitHub uploads `ci-logs/hermetic` as the
+  `hermetic-logs` artifact (`if: always()`); GitLab exports `DEDALO_CI_LOG_DIR` (before_script) into
+  `$CI_PROJECT_DIR` and keeps it as a job artifact (`when: always`); `ci:local --docker`
+  sets it to `/ci-out/logs` and copies that to `<repo>/ci-logs/docker-<sha>-<pid>/`
+  (`keepRunLogs`). `/ci-logs/` is gitignored. Gate: `ci_workflow_tripwire` rule 15b runs
+  `dump_log` with stdout closed and requires the file kept and the call to succeed.
   `DEDALO_HERMETIC_SERIAL=1` runs the whole list in one serial process: the nightly full
   gate sets it, so a coupling the lane missed shows as a parallel-green push against a
   serial-red night on the same sha. **Refresh the timings** when files are added or get

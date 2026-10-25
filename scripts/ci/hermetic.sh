@@ -877,19 +877,38 @@ ha_rc=0; wait "$ha_pid" || ha_rc=$?
 # can turn non-blocking (a child sets O_NONBLOCK on the shared pipe), and a large dump
 # then fails with EAGAIN ("cat: write error: Resource temporarily unavailable"). A bare
 # `cat` under `set -e` aborted the tier there, before the three verdicts below were
-# read — three green daemons reported as one red tier (2026-10-12). Retry the dump, and
-# if stdout stays unwritable say so; the verdict stays the job's exit code.
+# read — three green daemons reported as one red tier (2026-10-12). A retry alone kept
+# the verdicts but still LOST the log (2026-10-25): what failed was the only copy.
+#
+# SO THE LOG IS KEPT FIRST, AS A FILE (a file write, untouched by stdout's mode), in
+# HERMETIC_LOG_DIR = ${DEDALO_CI_LOG_DIR:-<repo>/ci-logs}/hermetic, one
+# <package with / as _>.log each — the directory CI uploads (ci.yml `hermetic` job,
+# .gitlab-ci.yml artifacts; ci:local --docker copies it out of /ci-out into
+# <repo>/ci-logs/). <repo>/ci-logs/ is gitignored, so the checkout-unchanged stage does
+# not see it. THEN a bounded tail (HERMETIC_LOG_TAIL lines) is printed, best-effort:
+# retried, and if stdout stays unwritable that is said and the run goes on. The
+# verdict stays the job's exit code. Gate: ci_workflow_tripwire (rule 15b) runs this
+# function with stdout closed.
+HERMETIC_LOG_DIR="${DEDALO_CI_LOG_DIR:-$REPO_ROOT/ci-logs}/hermetic"
+HERMETIC_LOG_TAIL=400
 dump_log() {
-	dl_tries=0
-	until cat "$1"; do
-		dl_tries=$((dl_tries + 1))
-		if [ "$dl_tries" -ge 5 ]; then
-			echo "== hermetic: could not print $2's log (stdout not writable) — its verdict below is its exit code" || true
+	local log="$1" pkg="$2" kept="" lines tries=0
+	local dest="$HERMETIC_LOG_DIR/${pkg//\//_}.log"
+	if mkdir -p "$HERMETIC_LOG_DIR" 2>/dev/null && cp "$log" "$dest" 2>/dev/null; then kept="$dest"; fi
+	lines="$(wc -l < "$log" 2>/dev/null | tr -d ' ')" || lines=0
+	until {
+		if [ -n "$kept" ]; then echo "   full log ($lines lines): $kept"; else echo "   WARNING: could not keep $pkg's log as a file in $HERMETIC_LOG_DIR"; fi
+		[ "$lines" -le "$HERMETIC_LOG_TAIL" ] || echo "   (last $HERMETIC_LOG_TAIL lines)"
+		tail -n "$HERMETIC_LOG_TAIL" "$log"
+	}; do
+		tries=$((tries + 1))
+		if [ "$tries" -ge 3 ]; then
+			echo "== hermetic: could not print $pkg's log (stdout not writable)${kept:+ — kept at $kept}; its verdict below is its exit code" || true
 			break
 		fi
 		sleep 1
 	done
-	rm -f "$1"
+	rm -f "$log"
 }
 echo "---- publication/site_builder ----"
 dump_log "$sb_log" publication/site_builder

@@ -73,12 +73,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	CONTAINER_GIT,
+	CONTAINER_LOG_DIR,
 	CONTAINER_OUT,
 	CONTAINER_SRC,
 	containerMounts,
 	DRIVER_SCRIPT,
 	failFastSkip,
 	gitScrubbedEnv,
+	keepRunLogs,
 	orphanCiVolumes,
 	parseStages,
 	recordArgsFault,
@@ -950,5 +952,32 @@ describe('leftover CI volumes — only a dead run’s, never a live one’s', ()
 		const postgres = /\n {2}postgres:\n([\s\S]*?)\n {2}\S/.exec(compose)?.[1] ?? '';
 		expect(/^ {6}- pgdata:\/var\/lib\/postgresql$/m.test(postgres)).toBe(true);
 		expect(/^volumes:\n(?: {2}.*\n)*? {2}pgdata:/m.test(compose)).toBe(true);
+	});
+});
+
+describe('tier logs leave the container before /ci-out is removed (keepRunLogs)', () => {
+	test('the logs dir is copied to <root>/<runId>/, one dir per run; nothing kept → null', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-keep-logs-'));
+		try {
+			const outputs = join(dir, 'out');
+			const root = join(dir, 'ci-logs');
+			mkdirSync(outputs);
+			expect(keepRunLogs(outputs, root, 'run-a')).toBeNull();
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'publication_site_builder.log'), 'kept\n');
+			expect(keepRunLogs(outputs, root, 'run-a')).toBe(join(root, 'run-a'));
+			expect(keepRunLogs(outputs, root, 'run-b')).toBe(join(root, 'run-b'));
+			for (const run of ['run-a', 'run-b'])
+				expect(
+					readFileSync(join(root, run, 'hermetic', 'publication_site_builder.log'), 'utf8'),
+				).toBe('kept\n');
+			// The container is told to write there: the log dir is under the writable mount,
+			// and compose passes DEDALO_CI_LOG_DIR through to the tier.
+			expect(CONTAINER_LOG_DIR).toBe(`${CONTAINER_OUT}/logs`);
+			const compose = readFileSync(join(REPO_ROOT, 'ci', 'compose.yml'), 'utf8');
+			expect(compose).toContain('DEDALO_CI_LOG_DIR: ${DEDALO_CI_LOG_DIR:-}');
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

@@ -123,3 +123,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Hermetic tier (install + tsc + biome + static tripwires)
         run: bash scripts/ci/hermetic.sh
+      # The daemon packages' logs, kept as files by hermetic.sh (HERMETIC_LOG_DIR, default
+      # ci-logs/hermetic) BEFORE their best-effort tail is printed: a non-blocking stdout
+      # (EAGAIN) can lose the printed copy, never this one. Always, so a red run keeps them.
+      - name: Keep the hermetic logs
+        if: always()
+        timeout-minutes: 1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hermetic-logs
+          path: ci-logs/hermetic
+          if-no-files-found: warn
+          retention-days: 14

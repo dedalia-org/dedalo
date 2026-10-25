@@ -48,9 +48,10 @@
 # of working-tree changes in /ci-in; see IN_CONTAINER_DRIVER for how it becomes a commit.
 #
 # THE ONE WRITABLE MOUNT is /ci-out, an empty scratch dir ci_local creates per run and
-# deletes after. Only `ci:local --docker --record-unit-baseline` writes to it (db_tier.sh's
+# deletes after. `ci:local --docker --record-unit-baseline` writes to it (db_tier.sh's
 # record mode copies the recorded engineering/unit_baseline.json there, and ci_local
-# copies it into the checkout). The source mounts above stay read-only.
+# copies it into the checkout), and hermetic.sh keeps its daemon logs in /ci-out/logs
+# (ci_local copies them to <repo>/ci-logs/). The source mounts above stay read-only.
 #
 # THE ONE PERSISTENT THING is the bun download cache (`dedalo-ci-bun-cache`, external,
 # so `down -v` keeps it). Every install is `--frozen-lockfile`, which verifies each
@@ -89,6 +90,9 @@ x-github-env: &github-env
   DEDALO_CI_UNIT_RECORD_OUT: ${DEDALO_CI_UNIT_RECORD_OUT:-}
   DEDALO_CI_UNIT_RECORD_ALLOW: ${DEDALO_CI_UNIT_RECORD_ALLOW:-0}
   DEDALO_CI_UNIT_RECORD_NEW: ${DEDALO_CI_UNIT_RECORD_NEW:-}
+  # Where hermetic.sh keeps the daemon packages' logs (HERMETIC_LOG_DIR's parent):
+  # /ci-out/logs under ci:local, which copies it out to <repo>/ci-logs/ after the run.
+  DEDALO_CI_LOG_DIR: ${DEDALO_CI_LOG_DIR:-}
 
 x-runner: &runner
   image: ${DEDALO_CI_IMAGE_REF:-dedalo-ci:local}

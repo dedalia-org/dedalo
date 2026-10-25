@@ -134,3 +134,7 @@ install/import/ontology/*/recovery/
 # the dump and its manifest are written as `.part` and renamed only on success,
 # so a crashed compile can leave one behind — never a source, never committed.
 install/db/*.part
+
+# Durable hermetic-tier logs (scripts/ci/hermetic.sh HERMETIC_LOG_DIR; ci:local --docker copies
+# them here too). Run output, never source.
+/ci-logs/
