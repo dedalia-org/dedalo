@@ -161,6 +161,33 @@ const SPECIAL_CODE_POINTS: ReadonlySet<number> = new Set([0x26, 0x3c, 0x3e, 0x22
 
 const MAX_CODE_POINT = 0x10ffff;
 
+/** The code point a `#39` / `#x27` / `#X27` reference body names. */
+function numericRefCodePoint(body: string): number {
+	const hex = /^#[xX]/.test(body);
+	return hex ? Number.parseInt(body.slice(2), 16) : Number.parseInt(body.slice(1), 10);
+}
+
+/** One numeric reference (`#39`, `#x27`…): the five special code points, or any with `numeric`. */
+function decodeNumericRef(match: string, body: string, options: EntityDecodeOptions): string {
+	const code = numericRefCodePoint(body);
+	if (code > MAX_CODE_POINT) return match;
+	const decodable = SPECIAL_CODE_POINTS.has(code) || options.numeric === true;
+	return decodable ? String.fromCodePoint(code) : match;
+}
+
+/** One named reference: the PHP table, plus `nbsp` / `apos` when `options` ask for them. */
+function decodeNamedRef(match: string, body: string, options: EntityDecodeOptions): string {
+	const name = options.ignoreCase === true ? body.toLowerCase() : body;
+	if (name === 'nbsp') return options.nbsp ?? match;
+	if (name === 'apos') return options.apos === true ? "'" : match;
+	return specialCharOr(name, match);
+}
+
+/** The PHP table's character for `name` (own keys only), else `fallback`. */
+function specialCharOr(name: string, fallback: string): string {
+	return Object.hasOwn(SPECIAL_CHARS, name) ? (SPECIAL_CHARS[name] as string) : fallback;
+}
+
 /**
  * Single-pass decode of the PHP `htmlspecialchars_decode` (ENT_QUOTES, HTML401)
  * set — `&amp; &lt; &gt; &quot;` by name, and ANY decimal/hex numeric reference
@@ -175,19 +202,9 @@ export function decodeHtmlSpecialChars(text: string, options: EntityDecodeOption
 	return text.replace(
 		// Leading zeros are free (PHP strtol): `&#0000039;` is `'` too.
 		/&(#[xX]0*[0-9a-fA-F]{1,6}|#0*[0-9]{1,7}|[A-Za-z]{2,4});/g,
-		(match, body: string) => {
-			if (body[0] === '#') {
-				const hex = body[1] === 'x' || body[1] === 'X';
-				const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
-				if (code > MAX_CODE_POINT) return match;
-				if (SPECIAL_CODE_POINTS.has(code) || options.numeric === true)
-					return String.fromCodePoint(code);
-				return match;
-			}
-			const name = options.ignoreCase === true ? body.toLowerCase() : body;
-			if (name === 'nbsp') return options.nbsp ?? match;
-			if (name === 'apos') return options.apos === true ? "'" : match;
-			return Object.hasOwn(SPECIAL_CHARS, name) ? (SPECIAL_CHARS[name] as string) : match;
-		},
+		(match, body: string) =>
+			body[0] === '#'
+				? decodeNumericRef(match, body, options)
+				: decodeNamedRef(match, body, options),
 	);
 }

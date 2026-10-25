@@ -218,17 +218,17 @@ const RASTER_DATA_URL = /^data:image\/(?:png|jpeg|jpg|gif|webp|avif|bmp)(?:[;,]|
  * applies to every attribute. A name not listed (including any future URL
  * attribute) gets the allowlist — the safe default.
  */
+const PROSE_ATTRIBUTES: ReadonlySet<string> = new Set([
+	'alt',
+	'title',
+	'class',
+	'id',
+	'lang',
+	'dir',
+]);
+
 function isProseAttribute(name: string): boolean {
-	return (
-		name === 'alt' ||
-		name === 'title' ||
-		name === 'class' ||
-		name === 'id' ||
-		name === 'lang' ||
-		name === 'dir' ||
-		name.startsWith('aria-') ||
-		name.startsWith('data-')
-	);
+	return PROSE_ATTRIBUTES.has(name) || /^(?:aria|data)-/.test(name);
 }
 
 /** True when an already-decoded attribute value uses a dangerous scheme. */
