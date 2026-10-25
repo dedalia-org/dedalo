@@ -1041,10 +1041,21 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 			mkdirSync(locked, { recursive: true });
 			writeFileSync(join(locked, 'y.log'), 'kept too\n');
 			chmodSync(locked, 0o555);
+			const inputs2 = join(dir, 'in2');
+			mkdirSync(inputs2);
 			const finished: { kept: string | null } = { kept: null };
-			expect(() => {
-				finished.kept = finishDockerRun(join(dir, 'in2'), outputs2, root, 'docker-b');
-			}).not.toThrow();
+			const warnings = captureErrors(() => {
+				expect(() => {
+					finished.kept = finishDockerRun(inputs2, outputs2, root, 'docker-b');
+				}).not.toThrow();
+			});
+			// The precondition, or the case proves nothing (a uid-0 run ignores the mode bits).
+			expect(
+				existsSync(outputs2),
+				'precondition: the locked tree must survive the removal (running as root?)',
+			).toBe(true);
+			expect(warnings.some((w) => w.includes("could not remove the run's scratch dir"))).toBe(true);
+			expect(existsSync(inputs2), 'the removable mount was still removed').toBe(false);
 			expect(finished.kept).toBe(join(root, 'docker-b'));
 			expect(readFileSync(join(root, 'docker-b', 'hermetic', 'y.log'), 'utf8')).toBe('kept too\n');
 		} finally {
@@ -1054,6 +1065,38 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 				join(dir, CI_LOGS_DIR, 'docker-b', 'hermetic'),
 			])
 				if (existsSync(locked)) chmodSync(locked, 0o755);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('pruneRunLogs is total: an unlistable root warns and returns [], and the run still removes its own mounts', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-total-'));
+		const root = join(dir, CI_LOGS_DIR);
+		try {
+			// A FILE where the root should be: the listing fails (ENOTDIR).
+			writeFileSync(join(dir, 'not-a-dir'), '');
+			const asFile = captureErrors(() => {
+				expect(pruneRunLogs(join(dir, 'not-a-dir'))).toEqual([]);
+			});
+			expect(asFile.some((w) => w.includes('could not list'))).toBe(true);
+			// A root this user may write into but not list (0333): keepRunLogs still copies,
+			// the prune cannot read it — finishDockerRun returns and removes both mounts.
+			mkdirSync(root);
+			for (let i = 0; i < 12; i++) mkdirSync(join(root, `docker-old-${i}`));
+			chmodSync(root, 0o333);
+			const inputs = join(dir, 'in');
+			const outputs = join(dir, 'out');
+			mkdirSync(inputs);
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'z.log'), 'z\n');
+			const unlistable = captureErrors(() => {
+				expect(finishDockerRun(inputs, outputs, root, 'docker-new')).toBe(join(root, 'docker-new'));
+			});
+			expect(unlistable.some((w) => w.includes('could not list'))).toBe(true);
+			expect(existsSync(inputs)).toBe(false);
+			expect(existsSync(outputs)).toBe(false);
+		} finally {
+			if (existsSync(root)) chmodSync(root, 0o755);
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
@@ -1111,3 +1154,18 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 		}
 	});
 });
+
+/** Run `fn` with console.error captured; returns the lines it printed. */
+function captureErrors(fn: () => void): string[] {
+	const lines: string[] = [];
+	const original = console.error;
+	console.error = (...args: unknown[]) => {
+		lines.push(args.map(String).join(' '));
+	};
+	try {
+		fn();
+	} finally {
+		console.error = original;
+	}
+	return lines;
+}

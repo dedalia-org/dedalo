@@ -118,6 +118,7 @@
 import {
 	chmodSync,
 	cpSync,
+	type Dirent,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -338,11 +339,23 @@ export const KEPT_DOCKER_RUN_LOGS = 10;
  * Returns the names removed. Best-effort: a failed removal is reported, never thrown.
  */
 export function pruneRunLogs(root: string, keep: number = KEPT_DOCKER_RUN_LOGS): string[] {
-	if (!existsSync(root)) return [];
-	const runs = readdirSync(root, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory() && entry.name.startsWith('docker-'))
-		.map((entry) => ({ name: entry.name, mtime: statSync(join(root, entry.name)).mtimeMs }))
-		.sort((a, b) => b.mtime - a.mtime || b.name.localeCompare(a.name));
+	// TOTAL: a root that cannot be listed, or an entry another run pruned between the
+	// listing and its stat, is reported or skipped — never thrown (this runs in a finally).
+	let entries: Dirent[];
+	try {
+		if (!existsSync(root)) return [];
+		entries = readdirSync(root, { withFileTypes: true });
+	} catch (error) {
+		console.error(`== ci:local: WARNING — could not list ${root} to prune it: ${String(error)}`);
+		return [];
+	}
+	const runs: { name: string; mtime: number }[] = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory() || !entry.name.startsWith('docker-')) continue;
+		const stat = statSync(join(root, entry.name), { throwIfNoEntry: false });
+		if (stat !== undefined) runs.push({ name: entry.name, mtime: stat.mtimeMs });
+	}
+	runs.sort((a, b) => b.mtime - a.mtime || b.name.localeCompare(a.name));
 	const removed: string[] = [];
 	for (const run of runs.slice(Math.max(0, keep))) {
 		try {
@@ -359,7 +372,7 @@ export function pruneRunLogs(root: string, keep: number = KEPT_DOCKER_RUN_LOGS):
 
 /**
  * The end of every docker run, in this order: keep the run's logs (`<outputs>/logs` →
- * `<logsRoot>/<runId>/`), prune old run dirs, then remove the scratch mounts. A removal
+ * `<logsRoot>/<runId>/`), remove this run's scratch mounts, then prune old run dirs. A removal
  * that fails (EACCES on a tree the container created, on a host that does not remap
  * ownership) is REPORTED, never thrown: it runs in a `finally`, where a throw would
  * replace the run's verdict. The driver's root half also hands /ci-out back
@@ -373,10 +386,8 @@ export function finishDockerRun(
 	runId: string,
 ): string | null {
 	const logs = keepRunLogs(outputs, logsRoot, runId);
-	if (logs !== null) {
-		pruneRunLogs(logsRoot);
-		console.log(`\n== ci:local: tier logs kept in ${logs}`);
-	}
+	if (logs !== null) console.log(`\n== ci:local: tier logs kept in ${logs}`);
+	// This run's OWN mounts first: their removal never depends on pruning other runs' logs.
 	for (const dir of [inputs, outputs]) {
 		try {
 			rmSync(dir, { recursive: true, force: true });
@@ -384,6 +395,13 @@ export function finishDockerRun(
 			console.error(
 				`== ci:local: WARNING — could not remove the run's scratch dir ${dir}: ${String(error)} — remove it by hand`,
 			);
+		}
+	}
+	if (logs !== null) {
+		try {
+			pruneRunLogs(logsRoot);
+		} catch (error) {
+			console.error(`== ci:local: WARNING — pruning ${logsRoot} failed: ${String(error)}`);
 		}
 	}
 	return logs;
