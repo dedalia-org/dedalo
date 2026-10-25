@@ -48,19 +48,17 @@ import { mustGet } from '../helpers/assert.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import {
-	installScopeBindingFixture,
-	removeScopeBindingFixture,
 	SB_DENIED_SECTION,
 	SB_GRANTED_COMPONENT,
 	SB_GRANTED_SECTION,
 	SB_HIERARCHY_SECTION,
 	SB_INPUT_COMPONENT,
 	SB_MEDIA_COMPONENT,
-	type ScopeBindingFixture,
+	scopeBindingSlot,
 } from '../helpers/scope_binding_fixture.ts';
 
-/** THIS file's instance of the scope-binding fixture (ids allocated at install). */
-let sb: ScopeBindingFixture;
+/** THIS file's slot for the scope-binding fixture (ids allocated at install). */
+const sb = scopeBindingSlot();
 
 /** A component of test3 NEITHER profile grants (test3's component_select). */
 const SB_UNGRANTED_COMPONENT = 'test91';
@@ -204,7 +202,7 @@ describe.if(DB_READY)(
 	'action_scope_binding — the gate refuses the declared-but-wrong grant',
 	() => {
 		beforeAll(async () => {
-			sb = await installScopeBindingFixture();
+			await sb.install();
 			A = await resolvePrincipal(sb.userA);
 			B = await resolvePrincipal(sb.userB);
 			// The record axis needs a REAL record only one of them can reach. test3
@@ -234,8 +232,11 @@ describe.if(DB_READY)(
 			);
 		});
 		afterAll(async () => {
-			if (recordOfB > 0) await deleteSectionRecord(SB_GRANTED_SECTION, recordOfB, -1);
-			await removeScopeBindingFixture(sb);
+			try {
+				if (recordOfB > 0) await deleteSectionRecord(SB_GRANTED_SECTION, recordOfB, -1);
+			} finally {
+				await sb.release();
+			}
 		});
 
 		test('the fixture is non-degenerate: A holds the DECLARED grant and 0 on the real targets', async () => {

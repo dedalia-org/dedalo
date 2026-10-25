@@ -40,15 +40,10 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
-import {
-	installScopeBindingFixture,
-	removeScopeBindingFixture,
-	SB_GRANTED_SECTION,
-	type ScopeBindingFixture,
-} from '../helpers/scope_binding_fixture.ts';
+import { SB_GRANTED_SECTION, scopeBindingSlot } from '../helpers/scope_binding_fixture.ts';
 
-/** THIS file's instance of the scope-binding fixture (ids allocated at install). */
-let sb: ScopeBindingFixture;
+/** THIS file's slot for the scope-binding fixture (ids allocated at install). */
+const sb = scopeBindingSlot();
 
 /** dd624 — the preset's name (component_input_text): the value the save writes. */
 const PRESET_NAME_COMPONENT = 'dd624';
@@ -185,7 +180,7 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 	beforeAll(async () => {
 		// A reads the hop component itself: the SEC-1 root-step key (conform.ts
 		// rootStepKey) refuses a path rooted on a component the profile holds 0 on.
-		sb = await installScopeBindingFixture([[SB_GRANTED_SECTION, PRESET_HOP]]);
+		await sb.install([[SB_GRANTED_SECTION, PRESET_HOP]]);
 		await ensureSituation(PRESET_HOP_SITUATION);
 		A = await resolvePrincipal(sb.userA);
 		B = await resolvePrincipal(sb.userB);
@@ -212,9 +207,12 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 		);
 	});
 	afterAll(async () => {
-		if (hopHostOfA > 0) await deleteSectionRecord(SB_GRANTED_SECTION, hopHostOfA, -1);
-		await dropSituation(PRESET_HOP_SITUATION);
-		await removeScopeBindingFixture(sb);
+		try {
+			if (hopHostOfA > 0) await deleteSectionRecord(SB_GRANTED_SECTION, hopHostOfA, -1);
+			await dropSituation(PRESET_HOP_SITUATION);
+		} finally {
+			await sb.release();
+		}
 	});
 
 	test('the blanket rule still holds: every principal resolves level 2 on dd655', async () => {

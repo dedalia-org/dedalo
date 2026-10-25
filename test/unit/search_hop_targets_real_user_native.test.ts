@@ -37,15 +37,10 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
-import {
-	installScopeBindingFixture,
-	removeScopeBindingFixture,
-	SB_GRANTED_SECTION,
-	type ScopeBindingFixture,
-} from '../helpers/scope_binding_fixture.ts';
+import { SB_GRANTED_SECTION, scopeBindingSlot } from '../helpers/scope_binding_fixture.ts';
 
-/** THIS file's instance of the scope-binding fixture (ids allocated at install). */
-let sb: ScopeBindingFixture;
+/** THIS file's slot for the scope-binding fixture (ids allocated at install). */
+const sb = scopeBindingSlot();
 
 const REAL = 'zzhr1';
 const TEXT = 'zzhr2';
@@ -188,7 +183,7 @@ describe.if(DB_READY)(
 		let root: Principal;
 
 		beforeAll(async () => {
-			sb = await installScopeBindingFixture();
+			await sb.install();
 			await ensureSituation(S);
 			hostToReal = await createSectionRecord(HOST, sb.userA);
 			hostToVirt = await createSectionRecord(HOST, sb.userA);
@@ -197,10 +192,13 @@ describe.if(DB_READY)(
 			root = await resolvePrincipal(-1);
 		});
 		afterAll(async () => {
-			if (hostToReal > 0) await deleteSectionRecord(HOST, hostToReal, -1);
-			if (hostToVirt > 0) await deleteSectionRecord(HOST, hostToVirt, -1);
-			await dropSituation(S);
-			await removeScopeBindingFixture(sb);
+			try {
+				if (hostToReal > 0) await deleteSectionRecord(HOST, hostToReal, -1);
+				if (hostToVirt > 0) await deleteSectionRecord(HOST, hostToVirt, -1);
+				await dropSituation(S);
+			} finally {
+				await sb.release();
+			}
 		});
 
 		test('non-degeneracy: root reaches both twins through the hop', async () => {

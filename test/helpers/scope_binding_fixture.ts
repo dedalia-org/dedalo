@@ -108,11 +108,14 @@ export interface ScopeBindingFixture {
 	 * records are outside the other's scope.
 	 */
 	readonly projectOfA: number;
+	/** This instance's name token (in its profile, project, user and hierarchy labels) — never shared by two installs. */
+	readonly token: string;
 	/** Every row this instance wrote, in write order — exactly what remove sweeps. */
 	readonly records: readonly OwnedRecord[];
 }
 
-interface OwnedRecord {
+/** One row an instance wrote. */
+export interface OwnedRecord {
 	table: string;
 	sectionTipo: string;
 	sectionId: number;
@@ -276,6 +279,16 @@ function clearCaches(): void {
 }
 
 /**
+ * Observation point for the fixture's OWN gate (scope_binding_fixture_native): called
+ * after every row is written with the rows so far. A throw from it is how that gate makes
+ * an install fail half-built and proves the half-build sweep. Not a seam over any
+ * authorization — it can only abort an install.
+ */
+export interface InstallHooks {
+	afterInsert?(written: readonly OwnedRecord[]): void;
+}
+
+/**
  * Mint ONE instance of the fixture: every record allocated through the engine's
  * counter door, so two instances on one database never share an id.
  * `extraGrantsOfA`: further [section, component] read-write grants on A's
@@ -284,6 +297,7 @@ function clearCaches(): void {
  */
 export async function installScopeBindingFixture(
 	extraGrantsOfA: readonly (readonly [string, string])[] = [],
+	hooks: InstallHooks = {},
 ): Promise<ScopeBindingFixture> {
 	await assertTestDatabase('installScopeBindingFixture');
 	const tools = await grantedToolLocators();
@@ -296,6 +310,7 @@ export async function installScopeBindingFixture(
 	): Promise<number> => {
 		const sectionId = await insertMatrixRecordWithCounter(table, sectionTipo, columns);
 		records.push({ table, sectionTipo, sectionId });
+		hooks.afterInsert?.([...records]);
 		// A section_id is a positive address; 0 / negatives are the installed-root band.
 		if (!Number.isInteger(sectionId) || sectionId < 1)
 			throw new Error(
@@ -369,6 +384,7 @@ export async function installScopeBindingFixture(
 			presetOfB,
 			presetSplit,
 			projectOfA,
+			token,
 			records,
 		};
 	} catch (error) {
@@ -404,4 +420,73 @@ async function purge(records: readonly OwnedRecord[], options: { strict: boolean
 			`scope_binding_fixture: sweep deleted 0 rows for ${missing.join(', ')} — the filter is wrong, or the rows were never written`,
 		);
 	}
+}
+
+/** The ids of the installed instance, read through {@link scopeBindingSlot}. */
+export type ScopeBindingSlot = Omit<ScopeBindingFixture, 'records' | 'token'> & {
+	/** Install an instance into this slot (refused while one is held). */
+	install(extraGrantsOfA?: readonly (readonly [string, string])[]): Promise<void>;
+	/**
+	 * Remove the held instance, if any, and empty the slot FIRST — so an afterAll after a
+	 * failed install (nothing held: the install swept itself) or a second release is a no-op,
+	 * never a sweep of an undefined or already-removed handle.
+	 */
+	release(): Promise<void>;
+	/** Is an instance held? */
+	readonly installed: boolean;
+};
+
+/**
+ * A caller file's slot for ONE instance at a time. Reading an id while nothing is
+ * installed throws loudly (a test reading ids before its beforeAll, or after release).
+ */
+export function scopeBindingSlot(): ScopeBindingSlot {
+	let held: ScopeBindingFixture | undefined;
+	const current = (): ScopeBindingFixture => {
+		if (held === undefined)
+			throw new Error('scope_binding_fixture: no instance installed in this slot');
+		return held;
+	};
+	return {
+		async install(extraGrantsOfA = []) {
+			if (held !== undefined)
+				throw new Error('scope_binding_fixture: this slot already holds an instance');
+			held = await installScopeBindingFixture(extraGrantsOfA);
+		},
+		async release() {
+			const fixture = held;
+			held = undefined;
+			if (fixture !== undefined) await removeScopeBindingFixture(fixture);
+		},
+		get installed() {
+			return held !== undefined;
+		},
+		get userA() {
+			return current().userA;
+		},
+		get userB() {
+			return current().userB;
+		},
+		get profileA() {
+			return current().profileA;
+		},
+		get profileB() {
+			return current().profileB;
+		},
+		get hierarchyId() {
+			return current().hierarchyId;
+		},
+		get presetOfA() {
+			return current().presetOfA;
+		},
+		get presetOfB() {
+			return current().presetOfB;
+		},
+		get presetSplit() {
+			return current().presetSplit;
+		},
+		get projectOfA() {
+			return current().projectOfA;
+		},
+	};
 }

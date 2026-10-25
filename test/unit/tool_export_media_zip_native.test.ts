@@ -113,15 +113,11 @@ import {
 import { DB_READY } from '../helpers/db_ready.ts';
 import { markExportArtifactsRoot } from '../helpers/media_scratch_root.ts';
 import type { MediaZipHeapReport } from '../helpers/media_zip_heap_child.ts';
-import {
-	installScopeBindingFixture,
-	removeScopeBindingFixture,
-	type ScopeBindingFixture,
-} from '../helpers/scope_binding_fixture.ts';
+import { scopeBindingSlot } from '../helpers/scope_binding_fixture.ts';
 import { readZip, type ZipReadResult, zipText } from '../helpers/zip_xml_reader.ts';
 
-/** THIS file's instance of the scope-binding fixture (ids allocated at install). */
-let sb: ScopeBindingFixture;
+/** THIS file's slot for the scope-binding fixture (ids allocated at install). */
+const sb = scopeBindingSlot();
 
 const SECTION = 'test3';
 const IMAGE = 'test99';
@@ -445,50 +441,56 @@ async function measureMediaZipHeap(job: ArtifactJobRef): Promise<MediaZipHeapRep
  * lists, so the next block starts clean.
  */
 async function sweepCreated(): Promise<void> {
-	// planted files first (so the record delete has nothing to move), then the
-	// records, then whatever the delete still parked under deleted/
-	for (const path of createdFiles) rmSync(path, { force: true });
-	// Every record is attempted: one failed delete must not strand the rest.
-	const deleteFailures: unknown[] = [];
-	for (const id of createdRecords) {
-		try {
-			await deleteSectionRecord(SECTION, id, -1);
-		} catch (error) {
-			deleteFailures.push(error);
+	// The fixture is released LAST and in a finally: a failed step above (or a failed
+	// install — the slot is then empty and release is a no-op) never skips the residue
+	// count, and a residue failure never strands the fixture.
+	try {
+		// planted files first (so the record delete has nothing to move), then the
+		// records, then whatever the delete still parked under deleted/
+		for (const path of createdFiles) rmSync(path, { force: true });
+		// Every record is attempted: one failed delete must not strand the rest.
+		const deleteFailures: unknown[] = [];
+		for (const id of createdRecords) {
+			try {
+				await deleteSectionRecord(SECTION, id, -1);
+			} catch (error) {
+				deleteFailures.push(error);
+			}
 		}
+		// The rows the engine wrote ABOUT these records: the create/delete
+		// activity (dd542) and the delete's time-machine snapshot. Swept, then
+		// COUNTED — a gate that leaves suite-DB rows behind is red, not quiet.
+		const ids = createdRecords.map(String);
+		await sql.unsafe(
+			'DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id::text = ANY($2::text[])',
+			[SECTION, `{${ids.join(',')}}`],
+		);
+		await sql.unsafe(
+			`DELETE FROM matrix_activity
+			 WHERE section_tipo = 'dd542'
+			   AND misc->'dd551'->0->'value'->>'section_tipo' = $1
+			   AND misc->'dd551'->0->'value'->>'section_id' = ANY($2::text[])`,
+			[SECTION, `{${ids.join(',')}}`],
+		);
+		const [left] = (await sql.unsafe(
+			`SELECT
+			   (SELECT count(*) FROM matrix_test WHERE section_tipo = $1 AND section_id::text = ANY($2::text[]))
+			 + (SELECT count(*) FROM matrix_time_machine WHERE section_tipo = $1 AND section_id::text = ANY($2::text[]))
+			 + (SELECT count(*) FROM matrix_activity WHERE section_tipo = 'dd542'
+			      AND misc->'dd551'->0->'value'->>'section_tipo' = $1
+			      AND misc->'dd551'->0->'value'->>'section_id' = ANY($2::text[])) AS n`,
+			[SECTION, `{${ids.join(',')}}`],
+		)) as { n: number | string }[];
+		sweepMediaTraces();
+		for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true });
+		createdRecords.length = 0;
+		createdFiles.length = 0;
+		scratchDirs.length = 0;
+		expect(deleteFailures).toEqual([]);
+		expect(Number(left?.n)).toBe(0);
+	} finally {
+		await sb.release();
 	}
-	// The rows the engine wrote ABOUT these records: the create/delete
-	// activity (dd542) and the delete's time-machine snapshot. Swept, then
-	// COUNTED — a gate that leaves suite-DB rows behind is red, not quiet.
-	const ids = createdRecords.map(String);
-	await sql.unsafe(
-		'DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id::text = ANY($2::text[])',
-		[SECTION, `{${ids.join(',')}}`],
-	);
-	await sql.unsafe(
-		`DELETE FROM matrix_activity
-		 WHERE section_tipo = 'dd542'
-		   AND misc->'dd551'->0->'value'->>'section_tipo' = $1
-		   AND misc->'dd551'->0->'value'->>'section_id' = ANY($2::text[])`,
-		[SECTION, `{${ids.join(',')}}`],
-	);
-	const [left] = (await sql.unsafe(
-		`SELECT
-		   (SELECT count(*) FROM matrix_test WHERE section_tipo = $1 AND section_id::text = ANY($2::text[]))
-		 + (SELECT count(*) FROM matrix_time_machine WHERE section_tipo = $1 AND section_id::text = ANY($2::text[]))
-		 + (SELECT count(*) FROM matrix_activity WHERE section_tipo = 'dd542'
-		      AND misc->'dd551'->0->'value'->>'section_tipo' = $1
-		      AND misc->'dd551'->0->'value'->>'section_id' = ANY($2::text[])) AS n`,
-		[SECTION, `{${ids.join(',')}}`],
-	)) as { n: number | string }[];
-	sweepMediaTraces();
-	for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true });
-	await removeScopeBindingFixture(sb);
-	createdRecords.length = 0;
-	createdFiles.length = 0;
-	scratchDirs.length = 0;
-	expect(deleteFailures).toEqual([]);
-	expect(Number(left?.n)).toBe(0);
 }
 
 // ------------------------------------------------------------------ situation
@@ -496,7 +498,7 @@ async function sweepCreated(): Promise<void> {
 describe.if(DB_READY)('tool_export media ZIP — built on the server, authorized per file', () => {
 	beforeAll(async () => {
 		await assertTestDatabase('tool_export_media_zip_native');
-		sb = await installScopeBindingFixture();
+		await sb.install();
 		imageOpts = await resolveMediaPathOptions(IMAGE, SECTION);
 		pdfOpts = await resolveMediaPathOptions(PDF, SECTION);
 
@@ -1692,7 +1694,7 @@ describe.if(DB_READY)(
 
 		beforeAll(async () => {
 			await assertTestDatabase('tool_export_media_zip_native related media');
-			sb = await installScopeBindingFixture();
+			await sb.install();
 			imageOpts = await resolveMediaPathOptions(IMAGE, SECTION);
 			pdfOpts = await resolveMediaPathOptions(PDF, SECTION);
 			store = markedStore();
