@@ -333,9 +333,7 @@ function realPorts(stateDir: string): BunInstallPorts {
 
 describe('installBun (real unzip, real files)', () => {
   beforeAll(() => {
-    rmSync(SCRATCH, { recursive: true, force: true });
-    mkdirSync(join(SCRATCH, 'state'), { recursive: true, mode: 0o700 });
-    chmodSync(SCRATCH, 0o755);
+    mkdirSync(join(SCRATCH, 'state'), { mode: 0o700 });
     writeFileSync(join(SCRATCH, 'state', 'bun.zip'), ZIP, { mode: 0o600 });
   });
   afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));

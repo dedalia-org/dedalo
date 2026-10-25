@@ -165,8 +165,7 @@ describe('install.sh library', () => {
   const stage = (): string => join(SCRATCH, 'stage_bun');
 
   beforeAll(() => {
-    rmSync(SCRATCH, { recursive: true, force: true });
-    mkdirSync(SCRATCH, { recursive: true });
+    // SCRATCH is the fresh mkdtemp dir (atomic, 0700): written into, never re-created.
     const bytes = fakeBunZip(ASSET, PIN);
     zip = join(SCRATCH, `${ASSET}.zip`);
     writeFileSync(zip, bytes);

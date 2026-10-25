@@ -44,7 +44,11 @@ export const PREDICTABLE_TMP_SCAN_GLOBS: readonly string[] = [
 	'client/dedalo/test/**/*.{ts,js,mjs}',
 ];
 
-/** The one file entitled to call mkdtemp on behalf of everyone else. */
+/**
+ * The one file entitled to call mkdtemp on behalf of everyone else. NOT exempt
+ * from the census: its only join sits inside `mkdtempSync` and is acquitted by
+ * the same structural rule as every caller, so a fixed path planted in it is red.
+ */
 export const SCRATCH_HELPER = 'test/helpers/scratch_dir.ts';
 
 export interface PredictableTmpFinding {
@@ -261,7 +265,6 @@ function collectScope(program: AstNode): FileScope {
 
 /** Census one source text. `file` is repo-relative (used for the parser plugin and the report). */
 export function predictableTmpFindings(file: string, source: string): PredictableTmpFinding[] {
-	if (file === SCRATCH_HELPER) return [];
 	const isTs = file.endsWith('.ts');
 	const ast = parse(source, {
 		sourceType: 'module',

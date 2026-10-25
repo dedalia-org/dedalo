@@ -18,7 +18,7 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   KIT_DOT_SEGMENT_PATTERN,
@@ -77,8 +77,10 @@ function manifestOf(files: Record<string, string>): string {
 }
 
 beforeEach(() => {
-  rmSync(SCRATCH, { recursive: true, force: true });
-  mkdirSync(KIT, { recursive: true });
+  // EMPTY the mkdtemp dir, never remove it: re-creating it would trade the atomic,
+  // 0700, unguessable directory for a mkdir at the umask in a race window.
+  for (const entry of readdirSync(SCRATCH)) rmSync(join(SCRATCH, entry), { recursive: true, force: true });
+  mkdirSync(KIT);
   for (const [rel, body] of Object.entries(FILES)) put(rel, body);
   put(KIT_MANIFEST_NAME, manifestOf(FILES));
 });

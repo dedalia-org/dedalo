@@ -194,8 +194,14 @@ describe('predictable tmp — the matcher, both directions (positive controls)',
 		expect(count(`${OS}expect(p.startsWith(resolve(tmpdir()) + sep)).toBe(true);`)).toBe(0);
 		// documented limit: an uninterpolated literal is a fake path, not counted
 		expect(count("expect(f('/tmp/x')).toBe(false);")).toBe(0);
-		// the helper itself is the one place mkdtemp is wrapped
-		expect(count(readFileSync(join(REPO_ROOT, SCRATCH_HELPER), 'utf8'), SCRATCH_HELPER)).toBe(0);
+		// the helper itself is the one place mkdtemp is wrapped — acquitted on
+		// STRUCTURE (its join sits inside mkdtempSync), never exempted by name
+		const helper = readFileSync(join(REPO_ROOT, SCRATCH_HELPER), 'utf8');
+		expect(count(helper, SCRATCH_HELPER)).toBe(0);
+		// …so a fixed path planted IN the helper is convicted like anywhere else
+		expect(
+			count(`${helper}\nexport const FIXED = join(tmpdir(), 'dedalo_fixed');\n`, SCRATCH_HELPER),
+		).toBe(1);
 	});
 });
 
