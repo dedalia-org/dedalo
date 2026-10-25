@@ -337,7 +337,7 @@ $RU /usr/bin/install -d -m 0750 "$DIR/dedalo"
 $RU /usr/bin/tar -xf "$REL/release.tar" -C "$DIR/dedalo" --no-same-owner --no-overwrite-dir
 cd "$DIR/dedalo"
 BUN_INSTALL_CACHE_DIR="$DIR/dedalo/.bun-install-cache" TMPDIR="$DIR/dedalo" \
-  $RU /usr/bin/env HOME="$DIR" "/opt/dedalo/bun/$PIN/bun" install --frozen-lockfile --production
+  $RU /usr/bin/env HOME="$DIR" "/opt/dedalo/bun/$PIN/bun" install --frozen-lockfile --production --ignore-scripts
 $RU /usr/bin/rm -rf "$DIR/dedalo/.bun-install-cache"
 ```
 

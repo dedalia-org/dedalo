@@ -26,7 +26,7 @@
  *    Archived
  *    into a root-owned hand-over dir (root:<service group> 0750, OUTSIDE the
  *    install folder), then extracted BY THE SERVICE USER into
- *    <install folder>/dedalo, and `bun install --frozen-lockfile --production`
+ *    <install folder>/dedalo, and `bun install --frozen-lockfile --production --ignore-scripts`
  *    run AS the service user (the updater's own command). Root never extracts,
  *    chowns or removes by path inside the install folder (critique B1: an
  *    existing account may run processes that could swap a path under it).
@@ -213,7 +213,7 @@ function releaseCommands(ctx: HostPlanCtx): HostCommand[] {
 		exec(ctx, 'rm', ['-rf', paths.releaseDir], 'remove the archive and its hand-over dir'),
 		{
 			kind: 'exec',
-			argv: [paths.bun, 'install', '--frozen-lockfile', '--production'],
+			argv: [paths.bun, 'install', '--frozen-lockfile', '--production', '--ignore-scripts'],
 			as: 'instance',
 			label:
 				'install the dependencies (as the service user; the package cache and its temporary files inside the tree, the cache removed next)',

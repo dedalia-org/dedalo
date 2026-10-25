@@ -633,6 +633,9 @@ describe('abort undoes only what this install created (e)', () => {
 		// filesystem got a `.<hash>-0.hm` of the service user, orphaned by --abort's userdel
 		// (the real-host proof: the drill's /tmp tmpfs + `find -nouser` leg).
 		expect(install?.env.TMPDIR).toBe(`/home/ded_${INSTANCE}/dedalo`);
+		// No lifecycle scripts (TODO-063): any script run leaves Bun's `.<hash>-<pid>.node-gyp`
+		// shim dir in TMPDIR — here, the tree.
+		expect(install?.argv).toContain('--ignore-scripts');
 		expect(log).toContain(
 			`/usr/sbin/runuser -u ded_${INSTANCE} -g ded_${INSTANCE} -- /usr/bin/rm -rf /home/ded_${INSTANCE}/dedalo/.bun-install-cache`,
 		);

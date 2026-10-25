@@ -54,7 +54,7 @@ Updating by hand is a fetch, a dependency install and a restart, as the service 
 ```shell
 sudo -u dedalo git -C /opt/dedalo/app/master_dedalo fetch --all --tags
 sudo -u dedalo git -C /opt/dedalo/app/master_dedalo checkout <tag-or-sha>
-sudo -u dedalo bash -c 'cd /opt/dedalo/app/master_dedalo && /opt/dedalo/bin/bun install --frozen-lockfile --production'
+sudo -u dedalo bash -c 'cd /opt/dedalo/app/master_dedalo && /opt/dedalo/bin/bun install --frozen-lockfile --production --ignore-scripts'
 sudo systemctl restart dedalo-ts
 sudo curl --fail --unix-socket /run/dedalo/dedalo_ts.sock http://localhost/health
 ```

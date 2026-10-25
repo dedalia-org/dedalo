@@ -13,7 +13,20 @@ shape by the id under which the source tree records each one
 
 ## Unreleased
 
-Nothing yet — no change note has been recorded since the last release.
+Merged since the last release; these ship with the next one.
+
+### For administrators
+
+#### Fixed
+
+- **Installing or updating no longer leaves a hidden `.<hash>-<pid>.node-gyp` folder in the Dédalo folder.**
+
+    The production installer and the **Update code** panel installed the dependencies with
+    package scripts enabled. Each run left a small, empty-of-data helper folder (a one-file
+    `node-gyp` shim) inside the Dédalo folder. Dependencies are now installed with scripts
+    disabled, as every other install path already did, and nothing is left behind. A leftover
+    folder from an earlier install holds no data and can be deleted. The manual's
+    `bun install` commands now include `--ignore-scripts` too.
 
 ## 7.0.0-beta.7 — 2026-10-25
 
