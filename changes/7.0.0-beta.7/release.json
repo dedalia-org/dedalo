@@ -1,0 +1,801 @@
+{
+	"version": "7.0.0-beta.7",
+	"date": "2026-10-25",
+	"from": "v7.0.0-beta.6",
+	"to": "v7.0.0-beta.7",
+	"commits": 278,
+	"wire_contract": [
+		"WC-2026-10-09-build-install-version-owned-mode",
+		"WC-2026-10-15-release-identity-from-tag",
+		"WC-2026-10-19-design-line-removed",
+		"WC-2026-10-19-inspector-record-info",
+		"WC-2026-10-20-element-context-default-lang",
+		"WC-2026-10-21-error-report-granted",
+		"WC-2026-10-21-hierarchy-import-partial-refused",
+		"WC-2026-10-21-ontology-projection-guard",
+		"WC-2026-10-21-ontology-record-lifecycle",
+		"WC-2026-10-21-ontology-recovery-deadline",
+		"WC-2026-10-21-ontology-recovery-single-flight",
+		"WC-2026-10-21-ontology-update-derive-landed",
+		"WC-2026-10-21-ontology-update-rebuild",
+		"WC-2026-10-21-seed-and-thesaurus-int-clean",
+		"WC-2026-10-21-target-statement-lock-wait",
+		"WC-2026-10-21-tm-restore-component-write-doors",
+		"WC-2026-10-21-tm-section-restore-write-door",
+		"WC-2026-10-21-tool-permissions-description",
+		"WC-2026-10-21-unpublish-markers-durable",
+		"WC-2026-10-21-update-cache-locked-resave",
+		"WC-2026-10-22-filter-project-pick-membership",
+		"WC-2026-10-22-reconcile-deferred-rearm",
+		"WC-2026-10-22-related-search-one-scope",
+		"WC-2026-10-22-tm-scope-whole-request",
+		"WC-2026-10-23-lock-section-tipo-grammar",
+		"WC-2026-10-23-own-lock-cleanup-ungated",
+		"WC-2026-10-24-tm-malformed-relation-cell",
+		"WC-2026-10-25-rich-text-data-url-raster-only",
+		"WC-2026-10-25-tag-id-length-cap"
+	],
+	"notes": {
+		"action_needed": [
+			"Dédalo prereleases are now published releases — from 7.0.0-beta.7 on, each beta is a fixed, signed version you can install and update.",
+			"The Docker and Trial installer installs the image of its own release — `7.0.0-beta.7` for a beta — and a stack built from an earlier beta needs `--skip-version-check` once on its next image update."
+		],
+		"entries": [
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "The change history of a password field no longer shows the stored password hash."
+			},
+			{
+				"type": "removed",
+				"audience": "user",
+				"title": "The hidden 'Calm Scholarly' design preview is removed."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Image quality selector now appears only on hover or on an active component; touch screens keep it visible."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Opening a rich-text field no longer downloads the editor on the first click."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "CSV import guesses the target section from more file names and remembers your correction."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The Import files tool's options panel reads as three clear blocks, and the import button stays in reach."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The inspector's Data box keeps its size when you select another component, and you can resize it."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "A relation table is framed, with no rules between its column titles"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Time machine tool list on phone renders as one card per version"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "On a phone, the time machine marks the picked version across the whole row and brings its preview into view."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "On a phone, the time machine's two version panels, its Apply action and its page counter now stack into one readable column."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Checkboxes and radio buttons fill with a deeper orange so the white tick shows in every browser"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The date field's calendar now writes the dates the catalogue actually stores — including year-only, year+month and BCE (negative) years — with localized month names and full keyboard and touch support."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "The profile permission tree can be filtered by name or tipo."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "The address bar now names the open record, so an edit page can be copied and reopened"
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "The image vector editor now supports undo and redo"
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "The inspector shows again who created, last modified and published a record, and when."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Export: columns are added and reordered by tap on a phone"
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "On a phone, a drilled search field level shows its path"
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "On a phone, moving between search field levels now slides"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The autocomplete result list no longer opens as a blank band"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "component_iri edit row lays out on one aligned line"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A read-only field's value starts under its own label again"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Rich-text fields in a language with no bundled editor translation now open in English instead of not opening at all."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Change history no longer fails, and restore no longer writes a broken value, when an old history entry holds a malformed link value."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Image derivatives are encoded at full quality again — sharper web and list images, and somewhat larger files"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Deleting an image's last file now clears its vector drawing, so a new upload starts fresh"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An image uploaded in a format the browser cannot show (TIFF, PSD, PNG…) keeps its full-resolution original AND regains the viewable copy, so the \"original\" quality is selectable again"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The propagate tool on a Project filter now offers the same options as the component."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An image's drawing envelope is removed with the record's last file, not with one quality"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Turning pages in *Latest changes* no longer fails with a permission error for users who are not administrators."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The image vector editor now deletes shapes and layers reliably"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Saving a drawing in the image vector editor keeps the image visible"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The acquisition tools no longer start an import while a new Preview is loading"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Remove background works again in the image rotation tool."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Unpublishing every record of an RDF, XML or Markdown publication now also removes its combined file and ZIP"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A refused side panel no longer takes over the whole page."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The References panel and its graph open for every user who can read the record, and their page counts add up"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Users who are allowed to see a section's change history can open *Latest changes* and *Component history* again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The acquisition tools no longer let you start a second import while the first one's outcome is unknown"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The acquisition tools no longer go silent when a job's progress is lost, and the move panels show a refused run."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The acquisition tools show why a preview or an import failed, instead of \"Done.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The selected field is fully tinted in a light orange — its list surfaces included — and its label stays readable in both themes."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A record restored from an archive no longer shows the history of a deleted record that had the same id."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The assistant's find-or-create no longer duplicates a record under concurrent calls"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The \"Report a problem\" tab only appears for users whose profile grants the error-report tool."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Stopping a background export now stops it at once, even while its record selection is still being computed."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The acquisition tools and move panels no longer re-enable an action when the server did not confirm whether the job started."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Pasting into the search panel's Id field adds to what is already there instead of replacing it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The reference picker of a text area separates the term and its thesaurus part (… | …), instead of gluing them."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A text area reference can link the same term from several references, and deleting a reused reference keeps the others linked."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Update cache never overwrites an edit saved while it runs"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Translatable fields in tool forms show the value in your data language, not always in Spanish"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Clicking a field puts the cursor in it, every time"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Turning a list page no longer jumps the layout"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search: the drag-a-field slot is the same height as the field cards beside it"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Thesaurus lists are sorted by name in the reader's language."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Selected text is visibly highlighted in every field, active or not"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Opening a record by link no longer lands on a one-row list."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Inspector history panels read as blocks on a phone or tablet"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Section id search field fills its card like every other search field."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Orange warning buttons are readable — white text on a deeper orange in the light theme."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Dark mode: the page canvas no longer sits above the cards, and empty-field hints are legible"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Tool Export — the presets panel no longer shows a blank band between its header and the presets."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Plain-text filter values join terms with ', ' when the section map defines no separator"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "List headers stay readable in Safari, even when rows have different heights"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The line under a list row is unbroken across empty columns"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Mosaic hover: the record id is no longer cut off, and the publication switch is centred"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A portal row's edit cell now fills the row, like its trash cell."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The date field's calendar button is a full-size tap target and no longer covers the field label"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Import files tool's options panel lines up on a phone"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Ontology and thesaurus search: the result highlight and the loading state are now in sync."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search on a phone: the fields panel's level header is as easy to tap as the fields themselves"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, the section list buttons and their show/hide arrow no longer overlap or jump around."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Tools on a phone use the phone's own spacing and header height; only part of the phone adjustments were reaching the screen."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Update cache tool reads properly on a phone: one component per row, its options and model under it, all lined up."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Upload buttons keep a clear gap between their icon and their label on a phone"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Each file in the upload queue is a card, so you can see where one file ends and the next begins"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Uploaded-file rows stack on a phone instead of running off the side"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The upload queue's \"select all\" checkbox says what it does again"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The search panel keeps the values you typed when the page reloads."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The autocomplete options panel no longer clips its section list"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search option tooltips are legible in dark mode."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Tools menu in a section list opens its tools again on a phone."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Names and values typed by one user can no longer run script in another user's browser"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Server hardening from the CodeQL review — the tag-badge address refuses over-long requests, rich text keeps only raster-image `data:` links, and literal `&lt;` text is no longer turned into `<`."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Third-party packages updated to their latest stable releases, closing every known advisory against them."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "SQL the engine runs through psql no longer appears on the psql command line"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "A user can only assign a record to projects they belong to"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Site builder: a Claude Code turn turns off its auto-updater and telemetry in every confinement mode, not only when confined"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Site builder: `provision remove` and `provision adopt` can no longer be hung by a pipe planted at a turn HOME's `.gitconfig`, a site's `site.json` or an instance marker"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Outbound fetches judge an IPv6 address through every NAT64 prefix that holds it, so nested prefixes cannot reach an internal address."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Bun no longer fetches packages by name outside the lockfile."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "A local certificate authority can now only certify the install's own addresses, and its site certificate can be renewed without touching the staff computers."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Ontology files move out of the code tree by default"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The installer field *Database role* is now *Database user*."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Dédalo prereleases are now published releases — from 7.0.0-beta.7 on, each beta is a fixed, signed version you can install and update."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Docker and Trial installer installs the image of its own release — `7.0.0-beta.7` for a beta — and a stack built from an earlier beta needs `--skip-version-check` once on its next image update."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A prerelease build now calls itself by its tag (`7.0.0-beta.7`), and its data version is published beside it."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The profile tool-permissions panel explains each tool — an info button unfolds its description."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "\"A code server can publish a prerelease (`Build prerelease`), and a published release is never rebuilt.\""
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "\"Code updates move between prereleases of one version: beta to later beta, beta to its release.\""
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "\"Prereleases have an official image: `:7.0.1-beta.2`, signed, and never under a release's tag.\""
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "\"The update panel can ask for prereleases: choose published releases, prereleases or developer builds.\""
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The production installer can now make a local certificate authority, for an intranet with no public name."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Aborting an install (`--abort`) no longer fails with a deadlock when something else is connected to its database."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer no longer crashes when a check's helper process stops before reading its request."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A maintenance job whose progress cannot be followed now says so instead of waiting forever."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The publication host's `install.sh` no longer hangs on a stalled Bun download."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Installing or resetting a thesaurus no longer waits without limit behind another session's lock"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The publication-marker index is now repaired every 10 minutes as well as at startup, and a repair held off by a running publication is retried instead of skipped."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A running move execute in Maintenance can no longer be hidden by a new Preview"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The publication host installer never puts a cut-off file in place on a full disk"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An archive restore refuses an ontology node another writer created between the plan and the write"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An archive restore no longer plants ontology definitions that the next ontology rebuild would delete"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A backup's verification proof now survives a power cut, and a backup is reported done only once its name is safely on disk."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Code updates of a git-checkout install no longer refuse over `.claude` and `CLAUDE.md`"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An update or a move transform that committed after a lost connection says what did not run"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An export's record selection now respects the database statement ceiling."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A lookup in an external catalogue now always ends within its timeout, even when the name server or the answer stalls."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Exporting a thesaurus never leaves or certifies a partial dump"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Installer and container fixes — `--abort` removals survive a power cut, a half-imported thesaurus is no longer reported installed, the published client never points at a missing copy"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer's configuration and the published client now survive a power cut"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The temporary audio copy made for on-premise transcription is deleted as soon as it has been sent."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Interrupted exports and transcriptions no longer leave temporary files behind"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Deleting or restoring an ontology record now removes or restores its runtime node."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Building the ontology recovery file no longer stops the server when the disk is full, and the file survives a power cut"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The ontology status panel reports a TLD shown under the wrong typology, and the hierarchy typology groups are filed where the master ontology files them"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer's downloaded ontology files survive a power cut"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An ontology update now removes the nodes a new package no longer carries."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Phantom-language removal and the public-tier reconcile no longer hang on a busy publication target"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A publication run or unpublish no longer waits without limit on a lock held outside Dédalo"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The Reconcile panel offers *Apply* only where you can apply, and a refusal no longer replaces the page"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "New installations and imported thesauri store record references in their final form"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Installing or resetting a thesaurus takes effect at once and no longer needs gigabytes of memory"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Time machine restores respect every record's projects and every field's permission; the ontology recovery file is built one at a time"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Restoring a whole record from the time machine needs permission on every field it changes; a failed ontology re-index after an update no longer brings the old ontology back"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Unpublished media stays unpublished after a power cut — and is never reported withdrawn while it is still served"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Rebuilding or updating one user's activity statistics never counts a day twice"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Docker stacks — ontology update no longer fails with EACCES"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer says what to do when the checkout's dependencies are missing."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A code update that is refused says so once, not three times"
+			},
+			{
+				"type": "security",
+				"audience": "developer",
+				"title": "The component lock requests refuse a section that is not an ontology tipo."
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "\"Build database version: the install-seed build's answer and panel values are documented\""
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "A developer install gets its own unix socket, named after its entity, and is refused while another server holds it."
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "\"`page_globals` now says what kind of build is running (`release_kind`), and the harvesting user agent names the release.\""
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "A developer install is reported complete only once `bun run dev` has served, and it ends by saying where to open it."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "A developer install now issues the development listener's HTTPS certificate and makes this machine trust it; `bun run tls:renew` and `bun run tls:untrust` manage it afterwards."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "The ontology tool's \"set records\" can no longer write a node into another TLD's namespace."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "A developer install now installs the development dependencies `bun run dev` needs, and the development listener can serve HTTPS (`SERVER_TCP_TLS_CERT_FILE` + `SERVER_TCP_TLS_KEY_FILE`)."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "A developer install now writes a development listener, so `bun run dev` serves the browser on port 3500."
+			}
+		]
+	}
+}
