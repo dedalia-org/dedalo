@@ -1,12 +1,12 @@
 /**
  * image_release.ts — the program behind .github/workflows/image-release.yml: the
- * official Dédalo image, built once, signed once, published with ONE digest to every
+ * official Dédalo image, built once, signed in every registry, published with ONE digest to every
  * provisioned registry of engineering/image_registries.json.
  *
  *   bun run scripts/ci/image_release.ts plan      which release this run publishes (or refuse)
  *   bun run scripts/ci/image_release.ts context   the build context: a `git archive` of the release commit
  *   bun run scripts/ci/image_release.ts smoke     the built bytes, run and asserted
- *   bun run scripts/ci/image_release.ts publish   index → immutability → sign → copy → verify → record
+ *   bun run scripts/ci/image_release.ts publish   index → immutability → sign → copy + sign per target → verify → record
  *
  * WHAT A RELEASE IS here is what it is for the code server (engineering/RELEASE.md):
  * a release tag whose own version.ts declares its data triple — the stable `vX.Y.Z`
@@ -22,7 +22,7 @@
  * probe asks with) and nothing else: no `latest`, no `X` / `X.Y`, and for a prerelease
  * never its triple `X.Y.Z` — after the stable release that tag is another image, and a
  * beta must never be what a stable consumer pulls. `publish` writes `<target>:<plan tag>`
- * only (copyTo); the staging repository gets run-scoped names only. Gate 16:
+ * only (publishTo); the staging repository gets run-scoped names only. Gate 16:
  * image_release_native ("the tag SET").
  *
  * A RELEASE NEEDS THE FULL GATE GREEN ON ITS COMMIT (2026-10-10). `plan` refuses a
@@ -48,14 +48,21 @@
  *      workflow holding packages: write could move while publish waits for review) → D;
  *   4. IMMUTABILITY (release channel): a release already published anywhere is never
  *      rebuilt or overwritten — every holder must agree on one digest X (else refuse),
- *      X must carry the official signature, and X is what the missing targets receive;
- *   5. sign ONCE, keyless (`cosign sign` on staging@D; Rekor records it);
- *   6. `cosign copy` the signed bytes (image + signature) to every target;
+ *      X must carry the official signature SOMEWHERE OFFICIAL (a holder, or staging@X,
+ *      where the workflow built it — else refuse), and X is what the missing targets
+ *      receive; a holder of X whose registry lacks the signature is signed in place;
+ *   5. a fresh D is signed FIRST in staging (`cosign sign` keyless on staging@D; Rekor):
+ *      the anchor a recovery run finds if this one dies after a copy;
+ *   6. per target: carbon-copy the digest (`docker buildx imagetools create -t
+ *      <target>:<tag> <source>@D`, one source → same digest), then `cosign sign` AT
+ *      <target>@D — one signature per registry. NEVER `cosign copy`: cosign 3 signs in
+ *      the OCI 1.1 referrers bundle format, which that deprecated verb does not carry
+ *      (the first real run, v7.0.0-beta.7, published both mirrors unsigned through it);
  *   7. every target must now hold the SAME digest AND pass the exact `cosign verify`
  *      an operator runs;
  *   8. record: the job summary + image-release.json (uploaded as an artifact).
- * Nothing is copied before it is signed; nothing is signed before step 4 passes; an
- * unpinned or tampered cosign refuses before the first push.
+ * Nothing leaves staging before D is signed there; nothing is signed before step 4
+ * passes; an unpinned or tampered cosign refuses before the first push.
  *
  * I/O: inputs come from the environment the workflow composes (static names, every
  * expression through `env:`); outputs go to $GITHUB_OUTPUT and $GITHUB_STEP_SUMMARY.
@@ -536,7 +543,7 @@ function smoke(env: Env, run: Runner): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// publish — targets, immutability, sign, copy, verify, record
+// publish — targets, immutability, sign, copy + sign per target, verify, record
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RegistryLogin {
@@ -673,7 +680,7 @@ export function immutabilityVerdict(
 export interface RegistryRecord {
 	id: string;
 	repository: string | null;
-	status: 'pushed' | 'unchanged' | 'skipped' | 'failed';
+	status: 'pushed' | 'signed' | 'unchanged' | 'skipped' | 'failed';
 	reason: string | null;
 	verified: boolean;
 }
@@ -798,58 +805,104 @@ function cosignVerify(ctx: PublishContext, ref: string): boolean {
 	);
 }
 
-/** Steps 4+5: what is published — a freshly signed D, or the release that already exists. */
+/**
+ * What is published: the digest, a reference to copy it FROM (one that carries the
+ * official signature), and the targets that already hold it — each with whether its own
+ * registry already carries the signature (a holder that does not is signed in place).
+ */
+interface PublishSource {
+	source: string;
+	digest: string;
+	holders: ReadonlyMap<string, { signed: boolean }>;
+}
+
+/** Steps 4+5: a freshly signed D, or the release that already exists (immutability). */
 function chooseSource(
 	ctx: PublishContext,
 	targets: readonly PublishTarget[],
 	built: string,
-): { source: string; digest: string; overwrite: boolean; holders: Set<string> } {
+): PublishSource {
 	const existing = targets.map((target) => ({
 		repository: target.repository,
 		state: inspectDigest(ctx.run, `${target.repository}:${ctx.plan.tag}`),
 	}));
 	const verdict = immutabilityVerdict(ctx.plan.channel, existing);
-	if (verdict.kind === 'fresh') {
-		must(
-			ctx.run([ctx.cosign, 'sign', '--yes', `${ctx.plan.staging}@${built}`]),
-			'signing the image',
-		);
-		return {
-			source: `${ctx.plan.staging}@${built}`,
-			digest: built,
-			overwrite: verdict.overwrite,
-			holders: new Set(),
-		};
-	}
-	const source = `${verdict.holder}@${verdict.digest}`;
-	if (!cosignVerify(ctx, source))
-		throw new Refusal(
-			`release ${ctx.plan.tag} already exists as ${source}, but it does not carry the official signature — refusing to spread it`,
-		);
-	const holders = new Set(
-		existing.filter((item) => item.state.state === 'present').map((item) => item.repository),
+	if (verdict.kind === 'existing') return existingRelease(ctx, existing, verdict.digest);
+	// The ANCHOR signature, before anything leaves staging: a run that dies after a copy
+	// leaves a digest whose official signature is provably somewhere (recovery, below).
+	const source = `${ctx.plan.staging}@${built}`;
+	must(ctx.run([ctx.cosign, 'sign', '--yes', source]), 'signing the image in staging');
+	return { source, digest: built, holders: new Map() };
+}
+
+/**
+ * Step 4, an existing release X. Accepted ONLY when X carries the official signature
+ * somewhere official — at a holder, or at the staging repository the workflow built it
+ * in (staging@X) — and that verified reference is the copy source. A holder whose own
+ * registry lacks the signature is then signed in place: that attests only what the
+ * workflow provably built. X verifiable nowhere → refuse, nothing is changed.
+ */
+function existingRelease(
+	ctx: PublishContext,
+	existing: readonly { repository: string; state: ManifestState }[],
+	digest: string,
+): PublishSource {
+	const holders = new Map<string, { signed: boolean }>();
+	for (const item of existing)
+		if (item.state.state === 'present')
+			holders.set(item.repository, { signed: cosignVerify(ctx, `${item.repository}@${digest}`) });
+	const signedHolder = [...holders].find(([, holder]) => holder.signed)?.[0];
+	const anchor = officialAnchor(ctx, signedHolder, digest);
+	return { source: anchor, digest, holders };
+}
+
+/** The official reference of `digest`: a signed holder, else staging@digest if it verifies. */
+function officialAnchor(
+	ctx: PublishContext,
+	signedHolder: string | undefined,
+	digest: string,
+): string {
+	if (signedHolder !== undefined) return `${signedHolder}@${digest}`;
+	const staging = `${ctx.plan.staging}@${digest}`;
+	if (cosignVerify(ctx, staging)) return staging;
+	throw new Refusal(
+		`release ${ctx.plan.tag} already exists as ${digest}, but it carries the official signature NOWHERE (no holder, not ${staging}) — refusing to spread it`,
 	);
-	return { source, digest: verdict.digest, overwrite: false, holders };
 }
 
 type PublishTarget = Extract<TargetVerdict, { publish: true }>;
 
-/** Step 6: one copy per target that does not hold the release yet. */
-function copyTo(
+/** Keyless-sign `target` AT the digest, in its own registry (one Rekor entry per registry). */
+function signAt(ctx: PublishContext, target: PublishTarget, digest: string): boolean {
+	return ctx.run([ctx.cosign, 'sign', '--yes', `${target.repository}@${digest}`]).code === 0;
+}
+
+/**
+ * Step 6, one target: a holder already signed is left alone; a holder without the
+ * signature is signed in place; a target without the release receives the digest (a
+ * carbon copy: `imagetools create` from ONE source by digest keeps the digest — the
+ * re-inspect of step 7 proves it) and is then signed there. Never `cosign copy`: cosign 3
+ * signs in the OCI 1.1 referrers bundle format, which that deprecated verb does not carry.
+ */
+function publishTo(
 	ctx: PublishContext,
 	target: PublishTarget,
-	chosen: ReturnType<typeof chooseSource>,
+	chosen: PublishSource,
 ): RegistryRecord['status'] {
-	if (chosen.holders.has(target.repository)) return 'unchanged';
-	const force = chosen.overwrite ? ['--force'] : [];
+	const holder = chosen.holders.get(target.repository);
+	if (holder?.signed) return 'unchanged';
+	if (holder !== undefined) return signAt(ctx, target, chosen.digest) ? 'signed' : 'failed';
 	const copied = ctx.run([
-		ctx.cosign,
-		'copy',
-		...force,
-		chosen.source,
+		'docker',
+		'buildx',
+		'imagetools',
+		'create',
+		'-t',
 		`${target.repository}:${ctx.plan.tag}`,
+		chosen.source,
 	]);
-	return copied.code === 0 ? 'pushed' : 'failed';
+	if (copied.code !== 0) return 'failed';
+	return signAt(ctx, target, chosen.digest) ? 'pushed' : 'failed';
 }
 
 /** Step 7: the SAME digest everywhere, and the operator's own verify passes. */
@@ -1004,8 +1057,8 @@ function publish(env: Env, run: Runner): number {
 	loginAll(ctx, verdicts);
 	const chosen = chooseSource(ctx, targets, assembleIndex(ctx));
 	// Step 6 for EVERY target, then step 7 for every target: a verify never runs while a
-	// copy is still pending, so the verified set is the final state of the publication.
-	const statuses = new Map(targets.map((target) => [target, copyTo(ctx, target, chosen)]));
+	// copy or a signature is still pending, so the verified set is the final state.
+	const statuses = new Map(targets.map((target) => [target, publishTo(ctx, target, chosen)]));
 	const records = verdicts.map((verdict) =>
 		verdict.publish
 			? verifiedRecord(ctx, verdict, statuses.get(verdict) ?? 'failed', chosen.digest)

@@ -5,20 +5,26 @@
  * its program is run here as the workflow runs it — `bun scripts/ci/image_release.ts
  * <verb>` — with `docker`, `curl` and the downloaded `cosign` replaced by ONE recording
  * stub on PATH. The stub keeps a tiny registry in a state directory (reference →
- * digest), so a copy, an inspect and a verify see each other's effects, and every
- * invocation is appended to a log. What is asserted is the OUTCOME and the ORDER of
+ * digest, plus one signature marker per `<repository>@<digest>` — a signature lives in
+ * ONE registry, as cosign 3's OCI 1.1 referrers do), so a copy, a sign, an inspect and a
+ * verify see each other's effects, and every invocation is appended to a log. What is asserted is the OUTCOME and the ORDER of
  * effects, which is the safety argument of the publish verb:
  *
  *   - an unpinned cosign, or a downloaded binary whose sha256 is not the pin, refuses
  *     before ANY registry command;
  *   - an unprovisioned registry is skipped with its reason; a provisioned one whose
  *     secrets are absent is skipped LOUDLY (::warning::) and the others still publish;
- *   - nothing is signed before every target was inspected (immutability), nothing is
- *     copied before it is signed, nothing is verified before it is copied;
+ *   - nothing is signed before every target was inspected (immutability), nothing leaves
+ *     staging before D is signed there, every target is copied by digest and then signed
+ *     AT its own digest, nothing is verified before every copy and signature; `cosign
+ *     copy` is never invoked (it does not carry cosign 3's referrers signatures — the
+ *     v7.0.0-beta.7 incident);
  *   - release channel: holders that disagree refuse before signing or copying; an
- *     existing release without the official signature refuses before copying; agreeing
- *     holders are kept and the missing target receives THEIR digest, never a rebuild;
- *   - dev channel: the tag is overwritten (`cosign copy --force`);
+ *     existing release whose digest verifies NOWHERE official (no holder, not staging@X)
+ *     refuses before copying; agreeing holders are kept, the missing target receives
+ *     THEIR digest (never a rebuild), and a holder without the signature in its own
+ *     registry is signed in place when X verifies elsewhere (the recovery door);
+ *   - dev channel: the mutable tag is overwritten;
  *   - a target that ends with another digest fails the run, and the record says so;
  *   - the record (image-release.json) has the documented schema.
  * The plan rules run on a REAL scratch git repository (tags, version.ts, branches): a
@@ -132,7 +138,14 @@ case "$me" in
   docker)
     case "$1 $2 $3" in
       "login "*) cat >/dev/null; exit 0 ;;
-      "buildx imagetools create") put "$5" "$STUB_BUILT"; exit 0 ;;
+      "buildx imagetools create")
+        # ONE source = a carbon copy (same digest); several = the assembled index.
+        if [ $# -eq 6 ]; then
+          d="$(digest_of "$6")"
+          [ -n "\${STUB_COPY_WRONG:-}" ] && [ "$5" = "$STUB_COPY_WRONG" ] && d="sha256:$(printf 'f%.0s' $(seq 64))"
+          put "$5" "$d"
+        else put "$5" "$STUB_BUILT"; fi
+        exit 0 ;;
       "buildx imagetools inspect")
         if [ -n "\${STUB_INSPECT_ERROR:-}" ] && [ "$4" = "$STUB_INSPECT_ERROR" ]; then echo "unauthorized: denied" >&2; exit 1; fi
         d="$(digest_of "$4")"
@@ -142,14 +155,13 @@ case "$me" in
     esac ;;
   cosign)
     case "$1" in
-      sign) exit "\${STUB_SIGN_RC:-0}" ;;
-      copy)
-        [ "$2" = "--force" ] && shift
-        d="$(digest_of "$2")"
-        [ -n "\${STUB_COPY_WRONG:-}" ] && [ "$3" = "$STUB_COPY_WRONG" ] && d="sha256:$(printf 'f%.0s' $(seq 64))"
-        put "$3" "$d"; exit 0 ;;
+      sign)
+        [ "\${STUB_SIGN_RC:-0}" = 0 ] || exit "$STUB_SIGN_RC"
+        [ -n "\${STUB_SIGN_FAIL:-}" ] && [ "$3" = "$STUB_SIGN_FAIL" ] && { echo "denied" >&2; exit 1; }
+        touch "$STUB_STATE/sig_$(key "$3")"; exit 0 ;;
+      copy) echo 'Command "copy" is deprecated' >&2; exit 0 ;;
       verify)
-        case " \${STUB_UNSIGNED:-} " in *" $(digest_of "$2") "*) echo "no matching signatures" >&2; exit 1 ;; esac
+        [ -f "$STUB_STATE/sig_$(key "$2")" ] || { echo "no signatures found" >&2; exit 1; }
         # STUB_SIGNER = the certificate identity (SAN) the run's keyless signature carries:
         # verify then passes only when --certificate-identity-regexp accepts it, as cosign does.
         if [ -n "\${STUB_SIGNER:-}" ]; then
@@ -206,6 +218,8 @@ let runCounter = 0;
 function publish(options: {
 	channel?: 'master' | 'prerelease' | 'dev';
 	preset?: Record<string, string>;
+	/** `<repository>@<digest>` references whose registry already carries the signature. */
+	signed?: string[];
 	env?: Record<string, string>;
 	pin?: { version: string | null; linux_amd64_sha256: string | null };
 }): Run {
@@ -215,6 +229,7 @@ function publish(options: {
 	const key = (ref: string) => ref.replaceAll(/[/:@]/g, '_');
 	for (const [ref, digest] of Object.entries(options.preset ?? {}))
 		writeFileSync(join(state, key(ref)), digest);
+	for (const ref of options.signed ?? []) writeFileSync(join(state, `sig_${key(ref)}`), '');
 	const pinFile = join(dir, 'cosign.json');
 	writeFileSync(
 		pinFile,
@@ -285,15 +300,22 @@ const lastAt = (log: string[], pattern: RegExp): number =>
 	log.reduce((found, line, i) => (pattern.test(line) ? i : found), -1);
 const GHCR = REPO.ghcr as string;
 const HUB = REPO.dockerhub as string;
+/** A carbon copy to a TARGET (one source); the staging index assembly has two. */
+const COPY_TO_TARGET = new RegExp(
+	`^docker buildx imagetools create -t (${GHCR}|${HUB}):\\S+ \\S+$`,
+);
+/** Any registry write of the publish step: a sign or a copy to a target. */
+const touchesRelease = (line: string): boolean =>
+	line.startsWith('cosign sign ') || line.startsWith('cosign copy') || COPY_TO_TARGET.test(line);
 
 describe('publish — the order of effects is the safety argument', () => {
-	test('a fresh release: index once, every target inspected, signed once, copied, verified — one digest', () => {
+	test('a fresh release: index once, every target inspected, signed in staging, copied by digest, signed per target, verified — one digest', () => {
 		const run = publish({});
 		expect(run.code, run.stdout).toBe(0);
 		const { log } = run;
 		const create = at(log, /^docker buildx imagetools create /);
 		const sign = at(log, /^cosign sign /);
-		const firstCopy = at(log, /^cosign copy /);
+		const firstCopy = at(log, COPY_TO_TARGET);
 		const lastInspectOfTargets = Math.max(
 			lastAt(log, new RegExp(`^docker buildx imagetools inspect ${GHCR}:7\\.0\\.1 `)),
 			lastAt(log, new RegExp(`^docker buildx imagetools inspect ${HUB}:7\\.0\\.1 `)),
@@ -308,18 +330,30 @@ describe('publish — the order of effects is the safety argument', () => {
 		expect(at(log, /^curl /)).toBe(0); // the pinned cosign first
 		expect(at(log, /^docker login /)).toBeLessThan(create);
 		expect(firstTargetInspect).toBeLessThan(sign); // immutability before signing
-		expect(sign).toBeLessThan(firstCopy); // nothing copied unsigned
+		expect(sign).toBeLessThan(firstCopy); // nothing leaves staging unsigned
+		// The staging anchor, then ONE signature per target registry, each AT its digest.
 		expect(log.filter((line) => line.startsWith('cosign sign '))).toEqual([
 			`cosign sign --yes ${STAGING}@${BUILT}`,
+			`cosign sign --yes ${GHCR}@${BUILT}`,
+			`cosign sign --yes ${HUB}@${BUILT}`,
 		]);
+		// Each target is signed only after IT holds the digest.
+		for (const target of [GHCR, HUB])
+			expect(at(log, new RegExp(`^cosign sign --yes ${target}@`))).toBeGreaterThan(
+				at(log, new RegExp(`^docker buildx imagetools create -t ${target}:7\\.0\\.1 `)),
+			);
+		// THE v7.0.0-beta.7 bug: `cosign copy` carries no cosign 3 signature — never invoked.
+		expect(log.some((line) => line.startsWith('cosign copy'))).toBe(false);
 		// The index is assembled from the SMOKE-TESTED digests, never from a staging tag.
-		expect(log.filter((line) => line.startsWith('docker buildx imagetools create '))).toEqual([
+		expect(
+			log.filter((line) => line.startsWith(`docker buildx imagetools create -t ${STAGING}:`)),
+		).toEqual([
 			`docker buildx imagetools create -t ${STAGING}:7.0.1-run-42 ${STAGING}@${ARCH_AMD64} ${STAGING}@${ARCH_ARM64}`,
 		]);
 		expect(log.some((line) => line.includes(':run-42-'))).toBe(false);
-		expect(log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy ${STAGING}@${BUILT} ${GHCR}:7.0.1`,
-			`cosign copy ${STAGING}@${BUILT} ${HUB}:7.0.1`,
+		expect(log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${GHCR}:7.0.1 ${STAGING}@${BUILT}`,
+			`docker buildx imagetools create -t ${HUB}:7.0.1 ${STAGING}@${BUILT}`,
 		]);
 		const verifies = log.filter((line) => line.startsWith('cosign verify '));
 		expect(verifies.map((line) => line.split(' ')[2])).toEqual([
@@ -328,7 +362,7 @@ describe('publish — the order of effects is the safety argument', () => {
 		]);
 		expect(verifies[0]).toContain(`--certificate-identity-regexp ${LIST.signing.identity_regexp}`);
 		expect(verifies[0]).toContain(`--certificate-oidc-issuer ${LIST.signing.issuer}`);
-		expect(at(log, /^cosign verify /)).toBeGreaterThan(lastAt(log, /^cosign copy /));
+		expect(at(log, /^cosign verify /)).toBeGreaterThan(lastAt(log, /^cosign sign /));
 		expect(lastInspectOfTargets).toBeGreaterThan(firstCopy); // re-inspected after the copy
 		// The SAME digest everywhere.
 		expect(run.state(`${GHCR}:7.0.1`)).toBe(BUILT);
@@ -403,17 +437,22 @@ describe('publish — the order of effects is the safety argument', () => {
 });
 
 describe('publish — immutability of a release', () => {
-	test('agreeing holders are kept; the missing target receives THEIR digest — never a rebuild or re-sign', () => {
+	test('agreeing holders are kept; the missing target receives THEIR digest — never a rebuild, signed in its own registry', () => {
 		const existing = D(7);
-		const run = publish({ preset: { [`${GHCR}:7.0.1`]: existing } });
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing },
+			signed: [`${GHCR}@${existing}`],
+		});
 		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.some((line) => line.startsWith('cosign sign '))).toBe(false);
-		expect(run.log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy ${GHCR}@${existing} ${HUB}:7.0.1`,
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${HUB}:7.0.1 ${GHCR}@${existing}`,
 		]);
 		// The official signature of the existing release is checked before it is spread.
 		expect(at(run.log, new RegExp(`^cosign verify ${GHCR}@${existing} `))).toBeLessThan(
-			at(run.log, /^cosign copy /),
+			at(run.log, COPY_TO_TARGET),
 		);
 		expect(run.state(`${HUB}:7.0.1`)).toBe(existing);
 		expect(run.record?.digest).toBe(existing);
@@ -423,35 +462,118 @@ describe('publish — immutability of a release', () => {
 		expect(statuses).toEqual(['skipped', 'unchanged', 'pushed']);
 	});
 
+	test('RECOVERY (v7.0.0-beta.7): holders of X unsigned, staging@X signed → each holder signed IN PLACE and verified', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			signed: [`${STAGING}@${existing}`],
+		});
+		expect(run.code, run.stdout).toBe(0);
+		// Nothing is rebuilt, copied or re-pointed: only signatures are added, AT X.
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${GHCR}@${existing}`,
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+		expect(run.log.some((line) => line.startsWith('cosign copy'))).toBe(false);
+		// The anchor (staging@X) verified before the first in-place signature.
+		expect(at(run.log, new RegExp(`^cosign verify ${STAGING}@${existing} `))).toBeLessThan(
+			at(run.log, /^cosign sign /),
+		);
+		expect(run.record?.digest).toBe(existing);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'signed', true],
+			['dockerhub', 'signed', true],
+		]);
+	});
+
+	test('RECOVERY, mixed: one holder signed, one unsigned, the staging anchor not needed → only the unsigned one is signed', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			signed: [`${GHCR}@${existing}`],
+		});
+		expect(run.code, run.stdout).toBe(0);
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		const statuses = (run.record?.registries as { status: string }[]).map((item) => item.status);
+		expect(statuses).toEqual(['skipped', 'unchanged', 'signed']);
+	});
+
 	test('holders that DISAGREE refuse before anything is signed or copied', () => {
-		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(8) } });
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(8) },
+			signed: [`${GHCR}@${D(7)}`, `${STAGING}@${D(7)}`],
+		});
 		expect(run.code).toBe(1);
 		expect(run.stdout).toContain('INCONSISTENTLY');
-		expect(run.log.some((line) => /^cosign (sign|copy) /.test(line))).toBe(false);
+		expect(run.log.some(touchesRelease)).toBe(false);
 		expect(run.state(`${HUB}:7.0.1`)).toBe(D(8));
 	});
 
-	test('an existing release WITHOUT the official signature refuses before any copy', () => {
-		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) }, env: { STUB_UNSIGNED: D(7) } });
+	test('an existing release whose digest verifies NOWHERE official refuses before any sign or copy', () => {
+		// Holders of X, none signed; staging@X unsigned too; a signature on ANOTHER digest
+		// in staging is not X's.
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(7) },
+			signed: [`${STAGING}@${BUILT}`],
+		});
 		expect(run.code).toBe(1);
-		expect(run.stdout).toContain('does not carry the official signature');
-		expect(run.log.some((line) => /^cosign (sign|copy) /.test(line))).toBe(false);
+		expect(run.stdout).toContain('carries the official signature NOWHERE');
+		expect(run.log.some(touchesRelease)).toBe(false);
+		// Every official place was asked: each holder, then staging@X.
+		for (const ref of [`${GHCR}@${D(7)}`, `${HUB}@${D(7)}`, `${STAGING}@${D(7)}`])
+			expect(at(run.log, new RegExp(`^cosign verify ${ref} `))).toBeGreaterThanOrEqual(0);
+	});
+
+	test('a single unsigned holder with no anchor refuses, and the missing target is NOT filled', () => {
+		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('carries the official signature NOWHERE');
+		expect(run.log.some(touchesRelease)).toBe(false);
 		expect(run.state(`${HUB}:7.0.1`)).toBeNull();
+	});
+
+	test('a failing staging signature refuses before anything leaves staging', () => {
+		const run = publish({ env: { STUB_SIGN_RC: '1' } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('signing the image in staging failed');
+		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+	});
+
+	test('a signature that fails in ONE target registry fails that target and the run; the record says so', () => {
+		const run = publish({ env: { STUB_SIGN_FAIL: `${HUB}@${BUILT}` } });
+		expect(run.code).toBe(1);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'pushed', true],
+			['dockerhub', 'failed', false],
+		]);
 	});
 
 	test('a target that cannot be READ refuses (absent and unreadable are different answers)', () => {
 		const run = publish({ env: { STUB_INSPECT_ERROR: `${HUB}:7.0.1` } });
 		expect(run.code).toBe(1);
 		expect(run.stdout).toContain(`cannot read ${HUB}`);
-		expect(run.log.some((line) => /^cosign (sign|copy) /.test(line))).toBe(false);
+		expect(run.log.some(touchesRelease)).toBe(false);
 	});
 
 	test('the DEV channel overwrites its mutable tag', () => {
 		const run = publish({ channel: 'dev', preset: { [`${GHCR}:7.0.1-dev`]: D(7) } });
 		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy --force ${STAGING}@${BUILT} ${GHCR}:7.0.1-dev`,
-			`cosign copy --force ${STAGING}@${BUILT} ${HUB}:7.0.1-dev`,
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${GHCR}:7.0.1-dev ${STAGING}@${BUILT}`,
+			`docker buildx imagetools create -t ${HUB}:7.0.1-dev ${STAGING}@${BUILT}`,
 		]);
 		expect(run.state(`${GHCR}:7.0.1-dev`)).toBe(BUILT);
 	});
@@ -497,16 +619,24 @@ describe('publish — GATE 16: the tag SET a run writes', () => {
 		expect(run.tagsHeld(GHCR)).toEqual(['7.0.1', '7.0.1-beta.2']);
 		expect(run.state(`${GHCR}:7.0.1`)).toBe(stable);
 		expect(run.tagsHeld(HUB)).toEqual(['7.0.1-beta.2']);
-		expect(run.log.some((line) => /^cosign copy .* \S+:7\.0\.1$/.test(line))).toBe(false);
+		expect(
+			run.log.some((line) => /^docker buildx imagetools create -t \S+:7\.0\.1 /.test(line)),
+		).toBe(false);
 	});
 
 	test('a published prerelease is IMMUTABLE: the existing digest is spread, never re-signed or forced', () => {
 		const existing = D(7);
-		const run = publish({ channel: 'prerelease', preset: { [`${GHCR}:7.0.1-beta.2`]: existing } });
+		const run = publish({
+			channel: 'prerelease',
+			preset: { [`${GHCR}:7.0.1-beta.2`]: existing },
+			signed: [`${GHCR}@${existing}`],
+		});
 		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.some((line) => line.startsWith('cosign sign '))).toBe(false);
-		expect(run.log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy ${GHCR}@${existing} ${HUB}:7.0.1-beta.2`,
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${HUB}:7.0.1-beta.2 ${GHCR}@${existing}`,
 		]);
 	});
 

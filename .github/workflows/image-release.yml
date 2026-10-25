@@ -32,13 +32,20 @@
 # packages: write, so a poisoned layer would be signed as official); developer builds use
 # `<staging>:cache-dev-<arch>`. `publish` assembles the multi-arch index once in the
 # staging repository FROM THOSE DIGESTS (never from a staging tag, which could move while
-# the job waits for its reviewer), enforces immutability, signs ONCE (cosign keyless,
-# Rekor), copies image + signature to every target, and checks every target holds the
-# SAME digest and passes the operator's own `cosign verify`. It records the result in the
-# job summary and an `image-release` artifact.
+# the job waits for its reviewer), enforces immutability, signs D in staging first (cosign
+# keyless, Rekor), then per target carbon-copies the digest (`docker buildx imagetools
+# create`, one source) and signs it THERE at its digest — one signature per registry; never
+# `cosign copy`, which does not carry cosign 3's OCI 1.1 referrers signatures (the first
+# real run, v7.0.0-beta.7, left both mirrors unsigned through it) — and checks every target
+# holds the SAME digest and passes the operator's own `cosign verify`. An existing release
+# is accepted only when its digest verifies somewhere official (a holder, or staging@X); a
+# holder lacking the signature is then signed in place. It records the result in the job
+# summary and an `image-release` artifact.
 #
 # TRIGGERS. push of a release tag (stable or prerelease); workflow_dispatch (channel dev | release; release
-# publishes an EXISTING tag — e.g. to fill a newly provisioned mirror). NO pull_request,
+# publishes an EXISTING tag with master's script — e.g. to fill a newly provisioned mirror,
+# or to sign in place a release left unsigned by an older script; the environment's
+# deployment policy must allow branch master for it). NO pull_request,
 # pull_request_target, workflow_run or schedule: publishing needs `packages: write`,
 # `id-token: write` and the registry secrets, which fork or scheduled code must never
 # reach (ci_workflow_tripwire rule 11's carve-out holds exactly this).
@@ -266,7 +273,7 @@ jobs:
       # The ONLY secret references in .github/workflows/ (rule 11 carve-out): exactly the
       # names engineering/image_registries.json declares, in this environment-bound job.
       # An empty one skips its registry loudly; it never fails the others.
-      - name: Index, immutability, sign, copy, verify, record
+      - name: Index, immutability, sign, copy + sign per target, verify, record
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           TAG: ${{ needs.plan.outputs.tag }}
