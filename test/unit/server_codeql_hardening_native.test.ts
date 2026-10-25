@@ -148,7 +148,9 @@ describe('#7958 linear tag strip (identical output, linear time)', () => {
 		expect(sanitizeMarkup('<!--'.repeat(16 * 1024))).toBe('&lt;!--'.repeat(16 * 1024));
 		// A run of unclosed OPENERS is the hostile shape for the first-tag twins (a
 		// single `<svg` at offset 0 is scanned once even by the old regex).
-		const svgs = '<svg'.repeat(16 * 1024);
+		// 32K (not 16K): the reverted `/<svg\b[^>]*>/i` takes ~0.7 s here, so the 150 ms
+		// budget catches it on any host; 16K cleared the budget by only ~15% (round-3 review).
+		const svgs = '<svg'.repeat(32 * 1024);
 		const images = `<svg>${'<image'.repeat(16 * 1024)}`;
 		expect(repointEnvelopeRaster(svgs, 10, 10, 'x.jpg')).toBe(svgs);
 		expect(repointEnvelopeRaster(images, 10, 10, 'x.jpg')).toBe(images);
