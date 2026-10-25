@@ -49,6 +49,7 @@ import { fragmentFromTag } from '../../src/core/section/indexation_grid.ts';
 import { sanitizeRichText } from '../../src/core/security/html_sanitize.ts';
 import { paragraphAsText } from '../../src/core/tools/import_code_lookup.ts';
 import { ensureLogFile } from '../../src/core/update/engine.ts';
+import { rdfInnerBlock } from '../../src/diffusion/writers/rdf.ts';
 import { sanitizeMarkup } from '../../src/external/fields_map.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
 
@@ -81,7 +82,7 @@ describe('#7958 linear tag strip (identical output, linear time)', () => {
 			let s = '';
 			for (let j = 0; j < 12; j++) {
 				seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-				s += alphabet[seed % alphabet.length];
+				s += alphabet[(seed >>> 16) % alphabet.length];
 			}
 			random.push(s);
 		}
@@ -123,7 +124,7 @@ describe('#7958 linear tag strip (identical output, linear time)', () => {
 			let input = '';
 			for (let j = 0; j < 10; j++) {
 				seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-				input += tokens[seed % tokens.length];
+				input += tokens[(seed >>> 16) % tokens.length];
 			}
 			expect(stripTagsExcept(input, ['br', 'strong', 'em'])).toBe(
 				input.replace(/<(?!\/?(?:br|strong|em)\b)[^>]*>/gi, ''),
@@ -145,7 +146,13 @@ describe('#7958 linear tag strip (identical output, linear time)', () => {
 		expect(sanitizeMarkup('<a'.repeat(32 * 1024))).toBe('&lt;a'.repeat(32 * 1024));
 		expect(sanitizeMarkup('<script'.repeat(8 * 1024))).toBe('&lt;script'.repeat(8 * 1024));
 		expect(sanitizeMarkup('<!--'.repeat(16 * 1024))).toBe('&lt;!--'.repeat(16 * 1024));
-		expect(repointEnvelopeRaster(`<svg${hostile}`, 10, 10, 'x.jpg')).toBe(`<svg${hostile}`);
+		// A run of unclosed OPENERS is the hostile shape for the first-tag twins (a
+		// single `<svg` at offset 0 is scanned once even by the old regex).
+		const svgs = '<svg'.repeat(16 * 1024);
+		const images = `<svg>${'<image'.repeat(16 * 1024)}`;
+		expect(repointEnvelopeRaster(svgs, 10, 10, 'x.jpg')).toBe(svgs);
+		expect(repointEnvelopeRaster(images, 10, 10, 'x.jpg')).toBe(images);
+		expect(rdfInnerBlock('<rdf:RDF'.repeat(16 * 1024))).toBe(''); // no `>` anywhere: the worst case
 		expect(performance.now() - started).toBeLessThan(150);
 		// …and still do their job.
 		expect(
@@ -154,6 +161,7 @@ describe('#7958 linear tag strip (identical output, linear time)', () => {
 		expect(sanitizeMarkup('<p onclick="x">a<script>bad()</script><!-- c --><b>b</b></p>')).toBe(
 			'<p>a<b>b</b></p>',
 		);
+		expect(rdfInnerBlock('<?xml?>\n<rdf:RDF xmlns:a="b">\n <a:x/>\n</rdf:RDF>')).toBe('<a:x/>');
 		expect(
 			repointEnvelopeRaster('<svg width="1" height="1"><image href="old"/></svg>', 4, 3, 'new'),
 		).toBe('<svg width="4" height="3"><image href="new"/></svg>');
@@ -208,10 +216,12 @@ describe('#7934/#7935/#7936 single-pass entity decode', () => {
 		expect(fragment?.text).toBe('&lt;b&gt; <i>');
 	});
 
-	test('import code lookup un-escapes a stored paragraph ONCE (textAsParagraph inverse)', () => {
+	test('import code lookup: textAsParagraph inverse in one pass, plus the PHP numeric refs', () => {
 		expect(paragraphAsText('<p>&amp;lt;x&amp;gt; &lt;y&gt; &quot;&#39;&apos;&amp;</p>')).toBe(
 			`&lt;x&gt; <y> "''&`,
 		);
+		// what the old replaceAll chain left verbatim: numeric spellings of < > '
+		expect(paragraphAsText('<p>&#60;x&#62; &#x27;&#039;&#0039;</p>')).toBe(`<x> '''`);
 	});
 
 	test('tr_marks charsInfo counts &amp;lt; as the 4 chars of "&lt;" (#7935)', () => {
@@ -221,6 +231,68 @@ describe('#7934/#7935/#7936 single-pass entity decode', () => {
 	test('RAG plain text keeps &amp;lt; literal and survives an out-of-range reference (#7934)', () => {
 		expect(htmlToPlainText('<p>&amp;lt;x&amp;gt;</p>')).toBe('&lt;x&gt;');
 		expect(() => htmlToPlainText('&#99999999;')).not.toThrow();
+	});
+});
+
+describe('external markup sanitiser ≡ the regex pipeline it replaced', () => {
+	// The pre-2026-10-25 sanitizeMarkup, verbatim: raw-element regex, comment
+	// regex, then a matchAll tag walk (the O(n²) forms the linear twins replace).
+	const ALLOWED = new Set(['b', 'i', 'em', 'strong', 'sub', 'sup', 'br', 'p', 'ul', 'ol', 'li']);
+	const escapeText = (text: string): string =>
+		text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	const reference = (raw: string): string => {
+		const kept = raw
+			.replace(/<(script|style|iframe|object|embed|svg|math)\b[\s\S]*?<\/\1\s*>/gi, '')
+			.replace(/<!--[\s\S]*?-->/g, '');
+		let output = '';
+		let cursor = 0;
+		for (const match of kept.matchAll(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g)) {
+			const index = match.index ?? 0;
+			output += escapeText(kept.slice(cursor, index));
+			cursor = index + match[0].length;
+			const tag = (match[1] ?? '').toLowerCase();
+			if (!ALLOWED.has(tag)) continue;
+			output += match[0].startsWith('</') ? `</${tag}>` : `<${tag}>`;
+		}
+		return output + escapeText(kept.slice(cursor));
+	};
+
+	test('seeded token soup: interleaved, unclosed and mixed-case raw elements, comments, tags', () => {
+		const tokens = [
+			'<script',
+			'</script>',
+			'</SCRIPT >',
+			'<Script>',
+			'<style',
+			'</style>',
+			'<svg',
+			'</svg>',
+			'<math>',
+			'</math >',
+			'<!--',
+			'-->',
+			'<a',
+			'<b>',
+			'</b>',
+			'<p x="1">',
+			'>',
+			'x',
+			' ',
+			'"',
+		];
+		let seed = 9673;
+		let cases = 0;
+		for (let i = 0; i < 20000; i++) {
+			let input = '';
+			const length = 1 + (i % 14);
+			for (let j = 0; j < length; j++) {
+				seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+				input += tokens[(seed >>> 16) % tokens.length];
+			}
+			expect(sanitizeMarkup(input), input).toBe(reference(input));
+			cases++;
+		}
+		expect(cases).toBe(20000);
 	});
 });
 

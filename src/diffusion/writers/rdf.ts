@@ -437,8 +437,12 @@ function isMergeablePart(part: string): boolean {
 	return part.trim().length > 0;
 }
 
-/** The rdf part's inner block (between its <rdf:RDF …> and its last </rdf:RDF>), trimmed. */
-function rdfInnerBlock(part: string): string {
+/**
+ * The rdf part's inner block (between its <rdf:RDF …> and its last </rdf:RDF>), trimmed.
+ * Exported for its outcome gate (server_codeql_hardening_native: linear on a run
+ * of unclosed `<rdf:RDF`, CodeQL #7958 shape).
+ */
+export function rdfInnerBlock(part: string): string {
 	const open = firstHtmlTag(part, RDF_OPENER);
 	const closeIndex = part.lastIndexOf('</rdf:RDF>');
 	if (!open || closeIndex === -1) return '';

@@ -19,14 +19,16 @@
  *
  * ── THE MEASURE ──────────────────────────────────────────────────────────────
  * An AST census (comments are not code) of src/, tools/<tool>/server and
- * publication/<pkg>/src, html_text.ts excepted:
+ * publication/<pkg>/src — html_text.ts INCLUDED: its twins are loops and its one
+ * decoder is single-pass, so the home itself holds zero findings (asserted):
  *  - TAG SCAN: a regex literal (or `new RegExp('literal')`) whose pattern has a
  *    `<` followed by a scan-to-close atom (`[^>]*>`, `[^>]+>`, `[^>]*?>`,
  *    `[\s\S]*?`, `.*?`, `.+?`). Acquitted structurally: `^`-anchored without
  *    the `m` flag, or sticky (`y`) — both are tried at ONE position.
  *  - CHAINED `&amp;` DECODE — measured on BEHAVIOUR, not spelling: the search
- *    argument of a `replace`/`replaceAll` (regex or string) that consumes the
- *    text `&amp;` but NOT `&lt;` — one step of a chain (a single-pass decoder
+ *    argument of a `replace`/`replaceAll`/`split` — a string, a no-expression
+ *    template, a regex literal or `new RegExp('literal', 'flags')` — that
+ *    consumes the text `&amp;` but NOT `&lt;` — one step of a chain (a single-pass decoder
  *    over every entity name consumes both; an encoder's `/&/g` consumes one
  *    char); an object key `'&amp;'` or a `['&amp;', '&']` pair (the table a
  *    replaceAll loop walks — a single-pass decoder keys on the NAME `amp`).
@@ -37,7 +39,8 @@
  * commit).
  *
  * ── HONEST LIMITS ────────────────────────────────────────────────────────────
- * Static: a pattern built at runtime from non-literal parts is invisible, and
+ * Static: a pattern built at runtime from non-literal parts, or a search value
+ * that reaches the call through a variable or parameter, is invisible, and
  * the tag-scan shape list is the one CodeQL reports (other ReDoS shapes are not
  * this gate's business). The OUTCOME half — same output, linear time, single
  * decode, at the callers — is test/unit/server_codeql_hardening_native.test.ts.
@@ -129,11 +132,28 @@ function consumesEntity(compiled: RegExp, text: string): boolean {
  * An encoder (`/&/g` → `&amp;`) consumes one char: acquitted.
  */
 function decodesAmpAlone(search: AstNode): boolean {
-	if (search.type === 'StringLiteral') return (search.value as string).startsWith('&amp');
-	if (search.type !== 'RegExpLiteral') return false;
+	// a string search: `'&amp;'` or a no-expression template `` `&amp;` ``
+	const text = literalString(search);
+	if (text !== null) return text.startsWith('&amp');
+	// a regex search: a literal, or `new RegExp('literal', 'flags')` / `RegExp(…)`
+	let pattern: string | null = null;
+	let flags = '';
+	if (search.type === 'RegExpLiteral') {
+		pattern = search.pattern as string;
+		flags = search.flags as string;
+	} else if (
+		(search.type === 'NewExpression' || search.type === 'CallExpression') &&
+		(search.callee as AstNode).type === 'Identifier' &&
+		(search.callee as AstNode).name === 'RegExp'
+	) {
+		const args = search.arguments as AstNode[];
+		pattern = literalString(args[0]);
+		flags = literalString(args[1]) ?? '';
+	}
+	if (pattern === null) return false;
 	let compiled: RegExp;
 	try {
-		compiled = new RegExp(search.pattern as string, (search.flags as string).replace(/[gy]/g, ''));
+		compiled = new RegExp(pattern, flags.replace(/[gy]/g, ''));
 	} catch {
 		return false;
 	}
@@ -186,7 +206,8 @@ function htmlTextFindings(file: string, source: string): Finding[] {
 			}
 			const method = calleeProperty(callee);
 			if (
-				(method === 'replace' || method === 'replaceAll') &&
+				// `.split('&amp;')` is the split/join spelling of the same step
+				(method === 'replace' || method === 'replaceAll' || method === 'split') &&
 				args[0] &&
 				decodesAmpAlone(args[0])
 			) {
@@ -219,7 +240,6 @@ function census(): { scanned: string[]; findings: Finding[] } {
 	const scanned = [...files].sort();
 	const findings: Finding[] = [];
 	for (const rel of scanned) {
-		if (rel === HOME) continue;
 		findings.push(...htmlTextFindings(rel, readFileSync(join(REPO, rel), 'utf8')));
 	}
 	return { scanned, findings };
@@ -247,7 +267,7 @@ describe('html_text tripwire — tag scans and &amp; decodes live in html_text.t
 		for (const entry of Object.values(EXEMPTIONS)) expect(entry.reason.length).toBeGreaterThan(40);
 	});
 
-	test('anti-vacuity: the walk saw the trees, and the detector convicts the home itself', () => {
+	test('anti-vacuity: the walk saw the trees (home included) and convicts the live truncate_html tokenizers', () => {
 		expect(scanned.length).toBeGreaterThan(1000);
 		for (const file of [
 			'src/core/media/tools/subtitles.ts',
@@ -261,6 +281,10 @@ describe('html_text tripwire — tag scans and &amp; decodes live in html_text.t
 		// Live code the measure must SEE: the bounded truncate_html tokenizers are
 		// convicted (and exempted) — a detector that misses them is blind.
 		expect(findings.filter((f) => f.file === 'src/core/resolve/truncate_html.ts').length).toBe(2);
+		// The home is censused like every file and is clean on its own merits (no
+		// name exemption): a regex tag scan or a chained decode added there is red.
+		expect(scanned).toContain(HOME);
+		expect(findings.filter((f) => f.file === HOME)).toEqual([]);
 	});
 
 	test('positive controls: every shape the header names is convicted', () => {
@@ -278,6 +302,11 @@ describe('html_text tripwire — tag scans and &amp; decodes live in html_text.t
 		expect(count(`x.replace(/&(amp);/g, '&');`)).toBe(1);
 		expect(count(`const T = { '&amp;': '&', '&lt;': '<' };`)).toBe(1);
 		expect(count(`const M = new Map([['&amp;', '&']]);`)).toBe(1);
+		expect(count(`x.replace(new RegExp('&amp;', 'g'), '&');`)).toBe(1);
+		expect(count(`x.replace(RegExp('&amp;', 'gi'), '&');`)).toBe(1);
+		expect(count("x.replaceAll(`&amp;`, '&');")).toBe(1);
+		expect(count(`x.split('&amp;').join('&');`)).toBe(1);
+		expect(count(`x.split(/&amp;/).join('&');`)).toBe(1);
 	});
 
 	test('negative controls: encoders, anchored/sticky scans and comments are not findings', () => {
@@ -291,6 +320,8 @@ describe('html_text tripwire — tag scans and &amp; decodes live in html_text.t
 			0,
 		);
 		expect(count(`x.replace(/&nbsp;/g, ' ');`)).toBe(0);
+		expect(count(`x.split('&').join('&amp;'); y.split(',');`)).toBe(0);
+		expect(count(`x.replace(new RegExp('&', 'g'), '&amp;');`)).toBe(0);
 		// single pass over every entity name: no chain, no double decode
 		expect(count(`x.replace(/&(amp|lt|gt);/g, (m, n) => T[n]);`)).toBe(0);
 		expect(count(`x.replace(/;\\s*$/, '').replace(/[#;].*$/, '').replace(/m/g, 'x');`)).toBe(0);
