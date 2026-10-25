@@ -974,19 +974,23 @@ as unavailable. Gate: `image_registries_tripwire`.
   answers fails commands, not the verb: past the deadline no command starts and the
   remaining targets are recorded `failed` (`deadline exceeded`).
 - **What the gate holds.** `image_release_native` reads the workflow and requires, per
-  job: every step carries its own step `timeout-minutes`; the non-verb steps' timeouts sum
-  to ≤ the job's declared allowance (`JOB_OVERHEAD_MS`, with a reason — setup steps, the
-  image build for `build`, the record upload for `publish`; the remainder covers the
-  set-up/post steps, which take no timeout); each verb step's timeout exceeds its verb's
+  job: every step carries its own step `timeout-minutes`; the non-verb steps' timeouts
+  plus an explicit set-up reserve (`setupMs`, 1 min, for GitHub's set-up/post steps, which
+  take no timeout) sum to ≤ the job's declared allowance (`JOB_OVERHEAD_MS`, with a reason
+  — setup steps, the image build for `build`, the record upload for `publish`); each verb step's timeout exceeds its verb's
   budget (the program's deadline fires first); the verbs' budgets plus the allowance, and
   all step timeouts together, are ≤ the job's `timeout-minutes`. So a hung step is killed
   by its own timeout, and the verb's deadline fires before GitHub kills the job.
-- **A planned publish always leaves a record.** Once the plan is read, ANY error — a
-  refusal before the per-target loop (staging mismatch, cosign pin, a login, the index,
-  the immutability or anchor check, a deadline) or a plain one (a malformed pin file) —
-  writes `image-release.json` and the summary with every publish target `failed`, the
-  reason, and `digest: null`. If that record cannot be written, a `::warning::` says so
-  and the original error still decides the run.
+- **A planned publish always leaves a TRUE record.** Once the plan is read, ANY error
+  before the terminal record — a refusal (staging mismatch, cosign pin, a login, the
+  index, the immutability or anchor check, a deadline) or a plain one (a malformed pin
+  file, a bug) — writes `image-release.json` and the summary from what actually happened:
+  a target already verified keeps its row, one already pushed/signed keeps its status
+  (unverified, the error as its reason), every other publish target is `failed` with the
+  error; `digest` is the chosen one when known, else null. A record already written is
+  never overwritten. If the error record cannot be written, a `::warning::` says so and
+  the original error still decides the run. The job summary is a separate best-effort
+  part: a failed append is a `::warning::summary not written` and never fails the record.
 - **Never `cosign copy`.** cosign 3 signs in the OCI 1.1 referrers bundle format, which
   the deprecated `cosign copy` does not carry: the first real run (v7.0.0-beta.7, run
   40186147345) copied the image but not the signature, and both mirrors held the release

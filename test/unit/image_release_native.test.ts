@@ -64,13 +64,15 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
 	FULL_GATE_WORKFLOWS,
 	fullGateFault,
 	type ManifestState,
+	main,
 	type PlanGit,
 	Refusal,
+	type Runner,
 	resolvePlan,
 	SMOKE_HEALTH_SCRIPT,
 	SMOKE_SCRIPT,
@@ -244,6 +246,11 @@ function publish(options: {
 	signedBy?: Record<string, string>;
 	env?: Record<string, string>;
 	pin?: { version: string | null; linux_amd64_sha256: string | null };
+	/**
+	 * Run IN-PROCESS (main with an injected runner over the same stub) and make the command
+	 * whose log line starts with this THROW a plain Error — a bug mid-publication.
+	 */
+	throwOn?: string;
 }): Run {
 	const dir = join(scratch, `run-${++runCounter}`);
 	const state = join(dir, 'state');
@@ -301,16 +308,12 @@ function publish(options: {
 		DOCKERHUB_TOKEN: 'hub-token',
 		...options.env,
 	};
-	const proc = Bun.spawnSync([process.execPath, PROGRAM, 'publish'], {
-		cwd: ROOT,
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
+	const proc =
+		options.throwOn === undefined ? spawnPublish(env) : inProcessPublish(env, options.throwOn);
 	const logPath = join(dir, 'log');
 	return {
-		code: proc.exitCode ?? 1,
-		stdout: proc.stdout.toString() + proc.stderr.toString(),
+		code: proc.code,
+		stdout: proc.stdout,
 		log: existsSync(logPath) ? readFileSync(logPath, 'utf8').trimEnd().split('\n') : [],
 		summary: existsSync(env.GITHUB_STEP_SUMMARY as string)
 			? readFileSync(env.GITHUB_STEP_SUMMARY as string, 'utf8')
@@ -331,6 +334,44 @@ function publish(options: {
 			return [...new Set(tags)].sort();
 		},
 	};
+}
+
+function spawnPublish(env: Record<string, string>): { code: number; stdout: string } {
+	const proc = Bun.spawnSync([process.execPath, PROGRAM, 'publish'], {
+		cwd: ROOT,
+		env,
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	return { code: proc.exitCode ?? 1, stdout: proc.stdout.toString() + proc.stderr.toString() };
+}
+
+/** `main` in this process over the stub; the command matching `throwOn` throws instead. */
+function inProcessPublish(
+	env: Record<string, string>,
+	throwOn: string,
+): { code: number; stdout: string; thrown?: unknown } {
+	const runner: Runner = (argv, options) => {
+		const line = `${basename(argv[0] as string)} ${argv.slice(1).join(' ')}`;
+		if (line.startsWith(throwOn)) throw new Error(`injected failure at: ${line}`);
+		const binary = Bun.which(argv[0] as string, { PATH: env.PATH }) ?? (argv[0] as string);
+		const result = Bun.spawnSync([binary, ...argv.slice(1)], {
+			env,
+			stdin: options?.stdin === undefined ? 'ignore' : Buffer.from(options.stdin),
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		return {
+			code: result.exitCode ?? 1,
+			stdout: result.stdout.toString(),
+			stderr: result.stderr.toString(),
+		};
+	};
+	try {
+		return { code: main(['publish'], env, runner), stdout: '' };
+	} catch (error) {
+		return { code: 99, stdout: String(error), thrown: error };
+	}
 }
 
 /** Index of the first log line matching, -1 when none. */
@@ -816,6 +857,32 @@ describe('publish — immutability of a release', () => {
 		expect(run.log.some(touchesRelease)).toBe(false);
 	}, 30_000);
 
+	test('a GREEN publish whose summary cannot be appended keeps its true record and exit 0 (summary is a named warning)', () => {
+		const run = publish({
+			env: { GITHUB_STEP_SUMMARY: join(scratch, 'no-such-dir', 'summary.md') },
+		});
+		expect(run.code, run.stdout).toBe(0);
+		expect(run.stdout).toContain('::warning::summary not written');
+		expect(run.stdout).not.toContain('record not written');
+		expect(run.record?.digest).toBe(BUILT);
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('pushed');
+			expect(rowOf(run, id)?.verified).toBe(true);
+		}
+	});
+
+	test('an error AFTER a target was published keeps what really happened: that target pushed + verified, the real digest', () => {
+		// A plain Error thrown at dockerhub's verify, after ghcr was copied, signed and verified.
+		const run = publish({ throwOn: `cosign verify ${HUB}@` });
+		expect(run.code).toBe(99); // main rethrows a non-Refusal
+		expect(run.stdout).toContain('injected failure at: cosign verify');
+		expect(run.record?.digest).toBe(BUILT);
+		expect(rowOf(run, 'ghcr')).toMatchObject({ status: 'pushed', verified: true, reason: null });
+		// dockerhub WAS pushed (step 6) — kept, unverified, with the error as its reason.
+		expect(rowOf(run, 'dockerhub')).toMatchObject({ status: 'pushed', verified: false });
+		expect(reasonOf(run, 'dockerhub')).toContain('injected failure');
+	});
+
 	test('a failing staging signature refuses before anything leaves staging', () => {
 		const run = publish({ env: { STUB_SIGN_RC: '1' } });
 		expect(run.code).toBe(1);
@@ -1115,7 +1182,14 @@ describe('time bounds — every verb finishes (and records) before GitHub kills 
 						VERB_BUDGET_MS[verb] as number,
 					);
 			}
-			expect(nonVerb, `${job} non-verb steps`).toBeLessThanOrEqual(JOB_OVERHEAD_MS[job]?.ms ?? 0);
+			// The set-up/post reserve is explicit, with its reason, and counted.
+			const overhead = JOB_OVERHEAD_MS[job];
+			expect(overhead?.setupMs ?? 0, `${job} setupMs`).toBeGreaterThan(0);
+			expect(overhead?.setupReason ?? '', `${job} setupReason`).not.toBe('');
+			expect(
+				nonVerb + (overhead?.setupMs ?? 0),
+				`${job} non-verb steps + set-up reserve`,
+			).toBeLessThanOrEqual(overhead?.ms ?? 0);
 			expect(all, `${job} all steps`).toBeLessThanOrEqual(
 				(workflow.jobs[job]?.['timeout-minutes'] ?? 0) * 60_000,
 			);

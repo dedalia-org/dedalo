@@ -157,20 +157,34 @@ export const VERB_BUDGET_MS: Readonly<Record<string, number>> = {
  * holds budgets + this ≤ the job's `timeout-minutes`, and each verb step's own timeout
  * above its verb's budget (the program's deadline fires first).
  */
-export const JOB_OVERHEAD_MS: Readonly<Record<string, { ms: number; reason: string }>> = {
+export interface JobOverhead {
+	/** The whole non-verb allowance: the non-verb step timeouts + setupMs ≤ this. */
+	ms: number;
+	reason: string;
+	/** The reserve for GitHub's set-up / post steps, which cannot carry a timeout. */
+	setupMs: number;
+	setupReason: string;
+}
+const SETUP_RESERVE = {
+	setupMs: 60_000,
+	setupReason: "GitHub's 'Set up job' + the actions' post steps (no step timeout possible)",
+};
+export const JOB_OVERHEAD_MS: Readonly<Record<string, JobOverhead>> = {
 	plan: {
 		ms: 4 * 60_000,
-		reason: 'checkout (full history + tags) 2 + setup-bun 1, +1 for set-up/post steps',
+		reason: 'checkout (full history + tags) 2 + setup-bun 1',
+		...SETUP_RESERVE,
 	},
 	build: {
 		ms: 47 * 60_000,
 		reason:
-			'checkout 3 + setup-bun 1 + labels 1 + setup-buildx 2 + login 1 + the native-arch docker build-push 38, +1 for set-up/post steps',
+			'checkout 3 + setup-bun 1 + labels 1 + setup-buildx 2 + login 1 + the native-arch docker build-push 38',
+		...SETUP_RESERVE,
 	},
 	publish: {
 		ms: 7 * 60_000,
-		reason:
-			'checkout 2 + setup-bun 1 + setup-buildx 2 + upload-artifact of the record 1, +1 for set-up/post steps',
+		reason: 'checkout 2 + setup-bun 1 + setup-buildx 2 + upload-artifact of the record 1',
+		...SETUP_RESERVE,
 	},
 };
 export const COMMAND_TIMEOUT_MS: Readonly<Record<string, number>> = {
@@ -1140,11 +1154,25 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 	].join('\n');
 }
 
+/**
+ * The record file, then the job summary. The summary is a separate, best-effort part: a
+ * failed append is a named warning and never undoes or fails the record file (the
+ * artifact consumers read).
+ */
 function writeRecord(env: Env, record: ReleaseRecord, list: ImageRegistryList): void {
 	const path = env.RECORD_PATH || join(env.RUNNER_TEMP as string, 'image-release.json');
 	writeFileSync(path, `${JSON.stringify(record, null, '\t')}\n`);
-	if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, renderSummary(record, list));
 	console.log(`record: ${path}`);
+	if (!env.GITHUB_STEP_SUMMARY) return;
+	try {
+		appendFileSync(env.GITHUB_STEP_SUMMARY, renderSummary(record, list));
+	} catch (error) {
+		console.log(`::warning::summary not written: ${messageOf(error)}`);
+	}
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -1227,56 +1255,78 @@ function registriesOf(env: Env): ImageRegistryList {
  * check, a deadline before the per-target loop) records each publish target `failed` with
  * that reason (digest null), and is then rethrown for main's ::error:: and summary.
  */
+/**
+ * What has actually happened so far, kept as the publication progresses: the chosen
+ * digest, each target's row (its step-6 outcome, then its verified row), and whether the
+ * terminal record was already written. An error record is built from THIS — never a blanket
+ * "all failed" over targets that were in fact pushed or signed.
+ */
+interface PublishProgress {
+	digest: string | null;
+	rows: Map<string, RegistryRecord>;
+	written: boolean;
+}
+
 function publish(env: Env, run: Runner, deadline: number): number {
 	const list = registriesOf(env);
 	const plan = publishPlan(env);
+	const progress: PublishProgress = { digest: null, rows: new Map(), written: false };
 	try {
-		return publishPlanned(env, run, deadline, list, plan);
+		return publishPlanned(env, run, deadline, list, plan, progress);
 	} catch (error) {
-		recordFailure(env, list, plan, error);
+		if (!progress.written) recordFailure(env, list, plan, progress, error);
 		throw error;
 	}
 }
 
 /**
- * ANY error after the plan (a Refusal, or a plain one — a malformed pin file, a bug)
- * leaves a record naming it. Writing it may fail too (an unwritable path): that is a
- * warning, never a replacement for the original error, which the caller rethrows.
+ * ANY error after the plan and before the terminal record (a Refusal, or a plain one — a
+ * malformed pin file, a bug) leaves a record of what happened, naming the error. Writing
+ * it may fail too (an unwritable path): that is a warning, never a replacement for the
+ * original error, which the caller rethrows.
  */
 function recordFailure(
 	env: Env,
 	list: ImageRegistryList,
 	plan: PublishContext['plan'],
+	progress: PublishProgress,
 	error: unknown,
 ): void {
-	const reason = error instanceof Error ? error.message : String(error);
 	try {
-		writeRecord(env, refusedRecord(plan, classifyTargets(list, env), reason), list);
+		const record = progressRecord(plan, classifyTargets(list, env), progress, messageOf(error));
+		writeRecord(env, record, list);
 	} catch (writeError) {
-		const why = writeError instanceof Error ? writeError.message : String(writeError);
-		console.log(`::warning::record not written: ${why}`);
+		console.log(`::warning::record not written: ${messageOf(writeError)}`);
 	}
 }
 
-/** The record of a planned publish that was refused: every publish target failed with why. */
-function refusedRecord(
+/**
+ * The record of an interrupted publish: a target with a row keeps its real status (a
+ * verified row stays verified; a step-6 outcome is kept, unverified, with the error as its
+ * reason), every other publish target is failed with the error; the digest is the chosen
+ * one when known, else null.
+ */
+function progressRecord(
 	plan: PublishContext['plan'],
 	verdicts: readonly TargetVerdict[],
+	progress: PublishProgress,
 	reason: string,
 ): ReleaseRecord {
-	const registries = verdicts.map((verdict) =>
-		verdict.publish
-			? {
-					id: verdict.entry.id,
-					repository: verdict.repository,
-					status: 'failed' as const,
-					reason,
-					verified: false,
-				}
-			: skippedRecord(verdict),
-	);
+	const registries = verdicts.map((verdict) => {
+		if (!verdict.publish) return skippedRecord(verdict);
+		const row = progress.rows.get(verdict.entry.id);
+		if (row?.verified) return row;
+		return {
+			id: verdict.entry.id,
+			repository: verdict.repository,
+			status: row?.status ?? ('failed' as const),
+			reason,
+			verified: false,
+		};
+	});
 	const { version, tag, channel, source_sha, archive_sha256 } = plan;
-	return { schema: 1, version, tag, channel, source_sha, archive_sha256, digest: null, registries };
+	const digest = progress.digest;
+	return { schema: 1, version, tag, channel, source_sha, archive_sha256, digest, registries };
 }
 
 function publishPlanned(
@@ -1285,6 +1335,7 @@ function publishPlanned(
 	deadline: number,
 	list: ImageRegistryList,
 	plan: PublishContext['plan'],
+	progress: PublishProgress,
 ): number {
 	if (plan.staging !== list.ci.staging_repository)
 		throw new Refusal(
@@ -1299,19 +1350,22 @@ function publishPlanned(
 		throw new Refusal('no provisioned registry can be published to — every target was skipped');
 	loginAll(ctx, verdicts);
 	const chosen = chooseSource(ctx, targets, assembleIndex(ctx));
+	progress.digest = chosen.digest;
 	// Step 6 for EVERY target, then step 7 for every target: a verify never runs while a
 	// copy or a signature is still pending, so the verified set is the final state.
-	const statuses = new Map(targets.map((target) => [target, publishTo(ctx, target, chosen)]));
-	const records = verdicts.map((verdict) =>
-		verdict.publish
-			? verifiedRecord(
-					ctx,
-					verdict,
-					statuses.get(verdict) ?? { status: 'failed', reason: 'not attempted' },
-					chosen.digest,
-				)
-			: skippedRecord(verdict),
-	);
+	const statuses = new Map<PublishTarget, TargetOutcome>();
+	for (const target of targets) {
+		const outcome = publishTo(ctx, target, chosen);
+		statuses.set(target, outcome);
+		progress.rows.set(target.entry.id, rowOf(target, outcome, false));
+	}
+	const records = verdicts.map((verdict) => {
+		if (!verdict.publish) return skippedRecord(verdict);
+		const outcome = statuses.get(verdict) ?? { status: 'failed', reason: 'not attempted' };
+		const row = verifiedRecord(ctx, verdict, outcome, chosen.digest);
+		progress.rows.set(verdict.entry.id, row);
+		return row;
+	});
 	const record: ReleaseRecord = {
 		schema: 1,
 		version: plan.version,
@@ -1322,8 +1376,14 @@ function publishPlanned(
 		digest: chosen.digest,
 		registries: records,
 	};
+	progress.written = true; // the terminal record: never overwritten by an error record
 	writeRecord(env, record, list);
 	return records.every((item) => item.status === 'skipped' || item.verified) ? 0 : 1;
+}
+
+function rowOf(target: PublishTarget, outcome: TargetOutcome, verified: boolean): RegistryRecord {
+	const { status, reason } = outcome;
+	return { id: target.entry.id, repository: target.repository, status, reason, verified };
 }
 
 function verifiedRecord(
@@ -1338,7 +1398,7 @@ function verifiedRecord(
 		console.log(
 			`::error::${target.entry.id}: ${target.repository}:${ctx.plan.tag} is not ${digest} with a valid signature${reason === null ? '' : ` — ${reason}`}`,
 		);
-	return { id: target.entry.id, repository: target.repository, status, reason, verified };
+	return rowOf(target, outcome, verified);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
