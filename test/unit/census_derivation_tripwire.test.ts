@@ -418,6 +418,8 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 	'test/unit/generic_tld_tripwire.test.ts':
 		'ROOTS: `client/dedalo/test/client/js` `src/core/test_data` `test` — the registered tld_census roots re-walked one by one to prove each contributes files.',
 	'test/unit/hierarchy_single_writer_tripwire.test.ts': 'ROOTS: `scripts` `src` `tools`.',
+	'test/unit/html_text_tripwire.test.ts':
+		'ROOTS: `src` `tools` `publication` — SCAN_GLOBS: src/**, tools/*/server/**, publication/*/src/** (non-test .ts).',
 	'test/unit/import_scc_tripwire.test.ts': 'ROOTS: `src` `tools` — servers.',
 	'test/unit/info_widget_registry_tripwire.test.ts':
 		'ROOTS: `client/dedalo` `client/dedalo/core/widgets` ×2; `src` `test/parity` `test/unit`.',

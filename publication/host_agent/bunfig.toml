@@ -12,6 +12,9 @@ coverage = true
 # config: src/config.ts reads the committed .env.test only in a declared checkout.
 preload = ["./tests/preload.ts"]
 coverageThreshold = { lines = 0.8, functions = 0.8 }
+# The repo-root test helpers (scratch_dir, regex_escape) these gates import are GATE code
+# shared with the root suite, measured there — not this package's daemon code.
+coveragePathIgnorePatterns = ["../../test/**"]
 
 [run]
 bun = true

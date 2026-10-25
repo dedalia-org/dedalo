@@ -21,6 +21,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../../test/helpers/scratch_dir';
 import { BUN_ASSETS } from '../src/provision/exec_contract';
 import { INIT_FLAGS } from '../src/provision/init/args';
 import { BUN_RELEASE_BASE, SHA_TABLE_PIN_LINE, SHA_TABLE_SIGNED_BY_LINE, sha256Hex } from '../src/provision/init/bun_asset';
@@ -37,7 +38,6 @@ import { OS_SUPPORT } from '../src/provision/init/parse/os';
 import { BUN_KERNEL_FLOOR, INSTANCE_PATTERN } from '../src/provision/layout';
 import { INIT_BASE } from '../src/provision/lock';
 import { fakeBunZip, shaTable } from './fixtures/bun/zip_store';
-import { scratchDir } from '../../../test/helpers/scratch_dir.ts';
 
 const INSTALL_SH = join(import.meta.dir, '..', 'deploy', 'install.sh');
 const OS_RELEASE = join(import.meta.dir, 'fixtures', 'bun', 'os-release');

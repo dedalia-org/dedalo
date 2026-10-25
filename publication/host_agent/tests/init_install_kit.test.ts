@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { scratchDir } from '../../../test/helpers/scratch_dir';
 import {
   KIT_DOT_SEGMENT_PATTERN,
   KIT_DRAFT_NAME,
@@ -31,7 +32,6 @@ import {
   KIT_SOURCE_DIR,
   SOURCE_MANIFEST,
 } from '../src/provision/init/constants';
-import { scratchDir } from '../../../test/helpers/scratch_dir.ts';
 
 const INSTALL_SH = join(import.meta.dir, '..', 'deploy', 'install.sh');
 const TEXT = readFileSync(INSTALL_SH, 'utf8');

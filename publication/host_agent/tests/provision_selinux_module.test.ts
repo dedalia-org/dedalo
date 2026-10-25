@@ -34,7 +34,7 @@ import {
 } from '../src/provision/selinux_module';
 import { unixDeclaration } from './fixtures/provision_declaration';
 import { FakeInitHost } from './support/provision_fake_host';
-import { escapeRegExp } from '../../../test/helpers/regex_escape.ts';
+import { escapeRegExp } from '../../../test/helpers/regex_escape';
 
 /* ── the renderer ─────────────────────────────────────────────────────────────────── */
 

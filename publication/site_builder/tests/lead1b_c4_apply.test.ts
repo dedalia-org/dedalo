@@ -43,7 +43,7 @@ import { renderAll } from '../src/provision/render';
 import { parseManifest } from '../src/provision/schema';
 import { caught, gateManifestDoc, identityName, loadRule, type AgentLedger, type LedgerAccount, type LedgerGroup } from './support/lead1b_contract';
 import { type FakeAccount, fakeLedger, useraddAccount, usermodAccount } from './support/fake_accounts';
-import { escapeRegExp } from '../../../test/helpers/regex_escape.ts';
+import { escapeRegExp } from '../../../test/helpers/regex_escape';
 
 const prefixes: string[] = [];
 afterAll(() => {

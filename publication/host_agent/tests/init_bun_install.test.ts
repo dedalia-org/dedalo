@@ -11,20 +11,18 @@
  *     so the chain runs end to end on macOS and Linux alike.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { lstatSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { scratchDir } from '../../../test/helpers/scratch_dir';
 import { initExec } from '../src/exec';
 import type { ExecResult } from '../src/provision/exec_contract';
-import type { DirFacts } from '../src/provision/lock';
 import { sha256Hex } from '../src/provision/init/bun_asset';
 import { BUN_EXTRACT_DIR_NAME, BunInstallFailed, type BunInstallPorts, BunInstallRefused, installBun } from '../src/provision/init/bun_install';
 import { READ_CAP_BYTES } from '../src/provision/init/host_io';
 import type { OperatorFile } from '../src/provision/init/types';
 import { BINARY_READ_CAP_BYTES } from '../src/provision/init/types';
+import type { DirFacts } from '../src/provision/lock';
 import { fakeBun, fakeBunZip, shaTable } from './fixtures/bun/zip_store';
-import { scratchDir } from '../../../test/helpers/scratch_dir.ts';
 
 const PIN = '9.9.9';
 const ASSET = 'bun-linux-x64';
