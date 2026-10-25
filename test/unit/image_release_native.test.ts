@@ -139,7 +139,7 @@ case "$me" in
     cp "$STUB_COSIGN_SOURCE" "$out"; exit 0 ;;
   docker)
     case "$1 $2 $3" in
-      "login "*) cat >/dev/null; exit 0 ;;
+      "login "*) [ -n "\${STUB_LOGIN_HANG:-}" ] && exec sleep 30; cat >/dev/null; exit 0 ;;
       "buildx imagetools create")
         # ONE source = a carbon copy (same digest); several = the assembled index.
         if [ $# -eq 6 ]; then
@@ -756,6 +756,31 @@ describe('publish — immutability of a release', () => {
 		expect(run.log.some((line) => line.includes(HUB) && !line.includes('inspect'))).toBe(false);
 	}, 30_000);
 
+	test('a REFUSAL after the plan still writes the record: every publish target failed with the reason, digest null', () => {
+		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL); // main's ::error:: as before
+		expect(run.record?.digest).toBeNull();
+		expect(statusOf(run, 'gitdedalo')).toBe('skipped');
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('failed');
+			expect(reasonOf(run, id)).toContain(THIS_RELEASE_REFUSAL);
+			expect(rowOf(run, id)?.verified).toBe(false);
+		}
+	});
+
+	test('a hang BEFORE the per-target loop (a registry login) hits the deadline — and the record is still written', () => {
+		const run = publish({ env: { STUB_LOGIN_HANG: '1', IMAGE_RELEASE_DEADLINE_MS: '4000' } });
+		expect(run.code).toBe(1);
+		expect(run.record).not.toBeNull();
+		expect(run.record?.digest).toBeNull();
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('failed');
+			expect(reasonOf(run, id)).toContain('docker login');
+		}
+		expect(run.log.some(touchesRelease)).toBe(false);
+	}, 30_000);
+
 	test('a failing staging signature refuses before anything leaves staging', () => {
 		const run = publish({ env: { STUB_SIGN_RC: '1' } });
 		expect(run.code).toBe(1);
@@ -998,18 +1023,18 @@ describe('time bounds — every verb finishes (and records) before GitHub kills 
 	test('the per-command ceilings and verb budgets are the documented defaults; bad overrides fall back', async () => {
 		const { commandTimeoutMs, verbBudgetMs } = await import('../../scripts/ci/image_release.ts');
 		expect(commandTimeoutMs('publish', {})).toBe(8 * 60_000);
-		expect(verbBudgetMs('publish', {})).toBe(25 * 60_000);
+		expect(verbBudgetMs('publish', {})).toBe(22 * 60_000);
 		expect(commandTimeoutMs('plan', {})).toBe(5 * 60_000);
 		for (const bad of ['0', 'abc', '-5', ''])
 			expect(commandTimeoutMs('publish', { IMAGE_RELEASE_COMMAND_TIMEOUT_MS: bad })).toBe(
 				8 * 60_000,
 			);
 		expect(commandTimeoutMs('publish', { IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '1234' })).toBe(1234);
-		expect(verbBudgetMs('publish', { IMAGE_RELEASE_DEADLINE_MS: 'x' })).toBe(25 * 60_000);
+		expect(verbBudgetMs('publish', { IMAGE_RELEASE_DEADLINE_MS: 'x' })).toBe(22 * 60_000);
 	});
 
-	test("each job's verbs: budgets sum BELOW its timeout-minutes; each ceiling within its verb's budget", async () => {
-		const { COMMAND_TIMEOUT_MS, VERB_BUDGET_MS, VERB_JOBS } = await import(
+	test("each job: its verbs' budgets + its declared non-verb overhead fit its timeout-minutes; each ceiling within its verb's budget", async () => {
+		const { COMMAND_TIMEOUT_MS, JOB_OVERHEAD_MS, VERB_BUDGET_MS, VERB_JOBS } = await import(
 			'../../scripts/ci/image_release.ts'
 		);
 		const workflow = Bun.YAML.parse(
@@ -1035,10 +1060,15 @@ describe('time bounds — every verb finishes (and records) before GitHub kills 
 		);
 		expect(runs.length).toBeGreaterThan(0);
 		for (const match of runs) expect(Object.keys(VERB_JOBS)).toContain(match[1] as string);
+		// Every job that runs a verb declares its non-verb allowance, with a reason.
+		expect(Object.keys(JOB_OVERHEAD_MS).sort()).toEqual([...perJob.keys()].sort());
 		for (const [job, budget] of perJob) {
 			const limit = workflow.jobs[job]?.['timeout-minutes'];
+			const overhead = JOB_OVERHEAD_MS[job];
 			expect(limit, `${job} timeout-minutes`).toBeGreaterThan(0);
-			expect(budget, job).toBeLessThan((limit as number) * 60_000);
+			expect(overhead?.ms ?? 0, `${job} overhead`).toBeGreaterThan(0);
+			expect(overhead?.reason ?? '', `${job} overhead reason`).not.toBe('');
+			expect(budget + (overhead?.ms ?? 0), job).toBeLessThanOrEqual((limit as number) * 60_000);
 		}
 	});
 });

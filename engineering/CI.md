@@ -969,12 +969,20 @@ as unavailable. Gate: `image_registries_tripwire`.
   release dispatch runs only from `master` or from the SAME tag it publishes (`plan`
   refuses another tag's ref).
 - **Time is bounded twice** (`VERB_BUDGET_MS`, `COMMAND_TIMEOUT_MS` in
-  `image_release.ts`): each verb has a deadline below its job's `timeout-minutes`, and
-  each command runs under min(its ceiling, time left). A registry, Fulcio or Rekor that
-  never answers fails commands, not the job: past the deadline no command starts, the
-  remaining targets are recorded `failed` (`deadline exceeded`), and the record is still
-  written. `image_release_native` reads the workflow's `timeout-minutes` per job and holds
-  the budgets below it.
+  `image_release.ts`): each verb has a deadline measured from its own start, and each
+  command runs under min(its ceiling, time left). A registry, Fulcio or Rekor that never
+  answers fails commands, not the verb: past the deadline no command starts and the
+  remaining targets are recorded `failed` (`deadline exceeded`).
+- **What the gate holds.** `image_release_native` reads the workflow and requires, per
+  job, the sum of its verbs' budgets plus its declared non-verb allowance
+  (`JOB_OVERHEAD_MS`, a reason per job: setup steps; the image build for `build`; the
+  record upload for `publish`) to be ≤ the job's `timeout-minutes`. So the verb finishes
+  before GitHub kills the job as long as the other steps stay within their declared
+  allowance, which this program does not bound.
+- **A planned publish always leaves a record.** Once the plan is read, every outcome
+  writes `image-release.json` and the summary: a refusal before the per-target loop
+  (staging mismatch, cosign pin, a login, the index, the immutability or anchor check, a
+  deadline) records every publish target `failed` with that reason and `digest: null`.
 - **Never `cosign copy`.** cosign 3 signs in the OCI 1.1 referrers bundle format, which
   the deprecated `cosign copy` does not carry: the first real run (v7.0.0-beta.7, run
   40186147345) copied the image but not the signature, and both mirrors held the release
@@ -995,7 +1003,8 @@ as unavailable. Gate: `image_registries_tripwire`.
 
 - **The record.** The job summary (one row per registry: pushed / signed (in place) /
   unchanged / skipped with its reason / failed, verified) and the `image-release` artifact `image-release.json`
-  (`{schema, version, tag, channel, source_sha, archive_sha256, digest, registries}`).
+  (`{schema, version, tag, channel, source_sha, archive_sha256, digest, registries}`;
+  `digest` is null when the run was refused before choosing one).
   The durable record is Rekor plus the registries themselves.
 - **Skips are loud, never silent.** An unprovisioned registry is skipped with its reason; a
   provisioned one whose secret is empty is skipped with a `::warning::` and a summary row;

@@ -68,9 +68,10 @@
  *   8. record: the job summary + image-release.json (uploaded as an artifact).
  * Nothing leaves staging before D is signed there; nothing is signed before step 4
  * passes; an unpinned or tampered cosign refuses before the first push.
- * Every verb has a deadline below its job's timeout-minutes and every command a ceiling
- * (VERB_BUDGET_MS / COMMAND_TIMEOUT_MS): a hung registry fails targets, the record is
- * still written.
+ * Every verb has a deadline and every command a ceiling (VERB_BUDGET_MS /
+ * COMMAND_TIMEOUT_MS; the gate holds budgets + JOB_OVERHEAD_MS ≤ each job's
+ * timeout-minutes): a hung registry fails commands, and once the plan is known every
+ * outcome — refusals included — writes the record.
  *
  * I/O: inputs come from the environment the workflow composes (static names, every
  * expression through `env:`); outputs go to $GITHUB_OUTPUT and $GITHUB_STEP_SUMMARY.
@@ -130,21 +131,44 @@ export type Runner = (
 
 /**
  * Time is bounded twice, so a registry, Fulcio or Rekor that accepts the connection and
- * never answers fails commands — never the job, which GitHub would kill at its
- * `timeout-minutes` before any record is written:
- *  - VERB_BUDGET_MS: the whole verb's deadline, kept BELOW the timeout-minutes of the job
- *    that runs it (VERB_JOBS; the gate reads the workflow and sums the budgets per job).
- *    Past it, no command starts (it answers `deadline exceeded`), the remaining publish
- *    targets are recorded `failed` (`deadline exceeded`), and the record is still written;
+ * never answers fails commands, not the verb:
+ *  - VERB_BUDGET_MS: the whole verb's deadline, measured from the verb's own start. Past
+ *    it no command starts (it answers `deadline exceeded`); a publish that was planned
+ *    still writes its record (remaining targets `failed`: `deadline exceeded`, or every
+ *    target `failed` with the refusal when it stopped before the per-target loop);
  *  - COMMAND_TIMEOUT_MS: one command's ceiling, never above its verb's budget; each command
  *    gets min(ceiling, time left before the deadline).
+ * WHAT THE GATE HOLDS (image_release_native, reading the workflow): for every job, the sum
+ * of its verbs' budgets PLUS its declared JOB_OVERHEAD_MS is ≤ the job's `timeout-minutes`.
+ * The verb deadline can only finish first if the job's other steps stay within that
+ * declared allowance — they are not bounded by this program.
  * Seams: IMAGE_RELEASE_COMMAND_TIMEOUT_MS, IMAGE_RELEASE_DEADLINE_MS.
  */
 export const VERB_BUDGET_MS: Readonly<Record<string, number>> = {
-	plan: 8 * 60_000,
+	plan: 7 * 60_000,
 	context: 10 * 60_000,
 	smoke: 30 * 60_000,
-	publish: 25 * 60_000,
+	publish: 22 * 60_000,
+};
+/**
+ * The time each job's NON-verb steps are allowed (the gate adds it to the budgets): the
+ * steps the job runs before and after `image_release.ts`, which share GitHub's job clock.
+ */
+export const JOB_OVERHEAD_MS: Readonly<Record<string, { ms: number; reason: string }>> = {
+	plan: {
+		ms: 3 * 60_000,
+		reason: 'full-history checkout (fetch-depth 0, tags) + setup-bun before `plan`',
+	},
+	build: {
+		ms: 45 * 60_000,
+		reason:
+			'checkout + setup-bun + setup-buildx + login, and the native-arch docker build-push of the product image between `context` and `smoke`',
+	},
+	publish: {
+		ms: 5 * 60_000,
+		reason:
+			'checkout + setup-bun + setup-buildx before `publish`, upload-artifact of the record after it',
+	},
 };
 export const COMMAND_TIMEOUT_MS: Readonly<Record<string, number>> = {
 	plan: 5 * 60_000,
@@ -771,7 +795,8 @@ export interface ReleaseRecord {
 	channel: InstallChannel;
 	source_sha: string;
 	archive_sha256: string;
-	digest: string;
+	/** Null when the run stopped (a refusal) before a digest was chosen. */
+	digest: string | null;
 	registries: RegistryRecord[];
 }
 
@@ -1093,7 +1118,9 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 		`### Dédalo image ${record.tag} (${CHANNEL_WORDS[record.channel]})`,
 		'',
 		`- source: \`${record.source_sha}\` (git archive sha256 \`${record.archive_sha256}\`)`,
-		`- digest: \`${record.digest}\` — the SAME on every registry below`,
+		record.digest === null
+			? '- digest: none — the run was refused before one was chosen (reasons below)'
+			: `- digest: \`${record.digest}\` — the SAME on every registry below`,
 		'',
 		'| Registry | Repository | Status | Verified | Reason |',
 		'|---|---|---|---|---|',
@@ -1102,7 +1129,7 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 		'Verify, as an operator does:',
 		'',
 		'```shell',
-		`cosign verify ${verifiedTarget}@${record.digest} \\`,
+		`cosign verify ${verifiedTarget}@${record.digest ?? 'sha256:<digest>'} \\`,
 		`  --certificate-identity-regexp '${list.signing.identity_regexp}' \\`,
 		`  --certificate-oidc-issuer '${list.signing.issuer}'`,
 		'```',
@@ -1191,9 +1218,52 @@ function registriesOf(env: Env): ImageRegistryList {
 	return parseImageRegistries(JSON.parse(readFileSync(file, 'utf8')), file);
 }
 
+/**
+ * Once the plan is known, EVERY outcome leaves a record: a refusal raised after this point
+ * (a staging mismatch, the cosign pin, a login, the index, the immutability or anchor
+ * check, a deadline before the per-target loop) records each publish target `failed` with
+ * that reason (digest null), and is then rethrown for main's ::error:: and summary.
+ */
 function publish(env: Env, run: Runner, deadline: number): number {
 	const list = registriesOf(env);
 	const plan = publishPlan(env);
+	try {
+		return publishPlanned(env, run, deadline, list, plan);
+	} catch (error) {
+		if (error instanceof Refusal)
+			writeRecord(env, refusedRecord(plan, classifyTargets(list, env), error.message), list);
+		throw error;
+	}
+}
+
+/** The record of a planned publish that was refused: every publish target failed with why. */
+function refusedRecord(
+	plan: PublishContext['plan'],
+	verdicts: readonly TargetVerdict[],
+	reason: string,
+): ReleaseRecord {
+	const registries = verdicts.map((verdict) =>
+		verdict.publish
+			? {
+					id: verdict.entry.id,
+					repository: verdict.repository,
+					status: 'failed' as const,
+					reason,
+					verified: false,
+				}
+			: skippedRecord(verdict),
+	);
+	const { version, tag, channel, source_sha, archive_sha256 } = plan;
+	return { schema: 1, version, tag, channel, source_sha, archive_sha256, digest: null, registries };
+}
+
+function publishPlanned(
+	env: Env,
+	run: Runner,
+	deadline: number,
+	list: ImageRegistryList,
+	plan: PublishContext['plan'],
+): number {
 	if (plan.staging !== list.ci.staging_repository)
 		throw new Refusal(
 			`STAGING ${plan.staging} is not the list's staging repository ${list.ci.staging_repository}`,
