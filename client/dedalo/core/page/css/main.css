@@ -22871,6 +22871,18 @@ body.inspector_resizing {
 .component_date.search > .content_data > .content_value > .input-group > input {
   width: 100%;
 }
+.component_date.edit:not(:hover):not(.active) > .content_data > .content_value input:not(:focus)::placeholder {
+  color: transparent;
+}
+.component_date.edit:not(:hover):not(.active) > .content_data > .content_value:not(:has(input:not(:placeholder-shown))) > .dates_separator,
+.component_date.edit:not(:hover):not(.active) > .content_data > .content_value:not(:has(input:not(:placeholder-shown))) > .input-group label {
+  visibility: hidden;
+}
+@media (pointer: coarse) {
+  .component_date.edit:not(.active) > .content_data > .content_value > .input-group:not(:focus-within) > .button_container.button_calendar_container {
+    visibility: hidden;
+  }
+}
 @media screen and (max-width: 600px) {
   .component_date.edit > .content_data > .content_value > .input-group {
     width: 100%;
