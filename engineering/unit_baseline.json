@@ -4569,6 +4569,11 @@
 			"skipped": 0,
 			"assertions": 13
 		},
+		"test/unit/search_acl_deep_offset_flip_native.test.ts": {
+			"tests": 5,
+			"skipped": 0,
+			"assertions": 48
+		},
 		"test/unit/search_alias_sink_native.test.ts": {
 			"tests": 5,
 			"skipped": 0,

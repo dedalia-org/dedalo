@@ -174,12 +174,12 @@ const EXEMPTIONS: Record<string, Exemption> = {
 						"AUTHZ-05 — the door registry accepts anyRowInScope as a door's scope call: it is driven for a reader and an admin over records each half of the rule (projects, section grant, dd478) decides, and must equal scopeInverseReferenceHits cell for cell",
 				},
 			],
-			ddoIsAuthorized: [
+			getRecordComponentPermission: [
 				{
 					file: 'test/unit/filter_projects_scope_native.test.ts',
 					case: 'get_data of a component the reader holds level 0 on answers the EMPTY shell',
 					covers:
-						'AUTHZ-06 — the component get_data facade self-gates on ddoIsAuthorized(principal, source.section_tipo, source.tipo)',
+						'AUTHZ-06 — the component get_data facade self-gates on getRecordComponentPermission(principal, source.section_tipo, source.tipo, source.section_id) (record-scoped since the dd128 own-record rules)',
 				},
 			],
 		},
