@@ -611,6 +611,41 @@ const render_tree_item = function(item, datalist, value, self) {
 
 
 /**
+* RESOLVE_BRANCH_SOURCE
+* Children of an area/section node and the list its branch is built FROM.
+* A filter match with no deeper match ends the filtered subset, so it would render
+* childless: no global radios and no way in. Such a match takes its real children
+* from the full datalist and renders them as the normal lazy tree (`filtering`
+* false), so the user can set its permissions or open it.
+* @param {Object} item - area/section datalist entry
+* @param {Array} datalist - full list or the filtered subset
+* @param {Object} self - component_security_access instance
+* @returns {Object} {datalist, children, filtering}
+*/
+const resolve_branch_source = function(item, datalist, self) {
+
+	const full_datalist	= self.data?.datalist || datalist
+	const children_of	= (list) => item.model==='section'
+		? list.filter(el => el.section_tipo===item.tipo && el.tipo!==item.tipo)
+		: list.filter(el => el.parent===item.tipo)
+
+	let source		= datalist
+	let children	= children_of(datalist)
+	if (children.length===0 && datalist!==full_datalist && self.filter_matches?.has(item)) {
+		source		= full_datalist
+		children	= children_of(full_datalist)
+	}
+
+	return {
+		datalist	: source,
+		children	: children,
+		filtering	: source!==full_datalist
+	}
+}//end resolve_branch_source
+
+
+
+/**
 * RENDER_AREA_ITEM
 * Create default tree item node (section, area)
 *
@@ -643,8 +678,8 @@ const render_tree_item = function(item, datalist, value, self) {
 * using the key `security_acccess_<tipo>` (note: double-c typo in the key is
 * intentional and must remain stable to avoid breaking stored states).
 *
-* FILTERED TREE: when `self.filter_query` is set (see `build_tree_filter`), the
-* branch renders EAGER and open instead of lazily, because a match is usually
+* FILTERED TREE: while rendering from the filtered subset (see `build_tree_filter`,
+* `resolve_branch_source`), the branch renders EAGER and open instead of lazily, because a match is usually
 * several collapsed levels down. No collapse state is read or written then, so
 * clearing the query restores the user's own open/closed branches. The children
 * resolved here come from the `datalist` passed in — the filtered subset in that
@@ -664,9 +699,10 @@ const render_area_item = function(item, datalist, value, self) {
 	// direct_children check and set
 		const tipo					= item.tipo
 		const section_tipo			= item.section_tipo
-		const direct_children		= item.model==='section'
-			? datalist.filter(el => el.section_tipo===tipo && el.tipo!==tipo)
-			: datalist.filter(el => el.parent===tipo)
+		const branch_source			= resolve_branch_source(item, datalist, self)
+		datalist					= branch_source.datalist
+		const filtering				= branch_source.filtering
+		const direct_children		= branch_source.children
 		const direct_children_length = direct_children.length
 		const has_child_section		 = direct_children.find(el => el.tipo===el.section_tipo)
 
@@ -821,7 +857,7 @@ const render_area_item = function(item, datalist, value, self) {
 			// add icon arrow when element has children. NOT while filtering: filtered
 			// branches are always open and carry no toggle, so an arrow would be a
 			// pointer-cursor control that does nothing.
-			if (direct_children_length>0 && !self.filter_query) {
+			if (direct_children_length>0 && !filtering) {
 				css_selectors.push('icon_arrow')
 			}
 			// add selected when item matches a search (self.selected_tipo)
@@ -859,7 +895,7 @@ const render_area_item = function(item, datalist, value, self) {
 			// several collapsed levels down, so lazy expansion would hide exactly what
 			// the user is looking for. collapse_toggle_track is skipped on purpose: it
 			// would persist filtered-view state over the user's own open/closed branches.
-				if (self.filter_query) {
+				if (filtering) {
 					branch.classList.remove('hide')
 					branch.appendChild(render_tree_items(
 						direct_children,
@@ -1531,8 +1567,8 @@ const render_tree_item_read = function(item, datalist, value, self) {
 * avoid blocking the main thread.  Collapse/expand state is persisted
 * through the same `security_acccess_<tipo>` key used by the editable tree.
 *
-* FILTERED TREE: same rule as `render_area_item` — when `self.filter_query` is
-* set the branch renders eager and open, and no collapse state is touched.
+* FILTERED TREE: same rule as `render_area_item` — while rendering from the
+* filtered subset the branch renders eager and open, and no collapse state is touched.
 *
 * @param {Object} item - datalist current item
 * @param {Array} datalist - list to build the tree FROM: the full ontology list, or
@@ -1549,9 +1585,10 @@ const render_area_item_read = function(item, datalist, value, self) {
 	// direct_children check and set
 		const tipo					= item.tipo
 		const section_tipo			= item.section_tipo
-		const direct_children		= item.model==='section'
-			? datalist.filter(el => el.section_tipo===tipo && el.tipo!==tipo)
-			: datalist.filter(el => el.parent===tipo)
+		const branch_source			= resolve_branch_source(item, datalist, self)
+		datalist					= branch_source.datalist
+		const filtering				= branch_source.filtering
+		const direct_children		= branch_source.children
 		const direct_children_length = direct_children.length
 		const has_child_section		 = direct_children.find(el => el.tipo===el.section_tipo)
 
@@ -1576,7 +1613,7 @@ const render_area_item_read = function(item, datalist, value, self) {
 	// label
 		const css_selectors = ['area_label']
 			// add icon arrow when element has children. Not while filtering (no toggle)
-			if (direct_children_length>0 && !self.filter_query) {
+			if (direct_children_length>0 && !filtering) {
 				css_selectors.push('icon_arrow')
 			}
 			// add selected when item matches a search (self.selected_tipo)
@@ -1604,7 +1641,7 @@ const render_area_item_read = function(item, datalist, value, self) {
 				li.branch = branch
 
 			// tree filter: branches open and EAGER (see the editable renderer)
-				if (self.filter_query) {
+				if (filtering) {
 					branch.classList.remove('hide')
 					branch.appendChild(render_tree_items_read(
 						direct_children,

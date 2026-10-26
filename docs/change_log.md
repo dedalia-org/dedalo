@@ -50,6 +50,10 @@ Merged since the last release; these ship with the next one.
 
     When the engine could not create the ontology exchange directory (`ONTOLOGY_DATA_IO_DIR/<major.minor>`), **Maintenance → Update ontology** answered only `unable to resolve the ontology IO directory`, and the export actions answered `Unable to create directory: false`. They now name the directory and the system error, for example `EACCES` when the service user cannot write to it. The usual fix is to give the service user ownership of that directory, or to point `ONTOLOGY_DATA_IO_DIR` at a writable one.
 
+- **Profile permissions search: a matched section or area now shows its permission radios and can be opened.**
+
+    Searching the permissions tree of a profile (e.g. `rsc832`) showed the matched section without its x / r / rw radios and without a way to expand it, so its permissions could not be set from the search result. A match with no deeper match now shows its radios and its children, collapsed, as in the unfiltered tree.
+
 - **Installing or updating no longer leaves a hidden `.<hash>-<pid>.node-gyp` folder in the Dédalo folder.**
 
     The production installer and the **Update code** panel installed the dependencies with
