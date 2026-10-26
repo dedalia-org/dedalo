@@ -285,6 +285,11 @@ export const get_dataframe = async function(options) {
 	// build component. false = do not re-fetch data from server
 	await component_dataframe.build(false)
 
+	// caller destroyed while the frame was building: nobody will adopt (and later destroy) it
+	if (self.status==='destroyed') {
+		await component_dataframe.destroy(true, true, false)
+		return null
+	}
 
 	return component_dataframe
 }//end get_dataframe
