@@ -94,7 +94,7 @@
 		"@svgedit/svgcanvas": "7.4.2",
 		"@turf/turf": "7.4.0",
 		"cheerio": "1.2.0",
-		"codex-tooltip": "1.0.6",
+		"codex-tooltip": "1.1.0",
 		"easyqrcodejs": "4.6.2",
 		"d3": "7.9.0",
 		"leaflet": "1.9.4",
