@@ -527,9 +527,9 @@ export async function updateOntology(
 	}
 
 	const ioPath = setOntologyIoPath(deps.ioBaseDir);
-	if (ioPath === false) {
+	if (typeof ioPath !== 'string') {
 		releaseOntologyImportLatch();
-		response.errors.push('unable to resolve the ontology IO directory');
+		response.errors.push(ioPath.error);
 		return response;
 	}
 	const stagingDir = join(ioPath, '.staging');
