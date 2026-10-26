@@ -89,7 +89,7 @@
 		"@geoman-io/leaflet-geoman-free": "2.20.2",
 		"@highlightjs/cdn-assets": "11.12.0",
 		"@jaames/iro": "5.5.2",
-		"@modelcontextprotocol/sdk": "^1.32.1",
+		"@modelcontextprotocol/sdk": "^1.32.2",
 		"@opentui/core": "0.6.8",
 		"@svgedit/svgcanvas": "7.4.2",
 		"@turf/turf": "7.4.0",
