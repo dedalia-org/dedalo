@@ -11,7 +11,7 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@scalar/api-reference": "^1.76.0",
     "swagger-ui-dist": "^5.34.0",
     "zod": "^4.6.7"
