@@ -83,32 +83,10 @@ export async function handleMediaUpload(
 	}
 	// Rich-text editor image (CKEditor SimpleUploadAdapter, PHP `case 'web'`): its
 	// wire is a bare { url } — the adapter reads `url`, or `error.message` on refusal.
-	if (parsed.keyDir === WEB_IMAGE_KEY_DIR) {
-		try {
-			assertWebImageFormat(parsed.fileName);
-			const received = receiveUpload({ ...parsed, chunked: false }, session.userId);
-			const path = publishWebImage(session.userId, received.tmpName ?? '');
-			// Stored verbatim in the text: same-origin relative, never webBase (WC-042 —
-			// an absolute DEDALO_MEDIA_WEB_BASE origin would be persisted in the record).
-			return json({ url: `/dedalo/${config.mediaDir}/${path}` });
-		} catch (error) {
-			return refusal(rejectedUpload(error), requestId);
-		}
-	}
+	if (parsed.keyDir === WEB_IMAGE_KEY_DIR) return webImageUpload(parsed, session.userId, requestId);
 	try {
 		const received = receiveUpload(parsed, session.userId);
-		// Preview thumbnail (PHP file_data->thumbnail_url). Only once the whole
-		// file is staged — a lone chunk is not an image yet. Best effort: null on
-		// any failure, and the client then keeps its own local preview.
-		const thumbnailUrl =
-			received.complete && received.tmpName
-				? await createStagedThumbnail(
-						session.userId,
-						parsed.keyDir,
-						received.tmpName,
-						received.extension ?? null,
-					)
-				: null;
+		const thumbnailUrl = await stagedThumbnailUrl(session.userId, parsed.keyDir, received);
 		return json(
 			ok(true, {
 				requestId,
@@ -148,6 +126,38 @@ export async function handleMediaUpload(
 				},
 			}),
 		);
+	} catch (error) {
+		return refusal(rejectedUpload(error), requestId);
+	}
+}
+
+/**
+ * Preview thumbnail (PHP file_data->thumbnail_url). Only once the whole file is
+ * staged — a lone chunk is not an image yet. Best effort: null on any failure,
+ * and the client then keeps its own local preview.
+ */
+async function stagedThumbnailUrl(
+	userId: number,
+	keyDir: string,
+	received: ReturnType<typeof receiveUpload>,
+): Promise<string | null> {
+	if (!received.complete || !received.tmpName) return null;
+	return await createStagedThumbnail(userId, keyDir, received.tmpName, received.extension ?? null);
+}
+
+/** The rich-text editor image (key_dir 'web'): publish, answer a bare { url }. */
+function webImageUpload(
+	parsed: Awaited<ReturnType<typeof parseUploadRequest>>,
+	userId: number,
+	requestId: string,
+): Response {
+	try {
+		assertWebImageFormat(parsed.fileName);
+		const received = receiveUpload({ ...parsed, chunked: false }, userId);
+		const path = publishWebImage(userId, received.tmpName ?? '');
+		// webBase so the editor shows it at once; the save gate stores it relative
+		// (media/web_base_src.ts, TODO-067).
+		return json({ url: `${config.media.webBase}/${path}` });
 	} catch (error) {
 		return refusal(rejectedUpload(error), requestId);
 	}

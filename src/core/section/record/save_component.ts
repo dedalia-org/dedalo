@@ -1497,7 +1497,10 @@ async function applyWriteValueGates(
 		return await (await import('../../security/password_hash.ts')).hashPasswordChanges(changedData);
 	}
 	if (getComponentModel(model) !== undefined && getRenderClass(model) === 'html') {
-		return (await import('../../security/html_sanitize.ts')).sanitizeRichTextChanges(changedData);
+		const { mapRichTextChanges, sanitizeRichText } = await import('../../security/html_sanitize.ts');
+		// TODO-067: a media src on an absolute webBase is persisted relative (WC-042).
+		const { relativizeMediaSrc } = await import('../../media/web_base_src.ts');
+		return mapRichTextChanges(changedData, (value) => relativizeMediaSrc(sanitizeRichText(value)));
 	}
 	return changedData;
 }

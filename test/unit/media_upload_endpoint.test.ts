@@ -15,7 +15,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { config } from '../../src/config/config.ts';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
@@ -543,8 +542,6 @@ describe("rich-text image upload (CKEditor SimpleUploadAdapter, key_dir 'web')",
 			);
 			expect(res.status).toBe(200);
 			const body = (await res.json()) as { url: string };
-			// relative, never rooted on webBase: the url is persisted in the text (TODO-067)
-			expect(body.url.startsWith(`/dedalo/${config.mediaDir}/image/web/`)).toBe(true);
 			const match = /\/(image\/web\/pic(?:-[0-9a-f]+)?\.jpg)$/.exec(body.url);
 			expect(match).not.toBeNull();
 			const onDisk = resolve(requireMediaRoot(), match![1]!);

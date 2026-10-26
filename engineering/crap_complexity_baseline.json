@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 783,
-		"functions": 12913,
+		"files": 784,
+		"functions": 12924,
 		"functionsOverCap": 669,
 		"filesOverCap": 258
 	},
@@ -280,7 +280,7 @@
 		"src/core/media/ingest/staged_name_record.ts": 10,
 		"src/core/media/ingest/staging_gc.ts": 10,
 		"src/core/media/ingest/upload.ts": 18,
-		"src/core/media/ingest/upload_endpoint.ts": 15,
+		"src/core/media/ingest/upload_endpoint.ts": 13,
 		"src/core/media/jobs.ts": 8,
 		"src/core/media/ontology_path.ts": 12,
 		"src/core/media/processing.ts": 17,

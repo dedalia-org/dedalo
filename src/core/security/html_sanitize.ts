@@ -629,19 +629,27 @@ export function sanitizeRichText(input: string): string {
  * (client API, MCP tools, agent change-plan, import) through one place.
  */
 export function sanitizeRichTextChanges<T extends { value: unknown }>(changes: readonly T[]): T[] {
-	const sanitizeItem = (item: unknown): unknown => {
+	return mapRichTextChanges(changes, sanitizeRichText);
+}
+
+/** Apply `transform` to the string `value` of every item in a save change set. */
+export function mapRichTextChanges<T extends { value: unknown }>(
+	changes: readonly T[],
+	transform: (value: string) => string,
+): T[] {
+	const applyItem = (item: unknown): unknown => {
 		if (
 			item !== null &&
 			typeof item === 'object' &&
 			typeof (item as { value?: unknown }).value === 'string'
 		) {
-			return { ...item, value: sanitizeRichText((item as { value: string }).value) };
+			return { ...item, value: transform((item as { value: string }).value) };
 		}
 		return item;
 	};
 	return changes.map((change) =>
 		Array.isArray(change.value)
-			? { ...change, value: change.value.map(sanitizeItem) }
-			: { ...change, value: sanitizeItem(change.value) },
+			? { ...change, value: change.value.map(applyItem) }
+			: { ...change, value: applyItem(change.value) },
 	);
 }

@@ -193,6 +193,23 @@ async function countGatedRows(
 }
 
 /** dd_core_api action handlers, keyed by action (registered in dispatch.ts). */
+/**
+ * The save echo of an `html` render-class model, rebased like the read (TODO-067):
+ * the client's post-save baseline must equal what the editor holds — stored media
+ * src are relative, the read serves them on webBase.
+ */
+async function servedRichTextEcho(model: string | null, items: unknown[]): Promise<unknown[]> {
+	const { getComponentModel, getRenderClass } = await import('../../components/registry.ts');
+	if (
+		model === null ||
+		getComponentModel(model) === undefined ||
+		getRenderClass(model) !== 'html'
+	) {
+		return items;
+	}
+	return (await import('../../media/web_base_src.ts')).appServedMediaItems(items);
+}
+
 export const coreApiActions: Record<string, ActionHandler> = {
 	read: async (rqo, context) => {
 		// Permission gates BEFORE any search/DB work (PHP build_json_rows
@@ -466,6 +483,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				const echoLang = await effectiveSaveLang(source.tipo, echoModel, savedLang);
 				savedItems = filterItemsByLang(savedItems, echoLang);
 			}
+			savedItems = await servedRichTextEcho(echoModel, savedItems);
 		}
 		// Relation saves echo context too (populated in the block below); [] for scalars.
 		let savedContext: unknown[] = [];
