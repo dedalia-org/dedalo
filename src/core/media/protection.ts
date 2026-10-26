@@ -47,6 +47,7 @@ import {
 import { join } from 'node:path';
 import { config } from '../../config/config.ts';
 import { privateDir, readEnv } from '../../config/env.ts';
+import { readString } from '../../config/readers.ts';
 import { getServerState } from '../resolve/server_state.ts';
 import {
 	imageEnvelopePcre,
@@ -396,12 +397,15 @@ export function resolveModeSource(): string {
 export function getDefaultPublicQualities(): string[] {
 	const media = config.media;
 	const folder = (value: string): string => value.replace(/^\/+|\/+$/g, '');
+	const webFolder = folder(readString('DEDALO_IMAGE_WEB_FOLDER'));
 	return [
 		`${folder(media.av.folder)}/${media.av.defaultQuality}`,
 		`${folder(media.av.folder)}/posterframe`,
 		`${folder(media.av.folder)}/${folder(media.avExtras.subtitlesFolder)}`,
 		`${folder(media.image.folder)}/${media.image.defaultQuality}`,
 		`${folder(media.image.folder)}/${media.thumb.quality}`,
+		// rich-text images (TODO-066): record-keyed names, so rule B gates them like any quality
+		...(webFolder === '' ? [] : [`${folder(media.image.folder)}/${webFolder}`]),
 		`${folder(media.pdf.folder)}/${media.pdf.defaultQuality}`,
 		`${folder(media.svg.folder)}/${media.svg.defaultQuality}`,
 		`${folder(media.threeD.folder)}/${media.threeD.defaultQuality}`,

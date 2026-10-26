@@ -366,7 +366,14 @@ export const service_ckeditor = function() {
 					// the rqo will created as to use the 'upload' by default
 					// the main rqo vars needed as rqo.options will be created with the URI variables.
 					// rqo.upload property will created with the name of the file
-					uploadUrl: DEDALO_API_URL + '?resource_type=web&key_dir=web'
+					// the text's record names the file (rule B: public while that record is published)
+					uploadUrl: DEDALO_API_URL + '?' + new URLSearchParams({
+						resource_type	: 'web',
+						key_dir			: 'web',
+						section_tipo	: self.caller.section_tipo,
+						section_id		: self.caller.section_id,
+						component_tipo	: self.caller.tipo
+					})
 				},
 				placeholder: self.fallback_value
 			})

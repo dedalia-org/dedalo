@@ -70,6 +70,7 @@ import { MEDIA_DIR_MODE } from '../../install/media_tree.ts';
 import { sniffAndValidate } from '../engine/mime.ts';
 import { verifyFileContent } from '../engine/verify_content.ts';
 import { requireMediaRoot } from '../path.ts';
+import { MEDIA_FILENAME_GRAMMAR } from '../protection.ts';
 import { sanitizeSegment, stagingDir } from './add_file.ts';
 import { forgetStagedDisplayName, recordStagedDisplayName } from './staged_name_record.ts';
 import { sweepStagedOrphans, UPLOAD_DIR_PREFIX, uploadArtifactDir } from './staging_gc.ts';
@@ -427,14 +428,21 @@ const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
  * single-shot upload, and (once chunking is on for every file) silent CORRUPTION
  * for a chunked one, since the parts of two transfers interleaved under one name.
  */
-function claimStagedName(dir: string, proposal: string, sourcePath: string): string {
+function claimStagedName(
+	dir: string,
+	proposal: string,
+	sourcePath: string,
+	key = '',
+): string {
+	// `key` sits between the discriminator and the extension, so a keyed name
+	// keeps ending in `_<section_tipo>_<section_id>.<ext>` (MEDIA_FILENAME_GRAMMAR).
 	const { stem, suffix } = splitStagedName(proposal);
-	const candidates: string[] = [proposal];
-	for (let n = 1; n <= 999; n++) candidates.push(`${stem}-${n}${suffix}`);
+	const candidates: string[] = [`${stem}${key}${suffix}`];
+	for (let n = 1; n <= 999; n++) candidates.push(`${stem}-${n}${key}${suffix}`);
 	// Last resort when a user really has a thousand same-named staged files: a
 	// random discriminator, still inside the safe segment charset.
 	for (let n = 0; n < 8; n++) {
-		candidates.push(`${stem}-${Math.random().toString(16).slice(2, 10)}${suffix}`);
+		candidates.push(`${stem}-${Math.random().toString(16).slice(2, 10)}${key}${suffix}`);
 	}
 	// Sticky: once link(2) is known unsupported here, every later candidate takes
 	// the reservation path directly instead of paying a failing syscall each time.
@@ -1217,6 +1225,9 @@ function confine(dir: string, name: string): string {
 	return full;
 }
 
+/** A published rich-text image name — rule B's own grammar, anchored to the segment. */
+const WEB_IMAGE_NAME = new RegExp(`^${MEDIA_FILENAME_GRAMMAR}`);
+
 /** The rich-text editor's key_dir (PHP dd_utils_api::upload `case 'web'`). */
 export const WEB_IMAGE_KEY_DIR = 'web';
 
@@ -1241,6 +1252,12 @@ export function assertWebImageFormat(fileName: string): void {
 	}
 }
 
+/** The record a rich-text image belongs to — from a write-door grant, never the raw request. */
+export interface WebImageRecord {
+	sectionTipo: string;
+	sectionId: number | string;
+}
+
 /**
  * Move a STAGED rich-text image into `<image>/<DEDALO_IMAGE_WEB_FOLDER>/` and
  * return its media-root-relative path. Collision-free (claimStagedName): PHP
@@ -1248,11 +1265,27 @@ export function assertWebImageFormat(fileName: string): void {
  * text that embedded it. COPIED into the web dir first: staging may be another
  * device (DEDALO_UPLOAD_TMP_SUBDIR on a different mount), and claimStagedName's
  * link/rename are same-device only. The staged file is removed either way.
+ *
+ * RECORD-KEYED NAME (TODO-066): `<stem>[-n]_<section_tipo>_<section_id>.<ext>`,
+ * so rule B serves it anonymously exactly while its record is published (and
+ * media_copy ships it) — no second definition of "public". A key that would not
+ * parse is refused: an unkeyed file here would stay login-only forever.
  */
-export function publishWebImage(userId: number, tmpName: string, mediaRoot?: string): string {
+export function publishWebImage(
+	userId: number,
+	tmpName: string,
+	record: WebImageRecord,
+	mediaRoot?: string,
+): string {
 	const dir = stagingDir(userId, WEB_IMAGE_KEY_DIR, mediaRoot);
 	const source = confine(dir, tmpName);
 	try {
+		const key = `_${record.sectionTipo}_${record.sectionId}`;
+		if (!WEB_IMAGE_NAME.test(`x${key}.jpg`)) {
+			throw new DedaloError('request.invalid', {
+				message: `upload: '${key}' is not a media record key`,
+			});
+		}
 		const relDir = [config.media.image.folder, readString('DEDALO_IMAGE_WEB_FOLDER')]
 			.map((folder) => sanitizeSegment(folder.replace(/^\/+/, '')))
 			.join('/');
@@ -1261,7 +1294,7 @@ export function publishWebImage(userId: number, tmpName: string, mediaRoot?: str
 		const incoming = resolve(webDir, `.incoming_${Math.random().toString(16).slice(2, 12)}`);
 		try {
 			copyFileSync(source, incoming);
-			return `${relDir}/${claimStagedName(webDir, tmpName, incoming)}`;
+			return `${relDir}/${claimStagedName(webDir, tmpName, incoming, key)}`;
 		} finally {
 			rmSync(incoming, { force: true });
 		}

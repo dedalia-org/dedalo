@@ -110,6 +110,21 @@ three classify one table of real filenames identically.
 `properties.image_id` or an external source). Document them; never loosen the regex to
 "fix" them — that hands anonymous users every unparseable file in a public quality folder.
 
+**Rich-text images are keyed at upload** (TODO-066, 2026-10-26). The editor's upload
+(`publishWebImage`, key_dir `web`) names the file `<stem>[-n]_<section_tipo>_<section_id>.<ext>`
+after the record whose text it goes into — the collision discriminator sits BEFORE the key, so
+the name still parses — and `image/<DEDALO_IMAGE_WEB_FOLDER>` is a default public quality. Rule B,
+the marker writer and `media_copy` therefore treat it like any other derivative, with no new
+surface. The endpoint asks the write door (`authorizeRecordAccess`, write level 2, section floor
+1) for the text's `(section_tipo, component_tipo, section_id)` BEFORE staging, and requires the
+component to be a `component_text_area`: otherwise a user could key an image to a published
+record whose text they cannot edit and make it public. Limits, by design: a legacy unkeyed name
+(`pic.jpg`) stays login-only; an image pasted into another record's text follows the publication
+of the record it was uploaded from; like any component media file, it is public from upload into
+an already-published record and after its removal from the text. An explicit
+`DEDALO_MEDIA_PUBLIC_QUALITIES` must list `image/web` itself; nginx needs a reload for the new
+quality (§7).
+
 ## 5. The cookie
 
 Fixed NAME (`dedalo_media_auth`), rotating VALUE (128-char sha512 hex). **The fixed name

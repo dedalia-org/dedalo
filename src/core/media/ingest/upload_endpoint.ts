@@ -22,8 +22,11 @@
 
 import { config } from '../../../config/config.ts';
 import { DedaloError, ok, toErrorEnvelope, wireMessage } from '../../errors/index.ts';
+import { getModelByTipo } from '../../ontology/resolver.ts';
+import { resolvePrincipal } from '../../security/permissions.ts';
 import type { Session } from '../../security/session_store.ts';
 import { verifyCsrf } from '../../security/session_store.ts';
+import { authorizeRecordAccess } from '../../security/write_door.ts';
 import { createStagedThumbnail } from './staged_thumbnail.ts';
 import {
 	assertWebImageFormat,
@@ -83,7 +86,9 @@ export async function handleMediaUpload(
 	}
 	// Rich-text editor image (CKEditor SimpleUploadAdapter, PHP `case 'web'`): its
 	// wire is a bare { url } — the adapter reads `url`, or `error.message` on refusal.
-	if (parsed.keyDir === WEB_IMAGE_KEY_DIR) return webImageUpload(parsed, session.userId, requestId);
+	if (parsed.keyDir === WEB_IMAGE_KEY_DIR) {
+		return await webImageUpload(request, parsed, session.userId, requestId);
+	}
 	try {
 		const received = receiveUpload(parsed, session.userId);
 		const thumbnailUrl = await stagedThumbnailUrl(session.userId, parsed.keyDir, received);
@@ -145,16 +150,56 @@ async function stagedThumbnailUrl(
 	return await createStagedThumbnail(userId, keyDir, received.tmpName, received.extension ?? null);
 }
 
-/** The rich-text editor image (key_dir 'web'): publish, answer a bare { url }. */
-function webImageUpload(
+/**
+ * The rich-text editor image (key_dir 'web'): publish, answer a bare { url }.
+ * The file is named after the record it is inserted into (TODO-066), so its
+ * public visibility IS that record's publication: the uploader must be able to
+ * WRITE that record's component_text_area, or anyone could key an image to a
+ * published record.
+ */
+async function webImageUpload(
+	request: Request,
 	parsed: Awaited<ReturnType<typeof parseUploadRequest>>,
 	userId: number,
 	requestId: string,
-): Response {
+): Promise<Response> {
 	try {
 		assertWebImageFormat(parsed.fileName);
+	} catch (error) {
+		return refusal(rejectedUpload(error), requestId);
+	}
+	// CKEditor cannot add form fields: the text's coordinates ride the query.
+	// Authorized BEFORE staging, so a refusal leaves nothing on disk; its own
+	// typed code (request.invalid / perm.*) reaches the adapter unwrapped.
+	const query = new URL(request.url).searchParams;
+	let grant: Awaited<ReturnType<typeof authorizeRecordAccess>>;
+	try {
+		grant = await authorizeRecordAccess(
+			await resolvePrincipal(userId),
+			{
+				section_tipo: query.get('section_tipo'),
+				component_tipo: query.get('component_tipo'),
+				section_id: query.get('section_id'),
+			},
+			{ mode: 'write', level: 2, sectionFloor: 1, door: 'media_ingest.web_image' },
+		);
+		// The door judges whatever pair it is handed (an absent component falls back
+		// to the section): only a writable TEXT may key an image to its record.
+		if ((await getModelByTipo(grant.componentTipo)) !== 'component_text_area') {
+			throw new DedaloError('request.invalid', {
+				message: `upload: '${grant.componentTipo}' is not a component_text_area`,
+			});
+		}
+	} catch (error) {
+		if (error instanceof DedaloError) return refusal(error, requestId);
+		throw error;
+	}
+	try {
 		const received = receiveUpload({ ...parsed, chunked: false }, userId);
-		const path = publishWebImage(userId, received.tmpName ?? '');
+		const path = publishWebImage(userId, received.tmpName ?? '', {
+			sectionTipo: grant.sectionTipo,
+			sectionId: grant.sectionId,
+		});
 		// webBase so the editor shows it at once; the save gate stores it relative
 		// (media/web_base_src.ts, TODO-067).
 		return json({ url: `${config.media.webBase}/${path}` });

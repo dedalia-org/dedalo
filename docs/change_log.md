@@ -54,6 +54,23 @@ Merged since the last release; these ship with the next one.
 
     When the engine could not create the ontology exchange directory (`ONTOLOGY_DATA_IO_DIR/<major.minor>`), **Maintenance → Update ontology** answered only `unable to resolve the ontology IO directory`, and the export actions answered `Unable to create directory: false`. They now name the directory and the system error, for example `EACCES` when the service user cannot write to it. The usual fix is to give the service user ownership of that directory, or to point `ONTOLOGY_DATA_IO_DIR` at a writable one.
 
+- **Images inserted into rich text are visible on published pages.**
+
+    An image inserted into a rich-text field from the editor toolbar was visible only to logged-in
+    users: a visitor of the published page saw a broken image. New images are now named after the
+    record they are inserted into and follow its publication — public while the record is published,
+    hidden again when it is withdrawn — and they are copied to a separate publication server like any
+    other published media. Images inserted before this update keep their old names and stay visible to
+    logged-in users only. Only users who may edit the text can insert an image into it. As with any
+    other media of a published record, an image is visible from the moment it is inserted, and stays
+    visible after it is removed from the text while the record remains published.
+
+    For administrators: on nginx, reload it once after updating so the regenerated media rules take
+    effect (Apache needs nothing). If you set `DEDALO_MEDIA_PUBLIC_QUALITIES` yourself, add
+    `image/web` to it, or these images stay private.
+
+    Wire contract: `WC-2026-10-26-rich-text-image-record-keyed`.
+
 - **Profile permissions search: a matched section or area now shows its permission radios and can be opened.**
 
     Searching the permissions tree of a profile (e.g. `rsc832`) showed the matched section without its x / r / rw radios and without a way to expand it, so its permissions could not be set from the search result. A match with no deeper match now shows its radios and its children, collapsed, as in the unfiltered tree.
@@ -75,6 +92,10 @@ Merged since the last release; these ship with the next one.
     official identity, and a release already published unsigned is signed in place when its
     signature can be proven from the build. Verify an image as described in
     [Checking the signature](./install/docker.md#checking-the-signature).
+
+??? note "Wire contract — 1 entry"
+
+    - `WC-2026-10-26-rich-text-image-record-keyed`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

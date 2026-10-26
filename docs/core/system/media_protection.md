@@ -67,6 +67,13 @@ Files that do not parse (images renamed through `properties.image_id`, external 
 **login-only by design**. Never loosen the regex to "fix" them — that hands anonymous users
 every unparseable file in a public quality folder.
 
+Rich-text images are named INTO the grammar at upload: the editor's upload names the file
+`<name>[-n]_<section_tipo>_<section_id>.<ext>` after the record whose text it goes into (the
+endpoint asks the write door for that record's `component_text_area` first), and
+`image/<DEDALO_IMAGE_WEB_FOLDER>` is a default public quality. Rule B, the markers and the
+publication-host copy then treat it like any other derivative. Older unkeyed names stay
+login-only.
+
 Other invariants the gates pin, each of which shipped as a real bug or a near miss:
 
 * **The cookie NAME is fixed; only the VALUE changes (one per session).** That is what lets the
