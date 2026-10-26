@@ -5249,6 +5249,11 @@
 			"skipped": 0,
 			"assertions": 8
 		},
+		"test/unit/text_area_media_src_split_origin.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 7
+		},
 		"test/unit/text_area_svg_split_origin.test.ts": {
 			"tests": 2,
 			"skipped": 0,
