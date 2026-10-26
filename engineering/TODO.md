@@ -116,4 +116,10 @@ to start to work.
 - [x] TODO-063: Install: Bun creates the file like .15d910380ac5f9d2-196.node-gyp (2026-10-25: NOT a failed native build — Bun writes a 118-byte `node-gyp` shim dir into TMPDIR for ANY lifecycle script run and never removes it; the only script a production install ran was the root `prepare`, and the production installer sets TMPDIR to the tree. Fix: `--ignore-scripts` on the two doors that lacked it — production installer (src/core/install/host/production/runtime.ts) + code updater quarantine (CODE_UPDATE_INSTALL_ARGS, src/core/update/code_update.ts) — and the operator doc commands; every other install door already had it. Gates: install_host_steps_native, code_update. An existing leftover is safe to delete.)
       A leftover node-gyp scratch directory created by Bun while installing a native dependency — Bun's own log line for this exact thing is creating node-gyp tempdir (bun x --silent node-gyp …). The name is .<hash>-<pid>.node-gyp: hash of the module being built, the PID of that build, and the node-gyp suffix.
       It holds downloaded Node headers / extracted package source / compile scratch. It is not Dédalo code, not shipped by any release, and carries no data. It's still there because that build never finished — install killed/interrupted, or the compile failed (very plausible on Ubuntu 26 if a dependency has no prebuilt binary and python3/make/g++ are missing).
+- [ ] TODO-064: Review the current directories tree and propose improvements for clarity and sustainability of the application.
+- [ ] TODO-065: Folder /client/dedalo reorganization:
+      - Move test and dev pages out of the served tree first, e.g. test/client/ and dev/. The test runner and client:server can mount them in dev mode only. This fixes a real exposure whatever we name the folder.
+      - Then flatten client/dedalo/core to client/core (or web/), with the URL mount /dedalo/ set in config rather than in the folder layout.
+
+
 
