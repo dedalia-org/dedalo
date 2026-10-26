@@ -308,6 +308,11 @@ const CENSUS: Record<string, CensusRow> = {
 		verdict: 'system',
 		reason: 'maintenance-area hierarchy export; hard-bound hierarchy/lang sections.',
 	},
+	'src/core/media/rich_text_image_reconcile.ts': {
+		verdict: 'system',
+		reason:
+			'the rich-text image reconciles (TODO-069): the root-only maintenance apply that rewrites text_area `<img src>` values through saveComponentData as RECONCILE_USER_ID (-1) — no request and no principal to judge. Its writes are the record’s own stored component_text_area slices (the component model filter in the module), reached from the texts that mention the image file, so the downgrade components (dd1725/dd244/dd515/dd132/dd330) are never its target.',
+	},
 
 	// --- NOT dd128 --------------------------------------------------------
 	'src/core/security/ai_spend.ts': {

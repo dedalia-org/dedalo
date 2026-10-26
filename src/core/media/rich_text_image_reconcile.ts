@@ -43,6 +43,7 @@ import { sql } from '../db/postgres.ts';
 import { effectiveSaveLang, getMatrixTableFromTipo, getModelByTipo } from '../ontology/resolver.ts';
 import type { ReconcileDefinition, ReconcileReport } from '../reconcile/registry.ts';
 import { filterItemsByLang, readComponentItems } from '../resolve/component_data.ts';
+import { decodeHtmlSpecialChars } from '../resolve/html_text.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
 import {
 	claimKeyedWebImage,
@@ -58,8 +59,14 @@ const GRAMMAR = new RegExp(`^${MEDIA_FILENAME_GRAMMAR}`);
 /** The TM actor of a reconcile write: the registry's doors carry no principal (root, as the CLI migrations). */
 const RECONCILE_USER_ID = -1;
 
+/** The record a web-folder file name parses to (rule B's own grammar). */
+interface WebImageKey {
+	sectionTipo: string;
+	sectionId: number;
+}
+
 /** A keyed name's record, or null when the name does not parse (rule B's own grammar). */
-export function keyOfWebImage(fileName: string): { sectionTipo: string; sectionId: number } | null {
+export function keyOfWebImage(fileName: string): WebImageKey | null {
 	const match = GRAMMAR.exec(fileName);
 	return match === null ? null : { sectionTipo: match[1] as string, sectionId: Number(match[2]) };
 }
@@ -70,34 +77,49 @@ export function isKeyedTo(fileName: string, sectionTipo: string, sectionId: numb
 	return key !== null && key.sectionTipo === sectionTipo && key.sectionId === sectionId;
 }
 
+/** `_<tipo>_<id>` — the needle every encoded form of a keyed name still contains. */
+function needleOf(key: WebImageKey): string {
+	return `_${key.sectionTipo}_${key.sectionId}`;
+}
+
+/** The path below the media base, or null for another host / a tag-button url. */
+function belowWebBase(path: string, webBase: string): string | null {
+	if (webBase !== '' && path.startsWith(`${webBase}/`)) return path.slice(webBase.length);
+	return /^[a-z][a-z0-9+.-]*:|^\/\//i.test(path) ? null : path;
+}
+
+/** `%xx` decoded; a malformed escape leaves the name as its raw text. */
+function decodeFileName(fileName: string): string {
+	try {
+		return decodeURIComponent(fileName);
+	} catch {
+		return fileName;
+	}
+}
+
 /**
  * The web-folder FILE NAME an `<img src>` points at, or null when it is not a
  * web-folder image of THIS install: every historic prefix is accepted
  * (`../../../media/`, `/dedalo/<mediaDir>/`, a v6 custom root, webBase), the
- * query (`?<cachebust>`) and fragment are dropped, `%xx` decoded. Another
- * host, a subfolder, a tag/button url (`…/inc/btn.php/[geo-…]`) → null.
+ * query (`?<cachebust>`) and fragment are dropped, HTML entities decoded (the
+ * PHP `htmlspecialchars_decode` set — a stored src escapes `&` as `&amp;`;
+ * decodeHtmlSpecialChars is the ONE decoder, html_text_tripwire), `%xx`
+ * decoded. Another host, a subfolder, a tag/button url
+ * (`…/inc/btn.php/[geo-…]`) → null.
  */
 export function parseLegacyWebImageSrc(
 	src: string,
 	relDir: string,
 	webBase: string = config.media.webBase,
 ): string | null {
-	let path = src.trim();
-	if (webBase !== '' && path.startsWith(`${webBase}/`)) path = path.slice(webBase.length);
-	else if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(path)) return null;
+	const path = belowWebBase(src.trim(), webBase);
+	if (path === null) return null;
 	const marker = `/${relDir}/`;
 	const at = path.indexOf(marker);
 	if (at === -1) return null;
-	const rest = path
-		.slice(at + marker.length)
-		.replace(/[?#].*$/, '')
-		.replace(/&amp;/g, '&');
+	const rest = decodeHtmlSpecialChars(path.slice(at + marker.length).replace(/[?#].*$/, ''));
 	if (rest === '' || rest.includes('/')) return null;
-	try {
-		return decodeURIComponent(rest);
-	} catch {
-		return rest;
-	}
+	return decodeFileName(rest);
 }
 
 /** The STORED `src` of a web-folder file (WC-042 / TODO-067: same-origin relative, never webBase). */
@@ -126,30 +148,48 @@ function imgSrcs(html: string): string[] {
 /** Record tables a text can live in: the allowlist minus the activity logs (no editor text, and the largest). */
 const TEXT_TABLES = MATRIX_TABLE_ALLOWLIST.filter((table) => !table.startsWith('matrix_activit'));
 
-/** The records whose `string` column mentions `needle` (escaped for LIKE), table by table. */
+/** `needle` as a LIKE pattern, its wildcards escaped. */
+function likePattern(needle: string): string {
+	return `%${needle.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
+/** The `section_tipo IN (…)` narrowing of a scope, or nothing when the scope is open. */
+function scopeClause(scope: readonly string[] | undefined): string {
+	if (scope === undefined) return '';
+	return ` AND section_tipo IN (${scope.map((_, index) => `$${index + 2}`).join(', ')})`;
+}
+
+/** Whether the table exists in this install (a matrix table an update has not created yet). */
+async function matrixTableExists(table: string): Promise<boolean> {
+	const rows = (await sql.unsafe('SELECT to_regclass($1) IS NOT NULL AS ok', [
+		`public."${table}"`,
+	])) as { ok: boolean }[];
+	return rows[0]?.ok === true;
+}
+
+/** The records of ONE table whose `string` column mentions `needle` (none when the table is absent). */
+async function mentioningRows(
+	table: string,
+	needle: string,
+	scope: readonly string[] | undefined,
+): Promise<{ sectionTipo: string; sectionId: number }[]> {
+	if (!(await matrixTableExists(table))) return [];
+	const rows = (await sql.unsafe(
+		`SELECT section_tipo, section_id FROM "${table}" WHERE string::text LIKE $1${scopeClause(scope)} ORDER BY section_tipo, section_id`,
+		[likePattern(needle), ...(scope ?? [])],
+	)) as { section_tipo: string; section_id: number }[];
+	return rows.map((row) => ({ sectionTipo: row.section_tipo, sectionId: row.section_id }));
+}
+
+/** The records whose `string` column mentions `needle`, table by table. */
 async function recordsMentioning(
 	needle: string,
 	scope: readonly string[] | undefined,
 ): Promise<{ table: string; sectionTipo: string; sectionId: number }[]> {
 	if (scope !== undefined && scope.length === 0) return [];
-	const pattern = `%${needle.replace(/[\\%_]/g, '\\$&')}%`;
 	const found: { table: string; sectionTipo: string; sectionId: number }[] = [];
 	for (const table of TEXT_TABLES) {
-		const exists = (await sql.unsafe('SELECT to_regclass($1) IS NOT NULL AS ok', [
-			`public."${table}"`,
-		])) as { ok: boolean }[];
-		if (exists[0]?.ok !== true) continue;
-		const inScope =
-			scope === undefined
-				? ''
-				: ` AND section_tipo IN (${scope.map((_, index) => `$${index + 2}`).join(', ')})`;
-		const rows = (await sql.unsafe(
-			`SELECT section_tipo, section_id FROM "${table}" WHERE string::text LIKE $1${inScope} ORDER BY section_tipo, section_id`,
-			[pattern, ...(scope ?? [])],
-		)) as { section_tipo: string; section_id: number | string }[];
-		for (const row of rows) {
-			found.push({ table, sectionTipo: row.section_tipo, sectionId: Number(row.section_id) });
-		}
+		for (const row of await mentioningRows(table, needle, scope)) found.push({ table, ...row });
 	}
 	return found;
 }
@@ -170,31 +210,57 @@ interface TextSlice {
 	held: string | null;
 }
 
+/** Why a lang-less item set is never SAVED: any save of the component drops it. */
+const LANG_LESS_HELD = 'items without a lang (any save of this component drops them)';
+
+/** Whether a text item carries a usable `lang`. */
+function hasLang(lang: unknown): lang is string {
+	return typeof lang === 'string' && lang !== '';
+}
+
+/** The `lang` a text item declares. */
+function langOf(item: unknown): unknown {
+	return (item as { lang?: unknown } | null)?.lang;
+}
+
+/** Why this lang cannot be rewritten by a save, or null when it can. */
+async function saveHeldReason(componentTipo: string, lang: string): Promise<string | null> {
+	const effective = await effectiveSaveLang(componentTipo, 'component_text_area', lang);
+	return effective === lang
+		? null
+		: `stored as ${lang} but saved as ${effective} (a save would add a copy, not rewrite it)`;
+}
+
+/** The slices of ONE text_area component: one per lang it stores, plus its lang-less items. */
+async function componentTextSlices(
+	record: MatrixRecord,
+	componentTipo: string,
+): Promise<TextSlice[]> {
+	const items = readComponentItems(record, componentTipo, 'component_text_area') ?? [];
+	const langLess = items.filter((item) => !hasLang(langOf(item)));
+	const held = langLess.length === 0 ? null : LANG_LESS_HELD;
+	const base = { sectionTipo: record.section_tipo, sectionId: record.section_id, componentTipo };
+	const slices: TextSlice[] = [];
+	for (const lang of [...new Set(items.map(langOf))].filter(hasLang)) {
+		slices.push({
+			...base,
+			lang,
+			items: filterItemsByLang(items, lang),
+			held: held ?? (await saveHeldReason(componentTipo, lang)),
+		});
+	}
+	if (langLess.length > 0) slices.push({ ...base, lang: '(no lang)', items: langLess, held });
+	return slices;
+}
+
 /** The text_area slices of a record, one per (component, lang). */
 async function textSlices(record: MatrixRecord): Promise<TextSlice[]> {
-	const slices: TextSlice[] = [];
 	const string = record.columns.string;
-	if (string === null || typeof string !== 'object') return slices;
+	if (string === null || typeof string !== 'object') return [];
+	const slices: TextSlice[] = [];
 	for (const componentTipo of Object.keys(string)) {
 		if ((await getModelByTipo(componentTipo)) !== 'component_text_area') continue;
-		const items = readComponentItems(record, componentTipo, 'component_text_area') ?? [];
-		const langOf = (item: unknown) => (item as { lang?: unknown } | null)?.lang;
-		const hasLang = (lang: unknown): lang is string => typeof lang === 'string' && lang !== '';
-		const langLess = items.filter((item) => !hasLang(langOf(item)));
-		const wholeHeld =
-			langLess.length === 0 ? null : 'items without a lang (any save of this component drops them)';
-		const base = { sectionTipo: record.section_tipo, sectionId: record.section_id, componentTipo };
-		for (const lang of [...new Set(items.map(langOf))].filter(hasLang)) {
-			const effective = await effectiveSaveLang(componentTipo, 'component_text_area', lang);
-			const held =
-				wholeHeld ??
-				(effective === lang
-					? null
-					: `stored as ${lang} but saved as ${effective} (a save would add a copy, not rewrite it)`);
-			slices.push({ ...base, lang, items: filterItemsByLang(items, lang), held });
-		}
-		if (langLess.length > 0)
-			slices.push({ ...base, lang: '(no lang)', items: langLess, held: wholeHeld });
+		slices.push(...(await componentTextSlices(record, componentTipo)));
 	}
 	return slices;
 }
@@ -227,6 +293,11 @@ async function saveSlice(slice: TextSlice, items: unknown[]): Promise<string | n
 	return saved.ok ? null : (saved.message ?? 'save failed');
 }
 
+/** Save a plan's rewritten items when planning produced any; nothing when it did not. */
+async function saveItems(slice: TextSlice, items: unknown[] | null): Promise<string | null> {
+	return items === null ? null : await saveSlice(slice, items);
+}
+
 async function fileExists(path: string): Promise<boolean> {
 	try {
 		await access(path);
@@ -245,6 +316,47 @@ function at(slice: TextSlice): string {
 // rich_text_images
 // ---------------------------------------------------------------------------
 
+/** One slice's plan: the srcs to rewrite, the copies planning minted, what could not be planned. */
+interface SlicePlan {
+	drift: number;
+	targets: Map<string, string>;
+	failure: string | null;
+	/** Keyed copies minted while planning THIS slice (taken back when its save does not land). */
+	created: string[];
+	changes: string[];
+	missing: string[];
+}
+
+/** What one slice contributed to the run's report. */
+interface SliceOutcome {
+	drift: number;
+	applied: number;
+	changes: string[];
+	missing: string[];
+	held: string | null;
+	failure: string | null;
+}
+
+/** Everything the run carries between records and slices. */
+interface RunContext {
+	relDir: string;
+	webDir: string;
+	options: { apply: boolean; scope?: readonly string[] };
+	/** Keyed copies minted for the CURRENT record, shared by its langs. */
+	copies: Map<string, string>;
+	drift: number;
+	applied: number;
+	scannedRecords: number;
+	changes: string[];
+	missing: string[];
+	held: string[];
+	failed: string[];
+}
+
+function emptyPlan(): SlicePlan {
+	return { drift: 0, targets: new Map(), failure: null, created: [], changes: [], missing: [] };
+}
+
 /**
  * The `rich_text_images` run. Drift = `src` values to rewrite (legacy names to
  * copy + keyed names behind a non-stored prefix); `missing` names a referenced
@@ -255,90 +367,213 @@ export async function runRichTextImages(options: {
 	scope?: readonly string[];
 }): Promise<ReconcileReport> {
 	const relDir = webImageRelDir();
-	const webDir = join(requireMediaRoot(), relDir);
-	const missing: string[] = [];
-	const failed: string[] = [];
-	const changes: string[] = [];
-	const held: string[] = [];
-	let drift = 0;
-	let applied = 0;
-	let scannedRecords = 0;
-
+	const ctx: RunContext = {
+		relDir,
+		webDir: join(requireMediaRoot(), relDir),
+		options,
+		copies: new Map(),
+		drift: 0,
+		applied: 0,
+		scannedRecords: 0,
+		changes: [],
+		missing: [],
+		held: [],
+		failed: [],
+	};
 	for (const { table, sectionTipo, sectionId } of await recordsMentioning(
 		`/${relDir}/`,
 		options.scope,
 	)) {
-		const record = await readMatrixRecord(table, sectionTipo, sectionId);
-		if (record === null) continue;
-		scannedRecords++;
-		// One keyed copy per (record, legacy file), shared by the record's langs.
-		const copies = new Map<string, string>();
-		for (const slice of await textSlices(record)) {
-			// Plan: the target name of every src this slice must change.
-			const targets = new Map<string, string>();
-			const createdHere: string[] = [];
-			let failure: string | null = null;
-			let sliceDrift = 0;
-			for (const value of slice.items) {
-				const html = (value as { value?: unknown } | null)?.value;
-				if (typeof html !== 'string') continue;
-				for (const src of imgSrcs(html)) {
-					const fileName = parseLegacyWebImageSrc(src, relDir);
-					if (fileName === null || targets.has(src)) continue;
-					const keyed = isKeyedTo(fileName, sectionTipo, sectionId);
-					if (keyed && src === storedWebImageSrc(fileName, relDir)) continue;
-					if (!(await fileExists(join(webDir, fileName)))) {
-						missing.push(`${at(slice)}: ${fileName}`);
-						continue;
-					}
-					drift++;
-					sliceDrift++;
-					let target = keyed ? fileName : (copies.get(fileName) ?? null);
-					if (target === null && options.apply && failure === null && slice.held === null) {
-						try {
-							const path = claimKeyedWebImage(join(webDir, fileName), stagedTmpName(fileName), {
-								sectionTipo,
-								sectionId,
-							});
-							target = path.slice(relDir.length + 1);
-							copies.set(fileName, target);
-							createdHere.push(target);
-						} catch (error) {
-							failure = `copy of '${fileName}' failed: ${(error as Error).message}`;
-						}
-					}
-					changes.push(`${at(slice)}: ${fileName} → ${target ?? '(keyed copy)'}`);
-					if (target !== null) targets.set(src, storedWebImageSrc(target, relDir));
-				}
-			}
-			if (slice.held !== null) {
-				if (sliceDrift > 0) held.push(`${at(slice)}: ${slice.held}`);
-				continue;
-			}
-			if (!options.apply || targets.size === 0) {
-				if (failure !== null) failed.push(`${at(slice)}: ${failure}`);
-				continue;
-			}
-			const items =
-				failure === null ? rewriteSlice(slice, (src) => targets.get(src) ?? null) : null;
-			failure ??= items === null ? null : await saveSlice(slice, items);
-			if (failure !== null) {
-				failed.push(`${at(slice)}: ${failure}`);
-				// The copies this slice minted are referenced by nothing: take them back.
-				for (const name of createdHere) {
-					await unlink(join(webDir, name)).catch(() => undefined);
-					for (const [legacy, keyedName] of copies) if (keyedName === name) copies.delete(legacy);
-				}
-				continue;
-			}
-			applied += targets.size;
-		}
+		await runRecord(table, sectionTipo, sectionId, ctx);
 	}
 	return {
-		drift,
-		applied,
-		detail: { scannedRecords, changes, missing, held, failed, webFolder: relDir },
+		drift: ctx.drift,
+		applied: ctx.applied,
+		detail: {
+			scannedRecords: ctx.scannedRecords,
+			changes: ctx.changes,
+			missing: ctx.missing,
+			held: ctx.held,
+			failed: ctx.failed,
+			webFolder: relDir,
+		},
 	};
+}
+
+/** One record's slices, one after another: its minted copies are shared by all of them. */
+async function runRecord(
+	table: string,
+	sectionTipo: string,
+	sectionId: number,
+	ctx: RunContext,
+): Promise<void> {
+	const record = await readMatrixRecord(table, sectionTipo, sectionId);
+	if (record === null) return;
+	ctx.scannedRecords++;
+	ctx.copies = new Map();
+	for (const slice of await textSlices(record)) accumulate(ctx, await runSlice(slice, ctx));
+}
+
+/** Plan ONE slice, then apply it. */
+async function runSlice(slice: TextSlice, ctx: RunContext): Promise<SliceOutcome> {
+	const plan = emptyPlan();
+	await planSlice(slice, ctx, plan);
+	return settleSlice(slice, plan, ctx);
+}
+
+/** Every `<img src>` of every html value of the slice, planned in order. */
+async function planSlice(slice: TextSlice, ctx: RunContext, plan: SlicePlan): Promise<void> {
+	for (const value of slice.items) {
+		const html = (value as { value?: unknown } | null)?.value;
+		if (typeof html !== 'string') continue;
+		for (const src of imgSrcs(html)) await planSrc(src, slice, ctx, plan);
+	}
+}
+
+/** The stored form of an src that already IS this record's own keyed file (never a bare grammar match). */
+function alreadyStored(src: string, fileName: string, slice: TextSlice, relDir: string): boolean {
+	if (!isKeyedTo(fileName, slice.sectionTipo, slice.sectionId)) return false;
+	return src === storedWebImageSrc(fileName, relDir);
+}
+
+/** Note the src's target and the operator's line; nothing when planning could not name a target. */
+function recordTarget(
+	src: string,
+	fileName: string,
+	target: string | null,
+	slice: TextSlice,
+	ctx: RunContext,
+	plan: SlicePlan,
+): void {
+	plan.changes.push(`${at(slice)}: ${fileName} → ${target ?? '(keyed copy)'}`);
+	if (target !== null) plan.targets.set(src, storedWebImageSrc(target, ctx.relDir));
+}
+
+/** Whether planning may mint a copy right now: an apply, no failed copy, no held slice. */
+function mayMint(slice: TextSlice, ctx: RunContext, plan: SlicePlan): boolean {
+	return ctx.options.apply && plan.failure === null && slice.held === null;
+}
+
+/** Claim a keyed name for this record's copy of the file (the upload's own allocator). */
+async function mintCopy(
+	fileName: string,
+	slice: TextSlice,
+	ctx: RunContext,
+	plan: SlicePlan,
+): Promise<string | null> {
+	try {
+		const path = claimKeyedWebImage(join(ctx.webDir, fileName), stagedTmpName(fileName), {
+			sectionTipo: slice.sectionTipo,
+			sectionId: slice.sectionId,
+		});
+		const target = path.slice(ctx.relDir.length + 1);
+		ctx.copies.set(fileName, target);
+		plan.created.push(target);
+		return target;
+	} catch (error) {
+		plan.failure = `copy of '${fileName}' failed: ${(error as Error).message}`;
+		return null;
+	}
+}
+
+/**
+ * The name this src must store: the record's own keyed name, the copy this
+ * record's run already minted for the file, or a NEW copy (apply only, never
+ * for a held slice, never after a failed copy). Null when nothing can be named.
+ */
+async function copyTarget(
+	fileName: string,
+	slice: TextSlice,
+	ctx: RunContext,
+	plan: SlicePlan,
+): Promise<string | null> {
+	if (isKeyedTo(fileName, slice.sectionTipo, slice.sectionId)) return fileName;
+	const minted = ctx.copies.get(fileName) ?? null;
+	if (minted !== null) return minted;
+	return mayMint(slice, ctx, plan) ? mintCopy(fileName, slice, ctx, plan) : null;
+}
+
+/** Plan one src: the stored form it must become (minting its copy on an apply), or why it cannot. */
+async function planSrc(
+	src: string,
+	slice: TextSlice,
+	ctx: RunContext,
+	plan: SlicePlan,
+): Promise<void> {
+	const fileName = parseLegacyWebImageSrc(src, ctx.relDir);
+	if (fileName === null || plan.targets.has(src)) return;
+	if (alreadyStored(src, fileName, slice, ctx.relDir)) return;
+	if (!(await fileExists(join(ctx.webDir, fileName)))) {
+		plan.missing.push(`${at(slice)}: ${fileName}`);
+		return;
+	}
+	plan.drift++;
+	recordTarget(src, fileName, await copyTarget(fileName, slice, ctx, plan), slice, ctx, plan);
+}
+
+/** Take back the copies planning minted for a slice whose save did not land. */
+async function abandon(plan: SlicePlan, ctx: RunContext, failure: string): Promise<string> {
+	for (const name of plan.created) {
+		await unlink(join(ctx.webDir, name)).catch(() => undefined);
+		for (const [legacy, keyed] of ctx.copies) if (keyed === name) ctx.copies.delete(legacy);
+	}
+	return failure;
+}
+
+/** A held slice's report line, only when it really had drift to rewrite. */
+function heldNote(slice: TextSlice, plan: SlicePlan): string | null {
+	return plan.drift > 0 ? `${at(slice)}: ${slice.held}` : null;
+}
+
+/** Save the slice's planned rewrites: never a dry run, never an empty plan. */
+async function savePlan(slice: TextSlice, plan: SlicePlan, ctx: RunContext): Promise<SliceOutcome> {
+	const base: SliceOutcome = {
+		drift: plan.drift,
+		applied: 0,
+		changes: plan.changes,
+		missing: plan.missing,
+		held: null,
+		failure: null,
+	};
+	if (!ctx.options.apply || plan.targets.size === 0) return { ...base, failure: plan.failure };
+	const items =
+		plan.failure === null ? rewriteSlice(slice, (src) => plan.targets.get(src) ?? null) : null;
+	const failure = plan.failure ?? (await saveItems(slice, items));
+	if (failure === null) return { ...base, applied: plan.targets.size };
+	return { ...base, failure: await abandon(plan, ctx, failure) };
+}
+
+/** The slice's outcome: what it planned, plus what a save said (a held slice is never saved). */
+async function settleSlice(
+	slice: TextSlice,
+	plan: SlicePlan,
+	ctx: RunContext,
+): Promise<SliceOutcome> {
+	const outcome: SliceOutcome =
+		slice.held === null
+			? await savePlan(slice, plan, ctx)
+			: {
+					drift: plan.drift,
+					applied: 0,
+					changes: plan.changes,
+					missing: plan.missing,
+					held: heldNote(slice, plan),
+					failure: null,
+				};
+	return {
+		...outcome,
+		failure: outcome.failure === null ? null : `${at(slice)}: ${outcome.failure}`,
+	};
+}
+
+/** Fold one slice's outcome into the run's report. */
+function accumulate(ctx: RunContext, outcome: SliceOutcome): void {
+	ctx.drift += outcome.drift;
+	ctx.applied += outcome.applied;
+	ctx.changes.push(...outcome.changes);
+	ctx.missing.push(...outcome.missing);
+	if (outcome.held !== null) ctx.held.push(outcome.held);
+	if (outcome.failure !== null) ctx.failed.push(outcome.failure);
 }
 
 export const RICH_TEXT_IMAGES_RECONCILE: ReconcileDefinition = {
@@ -364,6 +599,97 @@ export const RICH_TEXT_IMAGES_RECONCILE: ReconcileDefinition = {
 /** A file younger than this is never judged: its text may simply not be saved yet. */
 export const EXPOSURE_GRACE_MS = 24 * 60 * 60_000;
 
+/** What one exposure judgement needs: the web folder, the instant, the marker probe. */
+interface ExposureContext {
+	relDir: string;
+	webDir: string;
+	now: number;
+	isPublished: (key: string) => Promise<boolean>;
+}
+
+/** A file's mtime, or null when it is gone since the listing (nothing to judge). */
+async function mtimeOrNull(path: string): Promise<number | null> {
+	return stat(path).then(
+		(info) => info.mtimeMs,
+		() => null,
+	);
+}
+
+/** The record a file name parses to, when that record is published (rule B serves the file). */
+async function publishedKeyOf(
+	name: string,
+	isPublished: (key: string) => Promise<boolean>,
+): Promise<WebImageKey | null> {
+	const key = keyOfWebImage(name);
+	if (key === null) return null;
+	return (await isPublished(`${key.sectionTipo}_${key.sectionId}`)) ? key : null;
+}
+
+/** A keyed name's record, read once for its `string` column. */
+async function recordOf(key: WebImageKey): Promise<MatrixRecord | null> {
+	const table = await getMatrixTableFromTipo(key.sectionTipo);
+	return table === null ? null : await readMatrixRecord(table, key.sectionTipo, key.sectionId);
+}
+
+/** The web folder's plain files, narrowed by `only` (no folder yet ⇒ none). */
+async function webImageNames(webDir: string, only?: (name: string) => boolean): Promise<string[]> {
+	try {
+		const entries = await readdir(webDir, { withFileTypes: true });
+		return entries
+			.filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+			.map((entry) => entry.name)
+			.filter((name) => only?.(name) ?? true)
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
+/** Whether rule B serves this file anonymously for no reason, or it cannot be judged yet. */
+async function judgeWebImage(
+	name: string,
+	ctx: ExposureContext,
+): Promise<'exposed' | 'recent' | 'ok'> {
+	const key = await publishedKeyOf(name, ctx.isPublished);
+	if (key === null) return 'ok';
+	const mtimeMs = await mtimeOrNull(join(ctx.webDir, name));
+	if (mtimeMs === null) return 'ok';
+	if (ctx.now - mtimeMs < EXPOSURE_GRACE_MS) return 'recent';
+	const record = await recordOf(key);
+	if (record === null) return 'exposed';
+	return embeds(record, ctx.relDir, name) ? 'ok' : 'exposed';
+}
+
+/** Every name sorted into exposed (a published record does not embed it) or recent (inside the grace). */
+async function judgeWebImages(
+	names: readonly string[],
+	ctx: ExposureContext,
+): Promise<{ exposed: string[]; recent: string[] }> {
+	const exposed: string[] = [];
+	const recent: string[] = [];
+	for (const name of names) {
+		const verdict = await judgeWebImage(name, ctx);
+		if (verdict === 'exposed') exposed.push(name);
+		else if (verdict === 'recent') recent.push(name);
+	}
+	return { exposed, recent };
+}
+
+/** Rename every exposed file out of the grammar, repointing the texts that embed it. */
+async function withdrawExposedFiles(
+	names: readonly string[],
+	ctx: ExposureContext,
+): Promise<{ applied: number; failed: string[] }> {
+	const failed: string[] = [];
+	let applied = 0;
+	for (const name of names) {
+		const failure = await withdrawExposed(name, ctx);
+		if (failure === null) applied++;
+		else failed.push(`${name}: ${failure}`);
+	}
+	return { applied, failed };
+}
+
 /**
  * The `web_image_exposure` run. `isPublished(key)` is the marker store's own
  * probe (media_index.ts hasPubMarker), injected by the diffusion facade.
@@ -376,70 +702,40 @@ export async function runWebImageExposure(options: {
 	only?: (name: string) => boolean;
 }): Promise<ReconcileReport> {
 	const relDir = webImageRelDir();
-	const webDir = join(requireMediaRoot(), relDir);
-	const now = options.now ?? Date.now();
-	const exposed: string[] = [];
-	const recent: string[] = [];
-	const failed: string[] = [];
-	let applied = 0;
-
-	let names: string[];
-	try {
-		names = (await readdir(webDir, { withFileTypes: true }))
-			.filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
-			.map((entry) => entry.name)
-			.filter((name) => options.only?.(name) ?? true)
-			.sort();
-	} catch {
-		names = []; // no web folder yet: nothing is exposed
-	}
-	for (const name of names) {
-		const key = keyOfWebImage(name);
-		if (key === null || !(await options.isPublished(`${key.sectionTipo}_${key.sectionId}`)))
-			continue;
-		const mtimeMs = await stat(join(webDir, name)).then(
-			(info) => info.mtimeMs,
-			() => null, // gone since the listing: nothing to judge
-		);
-		if (mtimeMs === null) continue;
-		if (now - mtimeMs < EXPOSURE_GRACE_MS) {
-			recent.push(name);
-			continue;
-		}
-		const table = await getMatrixTableFromTipo(key.sectionTipo);
-		const record =
-			table === null ? null : await readMatrixRecord(table, key.sectionTipo, key.sectionId);
-		if (record !== null && embeds(record, relDir, name)) continue;
-		exposed.push(name);
-	}
-
-	if (options.apply) {
-		for (const name of exposed) {
-			const failure = await withdrawExposed(webDir, relDir, name);
-			if (failure === null) applied++;
-			else failed.push(`${name}: ${failure}`);
-		}
-	}
+	const ctx: ExposureContext = {
+		relDir,
+		webDir: join(requireMediaRoot(), relDir),
+		now: options.now ?? Date.now(),
+		isPublished: options.isPublished,
+	};
+	const judged = await judgeWebImages(await webImageNames(ctx.webDir, options.only), ctx);
+	const withdrawn = options.apply
+		? await withdrawExposedFiles(judged.exposed, ctx)
+		: { applied: 0, failed: [] as string[] };
 	return {
-		drift: exposed.length,
-		applied,
+		drift: judged.exposed.length,
+		applied: withdrawn.applied,
 		detail: {
-			exposed,
-			recent,
-			failed,
+			exposed: judged.exposed,
+			recent: judged.recent,
+			failed: withdrawn.failed,
 			webFolder: relDir,
 			graceHours: EXPOSURE_GRACE_MS / 3_600_000,
 		},
 	};
 }
 
+/** Every child value of a parsed jsonb value, one level down. */
+function childValues(value: unknown): unknown[] {
+	if (Array.isArray(value)) return value;
+	if (value !== null && typeof value === 'object') return Object.values(value);
+	return [];
+}
+
 /** Every string inside a parsed jsonb value (any component, any item shape). */
 function stringsIn(value: unknown, out: string[] = []): string[] {
 	if (typeof value === 'string') out.push(value);
-	else if (Array.isArray(value)) for (const entry of value) stringsIn(entry, out);
-	else if (value !== null && typeof value === 'object') {
-		for (const entry of Object.values(value)) stringsIn(entry, out);
-	}
+	else for (const entry of childValues(value)) stringsIn(entry, out);
 	return out;
 }
 
@@ -459,6 +755,110 @@ async function sameFile(a: string, b: string): Promise<boolean> {
 	return Buffer.from(x).equals(Buffer.from(y));
 }
 
+/** `x.jpg` → [`x`, `.jpg`]; a name with no extension keeps its whole self. */
+function splitExtension(name: string): [string, string] {
+	const dot = name.lastIndexOf('.');
+	return dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+}
+
+/** The `1`st candidate keeps the plain `.legacy` name; the rest carry a counter. */
+function legacySuffix(n: number): string {
+	return n === 1 ? '' : String(n);
+}
+
+/**
+ * `source` under `target`: a hardlink, or an exclusive copy on a store without
+ * hardlinks. Null when it landed; otherwise the errno (or a message) that says why not.
+ */
+async function linkOrCopy(source: string, target: string): Promise<string | null> {
+	try {
+		await link(source, target);
+		return null;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code ?? '';
+		if (!NO_HARDLINK_ERRNOS.has(code)) return code || (error as Error).message;
+		return copyFile(source, target, constants.COPYFILE_EXCL).then(
+			() => null,
+			(copyError: NodeJS.ErrnoException) => copyError.code ?? 'copy failed',
+		);
+	}
+}
+
+/**
+ * Take `name` to the first free `.legacy` name in the web folder — reusing the
+ * one a previous half-run left there (same bytes, so it is the same file).
+ */
+async function legacyNameFor(
+	webDir: string,
+	name: string,
+): Promise<{ name: string } | { error: string }> {
+	const [stem, ext] = splitExtension(name);
+	const source = join(webDir, name);
+	for (let n = 1; n <= 99; n++) {
+		const candidate = `${stem}.legacy${legacySuffix(n)}${ext}`;
+		if (GRAMMAR.test(candidate))
+			return { error: `'${candidate}' would still parse as a record key` };
+		const failure = await linkOrCopy(source, join(webDir, candidate));
+		if (failure === null) return { name: candidate };
+		if (failure !== 'EEXIST') return { error: `${candidate}: ${failure}` };
+		if (await sameFile(source, join(webDir, candidate))) return { name: candidate };
+	}
+	return { error: 'no free .legacy name' };
+}
+
+/** Point every text of one record that embeds `name` at `target`; a refusal is returned. */
+async function repointRecord(
+	record: MatrixRecord,
+	name: string,
+	target: string,
+	relDir: string,
+): Promise<string | null> {
+	for (const slice of await textSlices(record)) {
+		const items = rewriteSlice(slice, (src) =>
+			parseLegacyWebImageSrc(src, relDir) === name ? target : null,
+		);
+		if (items === null) continue;
+		// Both names stay on any refusal: texts saved before this one already point at `target`.
+		const failure = slice.held ?? (await saveItems(slice, items));
+		if (failure !== null) return `${at(slice)}: ${failure}`;
+	}
+	return null;
+}
+
+/** Point every text that embeds `name` at `target`; a refusal is returned (nothing deleted). */
+async function repointEmbeds(
+	key: WebImageKey,
+	name: string,
+	target: string,
+	relDir: string,
+): Promise<string | null> {
+	for (const { table, sectionTipo, sectionId } of await recordsMentioning(
+		needleOf(key),
+		undefined,
+	)) {
+		const record = await readMatrixRecord(table, sectionTipo, sectionId);
+		const failure = record === null ? null : await repointRecord(record, name, target, relDir);
+		if (failure !== null) return failure;
+	}
+	return null;
+}
+
+/** The record still embedding `name` outside a rewritable text (`tipo/id`), or null. */
+async function stillEmbeddedBy(
+	key: WebImageKey,
+	name: string,
+	relDir: string,
+): Promise<string | null> {
+	for (const { table, sectionTipo, sectionId } of await recordsMentioning(
+		needleOf(key),
+		undefined,
+	)) {
+		const record = await readMatrixRecord(table, sectionTipo, sectionId);
+		if (record !== null && embeds(record, relDir, name)) return `${sectionTipo}/${sectionId}`;
+	}
+	return null;
+}
+
 /**
  * Take one exposed file out of the grammar (`x_rsc170_45.jpg` →
  * `x_rsc170_45.legacy.jpg`: the name no longer ends `_<tipo>_<id>.<ext>`, a
@@ -469,65 +869,22 @@ async function sameFile(a: string, b: string): Promise<boolean> {
  * component): otherwise both names stay (still drift, reported; a re-run
  * reuses the new one). Never a text pointing at nothing.
  */
-async function withdrawExposed(
-	webDir: string,
-	relDir: string,
-	name: string,
-): Promise<string | null> {
+async function withdrawExposed(name: string, ctx: ExposureContext): Promise<string | null> {
 	const key = keyOfWebImage(name);
 	if (key === null) return null;
-	const dot = name.lastIndexOf('.');
-	const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
-	const source = join(webDir, name);
-	let renamed: string | null = null;
-	for (let n = 1; n <= 99 && renamed === null; n++) {
-		const candidate = `${stem}.legacy${n === 1 ? '' : n}${ext}`;
-		if (GRAMMAR.test(candidate)) return `'${candidate}' would still parse as a record key`;
-		const target = join(webDir, candidate);
-		try {
-			await link(source, target);
-			renamed = candidate;
-		} catch (error) {
-			let code = (error as NodeJS.ErrnoException).code ?? '';
-			if (NO_HARDLINK_ERRNOS.has(code)) {
-				code = await copyFile(source, target, constants.COPYFILE_EXCL).then(
-					() => {
-						renamed = candidate;
-						return '';
-					},
-					(copyError: NodeJS.ErrnoException) => copyError.code ?? 'copy failed',
-				);
-				if (renamed !== null) break;
-			}
-			if (code !== 'EEXIST') return `${candidate}: ${code || (error as Error).message}`;
-			// A previous run that stopped half-way left this very file there.
-			if (await sameFile(source, target)) renamed = candidate;
-		}
+	const claim = await legacyNameFor(ctx.webDir, name);
+	if ('error' in claim) return claim.error;
+	const failure = await repointEmbeds(
+		key,
+		name,
+		storedWebImageSrc(claim.name, ctx.relDir),
+		ctx.relDir,
+	);
+	if (failure !== null) return failure;
+	const embedder = await stillEmbeddedBy(key, name, ctx.relDir);
+	if (embedder !== null) {
+		return `${embedder} still uses '${name}' outside a rewritable text: both names kept`;
 	}
-	if (renamed === null) return 'no free .legacy name';
-	const target = storedWebImageSrc(renamed, relDir);
-	// `_<tipo>_<id>` reads the same raw, %-encoded or entity-encoded: one needle finds every form.
-	const needle = `_${key.sectionTipo}_${key.sectionId}`;
-	for (const { table, sectionTipo, sectionId } of await recordsMentioning(needle, undefined)) {
-		const record = await readMatrixRecord(table, sectionTipo, sectionId);
-		if (record === null) continue;
-		for (const slice of await textSlices(record)) {
-			const items = rewriteSlice(slice, (src) =>
-				parseLegacyWebImageSrc(src, relDir) === name ? target : null,
-			);
-			if (items === null) continue;
-			// Both names stay on any refusal: texts saved before this one already point at `renamed`.
-			if (slice.held !== null) return `${at(slice)}: ${slice.held}`;
-			const failure = await saveSlice(slice, items);
-			if (failure !== null) return `${at(slice)}: ${failure}`;
-		}
-	}
-	for (const { table, sectionTipo, sectionId } of await recordsMentioning(needle, undefined)) {
-		const record = await readMatrixRecord(table, sectionTipo, sectionId);
-		if (record !== null && embeds(record, relDir, name)) {
-			return `${sectionTipo}/${sectionId} still uses '${name}' outside a rewritable text: both names kept`;
-		}
-	}
-	await unlink(source);
+	await unlink(join(ctx.webDir, name));
 	return null;
 }

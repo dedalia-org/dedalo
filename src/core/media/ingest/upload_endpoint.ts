@@ -26,7 +26,7 @@ import { getModelByTipo } from '../../ontology/resolver.ts';
 import { resolvePrincipal } from '../../security/permissions.ts';
 import type { Session } from '../../security/session_store.ts';
 import { verifyCsrf } from '../../security/session_store.ts';
-import { authorizeRecordAccess } from '../../security/write_door.ts';
+import { authorizeRecordAccess, type RecordGrant } from '../../security/write_door.ts';
 import { createStagedThumbnail } from './staged_thumbnail.ts';
 import {
 	assertWebImageFormat,
@@ -151,11 +151,37 @@ async function stagedThumbnailUrl(
 }
 
 /**
+ * The record this editor image may be keyed to: the caller must be able to WRITE
+ * that record's component_text_area, or anyone could key an image to a published
+ * record. CKEditor cannot add form fields, so the text's coordinates ride the
+ * query; authorization runs BEFORE staging, so a refusal leaves nothing on disk
+ * and its own typed code (request.invalid / perm.*) reaches the adapter unwrapped.
+ */
+async function authorizedWebImageTarget(request: Request, userId: number): Promise<RecordGrant> {
+	const query = new URL(request.url).searchParams;
+	const grant = await authorizeRecordAccess(
+		await resolvePrincipal(userId),
+		{
+			section_tipo: query.get('section_tipo'),
+			component_tipo: query.get('component_tipo'),
+			section_id: query.get('section_id'),
+		},
+		{ mode: 'write', level: 2, sectionFloor: 1, door: 'media_ingest.web_image' },
+	);
+	// The door judges whatever pair it is handed (an absent component falls back
+	// to the section): only a writable TEXT may key an image to its record.
+	if ((await getModelByTipo(grant.componentTipo)) !== 'component_text_area') {
+		throw new DedaloError('request.invalid', {
+			message: `upload: '${grant.componentTipo}' is not a component_text_area`,
+		});
+	}
+	return grant;
+}
+
+/**
  * The rich-text editor image (key_dir 'web'): publish, answer a bare { url }.
  * The file is named after the record it is inserted into (TODO-066), so its
- * public visibility IS that record's publication: the uploader must be able to
- * WRITE that record's component_text_area, or anyone could key an image to a
- * published record.
+ * public visibility IS that record's publication.
  */
 async function webImageUpload(
 	request: Request,
@@ -168,28 +194,9 @@ async function webImageUpload(
 	} catch (error) {
 		return refusal(rejectedUpload(error), requestId);
 	}
-	// CKEditor cannot add form fields: the text's coordinates ride the query.
-	// Authorized BEFORE staging, so a refusal leaves nothing on disk; its own
-	// typed code (request.invalid / perm.*) reaches the adapter unwrapped.
-	const query = new URL(request.url).searchParams;
-	let grant: Awaited<ReturnType<typeof authorizeRecordAccess>>;
+	let grant: RecordGrant;
 	try {
-		grant = await authorizeRecordAccess(
-			await resolvePrincipal(userId),
-			{
-				section_tipo: query.get('section_tipo'),
-				component_tipo: query.get('component_tipo'),
-				section_id: query.get('section_id'),
-			},
-			{ mode: 'write', level: 2, sectionFloor: 1, door: 'media_ingest.web_image' },
-		);
-		// The door judges whatever pair it is handed (an absent component falls back
-		// to the section): only a writable TEXT may key an image to its record.
-		if ((await getModelByTipo(grant.componentTipo)) !== 'component_text_area') {
-			throw new DedaloError('request.invalid', {
-				message: `upload: '${grant.componentTipo}' is not a component_text_area`,
-			});
-		}
+		grant = await authorizedWebImageTarget(request, userId);
 	} catch (error) {
 		if (error instanceof DedaloError) return refusal(error, requestId);
 		throw error;

@@ -96,6 +96,12 @@ const EXEMPT_SITES: readonly ExemptSite[] = [
 		reason:
 			"the inspector's two history blocks carry the same SQO row source; their dd15 section instances read matrix_time_machine, not the inspected section's own table",
 	},
+	{
+		file: 'client/dedalo/test/client/js/test_pinned_record_view.js',
+		contains: "mode: 'tm'",
+		reason:
+			"the pinned-record-view gate reproduces the inspector's load_component_history request verbatim: the `mode: 'tm'` is that SQO row source (the field it sits in is `sqo`), asking the dd15 section for matrix_time_machine rows — not a render mode",
+	},
 ];
 
 function isExempt(relative: string, line: string): boolean {
