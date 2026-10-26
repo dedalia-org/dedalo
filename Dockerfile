@@ -26,7 +26,7 @@
 #   runtime     the image, production dependencies only
 #   dev         runtime + the devDependencies (client test harness, less, linters)
 #   production  the DEFAULT target; a bare alias of `runtime`
-FROM oven/bun:1.4.3-debian@sha256:923bedb355f7746666659f71e724998159a5c8c54bd1cb1030e1975a0698415b AS runtime
+FROM oven/bun:1.4.4-debian@sha256:93d5032fe06d163427822dc1598f420363759bb18155c9cc90eb1be05a64a19e AS runtime
 
 # --- OS packages -------------------------------------------------------------
 # The image MUST ship a `psql` that is NOT OLDER than the PostgreSQL server it
