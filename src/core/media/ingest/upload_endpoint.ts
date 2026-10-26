@@ -88,7 +88,9 @@ export async function handleMediaUpload(
 			assertWebImageFormat(parsed.fileName);
 			const received = receiveUpload({ ...parsed, chunked: false }, session.userId);
 			const path = publishWebImage(session.userId, received.tmpName ?? '');
-			return json({ url: `${config.media.webBase}/${path}` });
+			// Stored verbatim in the text: same-origin relative, never webBase (WC-042 —
+			// an absolute DEDALO_MEDIA_WEB_BASE origin would be persisted in the record).
+			return json({ url: `/dedalo/${config.mediaDir}/${path}` });
 		} catch (error) {
 			return refusal(rejectedUpload(error), requestId);
 		}
