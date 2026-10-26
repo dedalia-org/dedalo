@@ -55,6 +55,15 @@ Merged since the last release; these ship with the next one.
     folder from an earlier install holds no data and can be deleted. The manual's
     `bun install` commands now include `--ignore-scripts` too.
 
+- **The official Docker image now carries its signature in every registry that publishes it**
+
+    The 7.0.0-beta.7 image reached GitHub Container Registry and Docker Hub without its
+    signature, so `cosign verify` (and the installer's Official check) refused it there. The
+    release process now signs the image in each registry it publishes to, with the same
+    official identity, and a release already published unsigned is signed in place when its
+    signature can be proven from the build. Verify an image as described in
+    [Checking the signature](./install/docker.md#checking-the-signature).
+
 ## 7.0.0-beta.7 — 2026-10-25
 
 278 commits: `git log --no-merges v7.0.0-beta.6..v7.0.0-beta.7`

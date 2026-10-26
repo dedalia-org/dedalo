@@ -43,7 +43,7 @@ by a hosted one (`tier_wiring_tripwire` leg B).
 | `.github/workflows/db.yml` | pull_request + push master/v7 + dispatch | hosted ubuntu, each tier job in the CI image (uid 1001) + a `pgvector` service (digest-pinned) reached as `postgres` | `dedupe` → `db` (`scripts/ci/db_tier.sh`: builds the suite database from repo-vendored bytes, starts the suite MariaDB target, then, in this order, the DB-backed tripwires → the unit tier (blocking since 2026-10-02) → the parity tier → the MariaDB tier (blocking — PUB-05, LAST on purpose: see *CI tiers → DB* below; tier_wiring leg K)) and `instance` (`scripts/ci/instance_tier.sh`: its OWN fresh suite database, then the browser client suite via `scripts/ci/client_gate.sh`, the tool phone contract, both update drills, the publication-host media drill on live Apache + nginx, the publication-host agent drill (the suite MariaDB started for it) and the publication-host engine drill (engine ↔ real agent: pair CLI, panel actions, httpd gating)). Both source `scripts/ci/hosted_env.sh` |
 | `.github/workflows/nightly.yml` | cron 04:17 UTC daily + dispatch | hosted ubuntu | the TIME-BASED checks the push gate defers: `scripts/ci/audit.ts --force --require-network` with the vendor calendar ON; `image_pin` (`bun run ci:image:pin --check`: the lock is the latest published build); `cosign_pin` (`bun run ci:cosign:pin --check`: `ci/cosign.json` is set and is the latest stable cosign); `full_gate` (environment `gitdedalo-nightly`): fetches **gitdedalo/master** with a read-only deploy key + pinned host key and runs the FULL gate on it — `bun run ci:local --docker --hermetic --db --instance --ref <sha>` — see *The nightly full gate*; `report` keeps one `ci-nightly` issue open/updated/closed (a red full gate is a problem naming the gitdedalo sha and each red stage; absent secrets are a warning) |
 | `.github/workflows/ci-image.yml` | push master/v7 touching the image definition + weekly cron (cache OFF) + dispatch | hosted ubuntu-24.04 amd64 + arm64 (native, no QEMU) | builds `ci/Dockerfile`, smoke-tests the exact bytes, pushes `ghcr.io/dedalia-org/dedalo-ci` (`fp-<fingerprint>`, `<YYYYMMDD>`, `latest`) as a multi-arch manifest list |
-| `.github/workflows/image-release.yml` | push of a stable tag `vX.Y.Z` + dispatch (`dev` from `master`, or `release` of an existing tag) — never PR or schedule | hosted ubuntu-24.04 amd64 + arm64 (native); `publish` bound to the `image-release` environment | the PRODUCT image (`Dockerfile`): `plan` (refuses a release commit without a successful push run of ci.yml AND db.yml — the full gate) → per-arch `build` from a `git archive` of the release commit + smoke test → `publish` (one index in staging, immutability, cosign keyless sign ONCE, `cosign copy` to every provisioned registry of `engineering/image_registries.json`, same-digest + `cosign verify` check, record) — see *The product image* |
+| `.github/workflows/image-release.yml` | push of a stable tag `vX.Y.Z` + dispatch (`dev` from `master`, or `release` of an existing tag) — never PR or schedule | hosted ubuntu-24.04 amd64 + arm64 (native); `publish` bound to the `image-release` environment | the PRODUCT image (`Dockerfile`): `plan` (refuses a release commit without a successful push run of ci.yml AND db.yml — the full gate) → per-arch `build` from a `git archive` of the release commit + smoke test → `publish` (one index in staging, immutability, cosign keyless sign in staging, then per provisioned registry of `engineering/image_registries.json` a digest-preserving copy + a signature AT that registry's digest, same-digest + `cosign verify` check, record) — see *The product image* |
 | `.github/workflows/security.yml` | PR + push master + weekly cron + dispatch | hosted ubuntu | secret scan (gitleaks, digest-pinned image): working tree every run, FULL HISTORY weekly |
 | `.github/workflows/codeql.yml` | PR + push master + weekly cron | hosted ubuntu | CodeQL dataflow SAST (javascript-typescript, `build-mode: none`) → Security tab |
 | `.github/workflows/docs.yml` | PR + push master, both narrowed to `docs/**`/`mkdocs.yml` | hosted ubuntu | the mkdocs manual build (not a tier: legs F/G do not bind it) |
@@ -938,12 +938,73 @@ as unavailable. Gate: `image_registries_tripwire`.
   `publish` waits for its reviewer → digest D. A missing digest refuses before anything
   is downloaded or pushed.
 - **The same-digest rule.** For a release, every registry that already holds `:X.Y.Z`
-  must hold the same digest X, which must carry the official signature; X is then copied
-  to the registries that lack it and nothing is rebuilt (a disagreement refuses before
-  anything is signed). Otherwise D is signed ONCE (`cosign sign`, keyless, recorded in
-  Rekor) and `cosign copy` puts image + signature on every target. Every target must then
+  must hold the same digest X (a disagreement refuses before anything is signed), and X
+  must carry a signature of THIS release SOMEWHERE OFFICIAL — at a holder, or at the
+  staging repository the workflow built it in (`<staging>@X`) — verified with the EXACT
+  identity `…/image-release.yml@refs/tags/v<tag>` (`releaseSignerIdentity`, which must
+  also lie inside the list's `signing.identity_regexp`). The shared regexp is NOT enough
+  for this anchor: it also accepts a dev build (`heads/master`) and every other release
+  tag, neither of which may be minted into this release. X with no such signature
+  anywhere refuses. X is then copied to the registries that lack it and signed there, a
+  holder whose registry lacks the signature is signed IN PLACE (that attests only what
+  the workflow provably built for this tag), and nothing is rebuilt; a release tag is
+  never re-pointed to another digest — right before each copy the target's tag is read
+  again, and one that appeared since the immutability check with another digest (or that
+  can no longer be read) fails that target, untouched (`imagetools create` would overwrite it).
+  Otherwise — NO registry holds the release yet — it is published FRESH, and only by its
+  own tag's run (`GITHUB_REF` = `refs/tags/v<tag>`: the tag push, or a release dispatch
+  run on that tag): the anchor's writer must be the identity its reader demands. A
+  dispatch from `master` (or any other ref) refuses to mint a release; it only fills or
+  signs one that is already anchored. Fresh: D is signed first in staging (`cosign sign`,
+  keyless, recorded in Rekor — the anchor a later run recovers from), then each target
+  receives a carbon copy of the digest (`docker buildx imagetools create -t
+  <target>:<tag> <source>@D`, one source, so the digest is kept) and its OWN signature
+  (`cosign sign --yes <target>@D`): one Rekor entry per registry. Every target must then
   hold the SAME digest and pass the operator's own verify. Order executed by
   `image_release_native`.
+- **Two identities, on purpose.** The ANCHOR check uses the exact tag identity; the
+  final per-target verify (and the operator's, the installer's) uses the shared regexp,
+  because the signature a recovery run adds is made from `refs/heads/master` (the
+  `release` dispatch runs there) — valid for consumers, never accepted as an anchor. A
+  release dispatch runs only from `master` or from the SAME tag it publishes (`plan`
+  refuses another tag's ref).
+- **Time is bounded twice** (`VERB_BUDGET_MS`, `COMMAND_TIMEOUT_MS` in
+  `image_release.ts`): each verb has a deadline measured from its own start, and each
+  command runs under min(its ceiling, time left). A registry, Fulcio or Rekor that never
+  answers fails commands, not the verb: past the deadline no command starts and the
+  remaining targets are recorded `failed` (`deadline exceeded`).
+- **What the gate holds.** `image_release_native` reads the workflow and requires, per
+  job: every step carries its own step `timeout-minutes`; the non-verb steps' timeouts
+  plus an explicit set-up reserve (`setupMs`, 1 min, for GitHub's set-up/post steps, which
+  take no timeout) sum to ≤ the job's declared allowance (`JOB_OVERHEAD_MS`, with a reason
+  — setup steps, the image build for `build`, the record upload for `publish`); each verb step's timeout exceeds its verb's
+  budget (the program's deadline fires first); the verbs' budgets plus the allowance, and
+  all step timeouts together, are ≤ the job's `timeout-minutes`. So a hung step is killed
+  by its own timeout, and the verb's deadline fires before GitHub kills the job.
+- **A planned publish always leaves a TRUE record.** Once the plan is read, ANY error
+  before the terminal record — a refusal (staging mismatch, cosign pin, a login, the
+  index, the immutability or anchor check, a deadline) or a plain one (a malformed pin
+  file, a bug) — writes `image-release.json` and the summary from what actually happened:
+  a target whose verify ran keeps its row exactly (status, verdict, its own reason); one
+  pushed/signed but not yet verified keeps its status and its own reason, unverified, with
+  `interrupted: <error>` appended; every other publish target is `failed` with the error;
+  `digest` is the chosen one when known, else null. The record file is written atomically
+  (`<path>.part`, then a rename — never a truncated file for the upload step). The
+  terminal record is the publish's last act; if writing it fails, it is NOT retried (every
+  row is final by then, so a retry would look like a finished publication): a single
+  `::warning::record not written (terminal write, not retried)`, the previous file (if
+  any) intact, and the original error decides the run. The job summary is a separate best-effort
+  part: a failed append is a `::warning::summary not written` and never fails the record.
+- **Never `cosign copy`.** cosign 3 signs in the OCI 1.1 referrers bundle format, which
+  the deprecated `cosign copy` does not carry: the first real run (v7.0.0-beta.7, run
+  40186147345) copied the image but not the signature, and both mirrors held the release
+  unsigned. A signature lives in the registry it was pushed to — hence one per target.
+- **Recovering a release left unsigned** (holders = X, no signature at them, a valid one
+  at `<staging>@X`): a re-run of the tag's run uses the TAG's script, so dispatch the
+  `release` channel from `master` with the existing tag — master's script finds the
+  staging anchor (signed by the tag run, `refs/tags/v<tag>`) and signs each holder in
+  place. The `image-release` environment's
+  deployment policy must allow branch `master` (runbook step 8).
 - **Verify, as an operator does** (identity and issuer: `signing` of the list):
 
   ```shell
@@ -952,9 +1013,10 @@ as unavailable. Gate: `image_registries_tripwire`.
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
   ```
 
-- **The record.** The job summary (one row per registry: pushed / unchanged / skipped with
-  its reason / failed, verified) and the `image-release` artifact `image-release.json`
-  (`{schema, version, tag, channel, source_sha, archive_sha256, digest, registries}`).
+- **The record.** The job summary (one row per registry: pushed / signed (in place) /
+  unchanged / skipped with its reason / failed, verified) and the `image-release` artifact `image-release.json`
+  (`{schema, version, tag, channel, source_sha, archive_sha256, digest, registries}`;
+  `digest` is null when the run was refused before choosing one).
   The durable record is Rekor plus the registries themselves.
 - **Skips are loud, never silent.** An unprovisioned registry is skipped with its reason; a
   provisioned one whose secret is empty is skipped with a `::warning::` and a summary row;
@@ -967,7 +1029,7 @@ as unavailable. Gate: `image_registries_tripwire`.
   (names = its `auth.username_secret` / `auth.password_secret`) to the repository and to
   the publish job's env (`image_registries_tripwire` leg C is red until both directions
   match), then dispatch the `release` channel once per existing
-  release tag — that run copies the published digest and never rebuilds.
+  release tag — that run copies the published digest, signs it there, and never rebuilds.
 - **Developer images** come only from a `dev` dispatch on `master`.
 
 ## Non-negotiables (each is tripwired)
@@ -1158,7 +1220,10 @@ naming them: the gate is what keeps every reference inside the environment-bound
    locked image as uid 1001.
 8. **The product image** (`image-release.yml`), owner-only, not observable from the repo:
    - create the environment **`image-release`** with a deployment policy allowing tags
-     `v*` and the branch `master`, and required reviewers;
+     `v*` and the branch `master`, and required reviewers. Branch `master` is not
+     optional: the `workflow_dispatch` doors run from it — the `dev` channel, and the
+     `release` channel that re-publishes an EXISTING tag with master's script (filling a
+     new mirror, or signing in place a release an older script left unsigned);
    - **MANDATORY — a tag ruleset on `refs/tags/v*`** (Settings → Rules → Rulesets → New
      tag ruleset, enforcement *Active*): *Restrict creations*, *Restrict updates* and
      *Restrict deletions*, with ONLY the release maintainers in the bypass list. Without

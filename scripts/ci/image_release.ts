@@ -1,12 +1,12 @@
 /**
  * image_release.ts — the program behind .github/workflows/image-release.yml: the
- * official Dédalo image, built once, signed once, published with ONE digest to every
+ * official Dédalo image, built once, signed in every registry, published with ONE digest to every
  * provisioned registry of engineering/image_registries.json.
  *
  *   bun run scripts/ci/image_release.ts plan      which release this run publishes (or refuse)
  *   bun run scripts/ci/image_release.ts context   the build context: a `git archive` of the release commit
  *   bun run scripts/ci/image_release.ts smoke     the built bytes, run and asserted
- *   bun run scripts/ci/image_release.ts publish   index → immutability → sign → copy → verify → record
+ *   bun run scripts/ci/image_release.ts publish   index → immutability → sign → copy + sign per target → verify → record
  *
  * WHAT A RELEASE IS here is what it is for the code server (engineering/RELEASE.md):
  * a release tag whose own version.ts declares its data triple — the stable `vX.Y.Z`
@@ -22,7 +22,7 @@
  * probe asks with) and nothing else: no `latest`, no `X` / `X.Y`, and for a prerelease
  * never its triple `X.Y.Z` — after the stable release that tag is another image, and a
  * beta must never be what a stable consumer pulls. `publish` writes `<target>:<plan tag>`
- * only (copyTo); the staging repository gets run-scoped names only. Gate 16:
+ * only (publishTo); the staging repository gets run-scoped names only. Gate 16:
  * image_release_native ("the tag SET").
  *
  * A RELEASE NEEDS THE FULL GATE GREEN ON ITS COMMIT (2026-10-10). `plan` refuses a
@@ -48,23 +48,49 @@
  *      workflow holding packages: write could move while publish waits for review) → D;
  *   4. IMMUTABILITY (release channel): a release already published anywhere is never
  *      rebuilt or overwritten — every holder must agree on one digest X (else refuse),
- *      X must carry the official signature, and X is what the missing targets receive;
- *   5. sign ONCE, keyless (`cosign sign` on staging@D; Rekor records it);
- *   6. `cosign copy` the signed bytes (image + signature) to every target;
+ *      X must carry a signature of THIS release — the EXACT identity
+ *      `…/image-release.yml@refs/tags/v<tag>`, never just the shared regexp, which also
+ *      accepts dev builds and other tags — SOMEWHERE OFFICIAL (a holder, or staging@X,
+ *      where the workflow built it — else refuse), and X is what the missing targets
+ *      receive; a holder of X whose registry lacks the signature is signed in place; a
+ *      target tag that appeared since this check with another digest is never re-pointed;
+ *   5. a fresh D (no holder) only from the release's OWN tag ref (GITHUB_REF =
+ *      refs/tags/v<tag> — the identity step 4 demands of an anchor; a dispatch from
+ *      master never mints a release), signed FIRST in staging (`cosign sign` keyless on
+ *      staging@D; Rekor): the anchor a recovery run finds if this one dies after a copy;
+ *   6. per target: carbon-copy the digest (`docker buildx imagetools create -t
+ *      <target>:<tag> <source>@D`, one source → same digest), then `cosign sign` AT
+ *      <target>@D — one signature per registry. NEVER `cosign copy`: cosign 3 signs in
+ *      the OCI 1.1 referrers bundle format, which that deprecated verb does not carry
+ *      (the first real run, v7.0.0-beta.7, published both mirrors unsigned through it);
  *   7. every target must now hold the SAME digest AND pass the exact `cosign verify`
  *      an operator runs;
  *   8. record: the job summary + image-release.json (uploaded as an artifact).
- * Nothing is copied before it is signed; nothing is signed before step 4 passes; an
- * unpinned or tampered cosign refuses before the first push.
+ * Nothing leaves staging before D is signed there; nothing is signed before step 4
+ * passes; an unpinned or tampered cosign refuses before the first push.
+ * Every verb has a deadline and every command a ceiling (VERB_BUDGET_MS /
+ * COMMAND_TIMEOUT_MS; the gate holds budgets + JOB_OVERHEAD_MS ≤ each job's
+ * timeout-minutes): a hung registry fails commands, and once the plan is known every
+ * outcome — refusals included — writes the record.
  *
  * I/O: inputs come from the environment the workflow composes (static names, every
  * expression through `env:`); outputs go to $GITHUB_OUTPUT and $GITHUB_STEP_SUMMARY.
  * The only process boundary is ONE injectable command runner. Test seams:
- * IMAGE_REGISTRIES_FILE (another list), COSIGN_PIN_FILE (another pin).
+ * IMAGE_REGISTRIES_FILE (another list), COSIGN_PIN_FILE (another pin),
+ * IMAGE_RELEASE_COMMAND_TIMEOUT_MS (another per-command ceiling), IMAGE_RELEASE_DEADLINE_MS
+ * (another verb budget).
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	appendFileSync,
+	chmodSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
 	DEV_REF,
@@ -111,19 +137,125 @@ export type Runner = (
 	options?: { stdin?: string; cwd?: string },
 ) => CommandResult;
 
-/** The real runner. Passwords travel on stdin, never in argv, so the echo is safe. */
-export const spawnRunner: Runner = (argv, options) => {
-	console.log(`$ ${argv.join(' ')}`);
-	const result = Bun.spawnSync([...argv], {
-		cwd: options?.cwd,
-		stdin: options?.stdin === undefined ? 'ignore' : Buffer.from(options.stdin),
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const stderr = result.stderr.toString();
-	if (stderr !== '') process.stderr.write(stderr);
-	return { code: result.exitCode ?? 1, stdout: result.stdout.toString(), stderr };
+/**
+ * Time is bounded twice, so a registry, Fulcio or Rekor that accepts the connection and
+ * never answers fails commands, not the verb:
+ *  - VERB_BUDGET_MS: the whole verb's deadline, measured from the verb's own start. Past
+ *    it no command starts (it answers `deadline exceeded`); a publish that was planned
+ *    still writes its record (remaining targets `failed`: `deadline exceeded`, or every
+ *    target `failed` with the refusal when it stopped before the per-target loop);
+ *  - COMMAND_TIMEOUT_MS: one command's ceiling, never above its verb's budget; each command
+ *    gets min(ceiling, time left before the deadline).
+ * WHAT THE GATE HOLDS (image_release_native, reading the workflow): for every job, the sum
+ * of its verbs' budgets PLUS its declared JOB_OVERHEAD_MS is ≤ the job's `timeout-minutes`.
+ * The verb deadline can only finish first if the job's other steps stay within that
+ * declared allowance — they are not bounded by this program.
+ * Seams: IMAGE_RELEASE_COMMAND_TIMEOUT_MS, IMAGE_RELEASE_DEADLINE_MS.
+ */
+export const VERB_BUDGET_MS: Readonly<Record<string, number>> = {
+	plan: 6 * 60_000,
+	context: 10 * 60_000,
+	smoke: 30 * 60_000,
+	publish: 22 * 60_000,
 };
+/**
+ * The time each job's NON-verb steps are allowed. ENFORCED, not hoped: every non-verb step
+ * of the job carries its own step `timeout-minutes`, and the gate holds their sum ≤ this
+ * (the remainder is the job's set-up and post steps, which take no timeout). The gate also
+ * holds budgets + this ≤ the job's `timeout-minutes`, and each verb step's own timeout
+ * above its verb's budget (the program's deadline fires first).
+ */
+export interface JobOverhead {
+	/** The whole non-verb allowance: the non-verb step timeouts + setupMs ≤ this. */
+	ms: number;
+	reason: string;
+	/** The reserve for GitHub's set-up / post steps, which cannot carry a timeout. */
+	setupMs: number;
+	setupReason: string;
+}
+const SETUP_RESERVE = {
+	setupMs: 60_000,
+	setupReason: "GitHub's 'Set up job' + the actions' post steps (no step timeout possible)",
+};
+export const JOB_OVERHEAD_MS: Readonly<Record<string, JobOverhead>> = {
+	plan: {
+		ms: 4 * 60_000,
+		reason: 'checkout (full history + tags) 2 + setup-bun 1',
+		...SETUP_RESERVE,
+	},
+	build: {
+		ms: 47 * 60_000,
+		reason:
+			'checkout 3 + setup-bun 1 + labels 1 + setup-buildx 2 + login 1 + the native-arch docker build-push 38',
+		...SETUP_RESERVE,
+	},
+	publish: {
+		ms: 7 * 60_000,
+		reason: 'checkout 2 + setup-bun 1 + setup-buildx 2 + upload-artifact of the record 1',
+		...SETUP_RESERVE,
+	},
+};
+export const COMMAND_TIMEOUT_MS: Readonly<Record<string, number>> = {
+	plan: 5 * 60_000,
+	context: 10 * 60_000,
+	smoke: 30 * 60_000,
+	publish: 8 * 60_000,
+};
+/** The image-release.yml job each verb runs in (the deadline gate's map). */
+export const VERB_JOBS: Readonly<Record<string, string>> = {
+	plan: 'plan',
+	context: 'build',
+	smoke: 'build',
+	publish: 'publish',
+};
+const DEFAULT_LIMIT_MS = 5 * 60_000;
+
+function positiveInt(raw: string | undefined): number | null {
+	const value = Number.parseInt(raw ?? '', 10);
+	return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** The ceiling one of a verb's commands runs under (ms). */
+export function commandTimeoutMs(verb: string, env: Env): number {
+	return (
+		positiveInt(env.IMAGE_RELEASE_COMMAND_TIMEOUT_MS) ??
+		COMMAND_TIMEOUT_MS[verb] ??
+		DEFAULT_LIMIT_MS
+	);
+}
+
+/** The whole verb's budget (ms): its deadline is the start plus this. */
+export function verbBudgetMs(verb: string, env: Env): number {
+	return positiveInt(env.IMAGE_RELEASE_DEADLINE_MS) ?? VERB_BUDGET_MS[verb] ?? DEFAULT_LIMIT_MS;
+}
+
+/**
+ * The real runner. Passwords travel on stdin, never in argv, so the echo is safe. Each
+ * command runs under min(`capMs`, time left before `deadline`) and is killed past it,
+ * answering a non-zero result that names why; past the deadline nothing is started.
+ */
+export function spawnRunner(capMs: number, deadline: number): Runner {
+	return (argv, options) => {
+		const left = deadline - Date.now();
+		if (left <= 0)
+			return { code: 124, stdout: '', stderr: `${argv[0]}: not started — deadline exceeded` };
+		const timeoutMs = Math.min(capMs, left);
+		console.log(`$ ${argv.join(' ')}`);
+		const result = Bun.spawnSync([...argv], {
+			cwd: options?.cwd,
+			stdin: options?.stdin === undefined ? 'ignore' : Buffer.from(options.stdin),
+			stdout: 'pipe',
+			stderr: 'pipe',
+			timeout: timeoutMs,
+			killSignal: 'SIGKILL',
+		});
+		const timedOut = result.exitedDueToTimeout === true;
+		const stderr = `${result.stderr.toString()}${timedOut ? `\n${argv[0]}: timed out after ${timeoutMs} ms` : ''}`;
+		if (stderr !== '') process.stderr.write(stderr);
+		const code = timedOut ? 124 : (result.exitCode ?? 1);
+		return { code, stdout: result.stdout.toString(), stderr };
+	};
+}
 
 /** A refusal the operator must read: printed as a workflow error, the step fails. */
 export class Refusal extends Error {}
@@ -233,14 +365,17 @@ function devPlanFor(facts: PlanFacts, git: PlanGit, staging: string): ReleasePla
 }
 
 /**
- * A release dispatch publishes an EXISTING tag. It must run from a ref the signing
- * identity accepts (the release tag itself or the dev branch), or every copy would fail
- * the very verify step that operators run.
+ * A release dispatch publishes an EXISTING tag. It runs from the dev branch (which may only
+ * fill or sign a release already anchored — publish's fresh-path rule) or from THAT SAME
+ * tag (whose signature is this release's own identity) — never from another release tag,
+ * whose identity would sign this release as that one.
  */
 function dispatchedReleasePlan(facts: PlanFacts, git: PlanGit, staging: string): ReleasePlan {
-	if (facts.ref !== DEV_BRANCH_REF && releaseTagIdentity(facts.ref) === null)
+	const wanted = releaseTagIdentity(facts.inputTag);
+	const sameTag = wanted !== null && releaseTagIdentity(facts.ref) === wanted;
+	if (facts.ref !== DEV_BRANCH_REF && !sameTag)
 		throw new Refusal(
-			`a release dispatch runs from ${DEV_BRANCH_REF} or a release tag (this run is on ${facts.ref})`,
+			`a release dispatch of ${facts.inputTag} runs from ${DEV_BRANCH_REF} or from that same tag (this run is on ${facts.ref})`,
 		);
 	return releasePlanFor(facts.inputTag, git, staging);
 }
@@ -536,7 +671,7 @@ function smoke(env: Env, run: Runner): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// publish — targets, immutability, sign, copy, verify, record
+// publish — targets, immutability, sign, copy + sign per target, verify, record
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RegistryLogin {
@@ -673,7 +808,7 @@ export function immutabilityVerdict(
 export interface RegistryRecord {
 	id: string;
 	repository: string | null;
-	status: 'pushed' | 'unchanged' | 'skipped' | 'failed';
+	status: 'pushed' | 'signed' | 'unchanged' | 'skipped' | 'failed';
 	reason: string | null;
 	verified: boolean;
 }
@@ -685,13 +820,16 @@ export interface ReleaseRecord {
 	channel: InstallChannel;
 	source_sha: string;
 	archive_sha256: string;
-	digest: string;
+	/** Null when the run stopped (a refusal) before a digest was chosen. */
+	digest: string | null;
 	registries: RegistryRecord[];
 }
 
 interface PublishContext {
 	env: Env;
 	run: Runner;
+	/** Epoch ms past which no target is attempted (verbBudgetMs). */
+	deadline: number;
 	list: ImageRegistryList;
 	plan: ReleasePlan & { archive_sha256: string; run_id: string };
 	cosign: string;
@@ -783,73 +921,189 @@ function assembleIndex(ctx: PublishContext): string {
 	return built.digest;
 }
 
+/** The operator's verify: the list's shared identity regexp (every release tag + master). */
 function cosignVerify(ctx: PublishContext, ref: string): boolean {
-	const { identity_regexp: identity, issuer } = ctx.list.signing;
-	return (
-		ctx.run([
-			ctx.cosign,
-			'verify',
-			ref,
-			'--certificate-identity-regexp',
-			identity,
-			'--certificate-oidc-issuer',
-			issuer,
-		]).code === 0
-	);
+	return verifyWith(ctx, ref, ['--certificate-identity-regexp', ctx.list.signing.identity_regexp]);
 }
 
-/** Steps 4+5: what is published — a freshly signed D, or the release that already exists. */
+function verifyWith(ctx: PublishContext, ref: string, identity: readonly string[]): boolean {
+	const issuer = ['--certificate-oidc-issuer', ctx.list.signing.issuer];
+	return ctx.run([ctx.cosign, 'verify', ref, ...identity, ...issuer]).code === 0;
+}
+
+/**
+ * The EXACT identity a signature of THIS release carries: the workflow at
+ * `refs/tags/v<tag>` of this repository — and it must lie inside the list's shared
+ * identity (a fork's repository never does). The recovery anchor is held to it: the
+ * shared regexp also accepts a dev build (`heads/master`) and every OTHER release tag,
+ * and neither may be minted into this release.
+ */
+export function releaseSignerIdentity(env: Env, list: ImageRegistryList, tag: string): string {
+	const server = env.GITHUB_SERVER_URL || 'https://github.com';
+	const repository = requireEnv(env, ['GITHUB_REPOSITORY']).GITHUB_REPOSITORY as string;
+	const identity = `${server}/${repository}/.github/workflows/image-release.yml@refs/tags/v${tag}`;
+	if (!new RegExp(list.signing.identity_regexp).test(identity))
+		throw new Refusal(
+			`the release identity ${identity} is not inside the list's signing identity — refusing to anchor on it`,
+		);
+	return identity;
+}
+
+/** A signature of `ref` by exactly this release's identity. */
+function verifiedAsThisRelease(ctx: PublishContext, ref: string): boolean {
+	const identity = releaseSignerIdentity(ctx.env, ctx.list, ctx.plan.tag);
+	return verifyWith(ctx, ref, ['--certificate-identity', identity]);
+}
+
+/**
+ * What is published: the digest, a reference to copy it FROM (one that carries the
+ * official signature), and the targets that already hold it — each with whether its own
+ * registry already carries the signature (a holder that does not is signed in place).
+ */
+interface PublishSource {
+	source: string;
+	digest: string;
+	holders: ReadonlyMap<string, { signed: boolean }>;
+}
+
+/** Steps 4+5: a freshly signed D, or the release that already exists (immutability). */
 function chooseSource(
 	ctx: PublishContext,
 	targets: readonly PublishTarget[],
 	built: string,
-): { source: string; digest: string; overwrite: boolean; holders: Set<string> } {
+): PublishSource {
 	const existing = targets.map((target) => ({
 		repository: target.repository,
 		state: inspectDigest(ctx.run, `${target.repository}:${ctx.plan.tag}`),
 	}));
 	const verdict = immutabilityVerdict(ctx.plan.channel, existing);
-	if (verdict.kind === 'fresh') {
-		must(
-			ctx.run([ctx.cosign, 'sign', '--yes', `${ctx.plan.staging}@${built}`]),
-			'signing the image',
-		);
-		return {
-			source: `${ctx.plan.staging}@${built}`,
-			digest: built,
-			overwrite: verdict.overwrite,
-			holders: new Set(),
-		};
-	}
-	const source = `${verdict.holder}@${verdict.digest}`;
-	if (!cosignVerify(ctx, source))
-		throw new Refusal(
-			`release ${ctx.plan.tag} already exists as ${source}, but it does not carry the official signature — refusing to spread it`,
-		);
-	const holders = new Set(
-		existing.filter((item) => item.state.state === 'present').map((item) => item.repository),
+	if (verdict.kind === 'existing') return existingRelease(ctx, existing, verdict.digest);
+	const refFault = freshReleaseRefFault(ctx);
+	if (refFault !== null) throw new Refusal(refFault);
+	// The ANCHOR signature, before anything leaves staging: a run that dies after a copy
+	// leaves a digest whose official signature is provably somewhere (recovery, below).
+	const source = `${ctx.plan.staging}@${built}`;
+	must(ctx.run([ctx.cosign, 'sign', '--yes', source]), 'signing the image in staging');
+	return { source, digest: built, holders: new Map() };
+}
+
+/**
+ * The anchor's WRITER must be what its reader accepts: a never-published release (no
+ * holder) is signed only by its OWN tag's run — the identity officialAnchor demands
+ * (`refs/tags/v<tag>`). A dispatch from master (or any other ref) may only fill or sign
+ * an EXISTING anchored release; minting one would leave signatures no later run can
+ * anchor on. Dev tags are mutable and anchor nothing. Null = may publish fresh.
+ */
+function freshReleaseRefFault(ctx: PublishContext): string | null {
+	if (ctx.plan.channel === 'dev') return null;
+	const own = `refs/tags/v${ctx.plan.tag}`;
+	const ref = ctx.env.GITHUB_REF ?? '';
+	if (ref === own) return null;
+	return `release ${ctx.plan.tag} is published nowhere yet, and this run is on ${ref || '<no GITHUB_REF>'}: a never-published release is published only from its own tag (${own} — the tag push, or a release dispatch run on that tag); a dispatch from another ref only fills or signs an existing release`;
+}
+
+/**
+ * Step 4, an existing release X. Accepted ONLY when X carries the official signature
+ * somewhere official — at a holder, or at the staging repository the workflow built it
+ * in (staging@X) — and that verified reference is the copy source. A holder whose own
+ * registry lacks the signature is then signed in place: that attests only what the
+ * workflow provably built. X verifiable nowhere → refuse, nothing is changed.
+ */
+function existingRelease(
+	ctx: PublishContext,
+	existing: readonly { repository: string; state: ManifestState }[],
+	digest: string,
+): PublishSource {
+	const holders = new Map<string, { signed: boolean }>();
+	for (const item of existing)
+		if (item.state.state === 'present')
+			holders.set(item.repository, { signed: cosignVerify(ctx, `${item.repository}@${digest}`) });
+	const anchor = officialAnchor(ctx, [...holders.keys()], digest);
+	return { source: anchor, digest, holders };
+}
+
+/**
+ * The reference that proves `digest` IS this release: a holder, else staging@digest,
+ * signed by exactly this release's identity (`refs/tags/v<tag>`). A signature under the
+ * shared regexp alone — a dev build, another release tag, a recovery run's own
+ * `heads/master` signature — never anchors.
+ */
+function officialAnchor(ctx: PublishContext, holders: readonly string[], digest: string): string {
+	const candidates = [...holders, ctx.plan.staging].map((repository) => `${repository}@${digest}`);
+	const anchor = candidates.find((ref) => verifiedAsThisRelease(ctx, ref));
+	if (anchor !== undefined) return anchor;
+	throw new Refusal(
+		`release ${ctx.plan.tag} already exists as ${digest}, but no official place (${candidates.join(', ')}) carries a signature of THIS release (refs/tags/v${ctx.plan.tag}) — refusing to spread it`,
 	);
-	return { source, digest: verdict.digest, overwrite: false, holders };
 }
 
 type PublishTarget = Extract<TargetVerdict, { publish: true }>;
 
-/** Step 6: one copy per target that does not hold the release yet. */
-function copyTo(
+/** Keyless-sign `target` AT the digest, in its own registry (one Rekor entry per registry). */
+function signAt(ctx: PublishContext, target: PublishTarget, digest: string): boolean {
+	return ctx.run([ctx.cosign, 'sign', '--yes', `${target.repository}@${digest}`]).code === 0;
+}
+
+/**
+ * Step 6, one target: a holder already signed is left alone; a holder without the
+ * signature is signed in place; a target without the release receives the digest (a
+ * carbon copy: `imagetools create` from ONE source by digest keeps the digest — the
+ * re-inspect of step 7 proves it) and is then signed there. Never `cosign copy`: cosign 3
+ * signs in the OCI 1.1 referrers bundle format, which that deprecated verb does not carry.
+ */
+function publishTo(
 	ctx: PublishContext,
 	target: PublishTarget,
-	chosen: ReturnType<typeof chooseSource>,
-): RegistryRecord['status'] {
-	if (chosen.holders.has(target.repository)) return 'unchanged';
-	const force = chosen.overwrite ? ['--force'] : [];
+	chosen: PublishSource,
+): TargetOutcome {
+	const holder = chosen.holders.get(target.repository);
+	if (holder?.signed) return { status: 'unchanged', reason: null };
+	if (Date.now() >= ctx.deadline) return { status: 'failed', reason: 'deadline exceeded' };
+	if (holder !== undefined) return signedOutcome(ctx, target, chosen.digest, 'signed');
+	const moved = tagMovedFault(ctx, target, chosen.digest);
+	if (moved !== null) return { status: 'failed', reason: moved };
 	const copied = ctx.run([
-		ctx.cosign,
-		'copy',
-		...force,
-		chosen.source,
+		'docker',
+		'buildx',
+		'imagetools',
+		'create',
+		'-t',
 		`${target.repository}:${ctx.plan.tag}`,
+		chosen.source,
 	]);
-	return copied.code === 0 ? 'pushed' : 'failed';
+	if (copied.code !== 0) return { status: 'failed', reason: 'copy failed' };
+	return signedOutcome(ctx, target, chosen.digest, 'pushed');
+}
+
+/** What one target ended as, and why when it failed. */
+interface TargetOutcome {
+	status: RegistryRecord['status'];
+	reason: string | null;
+}
+
+function signedOutcome(
+	ctx: PublishContext,
+	target: PublishTarget,
+	digest: string,
+	done: RegistryRecord['status'],
+): TargetOutcome {
+	return signAt(ctx, target, digest)
+		? { status: done, reason: null }
+		: { status: 'failed', reason: 'signing failed' };
+}
+
+/**
+ * The release channel's compare-and-set: `imagetools create` overwrites a tag, so right
+ * before the copy the target's release tag is read again — one that appeared since the
+ * immutability inspect with another digest (or that cannot be read) is never re-pointed.
+ * Dev tags are mutable by definition. Null = clear to copy.
+ */
+function tagMovedFault(ctx: PublishContext, target: PublishTarget, digest: string): string | null {
+	if (ctx.plan.channel === 'dev') return null;
+	const now = inspectDigest(ctx.run, `${target.repository}:${ctx.plan.tag}`);
+	if (now.state === 'absent' || (now.state === 'present' && now.digest === digest)) return null;
+	const found = now.state === 'present' ? now.digest : `unreadable (${now.detail})`;
+	return `${target.repository}:${ctx.plan.tag} appeared as ${found} after the immutability check — a release tag is never re-pointed; nothing was copied`;
 }
 
 /** Step 7: the SAME digest everywhere, and the operator's own verify passes. */
@@ -889,7 +1143,9 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 		`### Dédalo image ${record.tag} (${CHANNEL_WORDS[record.channel]})`,
 		'',
 		`- source: \`${record.source_sha}\` (git archive sha256 \`${record.archive_sha256}\`)`,
-		`- digest: \`${record.digest}\` — the SAME on every registry below`,
+		record.digest === null
+			? '- digest: none — the run was refused before one was chosen (reasons below)'
+			: `- digest: \`${record.digest}\` — the SAME on every registry below`,
 		'',
 		'| Registry | Repository | Status | Verified | Reason |',
 		'|---|---|---|---|---|',
@@ -898,7 +1154,7 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 		'Verify, as an operator does:',
 		'',
 		'```shell',
-		`cosign verify ${verifiedTarget}@${record.digest} \\`,
+		`cosign verify ${verifiedTarget}@${record.digest ?? 'sha256:<digest>'} \\`,
 		`  --certificate-identity-regexp '${list.signing.identity_regexp}' \\`,
 		`  --certificate-oidc-issuer '${list.signing.issuer}'`,
 		'```',
@@ -906,11 +1162,37 @@ export function renderSummary(record: ReleaseRecord, list: ImageRegistryList): s
 	].join('\n');
 }
 
+/**
+ * The record file, then the job summary. The file is written ATOMICALLY (`<path>.part`,
+ * then a rename): a failed write leaves no truncated record for the upload step, only the
+ * previous state, and throws. The summary is a separate, best-effort part: a failed append
+ * is a named warning and never undoes or fails the record file (the artifact consumers read).
+ */
 function writeRecord(env: Env, record: ReleaseRecord, list: ImageRegistryList): void {
 	const path = env.RECORD_PATH || join(env.RUNNER_TEMP as string, 'image-release.json');
-	writeFileSync(path, `${JSON.stringify(record, null, '\t')}\n`);
-	if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, renderSummary(record, list));
+	const part = `${path}.part`;
+	try {
+		writeFileSync(part, `${JSON.stringify(record, null, '\t')}\n`);
+		renameSync(part, path);
+	} catch (error) {
+		try {
+			rmSync(part, { force: true });
+		} catch {
+			// best effort: a .part that cannot be removed never hides why the write failed
+		}
+		throw error;
+	}
 	console.log(`record: ${path}`);
+	if (!env.GITHUB_STEP_SUMMARY) return;
+	try {
+		appendFileSync(env.GITHUB_STEP_SUMMARY, renderSummary(record, list));
+	} catch (error) {
+		console.log(`::warning::summary not written: ${messageOf(error)}`);
+	}
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -987,30 +1269,140 @@ function registriesOf(env: Env): ImageRegistryList {
 	return parseImageRegistries(JSON.parse(readFileSync(file, 'utf8')), file);
 }
 
-function publish(env: Env, run: Runner): number {
+/**
+ * Once the plan is known, EVERY outcome leaves a record: any error raised after this point
+ * (a staging mismatch, the cosign pin, a login, the index, the immutability or anchor
+ * check, a deadline before the per-target loop) records each publish target `failed` with
+ * that reason (digest null), and is then rethrown for main's ::error:: and summary.
+ */
+/**
+ * What has actually happened so far, kept as the publication progresses: the chosen
+ * digest and each target's row — its step-6 outcome (`final: false`), then its verified
+ * row (`final: true`, step 7 ran). An error record is built from THIS — never a blanket
+ * "all failed" over targets that were in fact pushed or signed. The terminal record is the
+ * LAST thing publishPlanned does, so an error after it cannot exist; a failed terminal write
+ * is a single warning and is not retried (see publish).
+ */
+interface PublishProgress {
+	digest: string | null;
+	rows: Map<string, { row: RegistryRecord; final: boolean }>;
+	/** The terminal record is being written: a failure now is NOT retried as an error record. */
+	terminal: boolean;
+}
+
+function publish(env: Env, run: Runner, deadline: number): number {
 	const list = registriesOf(env);
 	const plan = publishPlan(env);
+	const progress: PublishProgress = { digest: null, rows: new Map(), terminal: false };
+	try {
+		return publishPlanned(env, run, deadline, list, plan, progress);
+	} catch (error) {
+		// A failed TERMINAL write is not retried: every row is final by then, so the retry
+		// would look like a finished publication with no trace of the failure. One warning,
+		// and the original error decides the run.
+		if (progress.terminal)
+			console.log(
+				`::warning::record not written (terminal write, not retried): ${messageOf(error)}`,
+			);
+		else recordFailure(env, list, plan, progress, error);
+		throw error;
+	}
+}
+
+/**
+ * ANY error after the plan and before the terminal record (a Refusal, or a plain one — a
+ * malformed pin file, a bug) leaves a record of what happened, naming the error. Writing
+ * it may fail too (an unwritable path): that is a warning, never a replacement for the
+ * original error, which the caller rethrows.
+ */
+function recordFailure(
+	env: Env,
+	list: ImageRegistryList,
+	plan: PublishContext['plan'],
+	progress: PublishProgress,
+	error: unknown,
+): void {
+	try {
+		const record = progressRecord(plan, classifyTargets(list, env), progress, messageOf(error));
+		writeRecord(env, record, list);
+	} catch (writeError) {
+		console.log(`::warning::record not written: ${messageOf(writeError)}`);
+	}
+}
+
+/**
+ * The record of an interrupted publish: a FINAL row (step 7 ran) is kept exactly — its own
+ * status, verdict and reason; a step-6 row keeps its status and its own reason, unverified,
+ * with the interruption appended; every other publish target is failed with the error. The
+ * digest is the chosen one when known, else null.
+ */
+function progressRecord(
+	plan: PublishContext['plan'],
+	verdicts: readonly TargetVerdict[],
+	progress: PublishProgress,
+	reason: string,
+): ReleaseRecord {
+	const registries = verdicts.map((verdict) => {
+		if (!verdict.publish) return skippedRecord(verdict);
+		const known = progress.rows.get(verdict.entry.id);
+		if (known?.final) return known.row;
+		if (known !== undefined) return interruptedRow(known.row, reason);
+		return {
+			id: verdict.entry.id,
+			repository: verdict.repository,
+			status: 'failed' as const,
+			reason,
+			verified: false,
+		};
+	});
+	const { version, tag, channel, source_sha, archive_sha256 } = plan;
+	const digest = progress.digest;
+	return { schema: 1, version, tag, channel, source_sha, archive_sha256, digest, registries };
+}
+
+/** A step-6 row whose verify never ran: its status and own reason, plus the interruption. */
+function interruptedRow(row: RegistryRecord, error: string): RegistryRecord {
+	const own = row.reason === null ? '' : `${row.reason}; `;
+	return { ...row, reason: `${own}interrupted: ${error}`, verified: false };
+}
+
+function publishPlanned(
+	env: Env,
+	run: Runner,
+	deadline: number,
+	list: ImageRegistryList,
+	plan: PublishContext['plan'],
+	progress: PublishProgress,
+): number {
 	if (plan.staging !== list.ci.staging_repository)
 		throw new Refusal(
 			`STAGING ${plan.staging} is not the list's staging repository ${list.ci.staging_repository}`,
 		);
 	smokedDigests(env); // refuse a missing digest before the first download or push
 	const cosign = installCosign(env, run);
-	const ctx: PublishContext = { env, run, list, plan, cosign };
+	const ctx: PublishContext = { env, run, deadline, list, plan, cosign };
 	const verdicts = classifyTargets(list, env);
 	const targets = verdicts.filter((verdict): verdict is PublishTarget => verdict.publish);
 	if (targets.length === 0)
 		throw new Refusal('no provisioned registry can be published to — every target was skipped');
 	loginAll(ctx, verdicts);
 	const chosen = chooseSource(ctx, targets, assembleIndex(ctx));
+	progress.digest = chosen.digest;
 	// Step 6 for EVERY target, then step 7 for every target: a verify never runs while a
-	// copy is still pending, so the verified set is the final state of the publication.
-	const statuses = new Map(targets.map((target) => [target, copyTo(ctx, target, chosen)]));
-	const records = verdicts.map((verdict) =>
-		verdict.publish
-			? verifiedRecord(ctx, verdict, statuses.get(verdict) ?? 'failed', chosen.digest)
-			: skippedRecord(verdict),
-	);
+	// copy or a signature is still pending, so the verified set is the final state.
+	const statuses = new Map<PublishTarget, TargetOutcome>();
+	for (const target of targets) {
+		const outcome = publishTo(ctx, target, chosen);
+		statuses.set(target, outcome);
+		progress.rows.set(target.entry.id, { row: rowOf(target, outcome, false), final: false });
+	}
+	const records = verdicts.map((verdict) => {
+		if (!verdict.publish) return skippedRecord(verdict);
+		const outcome = statuses.get(verdict) ?? { status: 'failed', reason: 'not attempted' };
+		const row = verifiedRecord(ctx, verdict, outcome, chosen.digest);
+		progress.rows.set(verdict.entry.id, { row, final: true });
+		return row;
+	});
 	const record: ReleaseRecord = {
 		schema: 1,
 		version: plan.version,
@@ -1021,22 +1413,29 @@ function publish(env: Env, run: Runner): number {
 		digest: chosen.digest,
 		registries: records,
 	};
-	writeRecord(env, record, list);
+	progress.terminal = true;
+	writeRecord(env, record, list); // the terminal record — the last thing this does
 	return records.every((item) => item.status === 'skipped' || item.verified) ? 0 : 1;
+}
+
+function rowOf(target: PublishTarget, outcome: TargetOutcome, verified: boolean): RegistryRecord {
+	const { status, reason } = outcome;
+	return { id: target.entry.id, repository: target.repository, status, reason, verified };
 }
 
 function verifiedRecord(
 	ctx: PublishContext,
 	target: PublishTarget,
-	status: RegistryRecord['status'],
+	outcome: TargetOutcome,
 	digest: string,
 ): RegistryRecord {
+	const { status, reason } = outcome;
 	const verified = status !== 'failed' && verifyTarget(ctx, target, digest);
 	if (!verified)
 		console.log(
-			`::error::${target.entry.id}: ${target.repository}:${ctx.plan.tag} is not ${digest} with a valid signature`,
+			`::error::${target.entry.id}: ${target.repository}:${ctx.plan.tag} is not ${digest} with a valid signature${reason === null ? '' : ` — ${reason}`}`,
 		);
-	return { id: target.entry.id, repository: target.repository, status, reason: null, verified };
+	return rowOf(target, outcome, verified);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1096,25 +1495,24 @@ function contextVerb(env: Env, run: Runner): number {
 	return 0;
 }
 
-const VERBS: Readonly<Record<string, (env: Env, run: Runner) => number>> = {
+const VERBS: Readonly<Record<string, (env: Env, run: Runner, deadline: number) => number>> = {
 	plan: planVerb,
 	context: contextVerb,
 	smoke,
 	publish,
 };
 
-export function main(
-	argv: readonly string[],
-	env: Env = process.env,
-	run: Runner = spawnRunner,
-): number {
-	const verb = VERBS[argv[0] ?? ''];
+export function main(argv: readonly string[], env: Env = process.env, runner?: Runner): number {
+	const name = argv[0] ?? '';
+	const verb = VERBS[name];
 	if (verb === undefined) {
 		console.error('usage: bun run scripts/ci/image_release.ts plan|context|smoke|publish');
 		return 2;
 	}
+	const deadline = Date.now() + verbBudgetMs(name, env);
+	const run = runner ?? spawnRunner(commandTimeoutMs(name, env), deadline);
 	try {
-		return verb(env, run);
+		return verb(env, run, deadline);
 	} catch (error) {
 		if (!(error instanceof Refusal)) throw error;
 		console.log(`::error::${error.message}`);

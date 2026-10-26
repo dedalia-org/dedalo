@@ -5,20 +5,28 @@
  * its program is run here as the workflow runs it — `bun scripts/ci/image_release.ts
  * <verb>` — with `docker`, `curl` and the downloaded `cosign` replaced by ONE recording
  * stub on PATH. The stub keeps a tiny registry in a state directory (reference →
- * digest), so a copy, an inspect and a verify see each other's effects, and every
- * invocation is appended to a log. What is asserted is the OUTCOME and the ORDER of
+ * digest, plus one signature marker per `<repository>@<digest>` — a signature lives in
+ * ONE registry, as cosign 3's OCI 1.1 referrers do), so a copy, a sign, an inspect and a
+ * verify see each other's effects, and every invocation is appended to a log. What is asserted is the OUTCOME and the ORDER of
  * effects, which is the safety argument of the publish verb:
  *
  *   - an unpinned cosign, or a downloaded binary whose sha256 is not the pin, refuses
  *     before ANY registry command;
  *   - an unprovisioned registry is skipped with its reason; a provisioned one whose
  *     secrets are absent is skipped LOUDLY (::warning::) and the others still publish;
- *   - nothing is signed before every target was inspected (immutability), nothing is
- *     copied before it is signed, nothing is verified before it is copied;
+ *   - nothing is signed before every target was inspected (immutability), nothing leaves
+ *     staging before D is signed there, every target is copied by digest and then signed
+ *     AT its own digest, nothing is verified before every copy and signature; `cosign
+ *     copy` is never invoked (it does not carry cosign 3's referrers signatures — the
+ *     v7.0.0-beta.7 incident);
  *   - release channel: holders that disagree refuse before signing or copying; an
- *     existing release without the official signature refuses before copying; agreeing
- *     holders are kept and the missing target receives THEIR digest, never a rebuild;
- *   - dev channel: the tag is overwritten (`cosign copy --force`);
+ *     existing release whose digest carries no signature of THIS release (exact identity
+ *     @refs/tags/v<tag> — a dev or other-tag signature never counts) at a holder or at
+ *     staging@X refuses before copying; a tag appearing between check and copy is never
+ *     re-pointed; a hanging command fails its target at the ceiling, record written; agreeing holders are kept, the missing target receives
+ *     THEIR digest (never a rebuild), and a holder without the signature in its own
+ *     registry is signed in place when X verifies elsewhere (the recovery door);
+ *   - dev channel: the mutable tag is overwritten;
  *   - a target that ends with another digest fails the run, and the record says so;
  *   - the record (image-release.json) has the documented schema.
  * The plan rules run on a REAL scratch git repository (tags, version.ts, branches): a
@@ -53,16 +61,19 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
 	FULL_GATE_WORKFLOWS,
 	fullGateFault,
 	type ManifestState,
+	main,
 	type PlanGit,
 	Refusal,
+	type Runner,
 	resolvePlan,
 	SMOKE_HEALTH_SCRIPT,
 	SMOKE_SCRIPT,
@@ -131,9 +142,27 @@ case "$me" in
     cp "$STUB_COSIGN_SOURCE" "$out"; exit 0 ;;
   docker)
     case "$1 $2 $3" in
-      "login "*) cat >/dev/null; exit 0 ;;
-      "buildx imagetools create") put "$5" "$STUB_BUILT"; exit 0 ;;
+      "login "*) [ -n "\${STUB_LOGIN_HANG:-}" ] && exec sleep 30; cat >/dev/null; exit 0 ;;
+      "buildx imagetools create")
+        # ONE source = a carbon copy (same digest); several = the assembled index.
+        if [ $# -eq 6 ]; then
+          [ -n "\${STUB_COPY_FAIL:-}" ] && [ "$5" = "$STUB_COPY_FAIL" ] && { echo "denied" >&2; exit 1; }
+          d="$(digest_of "$6")"
+          [ -n "\${STUB_COPY_WRONG:-}" ] && [ "$5" = "$STUB_COPY_WRONG" ] && d="sha256:$(printf 'f%.0s' $(seq 64))"
+          put "$5" "$d"
+        else put "$5" "$STUB_BUILT"; fi
+        exit 0 ;;
       "buildx imagetools inspect")
+        # STUB_APPEAR_REF: absent at the first inspect, then written (STUB_APPEAR_DIGEST) by
+        # "someone else" before the next — a tag that appears between check and copy.
+        if [ -n "\${STUB_INSPECT_ERROR_AFTER_FIRST:-}" ] && [ "$4" = "$STUB_INSPECT_ERROR_AFTER_FIRST" ]; then
+          [ -f "$STUB_STATE.seen" ] && { echo "unauthorized: denied" >&2; exit 1; }
+          touch "$STUB_STATE.seen"
+        fi
+        if [ -n "\${STUB_APPEAR_REF:-}" ] && [ "$4" = "$STUB_APPEAR_REF" ]; then
+          if [ -f "$STUB_STATE.appear" ]; then printf '%s' "$STUB_APPEAR_DIGEST" > "$STUB_STATE/$(key "$4")"
+          else touch "$STUB_STATE.appear"; fi
+        fi
         if [ -n "\${STUB_INSPECT_ERROR:-}" ] && [ "$4" = "$STUB_INSPECT_ERROR" ]; then echo "unauthorized: denied" >&2; exit 1; fi
         d="$(digest_of "$4")"
         if [ -z "$d" ]; then echo "ERROR: $4: not found" >&2; exit 1; fi
@@ -142,21 +171,25 @@ case "$me" in
     esac ;;
   cosign)
     case "$1" in
-      sign) exit "\${STUB_SIGN_RC:-0}" ;;
-      copy)
-        [ "$2" = "--force" ] && shift
-        d="$(digest_of "$2")"
-        [ -n "\${STUB_COPY_WRONG:-}" ] && [ "$3" = "$STUB_COPY_WRONG" ] && d="sha256:$(printf 'f%.0s' $(seq 64))"
-        put "$3" "$d"; exit 0 ;;
+      sign)
+        [ "\${STUB_SIGN_RC:-0}" = 0 ] || exit "$STUB_SIGN_RC"
+        [ -n "\${STUB_SIGN_FAIL:-}" ] && [ "$3" = "$STUB_SIGN_FAIL" ] && { echo "denied" >&2; exit 1; }
+        [ -n "\${STUB_SIGN_HANG:-}" ] && [ "$3" = "$STUB_SIGN_HANG" ] && exec sleep 30
+        # STUB_SIGNER = the certificate identity (SAN) the run's keyless signature carries,
+        # recorded per signature (a reference may hold several, one per line).
+        printf '%s\n' "$STUB_SIGNER" >> "$STUB_STATE/sig_$(key "$3")"; exit 0 ;;
+      copy) echo 'Command "copy" is deprecated' >&2; exit 0 ;;
       verify)
-        case " \${STUB_UNSIGNED:-} " in *" $(digest_of "$2") "*) echo "no matching signatures" >&2; exit 1 ;; esac
-        # STUB_SIGNER = the certificate identity (SAN) the run's keyless signature carries:
-        # verify then passes only when --certificate-identity-regexp accepts it, as cosign does.
-        if [ -n "\${STUB_SIGNER:-}" ]; then
-          re=""; while [ $# -gt 0 ]; do [ "$1" = "--certificate-identity-regexp" ] && re="$2"; shift; done
-          printf '%s' "$STUB_SIGNER" | grep -Eq -- "$re" || { echo "none of the expected identities matched" >&2; exit 1; }
-        fi
-        exit 0 ;;
+        sigs="$STUB_STATE/sig_$(key "$2")"
+        [ -f "$sigs" ] || { echo "no signatures found" >&2; exit 1; }
+        # As cosign does: --certificate-identity-regexp matches a pattern, --certificate-identity
+        # an EXACT identity; one recorded signature satisfying it is enough.
+        re=""; exact=""; while [ $# -gt 0 ]; do
+          [ "$1" = "--certificate-identity-regexp" ] && re="$2"
+          [ "$1" = "--certificate-identity" ] && exact="$2"; shift; done
+        if [ -n "$exact" ]; then grep -qxF -- "$exact" "$sigs" && exit 0
+        elif [ -n "$re" ]; then grep -Eq -- "$re" "$sigs" && exit 0; fi
+        echo "none of the expected identities matched" >&2; exit 1 ;;
     esac ;;
 esac
 exit 0
@@ -192,6 +225,8 @@ interface Run {
 	stdout: string;
 	log: string[];
 	record: Record<string, unknown> | null;
+	/** The job summary the run appended ($GITHUB_STEP_SUMMARY), '' when none. */
+	summary: string;
 	state: (ref: string) => string | null;
 	/**
 	 * Every tag `repository` holds after the run: the preset references plus every one
@@ -206,8 +241,17 @@ let runCounter = 0;
 function publish(options: {
 	channel?: 'master' | 'prerelease' | 'dev';
 	preset?: Record<string, string>;
+	/** `<repository>@<digest>` references signed by THIS run's release identity. */
+	signed?: string[];
+	/** `<repository>@<digest>` → the identity its signature carries (another tag, master…). */
+	signedBy?: Record<string, string>;
 	env?: Record<string, string>;
 	pin?: { version: string | null; linux_amd64_sha256: string | null };
+	/**
+	 * Run IN-PROCESS (main with an injected runner over the same stub) and make the command
+	 * whose log line starts with this THROW a plain Error — a bug mid-publication.
+	 */
+	throwOn?: string;
 }): Run {
 	const dir = join(scratch, `run-${++runCounter}`);
 	const state = join(dir, 'state');
@@ -215,6 +259,18 @@ function publish(options: {
 	const key = (ref: string) => ref.replaceAll(/[/:@]/g, '_');
 	for (const [ref, digest] of Object.entries(options.preset ?? {}))
 		writeFileSync(join(state, key(ref)), digest);
+	const channel = options.channel ?? 'master';
+	const tag =
+		options.env?.TAG ?? { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel];
+	// The run's own ref, as GitHub sets it: the release tag's push, or master for dev.
+	const ref = channel === 'dev' ? 'refs/heads/master' : `refs/tags/v${tag}`;
+	const signer = SIGNER(ref);
+	const signatures: Record<string, string> = {
+		...Object.fromEntries((options.signed ?? []).map((ref) => [ref, signer])),
+		...options.signedBy,
+	};
+	for (const [ref, identity] of Object.entries(signatures))
+		writeFileSync(join(state, `sig_${key(ref)}`), `${identity}\n`);
 	const pinFile = join(dir, 'cosign.json');
 	writeFileSync(
 		pinFile,
@@ -222,7 +278,6 @@ function publish(options: {
 			options.pin ?? { version: '9.9.9', linux_amd64_sha256: sha256File(cosignSource) },
 		),
 	);
-	const channel = options.channel ?? 'master';
 	const env: Record<string, string> = {
 		PATH: `${stubDir}:/usr/bin:/bin`,
 		HOME: dir,
@@ -238,7 +293,11 @@ function publish(options: {
 		DIGEST_AMD64: ARCH_AMD64,
 		DIGEST_ARM64: ARCH_ARM64,
 		VERSION: '7.0.1',
-		TAG: { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel],
+		TAG: tag,
+		GITHUB_REPOSITORY: 'dedalia-org/dedalo',
+		GITHUB_SERVER_URL: 'https://github.com',
+		GITHUB_REF: ref,
+		STUB_SIGNER: signer,
 		CHANNEL: channel,
 		STAGING,
 		RUN_ID: '42',
@@ -250,18 +309,17 @@ function publish(options: {
 		DOCKERHUB_TOKEN: 'hub-token',
 		...options.env,
 	};
-	const proc = Bun.spawnSync([process.execPath, PROGRAM, 'publish'], {
-		cwd: ROOT,
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
+	const proc =
+		options.throwOn === undefined ? spawnPublish(env) : inProcessPublish(env, options.throwOn);
 	const logPath = join(dir, 'log');
 	return {
-		code: proc.exitCode ?? 1,
-		stdout: proc.stdout.toString() + proc.stderr.toString(),
+		code: proc.code,
+		stdout: proc.stdout,
 		log: existsSync(logPath) ? readFileSync(logPath, 'utf8').trimEnd().split('\n') : [],
-		record: existsSync(env.RECORD_PATH as string)
+		summary: existsSync(env.GITHUB_STEP_SUMMARY as string)
+			? readFileSync(env.GITHUB_STEP_SUMMARY as string, 'utf8')
+			: '',
+		record: isFile(env.RECORD_PATH as string)
 			? (JSON.parse(readFileSync(env.RECORD_PATH as string, 'utf8')) as Record<string, unknown>)
 			: null,
 		state: (ref) =>
@@ -279,21 +337,90 @@ function publish(options: {
 	};
 }
 
+const isFile = (path: string): boolean => existsSync(path) && statSync(path).isFile();
+
+function spawnPublish(env: Record<string, string>): { code: number; stdout: string } {
+	const proc = Bun.spawnSync([process.execPath, PROGRAM, 'publish'], {
+		cwd: ROOT,
+		env,
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	return { code: proc.exitCode ?? 1, stdout: proc.stdout.toString() + proc.stderr.toString() };
+}
+
+/** `main` in this process over the stub; the command matching `throwOn` throws instead. */
+function inProcessPublish(
+	env: Record<string, string>,
+	throwOn: string,
+): { code: number; stdout: string; thrown?: unknown } {
+	const runner: Runner = (argv, options) => {
+		const line = `${basename(argv[0] as string)} ${argv.slice(1).join(' ')}`;
+		if (line.startsWith(throwOn)) throw new Error(`injected failure at: ${line}`);
+		const binary = Bun.which(argv[0] as string, { PATH: env.PATH }) ?? (argv[0] as string);
+		const result = Bun.spawnSync([binary, ...argv.slice(1)], {
+			env,
+			stdin: options?.stdin === undefined ? 'ignore' : Buffer.from(options.stdin),
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		return {
+			code: result.exitCode ?? 1,
+			stdout: result.stdout.toString(),
+			stderr: result.stderr.toString(),
+		};
+	};
+	// What main prints is part of the outcome (::error::, ::warning::, record lines):
+	// captured for the call, restored after, returned like spawnPublish's stdout.
+	const printed: string[] = [];
+	const { log, error: logError } = console;
+	console.log = (...parts: unknown[]) => void printed.push(parts.map(String).join(' '));
+	console.error = console.log;
+	try {
+		const code = main(['publish'], env, runner);
+		return { code, stdout: printed.join('\n') };
+	} catch (error) {
+		return { code: 99, stdout: `${printed.join('\n')}\n${String(error)}`, thrown: error };
+	} finally {
+		console.log = log;
+		console.error = logError;
+	}
+}
+
 /** Index of the first log line matching, -1 when none. */
 const at = (log: string[], pattern: RegExp): number => log.findIndex((line) => pattern.test(line));
 const lastAt = (log: string[], pattern: RegExp): number =>
 	log.reduce((found, line, i) => (pattern.test(line) ? i : found), -1);
 const GHCR = REPO.ghcr as string;
 const HUB = REPO.dockerhub as string;
+/** A carbon copy to a TARGET (one source); the staging index assembly has two. */
+const COPY_TO_TARGET = new RegExp(
+	`^docker buildx imagetools create -t (${GHCR}|${HUB}):\\S+ \\S+$`,
+);
+/** Any registry write of the publish step: a sign or a copy to a target. */
+const THIS_RELEASE_REFUSAL = 'carries a signature of THIS release';
+type RecordRow = {
+	id: string;
+	repository: string | null;
+	status: string;
+	reason: string | null;
+	verified: boolean;
+};
+const rowOf = (run: Run, id: string): RecordRow | undefined =>
+	(run.record?.registries as RecordRow[] | undefined)?.find((item) => item.id === id);
+const statusOf = (run: Run, id: string) => rowOf(run, id)?.status;
+const reasonOf = (run: Run, id: string) => rowOf(run, id)?.reason;
+const touchesRelease = (line: string): boolean =>
+	line.startsWith('cosign sign ') || line.startsWith('cosign copy') || COPY_TO_TARGET.test(line);
 
 describe('publish — the order of effects is the safety argument', () => {
-	test('a fresh release: index once, every target inspected, signed once, copied, verified — one digest', () => {
+	test('a fresh release: index once, every target inspected, signed in staging, copied by digest, signed per target, verified — one digest', () => {
 		const run = publish({});
 		expect(run.code, run.stdout).toBe(0);
 		const { log } = run;
 		const create = at(log, /^docker buildx imagetools create /);
 		const sign = at(log, /^cosign sign /);
-		const firstCopy = at(log, /^cosign copy /);
+		const firstCopy = at(log, COPY_TO_TARGET);
 		const lastInspectOfTargets = Math.max(
 			lastAt(log, new RegExp(`^docker buildx imagetools inspect ${GHCR}:7\\.0\\.1 `)),
 			lastAt(log, new RegExp(`^docker buildx imagetools inspect ${HUB}:7\\.0\\.1 `)),
@@ -308,18 +435,30 @@ describe('publish — the order of effects is the safety argument', () => {
 		expect(at(log, /^curl /)).toBe(0); // the pinned cosign first
 		expect(at(log, /^docker login /)).toBeLessThan(create);
 		expect(firstTargetInspect).toBeLessThan(sign); // immutability before signing
-		expect(sign).toBeLessThan(firstCopy); // nothing copied unsigned
+		expect(sign).toBeLessThan(firstCopy); // nothing leaves staging unsigned
+		// The staging anchor, then ONE signature per target registry, each AT its digest.
 		expect(log.filter((line) => line.startsWith('cosign sign '))).toEqual([
 			`cosign sign --yes ${STAGING}@${BUILT}`,
+			`cosign sign --yes ${GHCR}@${BUILT}`,
+			`cosign sign --yes ${HUB}@${BUILT}`,
 		]);
+		// Each target is signed only after IT holds the digest.
+		for (const target of [GHCR, HUB])
+			expect(at(log, new RegExp(`^cosign sign --yes ${target}@`))).toBeGreaterThan(
+				at(log, new RegExp(`^docker buildx imagetools create -t ${target}:7\\.0\\.1 `)),
+			);
+		// THE v7.0.0-beta.7 bug: `cosign copy` carries no cosign 3 signature — never invoked.
+		expect(log.some((line) => line.startsWith('cosign copy'))).toBe(false);
 		// The index is assembled from the SMOKE-TESTED digests, never from a staging tag.
-		expect(log.filter((line) => line.startsWith('docker buildx imagetools create '))).toEqual([
+		expect(
+			log.filter((line) => line.startsWith(`docker buildx imagetools create -t ${STAGING}:`)),
+		).toEqual([
 			`docker buildx imagetools create -t ${STAGING}:7.0.1-run-42 ${STAGING}@${ARCH_AMD64} ${STAGING}@${ARCH_ARM64}`,
 		]);
 		expect(log.some((line) => line.includes(':run-42-'))).toBe(false);
-		expect(log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy ${STAGING}@${BUILT} ${GHCR}:7.0.1`,
-			`cosign copy ${STAGING}@${BUILT} ${HUB}:7.0.1`,
+		expect(log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${GHCR}:7.0.1 ${STAGING}@${BUILT}`,
+			`docker buildx imagetools create -t ${HUB}:7.0.1 ${STAGING}@${BUILT}`,
 		]);
 		const verifies = log.filter((line) => line.startsWith('cosign verify '));
 		expect(verifies.map((line) => line.split(' ')[2])).toEqual([
@@ -328,7 +467,7 @@ describe('publish — the order of effects is the safety argument', () => {
 		]);
 		expect(verifies[0]).toContain(`--certificate-identity-regexp ${LIST.signing.identity_regexp}`);
 		expect(verifies[0]).toContain(`--certificate-oidc-issuer ${LIST.signing.issuer}`);
-		expect(at(log, /^cosign verify /)).toBeGreaterThan(lastAt(log, /^cosign copy /));
+		expect(at(log, /^cosign verify /)).toBeGreaterThan(lastAt(log, /^cosign sign /));
 		expect(lastInspectOfTargets).toBeGreaterThan(firstCopy); // re-inspected after the copy
 		// The SAME digest everywhere.
 		expect(run.state(`${GHCR}:7.0.1`)).toBe(BUILT);
@@ -403,17 +542,22 @@ describe('publish — the order of effects is the safety argument', () => {
 });
 
 describe('publish — immutability of a release', () => {
-	test('agreeing holders are kept; the missing target receives THEIR digest — never a rebuild or re-sign', () => {
+	test('agreeing holders are kept; the missing target receives THEIR digest — never a rebuild, signed in its own registry', () => {
 		const existing = D(7);
-		const run = publish({ preset: { [`${GHCR}:7.0.1`]: existing } });
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing },
+			signed: [`${GHCR}@${existing}`],
+		});
 		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.some((line) => line.startsWith('cosign sign '))).toBe(false);
-		expect(run.log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy ${GHCR}@${existing} ${HUB}:7.0.1`,
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${HUB}:7.0.1 ${GHCR}@${existing}`,
 		]);
 		// The official signature of the existing release is checked before it is spread.
 		expect(at(run.log, new RegExp(`^cosign verify ${GHCR}@${existing} `))).toBeLessThan(
-			at(run.log, /^cosign copy /),
+			at(run.log, COPY_TO_TARGET),
 		);
 		expect(run.state(`${HUB}:7.0.1`)).toBe(existing);
 		expect(run.record?.digest).toBe(existing);
@@ -423,35 +567,446 @@ describe('publish — immutability of a release', () => {
 		expect(statuses).toEqual(['skipped', 'unchanged', 'pushed']);
 	});
 
+	test('RECOVERY (v7.0.0-beta.7): holders of X unsigned, staging@X signed by the TAG run → each holder signed IN PLACE (from master) and verified', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			// staging@X: the tag-push run's signature (refs/tags/v7.0.1), as on the real run.
+			signed: [`${STAGING}@${existing}`],
+			// The recovery door is a release dispatch from master: it signs as heads/master.
+			env: { STUB_SIGNER: SIGNER('refs/heads/master'), GITHUB_REF: 'refs/heads/master' },
+		});
+		expect(run.code, run.stdout).toBe(0);
+		// Nothing is rebuilt, copied or re-pointed: only signatures are added, AT X.
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${GHCR}@${existing}`,
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+		expect(run.log.some((line) => line.startsWith('cosign copy'))).toBe(false);
+		// The anchor (staging@X) verified before the first in-place signature.
+		expect(at(run.log, new RegExp(`^cosign verify ${STAGING}@${existing} `))).toBeLessThan(
+			at(run.log, /^cosign sign /),
+		);
+		expect(run.record?.digest).toBe(existing);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'signed', true],
+			['dockerhub', 'signed', true],
+		]);
+	});
+
+	test('RECOVERY, mixed: one holder signed, one unsigned, the staging anchor not needed → only the unsigned one is signed', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			signed: [`${GHCR}@${existing}`],
+		});
+		expect(run.code, run.stdout).toBe(0);
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		const statuses = (run.record?.registries as { status: string }[]).map((item) => item.status);
+		expect(statuses).toEqual(['skipped', 'unchanged', 'signed']);
+	});
+
 	test('holders that DISAGREE refuse before anything is signed or copied', () => {
-		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(8) } });
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(8) },
+			signed: [`${GHCR}@${D(7)}`, `${STAGING}@${D(7)}`],
+		});
 		expect(run.code).toBe(1);
 		expect(run.stdout).toContain('INCONSISTENTLY');
-		expect(run.log.some((line) => /^cosign (sign|copy) /.test(line))).toBe(false);
+		expect(run.log.some(touchesRelease)).toBe(false);
 		expect(run.state(`${HUB}:7.0.1`)).toBe(D(8));
 	});
 
-	test('an existing release WITHOUT the official signature refuses before any copy', () => {
-		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) }, env: { STUB_UNSIGNED: D(7) } });
+	test('an existing release whose digest verifies NOWHERE official refuses before any sign or copy', () => {
+		// Holders of X, none signed; staging@X unsigned too; a signature on ANOTHER digest
+		// in staging is not X's.
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(7) },
+			signed: [`${STAGING}@${BUILT}`],
+		});
 		expect(run.code).toBe(1);
-		expect(run.stdout).toContain('does not carry the official signature');
-		expect(run.log.some((line) => /^cosign (sign|copy) /.test(line))).toBe(false);
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
+		expect(run.log.some(touchesRelease)).toBe(false);
+		// Every official place was asked: each holder, then staging@X.
+		for (const ref of [`${GHCR}@${D(7)}`, `${HUB}@${D(7)}`, `${STAGING}@${D(7)}`])
+			expect(at(run.log, new RegExp(`^cosign verify ${ref} `))).toBeGreaterThanOrEqual(0);
+	});
+
+	test('a single unsigned holder with no anchor refuses, and the missing target is NOT filled', () => {
+		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
+		expect(run.log.some(touchesRelease)).toBe(false);
 		expect(run.state(`${HUB}:7.0.1`)).toBeNull();
+	});
+
+	test.each([
+		['a DEV build (heads/master)', SIGNER('refs/heads/master')],
+		['ANOTHER release tag (v7.0.0)', SIGNER('refs/tags/v7.0.0')],
+	])(
+		'S2: staging@X signed only by %s never anchors this release — refused before any sign or copy',
+		(_, identity) => {
+			const run = publish({
+				preset: { [`${GHCR}:7.0.1`]: D(7), [`${HUB}:7.0.1`]: D(7) },
+				signedBy: { [`${STAGING}@${D(7)}`]: identity },
+			});
+			expect(run.code).toBe(1);
+			expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
+			expect(run.log.some(touchesRelease)).toBe(false);
+			// The anchor is asked with the EXACT identity of this release, not the shared regexp.
+			expect(
+				run.log.some((line) =>
+					line.startsWith(
+						`cosign verify ${STAGING}@${D(7)} --certificate-identity ${SIGNER('refs/tags/v7.0.1')} `,
+					),
+				),
+			).toBe(true);
+		},
+	);
+
+	test('S2: a holder signed only by heads/master passes the shared verify but does not anchor; with no release signature anywhere → refused', () => {
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7) },
+			signedBy: { [`${GHCR}@${D(7)}`]: SIGNER('refs/heads/master') },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL);
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test('RECOVERY copy: X held unsigned by one target, missing at another, staging@X anchors → copied FROM staging and both signed', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing },
+			signed: [`${STAGING}@${existing}`],
+		});
+		expect(run.code, run.stdout).toBe(0);
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${HUB}:7.0.1 ${STAGING}@${existing}`,
+		]);
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${GHCR}@${existing}`,
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'signed', true],
+			['dockerhub', 'pushed', true],
+		]);
+	});
+
+	test('RECOVERY: an in-place signature that fails fails THAT holder (record failed/unverified), the run is red, nothing copied', () => {
+		const existing = D(7);
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: existing, [`${HUB}:7.0.1`]: existing },
+			signed: [`${STAGING}@${existing}`],
+			env: { STUB_SIGN_FAIL: `${HUB}@${existing}` },
+		});
+		expect(run.code).toBe(1);
+		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+		expect(reasonOf(run, 'dockerhub')).toBe('signing failed');
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'signed', true],
+			['dockerhub', 'failed', false],
+		]);
+	});
+
+	test('a release tag that APPEARS between the immutability check and the copy is never re-pointed', () => {
+		const run = publish({ env: { STUB_APPEAR_REF: `${HUB}:7.0.1`, STUB_APPEAR_DIGEST: D(9) } });
+		expect(run.code).toBe(1);
+		expect(
+			run.log.some((line) => line.startsWith(`docker buildx imagetools create -t ${HUB}:`)),
+		).toBe(false);
+		expect(run.state(`${HUB}:7.0.1`)).toBe(D(9));
+		const hub = (run.record?.registries as { id: string; status: string; reason: string }[]).find(
+			(item) => item.id === 'dockerhub',
+		);
+		expect(hub?.status).toBe('failed');
+		expect(hub?.reason).toContain(`appeared as ${D(9)}`);
+		expect(run.state(`${GHCR}:7.0.1`)).toBe(BUILT); // the other target still published
+	});
+
+	test('a command that HANGS is killed at the per-command ceiling: that target fails, the record is still written', () => {
+		const run = publish({
+			env: { STUB_SIGN_HANG: `${HUB}@${BUILT}`, IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '5000' },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('timed out after 5000 ms');
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'pushed', true],
+			['dockerhub', 'failed', false],
+		]);
+	}, 30_000);
+
+	test('S2: a release dispatch from master never MINTS a release — no holder → refused before any sign or copy', () => {
+		const run = publish({
+			env: { GITHUB_REF: 'refs/heads/master', STUB_SIGNER: SIGNER('refs/heads/master') },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('a never-published release is published only from its own tag');
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test('S2: a run on ANOTHER release tag never mints this one either', () => {
+		const run = publish({ env: { GITHUB_REF: 'refs/tags/v7.0.0' } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('a never-published release is published only from its own tag');
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test('the fork guard: a release identity outside the list (GITHUB_REPOSITORY=someone/fork) refuses, nothing touched', () => {
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7) },
+			signed: [`${STAGING}@${D(7)}`],
+			env: { GITHUB_REPOSITORY: 'someone/fork' },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain("is not inside the list's signing identity");
+		expect(run.log.some(touchesRelease)).toBe(false);
+	});
+
+	test("a copy that fails is recorded 'copy failed' — and nothing is signed there", () => {
+		const run = publish({ env: { STUB_COPY_FAIL: `${HUB}:7.0.1` } });
+		expect(run.code).toBe(1);
+		expect(reasonOf(run, 'dockerhub')).toBe('copy failed');
+		expect(run.log.some((line) => line.startsWith(`cosign sign --yes ${HUB}@`))).toBe(false);
+	});
+
+	test("a target's tag that becomes UNREADABLE before the copy is not copied to (unreadable is not absent)", () => {
+		const run = publish({ env: { STUB_INSPECT_ERROR_AFTER_FIRST: `${HUB}:7.0.1` } });
+		expect(run.code).toBe(1);
+		expect(
+			run.log.some((line) => line.startsWith(`docker buildx imagetools create -t ${HUB}:`)),
+		).toBe(false);
+		expect(statusOf(run, 'dockerhub')).toBe('failed');
+		expect(reasonOf(run, 'dockerhub')).toContain('unreadable');
+		expect(statusOf(run, 'ghcr')).toBe('pushed');
+	});
+
+	test('past the verb DEADLINE no target is attempted: the rest fail "deadline exceeded", the record is still written', () => {
+		// GHCR's signature hangs; the per-command ceiling is far away, the 4 s budget is not.
+		const run = publish({
+			env: {
+				STUB_SIGN_HANG: `${GHCR}@${BUILT}`,
+				IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '60000',
+				IMAGE_RELEASE_DEADLINE_MS: '4000',
+			},
+		});
+		expect(run.code).toBe(1);
+		expect(run.record).not.toBeNull();
+		expect(statusOf(run, 'ghcr')).toBe('failed');
+		expect(reasonOf(run, 'dockerhub')).toBe('deadline exceeded');
+		expect(run.log.some((line) => line.includes(HUB) && !line.includes('inspect'))).toBe(false);
+	}, 30_000);
+
+	test('a REFUSAL after the plan still writes the record: every publish target failed with the reason, digest null', () => {
+		const run = publish({ preset: { [`${GHCR}:7.0.1`]: D(7) } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain(THIS_RELEASE_REFUSAL); // main's ::error:: as before
+		expect(run.record?.digest).toBeNull();
+		expect(statusOf(run, 'gitdedalo')).toBe('skipped');
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('failed');
+			expect(reasonOf(run, id)).toContain(THIS_RELEASE_REFUSAL);
+			expect(rowOf(run, id)?.verified).toBe(false);
+		}
+		// The summary an operator reads says the same — and never prints a null digest.
+		expect(run.summary).toContain('digest: none');
+		expect(run.summary).toContain(`| ghcr | \`${GHCR}\` | failed | no | release 7.0.1`);
+		expect(run.summary).toContain(`| dockerhub | \`${HUB}\` | failed | no | release 7.0.1`);
+		expect(run.summary).not.toContain('@null');
+		expect(run.summary).not.toContain('`null`');
+	});
+
+	test('a PLAIN error after the plan (a malformed cosign pin file) is recorded too: all targets failed, digest null', () => {
+		const badPin = join(scratch, `bad-pin-${runCounter}.json`);
+		writeFileSync(badPin, '{ not json');
+		const run = publish({ env: { COSIGN_PIN_FILE: badPin } });
+		expect(run.code).not.toBe(0);
+		expect(run.record?.digest).toBeNull();
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('failed');
+			expect(reasonOf(run, id)?.length ?? 0).toBeGreaterThan(0);
+		}
+		expect(run.log).toEqual([]);
+	});
+
+	test('a record that cannot be WRITTEN is a warning — the ORIGINAL error still decides the run', () => {
+		const run = publish({
+			preset: { [`${GHCR}:7.0.1`]: D(7) },
+			env: { RECORD_PATH: join(scratch, 'no-such-dir', 'image-release.json') },
+		});
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('::warning::record not written');
+		expect(run.stdout).toContain(`::error::release 7.0.1 already exists`);
+		expect(run.record).toBeNull();
+	});
+
+	test('a hang BEFORE the per-target loop (a registry login) hits the deadline — and the record is still written', () => {
+		const run = publish({ env: { STUB_LOGIN_HANG: '1', IMAGE_RELEASE_DEADLINE_MS: '4000' } });
+		expect(run.code).toBe(1);
+		expect(run.record).not.toBeNull();
+		expect(run.record?.digest).toBeNull();
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('failed');
+			expect(reasonOf(run, id)).toContain('docker login');
+		}
+		expect(run.log.some(touchesRelease)).toBe(false);
+	}, 30_000);
+
+	test('a GREEN publish whose summary cannot be appended keeps its true record and exit 0 (summary is a named warning)', () => {
+		const run = publish({
+			env: { GITHUB_STEP_SUMMARY: join(scratch, 'no-such-dir', 'summary.md') },
+		});
+		expect(run.code, run.stdout).toBe(0);
+		expect(run.stdout).toContain('::warning::summary not written');
+		expect(run.stdout).not.toContain('record not written');
+		expect(run.record?.digest).toBe(BUILT);
+		for (const id of ['ghcr', 'dockerhub']) {
+			expect(statusOf(run, id)).toBe('pushed');
+			expect(rowOf(run, id)?.verified).toBe(true);
+		}
+	});
+
+	test('an error AFTER a target was published keeps what really happened: that target pushed + verified, the real digest', () => {
+		// A plain Error thrown at dockerhub's verify, after ghcr was copied, signed and verified.
+		const run = publish({ throwOn: `cosign verify ${HUB}@` });
+		expect(run.code).toBe(99); // main rethrows a non-Refusal
+		expect(run.stdout).toContain('injected failure at: cosign verify');
+		// The error record was written (no fallback warning), and ghcr's verify ran clean.
+		expect(run.stdout).toContain('record: ');
+		expect(run.stdout).not.toContain('record not written');
+		expect(run.stdout).not.toContain('::error::ghcr');
+		expect(run.record?.digest).toBe(BUILT);
+		expect(rowOf(run, 'ghcr')).toMatchObject({ status: 'pushed', verified: true, reason: null });
+		// dockerhub WAS pushed (step 6) — kept, unverified, with the error as its reason.
+		expect(rowOf(run, 'dockerhub')).toMatchObject({ status: 'pushed', verified: false });
+		expect(reasonOf(run, 'dockerhub')).toBe(
+			`interrupted: injected failure at: cosign verify ${HUB}@${BUILT} --certificate-identity-regexp ${LIST.signing.identity_regexp} --certificate-oidc-issuer ${LIST.signing.issuer}`,
+		);
+	});
+
+	test("an interrupted record keeps a target's OWN finished verdict and reason — never the other target's error", () => {
+		// ghcr's copy fails on its own (step 6 'copy failed', step 7 final); then a plain Error
+		// is thrown at dockerhub's verify.
+		const run = publish({
+			throwOn: `cosign verify ${HUB}@`,
+			env: { STUB_COPY_FAIL: `${GHCR}:7.0.1` },
+		});
+		expect(run.code).toBe(99);
+		expect(run.stdout).toContain(`::error::ghcr: ${GHCR}:7.0.1 is not ${BUILT}`);
+		expect(rowOf(run, 'ghcr')).toEqual({
+			id: 'ghcr',
+			repository: GHCR,
+			status: 'failed',
+			reason: 'copy failed',
+			verified: false,
+		});
+		expect(reasonOf(run, 'dockerhub')).toStartWith('interrupted: injected failure');
+		// A step-6 row whose verify never ran keeps its OWN reason, the interruption appended.
+		const early = publish({
+			throwOn: `cosign verify ${GHCR}@`,
+			env: { STUB_SIGN_FAIL: `${HUB}@${BUILT}` },
+		});
+		expect(early.code).toBe(99);
+		expect(reasonOf(early, 'dockerhub')).toStartWith(
+			'signing failed; interrupted: injected failure',
+		);
+		expect(statusOf(early, 'dockerhub')).toBe('failed');
+	});
+
+	test('a TERMINAL record that cannot be written: NOT retried, one warning, the original error, no partial file', () => {
+		const NOT_RETRIED = /::warning::record not written \(terminal write, not retried\)/g;
+		const dir = join(scratch, `gone-${runCounter}`);
+		const recordPath = join(dir, 'image-release.json');
+		const run = publish({ env: { RECORD_PATH: recordPath } });
+		expect(run.code).not.toBe(0);
+		expect(run.stdout.match(NOT_RETRIED)?.length).toBe(1);
+		expect(run.stdout.match(/record not written/g)?.length).toBe(1); // no error-record retry
+		expect(run.stdout).toContain('ENOENT'); // the original error decides the run
+		expect(existsSync(recordPath)).toBe(false);
+		expect(existsSync(`${recordPath}.part`)).toBe(false);
+		// The rename itself fails (the path is a directory): the written .part is removed.
+		const blocked = join(scratch, `blocked-${runCounter}`);
+		mkdirSync(join(blocked, 'occupied'), { recursive: true });
+		const second = publish({ env: { RECORD_PATH: blocked } });
+		expect(second.code).not.toBe(0);
+		expect(second.stdout.match(NOT_RETRIED)?.length).toBe(1);
+		expect(existsSync(`${blocked}.part`)).toBe(false);
+	});
+
+	test('ATOMIC: a write that fails leaves the PREVIOUS record byte-for-byte (an in-place write would clobber it)', () => {
+		const dir = join(scratch, `atomic-${runCounter}`);
+		mkdirSync(dir, { recursive: true });
+		const recordPath = join(dir, 'image-release.json');
+		const previous = '{"previous":"bytes","must":"survive"}\n';
+		writeFileSync(recordPath, previous);
+		// The .part cannot be created (it is a directory) — and cannot be removed either.
+		mkdirSync(`${recordPath}.part`);
+		const run = publish({ env: { RECORD_PATH: recordPath } });
+		expect(run.code).not.toBe(0);
+		expect(readFileSync(recordPath, 'utf8')).toBe(previous);
+		// The ORIGINAL error (the .part open) is reported — not the failed cleanup's rm error.
+		expect(run.stdout).toContain(`illegal operation on a directory, open '${recordPath}.part'`);
+		expect(run.stdout).not.toContain('rm returned');
+	});
+
+	test('a failing staging signature refuses before anything leaves staging', () => {
+		const run = publish({ env: { STUB_SIGN_RC: '1' } });
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('signing the image in staging failed');
+		expect(run.log.some((line) => COPY_TO_TARGET.test(line))).toBe(false);
+	});
+
+	test('a signature that fails in ONE target registry fails that target and the run; the record says so', () => {
+		const run = publish({ env: { STUB_SIGN_FAIL: `${HUB}@${BUILT}` } });
+		expect(run.code).toBe(1);
+		expect(
+			(run.record?.registries as { id: string; status: string; verified: boolean }[]).map(
+				(item) => [item.id, item.status, item.verified],
+			),
+		).toEqual([
+			['gitdedalo', 'skipped', false],
+			['ghcr', 'pushed', true],
+			['dockerhub', 'failed', false],
+		]);
 	});
 
 	test('a target that cannot be READ refuses (absent and unreadable are different answers)', () => {
 		const run = publish({ env: { STUB_INSPECT_ERROR: `${HUB}:7.0.1` } });
 		expect(run.code).toBe(1);
 		expect(run.stdout).toContain(`cannot read ${HUB}`);
-		expect(run.log.some((line) => /^cosign (sign|copy) /.test(line))).toBe(false);
+		expect(run.log.some(touchesRelease)).toBe(false);
 	});
 
 	test('the DEV channel overwrites its mutable tag', () => {
 		const run = publish({ channel: 'dev', preset: { [`${GHCR}:7.0.1-dev`]: D(7) } });
 		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy --force ${STAGING}@${BUILT} ${GHCR}:7.0.1-dev`,
-			`cosign copy --force ${STAGING}@${BUILT} ${HUB}:7.0.1-dev`,
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${GHCR}:7.0.1-dev ${STAGING}@${BUILT}`,
+			`docker buildx imagetools create -t ${HUB}:7.0.1-dev ${STAGING}@${BUILT}`,
 		]);
 		expect(run.state(`${GHCR}:7.0.1-dev`)).toBe(BUILT);
 	});
@@ -497,16 +1052,24 @@ describe('publish — GATE 16: the tag SET a run writes', () => {
 		expect(run.tagsHeld(GHCR)).toEqual(['7.0.1', '7.0.1-beta.2']);
 		expect(run.state(`${GHCR}:7.0.1`)).toBe(stable);
 		expect(run.tagsHeld(HUB)).toEqual(['7.0.1-beta.2']);
-		expect(run.log.some((line) => /^cosign copy .* \S+:7\.0\.1$/.test(line))).toBe(false);
+		expect(
+			run.log.some((line) => /^docker buildx imagetools create -t \S+:7\.0\.1 /.test(line)),
+		).toBe(false);
 	});
 
 	test('a published prerelease is IMMUTABLE: the existing digest is spread, never re-signed or forced', () => {
 		const existing = D(7);
-		const run = publish({ channel: 'prerelease', preset: { [`${GHCR}:7.0.1-beta.2`]: existing } });
+		const run = publish({
+			channel: 'prerelease',
+			preset: { [`${GHCR}:7.0.1-beta.2`]: existing },
+			signed: [`${GHCR}@${existing}`],
+		});
 		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.some((line) => line.startsWith('cosign sign '))).toBe(false);
-		expect(run.log.filter((line) => line.startsWith('cosign copy '))).toEqual([
-			`cosign copy ${GHCR}@${existing} ${HUB}:7.0.1-beta.2`,
+		expect(run.log.filter((line) => line.startsWith('cosign sign '))).toEqual([
+			`cosign sign --yes ${HUB}@${existing}`,
+		]);
+		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
+			`docker buildx imagetools create -t ${HUB}:7.0.1-beta.2 ${GHCR}@${existing}`,
 		]);
 	});
 
@@ -645,6 +1208,90 @@ describe('the trigger — every release tag reaches `plan`, which validates it e
 		expect(matching).toContain('7.0.0-beta.01'); // the glob is wider than the grammar
 		for (const name of ordering.not_identities)
 			expect(() => planOf(`v${name}`), name).toThrow('is not a release tag');
+	});
+});
+
+describe('time bounds — every verb finishes (and records) before GitHub kills its job', () => {
+	test('the per-command ceilings and verb budgets are the documented defaults; bad overrides fall back', async () => {
+		const { commandTimeoutMs, verbBudgetMs } = await import('../../scripts/ci/image_release.ts');
+		expect(commandTimeoutMs('publish', {})).toBe(8 * 60_000);
+		expect(verbBudgetMs('publish', {})).toBe(22 * 60_000);
+		expect(commandTimeoutMs('plan', {})).toBe(5 * 60_000);
+		for (const bad of ['0', 'abc', '-5', ''])
+			expect(commandTimeoutMs('publish', { IMAGE_RELEASE_COMMAND_TIMEOUT_MS: bad })).toBe(
+				8 * 60_000,
+			);
+		expect(commandTimeoutMs('publish', { IMAGE_RELEASE_COMMAND_TIMEOUT_MS: '1234' })).toBe(1234);
+		expect(verbBudgetMs('publish', { IMAGE_RELEASE_DEADLINE_MS: 'x' })).toBe(22 * 60_000);
+	});
+
+	test("each job: its verbs' budgets + its declared non-verb overhead fit its timeout-minutes; each ceiling within its verb's budget", async () => {
+		const { COMMAND_TIMEOUT_MS, JOB_OVERHEAD_MS, VERB_BUDGET_MS, VERB_JOBS } = await import(
+			'../../scripts/ci/image_release.ts'
+		);
+		const workflow = Bun.YAML.parse(
+			readFileSync(join(ROOT, '.github', 'workflows', 'image-release.yml'), 'utf8'),
+		) as { jobs: Record<string, { 'timeout-minutes'?: number; steps: { run?: string }[] }> };
+		const perJob = new Map<string, number>();
+		for (const [verb, job] of Object.entries(VERB_JOBS)) {
+			const definition = workflow.jobs[job];
+			expect(definition, job).toBeDefined();
+			// The map is honest: that job really runs that verb.
+			expect(
+				definition?.steps.some((step) =>
+					new RegExp(`image_release\\.ts ${verb}\\b`).test(step.run ?? ''),
+				),
+				`${job} runs ${verb}`,
+			).toBe(true);
+			expect(COMMAND_TIMEOUT_MS[verb], verb).toBeLessThanOrEqual(VERB_BUDGET_MS[verb] as number);
+			perJob.set(job, (perJob.get(job) ?? 0) + (VERB_BUDGET_MS[verb] as number));
+		}
+		// Every verb the workflow runs is mapped.
+		const runs = Object.values(workflow.jobs).flatMap((job) =>
+			job.steps.flatMap((step) => [...(step.run ?? '').matchAll(/image_release\.ts (\w+)/g)]),
+		);
+		expect(runs.length).toBeGreaterThan(0);
+		for (const match of runs) expect(Object.keys(VERB_JOBS)).toContain(match[1] as string);
+		// Every job that runs a verb declares its non-verb allowance, with a reason — and the
+		// allowance is ENFORCED: every step carries a step timeout; the non-verb steps' sum
+		// fits the allowance, each verb step outlasts its verb's budget (the program's own
+		// deadline fires first), and all step timeouts together fit the job's.
+		expect(Object.keys(JOB_OVERHEAD_MS).sort()).toEqual([...perJob.keys()].sort());
+		for (const job of perJob.keys()) {
+			const steps = workflow.jobs[job]?.steps ?? [];
+			let nonVerb = 0;
+			let all = 0;
+			for (const step of steps) {
+				const minutes = (step as { 'timeout-minutes'?: number })['timeout-minutes'];
+				expect(minutes, `${job}: every step has timeout-minutes`).toBeGreaterThan(0);
+				all += (minutes as number) * 60_000;
+				const verb = /image_release\.ts (\w+)/.exec(step.run ?? '')?.[1];
+				if (verb === undefined) nonVerb += (minutes as number) * 60_000;
+				else
+					expect((minutes as number) * 60_000, `${job}/${verb}`).toBeGreaterThan(
+						VERB_BUDGET_MS[verb] as number,
+					);
+			}
+			// The set-up/post reserve is explicit, with its reason, and counted.
+			const overhead = JOB_OVERHEAD_MS[job];
+			expect(overhead?.setupMs ?? 0, `${job} setupMs`).toBeGreaterThan(0);
+			expect(overhead?.setupReason ?? '', `${job} setupReason`).not.toBe('');
+			expect(
+				nonVerb + (overhead?.setupMs ?? 0),
+				`${job} non-verb steps + set-up reserve`,
+			).toBeLessThanOrEqual(overhead?.ms ?? 0);
+			expect(all, `${job} all steps`).toBeLessThanOrEqual(
+				(workflow.jobs[job]?.['timeout-minutes'] ?? 0) * 60_000,
+			);
+		}
+		for (const [job, budget] of perJob) {
+			const limit = workflow.jobs[job]?.['timeout-minutes'];
+			const overhead = JOB_OVERHEAD_MS[job];
+			expect(limit, `${job} timeout-minutes`).toBeGreaterThan(0);
+			expect(overhead?.ms ?? 0, `${job} overhead`).toBeGreaterThan(0);
+			expect(overhead?.reason ?? '', `${job} overhead reason`).not.toBe('');
+			expect(budget + (overhead?.ms ?? 0), job).toBeLessThanOrEqual((limit as number) * 60_000);
+		}
 	});
 });
 
@@ -1047,6 +1694,19 @@ describe('plan — which release a run publishes', () => {
 		});
 		expect(missing.code).toBe(1);
 		expect(missing.text).toContain('does not exist');
+	});
+
+	test("a release dispatch run on ANOTHER release tag's ref is refused at plan (no v7.0.2-beta.1 run publishing v7.0.1)", () => {
+		const other = plan({
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/tags/v7.0.2-beta.1',
+			GITHUB_SHA: betaSha,
+			INPUT_CHANNEL: 'release',
+			INPUT_TAG: 'v7.0.1',
+		});
+		expect(other.code).toBe(1);
+		expect(other.text).toContain('runs from refs/heads/master or from that same tag');
+		expect(other.out).toEqual({});
 	});
 
 	// A release is cut only from a commit the FULL gate passed on GitHub (2026-10-10):
