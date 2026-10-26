@@ -87,7 +87,7 @@ const get_content_data_edit = async (self) => {
 	for (const text of ['Reconcile', 'Stores compared', 'Schedule', 'Last run', 'Actions']) {
 		ui.create_dom_element({
 			element_type: 'div',
-			class_name: 'dd_td',
+			class_name: text === 'Actions' ? 'dd_th act' : 'dd_th',
 			text_content: text,
 			parent: header,
 		});
@@ -98,7 +98,7 @@ const get_content_data_edit = async (self) => {
 		const item = reconciles[i];
 		const row = ui.create_dom_element({
 			element_type: 'div',
-			class_name: `dd_tr${item.last_run && item.last_run.drift > 0 ? ' state_alert' : ''}`,
+			class_name: 'dd_tr',
 			parent: table,
 		});
 		// name + description
@@ -133,16 +133,22 @@ const get_content_data_edit = async (self) => {
 			parent: row,
 		});
 		// last run
+		// state_alert goes on the CELL: .dd_tr is display: contents, so a class
+		// on the row would paint nothing (kit styles .dd_td.state_alert).
 		ui.create_dom_element({
 			element_type: 'div',
-			class_name: 'dd_td last_run',
+			class_name:
+				'dd_td last_run' +
+				(item.last_run && item.last_run.drift > 0 ? ' state_alert' : ''),
 			text_content: last_run_text(item.last_run),
 			parent: row,
 		});
 		// actions
+		// `act` is the kit's right-rail button cell (children never shrink, so the
+		// labels cannot wrap to "Che ck"); `actions` only adds the gap.
 		const actions = ui.create_dom_element({
 			element_type: 'div',
-			class_name: 'dd_td actions',
+			class_name: 'dd_td act actions',
 			parent: row,
 		});
 		const button_check = ui.create_dom_element({

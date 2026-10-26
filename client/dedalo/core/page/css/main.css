@@ -16263,7 +16263,12 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   color: var(--fg_muted);
 }
 .wrapper_widget.reconcile_status .dd_table {
-  grid-template-columns: minmax(9rem, 1.2fr) minmax(10rem, 1.6fr) 7rem minmax(10rem, 1.4fr) 9rem;
+  grid-template-columns: minmax(16rem, 2fr) minmax(11rem, 1.5fr) 8rem minmax(9rem, 1fr) max-content;
+}
+.wrapper_widget.reconcile_status .dd_table .dd_td.name {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
 }
 .wrapper_widget.reconcile_status .dd_table .description {
   font-size: 0.8rem;
@@ -16272,6 +16277,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.reconcile_status .dd_table .actions {
   display: flex;
   gap: 0.35rem;
+  align-items: flex-start;
 }
 .wrapper_widget.reconcile_status .body_response {
   margin-top: 0.75rem;
