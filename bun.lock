@@ -14,7 +14,7 @@
         "@svgedit/svgcanvas": "7.4.2",
         "@turf/turf": "7.4.0",
         "cheerio": "1.2.0",
-        "codex-tooltip": "1.0.6",
+        "codex-tooltip": "1.1.0",
         "d3": "7.9.0",
         "easyqrcodejs": "4.6.2",
         "leaflet": "1.9.4",
@@ -550,7 +550,7 @@
 
     "codemirror-wrapped-line-indent": ["codemirror-wrapped-line-indent@1.0.9", "", { "peerDependencies": { "@codemirror/language": "^6.9.0", "@codemirror/state": "^6.2.1", "@codemirror/view": "^6.17.1" } }, "sha512-oc976hHLt35u6Ojbhub+IWOxEpapZSqYieLEdGhsgFZ4rtYQtdb5KjxzgjCCyVe3t0yk+a6hmaIOEsjU/tZRxQ=="],
 
-    "codex-tooltip": ["codex-tooltip@1.0.6", "", {}, "sha512-3MVjBjeJFQ4jGlPuYHYV3Yj0wnl1l9ppB5zeIFJeyo8Ala3WlZYtLK5yZEoyND2fxIyVmqsZORCftDGX3vbSGQ=="],
+    "codex-tooltip": ["codex-tooltip@1.1.0", "", {}, "sha512-4AHzIapwZ979nzOPR9YYd8GU+xRAxrc5i5vV6+A6OZRRarLW2ToJZv63E/sYONeJSxUQ1Dyn+PtnVGA3OuoKhA=="],
 
     "commander": ["commander@7.2.0", "", {}, "sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw=="],
 
