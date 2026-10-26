@@ -20,11 +20,18 @@
  * every transfer.
  */
 
+import { config } from '../../../config/config.ts';
 import { DedaloError, ok, toErrorEnvelope, wireMessage } from '../../errors/index.ts';
 import type { Session } from '../../security/session_store.ts';
 import { verifyCsrf } from '../../security/session_store.ts';
 import { createStagedThumbnail } from './staged_thumbnail.ts';
-import { parseUploadRequest, receiveUpload } from './upload.ts';
+import {
+	assertWebImageFormat,
+	parseUploadRequest,
+	publishWebImage,
+	receiveUpload,
+	WEB_IMAGE_KEY_DIR,
+} from './upload.ts';
 
 /** Build a JSON Response with a status. */
 function json(body: unknown, status = 200): Response {
@@ -73,6 +80,18 @@ export async function handleMediaUpload(
 	}
 	if (!verifyCsrf(session, csrfCandidate) && !verifyCsrf(session, parsed.csrfToken)) {
 		return refusal(new DedaloError('auth.csrf_failed'), requestId);
+	}
+	// Rich-text editor image (CKEditor SimpleUploadAdapter, PHP `case 'web'`): its
+	// wire is a bare { url } — the adapter reads `url`, or `error.message` on refusal.
+	if (parsed.keyDir === WEB_IMAGE_KEY_DIR) {
+		try {
+			assertWebImageFormat(parsed.fileName);
+			const received = receiveUpload({ ...parsed, chunked: false }, session.userId);
+			const path = publishWebImage(session.userId, received.tmpName ?? '');
+			return json({ url: `${config.media.webBase}/${path}` });
+		} catch (error) {
+			return refusal(rejectedUpload(error), requestId);
+		}
 	}
 	try {
 		const received = receiveUpload(parsed, session.userId);

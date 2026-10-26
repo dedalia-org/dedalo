@@ -375,6 +375,23 @@ export const service_ckeditor = function() {
 				// fix the instance
 					self.editor = editor
 
+				// image upload CSRF: read page_globals.csrf_token per upload, not at init
+				// (data_manager refreshes it from every envelope, e.g. after a re-login);
+				// CKEditor copies its config at init, so stamp each upload adapter instead
+					if (editor.plugins.has('FileRepository')) {
+						const file_repository		= editor.plugins.get('FileRepository')
+						const create_upload_adapter	= file_repository.createUploadAdapter
+						if (create_upload_adapter) {
+							file_repository.createUploadAdapter = (loader) => {
+								const adapter = create_upload_adapter(loader)
+								adapter.options = Object.assign({}, adapter.options, {
+									headers : {'X-Dedalo-Csrf-Token' : page_globals.csrf_token || ''}
+								})
+								return adapter
+							}
+						}
+					}
+
 			// init editor status changes to track isDirty value
 					self.init_status_changes()
 

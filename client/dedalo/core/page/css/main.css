@@ -27941,6 +27941,31 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li {
 dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hover {
   background-color: var(--color_grey_13);
 }
+:where(.component_text_area .editor_container) .image {
+  display: table;
+  clear: both;
+  text-align: center;
+  margin: 0.9em auto;
+  min-width: 50px;
+}
+:where(.component_text_area .editor_container) .image img {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  min-width: 100%;
+  height: auto;
+}
+:where(.component_text_area .editor_container) .image.image_resized {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+:where(.component_text_area .editor_container) .image.image_resized img {
+  width: 100%;
+}
+:where(.component_text_area .editor_container) img.image_resized {
+  height: auto;
+}
 /**
 * widget calculation
 *

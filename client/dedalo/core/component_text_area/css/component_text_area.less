@@ -582,3 +582,38 @@ dd-modal {
 	}
 
 }//end dd-modal
+
+// block/resized images: CKEditor's own rules (ckeditor5-image image.css +
+// imageresize.css, v42) arrive only with ckeditor.js; mirrored here so the
+// pre-init render does not flash the img at its natural width/height attrs.
+// :where() keeps them LESS specific than CKEditor's `.ck-content .image…`, so
+// once loaded its image-style-* rules (side, align-left/right) win.
+:where(.component_text_area .editor_container) {
+	.image {
+		display: table;
+		clear: both;
+		text-align: center;
+		margin: 0.9em auto;
+		min-width: 50px;
+
+		img {
+			display: block;
+			margin: 0 auto;
+			max-width: 100%;
+			min-width: 100%;
+			height: auto;
+		}
+	}
+	.image.image_resized {
+		display: block;
+		max-width: 100%;
+		box-sizing: border-box;
+
+		img {
+			width: 100%;
+		}
+	}
+	img.image_resized {
+		height: auto;
+	}
+}

@@ -13,11 +13,12 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
+import { requireMediaRoot } from '../../src/core/media/path.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { handleRequest } from '../../src/server.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
@@ -43,7 +44,7 @@ interface ErrBody {
 }
 const UPLOAD_USER = 3;
 /** Every key_dir this file writes into — torn down before and after the run. */
-const KEY_DIRS = ['kd_ep', 'kd_chunk', 'kd_collide', 'kd_corrupt', 'kd_badid'];
+const KEY_DIRS = ['web', 'kd_ep', 'kd_chunk', 'kd_collide', 'kd_corrupt', 'kd_badid'];
 const clearStaging = (): void => {
 	for (const keyDir of KEY_DIRS) {
 		rmSync(stagingDir(UPLOAD_USER, keyDir), { recursive: true, force: true });
@@ -509,4 +510,66 @@ describe('upload_id is validated, not sanitized', () => {
 			expect(existsSync(stagingDir(UPLOAD_USER, 'kd_badid'))).toBe(false);
 		});
 	}
+});
+
+describe("rich-text image upload (CKEditor SimpleUploadAdapter, key_dir 'web')", () => {
+	/** CKEditor's wire: field `upload`, key_dir in the URL query, CSRF header only. */
+	function ckeditorRequest(blob: Blob, name: string, s: { token: string; csrf: string }): Request {
+		const form = new FormData();
+		form.set('upload', blob, name);
+		return new Request(`${API_URL}?resource_type=web&key_dir=web`, {
+			method: 'POST',
+			body: form,
+			headers: { Cookie: `dedalo_ts_session=${s.token}`, 'x-dedalo-csrf-token': s.csrf },
+		});
+	}
+	/** Files (not dirs) under a tree — a staged copy and its display-name record both count. */
+	const filesUnder = (dir: string): string[] =>
+		existsSync(dir)
+			? readdirSync(dir, { recursive: true, withFileTypes: true })
+					.filter((entry) => entry.isFile())
+					.map((entry) => resolve(entry.parentPath, entry.name))
+			: [];
+	const webStaging = (): string => stagingDir(UPLOAD_USER, 'web');
+	const webFolder = (): string => resolve(requireMediaRoot(), 'image', 'web');
+
+	test.if(HAVE_MAGICK)(
+		'publishes into the image web folder and answers a bare { url }',
+		async () => {
+			const res = await handleRequest(
+				ckeditorRequest(await jpegBlob(), 'pic.jpg', newSession(UPLOAD_USER)),
+				context,
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as { url: string };
+			const match = /\/(image\/web\/pic(?:-[0-9a-f]+)?\.jpg)$/.exec(body.url);
+			expect(match).not.toBeNull();
+			const onDisk = resolve(requireMediaRoot(), match![1]!);
+			try {
+				expect(existsSync(onDisk)).toBe(true);
+				// moved, not copied: nothing of the transfer stays in staging
+				expect(filesUnder(webStaging())).toEqual([]);
+			} finally {
+				rmSync(onDisk, { force: true });
+			}
+		},
+	);
+
+	test('a non-web format is refused before staging: the adapter reads error.message, nothing is left on disk', async () => {
+		const before = filesUnder(webFolder());
+		const pdf = new Blob([new TextEncoder().encode('%PDF-1.4\n%%EOF\n')], {
+			type: 'application/pdf',
+		});
+		const res = await handleRequest(
+			ckeditorRequest(pdf, 'doc.pdf', newSession(UPLOAD_USER)),
+			context,
+		);
+		const body = (await res.json()) as ErrBody;
+		expect(res.status).toBe(400);
+		expect(body.ok).toBe(false);
+		expect(body.error.code).toBe('media.upload_rejected');
+		expect(body.error.message).toContain('only jpg, png, gif, webp or avif');
+		expect(filesUnder(webStaging())).toEqual([]);
+		expect(filesUnder(webFolder())).toEqual(before);
+	});
 });

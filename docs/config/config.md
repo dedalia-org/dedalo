@@ -1044,7 +1044,7 @@ DEDALO_HTML_FILES_FOLDER `string`
 
 This parameter names the directory, inside the media directory, that holds self-contained HTML copies generated from records — the single files an institution hands to a visitor or publishes beside a catalogue.
 
-The directory is created and verified when the server starts, along with the rest of the media directories, so it always carries the same owner and permissions as the rest of the tree instead of being minted by whichever process happens to write there first. Nothing in this engine writes into it yet; it is provisioned so that an install keeps the shape it has always had and so no future subsystem has to create it on the fly.
+The directory is created and verified when the server starts, along with the rest of the media directories, so it always carries the same owner and permissions as the rest of the tree instead of being minted by whichever process happens to write there first. Images uploaded from the rich-text editor's toolbar are stored here and embedded in the text by URL.
 
 Change the value only to match a directory an install already carries. It names the folder Dédalo provisions — it does not move files that are already sitting in the old one, and it is a single folder name (a leading slash is optional and removed), never a path: the media directory is the only place this can live.
 
@@ -1450,7 +1450,7 @@ DEDALO_IMAGE_WEB_FOLDER `string`
 
 This parameter names the directory, inside the image directory, that holds browser-sized copies of pictures brought in from a rich-text field rather than from the image component itself.
 
-It sits beside the quality directories (`original`, `1.5MB`, `thumb`, …) and is created and verified when the server starts, so it carries the same owner and permissions as the rest of the media tree. Nothing in this engine writes into it yet; it is provisioned so that an install keeps the shape it has always had and so no future subsystem has to create it on the fly.
+It sits beside the quality directories (`original`, `1.5MB`, `thumb`, …) and is created and verified when the server starts, so it carries the same owner and permissions as the rest of the media tree. Images uploaded from the rich-text editor's toolbar are stored here and embedded in the text by URL.
 
 The value is a single folder name (a leading slash is optional and removed), never a path.
 
