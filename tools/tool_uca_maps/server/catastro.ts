@@ -6,6 +6,7 @@
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { htmlTags } from '../../../src/core/resolve/html_text.ts';
 import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
@@ -50,15 +51,17 @@ export function parseCatastroRefcat(html: string): { refcat: string; url: string
 			message: 'Catastro GetFeatureInfo answered without its parcel result page',
 		});
 	}
-	const match = html.slice(labelIndex).match(/<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/i);
-	if (!match) {
-		return null;
+	const result = html.slice(labelIndex);
+	for (const { index, tag } of htmlTags(result, /<a/iy)) {
+		const href = tag.match(/href="([^"]+)"/i)?.[1];
+		const text = result.slice(index + tag.length).match(/^([^<]+)<\/a>/i)?.[1];
+		if (href === undefined || text === undefined) {
+			continue;
+		}
+		const refcat = text.trim();
+		return REFCAT_PATTERN.test(refcat) ? { refcat, url: href } : null;
 	}
-	const refcat = match[2]?.trim() ?? '';
-	if (!REFCAT_PATTERN.test(refcat)) {
-		return null;
-	}
-	return { refcat, url: match[1] ?? '' };
+	return null;
 }
 
 /**
@@ -67,16 +70,17 @@ export function parseCatastroRefcat(html: string): { refcat: string; url: string
  * answer). A `posList` is a text-only GML leaf: a scoped regex is enough.
  */
 export function extractParcelPosList(xml: string, refcat: string): [number, number][] | null {
-	const members = xml.match(/<member>[\s\S]*?<\/member>/g) ?? [];
-	const target = members.find((m) => m.includes(`.${refcat}"`) || m.includes(`>${refcat}<`));
+	const target = xmlElements(xml, '<member>', '</member>').find(
+		(m) => m.includes(`.${refcat}"`) || m.includes(`>${refcat}<`),
+	);
 	if (!target) {
 		return null;
 	}
-	const posList = target.match(/<gml:posList[^>]*>([^<]*)<\/gml:posList>/);
-	if (!posList?.[1]) {
+	const posList = firstLeafText(target, /<gml:posList/y, /^([^<]*)<\/gml:posList>/);
+	if (!posList) {
 		return null;
 	}
-	const nums = posList[1]
+	const nums = posList
 		.trim()
 		.split(/\s+/)
 		.map((n) => Number(n));
@@ -92,9 +96,39 @@ export function extractParcelPosList(xml: string, refcat: string): [number, numb
 	return points.length >= 3 ? points : null; // a ring needs at least a triangle
 }
 
+/** Every `open…close` span, non-overlapping, each closed at its first `close`. */
+function xmlElements(xml: string, open: string, close: string): string[] {
+	const spans: string[] = [];
+	let start = xml.indexOf(open);
+	while (start !== -1) {
+		const end = xml.indexOf(close, start + open.length);
+		if (end === -1) {
+			break;
+		}
+		spans.push(xml.slice(start, end + close.length));
+		start = xml.indexOf(open, end + close.length);
+	}
+	return spans;
+}
+
+/** Group 1 of `after`, matched right after the first `opener…>` tag where it matches. */
+function firstLeafText(xml: string, opener: RegExp, after: RegExp): string | null {
+	for (const { index, tag } of htmlTags(xml, opener)) {
+		const text = xml.slice(index + tag.length).match(after)?.[1];
+		if (text !== undefined) {
+			return text;
+		}
+	}
+	return null;
+}
+
 /** The one exception that means "no parcel": "No se ha(n) encontrado…". */
-const NOT_FOUND_EXCEPTION =
-	/<(?:\w+:)?ExceptionText[^>]*>\s*(?:<!\[CDATA\[)?\s*No se han? encontrado/i;
+const isNotFoundException = (xml: string): boolean =>
+	firstLeafText(
+		xml,
+		/<(?:\w+:)?ExceptionText/iy,
+		/^(\s*(?:<!\[CDATA\[)?\s*No se han? encontrado)/i,
+	) !== null;
 
 /**
  * The WFS reply read as the parcel's ring. A stored query that finds nothing
@@ -105,7 +139,7 @@ const NOT_FOUND_EXCEPTION =
  */
 export function parseParcelGeometry(xml: string, refcat: string): [number, number][] | null {
 	if (/<(?:\w+:)?ExceptionReport[\s>]/.test(xml)) {
-		if (NOT_FOUND_EXCEPTION.test(xml)) {
+		if (isNotFoundException(xml)) {
 			return null;
 		}
 		const code = xml.match(/exceptionCode="([\w.-]{1,64})"/)?.[1] ?? 'none';

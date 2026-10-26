@@ -89,6 +89,17 @@ describe('parseCatastroRefcat', () => {
 			url: 'https://example.com/real',
 		});
 	});
+
+	test('an anchor after the label with no href, or no plain text, is passed over for the one naming the parcel', () => {
+		const html =
+			'<p>Referencia catastral de la parcela:</p><a name="top">6075421YJ2667A</a>' +
+			'<a href="https://example.com/help"><img src="i.png"/></a>' +
+			'<p><a href="https://example.com/real">6075421YJ2667S</a></p>';
+		expect(parseCatastroRefcat(html)).toEqual({
+			refcat: '6075421YJ2667S',
+			url: 'https://example.com/real',
+		});
+	});
 });
 
 describe('extractParcelPosList', () => {
@@ -144,6 +155,13 @@ describe('extractParcelPosList', () => {
 		expect(
 			parseParcelGeometry(
 				'<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1"><ows:Exception exceptionCode="OperationProcessingFailed"><ows:ExceptionText>No se han encontrado registros</ows:ExceptionText></ows:Exception></ows:ExceptionReport>',
+				REFCAT,
+			),
+		).toBeNull();
+		// the "not found" text is looked for in every ExceptionText, not just the first
+		expect(
+			parseParcelGeometry(
+				'<ExceptionReport><Exception exceptionCode="OperationProcessingFailed"><ExceptionText>Consulta fallida</ExceptionText><ExceptionText>No se ha encontrado la referencia</ExceptionText></Exception></ExceptionReport>',
 				REFCAT,
 			),
 		).toBeNull();
