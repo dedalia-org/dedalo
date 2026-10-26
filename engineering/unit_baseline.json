@@ -4489,6 +4489,11 @@
 			"skipped": 0,
 			"assertions": 47
 		},
+		"test/unit/rich_text_image_reconcile.test.ts": {
+			"tests": 22,
+			"skipped": 0,
+			"assertions": 64
+		},
 		"test/unit/root_user_hidden_tripwire.test.ts": {
 			"tests": 25,
 			"skipped": 0,
