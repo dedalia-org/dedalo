@@ -338,9 +338,21 @@ export const KEPT_DOCKER_RUN_LOGS = 10;
  * Only `docker-*` entries are touched — a host run's `hermetic/` dir is not a run dir.
  * Returns the names removed. Best-effort: a failed removal is reported, never thrown.
  */
-export function pruneRunLogs(root: string, keep: number = KEPT_DOCKER_RUN_LOGS): string[] {
-	// TOTAL: a root that cannot be listed, or an entry another run pruned between the
-	// listing and its stat, is reported or skipped — never thrown (this runs in a finally).
+/**
+ * The stat {@link pruneRunLogs} uses by default: `undefined` for an entry that is gone
+ * (another run pruned it between the listing and this stat), never an ENOENT throw.
+ */
+export const statRunDir = (path: string): { mtimeMs: number } | undefined =>
+	statSync(path, { throwIfNoEntry: false });
+
+export function pruneRunLogs(
+	root: string,
+	keep: number = KEPT_DOCKER_RUN_LOGS,
+	stat: (path: string) => { mtimeMs: number } | undefined = statRunDir,
+): string[] {
+	// TOTAL: a root that cannot be listed is reported and nothing is pruned; an entry that
+	// vanished is skipped; an entry whose stat fails otherwise (EACCES) is reported and
+	// skipped; a failed removal is reported — never thrown (this runs in a finally).
 	let entries: Dirent[];
 	try {
 		if (!existsSync(root)) return [];
@@ -352,8 +364,14 @@ export function pruneRunLogs(root: string, keep: number = KEPT_DOCKER_RUN_LOGS):
 	const runs: { name: string; mtime: number }[] = [];
 	for (const entry of entries) {
 		if (!entry.isDirectory() || !entry.name.startsWith('docker-')) continue;
-		const stat = statSync(join(root, entry.name), { throwIfNoEntry: false });
-		if (stat !== undefined) runs.push({ name: entry.name, mtime: stat.mtimeMs });
+		try {
+			const info = stat(join(root, entry.name));
+			if (info !== undefined) runs.push({ name: entry.name, mtime: info.mtimeMs });
+		} catch (error) {
+			console.error(
+				`== ci:local: WARNING — could not stat ${join(root, entry.name)} to prune it: ${String(error)}`,
+			);
+		}
 	}
 	runs.sort((a, b) => b.mtime - a.mtime || b.name.localeCompare(a.name));
 	const removed: string[] = [];
@@ -384,6 +402,7 @@ export function finishDockerRun(
 	outputs: string,
 	logsRoot: string,
 	runId: string,
+	prune: (root: string) => unknown = pruneRunLogs,
 ): string | null {
 	const logs = keepRunLogs(outputs, logsRoot, runId);
 	if (logs !== null) console.log(`\n== ci:local: tier logs kept in ${logs}`);
@@ -399,7 +418,7 @@ export function finishDockerRun(
 	}
 	if (logs !== null) {
 		try {
-			pruneRunLogs(logsRoot);
+			prune(logsRoot);
 		} catch (error) {
 			console.error(`== ci:local: WARNING — pruning ${logsRoot} failed: ${String(error)}`);
 		}

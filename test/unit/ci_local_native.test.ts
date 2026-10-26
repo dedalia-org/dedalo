@@ -60,9 +60,11 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import {
+	accessSync,
 	chmodSync,
 	cpSync,
 	existsSync,
+	constants as fsConstants,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -97,6 +99,7 @@ import {
 	recordNewFiles,
 	recordRefFault,
 	type Stage,
+	statRunDir,
 	TIERS,
 	type TierResult,
 	workingTreeLists,
@@ -1084,6 +1087,19 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 			mkdirSync(root);
 			for (let i = 0; i < 12; i++) mkdirSync(join(root, `docker-old-${i}`));
 			chmodSync(root, 0o333);
+			// PRECONDITION: the root really is unlistable here (a uid-0 run reads through 0333 —
+			// then this case would prove nothing, so it says so instead of failing obscurely).
+			let listable = true;
+			try {
+				accessSync(root, fsConstants.R_OK);
+			} catch {
+				listable = false;
+			}
+			if (listable) {
+				throw new Error(
+					`precondition: a 0333 ${root} must be unlistable for this user (running as root?)`,
+				);
+			}
 			const inputs = join(dir, 'in');
 			const outputs = join(dir, 'out');
 			mkdirSync(inputs);
@@ -1097,6 +1113,74 @@ describe('a docker run: the compose env, the end of the run, the driver hands /c
 			expect(existsSync(outputs)).toBe(false);
 		} finally {
 			if (existsSync(root)) chmodSync(root, 0o755);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('pruneRunLogs skips an entry that vanished before its stat, and reports + skips one whose stat fails', () => {
+		const root = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-stat-'));
+		try {
+			for (let i = 0; i < 5; i++) mkdirSync(join(root, `docker-run-${i}`));
+			// The DEFAULT stat on a path another run just pruned: undefined, not an ENOENT throw.
+			expect(statRunDir(join(root, 'docker-gone'))).toBeUndefined();
+			const order: Record<string, number> = {
+				'docker-run-0': 1,
+				'docker-run-1': 2,
+				'docker-run-2': 3,
+				'docker-run-3': 4,
+				'docker-run-4': 5,
+			};
+			const stat = (path: string) => {
+				const name = path.slice(root.length + 1);
+				if (name === 'docker-run-3') {
+					rmSync(path, { recursive: true, force: true }); // pruned between listing and stat
+					return statRunDir(path);
+				}
+				if (name === 'docker-run-1') throw new Error('EACCES: permission denied (planted)');
+				return { mtimeMs: order[name] ?? 0 };
+			};
+			let removed: string[] = [];
+			const warnings = captureErrors(() => {
+				removed = pruneRunLogs(root, 1, stat);
+			});
+			// run-4 kept (newest), run-3 vanished, run-1 unstattable: only 0 and 2 pruned.
+			expect(removed.sort()).toEqual(['docker-run-0', 'docker-run-2']);
+			expect(existsSync(join(root, 'docker-run-4'))).toBe(true);
+			expect(existsSync(join(root, 'docker-run-1'))).toBe(true);
+			expect(warnings.filter((w) => w.includes('could not stat')).length).toBe(1);
+			expect(warnings.some((w) => w.includes('docker-run-1'))).toBe(true);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test('finishDockerRun: a prune that throws is reported, never thrown, and the mounts are already gone', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-throws-'));
+		const root = join(dir, CI_LOGS_DIR);
+		try {
+			const inputs = join(dir, 'in');
+			const outputs = join(dir, 'out');
+			mkdirSync(inputs);
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'z.log'), 'z\n');
+			const mountsAtPrune: boolean[] = [];
+			const prune = (_root: string) => {
+				mountsAtPrune.push(existsSync(inputs), existsSync(outputs));
+				throw new Error('planted prune failure');
+			};
+			const result: { logs: string | null } = { logs: null };
+			const warnings = captureErrors(() => {
+				result.logs = finishDockerRun(inputs, outputs, root, 'docker-new', prune);
+			});
+			expect(result.logs).toBe(join(root, 'docker-new'));
+			expect(mountsAtPrune).toEqual([false, false]); // own mounts removed BEFORE the prune
+			expect(existsSync(inputs)).toBe(false);
+			expect(existsSync(outputs)).toBe(false);
+			expect(
+				warnings.some((w) => w.includes('pruning') && w.includes('planted prune failure')),
+			).toBe(true);
+			expect(readFileSync(join(root, 'docker-new', 'hermetic', 'z.log'), 'utf8')).toBe('z\n');
+		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
