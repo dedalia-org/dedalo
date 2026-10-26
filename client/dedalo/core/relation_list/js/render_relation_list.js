@@ -137,6 +137,9 @@ render_relation_list.prototype.edit = async function(options={render_level:'full
 
 	// content_data
 		wrapper.appendChild(current_content_data)
+		// pointer for common.render's 'content' refresh: a page turn swaps ONLY
+		// this node, so the wrapper (and the strip in it) stays mounted.
+		wrapper.content_data = current_content_data
 
 
 	return wrapper

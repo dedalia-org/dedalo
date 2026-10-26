@@ -189,6 +189,11 @@ const compact_render = async function(self, options, tm_view) {
 			class_name		: 'list_body',
 			parent			: fragment
 		})
+		// node_body. section.navigate marks `self.node_body` as the page-turn
+		// loading surface (and gets .loading removed again on arrival); without it
+		// these panels had no row-level cue at all. Same contract as
+		// view_default_list_section (its list_body IS node_body).
+		self.node_body = list_body
 		const items				= ui.flat_column_items(columns_map)
 		const template_columns	= self.tm_template_columns || items.join(' ')
 		set_element_css(

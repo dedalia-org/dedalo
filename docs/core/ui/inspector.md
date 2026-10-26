@@ -34,9 +34,9 @@ sits next to these neighbouring client subsystems:
 | --- | --- |
 | **section** (`client/dedalo/core/section/js/section.js`) | The inspector's `caller`. The section constructs the inspector in `mode==='edit'` with permissions, owns its lifecycle, and is the source of all `context`/`data`/`tools`/`rqo` the inspector reads. |
 | **view_default_edit_section** (`client/dedalo/core/section/js/view_default_edit_section.js`) | Builds `#inspector_container`, renders the inspector wrapper into it, attaches the resize handle, applies the persisted rail/width state, and moves the section paginator into the inspector. |
-| **Time Machine list** (a `dd15` `section` instance, `sqo.mode 'tm'`) | Instanced on demand for the section "Latest changes" list and the per-component history, 10 rows per page with the compact paginator (`1-10 of 47`). A `tm` read is a page view, never a single-record view: its one locator names the record (+ component) whose history is listed. Paging an embedded list never writes browser history or the address bar — only the page's own section does. |
+| **Time Machine list** (a `dd15` `section` instance, `sqo.mode 'tm'`) | Instanced on demand for the section "Latest changes" list and the per-component history, 10 rows per page with the compact paginator (`1-10 of 47`). A `tm` read is a page view, never a single-record view: its one locator names the record (+ component) whose history is listed. Paging an embedded list never writes browser history or the address bar — only the page's own section does. A page turn refreshes the mounted rows in place (the block dims only if the turn is slow), exactly like the Relations card. |
 | **open_tool** | Every tool button in the inspector calls `open_tool()`; the inspector only decides *which* tools to show (`show_in_inspector`) and renders their buttons. |
-| **relation_list** | Instanced on demand to render the "Relations" block, paginated with the same compact strip (`1-10 of 47`) as the Time Machine panels. |
+| **relation_list** | Instanced on demand to render the "Relations" block, paginated with the same compact strip (`1-10 of 47`) as the Time Machine panels; a page turn refreshes the mounted rows in place instead of rebuilding the block. |
 
 !!! note "No server counterpart"
     The inspector itself has no server-side object. The data it shows is

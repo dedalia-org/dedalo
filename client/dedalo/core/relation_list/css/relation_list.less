@@ -3,6 +3,27 @@
 *
 * Included from main.less file
 */
+
+// The panel body while a load/page turn is in flight. The global `.loading`
+// dim would blink the rows on a fast response; the strip inside defers its own
+// dim the same way (paginator.less). Input locks IMMEDIATELY (pointer-events,
+// from the global rule); only the dim waits for a turn that is actually slow.
+.relation_list_body.loading {
+	opacity: 1;
+	animation: relation_list_loading_dim 0.2s ease-out 0.35s forwards;
+
+	// the block dim already covers the strip; cancel the strip's own dim so it
+	// does not composite to .16 (.4 × .4) and read darker than the rows
+	.wrapper_paginator.loading {
+		opacity: 1;
+		animation: none;
+	}
+}
+
+@keyframes relation_list_loading_dim {
+	to { opacity: 0.4; }
+}
+
 .relation_list {
 	font-size: 0.90rem;
 	color: @color_grey_8;

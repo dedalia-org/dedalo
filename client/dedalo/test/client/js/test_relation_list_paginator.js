@@ -15,7 +15,8 @@ import { get_instance } from '../../../core/common/js/instances.js';
  * `paginator_goto_<paginator.id>`, relation_list turns that into the offset the
  * panel rebuilds from and republishes the panel's own
  * `relation_list_paginator_<section_tipo>` event. A missed subscription would
- * leave the arrows dead — which no layout check would catch.
+ * leave the arrows dead — which no layout check would catch. A page turn then
+ * refreshes IN PLACE: the strip wrapper survives, the rows node is replaced.
  *
  * Backend-free: built with autoload=false and an explicit total, so no request.
  */
@@ -95,6 +96,39 @@ describe('RELATION_LIST — compact mini paginator', function () {
 		} finally {
 			event_manager.unsubscribe(token);
 		}
+	});
+
+	it('refreshes in place: the strip node survives, only the rows swap', async () => {
+		// the panel's smooth page-turn path (render_common_section): build, swap the
+		// rows at content level, repaint the strip's own content_data. Rebuilding the
+		// wrapper here would re-create the strip and make the whole block jump.
+		const strip = container.querySelector('.paginator_container > .wrapper_paginator');
+		const old_content = container.querySelector('.wrapper_relation_list > .content_data');
+		assert.isOk(strip && old_content, 'the full render is mounted');
+
+		// page 2 is the turn's START, not something this case inherits from the click
+		// case above (it must pass on its own).
+		instance.offset = 10;
+
+		await instance.build(false);
+		await instance.render({ render_level: 'content' });
+		await instance.paginator.render({ render_level: 'content' });
+
+		assert.equal(
+			container.querySelector('.paginator_container > .wrapper_paginator'),
+			strip,
+			'the strip wrapper must stay mounted across a page turn',
+		);
+		assert.notEqual(
+			container.querySelector('.wrapper_relation_list > .content_data'),
+			old_content,
+			'the rows are replaced',
+		);
+		assert.match(
+			strip.querySelector('.paginator_info .page_info').textContent,
+			/11-20\b.*\b25$/,
+			'the strip repaints the new range in place',
+		);
 	});
 });
 

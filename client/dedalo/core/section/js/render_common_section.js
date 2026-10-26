@@ -337,8 +337,9 @@ render_common_section.render_delete_record_dialog = async (options) => {
 *
 * The panel is initially collapsed (closed). When the user expands it the first time,
 * `get_instance` fetches the `relation_list` model from the server and renders it inside
-* the body element. Subsequent pagination events are handled via an `event_manager`
-* subscription keyed on `'relation_list_paginator_' + section_tipo`.
+* the body element. Page turns refresh that mounted block in place (content only,
+* under `paginator.paginate`'s height FLIP); the `event_manager` subscription keyed
+* on `'relation_list_paginator_' + section_tipo` drives them.
 *
 * Collapse / expand state is persisted to the local IndexedDB via
 * `ui.collapse_toggle_track` with the id `'inspector_relation_list'`. This means the
@@ -351,9 +352,9 @@ render_common_section.render_delete_record_dialog = async (options) => {
 * Lazy-load detail:
 *   - On first expand: calls `get_instance({ model: 'relation_list', … })` with a
 *     timestamp-suffixed `id_variant` to ensure a fresh instance per dialog opening.
-*   - On pagination events: receives the already-initialised `relation_list` instance
-*     directly, skipping the `get_instance` call.
-*   - Height is preserved during the async re-render via `minHeight` to avoid layout
+*   - On pagination events: refreshes the mounted instance in place (build + content
+*     render + strip repaint).
+*   - Height is preserved during the initial async load via `minHeight` to avoid layout
 *     jumps, then cleared after 1 ms.
 *
 * @param {Object} options
@@ -405,8 +406,7 @@ export const render_relation_list = function(options) {
 		let panel_instance = null
 
 	// load_chain. Serializes page turns: two quick clicks on the arrows would
-	// otherwise re-enter load_relation_list on the same instance and race on
-	// self.node (the later render replaces a node the earlier one is appending).
+	// otherwise run two content swaps on the same instance.
 		let load_chain = Promise.resolve()
 
 	// relation_list events
@@ -433,20 +433,40 @@ export const render_relation_list = function(options) {
 					return
 				}
 
-			relation_list_body.classList.add('loading')
-			load_chain = load_chain
-				.then(() => load_relation_list(relation_list))
-				.then(function(){
-					relation_list_body.classList.remove('loading')
-				})
+			// A page turn refreshes IN PLACE (content only): the wrapper — and the
+			// paginator strip inside it — stays mounted, the strip repaints its
+			// range, and the rows swap under paginator.paginate's height FLIP
+			// (smooth_page_swap), the same motion Latest changes has. Rebuilding the
+			// whole block here re-created the strip and made the panel jump.
+				relation_list_body.classList.add('loading')
+				load_chain = load_chain
+					.then(async () => {
+						await relation_list.build()
+						await relation_list.render({ render_level: 'content' })
+						if (relation_list.paginator) {
+							await relation_list.paginator.render({ render_level: 'content' })
+						}
+					})
+					.catch((error) => {
+						console.error('[render_relation_list] page turn failed:', error)
+						// A failed turn must not leave the strip locked with the page
+						// already advanced: reload the block (error panel if it fails
+						// again, correct page if the failure was transient).
+						return load_relation_list()
+					})
+					.finally(function(){
+						relation_list_body.classList.remove('loading')
+					})
+					.catch(() => null) // a failed recovery is already painted, not rethrown
 		}
 		paginator_token = event_manager.subscribe('relation_list_paginator_'+section_tipo, relation_list_paginator_handler)
 		self.events_tokens.push(paginator_token)
 
 	// track collapse toggle state of content
 	// load_relation_list: async function that (re-)renders the relation_list instance
-	// into `relation_list_body`. Called both on first expand and on pagination.
-		const load_relation_list = async function(instance) {
+	// into `relation_list_body`. Called on first expand and by the page-turn failure
+	// fallback; a normal page turn refreshes in place and never comes through here.
+		const load_relation_list = async function() {
 
 			relation_list_head.classList.add('up')
 
@@ -457,18 +477,14 @@ export const render_relation_list = function(options) {
 					parent			: relation_list_body
 				})
 
-			// If called from a pagination event, `instance` is the existing relation_list;
-			// skip get_instance to avoid duplicate initialisation.
-			const relation_list	= (instance && instance.model==='relation_list')
-				? instance // pagination case do not need to init relation_list
-				: await get_instance({
-					model			: 'relation_list',
-					tipo			: section_tipo,
-					section_tipo	: section_tipo,
-					section_id		: section_id,
-					mode			: mode,
-					id_variant		:id_variant
-				})
+			const relation_list = await get_instance({
+				model			: 'relation_list',
+				tipo			: section_tipo,
+				section_tipo	: section_tipo,
+				section_id		: section_id,
+				mode			: mode,
+				id_variant		:id_variant
+			})
 
 			// panel_instance. Binds the instance to this panel, so paginator events
 			// published by any other panel of the same section_tipo are ignored.

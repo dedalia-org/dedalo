@@ -13279,6 +13279,19 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 *
 * Included from main.less file
 */
+.relation_list_body.loading {
+  opacity: 1;
+  animation: relation_list_loading_dim 0.2s ease-out 0.35s forwards;
+}
+.relation_list_body.loading .wrapper_paginator.loading {
+  opacity: 1;
+  animation: none;
+}
+@keyframes relation_list_loading_dim {
+  to {
+    opacity: 0.4;
+  }
+}
 .relation_list {
   font-size: 0.9rem;
   color: var(--color_grey_8);
@@ -21030,6 +21043,20 @@ body.inspector_resizing {
   grid-row-start: 1;
   background-color: var(--color_grey_13);
 }
+.tm_list.tm_view_mini > .list_body.loading,
+.tm_list.tm_view_history > .list_body.loading {
+  opacity: 1;
+}
+.tm_list.tm_view_mini:has(> .list_body.loading),
+.tm_list.tm_view_history:has(> .list_body.loading) {
+  opacity: 1;
+  animation: tm_list_loading_dim 0.2s ease-out 0.35s forwards;
+}
+.tm_list.tm_view_mini:has(> .list_body.loading) .wrapper_paginator.loading,
+.tm_list.tm_view_history:has(> .list_body.loading) .wrapper_paginator.loading {
+  opacity: 1;
+  animation: none;
+}
 .tm_list.tm_view_mini,
 .tm_list.tm_view_history {
   display: block;
@@ -21165,6 +21192,11 @@ body.inspector_resizing {
     grid-column: 3;
     grid-row: 2;
     align-self: end;
+  }
+}
+@keyframes tm_list_loading_dim {
+  to {
+    opacity: 0.4;
   }
 }
 /**

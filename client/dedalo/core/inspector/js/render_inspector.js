@@ -2013,13 +2013,66 @@ const render_relation_list = function(self) {
 		})
 
 	// relation_list events
+	// panel_instance. The paginator channel is keyed by section_tipo, not by
+	// instance: a delete dialog (or any other panel for the same section) hears
+	// this panel's page turns too. Only the instance rendered HERE may be
+	// refreshed here.
+		let panel_instance = null
+
+	// Page turns ride the container's own load slot (`load_block` uses the same
+	// one): a save/re-render reload and a turn therefore cannot swap the same
+	// content_data node concurrently.
+
 		/**
 		 * fn_relation_list_paginator
 		 * Callback for relation list pagination events.
 		 */
 		const fn_relation_list_paginator = function(relation_list) {
-			// a page turn is NEW content for the same key: force the load
-			load_relation_list(relation_list, { reload: true })
+
+			if (relation_list !== panel_instance) {
+				return
+			}
+
+			// A page turn refreshes IN PLACE (content only): the wrapper — and the
+			// paginator strip inside it — stays mounted, the strip repaints its
+			// range, and the rows swap under paginator.paginate's height FLIP
+			// (smooth_page_swap), the same motion Latest changes has. load_block
+			// would clear the body and rebuild the whole wrapper (strip included),
+			// which is what made the block jump.
+				relation_list_body.setAttribute('aria-busy', 'true')
+				relation_list_body.classList.add('loading')
+				const previous = relation_list_body._block_load
+				const turn = (previous ? previous.catch(() => null) : Promise.resolve())
+					.then(async () => {
+						await relation_list.build()
+						await relation_list.render({ render_level: 'content' })
+						if (relation_list.paginator) {
+							await relation_list.paginator.render({ render_level: 'content' })
+						}
+					})
+					.catch((error) => {
+						console.error('[render_inspector] relation page turn failed:', error)
+						// A failed turn must not leave the strip locked with the page
+						// already advanced: release the container slot (the fallback
+						// load_block would otherwise wait on THIS turn, which is
+						// waiting on the fallback) and hand back to the full loader —
+						// it retries, or paints the engine's error panel.
+						if (relation_list_body._block_load === turn) {
+							relation_list_body._block_load = null
+						}
+						return load_relation_list({ reload: true })
+					})
+					.finally(() => {
+						relation_list_body.classList.remove('loading')
+						relation_list_body.removeAttribute('aria-busy')
+					})
+					.catch(() => null) // a failed recovery is already painted, not rethrown
+				relation_list_body._block_load = turn
+				turn.finally(() => {
+					if (relation_list_body._block_load === turn) {
+						relation_list_body._block_load = null
+					}
+				})
 		}
 		self.events_tokens.push(
 			event_manager.subscribe('relation_list_paginator_'+self.section_tipo, fn_relation_list_paginator)
@@ -2033,7 +2086,7 @@ const render_relation_list = function(self) {
 			const is_open = !relation_list_body.classList.contains('hide')
 			if (is_open) {
 				// the section re-rendered (pagination / record change): refresh
-				load_relation_list(undefined, { reload: true })
+				load_relation_list({ reload: true })
 			}
 		}
 		self.events_tokens.push(
@@ -2043,17 +2096,20 @@ const render_relation_list = function(self) {
 	// track collapse toggle state of content
 		/**
 		 * load_relation_list
-		 * Asynchronously loads and renders the list of relations.
-		 * @param {Object} [instance] - Existing relation_list instance (pagination case).
+		 * Asynchronously loads and renders the list of relations (first open, or a
+		 * save/section reload). A page turn refreshes in place and never comes here.
+		 * @param {Object} [options]
+		 * @param {boolean} [options.reload=false] - force a fresh read
 		 */
-		const load_relation_list = async function(instance, options = {}) {
+		const load_relation_list = async function(options = {}) {
 
 			relation_list_head.classList.add('up')
 
 			const relation_list_tipo = self.caller.context?.config?.relation_list_tipo
 
-			// the placeholder covers the whole load, pagination included. `key` is
-			// the record: a re-open of the SAME record reuses what is displayed.
+			// the placeholder covers the whole load. `key` is the record: a
+			// re-open of the SAME record reuses what is displayed. A PAGE TURN never
+			// comes through here — fn_relation_list_paginator refreshes in place.
 			return load_block({
 				container	: relation_list_body,
 				label		: get_label.relations || 'Relations',
@@ -2061,19 +2117,18 @@ const render_relation_list = function(self) {
 				reload		: options.reload===true,
 				task		: async () => {
 
-					const relation_list	= (instance && instance.model==='relation_list')
-						? instance // pagination case: reuse existing instance
-						: await get_instance({
-							model			: 'relation_list',
-							tipo			: relation_list_tipo,
-							section_tipo	: self.caller.section_tipo,
-							section_id		: self.caller.section_id,
-							mode			: self.mode
-						})
+					const relation_list = await get_instance({
+						model			: 'relation_list',
+						tipo			: relation_list_tipo,
+						section_tipo	: self.caller.section_tipo,
+						section_id		: self.caller.section_id,
+						mode			: self.mode
+					})
 
 					await relation_list.build()
 
 					// the rendered node replaces the placeholder
+					panel_instance = relation_list
 					return relation_list.render()
 				}
 			})
@@ -2082,8 +2137,8 @@ const render_relation_list = function(self) {
 		/**
 		 * collapse
 		 * Resets the disclosure state only. The rendered list is KEPT so a re-open
-		 * reuses it (load_block's key); the forced paths — a section re-render or a
-		 * page turn — still reload it.
+		 * reuses it (load_block's key); the forced paths — a section re-render —
+		 * still reload it. A page turn refreshes the mounted content in place.
 		 */
 		const collapse = function() {
 			relation_list_head.classList.remove('up')
