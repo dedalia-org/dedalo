@@ -125,6 +125,8 @@
 	import {common} from '../../common/js/common.js'
 	import {render_relation_list} from './render_relation_list.js'
 	import {data_manager} from '../../common/js/data_manager.js'
+	import {event_manager} from '../../common/js/event_manager.js'
+	import {paginator} from '../../paginator/js/paginator.js'
 	import {clone, open_records_in_window} from '../../common/js/utils/index.js'
 	import {response_data, request_failed} from '../../common/js/api_error.js'
 	import {request_complete} from '../../common/js/sqo_limit.js'
@@ -161,6 +163,10 @@ export const relation_list = function() {
 
 	this.request_config_object	= null
 	this.rqo					= null
+
+	// paginator. The compact '1-10 of 4.683' strip (mode 'mini'), the same one
+	// the inspector's Latest changes / Component history panels render.
+	this.paginator				= null
 
 	// (!) events_tokens accumulates event subscription handles so that
 	// common.prototype.destroy can unsubscribe them all in one pass.
@@ -237,6 +243,22 @@ relation_list.prototype.init = function(options) {
 	self.limit			= options.limit ?? 10
 	self.offset			= options.offset ?? 0
 	self.total			= options.total ?? null
+
+	// paginator. ONE strip component for the whole app: 'mini' is the compact
+	// row-range design the inspector's Latest changes panel already renders.
+	self.paginator = new paginator()
+	self.paginator.init({
+		caller	: self,
+		mode	: 'mini'
+	})
+	// paginator_goto_ event. The strip publishes the target offset; the panel
+	// listens to relation_list_paginator_<section_tipo> and rebuilds the list.
+	self.events_tokens.push(
+		event_manager.subscribe('paginator_goto_'+self.paginator.id, (offset) => {
+			self.offset = offset
+			event_manager.publish('relation_list_paginator_'+self.section_tipo, self)
+		})
+	)
 
 	// status update
 	self.status = 'initialized'
@@ -380,11 +402,33 @@ relation_list.prototype.build = async function(autoload=true){
 
 		await Promise.all(tasks)
 
+	// paginator. Its state is read from caller.rqo at render time (get_total), so
+	// a 'built' status here is enough for every page turn to repaint the strip.
+		if(self.paginator){
+			await self.paginator.build()
+		}
+
 	// status update
 		self.status = 'built'
 
 	return true
 }//end build
+
+
+
+/**
+* GET_TOTAL
+* The count the paginator asks its caller for (paginator.get_total contract).
+* `self.total` is already resolved by build()'s count request and does not
+* change with pagination — a page turn must not re-count.
+*
+* @returns {Promise<number|null>} total related records across all sections;
+*   null when the count request failed (the strip stays hidden, as on one page)
+*/
+relation_list.prototype.get_total = async function() {
+
+	return this.total
+}//end get_total
 
 
 

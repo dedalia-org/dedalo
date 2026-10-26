@@ -1,11 +1,9 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global get_label */
 /*eslint no-undef: "error"*/
 
 
 
 // import
-	import {event_manager} from '../../common/js/event_manager.js'
 	import {ui} from '../../common/js/ui.js'
 	import {object_to_url_vars, open_window, same_section_id} from '../../common/js/utils/index.js'
 
@@ -30,7 +28,7 @@
 *     → get_content_data()          build the content_data <div>
 *         → parse_html()            iterate context section_tipos
 *             → build_grid_html()   emit header + column labels + data rows
-*     → parse_paginator_html()      inject paginator above the content
+*     → self.paginator.render()     the compact ('mini') strip, above the content
 *
 * Server datum shape expected on self.datum:
 *   {
@@ -58,12 +56,11 @@
 *   self.total        — total related-record count across all section tipos
 *                       (number by the time rendering begins; see NOTE below)
 *
-* NOTE: In parse_paginator_html, `await self.total` is used. By the time
-* edit() is called, self.total is already a resolved number (set in build()),
-* so the await is a no-op but is harmless.
+* NOTE: the paginator is a real `paginator` instance in 'mini' mode (created by
+* relation_list.init, state refreshed by build). It reads limit/offset from
+* self.rqo.sqo and the total from self.get_total().
 *
-* Globals consumed: get_label (i18n lookup, declared via the global directive
-* above) and DEDALO_CORE_URL (base URL for edit-record deep links, injected
+* Globals consumed: DEDALO_CORE_URL (base URL for edit-record deep links, injected
 * by environment.js.php at runtime).
 */
 
@@ -123,10 +120,23 @@ render_relation_list.prototype.edit = async function(options={render_level:'full
 			element_type	: 'div',
 			class_name		: 'wrapper_relation_list ' + self.model + ' ' + self.tipo + ' ' + self.mode
 		})
-		wrapper.appendChild(current_content_data)
 
-	// add the paginator to the wrapper
-		parse_paginator_html(self, wrapper)
+	// paginator. The shared compact strip ('1-10 of 4.683'), first in the wrapper —
+	// the same control the inspector's Latest changes panel renders.
+		if (self.paginator) {
+			const paginator_container = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'paginator_container',
+				parent			: wrapper
+			})
+			const paginator_wrapper = await self.paginator.render()
+			if (paginator_wrapper) {
+				paginator_container.appendChild(paginator_wrapper)
+			}
+		}
+
+	// content_data
+		wrapper.appendChild(current_content_data)
 
 
 	return wrapper
@@ -407,176 +417,6 @@ const build_grid_html = function(self, context, columns, data, count_data, CSS_s
 
 	return fragment
 }//end build_grid_html
-
-
-
-/**
-* PARSE_PAGINATOR_HTML
-* Build and prepend the pagination control bar to the wrapper element.
-*
-* The paginator displays:
-*   - A total-records label (e.g. "total: 42")
-*   - Current page indicator (e.g. "page: 3")
-*   - Previous/Next navigation buttons. Each button receives an
-*     'off' CSS modifier when navigation in that direction is impossible:
-*     previous is off on page 1; next is off on the last page.
-*
-* Pagination state is computed from self.offset, self.limit, and
-* self.total. Page arithmetic:
-*   current_page = (offset + limit) / limit   → 1-based
-*   final_page   = ceil(total / limit)
-*
-* The paginator is inserted as the first child of wrapper (above the
-* content grids) via insertBefore.
-*
-* Navigation events publish on the event_manager channel
-* 'relation_list_paginator_<section_tipo>', which relation_list.js listens
-* to in order to trigger a rebuild with the updated offset.
-*
-* NOTE: `await self.total` is used here. By the time edit() is called,
-* self.total is already a resolved number (set synchronously in build()).
-* The await is harmless but unnecessary for primitive values.
-*
-* @param {Object} self - The relation_list instance
-* @param {HTMLElement} wrapper - The outer wrapper element that will contain
-*   both the paginator and the content grids
-* @returns {void}
-*/
-const parse_paginator_html = async function(self, wrapper) {
-
-	// set the total_records_count into the options object
-		const total_records_count = await self.total
-
-	// get the global container
-		// const relation_list_wrap = this.relation_list_wrap;
-
-	// get the current limit and offset of the list
-		const current_offset	= self.offset;
-		const current_limit		= self.limit
-		// const current_total	= parseInt(options.total_records_count)
-
-	// calculate the current page (offset + limit)/limit and the last page that paginator can show with the current configuration
-		const current_page	= (current_offset + current_limit)/current_limit
-		const final_page	= Math.ceil(total_records_count/current_limit)
-
-	// create a paginator content
-	// get_label['total'] resolves the i18n label for the key 'total' from the
-	// global get_label map declared via /*global get_label*/ above.
-		const paginator = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'relation_list_paginator',
-			text_node		: get_label['total']+ ': ' + total_records_count
-		})
-	//insert the paginator in the first position in the global container, the paginator need to be the first, at top of the list
-		wrapper.insertBefore(paginator, wrapper.firstChild);
-
-	// create a paginator previous button
-		const paginator_buttons	= ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'relation_list_paginator_buttons',
-			parent			: paginator
-		})
-
-	// create a paginator_page_info
-		const paginator_page_info = ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'paginator_page_info',
-			text_node		: get_label['page'] + ': ' + current_page,
-			parent			: paginator_buttons
-		})
-
-	// check if current page is the first of the final page to change the css of the buttons (switch on or off)
-	// When offset is 0 the user is on page 1 and cannot go further back.
-		const css_previous_offset = (current_offset == 0)
-			? 'relation_list_paginator_offset_off'
-			: ''
-		// When current_page has reached final_page, next navigation is disabled.
-		const css_netx_offset = (current_page >= final_page)
-			? 'relation_list_paginator_offset_off'
-			: ''
-
-	// create a paginator previous button
-		const previous_button	= ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'button relation_list_paginator_previous ' + css_previous_offset,
-			parent			: paginator_buttons
-		})
-		// create the event to go to the previous record
-		const click_handler_previous = (e) => {
-			e.stopPropagation()
-			previous_records(self)
-		}
-		previous_button.addEventListener('click', click_handler_previous)
-
-	// create a paginator next button
-		const next_button	= ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'button relation_list_paginator_next ' + css_netx_offset,
-			parent			: paginator_buttons
-		})
-		// create the event to go to the next record
-		const click_handler_next = (e) => {
-			e.stopPropagation()
-			next_records(self)
-		}
-		next_button.addEventListener('click', click_handler_next)
-}//end parse_paginator_html
-
-
-
-/**
-* PREVIOUS_RECORDS
-* Decrement self.offset by self.limit and publish the paginator event to
-* trigger a page reload, but only when the current page is not already the
-* first page (offset >= 1).
-*
-* Publishing on 'relation_list_paginator_<section_tipo>' signals relation_list
-* to call build() again with the updated offset.
-*
-* @param {Object} self - The relation_list instance (mutated: self.offset)
-* @returns {void}
-*/
-const previous_records = function(self) {
-
-	// get the paginator and get the offset, limit and total of records found
-	// if the paginator is NOT in the first page the button can navigate to the previous page
-	if( self.offset >= 1) {
-		self.offset = self.offset - self.limit
-		event_manager.publish('relation_list_paginator_'+self.section_tipo, self)
-	}
-}//end previous_records
-
-
-
-/**
-* NEXT_RECORDS
-* Increment self.offset by self.limit and publish the paginator event to
-* trigger a page reload, but only when the current page is not already the
-* last page (current_page < final_page).
-*
-* Publishing on 'relation_list_paginator_<section_tipo>' signals relation_list
-* to call build() again with the updated offset.
-*
-* @param {Object} self - The relation_list instance (mutated: self.offset)
-* @returns {void}
-*/
-const next_records = function(self) {
-
-	//get the paginator and get the offset, limit and total of records found
-		const current_offset	= self.offset
-		const current_limit		= self.limit
-		const current_total		= self.total
-
-	// calculate the current and the final page
-		const current_page	= (current_offset + current_limit)/current_limit
-		const final_page	= Math.ceil(current_total/current_limit)
-
-	// if the paginator is NOT in the last page the button can navigate to the next page
-		if(current_page < final_page){
-			self.offset = current_offset + current_limit
-			event_manager.publish('relation_list_paginator_'+self.section_tipo, self)
-		}
-}//end next_records
 
 
 

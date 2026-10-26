@@ -36,7 +36,7 @@ sits next to these neighbouring client subsystems:
 | **view_default_edit_section** (`client/dedalo/core/section/js/view_default_edit_section.js`) | Builds `#inspector_container`, renders the inspector wrapper into it, attaches the resize handle, applies the persisted rail/width state, and moves the section paginator into the inspector. |
 | **Time Machine list** (a `dd15` `section` instance, `sqo.mode 'tm'`) | Instanced on demand for the section "Latest changes" list and the per-component history, 10 rows per page with the compact paginator (`1-10 of 47`). A `tm` read is a page view, never a single-record view: its one locator names the record (+ component) whose history is listed. Paging an embedded list never writes browser history or the address bar — only the page's own section does. |
 | **open_tool** | Every tool button in the inspector calls `open_tool()`; the inspector only decides *which* tools to show (`show_in_inspector`) and renders their buttons. |
-| **relation_list** | Instanced on demand to render the "Relations" block. |
+| **relation_list** | Instanced on demand to render the "Relations" block, paginated with the same compact strip (`1-10 of 47`) as the Time Machine panels. |
 
 !!! note "No server counterpart"
     The inspector itself has no server-side object. The data it shows is
@@ -426,7 +426,9 @@ so each historical change can carry a note.
   `context.config.relation_list_tipo` (set server-side in
   `common` when the section declares a relation-list trigger). It renders the
   inbound "who references me" view — see [component_relation_index](../components/component_relation_index.md)
-  and [relation_list](../components/index.md#related-components).
+  and [relation_list](../components/index.md#related-components). Its paginator
+  is a `paginator` instance in `mini` mode, so it reads exactly like the
+  "Latest changes" strip.
 - The **Project** card surfaces the section's [component_filter](../components/component_filter.md)
   node, captured from the `render_component_filter_<section_tipo>` event, letting
   the curator change the record's project assignment from the panel.

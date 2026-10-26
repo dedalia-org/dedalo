@@ -7,48 +7,16 @@
 	font-size: 0.90rem;
 	color: @color_grey_8;
 
-	>.relation_list_paginator {
-		-moz-user-select: none;
-		-ms-user-select: none;
-		-webkit-user-select: none;
-		user-select: none;
-		padding: 0.33rem;
+	// paginator. A real `paginator` instance in 'mini' mode — the same compact
+	// '« ‹ › » 1-10 of 4.683' strip the inspector's Latest changes panel renders.
+	// Only the padding is tuned for the ~300px panel; the strip's own styles
+	// (icons, inactive state, number formatting) are shared.
+	>.paginator_container {
 
-		>.relation_list_paginator_buttons {
-			float: right;
-			display: flex;
-
-			// current paginator_page_info like 'Page 1'
-			>.paginator_page_info {
-				margin-left: 4px;
-			}
-
-			// buttons
-			>.button {
-				display: inline-block;
-				z-index: 1;
-				margin: 0px;
-				margin-left: 0.5rem;
-				padding: 0px;
-				opacity: 0.5;
-				.fn_build_button('play.svg', @color_grey_4, 1, 1em);
-				cursor: pointer;
-
-				&.relation_list_paginator_next {
-					transform: scale(0.90);
-				}
-
-				&.relation_list_paginator_previous {
-					transform: scale(0.90) rotate(180deg);
-				}
-
-				// inactive case
-				&.relation_list_paginator_offset_off {
-					opacity: 0.1;
-					pointer-events: none;
-					cursor: default;
-				}
-			}
+		>.wrapper_paginator >.content_data {
+			height: auto;
+			min-height: 0;
+			padding: 0.1rem 0.25rem;
 		}
 	}
 

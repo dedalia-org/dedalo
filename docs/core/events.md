@@ -659,15 +659,15 @@ event_manager.publish('process_uploaded_file_done_' + self.id, api_response)
 
 - tool_upload.js
 
-### relation_list_paginator
+### relation_list_paginator_
 
 ```js
-event_manager.publish('relation_list_paginator', self)
+event_manager.publish('relation_list_paginator_' + self.section_tipo, self)
 ```
 
 **Emitted by:**
 
-- render_relation_list.js
+- relation_list.js (from the `paginator_goto_<id>` event of its `paginator` instance)
 
 ### remove_element_
 

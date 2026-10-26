@@ -23,6 +23,10 @@ Merged since the last release; these ship with the next one.
 
     An empty date field in the edit form showed its input format (`DD/MM/YYYY`), the `<>` range separator and the period labels even when it held no value. It now stays blank, like text fields and selectors, and shows them when you hover the field or select it. A range with only one date filled in keeps its separator. On a phone or tablet, the calendar button now appears once you tap the field.
 
+- **The inspector's Relations panel now uses the same compact paginator as Latest changes.**
+
+    The Relations panel's old `Total / Page` line with two arrows is replaced by the compact strip used in **Latest changes** and **Component history** (`« ‹ › » 1-10 of 4.683`), so long relation lists can jump to the first or last page as well as step one page at a time. Like those panels, the strip appears only when the list has more than one page of results.
+
 #### Fixed
 
 - **The inspector's Component history keeps all its rows after you add a note, and pages through long histories.**

@@ -13283,79 +13283,10 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   font-size: 0.9rem;
   color: var(--color_grey_8);
 }
-.relation_list > .relation_list_paginator {
-  -moz-user-select: none;
-  -ms-user-select: none;
-  -webkit-user-select: none;
-  user-select: none;
-  padding: 0.33rem;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons {
-  float: right;
-  display: flex;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .paginator_page_info {
-  margin-left: 4px;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button {
-  display: inline-block;
-  z-index: 1;
-  margin-left: 0.5rem;
-  padding: 0px;
-  opacity: 0.5;
-  background-color: var(--color_black);
-  display: inline-flex;
-  line-height: 1em;
-  margin: 0px;
-  margin-left: 0.25rem;
-  margin-right: 0.25rem;
-  min-width: 1em;
-  user-select: none;
-  font-weight: 300;
-  background: var(--color_grey_4);
-  height: 1em;
-  width: 1em;
-  opacity: 1;
-  -webkit-mask-image: url('../../themes/default/icons/play.svg');
-  mask-image: url('../../themes/default/icons/play.svg');
-  -webkit-mask-size: contain;
-  mask-size: contain;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  cursor: pointer;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button:hover {
-  opacity: 1 !important;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button:active {
-  opacity: 0.4 !important;
-}
-.buttons_container .relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button {
-  background-color: var(--color_white);
-  margin-top: 0px;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.white {
-  background-color: var(--color_white) !important;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.grey {
-  background-color: var(--color_grey_10);
-  opacity: 0.75;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.transparent {
-  background-color: transparent !important;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.relation_list_paginator_next {
-  transform: scale(0.9);
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.relation_list_paginator_previous {
-  transform: scale(0.9) rotate(180deg);
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.relation_list_paginator_offset_off {
-  opacity: 0.1;
-  pointer-events: none;
-  cursor: default;
+.relation_list > .paginator_container > .wrapper_paginator > .content_data {
+  height: auto;
+  min-height: 0;
+  padding: 0.1rem 0.25rem;
 }
 .relation_list > .content_data .relation_list_grid {
   border-left: 2px solid var(--color_orange_dedalo);
