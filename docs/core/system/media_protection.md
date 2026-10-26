@@ -72,7 +72,10 @@ Rich-text images are named INTO the grammar at upload: the editor's upload names
 endpoint asks the write door for that record's `component_text_area` first), and
 `image/<DEDALO_IMAGE_WEB_FOLDER>` is a default public quality. Rule B, the markers and the
 publication-host copy then treat it like any other derivative. Older unkeyed names stay
-login-only.
+login-only until the `rich_text_images` reconcile (root-only apply) copies them to keyed names and rewrites
+their `src`; `web_image_exposure` (dry at every boot) lists web-folder names that parse to a
+published record which does not embed them — public for no reason — and its root-only apply
+renames them out of the grammar (`<stem>.legacy.<ext>`; `src/core/media/rich_text_image_reconcile.ts`).
 
 Other invariants the gates pin, each of which shipped as a real bug or a near miss:
 

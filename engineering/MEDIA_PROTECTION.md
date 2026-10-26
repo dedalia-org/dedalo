@@ -120,8 +120,16 @@ surface. The endpoint asks the write door (`authorizeRecordAccess`, write level 
 component to be a `component_text_area`: otherwise a user could key an image to a published
 record whose text they cannot edit and make it public. Limits, by design: a legacy unkeyed name
 (`pic.jpg`) stays login-only; an image pasted into another record's text follows the publication
-of the record it was uploaded from; like any component media file, it is public from upload into
-an already-published record and after its removal from the text. An explicit
+of the record it was uploaded from. Historic data is brought in line by two reconciles
+(TODO-069, `src/core/media/rich_text_image_reconcile.ts`): `rich_text_images` (operator)
+copies each legacy image to a name keyed to the record that embeds it and rewrites its `src`
+(TM row, original kept); `web_image_exposure` (dry at boot, root-only apply) flags any
+web-folder name that parses to a PUBLISHED record whose own text does not embed it — a legacy
+name that happens to end like a record key, or a keyed image removed from its text — and
+renames it out of the grammar (`<stem>.legacy.<ext>`), repointing every text that uses it (the old
+name goes only once nothing resolves to it). `rich_text_images` holds any text a save would
+corrupt (another-lang slice of a non-translatable text, lang-less items); both applies are root-only. A file younger
+than 24 h is held (its text may not be saved yet). An explicit
 `DEDALO_MEDIA_PUBLIC_QUALITIES` must list `image/web` itself; nginx needs a reload for the new
 quality (§7).
 

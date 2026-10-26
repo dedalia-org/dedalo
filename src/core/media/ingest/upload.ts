@@ -400,7 +400,7 @@ function splitStagedName(name: string): { stem: string; suffix: string } {
  * under one `key_dir`), so a cross-device link is unreachable and pretending to
  * handle it would be an untested branch.
  */
-const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
+export const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
 	'EPERM',
 	'EOPNOTSUPP',
 	'ENOTSUP',
@@ -428,12 +428,7 @@ const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
  * single-shot upload, and (once chunking is on for every file) silent CORRUPTION
  * for a chunked one, since the parts of two transfers interleaved under one name.
  */
-function claimStagedName(
-	dir: string,
-	proposal: string,
-	sourcePath: string,
-	key = '',
-): string {
+function claimStagedName(dir: string, proposal: string, sourcePath: string, key = ''): string {
 	// `key` sits between the discriminator and the extension, so a keyed name
 	// keeps ending in `_<section_tipo>_<section_id>.<ext>` (MEDIA_FILENAME_GRAMMAR).
 	const { stem, suffix } = splitStagedName(proposal);
@@ -1280,26 +1275,46 @@ export function publishWebImage(
 	const dir = stagingDir(userId, WEB_IMAGE_KEY_DIR, mediaRoot);
 	const source = confine(dir, tmpName);
 	try {
-		const key = `_${record.sectionTipo}_${record.sectionId}`;
-		if (!WEB_IMAGE_NAME.test(`x${key}.jpg`)) {
-			throw new DedaloError('request.invalid', {
-				message: `upload: '${key}' is not a media record key`,
-			});
-		}
-		const relDir = [config.media.image.folder, readString('DEDALO_IMAGE_WEB_FOLDER')]
-			.map((folder) => sanitizeSegment(folder.replace(/^\/+/, '')))
-			.join('/');
-		const webDir = resolve(requireMediaRoot(mediaRoot), relDir);
-		mkdirSync(webDir, { recursive: true, mode: MEDIA_DIR_MODE });
-		const incoming = resolve(webDir, `.incoming_${Math.random().toString(16).slice(2, 12)}`);
-		try {
-			copyFileSync(source, incoming);
-			return `${relDir}/${claimStagedName(webDir, tmpName, incoming, key)}`;
-		} finally {
-			rmSync(incoming, { force: true });
-		}
+		return claimKeyedWebImage(source, tmpName, record, mediaRoot);
 	} finally {
 		rmSync(source, { force: true });
 		forgetStagedDisplayName(dir, tmpName);
 	}
+}
+
+/**
+ * COPY `source` into the web folder under a name keyed to `record`, built from
+ * `proposal` (a SANITIZED name, e.g. stagedTmpName) — the ONE naming rule of
+ * the editor upload and of the legacy migration (rich_text_image_reconcile.ts).
+ * The source is never moved or removed. Returns the media-root-relative path.
+ */
+export function claimKeyedWebImage(
+	source: string,
+	proposal: string,
+	record: WebImageRecord,
+	mediaRoot?: string,
+): string {
+	const key = `_${record.sectionTipo}_${record.sectionId}`;
+	if (!WEB_IMAGE_NAME.test(`x${key}.jpg`)) {
+		throw new DedaloError('request.invalid', {
+			message: `upload: '${key}' is not a media record key`,
+		});
+	}
+	const relDir = webImageRelDir();
+	const webDir = resolve(requireMediaRoot(mediaRoot), relDir);
+	mkdirSync(webDir, { recursive: true, mode: MEDIA_DIR_MODE });
+	const incoming = resolve(webDir, `.incoming_${Math.random().toString(16).slice(2, 12)}`);
+	try {
+		copyFileSync(source, incoming);
+		return `${relDir}/${claimStagedName(webDir, proposal, incoming, key)}`;
+	} finally {
+		rmSync(incoming, { force: true });
+	}
+}
+
+/** `<image folder>/<DEDALO_IMAGE_WEB_FOLDER>`, media-root-relative and sanitized. */
+export function webImageRelDir(): string {
+	return [config.media.image.folder, readString('DEDALO_IMAGE_WEB_FOLDER')]
+		.map((folder) => sanitizeSegment(folder.replace(/^\/+|\/+$/g, '')))
+		.join('/');
 }

@@ -106,6 +106,16 @@ export const POST_RESTORE_PLAN: readonly PostRestoreStep[] = [
 		apply: false,
 		why: 'an observation, never a repair: the dry run probes each host through its public URL and reports, writing nothing; after a restore its verdict tells the operator whether media unpublished since the backup instant is still served publicly (the next scheduled apply records it in the panel)',
 	},
+	{
+		name: 'rich_text_images',
+		apply: false,
+		why: 'copies files and rewrites texts across records: the dry report names what a restored backup brought back as legacy, and the operator applies it from Maintenance',
+	},
+	{
+		name: 'web_image_exposure',
+		apply: false,
+		why: 'a restore can bring back a web-folder file a published record does not embed; the dry run names it, and making it private stays a root decision',
+	},
 ];
 
 export interface PostRestoreStepResult {

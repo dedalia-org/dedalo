@@ -203,6 +203,29 @@ Three deliberate properties of the apply run:
 Installs migrated with the current `close_v6_prepare_v7` package need none of
 this — the same conversion runs inside the migration itself.
 
+## One-time data update — images inserted into rich text
+
+Since this release, an image inserted from the rich-text editor is named after the record it
+is inserted into, so a visitor of a published page can see it exactly while that record is
+published. Images inserted before carry their original name and stay visible to logged-in
+users only. Two entries of **Maintenance → Reconcile status** bring the old data in line:
+
+| Entry | What a dry run reports | What *Apply* does |
+| --- | --- | --- |
+| `rich_text_images` | every rich-text image whose file is not named after the record that embeds it, and every referenced file missing from `image/web` | copies the file to a record-named file (one per record that embeds it; the original stays) and points the text at it — a normal save, with a Time Machine entry, so the text is also cleaned as any save cleans it. A text that cannot be saved safely (a non-translatable field holding a language version, or a value with no language) is listed as *held* and left as it is. Root only |
+| `web_image_exposure` | files in `image/web` that a visitor can open although the published record their name points at does not use them — typically an old upload whose name happened to end like a record key | renames each one so it is no longer public (`photo_rsc170_45.jpg` → `photo_rsc170_45.legacy.jpg`) and repoints any text that uses it; if some text still uses the old name and cannot be repointed, both names are kept and the file is listed as failed. Root only |
+
+1. Take a backup.
+2. Run `rich_text_images` without *Apply* and read the list; missing files are only reported.
+   Then apply it.
+3. Do the same with `web_image_exposure`. It also runs by itself, as a dry run, every time
+   the server starts, so new cases show up in the panel; files less than a day old are held,
+   because their text may not have been saved yet.
+4. A repeated dry run of each must report 0.
+
+From the command line: `bun scripts/reconcile.ts run rich_text_images` (add `--apply` to
+apply). On nginx, reload it once after this update so the new public folder takes effect.
+
 ## Verify
 
 ```shell

@@ -101,7 +101,11 @@ qualities, the posterframe, every subtitle language.
     for example `photo_rsc167_2.jpg`. It is therefore public exactly while that record is
     published, like the record's own media. Only a user who may edit that text can insert an
     image into it. Images inserted before this naming (for example `photo.jpg`) have no record
-    in their name and stay login-only.
+    in their name and stay login-only until the `rich_text_images` entry of **Maintenance →
+    Reconcile status** renames them after their record (see
+    [Upgrading](../install/upgrading.md#one-time-data-update-images-inserted-into-rich-text)).
+    The `web_image_exposure` entry, which runs at every start, lists any file in `image/web`
+    that is public although the published record its name points at does not use it.
 
 ## Configuration
 

@@ -31,7 +31,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
 	deleteRecord as deleteRagRecord,
@@ -91,6 +91,10 @@ import { cleanScratchTipo } from '../helpers/test_data.ts';
 const TLD = 'zzrc';
 const MEDIA_SECTION = `${TLD}1`;
 const IMAGE = `${TLD}2`;
+/** zzrc1's component_text_area — the rich_text_images pair (zzrc5 feeds the RAG pair). */
+const TEXT = `${TLD}6`;
+/** A zzrc1 record id the rich-text planters own (raw-planted, deleted by id). */
+const TEXT_RECORD_ID = 990061;
 const RAG_SECTION = `${TLD}3`;
 const RAG_MAP = `${TLD}4`;
 const RAG_TEXT = `${TLD}5`;
@@ -258,6 +262,14 @@ beforeAll(async () => {
 		properties: {},
 	});
 	await upsertDdOntologyNode({
+		tipo: TEXT,
+		parent: MEDIA_SECTION,
+		model: 'component_text_area',
+		tld: TLD,
+		term: { 'lg-eng': 'Text' },
+		properties: {},
+	});
+	await upsertDdOntologyNode({
 		tipo: RAG_SECTION,
 		model: 'section',
 		tld: TLD,
@@ -413,6 +425,61 @@ const PLANTERS: Record<string, Planter> = {
 		},
 		async unplant() {
 			await sweepObserverScratch();
+		},
+	},
+	rich_text_images: {
+		scope: [MEDIA_SECTION],
+		async plant() {
+			// A pre-TODO-066 text: its image keeps the original name, so rule B can never serve it.
+			const webDir = join(mediaRoot(), 'image', 'web');
+			mkdirSync(webDir, { recursive: true });
+			const file = join(webDir, 'zzrc_legacy.jpg');
+			writeFileSync(file, 'jpg');
+			planted.push(file);
+			await sql.unsafe(
+				`INSERT INTO "${TABLE}" (section_id, section_tipo, string) VALUES ($1, $2, $3::text::jsonb)`,
+				[
+					TEXT_RECORD_ID,
+					MEDIA_SECTION,
+					JSON.stringify({
+						[TEXT]: [
+							{
+								id: 1,
+								lang: 'lg-eng',
+								value: '<p><img src="/dedalo/media/image/web/zzrc_legacy.jpg"></p>',
+							},
+						],
+					}),
+				],
+			);
+			return 1;
+		},
+		async unplant() {
+			await sql.unsafe(`DELETE FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`, [
+				MEDIA_SECTION,
+				TEXT_RECORD_ID,
+			]);
+			for (const path of planted.splice(0)) rmSync(path, { force: true });
+		},
+	},
+	web_image_exposure: {
+		async plant() {
+			// An old web-folder file whose name parses to a PUBLISHED record that does not embed it.
+			const webDir = join(mediaRoot(), 'image', 'web');
+			const pubDir = join(mediaRoot(), '.publication', 'pub');
+			mkdirSync(webDir, { recursive: true });
+			mkdirSync(pubDir, { recursive: true });
+			const file = join(webDir, `zzrc_exposed_${MEDIA_SECTION}_${TEXT_RECORD_ID}.jpg`);
+			const marker = join(pubDir, `${MEDIA_SECTION}_${TEXT_RECORD_ID}`);
+			writeFileSync(file, 'jpg');
+			writeFileSync(marker, '');
+			const old = new Date(Date.now() - 3 * 24 * 3_600_000); // past the 24 h grace
+			utimesSync(file, old, old);
+			planted.push(file, marker);
+			return 1;
+		},
+		async unplant() {
+			for (const path of planted.splice(0)) rmSync(path, { force: true });
 		},
 	},
 	media_index: {
@@ -764,11 +831,11 @@ describe('reconcile registry — every definition measures its pair (S-10)', () 
 			apply: true,
 			error: 'resource.not_found',
 		});
-		// the facet is declared exactly where the apply touches a public machine
+		// the facet is declared exactly where an apply changes what the public can read
 		const rootOnly = listReconciles()
 			.filter((definition) => definition.applyRootOnly !== undefined)
 			.map((definition) => definition.name);
-		expect(rootOnly).toEqual(['media_copy']);
+		expect(rootOnly).toEqual(['media_copy', 'rich_text_images', 'web_image_exposure']);
 	});
 
 	test('the widget door is DRY unless apply is the boolean true: a planted drift is reported, not repaired', async () => {

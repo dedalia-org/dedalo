@@ -21,6 +21,7 @@ import { RAG_INDEX_RECONCILE } from '../../ai/rag/reconcile.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { COUNTERS_MEDIA_RECONCILE } from '../media/counter_reconcile.ts';
 import { FILES_INFO_RECONCILE } from '../media/files_info_reconcile.ts';
+import { RICH_TEXT_IMAGES_RECONCILE } from '../media/rich_text_image_reconcile.ts';
 import { HIERARCHY_RECONCILE } from '../ontology/hierarchy_state.ts';
 import { ONTOLOGY_IDENTIFIERS_RECONCILE } from '../ontology/identifier_grammar.ts';
 import { ONTOLOGY_RECONCILE } from '../ontology/ontology_state.ts';
@@ -36,9 +37,12 @@ import {
 
 /** Every definition the engine ships, in registry order (the diffusion one lazily). */
 export async function loadAllReconciles(): Promise<readonly ReconcileDefinition[]> {
-	const { MEDIA_COPY_RECONCILE, MEDIA_INDEX_RECONCILE, PUBLIC_TIER_RECONCILE } = await import(
-		'../../diffusion/api/reconcile.ts'
-	);
+	const {
+		MEDIA_COPY_RECONCILE,
+		MEDIA_INDEX_RECONCILE,
+		PUBLIC_TIER_RECONCILE,
+		WEB_IMAGE_EXPOSURE_RECONCILE,
+	} = await import('../../diffusion/api/reconcile.ts');
 	return [
 		COUNTERS_MEDIA_RECONCILE,
 		FILES_INFO_RECONCILE,
@@ -52,6 +56,8 @@ export async function loadAllReconciles(): Promise<readonly ReconcileDefinition[
 		PUBLICATION_APIS_RECONCILE,
 		MEDIA_COPY_RECONCILE,
 		PUBLICATION_PROBE_RECONCILE,
+		RICH_TEXT_IMAGES_RECONCILE,
+		WEB_IMAGE_EXPOSURE_RECONCILE,
 	];
 }
 

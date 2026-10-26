@@ -20,6 +20,7 @@
  * SCHEDULED runs apply (the boot posture of the old engine, oracle index.ts:1183).
  */
 
+import { runWebImageExposure } from '../../core/media/rich_text_image_reconcile.ts';
 import { MEDIA_COPY_PERIOD_MS } from '../../core/publication_host/media_copy_status.ts';
 import type {
 	ReconcileDefinition,
@@ -30,6 +31,7 @@ import { retryPendingUnpublishOpportunistically } from '../jobs/pending_retry.ts
 import { runPublicTierReconcile } from '../targets/mariadb/public_tier_reconcile.ts';
 import {
 	diffMediaIndex,
+	hasPubMarker,
 	type MediaIndexFenceOptions,
 	reconcileMediaIndex,
 } from '../targets/mediastore/media_index.ts';
@@ -180,4 +182,27 @@ export const MEDIA_COPY_RECONCILE: ReconcileDefinition = {
 		'src/diffusion/api/reconcile.ts',
 	],
 	run: (options) => runMediaCopyReconcile(options),
+};
+
+/**
+ * `web_image_exposure` (TODO-069): the rich-text web folder against the pub/
+ * markers this facade's store owns — a name that parses to a PUBLISHED record
+ * whose own text does not embed it is served anonymously for no reason. The
+ * logic is core's (media/rich_text_image_reconcile.ts); the marker probe is
+ * injected from here so core never imports the marker store.
+ */
+export const WEB_IMAGE_EXPOSURE_RECONCILE: ReconcileDefinition = {
+	name: 'web_image_exposure',
+	stores: ['image web folder file names', '.publication/pub markers + the keyed record text'],
+	description:
+		'List rich-text web-folder images whose name parses to a published record that does not embed them (a legacy upload whose name ends like a record key, a keyed image removed from its text): rule B serves them anonymously. Apply renames each out of the grammar (<name>.legacy.<ext>) and repoints every text that embeds it (Time Machine row); the old name is removed only once nothing resolves to it any more; files younger than a day are held — their text may not be saved yet.',
+	scopeLabel: null,
+	// A listing of one folder + a marker stat and one record read per parsing name: boot-cheap, report only.
+	schedule: 'boot',
+	applyRootOnly: {
+		reason:
+			'an apply makes published files private and rewrites texts across records: root only, like the other apply that changes what the public can read (media_copy)',
+	},
+	sources: ['src/diffusion/api/reconcile.ts', 'src/core/media/rich_text_image_reconcile.ts'],
+	run: ({ apply }) => runWebImageExposure({ apply, isPublished: hasPubMarker }),
 };
