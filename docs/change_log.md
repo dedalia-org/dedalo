@@ -25,6 +25,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The inspector's Component history keeps all its rows after you add a note, and pages through long histories.**
+
+    After adding or editing a Time Machine note in the inspector's Component history, the list showed only the newest change, or went empty. It now keeps the full history and the note icon updates in place. Histories longer than one page show the compact paginator (`1-10 of 47`) in the Component history and Latest changes panels, and paging there no longer changes the page address or adds browser-history entries.
+
 - **Uploading an image from the text editor toolbar works again.**
 
     The "Upload image from computer" button of a rich-text field failed with `upload: missing file_to_upload`. The image is now stored in the image web folder (`DEDALO_IMAGE_WEB_FOLDER`) and inserted into the text. Only JPG, PNG, GIF, WebP and AVIF images can be inserted. An image with the same name as an earlier one gets a new name instead of replacing it, so other texts that show the earlier image keep it. A resized image now opens at its resized size, without first appearing at full size while the editor loads.

@@ -232,7 +232,13 @@ inspector.prototype.init = async function(options) {
 			)
 
 		// deactivate_component
-			const deactivate_component_handler = () => {
+			const deactivate_component_handler = (component) => {
+				// a component of ANOTHER section (a modal: e.g. the Time Machine note
+				// editor, rsc832) leaving focus must not reset this inspector — it
+				// would clear and destroy the component history the note was opened from
+				if (component?.section_tipo!==self.section_tipo) {
+					return
+				}
 				// note that transition between activate a component after deactivate other
 				// is not the desired scenario to update section info. Because this, we wait a while
 				// and check if is active some component before fire update_section_info
