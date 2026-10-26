@@ -2147,7 +2147,7 @@ const delete_restore_point = async function(self, point, body_response) {
 *
 * THE COMPARISON BASIS IS THE SERVER'S, NOT THE PAGE'S (2026-08-25 review).
 * `page_globals.dedalo_version` is DEDALO_ENGINE_VERSION, which carries the
-* prerelease tag — '7.0.1.dev' on a dev checkout or a dev-channel install —
+* prerelease tag — '7.0.1-dev' on a dev checkout or a dev-channel install —
 * while the pipeline compares `DEDALO_VERSION_TRIPLE.join('.')`, a bare
 * '7.0.1'. Read from the page, every developer-channel restore of its OWN
 * version drew the downgrade waiver, locked the button behind it, and then had

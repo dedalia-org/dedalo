@@ -389,7 +389,7 @@ async function main(): Promise<void> {
 	// is brought TO that version (re-materialized below when it does not match)
 	// rather than the version being derived from the museum.
 	//
-	// The museum's /health names its RELEASE IDENTITY (`7.0.1`, `7.0.1.dev` on a
+	// The museum's /health names its RELEASE IDENTITY (`7.0.1`, `7.0.1-dev` on a
 	// developer build, `7.0.1-beta.2` on a prerelease): its DATA triple is what
 	// the cycle walks from, and the strict triple test below would otherwise
 	// refuse to start a second cycle on a dev or prerelease museum.

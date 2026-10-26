@@ -35,6 +35,7 @@ import {
 	BUILD_INFO_TREE_PATH,
 	DEV_REF,
 	isSafeGitRef,
+	parseDeclaredNextDevTriple,
 	parseDeclaredTriple,
 	placeholderNamesItsTag,
 	planCodeBuild,
@@ -86,6 +87,16 @@ async function declaredVersionOfRef(
 	if (!isSafeGitRef(ref)) return null;
 	const source = await gitShow(gitDir, `${ref}:${VERSION_TS_PATH}`);
 	return source === null ? null : parseDeclaredTriple(source);
+}
+
+/** The next dev triple a ref declares, or null when it cannot be read. */
+async function declaredNextDevOfRef(
+	gitDir: string | undefined,
+	ref: string,
+): Promise<string | undefined> {
+	if (gitDir === undefined || gitDir === '' || !isSafeGitRef(ref)) return undefined;
+	const source = await gitShow(gitDir, `${ref}:${VERSION_TS_PATH}`);
+	return source === null ? undefined : (parseDeclaredNextDevTriple(source) ?? undefined);
 }
 
 /** `git show <object>` from the object store, or null when it cannot be read. */
@@ -490,7 +501,8 @@ export async function buildVersionFromGit(options: {
 	// and the release path live in the pure planner. The ref goes in EXPLICITLY:
 	// the channel (and so the file name) is read off the ref by releaseFileName,
 	// and it must be the very ref `git archive` below packages.
-	const plan = planCodeBuild({ version, ref }, buildConfig());
+	const devVersion = await declaredNextDevOfRef(config.update.codeServerGitDir, ref);
+	const plan = planCodeBuild({ version, ref, devVersion }, buildConfig());
 	if (plan.ok !== true) {
 		// `plan.msg` is the operator sentence; `plan.error` the machine detail —
 		// the latter goes to the LOG side only (`message`), never to the wire.

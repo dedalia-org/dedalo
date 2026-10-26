@@ -97,7 +97,7 @@ import { scriptedInstallPrompter } from '../../src/core/install/ui_plain/prompte
 import { readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
 import { imageTagOf } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE, DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import {
 	COSIGN,
 	composePrefix,
@@ -796,8 +796,8 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 
 	test('prerelease + Official with an explicit X.Y.Z-dev tag, absent: refused as the dev branch’s image — never told to wait for a release', async () => {
 		await withInstallerIdentity(BETA, async () => {
-			const raw = { ...TRIAL, image_source: 'official', image_version: `${DEDALO_VERSION}-dev` };
-			const devRef = `${FIRST}:${DEDALO_VERSION}-dev`;
+			const raw = { ...TRIAL, image_source: 'official', image_version: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev` };
+			const devRef = `${FIRST}:${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`;
 			expect(imageRefOf(stackPlanCtx(raw).answers)).toBe(devRef);
 			const host = machine(raw, {
 				responses: [
@@ -860,7 +860,7 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 		await withInstallerIdentity(PINNED_IDENTITY.dev, async () => {
 			const { answers } = stackPlanCtx(TRIAL);
 			expect(answers.image_source).toBe('build');
-			const ref = `localhost/dedalo:${DEDALO_VERSION}-dev`;
+			const ref = `localhost/dedalo:${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`;
 			expect(imageRefOf(answers)).toBe(ref);
 			const host = machine(TRIAL);
 			expect(await refusals(host, TRIAL)).toEqual([]);
@@ -873,7 +873,7 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 					(line) => line.includes(` ${ref} `) || line.endsWith(` ${ref}`),
 				),
 			).toBe(true);
-			expect(envOf(host)).toContain(`DEDALO_VERSION=${DEDALO_VERSION}-dev\n`);
+			expect(envOf(host)).toContain(`DEDALO_VERSION=${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev\n`);
 		});
 	});
 
@@ -881,7 +881,7 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 		await withInstallerIdentity(PINNED_IDENTITY.dev, async () => {
 			for (const raw of [
 				{ ...TRIAL, image_source: 'official' },
-				{ ...TRIAL, image_source: 'official', image_version: `${DEDALO_VERSION}-dev` },
+				{ ...TRIAL, image_source: 'official', image_version: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev` },
 			]) {
 				// the plan: on the image_source question, before any Review
 				const plan = buildInstallPlan(raw, {

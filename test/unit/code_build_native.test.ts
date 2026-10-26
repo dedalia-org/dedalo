@@ -10,6 +10,7 @@
  * No DB. Needs `git` for the integration block; skips LOUDLY if absent.
  */
 
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -943,6 +944,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 				expect(info.describe).toBe(`v${NEXT}-beta.1`);
 				const said = resolveReleaseIdentity({
 					triple: [major, minor, patch + 1],
+					nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
 					describe: info.describe,
 					provenance: { stamp: 'other', channel: 'master' },
 				});

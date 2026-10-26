@@ -27,6 +27,7 @@
  * PURE.
  */
 
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../../update/version.ts';
 import {
 	loadImageRegistries,
 	normalizeRepository,
@@ -156,13 +157,14 @@ export function imageVersionOf(
 
 /**
  * The versions an image of this installer may carry: its identity's tag and,
- * named explicitly, the `-dev` tag of its data version (the dev branch's
- * image — design §2.4). Nothing else: the engine steps run inside the image
- * with this installer's request format.
+ * named explicitly, the developer tag of the NEXT release (version.ts
+ * DEDALO_NEXT_DEV_TRIPLE — the dev branch's image, design §2.4): an untagged
+ * build calls itself by that identity, never by its data triple. Nothing else:
+ * the engine steps run inside the image with this installer's request format.
  */
 export function acceptedImageVersions(identity: ReleaseIdentity = installerIdentity()): string[] {
 	const own = imageTagOf(identity.version);
-	const dev = `${identity.triple.join('.')}-dev`;
+	const dev = `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`;
 	return own === dev ? [own] : [own, dev];
 }
 

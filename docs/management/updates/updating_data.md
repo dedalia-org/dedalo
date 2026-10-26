@@ -17,6 +17,20 @@ Updating data is the most delicate update process, and it is mandatory to back u
 
 Not every code update implies a data update — the two processes are independent — but data depends on the ontology and code version, so some code updates do require a data update.
 
+## When the data version moves
+
+The data version is the version of the **last release that changed data**. It is not always the version of the code that is running:
+
+- A data change (moving a tipo, changing a flat portal, anything that touches existing records) ships only in a **minor** or **major** release. A **patch** release never changes data.
+- Between data changes, the code runs on the data of the last data-changing release. Every release in between is data-compatible with it, so a patch or a minor without data changes needs no data update.
+- Some minors and majors have no data change at all. They write **no row** to `matrix_updates`, and pressing "Update data" does nothing for them.
+- The "Update data" panel shows `current_version_in_db` as that last data-changing version. It can lag the installed code version; that gap is expected and is not an error.
+
+Ontology changes that do not alter existing data (a label, a list of components shown to users) ship in any version of their minor, and they are covered by the ontology update, not by this process.
+
+!!! note "Coming from version 6"
+    Version 6 wrote a data-version row for every release, even when the release had only maintenance steps. Version 7 writes a row only for a release that changes data. The current data version is therefore the latest row, and it does not follow every code version.
+
 ## Updating tasks
 
 1. Close access to the work system.

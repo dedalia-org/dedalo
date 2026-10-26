@@ -174,8 +174,8 @@ async function readScratchVersion(): Promise<number[]> {
 function dataDescriptor(parts: Partial<DataUpdateDescriptor>): DataUpdateDescriptor {
 	return {
 		versionMajor: 7,
-		versionMedium: 0,
-		versionMinor: 1,
+		versionMedium: 1,
+		versionMinor: 0,
 		updateFromMajor: 7,
 		updateFromMedium: 0,
 		updateFromMinor: 0,
@@ -287,8 +287,8 @@ function logLength(): number {
 }
 
 /** update.log's verdict line of a committed run (tagged with its transaction id). */
-const COMMITTED_LINE = /^COMMITTED 7\.0\.1 \[xact \d+\]$/m;
-const BEGIN_LINE = 'BEGIN atomic run 7.0.0 -> 7.0.1';
+const COMMITTED_LINE = /^COMMITTED 7\.1\.0 \[xact \d+\]$/m;
+const BEGIN_LINE = 'BEGIN atomic run 7.0.0 -> 7.1.0';
 
 function seamsFor(descriptor: UpdateDescriptor, extra: AtomicSeams = {}): AtomicSeams {
 	return {
@@ -389,7 +389,7 @@ import { updateVersion } from ${repoModule('src/core/update/engine.ts')};
 import { assertTestDatabase } from ${repoModule('src/core/test_data/test_database_marker.ts')};
 await assertTestDatabase('update_engine_atomic_native:crash');
 const descriptor = {
-	versionMajor: 7, versionMedium: 0, versionMinor: 1,
+	versionMajor: 7, versionMedium: 1, versionMinor: 0,
 	updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 	updateData: true,
 	sqlUpdate: [${JSON.stringify(insertTag('b'))}, 'SELECT pg_sleep(5) /*${CRASH_MARKER}*/'],
@@ -397,7 +397,7 @@ const descriptor = {
 let out;
 try {
 	out = await updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
-		catalog: { '701': descriptor },
+		catalog: { '710': descriptor },
 		currentVersion: [7, 0, 0],
 		logPath: ${JSON.stringify(`${LOG_PATH}.crash`)},
 		writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${VER}" (version) VALUES ($1)', [v]); },
@@ -451,7 +451,7 @@ import { assertTestDatabase } from ${repoModule('src/core/test_data/test_databas
 await assertTestDatabase('update_engine_atomic_native:ceiling');
 const probe = {};
 const descriptor = {
-	versionMajor: 7, versionMedium: 0, versionMinor: 1,
+	versionMajor: 7, versionMedium: 1, versionMinor: 0,
 	updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 	updateData: true,
 	sqlUpdate: ['SELECT pg_sleep(0.6)', ${JSON.stringify(insertTag('c'))}],
@@ -460,7 +460,7 @@ const descriptor = {
 let out;
 try {
 	out = await updateVersion({ SQL_update_0: true, SQL_update_1: true, run_scripts_0: true }, {
-		catalog: { '701': descriptor },
+		catalog: { '710': descriptor },
 		scripts: {
 			'zz.probe': async () => {
 				const rows = await sql.unsafe(
@@ -549,13 +549,13 @@ import { updateVersion } from ${repoModule('src/core/update/engine.ts')};
 import { assertTestDatabase } from ${repoModule('src/core/test_data/test_database_marker.ts')};
 await assertTestDatabase('update_engine_atomic_native:single_flight');
 const descriptor = {
-	versionMajor: 7, versionMedium: 0, versionMinor: 1,
+	versionMajor: 7, versionMedium: 1, versionMinor: 0,
 	updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 	updateData: true,
 	sqlUpdate: ['SELECT pg_sleep(1.5) /*${SINGLE_FLIGHT_MARKER}*/', ${JSON.stringify(insertTag('d'))}],
 };
 const seams = {
-	catalog: { '701': descriptor },
+	catalog: { '710': descriptor },
 	scripts: {},
 	currentVersion: [7, 0, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.single_flight`)},
@@ -678,7 +678,7 @@ await assertTestDatabase('update_engine_atomic_native:saturated_abort');
 setTimeout(() => { console.log('RESULT ' + JSON.stringify({ watchdog: true })); process.exit(0); }, 20000);
 const { sql, withTransaction, withUnboundedStatements, getPoolStats } = pg;
 const descriptor = {
-	versionMajor: 7, versionMedium: 0, versionMinor: 1,
+	versionMajor: 7, versionMedium: 1, versionMinor: 0,
 	updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 	updateData: true,
 	sqlUpdate: [${JSON.stringify(insertTag('e2'))}, 'SELECT pg_sleep(5) /*${SATURATED_MARKER}*/'],
@@ -690,7 +690,7 @@ await Bun.sleep(100);
 const saturated = getPoolStats().inUse === getPoolStats().max;
 const controller = new AbortController();
 const running = updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
-	catalog: { '701': descriptor },
+	catalog: { '710': descriptor },
 	currentVersion: [7, 0, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.saturated`)},
 	writeVersionRow: async () => {},
@@ -824,10 +824,10 @@ describe('OPS-6 lock discipline: bounded lock waits, retried', () => {
 					log,
 				);
 			expect(discarded, log).not.toBeNull();
-			const committed = /^COMMITTED 7\.0\.1 \[xact (\d+)\]$/m.exec(log);
+			const committed = /^COMMITTED 7\.1\.0 \[xact (\d+)\]$/m.exec(log);
 			expect(committed, log).not.toBeNull();
 			expect(committed?.[1]).not.toBe(discarded?.[1]);
-			expect(log).toContain(`BEGIN atomic run 7.0.0 -> 7.0.1 [xact ${committed?.[1]}]`);
+			expect(log).toContain(`BEGIN atomic run 7.0.0 -> 7.1.0 [xact ${committed?.[1]}]`);
 		} finally {
 			await release;
 			await sql.unsafe(`ALTER TABLE "${LOCKED}" DROP COLUMN IF EXISTS zz_c`, []);
@@ -1034,7 +1034,7 @@ describe('OPS-6 one verdict: an unexplained failure is read back from the transa
 				// A version compare would read "committed" here.
 				readVersionInTx: async () => {
 					reads += 1;
-					return reads === 1 ? [7, 0, 0] : [7, 0, 1];
+					return reads === 1 ? [7, 0, 0] : [7, 1, 0];
 				},
 				readXactStatus: async () => 'aborted',
 			}),
@@ -1113,7 +1113,7 @@ await assertTestDatabase('update_engine_atomic_native:verdict');
 setTimeout(() => { console.log('RESULT ' + JSON.stringify({ watchdog: true })); process.exit(0); }, 30000);
 const { sql, withUnboundedStatements, getPoolStats } = pg;
 const descriptor = {
-	versionMajor: 7, versionMedium: 0, versionMinor: 1,
+	versionMajor: 7, versionMedium: 1, versionMinor: 0,
 	updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 	updateData: true,
 	sqlUpdate: [${JSON.stringify(insertTag('k3'))}, 'SELECT pg_sleep(8) /*${VERDICT_MARKER}_run*/'],
@@ -1124,7 +1124,7 @@ const active = async (suffix) => (await sql.unsafe(
 const waitFor = async (suffix) => { for (let i = 0; i < 200; i++) { if (await active(suffix) > 0) return true; await Bun.sleep(25); } return false; };
 const controller = new AbortController();
 const running = updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
-	catalog: { '701': descriptor },
+	catalog: { '710': descriptor },
 	currentVersion: [7, 0, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.verdict`)},
 	writeVersionRow: async () => {},
@@ -1328,7 +1328,7 @@ describe('OPS-6 reconcile: strictly after COMMIT', () => {
 		expect(out.msg).toEqual([
 			'Updated SQL_update 1',
 			'Observer mirrors reconciled: 0 repaired, 0 shrink(s) held (see update log)',
-			'Updated Dédalo data version: 7.0.1',
+			'Updated Dédalo data version: 7.1.0',
 			'Updated version successfully',
 		]);
 

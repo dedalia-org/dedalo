@@ -261,7 +261,7 @@ export async function buildPageGlobals(
  * authenticated callers. Spread in place by buildPageGlobals, so the wire key
  * order is unchanged.
  *  - `dedalo_version` is the RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`,
- *    `7.0.0.dev`) — for display. Anything the client COMPARES or SENDS to
+ *    `7.0.0-dev`) — for display. Anything the client COMPARES or SENDS to
  *    another server reads `dedalo_data_version` beside it: the bare data triple
  *    this code belongs to, so no client ever parses one out of the identity
  *    (WC-2026-10-15-release-identity-from-tag).

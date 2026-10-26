@@ -86,7 +86,7 @@ git fetch --all --tags --prune
 git checkout --detach "$REF"
 
 # A release ref must BE that release: a lightweight tag, a tag on another commit or
-# one naming another version than version.ts would run as X.Y.Z.dev and pass for
+# one naming another version than version.ts would run as X.Y.Z-dev and pass for
 # nothing (release identity, owner 2026-10-15). Judged by the deployed tree's own
 # library (dedalo_release_identity — the engine resolver's shell twin); a ref that
 # predates it is deployed unchecked, and says so.

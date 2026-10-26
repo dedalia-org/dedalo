@@ -364,7 +364,7 @@ async function fetchHealth(origin: string): Promise<HealthBody> {
  * readReleaseIdentityOf): the expanded build_info.txt of the HEAD archive, no
  * install stamp, and the data triple the consumer was pinned to (RUNG.from).
  * Never the bare triple: HEAD exactly at `v7.0.0-beta.6` archives an identity
- * of `7.0.0-beta.6`, an untagged HEAD one of `7.0.0.dev` (a tag naming another
+ * of `7.0.0-beta.6`, an untagged HEAD one of `7.0.0-dev` (a tag naming another
  * triple than the pinned one, too) — only a pre-describe two-field stamp says
  * the bare triple. The data triple is asserted separately: whatever the
  * identity, it must belong to the rung's FROM end.

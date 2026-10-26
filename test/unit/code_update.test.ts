@@ -64,7 +64,11 @@ import {
 	PUBLICATION_MANIFEST_PATH,
 	verifyPublicationTree,
 } from '../../src/core/update/publication_manifest.ts';
-import { compareVersionArrays, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import {
+	compareVersionArrays,
+	DEDALO_NEXT_DEV_TRIPLE,
+	DEDALO_VERSION_TRIPLE,
+} from '../../src/core/update/version.ts';
 import { ageMinutes, buildRealArchive, truncatedCopy } from '../helpers/real_backup_archive.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
@@ -125,6 +129,15 @@ async function buildReleaseZip(
 	writeFileSync(
 		join(codeDir, 'src', 'core', 'update', 'build_info.txt'),
 		`${'a'.repeat(40)} 2026-10-18T00:00:00Z v${identity}\n`,
+	);
+	// a real release declares its own triples (version.ts): the data triple of
+	// its release, and the next dev triple above it
+	const [major = 0, minor = 0, patch = 0] = (identity.split('-')[0] ?? '').split('.').map(Number);
+	writeFileSync(
+		join(codeDir, 'src', 'core', 'update', 'version.ts'),
+		`export const DEDALO_VERSION_TRIPLE = Object.freeze([${major}, ${minor}, ${patch}]);
+export const DEDALO_NEXT_DEV_TRIPLE = Object.freeze([${major}, ${minor}, ${patch + 1}]);
+`,
 	);
 	writeFileSync(join(codeDir, 'package.json'), '{"name":"dedalo"}');
 	writeFileSync(join(codeDir, 'src', 'server.ts'), '// server');
@@ -1468,7 +1481,9 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 			JSON.stringify({ digest: previousDigest, channel: 'dev' }),
 		);
 		const backupRoot = join(base, 'backups');
-		const version = DEDALO_VERSION_TRIPLE.join('.'); // the SAME version we run
+		// a developer build names the NEXT triple (version.ts): this is a dev
+		// reinstall over the SAME identity the tree already runs (7.0.1-dev)
+		const version = DEDALO_NEXT_DEV_TRIPLE.join('.');
 
 		try {
 			mockUpdateEnv(origin);
@@ -1483,7 +1498,13 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 					waive_backup: true,
 				},
 				SUPERUSER,
-				pipelineSeams({ targetRoot, backupRoot, restart: () => {} }),
+				pipelineSeams({
+					targetRoot,
+					backupRoot,
+					restart: () => {},
+					runningRelease: `${version}-dev`,
+					runningChannel: 'dev',
+				}),
 			);
 			expect(out.ok).toBe(true);
 			expect(out.data).toEqual({ version });
@@ -1504,7 +1525,8 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 			) as Record<string, unknown>;
 			expect(sentinel.installDigest).toBe(sha);
 			expect(sentinel.version).toBe(version);
-			expect(sentinel.previousVersion).toBe(version);
+			// the previous tree's DATA version (code_update.ts previousVersion)
+			expect(sentinel.previousVersion).toBe(DEDALO_VERSION_TRIPLE.join('.'));
 
 			// THE RESTORE POINT is identifiable: same version every iteration, so
 			// the name carries the digest of the tree it holds.
@@ -2298,33 +2320,21 @@ describe('the identity walk at the swap door', () => {
 		);
 	}
 
-	test('§2.8.5 bootstrap: a tree RUNNING a developer build it was installed as walks to every tag of its triple', async () => {
-		// beta.6 → 7.0.0-dev.zip (stamped `dev`, calls itself .dev) → the
-		// triple's prereleases AND its release, each under the item's own token
-		const STAMPED_DEV = [`${T}.dev`, 'dev'] as const;
+	test('§2.8.5 bootstrap: a tree RUNNING a developer build walks FORWARD only — the stable of its triple, never its prereleases', async () => {
+		// a developer build sorts above every prerelease of its triple and below its
+		// stable release (owner decision 2026-10-25): the stable is forward, the
+		// prereleases are a downgrade
+		const RUNNING_DEV = [`${T}-dev`, 'dev'] as const;
+		const passed = await walkRefusal({ version: T, channel: 'master' }, ...RUNNING_DEV);
+		// past the walk: what refuses now is the download from nowhere
+		expect(passed.message, 'the stable release').not.toContain('same-version install');
 		for (const file of [
 			{ version: T, release: `${T}-beta.7`, channel: 'prerelease' },
 			{ version: T, release: `${T}-beta.6`, channel: 'prerelease' },
-			{ version: T, channel: 'master' },
 		]) {
-			const passed = await walkRefusal(file, ...STAMPED_DEV);
-			// past the walk: what refuses now is the download from nowhere
-			expect(passed.message, JSON.stringify(file)).not.toContain('same-version install');
-			expect(passed.message, JSON.stringify(file)).not.toContain('installs only on');
-		}
-		// the standing is the TREE's, never the request's: a .dev that no dev
-		// stamp put there (unstamped checkout, a master-stamped archive) keeps
-		// the conservative reading — its bare triple, nothing of it is newer
-		for (const stamp of [null, 'master', 'prerelease'] as const) {
-			for (const file of [
-				{ version: T, release: `${T}-beta.7`, channel: 'prerelease' },
-				{ version: T, channel: 'master' },
-			]) {
-				expect(
-					(await walkRefusal(file, `${T}.dev`, stamp)).message,
-					`${stamp} ${JSON.stringify(file)}`,
-				).toContain('same-version install');
-			}
+			expect((await walkRefusal(file, ...RUNNING_DEV)).message, JSON.stringify(file)).toContain(
+				'same-version install',
+			);
 		}
 		// a dev stamp under a TAGGED identity (a dev-channel archive of a tag
 		// calls itself the tag) is no developer build: the release order holds

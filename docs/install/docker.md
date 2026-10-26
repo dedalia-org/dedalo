@@ -277,15 +277,15 @@ Whatever the source, the image's version must be the installer's own release (or
 
 ### Which official image the installer asks for
 
-The installer knows which release it is from the git tag of the checkout or release archive it runs from, and shows it in its header: `7.0.0` for a stable release, `7.0.0-beta.7 (prerelease)` for a prerelease, `7.0.0.dev (development build)` for a commit that carries no release tag. That name decides the image:
+The installer knows which release it is from the git tag of the checkout or release archive it runs from, and shows it in its header: `7.0.0` for a stable release, `7.0.0-beta.7 (prerelease)` for a prerelease, `7.0.1-dev (development build)` for a commit that carries no release tag. That name decides the image:
 
 | The installer is | Image tag | Official |
 | --- | --- | --- |
 | a stable release (`7.0.0`) | `7.0.0` | the Review asks the registry for `:7.0.0` |
 | a prerelease (`7.0.0-beta.7`) | `7.0.0-beta.7` | the Review asks the registry for `:7.0.0-beta.7` — never for `:7.0.0`, which is the stable release's image |
-| a development build (`7.0.0.dev`) | `7.0.0-dev` | refused straight away, no registry is asked: no published image holds this commit. **Build** is preselected |
+| a development build (`7.0.1-dev`) | `7.0.1-dev` | refused straight away, no registry is asked: no published image holds this commit. **Build** is preselected |
 
-A local build is tagged and labelled with the same tag, `.dedalo.env` pins it as `DEDALO_VERSION`, and the engine's `/health` reports the release itself (`7.0.0-beta.7`, or `7.0.0.dev` for a development build).
+A local build is tagged and labelled with the same tag, `.dedalo.env` pins it as `DEDALO_VERSION`, and the engine's `/health` reports the release itself (`7.0.0-beta.7`, or `7.0.1-dev` for a development build).
 
 The Review asks the registry before you type `yes` (`docker manifest inspect`, then `docker buildx imagetools inspect`, as you — nothing is pulled). When the official image of this release is not published — a prerelease whose image is not out yet, for example — the Review says so and does not offer to install: your answers are kept — go back to the Image screen, choose **Build** (`--image-source build`; a first build takes about 2 to 6 minutes on 2 CPUs, longer on a slow network or disk) or a registry of your own that holds an image of this release (`--image-source custom`), and review again. While it asks, the screen shows `checking the official image <image>…`; it asks once each time the Review is built, and each question waits at most 15 seconds — a registry that does not answer by then counts as not reachable, never as "not published". When the registry cannot be reached (no network, a proxy, a firewall that drops the connection), the Review says it could not be checked, in plain words — `the registry did not answer within 15 s` or `could not reach ghcr.io` — and lets you install: `stack_image` then reports what the pull found. Docker's own error message is written to the install log of the run, not shown on the Review.
 

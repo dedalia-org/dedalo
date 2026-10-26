@@ -431,11 +431,10 @@ else {
 		test.each([
 			[{ dedalo_version: '7.0.0-beta.6', dedalo_data_version: '7.0.0' }, '7.0.0'],
 			[{ dedalo_version: '7.0.0-rc.1', dedalo_data_version: '7.0.0' }, '7.0.0'],
-			[{ dedalo_version: '7.0.0.dev', dedalo_data_version: '7.0.0' }, '7.0.0'],
+			[{ dedalo_version: '7.0.1-dev', dedalo_data_version: '7.0.0' }, '7.0.0'],
 			// without the published key the triple is derived from the identity
 			[{ dedalo_version: '7.0.0-beta.6' }, '7.0.0'],
 			[{ dedalo_version: '7.0.1-alpha.2' }, '7.0.1'],
-			[{ dedalo_version: '7.0.0.dev' }, '7.0.0'],
 		])('page_globals %p → version %p', async (pageGlobals, triple) => {
 			globals.page_globals = pageGlobals;
 			posted.length = 0;

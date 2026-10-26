@@ -29,7 +29,12 @@ import {
 	type ReleaseIdentity,
 	type ReleaseKind,
 } from '../update/release_identity.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import {
+	compareVersionArrays,
+	DEDALO_NEXT_DEV_TRIPLE,
+	DEDALO_VERSION,
+	DEDALO_VERSION_TRIPLE,
+} from '../update/version.ts';
 
 /** The test seam's key (src/config/catalog/install.ts). */
 export const INSTALLER_IDENTITY_SEAM = 'DEDALO_INSTALL_RELEASE_IDENTITY';
@@ -53,6 +58,16 @@ export function installerIdentity(): ReleaseIdentity {
 	return pinned === '' ? RELEASE_IDENTITY : pinnedIdentity(pinned);
 }
 
+/**
+ * A pin belongs to this data version: the next dev build (`X.Y.Z-dev` of the
+ * declared next triple), or a release at or above the data triple (a code-only
+ * patch runs on its minor's data).
+ */
+function belongsToDataVersion(parsed: ParsedReleaseVersion): boolean {
+	if (parsed.dev) return compareVersionArrays(parsed.triple, DEDALO_NEXT_DEV_TRIPLE) === 0;
+	return compareVersionArrays(parsed.triple, DEDALO_VERSION_TRIPLE) >= 0;
+}
+
 /** The seam's identity — refused outside a test process, or for another data version. */
 function pinnedIdentity(pinned: string): ReleaseIdentity {
 	if (!isTestProcess()) {
@@ -61,9 +76,9 @@ function pinnedIdentity(pinned: string): ReleaseIdentity {
 		);
 	}
 	const parsed = parseReleaseVersion(pinned);
-	if (parsed === null || parsed.triple.join('.') !== DEDALO_VERSION) {
+	if (parsed === null || !belongsToDataVersion(parsed)) {
 		throw seamRefused(
-			`${INSTALLER_IDENTITY_SEAM}=${pinned} is not a release identity of this data version (${DEDALO_VERSION}, ${DEDALO_VERSION}-beta.N or ${DEDALO_VERSION}.dev)`,
+			`${INSTALLER_IDENTITY_SEAM}=${pinned} is not a release identity of this data version (${DEDALO_VERSION} or later, ${DEDALO_VERSION}-beta.N, or the next dev build ${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev)`,
 		);
 	}
 	const kind = kindOf(parsed);

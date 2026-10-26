@@ -204,11 +204,12 @@ describe('buildCodeUpdateInfo (manifest assembly)', () => {
 	// set the key answers identically no matter what it is asked.
 	// -----------------------------------------------------------------------
 	describe('the dev channel', () => {
-		const devZip = join(FILES_DIR, '7', '7.0', '7.0.0-dev.zip');
+		// a developer build is named by the NEXT triple (version.ts): 7.0.1-dev
+		const devZip = join(FILES_DIR, '7', '7.0', '7.0.1-dev.zip');
 
 		beforeAll(() => {
 			writeFileSync(devZip, 'PK-dev');
-			writeFileSync(`${devZip}.sha256`, `${'f'.repeat(64)}  7.0.0-dev.zip\n`);
+			writeFileSync(`${devZip}.sha256`, `${'f'.repeat(64)}  7.0.1-dev.zip\n`);
 		});
 		afterAll(() => {
 			rmSync(devZip, { force: true });
@@ -231,10 +232,12 @@ describe('buildCodeUpdateInfo (manifest assembly)', () => {
 			const info = manifest({ channel: 'dev', devChannelEnabled: true });
 			const dev = info.files.find((f) => f.url.includes('-dev'));
 			expect(dev).toBeDefined();
-			// the consumer runs 7.0.0 and is offered 7.0.0 — no version bump, which
-			// is exactly what an unreleased branch build has to offer.
-			expect(dev?.version).toBe('7.0.0');
-			expect(dev?.url).toBe('http://m/7.0.0/7.0.0-dev.zip');
+			// the consumer runs 7.0.0 (its data) and is offered the NEXT developer
+			// build, 7.0.1-dev: the dev channel moves forward through the identity
+			// order, and the walk refuses the 7.0.0-dev a bare-triple asker would
+			// otherwise be offered (a downgrade below 7.0.0)
+			expect(dev?.version).toBe('7.0.1');
+			expect(dev?.url).toBe('http://m/7.0.1/7.0.1-dev.zip');
 			expect(dev?.channel).toBe('dev');
 			// the digest stays mandatory: an archive with no sidecar is not installable
 			expect(dev?.sha256).toBe('f'.repeat(64));
@@ -527,34 +530,43 @@ describe('gate 14: the prerelease channel (manifest exposure)', () => {
 		expect(devOnly.files.some((item) => item.channel === 'prerelease')).toBe(false);
 	});
 
-	test("§2.8.5 bootstrap: a DEVELOPER BUILD asking on dev is offered every tag of its triple (the walk's dev exception)", () => {
-		// beta.6 reports its bare triple; it installs 7.0.0-dev.zip and then
-		// runs 7.0.0.dev — which may sit before or after any tag of 7.0.0, so
-		// each tag-built archive is a legal next step (version_walk.ts
-		// sameTripleRefusal), in release order, then the next rung's newest
-		const dev = manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.0.dev' });
-		expect(offered(dev)).toEqual(['7.0.0-beta.6', '7.0.0-beta.7', '7.0.0', '7.0.1-beta.1']);
-		// each item keeps its OWN kind token: what the tree becomes, never `dev`
-		expect(dev.files.find((item) => item.release === '7.0.0-beta.7')?.channel).toBe('prerelease');
-		expect(Object.hasOwn(dev.files[2] as object, 'channel')).toBe(false);
-		// the prereleases still need THIS master's prerelease switch; the release does not
+	test('a DEVELOPER build (7.0.0-dev) is offered the stable 7.0.0 above it, never the prereleases below it (dev sorts above every prerelease of its triple)', () => {
+		// The dev identity sorts ABOVE beta.6 and beta.7 of its triple and BELOW
+		// the stable 7.0.0 (release_identity.ts comparePrereleases), so those
+		// prereleases are downgrades for it and are not listed. The stable is an
+		// ordinary "newer identity of the same triple": it is offered on the dev
+		// ask, and on the prerelease ask too (a stable release is no exposure).
+		const dev = manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.0-dev' });
+		expect(offered(dev)).toEqual(['7.0.0', '7.0.1-beta.1']);
+		// the stable item is a plain published item: what the tree becomes, never `dev`
+		expect(Object.hasOwn(dev.files[0] as object, 'channel')).toBe(false);
+		// the prereleases of the NEXT rung still need THIS master's prerelease switch; the release does not
 		const devOnly = manifest({
 			channel: 'dev',
-			clientRelease: '7.0.0.dev',
+			clientRelease: '7.0.0-dev',
 			prereleaseChannelEnabled: false,
 			devChannelEnabled: true,
 		});
 		expect(offered(devOnly)).toEqual(['7.0.0']);
-		// off the dev ask a .dev is its bare triple: nothing of 7.0.0 is newer,
-		// and a master ask never sees a prerelease
+		// a master ask (Published) sees the stable release of its triple, and never a prerelease
 		expect(
-			offered(manifest({ ...OPTED_IN, channel: 'master', clientRelease: '7.0.0.dev' })),
-		).toEqual([]);
+			offered(manifest({ ...OPTED_IN, channel: 'master', clientRelease: '7.0.0-dev' })),
+		).toEqual(['7.0.0']);
 		expect(
-			offered(manifest({ ...OPTED_IN, channel: 'prerelease', clientRelease: '7.0.0.dev' })),
-		).toEqual(['7.0.1-beta.1']);
-		// a .dev of ANOTHER triple is no claim about this asker (askerIdentity)
-		expect(offered(manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.9.dev' }))).toEqual([
+			offered(manifest({ ...OPTED_IN, channel: 'prerelease', clientRelease: '7.0.0-dev' })),
+		).toEqual(['7.0.0', '7.0.1-beta.1']);
+		// a dev claim of ANOTHER triple is honoured as its own identity (askerIdentity
+		// accepts a dev claim at any triple); no archive of 7.9.0 exists here, so
+		// only the data-keyed rung remains
+		expect(offered(manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.9.0-dev' }))).toEqual([
+			'7.0.1-beta.1',
+		]);
+	});
+
+	test('a bare-triple install that reports 7.0.0 (beta.6 before the dev switch) is offered no prerelease of its own triple', () => {
+		// the stable 7.0.0 asker sits ABOVE beta.6 and beta.7: a downgrade is never
+		// offered, and its own triple holds nothing newer than the stable release
+		expect(offered(manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.0' }))).toEqual([
 			'7.0.1-beta.1',
 		]);
 	});
@@ -600,7 +612,7 @@ describe('gate 14: the prerelease channel (manifest exposure)', () => {
 
 describe('release notes on the manifest', () => {
 	const CHANGES = join(ROOT, 'changes');
-	const devZip = join(FILES_DIR, '7', '7.0', '7.0.0-dev.zip');
+	const devZip = join(FILES_DIR, '7', '7.0', '7.0.1-dev.zip');
 	const fragment = (slug: string, front: string) =>
 		parseFragment(`changes/7.0.1/${slug}.md`, `---\n${front}\n---\nBody.\n`);
 	// the notes the release command would freeze, from REAL parsed fragments
@@ -741,10 +753,11 @@ describe('codeReleasePath (filename-grammar gate + layout)', () => {
 			kind: 'stable',
 			identity: '7.0.1',
 		});
+		// a developer archive names its identity `X.Y.Z-dev` (the same spelling as the file)
 		expect(releaseArchiveNameOf('7.0.1-dev.zip')).toEqual({
 			triple: '7.0.1',
 			kind: 'dev',
-			identity: null,
+			identity: '7.0.1-dev',
 		});
 		for (const bad of [
 			'7.0.1-pre.1.zip', // foreign label

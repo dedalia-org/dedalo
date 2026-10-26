@@ -106,6 +106,7 @@ import {
 	parseImageRegistries,
 } from '../../src/core/update/image_registries.ts';
 import { type InstallChannel, isInstallChannel } from '../../src/core/update/install_stamp.ts';
+import { parseDeclaredNextDevTriple } from '../../src/core/update/code_build_plan.ts';
 import {
 	gitDescribeSupportFault,
 	identityOfImageTag,
@@ -471,6 +472,8 @@ export function sha256File(path: string): string {
 
 /** build_info.txt's path inside the archive (build_stamp.ts BUILD_INFO_PATH). */
 const BUILD_INFO_IN_ARCHIVE = 'src/core/update/build_info.txt';
+/** version.ts's path inside the archive (code_build_plan.ts VERSION_TS_PATH). */
+const VERSION_TS_IN_ARCHIVE = 'src/core/update/version.ts';
 
 /**
  * The plan, held against what its ARCHIVE will call itself. The image's engine
@@ -481,20 +484,32 @@ const BUILD_INFO_IN_ARCHIVE = 'src/core/update/build_info.txt';
  *  - a release whose archive does not call itself the tag is REFUSED before any
  *    build: a lightweight tag (describe ignores it) or a clone without the tags
  *    would ship an image that says `.dev`;
- *  - a developer build expects whatever its archive says: `X.Y.Z.dev`, or the
- *    tag when the dev branch's head IS a release commit (owner Q5).
- * `stamp` is the archived build_info.txt, '' when the archive has none.
+ *  - a developer build expects whatever its archive says: `X.Y.Z-dev` (the NEXT
+ *    triple the archive's own version.ts declares), or the tag when the dev
+ *    branch's head IS a release commit (owner Q5).
+ * `stamp` is the archived build_info.txt, '' when the archive has none;
+ * `nextDevTriple` is the archive's DEDALO_NEXT_DEV_TRIPLE, null when it declares none.
  */
-export function archiveIdentityPlan(plan: ReleasePlan, stamp: string): ReleasePlan {
+export function archiveIdentityPlan(
+	plan: ReleasePlan,
+	stamp: string,
+	nextDevTriple: readonly [number, number, number] | null,
+): ReleasePlan {
 	const declared = parseReleaseVersion(plan.version);
 	if (declared === null || declared.prerelease !== null || declared.dev)
 		throw new Refusal(`the plan's version '${plan.version}' is not a data triple`);
 	const info = parseBuildInfo(stamp);
 	const identity = resolveReleaseIdentity({
 		triple: declared.triple,
+		// only an untagged archive reads it; a tag names its own release
+		nextDevTriple: nextDevTriple ?? declared.triple,
 		describe: info.describe,
 		provenance: { stamp: info.legacy ? 'legacy' : 'other', channel: plan.channel },
 	});
+	if (identity.kind === 'dev' && nextDevTriple === null)
+		throw new Refusal(
+			`the archive of ${plan.source_sha} declares no DEDALO_NEXT_DEV_TRIPLE (src/core/update/version.ts): its developer identity cannot be named`,
+		);
 	if (plan.channel !== 'dev') {
 		if (identity.version !== plan.expected_engine_version)
 			throw new Refusal(
@@ -504,13 +519,27 @@ export function archiveIdentityPlan(plan: ReleasePlan, stamp: string): ReleasePl
 			);
 		return plan;
 	}
-	return { ...plan, expected_engine_version: identity.version };
+	// an UNTAGGED developer archive is published under the NEXT dev identity it
+	// calls itself (not the data triple's); a tag-identity archive keeps the plan's
+	// dev tag (owner Q5: the release's bytes on the dev channel)
+	const tag = identity.kind === 'dev' ? identity.version : plan.tag;
+	return { ...plan, tag, expected_engine_version: identity.version };
 }
 
 /** The archived build_info.txt of `tarPath`, '' when the archive has none. */
 function archivedStamp(run: Runner, tarPath: string): string {
 	const shown = run(['tar', '-xOf', tarPath, BUILD_INFO_IN_ARCHIVE]);
 	return shown.code === 0 ? shown.stdout : '';
+}
+
+/** The archive's own DEDALO_NEXT_DEV_TRIPLE (version.ts), null when it declares none. */
+function archivedNextDevTriple(run: Runner, tarPath: string): readonly [number, number, number] | null {
+	const shown = run(['tar', '-xOf', tarPath, VERSION_TS_IN_ARCHIVE]);
+	if (shown.code !== 0) return null;
+	const next = parseDeclaredNextDevTriple(shown.stdout);
+	if (next === null) return null;
+	const [major = 0, minor = 0, patch = 0] = next.split('.').map(Number);
+	return [major, minor, patch];
 }
 
 /**
@@ -1473,7 +1502,11 @@ function planVerb(env: Env, run: Runner): number {
 	const tmp = requireEnv(env, ['RUNNER_TEMP']).RUNNER_TEMP as string;
 	const tarPath = join(tmp, 'plan-source.tar');
 	const archive = archiveTree(run, cwd, plan.source_sha, tarPath);
-	const held = archiveIdentityPlan(plan, archivedStamp(run, tarPath));
+	const held = archiveIdentityPlan(
+		plan,
+		archivedStamp(run, tarPath),
+		archivedNextDevTriple(run, tarPath),
+	);
 	writeOutputs(env, { ...held, archive_sha256: archive, created: new Date().toISOString() });
 	return 0;
 }

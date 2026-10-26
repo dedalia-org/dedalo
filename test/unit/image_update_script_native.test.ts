@@ -698,7 +698,7 @@ describe('build mode', () => {
 			});
 			const result = runUpdate(stack, ['--version', '7.0.1-dev', ...ref]);
 			expect({ ref, detail: result.outcome?.detail }).toEqual({ ref, detail: 'version_refused' });
-			expect(result.stderr).toContain('is 7.0.2.dev, not 7.0.1-dev');
+			expect(result.stderr).toContain('is 7.0.2-dev, not 7.0.1-dev');
 			expect(at(result.calls, /^docker build /)).toBe(-1);
 			expect(result.calls.at(-1)).toBe('git checkout -q master');
 			expect(result.env).toBe(stack.envBefore);
@@ -758,10 +758,12 @@ describe('build mode', () => {
 			kind: 'stable',
 			tag: 'v7.0.1',
 		});
-		// the working tree is the untagged 7.0.0 commit: it would call itself .dev
-		expect((await readReleaseIdentityOf(stack.dir, { triple: [7, 0, 0] })).version).toBe(
-			'7.0.0.dev',
-		);
+		// the checkout's commit carries the v7.0.1 tag over data 7.0.0: a code-only
+		// patch names its own release (the tag), never a developer build
+		expect(
+			(await readReleaseIdentityOf(stack.dir, { triple: [7, 0, 0], nextDevTriple: [7, 0, 1] }))
+				.version,
+		).toBe('7.0.1');
 		expect(existsSync(context)).toBe(false);
 	});
 
@@ -1064,7 +1066,7 @@ describe('prereleases against the CURRENT engine: the identity walk answers dire
 		});
 		const result = runUpdate(stack, ['--version', `${T}-beta.7`]);
 		expect(result.outcome).toMatchObject({ status: 'refused', detail: 'version_refused' });
-		expect(result.stderr).toContain(`v${T}-beta.7 is ${T}.dev, not ${T}-beta.7`);
+		expect(result.stderr).toContain(`v${T}-beta.7 is ${T}-dev, not ${T}-beta.7`);
 		expect(at(result.calls, /^docker build /)).toBe(-1);
 		expect(result.env).toBe(stack.envBefore);
 	});
@@ -1075,7 +1077,7 @@ describe('prereleases against the CURRENT engine: the identity walk answers dire
 		git(stack.dir, 'tag', 'v7.0.1', 'HEAD@{1}');
 		const result = runUpdate(stack, ['--version', '7.0.1']);
 		expect(result.outcome).toMatchObject({ status: 'refused', detail: 'version_refused' });
-		expect(result.stderr).toContain('v7.0.1 is 7.0.1.dev, not 7.0.1');
+		expect(result.stderr).toContain('v7.0.1 is 7.0.1-dev, not 7.0.1');
 		expect(at(result.calls, /^docker build /)).toBe(-1);
 	});
 });
@@ -1235,13 +1237,14 @@ describe('refusals before anything changes', () => {
 			});
 			unchanged(stack, result);
 		}
+		// a developer build of the NEXT triple is the one dev move a release admits
 		const dev = makeStack();
-		const result = runUpdate(dev, ['--version', '7.0.0-dev']);
+		const result = runUpdate(dev, ['--version', '7.0.1-dev']);
 		expect(result.code, result.stderr).toBe(0);
-		expect(result.env).toBe(repinned(dev, '7.0.0-dev'));
-		// A -dev pin may be re-installed at the same version too.
-		const again = makeStack({ pinned: '7.0.0-dev' });
-		expect(runUpdate(again, ['--version', '7.0.0-dev']).code).toBe(0);
+		expect(result.env).toBe(repinned(dev, '7.0.1-dev'));
+		// A -dev pin may be re-installed at the same identity too.
+		const again = makeStack({ pinned: '7.0.1-dev' });
+		expect(runUpdate(again, ['--version', '7.0.1-dev']).code).toBe(0);
 	});
 
 	test('the engine refuses the walk (exit 3): version_refused, with its reason', () => {

@@ -123,8 +123,8 @@ afterAll(() => rmSync(LOG_PATH, { force: true }));
 
 const FIXTURE: DataUpdateDescriptor = {
 	versionMajor: 7,
-	versionMedium: 0,
-	versionMinor: 1,
+	versionMedium: 1,
+	versionMinor: 0,
 	updateFromMajor: 7,
 	updateFromMedium: 0,
 	updateFromMinor: 0,
@@ -151,7 +151,7 @@ const HARD_SCRIPT: DataUpdateDescriptor = {
 
 describe('catalog matching (PHP get_update_version semantics)', () => {
 	test('linear updateFrom match; code-only releases skipped; empty current = null', () => {
-		expect(getUpdateVersion([7, 0, 0], CATALOG)).toEqual([7, 0, 1]);
+		expect(getUpdateVersion([7, 0, 0], CATALOG)).toEqual([7, 1, 0]);
 		expect(getUpdateVersion([6, 8, 10], CATALOG)).toBeNull();
 		expect(getUpdateVersion([], CATALOG)).toBeNull();
 		const codeOnly = { ...FIXTURE, updateData: false };
@@ -215,13 +215,13 @@ describe('engine step semantics (fixture catalog, injected writer)', () => {
 	test('an unchecked SOFT script is skipped with a line; success stamps the version row (PHP tail bytes)', async () => {
 		const out = await run({ SQL_update_0: true, run_scripts_0: true });
 		expect(out.ok).toBe(true);
-		expect(out.written).toEqual(['7.0.1']);
+		expect(out.written).toEqual(['7.1.0']);
 		expect(out.msg).toEqual([
 			'Updated SQL_update 1',
 			'Updated script: fixture.ok',
 			'Skipped script: fixture.soft_fail (not re-offered)',
 			'Observer mirrors reconciled: 0 repaired, 0 shrink(s) held (see update log)',
-			'Updated Dédalo data version: 7.0.1',
+			'Updated Dédalo data version: 7.1.0',
 			'Updated version successfully',
 		]);
 		const log = readFileSync(LOG_PATH, 'utf8');
@@ -272,7 +272,7 @@ describe('engine step semantics (fixture catalog, injected writer)', () => {
 		const soft = await run({ SQL_update_0: true, run_scripts_0: true, run_scripts_1: true });
 		expect(soft.ok).toBe(true); // soft fail did not abort
 		expect(soft.msg).toContain('Error updating Dédalo data');
-		expect(soft.written).toEqual(['7.0.1']);
+		expect(soft.written).toEqual(['7.1.0']);
 
 		const hard = await run({ run_scripts_0: true }, HARD_SCRIPT);
 		expect(hard.ok).toBe(false);
@@ -297,7 +297,7 @@ describe('engine step semantics (fixture catalog, injected writer)', () => {
 
 	test('components_update descriptors are refused in PREFLIGHT, LOUDLY (ledgered unsupported path)', async () => {
 		const withComponents = {
-			'701': { ...FIXTURE, componentsUpdate: ['component_date'] } as DataUpdateDescriptor,
+			'710': { ...FIXTURE, componentsUpdate: ['component_date'] } as DataUpdateDescriptor,
 		};
 		// The uncovered-scope refusal is REGISTERED (`engine.uncovered_scope`);
 		// the ledgered sentence stays the LOG-only message.

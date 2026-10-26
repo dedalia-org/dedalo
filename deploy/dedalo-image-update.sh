@@ -439,8 +439,7 @@ restore_checkout() {
 # WHAT was checked out is judged by its RELEASE IDENTITY (dedalo_release_identity
 # — what the engine built from it will call itself), not by the triple version.ts
 # declares: a release or prerelease target must be exactly that tagged release
-# (a lightweight tag, a tag on another commit or naming another version all say
-# .dev), a -dev target any commit of its data version.
+# -dev), a -dev target any commit of its data version.
 build_image() {
 	local ref='' identity=''
 	dedalo_is_checkout "$(pwd)" || finish refused build_failed "$(dedalo_no_checkout_sentence "$(pwd)")"

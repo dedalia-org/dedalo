@@ -43,7 +43,9 @@ import { createRequestContext, handleRequest } from '../../src/server.ts';
 function dataTripleOf(identity: string): string {
 	const parsed = parseReleaseVersion(identity);
 	if (parsed === null) throw new Error(`'${identity}' is no release identity`);
-	return parsed.triple.join('.');
+	// a developer identity names the NEXT triple: its data version is the tree's
+	// own, which the server publishes beside it (dedalo_data_version)
+	return parsed.dev ? DEDALO_VERSION : parsed.triple.join('.');
 }
 
 /** The kind a release identity string IS, by the engine's one parser (throws on garbage). */
@@ -67,7 +69,9 @@ function expectIdentityAndDataSplit(payload: Record<string, unknown>): void {
 	expect(isBareTriple(payload.dedalo_data_version)).toBe(true);
 	expect(payload.dedalo_data_version).toBe(dataTripleOf(String(payload.dedalo_version)));
 	// the client's own fallback derivation agrees with what the server publishes
-	expect(data_version_of(String(payload.dedalo_version))).toBe(DEDALO_VERSION);
+	// (a developer identity has none: the served data key is the only source)
+	const dev = parseReleaseVersion(String(payload.dedalo_version))?.dev === true;
+	expect(data_version_of(String(payload.dedalo_version))).toBe(dev ? '' : DEDALO_VERSION);
 }
 
 async function loggedInGlobals(): Promise<Record<string, unknown>> {

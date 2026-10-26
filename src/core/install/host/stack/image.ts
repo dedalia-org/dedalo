@@ -18,7 +18,7 @@
  *    (campaign 3, C3-46): the SAME mechanism the release image and the
  *    production route use, so build_info.txt arrives expanded and the engine
  *    reports the version the image is tagged with (7.0.0 + the commit date),
- *    never `7.0.0.dev` under a `:7.0.0` tag. Committed files only — an edit
+ *    never `7.0.0-dev` under a `:7.0.0` tag. Committed files only — an edit
  *    not committed is not in the image (said on the Review). A verified
  *    release tree (no .git) is its own context, already expanded.
  *

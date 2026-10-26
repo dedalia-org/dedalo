@@ -8,7 +8,7 @@
  * webmaster reads what this crawler is (RFC 9309 §2.2.1: the token is the
  * leading `[a-zA-Z_-]+` of the header value).
  *
- * The identity (`7.0.0-beta.6`, `7.0.0`, `7.0.0.dev`), not the data version:
+ * The identity (`7.0.0-beta.6`, `7.0.0`, `7.0.0-dev`), not the data version:
  * the header names the SOFTWARE that made the request, so a webmaster's log
  * (or a bug report quoting it) tells a beta from the stable release it
  * precedes (release identity design Q10; WC-2026-10-15-release-identity-from-tag).

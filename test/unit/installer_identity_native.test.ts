@@ -37,7 +37,7 @@ import {
 import { OPTION_TEXT, QUESTION_TEXT } from '../../src/core/install/screen_text.ts';
 import { RELEASE_IDENTITY } from '../../src/core/update/build_stamp.ts';
 import { compareReleaseIdentities, imageTagOf } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
 import { PINNED_IDENTITY, withInstallerIdentity } from '../helpers/installer_identity.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
 
@@ -58,7 +58,7 @@ describe('the identity decides the image and the source', () => {
 			pinned: PINNED_IDENTITY.stable,
 			kind: 'stable',
 			tag: DEDALO_VERSION,
-			accepted: [DEDALO_VERSION, `${DEDALO_VERSION}-dev`],
+			accepted: [DEDALO_VERSION, `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`],
 			source: 'official',
 			label: DEDALO_VERSION,
 		},
@@ -66,15 +66,15 @@ describe('the identity decides the image and the source', () => {
 			pinned: PINNED_IDENTITY.prerelease,
 			kind: 'prerelease',
 			tag: PINNED_IDENTITY.prerelease,
-			accepted: [PINNED_IDENTITY.prerelease, `${DEDALO_VERSION}-dev`],
+			accepted: [PINNED_IDENTITY.prerelease, `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`],
 			source: 'official',
 			label: `${PINNED_IDENTITY.prerelease} (prerelease)`,
 		},
 		{
 			pinned: PINNED_IDENTITY.dev,
 			kind: 'dev',
-			tag: `${DEDALO_VERSION}-dev`,
-			accepted: [`${DEDALO_VERSION}-dev`],
+			tag: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
+			accepted: [`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`],
 			source: 'build',
 			label: `${PINNED_IDENTITY.dev} (development build)`,
 		},

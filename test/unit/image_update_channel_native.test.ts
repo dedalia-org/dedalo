@@ -38,7 +38,7 @@ import {
 	readChannelStatus,
 	writeRequest,
 } from '../../src/core/update/image_update_channel.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
 import {
 	assertLinearUpgrade,
 	parseImageTag,
@@ -189,10 +189,16 @@ describe('check-target: the verdict IS the walk rule', () => {
 			const parsed = parseImageTag(tag);
 			if (parsed === null) throw new Error(`census tag ${tag} does not parse`);
 			const expected = walkRefusalOf(RUNNING, parsed.identity, parsed.channel);
-			// the id partition agrees with the sentence rule it is derived from
-			expect(expected === null).toBe(
-				assertLinearUpgrade(DEDALO_VERSION_TRIPLE, parsed.triple, parsed.channel) === null,
-			);
+			// the identity walk never admits what the triple walk refuses; the one
+			// legacy relaxation the triple walk keeps is a same-triple developer build
+			// (the identity order decides that one)
+			const triple = assertLinearUpgrade(DEDALO_VERSION_TRIPLE, parsed.triple, parsed.channel);
+			if (expected === null) expect(triple, tag).toBeNull();
+			else if (triple === null)
+				expect(
+					parsed.identity.endsWith('-dev') && parsed.triple.join('.') === RUNNING,
+					tag,
+				).toBe(true);
 			const run = cli(['check-target', tag, '--dir', scratchDir()]);
 			expect(run.code).toBe(expected === null ? 0 : 3);
 			expect(run.out).toBe(expected ?? '');
@@ -202,7 +208,9 @@ describe('check-target: the verdict IS the walk rule', () => {
 	test('the same version is refused on the release channel and accepted as a developer image', () => {
 		const same = DEDALO_VERSION_TRIPLE.join('.');
 		expect(cli(['check-target', same]).out).toBe('not_newer_release');
-		expect(cli(['check-target', `${same}-dev`]).code).toBe(0);
+		// the developer build that follows the release is the admitted dev move
+		expect(cli(['check-target', `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`]).code).toBe(0);
+		expect(cli(['check-target', `${same}-dev`]).code).toBe(3);
 	});
 
 	for (const tag of MALFORMED) {
@@ -322,7 +330,9 @@ describe('from_version — the asking engine names itself by its RELEASE IDENTIT
 	const data = DEDALO_VERSION_TRIPLE.join('.');
 	// A private grammar here once refused a prerelease engine's OWN request: every
 	// image-update click from a `7.0.0-beta.6` failed its own validation.
-	test.each([data, `${data}.dev`, `${data}-alpha.1`, `${data}-beta.6`, `${data}-rc.2`])(
+	// a developer engine names itself by the NEXT triple (version.ts)
+	const next = DEDALO_NEXT_DEV_TRIPLE.join('.');
+	test.each([data, `${next}-dev`, `${data}-alpha.1`, `${data}-beta.6`, `${data}-rc.2`])(
 		'%p is written, and the host claims it',
 		async (fromVersion) => {
 			const dir = scratchDir();
@@ -337,7 +347,7 @@ describe('from_version — the asking engine names itself by its RELEASE IDENTIT
 		`${data}-beta`,
 		`${data}-beta.01`,
 		`v${data}`,
-		`${data}-dev`,
+		`${data}.dev`, // the retired dotted spelling
 		'',
 		`${data}-beta.${'9'.repeat(70)}`,
 	])('%p is not an identity: refused, nothing written', async (fromVersion) => {

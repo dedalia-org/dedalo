@@ -862,9 +862,10 @@ describe('manual_install.md: its samples are what the engine prints (8–9, camp
 		);
 		const identity = await readReleaseIdentityOf(tarred, { triple: DEDALO_VERSION_TRIPLE });
 		rmSync(tarred, { recursive: true, force: true });
-		const data = DEDALO_VERSION_TRIPLE.join('.');
-		expect(identity.version.startsWith(data)).toBe(true);
-		const tag = identity.version.slice(data.length);
+		// the identity's OWN triple: a developer build names the next one (version.ts)
+		const named = identity.triple.join('.');
+		expect(identity.version.startsWith(named)).toBe(true);
+		const tag = identity.version.slice(named.length);
 		expect(tag).not.toBe('');
 		const checkout = MANUAL.slice(MANUAL.indexOf('**From a checkout**'));
 		expect(checkout.slice(0, 2000)).toContain(`\`<version>${tag}\``);

@@ -46,12 +46,16 @@ import { compareVersionArrays } from './version.ts';
  *
  * THE DEV CHANNEL (2026-08-24) relaxes exactly ONE clause: `target === current`
  * becomes legal, because a branch build carries no version bump — that is the
- * whole point of testing unreleased `v7` code on a remote install. It relaxes
- * an ORDERING guard, not an AUTHENTICITY one: the origin allowlist, the
- * no-redirect rule and the sha256-vs-sidecar check are untouched, so the worst
- * a forged `channel` buys is installing a same-version archive the configured
- * master really published. Downgrades and rung skips stay refused on both
- * channels, and an OMITTED channel never relaxes anything.
+ * whole point of testing unreleased `v7` code on a remote install. This is the
+ * TRIPLE walk, the one an engine that predates the identity walk still runs, so
+ * the host relies on it to move a prerelease forward (beta.6 → beta.7 is asked
+ * as the data move `X.Y.Z-dev`). An identity-aware engine decides the same-triple
+ * developer moves with its identity order (identityWalkRefusal), which is
+ * STRICTER: a developer build below its triple's stable is a downgrade there.
+ * It relaxes an ORDERING guard, not an AUTHENTICITY one: the origin allowlist,
+ * the no-redirect rule and the sha256-vs-sidecar check are untouched. Downgrades
+ * and rung skips stay refused on both channels, and an OMITTED channel never
+ * relaxes anything.
  */
 export function assertLinearUpgrade(
 	current: readonly number[],
@@ -135,8 +139,8 @@ export interface WalkVerdict {
 /**
  * THE IDENTITY WALK — may an install RUNNING `running` move to `target`?
  * Null when it may, else why not. Both are release identities (`X.Y.Z`,
- * `X.Y.Z-beta.N`, `X.Y.Z.dev`); a developer-build target is named by its
- * triple + `.dev` (what it calls itself is decided by its archive, so the walk
+ * `X.Y.Z-beta.N`, `X.Y.Z-dev`); a developer-build target is named by its
+ * triple + `-dev` (what it calls itself is decided by its archive, so the walk
  * asks only what it is: a branch build of that triple). Garbage THROWS (the
  * comparator's RangeError) — every door validates its target first.
  *
@@ -146,15 +150,17 @@ export interface WalkVerdict {
  *     no door installs what the asker's channel would never have offered.
  *  2. THE SAME DATA TRIPLE crosses no migration, so it needs no rung:
  *      - a developer build is legal on the dev channel (the 2026-08-24
- *        exception: a branch build carries no version bump);
+ *        exception: a branch build carries no version bump), the SAME
+ *        identity included (`7.0.1-dev` → `7.0.1-dev`: a reinstall);
  *      - a RUNNING developer build, ON THE DEV CHANNEL, may move to any
  *        release of its own triple — the way back from a branch build to the
  *        release line (its identity names no point in the sequence). OFF the
- *        dev channel it compares as its bare triple (compareReleaseIdentities),
- *        like every other identity: an install of a stable archive can
- *        resolve to `X.Y.Z.dev` without being a branch build (an unexpanded
+ *        dev channel it is ordered as it is named (compareReleaseIdentities:
+ *        above every prerelease of its triple, below its stable release):
+ *        an install of a stable archive can
+ *        resolve to `X.Y.Z-dev` without being a branch build (an unexpanded
  *        describe, a tag/version.ts disagreement, no tag evidence), and
- *        `7.0.1.dev → 7.0.1-beta.1` on the prerelease channel would install
+ *        `7.0.1-dev → 7.0.1-beta.1` on the prerelease channel would install
  *        older code over data the 7.0.1 descriptor already migrated. The dev
  *        channel is the operator's explicit opt-in to leave the order;
  *      - otherwise the target must be a NEWER identity (semver §11:
@@ -262,11 +268,13 @@ function sameTripleRefusal(
 	to: ParsedReleaseVersion,
 	channel: InstallChannel,
 ): WalkVerdict | null {
-	// The dev channel's same-triple exception, for a developer build on either
-	// side (a dev TARGET is admitted only on `dev` anyway — rule 1). Off it, a
-	// running `.dev` is its bare triple to the order below.
-	if (channel === 'dev' && (to.dev || from.dev)) return null;
+	// Never a downgrade, on any channel (owner decision, 2026-10-26). The order
+	// decides: a dev build sits above its prereleases and below its stable, so a
+	// developer install moves forward to the next release, never back to rc/beta.
+	// The one same-identity move is a developer build reinstalled over itself on
+	// the dev channel (the nightly is rebuilt in place, no version bump).
 	if (compareReleaseIdentities(target, running) > 0) return null;
+	if (channel === 'dev' && to.dev && from.dev && target === running) return null;
 	return {
 		refusal: 'not_newer_release',
 		reason: `refusing a downgrade or same-version install: ${target} is not a newer release than the running ${running}`,
@@ -304,7 +312,7 @@ export interface ImageTag {
 	triple: [number, number, number];
 	/**
 	 * The release identity the tag names (release_identity.ts identityOfImageTag):
-	 * `X.Y.Z`, `X.Y.Z-beta.N`, or `X.Y.Z.dev` for a `-dev` tag — what the
+	 * `X.Y.Z`, `X.Y.Z-beta.N`, or `X.Y.Z-dev` for a `-dev` tag — what the
 	 * identity walk is asked about.
 	 */
 	identity: string;

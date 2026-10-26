@@ -44,8 +44,8 @@ describe("PAGE TEST", function() {
 		// a dev checkout's dedalo_build is null (WC-2026-08-23-build-provenance)
 		const text = (info_data) => render_debug_info_bar({data : {info_data}})
 			.querySelector('.dedalo_version').textContent
-		const dev = text({dedalo_version : '7.0.0.dev', dedalo_build : null})
-		assert.equal(dev, 'Code v. 7.0.0.dev')
+		const dev = text({dedalo_version : '7.0.0-dev', dedalo_build : null})
+		assert.equal(dev, 'Code v. 7.0.0-dev')
 		assert.notInclude(dev, 'null')
 		// CONTROL: a release's build date is shown
 		assert.equal(

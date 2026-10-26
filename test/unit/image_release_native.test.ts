@@ -53,6 +53,7 @@
  * DB-free; spawns bun, bash and git in scratch directories: hermetic tier.
  */
 
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
 	chmodSync,
@@ -1127,7 +1128,8 @@ describe('publish — GATE 16: a prerelease-tag run passes the verify that reads
 			readFileSync(join(ROOT, 'test', 'fixtures', 'release_identity', 'ordering.json'), 'utf8'),
 		) as { ascending: string[]; not_identities: string[] };
 		expect(ordering.ascending.length).toBeGreaterThan(10);
-		for (const version of ordering.ascending)
+		// a developer identity is never a tag: the release tags are the others
+		for (const version of ordering.ascending.filter((v) => !v.endsWith('-dev')))
 			expect(identity.test(SIGNER(`refs/tags/v${version}`)), version).toBe(true);
 		expect(identity.test(SIGNER('refs/heads/master'))).toBe(true);
 		for (const ref of [
@@ -1186,7 +1188,7 @@ describe('the trigger — every release tag reaches `plan`, which validates it e
 
 	test('every stable AND prerelease identity of the shared ordering fixture triggers a run', () => {
 		expect(ordering.ascending.some((version) => version.includes('-'))).toBe(true);
-		for (const version of ordering.ascending)
+		for (const version of ordering.ascending.filter((v) => !v.endsWith('-dev')))
 			expect(
 				triggers.some((trigger) => trigger.test(`v${version}`)),
 				`v${version}`,
@@ -1319,8 +1321,13 @@ describe('the pure verdicts', () => {
 // plan — the code server's release rules, on a real scratch repository
 // ─────────────────────────────────────────────────────────────────────────────
 
-const VERSION_TS = (triple: string) =>
-	`export const DEDALO_VERSION_TRIPLE = Object.freeze([${triple.replaceAll('.', ', ')}]);\n`;
+// a real version.ts: the data triple, and the NEXT triple an untagged build names
+const VERSION_TS = (triple: string) => {
+	const [major = 0, minor = 0, patch = 0] = triple.split('.').map(Number);
+	return `export const DEDALO_VERSION_TRIPLE = Object.freeze([${major}, ${minor}, ${patch}]);
+export const DEDALO_NEXT_DEV_TRIPLE = Object.freeze([${major}, ${minor}, ${patch + 1}]);
+`;
+};
 
 describe('plan — which release a run publishes', () => {
 	let repo = '';
@@ -1579,6 +1586,7 @@ describe('plan — which release a run publishes', () => {
 		rmSync(tar, { force: true });
 		const identity = resolveReleaseIdentity({
 			triple: [7, 0, 2],
+			nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
 			describe: parseBuildInfo(stamp.stdout.toString()).describe,
 			provenance: { stamp: 'other', channel: 'prerelease' },
 		});
@@ -1606,7 +1614,7 @@ describe('plan — which release a run publishes', () => {
 			GITHUB_SHA: lightBetaSha,
 		});
 		expect(result.code).toBe(1);
-		expect(result.text).toContain('calls itself 7.0.2.dev, not 7.0.2-beta.2');
+		expect(result.text).toContain('calls itself 7.0.3-dev, not 7.0.2-beta.2');
 		expect(result.out).toEqual({});
 	});
 
@@ -1622,7 +1630,7 @@ describe('plan — which release a run publishes', () => {
 		expect(result.out).toMatchObject({ tag: '7.0.2-beta.1', channel: 'prerelease' });
 	});
 
-	test('a dev dispatch from master is X.Y.Z-dev, reporting X.Y.Z.dev', () => {
+	test('a dev dispatch from master is its NEXT X.Y.Z-dev, reporting the same identity', () => {
 		const result = plan({
 			GITHUB_EVENT_NAME: 'workflow_dispatch',
 			GITHUB_REF: 'refs/heads/master',
@@ -1631,9 +1639,9 @@ describe('plan — which release a run publishes', () => {
 		});
 		expect(result.code, result.text).toBe(0);
 		expect(result.out).toMatchObject({
-			tag: '7.0.2-dev',
+			tag: '7.0.3-dev',
 			channel: 'dev',
-			expected_engine_version: '7.0.2.dev',
+			expected_engine_version: '7.0.3-dev',
 		});
 	});
 
@@ -1644,7 +1652,7 @@ describe('plan — which release a run publishes', () => {
 			GITHUB_SHA: lightSha,
 		});
 		expect(result.code).toBe(1);
-		expect(result.text).toContain('calls itself 7.0.3.dev, not 7.0.3');
+		expect(result.text).toContain('calls itself 7.0.4-dev, not 7.0.3');
 		expect(result.text).toContain('ANNOTATED');
 		expect(result.out).toEqual({});
 	});

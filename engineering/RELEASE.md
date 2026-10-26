@@ -59,7 +59,7 @@ minor within the major, no skipping).
    (rules: `changes/README.md`) — **then tag that commit**
    with an ANNOTATED tag (`git tag -a v7.0.1 -m 'Dédalo 7.0.1' && git push <remote> v7.0.1`)
    — the engine reads its release identity from `git describe`, which ignores a
-   lightweight tag, so a lightweight tag builds a tree calling itself `7.0.1.dev`
+   lightweight tag, so a lightweight tag builds a tree calling itself `7.0.1-dev`
    (`src/core/update/release_identity.ts`); the pre-push hook REFUSES a
    lightweight release tag, and the code-server build refuses an archive that
    does not call itself the tag. The tag IS the release: its
@@ -156,7 +156,7 @@ minor within the major, no skipping).
     Each arch's smoke test BOOTS the image's own server (no database) and requires its
     `/health` to serve `version` = the tag's identity (`7.0.1`) and `release_kind`
     `stable` — for a developer build, the identity its archive resolves to
-    (`7.0.1.dev`, or the tag when the commit is exactly tagged).
+    (`7.0.1-dev`, or the tag when the commit is exactly tagged).
     A PRERELEASE tag push (`v7.0.1-beta.1`) publishes the same way, held to the same
     gates (the release-tag check, a full green, the reviewer), as `:7.0.1-beta.1` ONLY —
     install-stamp channel `prerelease`, `/health` `7.0.1-beta.1` / `prerelease`. A run
@@ -255,7 +255,7 @@ older has no `prerelease` channel token and calls itself the bare `7.0.0`, so
 it is never offered a prerelease: it reaches the first prerelease release
 (`7.0.0-beta.7`) by a fresh image (`docs/install/docker.md`, *A stack installed
 from a beta before 7.0.0-beta.7*) or, on a tree install, through the dev
-channel: it installs the `7.0.0-dev.zip` developer build, then — still on a
+channel: it installs the `7.0.1-dev.zip` developer build, then — still on a
 `dev` ask — is offered every tag-built archive of `7.0.0` (`code_manifest.ts`
 `sameTripleItemsFor`: a `.dev` cannot say which tags are older than it), and
 the swap door admits them because the tree's own stamp says the dev channel

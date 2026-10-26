@@ -28,6 +28,7 @@
  * DB-free; fs plus one `sh` per provenance case: hermetic tier.
  */
 
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -245,6 +246,7 @@ describe('C. the provenance step, EXECUTED', () => {
 		expect(
 			resolveReleaseIdentity({
 				triple: [7, 0, 0],
+				nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
 				describe: '',
 				provenance: { stamp: 'other', channel: null },
 			}).kind,
@@ -254,7 +256,7 @@ describe('C. the provenance step, EXECUTED', () => {
 	test.each([
 		['master', ''],
 		['prerelease', ''],
-		['dev', '.dev'],
+		['dev', '-dev'],
 	] as const)('channel %s: a stamp the engine parses, posture "%s"', (channel, tag) => {
 		const result = runProvenance({
 			DEDALO_RELEASE_CHANNEL: channel,
@@ -266,10 +268,11 @@ describe('C. the provenance step, EXECUTED', () => {
 		// a LEGACY expanded stamp (no describe field) takes its suffix from the channel
 		const identity = resolveReleaseIdentity({
 			triple: [7, 0, 0],
+			nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
 			describe: null,
 			provenance: { stamp: 'legacy', channel: stamp?.channel ?? null },
 		});
-		expect(identity.version.slice('7.0.0'.length)).toBe(tag);
+		expect(identity.version.slice(identity.triple.join('.').length)).toBe(tag);
 	});
 
 	test('channel prerelease: the image of a prerelease tag stamps it, and calls itself the tag (release posture)', () => {
@@ -285,6 +288,7 @@ describe('C. the provenance step, EXECUTED', () => {
 		expect(stamp).toEqual({ digest: DIGEST, channel: 'prerelease' });
 		const identity = resolveReleaseIdentity({
 			triple: [7, 0, 0],
+			nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
 			describe: 'v7.0.0-beta.7',
 			provenance: { stamp: 'other', channel: stamp?.channel ?? null },
 		});

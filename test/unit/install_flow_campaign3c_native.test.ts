@@ -71,7 +71,7 @@ import { reviewPage } from '../../src/core/install/ui/screens/review.ts';
 import type { DrawContext } from '../../src/core/install/ui/widget.ts';
 import { scriptedInstallPrompter } from '../../src/core/install/ui_plain/prompter.ts';
 import { plainReporter } from '../../src/core/install/ui_plain/reporter.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_VERSION, DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { allCases, splitCase } from '../helpers/install_parity_cases.ts';
 import {
 	fakeProbes,
@@ -218,7 +218,7 @@ describe('D2: what the run would refuse is said before yes, and a refusal keeps 
 			.find((question) => question.key === 'image_version');
 		expect(field?.errors.join('\n')).toContain('9.9.9');
 		// CONTROL: empty and the -dev tag pass.
-		for (const version of ['', `${DEDALO_VERSION}-dev`]) {
+		for (const version of ['', `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`]) {
 			expect(buildInstallPlan({ ...raw, image_version: version }).errors, version).toEqual([]);
 		}
 	});

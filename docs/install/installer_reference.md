@@ -146,7 +146,7 @@ meaning.)
 | `--backup-site-builder` | no | off | `production`: also back up the site-builder store (as root, from the root-owned script copy) |
 | `--image-source` | no | `official`; `build` for a development build | `docker` / `trial`: `official` (a Dédalo registry, cosign-verified — the image of the installer's own release: `:7.0.1`, or `:7.0.0-beta.7` for a prerelease, never the bare `:7.0.0` for a beta; the Review asks the registry and refuses an image it does not publish, or says it could not be checked when the registry is unreachable or does not answer within 15 s; a development build — a commit with no release tag — is refused without asking any registry), `custom` (a registry of your own — `--image-repository`) or `build` (built here from this checkout) |
 | `--image-repository` | with `--image-source custom` | — | the registry repository of your own image |
-| `--image-version` | no — `custom` or `build` | the installer's own release (`7.0.1`, `7.0.0-beta.7`, `7.0.0-dev` for a development build) | the image's version: with `custom` the tag pulled, with `build` the tag the local build gets. Only the installer's own release or its data version's `-dev` tag is accepted — the engine steps run inside the image with this installer's request format — and any other value is refused where it is typed (the Image screen), never first after `yes` |
+| `--image-version` | no — `custom` or `build` | the installer's own release (`7.0.1`, `7.0.0-beta.7`, `7.0.1-dev` for a development build) | the image's version: with `custom` the tag pulled, with `build` the tag the local build gets. Only the installer's own release or its data version's `-dev` tag is accepted — the engine steps run inside the image with this installer's request format — and any other value is refused where it is typed (the Image screen), never first after `yes` |
 | `--engine-only` | no | off | run only the ENGINE steps, here, with no host step and no root: the delegated child of `host_engine` / `stack_engine`, and the engine step of an [install by hand](manual_install.md#manual-host_engine) (run as the service user, with `--route production --instance <i>`) |
 | `--request-stdin` | no | off | **internal**: the delegated child's input — ONE JSON object `{schema, answers, secrets}` on standard input, never argv, never a file |
 | `--events-jsonl` | no | off | **internal**: the delegated child's output — its log lines and step events as JSON lines (the one-time salt as a `show_once` frame the parent shows once and never stores) |
@@ -789,7 +789,7 @@ environment nor the install's `.env` supplies it — the same rules as
 
 At a capable terminal the screens are drawn full-screen: a header with the
 release (its git tag: `7.0.1`, `7.0.0-beta.7 (prerelease)`, or
-`7.0.0.dev (development build)` for a commit with no release tag) and the route you picked, a left rail of the route's steps (`✓` done,
+`7.0.1-dev (development build)` for a commit with no release tag) and the route you picked, a left rail of the route's steps (`✓` done,
 `›` current, `·` still to come), the current step in the middle, and the keys
 it takes at the bottom. The Welcome and Done screens show the Dédalo logo when
 the terminal has at least 30 rows.

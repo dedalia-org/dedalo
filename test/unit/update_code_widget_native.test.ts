@@ -346,7 +346,7 @@ describe('the image-update request (D3/D4): gates, one write, and the walk rule'
 			[{ version: '7.0.1' }, null],
 			[{ version: '7.1.0' }, null],
 			[{ version: '8.0.0' }, null],
-			[{ version: '7.0.0', channel: 'dev' }, null],
+			[{ version: '7.0.1', channel: 'dev' }, null],
 			[{ version: '7.0.0' }, 'not_newer_release'],
 			[{ version: '6.9.9' }, 'downgrade_or_same_version'],
 			[{ version: '7.0.2' }, 'version_skip'],
@@ -466,11 +466,12 @@ describe('the image-update request (D3/D4): gates, one write, and the walk rule'
 			ok: false,
 			reason: 'request_pending',
 		});
-		// a developer image is named with its -dev tag (an installation already on one)
+		// a developer image is named with its -dev tag (an installation already on one:
+		// the walk judges the running identity the install reports, so it is pinned here)
 		const dev = await m.requestImageUpdate(
 			{ version: '7.0.0', channel: 'dev' },
 			m.superuser,
-			seams(channelDir(10, '7.0.0-dev')),
+			{ ...seams(channelDir(10, '7.0.0-dev')), running: '7.0.0-dev' },
 		);
 		expect(dev.ok && dev.request.tag).toBe('7.0.0-dev');
 		// an inflight request blocks a new one too

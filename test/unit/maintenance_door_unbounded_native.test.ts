@@ -206,7 +206,7 @@ const results = {};
 // 3. the data-update engine as a DETACHED background job (the widget's worker shape).
 {
 	const descriptor = {
-		versionMajor: 7, versionMedium: 0, versionMinor: 1,
+		versionMajor: 7, versionMedium: 1, versionMinor: 0,
 		updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 		updateData: true,
 		sqlUpdate: ["INSERT INTO \\"${BG_ROWS}\\" (tag) VALUES (current_setting('application_name'))"],
@@ -215,7 +215,7 @@ const results = {};
 	const record = mediaJobs.submit('update_data', async ({ signal }) => updateVersion(
 		{ SQL_update_0: true },
 		{
-			catalog: { '701': descriptor },
+			catalog: { '710': descriptor },
 			currentVersion: [7, 0, 0],
 			logPath: ${JSON.stringify(BG_LOG_PATH)},
 			writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${BG_VER}" (version) VALUES ($1)', [v]); },

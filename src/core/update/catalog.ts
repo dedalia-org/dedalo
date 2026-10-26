@@ -407,6 +407,23 @@ function versionViolations(key: string, record: Record<string, unknown>): Descri
 			];
 }
 
+/**
+ * DATA RULE (2026-10-25): a data migration rides a MINOR or MAJOR release only.
+ * A patch (versionMinor > 0) is code-only by construction — its data triple is
+ * the minor it was cut from — so a data descriptor keyed on a patch would run
+ * SQL the release identity never declared. Refused here at module load and in
+ * the engine preflight; the gate is update_descriptor_tripwire.test.ts.
+ */
+function dataPlacementViolations(record: Record<string, unknown>): DescriptorViolation[] {
+	const minor = record.versionMinor;
+	return typeof minor === 'number' && minor !== 0
+		? refused(
+				'data_on_patch',
+				`a data descriptor belongs to a minor or major release, not patch ${record.versionMajor}.${record.versionMedium}.${minor}`,
+			)
+		: [];
+}
+
 /** A code-only release carries no steps. */
 function codeOnlyViolations(record: Record<string, unknown>): DescriptorViolation[] {
 	const steps = ['sqlUpdate', 'runScripts', 'executionOrder'].filter((name) => name in record);
@@ -434,6 +451,7 @@ export function validateUpdateDescriptor(
 	const scriptIds = knownScriptIds instanceof Set ? knownScriptIds : new Set(knownScriptIds);
 	return [
 		...head,
+		...dataPlacementViolations(record),
 		...sqlUpdateViolations(record.sqlUpdate),
 		...executionOrderViolations(record),
 		...scriptViolations(record.runScripts, scriptIds),

@@ -29,7 +29,7 @@ import {
 	RELEASE_VERSION_RE,
 } from './release_identity.ts';
 import { compareVersionArrays } from './version.ts';
-import { newestOfRung } from './version_walk.ts';
+import { identityWalkRefusal, newestOfRung } from './version_walk.ts';
 
 /**
  * One advertised release (PHP file_item).
@@ -272,62 +272,92 @@ function manifestFiles(
 ): CodeReleaseItem[] {
 	if (options.codeFilesDir === undefined || !existsSync(options.codeFilesDir)) return [];
 	const dev = exposure.dev
-		? devItemsFor(options.codeFilesDir, options.publicBaseUrl, options.clientVersion, targets)
+		? devItemsFor(options.codeFilesDir, options.publicBaseUrl, askerIdentity(options))
 		: [];
-	const published = [
+	// One archive, one row: a developer asker's identity triple can be a catalog
+	// rung too (`7.0.1-dev` on data 7.0.0 reaches `7.0.1` both ways), so the
+	// same-triple and the rung lists can name the same file.
+	const published = uniqueByUrl([
 		...sameTripleItemsFor(options, exposure),
 		...rungItemsFor(options.codeFilesDir, options.publicBaseUrl, targets, exposure),
-	];
+	]);
 	return [...dev, ...published.map((item) => withReleaseNotes(item, options.changesDir))];
+}
+
+/** The first item of each archive URL, in order. */
+function uniqueByUrl(items: CodeReleaseItem[]): CodeReleaseItem[] {
+	const seen = new Set<string>();
+	return items.filter((item) => {
+		if (seen.has(item.url)) return false;
+		seen.add(item.url);
+		return true;
+	});
 }
 
 /**
  * Where the asker stands in the release sequence: its `clientRelease` when
- * that is an identity OF ITS OWN data triple, else the bare triple. The bare
- * triple is the conservative reading — an asker that did not say (an older
- * client) or said something else is treated as running the stable release of
- * its triple, so nothing of that triple is offered to it. A `.dev` identity
- * compares as its triple too (compareReleaseIdentities), the same answer —
- * except on a dev ask ({@link sameTripleItemsFor}).
+ * that is an identity it may hold, else the bare data triple. The bare triple
+ * is the conservative reading — an asker that did not say (an older client) or
+ * said something else is treated as running the stable release of its triple,
+ * so nothing of that triple is offered to it.
+ *
+ * Which identities it may hold (the TWO triples, plan 2026-10-25): a stable or
+ * prerelease identity names the DATA triple (release_identity.ts
+ * resolveReleaseIdentity: a tag must name the data triple). A developer
+ * identity names the NEXT triple, which may sit ahead of the data triple (the
+ * data lags the code between data-changing releases), so a `-dev` claim is
+ * accepted at any triple. That widens nothing on the stable side: the rows a
+ * claim can reach are archives on disk that the identity walk, run on the
+ * claim, admits — and the swap door re-judges with the tree's OWN identity.
  */
 function askerIdentity(options: CodeUpdateInfoOptions): string {
 	const triple = normalizedClientTriple(options.clientVersion).join('.');
 	const claimed = typeof options.clientRelease === 'string' ? options.clientRelease : '';
 	const parsed = parseReleaseVersion(claimed);
-	return parsed !== null && parsed.triple.join('.') === triple ? claimed : triple;
+	if (parsed === null) return triple;
+	return parsed.dev || parsed.triple.join('.') === triple ? claimed : triple;
 }
 
 /**
- * The archives of the asker's OWN data triple above its identity — how a
+ * The archives of the asker's OWN identity triple above its identity — how a
  * prerelease install moves on without a version bump (`7.0.0-beta.6` →
  * `7.0.0-beta.7` → `7.0.0`; RELEASE_IDENTITY_DESIGN §2.8 item 3). The stable
  * release of the triple is offered to ANY asker below it (a stable release is
  * no exposure), its prereleases only when the prerelease rung is exposed. An
  * asker at the stable release (or at its bare triple) is offered nothing here.
  *
- * A DEVELOPER BUILD asking on the dev channel is the exception, as it is the
- * walk's (version_walk.ts sameTripleRefusal): a `.dev` cannot say whether it
- * sits before or after its triple's tags, so EVERY tag-built archive of its
- * triple is a legal next step and is offered — the stable release, and the
- * prereleases where that rung is exposed. That is the §2.8 item 5 bootstrap:
- * an install on `7.0.0-beta.6` (which reports its bare triple) installs a
- * developer build, then is offered `7.0.0-beta.7` and `7.0.0` from it. The
- * swap door grants the same exception only to a tree whose own stamp says the
- * dev channel installed it (code_update.ts walkChannelOf).
+ * The identity triple is the asker's own triple for a stable or prerelease
+ * install (identity = data triple there). For a developer build it is the next
+ * triple the build is named after, so a tree whose data is 7.0.0 and whose
+ * identity is `7.0.1-dev` sees the stable `7.0.1` through ordinary ordering:
+ * `7.0.1-dev < 7.0.1`. Nothing special
+ * is granted to a developer identity here: the ORDER decides, and dev sorts
+ * above every prerelease of its triple (`7.0.1-beta.7 < 7.0.1-dev`), so a
+ * developer build is offered no prerelease of its own triple.
+ *
+ * An install that reports its bare triple (`7.0.0-beta.6` reports `7.0.0`) is
+ * offered no prerelease of that triple here: its way onto a developer build is
+ * its dev row ({@link devItemsFor}), and from that build the order above is
+ * the whole story (`7.0.0-beta.7` is below `7.0.0-dev` and is not offered).
  */
 function sameTripleItemsFor(
 	options: CodeUpdateInfoOptions,
 	exposure: ChannelExposure,
 ): CodeReleaseItem[] {
-	const triple = normalizedClientTriple(options.clientVersion);
 	const running = askerIdentity(options);
-	const devStanding = options.channel === 'dev' && parseReleaseVersion(running)?.dev === true;
+	const triple = identityTripleOf(running);
 	return archivesOfTriple(options.codeFilesDir as string, triple)
 		.filter((name) => name.kind === 'stable' || exposure.prerelease)
-		.filter((name) => devStanding || compareReleaseIdentities(name.identity as string, running) > 0)
+		.filter((name) => compareReleaseIdentities(name.identity as string, running) > 0)
 		.sort((a, b) => compareReleaseIdentities(a.identity as string, b.identity as string))
 		.map((name) => identityItemFor(options.codeFilesDir as string, options.publicBaseUrl, name))
 		.filter((item): item is CodeReleaseItem => item !== null);
+}
+
+/** The triple an identity names, as the `[major, minor, patch]` the archive dirs are keyed by. */
+function identityTripleOf(identity: string): number[] {
+	const parsed = parseReleaseVersion(identity);
+	return parsed === null ? [] : [...parsed.triple];
 }
 
 /**
@@ -474,23 +504,48 @@ export function codeReleaseUrl(base: string, version: string, fileName: string):
 /**
  * The developer-channel items, listed BEFORE the published ones: a consumer
  * that flipped its dev switch means it, and the client pre-selects the first
- * row. The CURRENT version leads the list — a branch build carries no version
- * bump, so "install the same version again" IS the feature; the published
- * rungs follow so an operator can still see a real release from the same panel.
+ * row. The asker's OWN identity triple leads the list — a branch build carries
+ * no version bump, so "install the same identity again" IS the feature; the
+ * next triples follow, so an operator can still reach a branch build of the
+ * next release from the same panel.
+ *
+ * A developer row is listed ONLY when the identity walk admits it for this
+ * asker on the dev channel (version_walk.ts identityWalkRefusal, the same
+ * function the swap door runs): what the panel offers and what the door will
+ * accept are one answer, never two. The candidate triples are the asker's own
+ * and the rung above each of them (the walk admits a developer build of the
+ * next triple, and nothing further), read from the identity so that the catalog's
+ * data triples never gate a developer build.
  */
 function devItemsFor(
 	codeFilesDir: string,
 	publicBaseUrl: string,
-	clientVersion: readonly number[],
-	targets: readonly number[][],
+	running: string,
 ): CodeReleaseItem[] {
 	const items: CodeReleaseItem[] = [];
-	const current = normalizedClientTriple(clientVersion);
-	for (const triple of [current, ...targets]) {
+	for (const triple of devCandidateTriples(identityTripleOf(running))) {
 		const item = releaseItemFor(codeFilesDir, publicBaseUrl, triple, 'dev');
-		if (item !== null) items.push(item);
+		if (item === null) continue;
+		const admitted = identityWalkRefusal(running, `${triple.join('.')}-dev`, 'dev') === null;
+		if (admitted) items.push(item);
 	}
 	return items;
+}
+
+/**
+ * The triples a developer build can be named after from `identity`: its own,
+ * then the next patch, the next minor and the next major (the rungs the walk's
+ * data step admits — version_walk.ts isNextRung). Deduplicated, own first.
+ */
+function devCandidateTriples(identity: readonly number[]): number[][] {
+	const [major = 0, minor = 0, patch = 0] = identity;
+	const candidates = [
+		[major, minor, patch],
+		[major, minor, patch + 1],
+		[major, minor + 1, 0],
+		[major + 1, 0, 0],
+	];
+	return [...new Map(candidates.map((triple) => [triple.join('.'), triple])).values()];
 }
 
 /** One advertised release item, or null when its archive does not exist on disk. */
@@ -549,8 +604,11 @@ export interface ReleaseArchiveName {
 	triple: string;
 	/** `stable` = `<X.Y.Z>.zip`, `prerelease` = `<X.Y.Z-beta.N>.zip`, `dev` = `<X.Y.Z>-dev.zip`. */
 	kind: 'stable' | 'prerelease' | 'dev';
-	/** The release identity a tag build is named after; null for a developer build. */
-	identity: string | null;
+	/**
+	 * The release identity the archive is named after: `X.Y.Z`, `X.Y.Z-beta.N`,
+	 * or `X.Y.Z-dev` for a developer build (the same triple as {@link triple}).
+	 */
+	identity: string;
 }
 
 /**
@@ -566,10 +624,17 @@ export function releaseArchiveNameOf(fileName: string): ReleaseArchiveName | nul
 	return stem.endsWith('-dev') ? devArchiveNameOf(stem) : identityArchiveNameOf(stem);
 }
 
-/** `<X.Y.Z>-dev` — the developer build's fixed token after a bare triple. */
+/**
+ * `<X.Y.Z>-dev` — the developer build's fixed token after a bare triple. Its
+ * identity is the same stem: the grammar and the identity it names are one
+ * spelling (release_identity.ts DEV_VERSION_RE), so the triple read here is the
+ * triple the walk compares.
+ */
 function devArchiveNameOf(stem: string): ReleaseArchiveName | null {
 	const triple = stem.slice(0, -'-dev'.length);
-	return /^[0-9]+\.[0-9]+\.[0-9]+$/.test(triple) ? { triple, kind: 'dev', identity: null } : null;
+	return /^[0-9]+\.[0-9]+\.[0-9]+$/.test(triple)
+		? { triple, kind: 'dev', identity: stem }
+		: null;
 }
 
 /** `<X.Y.Z>` or `<X.Y.Z-(alpha|beta|rc).N>` — a release identity in the shared grammar. */

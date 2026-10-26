@@ -1,5 +1,5 @@
 {
-	"_comment": "THE release-identity truth table (release identity design gates 1 and 7). Each row is a REAL git history built by test/helpers/release_identity_trees.ts — one commit carrying the repo's real build_info.txt placeholder, .gitattributes export-subst line and a version.ts declaring 7.0.0, then `steps` — and is judged as a CHECKOUT and as a `git archive`-EXTRACTED tree by every resolver: the engine's (test/unit/release_identity_native.test.ts) and the shell twin deploy/dedalo-image-lib.sh dedalo_release_identity (test/unit/release_identity_shell_parity.test.ts). A step is {tag, annotated, date?} or {commit: true}. `notice` is a regular expression the ENGINE's notice must match (null = no notice); the shell twin prints the identity only.",
+	"_comment": "THE release-identity truth table (release identity design gates 1 and 7). Each row is a REAL git history built by test/helpers/release_identity_trees.ts — one commit carrying the repo's real build_info.txt placeholder, .gitattributes export-subst line and a version.ts declaring 7.0.0 (DEDALO_VERSION_TRIPLE) and 7.0.1 (DEDALO_NEXT_DEV_TRIPLE), then `steps`. An UNTAGGED row names its dev identity `X.Y.Z-dev` with the NEXT triple (7.0.1-dev), never the data triple — and is judged as a CHECKOUT and as a `git archive`-EXTRACTED tree by every resolver: the engine's (test/unit/release_identity_native.test.ts) and the shell twin deploy/dedalo-image-lib.sh dedalo_release_identity (test/unit/release_identity_shell_parity.test.ts). A step is {tag, annotated, date?} or {commit: true}. `notice` is a regular expression the ENGINE's notice must match (null = no notice); the shell twin prints the identity only.",
 	"triple": [7, 0, 0],
 	"rows": [
 		{
@@ -26,42 +26,49 @@
 		{
 			"name": "one commit past the tag",
 			"steps": [{ "tag": "v7.0.0-beta.6", "annotated": true }, { "commit": true }],
-			"version": "7.0.0.dev",
+			"version": "7.0.1-dev",
 			"kind": "dev",
 			"notice": null
 		},
 		{
 			"name": "a lightweight tag only (describe ignores it — release tags are annotated, Q7)",
 			"steps": [{ "tag": "v7.0.0", "annotated": false }],
-			"version": "7.0.0.dev",
+			"version": "7.0.1-dev",
 			"kind": "dev",
 			"notice": null
 		},
 		{
-			"name": "the tag names another version than version.ts",
+			"name": "a code-only patch tag above the data triple (v7.0.1 over data 7.0.0)",
 			"steps": [{ "tag": "v7.0.1", "annotated": true }],
-			"version": "7.0.0.dev",
+			"version": "7.0.1",
+			"kind": "stable",
+			"notice": null
+		},
+		{
+			"name": "a tag BELOW the data triple (v6.9.0 over data 7.0.0)",
+			"steps": [{ "tag": "v6.9.0", "annotated": true }],
+			"version": "7.0.1-dev",
 			"kind": "dev",
-			"notice": "v7\\.0\\.1 names 7\\.0\\.1, but version\\.ts says 7\\.0\\.0"
+			"notice": "names 6\\.9\\.0, below the data version 7\\.0\\.0"
 		},
 		{
 			"name": "a prerelease suffix outside alpha|beta|rc",
 			"steps": [{ "tag": "v7.0.0-pre.1", "annotated": true }],
-			"version": "7.0.0.dev",
+			"version": "7.0.1-dev",
 			"kind": "dev",
 			"notice": null
 		},
 		{
 			"name": "a non-canonical tag number (v7.0.0-beta.01)",
 			"steps": [{ "tag": "v7.0.0-beta.01", "annotated": true }],
-			"version": "7.0.0.dev",
+			"version": "7.0.1-dev",
 			"kind": "dev",
 			"notice": null
 		},
 		{
 			"name": "a non-release annotated tag (not v[0-9]*)",
 			"steps": [{ "tag": "museum-snapshot", "annotated": true }],
-			"version": "7.0.0.dev",
+			"version": "7.0.1-dev",
 			"kind": "dev",
 			"notice": null
 		},
@@ -78,7 +85,7 @@
 		{
 			"name": "no tag at all",
 			"steps": [],
-			"version": "7.0.0.dev",
+			"version": "7.0.1-dev",
 			"kind": "dev",
 			"notice": null
 		}

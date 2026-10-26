@@ -220,7 +220,7 @@ export interface ConsumerStatus {
 	engine: {
 		/** The DATA triple (`7.0.0`). */
 		version: string;
-		/** The RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`, `7.0.0.dev`). */
+		/** The RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`, `7.0.0-dev`). */
 		engine_version: string;
 		/**
 		 * Which kind the identity is — from the tag, never inferred from the

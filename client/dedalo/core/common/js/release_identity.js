@@ -6,7 +6,7 @@
  * program calls itself (server: src/core/update/release_identity.ts):
  *   '7.0.0'          an exact stable release
  *   '7.0.0-beta.6'   an exact prerelease (alpha|beta|rc)
- *   '7.0.0.dev'      anything untagged
+ *   '7.0.1-dev'      anything untagged (the NEXT triple; no data version of its own)
  * It is for DISPLAY. Every question that compares, migrates or crosses to
  * another server asks the DATA triple ('7.0.0') instead — read through
  * data_version_of, never by splitting the identity on dots: '7.0.0-beta.6'
@@ -21,13 +21,16 @@
 // The one grammar, mirrored from release_identity.ts (RELEASE_VERSION_RE + the
 // dev form). The gate holds this mirror against the server's ordering fixture.
 const IDENTITY_RE =
-	/^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?:-(?:alpha|beta|rc)\.(?:0|[1-9]\d*)|\.dev)?$/;
+	/^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?:-(?:alpha|beta|rc)\.(?:0|[1-9]\d*))?$/;
 
 /**
  * DATA_VERSION_OF
- * The data triple a release identity belongs to.
+ * The data triple a RELEASE identity belongs to. A developer identity
+ * ('7.0.1-dev') names the NEXT triple, not a data version: it answers '' here,
+ * as the server's parseVersionString refuses it. The served page_globals carry
+ * the data triple (dedalo_data_version) for that case.
  * @param {string|null|undefined} version - a release identity, e.g. '7.0.0-beta.6'
- * @returns {string} '7.0.0', or '' when the value is no release identity
+ * @returns {string} '7.0.0', or '' when the value is no release identity or is a developer one
  */
 export const data_version_of = (version) => {
 	const match = IDENTITY_RE.exec(String(version ?? ''));
