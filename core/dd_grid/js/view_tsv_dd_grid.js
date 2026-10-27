@@ -275,9 +275,18 @@ const get_text_column = function(current_data) {
 		? current_data.records_separator
 		: ' | '
 
-	const text = current_data.value && Array.isArray(current_data.value)
+	const current_value = current_data.value && Array.isArray(current_data.value)
 		? current_data.value.join(records_separator)
 		: (current_data.value || '')
+
+	const fallback_value = current_data.fallback_value && Array.isArray(current_data.fallback_value)
+		? current_data.fallback_value.join(records_separator)
+		: (current_data.fallback_value || '')
+
+	// use the fallback value when the value is empty (translatable data in other language)
+	const text = current_value && current_value.length>0
+		? current_value
+		: fallback_value
 
 	// value
 		const value = text
