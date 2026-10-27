@@ -116,6 +116,16 @@ export const STACK_MACHINE_CHECKS = Object.freeze({
 			? `only ${free} GiB free under ${facts.dockerRoot} — the install needs about ${STACK_MIN_FREE_GIB} GiB (docker system prune -af, or move Docker's root to a bigger disk)`
 			: null;
 	},
+	/**
+	 * cosign is installed — the official image's signature is checked with it. Not
+	 * every route needs it (a build or a registry of your own does not), so the
+	 * System check shows it as a warning row, and the preflight refuses only an
+	 * official pull without it (imageProblems).
+	 */
+	cosign: (facts: StackFacts): string | null =>
+		facts.cosign === null
+			? "cosign is not installed — Dédalo's image signature is checked with it: install cosign (https://docs.sigstore.dev/cosign/system_config/installation/), or choose Build for a local image"
+			: null,
 	/** The operator's identity is known. */
 	operator: (facts: StackFacts): string | null =>
 		knownOperator(facts)
@@ -265,9 +275,11 @@ function measuredAvailability(
 ): Promise<ImageProbeOutcome> {
 	const { measure } = ctx;
 	const progress = measure?.say ?? ctx.say ?? (() => {});
-	const probe = (): Promise<ImageProbeOutcome> => {
+	const probe = async (): Promise<ImageProbeOutcome> => {
 		progress(imageCheckingLine(ref));
-		return probeImageAvailability(ctx.runner, docker, ref, home);
+		const outcome = await probeImageAvailability(ctx.runner, docker, ref, home);
+		if (outcome.availability === 'published') progress(imagePublishedLine(ref));
+		return outcome;
 	};
 	return measure === undefined ? probe() : measure.once(`official-image ${ref}`, probe);
 }
@@ -275,6 +287,11 @@ function measuredAvailability(
 /** The progress line said while the registry is asked (a `checking` line: the running mark). */
 export function imageCheckingLine(ref: string): string {
 	return `checking the official image ${ref}…`;
+}
+
+/** The progress line said when the registry answers that the image is published (the run's visible success). */
+export function imagePublishedLine(ref: string): string {
+	return `${ref} is published`;
 }
 
 /** Is the official image decided here: an `official` source naming an official repository? */

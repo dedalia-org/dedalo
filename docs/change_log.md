@@ -15,9 +15,76 @@ shape by the id under which the source tree records each one
 
 Merged since the last release; these ship with the next one.
 
+### For users
+
+#### Changed
+
+- **Developer builds are named for the next version, for example 7.0.1-dev.**
+
+    Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
+
 ### For administrators
 
+#### Changed
+
+- **The Docker install guide says the Official image comes from GitHub Container Registry only, and that the Docker Hub mirror is reached through a custom image.**
+
+    Before: the registry table listed the Docker Hub mirror as available, with no word on how an installation reaches it, and the host `install.sh --status --json` was described as reading only the checkout.
+    Now: the page says the **Official** choice pulls from GitHub Container Registry only, that Docker Hub is reached only through the `custom` choice (`--image-repository docker.io/dedalia/dedalo`), and that a custom image is trusted as pulled, not signature-checked. The host `--status --json` reports the same install record as the in-container command.
+
+- **The Docker install's System checks show cosign, and the Image version help names only the tags the installer accepts.**
+
+    Before: cosign was checked only at the Review, and the Image version help listed `7.0.0` as an accepted tag, which the installer refuses.
+    Now: the System checks show a cosign row, a warning when cosign is missing (only the official image needs it), and the Image version help names the accepted tags: the installer's own release, or the next release's `-dev` tag.
+
+- **The installer shows that the image pull is alive, and says when docker has gone silent.**
+
+    Before: while docker pulled the image, the installer printed one line and then nothing for as long as the pull ran, so a stalled pull looked like a hung install.
+    Now: a "still pulling" line with the elapsed time every 30 seconds. When docker has produced no output for 3 minutes, the installer says so and names the resume command (`sh install.sh --route <route> --resume`), so you can stop the pull and resume it.
+
+- **Resuming an interrupted Docker install asks for the root password once, not twice.**
+
+    Before: `install.sh --resume` asked for the root password twice, the same as a fresh install.
+    Now: a resume asks it once, because the install already set the password. A fresh install still asks twice, to catch a typo in a password that is set for the first time. The password rules and the refusals apply in both cases.
+
+- **The Docker install guide lists the curl, unzip, sha256sum and cosign prerequisites, and documents the updater's --check dry run.**
+
+    The [Docker install guide](./install/docker.md) now lists `curl`, `unzip` and `sha256sum` among the host tools, with the install commands for Debian, Ubuntu and the RHEL family, and gives the release-binary steps for `cosign`, checked against the release's checksums file. The update section documents `--check`, the read-only dry run of an image update.
+
+- **The installer Review lists the cosign verify command for an official image, and the registry check reports success.**
+
+    Before: the installer's Review of an official image showed the pull, but not the signature check it would run after it, and a successful registry check was silent.
+    Now: the Review lists the `cosign verify` command that checks the pulled image's digest against Dédalo's signing identity, so the operator reads the check before the install runs it. When the registry confirms the image is published, the run prints a success line.
+
+#### Added
+
+- **The container updater gains a --check dry run that reports whether an update would be accepted, without changing anything.**
+
+    `deploy/dedalo-image-update.sh --version <version> --check` runs the version checks, the engine's check and the image check, then stops. It takes no lock, makes no backup, creates no rollback tag, changes no file (`.dedalo.env` included), re-pins nothing, and starts, stops or recreates no container. It pulls no layer: the image is checked by its manifest, and with `DEDALO_IMAGE_VERIFY=cosign` its signature is read from the registry.
+
+    When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
+
 #### Fixed
+
+- **The host `--status --json` on the Docker and trial routes reports the install record the run wrote.**
+
+    Before: `sh install.sh --route docker --status --json` read the private directory of the host process, which on the Docker route holds no record, and answered `exists: false` for a complete install.
+    Now: on the docker and trial routes it reads the stack's host record, the one `--resume` reads, and answers its outcome (`complete` after a finished install).
+
+- **The container updater reports a refused re-install of the pinned release as its own outcome, same_version, instead of downgrade_refused.**
+
+    Before: asking the updater for the release the stack already runs was refused as `downgrade_refused`, which read as a step back.
+    Now: it is refused as `same_version` in the outcome file, and the message says the version is the pinned one. Only `-dev` builds are re-installed at the same version. A step back is still `downgrade_refused`.
+
+- **The installer's --plain mode refuses answer flags before it asks any question, and names the flags it refused.**
+
+    Before: combining `--plain` (the interactive front end) with an answer flag such as `--answers`, `--plan`, `--execute` or `--root-password` failed with one generic sentence, and only after some questions had been asked.
+    Now: the combination is refused at the start, before any prompt, and the refusal names each flag that caused it. Give those answers on the interactive screens instead.
+
+- **The updater's same-version refusal suggests the skip flag only for a stack pinned at a bare version.**
+
+    Before: a refused update that went back to an older version suggested `--skip-version-check` for every stack, including one already pinned to a prerelease or a developer build, where the suggestion did not apply.
+    Now: the suggestion appears only when the stack is pinned at a bare `X.Y.Z` version, the case of a beta built before `7.0.0-beta.7`. A stack pinned to a prerelease or `-dev` build is refused without it.
 
 - **The official Docker image now carries its signature in every registry that publishes it**
 
@@ -31,6 +98,15 @@ Merged since the last release; these ship with the next one.
     Mirroring an image into a registry of your own no longer suggests `cosign copy`, which is
     deprecated and drops current signatures: verify at a Dédalo registry, then copy that
     digest unchanged ([A registry of your own](./install/docker.md#a-registry-of-your-own)).
+
+### For developers
+
+#### Fixed
+
+- **The section read example in the API field mapping names the section in source.tipo and lists it in sqo.section_tipo.**
+
+    Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
+    Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
 ## 7.0.0-beta.7 — 2026-10-25
 

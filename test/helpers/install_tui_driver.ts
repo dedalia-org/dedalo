@@ -383,6 +383,7 @@ async function secretKeys(
 	question: Question,
 	value: string,
 	feedback: PasswordFeedback | undefined,
+	confirm = true,
 ): Promise<void> {
 	await expectLabel(rig, question.label);
 	const refused =
@@ -393,7 +394,7 @@ async function secretKeys(
 	if (refused) return quitKeys(rig, keys);
 	await typeKeys(rig, keys, value);
 	await enter(rig, keys);
-	if (value === '') return;
+	if (value === '' || !confirm) return;
 	await typeKeys(rig, keys, value);
 	await enter(rig, keys);
 }
@@ -543,11 +544,11 @@ export function drivenPrompter(
 			const value = answer(question.id);
 			return drive(question.id, real.multi(question), () => multiKeys(rig, keys, question, value));
 		},
-		secret: (question, feedback) => {
+		secret: (question, feedback, options) => {
 			asked.push(question.id);
 			const value = script.secrets?.[question.id] ?? '';
-			return drive(question.id, real.secret(question, feedback), () =>
-				secretKeys(rig, keys, question, value, feedback),
+			return drive(question.id, real.secret(question, feedback, options), () =>
+				secretKeys(rig, keys, question, value, feedback, options?.confirm ?? true),
 			);
 		},
 		confirm: (question) => {

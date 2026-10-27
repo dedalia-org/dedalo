@@ -16,6 +16,9 @@ A checklist; each item is explained below.
 | Docker Engine + Compose v2 plugin ≥ 2.24.4 | `docker compose version` |
 | your user in the `docker` group | `docker info` works without `sudo` |
 | `git` | `git --version` |
+| `curl` | `curl --version` |
+| `unzip` | `unzip -v` |
+| `sha256sum` (coreutils) | `sha256sum --version` |
 | `cosign` (official image only) | `cosign version` |
 | about 8 GiB free for Docker | `df -h /var/lib/docker` |
 | ports 80 and 443 free | `sudo ss -tlnp \| grep -E ':(80\|443)\b'` prints nothing |
@@ -71,13 +74,26 @@ Membership of `docker` is root-equivalent — exactly what `sudo docker` already
 
 ### 3. Host tools
 
-**`git`**, to get the checkout ([Get Dédalo](index.md#get-dedalo)) and, with a local build, to update it later. Minimal RHEL-family systems do not have it:
+**`git`**, to get the checkout ([Get Dédalo](index.md#get-dedalo)) and, with a local build, to update it later.
+
+**`curl`**, **`unzip`** and **`sha256sum`** (from `coreutils`), for the downloads and checks the installer and the update scripts make. Minimal systems may not have them:
 
 ```shell
-sudo dnf install git
+sudo apt install git curl unzip coreutils    # Debian, Ubuntu
+sudo dnf install git curl unzip coreutils    # RHEL, AlmaLinux, Rocky
 ```
 
-**`cosign`**, to verify the signature of an official image. Without it, choose a local build on the *Image* screen.
+**`cosign`**, to verify the signature of an official image. Without it, choose a local build on the *Image* screen. Install it from the release binary of [sigstore/cosign](https://github.com/sigstore/cosign/releases), checked against that release's `cosign_checksums.txt` (`v3.1.4` is only an example: use the latest release). The same commands serve Debian, Ubuntu and the RHEL family, on `amd64` (use `arm64` for ARM hosts):
+
+```shell
+VERSION=v3.1.4
+curl -sSLO "https://github.com/sigstore/cosign/releases/download/${VERSION}/cosign-linux-amd64"
+curl -sSLO "https://github.com/sigstore/cosign/releases/download/${VERSION}/cosign_checksums.txt"
+grep ' cosign-linux-amd64$' cosign_checksums.txt | sha256sum -c -
+sudo install -m 0755 cosign-linux-amd64 /usr/local/bin/cosign
+```
+
+The other installation methods are listed in the [Sigstore installation guide](https://docs.sigstore.dev/cosign/system_config/installation/).
 
 ### 4. Disk and ports
 
@@ -177,7 +193,7 @@ The engine's own configuration is not in `.dedalo.env`: it is `/private/.env`, i
 | `stack_tls` | Let's Encrypt (certbot in its own container, `--standalone` on port 80, before nginx exists), a local CA (`deploy/dedalo-tls-rotate.sh --mode local-ca`), or your files copied into `deploy/certs` | `ls deploy/certs`, or `docker volume ls \| grep letsencrypt` |
 | `stack_files` | writes `.dedalo.env`, `compose.override.yaml` and the generated nginx site | the three files exist; `.dedalo.env` is `0600` |
 | `stack_database` | starts PostgreSQL and waits for `pg_isready` | `ddc ps postgres` is *healthy* |
-| `stack_engine` | runs the engine steps inside a throw-away container (`run --rm -T dedalo bun run scripts/install.ts --request-stdin --execute --events-jsonl`): the seed, the ontologies, the thesauri, the tools, the `root` password. Answers and secrets go on its standard input, never as `-e` (an environment value shows in `docker inspect`) | `ddc run --rm -T dedalo bun run scripts/install.ts --status --json` prints `"outcome":"complete"` |
+| `stack_engine` | runs the engine steps inside a throw-away container (`run --rm -T dedalo bun run scripts/install.ts --request-stdin --execute --events-jsonl`): the seed, the ontologies, the thesauri, the tools, the `root` password. Answers and secrets go on its standard input, never as `-e` (an environment value shows in `docker inspect`) | `ddc run --rm -T dedalo bun run scripts/install.ts --status --json` prints `"outcome":"complete"`; from the checkout, `sh install.sh --route docker --status --json` reports the same record |
 | `stack_up` | starts the engine first, waits for its `/health` (by then it has written the media rule files nginx includes), then the rest of the stack — nginx always in a new container, because a container whose start failed (a port held by another program) comes back *Up* with no port published — and waits for nginx to stay up: running, not restarting, every port it declares published, `nginx -t` passing. If it does not, the step fails with nginx's own `[emerg]` line, or names the port it could not publish | `ddc ps`: `postgres` and `dedalo` *healthy*, `nginx` *Up* with `0.0.0.0:80->80/tcp` and `0.0.0.0:443->443/tcp` |
 | `stack_health` | `/health` on the engine's socket, then through nginx over HTTPS with a verified chain, and the media gate: the marker store and an unpublished probe file both answer `404` to an anonymous request. A failed probe says why (`the certificate chain is not trusted by this host`, `nothing answers on that port`). A `--resume` that started the stack again (after an `--abort`, or a stopped stack) runs every probe again, the media gate included; one that re-did nothing probes `/health` again, read-only | [Verify](#verify) |
 
@@ -300,6 +316,8 @@ The list is kept in the repository (`engineering/image_registries.json`) and thi
 | GitHub Container Registry | `ghcr.io/dedalia-org/dedalo` | mirror | available |
 | Docker Hub | `docker.io/dedalia/dedalo` | mirror | available |
 <!-- END GENERATED -->
+
+The **Official** choice pulls only from **GitHub Container Registry** (`ghcr.io/dedalia-org/dedalo`), the one the Review names; the installer offers no registry choice. The Docker Hub mirror is reached only through the **`custom`** choice (`--image-source custom --image-repository docker.io/dedalia/dedalo`). A custom image is trusted as pulled: the installer checks its version label, not its signature, so use it only when you choose that trust on purpose.
 
 Images are published per **release**. The tags follow the code server's release names:
 
@@ -506,6 +524,19 @@ A container installation updates by replacing its **image** — the code lives i
 ```shell
 ./deploy/dedalo-image-update.sh --version 7.0.2
 ```
+
+To find out first whether that update would be accepted, add `--check`:
+
+```shell
+./deploy/dedalo-image-update.sh --version 7.0.2 --check
+```
+
+`--check` is a dry run, and it is read-only. It runs the version checks, the engine's check and the image check, and nothing else:
+
+- it takes **no lock**, makes **no backup** and creates **no rollback tag**;
+- it changes **no file** (`.dedalo.env` included), **re-pins nothing**, starts, stops, recreates and writes **no container** (its one contact with the running engine is the read-only `check-target` question) and pulls **no layer**: the image is checked by its manifest, and with `DEDALO_IMAGE_VERIFY=cosign` its signature and version label are read from the registry;
+- when the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`; when it would be refused, it prints the same refusal a real run gives and exits non-zero, and writes no outcome file;
+- in `build` mode it only checks that the release ref resolves in this checkout: it fetches nothing and does not move the checkout.
 
 The version is a release the code server lists — the [code update panel](../management/updates/updating_code.md) shows them, with their release notes and this exact command — a prerelease of one (`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`), or a `X.Y.Z-dev` developer image. What the script does, each step refusing before the next one changes anything:
 

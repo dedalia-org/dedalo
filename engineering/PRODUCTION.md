@@ -1692,7 +1692,7 @@ on green. `--outcome-file` receives ONE JSON object:
 ```json
 {"schema":1,"request_id":"<uuid>|null","from":"X.Y.Z","to":"X.Y.Z","mode":"pull|build",
  "image":"<repository>","status":"green|rolled_back|rollback_failed|refused|failed",
- "detail":"healthy|health_timeout|unhealthy|pull_failed|verify_failed|build_failed|backup_failed|version_refused|downgrade_refused|not_running|env_incomplete|locked|interrupted|malformed_request",
+ "detail":"healthy|health_timeout|unhealthy|pull_failed|verify_failed|build_failed|backup_failed|version_refused|downgrade_refused|same_version|not_running|env_incomplete|locked|interrupted|malformed_request",
  "backup":"/backups/db/…|null","digest":"sha256:…|null","started_at":"<ISO>","finished_at":"<ISO>"}
 ```
 

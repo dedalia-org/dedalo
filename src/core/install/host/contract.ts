@@ -8,7 +8,12 @@
  * the FROZEN host facts (host_preflight's — state_types.ts) → the exact
  * commands. The Review lists them; `run` executes exactly them (host/execute.ts)
  * plus the step's own checks; a gate holds the recording runner's argv log to
- * the list. A command may carry an `unless` probe (read-only): when it exits 0
+ * the list. A CHECK (a read-only command whose value the run learns from an
+ * earlier command, e.g. the digest a pull brings) may be listed with a
+ * placeholder for that value: the run executes it with the value filled in,
+ * and the gate holds the logged argv to the listed one with the placeholder
+ * replaced (stack_image's cosign line — image.ts PULLED_DIGEST_PLACEHOLDER).
+ * A command may carry an `unless` probe (read-only): when it exits 0
  * the command is skipped — what makes a step re-run after a kill converge
  * instead of failing on its own half-done work (`useradd` of a user it already
  * created).
@@ -120,6 +125,13 @@ export interface RemoveCommand {
 
 export type HostCommand = ExecCommand | WriteCommand | MkdirCommand | RemoveCommand;
 
+/**
+ * The Review's view of a pulled image's digest (review.ts): the index digest the
+ * registry named before the pull, or `unresolved` when it did not (the Review then
+ * shows the cosign line by tag and says the digest is pinned at pull).
+ */
+export type ReviewImage = { readonly digest: string } | { readonly unresolved: true };
+
 /** What a host step's commands are computed from (pure inputs). */
 export interface HostPlanCtx {
 	readonly plan: PlanFile;
@@ -129,6 +141,11 @@ export interface HostPlanCtx {
 	readonly paths: InstancePaths;
 	/** The source tree the installer runs from (templates, scripts, the release). */
 	readonly source: string;
+	/**
+	 * Set by the Review only (absent in a run and in the frozen digest): a check that
+	 * needs the registry's digest shows it here; without it the placeholder stands.
+	 */
+	readonly reviewImage?: ReviewImage;
 }
 
 /** What a host step runs with. */

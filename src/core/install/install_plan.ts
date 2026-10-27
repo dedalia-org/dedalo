@@ -2021,10 +2021,37 @@ const HEADLESS_SOURCES: readonly ((invocation: CliInstallInvocation) => boolean)
 const headlessBesidesResume = (invocation: CliInstallInvocation): boolean =>
 	isHeadlessInvocation({ ...invocation, resume: false });
 
+/**
+ * The flags that make an invocation headless, by name — the offenders a --plain
+ * refusal names (an answer flag by the key it sets; the run controls by flag).
+ */
+function headlessFlags(invocation: CliInstallInvocation): string[] {
+	const named = Object.keys(invocation.raw).map(
+		(key) => FLAG_OF_KEY.get(key) ?? `--${key.replace(/_/g, '-')}`,
+	);
+	if (invocation.answersFile !== undefined) named.push('--answers');
+	if (invocation.planOnly) named.push('--plan');
+	if (invocation.listOntologies) named.push('--list-ontologies');
+	if (invocation.listHierarchies) named.push('--list-hierarchies');
+	if (invocation.listLangs) named.push('--list-langs');
+	if (invocation.secretsStdin) named.push('--secrets-stdin');
+	if (invocation.execute) named.push('--execute');
+	if (invocation.rootPassword !== undefined) named.push('--root-password');
+	if (invocation.status) named.push('--status');
+	if (invocation.eventsJsonl) named.push('--events-jsonl');
+	if (invocation.requestStdin) named.push('--request-stdin');
+	return named;
+}
+
+/** The --plain refusal: names the flags, and says where their answers go instead. */
+const plainRefusal = (flags: readonly string[]): string =>
+	`${flags.join(', ')} cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password`;
+
 /** The run-control combinations that cannot mean anything — each a parser error. */
 const COMBINATION_RULES: readonly {
 	refuses: (invocation: CliInstallInvocation) => boolean;
-	error: string;
+	/** A sentence, or one built from the invocation (the refusal names the offending flags). */
+	error: string | ((invocation: CliInstallInvocation) => string);
 }[] = Object.freeze([
 	{
 		refuses: (invocation) => invocation.resume && invocation.abort,
@@ -2045,8 +2072,7 @@ const COMBINATION_RULES: readonly {
 	{
 		refuses: (invocation) =>
 			invocation.plain && !invocation.abort && headlessBesidesResume(invocation),
-		error:
-			'--plain is the interactive front end — it takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+		error: (invocation) => plainRefusal(headlessFlags(invocation)),
 	},
 	{
 		refuses: (invocation) =>
@@ -2079,7 +2105,9 @@ const COMBINATION_RULES: readonly {
 
 /** The run-control combinations that cannot mean anything, as parser errors. */
 function combinationErrors(invocation: CliInstallInvocation): string[] {
-	return COMBINATION_RULES.filter((rule) => rule.refuses(invocation)).map((rule) => rule.error);
+	return COMBINATION_RULES.filter((rule) => rule.refuses(invocation)).map((rule) =>
+		typeof rule.error === 'string' ? rule.error : rule.error(invocation),
+	);
 }
 
 /**

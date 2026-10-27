@@ -59,13 +59,14 @@ export function secretField(
 	feedback: PasswordFeedback | undefined,
 	done: (answer: string | Nav) => void,
 	onRefused: () => void,
+	confirm = true,
 ): Widget {
 	const state = newSecretEntry();
 	let edit: FieldEdit = editOf('');
 	let message: string | null = null;
 	const typed = (): string => edit.chars.join('');
 	const enter = (): void => {
-		const step = secretEntryStep(state, typed(), question, feedback);
+		const step = secretEntryStep(state, typed(), question, feedback, confirm);
 		edit = editOf('');
 		message = stepMessage(step);
 		if (step.kind === 'done') done(step.value);

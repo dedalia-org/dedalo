@@ -77,8 +77,17 @@ export function repoDigestsProbe(ctx: HostPlanCtx): ExecCommand {
 	);
 }
 
-/** `cosign verify` of repository@digest against the official signing identity. */
-export function cosignCommand(ctx: HostPlanCtx, digest: string): ExecCommand {
+/**
+ * `cosign verify` of `target` against the official signing identity. `target` is
+ * `<repository>@<digest>` (the digest the image is verified by) or, when the Review
+ * could not name the digest, `<repository>:<tag>` (the label says the digest is
+ * pinned at pull instead). The identity and issuer are the same in every form.
+ */
+export function cosignCommand(
+	ctx: HostPlanCtx,
+	target: string,
+	label = "verify Dédalo's signature on the pulled digest",
+): ExecCommand {
 	const { signing } = loadImageRegistries();
 	return stackExec(
 		ctx,
@@ -89,11 +98,38 @@ export function cosignCommand(ctx: HostPlanCtx, digest: string): ExecCommand {
 			signing.identity_regexp,
 			'--certificate-oidc-issuer',
 			signing.issuer,
-			`${imageRepositoryOf(ctx.answers)}@${digest}`,
+			target,
 		],
-		"verify Dédalo's signature on the pulled digest",
+		label,
 		{ mutates: false, timeoutMs: 300_000 },
 	);
+}
+
+/**
+ * The index digest the registry names for `ref` (`docker buildx imagetools inspect`
+ * prints it as its `Digest:` line — the digest a multi-arch image is signed by, the
+ * one `RepoDigests` holds after a pull). Read-only, bounded like the probes;
+ * null when the registry was not asked or did not name one. Used by the Review
+ * only: the run verifies the digest the pull actually brings (verifyImage).
+ */
+export async function registryDigestOf(
+	runner: CommandRunner,
+	docker: string,
+	ref: string,
+	home: string,
+): Promise<string | null> {
+	try {
+		const result = await runner.run({
+			argv: [docker, 'buildx', 'imagetools', 'inspect', ref],
+			env: { HOME: home },
+			timeoutMs: IMAGE_PROBE_TIMEOUT_MS,
+		});
+		if (result.exitCode !== 0 || result.timedOut) return null;
+		const named = /^Digest:\s*(sha256:[0-9a-f]{64})\s*$/m.exec(result.stdout);
+		return named?.[1] ?? null;
+	} catch {
+		return null;
+	}
 }
 
 /** The digests (sha256:…) the local image carries for ITS repository. */
@@ -128,7 +164,7 @@ async function checkSignature(ctx: HostCtx): Promise<string> {
 			`${imageRefOf(ctx.answers)} carries ${digests.length} registry digests for its repository — exactly one is required to verify it`,
 		);
 	}
-	await execute(ctx, cosignCommand(ctx, digest as string), (result) =>
+	await execute(ctx, cosignCommand(ctx, `${imageRepositoryOf(ctx.answers)}@${digest}`), (result) =>
 		hostRefuse(
 			'install.step_failed',
 			`${imageRepositoryOf(ctx.answers)}@${digest} does NOT carry Dédalo's signature (cosign exit ${result.exitCode}) — refused`,

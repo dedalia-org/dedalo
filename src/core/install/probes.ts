@@ -260,7 +260,23 @@ export function stackRows(facts: StackFacts): SystemCheckRow[] {
 		checkRow('Compose', checks.compose(facts), `Docker Compose ${facts.composeVersion}`),
 		diskRow(facts),
 		...(operator === null ? [] : [checkRow('Operator', operator, '')]),
+		cosignRow(facts),
 	];
+}
+
+/**
+ * cosign: a warning, not a failure. Only the official image needs it (the run
+ * refuses that case at Review, host/stack/preflight.ts); a build or a custom
+ * image does not.
+ */
+function cosignRow(facts: StackFacts): SystemCheckRow {
+	return facts.cosign === null
+		? {
+				state: 'warn',
+				label: 'cosign',
+				detail: 'not installed — the official image signature cannot be checked without it',
+			}
+		: { state: 'ok', label: 'cosign', detail: facts.cosign };
 }
 
 /** A check's row: its failure sentence, or ok with `passed`. */

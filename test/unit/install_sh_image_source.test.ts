@@ -734,7 +734,7 @@ describe('F. the installer verifies the image as the library does (stack_image)'
 		});
 		expect(run.code, run.stderr).toBe(0);
 		const library = readFileSync(join(dir, 'argv'), 'utf8').split('\n').slice(0, -1);
-		const ts = cosignCommand(stackCtx(TRIAL, []).ctx, DIGEST).argv;
+		const ts = cosignCommand(stackCtx(TRIAL, []).ctx, ref).argv;
 		expect(ts[0]).toBe(COSIGN);
 		expect(ts.slice(1)).toEqual(library);
 	});

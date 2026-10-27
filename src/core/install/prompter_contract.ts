@@ -124,19 +124,31 @@ export function newSecretEntry(): SecretEntryState {
 	return { first: null, mismatches: 0 };
 }
 
+/**
+ * How a secret is entered. `confirm` (the default) asks the entry twice — a new
+ * password set on the fresh install, where a typo would lock the operator out.
+ * `confirm: false` takes ONE entry: a password the install already holds (a
+ * resume's root password), where the second entry only repeats what was typed.
+ * The refusals and the policy apply either way.
+ */
+export interface SecretOptions {
+	readonly confirm: boolean;
+}
+
 /** The FIRST entry: refused (control character, empty), held to the policy, '' accepted when allowed. */
 function firstEntryStep(
 	state: SecretEntryState,
 	entry: string,
 	question: Question,
 	feedback: PasswordFeedback | undefined,
+	confirm: boolean,
 ): SecretStep {
 	const refusal = entryRefusal(entry, question);
 	if (refusal !== null) return { kind: 'refused', message: refusal };
 	if (feedback !== undefined && feedback(entry).errors.length > 0) {
 		return { kind: 'policy', message: SECRET_TEXT.policy };
 	}
-	if (entry === '') return { kind: 'done', value: '' };
+	if (entry === '' || !confirm) return { kind: 'done', value: entry };
 	state.first = entry;
 	return { kind: 'again' };
 }
@@ -163,9 +175,10 @@ export function secretEntryStep(
 	entry: string,
 	question: Question,
 	feedback: PasswordFeedback | undefined,
+	confirm = true,
 ): SecretStep {
 	return state.first === null
-		? firstEntryStep(state, entry, question, feedback)
+		? firstEntryStep(state, entry, question, feedback, confirm)
 		: secondEntryStep(state, entry, state.first);
 }
 
@@ -263,7 +276,11 @@ export interface InstallPrompter {
 	text(question: Question): Promise<string | Nav>;
 	choice(question: Question): Promise<string | Nav>;
 	multi(question: Question): Promise<string[] | Nav>;
-	secret(question: Question, feedback?: PasswordFeedback): Promise<string | Nav>;
+	secret(
+		question: Question,
+		feedback?: PasswordFeedback,
+		options?: SecretOptions,
+	): Promise<string | Nav>;
 	confirm(question: Question): Promise<boolean | Nav>;
 	acknowledge(question: Question): Promise<boolean | Nav>;
 	/** A failed probe's next step: one of `view.commands` (an unknown word is explained by the walker). */

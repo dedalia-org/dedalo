@@ -345,7 +345,7 @@ export const QUESTION_TEXT: Readonly<Record<string, { label: string; description
 		image_version: {
 			label: 'Image version',
 			description:
-				"The image tag; empty = this installer's own release (7.0.0, 7.0.0-beta.7, or 7.0.0-dev for a development build; the only other tag accepted is its data version's -dev).",
+				"The image tag; empty = this installer's own release. The only other tag accepted is the developer tag of the next release (X.Y.Z-dev), which a development build carries.",
 		},
 		'route.trial_no_media_protection': {
 			label: 'Trial without media protection',

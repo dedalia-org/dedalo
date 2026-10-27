@@ -12,7 +12,12 @@
  */
 
 import { sanitizeLine } from '../display_text.ts';
-import type { InstallPrompter, Nav, PasswordFeedback } from '../prompter_contract.ts';
+import type {
+	InstallPrompter,
+	Nav,
+	PasswordFeedback,
+	SecretOptions,
+} from '../prompter_contract.ts';
 import { QUIT } from '../prompter_contract.ts';
 import type { Question, Screen } from '../screen_model.ts';
 import type { PendingView } from '../tui_loader.ts';
@@ -124,11 +129,17 @@ export function tuiPrompter(app: App): InstallPrompter & { pending(): PendingVie
 			ask<string | Nav>(app, (done) => textField(question, done as (answer: unknown) => void)),
 		choice: (question) => ask<string | Nav>(app, (done) => choiceField(question, done)),
 		multi: (question) => ask<string[] | Nav>(app, (done) => checklistField(question, done)),
-		secret: (question, feedback?: PasswordFeedback) =>
+		secret: (question, feedback?: PasswordFeedback, options?: SecretOptions) =>
 			ask<string | Nav>(app, (done) =>
-				secretField(question, feedback, done, () => {
-					app.stopped = 'refused';
-				}),
+				secretField(
+					question,
+					feedback,
+					done,
+					() => {
+						app.stopped = 'refused';
+					},
+					options?.confirm ?? true,
+				),
 			),
 		confirm: (question) => ask<boolean | Nav>(app, (done) => confirmField(question, done)),
 		acknowledge: (question) =>

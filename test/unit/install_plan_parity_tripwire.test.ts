@@ -961,11 +961,19 @@ describe('install plan — the answers file decides what the record decides (j)'
 			[['--plain', '--abort'], '--plain cannot be combined with --abort'],
 			[
 				['--plain', '--entity', 'x'],
-				'--plain is the interactive front end — it takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+				'--entity cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
 			],
 			[
 				['--plain', '--answers', 'a.json'],
-				'--plain is the interactive front end — it takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+				'--answers cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+			],
+			[
+				['--plain', '--route', 'docker'],
+				'--route cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+			],
+			[
+				['--plain', '--entity', 'x', '--route', 'docker', '--plan'],
+				'--entity, --route, --plan cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
 			],
 			[
 				['--write-answers', 'a.json', '--resume'],

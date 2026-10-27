@@ -140,7 +140,7 @@ export function tellingStderr(stderr: string): string {
 }
 
 /** The refusal of a failed command: its label, exit and stderr's telling line(s). */
-function failedSentence(command: ExecCommand, result: RunResult): string {
+export function failedSentence(command: ExecCommand, result: RunResult): string {
 	const said = tellingStderr(result.stderr);
 	const why = result.timedOut ? 'timed out' : `exit ${result.exitCode}`;
 	return `${command.label} failed (${why})${said === '' ? '' : `: ${said}`}`;
