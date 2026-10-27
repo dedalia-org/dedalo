@@ -11,6 +11,7 @@ import {is_empty} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {
 	MATCH_LIMIT,
+	FILTER_DEBOUNCE_MS,
 	filter_tree,
 	item_matches,
 	normalize_text,
@@ -556,6 +557,10 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 
 	let instance	= null
 	let node		= null
+	let leaf_tipo	= null // set by the first test, reused by the stale-work gate
+
+	// the search box paints FILTER_DEBOUNCE_MS after the last keystroke
+	const after_debounce = () => new Promise(resolve => setTimeout(resolve, FILTER_DEBOUNCE_MS + 50))
 
 	it(`renders the filter box and narrows the tree`, async function() {
 
@@ -601,6 +606,7 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 			}
 		}
 		assert.isOk(leaf, 'expected a component entry the filter can resolve')
+		leaf_tipo = leaf.tipo
 
 		const root_nodes_before = tree.querySelectorAll('.li_item').length
 		assert.isAbove(root_nodes_before, 0, 'expected the unfiltered tree to render its root nodes')
@@ -609,6 +615,7 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 		// filter by the node's own tipo
 		filter_input.value = leaf.tipo
 		filter_input.dispatchEvent(new Event('input'))
+		await after_debounce()
 
 		assert.include(tree.textContent, leaf.tipo, 'expected the matched node rendered with its tipo')
 		assert.include(
@@ -638,6 +645,7 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 		// a dead end says so instead of leaving a blank panel
 		filter_input.value = 'zzz_no_such_label'
 		filter_input.dispatchEvent(new Event('input'))
+		await after_debounce()
 		assert.isFalse(
 			tree.querySelector('.tree_filter_status').classList.contains('hide'),
 			'expected an explicit no-matches notice'
@@ -652,6 +660,91 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 			'expected the unfiltered tree back'
 		)
 		assert.isTrue(clear_button.classList.contains('hide'), 'expected the clear button hidden again')
+	})
+
+	it(`stale paints leave no deferred work behind`, async function() {
+
+		assert.isOk(leaf_tipo, 'expected the previous test to resolve a leaf')
+		const tree			= node.querySelector('.tree_root')
+		const filter_input	= tree.querySelector('.tree_filter_input')
+
+		const idle = () => new Promise(resolve => requestIdleCallback(resolve, {timeout: 2000}))
+		// every live area's global radio group built ('Checking...' gone), then two more idles
+		const settle = async () => {
+			const deadline = performance.now() + 8000
+			while (tree.querySelector('.permissions_global ~ .loading') && performance.now() < deadline) {
+				await idle()
+			}
+			await idle()
+			await idle()
+		}
+		// ul.paint(query) paints NOW (the search box is debounced): the burst must leave
+		// every replaced paint's idle callbacks queued, or this gate proves nothing
+		const type = (query) => {
+			filter_input.value = query
+			tree.paint(query)
+		}
+
+		// several searches in a row: each paint schedules one idle callback per area.
+		// Before the fix those of the replaced paints still ran (full scans + subscriptions)
+		type(leaf_tipo)
+		type(leaf_tipo.slice(0, -1))
+		type('zzz_no_such_label')
+		type(leaf_tipo)
+		await settle()
+		assert.isNull(
+			tree.querySelector('.permissions_global ~ .loading'),
+			'expected no area left "Checking..." in the live tree'
+		)
+		assert.isAbove(
+			tree.querySelectorAll('.permissions_global input.global').length,
+			0,
+			'expected the live paint to build its global radio groups'
+		)
+		const tokens_after_burst = instance.events_tokens.length
+
+		// the identical query painted once: same subscriptions, so nothing stale leaked in
+		type(leaf_tipo)
+		await settle()
+		assert.equal(
+			instance.events_tokens.length,
+			tokens_after_burst,
+			'expected the burst to hold exactly one paint of subscriptions'
+		)
+
+		// back to the unfiltered tree for the next test
+		type('')
+		await settle()
+	})
+
+	it(`the search box is debounced and Escape cancels a pending paint`, async function() {
+
+		const tree			= node.querySelector('.tree_root')
+		const filter_input	= tree.querySelector('.tree_filter_input')
+		const count_node	= tree.querySelector('.tree_filter_count')
+		const roots_before	= tree.querySelectorAll('.li_item').length
+
+		// two keystrokes in a row: nothing paints until the user stops, then the last one
+		filter_input.value = 'zzz_no_such'
+		filter_input.dispatchEvent(new Event('input'))
+		filter_input.value = 'zzz_no_such_label'
+		filter_input.dispatchEvent(new Event('input'))
+		assert.isTrue(count_node.classList.contains('hide'), 'expected no paint before the debounce elapses')
+		await after_debounce()
+		assert.isFalse(count_node.classList.contains('hide'), 'expected the last query painted')
+		assert.isFalse(
+			tree.querySelector('.tree_filter_status').classList.contains('hide'),
+			'expected the last query (a dead end) to be the one painted'
+		)
+
+		// Escape right after a keystroke: the late paint must not bring the query back
+		filter_input.value = leaf_tipo
+		filter_input.dispatchEvent(new Event('input'))
+		filter_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))
+		await after_debounce()
+		assert.equal(filter_input.value, '', 'expected Escape to clear the query')
+		assert.isTrue(count_node.classList.contains('hide'), 'expected the unfiltered tree')
+		assert.equal(tree.querySelectorAll('.li_item').length, roots_before, 'expected the root nodes back')
 	})
 
 	it(`destroy after the tree filter test`, async function() {

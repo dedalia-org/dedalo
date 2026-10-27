@@ -69,6 +69,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The permissions tree filter no longer freezes after several searches.**
+
+    In a profile's access permissions, typing several searches in a row in the tree filter could leave the page slow and unresponsive, with areas stuck on "Checking...". Each search left background work behind for the areas of the searches it replaced, and that work kept running after the tree had changed. Background work for a replaced search is now dropped, and the per-search scans of the permission list are cached, so the filter stays responsive however many searches you type. The tree now also waits until you pause typing before it updates, instead of redrawing on every keystroke.
+
 - **Ontology update and export now say why the ontology directory cannot be created.**
 
     When the engine could not create the ontology exchange directory (`ONTOLOGY_DATA_IO_DIR/<major.minor>`), **Maintenance → Update ontology** answered only `unable to resolve the ontology IO directory`, and the export actions answered `Unable to create directory: false`. They now name the directory and the system error, for example `EACCES` when the service user cannot write to it. The usual fix is to give the service user ownership of that directory, or to point `ONTOLOGY_DATA_IO_DIR` at a writable one.

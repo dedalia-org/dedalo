@@ -124,6 +124,15 @@ export const component_security_access = function() {
 	// by build()). The filtered tree paints every area open, so without it each
 	// paint re-scanned the whole ~32k-entry datalist once per area.
 	this.children_memo = null
+
+	// tree-filter paint generation. Bumped by every paint: deferred work a paint
+	// scheduled (global radio idle callbacks, lazy-expand rAF) captures it and drops
+	// itself once a newer paint replaced its nodes, so typing leaves no backlog.
+	this.paint_generation = 0
+
+	// filled_value index by `tipo_section_tipo`, for create_global_radio_group.
+	// Keyed to the filled_value ARRAY identity (update_value replaces the array).
+	this.filled_value_index = null
 }//end component_security_access
 
 
@@ -441,7 +450,7 @@ component_security_access.prototype.get_children = function(item, datalist) {
 	const current_datalist = datalist || self.data.datalist
 
 	// memo, full list only (an override list is the caller's own business)
-		const memoized = datalist===undefined
+		const memoized = datalist===undefined || datalist===self.data?.datalist
 		if (memoized && self.children_memo?.has(item.tipo)) {
 			return self.children_memo.get(item.tipo)
 		}

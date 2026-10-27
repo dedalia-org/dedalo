@@ -12,7 +12,7 @@
 	import {printf} from '../../common/js/utils/index.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {dd_request_idle_callback, when_in_viewport} from '../../common/js/events.js'
-	import {filter_tree, MATCH_LIMIT} from './security_access_filter.js'
+	import {filter_tree, MATCH_LIMIT, FILTER_DEBOUNCE_MS} from './security_access_filter.js'
 
 
 
@@ -366,6 +366,9 @@ const build_tree_filter = function(self, datalist, value, ul) {
 		let painted_from	= null
 		let painted_tokens	= null
 
+	// pending debounced paint of the search box (see the input event)
+		let debounce_timer	= null
+
 	/**
 	* RELEASE_PAINTED
 	* Unsubscribes every handler the last paint created and drops its tokens from
@@ -401,6 +404,11 @@ const build_tree_filter = function(self, datalist, value, ul) {
 	*/
 	const paint = function(query) {
 
+		// any paint supersedes a pending keystroke paint (Escape, clear and the
+		// changes-panel jump must not be undone by a late one)
+			clearTimeout(debounce_timer)
+			debounce_timer = null
+
 		// undefined = external repaint (changes-panel jump): drop the filter, not just
 		// its effect. The box is cleared with it, so input and tree never disagree.
 			const external	= query===undefined
@@ -411,6 +419,9 @@ const build_tree_filter = function(self, datalist, value, ul) {
 
 		// release the previous paint's subscriptions (its nodes are replaced)
 			release_painted()
+
+		// new generation: deferred work of earlier paints drops itself (render_area_item)
+			self.paint_generation++
 
 		// subset. null means no filter → normal lazy tree
 			const filtered = filter_tree(datalist, effective)
@@ -460,7 +471,11 @@ const build_tree_filter = function(self, datalist, value, ul) {
 	}//end paint
 
 	// events
-		input.addEventListener('input', () => paint(input.value))
+		// debounced: only the query the user stops at is painted
+		input.addEventListener('input', () => {
+			clearTimeout(debounce_timer)
+			debounce_timer = setTimeout(() => paint(input.value), FILTER_DEBOUNCE_MS)
+		})
 		input.addEventListener('keydown', (e) => {
 			if (e.key==='Escape' && input.value!=='') {
 				e.stopPropagation() // do not let Escape close the page while it still clears a query
@@ -710,6 +725,12 @@ const render_area_item = function(item, datalist, value, self) {
 	// must always see every node or a parent would be cleared over hidden children
 		const full_datalist = self.data?.datalist || datalist
 
+	// paint this node belongs to: deferred work below drops itself once a newer
+	// paint (or destroy, which replaces events_tokens) made the node stale
+		const paint_generation	= self.paint_generation
+		const paint_tokens		= self.events_tokens
+		const is_stale			= () => paint_generation!==self.paint_generation || paint_tokens!==self.events_tokens
+
 	// item_value. get the current item value
 		const item_value	= value.find(el => el.section_tipo===section_tipo && el.tipo===tipo)
 		const permissions	= item_value && item_value.value
@@ -916,6 +937,9 @@ const render_area_item = function(item, datalist, value, self) {
 							label.classList.add('up')
 							if (!branch.hasChildNodes()) {
 								const callback = () => {
+									if (is_stale()) {
+										return
+									}
 									// direct_children render (return hierarchized children nodes)
 									const tree_node = render_tree_items(
 										direct_children,
@@ -957,8 +981,15 @@ const render_area_item = function(item, datalist, value, self) {
 					dd_request_idle_callback(
 						() => {
 
+							// a newer paint replaced this node: no scan, no subscriptions.
+							// (!) Not li.isConnected: the first paint runs before the
+							// component is inserted, and the fallback timer may fire first.
+							if (is_stale()) {
+								return
+							}
+
 							// full datalist (not the filtered subset): the global radio
-							// speaks for EVERY child, visible or not
+							// speaks for EVERY child, visible or not (memoized)
 							const children = self.get_children(item, full_datalist)
 
 							const radio_group = create_global_radio_group(
@@ -1269,10 +1300,28 @@ const create_global_radio_group = function(self, item, permissions, datalist, co
 
 		const children_key = new Set(children_keys);
 
-		const children_data = self.filled_value.filter(el => {
-			const child_key = el.tipo+'_'+el.section_tipo
-			return  el.tipo !== el.section_tipo && children_key.has(child_key);
-		})
+		// look the children up in an index of filled_value (built once per filled_value
+		// array) instead of scanning all ~32k values once per area
+		if (self.filled_value_index?.source!==self.filled_value) {
+			const map = new Map()
+			for (const el of self.filled_value) {
+				const key = el.tipo+'_'+el.section_tipo
+				if (!map.has(key)) {
+					map.set(key, el) // first wins: update_value mutates the first match
+				}
+			}
+			self.filled_value_index = {source : self.filled_value, map : map}
+		}
+		const children_data = []
+		for (const el of children) {
+			if (el.tipo === el.section_tipo) {
+				continue // areas carry no value of their own here
+			}
+			const found = self.filled_value_index.map.get(el.tipo+'_'+el.section_tipo)
+			if (found) {
+				children_data.push(found)
+			}
+		}
 
 		const data_values = children_data.map(el =>{
 			return el.value

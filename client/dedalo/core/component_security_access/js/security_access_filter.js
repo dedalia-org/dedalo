@@ -45,6 +45,24 @@
 export const MATCH_LIMIT = 500;
 
 /**
+ * FILTER_DEBOUNCE_MS
+ * Quiet time after the last keystroke before the tree repaints. Every paint
+ * rebuilds the visible tree, so painting per keystroke throws away all but the
+ * last one; the view waits this long instead.
+ */
+export const FILTER_DEBOUNCE_MS = 200;
+
+/**
+ * DERIVED
+ * Per-datalist cache of what does not depend on the query: the parent links and
+ * the normalized haystack of every entry. Keyed by the datalist ARRAY, so a rebuilt
+ * component (new array) misses and recomputes; entries are never mutated in place.
+ * Without it every keystroke re-normalized ~64k strings and rebuilt both Maps.
+ * @type {WeakMap<Array, {parent_links:Int32Array, haystacks:Array}>}
+ */
+const DERIVED = new WeakMap();
+
+/**
  * NORMALIZE_TEXT
  * Folds a value to its comparable form: NFD-decomposed, combining marks stripped,
  * lowercased. So 'España' and 'ESPANA' both fold to 'espana' and a user typing
@@ -92,10 +110,17 @@ export const item_matches = function (item, tokens) {
 		return true;
 	}
 
-	const haystack = `${normalize_text(item?.label)} ${normalize_text(item?.tipo)}`;
-
-	return tokens.every((token) => haystack.includes(token));
+	return haystack_matches(item_haystack(item), tokens);
 }; //end item_matches
+
+// searchable text of one entry: label + tipo, normalized (see item_matches)
+const item_haystack = function (item) {
+	return `${normalize_text(item?.label)} ${normalize_text(item?.tipo)}`;
+};
+
+const haystack_matches = function (haystack, tokens) {
+	return tokens.every((token) => haystack.includes(token));
+};
 
 /**
  * BUILD_PARENT_LINKS
@@ -191,7 +216,13 @@ export const filter_tree = function (datalist, query) {
 	}
 
 	const list = Array.isArray(datalist) ? datalist : [];
-	const parent_links = build_parent_links(list);
+	let derived = DERIVED.get(list);
+	if (!derived) {
+		derived = { parent_links: build_parent_links(list), haystacks: new Array(list.length) };
+		DERIVED.set(list, derived);
+	}
+	const parent_links = derived.parent_links;
+	const haystacks = derived.haystacks;
 
 	// reachability: 0 unknown, 1 reaches the tree, 2 does not
 	const reachable = new Uint8Array(list.length);
@@ -236,7 +267,10 @@ export const filter_tree = function (datalist, query) {
 	let painted_matches = 0;
 
 	for (let i = 0; i < list.length; i++) {
-		if (!item_matches(list[i], tokens)) {
+		if (haystacks[i] === undefined) {
+			haystacks[i] = item_haystack(list[i]);
+		}
+		if (!haystack_matches(haystacks[i], tokens)) {
 			continue;
 		}
 		if (!is_reachable(i)) {
