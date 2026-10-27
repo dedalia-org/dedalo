@@ -10,6 +10,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {printf} from '../../common/js/utils/index.js'
+	import {make_activable, set_expanded} from '../../common/js/a11y.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {dd_request_idle_callback, when_in_viewport} from '../../common/js/events.js'
 	import {filter_tree, MATCH_LIMIT, FILTER_DEBOUNCE_MS} from './security_access_filter.js'
@@ -764,7 +765,7 @@ const attach_siblings_toggle = function(options) {
 	label.title = get_label.show_all || 'Show all'
 
 	let showing_all = false
-	label.addEventListener('click', (e) => {
+	make_activable(label, {expanded: false, on_activate: (e) => {
 		e.stopPropagation()
 		showing_all = !showing_all
 
@@ -795,8 +796,9 @@ const attach_siblings_toggle = function(options) {
 		branch.replaceChildren(nodes)
 
 		label.classList.toggle('up', showing_all)
+		set_expanded(label, showing_all)
 		label.title = showing_all ? '' : (get_label.show_all || 'Show all')
-	})
+	}})
 }//end attach_siblings_toggle
 
 
