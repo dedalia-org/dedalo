@@ -1005,9 +1005,50 @@ class v6_to_v7 {
 				// These rows have no equivalent in v7 and must be hard-deleted rather than
 				// migrated; leaving them would cause type-resolution failures later.
 				if( empty($tipo) || $tipo === 'termino' ) {
-					// Delete it because it is old data garbage
-					$deleted = tm_db_manager::delete( (int)$id );
-					debug_log(__METHOD__ . " Ignored old data garbage for matrix_time_machine ID $id. Deleted: " . json_handler::encode($deleted), logger::DEBUG);
+					// Delete it because it is old data garbage. Only when saving: a dry run
+					// (save=false) deletes nothing, it reports (owner decision 2026-10-24).
+					if ($save) {
+						$deleted = tm_db_manager::delete( (int)$id );
+						debug_log(__METHOD__ . " Ignored old data garbage for matrix_time_machine ID $id. Deleted: " . json_handler::encode($deleted), logger::DEBUG);
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'TM_GARBAGE_TIPO_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $row['section_id'] ?? '',
+							'tipo'			=> (string)$tipo,
+							'model'			=> ''
+						],
+						'Time-machine row deleted: empty tipo or the v5 \'termino\' pseudo-tipo'
+							. ' (standalone thesaurus term records), with no v7 equivalent.'
+					);
+					return;
+				}
+
+				// Test TLD rows: DELETE, before anything is migrated. The `test` TLD is the
+				// Dédalo test suite's fixture namespace; its history has no place in an
+				// installation, component and section rows alike (owner decision 2026-10-24).
+				if (v6_to_v7::is_test_tld_tm_row($tipo, $section_tipo)) {
+					if ($save) {
+						tm_db_manager::delete( (int)$id );
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'TM_TEST_TLD_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $row['section_id'] ?? '',
+							'tipo'			=> v6_to_v7::TEST_TLD,
+							'model'			=> ''
+						],
+						'Time-machine row deleted: its tipo or section_tipo belongs to the `test`'
+							. ' TLD (test-suite fixtures), which has no place in an installation\'s history.'
+					);
 					return;
 				}
 
@@ -1048,6 +1089,40 @@ class v6_to_v7 {
 					common::$pdata->section_tipo = $section_tipo;
 					common::$pdata->counter++;
 					print_cli(common::$pdata);
+				}
+
+				// Empty values: JSON null or [] → SQL NULL (owner decision 2026-10-24). The row
+				// asserts no value; v7 reads an absent value as NULL, never as a JSON literal.
+				// Rows already SQL NULL ($row['data'] === null) are left alone.
+				if (v6_to_v7::is_empty_tm_value($row['data'] ?? null, $data)) {
+					if ($save) {
+						if (!isset($ar_escaped_tables[$table])) {
+							$ar_escaped_tables[$table] = pg_escape_identifier($conn, $table);
+						}
+						$result = matrix_db_manager::exec_search(
+							'UPDATE ' . $ar_escaped_tables[$table] . ' SET data = NULL WHERE id = $1',
+							[$id],
+							false
+						);
+						if ($result === false) {
+							$response->errors[] = "Error on SQL execution for ID $id. Table: $table";
+							return;
+						}
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'TM_EMPTY_VALUE_TO_NULL',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $row['section_id'] ?? '',
+							'tipo'			=> $tipo,
+							'model'			=> ''
+						],
+						'Time-machine value JSON null / [] written as SQL NULL (no value).'
+					);
+					return;
 				}
 
 				if(empty($data)) {
@@ -1135,6 +1210,33 @@ class v6_to_v7 {
 						return;
 					}
 
+					// Stale ontology rows: DELETE. Old ontology-editing history filed under the
+					// Ontology section (dd1500) with tipos that today name components of another
+					// section; the payload is ontology node JSON that matches no current schema.
+					// The real history moved with its node (or the node was test data), so
+					// these rows record nothing restorable (owner decision 2026-10-24).
+					if (in_array($safe_tipo, v6_to_v7::STALE_ONTOLOGY_TM_TIPOS[$section_tipo] ?? [], true)) {
+						if ($save) {
+							tm_db_manager::delete( (int)$id );
+						}
+						v6_to_v7_normalize::add(
+							$response,
+							'TM_STALE_ONTOLOGY_ROW_DELETED',
+							v6_to_v7_normalize::SEVERITY_FIXED,
+							[
+								'table'			=> $table,
+								'section_tipo'	=> $section_tipo,
+								'section_id'	=> $row['section_id'] ?? '',
+								'tipo'			=> $tipo,
+								'model'			=> ''
+							],
+							'Time-machine row deleted: old ontology data filed under the Ontology'
+								. ' section with a tipo that names a component of another section'
+								. ' today; it matches no current schema and cannot be restored.'
+						);
+						return;
+					}
+
 					// component case
 					$migrated_data_response = v6_to_v7::migrate_component_data(
 						$safe_tipo,
@@ -1161,6 +1263,15 @@ class v6_to_v7 {
 				if (!empty($migrated_data_response->errors)) {
 					$response->errors[] = "matrix_time_machine ID $id";
 					$response->errors = array_merge($response->errors, $migrated_data_response->errors);
+				}
+
+				// Row deletion asked by migrate_component_data (v4 text value that exists in
+				// no target record — owner decision 2026-10-24). Findings already merged.
+				if (($migrated_data_response->delete_row ?? false) === true) {
+					if ($save) {
+						tm_db_manager::delete( (int)$id );
+					}
+					return;
 				}
 
 				// data migrate to v7
@@ -1227,6 +1338,608 @@ class v6_to_v7 {
 
 		return $response;
 	}//end reformat_matrix_time_machine_data
+
+
+
+	/**
+	 * V5 BARE-ID RELATION COMPONENTS
+	 * Relation components whose v5 time-machine rows store the target's section_id as a
+	 * bare number (e.g. dd1725 → 5) instead of a locator array. Those rows were never
+	 * converted to v6 (live data was; history was not), and v7 reads locators only.
+	 * Each entry names the component's ONE target section and its relation type, so the
+	 * conversion is exact, never inferred.
+	 */
+	public const STALE_ONTOLOGY_TM_TIPOS = [
+		// Ontology section → component tipos whose TM rows there are old ontology node
+		// JSON (2021-02..2024-09), not data of any current component of dd1500:
+		// dd1475 (bibliographic reference portal, parent dd1476) and its dataframes
+		// dd1477 / dd1483; dd1556, a former test node now used in another section.
+		'dd1500' => ['dd1475', 'dd1477', 'dd1483', 'dd1556']
+	];
+
+
+
+	public const V5_BARE_ID_COMPONENTS = [
+		// Users: Profile (component_select → Profiles)
+		'dd1725' => ['section_tipo' => 'dd234', 'type' => 'dd151']
+	];
+
+
+
+	/**
+	 * LEGACY_BARE_ID_TO_LOCATORS
+	 * Converts a v5 bare id (int or digit string) of a V5_BARE_ID_COMPONENTS tipo into the
+	 * locator array v6 writes:
+	 * 	5 → [{"type":"dd151","section_id":"5","section_tipo":"dd234","from_component_tipo":"dd1725"}]
+	 * @param string $tipo
+	 * @param mixed $raw_value
+	 * @return array|null The locator array, or null when the tipo is not listed or the value
+	 * 	is not a bare id (locator arrays and everything else are left to their own paths).
+	 */
+	public static function legacy_bare_id_to_locators( string $tipo, mixed $raw_value ) : ?array {
+
+		$target = v6_to_v7::V5_BARE_ID_COMPONENTS[$tipo] ?? null;
+		if ($target === null) {
+			return null;
+		}
+
+		$is_bare_id = (is_int($raw_value) && $raw_value > 0)
+			|| (is_string($raw_value) && preg_match('/^[1-9][0-9]*$/', $raw_value) === 1);
+		if (!$is_bare_id) {
+			return null;
+		}
+
+		$locator = new stdClass();
+			$locator->type					= $target['type'];
+			$locator->section_id			= (string)$raw_value;
+			$locator->section_tipo			= $target['section_tipo'];
+			$locator->from_component_tipo	= $tipo;
+
+		return [$locator];
+	}//end legacy_bare_id_to_locators
+
+
+
+	/**
+	 * V4_FILTER_OBJECT_TO_LOCATORS
+	 * Converts a pre-4.9.0 component_filter value — an OBJECT keyed by project section_id
+	 * ({"1": 2, "7": 1}; the values are unused permission levels) — into its filter
+	 * locators through component_filter::convert_dato_pre_490, the component's own rule
+	 * (keys <= 0 are discarded there). Time-machine rows kept this shape after v6
+	 * converted the live data (owner decision 2026-10-24: the upgrade converts it).
+	 * An object with no valid key ({"0":"1"}) converts to [] and the row is written
+	 * as data = NULL, as v6 did to the same value in live data (owner decision).
+	 * @param string $model
+	 * @param string $tipo
+	 * @param mixed $raw_value
+	 * @return array|null The locator array, or null when the model is not component_filter
+	 * 	or the value is not a v4 project object (a locator array keeps its own path).
+	 */
+	public static function v4_filter_object_to_locators( string $model, string $tipo, mixed $raw_value ) : ?array {
+
+		if ($model !== 'component_filter' || !is_object($raw_value)) {
+			return null;
+		}
+
+		$entries = get_object_vars($raw_value);
+		if (empty($entries)) {
+			return null;
+		}
+		foreach ($entries as $key => $value) {
+			if (preg_match('/^-?[0-9]+$/', (string)$key) !== 1 || !is_scalar($value)) {
+				return null;
+			}
+		}
+
+		$locators = component_filter::convert_dato_pre_490($raw_value, $tipo);
+
+		return is_array($locators) ? array_values($locators) : null;
+	}//end v4_filter_object_to_locators
+
+
+
+	/**
+	 * V4_TEXT_LABEL_VALUES
+	 * Recognises a v4 TEXT value stored in a relation component's time-machine row: the
+	 * label of the target record instead of its locator — an array of strings
+	 * (["Hispania"], ["Plomo"]) or a bare string ("sks"). v4 components stored the
+	 * displayed text; v6 converted the live data to locators but never this history.
+	 * @param mixed $raw_value
+	 * @return object|null {labels: string[], mixed: bool} — mixed = the array holds strings
+	 * 	AND non-strings (untouchable, reported). null when the value holds no string at all
+	 * 	(locator arrays, v4 filter objects, bare ids keep their own paths).
+	 */
+	public static function v4_text_label_values( mixed $raw_value ) : ?object {
+
+		if (is_string($raw_value)) {
+			return (object)['labels' => [$raw_value], 'mixed' => false];
+		}
+		if (!is_array($raw_value) || empty($raw_value)) {
+			return null;
+		}
+
+		$labels = [];
+		$others = 0;
+		foreach ($raw_value as $item) {
+			if (is_string($item)) {
+				$labels[] = $item;
+			}else{
+				$others++;
+			}
+		}
+		if (empty($labels)) {
+			return null;
+		}
+
+		return (object)['labels' => $labels, 'mixed' => $others > 0];
+	}//end v4_text_label_values
+
+
+
+	/**
+	 * GET_V4_LABEL_TARGETS
+	 * Resolves, from the ontology, WHERE a relation component's labels live: its target
+	 * section(s) and, for each, the text component(s) that ARE the record's label — the
+	 * same pair the component itself shows:
+	 * 	· v6 config: properties.source.request_config[*] → sqo.section_tipo items with
+	 * 	  source 'section' (targets) + show.ddo_map items with parent 'self' (labels;
+	 * 	  section_tipo 'self' = every target of that config, else the named one(s)).
+	 * 	· v5 config (no request_config): the node's relations — model 'section' nodes are
+	 * 	  the targets, the other nodes their label components (numisdata10 →
+	 * 	  numisdata712 / numisdata87).
+	 * Only components stored in the v7 `string` column (DEDALO_VALUE_TYPE_STRING models)
+	 * can hold a text label, so only those are kept; a relation label (a dataframe whose
+	 * label is a rating radio button) yields a target with no label component.
+	 * @param string $tipo
+	 * @return array|null [ section_tipo => label_tipo[] ], or null when no target section
+	 * 	resolves (unknown sqo source, no config): the value cannot be searched at all.
+	 */
+	public static function get_v4_label_targets( string $tipo ) : ?array {
+
+		static $cache = [];
+		if (array_key_exists($tipo, $cache)) {
+			return $cache[$tipo];
+		}
+
+		$value_type_map	= v6_to_v7::get_value_type_map();
+		$is_text_label	= function(string $label_tipo) use ($value_type_map) : bool {
+			$label_model = ontology_node::get_model_by_tipo($label_tipo);
+			return !empty($label_model)
+				&& ($value_type_map->{$label_model} ?? null) === DEDALO_VALUE_TYPE_STRING;
+		};
+
+		$targets		= [];
+		$unresolvable	= false;
+		$properties		= ontology_node::get_instance($tipo)->get_properties();
+		$request_config	= $properties->source->request_config ?? null;
+
+		if (is_array($request_config) && !empty($request_config)) {
+
+			// v6 config
+			foreach ($request_config as $config_item) {
+				$config_sections = [];
+				foreach ((array)($config_item->sqo->section_tipo ?? []) as $sqo_item) {
+					if (!is_object($sqo_item) || ($sqo_item->source ?? null) !== 'section') {
+						// hierarchy_types, field_value, …: resolved at runtime from data,
+						// never an exact ontology answer. Refuse rather than guess.
+						$unresolvable = true;
+						continue;
+					}
+					foreach ((array)($sqo_item->value ?? []) as $section_tipo) {
+						if (is_string($section_tipo) && safe_tipo($section_tipo)) {
+							$config_sections[] = $section_tipo;
+							$targets[$section_tipo] = $targets[$section_tipo] ?? [];
+						}
+					}
+				}
+				foreach ((array)($config_item->show->ddo_map ?? []) as $ddo) {
+					$label_tipo = $ddo->tipo ?? null;
+					if (!is_object($ddo) || ($ddo->parent ?? null) !== 'self'
+						|| !is_string($label_tipo) || !$is_text_label($label_tipo)) {
+						continue;
+					}
+					$ddo_sections = ($ddo->section_tipo ?? 'self') === 'self'
+						? $config_sections
+						: array_intersect((array)$ddo->section_tipo, $config_sections);
+					foreach ($ddo_sections as $section_tipo) {
+						if (!in_array($label_tipo, $targets[$section_tipo], true)) {
+							$targets[$section_tipo][] = $label_tipo;
+						}
+					}
+				}
+			}
+
+		}else{
+
+			// v5 config: the relations name the target section(s) and the label component(s)
+			$sections	= [];
+			$labels		= [];
+			foreach (ontology_node::get_relation_nodes($tipo, false, true) as $related_tipo) {
+				$related_model = ontology_node::get_model_by_tipo($related_tipo);
+				if ($related_model === 'section') {
+					$sections[] = $related_tipo;
+				}elseif ($is_text_label($related_tipo)) {
+					$labels[] = $related_tipo;
+				}
+			}
+			foreach ($sections as $section_tipo) {
+				$targets[$section_tipo] = $labels;
+			}
+		}
+
+		$cache[$tipo] = ($unresolvable || empty($targets)) ? null : $targets;
+
+		return $cache[$tipo];
+	}//end get_v4_label_targets
+
+
+
+	/**
+	 * V4_LABEL_HTML_MODELS
+	 * Label models whose stored value is HTML: matched on their text content.
+	 * (component_input_text_large / component_html_text resolve to component_text_area.)
+	 */
+	public const V4_LABEL_HTML_MODELS = ['component_text_area'];
+
+
+
+	/**
+	 * LABEL_TEXT_CONTENT
+	 * The text content of an HTML label: tags stripped, entities decoded, whitespace
+	 * (NBSP included) collapsed and trimmed. "<p>bolś<span></span>kan&nbsp;</p>" → "bolśkan".
+	 * @param string $value
+	 * @return string
+	 */
+	public static function label_text_content( string $value ) : string {
+
+		$text = html_entity_decode(strip_tags($value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+		$text = preg_replace('/[\s\x{00A0}]+/u', ' ', $text) ?? $text;
+
+		return trim($text);
+	}//end label_text_content
+
+
+
+	/**
+	 * GET_HTML_LABEL_INDEX
+	 * Text-content index of one HTML label tipo in one section: text => [section_id => lang[]].
+	 * Read once per (section, label tipo) and kept for the pass; empty texts are not indexed.
+	 * @param string $table
+	 * @param string $section_tipo
+	 * @param string $label_tipo
+	 * @return array|null null when the query fails
+	 */
+	public static function get_html_label_index( string $table, string $section_tipo, string $label_tipo ) : ?array {
+
+		static $indexes = [];
+		$key = $section_tipo . '|' . $label_tipo;
+		if (array_key_exists($key, $indexes)) {
+			return $indexes[$key];
+		}
+
+		$sql = 'SELECT section_id, string->$2 AS items FROM "' . $table . '"'
+			. ' WHERE section_tipo = $1 AND string ? $2';
+		$result = matrix_db_manager::exec_search($sql, [$section_tipo, $label_tipo]);
+		if ($result === false) {
+			return $indexes[$key] = null;
+		}
+
+		$index = [];
+		while ($row = pg_fetch_assoc($result)) {
+			foreach ((array)json_decode((string)$row['items']) as $item) {
+				if (!is_object($item) || !is_string($item->value ?? null)) {
+					continue;
+				}
+				$text = v6_to_v7::label_text_content($item->value);
+				if ($text === '') {
+					continue;
+				}
+				$index[$text][(string)$row['section_id']][] = (string)($item->lang ?? '');
+			}
+		}
+
+		return $indexes[$key] = $index;
+	}//end get_html_label_index
+
+
+
+	/**
+	 * FIND_LABEL_RECORDS
+	 * Records of $section_tipo whose $label_tipo holds EXACTLY $label (string equality,
+	 * any lang), read from the v7 `string` column: the TM pass runs after
+	 * reformat_matrix_data, so the live tables are already in v7 form there
+	 * ({tipo: [{id, lang, value}]}). Cached per (section, label tipo, label): one label
+	 * repeats across many history rows.
+	 * @param string $section_tipo
+	 * @param string $label_tipo
+	 * @param string $label
+	 * @return array|null [ section_id => lang[] ] (the langs whose value matched), or null
+	 * 	when the table cannot be resolved or the query fails.
+	 */
+	public static function find_label_records( string $section_tipo, string $label_tipo, string $label ) : ?array {
+
+		static $cache = [];
+		$key = $section_tipo . '|' . $label_tipo . '|' . $label;
+		if (array_key_exists($key, $cache)) {
+			return $cache[$key];
+		}
+		if (count($cache) >= 50000) {
+			$cache = [];
+		}
+
+		$table = common::get_matrix_table_from_tipo($section_tipo);
+		if (empty($table) || preg_match('/^[a-z_]+$/', $table) !== 1) {
+			return $cache[$key] = null;
+		}
+
+		// HTML label (text_area): the TEXT CONTENT is compared, tags are irrelevant
+		// (owner decision 2026-10-24) — the stored "<p>baŕśkunes</p>" is the label
+		// "baŕśkunes". No SQL containment can see through markup, so the section's
+		// values of that label tipo are read ONCE and indexed by their text content.
+		if (in_array(ontology_node::get_model_by_tipo($label_tipo), v6_to_v7::V4_LABEL_HTML_MODELS, true)) {
+			$index = v6_to_v7::get_html_label_index($table, $section_tipo, $label_tipo);
+			if ($index === null) {
+				return $cache[$key] = null;
+			}
+			return $cache[$key] = ($index[v6_to_v7::label_text_content($label)] ?? []);
+		}
+
+		// containment on the GIN-indexed column; exact on a JSON string scalar
+		$needle = json_encode(
+			[$label_tipo => [['value' => $label]]],
+			JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+		);
+		$sql = 'SELECT section_id, string->$2 AS items FROM "' . $table . '"'
+			. ' WHERE section_tipo = $1 AND string @> $3::jsonb';
+		$result = matrix_db_manager::exec_search($sql, [$section_tipo, $label_tipo, $needle]);
+		if ($result === false) {
+			return $cache[$key] = null;
+		}
+
+		$records = [];
+		while ($row = pg_fetch_assoc($result)) {
+			$langs = [];
+			foreach ((array)json_decode((string)$row['items']) as $item) {
+				if (is_object($item) && ($item->value ?? null) === $label) {
+					$langs[] = (string)($item->lang ?? '');
+				}
+			}
+			if (!empty($langs)) {
+				$records[(string)$row['section_id']] = $langs;
+			}
+		}
+
+		return $cache[$key] = $records;
+	}//end find_label_records
+
+
+
+	/**
+	 * V4_TEXT_LABELS_TO_LOCATORS
+	 * Converts a v4 TEXT value of a relation component's TM row (V4_TEXT_LABEL_VALUES)
+	 * into locators by finding, EXACTLY, the target record whose label equals each string
+	 * (owner decision 2026-10-24). Verdicts:
+	 * 	· convert   — every label names exactly ONE target record → its locator
+	 * 	              {type, section_id (string), section_tipo, from_component_tipo}.
+	 * 	· delete    — an empty label ("" / [""]: no value), or ANY label exists in no
+	 * 	              target record: the row records a value that does not exist (slop of
+	 * 	              re-used v4 nodes). The caller deletes the TM row.
+	 * 	· ambiguous — a label names MORE than one record: never guessed, row untouched.
+	 * 	· mixed / unresolvable / unpaired — untouched: strings beside non-strings; no
+	 * 	              exact target or relation type in the ontology; a dataframe value
+	 * 	              that WOULD resolve but cannot be paired with its main item.
+	 * Lang: a label matches in the row's lang first, then lg-nolan, then any lang — the
+	 * first tier with a match decides (relation rows were filed as lg-nolan by v6, so
+	 * the row lang often says nothing about the text's lang). Exact string equality in
+	 * every tier, and a tier with two records is ambiguous, not a pick. An HTML label
+	 * (V4_LABEL_HTML_MODELS) is compared on its text content, both sides
+	 * (label_text_content): the tags are irrelevant (owner decision 2026-10-24).
+	 * @param string $model
+	 * @param string $tipo
+	 * @param mixed $raw_value
+	 * @param string $lang
+	 * @return object|null {verdict, locators, detail}, or null when the value is not a v4
+	 * 	text value at all.
+	 */
+	public static function v4_text_labels_to_locators( string $model, string $tipo, mixed $raw_value, string $lang ) : ?object {
+
+		$values = v6_to_v7::v4_text_label_values($raw_value);
+		if ($values === null) {
+			return null;
+		}
+		$verdict = function(string $verdict, string $detail, array $locators=[]) : object {
+			return (object)['verdict' => $verdict, 'locators' => $locators, 'detail' => $detail];
+		};
+
+		if ($values->mixed) {
+			return $verdict('mixed', 'strings mixed with non-string items');
+		}
+
+		// no value: nothing to look up
+		foreach ($values->labels as $label) {
+			if (trim($label) === '') {
+				return $verdict('delete', 'empty label');
+			}
+		}
+
+		$targets = v6_to_v7::get_v4_label_targets($tipo);
+		if ($targets === null) {
+			return $verdict('unresolvable', 'no exact target section in the ontology');
+		}
+		if (empty(array_filter($targets))) {
+			// targets known, but none has a text label component (a dataframe whose
+			// target is identified by a rating radio button): no text can name a record
+			return $verdict('no_label', 'target section(s) ' . implode(', ', array_keys($targets)) . ' have no text label component');
+		}
+
+		$nolan			= defined('DEDALO_DATA_NOLAN') ? DEDALO_DATA_NOLAN : 'lg-nolan';
+		$lang_tiers		= ($lang !== $nolan) ? [$lang, $nolan, null] : [$nolan, null];
+		$matches		= []; // label => [ "section_tipo|section_id" ]
+		foreach (array_unique($values->labels) as $label) {
+			// every record holding the label, with its matching langs
+			$found = []; // "section_tipo|section_id" => lang[]
+			foreach ($targets as $section_tipo => $label_tipos) {
+				foreach ($label_tipos as $label_tipo) {
+					$records = v6_to_v7::find_label_records($section_tipo, $label_tipo, $label);
+					if ($records === null) {
+						return $verdict('unresolvable', "label lookup failed in '$section_tipo'");
+					}
+					foreach ($records as $section_id => $langs) {
+						$record_key = $section_tipo . '|' . $section_id;
+						$found[$record_key] = array_merge($found[$record_key] ?? [], $langs);
+					}
+				}
+			}
+			if (empty($found)) {
+				return $verdict('delete', "label '$label' exists in no target record");
+			}
+			foreach ($lang_tiers as $tier_lang) {
+				$tier = array_keys(array_filter($found, function($langs) use ($tier_lang) {
+					return $tier_lang === null || in_array($tier_lang, $langs, true);
+				}));
+				if (!empty($tier)) {
+					break;
+				}
+			}
+			if (count($tier) > 1) {
+				return $verdict('ambiguous', "label '$label' names " . count($tier) . ' records: ' . implode(', ', $tier));
+			}
+			$matches[$label] = $tier[0];
+		}
+
+		if ($model === 'component_dataframe') {
+			// a frame locator is paired to a main item (id_key) that a v4 text cannot name
+			return $verdict('unpaired', 'dataframe value resolves but cannot be paired with its main item');
+		}
+
+		$properties		= ontology_node::get_instance($tipo)->get_properties();
+		$relation_type	= $properties->config_relation->relation_type ?? null;
+		if (empty($relation_type) && class_exists($model)) {
+			$relation_type = (new ReflectionClass($model))->getDefaultProperties()['default_relation_type'] ?? null;
+		}
+		if (empty($relation_type)) {
+			return $verdict('unresolvable', "no relation type for model '$model'");
+		}
+
+		$locators	= [];
+		$seen		= [];
+		foreach ($values->labels as $label) {
+			$record_key = $matches[$label];
+			if (isset($seen[$record_key])) {
+				continue;
+			}
+			$seen[$record_key] = true;
+			[$section_tipo, $section_id] = explode('|', $record_key, 2);
+			$locator = new stdClass();
+				$locator->type					= $relation_type;
+				$locator->section_id			= (string)$section_id;
+				$locator->section_tipo			= $section_tipo;
+				$locator->from_component_tipo	= $tipo;
+			$locators[] = $locator;
+		}
+
+		return $verdict('convert', 'labels resolved', $locators);
+	}//end v4_text_labels_to_locators
+
+
+
+	/**
+	 * TEST_TLD
+	 * The `test` TLD names the development fixtures of the Dédalo test suite; no
+	 * installation's history may carry rows of it (owner decision 2026-10-24: the TM pass
+	 * deletes them, component and section rows alike).
+	 */
+	public const TEST_TLD = 'test';
+
+
+
+	/**
+	 * IS_TEST_TLD_TM_ROW
+	 * True when the TM row's tipo OR section_tipo belongs to the TEST_TLD (test99963,
+	 * test71). Only well-formed tipos are asked for their TLD.
+	 * @param mixed $tipo
+	 * @param mixed $section_tipo
+	 * @return bool
+	 */
+	public static function is_test_tld_tm_row( mixed $tipo, mixed $section_tipo ) : bool {
+
+		foreach ([$tipo, $section_tipo] as $candidate) {
+			if (safe_tipo($candidate) && get_tld_from_tipo($candidate) === v6_to_v7::TEST_TLD) {
+				return true;
+			}
+		}
+
+		return false;
+	}//end is_test_tld_tm_row
+
+
+
+	/**
+	 * IS_EMPTY_TM_VALUE
+	 * True when the decoded TM payload is JSON null or an empty array: a row asserting no
+	 * value, written as SQL NULL by the TM pass (owner decision 2026-10-24). A column that
+	 * is already SQL NULL is NOT empty-valued here — it needs no write.
+	 * @param mixed $raw_column - the column as read (null = SQL NULL)
+	 * @param mixed $decoded - json_decode of it
+	 * @return bool
+	 */
+	public static function is_empty_tm_value( mixed $raw_column, mixed $decoded ) : bool {
+
+		if ($raw_column === null) {
+			return false;
+		}
+
+		return $decoded === null || $decoded === [];
+	}//end is_empty_tm_value
+
+
+
+	/**
+	 * SPLIT_NONSENSE_LOCATORS
+	 * Separates, in a relation component's TM value, the entries that are objects but NOT
+	 * locators — no section_tipo and/or no section_id (a v6 error artifact
+	 * {"type":"dd151","scalar":"Error: target component_filter is not de…"}, a husk
+	 * {"type":"dd151","from_component_tipo":"numisdata261"}) — from the real locators
+	 * (owner decision 2026-10-24). Non-object entries are not judged here (text labels,
+	 * bare ids keep their own paths). An empty section_id ("") counts as no section_id.
+	 * A target-less entry carrying a `ds` payload ({"ds":[{…rolepos1…}],"section_id":"",…})
+	 * is a previous dataframe never converted, and wrong: nonsense too (owner decision
+	 * 2026-10-24). It is dropped like the rest and ALSO listed in `semantic`, so the
+	 * caller can name the case.
+	 * @param mixed $raw_value
+	 * @return object|null {valid: array, dropped: array, semantic: array}, or null when the
+	 * 	value is not an array of objects holding at least one target-less entry.
+	 */
+	public static function split_nonsense_locators( mixed $raw_value ) : ?object {
+
+		if (!is_array($raw_value) || empty($raw_value)) {
+			return null;
+		}
+
+		$valid		= [];
+		$dropped	= [];
+		$semantic	= [];
+		foreach ($raw_value as $item) {
+			if (!is_object($item)) {
+				return null;
+			}
+			$has_section_tipo	= isset($item->section_tipo) && is_string($item->section_tipo) && $item->section_tipo !== '';
+			$has_section_id		= isset($item->section_id) && (is_int($item->section_id)
+				|| (is_string($item->section_id) && $item->section_id !== ''));
+			if ($has_section_tipo && $has_section_id) {
+				$valid[] = $item;
+			}else{
+				$dropped[] = $item;
+				if (!empty($item->ds)) {
+					$semantic[] = $item;
+				}
+			}
+		}
+
+		return empty($dropped)
+			? null
+			: (object)['valid' => $valid, 'dropped' => $dropped, 'semantic' => $semantic];
+	}//end split_nonsense_locators
 
 
 
@@ -1329,6 +2042,140 @@ class v6_to_v7 {
 			$components_with_relations = component_relation_common::get_components_with_relations();
 		}
 		if(in_array($model, $components_with_relations)) {
+			// v5 bare ids never converted to v6 locators (owner decision 2026-10-24).
+			// A FORMAT migration, not a value repair: the number IS the section_id of the
+			// component's one target, so it becomes the locator v6 would have written.
+			$legacy_locator = v6_to_v7::legacy_bare_id_to_locators($tipo, $raw_value);
+			if ($legacy_locator !== null) {
+				v6_to_v7_normalize::defer(
+					$response,
+					'TM_V5_BARE_ID_TO_LOCATOR',
+					v6_to_v7_normalize::SEVERITY_FIXED,
+					$ctx,
+					"v5 bare id '$raw_value' converted to its locator",
+					$raw_value
+				);
+				$response->result = $legacy_locator;
+				return $response;
+			}
+			// v4 project object (pre-4.9.0 component_filter: {"1": 2}, key = project
+			// section_id) → its filter locators, by the component's own historical rule.
+			$filter_locators = v6_to_v7::v4_filter_object_to_locators($model, $tipo, $raw_value);
+			if ($filter_locators !== null) {
+				v6_to_v7_normalize::defer(
+					$response,
+					'TM_V4_FILTER_OBJECT_TO_LOCATORS',
+					v6_to_v7_normalize::SEVERITY_FIXED,
+					$ctx,
+					'v4 project object converted to filter locators',
+					$raw_value
+				);
+				$response->result = $filter_locators;
+				return $response;
+			}
+			// v4 TEXT value (the target's label: ["Hispania"], "sks") → the locator of the
+			// one target record whose label is EXACTLY that text; a value that exists in no
+			// target record (or is empty) means the row is deleted (owner decision
+			// 2026-10-24: re-used v4 nodes kept slop data). Ambiguous → never guessed.
+			// TM PASS ONLY ($history_pass): the lookup reads the target tables' v7 `string`
+			// column, complete only after reformat_matrix_data, and a delete verdict means
+			// "delete the TM row" — the live literal path (process_matrix_row_data) keeps
+			// its old behaviour (relation value skipped).
+			$label_response = (v6_to_v7_normalize::$history_pass === true)
+				? v6_to_v7::v4_text_labels_to_locators($model, $tipo, $raw_value, $lang)
+				: null;
+			if ($label_response !== null) {
+				$label_sample = (object)['lang' => $lang, 'value' => $raw_value, 'detail' => $label_response->detail];
+				switch ($label_response->verdict) {
+					case 'convert':
+						v6_to_v7_normalize::defer(
+							$response,
+							'TM_V4_TEXT_LABEL_TO_LOCATOR',
+							v6_to_v7_normalize::SEVERITY_FIXED,
+							$ctx,
+							'v4 text label converted to the locator of the target record holding exactly that label',
+							$label_sample
+						);
+						$response->result = $label_response->locators;
+						return $response;
+
+					case 'delete':
+					case 'no_label':
+						v6_to_v7_normalize::defer(
+							$response,
+							$label_response->verdict === 'delete'
+								? 'TM_V4_TEXT_LABEL_UNMATCHED_ROW_DELETED'
+								: 'TM_V4_TEXT_LABEL_NO_TARGET_LABEL_ROW_DELETED',
+							v6_to_v7_normalize::SEVERITY_FIXED,
+							$ctx,
+							$label_response->verdict === 'delete'
+								? 'Time-machine row deleted: its v4 text value is empty or exists as the'
+									. ' label of no record of the component\'s target section(s)'
+								: 'Time-machine row deleted: its v4 text value cannot name a record of the'
+									. ' target section(s), which have no text label component',
+							$label_sample
+						);
+						$response->result		= false;
+						$response->delete_row	= true;
+						return $response;
+
+					default:
+						// ambiguous | mixed | unresolvable | unpaired: left exactly as stored.
+						// ERROR = needs a human decision: v7 cannot read a text value as a
+						// relation, and guessing a record would falsify the history.
+						v6_to_v7_normalize::defer(
+							$response,
+							'TM_V4_TEXT_LABEL_' . strtoupper($label_response->verdict),
+							v6_to_v7_normalize::SEVERITY_ERROR,
+							$ctx,
+							'v4 text value of a relation component left untouched ('
+								. $label_response->verdict . '): ' . $label_response->detail,
+							$label_sample
+						);
+						$response->result = false;
+						return $response;
+				}
+			}
+			// Objects that are not locators (no section_tipo and/or section_id): v6 error
+			// artifacts and husks (owner decision 2026-10-24). All nonsense → the row is
+			// deleted; mixed with real locators → the nonsense is dropped, the locators kept.
+			// TM pass only, like the text labels: the live relations have their own path.
+			$nonsense = (v6_to_v7_normalize::$history_pass === true)
+				? v6_to_v7::split_nonsense_locators($raw_value)
+				: null;
+			if ($nonsense !== null) {
+				if (empty($nonsense->valid)) {
+					// target-less ds entries: a previous dataframe never converted, and wrong
+					// (owner decision 2026-10-24) — deleted, named by its own code.
+					$has_ds = !empty($nonsense->semantic);
+					v6_to_v7_normalize::defer(
+						$response,
+						$has_ds ? 'TM_NONSENSE_DS_LOCATOR_ROW_DELETED' : 'TM_NONSENSE_LOCATOR_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						$ctx,
+						$has_ds
+							? 'Time-machine row deleted: target-less ds entries (no section_tipo and/or'
+								. ' section_id) of a previous dataframe never converted to v6'
+							: 'Time-machine row deleted: every entry is an object that is not a locator'
+								. ' (no section_tipo and/or section_id), e.g. a v6 error artifact',
+						$raw_value
+					);
+					$response->result		= false;
+					$response->delete_row	= true;
+					return $response;
+				}
+				v6_to_v7_normalize::defer(
+					$response,
+					'TM_NONSENSE_LOCATOR_ENTRIES_DROPPED',
+					v6_to_v7_normalize::SEVERITY_FIXED,
+					$ctx,
+					'Time-machine value: entries that are not locators (no section_tipo and/or'
+						. ' section_id, ds-only included) dropped; the valid locators are kept as stored',
+					$nonsense->dropped
+				);
+				$response->result = $nonsense->valid;
+				return $response;
+			}
 			$response->result = false;
 			return $response;
 		}
