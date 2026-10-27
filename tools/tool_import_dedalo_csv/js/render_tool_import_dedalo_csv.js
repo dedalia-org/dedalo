@@ -388,7 +388,9 @@ const render_file_info = function(self, item) {
 					// remove file
 					self.remove_file(item)
 					.then(function(){
-						self.refresh()
+						self.refresh({
+							build_autoload : false // tool context already loaded
+						})
 					})
 				}
 			})
@@ -902,7 +904,9 @@ render_tool_import_dedalo_csv.prototype.upload_done = async function (options) {
 				process_file_info.innerHTML = response.msg || 'Processing file done successfully.'
 
 				// self update (forces update list of files)
-					self.refresh()
+					self.refresh({
+						build_autoload : false // tool context already loaded
+					})
 			}
 		})
 
