@@ -53,7 +53,6 @@
  * DB-free; spawns bun, bash and git in scratch directories: hermetic tier.
  */
 
-import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
 	chmodSync,
@@ -92,6 +91,7 @@ import {
 	parseBuildInfo,
 	resolveReleaseIdentity,
 } from '../../src/core/update/release_identity.ts';
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 /** The real git, behind the plan's `git --version` stub. */

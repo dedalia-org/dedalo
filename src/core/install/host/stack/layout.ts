@@ -27,13 +27,13 @@
  * PURE.
  */
 
-import { DEDALO_NEXT_DEV_TRIPLE } from '../../../update/version.ts';
 import {
 	loadImageRegistries,
 	normalizeRepository,
 	provisionedRegistries,
 } from '../../../update/image_registries.ts';
 import { imageTagOf, type ReleaseIdentity } from '../../../update/release_identity.ts';
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../../update/version.ts';
 import type { InstallAnswers } from '../../install_plan.ts';
 import { installerIdentity } from '../../installer_identity.ts';
 

@@ -9,9 +9,9 @@ import { describe, expect, test } from 'bun:test';
 import { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from '../../src/core/update/build_stamp.ts';
 import {
 	compareVersionArrays,
+	DEDALO_NEXT_DEV_TRIPLE,
 	DEDALO_VERSION,
 	DEDALO_VERSION_MAJOR_MINOR,
-	DEDALO_NEXT_DEV_TRIPLE,
 	DEDALO_VERSION_TRIPLE,
 	parseVersionString,
 } from '../../src/core/update/version.ts';
@@ -31,7 +31,9 @@ describe('version exports (byte-pinned wire values)', () => {
 		if (RELEASE_IDENTITY.kind === 'dev') {
 			expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_DEV_TRIPLE);
 		} else {
-			expect(compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_VERSION_TRIPLE)).toBeGreaterThanOrEqual(0);
+			expect(
+				compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_VERSION_TRIPLE),
+			).toBeGreaterThanOrEqual(0);
 		}
 		expect(DEDALO_VERSION_MAJOR_MINOR).toBe(
 			`${DEDALO_VERSION_TRIPLE[0]}.${DEDALO_VERSION_TRIPLE[1]}`,
@@ -79,7 +81,9 @@ describe('parseVersionString', () => {
 	test('round-trips the DATA version; a dev engine identity is never read as a data triple', () => {
 		expect(parseVersionString(DEDALO_VERSION)).toEqual([...DEDALO_VERSION_TRIPLE]);
 		if (RELEASE_IDENTITY.kind === 'dev') {
-			expect(parseVersionString(DEDALO_ENGINE_VERSION).some((n) => !Number.isInteger(n))).toBe(true);
+			expect(parseVersionString(DEDALO_ENGINE_VERSION).some((n) => !Number.isInteger(n))).toBe(
+				true,
+			);
 		} else {
 			expect(parseVersionString(DEDALO_ENGINE_VERSION)).toEqual([...RELEASE_IDENTITY.triple]);
 		}

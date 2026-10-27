@@ -269,7 +269,7 @@ describe('resolveReleaseIdentity — the rules on direct evidence', () => {
 		expect(
 			resolveReleaseIdentity({
 				triple: TRIPLE,
-			nextDevTriple: NEXT_DEV_TRIPLE,
+				nextDevTriple: NEXT_DEV_TRIPLE,
 				describe: info.describe,
 				provenance: { stamp: 'other', channel: 'master' },
 			}).version,
@@ -381,9 +381,20 @@ describe('GATE 8 — semver ordering, one fixture, every reader', () => {
 	}
 
 	test('the full order of the plan: 7.0.0 < 7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2', () => {
-		const plan = ['7.0.0', '7.0.1-alpha.1', '7.0.1-beta.1', '7.0.1-rc.1', '7.0.1-dev', '7.0.1', '7.0.2'];
+		const plan = [
+			'7.0.0',
+			'7.0.1-alpha.1',
+			'7.0.1-beta.1',
+			'7.0.1-rc.1',
+			'7.0.1-dev',
+			'7.0.1',
+			'7.0.2',
+		];
 		for (let i = 0; i + 1 < plan.length; i++) {
-			expect(compareReleaseIdentities(plan[i] as string, plan[i + 1] as string), `${plan[i]} < ${plan[i + 1]}`).toBe(-1);
+			expect(
+				compareReleaseIdentities(plan[i] as string, plan[i + 1] as string),
+				`${plan[i]} < ${plan[i + 1]}`,
+			).toBe(-1);
 		}
 	});
 

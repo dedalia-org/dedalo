@@ -71,7 +71,7 @@ import { reviewPage } from '../../src/core/install/ui/screens/review.ts';
 import type { DrawContext } from '../../src/core/install/ui/widget.ts';
 import { scriptedInstallPrompter } from '../../src/core/install/ui_plain/prompter.ts';
 import { plainReporter } from '../../src/core/install/ui_plain/reporter.ts';
-import { DEDALO_VERSION, DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
 import { allCases, splitCase } from '../helpers/install_parity_cases.ts';
 import {
 	fakeProbes,

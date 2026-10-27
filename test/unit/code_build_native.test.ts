@@ -10,7 +10,6 @@
  * No DB. Needs `git` for the integration block; skips LOUDLY if absent.
  */
 
-import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,7 +28,7 @@ import {
 	releaseTagVersion,
 } from '../../src/core/update/code_build_plan.ts';
 import { MIN_GIT_FOR_DESCRIBE } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 // Snapshot the REAL config module ONCE at top level: mock.restore() does NOT

@@ -195,10 +195,9 @@ describe('check-target: the verdict IS the walk rule', () => {
 			const triple = assertLinearUpgrade(DEDALO_VERSION_TRIPLE, parsed.triple, parsed.channel);
 			if (expected === null) expect(triple, tag).toBeNull();
 			else if (triple === null)
-				expect(
-					parsed.identity.endsWith('-dev') && parsed.triple.join('.') === RUNNING,
-					tag,
-				).toBe(true);
+				expect(parsed.identity.endsWith('-dev') && parsed.triple.join('.') === RUNNING, tag).toBe(
+					true,
+				);
 			const run = cli(['check-target', tag, '--dir', scratchDir()]);
 			expect(run.code).toBe(expected === null ? 0 : 3);
 			expect(run.out).toBe(expected ?? '');

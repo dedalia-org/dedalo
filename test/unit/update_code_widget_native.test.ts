@@ -468,11 +468,10 @@ describe('the image-update request (D3/D4): gates, one write, and the walk rule'
 		});
 		// a developer image is named with its -dev tag (an installation already on one:
 		// the walk judges the running identity the install reports, so it is pinned here)
-		const dev = await m.requestImageUpdate(
-			{ version: '7.0.0', channel: 'dev' },
-			m.superuser,
-			{ ...seams(channelDir(10, '7.0.0-dev')), running: '7.0.0-dev' },
-		);
+		const dev = await m.requestImageUpdate({ version: '7.0.0', channel: 'dev' }, m.superuser, {
+			...seams(channelDir(10, '7.0.0-dev')),
+			running: '7.0.0-dev',
+		});
 		expect(dev.ok && dev.request.tag).toBe('7.0.0-dev');
 		// an inflight request blocks a new one too
 		const busy = channelDir();

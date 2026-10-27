@@ -94,6 +94,7 @@ import {
 import { join } from 'node:path';
 import {
 	DEV_REF,
+	parseDeclaredNextDevTriple,
 	parseDeclaredTriple,
 	qualifiedReleaseTag,
 	releaseTagIdentity,
@@ -106,7 +107,6 @@ import {
 	parseImageRegistries,
 } from '../../src/core/update/image_registries.ts';
 import { type InstallChannel, isInstallChannel } from '../../src/core/update/install_stamp.ts';
-import { parseDeclaredNextDevTriple } from '../../src/core/update/code_build_plan.ts';
 import {
 	gitDescribeSupportFault,
 	identityOfImageTag,
@@ -533,7 +533,10 @@ function archivedStamp(run: Runner, tarPath: string): string {
 }
 
 /** The archive's own DEDALO_NEXT_DEV_TRIPLE (version.ts), null when it declares none. */
-function archivedNextDevTriple(run: Runner, tarPath: string): readonly [number, number, number] | null {
+function archivedNextDevTriple(
+	run: Runner,
+	tarPath: string,
+): readonly [number, number, number] | null {
 	const shown = run(['tar', '-xOf', tarPath, VERSION_TS_IN_ARCHIVE]);
 	if (shown.code !== 0) return null;
 	const next = parseDeclaredNextDevTriple(shown.stdout);

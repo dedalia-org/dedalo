@@ -109,8 +109,12 @@ describe('module-level constants (relational: a checkout AT a tag is that releas
 		const again = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_VERSION_TRIPLE });
 		expect(RELEASE_IDENTITY).toEqual(again);
 		// a developer build names the NEXT triple; a tag names its own release (never below data)
-		if (RELEASE_IDENTITY.kind === 'dev') expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_DEV_TRIPLE);
-		else expect(compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_VERSION_TRIPLE)).toBeGreaterThanOrEqual(0);
+		if (RELEASE_IDENTITY.kind === 'dev')
+			expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_DEV_TRIPLE);
+		else
+			expect(
+				compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_VERSION_TRIPLE),
+			).toBeGreaterThanOrEqual(0);
 		// the identity starts with the triple it names (the identity's own, not the data's)
 		expect(DEDALO_ENGINE_VERSION.startsWith(RELEASE_IDENTITY.triple.join('.'))).toBe(true);
 		expect(DEDALO_BUILD).toBe(readBuildInfoOf(REPO_ROOT).build);

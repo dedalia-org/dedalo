@@ -400,7 +400,13 @@ function taggedIdentity(
 		);
 	}
 	const kind: ReleaseKind = parsed.prerelease === null ? 'stable' : 'prerelease';
-	return freezeIdentity({ version: tagged, kind, triple: parsed.triple, tag: describe, notice: null });
+	return freezeIdentity({
+		version: tagged,
+		kind,
+		triple: parsed.triple,
+		tag: describe,
+		notice: null,
+	});
 }
 
 function freezeIdentity(identity: ReleaseIdentity): ReleaseIdentity {

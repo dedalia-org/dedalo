@@ -60,6 +60,7 @@ export function engineCliAt(scratchDir: string, identity: string): string {
 function pinTriple(path: string, constant: string, triple: readonly number[]): void {
 	const source = readFileSync(path, 'utf8');
 	const pin = new RegExp(`(${constant}[^=]*=\\s*Object\\.freeze\\(\\[)[^\\]]*(\\])`);
-	if (!pin.test(source)) throw new Error(`engineCliAt: the triple pin ${constant} of ${path} changed shape`);
+	if (!pin.test(source))
+		throw new Error(`engineCliAt: the triple pin ${constant} of ${path} changed shape`);
 	writeFileSync(path, source.replace(pin, `$1${triple.join(', ')}$2`));
 }

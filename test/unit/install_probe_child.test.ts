@@ -43,7 +43,7 @@ import {
 import { SEED_DUMP_PATH } from '../../src/core/install/paths.ts';
 import type { PsqlProbe } from '../../src/core/install/pg_bin.ts';
 import { systemCheckRows } from '../../src/core/install/probes.ts';
-import { DEDALO_VERSION, DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
 import { localOntologySource } from '../helpers/install_answer_cases.ts';
 import {
 	HOST_VARIANTS,
@@ -224,7 +224,10 @@ describe('probe child — system', () => {
 		for (const [pinned, shown] of [
 			[DEDALO_VERSION, DEDALO_VERSION],
 			[`${DEDALO_VERSION}-beta.7`, `${DEDALO_VERSION}-beta.7 (prerelease)`],
-			[`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`, `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev (development build)`],
+			[
+				`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
+				`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev (development build)`,
+			],
 		] as const) {
 			const { answer } = child(request('system', { route: 'trial' }), {
 				[INSTALLER_IDENTITY_SEAM]: pinned,

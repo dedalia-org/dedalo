@@ -28,13 +28,13 @@
  * DB-free; fs plus one `sh` per provenance case: hermetic tier.
  */
 
-import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { INSTALL_STAMP_PATH, parseInstallStamp } from '../../src/core/update/install_stamp.ts';
 import { resolveReleaseIdentity } from '../../src/core/update/release_identity.ts';
+import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8');

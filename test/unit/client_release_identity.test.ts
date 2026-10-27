@@ -41,7 +41,12 @@ import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
 const ROOT = join(import.meta.dir, '..', '..');
 const ORDERING = JSON.parse(
 	readFileSync(join(ROOT, 'test/fixtures/release_identity/ordering.json'), 'utf8'),
-) as { ascending: string[]; dev: string[]; dev_below_stable: [string, string][]; not_identities: string[] };
+) as {
+	ascending: string[];
+	dev: string[];
+	dev_below_stable: [string, string][];
+	not_identities: string[];
+};
 
 describe('data_version_of — the client mirror of the one grammar', () => {
 	// the developer identities are listed among the ascending ones (they are identities too)

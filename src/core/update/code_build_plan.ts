@@ -354,7 +354,11 @@ export function planCodeBuild(
 	if (refRefusal !== null) return refRefusal;
 	const identity = releaseTagIdentity(ref);
 	const archiveTriple = archiveTripleOf(triple, identity, options.devVersion);
-	const targetDir = join(filesDir, String(archiveTriple[0]), `${archiveTriple[0]}.${archiveTriple[1]}`);
+	const targetDir = join(
+		filesDir,
+		String(archiveTriple[0]),
+		`${archiveTriple[0]}.${archiveTriple[1]}`,
+	);
 	const filePath = join(targetDir, releaseFileName(archiveTriple.join('.'), identity));
 	// LEDGERED UNREACHABLE BRANCH — reason: the version guard above proves the
 	// triple is three NON-NEGATIVE INTEGERS, so every DIRECTORY segment

@@ -57,7 +57,12 @@ const REPO_ROOT = join(import.meta.dir, '..', '..');
 const LIB = join(REPO_ROOT, 'deploy', 'dedalo-image-lib.sh');
 const ORDERING = JSON.parse(
 	readFileSync(join(REPO_ROOT, 'test', 'fixtures', 'release_identity', 'ordering.json'), 'utf8'),
-) as { ascending: string[]; dev: string[]; dev_below_stable: [string, string][]; not_identities: string[] };
+) as {
+	ascending: string[];
+	dev: string[];
+	dev_below_stable: [string, string][];
+	not_identities: string[];
+};
 
 const SCRATCH = mkdtempSync(join(tmpdir(), 'dedalo-identity-shell-'));
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -501,7 +506,9 @@ describe('C. semver order: dedalo_identity_cmp is held to ordering.json', () => 
 	test('dedalo_version_cmp orders IMAGE TAGS as the identities they name (imageTagOf of the fixture)', () => {
 		const tagPairs: [string, string][] = [
 			...pairs.map(([a, b]) => [imageTagOf(a), imageTagOf(b)] as [string, string]),
-			...ORDERING.dev_below_stable.map(([dev, stable]) => [imageTagOf(dev), stable] as [string, string]),
+			...ORDERING.dev_below_stable.map(
+				([dev, stable]) => [imageTagOf(dev), stable] as [string, string],
+			),
 		];
 		const results = bashOrders('dedalo_version_cmp', tagPairs);
 		tagPairs.forEach(([a, b], k) => {

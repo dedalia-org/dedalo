@@ -632,9 +632,7 @@ export function releaseArchiveNameOf(fileName: string): ReleaseArchiveName | nul
  */
 function devArchiveNameOf(stem: string): ReleaseArchiveName | null {
 	const triple = stem.slice(0, -'-dev'.length);
-	return /^[0-9]+\.[0-9]+\.[0-9]+$/.test(triple)
-		? { triple, kind: 'dev', identity: stem }
-		: null;
+	return /^[0-9]+\.[0-9]+\.[0-9]+$/.test(triple) ? { triple, kind: 'dev', identity: stem } : null;
 }
 
 /** `<X.Y.Z>` or `<X.Y.Z-(alpha|beta|rc).N>` — a release identity in the shared grammar. */

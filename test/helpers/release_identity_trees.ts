@@ -52,10 +52,7 @@ export const VERSION_TS_PATH = 'src/core/update/version.ts';
  * release an untagged build precedes), the way the real one does
  * (Object.freeze([a, b, c])). The next triple defaults to the patch above data.
  */
-export function versionTsOf(
-	triple: readonly number[],
-	nextDevTriple?: readonly number[],
-): string {
+export function versionTsOf(triple: readonly number[], nextDevTriple?: readonly number[]): string {
 	const [major = 0, minor = 0, patch = 0] = triple;
 	const next = nextDevTriple ?? [major, minor, patch + 1];
 	return `export const DEDALO_VERSION_TRIPLE = Object.freeze([${triple.join(', ')}]);
