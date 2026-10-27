@@ -73,6 +73,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The reconcile panel no longer reports "OK" when it found images it cannot fix.**
+
+    Running the rich-text images check when the referenced image files are not in the media web folder reported "OK. the two stores agree (drift 0)", as if no old image link existed, and Apply then changed nothing. The message now says how many references are missing, held or failed, and the report lists each one, so the files can be put back in place before the check is run again.
+
 - **The permissions tree filter no longer freezes after several searches.**
 
     In a profile's access permissions, typing several searches in a row in the tree filter could leave the page slow and unresponsive, with areas stuck on "Checking...". Each search left background work behind for the areas of the searches it replaced, and that work kept running after the tree had changed. Background work for a replaced search is now dropped, and the per-search scans of the permission list are cached, so the filter stays responsive however many searches you type. The tree now also waits until you pause typing before it updates, instead of redrawing on every keystroke.

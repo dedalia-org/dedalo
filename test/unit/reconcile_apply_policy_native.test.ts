@@ -35,6 +35,7 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import {
 	type ReconcileStatusRow,
 	widget as reconcileStatusWidget,
+	runMessage,
 } from '../../src/core/area_maintenance/widgets/reconcile_status.ts';
 import { registerAllReconciles } from '../../src/core/reconcile/catalog.ts';
 import {
@@ -166,5 +167,17 @@ describe('reconcile apply policy', () => {
 			) as Promise<unknown>,
 		).rejects.toMatchObject({ code: 'request.invalid' });
 		expect(lastReconcileRun('publication_apis'), 'a refusal is not a run').toBe(before);
+	});
+});
+
+describe('P6 the operator sentence never says OK over unresolved items', () => {
+	test('drift 0 with missing files is not "the two stores agree"', () => {
+		const report = { drift: 0, applied: 0, detail: { missing: ['a', 'b'], held: [], failed: [] } };
+		const msg = runMessage('rich_text_images', false, report);
+		expect(msg).not.toContain('agree');
+		expect(msg).toContain('missing 2');
+		expect(runMessage('x', false, { drift: 0, applied: 0, detail: { missing: 3 } })).toContain(
+			'agree',
+		);
 	});
 });

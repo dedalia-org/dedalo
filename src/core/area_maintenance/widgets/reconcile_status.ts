@@ -92,15 +92,33 @@ function requireApplyPrincipal(name: string, apply: boolean, principal: Principa
 	});
 }
 
+/**
+ * What a run found but could not repair: the owner's `missing` / `held` / `failed`
+ * LISTS (rich_text_images: a referenced file absent from the web folder is never
+ * drift). Counters of the same name elsewhere are not lists and are not read.
+ */
+function unresolvedNote(report: ReconcileReport): string {
+	const parts = (['missing', 'held', 'failed'] as const).flatMap((key) => {
+		const list = report.detail[key];
+		return Array.isArray(list) && list.length > 0 ? [`${key} ${list.length}`] : [];
+	});
+	return parts.length === 0 ? '' : `; unresolved: ${parts.join(', ')} — see the report`;
+}
+
 /** The operator sentence for one run: in sync, repaired, DEFERRED (nothing applied, owed), or dry. */
-function runMessage(name: string, apply: boolean, report: ReconcileReport): string {
+export function runMessage(name: string, apply: boolean, report: ReconcileReport): string {
 	if (report.deferred !== undefined) {
 		return `${name}: drift ${report.drift}, nothing applied — DEFERRED: ${report.deferred.reason}. Run it again`;
 	}
-	if (report.drift === 0) return `OK. ${name}: the two stores agree (drift 0)`;
+	const note = unresolvedNote(report);
+	if (report.drift === 0) {
+		return note === ''
+			? `OK. ${name}: the two stores agree (drift 0)`
+			: `${name}: drift 0, nothing to repair${note}`;
+	}
 	return apply
-		? `${name}: drift ${report.drift}, applied ${report.applied}`
-		: `${name}: drift ${report.drift} — dry run, nothing written. Run with apply to repair`;
+		? `${name}: drift ${report.drift}, applied ${report.applied}${note}`
+		: `${name}: drift ${report.drift} — dry run, nothing written. Run with apply to repair${note}`;
 }
 
 /**
