@@ -19,6 +19,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Tree-picker portals show their linked records like Parent and Children.**
+
+    Portals that link terms through the tree picker (for example "Connected to" in an ontology record) spread each linked record across wide columns. They now show it on one line, `term | tld | id | model`, with the same edit, tree and remove buttons as the Parent and Children fields.
+
 - **An empty date field is now blank until you hover or select it.**
 
     An empty date field in the edit form showed its input format (`DD/MM/YYYY`), the `<>` range separator and the period labels even when it held no value. It now stays blank, like text fields and selectors, and shows them when you hover the field or select it. A range with only one date filled in keeps its separator. On a phone or tablet, the calendar button now appears once you tap the field.

@@ -15,17 +15,15 @@
 * items matters and the delete column is the only structural control column needed.
 *
 * Differences from the default view:
-* - Only two expected structural columns: the section_record's own columns (supplied by
-*   `self.columns_map`) plus a `remove` column appended by `rebuild_columns_map`.
-*   When that expectation is violated (e.g. the user lacks delete permission and the
-*   `remove` column is absent), the CSS grid template is recomputed dynamically via
-*   `set_element_css` so the layout still fits.
+* - Rows share the LINE view's design (`context.children_view` section_records + the line view's
+*   `section_id` and `remove` columns), so tree portals and children/parent portals
+*   read the same. Only the toolbar differs.
 * - The toolbar leaves only `button_tree` active (the tree picker is the canonical way to
 *   attach new terms in this view). It is DECLARED on the view's registration entry in
 *   `component_portal.js` and composed once by `component_portal.prototype.build`; this
 *   module writes no `show_interface` flag, so there is exactly one writer per view.
-* - The rows are windowed (`window_section_rows`) in `'list'` mode (not `'tree'` mode) so the child
-*   section records use their own list render, not a further recursive tree render.
+* - The rows are windowed (`window_section_rows`) in `'list'` mode, view `context.children_view` (not `'tree'`)
+*   so the child section records render as the line view's, not a further recursive tree render.
 * - Like other portal views, a `render_level='content'` early return lets callers
 *   refresh only the record list without rebuilding the full wrapper.
 *
@@ -45,12 +43,11 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {window_section_rows} from '../../section/js/section.js'
-	import {set_element_css} from '../../page/js/css.js'
 	import {
-		render_column_remove,
 		add_wrapper_events,
 		get_buttons
 	} from './render_edit_component_portal.js'
+	import {view_line_edit_portal} from './view_line_edit_portal.js'
 
 
 
@@ -78,13 +75,9 @@ export const view_tree_edit_portal = function() {
 *
 * Two execution paths are controlled by `options.render_level`:
 *
-* - `'full'` (default): constructs the full wrapper with toolbar, grid layout, and
-*   section records.  The `show_interface` flags are NOT written here — they are declared
+* - `'full'` (default): constructs the full wrapper with toolbar and section records.
+*   The `show_interface` flags are NOT written here — they are declared
 *   on the view registration and composed by `component_portal.prototype.build`.
-*   When the effective column count differs from the expected value of 2
-*   (content columns + remove), the CSS grid-template-columns is overridden via
-*   `set_element_css` so the layout adapts (e.g. when permissions < 2 and the remove
-*   column is absent, only 1 column is needed).
 *
 * - `'content'` (partial refresh): returns `content_data` directly without rebuilding
 *   the outer wrapper.  The existing wrapper retains its events and CSS.  Callers use this
@@ -94,7 +87,6 @@ export const view_tree_edit_portal = function() {
 *   - Populates `self.columns_map` with the rebuilt column descriptor array (once per
 *     render; subsequent calls return immediately via `self.fixed_columns_map`).
 *   - Pushes all section_record instances onto `self.ar_instances` for lifecycle cleanup.
-*   - May inject a dynamic CSS rule via `set_element_css` when column count ≠ 2.
 *
 * @param {Object} self - The `component_portal` instance.
 * @param {Object} options - Render options.
@@ -160,21 +152,6 @@ view_tree_edit_portal.render = async function(self, options) {
 	// the component's. The pane is therefore created OUTSIDE the component DOM
 	// entirely — see component_portal.toggle_thesaurus_pane.
 
-		// size from style
-		// if expected number of columns (2) change, updates the columns CSS
-		// This happens, for sample, when user do not have enough permissions to delete
-		if (self.columns_map.length!==2) {
-			const items				= ui.flat_column_items(self.columns_map);
-			const template_columns	= items.join(' '); // like 1fr auto'
-			const css_object = {
-				".content_data" : {
-					"grid-template-columns" : template_columns
-				}
-			}
-			const selector = `${self.section_tipo}_${self.tipo}.edit.view_${self.view}`
-			set_element_css(selector, css_object)
-		}
-
 	// events
 		add_events(self, wrapper)
 
@@ -207,9 +184,7 @@ export const add_events = function(self, wrapper) {
 * CLI-29: the picker's page is the portal's, and "show all" is the server
 * ceiling). The first window is filled before this resolves.
 *
-* Empty list handling: when `rows` is empty the container stays blank. The layout
-* remains consistent regardless because the CSS grid columns are defined by
-* `rebuild_columns_map` and `set_element_css`, not by the row count.
+* Empty list handling: when `rows` is empty the container stays blank.
 *
 * The `button_close: null` option passed to `build_content_data` suppresses the
 * close-button that some other views add to the content area header.
@@ -229,8 +204,11 @@ const get_content_data = async function(self, rows) {
 				caller			: self,
 				container		: content_data,
 				rows			: rows,
+				// rows share the line view's design (children/parent portals): the
+				// server's children_view ('text' for the relation family), never 'tree'
 				records_options	: {
-					mode : 'list'
+					mode : 'list',
+					view : self.context.children_view || 'text'
 				}
 			})
 		}
@@ -245,22 +223,14 @@ const get_content_data = async function(self, rows) {
 * REBUILD_COLUMNS_MAP
 * Assemble the column descriptor array used by section_record row renderers.
 *
-* Merges the base `self.columns_map` (provided by the server via the ontology /
-* request config) with a synthetic `remove` column appended when the user has write
-* permission (permissions > 1).  The `remove` column uses the shared
-* `render_column_remove` helper from `render_edit_component_portal.js` and carries an
-* `'auto'` width so the CSS grid allocates only the button's intrinsic size.
+* Same columns as the line view: a `section_id` column (edit + ontology tree buttons),
+* the base `self.columns_map` (provided by the server via the ontology / request config)
+* and a `remove` column appended when the user has write permission (permissions > 1).
+* Both control columns reuse the `view_line_edit_portal` callbacks.
 *
 * The `self.fixed_columns_map` guard prevents the map from being rebuilt on partial
 * refreshes (`render_level='content'`).  Once the flag is set to `true` the function
-* returns the already-built map immediately, preserving any CSS grid rule written by
-* `render`.
-*
-* Expected output column count:
-*   - 1 column  — read-only (no remove column).
-*   - 2 columns — edit mode (base columns + remove).
-* The `render` function checks against the expected 2-column count and injects a CSS
-* override when the actual count differs (e.g. when a custom columns_map has more entries).
+* returns the already-built map immediately.
 *
 * @param {Object} self - The `component_portal` instance.
 * @returns {Promise<Array>} The assembled columns_map array. Each entry is an object
@@ -275,6 +245,14 @@ const rebuild_columns_map = async function(self) {
 
 	const columns_map = []
 
+	// column section_id (edit + ontology tree buttons), as the line view
+		columns_map.push({
+			id			: 'section_id',
+			label		: 'Id',
+			width		: 'auto',
+			callback	: view_line_edit_portal.render_column_id
+		})
+
 	// base_columns_map
 		const base_columns_map = self.columns_map || []
 		columns_map.push(...base_columns_map)
@@ -285,7 +263,7 @@ const rebuild_columns_map = async function(self) {
 				id			: 'remove',
 				label		: '', // get_label.delete || 'Delete',
 				width		: 'auto',
-				callback	: render_column_remove
+				callback	: view_line_edit_portal.render_column_remove
 			})
 		}
 

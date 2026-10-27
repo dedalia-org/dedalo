@@ -26061,21 +26061,11 @@ body.inspector_resizing {
 * view_tree_portal
 *
 * Included from component_portal.less file
+* Rows render as view_line (see view_tree_edit_portal.js), styled by view_line_portal.less
 */
 .component_portal.view_tree.edit,
 .portal.view_tree.edit {
   display: block;
-}
-.component_portal.view_tree.edit > .content_data,
-.portal.view_tree.edit > .content_data {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  overflow: auto;
-  padding: 0px;
-}
-.component_portal.view_tree.edit > .content_data > .column,
-.portal.view_tree.edit > .content_data > .column {
-  padding: 0.12rem;
 }
 /**
 * view_indexation_portal
