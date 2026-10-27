@@ -54,6 +54,10 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The permissions tree filter can show the siblings of a found item.**
+
+    While filtering a profile's access permissions, the tree shows only the path to each match. A parent that hides other children now carries the arrow: click it to show all of them around the match (still highlighted) and set their permissions in place; click again to go back to the matches only.
+
 - **Older images in rich text can be made visible on published pages, from Maintenance.**
 
     Images inserted into rich text before this update keep their original file name and stay visible to
@@ -72,6 +76,10 @@ Merged since the last release; these ship with the next one.
 - **The permissions tree filter no longer freezes after several searches.**
 
     In a profile's access permissions, typing several searches in a row in the tree filter could leave the page slow and unresponsive, with areas stuck on "Checking...". Each search left background work behind for the areas of the searches it replaced, and that work kept running after the tree had changed. Background work for a replaced search is now dropped, and the per-search scans of the permission list are cached, so the filter stays responsive however many searches you type. The tree now also waits until you pause typing before it updates, instead of redrawing on every keystroke.
+
+- **Setting permissions on a large area is faster, and a failed change no longer locks the permissions tree.**
+
+    Ticking an area or a permission in a profile's access permissions updated every child by searching the whole permission list again, so large areas took long to apply. Each update is now immediate. And if applying a change ever failed, the permissions tree stayed greyed out and ignored clicks, filter included, until the page was reloaded; it is now always released, and a failed save no longer leaves the tree locked either.
 
 - **Ontology update and export now say why the ontology directory cannot be created.**
 

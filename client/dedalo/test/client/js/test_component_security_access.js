@@ -9,6 +9,7 @@ import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {is_empty} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
+import {set_before_unload} from '../../../core/common/js/events.js'
 import {
 	MATCH_LIMIT,
 	FILTER_DEBOUNCE_MS,
@@ -276,6 +277,34 @@ describe(`COMPONENT_SECURITY_ACCESS DATA OPERATIONS`, function() {
 		const found = result.find(el => el.tipo==='test45' && el.section_tipo==='test3')
 		assert.isOk(found, 'expected updated item in result')
 		assert.equal(found.value, 2, 'expected value 2 for updated item')
+	});
+
+
+
+	it(`update_value updates the matrix in place and keeps the index`, async function() {
+
+		const item = {
+			tipo			: 'test45',
+			section_tipo	: 'test3',
+			ar_parent		: ['test3']
+		}
+		const before = instance.filled_value
+
+		instance.update_value(item, 1)
+		assert.strictEqual(instance.filled_value, before, 'expected the same filled_value array (no per-call copy)')
+		assert.equal(instance.get_value_entry('test45', 'test3').value, 1, 'expected the indexed entry updated')
+
+		// a node absent from the matrix is appended AND indexed
+		const absent = {tipo: 'zz_absent_tipo', section_tipo: 'test3', ar_parent: ['test3']}
+		instance.update_value(absent, 2)
+		const added = instance.get_value_entry('zz_absent_tipo', 'test3')
+		assert.isOk(added, 'expected the new stub indexed')
+		assert.equal(added.value, 2)
+		assert.include(instance.filled_value, added, 'expected the stub in filled_value')
+
+		// restore
+		instance.filled_value.splice(instance.filled_value.indexOf(added), 1)
+		instance.update_value(item, 2)
 	});
 
 
@@ -745,6 +774,75 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 		assert.equal(filter_input.value, '', 'expected Escape to clear the query')
 		assert.isTrue(count_node.classList.contains('hide'), 'expected the unfiltered tree')
 		assert.equal(tree.querySelectorAll('.li_item').length, roots_before, 'expected the root nodes back')
+	})
+
+	it(`a found item's parent shows an arrow that reveals the hidden siblings`, async function() {
+
+		const tree			= node.querySelector('.tree_root')
+		const filter_input	= tree.querySelector('.tree_filter_input')
+
+		filter_input.value = leaf_tipo
+		filter_input.dispatchEvent(new Event('input'))
+		await after_debounce()
+
+		// the deepest toggle: the match's own parent
+		const toggles = tree.querySelectorAll('.area_label.show_siblings')
+		assert.isAbove(toggles.length, 0, 'expected an arrow on a parent that hides siblings of the match')
+		const toggle	= toggles[toggles.length - 1]
+		assert.isTrue(toggle.classList.contains('icon_arrow'), 'expected the arrow icon')
+		assert.isFalse(toggle.classList.contains('up'), 'expected the arrow closed (found children only)')
+		const branch		= toggle.parentNode.branch
+		const found_only	= branch.querySelectorAll('.li_item').length
+
+		// open: every sibling, the match still marked
+		toggle.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		assert.isTrue(toggle.classList.contains('up'), 'expected the arrow open')
+		assert.isAbove(branch.querySelectorAll('.li_item').length, found_only, 'expected the hidden siblings shown')
+		assert.isAbove(branch.querySelectorAll('.li_item.match').length, 0, 'expected the match still highlighted')
+
+		// close: back to the found children
+		toggle.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		assert.isFalse(toggle.classList.contains('up'), 'expected the arrow closed again')
+		assert.equal(branch.querySelectorAll('.li_item').length, found_only, 'expected the found children only')
+	})
+
+	it(`a propagation that throws still unlocks the component`, async function() {
+
+		const tree		= node.querySelector('.tree_root')
+		const radio		= tree.querySelector('.li_item.match .radio_buttons_container input.val_1')
+		assert.isOk(radio, 'expected the match radio (previous test leaves the filter on the leaf)')
+
+		// a sentinel throw inside the idle propagation, kept away from mocha's onerror
+		const sentinel		= new Error('sentinel propagation failure')
+		let thrown			= false
+		const prev_onerror	= window.onerror
+		window.onerror = function(message, source, line, column, error) {
+			if (error===sentinel) {
+				thrown = true
+				return true
+			}
+			return prev_onerror ? prev_onerror.apply(this, arguments) : false
+		}
+		const original = instance.update_parents_radio_butons
+		instance.update_parents_radio_butons = () => { throw sentinel }
+
+		try {
+			radio.checked = true
+			radio.dispatchEvent(new Event('change'))
+			assert.isTrue(instance.node.classList.contains('loading'), 'expected the component locked while propagating')
+
+			const deadline = performance.now() + 5000
+			while (!thrown && performance.now() < deadline) {
+				await new Promise(resolve => requestIdleCallback(resolve, {timeout: 500}))
+			}
+			assert.isTrue(thrown, 'expected the propagation to have thrown')
+			assert.isFalse(instance.node.classList.contains('loading'), 'expected the lock released after the throw')
+			assert.notInclude(tree.textContent, 'Propagating...', 'expected the feedback node removed')
+		} finally {
+			instance.update_parents_radio_butons = original
+			window.onerror = prev_onerror
+			set_before_unload(false) // the change marked the page unsaved; nothing is saved
+		}
 	})
 
 	it(`destroy after the tree filter test`, async function() {
