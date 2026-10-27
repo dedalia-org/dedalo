@@ -165,7 +165,7 @@ class component_text_area extends component_common {
 						foreach ($data as $current_value) {
 							// $current_value = trim($current_value);
 							if (!$this->is_empty($current_value)) {
-								$processed_data[] = TR::add_tag_img_on_the_fly(is_scalar($current_value) ? (string)$current_value : json_encode($current_value));
+								$processed_data[] = TR::add_tag_img_on_the_fly($current_value);
 							}
 						}
 					}
@@ -195,7 +195,7 @@ class component_text_area extends component_common {
 							foreach ($data as $current_value) {
 								// $current_value = trim($current_value);
 								if (!$this->is_empty($current_value)) {
-									$processed_fallback_value[] = TR::add_tag_img_on_the_fly(is_scalar($current_value) ? (string)$current_value : json_encode($current_value));
+									$processed_fallback_value[] = TR::add_tag_img_on_the_fly($current_value);
 								}
 							}
 						}
@@ -269,7 +269,7 @@ class component_text_area extends component_common {
 			}
 		}else{
 			$index = (int)$index;
-			$valor = isset($dato[$index]) ? TR::add_tag_img_on_the_fly(is_scalar($dato[$index]) ? (string)$dato[$index] : json_encode($dato[$index])) : null;
+			$valor = isset($dato[$index]) ? TR::add_tag_img_on_the_fly($dato[$index]) : null;
 		}
 
 
