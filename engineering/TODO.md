@@ -127,3 +127,4 @@ to start to work.
 - [ ] TODO-070: The default section (dd1603) for the user (e.g. numisdata6) does not work when logging in. Review the user's default access section tipo.
 - [x] TODO-071: user admin tool do not display the user profile (dd1725). It should be display it as read only.
 - [ ] TODO-072: component_text_area, component_json: When it is active, pressing the 'ESC' key does not deactivate it like the other components. Unify this behaviour.
+- [ ] TODO-073: component_security_access: add a button to discard changes (include an alert to prevent accidental click). Sometimes, admins accidentally change a value.
