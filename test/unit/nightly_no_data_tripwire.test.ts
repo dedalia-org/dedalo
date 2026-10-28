@@ -44,7 +44,7 @@ const NEXT_DATA_ENTRY: UpdateDescriptor = {
 	updateFromMedium: 0,
 	updateFromMinor: 0,
 	updateData: true,
-	sqlUpdate: ['UPDATE matrix SET id = id WHERE false;'],
+	sqlUpdate: ['SELECT 1;'],
 };
 
 describe('the predicate is not vacuous (a synthetic catalog that carries the forbidden entry)', () => {

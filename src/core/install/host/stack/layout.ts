@@ -32,7 +32,14 @@ import {
 	normalizeRepository,
 	provisionedRegistries,
 } from '../../../update/image_registries.ts';
-import { imageTagOf, type ReleaseIdentity } from '../../../update/release_identity.ts';
+import {
+	imageTagOf,
+	nightlyImageMessage,
+	type ReleaseIdentity,
+} from '../../../update/release_identity.ts';
+
+export { nightlyImageMessage };
+
 import type { InstallAnswers } from '../../install_plan.ts';
 import { installerIdentity } from '../../installer_identity.ts';
 
@@ -174,9 +181,6 @@ export function acceptedImageVersions(identity: ReleaseIdentity = installerIdent
  * The refusal for a nightly (`X.Y.Z-dev`) image or a development identity: Docker has
  * no nightly images (VERSIONING_SPEC §7 S3). `nightly` names the version refused.
  */
-export function nightlyImageMessage(nightly: string): string {
-	return `Docker has no nightly images: ${nightly} is a development build, so there is no image to install. Nightlies reach tree installs through the code update path (tree archives); a Docker install runs tagged releases only`;
-}
 
 /** The reason a DEV identity has no image: Docker has no nightly images. */
 export function devHasNoImageMessage(identity: ReleaseIdentity = installerIdentity()): string {

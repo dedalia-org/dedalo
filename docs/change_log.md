@@ -19,10 +19,6 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
-- **Developer builds are named for the next version, for example 7.0.1-dev.**
-
-    Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
-
 - **An empty date field is now blank until you hover or select it.**
 
     An empty date field in the edit form showed its input format (`DD/MM/YYYY`), the `<>` range separator and the period labels even when it held no value. It now stays blank, like text fields and selectors, and shows them when you hover the field or select it. A range with only one date filled in keeps its separator. On a phone or tablet, the calendar button now appears once you tap the field.
@@ -30,6 +26,10 @@ Merged since the last release; these ship with the next one.
 - **The inspector's Relations, Latest changes and Component history panels now page the same way.**
 
     The Relations panel's old `Total / Page` line with two arrows is replaced by the compact strip used in **Latest changes** and **Component history** (`« ‹ › » 1-10 of 4.683`), so long relation lists can jump to the first or last page as well as step one page at a time. All three panels now page identically: the strip stays put, only the rows change, the new page slides the block to its height instead of the panel jumping, and a page that takes a moment dims the block after a short beat — a fast turn does not blink.
+
+- **Developer builds are named for the next version, for example 7.0.1-dev.**
+
+    Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
 
 #### Fixed
 
@@ -55,25 +55,6 @@ Merged since the last release; these ship with the next one.
     The user profile editor (avatar menu) failed with "Insufficient permissions" for any user whose profile grants no access to the Users section. Your own name, email, password and image are readable and editable again; other users' records stay protected.
 
 ### For administrators
-
-#### Added
-
-- **The permissions tree filter can show the siblings of a found item.**
-
-    While filtering a profile's access permissions, the tree shows only the path to each match. A parent that hides other children now carries the arrow: click it to show all of them around the match (still highlighted) and set their permissions in place; click again to go back to the matches only.
-
-- **Older images in rich text can be made visible on published pages, from Maintenance.**
-
-    Images inserted into rich text before this update keep their original file name and stay visible to
-    logged-in users only. **Maintenance → Reconcile status** has two new entries. `rich_text_images`
-    lists them and, when applied, renames a copy of each after the record that uses it (the original
-    file is kept, and every change is a normal save with a Time Machine entry; a text that cannot be
-    saved safely is listed and left alone). Both apply only for root. `web_image_exposure`
-    lists any image a visitor can open although the published record it is named after does not use
-    it, and, applied by root, makes it private. The second one checks by itself at every start. See
-    the upgrading guide for the steps.
-
-    Wire contract: `WC-2026-10-26-rich-text-image-legacy-reconcile`.
 
 #### Changed
 
@@ -108,6 +89,23 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The permissions tree filter can show the siblings of a found item.**
+
+    While filtering a profile's access permissions, the tree shows only the path to each match. A parent that hides other children now carries the arrow: click it to show all of them around the match (still highlighted) and set their permissions in place; click again to go back to the matches only.
+
+- **Older images in rich text can be made visible on published pages, from Maintenance.**
+
+    Images inserted into rich text before this update keep their original file name and stay visible to
+    logged-in users only. **Maintenance → Reconcile status** has two new entries. `rich_text_images`
+    lists them and, when applied, renames a copy of each after the record that uses it (the original
+    file is kept, and every change is a normal save with a Time Machine entry; a text that cannot be
+    saved safely is listed and left alone). Both apply only for root. `web_image_exposure`
+    lists any image a visitor can open although the published record it is named after does not use
+    it, and, applied by root, makes it private. The second one checks by itself at every start. See
+    the upgrading guide for the steps.
+
+    Wire contract: `WC-2026-10-26-rich-text-image-legacy-reconcile`.
+
 - **The container updater gains a --check dry run that reports whether an update would be accepted, without changing anything.**
 
     `deploy/dedalo-image-update.sh --version <version> --check` runs the version checks, the engine's check and the image check, then stops. It takes no lock, makes no backup, creates no rollback tag, changes no file (`.dedalo.env` included), re-pins nothing, and starts, stops or recreates no container. It pulls no layer: the image is checked by its manifest, and with `DEDALO_IMAGE_VERIFY=cosign` its signature is read from the registry.
@@ -127,21 +125,6 @@ Merged since the last release; these ship with the next one.
 
     Now: a developer build of a tagged commit is refused and the message names the tag, whichever way the commit was asked for. A tagged commit is a release or beta and is named by its tag. A Docker install asked for a development image is refused with the sentence "Docker has no nightly images": nightlies reach tree installs through the code update path only. On a development checkout the Image screen refuses Official and Build (a local build of a development checkout is not an image install) and preselects Custom, the operator's own registry.
 
-- **The container updater reports a refused re-install of the pinned release as its own outcome, same_version, instead of downgrade_refused.**
-
-    Before: asking the updater for the release the stack already runs was refused as `downgrade_refused`, which read as a step back.
-    Now: it is refused as `same_version` in the outcome file, and the message says the version is the pinned one. Only `-dev` builds are re-installed at the same version. A step back is still `downgrade_refused`.
-
-- **The installer's --plain mode refuses answer flags before it asks any question, and names the flags it refused.**
-
-    Before: combining `--plain` (the interactive front end) with an answer flag such as `--answers`, `--plan`, `--execute` or `--root-password` failed with one generic sentence, and only after some questions had been asked.
-    Now: the combination is refused at the start, before any prompt, and the refusal names each flag that caused it. Give those answers on the interactive screens instead.
-
-- **The updater's same-version refusal suggests the skip flag only for a stack pinned at a bare version.**
-
-    Before: a refused update that went back to an older version suggested `--skip-version-check` for every stack, including one already pinned to a prerelease or a developer build, where the suggestion did not apply.
-    Now: the suggestion appears only when the stack is pinned at a bare `X.Y.Z` version, the case of a beta built before `7.0.0-beta.7`. A stack pinned to a prerelease or `-dev` build is refused without it.
-
 - **The reconcile panel no longer reports "OK" when it found images it cannot fix.**
 
     Running the rich-text images check when the referenced image files are not in the media web folder reported "OK. the two stores agree (drift 0)", as if no old image link existed, and Apply then changed nothing. The message now says how many references are missing, held or failed, and the report lists each one, so the files can be put back in place before the check is run again.
@@ -153,6 +136,16 @@ Merged since the last release; these ship with the next one.
 - **Setting permissions on a large area is faster, and a failed change no longer locks the permissions tree.**
 
     Ticking an area or a permission in a profile's access permissions updated every child by searching the whole permission list again, so large areas took long to apply. Each update is now immediate. And if applying a change ever failed, the permissions tree stayed greyed out and ignored clicks, filter included, until the page was reloaded; it is now always released, and a failed save no longer leaves the tree locked either.
+
+- **The container updater reports a refused re-install of the pinned release as its own outcome, same_version, instead of downgrade_refused.**
+
+    Before: asking the updater for the release the stack already runs was refused as `downgrade_refused`, which read as a step back.
+    Now: it is refused as `same_version` in the outcome file, and the message says the version is the pinned one. Only `-dev` builds are re-installed at the same version. A step back is still `downgrade_refused`.
+
+- **The installer's --plain mode refuses answer flags before it asks any question, and names the flags it refused.**
+
+    Before: combining `--plain` (the interactive front end) with an answer flag such as `--answers`, `--plan`, `--execute` or `--root-password` failed with one generic sentence, and only after some questions had been asked.
+    Now: the combination is refused at the start, before any prompt, and the refusal names each flag that caused it. Give those answers on the interactive screens instead.
 
 - **Ontology update and export now say why the ontology directory cannot be created.**
 
@@ -182,6 +175,11 @@ Merged since the last release; these ship with the next one.
 - **Profile permissions search: a matched section or area now shows its permission radios and can be opened.**
 
     Searching the permissions tree of a profile (e.g. `rsc832`) showed the matched section without its x / r / rw radios and without a way to expand it, so its permissions could not be set from the search result. A match with no deeper match now shows its radios and its children, collapsed, as in the unfiltered tree.
+
+- **The updater's same-version refusal suggests the skip flag only for a stack pinned at a bare version.**
+
+    Before: a refused update that went back to an older version suggested `--skip-version-check` for every stack, including one already pinned to a prerelease or a developer build, where the suggestion did not apply.
+    Now: the suggestion appears only when the stack is pinned at a bare `X.Y.Z` version, the case of a beta built before `7.0.0-beta.7`. A stack pinned to a prerelease or `-dev` build is refused without it.
 
 - **Installing or updating no longer leaves a hidden `.<hash>-<pid>.node-gyp` folder in the Dédalo folder.**
 

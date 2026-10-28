@@ -20,7 +20,7 @@
  *   4. nothing is pending or in flight — one update at a time;
  *   5. a developer (-dev) target is refused, whatever the installation runs:
  *      Docker has no nightly images (VERSIONING_SPEC §2, §3, S3). The refusal
- *      carries nightlyImageMessage (install/host/stack/layout.ts). The host
+ *      carries nightlyImageMessage (update/release_identity.ts). The host
  *      updater refuses the same tags (deploy/dedalo-image-updater.sh
  *      host_floor_refusal);
  *   6. the target is a legal step of the IDENTITY walk from what this engine
@@ -37,7 +37,7 @@
 import { randomUUID } from 'node:crypto';
 import { projectRoot } from '../../config/env.ts';
 import { DedaloError } from '../errors/index.ts';
-import { nightlyImageMessage } from '../install/host/stack/layout.ts';
+
 import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
 import { DEDALO_ENGINE_VERSION } from './build_stamp.ts';
 import { type DeploymentChannel, detectDeploymentChannel } from './channel.ts';
@@ -53,7 +53,7 @@ import {
 	writeRequest,
 } from './image_update_channel.ts';
 import { checkUpdatePreconditions } from './preconditions.ts';
-import { parseReleaseVersion } from './release_identity.ts';
+import { nightlyImageMessage, parseReleaseVersion } from './release_identity.ts';
 import { type ImageTag, parseImageTag, type WalkRefusal, walkRefusalOf } from './version_walk.ts';
 
 /** Why a request is refused — the closed id set the client labels. */

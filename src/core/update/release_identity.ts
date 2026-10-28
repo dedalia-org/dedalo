@@ -412,3 +412,13 @@ function freezeIdentity(identity: ReleaseIdentity): ReleaseIdentity {
 	const [major, minor, patch] = identity.triple;
 	return Object.freeze({ ...identity, triple: Object.freeze([major, minor, patch] as const) });
 }
+
+/**
+ * The refusal for a nightly (`X.Y.Z-dev`) image or a development identity: Docker has
+ * no nightly images (VERSIONING_SPEC §7 S3). Lives here, not in the install layout, so
+ * the server's update path can say it without reaching into the installer (the
+ * install_host_privilege closure gate).
+ */
+export function nightlyImageMessage(nightly: string): string {
+	return `Docker has no nightly images: ${nightly} is a development build, so there is no image to install. Nightlies reach tree installs through the code update path (tree archives); a Docker install runs tagged releases only`;
+}

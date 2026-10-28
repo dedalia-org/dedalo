@@ -107,7 +107,12 @@ import {
 import { tlsCommands as stackTlsCommands } from '../../src/core/install/host/stack/tls.ts';
 import { engineSourceFiles } from '../helpers/engine_source_corpus.ts';
 import { stackPlanCtx } from '../helpers/install_host_scratch.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
+
+// The installer's release identity is the checkout's: a dev checkout names no image,
+// so these cases are written for a STABLE installer (test/helpers/installer_identity.ts).
+pinInstallerIdentity(PINNED_IDENTITY.stable);
 
 const ROOT = resolve(import.meta.dir, '../..');
 const DOCKERIGNORE = readFileSync(join(ROOT, '.dockerignore'), 'utf-8');
