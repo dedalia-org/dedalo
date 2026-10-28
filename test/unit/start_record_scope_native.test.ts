@@ -292,6 +292,30 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 		expect(superuser).toContain(value(OUT_OF_SCOPE_ID));
 	});
 
+	test('NO source.tipo is no bypass: read is refused as invalid, count is scoped and refused on an ungranted section', async () => {
+		const ask = async (action: 'read' | 'count', userId: number, sectionTipo: string) =>
+			dispatchRqo(
+				{
+					action,
+					dd_api: 'dd_core_api',
+					source: { section_tipo: sectionTipo, mode: 'list', model: 'section' },
+					sqo: { section_tipo: [sectionTipo], limit: 10, offset: 0 },
+				} as never,
+				(await contextFor(userId, userId === -1)) as never,
+			);
+		const read = await ask('read', USER_ID, SECTION);
+		expect([read.status, codeOf(read.body)]).toEqual([400, 'request.invalid_source']);
+		expect(JSON.stringify(read.body)).not.toContain('ZZSRS_VALUE_');
+		const count = await ask('count', USER_ID, SECTION);
+		expect(count.status).toBe(200);
+		expect((count.body.data as { total: number }).total).toBe(
+			((await ask('count', -1, SECTION)).body.data as { total: number }).total - 1,
+		);
+		// a section the persona holds no grant on: refused without naming a component
+		const ungranted = await ask('count', USER_ID, 'dd88');
+		expect([ungranted.status, codeOf(ungranted.body)]).toEqual([403, 'perm.denied']);
+	});
+
 	test('untouched by the check: id 0', async () => {
 		const zero = await start(USER_ID, { tipo: SECTION, id: '0' });
 		expect(zero.status).toBe(200);
