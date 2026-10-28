@@ -3,10 +3,10 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1834590,
-		"sha256": "3e95d88d17c8a4465a7eb49e17d7b8195294bb65f6f103e9f48e6b238823967d",
-		"content_sha256": "ca77ddc14f4d15d579f55817fe940dd6868b7b5384ac35d1dcba1c0c2ad3bd3d",
-		"pg_dump_version": "18.4 (Homebrew)"
+		"bytes": 1837476,
+		"sha256": "bc185ca77ed4f59c0bb2cbc169012444027b30073c5b71605b9c1da6a67fdbe3",
+		"content_sha256": "457425ea54e1e8b8f2a4e10800322ce8258a2dcff89e7dcc24837775da669764",
+		"pg_dump_version": "18.6 (Homebrew)"
 	},
 	"sources": {
 		"install/db/migrations/0001_baseline.sql": "79dd5dd2f60672514befb7a713e2f96727b79febb3a75b772b5a5f93df64c11b",
@@ -27,14 +27,14 @@
 		"install/db/seed/matrix_hierarchy_main.copy.gz": "428a17df3cd241164b21af50d0f2bded6ed8677014853329182c554a655b1336",
 		"install/db/seed/matrix_langs.copy.gz": "ba220588e8405426180997c285c1aa685022c8818ed77f29379a624f9f73a908",
 		"install/db/seed/schema.sql": "fedf29490147b2332d31cacfa27fff78ed53a83d30d05defdafadd75b93f5ba7",
-		"install/import/ontology/7.0/dd.copy.gz": "f2b86d96d417fd15ca5d1b9928cdd2486c51b7b2739d370fd66a4620aac6459f",
-		"install/import/ontology/7.0/hierarchy.copy.gz": "26091e984a2712191f5275eeb07fef5db7a431d294309f1b47aedc4ad7c66dc4",
+		"install/import/ontology/7.0/dd.copy.gz": "0e9a54cc05db577b8c4508254f23d9c76a6c15db7d42383773158b7981aee251",
+		"install/import/ontology/7.0/hierarchy.copy.gz": "8c04699f6569aa6dc3083cf3c183873554f9fe7ecac5fab5099ddfa523730359",
 		"install/import/ontology/7.0/lg.copy.gz": "4c4e955478b26a0854900e23aa39eaf1a8ce1ca878c5f34993de075f9a9f6724",
 		"install/import/ontology/7.0/matrix_dd.copy.gz": "604ba1afb7e3f203c6bfd66314406ed98207ba133cbdca7c3ba400c5c4a31920",
-		"install/import/ontology/7.0/ontology.copy.gz": "89f05c4ca06367a195fe98486ba88857028bf2d33f78afa5d98f18cfdcb2d339",
-		"install/import/ontology/7.0/ontology.json": "ca33afc829482613adfdc90917991da189046ff9d8cf5bd2430aa75760a8d5b2",
-		"install/import/ontology/7.0/ontologytype.copy.gz": "1d395531a5d215b32ac0980157a28ed750da09a6afe360395a8d9307e0ec5be6",
-		"install/import/ontology/7.0/rsc.copy.gz": "fb8947ac751f0495c0499a61dac37a55225477959bc42fbdcbbf93974536f0b3",
+		"install/import/ontology/7.0/ontology.copy.gz": "ad13b95deeeb38736c9c68884bc68d72afeeff513407facf28fdc12787472529",
+		"install/import/ontology/7.0/ontology.json": "f68c816a30140a55c5ad3406cbf01e155aa096e67b458fc8695f2b27601c7de4",
+		"install/import/ontology/7.0/ontologytype.copy.gz": "62b4876679c246484937dde33d301a3d6f8f3574eb2a8c9ec6d8c40219332519",
+		"install/import/ontology/7.0/rsc.copy.gz": "3c495e8b2b8957258952261201c14f53d8131e9aac4240bf312657348eec460e",
 		"scripts/seed_build_child.ts": "97e9caa5785d2fca86fd692fa468800d1f63c4b22b39798496d1705142471513",
 		"src/core/install/copy_section_ids.ts": "f9a9efa56897f0bc862b64343cca5dfc3e175f44b38537d789e85225ec0ce4cc",
 		"src/core/install/seed_build.ts": "2e53eed0d912ded8c213c86a8cc185a2a0714e2d271abe62b6a62a4b47450b64",
@@ -43,10 +43,10 @@
 	"rules_digest": "37c08ceda16f2f743df6a6d847629b1548280378d712b5f26a0c2a9ef74ae34e",
 	"ontology_release": {
 		"version": "7.0.0",
-		"date": "2026-10-13T00:25:05+02:00"
+		"date": "2026-10-28T18:10:23+01:00"
 	},
 	"tables": {
-		"dd_ontology": 3493,
+		"dd_ontology": 3499,
 		"dd_ontology_recovery": 0,
 		"main_dd": 0,
 		"matrix": 0,
@@ -68,7 +68,7 @@
 		"matrix_nexus_main": 0,
 		"matrix_notes": 0,
 		"matrix_notifications": 0,
-		"matrix_ontology": 3487,
+		"matrix_ontology": 3493,
 		"matrix_ontology_main": 6,
 		"matrix_profiles": 2,
 		"matrix_projects": 1,
@@ -86,13 +86,13 @@
 			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores + core hierarchies activated (lg) — OK",
 			"boot migrations: 12 applied, 0 skipped; online: 2 applied",
 			"ontology dd in sync (1731 nodes)",
-			"ontology rsc in sync (1560 nodes)",
+			"ontology rsc in sync (1566 nodes)",
 			"ontology ontology in sync (42 nodes)",
 			"ontology ontologytype in sync (14 nodes)",
 			"ontology hierarchy in sync (137 nodes)",
 			"ontology lg in sync (9 nodes)",
-			"matrix_string_search filled by the boot self-heal (73268 rows)",
-			"matrix_relation_index filled by the boot self-heal (171554 rows)",
+			"matrix_string_search filled by the boot self-heal (73280 rows)",
+			"matrix_relation_index filled by the boot self-heal (171625 rows)",
 			"lg (Languages) active",
 			"root password set and verified"
 		]
