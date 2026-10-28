@@ -66,7 +66,6 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import {
-	archiveIdentityPlan,
 	DEV_PUBLISHES_NO_IMAGE,
 	FULL_GATE_WORKFLOWS,
 	fullGateFault,
@@ -75,7 +74,6 @@ import {
 	type PlanGit,
 	publishTagFault,
 	Refusal,
-	type ReleasePlan,
 	type Runner,
 	resolvePlan,
 	SMOKE_HEALTH_SCRIPT,
@@ -1330,82 +1328,13 @@ describe('the pure verdicts', () => {
 	test('immutability: absent everywhere is fresh, and an error is never read as absent', async () => {
 		const { immutabilityVerdict } = await import('../../scripts/ci/image_release.ts');
 		const absent: ManifestState = { state: 'absent' };
-		expect(immutabilityVerdict('master', [{ repository: 'a', state: absent }])).toEqual({
+		expect(immutabilityVerdict([{ repository: 'a', state: absent }])).toEqual({
 			kind: 'fresh',
 			overwrite: false,
 		});
 		expect(() =>
-			immutabilityVerdict('master', [{ repository: 'a', state: { state: 'error', detail: 'x' } }]),
+			immutabilityVerdict([{ repository: 'a', state: { state: 'error', detail: 'x' } }]),
 		).toThrow(Refusal);
-		expect(
-			immutabilityVerdict('dev', [{ repository: 'a', state: { state: 'error', detail: 'x' } }]),
-		).toEqual({
-			kind: 'fresh',
-			overwrite: true,
-		});
-	});
-});
-
-// The archive decides the image tag (archiveIdentityPlan). A nightly is an UNTAGGED archive
-// (VERSIONING_SPEC D3, option a): an untagged dev-channel archive is published under the NEXT
-// nightly tag (X.Y.Z-dev of the archive's own DEDALO_NEXT_RELEASE); an archive whose
-// describe names a release tag is refused, the tag named. Data 7.0.0, next 7.0.0 (spec §5).
-describe('archive identity — a dev-channel archive is an untagged nightly (VERSIONING_SPEC D3, S9)', () => {
-	const SHA = 'a'.repeat(40);
-	const ISO = '2026-10-27T10:00:00+00:00';
-	const devPlan: ReleasePlan = {
-		version: '7.0.0',
-		tag: '7.0.0-dev',
-		channel: 'dev',
-		source_sha: SHA,
-		staging: STAGING,
-		expected_engine_version: '7.0.0-dev',
-		next_dev_version: '7.0.0',
-	};
-	/** A build_info.txt line as the archive expands it: `<sha> <date> <describe>`. */
-	const stampOf = (describe: string) => `${SHA} ${ISO} ${describe}\n`;
-
-	test("an untagged dev-channel archive (describe '') is published as 7.0.0-dev", () => {
-		const held = archiveIdentityPlan(devPlan, stampOf(''), DEDALO_NEXT_RELEASE);
-		expect(held).toMatchObject({
-			tag: '7.0.0-dev',
-			channel: 'dev',
-			expected_engine_version: '7.0.0-dev',
-			next_dev_version: '7.0.0',
-		});
-	});
-
-	test("S9: a dev-channel archive of an exact patch tag (describe 'v7.0.1') is refused, naming the tag", () => {
-		expect(() => archiveIdentityPlan(devPlan, stampOf('v7.0.1'), DEDALO_NEXT_RELEASE)).toThrow(
-			'is the tagged commit v7.0.1: a tagged commit is a release or beta',
-		);
-	});
-
-	test("S9: a dev-channel archive of an exact prerelease tag (describe 'v7.0.0-beta.6') is refused", () => {
-		expect(() =>
-			archiveIdentityPlan(devPlan, stampOf('v7.0.0-beta.6'), DEDALO_NEXT_RELEASE),
-		).toThrow('is the tagged commit v7.0.0-beta.6');
-	});
-
-	test("S9: a dev-channel archive of the data triple's own release tag (describe 'v7.0.0') is refused", () => {
-		expect(() => archiveIdentityPlan(devPlan, stampOf('v7.0.0'), DEDALO_NEXT_RELEASE)).toThrow(
-			'is the tagged commit v7.0.0',
-		);
-	});
-
-	test("a commit PAST a tag (describe 'v7.0.0-beta.6-3-gabc') is an untagged nightly, not a tagged one", () => {
-		const held = archiveIdentityPlan(
-			devPlan,
-			stampOf('v7.0.0-beta.6-3-g2915808635'),
-			DEDALO_NEXT_RELEASE,
-		);
-		expect(held).toMatchObject({ tag: '7.0.0-dev', expected_engine_version: '7.0.0-dev' });
-	});
-
-	test('a dev-channel archive that declares no NEXT triple is refused: its nightly cannot be named', () => {
-		expect(() => archiveIdentityPlan(devPlan, stampOf(''), null)).toThrow(
-			'declares no DEDALO_NEXT_RELEASE',
-		);
 	});
 });
 

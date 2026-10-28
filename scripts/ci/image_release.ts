@@ -114,7 +114,6 @@ import {
 	parseBuildInfo,
 	parseReleaseVersion,
 	type ReleaseKind,
-	releaseVersionOfTag,
 	resolveReleaseIdentity,
 } from '../../src/core/update/release_identity.ts';
 import { cosignDownloadUrl, isPinSet, readCosignPin } from '../ci_cosign_pin.ts';
@@ -306,7 +305,7 @@ export interface ReleasePlan {
 	 * resolves to (archiveIdentityPlan): X.Y.Z for a release, X.Y.Z-(alpha|beta|rc).N for a prerelease.
 	 */
 	expected_engine_version: string;
-	/** Set only on the archive-side dev branch (archiveIdentityPlan); '' for every plan resolvePlan returns. */
+	/** Always '' (no dev plan exists; kept as the `next_dev_version` output key the verb writes). */
 	next_dev_version: string;
 }
 
@@ -455,16 +454,12 @@ const VERSION_TS_IN_ARCHIVE = 'src/core/update/version.ts';
  * reads its release identity from the archive's expanded build_info.txt
  * (release_identity.ts), so that — not the plan's arithmetic — is what the smoke
  * step will find. Resolved here exactly as the engine resolves it, with the
- * install channel the image is stamped with:
- *  - a release whose archive does not call itself the tag is REFUSED before any
- *    build: a lightweight tag (describe ignores it) or a clone without the tags
- *    would ship an image that says `.dev`;
- *  - a developer archive (refused by resolvePlan: the dev channel publishes no image) is
- *    named `X.Y.Z-dev` (the NEXT triple the
- *    archive's own version.ts declares); an archive whose describe names a release
- *    tag is refused (a tagged commit is never a nightly, VERSIONING_SPEC D3).
+ * install channel the image is stamped with: a release whose archive does not call
+ * itself the tag is REFUSED before any build: a lightweight tag (describe ignores it)
+ * or a clone without the tags would ship an image that says `.dev`.
  * `stamp` is the archived build_info.txt, '' when the archive has none;
- * `nextDevTriple` is the archive's DEDALO_NEXT_RELEASE, null when it declares none.
+ * `nextDevTriple` is the archive's DEDALO_NEXT_RELEASE, null when it declares none
+ * (an untagged archive then reads the data triple).
  */
 export function archiveIdentityPlan(
 	plan: ReleasePlan,
@@ -482,35 +477,13 @@ export function archiveIdentityPlan(
 		describe: info.describe,
 		provenance: { stamp: info.legacy ? 'legacy' : 'other', channel: plan.channel },
 	});
-	if (plan.channel === 'dev' && nextDevTriple === null)
+	if (identity.version !== plan.expected_engine_version)
 		throw new Refusal(
-			`the archive of ${plan.source_sha} declares no DEDALO_NEXT_RELEASE (src/core/update/version.ts): its developer image cannot be named`,
+			`the archive of ${plan.source_sha} calls itself ${identity.version}, not ${plan.expected_engine_version}: ` +
+				`a release tag must be ANNOTATED (git tag -a — the archive's %(describe) ignores lightweight tags) ` +
+				`and the archiving clone must hold the tags${identity.notice === null ? '' : ` (${identity.notice})`}`,
 		);
-	if (plan.channel !== 'dev') {
-		if (identity.version !== plan.expected_engine_version)
-			throw new Refusal(
-				`the archive of ${plan.source_sha} calls itself ${identity.version}, not ${plan.expected_engine_version}: ` +
-					`a release tag must be ANNOTATED (git tag -a — the archive's %(describe) ignores lightweight tags) ` +
-					`and the archiving clone must hold the tags${identity.notice === null ? '' : ` (${identity.notice})`}`,
-			);
-		return plan;
-	}
-	// A nightly is an UNTAGGED archive (VERSIONING_SPEC D3, option a): an archive whose
-	// stamp names a release tag is that release's bytes, never a nightly — refused, the
-	// tag named. (resolvePlan refuses every dev dispatch before any archive exists.)
-	if (info.describe !== null && releaseVersionOfTag(info.describe) !== null)
-		throw new Refusal(
-			`the archive of ${plan.source_sha} is the tagged commit ${info.describe}: a tagged commit is a release or beta, named by its tag, never a nightly (VERSIONING_SPEC D3)`,
-		);
-	// every untagged dev-channel archive is published under the NEXT nightly tag
-	// (X.Y.Z-dev of the archive's own DEDALO_NEXT_RELEASE)
-	const next = `${nextDevTriple?.join('.')}-dev`;
-	return {
-		...plan,
-		tag: next,
-		expected_engine_version: identity.version,
-		next_dev_version: nextDevTriple?.join('.') ?? '',
-	};
+	return plan;
 }
 
 /** The archived build_info.txt of `tarPath`, '' when the archive has none. */
@@ -794,16 +767,14 @@ export type Immutability =
 	| { kind: 'existing'; digest: string; holder: string };
 
 /**
- * Step 4, pure. Dev tags are mutable by definition. A release tag (stable or
- * prerelease — both immutable) held anywhere IS the
- * release: every holder must agree on one digest, which the missing targets then
+ * Step 4, pure. A release tag (stable or prerelease — both immutable) held anywhere IS
+ * the release: every holder must agree on one digest, which the missing targets then
  * receive; disagreement or an unreadable target refuses before anything is signed.
+ * (The dev channel publishes no image, so no dev tag reaches this verdict.)
  */
 export function immutabilityVerdict(
-	channel: InstallChannel,
 	existing: readonly { repository: string; state: ManifestState }[],
 ): Immutability {
-	if (channel === 'dev') return { kind: 'fresh', overwrite: true };
 	const unreadable = existing.find((item) => item.state.state === 'error');
 	if (unreadable !== undefined)
 		throw new Refusal(
@@ -995,7 +966,7 @@ function chooseSource(
 		repository: target.repository,
 		state: inspectDigest(ctx.run, `${target.repository}:${ctx.plan.tag}`),
 	}));
-	const verdict = immutabilityVerdict(ctx.plan.channel, existing);
+	const verdict = immutabilityVerdict(existing);
 	if (verdict.kind === 'existing') return existingRelease(ctx, existing, verdict.digest);
 	const refFault = freshReleaseRefFault(ctx);
 	if (refFault !== null) throw new Refusal(refFault);
@@ -1499,11 +1470,9 @@ function planVerb(env: Env, run: Runner): number {
 	const list = registriesOf(env);
 	const plan = resolvePlan(planFactsOf(env), gitLookups(run, cwd), list.ci.staging_repository);
 	// A prerelease IS a release (owner Q1): held to the same full gate as a stable one.
-	if (plan.channel !== 'dev') {
-		const fault = fullGateFault(plan.source_sha, fullGateGreens(env, run, plan.source_sha));
-		if (fault !== null) throw new Refusal(fault);
-		console.log(`plan: full gate green on ${plan.source_sha} (${FULL_GATE_WORKFLOWS.join(' + ')})`);
-	}
+	const fault = fullGateFault(plan.source_sha, fullGateGreens(env, run, plan.source_sha));
+	if (fault !== null) throw new Refusal(fault);
+	console.log(`plan: full gate green on ${plan.source_sha} (${FULL_GATE_WORKFLOWS.join(' + ')})`);
 	const tmp = requireEnv(env, ['RUNNER_TEMP']).RUNNER_TEMP as string;
 	const tarPath = join(tmp, 'plan-source.tar');
 	const archive = archiveTree(run, cwd, plan.source_sha, tarPath);
