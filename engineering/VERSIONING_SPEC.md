@@ -1,6 +1,6 @@
 # Versioning spec — builds, installs, data
 
-**Status:** APPROVED 2026-10-27 by the owner (decisions D1–D6 in §8). The code, gates and operator docs must satisfy it. Where they disagree, this spec wins.
+**Status:** APPROVED 2026-10-27 by the owner (decisions D1–D6 in §8). D1 AMENDED 2026-10-28 (amendment A1 in §8). The code, gates and operator docs must satisfy it. Where they disagree, this spec wins.
 
 This spec says what a version *means* and what each install is allowed to take. The code, gates and operator docs must agree with it. Where they disagree, this spec wins and the disagreement is a bug.
 
@@ -46,8 +46,8 @@ Nothing ever moves to a lower identity, on any install type or channel.
 | Install | May take | May NOT take |
 |---|---|---|
 | **Docker** | Its own release or beta image, and any higher release or beta image. | Any `-dev` image, on any channel. Any lower identity. |
-| **Tree, master channel** | Releases above its own. A nightly only through an explicit emergency opt-in (D1). | Nightlies without the opt-in. Betas. Lower identities. |
-| **Tree, prerelease channel** | Betas and releases above its own. A nightly only through an explicit emergency opt-in (D1). | Nightlies without the opt-in. Lower identities. |
+| **Tree, master channel** | Releases above its own. Never a nightly (A1). | Nightlies. Betas. Lower identities. |
+| **Tree, prerelease channel** | Betas and releases above its own. Never a nightly (A1). | Nightlies. Lower identities. |
 | **Tree, dev channel** | Nightlies and releases above its own. A nightly moves forward to the release it names. | Lower identities. |
 
 A dev install of `7.0.0-dev` moves to `7.0.0`, then to `7.0.1-dev` or `7.0.1`, whichever is next. It never moves back to a beta of the same triple.
@@ -124,7 +124,7 @@ Each scenario is a test the gates must pass once this spec is signed off.
 
 ## 8. Decisions
 
-**Approved by the owner, 2026-10-27:** D1 b, D2 b, D3 a, D4 b with the gate from a, D5 b, D6 as written in §5.
+**Approved by the owner, 2026-10-27:** D1 b (amended to a by A1, 2026-10-28), D2 b, D3 a, D4 b with the gate from a, D5 b, D6 as written in §5.
 
 The text below records each decision and the options considered.
 
@@ -152,6 +152,18 @@ The text below records each decision and the options considered.
 - Option a: keep the concatenated key (`'701'`). Rejected: it collides (`'7110'` for both `7.1.10` and `7.11.0`).
 - Option b: dotted triple (`'7.0.1'`, `'7.11.1'`). Matches the release identity and the git tag, so nothing needs translating.
 - **Recommendation:** b. It touches `catalogKeyOf`, the key lookup in `getMatchedDescriptor`, the catalog tripwires and the test fixtures that index by key. `scripts/update_probe.ts` builds a rung key and must change with it. The PHP engine that used `'701'` is frozen, so it does not constrain this.
+
+### Amendment A1 — D1 becomes option a (2026-10-28)
+
+**Decision:** D1 is **option a**: only the dev channel receives nightlies. No emergency opt-in exists on any tree install.
+
+**Why:** an opt-in creates a second update path that bypasses the gates, the changelog, the catalog entry and the image build, and it runs unreleased code on a long-lived heritage install. An emergency fix goes out as a patch tag instead (`engineering/RELEASE.md`, *Emergency fix*), through the same gates as any release. Option a is also what the code already does, so nothing needs building.
+
+**Effect:**
+- §2 and §3: a stable or prerelease tree install is never offered a nightly. The dev channel is unchanged.
+- §7 S6 stays as written ("not offered").
+- D2 and D3 are unchanged. D2 means a nightly never carries a data change, so no unreleased build can migrate data.
+- `engineering/RELEASE.md` *Emergency fix*: the patch-tag route covers tree installs as well as Docker.
 
 ---
 

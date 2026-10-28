@@ -15,9 +15,9 @@
  * (`<X.Y.Z-beta.N>.zip` there, `:<X.Y.Z-beta.N>` here, install-stamp channel
  * `prerelease`). The developer build of `master` (`<v>-dev.zip`, a TREE archive for the
  * code update path) is NOT an image: the dev channel publishes no images (docker images are
- * immutable; a docker install runs tagged releases only), so `publish` refuses it
- * (publishTagFault). The rules are code_build_plan.ts's (`releaseTagIdentity`,
- * `parseDeclaredTriple`, `DEV_REF`), imported, never restated.
+ * immutable; a docker install runs tagged releases only), so `plan` refuses a dev dispatch
+ * and `publish` refuses any dev tag (DEV_PUBLISHES_NO_IMAGE). The rules are
+ * code_build_plan.ts's (`releaseTagIdentity`, `DEV_REF`), imported, never restated.
  *
  * ONE TAG PER RUN, NEVER A FLOATING ONE. The image tag a run writes to a target registry
  * is `imageTagOf(identity)` (release_identity.ts — the function the installer's Official
@@ -97,10 +97,8 @@ import { join } from 'node:path';
 import {
 	DEV_REF,
 	parseDeclaredNextDevTriple,
-	parseDeclaredTriple,
 	qualifiedReleaseTag,
 	releaseTagIdentity,
-	VERSION_TS_PATH,
 } from '../../src/core/update/code_build_plan.ts';
 import {
 	type ImageRegistry,
@@ -288,45 +286,27 @@ export interface PlanFacts {
  */
 export interface PlanGit extends ReleaseTagGit {
 	/** The X.Y.Z a commit's version.ts declares, or null. */
-	declaredAt(rev: string): string | null;
-	/** The NEXT X.Y.Z a commit's version.ts declares (DEDALO_NEXT_RELEASE), or null. */
-	declaredNextAt(rev: string): string | null;
-	/** The commit a ref names, or null when it does not exist. */
 	commitOf(ref: string): string | null;
-	/**
-	 * The release tags (`v*` in the shared grammar) that point at `rev`, or null when
-	 * git cannot answer. A developer build of a tagged commit is refused (VERSIONING_SPEC D3).
-	 */
-	releaseTagsAt(rev: string): string[] | null;
 }
 
 export interface ReleasePlan {
 	/** The DATA triple X.Y.Z (version.ts) — for a prerelease too; the identity is in `tag`. */
 	version: string;
 	/**
-	 * The ONE image tag the run writes: `imageTagOf(identity)` — X.Y.Z (release,
-	 * immutable), X.Y.Z-(alpha|beta|rc).N (prerelease, immutable) or X.Y.Z-dev
-	 * (developer, mutable).
+	 * The ONE image tag the run writes: `imageTagOf(identity)` — X.Y.Z (release) or
+	 * X.Y.Z-(alpha|beta|rc).N (prerelease), both immutable. The dev channel has no tag.
 	 */
 	tag: string;
-	/**
-	 * The install-stamp channel the image carries (the Dockerfile's provenance step,
-	 * install_stamp.ts InstallChannel): master (stable), prerelease, or dev.
-	 */
+	/** The install-stamp channel the image carries (install_stamp.ts InstallChannel): master or prerelease. */
 	channel: InstallChannel;
 	source_sha: string;
 	staging: string;
 	/**
-	 * What the image's own DEDALO_ENGINE_VERSION must say — the release identity
-	 * its archive resolves to (archiveIdentityPlan): X.Y.Z for a release; for a
-	 * developer build X.Y.Z-dev (the next nightly), or the tag when the commit is exactly tagged.
+	 * What the image's own DEDALO_ENGINE_VERSION must say — the identity its archive
+	 * resolves to (archiveIdentityPlan): X.Y.Z for a release, X.Y.Z-(alpha|beta|rc).N for a prerelease.
 	 */
 	expected_engine_version: string;
-	/**
-	 * The NEXT release triple X.Y.Z (version.ts DEDALO_NEXT_RELEASE) a developer
-	 * build names its image after (`<next>-dev`); '' on a release or prerelease. The
-	 * publish verb needs it to refuse a dev tag that is not the next nightly.
-	 */
+	/** Set only on the archive-side dev branch (archiveIdentityPlan); '' for every plan resolvePlan returns. */
 	next_dev_version: string;
 }
 
@@ -364,40 +344,6 @@ function releasePlanFor(tagRef: string, git: PlanGit, staging: string): ReleaseP
 }
 
 /**
- * A developer build: dispatched on the dev branch. A dev run names its archive the NEXT
- * nightly tag (`<next>-dev`). A nightly is an UNTAGGED commit (VERSIONING_SPEC D3, option a):
- * a dev run whose commit carries a release or beta tag is refused, naming the tag.
- */
-function devPlanFor(facts: PlanFacts, git: PlanGit, staging: string): ReleasePlan {
-	if (facts.ref !== DEV_BRANCH_REF)
-		throw new Refusal(
-			`a developer image is built only from ${DEV_BRANCH_REF} (this run is on ${facts.ref})`,
-		);
-	const declared = git.declaredAt(facts.sha);
-	if (declared === null)
-		throw new Refusal(`${facts.sha} declares no version in ${VERSION_TS_PATH}`);
-	const tags = git.releaseTagsAt(facts.sha);
-	if (tags === null)
-		throw new Refusal(`cannot read the tags of ${facts.sha}, so it cannot be shown untagged`);
-	if (tags.length > 0)
-		throw new Refusal(
-			`${facts.sha} is the tagged commit ${tags.join(', ')}: a tagged commit is a release or beta, named by its tag, never a nightly (VERSIONING_SPEC D3)`,
-		);
-	const next = git.declaredNextAt(facts.sha);
-	if (next === null)
-		throw new Refusal(`${facts.sha} declares no DEDALO_NEXT_RELEASE in ${VERSION_TS_PATH}`);
-	return {
-		version: declared,
-		tag: `${next}-dev`,
-		channel: 'dev',
-		source_sha: facts.sha,
-		staging,
-		expected_engine_version: `${next}-dev`,
-		next_dev_version: next,
-	};
-}
-
-/**
  * A release dispatch publishes an EXISTING tag. It runs from the dev branch (which may only
  * fill or sign a release already anchored — publish's fresh-path rule) or from THAT SAME
  * tag (whose signature is this release's own identity) — never from another release tag,
@@ -418,9 +364,10 @@ export function resolvePlan(facts: PlanFacts, git: PlanGit, staging: string): Re
 	if (facts.event === 'push') return releasePlanFor(facts.ref, git, staging);
 	if (facts.event !== 'workflow_dispatch')
 		throw new Refusal(`a '${facts.event}' event never publishes an image`);
-	if (facts.inputChannel === 'dev') return devPlanFor(facts, git, staging);
+	// the dev channel publishes no image (VERSIONING_SPEC §2, S3): refused, never planned
+	if (facts.inputChannel === 'dev') throw new Refusal(DEV_PUBLISHES_NO_IMAGE);
 	if (facts.inputChannel === 'release') return dispatchedReleasePlan(facts, git, staging);
-	throw new Refusal(`channel must be dev or release (got '${facts.inputChannel}')`);
+	throw new Refusal(`channel must be release (got '${facts.inputChannel}')`);
 }
 
 /** The workflows whose green push runs ARE the full gate on GitHub: hermetic; db + instance. */
@@ -483,25 +430,9 @@ export function gitLookups(run: Runner, cwd: string): PlanGit {
 	};
 	return {
 		fileAt,
-		declaredAt: (rev) => {
-			const source = fileAt(rev, VERSION_TS_PATH);
-			return source === null ? null : parseDeclaredTriple(source);
-		},
-		declaredNextAt: (rev) => {
-			const source = fileAt(rev, VERSION_TS_PATH);
-			return source === null ? null : parseDeclaredNextDevTriple(source);
-		},
 		commitOf: (ref) => {
 			const parsed = run(['git', 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd });
 			return parsed.code === 0 ? parsed.stdout.trim() : null;
-		},
-		releaseTagsAt: (rev) => {
-			const listed = run(['git', 'tag', '--points-at', rev, '--list', 'v*'], { cwd });
-			if (listed.code !== 0) return null;
-			return listed.stdout
-				.split('\n')
-				.map((line) => line.trim())
-				.filter((tag) => releaseVersionOfTag(tag) !== null);
 		},
 	};
 }
@@ -528,7 +459,8 @@ const VERSION_TS_IN_ARCHIVE = 'src/core/update/version.ts';
  *  - a release whose archive does not call itself the tag is REFUSED before any
  *    build: a lightweight tag (describe ignores it) or a clone without the tags
  *    would ship an image that says `.dev`;
- *  - a developer build is published under `X.Y.Z-dev` (the NEXT triple the
+ *  - a developer archive (refused by resolvePlan: the dev channel publishes no image) is
+ *    named `X.Y.Z-dev` (the NEXT triple the
  *    archive's own version.ts declares); an archive whose describe names a release
  *    tag is refused (a tagged commit is never a nightly, VERSIONING_SPEC D3).
  * `stamp` is the archived build_info.txt, '' when the archive has none;
@@ -565,7 +497,7 @@ export function archiveIdentityPlan(
 	}
 	// A nightly is an UNTAGGED archive (VERSIONING_SPEC D3, option a): an archive whose
 	// stamp names a release tag is that release's bytes, never a nightly — refused, the
-	// tag named. (devPlanFor refuses the same commit earlier, from the git object store.)
+	// tag named. (resolvePlan refuses every dev dispatch before any archive exists.)
 	if (info.describe !== null && releaseVersionOfTag(info.describe) !== null)
 		throw new Refusal(
 			`the archive of ${plan.source_sha} is the tagged commit ${info.describe}: a tagged commit is a release or beta, named by its tag, never a nightly (VERSIONING_SPEC D3)`,
@@ -1292,8 +1224,8 @@ function messageOf(error: unknown): string {
  *               never `7.0.0`, which after the stable release is another image;
  *   dev         NO IMAGE. The dev channel publishes no docker images (immutable tags,
  *               tagged releases only): a developer build is a TREE archive for the code
- *               update path (`archiveIdentityPlan` names it `<next>-dev`, untouched here).
- *               Every dev TAG is refused with DEV_PUBLISHES_NO_IMAGE.
+ *               update path. resolvePlan refuses a dev dispatch and every dev TAG is
+ *               refused here, both with DEV_PUBLISHES_NO_IMAGE.
  * Pure.
  */
 export function publishTagFault(

@@ -201,12 +201,13 @@ tagged releases only (stable `X.Y.Z` or beta `X.Y.Z-beta.N`); it never accepts a
 image. The developer build (`<v>-dev.zip`, identity `X.Y.Z-dev`) is a TREE archive, and
 nightlies reach production and dev installations through the code update path only.
 
-**Emergency fix for a stable Docker installation.** It ships as a code-only patch tag
+**Emergency fix for a stable installation (Docker or tree).** It ships as a code-only patch tag
 (for example `v7.0.1` over data `7.0.0`): the tag is a release of its own, its image is
 published by the tag push like any release, and it installs as that release. No downgrade
 on any channel; the order is `7.0.0` < `7.0.1-alpha.1` < `7.0.1-beta.1` < `7.0.1-rc.1` <
 `7.0.1-dev` < `7.0.1` < `7.0.2` (the reference comparator is
 `src/core/update/release_identity.ts`).
+A tree install takes the same patch tag through the code update, never a nightly (VERSIONING_SPEC A1).
 
 **A newly provisioned mirror** (e.g. the gitdedalo registry once its host exists) gets the
 existing releases by a `release`-channel dispatch per tag (input `tag: vX.Y.Z`): it copies

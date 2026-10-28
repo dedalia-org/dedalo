@@ -26,16 +26,15 @@
  *     re-pointed; a hanging command fails its target at the ceiling, record written; agreeing holders are kept, the missing target receives
  *     THEIR digest (never a rebuild), and a holder without the signature in its own
  *     registry is signed in place when X verifies elsewhere (the recovery door);
- *   - dev channel: the mutable tag is overwritten;
+ *   - dev channel: refused, nothing written (DEV_PUBLISHES_NO_IMAGE);
  *   - a target that ends with another digest fails the run, and the record says so;
  *   - the record (image-release.json) has the documented schema.
  * The plan rules run on a REAL scratch git repository (tags, version.ts, branches): a
- * stable tag whose version.ts agrees publishes; a disagreeing tag, a prerelease tag and
- * a developer build off another branch are refused; a developer build of master is
- * X.Y.Z-dev / X.Y.Z.dev. The plan reads the identity its OWN archive expands to (the real
- * placeholder): a lightweight release tag is refused, a dev build of a release commit expects
- * the tag; and the context step, run in a full clone and in a shallow tagless one, agrees with
- * or refuses the plan's archive digest.
+ * stable tag whose version.ts agrees publishes; a disagreeing tag is refused; a dev dispatch
+ * is refused on every ref (DEV_PUBLISHES_NO_IMAGE). The plan reads the identity its OWN
+ * archive expands to (the real placeholder): a lightweight release tag is refused; and the
+ * context step, run in a full clone and in a shallow tagless one, agrees with or refuses the
+ * plan's archive digest.
  *
  * A release TAG must also be CUT (gate 11, scripts/lib/release_tag.ts — the function the
  * pre-push hook runs too): a tag whose commit carries no changes/<identity>/release.json is
@@ -68,6 +67,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import {
 	archiveIdentityPlan,
+	DEV_PUBLISHES_NO_IMAGE,
 	FULL_GATE_WORKFLOWS,
 	fullGateFault,
 	type ManifestState,
@@ -1205,11 +1205,8 @@ describe('the trigger — every release tag reaches `plan`, which validates it e
 		readFileSync(join(ROOT, 'test', 'fixtures', 'release_identity', 'ordering.json'), 'utf8'),
 	) as { ascending: string[]; not_identities: string[] };
 	const fake: PlanGit = {
-		declaredAt: () => null,
-		declaredNextAt: () => null,
 		commitOf: () => null,
 		fileAt: () => null,
-		releaseTagsAt: () => [],
 	};
 	const planOf = (tag: string) =>
 		resolvePlan(
@@ -1617,12 +1614,12 @@ describe('plan — which release a run publishes', () => {
 		expect(result.out).toEqual({});
 	});
 
-	test(`an archiving git older than ${MIN_GIT_FOR_DESCRIBE} is refused before the archive; ${MIN_GIT_FOR_DESCRIBE} passes`, () => {
+	// the git-version check runs on the RELEASE channel (the dev channel is refused before it)
+	test(`an archiving git older than ${MIN_GIT_FOR_DESCRIBE} is refused before the archive; ${MIN_GIT_FOR_DESCRIBE} passes (release channel)`, () => {
 		const old = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: masterSha,
-			INPUT_CHANNEL: 'dev',
+			GITHUB_EVENT_NAME: 'push',
+			GITHUB_REF: 'refs/tags/v7.0.1',
+			GITHUB_SHA: releaseSha,
 			STUB_GIT_VERSION: 'git version 2.34.8',
 		});
 		expect(old.code).toBe(1);
@@ -1630,10 +1627,9 @@ describe('plan — which release a run publishes', () => {
 		expect(old.text).not.toContain('git archive --format=tar');
 		expect(old.out).toEqual({});
 		const minimum = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: masterSha,
-			INPUT_CHANNEL: 'dev',
+			GITHUB_EVENT_NAME: 'push',
+			GITHUB_REF: 'refs/tags/v7.0.1',
+			GITHUB_SHA: releaseSha,
 			STUB_GIT_VERSION: `git version ${MIN_GIT_FOR_DESCRIBE}.0`,
 		});
 		expect(minimum.code, minimum.text).toBe(0);
@@ -1725,19 +1721,26 @@ describe('plan — which release a run publishes', () => {
 		expect(result.out).toMatchObject({ tag: '7.0.2-beta.1', channel: 'prerelease' });
 	});
 
-	test('a dev dispatch from master is its NEXT X.Y.Z-dev, reporting the same identity', () => {
-		const result = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: masterSha,
-			INPUT_CHANNEL: 'dev',
-		});
-		expect(result.code, result.text).toBe(0);
-		expect(result.out).toMatchObject({
-			tag: '7.0.3-dev',
-			channel: 'dev',
-			expected_engine_version: '7.0.3-dev',
-		});
+	test('the DEV channel is REFUSED by plan: a dev dispatch plans no image, tagged commit or not, any branch (S3)', () => {
+		const refused: [string, string][] = [
+			['refs/heads/master', masterSha],
+			['refs/heads/master', releaseSha],
+			['refs/heads/master', rcSha],
+			['refs/heads/master', lightBetaSha],
+			['refs/heads/v7', masterSha],
+		];
+		for (const [ref, sha] of refused) {
+			const result = plan({
+				GITHUB_EVENT_NAME: 'workflow_dispatch',
+				GITHUB_REF: ref,
+				GITHUB_SHA: sha,
+				INPUT_CHANNEL: 'dev',
+			});
+			expect(result.code, `${ref} ${sha}`).toBe(1);
+			expect(result.text, `${ref} ${sha}`).toContain(DEV_PUBLISHES_NO_IMAGE);
+			expect(result.out).toEqual({});
+			expect(result.gh).toEqual([]);
+		}
 	});
 
 	test('a release whose tag is LIGHTWEIGHT is refused before any build (its archive would say .dev)', () => {
@@ -1750,77 +1753,6 @@ describe('plan — which release a run publishes', () => {
 		expect(result.text).toContain('calls itself 7.0.4-dev, not 7.0.3');
 		expect(result.text).toContain('ANNOTATED');
 		expect(result.out).toEqual({});
-	});
-
-	test('S9: a dev dispatch whose commit IS an annotated prerelease tag is refused, naming the tag (VERSIONING_SPEC D3)', () => {
-		const result = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: rcSha,
-			INPUT_CHANNEL: 'dev',
-		});
-		expect(result.code).toBe(1);
-		expect(result.text).toContain(`${rcSha} is the tagged commit v7.0.2-rc.1`);
-		expect(result.text).toContain('never a nightly (VERSIONING_SPEC D3)');
-		expect(result.out).toEqual({});
-	});
-
-	test('S9: a dev dispatch whose commit IS an annotated release tag (v7.0.1) is refused, naming v7.0.1', () => {
-		const result = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: releaseSha,
-			INPUT_CHANNEL: 'dev',
-		});
-		expect(result.code).toBe(1);
-		expect(result.text).toContain(`${releaseSha} is the tagged commit v7.0.1`);
-		expect(result.out).toEqual({});
-	});
-
-	test('S9: a LIGHTWEIGHT beta tag on the dev commit is refused too (the tag object is not the test)', () => {
-		const result = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: lightBetaSha,
-			INPUT_CHANNEL: 'dev',
-		});
-		expect(result.code).toBe(1);
-		expect(result.text).toContain(`${lightBetaSha} is the tagged commit v7.0.2-beta.2`);
-		expect(result.out).toEqual({});
-	});
-
-	test('a dev plan refuses a commit that declares no NEXT triple (the nightly cannot be named)', () => {
-		const fake: PlanGit = {
-			declaredAt: () => '7.0.0',
-			declaredNextAt: () => null,
-			commitOf: () => 'x',
-			fileAt: () => null,
-			releaseTagsAt: () => [],
-		};
-		expect(() =>
-			resolvePlan(
-				{
-					event: 'workflow_dispatch',
-					ref: 'refs/heads/master',
-					sha: 'x',
-					inputChannel: 'dev',
-					inputTag: '',
-				},
-				fake,
-				STAGING,
-			),
-		).toThrow('declares no DEDALO_NEXT_RELEASE');
-	});
-
-	test('a dev dispatch from another branch is refused', () => {
-		const result = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/v7',
-			GITHUB_SHA: masterSha,
-			INPUT_CHANNEL: 'dev',
-		});
-		expect(result.code).toBe(1);
-		expect(result.text).toContain('only from refs/heads/master');
 	});
 
 	test('a release dispatch re-publishes an EXISTING tag only', () => {
@@ -1894,13 +1826,14 @@ describe('plan — which release a run publishes', () => {
 		expect(dispatched.text).toContain('db.yml (no successful push run)');
 	});
 
-	test('an unreadable Actions API refuses (fail closed); a dev build never asks', () => {
+	test('an unreadable Actions API refuses (fail closed); a refused dev dispatch never asks it', () => {
 		const down = plan({ ...tagPush, GITHUB_SHA: releaseSha, STUB_GH_FAIL: '1' });
 		expect(down.code).toBe(1);
 		expect(down.text).toContain('runs unreadable');
 		const noRepo = plan({ ...tagPush, GITHUB_SHA: releaseSha, GITHUB_REPOSITORY: '' });
 		expect(noRepo.code).toBe(1);
 		expect(noRepo.text).toContain('runs unreadable');
+		// the dev channel is refused in resolvePlan, before the full-gate read
 		const dev = plan({
 			GITHUB_EVENT_NAME: 'workflow_dispatch',
 			GITHUB_REF: 'refs/heads/master',
@@ -1908,7 +1841,8 @@ describe('plan — which release a run publishes', () => {
 			INPUT_CHANNEL: 'dev',
 			STUB_GH_FAIL: '1',
 		});
-		expect(dev.code, dev.text).toBe(0);
+		expect(dev.code, dev.text).toBe(1);
+		expect(dev.text).toContain(DEV_PUBLISHES_NO_IMAGE);
 		expect(dev.gh).toEqual([]);
 	});
 
@@ -1948,23 +1882,23 @@ describe('plan — which release a run publishes', () => {
 	}
 
 	test("another FULL clone archives the plan's exact bytes — also off a tag, whatever its core.abbrev", () => {
+		// the dev channel publishes no image, so the second archive is a prerelease's (also off a tag)
 		const release = plan({ ...tagPush, GITHUB_SHA: releaseSha });
-		const dev = plan({
-			GITHUB_EVENT_NAME: 'workflow_dispatch',
-			GITHUB_REF: 'refs/heads/master',
-			GITHUB_SHA: masterSha,
-			INPUT_CHANNEL: 'dev',
+		const prerelease = plan({
+			GITHUB_EVENT_NAME: 'push',
+			GITHUB_REF: 'refs/tags/v7.0.2-beta.1',
+			GITHUB_SHA: betaSha,
 		});
 		expect(release.code, release.text).toBe(0);
-		expect(dev.code, dev.text).toBe(0);
+		expect(prerelease.code, prerelease.text).toBe(0);
 		const clone = cloneOf();
 		// A different default abbreviation is what another runner's object count gives.
 		expect(Bun.spawnSync(['git', '-C', clone, 'config', 'core.abbrev', '13']).exitCode).toBe(0);
 		try {
 			const releaseContext = context(clone, releaseSha, release.out.archive_sha256 as string);
 			expect(releaseContext.code, releaseContext.text).toBe(0);
-			const devContext = context(clone, masterSha, dev.out.archive_sha256 as string);
-			expect(devContext.code, devContext.text).toBe(0);
+			const prereleaseContext = context(clone, betaSha, prerelease.out.archive_sha256 as string);
+			expect(prereleaseContext.code, prereleaseContext.text).toBe(0);
 		} finally {
 			rmSync(join(clone, '..'), { recursive: true, force: true });
 		}
@@ -2018,11 +1952,8 @@ describe('plan — which release a run publishes', () => {
 
 	test('any other event never publishes', () => {
 		const fake: PlanGit = {
-			declaredAt: () => '7.0.1',
-			declaredNextAt: () => '7.0.2',
 			commitOf: () => 'x',
 			fileAt: () => null,
-			releaseTagsAt: () => [],
 		};
 		for (const event of ['pull_request', 'schedule', 'workflow_run'])
 			expect(() =>
