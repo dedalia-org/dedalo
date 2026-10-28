@@ -17,6 +17,17 @@ export const DEDALO_DATA_VERSION: readonly [number, number, number] = Object.fre
 ];
 
 /**
+ * The first data version of the line (VERSIONING_SPEC §4): a build with no data
+ * entry below its next release is at this triple. The version literals live in
+ * this module only (update_ownership_tripwire).
+ */
+export const DATA_LINE_START: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [
+	number,
+	number,
+	number,
+];
+
+/**
  * The string spelling of a triple (`[7, 0, 0]` → `'7.0.0'`) — the one helper that
  * turns a version constant into text (VERSIONING_SPEC §5: no string copy of the
  * triple exists, so none can drift). Compare triples, not strings.
@@ -80,8 +91,10 @@ export function parseVersionString(version: string): number[] {
 	// through to the split below, where `7.0.0-dev` yields a NaN part for the
 	// caller to refuse.
 	if (identity !== null && !identity.dev) return [...identity.triple];
+	// Every segment must be digits: Number('') is 0 and Number(' ') is 0, so a
+	// bare Number() map would turn an empty or blank version into a silent 0.0.0.
 	return version
 		.replace(/\.dev$/, '')
 		.split('.')
-		.map(Number);
+		.map((segment) => (/^\d+$/.test(segment) ? Number(segment) : NaN));
 }

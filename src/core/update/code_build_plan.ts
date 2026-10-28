@@ -354,6 +354,12 @@ export function planCodeBuild(
 	if (refRefusal !== null) return refRefusal;
 	const identity = releaseTagIdentity(ref);
 	const archiveTriple = archiveTripleOf(triple, identity, options.devVersion);
+	if (archiveTriple === null) {
+		return refused(
+			'Error. Invalid next release version',
+			`invalid devVersion: ${options.devVersion}`,
+		);
+	}
 	const targetDir = join(
 		filesDir,
 		String(archiveTriple[0]),
@@ -385,9 +391,12 @@ function archiveTripleOf(
 	triple: readonly number[],
 	identity: string | null,
 	devVersion: string | undefined,
-): number[] {
+): number[] | null {
 	if (identity !== null || devVersion === undefined) return [...triple];
-	return parseVersionString(devVersion);
+	// A declared NEXT triple that is no release triple is refused by the caller:
+	// a NaN part would become a `NaN/` directory, never a silent name.
+	const next = parseVersionString(devVersion);
+	return isReleaseVersionTriple(next) ? next : null;
 }
 
 /**

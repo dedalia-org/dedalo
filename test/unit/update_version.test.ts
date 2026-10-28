@@ -76,6 +76,20 @@ describe('parseVersionString', () => {
 		expect(parseVersionString('7.0.0.1')).toEqual([7, 0, 0, 1]);
 	});
 
+	test('a bare dotted triple parses as intended; garbage carries a NaN part for the caller to refuse', () => {
+		expect(parseVersionString('7.0.1')).toEqual([7, 0, 1]);
+		expect(parseVersionString('7.0.1.dev')).toEqual([7, 0, 1]);
+		// a dotted prerelease is no identity (the label is not a number): NaN, refused
+		expect(parseVersionString('7.0.0.beta.1').some((n) => Number.isNaN(n))).toBe(true);
+		// Number('') is 0 and Number(' ') is 0: an empty or blank version must NOT become 0.0.0
+		expect(parseVersionString('').some((n) => Number.isNaN(n))).toBe(true);
+		expect(parseVersionString(' ').some((n) => Number.isNaN(n))).toBe(true);
+		expect(parseVersionString('7..1').some((n) => Number.isNaN(n))).toBe(true);
+		expect(parseVersionString('7. 0 .1').some((n) => Number.isNaN(n))).toBe(true);
+		expect(parseVersionString('7.0.1e0').some((n) => Number.isNaN(n))).toBe(true);
+		expect(parseVersionString('7.x').some((n) => Number.isNaN(n))).toBe(true);
+	});
+
 	test('round-trips the DATA version; a dev engine identity is never read as a data triple', () => {
 		expect(parseVersionString(formatVersion(DEDALO_DATA_VERSION))).toEqual([
 			...DEDALO_DATA_VERSION,

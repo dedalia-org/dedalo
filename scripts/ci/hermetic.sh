@@ -186,6 +186,7 @@ HERMETIC_TRIPWIRES=(
 	# Data version derivation (VERSIONING_SPEC §4, 2026-10-28): pure catalog function + the
 	# build stamp, no DB. Verified DB-less (DB_PORT=59999).
 	test/unit/data_version_tripwire.test.ts
+	test/unit/nightly_no_data_tripwire.test.ts
 	test/unit/install_restart_supervisor_tripwire.test.ts
 	test/unit/ci_workflow_tripwire.test.ts
 	test/unit/backup_restorability_native.test.ts

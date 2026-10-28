@@ -53,12 +53,12 @@ export const code_satisfies = (required_version, code_identity) => {
 	if (code_data === '') {
 		return false;
 	}
-	const required = String(required_version ?? '')
-		.split('.')
-		.map(Number);
-	if (required.length === 0 || required.some((n) => !Number.isInteger(n))) {
+	const required_text = String(required_version ?? '');
+	// Digits and dots only: '' and '7.x' are no requirement (Number('') is 0, not NaN).
+	if (!/^\d+(\.\d+)*$/.test(required_text)) {
 		return false;
 	}
+	const required = required_text.split('.').map(Number);
 	const current = code_data.split('.').map(Number);
 	for (let i = 0; i < required.length; i++) {
 		const have = current[i] ?? 0;

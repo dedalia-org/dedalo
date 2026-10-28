@@ -424,6 +424,7 @@ const TRIPWIRES = [
 	'test/unit/term_by_tipo_label_guard.test.ts',
 	'test/unit/release_identity_separation_tripwire.test.ts',
 	'test/unit/data_version_tripwire.test.ts',
+	'test/unit/nightly_no_data_tripwire.test.ts',
 	'test/unit/section_toolbar_phone_tripwire.test.ts',
 	'test/unit/install_launcher_native.test.ts',
 	'test/unit/daemon_typecheck_scope_tripwire.test.ts',

@@ -88,6 +88,7 @@ describe("code_satisfies — an ontology's minimum code version against the runn
 		['7.1', '7.0.3', false],
 		['7.0.0', 'nonsense', false], // an unreadable code version is never "supported"
 		['7.x', '7.0.0', false],
+		['', '7.0.0', false], // an empty requirement is no requirement (Number('') is 0)
 	] as const)('requires %p, running %p → %p', (required, running, expected) => {
 		expect(code_satisfies(required, running)).toBe(expected);
 	});

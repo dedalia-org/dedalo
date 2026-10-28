@@ -653,8 +653,11 @@ export function releaseArchiveNameOf(fileName: string): ReleaseArchiveName | nul
  * triple the walk compares.
  */
 function devArchiveNameOf(stem: string): ReleaseArchiveName | null {
-	const triple = stem.slice(0, -'-dev'.length);
-	return /^[0-9]+\.[0-9]+\.[0-9]+$/.test(triple) ? { triple, kind: 'dev', identity: stem } : null;
+	// The canonical dev identity only (release_identity.ts DEV_VERSION_RE): no
+	// leading zeros, so `07.0.1-dev.zip` is refused (null), never named `07.0.1`.
+	const parsed = parseReleaseVersion(stem);
+	if (parsed === null || !parsed.dev) return null;
+	return { triple: parsed.triple.join('.'), kind: 'dev', identity: stem };
 }
 
 /** `<X.Y.Z>` or `<X.Y.Z-(alpha|beta|rc).N>` — a release identity in the shared grammar. */

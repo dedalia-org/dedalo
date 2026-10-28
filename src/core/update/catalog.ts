@@ -45,7 +45,7 @@
 import { BODY_SESSION_STATE, DO_BLOCK, stripSqlLiterals } from '../db/sql_lexer.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { SCRIPT_REGISTRY } from './scripts.ts';
-import { compareVersionArrays } from './version.ts';
+import { compareVersionArrays, DATA_LINE_START } from './version.ts';
 
 /** One catalog script step (PHP run_scripts entry). */
 export interface UpdateScriptStep {
@@ -127,15 +127,9 @@ export function catalogKeyOf(descriptor: UpdateDescriptorVersion): string {
 	return `${descriptor.versionMajor}.${descriptor.versionMedium}.${descriptor.versionMinor}`;
 }
 
-/**
- * The first data version of the line (VERSIONING_SPEC §4): a build with no data
- * entry below its next release is at this triple.
- */
-export const DATA_LINE_START: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [
-	number,
-	number,
-	number,
-];
+// DATA_LINE_START (the first data version of the line) lives in version.ts: a
+// version literal belongs there only (update_ownership_tripwire). Re-exported here.
+export { DATA_LINE_START } from './version.ts';
 
 /**
  * The data version a build derives from the catalog (VERSIONING_SPEC §4, D2/D4 b):
@@ -460,6 +454,26 @@ function dataPlacementViolations(record: Record<string, unknown>): DescriptorVio
 		: [];
 }
 
+/**
+ * A data descriptor must apply something: `updateData: true` with no
+ * `sqlUpdate` and no `runScripts` (absent or empty) would advance the data
+ * version while changing nothing. Refused at module load.
+ */
+function steplessDataViolations(record: Record<string, unknown>): DescriptorViolation[] {
+	const count = stepCount(record.sqlUpdate) + stepCount(record.runScripts);
+	return count === 0
+		? refused(
+				'data_without_steps',
+				'a data descriptor (updateData: true) carries no sqlUpdate and no runScripts: it would change nothing',
+			)
+		: [];
+}
+
+/** The number of entries of a step list (a non-list counts as none; its own rule refuses it). */
+function stepCount(steps: unknown): number {
+	return Array.isArray(steps) ? steps.length : 0;
+}
+
 /** A code-only release carries no steps. */
 function codeOnlyViolations(record: Record<string, unknown>): DescriptorViolation[] {
 	const steps = ['sqlUpdate', 'runScripts', 'executionOrder'].filter((name) => name in record);
@@ -488,6 +502,7 @@ export function validateUpdateDescriptor(
 	return [
 		...head,
 		...dataPlacementViolations(record),
+		...steplessDataViolations(record),
 		...sqlUpdateViolations(record.sqlUpdate),
 		...executionOrderViolations(record),
 		...scriptViolations(record.runScripts, scriptIds),

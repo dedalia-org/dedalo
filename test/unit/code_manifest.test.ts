@@ -880,7 +880,11 @@ describe('codeReleasePath (filename-grammar gate + layout)', () => {
 			kind: 'dev',
 			identity: '7.0.1-dev',
 		});
+		expect(releaseArchiveNameOf('07.0.1-dev.zip')).toBeNull();
 		for (const bad of [
+			'07.0.1-dev.zip', // leading zero: the dev identity is canonical, never named 07.0.1
+			'7.0.01-dev.zip',
+			'7.0.1-dev.dev.zip',
 			'7.0.1-pre.1.zip', // foreign label
 			'7.0.1-beta.01.zip', // non-canonical
 			'07.0.1.zip',

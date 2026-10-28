@@ -237,25 +237,32 @@ describe('planCodeBuild — version guard', () => {
 		expect(defaulted.ref).toBe('refs/tags/v7.0.1');
 	});
 
-	// FOUND, NOT FIXED (moved faithfully): `parseVersionString` maps segments
-	// through `Number`, which coerces '' → 0 and trims whitespace. So sloppy
-	// version strings are silently ACCEPTED and normalised. Pinned here so the
-	// quirk cannot change unnoticed; it is not exploitable — the release path is
-	// rebuilt from the parsed integer triple, never from the raw input.
-	for (const [sloppy, normalised] of [
-		['7..1', '7.0.1'],
-		['7. 0 .1', '7.0.1'],
-		['7.0.1e0', '7.0.1'],
-	] as const) {
-		test(`quirk: ${JSON.stringify(sloppy)} is accepted and normalised to ${normalised}`, () => {
-			// explicit ref: some of these sloppy strings are not valid git refs,
-			// and the ref gate would otherwise mask the version behaviour.
+	// Sloppy version strings are REFUSED (the quirk that accepted them — Number('')
+	// is 0 — was closed: parseVersionString yields a NaN part, which the version
+	// guard refuses before any path is built).
+	for (const sloppy of ['7..1', '7. 0 .1', '7.0.1e0', '', ' ']) {
+		test(`sloppy version ${JSON.stringify(sloppy)} is refused, never normalised`, () => {
 			const plan = planCodeBuild({ version: sloppy, ref: 'refs/tags/v7.0.1' }, OK_CFG);
-			if (plan.ok !== true) throw new Error('expected an ok plan');
-			expect(plan.versionString).toBe(normalised);
-			expect(plan.filePath).toBe(`/f/7/7.0/${normalised}.zip`);
+			expect(plan.ok).toBe(false);
 		});
 	}
+
+	// The NEXT triple a tree declares must be a release triple: a garbage
+	// devVersion is refused, never named into a `NaN/` directory.
+	for (const badNext of ['', '7.x.0', '7.0.1-dev', 'NaN.0.0', '7..1']) {
+		test(`untagged build with a garbage declared next version ${JSON.stringify(badNext)} is refused`, () => {
+			const plan = planCodeBuild({ version: '7.0.0', ref: 'master', devVersion: badNext }, OK_CFG);
+			expect(plan.ok).toBe(false);
+			if (plan.ok) throw new Error('expected a refusal');
+			expect(plan.msg).toBe('Error. Invalid next release version');
+		});
+	}
+	test('untagged build with a valid declared next triple names its nightly after it', () => {
+		// devVersion is the bare triple parseDeclaredNextDevTriple returns (not an identity)
+		const plan = planCodeBuild({ version: '7.0.0', ref: 'master', devVersion: '7.0.1' }, OK_CFG);
+		if (plan.ok !== true) throw new Error('expected an ok plan');
+		expect(plan.filePath).toBe('/f/7/7.0/7.0.1-dev.zip');
+	});
 
 	test('a multi-digit / zero triple lands in the right major.minor directory', () => {
 		// omitted ref defaults to the version's release tag — the published name

@@ -160,6 +160,19 @@ const TAG = 'must_not_run';
 
 const REFUSED: Row[] = [
 	{
+		// updateData:true with neither sqlUpdate nor runScripts would advance the data version and change nothing.
+		rule: 'data descriptor with no sqlUpdate and no runScripts',
+		descriptor: descriptor({}),
+		code: 'update.refused',
+		runnable: false,
+	},
+	{
+		rule: 'data descriptor with empty sqlUpdate and runScripts',
+		descriptor: descriptor({ sqlUpdate: [], runScripts: [] }),
+		code: 'update.refused',
+		runnable: false,
+	},
+	{
 		rule: 'runPreScripts present',
 		descriptor: descriptor({
 			sqlUpdate: [insertFirst(TAG)],
