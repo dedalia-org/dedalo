@@ -767,7 +767,7 @@ async function visit(
 		if (edit) {
 			await checkComponents(page, who, tipo, instances, edit.principal);
 			await checkInspector(page, who, tipo);
-			await checkTools(context, page, who, tipo, url, instances, edit.granted, edit.toolsOpened);
+			await checkTools(page, who, tipo, url, instances, edit.granted, edit.toolsOpened);
 		}
 		await checkPagePosture(page, who, tipo, mode);
 		await reportSignals(signals, who, tipo, mode, page, false);
@@ -1023,7 +1023,6 @@ async function checkInspector(page: Page, who: string, tipo: string): Promise<vo
 
 /** Offered tools must be granted; each (tool, caller model) pair is queued to open once per persona. */
 async function checkTools(
-	context: BrowserContext,
 	page: Page,
 	who: string,
 	tipo: string,
