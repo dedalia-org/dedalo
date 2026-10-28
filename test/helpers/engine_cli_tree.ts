@@ -41,9 +41,12 @@ export function engineCliAt(scratchDir: string, identity: string): string {
 	}
 	// A dev identity is named after the NEXT triple (version.ts DEDALO_NEXT_RELEASE,
 	// release_identity.ts): pinning the data triple instead would make the engine
-	// call itself by the wrong identity. A tagged identity IS its data triple.
-	const pinned = parsed.dev ? 'DEDALO_NEXT_RELEASE' : 'DEDALO_DATA_VERSION';
-	pinTriple(join(scratchDir, 'src', 'core', 'update', 'version.ts'), pinned, parsed.triple);
+	// call itself by the wrong identity. A tagged identity IS its release: NEXT
+	// and DATA both stand at its triple (VERSIONING_SPEC §5, §4 — a tagged build
+	// carries its own data version, and NEXT is never below DATA).
+	const version = join(scratchDir, 'src', 'core', 'update', 'version.ts');
+	pinTriple(version, 'DEDALO_NEXT_RELEASE', parsed.triple);
+	if (!parsed.dev) pinTriple(version, 'DEDALO_DATA_VERSION', parsed.triple);
 	const describe = parsed.dev ? '' : `v${identity}`;
 	writeFileSync(
 		join(scratchDir, BUILD_INFO_PATH),

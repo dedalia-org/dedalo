@@ -127,6 +127,39 @@ export function catalogKeyOf(descriptor: UpdateDescriptorVersion): string {
 	return `${descriptor.versionMajor}.${descriptor.versionMedium}.${descriptor.versionMinor}`;
 }
 
+/**
+ * The first data version of the line (VERSIONING_SPEC §4): a build with no data
+ * entry below its next release is at this triple.
+ */
+export const DATA_LINE_START: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [
+	number,
+	number,
+	number,
+];
+
+/**
+ * The data version a build derives from the catalog (VERSIONING_SPEC §4, D2/D4 b):
+ * the highest `updateData: true` entry BELOW the build's next release, plus the
+ * entry AT that release only when the build IS that release tagged (`tagged`).
+ * An untagged nightly of the next release never moves the data version: its
+ * unreleased entry waits for the tag. No such entry → the line start.
+ */
+export function dataVersionOf(
+	catalog: Readonly<Record<string, UpdateDescriptor>>,
+	next: readonly number[],
+	tagged: boolean,
+): number[] {
+	let best: number[] = [...DATA_LINE_START];
+	for (const descriptor of Object.values(catalog)) {
+		if (!isDataDescriptor(descriptor)) continue;
+		const triple = [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
+		const order = compareVersionArrays(triple, next);
+		if (order > 0 || (order === 0 && !tagged)) continue;
+		if (compareVersionArrays(triple, best) > 0) best = triple;
+	}
+	return best;
+}
+
 // ---------------------------------------------------------------------------
 // THE DESCRIPTOR VALIDATOR (OPS-6)
 // ---------------------------------------------------------------------------

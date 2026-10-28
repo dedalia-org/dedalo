@@ -183,6 +183,9 @@ HERMETIC_TRIPWIRES=(
 	# Release identity gate 9 (2026-10-15): transpile + flow scan of src/, tools/*/server and the
 	# client, no DB. Verified DB-less (DB_PORT=59999).
 	test/unit/release_identity_separation_tripwire.test.ts
+	# Data version derivation (VERSIONING_SPEC §4, 2026-10-28): pure catalog function + the
+	# build stamp, no DB. Verified DB-less (DB_PORT=59999).
+	test/unit/data_version_tripwire.test.ts
 	test/unit/install_restart_supervisor_tripwire.test.ts
 	test/unit/ci_workflow_tripwire.test.ts
 	test/unit/backup_restorability_native.test.ts
