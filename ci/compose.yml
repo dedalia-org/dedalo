@@ -89,6 +89,9 @@ x-github-env: &github-env
   DEDALO_CI_UNIT_RECORD_OUT: ${DEDALO_CI_UNIT_RECORD_OUT:-}
   DEDALO_CI_UNIT_RECORD_ALLOW: ${DEDALO_CI_UNIT_RECORD_ALLOW:-0}
   DEDALO_CI_UNIT_RECORD_NEW: ${DEDALO_CI_UNIT_RECORD_NEW:-}
+  # Record mode of db_tier.sh's parity stage — ci:local --record-parity-baseline only.
+  DEDALO_CI_PARITY_RECORD_OUT: ${DEDALO_CI_PARITY_RECORD_OUT:-}
+  DEDALO_CI_PARITY_RECORD_ALLOW: ${DEDALO_CI_PARITY_RECORD_ALLOW:-0}
 
 x-runner: &runner
   image: ${DEDALO_CI_IMAGE_REF:-dedalo-ci:local}

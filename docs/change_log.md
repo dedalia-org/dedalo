@@ -256,6 +256,10 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The parity test baseline can be re-recorded in the CI image.**
+
+    `bun run ci:local --docker --record-parity-baseline` re-records `engineering/parity_baseline.json` inside the CI image, the same way `--record-unit-baseline` does for the unit tests. Recording it on a developer machine froze that machine's own configuration into the baseline. It can be combined with `--record-unit-baseline --new <file>` so a single green run records both.
+
 - **The test suites refuse to run at the same time on one test database.**
 
     `bun test`, `bun run test:client` and `bun run test:crawl` reseed the same test fixtures, so running two of them at once made each fail in confusing ways. Each now takes a lock on the test database first and refuses, naming the run that holds it, while another one is running. A lock left by a run that died is cleared automatically, and a test that starts its own `bun test` inside a run is let through.

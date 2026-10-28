@@ -135,6 +135,9 @@ re-recorded. The same verdict now happens on the desk.
         [--allow-regression --reason "<why, per file>"]   # RECORD the unit baseline
     bun run ci:local --docker --record-unit-baseline --new <file>[,<file>…]
                                     # record ONLY new test files' floors (--record-new)
+    bun run ci:local --docker --record-parity-baseline
+        [--allow-regression --reason "<why, per file>"]   # RECORD the parity baseline
+        (combinable with --record-unit-baseline --new <file>: one green run, both files)
 
 It runs `scripts/ci/hermetic.sh`, `db_tier.sh` and `instance_tier.sh` UNCHANGED with an
 EMPTY private dir — the runner's condition; every `DEDALO_*` key the tiers need they
@@ -243,6 +246,13 @@ desk number is a floor, in either direction. So:
   .test.ts`, no spaces or shell characters — the list crosses `db_tier.sh`'s word split);
   never beside `--allow-regression`. The working tree (untracked files included) is what
   the container runs, so a new file needs no commit first.
+- **The parity baseline has the same door**: `--record-parity-baseline`
+  (`DEDALO_CI_PARITY_RECORD_OUT`, `DEDALO_CI_PARITY_RECORD_ALLOW`) makes `db_tier.sh`'s
+  parity stage run `parity_baseline.ts [--allow-regression]` and copy the JSON out, under
+  the same green-tier copy rule. A desk recording is wrong here, not just discouraged:
+  the parity tier reads the environment it runs in (`environment_differential` compares
+  config), so a Mac would freeze its own `.env` into the floors. With
+  `--record-unit-baseline --new`, `--allow-regression` reaches the parity writer only.
 - **A refused write is a list to examine, not to wave through.** The writer prints every
   regression; a real lost assertion is a defect to fix. Only an environment-explained
   difference is accepted: `--allow-regression --reason "<cause, per file>"` (≥ 20

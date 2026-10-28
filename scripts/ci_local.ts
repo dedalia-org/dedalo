@@ -191,6 +191,7 @@ const BOOLEAN_FLAGS = new Set([
 	'--build',
 	'--fail-fast',
 	'--record-unit-baseline',
+	'--record-parity-baseline',
 	'--allow-regression',
 	'--help',
 	'-h',
@@ -292,10 +293,17 @@ export function gitScrubbedEnv(
 /** Where the container sees the run's one WRITABLE mount (the recorded baseline's way out). */
 export const CONTAINER_OUT = '/ci-out';
 
+/** Either recording flag: the run is the db tier alone, in the image, and writes a baseline. */
+export function isRecording(args: Pick<Args, 'flags'>): boolean {
+	return args.flags.has('--record-unit-baseline') || args.flags.has('--record-parity-baseline');
+}
+
 /**
- * `--record-unit-baseline` → db_tier.sh's record mode. ALWAYS both keys, set explicitly
- * (`''` / `'0'` when not recording), so a value exported in the caller's shell never turns
- * a check into a write. `out` is the directory the TIER sees: /ci-out in the container.
+ * `--record-unit-baseline` / `--record-parity-baseline` → db_tier.sh's record modes. ALWAYS
+ * every key, set explicitly (`''` / `'0'` when not recording), so a value exported in the
+ * caller's shell never turns a check into a write. `out` is the directory the TIER sees:
+ * /ci-out in the container. `--allow-regression` reaches the parity writer, and the unit
+ * writer only when it is not a `--new` recording (which refuses a red by design).
  */
 export function recordEnv(
 	args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> },
@@ -304,15 +312,21 @@ export function recordEnv(
 	DEDALO_CI_UNIT_RECORD_OUT: string;
 	DEDALO_CI_UNIT_RECORD_ALLOW: '0' | '1';
 	DEDALO_CI_UNIT_RECORD_NEW: string;
+	DEDALO_CI_PARITY_RECORD_OUT: string;
+	DEDALO_CI_PARITY_RECORD_ALLOW: '0' | '1';
 } {
-	const recording = args.flags.has('--record-unit-baseline');
-	const fresh = recording ? recordNewFiles(args.values?.get('--new')) : [];
+	const unit = args.flags.has('--record-unit-baseline');
+	const parity = args.flags.has('--record-parity-baseline');
+	const allow = args.flags.has('--allow-regression');
+	const fresh = unit ? recordNewFiles(args.values?.get('--new')) : [];
 	return {
-		DEDALO_CI_UNIT_RECORD_OUT: recording ? out : '',
-		DEDALO_CI_UNIT_RECORD_ALLOW: recording && args.flags.has('--allow-regression') ? '1' : '0',
+		DEDALO_CI_UNIT_RECORD_OUT: unit ? out : '',
+		DEDALO_CI_UNIT_RECORD_ALLOW: unit && allow && fresh.length === 0 ? '1' : '0',
 		// Space-joined for db_tier.sh's word split — recordArgsFault admits only paths with
 		// no space or glob character, so the split is exact.
 		DEDALO_CI_UNIT_RECORD_NEW: fresh.join(' '),
+		DEDALO_CI_PARITY_RECORD_OUT: parity ? out : '',
+		DEDALO_CI_PARITY_RECORD_ALLOW: parity && allow ? '1' : '0',
 	};
 }
 
@@ -341,20 +355,21 @@ const RECORD_NEW_PATH = /^test\/(?:unit|integration)\/[A-Za-z0-9_-][A-Za-z0-9_./
  * nothing.
  */
 export function recordArgsFault(args: Args): string | null {
-	const recording = args.flags.has('--record-unit-baseline');
-	if (!recording) {
+	if (!isRecording(args)) {
 		if (
 			args.flags.has('--allow-regression') ||
 			args.values.has('--reason') ||
 			args.values.has('--new')
 		)
-			return '--allow-regression / --reason / --new belong to --record-unit-baseline';
+			return '--allow-regression / --reason / --new belong to --record-unit-baseline / --record-parity-baseline';
 		return null;
 	}
+	if (args.values.has('--new') && !args.flags.has('--record-unit-baseline'))
+		return '--new names unit-tier files: it belongs to --record-unit-baseline';
 	if (!args.flags.has('--docker'))
-		return '--record-unit-baseline needs --docker: the unit baseline is recorded in the CI image, never on this machine';
+		return 'a baseline recording needs --docker: it is recorded in the CI image, never on this machine (the parity tier reads the environment it runs in)';
 	for (const flag of ['--hermetic', '--instance', '--fail-fast', '--keep'])
-		if (args.flags.has(flag)) return `--record-unit-baseline runs the db tier alone; drop ${flag}`;
+		if (args.flags.has(flag)) return `a baseline recording runs the db tier alone; drop ${flag}`;
 	const reason = args.values.get('--reason');
 	if (args.flags.has('--allow-regression') && (reason === undefined || reason.trim().length < 20))
 		return '--allow-regression needs --reason "<why, per file>" (≥ 20 characters) — the commit message must carry it';
@@ -363,7 +378,7 @@ export function recordArgsFault(args: Args): string | null {
 	if (args.values.has('--new')) {
 		// --record-new only ADDS a new file's floor and refuses a red: there is no
 		// regression for --allow-regression to accept.
-		if (args.flags.has('--allow-regression'))
+		if (args.flags.has('--allow-regression') && !args.flags.has('--record-parity-baseline'))
 			return '--new records new files only and refuses a red — --allow-regression has nothing to accept there';
 		const files = recordNewFiles(args.values.get('--new'));
 		if (files.length === 0) return '--new needs <file>[,<file>…] (test/unit or test/integration)';
@@ -615,8 +630,10 @@ function fixHint(stage: Stage): string {
 	if (name.includes('unit tier'))
 		// Recorded in the CI image only (UNIT_TIER.recordOnlyInCiImage) — never a desk bank.
 		return `bun run scripts/unit_baseline.ts --check — ${grew && driftHint !== undefined ? driftHint : 'drift: re-record in the image: bun run ci:local --docker --record-unit-baseline'}`;
+	if (name.startsWith('recording engineering/parity_baseline.json'))
+		return 'the parity writer REFUSED (see REGRESSIONS above): fix each, or re-record with --allow-regression --reason naming the cause per file';
 	if (name.includes('parity'))
-		return `bun run scripts/parity_baseline.ts --check — ${driftHint ?? `drift: ${bank} --with-db`}; an intended wire change needs an engineering/wire_contract/ entry the same day`;
+		return `bun run scripts/parity_baseline.ts --check — ${grew && driftHint !== undefined ? `${driftHint} (in the image: bun run ci:local --docker --record-parity-baseline --allow-regression --reason "<why>")` : (driftHint ?? `drift: ${bank} --with-db`)}; an intended wire change needs an engineering/wire_contract/ entry the same day`;
 	if (name.includes('client suite'))
 		return 'bun run test:client (reseed on; the suite starts its own server)';
 	if (name.includes('release channel')) return 'TMPDIR=/tmp/dd bun run test:update';
@@ -1181,7 +1198,7 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	// What to run: an exact commit (--ref), or HEAD + the working tree as one commit.
 	const ref = args.values.get('--ref');
 	const sha = git(['rev-parse', '--verify', `${ref ?? 'HEAD'}^{commit}`]).trim();
-	if (args.flags.has('--record-unit-baseline') && ref !== undefined) {
+	if (isRecording(args) && ref !== undefined) {
 		const lists = workingTreeLists();
 		const refFault = recordRefFault(
 			ref,
@@ -1323,12 +1340,11 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 				activeProject = undefined;
 			}
 		}
+		const db = results.find((result) => result.tier === 'db');
 		if (args.flags.has('--record-unit-baseline'))
-			copyRecordedBaseline(
-				outputs,
-				args,
-				results.find((result) => result.tier === 'db'),
-			);
+			copyRecordedBaseline(outputs, args, db, 'unit_baseline.json');
+		if (args.flags.has('--record-parity-baseline'))
+			copyRecordedBaseline(outputs, args, db, 'parity_baseline.json');
 	} finally {
 		process.off('SIGINT', onSignal);
 		process.off('SIGTERM', onSignal);
@@ -1338,7 +1354,7 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	return results;
 }
 
-/** The baseline the recording writes, repo-relative (scripts/unit_baseline.ts BASELINE_PATH). */
+/** The baselines a recording writes, repo-relative (scripts/{unit,parity}_baseline.ts BASELINE_PATH). */
 const UNIT_BASELINE = 'engineering/unit_baseline.json';
 
 /**
@@ -1363,24 +1379,37 @@ export function recordCopyFault(result: TierResult | undefined): string | null {
  * tier is green ({@link recordCopyFault}). Parsed first: a truncated copy never replaces
  * the committed file.
  */
-function copyRecordedBaseline(outputs: string, args: Args, db: TierResult | undefined): void {
-	const recorded = join(outputs, 'unit_baseline.json');
+function copyRecordedBaseline(
+	outputs: string,
+	args: Args,
+	db: TierResult | undefined,
+	file: 'unit_baseline.json' | 'parity_baseline.json',
+): void {
+	const target = `engineering/${file}`;
+	const recorded = join(outputs, file);
 	if (!existsSync(recorded)) {
 		console.log(
-			`\n== ci:local: NOT RECORDED — the writer refused or the stage never ran (see the RED stage above); ${UNIT_BASELINE} is unchanged`,
+			`\n== ci:local: NOT RECORDED — the writer refused or the stage never ran (see the RED stage above); ${target} is unchanged`,
 		);
 		return;
 	}
 	const fault = recordCopyFault(db);
 	if (fault !== null) {
 		console.error(
-			`\n== ci:local: NOT RECORDED — REFUSING to copy the written baseline into the checkout: ${fault}. ${UNIT_BASELINE} is unchanged.`,
+			`\n== ci:local: NOT RECORDED — REFUSING to copy the written baseline into the checkout: ${fault}. ${target} is unchanged.`,
 		);
 		return;
 	}
 	const text = readFileSync(recorded, 'utf8');
 	JSON.parse(text);
-	writeFileSync(join(REPO_ROOT, UNIT_BASELINE), text);
+	writeFileSync(join(REPO_ROOT, target), text);
+	if (file === 'parity_baseline.json') {
+		const why = args.values.get('--reason');
+		console.log(
+			`\n== ci:local: RECORDED ${target} (in the CI image). Commit it on its own${why === undefined ? '.' : `, with the accepted regressions' reason in the message:\n   ${why}`}`,
+		);
+		return;
+	}
 	const reason = args.values.get('--reason');
 	// The record is stamped with this image (red_baseline.ts stampBaseline); while the
 	// pre-stamp transition is still live in code, --check refuses the stamped file beside it,
@@ -1435,7 +1464,8 @@ async function main(): Promise<void> {
 		console.log(
 			'bun run ci:local [--hermetic] [--db] [--instance] [--keep] [--fail-fast] [--summary <file>]\n' +
 				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--summary <file>]\n' +
-				'bun run ci:local --docker --record-unit-baseline [--ref HEAD] [--allow-regression --reason "<why>" | --new <file>[,<file>…]]\n\n' +
+				'bun run ci:local --docker --record-unit-baseline [--ref HEAD] [--allow-regression --reason "<why>" | --new <file>[,<file>…]]\n' +
+				'bun run ci:local --docker --record-parity-baseline [--record-unit-baseline --new <file>] [--allow-regression --reason "<why>"]\n\n' +
 				'Runs the CI tiers with the environment a RUNNER has: no ../private/.env, every\n' +
 				'DEDALO_* key composed by the tier itself. Host mode takes only the Postgres\n' +
 				'connection from your machine; on macOS run --instance under a short TMPDIR\n' +
@@ -1456,7 +1486,7 @@ async function main(): Promise<void> {
 		if (args.flags.has('--build')) fail('--build needs --docker');
 	}
 
-	const selected = args.flags.has('--record-unit-baseline')
+	const selected = isRecording(args)
 		? TIERS.filter((tier) => tier.id === 'db')
 		: TIERS.filter((tier) => args.flags.has(tier.flag));
 	const tiers = selected.length > 0 ? selected : TIERS;

@@ -872,11 +872,13 @@ function drillScript(script: string, killOn?: string, failOn?: string): DrillRun
 					DRILL_LOG: log,
 					DRILL_PIN: join(ROOT, '.bun-version'),
 					// The drill measures the tier AS THE RUNNER RUNS IT: an exported record-mode
-					// key (ci:local --record-unit-baseline) would turn the unit stage into the
+					// key (ci:local --record-unit/parity-baseline) would turn a stage into the
 					// WRITER, a shape no runner runs.
 					DEDALO_CI_UNIT_RECORD_OUT: '',
 					DEDALO_CI_UNIT_RECORD_ALLOW: '0',
 					DEDALO_CI_UNIT_RECORD_NEW: '',
+					DEDALO_CI_PARITY_RECORD_OUT: '',
+					DEDALO_CI_PARITY_RECORD_ALLOW: '0',
 					...(killOn === undefined ? {} : { DRILL_KILL_ON: killOn }),
 					...(failOn === undefined ? {} : { DRILL_FAIL_ON: failOn }),
 				},
