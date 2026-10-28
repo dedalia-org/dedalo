@@ -113,6 +113,23 @@ async function gateRelatedHostRecords(locators: unknown[], principal: Principal)
 }
 
 /**
+ * start's record half: a deep link that addresses a RECORD — a section page or a single
+ * component of it, with an id >= 1 — must name a record the caller can access. Other
+ * pages (areas, tools, id 0, a non-numeric external id) address no record of ours.
+ */
+async function deepLinkRecordInScope(
+	pageModel: string | null,
+	sectionTipo: string,
+	sectionId: unknown,
+	principal: Principal,
+): Promise<boolean> {
+	if (typeof sectionId !== 'number' || sectionId < 1) return true;
+	if (pageModel !== 'section' && !pageModel?.startsWith('component_')) return true;
+	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
+	return principalCanAccessRecord(sectionTipo, sectionId, principal);
+}
+
+/**
  * Gate A: the request source (section_tipo, tipo). For a dd15 source the level
  * is the Time Machine floor, which reads the TM scope — so the caller must run
  * this inside withTimeMachineReadScope. The dd128 own-user-record rules apply
@@ -1414,19 +1431,13 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// as a list of one with no edit form (the inspector's "Local Ontology"
 		// pen is one such caller). Components/areas keep their requested mode,
 		// exactly like PHP's switch, which only forces on the section branch.
-		const sectionRecordDeepLink =
-			pageSectionId !== null && (await getModelByTipo(pageTipo)) === 'section';
-		// The record behind a section deep link is scope-gated like get_data, but
-		// REFUSED (no empty edit shell): the same perm.denied for a missing and an
-		// out-of-scope id, so no existence oracle (WC-2026-10-27-start-deep-link-record-scope).
-		if (
-			sectionRecordDeepLink &&
-			typeof pageSectionId === 'number' &&
-			pageSectionId >= 1 &&
-			!(await (
-				await import('../../security/record_scope.ts')
-			).principalCanAccessRecord(pageSectionTipo, pageSectionId, principal))
-		) {
+		const pageModel = await getModelByTipo(pageTipo);
+		const sectionRecordDeepLink = pageSectionId !== null && pageModel === 'section';
+		// The record behind a section OR component deep link is scope-gated like get_data,
+		// but REFUSED (no empty shell): the same perm.denied for a missing and an
+		// out-of-scope id, so no existence oracle (WC-2026-10-27-start-deep-link-record-scope,
+		// WC-2026-10-28-start-component-deep-link-record-scope).
+		if (!(await deepLinkRecordInScope(pageModel, pageSectionTipo, pageSectionId, principal))) {
 			throw new DedaloError('perm.denied', {
 				publicMessage: 'Insufficient permissions to read',
 				extend: { environment: await buildEnv(context.session, principal) },

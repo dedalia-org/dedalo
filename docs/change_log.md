@@ -103,6 +103,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-related-host-record-scope`.
 
+- **A link to a single field of a record outside your projects is refused like a link to the record.**
+
+    Opening a link to one field of a record outside your projects used to show an empty page instead of the "no permission" page that a link to the record itself shows. No data was shown, but the two answers did not match. Both links now show the same "no permission" page, which is also what a link to a record that does not exist shows.
+
+    Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
+
 #### Added
 
 - **The permissions tree filter can show the siblings of a found item.**
@@ -206,7 +212,7 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 9 entries"
+??? note "Wire contract — 10 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -216,6 +222,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-own-user-record-read-floor`
     - `WC-2026-10-28-related-host-record-scope`
     - `WC-2026-10-28-section-definition-defects`
+    - `WC-2026-10-28-start-component-deep-link-record-scope`
     - `WC-2026-10-28-tool-open-defects`
 
 ## 7.0.0-beta.7 — 2026-10-25

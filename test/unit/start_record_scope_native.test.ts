@@ -12,7 +12,8 @@
  *   3. an in-scope record → 200, context section_id stamped;
  *   4. a record the persona just created → 200 (born in their project);
  *   5. the superuser on the out-of-project record → 200 (non-vacuity: it exists);
- *   6. untouched: id 0, a COMPONENT deep link to the out-of-project record.
+ *   6. a COMPONENT deep link to the record is gated the same way
+ *      (WC-2026-10-28-start-component-deep-link-record-scope); id 0 stays untouched.
  *
  * Situation `zzsrs` (scratch TLD, torn down): section zzsrs1, project-gated by
  * component_filter zzsrs3, one record in the persona's project and one outside.
@@ -60,6 +61,7 @@ const scopedRecord = (sectionId: number, projectId: number) => ({
 	section_tipo: SECTION,
 	section_id: sectionId,
 	columns: {
+		string: { [TEXT]: [{ id: 1, lang: 'lg-nolan', value: `ZZSRS_VALUE_${sectionId}` }] },
 		relation: {
 			[FILTER]: [
 				{
@@ -89,7 +91,10 @@ const SITUATION = situation({
 			relations: [{ tipo: 'dd153' }],
 		},
 	],
-	records: [scopedRecord(IN_SCOPE_ID, IN_PROJECT_ID), scopedRecord(OUT_OF_SCOPE_ID, OUT_PROJECT_ID)],
+	records: [
+		scopedRecord(IN_SCOPE_ID, IN_PROJECT_ID),
+		scopedRecord(OUT_OF_SCOPE_ID, OUT_PROJECT_ID),
+	],
 });
 
 const locator = (from: string, sectionTipo: string, sectionId: number) => ({
@@ -150,7 +155,8 @@ async function start(userId: number, searchObj: Record<string, string>) {
 	);
 }
 
-const codeOf = (body: Record<string, unknown>) => (body.error as { code?: string } | undefined)?.code;
+const codeOf = (body: Record<string, unknown>) =>
+	(body.error as { code?: string } | undefined)?.code;
 
 function sectionContextOf(body: Record<string, unknown>): Record<string, unknown> | undefined {
 	return ((body.data as { context?: Record<string, unknown>[] } | undefined)?.context ?? []).find(
@@ -259,14 +265,57 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 		expect(sectionContextOf(allowed.body)?.section_id).toBe(OUT_OF_SCOPE_ID);
 	});
 
-	test('untouched by the check: id 0, and a component deep link', async () => {
+	test('the component data read behind such a link never carries the out-of-project value', async () => {
+		const read = async (userId: number, sectionId: number) =>
+			dispatchRqo(
+				{
+					action: 'read',
+					dd_api: 'dd_core_api',
+					source: {
+						action: 'get_data',
+						model: 'component_input_text',
+						tipo: TEXT,
+						section_tipo: SECTION,
+						section_id: sectionId,
+						mode: 'edit',
+						lang: 'lg-nolan',
+					},
+				} as never,
+				(await contextFor(userId, userId === -1)) as never,
+			);
+		const value = (sectionId: number) => `ZZSRS_VALUE_${sectionId}`;
+		const editor = JSON.stringify((await read(USER_ID, OUT_OF_SCOPE_ID)).body);
+		const own = JSON.stringify((await read(USER_ID, IN_SCOPE_ID)).body);
+		const superuser = JSON.stringify((await read(-1, OUT_OF_SCOPE_ID)).body);
+		expect(editor).not.toContain(value(OUT_OF_SCOPE_ID));
+		expect(own).toContain(value(IN_SCOPE_ID)); // non-vacuity: the read shape returns values
+		expect(superuser).toContain(value(OUT_OF_SCOPE_ID));
+	});
+
+	test('untouched by the check: id 0', async () => {
 		const zero = await start(USER_ID, { tipo: SECTION, id: '0' });
 		expect(zero.status).toBe(200);
-		const component = await start(USER_ID, {
+	});
+
+	test('a COMPONENT deep link is gated alike: out-of-project and missing → the same 403, in-scope → 200', async () => {
+		const component = async (id: number) => {
+			const answer = await start(USER_ID, { tipo: TEXT, section_tipo: SECTION, id: String(id) });
+			const error = answer.body.error as Record<string, unknown> | undefined;
+			return {
+				status: answer.status,
+				error: error ? ({ ...error, request_id: undefined } as Record<string, unknown>) : null,
+			};
+		};
+		const outOfScope = await component(OUT_OF_SCOPE_ID);
+		expect([outOfScope.status, outOfScope.error?.code]).toEqual([403, 'perm.denied']);
+		expect(await component(MISSING_ID)).toEqual(outOfScope);
+		expect((await component(IN_SCOPE_ID)).status).toBe(200);
+		// non-vacuity: the record exists and the superuser opens the same link
+		const superuser = await start(-1, {
 			tipo: TEXT,
 			section_tipo: SECTION,
 			id: String(OUT_OF_SCOPE_ID),
 		});
-		expect(component.status).toBe(200);
+		expect(superuser.status).toBe(200);
 	});
 });
