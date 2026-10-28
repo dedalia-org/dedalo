@@ -27,21 +27,32 @@ The example below publishes `7.0.1` from a master running `7.0.0`. Substitute
 your versions; the walk is strictly linear (`code_manifest.ts` — the next
 minor within the major, no skipping).
 
-1. **Bump the engine version.** Edit `DEDALO_NEXT_RELEASE` in
-   `src/core/update/version.ts` to `[7, 0, 1]`. That bump is what names the
-   release: the build reads the TAG's own `version.ts`, never the running
-   process (step 6), and the manifest advertises releases strictly above the
-   CONSUMER's version and on the linear walk from it. The bump (and step 2)
-   lands ONCE per triple: with its first prerelease when it has any, and then
-   neither its later prereleases nor its release repeat it (*Cutting a
-   prerelease* below).
+1. **Name the release.** `DEDALO_NEXT_RELEASE` in `src/core/update/version.ts`
+   already reads `[7, 0, 1]`: the follow-up commit that followed the `7.0.0`
+   tag moved it there (VERSIONING_SPEC §6.4), so every nightly from then on is
+   `7.0.1-dev`. A tagged build must name its own triple: `NEXT` equals the tag's
+   triple in the tagged commit (`data_version_tripwire`). The build reads the
+   TAG's own `version.ts`, never the running process (step 6), and the manifest
+   advertises releases strictly above the CONSUMER's version and on the linear
+   walk from it. The first prerelease tag (`7.0.1-beta.1`) is the first commit
+   where this holds for the triple; later prereleases and the release repeat
+   nothing (*Cutting a prerelease* below).
 
 2. **Add the catalog descriptor.** Append a `7.0.1` `UpdateDescriptor` to
-   `UPDATE_CATALOG` (`src/core/update/catalog.ts`) stating what the release
-   needs: `updateData: false` for a code-only release, or the
-   `sqlUpdate`/`runScripts` steps for a data migration. Script steps key into
-   `SCRIPT_REGISTRY` (`src/core/update/engine.ts`) — register the script
-   there first.
+   `UPDATE_CATALOG` (`src/core/update/catalog.ts`) in the same commit as step 1,
+   stating what the release needs: `updateData: false` for a code-only release,
+   or the `sqlUpdate`/`runScripts` steps for a data migration. Script steps key
+   into `SCRIPT_REGISTRY` (`src/core/update/engine.ts`) — register the script
+   there first. Every release has an entry, even a code-only one (spec §4 rule 3).
+
+2a. **Set the data version, only for a data release.** A catalog entry with
+   `updateData: true` moves the data version in the TAGGED commit, not before:
+   set `DEDALO_DATA_VERSION` in `version.ts` to the entry's triple (`[7, 0, 1]`).
+   `dataVersionOf` derives it from the catalog, and `data_version_tripwire` holds
+   the constant to it on a tagged build. Until then nightlies stay on the data of
+   the last data-changing release (VERSIONING_SPEC D2), so an untagged `7.0.1-dev`
+   never carries the migration. A code-only release leaves `DEDALO_DATA_VERSION`
+   alone.
 
 3. **Verify the gates.** `DEDALO_DATABASE_CONN=<suite db> bun test
    test/unit/…` for the touched surfaces, `bunx tsc --noEmit` (zero NEW
@@ -225,12 +236,14 @@ A prerelease (`vX.Y.Z-(alpha|beta|rc).N`) IS a release (owner Q1, 2026-10-15):
 the same steps as above, held to the same gates, minus the version bump. The
 example publishes `7.0.1-beta.2`.
 
-1. **No version bump.** `version.ts` already declares `[7, 0, 1]` — the bump
-   and the `UPDATE_CATALOG` descriptor (steps 1–2) landed with the triple's
-   first prerelease (`7.0.1-beta.1`); a prerelease contributes no descriptor of
-   its own (the triple's runs once, on the first identity of it an install
-   receives). The tag's triple must equal the tree's `version.ts` — every door
-   below refuses a disagreement.
+1. **No version bump.** `version.ts` already declares `[7, 0, 1]` as NEXT — the
+   `UPDATE_CATALOG` descriptor and, for a data release, `DEDALO_DATA_VERSION`
+   (steps 1, 2, 2a) landed with the triple's first prerelease (`7.0.1-beta.1`); a
+   later prerelease contributes none of them (the triple's data step runs once,
+   on the first identity of it an install receives). Each tagged commit must hold
+   the gates: `NEXT` equals the tag's triple, and `DATA` equals the catalog's
+   derivation (`data_version_tripwire`). The tag's triple must equal the tree's
+   `version.ts` — every door below refuses a disagreement.
 2. **Cut the changelog** in the prerelease commit: `bun run changelog release
    7.0.1-beta.2` writes `changes/7.0.1-beta.2/release.json` (its notes are what
    the update panel shows for that row).
