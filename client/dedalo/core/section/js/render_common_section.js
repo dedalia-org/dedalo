@@ -8,6 +8,7 @@
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {ui} from '../../common/js/ui.js'
 	import {get_instance} from '../../common/js/instances.js'
+	import {error_text} from '../../common/js/render_api_error.js'
 
 
 
@@ -441,7 +442,10 @@ export const render_relation_list = function(options) {
 				relation_list_body.classList.add('loading')
 				load_chain = load_chain
 					.then(async () => {
-						await relation_list.build()
+						// a refused/failed read (build false) takes the recovery path below
+						if (await relation_list.build()===false) {
+							throw relation_list.build_error || new Error('relation_list build failed')
+						}
 						await relation_list.render({ render_level: 'content' })
 						if (relation_list.paginator) {
 							await relation_list.paginator.render({ render_level: 'content' })
@@ -496,8 +500,15 @@ export const render_relation_list = function(options) {
 				const height = relation_list_body.getBoundingClientRect().height
 				relation_list_body.style.minHeight = height + 'px'
 
-			await relation_list.build()
-			const rendered_node = await relation_list.render()
+			// a refused/failed read paints one muted line, never an empty list
+			const built = await relation_list.build()
+			const rendered_node = built===false
+				? ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'relation_list_failure',
+					text_content	: relation_list.build_error ? error_text(relation_list.build_error) : (get_label.relations || 'Relations')
+				})
+				: await relation_list.render()
 
 			// render can bail out (illegal status) returning false. Appending it would
 			// throw AFTER the body was emptied, leaving the panel permanently blank:

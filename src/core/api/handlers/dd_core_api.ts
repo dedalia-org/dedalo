@@ -1148,6 +1148,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				section_tipo?: string[] | 'all';
 				group_by?: string[];
 			};
+			// Read's Gate A too (no-op without source.tipo): count and read decide alike.
+			await gateReadSource(rqo.source ?? {}, principal);
 			await gateRelatedHosts(rqo.sqo, principal);
 			const locators = Array.isArray(sqoRelated.filter_by_locators)
 				? sqoRelated.filter_by_locators
@@ -1385,6 +1387,31 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				extend: { environment: await buildEnv(context.session, principal) },
 			});
 		}
+		// A SECTION deep link carrying a record id is the EDIT view (PHP start
+		// :477-501 forces set_mode('edit')): `?tipo=rsc0&section_id=1054` means
+		// "open this record", never a one-row list. The client inherits the mode
+		// into its instance and its first read, so without this the record opens
+		// as a list of one with no edit form (the inspector's "Local Ontology"
+		// pen is one such caller). Components/areas keep their requested mode,
+		// exactly like PHP's switch, which only forces on the section branch.
+		const sectionRecordDeepLink =
+			pageSectionId !== null && (await getModelByTipo(pageTipo)) === 'section';
+		// The record behind a section deep link is scope-gated like get_data, but
+		// REFUSED (no empty edit shell): the same perm.denied for a missing and an
+		// out-of-scope id, so no existence oracle (WC-2026-10-27-start-deep-link-record-scope).
+		if (
+			sectionRecordDeepLink &&
+			typeof pageSectionId === 'number' &&
+			pageSectionId >= 1 &&
+			!(await (
+				await import('../../security/record_scope.ts')
+			).principalCanAccessRecord(pageSectionTipo, pageSectionId, principal))
+		) {
+			throw new DedaloError('perm.denied', {
+				publicMessage: 'Insufficient permissions to read',
+				extend: { environment: await buildEnv(context.session, principal) },
+			});
+		}
 		// PHP start instantiates page elements with DEDALO_DATA_LANG and no
 		// nolan forcing (differentially verified: section + menu contexts
 		// carry lg-spa). The client's instances INHERIT this lang and thread
@@ -1396,15 +1423,6 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// Promise.all branch, engineering/REQUEST_ISOLATION.md); the context array is
 		// then assembled in the original order (menu first) for wire stability.
 		const menuWanted = (rqo.options as { menu?: boolean } | undefined)?.menu === true;
-		// A SECTION deep link carrying a record id is the EDIT view (PHP start
-		// :477-501 forces set_mode('edit')): `?tipo=rsc0&section_id=1054` means
-		// "open this record", never a one-row list. The client inherits the mode
-		// into its instance and its first read, so without this the record opens
-		// as a list of one with no edit form (the inspector's "Local Ontology"
-		// pen is one such caller). Components/areas keep their requested mode,
-		// exactly like PHP's switch, which only forces on the section branch.
-		const sectionRecordDeepLink =
-			pageSectionId !== null && (await getModelByTipo(pageTipo)) === 'section';
 		const [sectionContext, menuContext, environment] = await Promise.all([
 			buildStructureContext({
 				tipo: pageTipo,

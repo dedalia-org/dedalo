@@ -12,7 +12,7 @@
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import type { StructureContextEntry } from '../resolve/structure_context.ts';
-import type { Principal } from '../security/permissions.ts';
+import { getPermissions, type Principal } from '../security/permissions.ts';
 import { currentPrincipal } from '../security/request_context.ts';
 import { buildSectionButtons, sectionRelationListTipo } from './buttons.ts';
 import {
@@ -39,7 +39,7 @@ export interface SectionStampParams {
 /**
  * Stamp the section-only context extras onto `entry` in place (PHP :2056-2100):
  * - matrix_table (the section's storage table);
- * - config.relation_list_tipo (the inverse-references inspector trigger);
+ * - config.relation_list_tipo (the inverse-references inspector trigger, per principal);
  * - config.time_machine_list (the inspector history trigger, per principal);
  * - buttons (the section's permission-gated button_* children);
  * - tools (admin path — the section toolbar).
@@ -54,7 +54,7 @@ export async function stampSectionContext(
 	// stamped key order is wire surface).
 	const [matrixTable, relationListTipo, timeMachineList, sectionMap, buttons] = await Promise.all([
 		getMatrixTableFromTipo(params.tipo),
-		sectionRelationListTipo(params.tipo),
+		grantedRelationListTipo(params.tipo, params.principal ?? currentPrincipal()),
 		grantedTimeMachineListTipo(params.tipo, params.principal ?? currentPrincipal()),
 		// section_map: the section_map child node's properties (PHP :2075) — maps
 		// functional roles (term/parent/order/…) to component tipos per scope.
@@ -97,6 +97,25 @@ export async function stampSectionContext(
 		const sectionTools = await getSectionTools(params.tipo, toolConfigKeys);
 		entry.tools = sectionTools.tools;
 	}
+}
+
+/**
+ * config.relation_list_tipo (WC-2026-10-27-relation-list-grant-stamp): the
+ * section's relation_list node when `principal` holds it (the pair read's Gate A
+ * asks, keyed on the possibly-virtual section tipo), else null — the client then
+ * offers no Relations block and sends no request. Per call and per principal;
+ * no principal answers null (fail-closed). The node lookup stays cached.
+ */
+async function grantedRelationListTipo(
+	sectionTipo: string,
+	principal: Principal | undefined,
+): Promise<string | null> {
+	if (principal === undefined) return null;
+	const relationListTipo = await sectionRelationListTipo(sectionTipo);
+	if (relationListTipo === null) return null;
+	return (await getPermissions(principal, sectionTipo, relationListTipo)) >= 1
+		? relationListTipo
+		: null;
 }
 
 /**

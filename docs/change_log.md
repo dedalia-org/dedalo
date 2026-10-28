@@ -33,6 +33,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Opening a record you cannot access shows the no-access page, and the Relations panel appears only when you may read it.**
+
+    Opening a record by its address (a bookmark or a shared link) when the record belongs to a project you do not work in showed an empty form, and the side panel then showed an error message. It now shows the no-access page. A record that does not exist gets the same page, so the page never tells you whether a record you cannot see exists. Administrators are not affected.
+
+    The Relations panel in the side panel of a record is now shown only to users whose profile grants it for that section. Before, it was shown to everyone and then refused to open for users without that permission. If the panel cannot be loaded, it now shows a short message instead of an empty list.
+
+    Wire contract: `WC-2026-10-27-start-deep-link-record-scope`, `WC-2026-10-27-relation-list-grant-stamp`.
+
 - **The inspector's Component history keeps all its rows after you add a note, and pages through long histories.**
 
     After adding or editing a Time Machine note in the inspector's Component history, the list showed only the newest change, or went empty. It now keeps the full history and the note icon updates in place. Histories longer than one page show the compact paginator (`1-10 of 47`) in the Component history and Latest changes panels, and paging there no longer changes the page address or adds browser-history entries.
@@ -136,10 +144,12 @@ Merged since the last release; these ship with the next one.
     signature can be proven from the build. Verify an image as described in
     [Checking the signature](./install/docker.md#checking-the-signature).
 
-??? note "Wire contract — 2 entries"
+??? note "Wire contract — 4 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
+    - `WC-2026-10-27-relation-list-grant-stamp`
+    - `WC-2026-10-27-start-deep-link-record-scope`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

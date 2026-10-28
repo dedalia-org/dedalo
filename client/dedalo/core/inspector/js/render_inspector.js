@@ -1006,8 +1006,8 @@ const get_content_data = function(self) {
 			content_data.appendChild(project_block)
 		}
 
-	// relation_list container
-		if (self.caller.context.config && self.caller.context.config.relation_list_tipo) {
+	// relation_list container (only when granted and a record is inspected)
+		if (has_relation_list_access(self)) {
 			const relation_list = render_relation_list(self)
 			content_data.appendChild(relation_list)
 		}
@@ -1983,13 +1983,30 @@ export const update_project_container_body = function(self) {
 
 
 /**
+* HAS_RELATION_LIST_ACCESS
+* Whether the inspector offers the Relations block: the server stamps
+* config.relation_list_tipo per principal (WC-2026-10-27-relation-list-grant-stamp,
+* null = not granted), and a record-less edit view has nothing to list.
+* @param {Object} self - Inspector instance.
+* @returns {boolean}
+*/
+export const has_relation_list_access = function(self) {
+	const tipo			= self.caller?.context?.config?.relation_list_tipo
+	const section_id	= self.caller?.section_id
+	return typeof tipo==='string' && tipo.length>0
+		&& section_id!==null && section_id!==undefined && section_id!==''
+}//end has_relation_list_access
+
+
+
+/**
 * RENDER_RELATION_LIST
 * Builds the relations section for the inspector.
 * Handles lazy loading and collapsing of the relation list.
 * @param {Object} self - Inspector instance.
 * @returns {HTMLElement} relation_list_container - The rendered relation list structure.
 */
-const render_relation_list = function(self) {
+export const render_relation_list = function(self) {
 
 	// wrapper
 		const relation_list_container = ui.create_dom_element({
@@ -2044,7 +2061,10 @@ const render_relation_list = function(self) {
 				const previous = relation_list_body._block_load
 				const turn = (previous ? previous.catch(() => null) : Promise.resolve())
 					.then(async () => {
-						await relation_list.build()
+						// a refused/failed read (build false) takes the recovery path below
+						if (await relation_list.build()===false) {
+							throw relation_list.build_error || new Error('relation_list build failed')
+						}
 						await relation_list.render({ render_level: 'content' })
 						if (relation_list.paginator) {
 							await relation_list.paginator.render({ render_level: 'content' })
@@ -2125,7 +2145,12 @@ const render_relation_list = function(self) {
 						mode			: self.mode
 					})
 
-					await relation_list.build()
+					const built = await relation_list.build()
+
+					// a refused/failed read paints the quiet block line, never an empty panel
+					if (built===false) {
+						return render_block_failure(get_label.relations || 'Relations', relation_list.build_error || null)
+					}
 
 					// the rendered node replaces the placeholder
 					panel_instance = relation_list

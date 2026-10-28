@@ -18,6 +18,7 @@ import { describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { readSection } from '../../src/core/section/read.ts';
+import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import { adoptTipoIdMap } from './normalize.ts';
 import { hasPhpCredentials, PhpApiClient } from './php_client.ts';
 
@@ -131,7 +132,19 @@ describe.if(hasPhpCredentials())('section context extras differential (SECTION_S
 				leftovers: [],
 			});
 			const phpContext = adopted.body;
-			const tsContext = (await readSection(rqo)).context as unknown as Record<string, unknown>[];
+			// The fixtures are the superuser's view: config.relation_list_tipo is stamped
+			// per principal (WC-2026-10-27-relation-list-grant-stamp), fail-closed without one.
+			const tsContext = (
+				await runWithRequestContext(
+					{
+						principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
+						session: null,
+						requestId: 'section_context_extras_differential',
+						clientIp: '127.0.0.1',
+					},
+					() => readSection(rqo),
+				)
+			).context as unknown as Record<string, unknown>[];
 
 			const php = sectionEntry(phpContext, sectionTipo);
 			const ts = sectionEntry(tsContext, sectionTipo);
