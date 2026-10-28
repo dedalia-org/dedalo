@@ -698,8 +698,9 @@ describe('build mode', () => {
 		expect(result.env).toBe(stack.envBefore);
 	});
 
-	test('a -dev build whose commit declares ANOTHER data version: refused (with and without --ref), the checkout restored, nothing built', () => {
-		// 7.0.2's migrations must never run under a 7.0.1-dev pin
+	test('a -dev target is refused before any checkout or build, with the nightly sentence (VERSIONING_SPEC S3)', () => {
+		// Docker has no nightly images: a -dev version is never built or pulled, whatever the
+		// checkout or --ref says. The refusal names why, and nothing changes.
 		for (const ref of [[], ['--ref', 'feature/x']]) {
 			const stack = makeStack({
 				mode: 'build',
@@ -708,9 +709,9 @@ describe('build mode', () => {
 			});
 			const result = runUpdate(stack, ['--version', '7.0.1-dev', ...ref]);
 			expect({ ref, detail: result.outcome?.detail }).toEqual({ ref, detail: 'version_refused' });
-			expect(result.stderr).toContain('is 7.0.2-dev, not 7.0.1-dev');
+			expect(result.stderr).toContain('Docker has no nightly images: 7.0.1-dev');
 			expect(at(result.calls, /^docker build /)).toBe(-1);
-			expect(result.calls.at(-1)).toBe('git checkout -q master');
+			expect(at(result.calls, /^git checkout/)).toBe(-1);
 			expect(result.env).toBe(stack.envBefore);
 		}
 	});
@@ -797,43 +798,32 @@ describe('build mode', () => {
 		expect(at(result.calls, /^git checkout/)).toBe(-1);
 	});
 
-	test("a developer build: the single remote's master, or --ref; --ref is refused for a release", () => {
-		const dev = makeStack({
-			mode: 'build',
-			image: 'localhost/dedalo',
-			state: { target_triple: '7.0.1' },
-		});
-		expect(runUpdate(dev, ['--version', '7.0.1-dev']).calls).toContain(
-			'git checkout -q --detach origin/master',
-		);
-		const ref = makeStack({
-			mode: 'build',
-			image: 'localhost/dedalo',
-			state: { target_triple: '7.0.1' },
-		});
-		expect(runUpdate(ref, ['--version', '7.0.1-dev', '--ref', 'feature/x']).calls).toContain(
-			'git checkout -q --detach feature/x',
-		);
-		const two = makeStack({
-			mode: 'build',
-			image: 'localhost/dedalo',
-			state: { target_triple: '7.0.1', git_remotes: 'origin\nupstream\n' },
-		});
-		expect(runUpdate(two, ['--version', '7.0.1-dev']).outcome).toMatchObject({
-			status: 'refused',
-			detail: 'version_refused',
-		});
+	test('a -dev version is refused in every mode and with any remote set; --ref names only a prerelease or a release tag', () => {
+		const stacks = [
+			() =>
+				makeStack({ mode: 'build', image: 'localhost/dedalo', state: { target_triple: '7.0.1' } }),
+			() =>
+				makeStack({
+					mode: 'build',
+					image: 'localhost/dedalo',
+					state: { target_triple: '7.0.1', git_remotes: 'origin\nupstream\n' },
+				}),
+			() => makeStack(),
+		];
+		for (const make of stacks) {
+			for (const extra of [[], ['--ref', 'feature/x']]) {
+				const result = runUpdate(make(), ['--version', '7.0.1-dev', ...extra]);
+				expect(result.outcome).toMatchObject({ status: 'refused', detail: 'version_refused' });
+				expect(
+					result.calls.filter((call) => /^(git checkout|docker (build|pull))/.test(call)),
+				).toEqual([]);
+			}
+		}
 		const release = makeStack({ mode: 'build', image: 'localhost/dedalo' });
 		expect(runUpdate(release, ['--version', '7.0.1', '--ref', 'feature/x']).outcome).toMatchObject({
 			status: 'refused',
 			detail: 'version_refused',
 		});
-		const pull = makeStack();
-		expect(runUpdate(pull, ['--version', '7.0.1-dev', '--ref', 'feature/x']).outcome).toMatchObject(
-			{
-				status: 'refused',
-			},
-		);
 	});
 });
 
@@ -1233,7 +1223,7 @@ describe('refusals before anything changes', () => {
 		}
 	});
 
-	test('downgrade and same version refused; the same version is allowed only as -dev', () => {
+	test('downgrade and same version refused; a -dev version is refused as a nightly image', () => {
 		// an older data version is a downgrade; the pinned release again is same_version
 		const older = makeStack();
 		const olderResult = runUpdate(older, ['--version', '6.9.9']);
@@ -1249,14 +1239,12 @@ describe('refusals before anything changes', () => {
 			detail: 'same_version',
 		});
 		unchanged(same, sameResult);
-		// a developer build of the NEXT triple is the one dev move a release admits
+		// a developer build of the NEXT triple is no image: refused, and nothing is repinned
 		const dev = makeStack();
 		const result = runUpdate(dev, ['--version', '7.0.1-dev']);
-		expect(result.code, result.stderr).toBe(0);
-		expect(result.env).toBe(repinned(dev, '7.0.1-dev'));
-		// A -dev pin may be re-installed at the same identity too.
-		const again = makeStack({ pinned: '7.0.1-dev' });
-		expect(runUpdate(again, ['--version', '7.0.1-dev']).code).toBe(0);
+		expect(result.code).toBe(1);
+		expect(result.outcome).toMatchObject({ status: 'refused', detail: 'version_refused' });
+		expect(result.env).toBe(dev.envBefore);
 	});
 
 	test('the engine refuses the walk (exit 3): version_refused, with its reason', () => {
@@ -1321,10 +1309,10 @@ describe('refusals before anything changes', () => {
 			result.calls.filter((call) => !/ describe --exact-match --match v\[0-9\]\* HEAD$/.test(call)),
 		).toEqual([]);
 		expect(result.calls.length).toBe(1);
-		// an untagged checkout suggests its -dev tag
+		// an untagged (development) checkout has no image tag to suggest: a placeholder, never -dev
 		const untagged = makeStack({ envText: 'POSTGRES_PASSWORD=x\n', state: { describe: '' } });
 		expect(runUpdate(untagged, ['--version', '7.0.1']).stderr.split('\n')).toContain(
-			'DEDALO_VERSION=7.0.0-dev',
+			'DEDALO_VERSION=<the release or prerelease this installation runs>',
 		);
 		expect(outcomeViolations(result.outcome)).toEqual([]);
 	});
@@ -1526,12 +1514,12 @@ describe('the dry run (--check): the real checks, no change', () => {
 		).toEqual([]);
 	});
 
-	test('build mode, REAL checkout: --check refuses what a real run refuses (a dev target no commit of its data version builds), exit 1, nothing changed', () => {
+	test('build mode, REAL checkout: --check refuses a -dev target (no nightly image), exit 1, nothing changed', () => {
 		const stack = realGitStack();
 		const result = runUpdate(stack, ['--version', '7.0.1-dev', '--ref', 'master', '--check']);
 		expect(result.code).toBe(1);
 		expect(result.outcome).toBeNull();
-		expect(result.stderr).toContain('not 7.0.1-dev');
+		expect(result.stderr).toContain('Docker has no nightly images');
 		expect(result.env).toBe(stack.envBefore);
 	});
 

@@ -471,10 +471,21 @@ dedalo_triple_cmp() {
 
 # dedalo_canonical_triple X.Y.Z — the triple as numbers (`07` → `7`): the engine
 # reads version.ts's literals as numbers, so a tag compares against those.
+# The leading zeros are stripped as TEXT, never by arithmetic: `$((10#…))` wraps a
+# component past 2^63 (99999999999999999999 → 7766279631452241919) and the triple
+# would name another release.
 dedalo_canonical_triple() {
 	local a='' b='' c=''
 	IFS=. read -r a b c <<<"$1"
-	printf '%s.%s.%s' "$((10#$a))" "$((10#$b))" "$((10#$c))"
+	printf '%s.%s.%s' "$(dedalo_strip_zeros "$a")" "$(dedalo_strip_zeros "$b")" "$(dedalo_strip_zeros "$c")"
+}
+
+# dedalo_strip_zeros DIGITS — the same digits with leading zeros removed (`007` → `7`,
+# `0` stays `0`). Text only: the value is never converted to a number.
+dedalo_strip_zeros() {
+	local digits="$1"
+	while [ "${#digits}" -gt 1 ] && [ "${digits:0:1}" = 0 ]; do digits="${digits:1}"; done
+	printf '%s' "$digits"
 }
 
 # dedalo_stamp_line FILE — the stamp's first line as parseBuildInfo reads it:
@@ -637,11 +648,16 @@ dedalo_tag_part() {
 # its own (dedalo_image_labels over the snapshot), never the base image's. A TAG
 # that names another release than the snapshot's identity is BUILT (the tag is
 # the operator's name for it) but SAID: the label tells the truth. Status: 0
-# built, 1 failed, 2 usage, 3 refused (no git — the sentence on stderr).
+# built, 1 failed, 2 usage, 3 refused (no git, or a -dev tag — the sentence on stderr).
 dedalo_image_build() {
 	local checkout="${1-}" tag="${2-}" docker="${3:-docker}" dir='' status=0 line='' label='' named=''
 	local labels=()
 	[ -n "$checkout" ] && [ -n "$tag" ] || return 2
+	# Docker has no nightly images (VERSIONING_SPEC §2, S3): no -dev tag is ever built.
+	if dedalo_is_dev_tag "$(dedalo_tag_part "$tag")"; then
+		printf 'refused: %s is a developer tag — Docker has no nightly images, so no image is built for it\n' "$tag" >&2
+		return 3
+	fi
 	if ! dedalo_is_checkout "$checkout"; then
 		dedalo_no_checkout_sentence "$checkout" >&2
 		printf '\n' >&2

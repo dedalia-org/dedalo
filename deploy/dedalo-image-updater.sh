@@ -34,10 +34,10 @@
 #      timeout) is recorded as failed / interrupted;
 #   6. CLAIM: the pending request, if any, becomes in flight;
 #   7. HOST FLOORS, checked here whatever the engine said: a UUID request id, a
-#      version tag (X.Y.Z, X.Y.Z-(alpha|beta|rc).N or X.Y.Z-dev), and no
-#      downgrade against the PINNED DEDALO_VERSION in release order (a prerelease
-#      before its release; the same version only for a -dev image). A request that
-#      fails one is recorded as refused and nothing runs;
+#      version tag (X.Y.Z or X.Y.Z-(alpha|beta|rc).N; never -dev: Docker has no
+#      nightly images, VERSIONING_SPEC §2/S3), and no downgrade against the PINNED
+#      DEDALO_VERSION in release order (a prerelease before its release). A request
+#      that fails one is recorded as refused and nothing runs;
 #   8. `./deploy/dedalo-image-update.sh --version <tag> --request-id <id>
 #      --outcome-file <tmp>` — with its backup, health check and rollback. It is
 #      NEVER passed --no-backup, --skip-version-check or --ref;
@@ -50,7 +50,7 @@
 # exits non-zero, and systemd shows it as a failed run.
 #
 # THREAT MODEL. What a compromised engine (or a compromised superuser account)
-# CAN do through this channel: ask for a newer tag — or the same -dev tag — of
+# CAN do through this channel: ask for a newer release or prerelease tag of
 # the repository the OPERATOR configured in .dedalo.env. That request still walks
 # the engine's linear-upgrade rule, this program's own floors, a mandatory
 # database backup and an automatic rollback; with DEDALO_IMAGE_VERIFY=cosign only
@@ -215,23 +215,20 @@ parse_claim() {
 }
 
 # host_floor_refusal — the outcome detail that refuses REQUEST_TAG, or nothing.
-# A REQUEST never moves a release installation onto the developer channel: a -dev
-# tag builds or pulls unreleased code (build mode checks out the remote's master
-# tip, and this program then runs from that tree with docker access every
-# minute). That move is the operator's own act on this host —
-# `dedalo-image-update.sh --version X.Y.Z-dev` — after which DEDALO_VERSION is a
-# -dev tag and requests may follow the developer channel.
+# Docker has no nightly images (VERSIONING_SPEC §2, S3): a -dev tag is refused
+# whatever DEDALO_VERSION pins, so this program never builds or pulls unreleased
+# code with docker access. The nightly reaches a tree install through the code
+# update path, never through this program.
 host_floor_refusal() {
 	local order=''
 	if ! dedalo_version_grammar "$REQUEST_TAG"; then echo version_refused; return 0; fi
-	if [ "${REQUEST_TAG%-dev}" != "$REQUEST_TAG" ] && [ "${PINNED%-dev}" = "$PINNED" ]; then
-		say "refusing $REQUEST_TAG: this installation runs a release ($PINNED); a request never moves it onto developer images — run dedalo-image-update.sh --version $REQUEST_TAG here to do that"
+	if dedalo_is_dev_tag "$REQUEST_TAG"; then
+		say "refusing $REQUEST_TAG: Docker has no nightly images, so there is no image to install; a Docker install runs tagged releases only"
 		echo version_refused
 		return 0
 	fi
 	order="$(dedalo_version_cmp "$REQUEST_TAG" "$PINNED")"
-	if [ "$order" = '-1' ]; then echo downgrade_refused; return 0; fi
-	if [ "$order" = '0' ] && [ "${REQUEST_TAG%-dev}" = "$REQUEST_TAG" ]; then echo downgrade_refused; fi
+	if [ "$order" = '-1' ] || [ "$order" = '0' ]; then echo downgrade_refused; fi
 }
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }

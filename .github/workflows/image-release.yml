@@ -13,9 +13,9 @@
 # vX.Y.Z whose version.ts declares X.Y.Z → `:X.Y.Z`, or a PRERELEASE tag
 # vX.Y.Z-(alpha|beta|rc).N (a prerelease IS a release, 2026-10-15) → `:X.Y.Z-beta.N`
 # ONLY. Both immutable: a published release is never rebuilt or overwritten; a later run
-# copies the existing digest to a registry that lacks it. The developer channel is the tip
-# of `master`, built on DISPATCH ONLY → `:X.Y.Z-dev` (mutable, like the code server's
-# on-demand `<v>-dev.zip`). One tag per run and never a floating one: no `latest`, no
+# copies the existing digest to a registry that lacks it. The tip of `master` is NO image: a nightly (`X.Y.Z-dev`) reaches installations as a tree archive
+# (`<v>-dev.zip`) through the code update path, never as a docker image (VERSIONING_SPEC
+# §2, S3). One tag per run and never a floating one: no `latest`, no
 # `:X` / `:X.Y`, and a prerelease never touches `:X.Y.Z` (image_release.ts
 # publishTagFault). The trigger globs below are wider than the grammar (GitHub filter
 # patterns cannot say "no leading zero"); `plan` validates the tag exactly.
@@ -29,8 +29,7 @@
 # channel and the archive's sha256, and the pushed bytes are SMOKE-TESTED before anything
 # else sees them; each leg hands on the DIGEST it smoke-tested (job outputs digest_<arch>).
 # A RELEASE build reads no registry cache (a cache tag is writable by any workflow holding
-# packages: write, so a poisoned layer would be signed as official); developer builds use
-# `<staging>:cache-dev-<arch>`. `publish` assembles the multi-arch index once in the
+# packages: write, so a poisoned layer would be signed as official) — and none is read at all. `publish` assembles the multi-arch index once in the
 # staging repository FROM THOSE DIGESTS (never from a staging tag, which could move while
 # the job waits for its reviewer), enforces immutability, signs D in staging first (cosign
 # keyless, Rekor), then per target carbon-copies the digest (`docker buildx imagetools
@@ -43,8 +42,8 @@
 # signature is then signed in place; a release tag is never re-pointed. It records the result in the job
 # summary and an `image-release` artifact.
 #
-# TRIGGERS. push of a release tag (stable or prerelease); workflow_dispatch (channel dev | release; release
-# publishes an EXISTING tag with master's script — e.g. to fill a newly provisioned mirror,
+# TRIGGERS. push of a release tag (stable or prerelease); workflow_dispatch (channel release, the only one:
+# it publishes an EXISTING tag with master's script — e.g. to fill a newly provisioned mirror,
 # or to sign in place a release left unsigned by an older script; the environment's
 # deployment policy must allow branch master for it). A dispatch never MINTS a release: a
 # tag no registry holds yet is published only from its own tag ref (the push, or a release
@@ -86,12 +85,11 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: "dev = an X.Y.Z-dev image of master (run from master); release = re-publish an EXISTING release tag (copies its digest to registries that lack it)"
+        description: "release = re-publish an EXISTING release tag (copies its digest to registries that lack it). There is no dev channel: no -dev image is built or published (VERSIONING_SPEC §2, S3)"
         required: true
-        default: dev
+        default: release
         type: choice
         options:
-          - dev
           - release
       tag:
         description: "release channel only: the existing release tag, vX.Y.Z or vX.Y.Z-(alpha|beta|rc).N"
@@ -103,10 +101,9 @@ permissions:
   contents: read
 
 # One publication per target tag at a time: a tag push and a release dispatch of the same
-# tag share a group, as do all developer builds. Never cancel — a half-published release
-# is worse than a queued one.
+# tag share a group. Never cancel — a half-published release is worse than a queued one.
 concurrency:
-  group: image-release-${{ inputs.channel == 'dev' && 'dev' || (github.event_name == 'push' && github.ref_name || inputs.tag) }}
+  group: image-release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -245,13 +242,10 @@ jobs:
           push: true
           pull: true
           tags: ${{ needs.plan.outputs.staging }}:run-${{ github.run_id }}-${{ matrix.arch }}
-          # The layer cache is for DEVELOPER builds only. A release reads nothing a
-          # non-release ref could have written: a cache tag in the staging repository is
-          # writable by any workflow holding packages: write, and a poisoned layer would be
-          # signed as the official image. Releases still share the pinned base image's
-          # layers (the Dockerfile puts the code last).
-          cache-from: ${{ needs.plan.outputs.channel == 'dev' && format('type=registry,ref={0}:cache-dev-{1}', needs.plan.outputs.staging, matrix.arch) || '' }}
-          cache-to: ${{ needs.plan.outputs.channel == 'dev' && format('type=registry,ref={0}:cache-dev-{1},mode=max', needs.plan.outputs.staging, matrix.arch) || '' }}
+          # NO layer cache: a release reads nothing a non-release ref could have written (a
+          # cache tag in the staging repository is writable by any workflow holding
+          # packages: write, and a poisoned layer would be signed as the official image).
+          # Releases still share the pinned base image's layers (the Dockerfile puts the code last).
 
       # The exact bytes just pushed, by digest — never a tag that could have moved. Among
       # its assertions: the image's own server, booted, SERVES /health version = the plan's

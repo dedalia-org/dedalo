@@ -43,7 +43,7 @@ by a hosted one (`tier_wiring_tripwire` leg B).
 | `.github/workflows/db.yml` | pull_request + push master/v7 + dispatch | hosted ubuntu, each tier job in the CI image (uid 1001) + a `pgvector` service (digest-pinned) reached as `postgres` | `dedupe` → `db` (`scripts/ci/db_tier.sh`: builds the suite database from repo-vendored bytes, starts the suite MariaDB target, then, in this order, the DB-backed tripwires → the unit tier (blocking since 2026-10-02) → the parity tier → the MariaDB tier (blocking — PUB-05, LAST on purpose: see *CI tiers → DB* below; tier_wiring leg K)) and `instance` (`scripts/ci/instance_tier.sh`: its OWN fresh suite database, then the browser client suite via `scripts/ci/client_gate.sh`, the tool phone contract, both update drills, the publication-host media drill on live Apache + nginx, the publication-host agent drill (the suite MariaDB started for it) and the publication-host engine drill (engine ↔ real agent: pair CLI, panel actions, httpd gating)). Both source `scripts/ci/hosted_env.sh` |
 | `.github/workflows/nightly.yml` | cron 04:17 UTC daily + dispatch | hosted ubuntu | the TIME-BASED checks the push gate defers: `scripts/ci/audit.ts --force --require-network` with the vendor calendar ON; `image_pin` (`bun run ci:image:pin --check`: the lock is the latest published build); `cosign_pin` (`bun run ci:cosign:pin --check`: `ci/cosign.json` is set and is the latest stable cosign); `full_gate` (environment `gitdedalo-nightly`): fetches **gitdedalo/master** with a read-only deploy key + pinned host key and runs the FULL gate on it — `bun run ci:local --docker --hermetic --db --instance --ref <sha>` — see *The nightly full gate*; `report` keeps one `ci-nightly` issue open/updated/closed (a red full gate is a problem naming the gitdedalo sha and each red stage; absent secrets are a warning) |
 | `.github/workflows/ci-image.yml` | push master/v7 touching the image definition + weekly cron (cache OFF) + dispatch | hosted ubuntu-24.04 amd64 + arm64 (native, no QEMU) | builds `ci/Dockerfile`, smoke-tests the exact bytes, pushes `ghcr.io/dedalia-org/dedalo-ci` (`fp-<fingerprint>`, `<YYYYMMDD>`, `latest`) as a multi-arch manifest list |
-| `.github/workflows/image-release.yml` | push of a stable tag `vX.Y.Z` + dispatch (`dev` from `master`, or `release` of an existing tag) — never PR or schedule | hosted ubuntu-24.04 amd64 + arm64 (native); `publish` bound to the `image-release` environment | the PRODUCT image (`Dockerfile`): `plan` (refuses a release commit without a successful push run of ci.yml AND db.yml — the full gate) → per-arch `build` from a `git archive` of the release commit + smoke test → `publish` (one index in staging, immutability, cosign keyless sign in staging, then per provisioned registry of `engineering/image_registries.json` a digest-preserving copy + a signature AT that registry's digest, same-digest + `cosign verify` check, record) — see *The product image* |
+| `.github/workflows/image-release.yml` | push of a release tag (stable or prerelease) + dispatch (`release` of an existing tag; no dev channel) — never PR or schedule | hosted ubuntu-24.04 amd64 + arm64 (native); `publish` bound to the `image-release` environment | the PRODUCT image (`Dockerfile`): `plan` (refuses a release commit without a successful push run of ci.yml AND db.yml — the full gate) → per-arch `build` from a `git archive` of the release commit + smoke test → `publish` (one index in staging, immutability, cosign keyless sign in staging, then per provisioned registry of `engineering/image_registries.json` a digest-preserving copy + a signature AT that registry's digest, same-digest + `cosign verify` check, record) — see *The product image* |
 | `.github/workflows/security.yml` | PR + push master + weekly cron + dispatch | hosted ubuntu | secret scan (gitleaks, digest-pinned image): working tree every run, FULL HISTORY weekly |
 | `.github/workflows/codeql.yml` | PR + push master + weekly cron | hosted ubuntu | CodeQL dataflow SAST (javascript-typescript, `build-mode: none`) → Security tab |
 | `.github/workflows/docs.yml` | PR + push master, both narrowed to `docs/**`/`mkdocs.yml` | hosted ubuntu | the mkdocs manual build (not a tier: legs F/G do not bind it) |
@@ -932,8 +932,9 @@ as unavailable. Gate: `image_registries_tripwire`.
   `vX.Y.Z-(alpha|beta|rc).N` (2026-10-18; a prerelease IS a release) publishes
   `:X.Y.Z-beta.N` ONLY (like `<X.Y.Z-beta.N>.zip`) — IMMUTABLE, install-stamp channel
   `prerelease`, held to the same release-tag check and full gate. A dispatch on the `dev`
-  channel from `master` publishes `:X.Y.Z-dev` (like the on-demand `<v>-dev.zip`) —
-  mutable, overwritten by the next dev build. One tag per run, never a floating one: no
+  channel is REMOVED: no Docker image is built or published for a nightly (`X.Y.Z-dev`);
+  a nightly reaches installations as a tree archive (`<v>-dev.zip`) through the code update
+  path (VERSIONING_SPEC §2, S3). One tag per run, never a floating one: no
   build per master push, no `latest`, no `:X` / `:X.Y`, and a prerelease never `:X.Y.Z`
   (`publishTagFault`, gate `image_release_native`). The trigger globs list the three
   prerelease labels and are wider than the grammar; `plan` validates the tag exactly. The
@@ -950,7 +951,7 @@ as unavailable. Gate: `image_registries_tripwire`.
   the ones that change. A **release** build reads NO registry layer cache: a cache tag in
   the staging repository is writable by any workflow of the repository holding
   `packages: write`, and a poisoned cached layer would be signed as the official image.
-  Developer builds use `<staging>:cache-dev-<arch>` (mode=max).
+  No build reads or writes a registry cache: there are no developer image builds.
 - **Staging, by digest.** Per-arch builds push to `<staging>:run-<run_id>-<arch>`
   (`ci.staging_repository` of the list, a GHCR repository reached with the run's own
   token); each leg's `smoke` hands on the DIGEST it tested (job outputs
@@ -1051,7 +1052,7 @@ as unavailable. Gate: `image_registries_tripwire`.
   the publish job's env (`image_registries_tripwire` leg C is red until both directions
   match), then dispatch the `release` channel once per existing
   release tag — that run copies the published digest, signs it there, and never rebuilds.
-- **Developer images** come only from a `dev` dispatch on `master`.
+- **No developer images.** A nightly (`X.Y.Z-dev`) is never built, pulled or published as a Docker image (VERSIONING_SPEC §2, S3).
 
 ## Non-negotiables (each is tripwired)
 
@@ -1242,8 +1243,7 @@ naming them: the gate is what keeps every reference inside the environment-bound
 8. **The product image** (`image-release.yml`), owner-only, not observable from the repo:
    - create the environment **`image-release`** with a deployment policy allowing tags
      `v*` and the branch `master`, and required reviewers. Branch `master` is not
-     optional: the `workflow_dispatch` doors run from it — the `dev` channel, and the
-     `release` channel that re-publishes an EXISTING tag with master's script (filling a
+     optional: the `workflow_dispatch` door runs from it — the `release` channel that re-publishes an EXISTING tag with master's script (filling a
      new mirror, or signing in place a release an older script left unsigned);
    - **MANDATORY — a tag ruleset on `refs/tags/v*`** (Settings → Rules → Rulesets → New
      tag ruleset, enforcement *Active*): *Restrict creations*, *Restrict updates* and

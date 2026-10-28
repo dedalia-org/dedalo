@@ -13,10 +13,10 @@
 # included. The engine refuses the in-container swap and points here.
 #
 # Usage (from anywhere; it works in the stack directory — this checkout):
-#   ./deploy/dedalo-image-update.sh --version <X.Y.Z | X.Y.Z-(alpha|beta|rc).N | X.Y.Z-dev>
+#   ./deploy/dedalo-image-update.sh --version <X.Y.Z | X.Y.Z-(alpha|beta|rc).N>
 #       [--env-file .dedalo.env] [--outcome-file FILE] [--request-id UUID]
 #       [--no-backup] [--health-timeout SECONDS (default 900)]
-#       [--skip-version-check] [--ref <git ref> (build mode, a -dev or prerelease version)]
+#       [--skip-version-check] [--ref <git ref> (build mode, a prerelease version)]
 #       [--check]
 #
 # --check is a DRY RUN: it runs only the read-only steps below (2-4 and the image
@@ -35,7 +35,8 @@
 #
 # A VERSION IS AN IMAGE TAG, and names a RELEASE IDENTITY (deploy/dedalo-image-lib.sh
 # — the twin of src/core/update/release_identity.ts): X.Y.Z a release,
-# X.Y.Z-beta.N (alpha, beta, rc) a prerelease of it, X.Y.Z-dev a developer build.
+# X.Y.Z-beta.N (alpha, beta, rc) a prerelease of it. A -dev identity is no image
+# (VERSIONING_SPEC §2, S3): a -dev version is refused here, in every mode.
 # They order as semver does — 7.0.0-beta.6 < 7.0.0-beta.7 < 7.0.0-rc.1 < 7.0.0.
 #
 # EVERYTHING ELSE COMES FROM .dedalo.env (parsed through deploy/dedalo-image-lib.sh):
@@ -50,8 +51,8 @@
 #    1. one run at a time (a mkdir lock in the stack directory);
 #    2. .dedalo.env is complete, or the exact lines to add are printed (the
 #       adoption path of an installation that predates the image pin);
-#    3. the version is grammatical and moves FORWARD in release order (equal
-#       only for -dev); a refusal WITHIN one data version (X.Y.Z) — a step back
+#    3. the version is a release or prerelease (never -dev) and moves FORWARD in
+#       release order; a refusal WITHIN one data version (X.Y.Z) — a step back
 #       that crosses no migration — is waived by --skip-version-check, which the
 #       first update of a stack BUILT from a beta before 7.0.0-beta.7 needs (it is
 #       pinned at the bare X.Y.Z although it runs the beta: owner Q4); a step back
@@ -111,7 +112,7 @@ set -euo pipefail
 say() { printf '== image-update: %s\n' "$*" >&2; }
 
 usage() {
-	printf 'Usage: %s --version <X.Y.Z|X.Y.Z-(alpha|beta|rc).N|X.Y.Z-dev> [--env-file F] [--outcome-file F] [--request-id UUID]\n' "$0" >&2
+	printf 'Usage: %s --version <X.Y.Z|X.Y.Z-(alpha|beta|rc).N> [--env-file F] [--outcome-file F] [--request-id UUID]\n' "$0" >&2
 	printf '         [--no-backup] [--health-timeout SECONDS] [--skip-version-check] [--ref <git ref>] [--check]\n' >&2
 	exit 2
 }
@@ -267,15 +268,19 @@ suggested_value() {
 		DEDALO_IMAGE) echo 'localhost/dedalo' ;;
 		# the image tag of this checkout's own release identity (7.0.0-beta.7, 7.0.0-dev):
 		# what a build here is tagged and labelled — never the bare data version (C3i-F1)
-		DEDALO_VERSION) checkout_image_tag || echo '<the version this installation runs>' ;;
+		DEDALO_VERSION) checkout_image_tag || echo '<the release or prerelease this installation runs>' ;;
 		DEDALO_IMAGE_MODE) echo 'build' ;;
 		DEDALO_IMAGE_VERIFY) echo 'none' ;;
 	esac
 }
 
+# checkout_image_tag — the image tag of this checkout's identity, or status 1 when the
+# identity is a -dev build (no image is ever named by one: VERSIONING_SPEC §2).
 checkout_image_tag() {
 	local identity=''
-	identity="$(dedalo_release_identity .)" && dedalo_image_tag_of "$identity"
+	identity="$(dedalo_release_identity .)" || return 1
+	dedalo_is_dev_tag "$identity" && return 1
+	dedalo_image_tag_of "$identity"
 }
 
 # --- 3. the version -------------------------------------------------------------
@@ -283,16 +288,20 @@ checkout_image_tag() {
 check_version() {
 	local order='' why='' hint=''
 	dedalo_version_grammar "$TARGET" ||
-		finish refused version_refused "'$TARGET' is not a version (X.Y.Z, X.Y.Z-alpha.N / -beta.N / -rc.N, or X.Y.Z-dev)"
-	# --ref picks the commit of a build that has no fixed one (-dev), or names the
-	# prerelease tag another way (owner Q3); a release is built from its own tag only.
-	if [ -n "$GIT_REF" ] && { [ "$MODE" != 'build' ] || ! { dedalo_is_dev_tag "$TARGET" || dedalo_is_prerelease_tag "$TARGET"; }; }; then
-		finish refused version_refused '--ref names what to build: build mode, and a -dev or prerelease version only (a release is built from its own tag)'
+		finish refused version_refused "'$TARGET' is not a version (X.Y.Z or X.Y.Z-alpha.N / -beta.N / -rc.N)"
+	# Docker has no nightly images: a -dev version is refused whatever the pin (VERSIONING_SPEC S3).
+	if dedalo_is_dev_tag "$TARGET"; then
+		finish refused version_refused "Docker has no nightly images: $TARGET is a development build, so there is no image to install. Nightlies reach tree installs through the code update path (tree archives); a Docker install runs tagged releases only"
+	fi
+	# --ref names the commit of a prerelease built under another name (owner Q3); a
+	# release is built from its own tag only.
+	if [ -n "$GIT_REF" ] && { [ "$MODE" != 'build' ] || ! dedalo_is_prerelease_tag "$TARGET"; }; then
+		finish refused version_refused '--ref names what to build: build mode, and a prerelease version only (a release is built from its own tag)'
 	fi
 	order="$(dedalo_version_cmp "$TARGET" "$FROM")"
 	case "$order" in
 		-1) why="$TARGET comes before the pinned $FROM" ;;
-		0) dedalo_is_dev_tag "$TARGET" || why="$TARGET is the pinned version — only a -dev image is re-installed at the same version" ;;
+		0) why="$TARGET is the pinned version" ;;
 	esac
 	[ -n "$why" ] || return 0
 	# Back to an older DATA version: never — its migrations ran on this database.
@@ -310,7 +319,7 @@ check_version() {
 	# The hint is for a stack pinned at a BARE X.Y.Z (a beta built before beta.7). A
 	# pin that already names a prerelease or -dev is not that stack: no hint for it.
 	hint=''
-	# The same release asked for again (not -dev) is its own outcome: nothing steps back,
+	# The same release asked for again is its own outcome: nothing steps back,
 	# so there is no skip hint — the hint below is for a step back only.
 	if [ "$order" = '0' ]; then finish refused same_version "$why"; fi
 	case "$FROM" in
@@ -352,7 +361,7 @@ engine_blind_to_identity() {
 	case "$ENGINE_SAID" in
 		malformed_version) dedalo_is_prerelease_tag "$TARGET" ;;
 		downgrade_or_same_version)
-			dedalo_is_prerelease_tag "$FROM" && ! dedalo_is_dev_tag "$TARGET" &&
+			dedalo_is_prerelease_tag "$FROM" &&
 				[ "$(dedalo_version_triple "$TARGET")" = "$(dedalo_version_triple "$FROM")" ]
 			;;
 		*) return 1 ;;
@@ -418,7 +427,7 @@ check_build_source() {
 	dedalo_is_checkout "$(pwd)" || finish refused build_failed "$(dedalo_no_checkout_sentence "$(pwd)")"
 	[ -z "$(git status --porcelain --untracked-files=no)" ] ||
 		finish refused build_failed 'this checkout has local changes to tracked files — commit or discard them first'
-	ref="$(build_ref)" || finish refused version_refused 'a developer build needs ONE git remote, or --ref'
+	ref="$(build_ref)"
 	git rev-parse --verify -q "$ref^{commit}" >/dev/null ||
 		finish refused build_failed "$ref is not a commit of this checkout — fetch it first (git fetch --all --tags), or name another with --ref"
 	tree="$(mktemp -d)"
@@ -500,28 +509,19 @@ pull_image() {
 	say "signature verified: $IMAGE@$DIGEST is version $TARGET"
 }
 
+# build_ref — the commit a build checks out: --ref, or the prerelease's own tag (a
+# release or prerelease is built from its exact annotated tag; -dev is never built).
 build_ref() {
-	local remotes=''
 	if [ -n "$GIT_REF" ]; then
 		echo "$GIT_REF"
-	elif ! dedalo_is_dev_tag "$TARGET"; then
-		echo "v$TARGET"
 	else
-		remotes="$(git remote)"
-		[ -n "$remotes" ] && [ "$(printf '%s\n' "$remotes" | wc -l | tr -d ' ')" = '1' ] || return 1
-		echo "$remotes/master"
+		echo "v$TARGET"
 	fi
 }
 
 # builds_target IDENTITY — status 0 when a commit of that identity builds TARGET.
 builds_target() {
-	if dedalo_is_dev_tag "$TARGET"; then
-		# any commit of the target's DATA version: another X.Y.Z would run its
-		# migrations under a pin that names this one
-		[ -n "$1" ] && [ "$(dedalo_version_triple "$1")" = "$(dedalo_version_triple "$TARGET")" ]
-	else
-		[ "$(dedalo_image_tag_of "$1" || true)" = "$TARGET" ]
-	fi
+	[ "$(dedalo_image_tag_of "$1" || true)" = "$TARGET" ]
 }
 
 restore_checkout() {
@@ -540,8 +540,7 @@ restore_checkout() {
 # Tracked changes are still refused: the checkout itself moves to the release.
 # WHAT was checked out is judged by its RELEASE IDENTITY (dedalo_release_identity
 # — what the engine built from it will call itself), not by the triple version.ts
-# declares: a release or prerelease target must be exactly that tagged release
-# -dev), a -dev target any commit of its data version.
+# declares: a release or prerelease target must be exactly that tagged release.
 build_image() {
 	local ref='' identity=''
 	dedalo_is_checkout "$(pwd)" || finish refused build_failed "$(dedalo_no_checkout_sentence "$(pwd)")"
@@ -550,7 +549,7 @@ build_image() {
 	PREV_HEAD="$(git rev-parse HEAD)"
 	PREV_BRANCH="$(git symbolic-ref -q --short HEAD || true)"
 	git fetch --all --tags --quiet || finish failed build_failed 'git fetch failed'
-	ref="$(build_ref)" || finish refused version_refused 'a developer build needs ONE git remote, or --ref'
+	ref="$(build_ref)"
 	git checkout -q --detach "$ref" || finish refused build_failed "could not check out $ref"
 	identity="$(dedalo_release_identity . || true)"
 	if ! builds_target "$identity"; then
