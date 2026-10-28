@@ -464,6 +464,62 @@ export const JOURNEYS: Record<string, Journey> = {
 		},
 	},
 
+	// Two typed saves, then the Time Machine restores the FIRST: the request is the one
+	// tool_time_machine's "Apply and save" button sends (apply_value, its matrix_id).
+	restore_component_value: {
+		personas: ['root'], // the editor holds no tool_time_machine grant,
+		writes: true,
+		async run({ page, url, fixture, server }) {
+			const stamp = Date.now();
+			const first = `zzcrawl restore A ${stamp}`;
+			const second = `zzcrawl restore B ${stamp}`;
+			for (const value of [first, second]) {
+				await typeIntoText(page, url, fixture, value);
+				await page.keyboard.press('Tab'); // blur → save
+				await idle(page);
+			}
+			const read = async () =>
+				JSON.stringify(
+					await server.readValue(
+						'matrix_test',
+						fixture.editSection,
+						fixture.recordInA,
+						'string',
+						fixture.textComponent,
+					),
+				);
+			if (!(await read()).includes(second)) throw new Error('the second save did not land');
+			const rows = await server.select(
+				'SELECT id, lang FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3 AND data::text LIKE $4 ORDER BY id DESC LIMIT 1',
+				[fixture.editSection, fixture.recordInA, fixture.textComponent, `%${first}%`],
+			);
+			const row = rows[0];
+			if (row === undefined) throw new Error('the first save left no Time Machine row to restore');
+			const answer = await pageApi(page, {
+				dd_api: 'dd_tools_api',
+				action: 'tool_request',
+				source: {
+					action: 'apply_value',
+					model: 'tool_time_machine',
+					tipo: fixture.textComponent,
+					section_tipo: fixture.editSection,
+					section_id: fixture.recordInA,
+				},
+				options: {
+					section_id: fixture.recordInA,
+					section_tipo: fixture.editSection,
+					tipo: fixture.textComponent,
+					lang: row.lang,
+					matrix_id: row.id,
+				},
+			});
+			if (answer.ok !== true) throw new Error(`apply_value refused: ${answer.error?.code}`);
+			const after = await read();
+			if (!after.includes(first) || after.includes(second))
+				throw new Error(`after the restore the server holds ${after.slice(0, 160)}`);
+		},
+	},
+
 	create_record_in_own_project: {
 		personas: ['editor'],
 		writes: true,
@@ -724,7 +780,6 @@ export const JOURNEYS_PENDING: Record<string, string> = {
 	thesaurus_search_expands: 'tree search must expand the ancestors of the hits',
 	duplicate_record: 'duplicate from the inspector; the copy keeps the project',
 	recover_deleted_record: 'tool_time_machine recovers a deleted record',
-	restore_component_value: 'tool_time_machine restores an earlier value of one component',
 	autocomplete_link_unlink: 'type, pick, save; then remove the link',
 	portal_new_linked_record: 'create a linked record from inside a portal',
 	portal_reorder: 'drag (or phone up/down) reorder of portal rows persists',
