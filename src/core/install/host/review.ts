@@ -200,6 +200,12 @@ export async function reviewHostCommands(
 	return [...todoBlocks(reviewTodo(ctx, fs, Date.now())), ...markExisting(hostReview(ctx), fs)];
 }
 
+/** Whether the image verdict carries a problem or a warning (the digest is then not asked). */
+const verdictHasNotes = (verdict: {
+	problems: readonly string[];
+	warnings: readonly string[];
+}): boolean => verdict.problems.length > 0 || verdict.warnings.length > 0;
+
 /**
  * The image digest a Review shows for a signed image (F4, the same identity the
  * run verifies): the index digest the registry names, asked read-only BEFORE the
@@ -217,7 +223,7 @@ async function reviewImageOf(
 	if (imageVerifyOf(ctx.answers) !== 'cosign') return undefined;
 	const stack = ctx.facts.stack ?? pendingStackFacts();
 	if (stack.docker === null) return { unresolved: true };
-	if (verdict.problems.length > 0 || verdict.warnings.length > 0) return { unresolved: true };
+	if (verdictHasNotes(verdict)) return { unresolved: true };
 	const digest = await registryDigestOf(runner, stack.docker, imageRefOf(ctx.answers), stack.home);
 	return digest === null ? { unresolved: true } : { digest };
 }

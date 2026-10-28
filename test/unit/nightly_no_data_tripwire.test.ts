@@ -82,10 +82,10 @@ describe('the real catalog on an untagged build', () => {
 	);
 
 	test.skipIf(!untagged)('the DATA update target of an untagged build is not NEXT', () => {
+		// `null` (no update target) is never the NEXT triple, so one assertion covers both.
 		const matched = getMatchedDescriptor([...DEDALO_DATA_VERSION], UPDATE_CATALOG);
-		if (matched === null) return;
-		expect([matched.versionMajor, matched.versionMedium, matched.versionMinor]).not.toEqual([
-			...DEDALO_NEXT_RELEASE,
-		]);
+		const target =
+			matched === null ? null : [matched.versionMajor, matched.versionMedium, matched.versionMinor];
+		expect(target).not.toEqual([...DEDALO_NEXT_RELEASE]);
 	});
 });

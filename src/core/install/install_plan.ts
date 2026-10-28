@@ -2025,22 +2025,33 @@ const headlessBesidesResume = (invocation: CliInstallInvocation): boolean =>
  * The flags that make an invocation headless, by name — the offenders a --plain
  * refusal names (an answer flag by the key it sets; the run controls by flag).
  */
+/** The run-control flags an invocation can set, in the order a refusal names them. */
+const RUN_CONTROL_FLAGS: readonly {
+	sets: (invocation: CliInstallInvocation) => boolean;
+	flag: string;
+}[] = [
+	{ sets: (invocation) => invocation.answersFile !== undefined, flag: '--answers' },
+	{ sets: (invocation) => invocation.planOnly, flag: '--plan' },
+	{ sets: (invocation) => invocation.listOntologies, flag: '--list-ontologies' },
+	{ sets: (invocation) => invocation.listHierarchies, flag: '--list-hierarchies' },
+	{ sets: (invocation) => invocation.listLangs, flag: '--list-langs' },
+	{ sets: (invocation) => invocation.secretsStdin, flag: '--secrets-stdin' },
+	{ sets: (invocation) => invocation.execute, flag: '--execute' },
+	{ sets: (invocation) => invocation.rootPassword !== undefined, flag: '--root-password' },
+	{ sets: (invocation) => invocation.status, flag: '--status' },
+	{ sets: (invocation) => invocation.eventsJsonl, flag: '--events-jsonl' },
+	{ sets: (invocation) => invocation.requestStdin, flag: '--request-stdin' },
+];
+
+/** The flag an answer key sets: its registered flag, else the key spelled with dashes. */
+const flagOfAnswerKey = (key: string): string =>
+	FLAG_OF_KEY.get(key) ?? `--${key.replace(/_/g, '-')}`;
+
 function headlessFlags(invocation: CliInstallInvocation): string[] {
-	const named = Object.keys(invocation.raw).map(
-		(key) => FLAG_OF_KEY.get(key) ?? `--${key.replace(/_/g, '-')}`,
-	);
-	if (invocation.answersFile !== undefined) named.push('--answers');
-	if (invocation.planOnly) named.push('--plan');
-	if (invocation.listOntologies) named.push('--list-ontologies');
-	if (invocation.listHierarchies) named.push('--list-hierarchies');
-	if (invocation.listLangs) named.push('--list-langs');
-	if (invocation.secretsStdin) named.push('--secrets-stdin');
-	if (invocation.execute) named.push('--execute');
-	if (invocation.rootPassword !== undefined) named.push('--root-password');
-	if (invocation.status) named.push('--status');
-	if (invocation.eventsJsonl) named.push('--events-jsonl');
-	if (invocation.requestStdin) named.push('--request-stdin');
-	return named;
+	return [
+		...Object.keys(invocation.raw).map(flagOfAnswerKey),
+		...RUN_CONTROL_FLAGS.filter(({ sets }) => sets(invocation)).map(({ flag }) => flag),
+	];
 }
 
 /** The --plain refusal: names the flags, and says where their answers go instead. */

@@ -332,6 +332,12 @@ function refRefusalOf(ref: string, versionString: string): CodeBuildPlan | null 
 }
 
 /**
+ * No ref: the version's own release tag — "build release 7.0.1" means its tag.
+ */
+const refOf = (options: { ref?: string }, versionString: string): string =>
+	options.ref ?? qualifiedReleaseTag(versionString);
+
+/**
  * Decide whether a release build may run and where its artifact goes.
  * Pure: no I/O, no mutation of the inputs. Gate order (the wire contract):
  * code server → dirs → version → ref → tag/version → confinement.
@@ -348,8 +354,7 @@ export function planCodeBuild(
 		return refused('Error. Invalid version number', `invalid version: ${options.version}`);
 	}
 	const versionString = triple.join('.');
-	// No ref: the version's own release tag — "build release 7.0.1" means its tag.
-	const ref = options.ref ?? qualifiedReleaseTag(versionString);
+	const ref = refOf(options, versionString);
 	const refRefusal = refRefusalOf(ref, versionString);
 	if (refRefusal !== null) return refRefusal;
 	const identity = releaseTagIdentity(ref);

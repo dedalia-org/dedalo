@@ -147,11 +147,20 @@ export function dataVersionOf(
 	for (const descriptor of Object.values(catalog)) {
 		if (!isDataDescriptor(descriptor)) continue;
 		const triple = [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
-		const order = compareVersionArrays(triple, next);
-		if (order > 0 || (order === 0 && !tagged)) continue;
+		if (!isDataVersionCandidate(triple, next, tagged)) continue;
 		if (compareVersionArrays(triple, best) > 0) best = triple;
 	}
 	return best;
+}
+
+/** Whether an entry's triple may set the data version of a build at `next` (see dataVersionOf). */
+function isDataVersionCandidate(
+	triple: number[],
+	next: readonly number[],
+	tagged: boolean,
+): boolean {
+	const order = compareVersionArrays(triple, next);
+	return order < 0 || (order === 0 && tagged);
 }
 
 // ---------------------------------------------------------------------------

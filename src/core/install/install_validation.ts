@@ -745,13 +745,23 @@ function mediaRootErrors(a: InstallAnswers, problems: Problems): void {
 
 /** The docker/trial-only answers: where the image comes from. */
 function stackHostErrors(a: InstallAnswers, problems: Problems): void {
+	imageSourceFormErrors(a, problems);
+	imageSourceIdentityErrors(a, problems);
+	imageVersionErrors(a, problems);
+}
+
+/** The image source's own shape: one of the three, and a custom one names its repository. */
+function imageSourceFormErrors(a: InstallAnswers, problems: Problems): void {
 	if (!['official', 'custom', 'build'].includes(a.image_source)) {
 		problems.push(problem('image_source', 'image_source must be official|custom|build'));
 	}
 	if (a.image_source === 'custom' && a.image_repository === '') {
 		problems.push(problem('image_repository', 'image_source custom requires image_repository'));
 	}
-	imageSourceIdentityErrors(a, problems);
+}
+
+/** The image tag: a development build may not run the nightly tag, and only an accepted tag passes. */
+function imageVersionErrors(a: InstallAnswers, problems: Problems): void {
 	// An empty image_version on a development build derives the nightly tag `X.Y.Z-dev`
 	// (layout.ts imageVersionOf): no Docker install may run it (VERSIONING_SPEC S3). Said
 	// here, on the Image screen, whatever the source — the run's preflight refuses it too.
