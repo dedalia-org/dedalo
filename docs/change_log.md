@@ -211,6 +211,14 @@ Merged since the last release; these ship with the next one.
 
 ### For developers
 
+#### Changed
+
+- **Four read-path comparison tests now expect the current ontology definitions.**
+
+    After the ontology refresh, four tests that compare the engine with frozen answers saw definition changes made on the master ontology: a section tool's "coins" role points at the portal again instead of an alias, the mint section is called "Ceca", and two more components are now cloned into the test ontology. Each test keeps the old frozen value and checks the new one explicitly.
+
+    Wire contract: `WC-2026-10-28-parity-definition-drift`.
+
 #### Added
 
 - **`bun run test:crawl` checks every feature as an administrator and as a project-scoped editor.**
@@ -240,7 +248,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-section-tool-test6402-config`.
 
-??? note "Wire contract — 14 entries"
+??? note "Wire contract — 15 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -251,6 +259,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-account-read`
     - `WC-2026-10-28-own-user-record-read-floor`
+    - `WC-2026-10-28-parity-definition-drift`
     - `WC-2026-10-28-related-host-record-scope`
     - `WC-2026-10-28-section-definition-defects`
     - `WC-2026-10-28-section-tool-test6402-config`

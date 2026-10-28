@@ -38,10 +38,15 @@ import { hasPhpCredentials, PhpApiClient } from './php_client.ts';
 const REROUTED_TIPOS = ['test6269', 'test6413', 'test6877'];
 const EMPTY_TIPO = 'test6402';
 
-/** The section_tool whose 'coins' role points at a component_alias (WC-020). */
+/** The section_tool whose 'coins' role pointed at a component_alias (WC-020) when the oracle was harvested. */
 const ALIAS_TOOL_TIPO = 'test6269';
-/** The alias component that role resolves through. */
-const ALIAS_COMPONENT_TIPO = 'test6271';
+/**
+ * Where that role points TODAY: master moved it back to the portal itself
+ * (numisdata201 coins → numisdata77, with an inline properties copy), so the
+ * frozen body's alias entry (test6271) is no longer the definition
+ * (WC-2026-10-28-parity-definition-drift).
+ */
+const COINS_COMPONENT_TIPO = 'test6157';
 
 /**
  * WHERE THE CLONE WAS CUT, stated instead of compared (the context_differential
@@ -180,9 +185,9 @@ describe.if(hasPhpCredentials())('section_tool start differential', () => {
 				const tsCoins = (ts.config as ToolConfig).tool_context?.tool_config?.ddo_map?.find(
 					(entry) => entry.role === 'coins',
 				);
-				expect(tsCoins?.tipo).toBe(ALIAS_COMPONENT_TIPO);
-				expect(tsCoins?.model).toBe('component_portal'); // the alias TARGET's model
-				expect(tsCoins?.properties).toBeUndefined(); // no inline copy survives
+				expect(tsCoins?.tipo).toBe(COINS_COMPONENT_TIPO);
+				expect(tsCoins?.model).toBe('component_portal');
+				expect(tsCoins?.properties).toBeDefined(); // the definition's inline copy is carried
 				return;
 			}
 			expect(JSON.stringify(ts.config)).toBe(JSON.stringify(php.config));
