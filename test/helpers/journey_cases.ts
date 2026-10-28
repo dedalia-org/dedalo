@@ -52,6 +52,9 @@ export interface JourneyContext {
 		filterComponent: string;
 		createSection: string;
 		createFilter: string;
+		editorUsername: string;
+		editorProfile: number;
+		deniedSection: string;
 	};
 }
 
@@ -256,6 +259,70 @@ export const JOURNEYS: Record<string, Journey> = {
 				),
 			);
 			if (after !== before) throw new Error('the refused save changed the stored value');
+		},
+	},
+
+	// The grant is the profile's component_security_access value, saved the way the
+	// widget saves it (set_data, the whole array). A permission cache that survives the
+	// write lets the editor in after the revoke — the bug this journey exists for.
+	admin_grant_propagates: {
+		personas: ['root'],
+		writes: true,
+		async run({ page, context, persona, origin, fixture, server }) {
+			const section = fixture.deniedSection;
+			const original = (await server.readValue(
+				'matrix_profiles',
+				'dd234',
+				fixture.editorProfile,
+				'misc',
+				'dd774',
+			)) as { tipo: string; section_tipo: string; value: number }[] | null;
+			if (!Array.isArray(original) || original.length === 0)
+				throw new Error('the editor profile carries no grants (fixture missing)');
+			const saveGrants = async (value: object[]) => {
+				const answer = await pageApi(page, {
+					action: 'save',
+					source: {
+						tipo: 'dd774',
+						section_tipo: 'dd234',
+						section_id: fixture.editorProfile,
+						model: 'component_security_access',
+						lang: 'lg-nolan',
+					},
+					data: { changed_data: [{ action: 'set_data', value }] },
+				});
+				if (answer.ok !== true) throw new Error(`root's grant save refused: ${answer.error?.code}`);
+			};
+			await page.goto(`${origin}/dedalo/core/page/`, {
+				waitUntil: 'networkidle0',
+				timeout: 60_000,
+			});
+			const editorContext = await context.browser().createBrowserContext();
+			try {
+				const editor = await editorContext.newPage();
+				await formLogin(editor, origin, fixture.editorUsername, persona.password);
+				if (!(await isLogged(editor))) throw new Error('the editor could not log in');
+				const editorOpens = async () =>
+					(
+						await pageApi(editor, {
+							action: 'start',
+							dd_api: 'dd_core_api',
+							options: { search_obj: { t: section, m: 'list' }, menu: false },
+						})
+					).ok === true;
+				if (await editorOpens()) throw new Error(`the editor opens ${section} before any grant`);
+				await saveGrants([...original, { tipo: section, section_tipo: section, value: 2 }]);
+				try {
+					if (!(await editorOpens()))
+						throw new Error(`the editor is still refused ${section} after the grant`);
+				} finally {
+					await saveGrants(original);
+				}
+				if (await editorOpens())
+					throw new Error(`the editor still opens ${section} after the revoke (stale permissions)`);
+			} finally {
+				await editorContext.close();
+			}
 		},
 	},
 
@@ -530,8 +597,6 @@ export const JOURNEYS_PENDING: Record<string, string> = {
 		'tool_upload image/av/pdf, thumbnail, viewer, download; out-of-project media 404',
 	unsaved_changes_warning: 'leaving with unsaved data prompts (window.unsaved_data + beforeunload)',
 	concurrent_edit: 'two personas edit one record; the conflict is noticed and no update is lost',
-	admin_grant_propagates:
-		"admin grants/revokes through component_security_access; the editor's next request reflects it",
 	activity_and_tm_attribution:
 		"the run's own actions appear in Activity and Time Machine under the right user",
 	diffusion_publish:

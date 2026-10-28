@@ -35,6 +35,8 @@ export const CRAWL_ADMIN_USERNAME = 'zzcrawl_admin';
 export const CRAWL_EDITOR_USERNAME = 'zzcrawl_editor';
 const ADMIN_PROFILE_ID = 948011;
 const EDITOR_PROFILE_ID = 948012;
+/** The editor's profile — the admin_grant_propagates journey grants and revokes on it. */
+export const CRAWL_EDITOR_PROFILE_ID = EDITOR_PROFILE_ID;
 export const CRAWL_PROJECT_A = 948021;
 export const CRAWL_PROJECT_B = 948022;
 export const CRAWL_RECORD_IN_A = 948101;

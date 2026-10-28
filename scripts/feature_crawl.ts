@@ -134,7 +134,7 @@ const { armRunCreatedSweep } = await import('../src/core/test_data/run_created_r
 const { getMatrixTableFromTipo } = await import('../src/core/ontology/resolver.ts');
 const { TIME_MACHINE_SECTION_TIPO } = await import('../src/core/concepts/section.ts');
 
-const GATE_PERSONAS: { name: string; userId: number; username: string }[] = [
+const ALL_GATE_PERSONAS: { name: string; userId: number; username: string }[] = [
 	{ name: 'root' as const, userId: -1, username: 'root' },
 	{
 		name: 'admin' as const,
@@ -146,7 +146,10 @@ const GATE_PERSONAS: { name: string; userId: number; username: string }[] = [
 		userId: fixture.CRAWL_EDITOR_USER_ID,
 		username: fixture.CRAWL_EDITOR_USERNAME,
 	},
-].filter((p) => (list('--persona') ?? ['root', 'admin', 'editor']).includes(p.name));
+];
+const GATE_PERSONAS = ALL_GATE_PERSONAS.filter((p) =>
+	(list('--persona') ?? ['root', 'admin', 'editor']).includes(p.name),
+);
 const PERSONAS = audit ? await auditPersonas(auditUsers) : GATE_PERSONAS;
 /** Sessions this run minted — destroyed at the end (audit: on the real store). */
 const mintedTokens: string[] = [];
@@ -161,7 +164,9 @@ const auditBlocked: string[] = [];
 if (!audit) {
 	await fixture.installCrawlPersonaFixture();
 	// real passwords, so the login journeys use the form, as a user does
-	for (const p of PERSONAS) await ensureSuiteLoginPassword(p.username, SUITE_LOGIN_PASSWORD);
+	// every gate persona, not only the walked ones: a journey logs another persona in
+	for (const p of ALL_GATE_PERSONAS)
+		await ensureSuiteLoginPassword(p.username, SUITE_LOGIN_PASSWORD);
 }
 const server = audit
 	? await auditTarget(auditUrl as string, auditEntity as string)
@@ -496,6 +501,9 @@ function journeyContext(
 			filterComponent: fixture.CRAWL_FILTER_COMPONENT,
 			createSection: fixture.CRAWL_CREATE_SECTION,
 			createFilter: fixture.CRAWL_CREATE_FILTER,
+			editorUsername: fixture.CRAWL_EDITOR_USERNAME,
+			editorProfile: fixture.CRAWL_EDITOR_PROFILE_ID,
+			deniedSection: fixture.CRAWL_DENIED_SECTION,
 		},
 	};
 }
