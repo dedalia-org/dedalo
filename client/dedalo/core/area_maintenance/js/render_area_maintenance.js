@@ -2123,17 +2123,20 @@ export const set_widget_label_style = function (self, style, mode, ref_node) {
 		return
 	}
 
-	const wrapper = self.node
-	const widget_container = wrapper.parentNode?.parentNode
-	if (widget_container) {
-		requestAnimationFrame(()=>{
-			if (mode==='remove') {
-				widget_container.classList.remove(style)
-			}else{
-				widget_container.classList.add(style)
-			}
-		})
-	}
+	requestAnimationFrame(()=>{
+		// resolved in the frame: until mounted, the grandparent is the render
+		// DocumentFragment (no classList) — and stays one when a newer System Map
+		// selection drops this widget
+		const widget_container = self.node.parentNode?.parentNode
+		if (!(widget_container instanceof Element)) {
+			return
+		}
+		if (mode==='remove') {
+			widget_container.classList.remove(style)
+		}else{
+			widget_container.classList.add(style)
+		}
+	})
 }//end set_widget_label_style
 
 
