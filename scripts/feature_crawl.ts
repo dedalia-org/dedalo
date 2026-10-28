@@ -132,6 +132,7 @@ const auditAllows = (key: string): boolean => {
 const { assertTestDatabase } = await import('../src/core/test_data/test_database_marker.ts');
 const { armRunCreatedSweep } = await import('../src/core/test_data/run_created_records.ts');
 const { getMatrixTableFromTipo } = await import('../src/core/ontology/resolver.ts');
+const { TIME_MACHINE_SECTION_TIPO } = await import('../src/core/concepts/section.ts');
 
 const GATE_PERSONAS: { name: string; userId: number; username: string }[] = [
 	{ name: 'root' as const, userId: -1, username: 'root' },
@@ -296,7 +297,8 @@ async function crawlPersona(persona: (typeof PERSONAS)[number]): Promise<void> {
 			urlFor(section.tipo, 'list', null, section.config),
 		);
 		const firstId = listIds.length > 0 ? Math.min(...listIds) : null;
-		if (firstId === null) return;
+		// Time Machine is consultation-only: a list, never an edit form
+		if (firstId === null || section.tipo === TIME_MACHINE_SECTION_TIPO) return;
 		await visit(
 			context,
 			persona.name,
