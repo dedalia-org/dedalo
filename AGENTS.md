@@ -215,4 +215,4 @@ Rules:
 - **Machine-local state is never versioned** (`.agents/settings.local.json`,   `.agents/scheduled_tasks.lock`) — the skills and workflows ARE. 
 - Git does not descend into a symlinked directory: ignore rules and any   tool config must name the **real** path (`.agents/…`), never the alias, or   they silently match nothing. 
 - Symlinks need `core.symlinks=true` on Windows checkouts; macOS/Linux (this   project's targets) get them for free. 
-
+- Pipe output through head, tail, or grep to reduce result size. Avoid cat on large files — use Read with offset/limit instead.
