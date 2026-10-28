@@ -188,6 +188,94 @@ describe('SEARCH_TEARDOWN', function () {
 		});
 	}); //end describe remove_model_node
 
+	describe('a stale preset leaf never blocks the panel (TODO-014)', () => {
+		it('nonexistent tipo + wrong stored model: placeholders, the good leaf renders, the filter drops them, one repair save; a transient failure keeps its condition', async () => {
+			const baseline_instances = get_all_instances().length;
+
+			const self = make_search();
+			const root = self.create_group_model_node('$and', null, null);
+			self.filter_model = root;
+			const leaf = (component_tipo, model) =>
+				JSON.stringify([{ section_tipo: section_tipo, component_tipo, model, name: component_tipo }]);
+			// spy the change path: the temp-preset repair save. Snapshot what the save
+			// would serialize AT CALL TIME (proves the
+			// pending-leaf counter: a premature save would miss the in-flight good leaf)
+			const calls = [];
+			self.update_state = async (options) => {
+				const { filter } = self.parse_dom_to_json_filter({ mode: 'default' });
+				calls.push({ state: options.state, paths: filter.$and.map((item) => JSON.stringify(item.path)) });
+			};
+			// the good leaf settles last; a transient failure (timeout/5xx) is not stale
+			const transient = leaf('test53', 'component_input_text');
+			const original_get_component_instance = self.get_component_instance;
+			self.get_component_instance = async function (options) {
+				if (JSON.stringify(options.path) === transient) {
+					throw Object.assign(new Error('timeout'), { code: 'client.timeout' });
+				}
+				const result = await original_get_component_instance.call(this, options);
+				if (options.component_tipo === 'test52' && options.model === 'component_input_text') {
+					await new Promise((resolve) => setTimeout(resolve, 300));
+				}
+				return result;
+			};
+
+			const parent_div = document.createElement('div');
+			parent_div.__node = root;
+			document.body.appendChild(parent_div);
+
+			const good = leaf('test52', 'component_input_text');
+
+			try {
+				// concurrent, as build_dom_group fires them
+				const results = await Promise.all([
+					// (a) a tipo the ontology does not hold: the server answers request.invalid_tipo
+					self.build_search_component({ parent_div, path_plain: leaf('test999999', 'component_input_text'), section_id: 'search_1' }),
+					// (b) a real tipo stored with another model: context.model answers component_input_text
+					self.build_search_component({ parent_div, path_plain: leaf('test52', 'component_number'), section_id: 'search_1' }),
+					self.build_search_component({ parent_div, path_plain: good, section_id: 'search_1' }),
+					// (c) a transient failure: placeholder, but the condition is KEPT
+					self.build_search_component({ parent_div, path_plain: transient, section_id: 'search_1', entries: [{ value: 'kept' }], q_operator: '=' }),
+				]);
+				assert.deepEqual(results, [true, true, true, true], 'nothing throws, every row resolves');
+
+				const rows = [...parent_div.querySelectorAll(':scope > .search_component')];
+				assert.equal(rows.length, 4, 'every row keeps its place');
+				assert.ok(rows[0].querySelector('.invalid_component'), '(a) placeholder');
+				assert.ok(rows[1].querySelector('.invalid_component'), '(b) placeholder');
+				assert.equal(rows[2].querySelector('.invalid_component'), null, 'the good leaf renders');
+				assert.ok(rows[3].querySelector('.invalid_component'), '(c) placeholder');
+
+				for (const save_arguments of [undefined, 'false']) {
+					const { filter } = self.parse_dom_to_json_filter({ mode: 'default', save_arguments });
+					assert.deepEqual(
+						filter.$and.map((item) => JSON.stringify(item.path)),
+						[good, transient],
+						`the stale leaves are dropped, the transient one kept (save_arguments ${save_arguments})`,
+					);
+				}
+				const { filter: kept_filter } = self.parse_dom_to_json_filter({ mode: 'default' });
+				assert.deepEqual(kept_filter.$and[1].q, [{ value: 'kept', id: 1 }], '(c) its stored q survives');
+				assert.equal(kept_filter.$and[1].q_operator, '=', '(c) its stored q_operator survives');
+				assert.deepEqual(
+					calls,
+					[{ state: 'changed', paths: [good, transient] }],
+					'one repair save, after the slow good leaf settled (it is in the saved filter)',
+				);
+				assert.equal(self.ar_instances.length, 1, 'only the good leaf is held');
+
+				// the placeholder's close button only removes its row
+				rows[0].querySelector('.button.close').click();
+				assert.equal(parent_div.querySelectorAll(':scope > .search_component').length, 3);
+			} finally {
+				for (const instance of self.ar_instances) {
+					await instance.destroy(true, true, true);
+				}
+				parent_div.remove();
+			}
+			assert.equal(get_all_instances().length, baseline_instances, 'no discarded instance leaked');
+		});
+	}); //end describe stale preset leaf
+
 	describe('reset never hangs', () => {
 		it('a throwing refresh REJECTS reset (no async Promise executor)', async () => {
 			const self = make_search();

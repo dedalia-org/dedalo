@@ -15,7 +15,7 @@
 - [ ] TODO-011: Deep search gates: add a multi-section (UNION) search with a deep leaf to test/unit/search_deep_semantics_native.test.ts (only hand-probed so far).
 - [ ] TODO-012: Deep reversed shape: an intermediate hop's source is constrained to neither the declared step table nor its section_tipo when that hop has no ACL; and the index skips non-int4 locator ids that the correlated form still casts. Both pre-existing; decide whether the reversed shape should match the correlated one exactly.
 - [ ] TODO-013: Search: verify multiple left join issues (MDCAT case)
-- [ ] TODO-014: Search presets: clean up all presets to prevent issues. Important.
+- [x] TODO-014: Search presets: clean up all presets to prevent issues. Important. (2026-10-28: client-only — a stored leaf the current ontology no longer supports (tipo gone → build rejects; model changed/recycled → `context.model` differs from the stored one) is discarded in `get_component_instance` (destroyed, null), and `build_search_component` never throws: placeholder row, model node removed, one temp-preset (dd655) repair save once all leaves settle. Named presets (dd623) not rewritten. Gate: test_search_teardown, stale preset leaf case.)
 - [x] TODO-015: Search: improve search panel design (see 'CSS search panel design' session)
 
 ## UI & Responsive
