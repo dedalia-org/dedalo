@@ -113,7 +113,7 @@ to start to work.
 
 
 ## Others
-- [ ] TODO-061: lock_components does not work at all from widget 'lock_components'.
+- [x] TODO-061: lock_components does not work at all from widget 'lock_components'.
 - [ ] TODO-062: tool_import_dedalo_csv limit: Maximun file 64MB. (commit 823065a238 — fix(security): bound upload sniff + CSV analysis memory — DOS-03 / DOS-04 — by Alejandro Peña Carbonell, 2026-07-28. So it's a security-audit decision (finding DOS-04), not an arbitrary tuning leftover).
     - The CSV parser materializes every cell as a separate JS string, ~39× the source bytes. Your 746 MB file → ~29 GB of live strings inside the analysis worker → OOM (worker dies, server stalls). 64 MB ≈ 2.5 GB — heavy but safe.
     - Rationale for the ceiling itself: "a real ontology import is far under it, and a 200 MB+ file is either a mistake or an availability attack" — it's a DoS-style memory bound: one user uploading 1 GB should not take the whole server down.
@@ -124,6 +124,6 @@ to start to work.
 - [ ] TODO-065: Folder /client/dedalo reorganization:
       - Move test and dev pages out of the served tree first, e.g. test/client/ and dev/. The test runner and client:server can mount them in dev mode only. This fixes a real exposure whatever we name the folder.
       - Then flatten client/dedalo/core to client/core (or web/), with the URL mount /dedalo/ set in config rather than in the folder layout.
-
-
-
+- [ ] TODO-070: The default section (dd1603) for the user (e.g. numisdata6) does not work when logging in. Review the user's default access section tipo.
+- [x] TODO-071: user admin tool do not display the user profile (dd1725). It should be display it as read only.
+- [ ] TODO-072: component_text_area, component_json: When it is active, pressing the 'ESC' key does not deactivate it like the other components. Unify this behaviour.
