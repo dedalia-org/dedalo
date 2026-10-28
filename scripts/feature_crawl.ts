@@ -52,6 +52,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import puppeteer, { type BrowserContext, type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
+import { isLocatorInArray } from '../src/core/concepts/locator.ts';
 import { INTERMITTENT, KNOWN_FAILING } from '../test/helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, type JourneyContext, type PersonaName } from '../test/helpers/journey_cases.ts';
 import {
@@ -577,19 +578,25 @@ async function expectRefused(
 	await page.goto(url, { waitUntil: 'networkidle0', timeout: PAGE_TIMEOUT }).catch(() => {});
 	await settle(page);
 	checksRun++;
-	const state = await page.evaluate(async (id: number | null) => {
+	const pageState = await page.evaluate(async () => {
 		const spec = '/dedalo/core/common/js/instances.js'; // the page's own module, not a repo path
 		const { get_all_instances } = (await import(spec)) as { get_all_instances: () => unknown[] };
 		// biome-ignore lint/suspicious/noExplicitAny: live client instances
-		const shown = (get_all_instances() as any[]).filter(
-			(i) =>
-				String(i.model).startsWith('component_') &&
-				(id === null || Number(i.section_id) === id) &&
-				i.data?.value?.length > 0,
-		).length;
+		const valued = (get_all_instances() as any[])
+			.filter((i) => String(i.model).startsWith('component_') && i.data?.value?.length > 0)
+			.map((i) => ({ section_id: i.section_id }));
 		const refusal = document.querySelector('.no_access, .no_access_error') !== null;
-		return { shown, refusal };
-	}, sectionId ?? null);
+		return { valued, refusal };
+	});
+	// matched in Node by the locator law (loose-numeric section_id), not inline in the page
+	const state = {
+		refusal: pageState.refusal,
+		shown: pageState.valued.filter(
+			(i) =>
+				sectionId === undefined ||
+				isLocatorInArray({ section_id: sectionId } as never, [i as never], ['section_id']),
+		).length,
+	};
 	const permAnswer = signals.apiErrors.some((e) => e.code.startsWith('perm.'));
 	if (state.shown > 0)
 		add(
