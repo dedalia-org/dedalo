@@ -146,6 +146,7 @@ import {
 	pinInstallerIdentity,
 	withInstallerIdentity,
 } from '../helpers/installer_identity.ts';
+import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 // The installer's release identity is the checkout's (a tagged commit says `-beta.N`, the
@@ -2260,7 +2261,7 @@ describe('the Review names the image digest; a pull says it is alive; --status r
 			['run', join(REPO_ROOT, 'scripts/install_main.ts'), '--route', 'trial', '--status', '--json'],
 			{
 				cwd: REPO_ROOT,
-				env: { ...process.env, DEDALO_INSTALL_HOST_ROOT: host.root },
+				env: { ...process.env, ...magickTestEnv(), DEDALO_INSTALL_HOST_ROOT: host.root },
 				encoding: 'utf8',
 				timeout: 120_000,
 			},

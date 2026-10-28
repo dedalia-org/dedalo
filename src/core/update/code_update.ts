@@ -1157,7 +1157,7 @@ async function refuseForeignQuarantine(codeRoot: string, request: UpdateRequest)
 	// The quarantined tree's OWN declared triples (its version.ts) — never the
 	// request's: the request names the release being installed, not what the
 	// archive's bytes say they are.
-	const declared = readFileSync(join(codeRoot, VERSION_TS_PATH), 'utf8');
+	const declared = await Bun.file(join(codeRoot, VERSION_TS_PATH)).text();
 	const triple = parseVersionString(parseDeclaredTriple(declared) ?? '') as [
 		number,
 		number,
