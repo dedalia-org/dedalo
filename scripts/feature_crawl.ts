@@ -29,7 +29,7 @@
  * by direct URL, must be refused — never served, never a crash.
  *
  * Verdict: findings minus KNOWN_FAILING and INTERMITTENT (test/helpers/feature_crawl_ratchet.ts,
- * shrink-only). `--out` writes crawl_report.json + one PNG per finding.
+ * shrink-only). `--out` writes crawl_report.json + crawl_report.html + one PNG per finding.
  * Needs `bun run test:db:setup` once. ONE suite run at a time: `bun test` and
  * test:client reseed test3 wholesale and would wipe the crawl's fixture records.
  *
@@ -76,6 +76,14 @@ import {
 	startClientTestServer,
 	suiteServerPaths,
 } from './client_test_server.ts';
+import {
+	guardDialogs,
+	onApiFailure,
+	onConsoleError,
+	onPageError,
+	settle,
+} from './lib/browser_probe.ts';
+import { renderCrawlReport } from './lib/crawl_report.ts';
 
 const args = Bun.argv.slice(2);
 const flag = (name: string): string | undefined => {
@@ -290,6 +298,25 @@ if (args.includes('--update')) {
 		writeFileSync(postureFile, `${JSON.stringify(nextPosture, null, '\t')}\n`);
 		console.log(`banked ${CRAWL_POSTURE_PATH}`);
 	}
+}
+if (outDir) {
+	const shotOf = (id: string) => {
+		const name = `${id.replace(/[^\w.-]+/g, '_')}.png`;
+		return existsSync(join(outDir, name)) ? name : null;
+	};
+	writeFileSync(
+		join(outDir, 'crawl_report.html'),
+		renderCrawlReport(
+			findings.map((f) => ({ ...f, known: tolerated(f.id), shot: shotOf(f.id) })),
+			{
+				personas: PERSONAS.length,
+				pages: pagesVisited,
+				checks: checksRun,
+				red,
+				posture: postureCounts,
+			},
+		),
+	);
 }
 if (outDir)
 	writeFileSync(
@@ -1148,35 +1175,11 @@ function urlFor(tipo: string, mode: string, sectionId: number | null, config: un
 function watch(page: Page, acceptDialogs = false): PageSignals {
 	const signals: PageSignals = { problems: [], notes: [], apiErrors: [] };
 	// a blocking alert would freeze CDP; a crawl never confirms, a journey may
-	page.on('dialog', (d) => (acceptDialogs ? d.accept() : d.dismiss()));
-	page.on('pageerror', (err) =>
-		signals.problems.push(`pageerror: ${String((err as Error).message ?? err).slice(0, 300)}`),
-	);
-	page.on('console', (msg) => {
-		if (msg.type() === 'error') signals.notes.push(msg.text().slice(0, 200));
-	});
-	page.on('response', (res) => {
-		if (!res.url().includes('/api/') || !(res.headers()['content-type'] ?? '').includes('json'))
-			return;
-		void res
-			.json()
-			.then((body: { ok?: boolean; error?: { code?: string } }) => {
-				if (body?.ok !== false) return;
-				// name the request: action + what it asked for, so a finding has an address
-				let what = res.url().replace(server.origin, '');
-				try {
-					const rqo = JSON.parse(res.request().postData() ?? '{}');
-					what = `${rqo.action ?? '?'} ${rqo.source?.model ?? ''} ${rqo.source?.section_tipo ?? ''}/${rqo.source?.tipo ?? ''}${rqo.source?.section_id ? `/${rqo.source.section_id}` : ''}`;
-				} catch {}
-				signals.apiErrors.push({ url: what, code: body.error?.code ?? 'unknown' });
-			})
-			.catch(() => {});
-	});
+	guardDialogs(page, acceptDialogs);
+	onPageError(page, (text) => signals.problems.push(`pageerror: ${text.slice(0, 300)}`));
+	onConsoleError(page, (text) => signals.notes.push(text));
+	onApiFailure(page, server.origin, (failure) => signals.apiErrors.push(failure));
 	return signals;
-}
-
-async function settle(page: Page): Promise<void> {
-	await page.waitForNetworkIdle({ idleTime: 500, timeout: 20_000 }).catch(() => {});
 }
 
 /** Components build lazily as they enter the viewport: scroll like a reader. */

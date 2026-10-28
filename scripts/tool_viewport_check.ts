@@ -43,6 +43,7 @@ import {
 	resolveSuiteDatabase,
 	startClientTestServer,
 } from './client_test_server.ts';
+import { guardDialogs, onConsoleError, onPageError } from './lib/browser_probe.ts';
 
 const args = Bun.argv.slice(2);
 const flag = (name: string): string | undefined => {
@@ -144,7 +145,7 @@ try {
 	const overflowQuery = flag('--overflow');
 	if (overflowQuery !== undefined) {
 		const page = await browser.newPage();
-		page.on('dialog', (d) => d.dismiss());
+		guardDialogs(page);
 		await page.emulate(PHONE_DEVICE);
 		// `a|b|c`: visit each in turn (a user's path), report the last
 		for (const q of overflowQuery.split('|')) {
@@ -194,7 +195,7 @@ try {
 		const [sectionTipo, sectionId] = discover.split('/');
 		const mode = sectionId === 'list' ? 'list' : 'edit';
 		const page = await browser.newPage();
-		page.on('dialog', (d) => d.dismiss());
+		guardDialogs(page);
 		await page.setViewport({ width: 1400, height: 900 });
 		const query =
 			mode === 'list'
@@ -237,12 +238,10 @@ try {
 		// An UNCAUGHT error, or the tool rendering its error panel, is a verdict.
 		const notes: string[] = [];
 		const watch = (p: Page, who: string): void => {
-			p.on('dialog', (d) => d.dismiss()); // a blocking alert would freeze CDP
+			guardDialogs(p); // a blocking alert would freeze CDP
+			onConsoleError(p, (text, where) => notes.push(`${text}${where}`));
 			p.on('console', (msg) => {
 				if (msg.type() !== 'error') return;
-				const at = msg.stackTrace()[0];
-				const where = at?.url ? ` @ ${at.url.replace(/^.*\/dedalo\//, '')}:${at.lineNumber}` : '';
-				notes.push(`${msg.text().slice(0, 200)}${where}`);
 				if (verbose) {
 					const arg = msg.args()[0];
 					void arg
@@ -258,9 +257,7 @@ try {
 						.catch(() => {});
 				}
 			});
-			p.on('pageerror', (err) =>
-				problems.push(`pageerror (${who}): ${String((err as Error).stack ?? err).slice(0, 600)}`),
-			);
+			onPageError(p, (text) => problems.push(`pageerror (${who}): ${text.slice(0, 600)}`), true);
 		};
 		// A FRESH browser context per probe: each tool is judged on a first
 		// visit, not on storage an earlier probe left behind (the list view
