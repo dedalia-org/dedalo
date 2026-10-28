@@ -157,7 +157,7 @@ const build_details = function (summary_text, pre_content, opts) {
 	const options = opts || {}
 	const details = ui.create_dom_element({
 		element_type	: 'details',
-		class_name		: 'response_detail'
+		class_name		: 'dd_fold response_detail'
 	})
 	if (options.open===true) {
 		details.setAttribute('open', 'open')
@@ -685,7 +685,7 @@ const build_client_info = function (servers) {
 	// and the summary pill already reports the state ("None configured").
 	const details = ui.create_dom_element({
 		element_type	: 'details',
-		class_name		: 'serving_info client_info'
+		class_name		: 'dd_fold serving_info client_info'
 	})
 	const summary = ui.create_dom_element({
 		element_type	: 'summary',

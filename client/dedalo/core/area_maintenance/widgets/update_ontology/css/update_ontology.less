@@ -113,25 +113,11 @@
 	.serving_info {
 		.dd_surface();
 
+		// the disclosure itself (chevron, marker, cursor) is the kit's .dd_fold
 		> summary {
-			display: flex;
-			align-items: center;
-			gap: 0.5rem;
-			padding: 0.45rem 0.75rem;
 			font-size: 0.85rem;
-			cursor: pointer;
-			list-style: none;
-			user-select: none;
+			border-radius: 0;
 
-			&::-webkit-details-marker {
-				display: none;
-			}
-			&:before {
-				content: '\25B8';
-				color: var(--fg_muted);
-				font-size: 0.8rem;
-				transition: transform 0.12s ease;
-			}
 			.ttl {
 				font-weight: 600;
 				color: var(--fg_default);
@@ -141,8 +127,8 @@
 				flex: 0 0 auto;
 			}
 		}
-		&[open] > summary:before {
-			transform: rotate(90deg);
+		&[open] > summary {
+			margin-bottom: 0;
 		}
 
 		// A CLOSED <details> hides its content through UA styles, but an explicit
@@ -379,30 +365,15 @@
 			.dd_surface();
 			margin-top: 0.5rem;
 
+			// the disclosure itself is the kit's .dd_fold
 			> summary {
-				display: flex;
-				align-items: center;
-				gap: 0.5rem;
-				padding: 0.45rem 0.75rem;
 				font-size: 0.85rem;
 				font-weight: 600;
 				color: var(--fg_default);
-				cursor: pointer;
-				list-style: none;
-				user-select: none;
-
-				&::-webkit-details-marker {
-					display: none;
-				}
-				&:before {
-					content: '▸';
-					color: var(--fg_muted);
-					font-size: 0.8rem;
-					transition: transform 0.12s ease;
-				}
+				border-radius: 0;
 			}
-			&[open] > summary:before {
-				transform: rotate(90deg);
+			&[open] > summary {
+				margin-bottom: 0;
 			}
 
 			// the console <pre> is already styled by .dd_response_states();

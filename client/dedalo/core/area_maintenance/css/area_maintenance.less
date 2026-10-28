@@ -12,6 +12,7 @@
 // shared front-panel design language (readout grid, severity chips, eyebrows,
 // notes, console + action-button mixins) used by every widget
 @import (once) './widget_kit';
+.dd_narrow_rules();
 
 // masked svg helper used by group headers and card headers
 .fn_maintenance_icon(@icon_name, @size: 1.1em) {
@@ -69,7 +70,7 @@
 		}
 
 		.warning {
-			color: @color_warning;
+			color: @dd_warn_ink;
 			font-weight: 500;
 		}
 
@@ -701,7 +702,7 @@
 				align-items: center;
 				gap: 0.4rem;
 
-				&.warn { color: var(--color_warning); cursor: pointer; }
+				&.warn { color: @dd_warn_ink; cursor: pointer; }
 			}
 		}
 
@@ -710,9 +711,15 @@
 			font-size: 12px;
 			color: var(--fg_muted);
 
-			.danger_key {
-				color: var(--color_danger);
-				font-weight: 600;
+			// the legend's key IS the dot the chips carry
+			.tc_dot.danger_key {
+				display: inline-block;
+				vertical-align: middle;
+				width: 0.5rem;
+				height: 0.5rem;
+				margin: 0 0.1rem;
+				border-radius: 50%;
+				background-color: var(--color_danger);
 			}
 		}
 
@@ -725,7 +732,7 @@
 			background-color: var(--border_strong);
 
 			&.ok   { background-color: var(--color_success); }
-			&.warn { background-color: var(--color_warning); }
+			&.warn { background-color: @dd_warn_ink; }
 			&.bad  { background-color: var(--color_danger); }
 		}
 
@@ -776,7 +783,7 @@
 				}
 				&.dim { stroke-dasharray: 2 6; opacity: 0.6; }
 				&.act { stroke: var(--color_orange_dedalo); stroke-width: 2.1; }
-				&.warn { stroke: var(--color_warning); }
+				&.warn { stroke: @dd_warn_ink; }
 			}
 		}
 
@@ -850,7 +857,7 @@
 				color: var(--fg_muted);
 			}
 
-			&.warn { border-color: color-mix(in srgb, var(--color_warning) 45%, var(--border_default)); }
+			&.warn { border-color: @dd_warn_line; }
 			&.bad  { border-color: color-mix(in srgb, var(--color_danger) 45%, var(--border_default)); }
 			&.sel {
 				border-color: var(--color_orange_dedalo);
@@ -868,7 +875,7 @@
 				display: grid;
 				place-items: center;
 				color: var(--fg_on_warning); // the warning fill is dark in light and bright in dark; this ink flips with IT, not with the brand
-				background-color: var(--color_warning);
+				background-color: @dd_warn_ink;
 				border-radius: 50%;
 				font-size: 0.62rem;
 				font-weight: 700;
@@ -948,22 +955,19 @@
 
 				&:hover { border-color: var(--border_strong); }
 
-				.tc_dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background-color: var(--border_strong); }
+				.tc_dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background-color: var(--border_strong); }
 
-				&.danger {
-					color: var(--color_danger);
-					border-color: color-mix(in srgb, var(--color_danger) 30%, var(--border_default));
-					.tc_dot { background-color: var(--color_danger); }
+				// destructive: ONLY the dot says so (text and border stay neutral).
+				// A faint halo keeps it perceivable without shouting; the button
+				// carries the meaning in words too (title + aria-label).
+				&.danger .tc_dot {
+					background-color: var(--color_danger);
+					box-shadow: 0 0 0 2px color-mix(in srgb, var(--color_danger) 18%, transparent);
 				}
 				&.sel {
 					font-weight: 600;
 					border-color: var(--color_orange_dedalo);
 					background-color: color-mix(in srgb, var(--color_orange_dedalo) 14%, transparent);
-				}
-				&.danger.sel {
-					color: var(--color_danger);
-					border-color: var(--color_danger);
-					background-color: color-mix(in srgb, var(--color_danger) 12%, transparent);
 				}
 			}
 

@@ -173,7 +173,7 @@ describe('UPDATE_CODE WIDGET', function() {
 		// The panel value the modal reads. `checks` is the server's readiness
 		// vocabulary (core/update/status.ts): {id, state, detail}, where the
 		// state is 'ok' exactly when the pipeline will not refuse on that account.
-		const build_self = (backup_state, detail) => {
+		const build_self = (backup_state, detail, extra_checks=[]) => {
 			const self = new update_code()
 			self.id		= 'test_update_code_modal'
 			self.value	= {
@@ -183,7 +183,8 @@ describe('UPDATE_CODE WIDGET', function() {
 					ready	: true,
 					checks	: [
 						{ id : 'superuser', state : 'ok' },
-						{ id : 'backup_fresh', state : backup_state, detail : detail }
+						{ id : 'backup_fresh', state : backup_state, detail : detail },
+						...extra_checks
 					]
 				}
 			}
@@ -260,6 +261,49 @@ describe('UPDATE_CODE WIDGET', function() {
 			const opened = open_modal(build_self('ok', '2'))
 			try {
 				assert.strictEqual(opened.modal.querySelector('.waive_backup_row'), null, 'a fresh backup renders no waive row')
+			} finally {
+				close(opened)
+			}
+		})
+
+		it('a BLOCKED check keeps Update disabled and names it; maintenance mode gets its switch', function() {
+
+			// The pipeline WILL refuse a blocked check, so the choice must not be
+			// actionable — the operator learns it here, not after the click.
+			const self = build_self('ok', '2', [
+				{ id : 'maintenance_mode', state : 'blocked' },
+				{ id : 'supervisor', state : 'blocked' }
+			])
+			self.value.consumer.ready = false
+			const opened = open_modal(self)
+			try {
+				const gate = opened.modal.querySelector('.update_gate')
+				assert.ok(gate, 'the gate renders')
+				assert.ok(gate.querySelector('.maintenance_prereq .button_enable_maintenance'), 'maintenance mode comes with its switch')
+				assert.strictEqual(gate.querySelectorAll('.dd_note.state_danger').length, 2, 'one note per blocked check')
+				const button = gate.parentElement.querySelector('button.success')
+				assert.strictEqual(button.disabled, true, 'Update is disabled while a check blocks')
+				assert.strictEqual(
+					gate.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING,
+					Node.DOCUMENT_POSITION_FOLLOWING,
+					'the gate precedes the Update button'
+				)
+				// choosing a version must not re-arm it
+				const radio = opened.modal.querySelector('input[type="radio"]')
+				radio.checked = true
+				radio.dispatchEvent(new Event('change'))
+				assert.strictEqual(button.disabled, true, 'selecting a version keeps it disabled')
+			} finally {
+				close(opened)
+			}
+		})
+
+		it('nothing blocked: no gate content and Update is live', function() {
+
+			const opened = open_modal(build_self('ok', '2'))
+			try {
+				assert.strictEqual(opened.modal.querySelector('.update_gate').childElementCount, 0, 'an empty gate')
+				assert.strictEqual(opened.modal.querySelector('button.success').disabled, false, 'Update is live')
 			} finally {
 				close(opened)
 			}
