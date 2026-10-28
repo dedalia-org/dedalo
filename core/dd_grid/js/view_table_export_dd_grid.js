@@ -201,7 +201,10 @@ const get_columns = function(self, column_data, ar_columns_obj, parent_row_key) 
 		if(ar_columns_values_len>1){
 			const ar_values = []
 			for (let j = 0; j < ar_columns_values_len; j++) {
-				const value = ar_column_values[j].value
+				// empty value of this locator: use its own fallback value, not the first one
+				const value = is_empty_value(ar_column_values[j].value) && !is_empty_value(ar_column_values[j].fallback_value)
+					? ar_column_values[j].fallback_value
+					: ar_column_values[j].value
 				// set the value into the value array.
 				// important, sometimes the value could be a object (because is a column inside a column)
 				// therefore don't join the values, use the spread to assign the current value as is.
@@ -408,6 +411,18 @@ const render_header_column = function(self, current_data) {
 
 	return th_node
 }//end render_header_column
+
+
+
+/**
+* IS_EMPTY_VALUE
+* Check if a cell value has no data (null, empty string or empty array)
+* @param mixed value
+* @return bool
+*/
+const is_empty_value = function(value) {
+	return value===undefined || value===null || value==='' || (Array.isArray(value) && value.length===0)
+}//end is_empty_value
 
 
 

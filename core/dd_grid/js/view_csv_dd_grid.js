@@ -210,7 +210,10 @@ export const get_columns = function(self, column_data, ar_columns_obj, parent_ro
 			const ar_columns_values_len	= ar_column_values.length
 			const ar_values = []
 			for (let j = 0; j < ar_columns_values_len; j++) {
-				const value = ar_column_values[j].value
+				// empty value of this locator: use its own fallback value, not the first one
+				const value = is_empty_value(ar_column_values[j].value) && !is_empty_value(ar_column_values[j].fallback_value)
+					? ar_column_values[j].fallback_value
+					: ar_column_values[j].value
 				// set the value into the value array.
 				// important, sometimes the value could be a object (because is a column inside a column)
 				// therefore don't join the values, use the spread to assign the current value as is.
@@ -394,6 +397,18 @@ const get_header_column = function(current_data) {
 
 
 /**
+* IS_EMPTY_VALUE
+* Check if a cell value has no data (null, empty string or empty array)
+* @param mixed value
+* @return bool
+*/
+const is_empty_value = function(value) {
+	return value===undefined || value===null || value==='' || (Array.isArray(value) && value.length===0)
+}//end is_empty_value
+
+
+
+/**
 * GET_TEXT_COLUMN
 * @param object current_data
 * @return string value
@@ -404,9 +419,18 @@ const get_text_column = function(current_data) {
 		? current_data.records_separator
 		: ' | '
 
-	const flat_html = current_data.value && Array.isArray(current_data.value)
+	const current_value = current_data.value && Array.isArray(current_data.value)
 		? current_data.value.join(records_separator)
 		: (current_data.value || '')
+
+	const fallback_value = current_data.fallback_value && Array.isArray(current_data.fallback_value)
+		? current_data.fallback_value.join(records_separator)
+		: (current_data.fallback_value || '')
+
+	// use the fallback value when the value is empty (translatable data in other language)
+	const flat_html = current_value && current_value.length>0
+		? current_value
+		: fallback_value
 
 	const decode_escaped_html = (str) =>
 		str.replace( /&(\D+);/gi,
