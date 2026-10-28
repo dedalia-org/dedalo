@@ -15,8 +15,9 @@
   - `context_differential` (structure-context subset) and `get_element_context_differential`: the
     mint section label is `Ceca` on master (was `Cecas`). The frozen PHP label is asserted as
     `Cecas`, the TS label as `Ceca | testmint`.
-- **Coverage note:** no definition in the test TLD routes a section_tool role through a
-  `component_alias` any more; the WC-020 alias-in-`tool_config` path has no gate here (open
-  follow-up: a scratch `zz*` twin).
+- **Coverage kept:** no definition in the test TLD routes a section_tool role through a
+  `component_alias` any more, so the WC-020 alias-in-`tool_config` contract moved to a scratch gate:
+  `test/unit/section_tool_context.test.ts` (`zzstc5` alias of portal `zzstc4`: the entry keeps the
+  alias tipo, gets the target model, no inline properties invented).
 - **Client:** none.
 - **Gate reconciliation:** TS-only.

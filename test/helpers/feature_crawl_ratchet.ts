@@ -9,14 +9,6 @@
  */
 export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string>([
 	[
-		'root:rsc370:list:api:ontology.invalid_node',
-		'rsc370 names the v6 table matrix_structurations (dd489) in the VENDORED ontology release; fixed on the master ontology 2026-10-28 (relation removed, node marked [DEPRECATED]) — remove this entry when the vendored release is refreshed',
-	],
-	[
-		'root:test5977:list:api:ontology.invalid_node',
-		'test5977 node is unusable (ontology.invalid_node) — suite ontology data defect, follow-up',
-	],
-	[
 		'root:tools@section:tool:tool_identify:api:identify.no_profile',
 		'the suite DB holds no identify profile / image index; tool_identify answers identify.no_profile',
 	],

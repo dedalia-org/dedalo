@@ -124,6 +124,12 @@ describe('buildSectionToolContext', () => {
  */
 const NO_CONFIG = 'zzstc1';
 const WITH_CONFIG = 'zzstc2';
+// WC-020 through a tool_config role: a ddo_map entry naming a component_alias keeps the
+// ALIAS tipo and is stamped with its TARGET's model. Pinned by the parity differential
+// on test6269 until master moved that role off the alias (WC-2026-10-28-parity-definition-drift).
+const ALIAS_SECTION = 'zzstc3';
+const ALIAS_TARGET = 'zzstc4';
+const ALIAS = 'zzstc5';
 const SECTION_TOOL_SITUATION = situation({
 	name: 'section_tool start refusal',
 	tld: 'zzstc',
@@ -143,6 +149,15 @@ const SECTION_TOOL_SITUATION = situation({
 			order_number: 2,
 			term: { 'lg-eng': 'zzstc config' },
 			properties: { config: { target_section_tipo: 'test3' } },
+		},
+		{ tipo: ALIAS_SECTION, parent: 'test1', model: 'section', order_number: 3 },
+		{ tipo: ALIAS_TARGET, parent: ALIAS_SECTION, model: 'component_portal' },
+		{
+			tipo: ALIAS,
+			parent: ALIAS_SECTION,
+			model: 'component_alias',
+			order_number: 2,
+			properties: { alias_of: ALIAS_TARGET },
 		},
 	],
 });
@@ -186,6 +201,14 @@ describe.if(DB_READY)(
 			const refused = await start(NO_CONFIG);
 			expect(refused.body.ok).toBe(false);
 			expect((refused.body.error as { code?: string }).code).toBe('resource.conflict');
+		});
+
+		test('a tool_config role naming a component_alias keeps the alias tipo, stamped with the target model', async () => {
+			const enriched = (await enrichToolConfig({
+				ddo_map: [{ role: 'coins', tipo: ALIAS, section_tipo: ALIAS_SECTION, mode: 'edit' }],
+			})) as { ddo_map: Record<string, unknown>[] };
+			expect(enriched.ddo_map[0]).toMatchObject({ tipo: ALIAS, model: 'component_portal' });
+			expect(enriched.ddo_map[0]!.properties).toBeUndefined(); // no inline copy is invented
 		});
 
 		test('config.target_section_tipo → rerouted to the target section (non-vacuity)', async () => {
