@@ -36,6 +36,8 @@ export interface JourneyContext {
 			tipo: string,
 		): Promise<unknown>;
 		recordExists(table: string, sectionTipo: string, sectionId: number): Promise<boolean>;
+		/** a read-only query on the suite database (journeys check what was RECORDED) */
+		select(query: string, params: unknown[]): Promise<Record<string, unknown>[]>;
 		/** delete a record a journey created (suite DB only) */
 		sweep(table: string, sectionTipo: string, sectionId: number): Promise<void>;
 		/** arm BEFORE an action that creates records; the returned call sweeps every record created since */
@@ -148,6 +150,25 @@ async function pageApi(
 	}, rqo);
 }
 
+/** Open record A and type `value` into its text component, NOT blurred (no save yet). */
+async function typeIntoText(
+	page: Page,
+	url: JourneyContext['url'],
+	fixture: JourneyContext['fixture'],
+	value: string,
+): Promise<string> {
+	const input = `.wrapper_component.${fixture.textComponent}.edit input`;
+	await page.goto(url(fixture.editSection, 'edit', fixture.recordInA), {
+		waitUntil: 'networkidle0',
+		timeout: 60_000,
+	});
+	await scrollTo(page, input);
+	await page.click(input, { count: 3 });
+	await page.keyboard.press('Backspace');
+	await page.type(input, value);
+	return input;
+}
+
 export const JOURNEYS: Record<string, Journey> = {
 	login_form: {
 		personas: ['root', 'editor'],
@@ -190,15 +211,7 @@ export const JOURNEYS: Record<string, Journey> = {
 		writes: true,
 		async run({ page, url, fixture, server }) {
 			const value = `zzcrawl ${Date.now()}`;
-			const input = `.wrapper_component.${fixture.textComponent}.edit input`;
-			await page.goto(url(fixture.editSection, 'edit', fixture.recordInA), {
-				waitUntil: 'networkidle0',
-				timeout: 60_000,
-			});
-			await scrollTo(page, input);
-			await page.click(input, { count: 3 });
-			await page.keyboard.press('Backspace');
-			await page.type(input, value);
+			const input = await typeIntoText(page, url, fixture, value);
 			await page.keyboard.press('Tab'); // blur → save
 			await idle(page);
 			const stored = JSON.stringify(
@@ -323,6 +336,131 @@ export const JOURNEYS: Record<string, Journey> = {
 			} finally {
 				await editorContext.close();
 			}
+		},
+	},
+
+	two_tabs_logout: {
+		personas: ['editor'],
+		writes: false,
+		async run({ page, context, url, fixture }) {
+			const other = await context.newPage();
+			try {
+				for (const tab of [page, other])
+					await tab.goto(url(fixture.editSection, 'list'), {
+						waitUntil: 'networkidle0',
+						timeout: 60_000,
+					});
+				await page.bringToFront(); // a background tab paints nothing visible
+				await page.waitForSelector('.quit.top_item', { visible: true, timeout: 15_000 });
+				await Promise.all([
+					page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30_000 }).catch(() => {}),
+					page.click('.quit.top_item'),
+				]);
+				await idle(page);
+				// the other tab still shows the list; its next request must be refused
+				const answer = await pageApi(other, {
+					action: 'read',
+					source: {
+						tipo: fixture.editSection,
+						section_tipo: fixture.editSection,
+						model: 'section',
+						mode: 'list',
+					},
+					sqo: { section_tipo: [fixture.editSection], limit: 1 },
+				});
+				if (answer.ok === true)
+					throw new Error('the second tab still reads data after logout in the first');
+			} finally {
+				await other.close();
+			}
+		},
+	},
+
+	activity_and_tm_attribution: {
+		personas: ['editor'],
+		writes: true,
+		async run({ page, url, fixture, server, persona }) {
+			const maxId = async (table: string) =>
+				Number(
+					(await server.select(`SELECT coalesce(max(id), 0) AS max FROM ${table}`, []))[0]?.max,
+				);
+			const before = await maxId('matrix_time_machine');
+			const activityBefore = await maxId('matrix_activity');
+			await typeIntoText(page, url, fixture, `zzcrawl attribution ${Date.now()}`);
+			await page.keyboard.press('Tab'); // blur → save
+			await idle(page);
+			const tm = await server.select(
+				'SELECT user_id FROM matrix_time_machine WHERE id > $1 AND section_tipo = $2 AND section_id = $3 AND tipo = $4',
+				[before, fixture.editSection, fixture.recordInA, fixture.textComponent],
+			);
+			if (tm.length === 0) throw new Error('the save left no Time Machine row');
+			const wrong = tm.filter((row) => String(row.user_id) !== String(persona.userId));
+			if (wrong.length > 0)
+				throw new Error(`Time Machine credits user ${wrong[0]?.user_id}, not ${persona.userId}`);
+			const activity = await server.select(
+				"SELECT relation->'dd543'->0->>'section_id' AS user_id FROM matrix_activity WHERE id > $1 AND (string->'dd546'->0->>'value' = $2 OR string->'dd546'->0->>'value' = $3)",
+				[activityBefore, fixture.textComponent, fixture.editSection],
+			);
+			if (activity.length === 0) throw new Error('the save left no Activity row');
+			if (!activity.some((row) => String(row.user_id) === String(persona.userId)))
+				throw new Error(`no Activity row credits user ${persona.userId}`);
+		},
+	},
+
+	// beforeunload prompts only while an edit is unsaved: a clean page leaves silently
+	// Leaving with an unsaved edit must never LOSE it: the page either warns (its
+	// beforeunload handler asks) or commits the edit on the way out. The tab is really
+	// closed (beforeunload run), then the server is read — headless Chrome does not draw
+	// the native prompt, so the handler's verdict is collected in the page.
+	unsaved_changes_warning: {
+		personas: ['editor'],
+		writes: true,
+		async run({ context, url, fixture, server }) {
+			const leave = async (typed: string | null): Promise<{ asked: boolean; stored: string }> => {
+				const tab = await context.newPage();
+				let asked = false;
+				tab.on('dialog', (dialog) => {
+					if (dialog.type() === 'beforeunload') asked = true;
+					void dialog.accept().catch(() => {});
+				});
+				await tab.exposeFunction('__zzcrawlAsked', () => {
+					asked = true;
+				});
+				await tab.evaluateOnNewDocument(() => {
+					window.addEventListener('beforeunload', (event) => {
+						if (event.defaultPrevented || event.returnValue)
+							(window as unknown as { __zzcrawlAsked: () => void }).__zzcrawlAsked();
+					});
+				});
+				if (typed !== null) await typeIntoText(tab, url, fixture, typed);
+				else
+					await tab.goto(url(fixture.editSection, 'edit', fixture.recordInA), {
+						waitUntil: 'networkidle0',
+						timeout: 60_000,
+					});
+				const closed = new Promise<void>((resolve) => tab.once('close', () => resolve()));
+				await tab.close({ runBeforeUnload: true });
+				await Promise.race([closed, new Promise((r) => setTimeout(r, 10_000))]);
+				await new Promise((r) => setTimeout(r, 2_000)); // an in-flight save lands or dies
+				const stored = JSON.stringify(
+					await server.readValue(
+						'matrix_test',
+						fixture.editSection,
+						fixture.recordInA,
+						'string',
+						fixture.textComponent,
+					),
+				);
+				return { asked, stored };
+			};
+			if ((await leave(null)).asked)
+				throw new Error('leaving a page with no edit warned about unsaved data');
+			const value = `zzcrawl unsaved ${Date.now()}`;
+			const { asked, stored } = await leave(value);
+			if (!asked && !stored.includes(value))
+				throw new Error(
+					'closing the tab with a typed, unsaved value neither warned nor saved it (lost)',
+				);
 		},
 	},
 
@@ -578,7 +716,6 @@ export const JOURNEYS: Record<string, Journey> = {
 /** Catalogued journeys not written yet — each a coverage gap, stated. */
 export const JOURNEYS_PENDING: Record<string, string> = {
 	session_expiry_relogin: 'needs a server-side session TTL seam to expire a session mid-page',
-	two_tabs_logout: 'logout in one tab, the other must refuse on its next request',
 	change_own_password: 'tool_user_admin password change, then form login with the new one',
 	switch_application_and_data_lang: 'labels change, untranslated values stay italic',
 	search_filter_per_model: 'one search per component model through the filter panel operators',
@@ -595,10 +732,7 @@ export const JOURNEYS_PENDING: Record<string, string> = {
 	thesaurus_add_move_reorder: 'add a child, move a node, reorder siblings',
 	media_upload_view_download:
 		'tool_upload image/av/pdf, thumbnail, viewer, download; out-of-project media 404',
-	unsaved_changes_warning: 'leaving with unsaved data prompts (window.unsaved_data + beforeunload)',
 	concurrent_edit: 'two personas edit one record; the conflict is noticed and no update is lost',
-	activity_and_tm_attribution:
-		"the run's own actions appear in Activity and Time Machine under the right user",
 	diffusion_publish:
 		'tool_diffusion publishes a scratch record to the suite MariaDB; its media becomes reachable',
 	keyboard_only_navigation: 'tab order reaches the main actions of list and edit pages',

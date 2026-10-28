@@ -510,6 +510,9 @@ function journeyContext(
 				);
 				return rows.length > 0;
 			},
+			async select(query, params) {
+				return (await sql.unsafe(query, params as never[])) as Record<string, unknown>[];
+			},
 			async armSweep(sectionTipo) {
 				await assertTestDatabase('feature_crawl.armSweep');
 				const table = await getMatrixTableFromTipo(sectionTipo);
