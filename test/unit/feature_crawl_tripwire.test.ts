@@ -14,14 +14,19 @@
  *     edit / read-only / no grant where the crawl expects it, and is out of
  *     scope for the other project's record — so the crawl's oracle can never
  *     go green at admin-vs-admin.
+ *  5. ONE SUITE RUN AT A TIME (test/helpers/suite_run_lock.ts): the lock refuses a
+ *     live holder, reclaims a dead one's, lets the holder's children through, and
+ *     every runner that reseeds the suite fixtures takes it.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trackedRepoFiles } from '../helpers/css_reference_corpus.ts';
 import { INTERMITTENT, KNOWN_FAILING } from '../helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, JOURNEYS_PENDING } from '../helpers/journey_cases.ts';
+import { acquireSuiteRunLock, suiteRunLockPath } from '../helpers/suite_run_lock.ts';
 import { isGrantOnlyTool } from '../helpers/tool_directory_corpus.ts';
 import { TOOL_OPERATED, TOOL_OPERATION_PENDING } from '../helpers/tool_operation_cases.ts';
 
@@ -130,5 +135,57 @@ describe('crawl personas (suite DB)', () => {
 		expect(await principalCanAccessRecord(s, fixture.CRAWL_RECORD_IN_A, editor)).toBe(true);
 		expect(await principalCanAccessRecord(s, fixture.CRAWL_RECORD_IN_B, editor)).toBe(false);
 		expect(await principalCanAccessRecord(s, fixture.CRAWL_RECORD_IN_B, admin)).toBe(true);
+	});
+});
+
+describe('one suite run at a time — the suite run lock', () => {
+	const TOKEN = 'DEDALO_SUITE_RUN_LOCK';
+	let dir = '';
+	let savedToken: string | undefined;
+	beforeAll(() => {
+		dir = mkdtempSync(join(tmpdir(), 'zzlock_'));
+		savedToken = process.env[TOKEN]; // this very process holds the REAL lock (preload)
+	});
+	afterAll(() => {
+		if (savedToken === undefined) delete process.env[TOKEN];
+		else process.env[TOKEN] = savedToken;
+		rmSync(dir, { recursive: true, force: true });
+	});
+	const plant = (db: string, pid: number) =>
+		writeFileSync(
+			suiteRunLockPath(db, dir),
+			JSON.stringify({ pid, holder: 'zz holder', started: 'then' }),
+		);
+
+	test('free → taken; a second taker in another live process is refused, naming the holder', () => {
+		const release = acquireSuiteRunLock('zzfree', 'zz', { dir });
+		expect(existsSync(suiteRunLockPath('zzfree', dir))).toBe(true);
+		release();
+		expect(existsSync(suiteRunLockPath('zzfree', dir))).toBe(false);
+		plant('zzheld', process.ppid); // a live process that is not us
+		delete process.env[TOKEN];
+		expect(() => acquireSuiteRunLock('zzheld', 'zz', { dir })).toThrow(/REFUSED.*zz holder/);
+	});
+
+	test("a dead holder's lock is reclaimed; the holder's own children pass", () => {
+		plant('zzstale', 2 ** 22 + 12345); // above macOS/Linux default pid_max: never alive
+		acquireSuiteRunLock('zzstale', 'zz', { dir })();
+		plant('zznested', process.ppid);
+		process.env[TOKEN] = `${suiteRunLockPath('zznested', dir)}#${process.ppid}`;
+		expect(() => acquireSuiteRunLock('zznested', 'zz', { dir })).not.toThrow();
+		expect(JSON.parse(readFileSync(suiteRunLockPath('zznested', dir), 'utf8')).pid).toBe(
+			process.ppid,
+		);
+	});
+
+	test('every runner that reseeds the suite fixtures takes the lock', () => {
+		for (const file of [
+			'test/preload/canonical_test3.ts',
+			'scripts/client_test_runner.ts',
+			'scripts/feature_crawl.ts',
+		])
+			expect(readFileSync(join(import.meta.dir, '../..', file), 'utf8')).toMatch(
+				/acquireSuiteRunLock\(/,
+			);
 	});
 });

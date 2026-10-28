@@ -95,6 +95,7 @@ import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
 import type { RunCreatedSweeper } from '../src/core/test_data/run_created_records.ts';
 import { gatedCardCount, staticCensusTotals } from '../test/helpers/client_suite_census.ts';
+import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import {
 	assertServedDatabase,
 	type ClientTestServer,
@@ -405,6 +406,7 @@ const KNOWN_FAILING: ReadonlyMap<string, string> = new Map([]);
  */
 async function prepareSuiteDatabase(): Promise<{ suiteDb: string; fingerprint: string }> {
 	const { suiteDb, appDb } = resolveSuiteDatabase();
+	acquireSuiteRunLock(suiteDb, 'test:client'); // it reseeds test3: one suite run at a time
 	// The per-run session store must be in place BEFORE the first engine import:
 	// src/core/security/session_store.ts resolves its path once, at import. Only
 	// when the run owns its server — an external --url server reads its own

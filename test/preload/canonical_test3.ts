@@ -45,6 +45,14 @@
 // process at parse time, including the DB-less hermetic tier.
 export {};
 
+// ONE SUITE RUN AT A TIME (test/helpers/suite_run_lock.ts): this reseed would wipe a
+// running crawl's or client suite's fixtures. A refusal THROWS — unlike the restore below,
+// it is never a warning. No suite database (opt-out, hermetic tier) → nothing to lock.
+if (process.env.DEDALO_TEST_DB_DISABLE !== 'true' && process.env.DEDALO_TEST_DATABASE) {
+	const { acquireSuiteRunLock } = await import('../helpers/suite_run_lock.ts');
+	acquireSuiteRunLock(process.env.DEDALO_TEST_DATABASE, 'bun test');
+}
+
 if (process.env.DEDALO_TEST_SKIP_CANONICAL_RESTORE !== 'true') {
 	try {
 		const { restoreCanonicalTest3 } = await import('../../src/core/test_data/seed.ts');

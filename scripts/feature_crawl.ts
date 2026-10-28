@@ -108,6 +108,11 @@ interface PageSignals {
 // (audit: no repoint — the staging install's own database and session store)
 const suiteDb = audit ? '' : resolveSuiteDatabase().suiteDb;
 if (!audit) repointProcessToSuiteDatabase(suiteDb, suiteServerPaths().sessionDbPath);
+// the persona fixture lives in test3, which bun test and test:client reseed wholesale
+if (!audit) {
+	const { acquireSuiteRunLock } = await import('../test/helpers/suite_run_lock.ts');
+	acquireSuiteRunLock(suiteDb, 'test:crawl');
+}
 
 await import('../src/core/components/registry.ts');
 const fixture = await import('../test/helpers/crawl_persona_fixture.ts');
