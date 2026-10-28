@@ -398,6 +398,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		},
 	],
 	[
+		'tools/tool_upload/server/index.ts',
+		{
+			lang: 'request+nolan',
+			reason:
+				'A component_json upload replaces the value in the slot the operator is looking at: currentDataLang() for a translatable component, lg-nolan otherwise (getTranslatableByTipo) — the same rule the media tools resolve their identity lang by.',
+		},
+	],
+	[
 		'tools/tool_tc/server/index.ts',
 		{ lang: 'caller', reason: 'Time-code writes carry the lang of the component being edited.' },
 	],

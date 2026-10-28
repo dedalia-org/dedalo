@@ -59,9 +59,11 @@ async function processUploadedJson(
 	const originalFileName = String(fileData.name ?? fileData.tmp_name ?? '');
 	let value: unknown;
 	try {
-		value = JSON.parse(await Bun.file(source).text());
+		// JSON is UTF-8 (RFC 8259): a strict decode refuses other bytes instead of U+FFFD.
+		const text = new TextDecoder('utf-8', { fatal: true }).decode(await Bun.file(source).bytes());
+		value = JSON.parse(text);
 	} catch {
-		const reason = `${originalFileName}: the content is not valid JSON`;
+		const reason = `${originalFileName}: the content is not valid UTF-8 JSON`;
 		throw new DedaloError('media.upload_rejected', { message: reason, publicMessage: reason });
 	}
 	const sectionTipo = String(ctx.options.section_tipo ?? '');

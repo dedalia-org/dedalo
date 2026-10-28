@@ -27,6 +27,8 @@ export const DD128_PROBED: Readonly<Record<string, readonly string[]>> = {
 	'src/ai/mcp/tools/fields_write.ts': ['mcp:dedalo_set_field', 'mcp:dedalo_portal_unlink'],
 	'src/ai/mcp/tools/records_write.ts': ['mcp:dedalo_save_component'],
 	// THE declarative tool gate: its `tipo` and `record_tipo` kinds, at write level.
+	// tool_upload's component_json write (saveComponentData) — the generic record_tipo/2 probe.
+	'tools/tool_upload/server/index.ts': ['tool:tool_upload:process_uploaded_file'],
 	'src/core/tools/security.ts': [
 		'tool:tool_time_machine:apply_value',
 		'tool:tool_image_rotation:apply_rotation',

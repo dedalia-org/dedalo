@@ -10,7 +10,7 @@
  *       answered internal.invariant (an engine bug). It is a DEFINITION defect the install
  *       must correct: ontology.invalid_node.
  *
- * Scratch TLDs zzlbl (situation) and zzbt (one node, torn down by TLD — dropSituation would
+ * Scratch TLDs zzlcol (situation) and zzbt (one node, torn down by TLD — dropSituation would
  * sweep the node's nonexistent table). dd1478 / dd489 are seed ontology, read only.
  */
 
@@ -33,16 +33,16 @@ const LEGACY_TABLE_NODE = 'dd489'; // matrix_table 'matrix_structurations'
 
 const LIST_SITUATION = situation({
 	name: 'section_list with a label node',
-	tld: 'zzlbl',
+	tld: 'zzlcol',
 	nodes: [
-		{ tipo: 'zzlbl1', parent: 'test1', model: 'section', term: { 'lg-eng': 'zzlbl section' } },
-		{ tipo: 'zzlbl2', parent: 'zzlbl1', model: 'component_input_text', order_number: 1 },
+		{ tipo: 'zzlcol1', parent: 'test1', model: 'section', term: { 'lg-eng': 'zzlcol section' } },
+		{ tipo: 'zzlcol2', parent: 'zzlcol1', model: 'component_input_text', order_number: 1 },
 		{
-			tipo: 'zzlbl3',
-			parent: 'zzlbl1',
+			tipo: 'zzlcol3',
+			parent: 'zzlcol1',
 			model: 'section_list',
 			order_number: 2,
-			relations: [{ tipo: 'zzlbl2' }, { tipo: LABEL_NODE }],
+			relations: [{ tipo: 'zzlcol2' }, { tipo: LABEL_NODE }],
 		},
 	],
 });
@@ -58,13 +58,13 @@ describe.if(DB_READY)('#4 a label node in a section_list is never a column', () 
 
 	test('the label node is dropped; the component column stays', async () => {
 		expect(await getModelByTipo(LABEL_NODE)).toBe('label'); // non-vacuity
-		const config = await buildImplicitComponentListConfig('zzlbl3', {
-			ownerTipo: 'zzlbl1',
-			ownerSectionTipo: 'zzlbl1',
+		const config = await buildImplicitComponentListConfig('zzlcol3', {
+			ownerTipo: 'zzlcol1',
+			ownerSectionTipo: 'zzlcol1',
 			mode: 'list',
 			ownerIsSection: true,
 		});
-		expect(config[0]?.show?.ddo_map.map((ddo) => ddo.tipo)).toEqual(['zzlbl2']);
+		expect(config[0]?.show?.ddo_map.map((ddo) => ddo.tipo)).toEqual(['zzlcol2']);
 	});
 });
 

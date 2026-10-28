@@ -99,8 +99,8 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
  * first (PHP resolve_component_read_permission): tool_user_admin reads the
  * actor's own name/email/password/image, which most profiles grant 0 on.
  */
-async function gateReadSource(source: RqoSource, principal: Principal): Promise<void> {
-	if (source.section_tipo === undefined || source.tipo === undefined) return;
+async function gateReadSource(source: RqoSource | undefined, principal: Principal): Promise<void> {
+	if (source?.section_tipo === undefined || source.tipo === undefined) return;
 	const level = await getRecordComponentPermission(
 		principal,
 		source.section_tipo,
@@ -142,7 +142,7 @@ async function readGatedSection(
 	context: Parameters<ActionHandler>[1],
 	principal: Principal,
 ): Promise<ApiResult> {
-	await gateReadSource(rqo.source ?? {}, principal);
+	await gateReadSource(rqo.source, principal);
 	await gateReadTargets(rqo.sqo, principal);
 
 	// Sub-action routing + the generic section read live in the section
@@ -1149,7 +1149,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				group_by?: string[];
 			};
 			// Read's Gate A too (no-op without source.tipo): count and read decide alike.
-			await gateReadSource(rqo.source ?? {}, principal);
+			await gateReadSource(rqo.source, principal);
 			await gateRelatedHosts(rqo.sqo, principal);
 			const locators = Array.isArray(sqoRelated.filter_by_locators)
 				? sqoRelated.filter_by_locators

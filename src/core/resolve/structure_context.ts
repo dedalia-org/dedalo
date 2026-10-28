@@ -1274,16 +1274,9 @@ export async function buildStructureContext(options: {
 	// component_<media>_json default branch). The client reads
 	// context.features.quality/allowed_extensions to render the edit view — a
 	// missing features object crashes any media section's edit form.
-	const { hasMediaFeatures, buildMediaFeatures } = await import('../section/media_features.ts');
-	if (hasMediaFeatures(core.model)) {
-		entry.features = buildMediaFeatures(core.model, options.tipo, options.sectionTipo);
-	}
-	// component_json: tool_upload replaces the value with an uploaded .json file and
-	// reads features.allowed_extensions to build its picker (PHP component_json_json.php
-	// :90-98) — without it the tool crashed on open.
-	if (core.model === 'component_json') {
-		entry.features = { allowed_extensions: ['json'], default_target_quality: null };
-	}
+	const { buildUploadFeatures } = await import('../section/media_features.ts');
+	const uploadFeatures = buildUploadFeatures(core.model, options.tipo, options.sectionTipo);
+	if (uploadFeatures !== null) entry.features = uploadFeatures;
 
 	// component_geolocation: the FULL context carries features.geo_provider so the
 	// client map widget knows which Leaflet tile backend to initialise (PHP

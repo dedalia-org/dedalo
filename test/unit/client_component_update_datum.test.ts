@@ -25,6 +25,7 @@ test('every component that borrows component_common.build also wires update_datu
 		borrowers.push(dir);
 		if (!/\.prototype\.update_datum\s*=/.test(source)) missing.push(dir);
 	}
-	expect(borrowers).toContain('component_inverse'); // non-vacuity
+	expect(borrowers.length).toBeGreaterThan(20); // the scan really read the component tree
+	expect(borrowers).toContain('component_inverse');
 	expect(missing).toEqual([]);
 });

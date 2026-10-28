@@ -72,3 +72,19 @@ export function buildMediaFeatures(
 		extension: spec.extension,
 	};
 }
+
+/**
+ * The upload `features` descriptor of any model that has one: the media models'
+ * (buildMediaFeatures) and component_json's — tool_upload replaces a JSON value with an
+ * uploaded .json file and reads features.allowed_extensions to build its picker (PHP
+ * component_json_json.php :90-98; without it the tool crashed on open). null otherwise.
+ */
+export function buildUploadFeatures(
+	model: string,
+	tipo: string,
+	sectionTipo: string,
+): MediaFeatures | { allowed_extensions: string[]; default_target_quality: null } | null {
+	if (model === 'component_json')
+		return { allowed_extensions: ['json'], default_target_quality: null };
+	return buildMediaFeatures(model, tipo, sectionTipo);
+}

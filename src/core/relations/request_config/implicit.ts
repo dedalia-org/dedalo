@@ -146,6 +146,12 @@ function applyModelDefaultTarget(
 	return context.modelDefaultTargets[0] ?? null;
 }
 
+/** Section_list relations that never become a column (marker + inert label nodes). */
+const NEVER_A_COLUMN_MODELS: ReadonlySet<string | null> = new Set([
+	'exclude_elements',
+	LABEL_NODE_MODEL,
+]);
+
 /**
  * Implicit config from a node's ontology relation nodes (PHP resolve_ar_related_*
  * + clean_and_extract_related + build_legacy_ddo_map): the first
@@ -225,11 +231,7 @@ export async function buildImplicitComponentListConfig(
 		// except a model='label' node: labels are inert program strings (owner
 		// decision 2026-10-12, label_node_guard.ts), no client module renders one,
 		// and resolving its column label crashed the dd1500/dd1560 lists.
-		if (
-			model === 'exclude_elements' ||
-			model === LABEL_NODE_MODEL ||
-			link.tipo === DEPRECATED_SECURITY_AREAS_TIPO
-		) {
+		if (NEVER_A_COLUMN_MODELS.has(model) || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
 			continue;
 		}
 		ddoMap.push({

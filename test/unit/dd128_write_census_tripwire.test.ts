@@ -399,6 +399,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'create_identifying_image: the AV SOURCE behind the declarative record_tipo/1 gate, the HOST portal of the host record through authorizeRecordAccess in the handler (write, level 2, section floor 1, dd128-aware pair, write scope with the non-positive-id refusal ahead of the admin bypass — req 10) whose GRANT addresses the portal save, and the new record\u2019s image through authorizeSectionTarget. Matrix tool:tool_posterframe:create_identifying_image:host DD1725 leg.',
 	},
+	'tools/tool_upload/server/index.ts': {
+		verdict: 'delegates',
+		reason:
+			'process_uploaded_file writes ONE component named by the payload tipo — a media component\u2019s master file + files_info, or a component_json value through saveComponentData (the parsed upload) — and the declarative record_tipo kind (src/core/tools/security.ts) authorizes exactly that (section, component) pair at level 2 through authorizeRecordAccess (dd128-aware pair, record scope) before the handler runs; a tipo/component_tipo disagreement is refused, so the component written is the one authorized.',
+	},
 	'tools/tool_tc/server/index.ts': {
 		verdict: 'PENDING',
 		reason:
