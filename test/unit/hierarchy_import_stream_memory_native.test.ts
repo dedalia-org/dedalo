@@ -26,6 +26,12 @@
  * HEAD-before measured +490 MB here, fixed +82 MB. The control leg proves the sampler
  * sees resident growth at all.
  *
+ * WHY A CHILD PROCESS (2026-10-29). Measured in the tier's own process, the control leg
+ * went red: after thousands of files the allocator reuses pages that were freed but
+ * never returned, so a touched 256 MiB buffer grew RSS by ~50 MB — the probe was blind,
+ * and the import leg's green proved nothing. Both legs now measure in a fresh process
+ * (test/helpers/hierarchy_import_memory_probe.ts), with the same ballast.
+ *
  * SURFACES. assertTestDatabase first; `zzhim1` rows of matrix_hierarchy and their
  * matrix_counter row, swept before and after; the file in a mkdtemp dir.
  */
@@ -39,7 +45,6 @@ import { createGzip } from 'node:zlib';
 import { encodeCopyField } from '../../src/core/db/copy_text.ts';
 import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { importHierarchyRows } from '../../src/core/install/hierarchy_import.ts';
 import { connFromConfig } from '../../src/core/install/pg_exec.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 
@@ -49,9 +54,6 @@ const ROWS = 512;
 const PAYLOAD = 'x'.repeat(1 << 20);
 /** The ceiling: a quarter of what one decompressed copy of the file alone would take. */
 const CEILING_BYTES = (ROWS << 20) / 4;
-/** The server's condition: ~1M small live objects + 100 MiB of live strings (see the header). */
-const BALLAST_OBJECTS = 1_000_000;
-const BALLAST_STRINGS = 100;
 const conn = connFromConfig();
 let importDir = '';
 let file = '';
@@ -100,40 +102,28 @@ afterAll(async () => {
 	rmSync(importDir, { recursive: true, force: true });
 });
 
-/** A large live heap, held by the caller for as long as it measures. */
-function liveHeapBallast(): { objects: unknown[]; strings: string[] } {
-	const objects: unknown[] = [];
-	for (let at = 0; at < BALLAST_OBJECTS; at++) objects.push({ at, label: `b${at}`, pair: [at] });
-	const strings: string[] = [];
-	for (let at = 0; at < BALLAST_STRINGS; at++) strings.push(`${'b'.repeat(1 << 20)}${at}`);
-	return { objects, strings };
-}
+const PROBE = join(import.meta.dir, '..', 'helpers', 'hierarchy_import_memory_probe.ts');
 
-/** Peak resident growth while `work` runs (sampled every 10 ms, from a collected baseline). */
-async function residentGrowth<T>(work: () => Promise<T>): Promise<{ grew: number; value: T }> {
-	Bun.gc(true);
-	const baseline = process.memoryUsage().rss;
-	let peak = baseline;
-	const sampler = setInterval(() => {
-		peak = Math.max(peak, process.memoryUsage().rss);
-	}, 10);
-	let value: T;
-	try {
-		value = await work();
-	} finally {
-		clearInterval(sampler);
-	}
-	peak = Math.max(peak, process.memoryUsage().rss);
-	return { grew: peak - baseline, value };
+/** Run one measurement leg in a fresh process (see the header) and read its JSON line. */
+function probe(args: string[]): Record<string, unknown> & { grew: number } {
+	const child = Bun.spawnSync([process.execPath, '--no-env-file', PROBE, ...args], {
+		env: { ...process.env },
+		stdout: 'pipe',
+		stderr: 'pipe',
+		timeout: 280_000,
+		killSignal: 'SIGKILL',
+	});
+	const line = child.stdout.toString().trim().split('\n').at(-1) ?? '';
+	if (child.exitCode !== 0 || !line.startsWith('{'))
+		throw new Error(
+			`memory probe failed (exit ${child.exitCode}): ${child.stderr.toString().slice(-2000)}`,
+		);
+	return JSON.parse(line);
 }
 
 describe('importHierarchyRows never holds a decompressed file', () => {
 	test('control: the sampler sees a touched allocation of twice the ceiling', async () => {
-		const { grew, value } = await residentGrowth(async () => {
-			const held = Buffer.alloc(CEILING_BYTES * 2, 1);
-			await Bun.sleep(50);
-			return held.length;
-		});
+		const { grew, value } = probe(['control', String(CEILING_BYTES * 2)]);
 		expect(value).toBe(CEILING_BYTES * 2);
 		expect(grew, 'the probe measures resident growth').toBeGreaterThan(CEILING_BYTES);
 	});
@@ -141,16 +131,11 @@ describe('importHierarchyRows never holds a decompressed file', () => {
 	test('a ~512 MiB thesaurus file imports with the process growing far less than the file', async () => {
 		expect(statSync(file).size, 'the fixture is small on disk').toBeLessThan(16 << 20);
 		const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
-		let ballast: ReturnType<typeof liveHeapBallast> | null = liveHeapBallast();
-		const { grew, value: result } = await residentGrowth(() =>
-			importHierarchyRows(conn, TLD, {
-				importDir,
-				dataFiles: [{ file: `${TLD}1.copy.gz`, sha256 }],
-			}),
-		);
-		// Held through the measurement (non-vacuity), released after it.
-		expect(ballast.objects.length + ballast.strings.length).toBe(BALLAST_OBJECTS + BALLAST_STRINGS);
-		ballast = null;
+		const measured = probe(['import', TLD, importDir, `${TLD}1.copy.gz`, sha256]);
+		const { grew, value: result } = measured;
+		// The ballast was held through the measurement (non-vacuity).
+		expect(measured.ballast).toBe(measured.expectedBallast);
+		expect(measured.ballast).toBeGreaterThan(1_000_000);
 		expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
 		// Non-vacuity: every row really landed, payload whole.
 		const [landed] = (await sql.unsafe(
