@@ -178,6 +178,26 @@ describe('the identity decides the image and the source', () => {
 		});
 	});
 
+	test('a dev checkout: Custom with an EMPTY image version is refused at the Image screen (it would derive the -dev tag)', async () => {
+		await withInstallerIdentity(PINNED_IDENTITY.dev, () => {
+			const plan = buildInstallPlan(
+				{
+					...TRIAL,
+					image_source: 'custom',
+					image_repository: 'registry.example.org/d',
+					image_version: '',
+				},
+				PLAN_OPTIONS,
+			);
+			expect(
+				plan.fieldErrors
+					.filter((error) => error.key === 'image_version')
+					.map((error) => error.message)
+					.join('\n'),
+			).toContain('Docker has no nightly images');
+		});
+	});
+
 	test('a dev identity accepts NO image (Docker has no nightly images); the reason is the exact message', () => {
 		const devVersion = `${DEDALO_NEXT_RELEASE.join('.')}-dev`;
 		const dev: ReleaseIdentity = {

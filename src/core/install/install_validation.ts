@@ -41,9 +41,13 @@ import { connFieldProblem, pgSocketProblem } from '../../config/pg_transport.ts'
 import { unixSocketLengthProblem } from '../../config/unix_socket.ts';
 import { DEV_TLS_MODES, type DevListenerPlan } from './dev_listener.ts';
 import { ENTITY_PATTERN } from './entity_name.ts';
-import { acceptedImageVersions, imageRefusalMessage } from './host/stack/layout.ts';
+import {
+	acceptedImageVersions,
+	devHasNoImageMessage,
+	imageRefusalMessage,
+} from './host/stack/layout.ts';
 import type { InstallAnswers } from './install_plan.ts';
-import { imageSourceRefusedFor } from './installer_identity.ts';
+import { imageSourceRefusedFor, installerIdentity } from './installer_identity.ts';
 
 /**
  * The INSTANCE name of a production install (multi-instance hosts —
@@ -748,6 +752,12 @@ function stackHostErrors(a: InstallAnswers, problems: Problems): void {
 		problems.push(problem('image_repository', 'image_source custom requires image_repository'));
 	}
 	imageSourceIdentityErrors(a, problems);
+	// An empty image_version on a development build derives the nightly tag `X.Y.Z-dev`
+	// (layout.ts imageVersionOf): no Docker install may run it (VERSIONING_SPEC S3). Said
+	// here, on the Image screen, whatever the source — the run's preflight refuses it too.
+	if (a.image_version === '' && installerIdentity().kind === 'dev') {
+		problems.push(problem('image_version', devHasNoImageMessage()));
+	}
 	// The run's preflight refuses any other tag (stack/preflight.ts imageProblems): said on
 	// the Image screen itself, never first after `yes` (campaign 3c D2: `9.9.9` passed the
 	// field and the Review, every answer lost at the refusal).

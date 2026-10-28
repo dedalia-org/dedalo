@@ -62,6 +62,11 @@ import { STACK_HOST_STEPS } from '../../src/core/install/host/stack/table.ts';
 import { socketHealthProbe } from '../../src/core/install/host/stack/up.ts';
 import type { StackHostStepId } from '../../src/core/install/install_plan.ts';
 import { stackPlanCtx } from '../helpers/install_host_scratch.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
+
+// The installer's release identity is the checkout's: a dev checkout names no image,
+// so these cases are written for a STABLE installer (test/helpers/installer_identity.ts).
+pinInstallerIdentity(PINNED_IDENTITY.stable);
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const INSTALL_SH = 'install.sh';
