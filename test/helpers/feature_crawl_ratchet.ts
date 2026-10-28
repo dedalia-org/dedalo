@@ -13,16 +13,8 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
 		'section_tool test6402 has no config.target_section_tipo — suite ontology data defect (test TLD), refused loudly by start',
 	],
 	[
-		'root:rsc370:list:api:internal.invariant',
-		'list read of rsc370 throws internal.invariant on the suite DB — engine bug, follow-up',
-	],
-	[
-		'root:dd1500:list:api:internal.invariant',
-		'list read of dd1500 throws internal.invariant on the suite DB — engine bug, follow-up',
-	],
-	[
-		'root:dd1560:list:api:internal.invariant',
-		'list read of dd1560 throws internal.invariant on the suite DB — engine bug, follow-up',
+		'root:rsc370:list:api:ontology.invalid_node',
+		'rsc370 names the v6 table matrix_structurations (dd489) in the VENDORED ontology release; fixed on the master ontology 2026-10-28 (relation removed, node marked [DEPRECATED]) — remove this entry when the vendored release is refreshed',
 	],
 	[
 		'root:test5977:list:api:ontology.invalid_node',

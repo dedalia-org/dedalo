@@ -39,6 +39,14 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-menu-role-areas-need-grant`.
 
+- **Three sections with ontology defects now open, or say clearly why they cannot.**
+
+    The Ontology and Ontology commons lists (in Development) failed to open on development servers and showed an empty column elsewhere, because their column list includes a program label. Labels are no longer treated as columns, so both lists open.
+
+    The Text structuration list (in Auxiliary) failed with an internal error. Its definition points at a table from Dédalo 6 that version 7 does not have. It now shows the message that an ontology definition is unusable, which is the real cause. The section is marked deprecated in the master ontology and no longer points at that table; installations receive the change with their next ontology update.
+
+    Wire contract: `WC-2026-10-28-section-definition-defects`.
+
 - **Your user settings show your profile, and selection lists no longer show another user's labels.**
 
     In the user settings tool (your name in the menu), an administrator other than the main administrator was refused their own user number, user name and profile, and the profile was often empty for everyone. The tool now shows all three, read-only. The profile shows only the name of your own profile, even if your permissions do not include the Profiles section.
@@ -181,7 +189,7 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 6 entries"
+??? note "Wire contract — 7 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -189,6 +197,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-27-start-deep-link-record-scope`
     - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-user-record-read-floor`
+    - `WC-2026-10-28-section-definition-defects`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

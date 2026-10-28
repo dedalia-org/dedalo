@@ -36,6 +36,7 @@
 import { EXPLICIT_CONFIG_REQUIRED_MODELS } from '../../concepts/request_config.ts';
 import { sql } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
+import { LABEL_NODE_MODEL } from '../../ontology/label_node_guard.ts';
 import {
 	getModelByTipo,
 	getNode,
@@ -220,8 +221,15 @@ export async function buildImplicitComponentListConfig(
 			continue;
 		}
 		// PHP clean_and_extract_related :531-538: marker nodes + deprecated skip.
-		// Everything else survives (PHP keeps non-component nodes in the map).
-		if (model === 'exclude_elements' || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
+		// Everything else survives (PHP keeps non-component nodes in the map) —
+		// except a model='label' node: labels are inert program strings (owner
+		// decision 2026-10-12, label_node_guard.ts), no client module renders one,
+		// and resolving its column label crashed the dd1500/dd1560 lists.
+		if (
+			model === 'exclude_elements' ||
+			model === LABEL_NODE_MODEL ||
+			link.tipo === DEPRECATED_SECURITY_AREAS_TIPO
+		) {
 			continue;
 		}
 		ddoMap.push({
