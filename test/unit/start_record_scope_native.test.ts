@@ -316,6 +316,28 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 		expect([ungranted.status, codeOf(ungranted.body)]).toEqual([403, 'perm.denied']);
 	});
 
+	test('get_indexation_grid: an out-of-project or missing term record → the same 403, in-scope → 200', async () => {
+		const grid = async (userId: number, sectionId: number) => {
+			const answer = await dispatchRqo(
+				{
+					action: 'get_indexation_grid',
+					dd_api: 'dd_core_api',
+					source: { section_tipo: SECTION, section_id: sectionId, tipo: TEXT, value: [SECTION] },
+					sqo: { mode: 'related', section_tipo: [SECTION], limit: 10, offset: 0 },
+				} as never,
+				(await contextFor(userId, userId === -1)) as never,
+			);
+			const error = answer.body.error as { code?: string; message?: string } | undefined;
+			// status, code and public message: the debug coordinates echo the caller's own id
+			return { status: answer.status, code: error?.code ?? null, message: error?.message ?? null };
+		};
+		const outOfScope = await grid(USER_ID, OUT_OF_SCOPE_ID);
+		expect([outOfScope.status, outOfScope.code]).toEqual([403, 'perm.denied']);
+		expect(await grid(USER_ID, MISSING_ID)).toEqual(outOfScope);
+		expect((await grid(USER_ID, IN_SCOPE_ID)).status).toBe(200);
+		expect((await grid(-1, OUT_OF_SCOPE_ID)).status).toBe(200); // it exists: the refusal is scope
+	});
+
 	test('untouched by the check: id 0', async () => {
 		const zero = await start(USER_ID, { tipo: SECTION, id: '0' });
 		expect(zero.status).toBe(200);

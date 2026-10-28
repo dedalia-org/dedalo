@@ -95,20 +95,28 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 
 /**
  * The host RECORD half: a section grant is not a record grant. "Who points at record N"
- * is that record's data, so a host outside the caller's projects is refused — the same
- * perm.denied for a missing and an out-of-scope id (no existence oracle), like start's
- * deep link (WC-2026-10-28-related-host-record-scope). A locator without an id names no record.
+ * (a related search, the thesaurus indexation grid) is that record's data, so a host
+ * outside the caller's projects is refused — the same perm.denied for a missing and an
+ * out-of-scope id (no existence oracle), like start's deep link
+ * (WC-2026-10-28-related-host-record-scope). A locator without an id names no record.
  */
 async function gateRelatedHostRecords(locators: unknown[], principal: Principal): Promise<void> {
-	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
 	for (const locator of locators as { section_tipo?: unknown; section_id?: unknown }[]) {
 		if (typeof locator?.section_tipo !== 'string' || locator.section_id == null) continue;
-		const sectionId = Number(locator.section_id);
-		if (!(await principalCanAccessRecord(locator.section_tipo, sectionId, principal))) {
-			throw new DedaloError('perm.denied', {
-				coordinates: { section_tipo: locator.section_tipo, section_id: String(locator.section_id) },
-			});
-		}
+		await assertHostRecordInScope(locator.section_tipo, Number(locator.section_id), principal);
+	}
+}
+
+async function assertHostRecordInScope(
+	sectionTipo: string,
+	sectionId: number,
+	principal: Principal,
+): Promise<void> {
+	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
+	if (!(await principalCanAccessRecord(sectionTipo, sectionId, principal))) {
+		throw new DedaloError('perm.denied', {
+			coordinates: { section_tipo: sectionTipo, section_id: String(sectionId) },
+		});
 	}
 }
 
@@ -1733,6 +1741,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			limit: page.limit,
 			offset: page.offset,
 		} as import('../../section/indexation_grid.ts').IndexationGridSqo;
+		// The grid lists who indexes THIS term record: scoped like the related search host.
+		await assertHostRecordInScope(sectionTipo as string, gridSectionId, principal);
 		const grid = await buildIndexationGrid(
 			{
 				sectionTipo: sectionTipo as string,

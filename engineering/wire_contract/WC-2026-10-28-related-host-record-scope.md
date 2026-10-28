@@ -17,6 +17,9 @@
   (section gate only). Read and count share the gate.
 - **Client:** none. The inspector panel, the delete dialog and the graph all ask about the record
   the user has open, which is already in scope; a 403 can only reach a forged or stale request.
-- **Not covered here:** `get_indexation_grid` (thesaurus "show indexations") gates the term's
-  section, not the term record — same class, separate door, follow-up.
+- **Same day, second door:** `get_indexation_grid` (thesaurus "show indexations") gated the term's
+  SECTION only; it now asks the same record check (`assertHostRecordInScope`, shared with the
+  related search) before building the grid — out-of-scope and missing term → the same 403
+  `perm.denied` (gate: `test/unit/start_record_scope_native.test.ts` "get_indexation_grid"). A
+  thesaurus without a project filter is unaffected (every term is in scope).
 - **Gate reconciliation:** TS-only; no parity fixture asks a related search as a non-admin.
