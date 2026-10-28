@@ -21,22 +21,8 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
 		'test5977 node is unusable (ontology.invalid_node) — suite ontology data defect, follow-up',
 	],
 	[
-		'root:dd15:edit:components',
-		'Time Machine (dd15) has no edit view by design (consultation-only); the crawl still visits it — crawler should skip, follow-up',
-	],
-	['root:dd15:edit:inspector', 'same as root:dd15:edit:components'],
-	[
 		'root:tools@section:tool:tool_identify:api:identify.no_profile',
 		'the suite DB holds no identify profile / image index; tool_identify answers identify.no_profile',
-	],
-	[
-		'admin:test1:menu:orphan',
-		'test1 sits under the developer-only dd770 in the suite ontology; non-developers see the child without its parent',
-	],
-	['editor:test1:menu:orphan', 'same as admin:test1:menu:orphan'],
-	[
-		'editor:ontology40:menu:orphan',
-		'ontology40 sits under dd5, not offered to a non-admin; the child is visible without its parent — follow-up',
 	],
 ]);
 

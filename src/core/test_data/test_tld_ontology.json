@@ -68,7 +68,7 @@
 		},
 		{
 			"tipo": "test1",
-			"parent": "dd770",
+			"parent": "dd242",
 			"term": {
 				"lg-eng": "Test area (TESTS)",
 				"lg-spa": "Area de pruebas (TESTS)"

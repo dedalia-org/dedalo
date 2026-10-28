@@ -138,6 +138,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Menu entries a user may open no longer disappear when their parent area is hidden from that user.**
+
+    When a user's profile granted a section but not the area that contains it in the menu, the section was missing from that user's menu even though they could open it. It now appears under the nearest area the user can see, or at the top of the menu. Sections inside the Ontology, Development and Maintenance areas stay hidden from users who cannot open those areas.
+
+    Wire contract: `WC-2026-10-28-menu-orphans`.
+
 - **The root user's "My profile" tool opens again.**
 
     For the root user, the "My profile" tool (user administration) opened with an error panel ("The server answered with an unreadable response") instead of the account's fields, so root could not change its own password, email, name or picture from the application. It now opens normally. No other user gains access to the root account.
@@ -226,13 +232,14 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 12 entries"
+??? note "Wire contract — 13 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
     - `WC-2026-10-27-relation-list-grant-stamp`
     - `WC-2026-10-27-start-deep-link-record-scope`
     - `WC-2026-10-28-count-pending-deletions`
+    - `WC-2026-10-28-menu-orphans`
     - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-account-read`
     - `WC-2026-10-28-own-user-record-read-floor`
