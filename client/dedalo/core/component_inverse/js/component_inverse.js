@@ -94,6 +94,7 @@ export const component_inverse = function(){
 *   destroy     — common            — tears down DOM nodes and event subscriptions
 *   save        — component_common  — server persistence (no-op for read-only component)
 *   load_data   — component_common  — fetches data without a full rebuild
+*   update_datum — component_common — merges a build's datum into the shared datum
 *   build_rqo   — common            — constructs the request-query object (RQO)
 *   render      — common            — orchestrates mode dispatch (list/edit/…)
 *   refresh     — common            — destroy + build + render cycle
@@ -108,6 +109,8 @@ export const component_inverse = function(){
 	component_inverse.prototype.destroy		= common.prototype.destroy
 	component_inverse.prototype.save		= component_common.prototype.save
 	component_inverse.prototype.load_data	= component_common.prototype.load_data
+	// build() calls it for a non-standalone instance (tool_time_machine's caller rebuild)
+	component_inverse.prototype.update_datum	= component_common.prototype.update_datum
 	component_inverse.prototype.build_rqo	= common.prototype.build_rqo
 
 	// render

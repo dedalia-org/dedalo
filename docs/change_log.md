@@ -47,6 +47,15 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-section-definition-defects`.
 
+- **Four tools that failed to open, or did more than asked, are fixed.**
+
+    - The Transcription tool is offered only on media fields set up for transcription. On other images, audio and PDFs (such as a user's picture) it used to appear and fail to open.
+    - The Upload tool works again on JSON fields: uploading a `.json` file replaces the field's value. A file that is not valid JSON is refused and nothing changes.
+    - The Time Machine tool opens from inverse-relation fields; it failed with an error before.
+    - Opening the Diffusion tool no longer retries pending deletions behind the scenes. It only counts them for the "Pending deletions" badge; the retry runs when you press Retry.
+
+    Wire contract: `WC-2026-10-28-tool-open-defects`.
+
 - **Your user settings show your profile, and selection lists no longer show another user's labels.**
 
     In the user settings tool (your name in the menu), an administrator other than the main administrator was refused their own user number, user name and profile, and the profile was often empty for everyone. The tool now shows all three, read-only. The profile shows only the name of your own profile, even if your permissions do not include the Profiles section.
@@ -189,7 +198,7 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 7 entries"
+??? note "Wire contract — 8 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -198,6 +207,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-user-record-read-floor`
     - `WC-2026-10-28-section-definition-defects`
+    - `WC-2026-10-28-tool-open-defects`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

@@ -1278,6 +1278,12 @@ export async function buildStructureContext(options: {
 	if (hasMediaFeatures(core.model)) {
 		entry.features = buildMediaFeatures(core.model, options.tipo, options.sectionTipo);
 	}
+	// component_json: tool_upload replaces the value with an uploaded .json file and
+	// reads features.allowed_extensions to build its picker (PHP component_json_json.php
+	// :90-98) — without it the tool crashed on open.
+	if (core.model === 'component_json') {
+		entry.features = { allowed_extensions: ['json'], default_target_quality: null };
+	}
 
 	// component_geolocation: the FULL context carries features.geo_provider so the
 	// client map widget knows which Leaflet tile backend to initialise (PHP

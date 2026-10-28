@@ -402,7 +402,7 @@ function tipoInArray(tipo: string, values: string[]): boolean {
  */
 export async function toolIsAvailable(
 	name: string,
-	context: { calledClass: string; tipo: string; isComponent: boolean },
+	context: { calledClass: string; tipo: string; isComponent: boolean; hasToolConfig: boolean },
 ): Promise<boolean | null> {
 	if (AVAILABILITY_LEDGERED_TOOLS.has(name)) return null;
 
@@ -420,6 +420,7 @@ export async function toolIsAvailable(
 			sectionTipo: context.tipo,
 			isComponent: context.isComponent,
 			mode: '',
+			hasToolConfig: context.hasToolConfig,
 		});
 	}
 
@@ -590,7 +591,10 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 		// when the element is (effectively) translatable (PHP requirement === translatable).
 		if (tool.requirementTranslatable && !effectiveTranslatable) continue;
 
-		const available = await toolIsAvailable(tool.name, context);
+		const available = await toolIsAvailable(tool.name, {
+			...context,
+			hasToolConfig: inPropertyTools.has(tool.name),
+		});
 		if (available === null) {
 			ledgered.push(tool.name);
 			continue;

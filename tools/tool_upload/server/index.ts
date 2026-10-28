@@ -9,7 +9,11 @@
  * assertValidQuality.
  */
 
-import { ok } from '../../../src/core/errors/index.ts';
+import { existsSync, unlinkSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { NO_LANG } from '../../../src/config/data_langs.ts';
+import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
 import { processUploadedFile } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { buildMediaIdentifier } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
@@ -17,6 +21,9 @@ import {
 	nameKeysForQuality,
 	persistUploadedMedia,
 } from '../../../src/core/media/tools/files_info_persist.ts';
+import { getModelByTipo, getTranslatableByTipo } from '../../../src/core/ontology/resolver.ts';
+import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { saveComponentData } from '../../../src/core/section/record/save_component.ts';
 import { MEDIA_JOB_STATUS_ACTION } from '../../../src/core/tools/job_status.ts';
 import {
 	type ToolActionContext,
@@ -25,7 +32,71 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 
+/**
+ * component_json (PHP component_json::add_file + process_uploaded_file): the staged
+ * .json file's parsed content REPLACES the component value, then the staged file is
+ * deleted. No media tier, no files_info. Invalid JSON is refused and writes nothing.
+ */
+async function processUploadedJson(
+	ctx: ToolActionContext,
+	componentTipo: string,
+): Promise<ToolResponse> {
+	const fileData = (ctx.options.file_data ?? {}) as Record<string, unknown>;
+	const extension = String(fileData.extension ?? '').toLowerCase();
+	if (extension !== 'json') {
+		const reason = `Only .json files can be uploaded into this field (got '.${extension}')`;
+		throw new DedaloError('media.upload_rejected', { message: reason, publicMessage: reason });
+	}
+	const dir = stagingDir(ctx.userId, String(fileData.key_dir ?? ctx.options.key_dir ?? ''));
+	const source = resolve(dir, sanitizeSegment(String(fileData.tmp_name ?? '')));
+	if (!existsSync(source)) {
+		throw new DedaloError('media.file_not_found', {
+			message: 'Staged upload not found',
+			publicMessage: 'Staged upload not found',
+			coordinates: { source },
+		});
+	}
+	const originalFileName = String(fileData.name ?? fileData.tmp_name ?? '');
+	let value: unknown;
+	try {
+		value = JSON.parse(await Bun.file(source).text());
+	} catch {
+		const reason = `${originalFileName}: the content is not valid JSON`;
+		throw new DedaloError('media.upload_rejected', { message: reason, publicMessage: reason });
+	}
+	const sectionTipo = String(ctx.options.section_tipo ?? '');
+	const sectionId = Number(ctx.options.section_id);
+	const save = await saveComponentData({
+		componentTipo,
+		sectionTipo,
+		sectionId,
+		lang: (await getTranslatableByTipo(componentTipo)) ? currentDataLang() : NO_LANG,
+		userId: ctx.userId,
+		changedData: [{ action: 'set_data', value: [{ id: 1, value }] }],
+	});
+	if (!save.ok) {
+		throw new DedaloError('record.save_failed', {
+			message: 'tool_upload: saving the uploaded JSON failed',
+			coordinates: {
+				component_tipo: componentTipo,
+				section_tipo: sectionTipo,
+				section_id: sectionId,
+			},
+			cause: save,
+		});
+	}
+	unlinkSync(source);
+	return ok(
+		{ original_file_name: originalFileName, extension, derivative_errors: [] },
+		{ requestId: toolRequestId(ctx) },
+	);
+}
+
 async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
+	const componentTipo = String(ctx.options.tipo ?? ctx.options.component_tipo ?? '');
+	if ((await getModelByTipo(componentTipo)) === 'component_json') {
+		return processUploadedJson(ctx, componentTipo);
+	}
 	const { spec, identity, pathOpts } = await resolveMediaToolContext(ctx.options);
 	const fileData = (ctx.options.file_data ?? {}) as Record<string, unknown>;
 	const userId = ctx.userId;

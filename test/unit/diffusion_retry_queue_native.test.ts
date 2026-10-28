@@ -38,6 +38,7 @@ process.env.DIFFUSION_ACTIVITY_TABLE = SCRATCH_ACTIVITY_TABLE;
 
 import {
 	activityTable,
+	countPendingDiffusion,
 	DIFFUSION_ACTION,
 	deleteDiffusionRecord,
 	logDiffusionActivity,
@@ -291,6 +292,24 @@ describe('retryPendingDiffusion', () => {
 		expect(await actionsOf(932040)).toEqual([3, 3]); // NOT flipped
 		// the retry drives logActivity=false — no second generation of rows
 		expect(await pendingRowCount()).toBe(2);
+	});
+
+	test('count_only COUNTS and retries nothing (tool_diffusion badge, PHP parity)', async () => {
+		await seedPending(932039);
+		let calls = 0;
+		registerNativeDiffusionSqlDelete(async () => {
+			calls++;
+			return { deleted: [], errors: [] };
+		});
+		const { retryPendingDeletionsAction } = await import('../../src/diffusion/api/actions.ts');
+		const response = await retryPendingDeletionsAction(
+			{ action: 'retry_pending_deletions', options: { count_only: true } } as never,
+			{ userId: -1, isGlobalAdmin: true, isDeveloper: true },
+		);
+		expect(await countPendingDiffusion()).toBe(2);
+		expect((response.body as { data?: { remaining?: number } }).data?.remaining).toBe(2);
+		expect(calls).toBe(0); // no delete re-run
+		expect(await actionsOf(932039)).toEqual([3, 3]);
 	});
 
 	test('a retry that confirms targets flips the pending rows in place', async () => {

@@ -1123,6 +1123,15 @@ else {
 				},
 			},
 		},
+		'tools/tool_upload/server/index.ts :: processUploadedJson': {
+			doors: {
+				saveComponentData: {
+					verdict: 'operator-value',
+					reason:
+						'a component_json upload REPLACES the value with the parsed content of the .json file the operator chose for THIS component (PHP component_json::process_uploaded_file); nothing stored is read or transformed, invalid JSON writes nothing, and the replaced value stays in the Time Machine.',
+				},
+			},
+		},
 		'tools/tool_propagate_component_data/js/tool_propagate_component_data.js :: tool_propagate_component_data.prototype.get_component_to_propagate':
 			{
 				doors: {
@@ -1611,6 +1620,11 @@ else {
 			sites: 7,
 			reason:
 				'every site runs INSIDE page.evaluate: a browser-side import of a SERVED client URL (/dedalo/…/instances.js, a tool module) in headless Chrome — not a server module, no matrix writer.',
+		},
+		'scripts/feature_crawl.ts': {
+			sites: 4,
+			reason:
+				'every site runs INSIDE page.evaluate: a browser-side import of a SERVED client URL (/dedalo/core/common/js/instances.js, tools_common/js/tool_common.js) in headless Chrome — not a server module, no matrix writer (same shape as tool_viewport_check).',
 		},
 		'scripts/update_probe_ui_proof.ts': {
 			sites: 1,

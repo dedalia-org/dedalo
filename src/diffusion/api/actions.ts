@@ -768,11 +768,33 @@ export async function retryPendingDeletionsPatiently(
 	return withPatientDeleteWait(() => retryPendingDiffusion(limit));
 }
 
-/** `retry_pending_deletions` — native dd1758 pending-unpublish retry. */
+/**
+ * `retry_pending_deletions` — native dd1758 pending-unpublish retry. `count_only`
+ * (PHP parity) only COUNTS: tool_diffusion asks it on every render for its badge,
+ * and ignoring it ran the whole drain each time the tool opened.
+ */
 export async function retryPendingDeletionsAction(
-	_rqo: Rqo,
+	rqo: Rqo,
 	_principal: Principal,
 ): Promise<ApiResult> {
+	if ((rqo.options as { count_only?: unknown } | undefined)?.count_only === true) {
+		const { countPendingDiffusion } = await import(
+			'../../core/diffusion_bridge/diffusion_delete.ts'
+		);
+		const pending = await countPendingDiffusion();
+		return {
+			status: 200,
+			body: ok(
+				{
+					summary: `${pending} pending deletions`,
+					total: pending,
+					retried: 0,
+					remaining: pending,
+				},
+				{ requestId: requestId() },
+			),
+		};
+	}
 	const summary = await retryPendingDeletionsPatiently();
 	return {
 		status: 200,

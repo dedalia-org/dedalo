@@ -264,6 +264,8 @@ export interface ToolAvailabilityContext {
 	sectionTipo: string;
 	isComponent: boolean;
 	mode: string;
+	/** The element declares `properties.tool_config[<this tool>]` (PHP `in_properties`). */
+	hasToolConfig: boolean;
 }
 
 /** The object a tool package's server/index.ts must export as `tool`. */

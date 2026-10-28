@@ -88,6 +88,23 @@ describe('component toolbar stamp is gated on MODE, not on permissions', () => {
 		expect(await toolNamesOf(USER_IMAGE_TIPO, USERS_SECTION, 'edit', 2)).toEqual(expectedNames);
 	});
 
+	test('tool_transcription only where the element configures it (crawl #7: null roles crashed)', async () => {
+		const names = async (toolConfigKeys: string[]) =>
+			(
+				await getElementTools({
+					model: 'component_image',
+					tipo: USER_IMAGE_TIPO,
+					isComponent: true,
+					translatable: false,
+					toolConfigKeys,
+				})
+			).tools.map((tool) => tool.name);
+		// a bare image (the avatar) — no tool_config.tool_transcription, no roles
+		expect(await names([])).not.toContain('tool_transcription');
+		// the same model WITH the config (rsc29/rsc35/rsc37 shape) keeps it
+		expect(await names(['tool_transcription'])).toContain('tool_transcription');
+	});
+
 	test('permissions do not decide the toolbar — level 1 in a non-list mode still gets one', async () => {
 		// PHP fixture: dd452 at permissions 1 (mode 'tm') shipped two tools.
 		const tools = await toolNamesOf(USER_IMAGE_TIPO, USERS_SECTION, 'edit', 1);

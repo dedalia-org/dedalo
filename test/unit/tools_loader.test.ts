@@ -37,6 +37,7 @@ describe('tool loader', () => {
 				sectionTipo: 'test3',
 				isComponent: true,
 				mode: 'edit',
+				hasToolConfig: false,
 			}),
 		).toBe(false);
 		expect(
@@ -46,6 +47,7 @@ describe('tool loader', () => {
 				sectionTipo: 'test3',
 				isComponent: false,
 				mode: 'list',
+				hasToolConfig: false,
 			}),
 		).toBe(true);
 	});

@@ -30,22 +30,6 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
 		'the suite DB holds no identify profile / image index; tool_identify answers identify.no_profile',
 	],
 	[
-		'root:tools@component_json:tool:tool_error:tool_upload',
-		'tool_upload offered on a component_json crashes (allowed_extensions undefined) — client bug, follow-up',
-	],
-	[
-		'root:tools@component_image:tool:tool_error:tool_transcription',
-		'tool_transcription crashes on open (null.model) from media callers — client bug, follow-up',
-	],
-	[
-		'root:tools@component_av:tool:tool_error:tool_transcription',
-		'same as root:tools@component_image:tool:tool_error:tool_transcription',
-	],
-	[
-		'root:tools@component_pdf:tool:tool_error:tool_transcription',
-		'same as root:tools@component_image:tool:tool_error:tool_transcription',
-	],
-	[
 		'admin:test1:menu:orphan',
 		'test1 sits under the developer-only dd770 in the suite ontology; non-developers see the child without its parent',
 	],
@@ -63,10 +47,6 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
  * only when the bug is fixed; `--strict` ignores it too.
  */
 export const INTERMITTENT: ReadonlyMap<string, string> = new Map<string, string>([
-	[
-		'root:tools@component_inverse:tool:tool_time_machine:js_error',
-		'tool_time_machine opened from a component_inverse throws self.update_datum is not a function — client bug, follow-up',
-	],
 	[
 		'root:tools@menu:tool:tool_error:tool_user_admin',
 		'tool_user_admin opened from the menu answers client.bad_response (unreadable body) — engine/client bug, follow-up',
