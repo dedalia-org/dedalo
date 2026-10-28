@@ -14,12 +14,21 @@
 // seed-shipped ontology (dd/rsc/hierarchy/lg) stays and is spelled through `seed()`,
 // which keeps it out of the install-TLD census's `<tld><digits>` token grammar.
 
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { type ApiRequestContext, dispatchRqo } from '../../src/core/api/dispatch.ts';
+import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import {
 	buildSectionToolContext,
 	enrichToolConfig,
 } from '../../src/core/tools/section_tool_context.ts';
 import type { ToolSimpleContext } from '../../src/core/tools/types.ts';
+import { DB_READY } from '../helpers/db_ready.ts';
 
 // A stable core-ontology tipo for the enrichment lookups (dd85 = menu).
 const REAL_TIPO = 'dd85';
@@ -105,3 +114,86 @@ describe('buildSectionToolContext', () => {
 		expect(typeof ddoMap[0]!.label).toBe('string');
 	});
 });
+
+/**
+ * THE REFUSAL CONTRACT, natively (WC-2026-10-28-section-tool-test6402-config). A section_tool
+ * whose properties carry no `config.target_section_tipo` names no buildable section, and `start`
+ * refuses it loudly (PHP fatals on the same node). This was pinned through `test6402` in the
+ * parity differential until the master ontology fixed its twin numisdata625 (the v6
+ * `properties.context` key renamed `config`); the scratch pair below keeps both halves.
+ */
+const NO_CONFIG = 'zzstc1';
+const WITH_CONFIG = 'zzstc2';
+const SECTION_TOOL_SITUATION = situation({
+	name: 'section_tool start refusal',
+	tld: 'zzstc',
+	nodes: [
+		{
+			tipo: NO_CONFIG,
+			parent: 'test1',
+			model: 'section_tool',
+			term: { 'lg-eng': 'zzstc no config' },
+			// the v6 key the engine does not read — exactly test6402's former shape
+			properties: { context: { target_section_tipo: 'test3' } },
+		},
+		{
+			tipo: WITH_CONFIG,
+			parent: 'test1',
+			model: 'section_tool',
+			order_number: 2,
+			term: { 'lg-eng': 'zzstc config' },
+			properties: { config: { target_section_tipo: 'test3' } },
+		},
+	],
+});
+
+describe.if(DB_READY)(
+	'start on a section_tool: config.target_section_tipo or a loud refusal',
+	() => {
+		const adminContext = {
+			requestId: 'section_tool_start',
+			clientIp: '127.0.0.1',
+			session: {
+				userId: -1,
+				username: 'root',
+				isGlobalAdmin: true,
+				csrfToken: 'x',
+				applicationLang: null,
+				dataLang: null,
+			},
+			csrfCandidate: 'x',
+			principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
+		} as unknown as ApiRequestContext;
+		const start = (tipo: string) =>
+			dispatchRqo(
+				{
+					action: 'start',
+					dd_api: 'dd_core_api',
+					options: { search_obj: { t: tipo, m: 'list' }, menu: false },
+				} as Rqo,
+				adminContext,
+			);
+
+		beforeAll(async () => {
+			await assertTestDatabase('section_tool_context start');
+			await ensureSituation(SECTION_TOOL_SITUATION);
+		});
+		afterAll(async () => {
+			expect(await dropSituation(SECTION_TOOL_SITUATION)).toBe(0);
+		});
+
+		test('no config (a v6 `context` key) → refused, resource.conflict, ok:false', async () => {
+			const refused = await start(NO_CONFIG);
+			expect(refused.body.ok).toBe(false);
+			expect((refused.body.error as { code?: string }).code).toBe('resource.conflict');
+		});
+
+		test('config.target_section_tipo → rerouted to the target section (non-vacuity)', async () => {
+			const rerouted = await start(WITH_CONFIG);
+			expect(rerouted.status).toBe(200);
+			const context = (rerouted.body.data as { context: { tipo: string; model: string }[] })
+				.context;
+			expect(context[0]).toMatchObject({ tipo: 'test3', model: 'section' });
+		});
+	},
+);

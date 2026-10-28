@@ -232,7 +232,15 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 13 entries"
+#### Fixed
+
+- **The test ontology's "Countermark descriptions" section tool now opens its target section.**
+
+    The test ontology's copy of the "Countermark descriptions" section tool (test6402) used an old setting name that the engine does not read, so it could not open. It now uses the current name, matching the fix on the master ontology. Tests that need a section tool without a target build their own.
+
+    Wire contract: `WC-2026-10-28-section-tool-test6402-config`.
+
+??? note "Wire contract — 14 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -245,6 +253,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-own-user-record-read-floor`
     - `WC-2026-10-28-related-host-record-scope`
     - `WC-2026-10-28-section-definition-defects`
+    - `WC-2026-10-28-section-tool-test6402-config`
     - `WC-2026-10-28-start-component-deep-link-record-scope`
     - `WC-2026-10-28-tool-open-defects`
 

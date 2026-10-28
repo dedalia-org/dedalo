@@ -9,10 +9,6 @@
  */
 export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string>([
 	[
-		'root:test6402:area:api:resource.conflict',
-		'section_tool test6402 has no config.target_section_tipo — suite ontology data defect (test TLD), refused loudly by start',
-	],
-	[
 		'root:rsc370:list:api:ontology.invalid_node',
 		'rsc370 names the v6 table matrix_structurations (dd489) in the VENDORED ontology release; fixed on the master ontology 2026-10-28 (relation removed, node marked [DEPRECATED]) — remove this entry when the vendored release is refreshed',
 	],
