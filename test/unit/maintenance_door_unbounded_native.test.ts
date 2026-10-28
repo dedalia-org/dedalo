@@ -215,7 +215,7 @@ const results = {};
 	const record = mediaJobs.submit('update_data', async ({ signal }) => updateVersion(
 		{ SQL_update_0: true },
 		{
-			catalog: { '710': descriptor },
+			catalog: { '7.1.0': descriptor },
 			currentVersion: [7, 0, 0],
 			logPath: ${JSON.stringify(BG_LOG_PATH)},
 			writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${BG_VER}" (version) VALUES ($1)', [v]); },

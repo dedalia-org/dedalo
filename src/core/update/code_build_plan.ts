@@ -42,14 +42,14 @@ export function parseDeclaredTriple(versionTsSource: string): string | null {
 }
 
 /**
- * The NEXT dev triple a ref declares (version.ts DEDALO_NEXT_DEV_TRIPLE): the
+ * The NEXT dev triple a ref declares (version.ts DEDALO_NEXT_RELEASE): the
  * release an untagged build precedes. It names the developer ARCHIVE
  * (`<next>-dev.zip`), the identity the built tree calls itself — NOT the data
  * triple, which the untagged build shares with the last released data version.
  */
 export function parseDeclaredNextDevTriple(versionTsSource: string): string | null {
 	const matched =
-		/DEDALO_NEXT_DEV_TRIPLE[\s\S]*?Object\.freeze\(\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*\]\)/.exec(
+		/DEDALO_NEXT_RELEASE[\s\S]*?Object\.freeze\(\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*\]\)/.exec(
 			versionTsSource,
 		);
 	return matched === null ? null : `${matched[1]}.${matched[2]}.${matched[3]}`;
@@ -378,7 +378,7 @@ export function planCodeBuild(
 /**
  * The triple an archive is named after: a tag names its own release; an untagged
  * (developer) build is named after the NEXT release it precedes (`devVersion`,
- * the ref's DEDALO_NEXT_DEV_TRIPLE), falling back to the data triple when the
+ * the ref's DEDALO_NEXT_RELEASE), falling back to the data triple when the
  * ref declares none.
  */
 function archiveTripleOf(

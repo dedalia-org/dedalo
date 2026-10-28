@@ -39,10 +39,10 @@ export function engineCliAt(scratchDir: string, identity: string): string {
 	for (const path of ENGINE_FILES) {
 		cpSync(join(REPO_ROOT, path), join(scratchDir, path), { recursive: true });
 	}
-	// A dev identity is named after the NEXT triple (version.ts DEDALO_NEXT_DEV_TRIPLE,
+	// A dev identity is named after the NEXT triple (version.ts DEDALO_NEXT_RELEASE,
 	// release_identity.ts): pinning the data triple instead would make the engine
 	// call itself by the wrong identity. A tagged identity IS its data triple.
-	const pinned = parsed.dev ? 'DEDALO_NEXT_DEV_TRIPLE' : 'DEDALO_VERSION_TRIPLE';
+	const pinned = parsed.dev ? 'DEDALO_NEXT_RELEASE' : 'DEDALO_DATA_VERSION';
 	pinTriple(join(scratchDir, 'src', 'core', 'update', 'version.ts'), pinned, parsed.triple);
 	const describe = parsed.dev ? '' : `v${identity}`;
 	writeFileSync(

@@ -84,7 +84,7 @@ import {
 	identityOfImageTag,
 	imageTagOf,
 } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 import { stackPlanCtx } from '../helpers/install_host_scratch.ts';
 import {
 	PINNED_IDENTITY,
@@ -844,7 +844,7 @@ describe('F. the installer verifies the image as the library does (stack_image)'
 		// tag's word for it: the commit carries no release tag, so the label says the
 		// identity the engine in the image reports, as an image tag (X.Y.Z-dev), even
 		// under a `:X.Y.Z` tag (C3i-F1); the builder says so
-		const contextIdentity = await readReleaseIdentityOf(seen, { triple: DEDALO_VERSION_TRIPLE });
+		const contextIdentity = await readReleaseIdentityOf(seen, { triple: DEDALO_DATA_VERSION });
 		expect(built).toContain(
 			`--label org.opencontainers.image.version=${imageTagOf(contextIdentity.version)} `,
 		);
@@ -860,7 +860,7 @@ describe('F. the installer verifies the image as the library does (stack_image)'
 		// export-subst expanded (a stamped context, not the placeholder) — and the commit
 		// carries no release tag, so the engine in that image honestly calls itself .dev
 		// (release identity from the tag, owner decision 2026-10-15; C3i-F1)
-		const identity = await readReleaseIdentityOf(seen, { triple: DEDALO_VERSION_TRIPLE });
+		const identity = await readReleaseIdentityOf(seen, { triple: DEDALO_DATA_VERSION });
 		expect(readFileSync(join(seen, BUILD_INFO_PATH), 'utf8')).not.toStartWith('$Format:');
 		expect(identity).toMatchObject({ kind: 'dev', notice: null });
 		// the snapshot is removed after the build
@@ -895,7 +895,7 @@ describe('F. the installer verifies the image as the library does (stack_image)'
 			expect(built).toStartWith(`build --tag localhost/dedalo:${beta} `);
 			expect(built).toContain(`--label org.opencontainers.image.version=${beta} `);
 			// what /health of that image will say: the archive's identity is the tag
-			const identity = await readReleaseIdentityOf(seen, { triple: DEDALO_VERSION_TRIPLE });
+			const identity = await readReleaseIdentityOf(seen, { triple: DEDALO_DATA_VERSION });
 			expect(identity).toMatchObject({ version: beta, kind: 'prerelease', notice: null });
 			// and the stack is pinned to it
 			expect(renderEnvFile(ctx, 'pw')).toContain(`\nDEDALO_VERSION=${beta}\n`);

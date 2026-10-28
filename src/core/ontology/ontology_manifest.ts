@@ -38,7 +38,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { DedaloError } from '../errors/index.ts';
 import { fetchBoundedText } from '../security/ssrf_guard.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import {
 	assertTlsVerificationOn,
 	buildOntologyUpdateInfo,
@@ -274,7 +274,7 @@ export async function fetchOntologyManifest(
 	const body = JSON.stringify({
 		dd_api: 'dd_utils_api',
 		action: 'get_ontology_update_info',
-		options: { version: DEDALO_VERSION, code: server.code },
+		options: { version: formatVersion(DEDALO_DATA_VERSION), code: server.code },
 	});
 	let text: string;
 	assertConfiguredMasterUrl(server.url, allowed);

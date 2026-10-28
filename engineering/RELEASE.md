@@ -27,7 +27,7 @@ The example below publishes `7.0.1` from a master running `7.0.0`. Substitute
 your versions; the walk is strictly linear (`code_manifest.ts` — the next
 minor within the major, no skipping).
 
-1. **Bump the engine version.** Edit `DEDALO_VERSION_TRIPLE` in
+1. **Bump the engine version.** Edit `DEDALO_NEXT_RELEASE` in
    `src/core/update/version.ts` to `[7, 0, 1]`. That bump is what names the
    release: the build reads the TAG's own `version.ts`, never the running
    process (step 6), and the manifest advertises releases strictly above the
@@ -183,9 +183,19 @@ minor within the major, no skipping).
     it — it copies the digest that already exists, after checking its signature, and
     refuses when two registries disagree.
 
-**Developer images** (`:<v>-dev`, the twin of `<v>-dev.zip`) come only from a manual
-dispatch of `image-release.yml` on branch `master` with channel `dev`; each dispatch
-overwrites the previous dev image of that version.
+**No developer images.** The dev channel publishes NO container images: a `dev` dispatch
+of `image-release.yml` is refused at its `publish` step by `image_release.ts`
+(`publishTagFault`: the dev channel publishes nothing, to any registry). Docker images are immutable, and a docker or image install runs
+tagged releases only (stable `X.Y.Z` or beta `X.Y.Z-beta.N`); it never accepts a `-dev`
+image. The developer build (`<v>-dev.zip`, identity `X.Y.Z-dev`) is a TREE archive, and
+nightlies reach production and dev installations through the code update path only.
+
+**Emergency fix for a stable Docker installation.** It ships as a code-only patch tag
+(for example `v7.0.1` over data `7.0.0`): the tag is a release of its own, its image is
+published by the tag push like any release, and it installs as that release. No downgrade
+on any channel; the order is `7.0.0` < `7.0.1-alpha.1` < `7.0.1-beta.1` < `7.0.1-rc.1` <
+`7.0.1-dev` < `7.0.1` < `7.0.2` (the reference comparator is
+`src/core/update/release_identity.ts`).
 
 **A newly provisioned mirror** (e.g. the gitdedalo registry once its host exists) gets the
 existing releases by a `release`-channel dispatch per tag (input `tag: vX.Y.Z`): it copies

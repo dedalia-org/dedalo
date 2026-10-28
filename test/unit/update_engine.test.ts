@@ -155,7 +155,7 @@ describe('catalog matching (PHP get_update_version semantics)', () => {
 		expect(getUpdateVersion([6, 8, 10], CATALOG)).toBeNull();
 		expect(getUpdateVersion([], CATALOG)).toBeNull();
 		const codeOnly = { ...FIXTURE, updateData: false };
-		expect(getUpdateVersion([7, 0, 0], { '701': codeOnly })).toBeNull();
+		expect(getUpdateVersion([7, 0, 0], { '7.0.1': codeOnly })).toBeNull();
 		expect(getMatchedDescriptor([7, 0, 0], CATALOG)).toBe(FIXTURE);
 	});
 
@@ -297,7 +297,7 @@ describe('engine step semantics (fixture catalog, injected writer)', () => {
 
 	test('components_update descriptors are refused in PREFLIGHT, LOUDLY (ledgered unsupported path)', async () => {
 		const withComponents = {
-			'710': { ...FIXTURE, componentsUpdate: ['component_date'] } as DataUpdateDescriptor,
+			'7.1.0': { ...FIXTURE, componentsUpdate: ['component_date'] } as DataUpdateDescriptor,
 		};
 		// The uncovered-scope refusal is REGISTERED (`engine.uncovered_scope`);
 		// the ledgered sentence stays the LOG-only message.

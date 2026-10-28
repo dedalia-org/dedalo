@@ -9,10 +9,10 @@ import { describe, expect, test } from 'bun:test';
 import { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from '../../src/core/update/build_stamp.ts';
 import {
 	compareVersionArrays,
-	DEDALO_NEXT_DEV_TRIPLE,
-	DEDALO_VERSION,
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
 	DEDALO_VERSION_MAJOR_MINOR,
-	DEDALO_VERSION_TRIPLE,
+	formatVersion,
 	parseVersionString,
 } from '../../src/core/update/version.ts';
 
@@ -20,28 +20,26 @@ describe('version exports (byte-pinned wire values)', () => {
 	test('the ONE deliberate pin of the engine version triple', () => {
 		// The single literal in the suite: bumping the engine version means
 		// consciously editing THIS line (everything else derives from the triple).
-		expect(JSON.stringify(DEDALO_VERSION_TRIPLE)).toBe('[7,0,0]');
+		expect(JSON.stringify(DEDALO_DATA_VERSION)).toBe('[7,0,0]');
 	});
 
 	test('the derived shapes follow the triple (relational — a bump touches one line)', () => {
-		expect(DEDALO_VERSION).toBe(DEDALO_VERSION_TRIPLE.join('.'));
+		expect(formatVersion(DEDALO_DATA_VERSION)).toBe(DEDALO_DATA_VERSION.join('.'));
 		// the code identity: a dev build names the NEXT triple (version.ts), a tag
 		// names its own release, which is never below the data triple it runs on
 		expect(DEDALO_ENGINE_VERSION).toBe(RELEASE_IDENTITY.version);
 		if (RELEASE_IDENTITY.kind === 'dev') {
-			expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_DEV_TRIPLE);
+			expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_RELEASE);
 		} else {
 			expect(
-				compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_VERSION_TRIPLE),
+				compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_DATA_VERSION),
 			).toBeGreaterThanOrEqual(0);
 		}
-		expect(DEDALO_VERSION_MAJOR_MINOR).toBe(
-			`${DEDALO_VERSION_TRIPLE[0]}.${DEDALO_VERSION_TRIPLE[1]}`,
-		);
+		expect(DEDALO_VERSION_MAJOR_MINOR).toBe(`${DEDALO_DATA_VERSION[0]}.${DEDALO_DATA_VERSION[1]}`);
 	});
 
 	test('the triple is frozen (shared by reference into wire payloads)', () => {
-		expect(Object.isFrozen(DEDALO_VERSION_TRIPLE)).toBe(true);
+		expect(Object.isFrozen(DEDALO_DATA_VERSION)).toBe(true);
 	});
 });
 
@@ -79,7 +77,9 @@ describe('parseVersionString', () => {
 	});
 
 	test('round-trips the DATA version; a dev engine identity is never read as a data triple', () => {
-		expect(parseVersionString(DEDALO_VERSION)).toEqual([...DEDALO_VERSION_TRIPLE]);
+		expect(parseVersionString(formatVersion(DEDALO_DATA_VERSION))).toEqual([
+			...DEDALO_DATA_VERSION,
+		]);
 		if (RELEASE_IDENTITY.kind === 'dev') {
 			expect(parseVersionString(DEDALO_ENGINE_VERSION).some((n) => !Number.isInteger(n))).toBe(
 				true,

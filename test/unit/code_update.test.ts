@@ -66,8 +66,8 @@ import {
 } from '../../src/core/update/publication_manifest.ts';
 import {
 	compareVersionArrays,
-	DEDALO_NEXT_DEV_TRIPLE,
-	DEDALO_VERSION_TRIPLE,
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
 } from '../../src/core/update/version.ts';
 import { ageMinutes, buildRealArchive, truncatedCopy } from '../helpers/real_backup_archive.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
@@ -122,21 +122,28 @@ async function buildReleaseZip(
 	dir: string,
 	extra?: (codeDir: string) => void,
 	identity = '7.0.1',
+	// what `git archive` wrote into %(describe): the exact tag (`v7.0.1`) by
+	// default; '' for an untagged developer build (no exact tag reaches it)
+	describe = `v${identity}`,
+	// the NEXT dev triple the tree declares (VERSIONING_SPEC §5). Default: the
+	// data triple itself — the next release is this one until it is tagged.
+	nextDev = identity.split('-')[0] ?? identity,
 ): Promise<string> {
 	const stage = join(dir, 'stage');
 	const codeDir = join(stage, 'dedalo_code');
 	mkdirSync(join(codeDir, 'src', 'core', 'update'), { recursive: true });
 	writeFileSync(
 		join(codeDir, 'src', 'core', 'update', 'build_info.txt'),
-		`${'a'.repeat(40)} 2026-10-18T00:00:00Z v${identity}\n`,
+		`${'a'.repeat(40)} 2026-10-18T00:00:00Z ${describe}\n`,
 	);
 	// a real release declares its own triples (version.ts): the data triple of
-	// its release, and the next dev triple above it
+	// its release, and the next dev triple
 	const [major = 0, minor = 0, patch = 0] = (identity.split('-')[0] ?? '').split('.').map(Number);
+	const [nextMajor = 0, nextMinor = 0, nextPatch = 0] = nextDev.split('.').map(Number);
 	writeFileSync(
 		join(codeDir, 'src', 'core', 'update', 'version.ts'),
-		`export const DEDALO_VERSION_TRIPLE = Object.freeze([${major}, ${minor}, ${patch}]);
-export const DEDALO_NEXT_DEV_TRIPLE = Object.freeze([${major}, ${minor}, ${patch + 1}]);
+		`export const DEDALO_DATA_VERSION = Object.freeze([${major}, ${minor}, ${patch}]);
+export const DEDALO_NEXT_RELEASE = Object.freeze([${nextMajor}, ${nextMinor}, ${nextPatch}]);
 `,
 	);
 	writeFileSync(join(codeDir, 'package.json'), '{"name":"dedalo"}');
@@ -195,7 +202,7 @@ function pipelineSeams(overrides: Partial<CodeUpdateSeams> = {}): CodeUpdateSeam
 		// The walk starts from the STABLE release of the data version unless a case
 		// says otherwise: the checkout's own identity is `.dev` on a branch and the
 		// tag on a release commit, and no verdict here may move with that.
-		runningRelease: DEDALO_VERSION_TRIPLE.join('.'),
+		runningRelease: DEDALO_DATA_VERSION.join('.'),
 		// …and from an UNSTAMPED tree: the checkout's own install stamp (if any)
 		// must not grant a case the dev standing (code_update.ts walkChannelOf)
 		runningChannel: null,
@@ -281,12 +288,12 @@ describe('linearUpgradeTargets + buildCodeUpdateInfo (the LIVE catalog)', () => 
 	// BRANCH COVERAGE FOR BOTH FUNCTIONS LIVES IN test/unit/code_manifest.test.ts,
 	// driven through the injectable `catalog` parameter. What is pinned here is
 	// the stock-master FACT for the CURRENT catalog: the ONE real rung, 7.0.0 →
-	// 7.0.1. The probe-only '702'/'703' that used to sit beside it are gone —
+	// 7.0.1. The probe-only '7.0.2'/'7.0.3' that used to sit beside it are gone —
 	// see the "may not run ahead of the engine" tripwire below for why.
 	// A client is offered exactly its next patch rung; the manifest advertises
 	// no file while no archive exists on disk for that rung.
 	test('the stock catalog offers exactly the real 7.0.0 → 7.0.1 rung', () => {
-		expect(Object.keys(UPDATE_CATALOG).sort()).toEqual(['701']);
+		expect(Object.keys(UPDATE_CATALOG).sort()).toEqual(['7.0.1']);
 		expect(linearUpgradeTargets([7, 0, 0])).toEqual([[7, 0, 1]]);
 		// …and nothing beyond it: a museum already on 7.0.1 is offered nothing,
 		// which is the HONEST answer until a 7.0.2 is really cut.
@@ -1309,7 +1316,7 @@ describe('code-update run lock (single-flight)', () => {
 // ---------------------------------------------------------------------------
 // THE CATALOG MAY NOT RUN AHEAD OF THE ENGINE.
 //
-// UPDATE_CATALOG once shipped '702' and '703' — rungs for releases nobody had
+// UPDATE_CATALOG once shipped '7.0.2' and '7.0.3' — rungs for releases nobody had
 // cut, added so the museum-cycle probe could walk several hops. They were not
 // inert: `scripts/update_drill.ts` picks the NEWEST descriptor, so
 // `bun run test:update` rehearsed 7.0.2 → 7.0.3, a hop that will never be cut,
@@ -1320,8 +1327,8 @@ describe('code-update run lock (single-flight)', () => {
 // A probe that needs to repeat resets the museum to the rung's FROM end.
 // ---------------------------------------------------------------------------
 describe('UPDATE_CATALOG may not run ahead of the engine', () => {
-	test('every target is at most one rung past DEDALO_VERSION_TRIPLE', () => {
-		const engine = [...DEDALO_VERSION_TRIPLE];
+	test('every target is at most one rung past DEDALO_DATA_VERSION', () => {
+		const engine = [...DEDALO_DATA_VERSION];
 		const ahead = Object.entries(UPDATE_CATALOG).filter(([, descriptor]) => {
 			const target = [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
 			// Legal: the engine's own version, or exactly one legal rung past it.
@@ -1342,7 +1349,7 @@ describe('UPDATE_CATALOG may not run ahead of the engine', () => {
 				(d) => `${d.versionMajor}.${d.versionMedium}.${d.versionMinor}`,
 			),
 		);
-		targets.add(DEDALO_VERSION_TRIPLE.join('.'));
+		targets.add(DEDALO_DATA_VERSION.join('.'));
 		for (const [key, d] of Object.entries(UPDATE_CATALOG)) {
 			const from = `${d.updateFromMajor}.${d.updateFromMedium}.${d.updateFromMinor}`;
 			expect(
@@ -1465,7 +1472,9 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 	test('a same-version dev release installs, stamps the tree, and records its digest in the sentinel', async () => {
 		if (!zipAvailable) return;
 		const base = join(ROOT, 'dev_swap');
-		const zipPath = await buildReleaseZip(base);
+		// a REAL developer build: untagged (no exact tag reaches its stamp) and its
+		// version.ts names the next triple, so it calls itself `${next}-dev`
+		const zipPath = await buildReleaseZip(base, undefined, DEDALO_DATA_VERSION.join('.'), '');
 		const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
 		const previousDigest = 'd'.repeat(64);
 
@@ -1482,8 +1491,8 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 		);
 		const backupRoot = join(base, 'backups');
 		// a developer build names the NEXT triple (version.ts): this is a dev
-		// reinstall over the SAME identity the tree already runs (7.0.1-dev)
-		const version = DEDALO_NEXT_DEV_TRIPLE.join('.');
+		// reinstall over the SAME identity the tree already runs (7.0.0-dev)
+		const version = DEDALO_NEXT_RELEASE.join('.');
 
 		try {
 			mockUpdateEnv(origin);
@@ -1526,7 +1535,7 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 			expect(sentinel.installDigest).toBe(sha);
 			expect(sentinel.version).toBe(version);
 			// the previous tree's DATA version (code_update.ts previousVersion)
-			expect(sentinel.previousVersion).toBe(DEDALO_VERSION_TRIPLE.join('.'));
+			expect(sentinel.previousVersion).toBe(DEDALO_DATA_VERSION.join('.'));
 
 			// THE RESTORE POINT is identifiable: same version every iteration, so
 			// the name carries the digest of the tree it holds.
@@ -1540,7 +1549,7 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 	}, 60000);
 
 	test('the same-version release is REFUSED without the dev channel', async () => {
-		const version = DEDALO_VERSION_TRIPLE.join('.');
+		const version = DEDALO_DATA_VERSION.join('.');
 		const refusal = await refusalOf(
 			updateCode(
 				{
@@ -1562,7 +1571,7 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 	test.each(['prerelease', 'Prerelease', 'DEV'])(
 		'the same-version release is REFUSED on channel %p',
 		async (channel) => {
-			const version = DEDALO_VERSION_TRIPLE.join('.');
+			const version = DEDALO_DATA_VERSION.join('.');
 			const refusal = await refusalOf(
 				updateCode(
 					{
@@ -2115,7 +2124,7 @@ describe('the instance-dir rule: an update, a restore and a rollback never write
 		mkdirSync(join(targetRoot, 'src', 'core', 'update'), { recursive: true });
 		writeFileSync(
 			join(targetRoot, 'src', 'core', 'update', 'version.ts'),
-			`export const DEDALO_VERSION_TRIPLE = Object.freeze([${DEDALO_VERSION_TRIPLE.join(', ')}]);\n`,
+			`export const DEDALO_DATA_VERSION = Object.freeze([${DEDALO_DATA_VERSION.join(', ')}]);\n`,
 		);
 		return { parent, instance, targetRoot, backupRoot: join(instance, 'backups', 'code') };
 	}
@@ -2291,7 +2300,7 @@ describe('the instance-dir rule: an update, a restore and a rollback never write
 // The full truth table is gate 15 (release_identity_walk_native).
 // ---------------------------------------------------------------------------
 describe('the identity walk at the swap door', () => {
-	const T = DEDALO_VERSION_TRIPLE.join('.');
+	const T = DEDALO_DATA_VERSION.join('.');
 
 	/**
 	 * The refusal an update request draws before any fetch (url points nowhere).
@@ -2382,11 +2391,9 @@ describe('the identity walk at the swap door', () => {
 	});
 
 	test('a prerelease needs the prerelease channel; a release naming another triple is malformed', async () => {
-		const next = [
-			DEDALO_VERSION_TRIPLE[0],
-			DEDALO_VERSION_TRIPLE[1],
-			DEDALO_VERSION_TRIPLE[2] + 1,
-		].join('.');
+		const next = [DEDALO_DATA_VERSION[0], DEDALO_DATA_VERSION[1], DEDALO_DATA_VERSION[2] + 1].join(
+			'.',
+		);
 		expect(
 			(await walkRefusal({ version: next, release: `${next}-beta.1`, channel: 'master' }, T))
 				.message,
@@ -2451,11 +2458,9 @@ describe('the identity walk at the swap door', () => {
 	}, 60000);
 
 	test('the url must name the archive the walk judged — refused before any fetch', async () => {
-		const next = [
-			DEDALO_VERSION_TRIPLE[0],
-			DEDALO_VERSION_TRIPLE[1],
-			DEDALO_VERSION_TRIPLE[2] + 1,
-		].join('.');
+		const next = [DEDALO_DATA_VERSION[0], DEDALO_DATA_VERSION[1], DEDALO_DATA_VERSION[2] + 1].join(
+			'.',
+		);
 		let fetched = 0;
 		const server = Bun.serve({
 			port: 0,
@@ -2549,5 +2554,202 @@ describe('the identity walk at the swap door', () => {
 			server.stop(true);
 			unmockUpdateEnv();
 		}
+	}, 60000);
+
+	test('a developer archive that calls itself a RELEASE tag is refused before the swap (REPRO: it installed as 7.0.0 over 7.0.0-dev)', async () => {
+		expect(zipAvailable, 'the zip CLI builds the synthetic release').toBe(true);
+		const T = DEDALO_DATA_VERSION.join('.');
+		const next = DEDALO_NEXT_RELEASE.join('.');
+		const base = join(ROOT, 'foreign_dev_quarantine');
+		// a `${next}-dev.zip` whose version.ts declares the next dev triple, but whose
+		// own build stamp is the EXACT data tag (v${T}): the bytes call themselves a release
+		const zipPath = await buildReleaseZip(base, undefined, T, `v${T}`, next);
+		const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
+		const server = Bun.serve({ port: 0, fetch: () => new Response(readFileSync(zipPath)) });
+		const origin = `http://localhost:${server.port}`;
+		const targetRoot = join(base, 'live');
+		buildLiveTree(targetRoot);
+		// the running tree is the developer build of the next triple
+		mkdirSync(join(targetRoot, 'src', 'core', 'update'), { recursive: true });
+		writeFileSync(
+			join(targetRoot, 'src', 'core', 'update', 'install_stamp.json'),
+			JSON.stringify({ digest: 'd'.repeat(64), channel: 'dev' }),
+		);
+		const before = treeDigest(targetRoot);
+		let restarted = false;
+		try {
+			mockUpdateEnv(origin);
+			const refusal = await refusalOf(
+				updateCode(
+					{
+						file: {
+							version: next,
+							channel: 'dev',
+							url: `${origin}/${next}-dev.zip`,
+							sha256: sha,
+						},
+						waive_backup: true,
+					},
+					SUPERUSER,
+					pipelineSeams({
+						targetRoot,
+						backupRoot: join(base, 'backups'),
+						restart: () => {
+							restarted = true;
+						},
+						runningRelease: `${next}-dev`,
+						runningChannel: 'dev',
+					}),
+				),
+			);
+			expect(refusal.code).toBe('update.refused');
+			expect(refusal.message).toContain(`calls itself ${T}, not the requested ${next}-dev`);
+			expect(treeDigest(targetRoot)).toBe(before);
+			expect(restarted).toBe(false);
+		} finally {
+			server.stop(true);
+			unmockUpdateEnv();
+		}
+	}, 60000);
+});
+
+// ---------------------------------------------------------------------------
+// THE DEVELOPER ARCHIVE WALK (VERSIONING_SPEC §3, §7 S5 / S9 / S10). The data
+// version is 7.0.0 and the next release is 7.0.0 until v7.0.0 is tagged, so the
+// nightly is `7.0.0-dev`. A nightly is an UNTAGGED commit (D3, option a): an
+// archive whose stamp names a release or beta tag is refused as a nightly, with
+// the tag named — whatever its triple. Nothing moves back: a nightly never
+// installs over a release of its own triple, and a nightly installs over a beta.
+// ---------------------------------------------------------------------------
+describe('developer archive walk (VERSIONING_SPEC S5, S9, S10)', () => {
+	const T = DEDALO_DATA_VERSION.join('.'); // data version, 7.0.0
+	const next = DEDALO_NEXT_RELEASE.join('.'); // next release, 7.0.0
+	const nightly = `${next}-dev`; // 7.0.0-dev
+
+	/**
+	 * One swap over a live tree: build the archive (its build stamp = `describe`,
+	 * its version.ts = data `identity`, next = `identity`'s triple), serve it, and
+	 * run updateCode. Resolves to the success data or the refusal.
+	 */
+	async function swapOutcome(
+		name: string,
+		archive: { identity: string; describe: string },
+		file: { version: string; url: string; channel?: 'dev' | 'prerelease' },
+		running: { release: string; channel: 'dev' | null },
+	): Promise<{ ok: true; data: unknown } | { ok: false; code: string; message: string }> {
+		expect(zipAvailable, 'the zip CLI builds the synthetic release').toBe(true);
+		const base = join(ROOT, 'dev_archive_walk', name);
+		const zipPath = await buildReleaseZip(base, undefined, archive.identity, archive.describe);
+		const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
+		const server = Bun.serve({ port: 0, fetch: () => new Response(readFileSync(zipPath)) });
+		const origin = `http://localhost:${server.port}`;
+		const targetRoot = join(base, 'live');
+		buildLiveTree(targetRoot);
+		mkdirSync(join(targetRoot, 'src', 'core', 'update'), { recursive: true });
+		writeFileSync(
+			join(targetRoot, 'src', 'core', 'update', 'install_stamp.json'),
+			JSON.stringify({ digest: 'd'.repeat(64), channel: running.channel ?? 'master' }),
+		);
+		try {
+			mockUpdateEnv(origin);
+			const out = await updateCode(
+				{
+					file: { ...file, url: file.url.replace('{origin}', origin), sha256: sha },
+					waive_backup: true,
+				},
+				SUPERUSER,
+				pipelineSeams({
+					targetRoot,
+					backupRoot: join(base, 'backups'),
+					restart: () => {},
+					runningRelease: running.release,
+					runningChannel: running.channel,
+				}),
+			).then(
+				(res) => ({ ok: true as const, data: res.data }),
+				(err: unknown) => {
+					const e = err as { code?: string; message?: string };
+					return { ok: false as const, code: e.code ?? '', message: e.message ?? '' };
+				},
+			);
+			return out;
+		} finally {
+			server.stop(true);
+			unmockUpdateEnv();
+		}
+	}
+
+	test(`S5: a tree on the dev channel running 7.0.0-beta.7 takes the nightly ${nightly} (forward)`, async () => {
+		const out = await swapOutcome(
+			's5_beta_to_nightly',
+			{ identity: T, describe: '' },
+			{ version: next, url: `{origin}/${nightly}.zip`, channel: 'dev' },
+			{ release: `${T}-beta.7`, channel: 'dev' },
+		);
+		expect(out).toEqual({ ok: true, data: { version: next } });
+	}, 60000);
+
+	test(`S9: a commit tagged v7.0.1 built as the nightly ${nightly} is refused, the tag named`, async () => {
+		const out = await swapOutcome(
+			's9_tagged_patch_as_nightly',
+			{ identity: T, describe: 'v7.0.1' },
+			{ version: next, url: `{origin}/${nightly}.zip`, channel: 'dev' },
+			{ release: `${T}-beta.7`, channel: 'dev' },
+		);
+		expect(out.ok).toBe(false);
+		if (out.ok) return;
+		expect(out.code).toBe('update.refused');
+		expect(out.message).toContain(`calls itself 7.0.1, not the requested ${nightly}`);
+		expect(out.message).toContain('its stamp names the tag v7.0.1');
+	}, 60000);
+
+	test(`S9: a commit tagged v${T} (the nightly's own triple) is refused as the nightly ${nightly}`, async () => {
+		const out = await swapOutcome(
+			's9_tagged_same_triple',
+			{ identity: T, describe: `v${T}` },
+			{ version: next, url: `{origin}/${nightly}.zip`, channel: 'dev' },
+			{ release: `${T}-beta.7`, channel: 'dev' },
+		);
+		expect(out.ok).toBe(false);
+		if (out.ok) return;
+		expect(out.code).toBe('update.refused');
+		expect(out.message).toContain(`calls itself ${T}, not the requested ${nightly}`);
+		expect(out.message).toContain(`its stamp names the tag v${T}`);
+	}, 60000);
+
+	test(`S9: a commit tagged v${T}-beta.1 built as the nightly ${nightly} is refused (a beta is not a nightly)`, async () => {
+		const out = await swapOutcome(
+			's9_tagged_beta_as_nightly',
+			{ identity: T, describe: `v${T}-beta.1` },
+			{ version: next, url: `{origin}/${nightly}.zip`, channel: 'dev' },
+			{ release: `${T}-beta.7`, channel: 'dev' },
+		);
+		expect(out.ok).toBe(false);
+		if (out.ok) return;
+		expect(out.code).toBe('update.refused');
+		expect(out.message).toContain(`calls itself ${T}-beta.1, not the requested ${nightly}`);
+	}, 60000);
+
+	test(`S10: the nightly ${nightly} installed, then the release ${T} moves FORWARD`, async () => {
+		const out = await swapOutcome(
+			's10_nightly_to_release',
+			{ identity: T, describe: `v${T}` },
+			{ version: T, url: `{origin}/${T}.zip` },
+			{ release: nightly, channel: 'dev' },
+		);
+		expect(out).toEqual({ ok: true, data: { version: T } });
+	}, 60000);
+
+	test(`S10: the release ${T} installed, the nightly ${nightly} is refused: nothing moves back`, async () => {
+		const refused = await swapOutcome(
+			's10_release_to_nightly',
+			{ identity: T, describe: '' },
+			{ version: next, url: `http://localhost:1/${nightly}.zip`, channel: 'dev' },
+			{ release: T, channel: null },
+		);
+		expect(refused.ok).toBe(false);
+		if (refused.ok) return;
+		expect(refused.code).toBe('update.refused');
+		expect(refused.message).toContain('refusing a downgrade or same-version install');
 	}, 60000);
 });

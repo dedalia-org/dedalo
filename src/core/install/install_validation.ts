@@ -41,9 +41,9 @@ import { connFieldProblem, pgSocketProblem } from '../../config/pg_transport.ts'
 import { unixSocketLengthProblem } from '../../config/unix_socket.ts';
 import { DEV_TLS_MODES, type DevListenerPlan } from './dev_listener.ts';
 import { ENTITY_PATTERN } from './entity_name.ts';
-import { acceptedImageVersions } from './host/stack/layout.ts';
+import { acceptedImageVersions, imageRefusalMessage } from './host/stack/layout.ts';
 import type { InstallAnswers } from './install_plan.ts';
-import { officialRefusedFor } from './installer_identity.ts';
+import { imageSourceRefusedFor } from './installer_identity.ts';
 
 /**
  * The INSTANCE name of a production install (multi-instance hosts —
@@ -747,7 +747,7 @@ function stackHostErrors(a: InstallAnswers, problems: Problems): void {
 	if (a.image_source === 'custom' && a.image_repository === '') {
 		problems.push(problem('image_repository', 'image_source custom requires image_repository'));
 	}
-	officialSourceErrors(a, problems);
+	imageSourceIdentityErrors(a, problems);
 	// The run's preflight refuses any other tag (stack/preflight.ts imageProblems): said on
 	// the Image screen itself, never first after `yes` (campaign 3c D2: `9.9.9` passed the
 	// field and the Review, every answer lost at the refusal).
@@ -755,19 +755,21 @@ function stackHostErrors(a: InstallAnswers, problems: Problems): void {
 		problems.push(
 			problem(
 				'image_version',
-				`image version ${a.image_version} is not this installer's (${acceptedImageVersions().join(' or ')}) — leave it empty: the engine steps run inside the image with this installer's request format`,
+				imageRefusalMessage(
+					a.image_version,
+					"leave it empty: the engine steps run inside the image with this installer's request format",
+				),
 			),
 		);
 	}
 }
 
 /**
- * A development build (untagged) has no official image: refused from the identity
- * itself, on the Image screen — the Review never asks a registry for it (Q6).
+ * A development build (untagged) is no image: Official and Build are refused from
+ * the identity itself, on the Image screen — the Review never asks a registry for it (Q6).
  */
-function officialSourceErrors(a: InstallAnswers, problems: Problems): void {
-	if (a.image_source !== 'official') return;
-	const refused = officialRefusedFor();
+function imageSourceIdentityErrors(a: InstallAnswers, problems: Problems): void {
+	const refused = imageSourceRefusedFor(a.image_source);
 	if (refused !== null) problems.push(problem('image_source', refused));
 }
 

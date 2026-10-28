@@ -397,7 +397,7 @@ const descriptor = {
 let out;
 try {
 	out = await updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
-		catalog: { '710': descriptor },
+		catalog: { '7.1.0': descriptor },
 		currentVersion: [7, 0, 0],
 		logPath: ${JSON.stringify(`${LOG_PATH}.crash`)},
 		writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${VER}" (version) VALUES ($1)', [v]); },
@@ -460,7 +460,7 @@ const descriptor = {
 let out;
 try {
 	out = await updateVersion({ SQL_update_0: true, SQL_update_1: true, run_scripts_0: true }, {
-		catalog: { '710': descriptor },
+		catalog: { '7.1.0': descriptor },
 		scripts: {
 			'zz.probe': async () => {
 				const rows = await sql.unsafe(
@@ -555,7 +555,7 @@ const descriptor = {
 	sqlUpdate: ['SELECT pg_sleep(1.5) /*${SINGLE_FLIGHT_MARKER}*/', ${JSON.stringify(insertTag('d'))}],
 };
 const seams = {
-	catalog: { '710': descriptor },
+	catalog: { '7.1.0': descriptor },
 	scripts: {},
 	currentVersion: [7, 0, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.single_flight`)},
@@ -690,7 +690,7 @@ await Bun.sleep(100);
 const saturated = getPoolStats().inUse === getPoolStats().max;
 const controller = new AbortController();
 const running = updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
-	catalog: { '710': descriptor },
+	catalog: { '7.1.0': descriptor },
 	currentVersion: [7, 0, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.saturated`)},
 	writeVersionRow: async () => {},
@@ -1124,7 +1124,7 @@ const active = async (suffix) => (await sql.unsafe(
 const waitFor = async (suffix) => { for (let i = 0; i < 200; i++) { if (await active(suffix) > 0) return true; await Bun.sleep(25); } return false; };
 const controller = new AbortController();
 const running = updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
-	catalog: { '710': descriptor },
+	catalog: { '7.1.0': descriptor },
 	currentVersion: [7, 0, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.verdict`)},
 	writeVersionRow: async () => {},

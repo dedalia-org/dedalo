@@ -647,7 +647,7 @@ describe('update_code restore control', () => {
 	test('the downgrade decision compares the SERVER’s version, not the page global', () => {
 		// page_globals.dedalo_version is DEDALO_ENGINE_VERSION and carries the
 		// prerelease tag ('7.0.1.dev'); the pipeline compares
-		// DEDALO_VERSION_TRIPLE.join('.'), a bare '7.0.1'. Comparing the page
+		// DEDALO_DATA_VERSION.join('.'), a bare '7.0.1'. Comparing the page
 		// global drew the waiver on every developer-channel restore of the
 		// version already running, locked the submit behind it, and had the
 		// server log "VERSION CHANGE CONFIRMED … from 7.0.1 to 7.0.1".

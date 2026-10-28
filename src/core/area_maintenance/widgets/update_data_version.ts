@@ -14,7 +14,7 @@
  */
 
 import type { Principal } from '../../security/permissions.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../update/version.ts';
+import { DEDALO_DATA_VERSION } from '../../update/version.ts';
 import {
 	engineDenied,
 	failAction,
@@ -48,7 +48,7 @@ async function updateDataVersionGetValue(): Promise<WidgetResponse> {
 		data: {
 			update_version: getUpdateVersion(current),
 			current_version_in_db: current,
-			dedalo_version: DEDALO_VERSION_TRIPLE,
+			dedalo_version: DEDALO_DATA_VERSION,
 			updates: descriptor === null ? null : toWireDescriptor(descriptor),
 		},
 	};

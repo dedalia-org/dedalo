@@ -88,8 +88,11 @@ export interface DataUpdateDescriptor extends UpdateDescriptorVersion {
 export type UpdateDescriptor = CodeOnlyUpdateDescriptor | DataUpdateDescriptor;
 
 /**
- * The catalog, keyed by concatenated target version (PHP `$updates->700`
- * convention: '701' = 7.0.1).
+ * The catalog, keyed by the target version as a DOTTED triple: `'7.0.1'` names
+ * 7.0.1, `'7.11.1'` names 7.11.1 (VERSIONING_SPEC §4 rule 3, D5). A concatenated
+ * key cannot say which release it names: `'7110'` is both 7.1.10 and 7.11.0. The
+ * key must equal the entry's own triple (validateUpdateDescriptor refuses a
+ * mismatch).
  *
  * ⚠️ EVERY CODE RELEASE NEEDS A DESCRIPTOR HERE, even when it carries NO data
  * migration (`updateData: false`): `src/core/update/code_manifest.ts`
@@ -99,7 +102,7 @@ export type UpdateDescriptor = CodeOnlyUpdateDescriptor | DataUpdateDescriptor;
  * invisible from here, which is exactly why this comment exists.
  */
 export const UPDATE_CATALOG: Readonly<Record<string, UpdateDescriptor>> = Object.freeze({
-	'701': {
+	'7.0.1': {
 		versionMajor: 7,
 		versionMedium: 0,
 		versionMinor: 1,
@@ -119,9 +122,9 @@ export const UPDATE_CATALOG: Readonly<Record<string, UpdateDescriptor>> = Object
 	// Ratcheted by catalogRungIsReachable in test/unit/code_update.test.ts.
 } satisfies Record<string, UpdateDescriptor>);
 
-/** Key for a descriptor's target version (PHP implode('', [7,0,1]) = '701'). */
+/** Key for a descriptor's target version: the dotted triple (`'7.0.1'`). */
 export function catalogKeyOf(descriptor: UpdateDescriptorVersion): string {
-	return `${descriptor.versionMajor}${descriptor.versionMedium}${descriptor.versionMinor}`;
+	return `${descriptor.versionMajor}.${descriptor.versionMedium}.${descriptor.versionMinor}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -526,7 +529,7 @@ export function getMatchedDescriptor(
 ): DataUpdateDescriptor | null {
 	const target = getUpdateVersion(current, catalog);
 	if (target === null) return null;
-	const descriptor = catalog[`${target[0]}${target[1]}${target[2]}`];
+	const descriptor = catalog[target.join('.')];
 	return descriptor !== undefined && isDataDescriptor(descriptor) ? descriptor : null;
 }
 

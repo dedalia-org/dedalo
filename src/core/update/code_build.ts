@@ -53,6 +53,7 @@ import {
 	gitDescribeSupportFault,
 	MIN_GIT_FOR_DESCRIBE,
 	parseBuildInfo,
+	releaseVersionOfTag,
 } from './release_identity.ts';
 
 /** The channel a build is asked for (the serve_code panel's buttons). */
@@ -97,6 +98,57 @@ async function declaredNextDevOfRef(
 	if (gitDir === undefined || gitDir === '' || !isSafeGitRef(ref)) return undefined;
 	const source = await gitShow(gitDir, `${ref}:${VERSION_TS_PATH}`);
 	return source === null ? undefined : (parseDeclaredNextDevTriple(source) ?? undefined);
+}
+
+/**
+ * The release tags (the shared grammar, `v7.0.0`, `v7.0.0-beta.6`) that point AT
+ * the commit `ref` names — lightweight and annotated alike — or null when git
+ * cannot answer (fail closed: no answer is no evidence the commit is untagged).
+ */
+async function releaseTagsAtRef(gitDir: string, ref: string): Promise<string[] | null> {
+	const child = Bun.spawn(['git', '-C', gitDir, 'tag', '--points-at', ref, '--list', 'v*'], {
+		stdout: 'pipe',
+		stderr: 'ignore',
+		env: envSnapshot() as Record<string, string>,
+	});
+	const [exitCode, listing] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+	if (exitCode !== 0) return null;
+	return listing
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((tag) => releaseVersionOfTag(tag) !== null);
+}
+
+/**
+ * A DEVELOPER build (channel `dev`, or a branch ref) names a NIGHTLY, and a
+ * nightly is an UNTAGGED commit (VERSIONING_SPEC D3, option a): a commit that
+ * carries a release or beta tag is that release, named by its tag. Refused
+ * here — before the planner, the release dir or any archive — with the tag
+ * named, however the ref was given (an explicit tag ref on the dev channel
+ * included). A tag ref on the release/prerelease channels is never a nightly
+ * and passes untouched.
+ */
+async function refuseUnlessNightlyCommit(
+	gitDir: string,
+	ref: string,
+	devChannel: boolean,
+): Promise<void> {
+	if (!devChannel && releaseTagIdentity(ref) !== null) return;
+	// a ref that names no commit has no tags to read: git archive refuses it with
+	// its own sentence (the bad-ref contract), before any byte is written
+	if (!(await gitSucceeds(gitDir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]))) return;
+	const tags = await releaseTagsAtRef(gitDir, ref);
+	if (tags === null) {
+		const sentence = `Error. Could not read the tags of '${ref}', so it cannot be shown to be an untagged nightly. Nothing was built.`;
+		throw new DedaloError('update.refused', { message: sentence, publicMessage: sentence });
+	}
+	if (tags.length === 0) return;
+	const named = tags.join(', ');
+	const sentence = `Error. '${ref}' is the tagged commit ${named}: a tagged commit is a release or beta, named by its tag, never a nightly (VERSIONING_SPEC D3). Build ${named} instead, or build an untagged commit.`;
+	throw new DedaloError('update.refused', {
+		message: `code build: ${ref} carries the tag(s) ${named} — refusing a developer build of a tagged commit`,
+		publicMessage: sentence,
+	});
 }
 
 /** `git show <object>` from the object store, or null when it cannot be read. */
@@ -497,6 +549,12 @@ export async function buildVersionFromGit(options: {
 	refuseUnlessBuildable();
 	const ref = await resolveBuildRefOrRefuse(options);
 	const version = await resolveReleaseVersionOrRefuse(ref, options.version);
+	// A developer build is a nightly: refused when its commit carries a release tag.
+	await refuseUnlessNightlyCommit(
+		config.update.codeServerGitDir as string,
+		ref,
+		options.channel === 'dev',
+	);
 	// All refusal gates (code-server flag → dirs → version → ref → confinement)
 	// and the release path live in the pure planner. The ref goes in EXPLICITLY:
 	// the channel (and so the file name) is read off the ref by releaseFileName,

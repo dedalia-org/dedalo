@@ -3,12 +3,12 @@
  * (owner decision 2026-10-15, finding C3i-F1).
  *
  * Two identities, never confused:
- *  - the DATA version (`version.ts` DEDALO_VERSION_TRIPLE / DEDALO_VERSION) —
+ *  - the DATA version (`version.ts` DEDALO_DATA_VERSION / DEDALO_VERSION) —
  *    what compares, migrates, names a code-server directory, crosses to an
  *    older peer. It is the last data-changing release, which may lag the code.
  *  - the RELEASE identity (this module): the bare triple for an exact stable
  *    tag, `X.Y.Z-(alpha|beta|rc).N` for an exact prerelease tag, `X.Y.Z-dev`
- *    for anything untagged (the triple is version.ts DEDALO_NEXT_DEV_TRIPLE,
+ *    for anything untagged (the triple is version.ts DEDALO_NEXT_RELEASE,
  *    the release the tree is building toward). A build at tag `v7.0.0-beta.6`
  *    calls itself `7.0.0-beta.6` while its data stays `7.0.0`.
  *
@@ -92,8 +92,8 @@ export interface ReleaseIdentity {
 	kind: ReleaseKind;
 	/**
 	 * The triple this identity names: the tag's own triple for a release, the
-	 * declared next triple (version.ts DEDALO_NEXT_DEV_TRIPLE) for a dev identity.
-	 * It is NOT always the DATA triple (version.ts DEDALO_VERSION_TRIPLE).
+	 * declared next triple (version.ts DEDALO_NEXT_RELEASE) for a dev identity.
+	 * It is NOT always the DATA triple (version.ts DEDALO_DATA_VERSION).
 	 */
 	triple: readonly [number, number, number];
 	/** The exact git tag the identity was read from; null when none applied. */
@@ -148,9 +148,8 @@ export function releaseVersionOfTag(tag: string): string | null {
 
 /**
  * Semver §11 precedence between two identities: -1 / 0 / 1.
- * `7.0.0-alpha.1 < 7.0.0-beta.5 < 7.0.0-beta.6 < 7.0.0-rc.1 < 7.0.0 < 7.0.1`,
- * and with a dev identity in the same triple:
- * `7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2`.
+ * the current order (VERSIONING_SPEC §3), dev included:
+ * `7.0.0-beta.6 < 7.0.0-beta.7 < 7.0.0-dev < 7.0.0 < 7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2`.
  *
  * A `-dev` identity is NOT its bare triple: it sorts above every prerelease of
  * its triple and strictly below that triple's stable release (comparePrereleases
@@ -216,7 +215,7 @@ function requireParsed(version: string): ParsedReleaseVersion {
  * The container image tag an identity is published / built under. Every
  * identity is its own tag: a stable or prerelease identity (`7.0.0`,
  * `7.0.0-beta.6` — never a floating `7.0.0` for a beta) and a dev identity
- * (`7.0.1-dev`, the same spelling the image grammar uses).
+ * (`7.0.0-dev`, the same spelling the image grammar uses).
  */
 export function imageTagOf(version: string): string {
 	requireParsed(version); // throws on a string that is no identity
@@ -305,10 +304,10 @@ export function parseBuildInfo(content: string): BuildInfo {
 
 /** The evidence the resolver decides from — every fs/git read happens in build_stamp.ts. */
 export interface ReleaseEvidence {
-	/** version.ts DEDALO_VERSION_TRIPLE of the running tree (the DATA triple: an exact tag must name it). */
+	/** version.ts DEDALO_DATA_VERSION of the running tree (the DATA triple: an exact tag must name it). */
 	triple: readonly [number, number, number];
 	/**
-	 * version.ts DEDALO_NEXT_DEV_TRIPLE: the triple an UNTAGGED tree names its
+	 * version.ts DEDALO_NEXT_RELEASE: the triple an UNTAGGED tree names its
 	 * dev identity with. Resolved here — the one place that decides it — so no
 	 * caller can pass a different triple for the same tree.
 	 */

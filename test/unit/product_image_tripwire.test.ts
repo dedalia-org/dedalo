@@ -34,7 +34,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { INSTALL_STAMP_PATH, parseInstallStamp } from '../../src/core/update/install_stamp.ts';
 import { resolveReleaseIdentity } from '../../src/core/update/release_identity.ts';
-import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_RELEASE } from '../../src/core/update/version.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8');
@@ -246,7 +246,7 @@ describe('C. the provenance step, EXECUTED', () => {
 		expect(
 			resolveReleaseIdentity({
 				triple: [7, 0, 0],
-				nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
+				nextDevTriple: DEDALO_NEXT_RELEASE,
 				describe: '',
 				provenance: { stamp: 'other', channel: null },
 			}).kind,
@@ -268,7 +268,7 @@ describe('C. the provenance step, EXECUTED', () => {
 		// a LEGACY expanded stamp (no describe field) takes its suffix from the channel
 		const identity = resolveReleaseIdentity({
 			triple: [7, 0, 0],
-			nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
+			nextDevTriple: DEDALO_NEXT_RELEASE,
 			describe: null,
 			provenance: { stamp: 'legacy', channel: stamp?.channel ?? null },
 		});
@@ -288,7 +288,7 @@ describe('C. the provenance step, EXECUTED', () => {
 		expect(stamp).toEqual({ digest: DIGEST, channel: 'prerelease' });
 		const identity = resolveReleaseIdentity({
 			triple: [7, 0, 0],
-			nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
+			nextDevTriple: DEDALO_NEXT_RELEASE,
 			describe: 'v7.0.0-beta.7',
 			provenance: { stamp: 'other', channel: stamp?.channel ?? null },
 		});

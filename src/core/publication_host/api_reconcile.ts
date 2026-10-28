@@ -57,7 +57,7 @@ import {
 	type PublicationTreeVerdict,
 	verifyPublicationTree,
 } from '../update/publication_manifest.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { hostInstallRelease, hostStatus } from './agent_client.ts';
 import {
 	type ApiBundle,
@@ -214,7 +214,7 @@ export function defaultApiReconcileDeps(): ApiReconcileDeps {
 	return {
 		target: () =>
 			resolveTargetRelease({
-				version: DEDALO_VERSION,
+				version: formatVersion(DEDALO_DATA_VERSION),
 				digest: INSTALLED_DIGEST,
 				// expectedDigest = the RUNNING digest (plan Interfaces): a manifest written for
 				// another archive is digest_mismatch, never a pass.

@@ -13,9 +13,11 @@
  * (`<v>.zip` there, `:<v>` here) or, since 2026-10-18 (RELEASE_IDENTITY_DESIGN §2.8.4,
  * owner Q1: a prerelease tag IS a release), the prerelease `vX.Y.Z-(alpha|beta|rc).N`
  * (`<X.Y.Z-beta.N>.zip` there, `:<X.Y.Z-beta.N>` here, install-stamp channel
- * `prerelease`) — or the developer build of `master` (`<v>-dev.zip` there, `:<v>-dev`
- * here). The rules are code_build_plan.ts's (`releaseTagIdentity`, `parseDeclaredTriple`,
- * `DEV_REF`), imported, never restated.
+ * `prerelease`). The developer build of `master` (`<v>-dev.zip`, a TREE archive for the
+ * code update path) is NOT an image: the dev channel publishes no images (docker images are
+ * immutable; a docker install runs tagged releases only), so `publish` refuses it
+ * (publishTagFault). The rules are code_build_plan.ts's (`releaseTagIdentity`,
+ * `parseDeclaredTriple`, `DEV_REF`), imported, never restated.
  *
  * ONE TAG PER RUN, NEVER A FLOATING ONE. The image tag a run writes to a target registry
  * is `imageTagOf(identity)` (release_identity.ts — the function the installer's Official
@@ -31,7 +33,7 @@
  * (`gh api`, the run's own read-only token, `actions: read`). The pre-push hook holds the
  * same rule at the desk (a release tag needs a FULL green); this is the half no
  * `--no-verify` reaches. An unreadable API refuses too: fail closed. The developer
- * channel is not held (a mutable `-dev` build of the master tip, like `<v>-dev.zip`).
+ * channel is not held here: it publishes no image at all (see the header above).
  *
  * THE BUILD CONTEXT IS A GIT ARCHIVE of the release commit — the code server's own
  * mechanism — so `build_info.txt` is expanded exactly as in the release zip, and the
@@ -114,6 +116,7 @@ import {
 	parseBuildInfo,
 	parseReleaseVersion,
 	type ReleaseKind,
+	releaseVersionOfTag,
 	resolveReleaseIdentity,
 } from '../../src/core/update/release_identity.ts';
 import { cosignDownloadUrl, isPinSet, readCosignPin } from '../ci_cosign_pin.ts';
@@ -286,8 +289,15 @@ export interface PlanFacts {
 export interface PlanGit extends ReleaseTagGit {
 	/** The X.Y.Z a commit's version.ts declares, or null. */
 	declaredAt(rev: string): string | null;
+	/** The NEXT X.Y.Z a commit's version.ts declares (DEDALO_NEXT_RELEASE), or null. */
+	declaredNextAt(rev: string): string | null;
 	/** The commit a ref names, or null when it does not exist. */
 	commitOf(ref: string): string | null;
+	/**
+	 * The release tags (`v*` in the shared grammar) that point at `rev`, or null when
+	 * git cannot answer. A developer build of a tagged commit is refused (VERSIONING_SPEC D3).
+	 */
+	releaseTagsAt(rev: string): string[] | null;
 }
 
 export interface ReleasePlan {
@@ -309,9 +319,15 @@ export interface ReleasePlan {
 	/**
 	 * What the image's own DEDALO_ENGINE_VERSION must say — the release identity
 	 * its archive resolves to (archiveIdentityPlan): X.Y.Z for a release; for a
-	 * developer build X.Y.Z.dev, or the tag when the commit is exactly tagged (Q5).
+	 * developer build X.Y.Z-dev (the next nightly), or the tag when the commit is exactly tagged.
 	 */
 	expected_engine_version: string;
+	/**
+	 * The NEXT release triple X.Y.Z (version.ts DEDALO_NEXT_RELEASE) a developer
+	 * build names its image after (`<next>-dev`); '' on a release or prerelease. The
+	 * publish verb needs it to refuse a dev tag that is not the next nightly.
+	 */
+	next_dev_version: string;
 }
 
 const DEV_BRANCH_REF = `refs/heads/${DEV_REF}`;
@@ -343,10 +359,15 @@ function releasePlanFor(tagRef: string, git: PlanGit, staging: string): ReleaseP
 		source_sha: commit,
 		staging,
 		expected_engine_version: identity,
+		next_dev_version: '',
 	};
 }
 
-/** A developer build: dispatched on the dev branch, tagged after the version it declares. */
+/**
+ * A developer build: dispatched on the dev branch. A dev run names its archive the NEXT
+ * nightly tag (`<next>-dev`). A nightly is an UNTAGGED commit (VERSIONING_SPEC D3, option a):
+ * a dev run whose commit carries a release or beta tag is refused, naming the tag.
+ */
 function devPlanFor(facts: PlanFacts, git: PlanGit, staging: string): ReleasePlan {
 	if (facts.ref !== DEV_BRANCH_REF)
 		throw new Refusal(
@@ -355,13 +376,24 @@ function devPlanFor(facts: PlanFacts, git: PlanGit, staging: string): ReleasePla
 	const declared = git.declaredAt(facts.sha);
 	if (declared === null)
 		throw new Refusal(`${facts.sha} declares no version in ${VERSION_TS_PATH}`);
+	const tags = git.releaseTagsAt(facts.sha);
+	if (tags === null)
+		throw new Refusal(`cannot read the tags of ${facts.sha}, so it cannot be shown untagged`);
+	if (tags.length > 0)
+		throw new Refusal(
+			`${facts.sha} is the tagged commit ${tags.join(', ')}: a tagged commit is a release or beta, named by its tag, never a nightly (VERSIONING_SPEC D3)`,
+		);
+	const next = git.declaredNextAt(facts.sha);
+	if (next === null)
+		throw new Refusal(`${facts.sha} declares no DEDALO_NEXT_RELEASE in ${VERSION_TS_PATH}`);
 	return {
 		version: declared,
-		tag: `${declared}-dev`,
+		tag: `${next}-dev`,
 		channel: 'dev',
 		source_sha: facts.sha,
 		staging,
-		expected_engine_version: `${declared}.dev`,
+		expected_engine_version: `${next}-dev`,
+		next_dev_version: next,
 	};
 }
 
@@ -455,9 +487,21 @@ export function gitLookups(run: Runner, cwd: string): PlanGit {
 			const source = fileAt(rev, VERSION_TS_PATH);
 			return source === null ? null : parseDeclaredTriple(source);
 		},
+		declaredNextAt: (rev) => {
+			const source = fileAt(rev, VERSION_TS_PATH);
+			return source === null ? null : parseDeclaredNextDevTriple(source);
+		},
 		commitOf: (ref) => {
 			const parsed = run(['git', 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd });
 			return parsed.code === 0 ? parsed.stdout.trim() : null;
+		},
+		releaseTagsAt: (rev) => {
+			const listed = run(['git', 'tag', '--points-at', rev, '--list', 'v*'], { cwd });
+			if (listed.code !== 0) return null;
+			return listed.stdout
+				.split('\n')
+				.map((line) => line.trim())
+				.filter((tag) => releaseVersionOfTag(tag) !== null);
 		},
 	};
 }
@@ -484,11 +528,11 @@ const VERSION_TS_IN_ARCHIVE = 'src/core/update/version.ts';
  *  - a release whose archive does not call itself the tag is REFUSED before any
  *    build: a lightweight tag (describe ignores it) or a clone without the tags
  *    would ship an image that says `.dev`;
- *  - a developer build expects whatever its archive says: `X.Y.Z-dev` (the NEXT
- *    triple the archive's own version.ts declares), or the tag when the dev
- *    branch's head IS a release commit (owner Q5).
+ *  - a developer build is published under `X.Y.Z-dev` (the NEXT triple the
+ *    archive's own version.ts declares); an archive whose describe names a release
+ *    tag is refused (a tagged commit is never a nightly, VERSIONING_SPEC D3).
  * `stamp` is the archived build_info.txt, '' when the archive has none;
- * `nextDevTriple` is the archive's DEDALO_NEXT_DEV_TRIPLE, null when it declares none.
+ * `nextDevTriple` is the archive's DEDALO_NEXT_RELEASE, null when it declares none.
  */
 export function archiveIdentityPlan(
 	plan: ReleasePlan,
@@ -506,9 +550,9 @@ export function archiveIdentityPlan(
 		describe: info.describe,
 		provenance: { stamp: info.legacy ? 'legacy' : 'other', channel: plan.channel },
 	});
-	if (identity.kind === 'dev' && nextDevTriple === null)
+	if (plan.channel === 'dev' && nextDevTriple === null)
 		throw new Refusal(
-			`the archive of ${plan.source_sha} declares no DEDALO_NEXT_DEV_TRIPLE (src/core/update/version.ts): its developer identity cannot be named`,
+			`the archive of ${plan.source_sha} declares no DEDALO_NEXT_RELEASE (src/core/update/version.ts): its developer image cannot be named`,
 		);
 	if (plan.channel !== 'dev') {
 		if (identity.version !== plan.expected_engine_version)
@@ -519,11 +563,22 @@ export function archiveIdentityPlan(
 			);
 		return plan;
 	}
-	// an UNTAGGED developer archive is published under the NEXT dev identity it
-	// calls itself (not the data triple's); a tag-identity archive keeps the plan's
-	// dev tag (owner Q5: the release's bytes on the dev channel)
-	const tag = identity.kind === 'dev' ? identity.version : plan.tag;
-	return { ...plan, tag, expected_engine_version: identity.version };
+	// A nightly is an UNTAGGED archive (VERSIONING_SPEC D3, option a): an archive whose
+	// stamp names a release tag is that release's bytes, never a nightly — refused, the
+	// tag named. (devPlanFor refuses the same commit earlier, from the git object store.)
+	if (info.describe !== null && releaseVersionOfTag(info.describe) !== null)
+		throw new Refusal(
+			`the archive of ${plan.source_sha} is the tagged commit ${info.describe}: a tagged commit is a release or beta, named by its tag, never a nightly (VERSIONING_SPEC D3)`,
+		);
+	// every untagged dev-channel archive is published under the NEXT nightly tag
+	// (X.Y.Z-dev of the archive's own DEDALO_NEXT_RELEASE)
+	const next = `${nextDevTriple?.join('.')}-dev`;
+	return {
+		...plan,
+		tag: next,
+		expected_engine_version: identity.version,
+		next_dev_version: nextDevTriple?.join('.') ?? '',
+	};
 }
 
 /** The archived build_info.txt of `tarPath`, '' when the archive has none. */
@@ -532,7 +587,7 @@ function archivedStamp(run: Runner, tarPath: string): string {
 	return shown.code === 0 ? shown.stdout : '';
 }
 
-/** The archive's own DEDALO_NEXT_DEV_TRIPLE (version.ts), null when it declares none. */
+/** The archive's own DEDALO_NEXT_RELEASE (version.ts), null when it declares none. */
 function archivedNextDevTriple(
 	run: Runner,
 	tarPath: string,
@@ -1235,7 +1290,10 @@ function messageOf(error: unknown): string {
  *   master      TAG = version (a stable identity IS its tag);
  *   prerelease  TAG = a prerelease identity of version's triple (`7.0.0-beta.6`) —
  *               never `7.0.0`, which after the stable release is another image;
- *   dev         TAG = `<version>-dev`.
+ *   dev         NO IMAGE. The dev channel publishes no docker images (immutable tags,
+ *               tagged releases only): a developer build is a TREE archive for the code
+ *               update path (`archiveIdentityPlan` names it `<next>-dev`, untouched here).
+ *               Every dev TAG is refused with DEV_PUBLISHES_NO_IMAGE.
  * Pure.
  */
 export function publishTagFault(
@@ -1243,6 +1301,7 @@ export function publishTagFault(
 	tag: string,
 	channel: InstallChannel,
 ): string | null {
+	if (channel === 'dev') return DEV_PUBLISHES_NO_IMAGE;
 	const identity = identityOfImageTag(tag);
 	const parsed = identity === null ? null : parseReleaseVersion(identity);
 	const kind: ReleaseKind | null =
@@ -1255,8 +1314,17 @@ export function publishTagFault(
 					: 'prerelease';
 	const wanted: ReleaseKind = CHANNEL_KIND[channel];
 	if (parsed !== null && kind === wanted && parsed.triple.join('.') === version) return null;
-	return `TAG '${tag}' is not the ${CHANNEL_WORDS[channel]} tag of ${version} — a ${channel} run writes exactly ${channel === 'master' ? version : channel === 'dev' ? `${version}-dev` : `${version}-(alpha|beta|rc).N`}, never a floating tag (latest, X, X.Y${channel === 'prerelease' ? `, ${version}` : ''})`;
+	const writes = channel === 'master' ? version : `${version}-(alpha|beta|rc).N`;
+	return `TAG '${tag}' is not the ${CHANNEL_WORDS[channel]} tag of ${version} — a ${channel} run writes exactly ${writes}, never a floating tag (latest, X, X.Y${channel === 'prerelease' ? `, ${version}` : ''})`;
 }
+
+/**
+ * The refusal of a dev-channel publish. Docker images are immutable and a dev build is
+ * mutable, so the dev channel publishes NO image; nightlies reach production and dev
+ * installs through the code update path (tree archives), never through docker.
+ */
+export const DEV_PUBLISHES_NO_IMAGE =
+	'the dev channel publishes no images: a developer build is a tree archive (<next>-dev.zip) for the code update path, never a docker image. Nightlies reach production and dev installs through the code update path; docker installs run tagged releases only (stable or beta tags)';
 
 /** The release kind each install channel publishes. */
 const CHANNEL_KIND: Readonly<Record<InstallChannel, ReleaseKind>> = {
@@ -1277,6 +1345,7 @@ function publishPlan(env: Env): PublishContext['plan'] {
 	]);
 	if (!isInstallChannel(input.CHANNEL))
 		throw new Refusal(`CHANNEL must be master, prerelease or dev (got ${input.CHANNEL})`);
+	// the dev channel publishes no image: publishTagFault refuses it for any TAG
 	const tagFault = publishTagFault(input.VERSION as string, input.TAG as string, input.CHANNEL);
 	if (tagFault !== null) throw new Refusal(tagFault);
 	return {
@@ -1286,6 +1355,7 @@ function publishPlan(env: Env): PublishContext['plan'] {
 		source_sha: input.SOURCE_SHA as string,
 		staging: input.STAGING as string,
 		expected_engine_version: '',
+		next_dev_version: '',
 		archive_sha256: input.ARCHIVE_SHA256 as string,
 		run_id: input.RUN_ID as string,
 	};

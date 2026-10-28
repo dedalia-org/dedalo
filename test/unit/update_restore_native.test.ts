@@ -61,7 +61,7 @@ import {
 	type UpdatePhaseFrame,
 } from '../../src/core/update/code_update.ts';
 import { INSTALL_STAMP_PATH } from '../../src/core/update/install_stamp.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
@@ -74,7 +74,7 @@ if (STATE_PATH === undefined) {
 }
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as Principal;
-const RUNNING = DEDALO_VERSION_TRIPLE.join('.');
+const RUNNING = DEDALO_DATA_VERSION.join('.');
 
 const ROOT = scratchDir('code_restore');
 
@@ -143,7 +143,7 @@ function writeTree(dir: string, version: string, digest: string | null): void {
 	);
 	writeFileSync(
 		join(dir, 'src', 'core', 'update', 'version.ts'),
-		`export const DEDALO_VERSION_TRIPLE = Object.freeze([${major}, ${minor}, ${patch}]);\n`,
+		`export const DEDALO_DATA_VERSION = Object.freeze([${major}, ${minor}, ${patch}]);\n`,
 	);
 	if (digest !== null) {
 		writeFileSync(

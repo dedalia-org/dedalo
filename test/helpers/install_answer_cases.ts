@@ -318,6 +318,13 @@ function withoutFlag(argv: readonly string[], flag: string): string[] {
 }
 
 /** The base answers WITHOUT the database fields (a docker/trial stack fixes them). */
+const CUSTOM_IMAGE_ARGV = [
+	'--image-source',
+	'custom',
+	'--image-repository',
+	'registry.example.org/dedalo',
+];
+
 const IDENTITY_ARGV = [
 	'--entity',
 	'parity',
@@ -433,11 +440,16 @@ export function routeCases(sourceDir: string): RouteCase[] {
 			local: false,
 		},
 		{
+			// A development checkout is no official image and no local build: its image is the operator's own.
 			name: 'route docker',
-			argv: ['--route', 'docker', ...HOST_ARGV, ...IDENTITY_ARGV],
+			argv: ['--route', 'docker', ...HOST_ARGV, ...IDENTITY_ARGV, ...CUSTOM_IMAGE_ARGV],
 			local: false,
 		},
-		{ name: 'route trial', argv: ['--route', 'trial', ...IDENTITY_ARGV], local: false },
+		{
+			name: 'route trial',
+			argv: ['--route', 'trial', ...IDENTITY_ARGV, ...CUSTOM_IMAGE_ARGV],
+			local: false,
+		},
 		{
 			name: 'route developer (explicit)',
 			argv: ['--route', 'developer', ...BASE_ARGV],

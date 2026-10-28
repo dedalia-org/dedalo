@@ -18,7 +18,7 @@
  *    update_code widget shows as "Current build".
  *  - DEDALO_BUILD_SHA: WHICH commit (null on a checkout).
  *  - RELEASE_IDENTITY: what the program calls itself (release_identity.ts) —
- *    `7.0.0-beta.6` from an archive of that tag, `7.0.1-dev` off a tag.
+ *    `7.0.0-beta.6` from an archive of that tag, `7.0.0-dev` off an untagged commit.
  *
  * A CHECKOUT keeps the placeholder, so the tag is asked of git: one bounded
  * `git describe --exact-match` at import (see readCheckoutDescribe for why at
@@ -38,7 +38,7 @@ import {
 	type ReleaseIdentity,
 	resolveReleaseIdentity,
 } from './release_identity.ts';
-import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION_TRIPLE } from './version.ts';
+import { DEDALO_DATA_VERSION, DEDALO_NEXT_RELEASE } from './version.ts';
 
 // The stamp grammar is pure and lives with the resolver; re-exported here, where
 // the file is read.
@@ -255,7 +255,7 @@ function describeFailure(why: string): string {
  * constant below reads this tree; gates read throwaway ones. `triple` is the
  * running DATA version — the tree's own version.ts in production.
  * `nextDevTriple` names an untagged tree's dev identity; it defaults to
- * version.ts DEDALO_NEXT_DEV_TRIPLE so every caller resolves it the same way.
+ * version.ts DEDALO_NEXT_RELEASE so every caller resolves it the same way.
  */
 export async function readReleaseIdentityOf(
 	treeRoot: string,
@@ -270,7 +270,7 @@ export async function readReleaseIdentityOf(
 	const reader = await checkoutEvidence(treeRoot, info, options.git);
 	const identity = resolveReleaseIdentity({
 		triple: options.triple,
-		nextDevTriple: options.nextDevTriple ?? DEDALO_NEXT_DEV_TRIPLE,
+		nextDevTriple: options.nextDevTriple ?? DEDALO_NEXT_RELEASE,
 		describe: reader.describe,
 		provenance: { stamp: info.legacy ? 'legacy' : 'other', channel },
 	});
@@ -311,7 +311,7 @@ export const DEDALO_BUILD_SHA: string | null = INFO.sha;
 /** What this running tree calls itself (release_identity.ts). */
 export const RELEASE_IDENTITY: ReleaseIdentity = await readReleaseIdentityOf(
 	TREE_ROOT,
-	{ triple: DEDALO_VERSION_TRIPLE, nextDevTriple: DEDALO_NEXT_DEV_TRIPLE },
+	{ triple: DEDALO_DATA_VERSION, nextDevTriple: DEDALO_NEXT_RELEASE },
 	INFO,
 );
 

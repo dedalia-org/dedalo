@@ -212,13 +212,13 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		const expected = new Map<string, string>([
 			['legacy stamp, unstamped install', '7.0.0'],
 			['legacy stamp, master channel', '7.0.0'],
-			['legacy stamp, dev channel', '7.0.1-dev'],
+			['legacy stamp, dev channel', '7.0.0-dev'],
 			['legacy stamp, a dev stamp whose digest is not trusted', '7.0.0'],
-			['untagged three-field stamp (the trailing space), master channel', '7.0.1-dev'],
+			['untagged three-field stamp (the trailing space), master channel', '7.0.0-dev'],
 			['exact tag, DEV channel (Q5: the tag wins)', '7.0.0-rc.2'],
-			['an old git left the describe field unexpanded', '7.0.1-dev'],
+			['an old git left the describe field unexpanded', '7.0.0-dev'],
 			['leading blank lines and a CRLF', '7.0.0'],
-			['malformed stamp', '7.0.1-dev'],
+			['malformed stamp', '7.0.0-dev'],
 		]);
 		for (const [name, stamp, channel] of cases) {
 			test(`${name} → ${expected.get(name)}`, async () => {
@@ -244,8 +244,8 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		mkdirSync(join(tree, 'src', 'core', 'update'), { recursive: true });
 		writeFileSync(join(tree, BUILD_INFO_PATH), REAL_PLACEHOLDER);
 		writeFileSync(join(tree, VERSION_TS_PATH), versionTsOf(TRIPLE));
-		expect((await engineIdentity(tree)).version).toBe('7.0.1-dev');
-		expect(shellIdentity(tree)).toBe('7.0.1-dev');
+		expect((await engineIdentity(tree)).version).toBe('7.0.0-dev');
+		expect(shellIdentity(tree)).toBe('7.0.0-dev');
 	});
 
 	test('a tree that declares no version is refused (status 1), never given an identity', () => {
@@ -259,7 +259,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		expect(shellIdentity(repo, { PATH: NO_GIT_PATH })).toBe(
 			(await engineIdentity(repo, join(SCRATCH, 'no-such-git'))).version,
 		);
-		expect(shellIdentity(repo, { PATH: NO_GIT_PATH })).toBe('7.0.1-dev');
+		expect(shellIdentity(repo, { PATH: NO_GIT_PATH })).toBe('7.0.0-dev');
 	});
 
 	test('a git that never answers is BOUNDED (≈ 3 s): .dev, even when it leaves a grandchild holding its pipes', () => {
@@ -273,7 +273,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		chmodSync(join(bin, 'git'), 0o755);
 		const started = performance.now();
 		try {
-			expect(shellIdentity(repo, { PATH: `${bin}:${NO_GIT_PATH}` })).toBe('7.0.1-dev');
+			expect(shellIdentity(repo, { PATH: `${bin}:${NO_GIT_PATH}` })).toBe('7.0.0-dev');
 			const elapsed = performance.now() - started;
 			expect(elapsed).toBeGreaterThanOrEqual(2900);
 			expect(elapsed).toBeLessThan(7000);
@@ -290,7 +290,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		const tagged = trees.repoWith('foreign_tagged', [{ tag: 'v7.0.0', annotated: true }]);
 		const untagged = trees.repoWith('own_untagged', []);
 		expect(shellIdentity(untagged, { GIT_DIR: join(tagged, '.git'), GIT_WORK_TREE: tagged })).toBe(
-			'7.0.1-dev',
+			'7.0.0-dev',
 		);
 		expect(shellIdentity(tagged, { GIT_DIR: join(untagged, '.git') })).toBe('7.0.0');
 	});
@@ -312,7 +312,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		);
 		chmodSync(join(bin, 'git'), 0o755);
 		const env = { PATH: `${bin}:${NO_GIT_PATH}`, LANG: 'es_ES.UTF-8', LC_ALL: 'es_ES.UTF-8' };
-		expect(shellIdentity(repo, env)).toBe('7.0.1-dev');
+		expect(shellIdentity(repo, env)).toBe('7.0.0-dev');
 		// the lookup ran in the C locale: the stub saw it and answered in English
 		const said = bash('dedalo_checkout_describe "$1"; echo "status=$?"', { args: [repo], env });
 		expect(said.stdout).toBe('status=0\n');
@@ -603,7 +603,7 @@ describe('D. deploy.sh refuses a release ref the tree cannot call itself, before
 		expect(result.restarted).toContain('systemctl restart');
 	});
 
-	test('a LIGHTWEIGHT release tag (the engine would run as 7.0.2-dev) is refused: nothing restarted, the checkout returned', () => {
+	test('a LIGHTWEIGHT release tag (the engine would run as 7.0.1-dev) is refused: nothing restarted, the checkout returned', () => {
 		const fixture = deployFixture();
 		const before = trees.git(fixture.repo, 'rev-parse', 'HEAD');
 		trees.git(fixture.repo, 'commit', '-q', '--allow-empty', '-m', 'later');
@@ -611,7 +611,7 @@ describe('D. deploy.sh refuses a release ref the tree cannot call itself, before
 		trees.git(fixture.repo, 'checkout', '-q', '--detach', before);
 		const result = deploy(fixture, 'v7.0.1');
 		expect(result.code).toBe(1);
-		expect(result.out).toContain('it says 7.0.2-dev');
+		expect(result.out).toContain('it says 7.0.1-dev');
 		expect(result.restarted).toBe('');
 		expect(result.head).toBe(before);
 	});
@@ -621,6 +621,6 @@ describe('D. deploy.sh refuses a release ref the tree cannot call itself, before
 		trees.git(fixture.repo, 'branch', 'feature-x');
 		const result = deploy(fixture, 'feature-x');
 		expect(result.code, result.out).toBe(0);
-		expect(result.out).toContain('feature-x is release identity 7.0.2-dev');
+		expect(result.out).toContain('feature-x is release identity 7.0.1-dev');
 	});
 });

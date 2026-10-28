@@ -271,17 +271,21 @@ function manifestFiles(
 	exposure: ChannelExposure,
 ): CodeReleaseItem[] {
 	if (options.codeFilesDir === undefined || !existsSync(options.codeFilesDir)) return [];
-	const dev = exposure.dev
-		? devItemsFor(options.codeFilesDir, options.publicBaseUrl, askerIdentity(options))
-		: [];
+	const running = askerIdentity(options);
+	const dev = exposure.dev ? devItemsFor(options.codeFilesDir, options.publicBaseUrl, running) : [];
 	// One archive, one row: a developer asker's identity triple can be a catalog
-	// rung too (`7.0.1-dev` on data 7.0.0 reaches `7.0.1` both ways), so the
-	// same-triple and the rung lists can name the same file.
+	// rung too (a `7.0.1-dev` of the next release, once `7.0.0` is tagged, on data
+	// 7.0.0 reaches `7.0.1` both ways), so the same-triple and the rung lists can
+	// name the same file.
 	const published = uniqueByUrl([
 		...sameTripleItemsFor(options, exposure),
 		...rungItemsFor(options.codeFilesDir, options.publicBaseUrl, targets, exposure),
 	]);
-	return [...dev, ...published.map((item) => withReleaseNotes(item, options.changesDir))];
+	// The rung's newest is the rung's maximum, so a rung below the asker drops
+	// whole here; nothing at or below the asker's identity leaves the manifest.
+	return [...dev, ...published.map((item) => withReleaseNotes(item, options.changesDir))].filter(
+		(item) => outranksAsker(item, running),
+	);
 }
 
 /** The first item of each archive URL, in order. */
@@ -301,21 +305,39 @@ function uniqueByUrl(items: CodeReleaseItem[]): CodeReleaseItem[] {
  * said something else is treated as running the stable release of its triple,
  * so nothing of that triple is offered to it.
  *
- * Which identities it may hold (the TWO triples, plan 2026-10-25): a stable or
- * prerelease identity names the DATA triple (release_identity.ts
- * resolveReleaseIdentity: a tag must name the data triple). A developer
- * identity names the NEXT triple, which may sit ahead of the data triple (the
- * data lags the code between data-changing releases), so a `-dev` claim is
- * accepted at any triple. That widens nothing on the stable side: the rows a
- * claim can reach are archives on disk that the identity walk, run on the
- * claim, admits — and the swap door re-judges with the tree's OWN identity.
+ * Which identities it may hold: a stable or prerelease identity at or ABOVE the
+ * data triple is the asker's own identity (a code-only patch tag over data
+ * 7.0.0 is `7.0.1`, release_identity.ts resolveReleaseIdentity — the code runs
+ * ahead of the data between data-changing releases). A claim BELOW the data
+ * triple is no claim about this asker and falls back to the bare triple. A
+ * developer identity is the same: `7.0.0-dev` over data 7.0.1 is a claim
+ * below the data triple, so it falls back to the bare `7.0.1` (no 7.0.0 is
+ * offered). A developer claim at or above the data triple is honoured.
+ * Nothing a claim reaches is offered unless it outranks it
+ * ({@link outranksAsker}), so an accepted claim can only narrow the offer,
+ * never widen it: the swap door re-judges with the tree's OWN identity.
  */
 function askerIdentity(options: CodeUpdateInfoOptions): string {
-	const triple = normalizedClientTriple(options.clientVersion).join('.');
+	const dataTriple = normalizedClientTriple(options.clientVersion);
 	const claimed = typeof options.clientRelease === 'string' ? options.clientRelease : '';
 	const parsed = parseReleaseVersion(claimed);
-	if (parsed === null) return triple;
-	return parsed.dev || parsed.triple.join('.') === triple ? claimed : triple;
+	if (parsed === null) return dataTriple.join('.');
+	const atOrAboveData = compareVersionArrays(parsed.triple, dataTriple) >= 0;
+	return atOrAboveData ? claimed : dataTriple.join('.');
+}
+
+/**
+ * The last word on every offered item: it must rank ABOVE the asker's identity
+ * (compareReleaseIdentities), so no downgrade and no older prerelease is ever
+ * listed. The one equal case is a developer build reinstalled over itself on
+ * the dev channel (the nightly is rebuilt in place, no version bump) — the same
+ * exception the identity walk makes (version_walk.ts sameTripleRefusal).
+ */
+function outranksAsker(item: CodeReleaseItem, running: string): boolean {
+	const identity = item.channel === 'dev' ? `${item.version}-dev` : (item.release ?? item.version);
+	const order = compareReleaseIdentities(identity, running);
+	if (order > 0) return true;
+	return order === 0 && item.channel === 'dev';
 }
 
 /**
@@ -329,11 +351,11 @@ function askerIdentity(options: CodeUpdateInfoOptions): string {
  * The identity triple is the asker's own triple for a stable or prerelease
  * install (identity = data triple there). For a developer build it is the next
  * triple the build is named after, so a tree whose data is 7.0.0 and whose
- * identity is `7.0.1-dev` sees the stable `7.0.1` through ordinary ordering:
- * `7.0.1-dev < 7.0.1`. Nothing special
- * is granted to a developer identity here: the ORDER decides, and dev sorts
- * above every prerelease of its triple (`7.0.1-beta.7 < 7.0.1-dev`), so a
- * developer build is offered no prerelease of its own triple.
+ * identity is `7.0.0-dev` sees the stable `7.0.0` through ordinary ordering:
+ * `7.0.0-dev < 7.0.0`. Nothing special is granted to a developer identity here:
+ * the ORDER decides, and dev sorts above every prerelease of its triple
+ * (`7.0.0-beta.7 < 7.0.0-dev`), so a developer build is offered no prerelease of
+ * its own triple.
  *
  * An install that reports its bare triple (`7.0.0-beta.6` reports `7.0.0`) is
  * offered no prerelease of that triple here: its way onto a developer build is

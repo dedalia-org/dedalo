@@ -67,12 +67,15 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import {
+	archiveIdentityPlan,
 	FULL_GATE_WORKFLOWS,
 	fullGateFault,
 	type ManifestState,
 	main,
 	type PlanGit,
+	publishTagFault,
 	Refusal,
+	type ReleasePlan,
 	type Runner,
 	resolvePlan,
 	SMOKE_HEALTH_SCRIPT,
@@ -91,7 +94,7 @@ import {
 	parseBuildInfo,
 	resolveReleaseIdentity,
 } from '../../src/core/update/release_identity.ts';
-import { DEDALO_NEXT_DEV_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_RELEASE } from '../../src/core/update/version.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 /** The real git, behind the plan's `git --version` stub. */
@@ -261,8 +264,10 @@ function publish(options: {
 	for (const [ref, digest] of Object.entries(options.preset ?? {}))
 		writeFileSync(join(state, key(ref)), digest);
 	const channel = options.channel ?? 'master';
+	// A dev run names its nightly after the NEXT release (7.0.0 until v7.0.0 is tagged, VERSIONING_SPEC §5)
+	const version = channel === 'dev' ? '7.0.0' : '7.0.1';
 	const tag =
-		options.env?.TAG ?? { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.1-dev' }[channel];
+		options.env?.TAG ?? { master: '7.0.1', prerelease: '7.0.1-beta.2', dev: '7.0.0-dev' }[channel];
 	// The run's own ref, as GitHub sets it: the release tag's push, or master for dev.
 	const ref = channel === 'dev' ? 'refs/heads/master' : `refs/tags/v${tag}`;
 	const signer = SIGNER(ref);
@@ -293,7 +298,7 @@ function publish(options: {
 		IMAGE_REGISTRIES_FILE: listFile,
 		DIGEST_AMD64: ARCH_AMD64,
 		DIGEST_ARM64: ARCH_ARM64,
-		VERSION: '7.0.1',
+		VERSION: version,
 		TAG: tag,
 		GITHUB_REPOSITORY: 'dedalia-org/dedalo',
 		GITHUB_SERVER_URL: 'https://github.com',
@@ -1002,14 +1007,12 @@ describe('publish — immutability of a release', () => {
 		expect(run.log.some(touchesRelease)).toBe(false);
 	});
 
-	test('the DEV channel overwrites its mutable tag', () => {
+	test('the DEV channel publishes NO image: refused before any command, nothing overwritten', () => {
 		const run = publish({ channel: 'dev', preset: { [`${GHCR}:7.0.1-dev`]: D(7) } });
-		expect(run.code, run.stdout).toBe(0);
-		expect(run.log.filter((line) => COPY_TO_TARGET.test(line))).toEqual([
-			`docker buildx imagetools create -t ${GHCR}:7.0.1-dev ${STAGING}@${BUILT}`,
-			`docker buildx imagetools create -t ${HUB}:7.0.1-dev ${STAGING}@${BUILT}`,
-		]);
-		expect(run.state(`${GHCR}:7.0.1-dev`)).toBe(BUILT);
+		expect(run.code).toBe(1);
+		expect(run.stdout).toContain('the dev channel publishes no images');
+		expect(run.log).toEqual([]);
+		expect(run.state(`${GHCR}:7.0.1-dev`)).toBe(D(7));
 	});
 
 	test('a target left holding another digest after the copy FAILS the run, and the record says so', () => {
@@ -1031,7 +1034,6 @@ describe('publish — GATE 16: the tag SET a run writes', () => {
 	test.each([
 		['master', '7.0.1'],
 		['prerelease', '7.0.1-beta.2'],
-		['dev', '7.0.1-dev'],
 	] as const)('channel %s: every target ends holding exactly {%s}', (channel, tag) => {
 		const run = publish({ channel });
 		expect(run.code, run.stdout).toBe(0);
@@ -1082,13 +1084,37 @@ describe('publish — GATE 16: the tag SET a run writes', () => {
 		['master', '7.0', 'a minor float'],
 		['master', '7', 'a major float'],
 		['master', '7.0.1-beta.2', 'a prerelease'],
-		['dev', '7.0.1', 'a release tag'],
-		['dev', 'latest', 'latest'],
 	] as const)('channel %s refuses TAG %s (%s) before ANY command', (channel, tag) => {
 		const run = publish({ channel, env: { TAG: tag } });
 		expect(run.code).toBe(1);
 		expect(run.stdout).toContain(`TAG '${tag}' is not the`);
 		expect(run.log).toEqual([]);
+	});
+});
+
+// The tag rule as a pure function: a dev run refuses every tag (no image), the
+// release and prerelease rules are unchanged (version = the data triple).
+describe('publishTagFault — the dev channel publishes no image', () => {
+	const DEV_REFUSAL =
+		'the dev channel publishes no images: a developer build is a tree archive (<next>-dev.zip) for the code update path, never a docker image. Nightlies reach production and dev installs through the code update path; docker installs run tagged releases only (stable or beta tags)';
+
+	test('a dev run refuses every tag, the nightly included, with the exact message', () => {
+		for (const tag of ['7.0.1-dev', '7.0.0-dev', '7.0.1', 'latest'])
+			expect(publishTagFault('7.0.0', tag, 'dev')).toBe(DEV_REFUSAL);
+	});
+
+	test('a master run of data 7.0.1 still accepts exactly 7.0.1 and refuses 7.0.1-dev', () => {
+		expect(publishTagFault('7.0.1', '7.0.1', 'master')).toBeNull();
+		expect(publishTagFault('7.0.1', '7.0.1-dev', 'master')).toContain(
+			'a master run writes exactly 7.0.1',
+		);
+	});
+
+	test('a prerelease run of data 7.0.1 still accepts 7.0.1-beta.2 and refuses the bare triple', () => {
+		expect(publishTagFault('7.0.1', '7.0.1-beta.2', 'prerelease')).toBeNull();
+		expect(publishTagFault('7.0.1', '7.0.1', 'prerelease')).toContain(
+			'a prerelease run writes exactly 7.0.1-(alpha|beta|rc).N',
+		);
 	});
 });
 
@@ -1178,7 +1204,13 @@ describe('the trigger — every release tag reaches `plan`, which validates it e
 	const ordering = JSON.parse(
 		readFileSync(join(ROOT, 'test', 'fixtures', 'release_identity', 'ordering.json'), 'utf8'),
 	) as { ascending: string[]; not_identities: string[] };
-	const fake: PlanGit = { declaredAt: () => null, commitOf: () => null, fileAt: () => null };
+	const fake: PlanGit = {
+		declaredAt: () => null,
+		declaredNextAt: () => null,
+		commitOf: () => null,
+		fileAt: () => null,
+		releaseTagsAt: () => [],
+	};
 	const planOf = (tag: string) =>
 		resolvePlan(
 			{ event: 'push', ref: `refs/tags/${tag}`, sha: 'x', inputChannel: '', inputTag: '' },
@@ -1317,6 +1349,69 @@ describe('the pure verdicts', () => {
 	});
 });
 
+// The archive decides the image tag (archiveIdentityPlan). A nightly is an UNTAGGED archive
+// (VERSIONING_SPEC D3, option a): an untagged dev-channel archive is published under the NEXT
+// nightly tag (X.Y.Z-dev of the archive's own DEDALO_NEXT_RELEASE); an archive whose
+// describe names a release tag is refused, the tag named. Data 7.0.0, next 7.0.0 (spec §5).
+describe('archive identity — a dev-channel archive is an untagged nightly (VERSIONING_SPEC D3, S9)', () => {
+	const SHA = 'a'.repeat(40);
+	const ISO = '2026-10-27T10:00:00+00:00';
+	const devPlan: ReleasePlan = {
+		version: '7.0.0',
+		tag: '7.0.0-dev',
+		channel: 'dev',
+		source_sha: SHA,
+		staging: STAGING,
+		expected_engine_version: '7.0.0-dev',
+		next_dev_version: '7.0.0',
+	};
+	/** A build_info.txt line as the archive expands it: `<sha> <date> <describe>`. */
+	const stampOf = (describe: string) => `${SHA} ${ISO} ${describe}\n`;
+
+	test("an untagged dev-channel archive (describe '') is published as 7.0.0-dev", () => {
+		const held = archiveIdentityPlan(devPlan, stampOf(''), DEDALO_NEXT_RELEASE);
+		expect(held).toMatchObject({
+			tag: '7.0.0-dev',
+			channel: 'dev',
+			expected_engine_version: '7.0.0-dev',
+			next_dev_version: '7.0.0',
+		});
+	});
+
+	test("S9: a dev-channel archive of an exact patch tag (describe 'v7.0.1') is refused, naming the tag", () => {
+		expect(() => archiveIdentityPlan(devPlan, stampOf('v7.0.1'), DEDALO_NEXT_RELEASE)).toThrow(
+			'is the tagged commit v7.0.1: a tagged commit is a release or beta',
+		);
+	});
+
+	test("S9: a dev-channel archive of an exact prerelease tag (describe 'v7.0.0-beta.6') is refused", () => {
+		expect(() =>
+			archiveIdentityPlan(devPlan, stampOf('v7.0.0-beta.6'), DEDALO_NEXT_RELEASE),
+		).toThrow('is the tagged commit v7.0.0-beta.6');
+	});
+
+	test("S9: a dev-channel archive of the data triple's own release tag (describe 'v7.0.0') is refused", () => {
+		expect(() => archiveIdentityPlan(devPlan, stampOf('v7.0.0'), DEDALO_NEXT_RELEASE)).toThrow(
+			'is the tagged commit v7.0.0',
+		);
+	});
+
+	test("a commit PAST a tag (describe 'v7.0.0-beta.6-3-gabc') is an untagged nightly, not a tagged one", () => {
+		const held = archiveIdentityPlan(
+			devPlan,
+			stampOf('v7.0.0-beta.6-3-g2915808635'),
+			DEDALO_NEXT_RELEASE,
+		);
+		expect(held).toMatchObject({ tag: '7.0.0-dev', expected_engine_version: '7.0.0-dev' });
+	});
+
+	test('a dev-channel archive that declares no NEXT triple is refused: its nightly cannot be named', () => {
+		expect(() => archiveIdentityPlan(devPlan, stampOf(''), null)).toThrow(
+			'declares no DEDALO_NEXT_RELEASE',
+		);
+	});
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // plan — the code server's release rules, on a real scratch repository
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1324,8 +1419,8 @@ describe('the pure verdicts', () => {
 // a real version.ts: the data triple, and the NEXT triple an untagged build names
 const VERSION_TS = (triple: string) => {
 	const [major = 0, minor = 0, patch = 0] = triple.split('.').map(Number);
-	return `export const DEDALO_VERSION_TRIPLE = Object.freeze([${major}, ${minor}, ${patch}]);
-export const DEDALO_NEXT_DEV_TRIPLE = Object.freeze([${major}, ${minor}, ${patch + 1}]);
+	return `export const DEDALO_DATA_VERSION = Object.freeze([${major}, ${minor}, ${patch}]);
+export const DEDALO_NEXT_RELEASE = Object.freeze([${major}, ${minor}, ${patch + 1}]);
 `;
 };
 
@@ -1586,7 +1681,7 @@ describe('plan — which release a run publishes', () => {
 		rmSync(tar, { force: true });
 		const identity = resolveReleaseIdentity({
 			triple: [7, 0, 2],
-			nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
+			nextDevTriple: DEDALO_NEXT_RELEASE,
 			describe: parseBuildInfo(stamp.stdout.toString()).describe,
 			provenance: { stamp: 'other', channel: 'prerelease' },
 		});
@@ -1657,19 +1752,64 @@ describe('plan — which release a run publishes', () => {
 		expect(result.out).toEqual({});
 	});
 
-	test('a dev dispatch whose commit IS a release commit expects the TAG identity (owner Q5)', () => {
+	test('S9: a dev dispatch whose commit IS an annotated prerelease tag is refused, naming the tag (VERSIONING_SPEC D3)', () => {
 		const result = plan({
 			GITHUB_EVENT_NAME: 'workflow_dispatch',
 			GITHUB_REF: 'refs/heads/master',
 			GITHUB_SHA: rcSha,
 			INPUT_CHANNEL: 'dev',
 		});
-		expect(result.code, result.text).toBe(0);
-		expect(result.out).toMatchObject({
-			tag: '7.0.2-dev',
-			channel: 'dev',
-			expected_engine_version: '7.0.2-rc.1',
+		expect(result.code).toBe(1);
+		expect(result.text).toContain(`${rcSha} is the tagged commit v7.0.2-rc.1`);
+		expect(result.text).toContain('never a nightly (VERSIONING_SPEC D3)');
+		expect(result.out).toEqual({});
+	});
+
+	test('S9: a dev dispatch whose commit IS an annotated release tag (v7.0.1) is refused, naming v7.0.1', () => {
+		const result = plan({
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/heads/master',
+			GITHUB_SHA: releaseSha,
+			INPUT_CHANNEL: 'dev',
 		});
+		expect(result.code).toBe(1);
+		expect(result.text).toContain(`${releaseSha} is the tagged commit v7.0.1`);
+		expect(result.out).toEqual({});
+	});
+
+	test('S9: a LIGHTWEIGHT beta tag on the dev commit is refused too (the tag object is not the test)', () => {
+		const result = plan({
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/heads/master',
+			GITHUB_SHA: lightBetaSha,
+			INPUT_CHANNEL: 'dev',
+		});
+		expect(result.code).toBe(1);
+		expect(result.text).toContain(`${lightBetaSha} is the tagged commit v7.0.2-beta.2`);
+		expect(result.out).toEqual({});
+	});
+
+	test('a dev plan refuses a commit that declares no NEXT triple (the nightly cannot be named)', () => {
+		const fake: PlanGit = {
+			declaredAt: () => '7.0.0',
+			declaredNextAt: () => null,
+			commitOf: () => 'x',
+			fileAt: () => null,
+			releaseTagsAt: () => [],
+		};
+		expect(() =>
+			resolvePlan(
+				{
+					event: 'workflow_dispatch',
+					ref: 'refs/heads/master',
+					sha: 'x',
+					inputChannel: 'dev',
+					inputTag: '',
+				},
+				fake,
+				STAGING,
+			),
+		).toThrow('declares no DEDALO_NEXT_RELEASE');
 	});
 
 	test('a dev dispatch from another branch is refused', () => {
@@ -1877,7 +2017,13 @@ describe('plan — which release a run publishes', () => {
 	});
 
 	test('any other event never publishes', () => {
-		const fake: PlanGit = { declaredAt: () => '7.0.1', commitOf: () => 'x', fileAt: () => null };
+		const fake: PlanGit = {
+			declaredAt: () => '7.0.1',
+			declaredNextAt: () => '7.0.2',
+			commitOf: () => 'x',
+			fileAt: () => null,
+			releaseTagsAt: () => [],
+		};
 		for (const event of ['pull_request', 'schedule', 'workflow_run'])
 			expect(() =>
 				resolvePlan(

@@ -11,7 +11,7 @@ import { publicOrigin, publicOriginIsLocal } from '../../resolve/public_origin.t
 import { login } from '../../security/auth.ts';
 import { getPermissions } from '../../security/permissions.ts';
 import { isLoopbackHost } from '../../security/ssrf_guard.ts';
-import { DEDALO_VERSION_TRIPLE, parseVersionString } from '../../update/version.ts';
+import { DEDALO_DATA_VERSION, parseVersionString } from '../../update/version.ts';
 import { type ActionHandler, requirePrincipal } from '../handler_context.ts';
 import type { ApiResult } from '../response.ts';
 
@@ -1005,7 +1005,7 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		const { isInstallChannel } = await import('../../update/install_stamp.ts');
 		const info = buildCodeUpdateInfo({
 			clientVersion,
-			serverVersion: DEDALO_VERSION_TRIPLE,
+			serverVersion: DEDALO_DATA_VERSION,
 			codeFilesDir: config.update.codeFilesDir,
 			publicBaseUrl: `${publicOrigin()}/dedalo/install/code`,
 			// The consumer's panel choice. Anything but an exact channel token is

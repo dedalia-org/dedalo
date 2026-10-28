@@ -35,7 +35,7 @@
  *    walk it ran (version_walk.ts assertLinearUpgrade). The host's data-walk
  *    re-ask exists for this engine.
  * A prerelease ask with no engine named is a loud stub failure, never an "ok".
- * Those cases name their versions from DEDALO_VERSION_TRIPLE (T).
+ * Those cases name their versions from DEDALO_DATA_VERSION (T).
  */
 
 import { afterAll, describe, expect, test } from 'bun:test';
@@ -55,7 +55,7 @@ import { join } from 'node:path';
 import { BUILD_CONTEXT } from '../../src/core/install/host/stack/image.ts';
 import { BUILD_INFO_PATH, readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 import { engineCliAt } from '../helpers/engine_cli_tree.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
 
@@ -71,7 +71,7 @@ let scratchCount = 0;
 const OLD_ENGINE_CLI = join(SCRATCH, 'old_engine_check_target.ts');
 writeFileSync(
 	OLD_ENGINE_CLI,
-	`import { compareVersionArrays, DEDALO_VERSION_TRIPLE } from ${JSON.stringify(join(REPO_ROOT, 'src', 'core', 'update', 'version.ts'))};
+	`import { compareVersionArrays, DEDALO_DATA_VERSION } from ${JSON.stringify(join(REPO_ROOT, 'src', 'core', 'update', 'version.ts'))};
 import { assertLinearUpgrade } from ${JSON.stringify(join(REPO_ROOT, 'src', 'core', 'update', 'version_walk.ts'))};
 const match = /^(\\d{1,6})\\.(\\d{1,6})\\.(\\d{1,6})(-dev)?$/.exec(process.argv[3] ?? '');
 if (process.argv[2] !== 'check-target' || match === null) {
@@ -79,8 +79,8 @@ if (process.argv[2] !== 'check-target' || match === null) {
 	process.exit(3);
 }
 const triple = [Number(match[1]), Number(match[2]), Number(match[3])];
-if (assertLinearUpgrade(DEDALO_VERSION_TRIPLE, triple, match[4] ? 'dev' : 'master') === null) process.exit(0);
-console.log(compareVersionArrays(triple, DEDALO_VERSION_TRIPLE) === 1 ? 'version_skip' : 'downgrade_or_same_version');
+if (assertLinearUpgrade(DEDALO_DATA_VERSION, triple, match[4] ? 'dev' : 'master') === null) process.exit(0);
+console.log(compareVersionArrays(triple, DEDALO_DATA_VERSION) === 1 ? 'version_skip' : 'downgrade_or_same_version');
 process.exit(3);
 `,
 );
@@ -226,7 +226,7 @@ S="$STUB_STATE"
 printf '%s\\n' "git $*" >> "$S/calls.log"
 while [ "$1" = -c ] || [ "$1" = -C ]; do shift 2; done
 write_version() {
-	printf 'export const DEDALO_VERSION_TRIPLE = Object.freeze([\\n\\t%s,\\n]);\\n' "$(printf '%s' "$1" | sed 's/\\./, /g')" > src/core/update/version.ts
+	printf 'export const DEDALO_DATA_VERSION = Object.freeze([\\n\\t%s,\\n]);\\n' "$(printf '%s' "$1" | sed 's/\\./, /g')" > src/core/update/version.ts
 }
 exact_tag() {
 	if [ -e "$S/describe" ]; then cat "$S/describe"; return 0; fi
@@ -839,17 +839,13 @@ describe('build mode', () => {
 
 // The real engine of this checkout walks from its own data version, so the
 // prerelease cases name theirs from it: T is what the running engine is at.
-const T = DEDALO_VERSION_TRIPLE.join('.');
-const T_NEXT = [
-	DEDALO_VERSION_TRIPLE[0],
-	DEDALO_VERSION_TRIPLE[1],
-	DEDALO_VERSION_TRIPLE[2] + 1,
-].join('.');
-const T_SKIP = [
-	DEDALO_VERSION_TRIPLE[0],
-	DEDALO_VERSION_TRIPLE[1],
-	DEDALO_VERSION_TRIPLE[2] + 2,
-].join('.');
+const T = DEDALO_DATA_VERSION.join('.');
+const T_NEXT = [DEDALO_DATA_VERSION[0], DEDALO_DATA_VERSION[1], DEDALO_DATA_VERSION[2] + 1].join(
+	'.',
+);
+const T_SKIP = [DEDALO_DATA_VERSION[0], DEDALO_DATA_VERSION[1], DEDALO_DATA_VERSION[2] + 2].join(
+	'.',
+);
 
 /** The check-target asks the run made, in order. */
 function engineAsks(calls: string[]): string[] {

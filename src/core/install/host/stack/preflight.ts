@@ -38,7 +38,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { installerIdentity, officialRefusedFor } from '../../installer_identity.ts';
+import { imageSourceRefusedFor, installerIdentity } from '../../installer_identity.ts';
 import type { HostCtx, HostPlanCtx, HostRunResult, HostStepDefinition } from '../contract.ts';
 import { type HostFacts, pendingFacts } from '../facts.ts';
 import { ran } from '../production/common.ts';
@@ -52,6 +52,7 @@ import {
 	acceptedImageVersions,
 	ENV_FILE,
 	imageRefOf,
+	imageRefusalMessage,
 	imageRepositoryOf,
 	imageVerifyOf,
 	imageVersionOf,
@@ -194,7 +195,10 @@ function imageProblems(ctx: HostPlanCtx, facts: StackFacts): string[] {
 		...(acceptedImageVersions().includes(version)
 			? []
 			: [
-					`image version ${version} is not this installer's (${acceptedImageVersions().join(' or ')}) — the engine steps run inside the image with this installer's request format; use the matching release of the installer`,
+					imageRefusalMessage(
+						version,
+						"the engine steps run inside the image with this installer's request format; use the matching release of the installer",
+					),
 				]),
 		...(answers.image_source === 'official' && !isOfficialRepository(repository)
 			? [
@@ -237,10 +241,10 @@ export async function officialImageVerdict(
 	facts: StackFacts,
 ): Promise<{ problems: string[]; warnings: string[] }> {
 	const { answers } = ctx;
-	if (!decidesOfficial(answers)) return { problems: [], warnings: [] };
-	// The identity alone decides a dev build: no registry is asked.
-	const refused = officialRefusedFor(installerIdentity());
+	// The identity alone decides a dev build (Official and Build): no registry is asked.
+	const refused = imageSourceRefusedFor(answers.image_source, installerIdentity());
 	if (refused !== null) return { problems: [refused], warnings: [] };
+	if (!decidesOfficial(answers)) return { problems: [], warnings: [] };
 	if (facts.docker === null || !acceptedImageVersions().includes(imageVersionOf(answers)))
 		return { problems: [], warnings: [] };
 	return registryVerdict(ctx, facts.docker, facts.home);

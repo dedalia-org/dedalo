@@ -61,11 +61,11 @@ const ORDERING = JSON.parse(
 	not_identities: string[];
 };
 /**
- * The declared NEXT triple (version.ts DEDALO_NEXT_DEV_TRIPLE): an untagged tree
+ * The declared NEXT triple (version.ts DEDALO_NEXT_RELEASE): an untagged tree
  * names its dev identity with it, so the truth table's untagged rows read
- * `7.0.1-dev` while the DATA triple stays 7.0.0.
+ * `7.0.0-dev` (the next release is 7.0.0 until v7.0.0 is tagged, VERSIONING_SPEC §5).
  */
-const NEXT_DEV_TRIPLE = [7, 0, 1] as const;
+const NEXT_DEV_TRIPLE = [7, 0, 0] as const;
 
 const SCRATCH = mkdtempSync(join(tmpdir(), 'dedalo-release-identity-'));
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -133,7 +133,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 	test('a dev-channel archive of an untagged commit is the next triple -dev', async () => {
 		const tree = archiveOf(repoWith('dev_untagged', [{ commit: true }]));
 		stampChannel(tree, 'dev');
-		expect(await identityOf(tree)).toMatchObject({ version: '7.0.1-dev', kind: 'dev' });
+		expect(await identityOf(tree)).toMatchObject({ version: '7.0.0-dev', kind: 'dev' });
 	});
 
 	test('no .git: a tree holding the unexpanded placeholder is .dev, and nothing is spawned', async () => {
@@ -142,14 +142,14 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		writeFileSync(join(tree, BUILD_INFO_PATH), REAL_PLACEHOLDER);
 		// a git that does not exist proves no spawn was needed: no notice about it
 		const identity = await identityOf(tree, join(SCRATCH, 'no-such-git'));
-		expect(identity).toMatchObject({ version: '7.0.1-dev', kind: 'dev', notice: null });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev', notice: null });
 	});
 
 	test('no git binary: a checkout whose git cannot run is .dev, SAYS so, never throws', async () => {
 		const repo = repoWith('no_git_binary', [{ tag: 'v7.0.0', annotated: true }]);
 		expect((await identityOf(repo)).version).toBe('7.0.0'); // the control: git can tell
 		const identity = await identityOf(repo, join(SCRATCH, 'no-such-git'));
-		expect(identity).toMatchObject({ version: '7.0.1-dev', kind: 'dev' });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev' });
 		expect(identity.notice ?? '').toMatch(/git describe could not read/);
 	});
 
@@ -168,7 +168,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		try {
 			const identity = await identityOf(repo, fakeGit);
 			const elapsed = performance.now() - started;
-			expect(identity).toMatchObject({ version: '7.0.1-dev', kind: 'dev' });
+			expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev' });
 			expect(identity.notice ?? '').toMatch(
 				new RegExp(`no answer within ${CHECKOUT_DESCRIBE_TIMEOUT_MS} ms`),
 			);
@@ -218,7 +218,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		);
 		expect(probe.exitCode, probe.stderr.toString()).toBe(0);
 		const identity = JSON.parse(probe.stdout.toString().trim().split('\n').at(-1) as string);
-		expect(identity).toMatchObject({ version: '7.0.1-dev', kind: 'dev', notice: null });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev', notice: null });
 	});
 
 	test('an inherited GIT_DIR does not make the checkout describe ANOTHER repository', () => {
@@ -234,7 +234,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 			{ cwd: SCRATCH, env: { ...process.env, GIT_DIR: join(tagged, '.git') } },
 		);
 		expect(probe.exitCode, probe.stderr.toString()).toBe(0);
-		expect(probe.stdout.toString().trim().split('\n').at(-1)).toBe('7.0.1-dev');
+		expect(probe.stdout.toString().trim().split('\n').at(-1)).toBe('7.0.0-dev');
 	});
 
 	describe('rule 4 — a LEGACY two-field stamp keeps the old channel rule', () => {
@@ -242,7 +242,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		for (const [channel, version] of [
 			[null, '7.0.0'],
 			['master', '7.0.0'],
-			['dev', '7.0.1-dev'],
+			['dev', '7.0.0-dev'],
 		] as const) {
 			test(`channel ${channel ?? 'unstamped'} → ${version}`, async () => {
 				const tree = scratch(`legacy_${channel ?? 'none'}`);
@@ -273,7 +273,7 @@ describe('resolveReleaseIdentity — the rules on direct evidence', () => {
 				describe: info.describe,
 				provenance: { stamp: 'other', channel: 'master' },
 			}).version,
-		).toBe('7.0.1-dev');
+		).toBe('7.0.0-dev');
 	});
 
 	test(`an archive an old git (< ${MIN_GIT_FOR_DESCRIBE}) left unexpanded is .dev and names the minimum`, () => {
@@ -286,7 +286,7 @@ describe('resolveReleaseIdentity — the rules on direct evidence', () => {
 			describe: info.describe,
 			provenance: other,
 		});
-		expect(identity.version).toBe('7.0.1-dev');
+		expect(identity.version).toBe('7.0.0-dev');
 		expect(identity.notice ?? '').toContain(MIN_GIT_FOR_DESCRIBE);
 	});
 
@@ -297,7 +297,7 @@ describe('resolveReleaseIdentity — the rules on direct evidence', () => {
 			describe: 'v7.0.0-beta.5-889-g2915808635',
 			provenance: other,
 		});
-		expect(identity).toMatchObject({ version: '7.0.1-dev', kind: 'dev', notice: null, tag: null });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev', notice: null, tag: null });
 	});
 
 	test('the identity carries its tag and its data triple, frozen', () => {

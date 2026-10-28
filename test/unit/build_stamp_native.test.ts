@@ -32,9 +32,8 @@ import {
 import { MIN_GIT_FOR_DESCRIBE } from '../../src/core/update/release_identity.ts';
 import {
 	compareVersionArrays,
-	DEDALO_NEXT_DEV_TRIPLE,
-	DEDALO_VERSION,
-	DEDALO_VERSION_TRIPLE,
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
 } from '../../src/core/update/version.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -106,14 +105,14 @@ describe('parseBuildInfo', () => {
 describe('module-level constants (relational: a checkout AT a tag is that release)', () => {
 	test('the engine version IS the release identity this tree resolves to', async () => {
 		expect(DEDALO_ENGINE_VERSION).toBe(RELEASE_IDENTITY.version);
-		const again = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_VERSION_TRIPLE });
+		const again = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_DATA_VERSION });
 		expect(RELEASE_IDENTITY).toEqual(again);
 		// a developer build names the NEXT triple; a tag names its own release (never below data)
 		if (RELEASE_IDENTITY.kind === 'dev')
-			expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_DEV_TRIPLE);
+			expect(RELEASE_IDENTITY.triple).toEqual(DEDALO_NEXT_RELEASE);
 		else
 			expect(
-				compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_VERSION_TRIPLE),
+				compareVersionArrays(RELEASE_IDENTITY.triple, DEDALO_DATA_VERSION),
 			).toBeGreaterThanOrEqual(0);
 		// the identity starts with the triple it names (the identity's own, not the data's)
 		expect(DEDALO_ENGINE_VERSION.startsWith(RELEASE_IDENTITY.triple.join('.'))).toBe(true);

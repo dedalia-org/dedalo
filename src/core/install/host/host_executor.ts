@@ -34,7 +34,7 @@ import { existsSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { isDedaloError } from '../../errors/dedalo_error.ts';
-import { DEDALO_VERSION } from '../../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../update/version.ts';
 import {
 	type HostStepId,
 	type InstallAnswers,
@@ -561,10 +561,10 @@ async function resumeRun(ctx: HostRunContext): Promise<void> {
 	lockRunDir(ctx);
 	loadRecord(ctx);
 	const plan = ctx.plan as PlanFile;
-	if (plan.engine_version !== DEDALO_VERSION) {
+	if (plan.engine_version !== formatVersion(DEDALO_DATA_VERSION)) {
 		hostRefuse(
 			'install.state_conflict',
-			`plan was written by engine ${plan.engine_version}; this is ${DEDALO_VERSION}`,
+			`plan was written by engine ${plan.engine_version}; this is ${formatVersion(DEDALO_DATA_VERSION)}`,
 		);
 	}
 	const given = ctx.request.givenAnswers;

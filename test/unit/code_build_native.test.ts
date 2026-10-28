@@ -28,7 +28,11 @@ import {
 	releaseTagVersion,
 } from '../../src/core/update/code_build_plan.ts';
 import { MIN_GIT_FOR_DESCRIBE } from '../../src/core/update/release_identity.ts';
-import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../../src/core/update/version.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 // Snapshot the REAL config module ONCE at top level: mock.restore() does NOT
@@ -735,9 +739,17 @@ describe('the release channel builds the NEWEST release tag (policy 2026-09-29)'
 				expect((none as { code: string }).code).toBe('update.refused');
 				expect((none as { publicMessage?: string }).publicMessage).toContain('No release tag');
 				expect(existsSync(join(filesDir, '6'))).toBe(false);
-				// …while the developer channel still builds
-				const beta = await buildVersionFromGit({ channel: 'dev' });
-				expect(beta.file_path).toBe(join(filesDir, '7', '7.0', '7.0.1-dev.zip'));
+				// …and the developer channel REFUSES this commit: it carries the beta tag
+				// (a LIGHTWEIGHT one), and a nightly is an untagged commit (VERSIONING_SPEC D3)
+				const taggedDev = await buildVersionFromGit({ channel: 'dev' }).then(
+					() => null,
+					(caught: unknown) => caught,
+				);
+				expect((taggedDev as { code: string }).code).toBe('update.refused');
+				expect((taggedDev as { publicMessage?: string }).publicMessage).toContain(
+					"'master' is the tagged commit v7.0.1-beta.1",
+				);
+				expect(existsSync(join(filesDir, '7', '7.0', '7.0.1-dev.zip'))).toBe(false);
 
 				// an ASKED tag that does not exist is named, before any dir or archive
 				const missing = await buildVersionFromGit({ channel: 'master', version: '7.0.5' }).then(
@@ -759,6 +771,18 @@ describe('the release channel builds the NEWEST release tag (policy 2026-09-29)'
 				// the dev channel is master's tip, named after master's own version
 				const dev = await buildVersionFromGit({ channel: 'dev' });
 				expect(dev.file_path).toBe(join(filesDir, '7', '7.0', '7.0.3-dev.zip'));
+
+				// an EXPLICIT release-tag ref on the dev channel is refused too: the
+				// channel decides, not the way the ref was given (VERSIONING_SPEC D3)
+				const taggedRefDev = await buildVersionFromGit({ ref: 'v7.0.2', channel: 'dev' }).then(
+					() => null,
+					(caught: unknown) => caught,
+				);
+				expect((taggedRefDev as { code: string }).code).toBe('update.refused');
+				expect((taggedRefDev as { publicMessage?: string }).publicMessage).toContain(
+					'is the tagged commit v7.0.2: a tagged commit is a release or beta',
+				);
+				expect(existsSync(join(filesDir, '7', '7.0', '7.0.2-dev.zip'))).toBe(false);
 
 				// a tag whose bytes declare another version is refused
 				await git('tag', 'v7.0.9');
@@ -787,7 +811,7 @@ describe('the release version comes from the ref, not the process', () => {
 			join(import.meta.dir, '../../src/core/update/version.ts'),
 			'utf8',
 		);
-		expect(parseDeclaredTriple(committed)).toBe(DEDALO_VERSION);
+		expect(parseDeclaredTriple(committed)).toBe(formatVersion(DEDALO_DATA_VERSION));
 		expect(parseDeclaredTriple('Object.freeze([7, 0, 4]) as [number, number, number]')).toBe(
 			'7.0.4',
 		);
@@ -840,7 +864,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 	test.skipIf(!GIT_PRESENT)(
 		'a server running X.Y.Z builds + serves X.Y.(Z+1)-beta.N; rebuild refused; lightweight / mismatched / superseded tags refused',
 		async () => {
-			const { DEDALO_VERSION_TRIPLE } = await import('../../src/core/update/version.ts');
+			const { DEDALO_DATA_VERSION } = await import('../../src/core/update/version.ts');
 			const { resolveCodeReleaseFile, serveCodeReleaseRequest } = await import(
 				'../../src/core/update/code_serving.ts'
 			);
@@ -850,7 +874,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 			);
 			const { createHash } = await import('node:crypto');
 			const { readdirSync, statSync } = await import('node:fs');
-			const [major, minor, patch] = DEDALO_VERSION_TRIPLE;
+			const [major, minor, patch] = DEDALO_DATA_VERSION;
 			const RUNNING = `${major}.${minor}.${patch}`;
 			const NEXT = `${major}.${minor}.${patch + 1}`;
 			const AFTER = `${major}.${minor}.${patch + 2}`;
@@ -943,7 +967,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 				expect(info.describe).toBe(`v${NEXT}-beta.1`);
 				const said = resolveReleaseIdentity({
 					triple: [major, minor, patch + 1],
-					nextDevTriple: DEDALO_NEXT_DEV_TRIPLE,
+					nextDevTriple: DEDALO_NEXT_RELEASE,
 					describe: info.describe,
 					provenance: { stamp: 'other', channel: 'master' },
 				});

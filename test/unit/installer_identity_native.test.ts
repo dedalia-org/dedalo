@@ -4,11 +4,12 @@
  *
  * WHAT IS MEASURED (outcomes):
  *  - unpinned, the installer IS the running tree's identity (build_stamp.ts RELEASE_IDENTITY);
- *  - the image version and the accepted set derive from the identity's kind: stable `X.Y.Z`,
- *    prerelease `X.Y.Z-beta.N` (never the bare triple), dev `X.Y.Z-dev`; the explicit `-dev`
- *    tag of the same data version is the one other accepted tag (§2.4);
- *  - the plan: Official preselected for stable/prerelease, Build for dev; Official refused on
- *    its own question for dev; another tag refused naming the accepted ones;
+ *  - the image version and the accepted set derive from the identity's kind: stable `X.Y.Z` and
+ *    prerelease `X.Y.Z-beta.N` (never the bare triple) accept exactly their own tag; a dev identity
+ *    `X.Y.Z-dev` has NO image (the dev channel publishes none): a typed refusal, nightlies reach an
+ *    installation through the code update path only;
+ *  - the plan: Official preselected for stable/prerelease, Custom for dev; Official and Build
+ *    refused on their own question for dev; another tag refused naming the accepted ones;
  *  - the header label says the kind;
  *  - THE SEAM CANNOT REACH AN INSTALLATION: outside a test process (a real child with
  *    NODE_ENV=production) a set DEDALO_INSTALL_RELEASE_IDENTITY refuses the installer — and
@@ -27,17 +28,32 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { acceptedImageVersions, imageVersionOf } from '../../src/core/install/host/stack/layout.ts';
+import {
+	acceptedImageVersions,
+	devHasNoImageMessage,
+	imageVersionOf,
+} from '../../src/core/install/host/stack/layout.ts';
 import { buildInstallPlan } from '../../src/core/install/install_plan.ts';
 import {
+	defaultImageSource,
 	INSTALLER_IDENTITY_SEAM,
 	installerIdentity,
 	installerVersionLabel,
 } from '../../src/core/install/installer_identity.ts';
 import { OPTION_TEXT, QUESTION_TEXT } from '../../src/core/install/screen_text.ts';
 import { RELEASE_IDENTITY } from '../../src/core/update/build_stamp.ts';
-import { compareReleaseIdentities, imageTagOf } from '../../src/core/update/release_identity.ts';
-import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
+import {
+	compareReleaseIdentities,
+	imageTagOf,
+	parseReleaseVersion,
+	type ReleaseIdentity,
+	type ReleaseKind,
+} from '../../src/core/update/release_identity.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../../src/core/update/version.ts';
 import { PINNED_IDENTITY, withInstallerIdentity } from '../helpers/installer_identity.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
 
@@ -53,30 +69,23 @@ describe('the identity decides the image and the source', () => {
 		expect(installerIdentity()).toBe(RELEASE_IDENTITY);
 	});
 
+	// Docker images are immutable tags of tagged releases: an image install accepts ONLY its own tag.
 	const CASES = [
 		{
 			pinned: PINNED_IDENTITY.stable,
 			kind: 'stable',
-			tag: DEDALO_VERSION,
-			accepted: [DEDALO_VERSION, `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`],
+			tag: formatVersion(DEDALO_DATA_VERSION),
+			accepted: [formatVersion(DEDALO_DATA_VERSION)],
 			source: 'official',
-			label: DEDALO_VERSION,
+			label: formatVersion(DEDALO_DATA_VERSION),
 		},
 		{
 			pinned: PINNED_IDENTITY.prerelease,
 			kind: 'prerelease',
 			tag: PINNED_IDENTITY.prerelease,
-			accepted: [PINNED_IDENTITY.prerelease, `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`],
+			accepted: [PINNED_IDENTITY.prerelease],
 			source: 'official',
 			label: `${PINNED_IDENTITY.prerelease} (prerelease)`,
-		},
-		{
-			pinned: PINNED_IDENTITY.dev,
-			kind: 'dev',
-			tag: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
-			accepted: [`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`],
-			source: 'build',
-			label: `${PINNED_IDENTITY.dev} (development build)`,
 		},
 	] as const;
 
@@ -91,9 +100,11 @@ describe('the identity decides the image and the source', () => {
 				expect(acceptedImageVersions()).toEqual([...c.accepted]);
 				expect(installerVersionLabel()).toBe(c.label);
 				// a tag that is not this installer's is refused on its question, naming the accepted ones
-				for (const other of [DEDALO_VERSION, `${DEDALO_VERSION}-beta.6`, '9.9.9'].filter(
-					(tag) => !(c.accepted as readonly string[]).includes(tag),
-				)) {
+				for (const other of [
+					formatVersion(DEDALO_DATA_VERSION),
+					`${formatVersion(DEDALO_DATA_VERSION)}-beta.6`,
+					'9.9.9',
+				].filter((tag) => !(c.accepted as readonly string[]).includes(tag))) {
 					const refused = buildInstallPlan(
 						{
 							...TRIAL,
@@ -107,18 +118,84 @@ describe('the identity decides the image and the source', () => {
 						`(${c.accepted.join(' or ')})`,
 					);
 				}
-				// Official chosen explicitly: refused on its question for a dev build only
+				// Official chosen explicitly: a stable or prerelease identity has an official image
 				const official = buildInstallPlan({ ...TRIAL, image_source: 'official' }, PLAN_OPTIONS);
-				expect(official.fieldErrors.some((error) => error.key === 'image_source')).toBe(
-					c.kind === 'dev',
-				);
+				expect(official.fieldErrors.some((error) => error.key === 'image_source')).toBe(false);
 			});
 		});
 	}
 
+	// THE MODEL, literal (owner 2026-10-27, docker images are immutable): an image install accepts its
+	// own tagged image and nothing else. Literals on purpose: a derivation from the code would hide a
+	// wrong rule. Docker has no nightly images: a dev identity is refused, typed, with the S3 message.
+	const ACCEPTED_RULE: ReadonlyArray<readonly [string, ReleaseKind, string[]]> = [
+		['7.0.0', 'stable', ['7.0.0']],
+		['7.0.0-beta.7', 'prerelease', ['7.0.0-beta.7']],
+		['7.1.0', 'stable', ['7.1.0']],
+	];
+	for (const [version, kind, accepted] of ACCEPTED_RULE) {
+		test(`accepted image rule: ${kind} ${version} accepts ${accepted.join(' | ')}`, () => {
+			const identity: ReleaseIdentity = {
+				version,
+				kind,
+				triple: parseReleaseVersion(version)!.triple,
+				tag: `v${version}`,
+				notice: null,
+			};
+			expect(acceptedImageVersions(identity)).toEqual(accepted);
+		});
+	}
+
+	test('no downgrade and no nightly: a stable 7.1.0 identity never accepts the older 7.0.1-dev tag', () => {
+		const stable710: ReleaseIdentity = {
+			version: '7.1.0',
+			kind: 'stable',
+			triple: [7, 1, 0],
+			tag: 'v7.1.0',
+			notice: null,
+		};
+		expect(acceptedImageVersions(stable710)).not.toContain(`${DEDALO_NEXT_RELEASE.join('.')}-dev`);
+		expect(acceptedImageVersions(stable710)).toEqual(['7.1.0']);
+	});
+
+	test('S3: a stable Docker install asked for a -dev image is refused with the nightly sentence', async () => {
+		await withInstallerIdentity(PINNED_IDENTITY.stable, () => {
+			const plan = buildInstallPlan(
+				{
+					...TRIAL,
+					image_source: 'custom',
+					image_repository: 'registry.example.org/d',
+					image_version: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
+				},
+				PLAN_OPTIONS,
+			);
+			expect(
+				plan.fieldErrors
+					.filter((error) => error.key === 'image_version')
+					.map((error) => error.message)
+					.join('\n'),
+			).toContain('Docker has no nightly images');
+		});
+	});
+
+	test('a dev identity accepts NO image (Docker has no nightly images); the reason is the exact message', () => {
+		const devVersion = `${DEDALO_NEXT_RELEASE.join('.')}-dev`;
+		const dev: ReleaseIdentity = {
+			version: devVersion,
+			kind: 'dev',
+			triple: DEDALO_NEXT_RELEASE,
+			tag: null,
+			notice: null,
+		};
+		expect(acceptedImageVersions(dev)).toEqual([]);
+		expect(devHasNoImageMessage(dev)).toBe(
+			`Docker has no nightly images: ${devVersion} is a development build, so there is no image to install. Nightlies reach tree installs through the code update path (tree archives); a Docker install runs tagged releases only`,
+		);
+	});
+
 	test('a beta never installs the bare data version: the stable tag is refused for a prerelease installer', async () => {
 		await withInstallerIdentity(PINNED_IDENTITY.prerelease, () => {
-			expect(acceptedImageVersions()).not.toContain(DEDALO_VERSION);
+			expect(acceptedImageVersions()).not.toContain(formatVersion(DEDALO_DATA_VERSION));
 		});
 	});
 });
@@ -155,7 +232,12 @@ try { console.log('ID ' + m.installerIdentity().version); } catch (e) { console.
 	});
 
 	test('inside a test process, an identity of another data version (or none) is refused', async () => {
-		for (const bad of ['6.9.0', '6.9.0-beta.1', `${DEDALO_VERSION}-pre.1`, 'latest']) {
+		for (const bad of [
+			'6.9.0',
+			'6.9.0-beta.1',
+			`${formatVersion(DEDALO_DATA_VERSION)}-pre.1`,
+			'latest',
+		]) {
 			await withInstallerIdentity(bad, () => {
 				expect(() => installerIdentity()).toThrow('is not a release identity of this data version');
 			});
@@ -181,8 +263,11 @@ describe('gate 12: the install docs say what the installer does', () => {
 				docker.indexOf('### Which official image the installer asks for'),
 				docker.indexOf("### Dédalo's registries"),
 			)
-			.replace(new RegExp(`\\b${escapeRegExp(DOCS_EXAMPLE_TRIPLE)}\\b`, 'g'), DEDALO_VERSION);
-		expect(section).toContain(`a stable release (\`${DEDALO_VERSION}\`)`);
+			.replace(
+				new RegExp(`\\b${escapeRegExp(DOCS_EXAMPLE_TRIPLE)}\\b`, 'g'),
+				formatVersion(DEDALO_DATA_VERSION),
+			);
+		expect(section).toContain(`a stable release (\`${formatVersion(DEDALO_DATA_VERSION)}\`)`);
 		const rows = section
 			.split('\n')
 			.filter((line) => /^\| a (stable release|prerelease|development build) /.test(line));
@@ -197,8 +282,8 @@ describe('gate 12: the install docs say what the installer does', () => {
 				);
 				if (installerIdentity().kind === 'dev') {
 					expect(official).toContain('no registry is asked');
-					expect(official).toContain('**Build** is preselected');
-					expect(buildInstallPlan(TRIAL, PLAN_OPTIONS).answers.image_source).toBe('build');
+					expect(official).toContain('**Custom** is preselected');
+					expect(defaultImageSource()).toBe('custom');
 				} else {
 					expect(official).toContain(`\`:${imageTagOf(identity)}\``);
 				}

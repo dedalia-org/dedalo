@@ -24,7 +24,7 @@ import type { Principal } from '../security/permissions.ts';
 import { SESSION_IDLE_TTL_SECONDS, type Session } from '../security/session_store.ts';
 import { getAdditionalToolsUrlMap } from '../tools/paths.ts';
 import { DEDALO_BUILD, DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from '../update/build_stamp.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { getAlpha2FromCode, getLangNameFromCode } from './lang_names.ts';
 import { currentApplicationLang, currentDataLang } from './request_lang.ts';
 import { getServerState } from './server_state.ts';
@@ -250,7 +250,7 @@ export async function buildPageGlobals(
 				? serverState.notification
 				: false,
 		recovery_mode: serverState.recovery_mode,
-		data_version: DEDALO_VERSION_TRIPLE,
+		data_version: DEDALO_DATA_VERSION,
 		...(await engineFacts(isLogged)),
 		dedalo_root_path: null,
 	};
@@ -283,7 +283,7 @@ function versionFacts(isLogged: boolean): Record<string, string | null> {
 	}
 	return {
 		dedalo_version: DEDALO_ENGINE_VERSION,
-		dedalo_data_version: DEDALO_VERSION,
+		dedalo_data_version: formatVersion(DEDALO_DATA_VERSION),
 		release_kind: RELEASE_IDENTITY.kind,
 		dedalo_build: DEDALO_BUILD,
 	};
@@ -317,7 +317,7 @@ export async function buildInfoData(): Promise<Record<string, unknown>> {
 	return {
 		dedalo_version: DEDALO_ENGINE_VERSION,
 		// The data triple beside the identity (same split as page_globals).
-		dedalo_data_version: DEDALO_VERSION,
+		dedalo_data_version: formatVersion(DEDALO_DATA_VERSION),
 		dedalo_build: DEDALO_BUILD, // release commit date; null on a dev checkout
 		dedalo_db_name: config.db.database,
 		pg_version: await getPgVersion(),

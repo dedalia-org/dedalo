@@ -403,12 +403,12 @@ DEDALO_LEGACY_STAMP_RE="^(${DEDALO_STAMP_SHA_RE}) (${DEDALO_STAMP_DATE_RE})$"
 DEDALO_DESCRIBE_TIMEOUT_S=3
 
 # dedalo_checkout_next_dev DIR — the NEXT dev triple the checkout declares
-# (version.ts DEDALO_NEXT_DEV_TRIPLE: the release an untagged build precedes), the
+# (version.ts DEDALO_NEXT_RELEASE: the release an untagged build precedes), the
 # same answer parseDeclaredNextDevTriple gives. Status 1 when absent.
 dedalo_checkout_next_dev() {
 	local file="${1-}/src/core/update/version.ts" found=''
 	[ -r "$file" ] || return 1
-	found="$(tr '\011\012\013\014\015' '     ' <"$file" | sed 's/^.*DEDALO_NEXT_DEV_TRIPLE//' | grep -oE "$DEDALO_TRIPLE_RE" | head -n 1)" || true
+	found="$(tr '\011\012\013\014\015' '     ' <"$file" | sed 's/^.*DEDALO_NEXT_RELEASE//' | grep -oE "$DEDALO_TRIPLE_RE" | head -n 1)" || true
 	[ -n "$found" ] || return 1
 	found="$(printf '%s' "$found" | tr -cs '0-9' ' ')"
 	# shellcheck disable=SC2086 # deliberate split: three numbers

@@ -62,7 +62,7 @@ import { isDedaloError } from '../errors/index.ts';
 import { DirectoryBarrier, removeFileDurably } from '../files/durable.ts';
 import { divertRetiredPropertyNotices } from '../ontology/retired_property_notice.ts';
 import { getServerState, statePath } from '../resolve/server_state.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import type { InstallLockHandle, TargetDatabaseState } from './db_restore.ts';
 import type { DevCertificatePlan } from './dev_certificate.ts';
 import type { DevListenerPlan } from './dev_listener.ts';
@@ -835,9 +835,10 @@ async function resumeRun(ctx: RunContext): Promise<void> {
 	lockRunDir(ctx);
 	const { plan, state } = loadRecord(ctx);
 	refuseIf(
-		plan.engine_version !== DEDALO_VERSION,
+		plan.engine_version !== formatVersion(DEDALO_DATA_VERSION),
 		'install.state_conflict',
-		() => `plan was written by engine ${plan.engine_version}; this is ${DEDALO_VERSION}`,
+		() =>
+			`plan was written by engine ${plan.engine_version}; this is ${formatVersion(DEDALO_DATA_VERSION)}`,
 	);
 	assertSameAnswers(ctx, plan);
 	assertSameOntologyDecisions(ctx, plan);

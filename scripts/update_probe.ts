@@ -123,7 +123,7 @@ interface Auth {
 	csrf: string;
 }
 
-/** The DEDALO_VERSION_TRIPLE a tree declares ('7.0.1'), or null. Whitespace- and
+/** The DEDALO_DATA_VERSION a tree declares ('7.0.1'), or null. Whitespace- and
  * line-break-insensitive: the committed source spans three lines, the probe's
  * own bump writes one. */
 function treeTripleOf(versionTsPath: string): string | null {
@@ -405,7 +405,7 @@ async function main(): Promise<void> {
 	const checkoutVersion = treeTripleOf(join(projectRoot, 'src', 'core', 'update', 'version.ts'));
 	must(
 		!devChannel || checkoutVersion !== null,
-		'could not read DEDALO_VERSION_TRIPLE from this checkout — the dev build takes its version from there',
+		'could not read DEDALO_DATA_VERSION from this checkout — the dev build takes its version from there',
 	);
 	const CURRENT_VERSION = devChannel ? (checkoutVersion as string) : museumVersion;
 	const triple = CURRENT_VERSION.split('.').map(Number);
@@ -441,7 +441,7 @@ async function main(): Promise<void> {
 	// 2026-08-24 wire-contract entry). The assertion below is release-only.
 	if (!devChannel) {
 		const { UPDATE_CATALOG } = await import('../src/core/update/catalog.ts');
-		const rungKey = RELEASE_VERSION.split('.').join('');
+		const rungKey = RELEASE_VERSION;
 		must(
 			UPDATE_CATALOG[rungKey] !== undefined,
 			`UPDATE_CATALOG has no '${rungKey}' descriptor, so the master can never ADVERTISE ${RELEASE_VERSION} (buildCodeUpdateInfo walks the catalog) — the museum's panel would just show nothing. Add the descriptor to src/core/update/catalog.ts, or reset the museum tree to a version whose next rung IS catalogued.`,
@@ -594,7 +594,7 @@ async function main(): Promise<void> {
 	const headTriple = versionTs.match(
 		/\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*\]\s*\)\s*as\s*\[number,\s*number,\s*number\]/,
 	);
-	must(headTriple !== null, 'could not locate DEDALO_VERSION_TRIPLE in the cloned version.ts');
+	must(headTriple !== null, 'could not locate DEDALO_DATA_VERSION in the cloned version.ts');
 	const bumped = versionTs.replace(
 		headTriple[0],
 		`[${RELEASE_VERSION.split('.').join(', ')}]) as [number, number, number]`,

@@ -71,6 +71,12 @@ Merged since the last release; these ship with the next one.
     Before: `sh install.sh --route docker --status --json` read the private directory of the host process, which on the Docker route holds no record, and answered `exists: false` for a complete install.
     Now: on the docker and trial routes it reads the stack's host record, the one `--resume` reads, and answers its outcome (`complete` after a finished install).
 
+- **A commit with a release tag is never built as a development build, and Docker says plainly that it has no nightly images.**
+
+    Before: a developer build of a commit that carries a release tag (for example `v7.0.1`) could be built under the nightly name, even when the tag was asked by name, and a Docker install asked for a `-dev` image was told only that its image version was not accepted.
+
+    Now: a developer build of a tagged commit is refused and the message names the tag, whichever way the commit was asked for. A tagged commit is a release or beta and is named by its tag. A Docker install asked for a development image is refused with the sentence "Docker has no nightly images": nightlies reach tree installs through the code update path only. On a development checkout the Image screen refuses Official and Build (a local build of a development checkout is not an image install) and preselects Custom, the operator's own registry.
+
 - **The container updater reports a refused re-install of the pinned release as its own outcome, same_version, instead of downgrade_refused.**
 
     Before: asking the updater for the release the stack already runs was refused as `downgrade_refused`, which read as a step back.

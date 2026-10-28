@@ -98,6 +98,15 @@ so the panel does not replace it in place: a tree swap inside a container would
 be discarded the next time the container is recreated. The panel recognises
 such an installation and changes what it offers:
 
+Docker and image installations run **tagged releases only**: a stable tag
+(`7.0.1`) or a beta tag (`7.0.1-beta.1`). Docker images are immutable, and the
+dev channel publishes **no images**, so a developer build (`X.Y.Z-dev`) is never
+offered to a container installation and never installed by image. Nightlies are
+tree archives: they reach production and dev installations through the code
+update path only. An emergency fix for a stable Docker installation ships as a
+code-only patch tag (for example `7.0.1` over data `7.0.0`), which installs as
+its own release.
+
 - **Image updates** — where this installation's image comes from (pulled from a
   registry, and whether that is an official registry, an official mirror or your
   own; or built on the Docker host from its checkout), the pinned version, the

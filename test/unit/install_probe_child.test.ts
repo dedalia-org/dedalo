@@ -43,7 +43,11 @@ import {
 import { SEED_DUMP_PATH } from '../../src/core/install/paths.ts';
 import type { PsqlProbe } from '../../src/core/install/pg_bin.ts';
 import { systemCheckRows } from '../../src/core/install/probes.ts';
-import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../../src/core/update/version.ts';
 import { localOntologySource } from '../helpers/install_answer_cases.ts';
 import {
 	HOST_VARIANTS,
@@ -222,11 +226,14 @@ describe('probe child — system', () => {
 	// its kind said — a beta and the stable release share the data version `7.0.0` (C3i-F1).
 	test('the System check names the release identity and its kind (stable, prerelease, development build)', () => {
 		for (const [pinned, shown] of [
-			[DEDALO_VERSION, DEDALO_VERSION],
-			[`${DEDALO_VERSION}-beta.7`, `${DEDALO_VERSION}-beta.7 (prerelease)`],
+			[formatVersion(DEDALO_DATA_VERSION), formatVersion(DEDALO_DATA_VERSION)],
 			[
-				`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
-				`${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev (development build)`,
+				`${formatVersion(DEDALO_DATA_VERSION)}-beta.7`,
+				`${formatVersion(DEDALO_DATA_VERSION)}-beta.7 (prerelease)`,
+			],
+			[
+				`${DEDALO_NEXT_RELEASE.join('.')}-dev`,
+				`${DEDALO_NEXT_RELEASE.join('.')}-dev (development build)`,
 			],
 		] as const) {
 			const { answer } = child(request('system', { route: 'trial' }), {

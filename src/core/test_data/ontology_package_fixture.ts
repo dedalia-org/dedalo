@@ -40,7 +40,7 @@ import {
 	YES_NO_SECTION,
 } from '../ontology/ontology_tipos.ts';
 import { getSectionIdFromTipo, getTldFromTipo } from '../ontology/tld.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 
 /** One node of a fixture ontology. */
 export interface FixtureOntologyNode {
@@ -172,7 +172,7 @@ export function buildOntologyPackage(
 ): Map<string, Uint8Array> {
 	for (const definition of tlds) assertScratch(definition);
 	const info = {
-		version: options.version ?? DEDALO_VERSION,
+		version: options.version ?? formatVersion(DEDALO_DATA_VERSION),
 		date: '2026-01-01T00:00:00+00:00',
 		entity: 'zz ontology package fixture',
 		active_ontologies: tlds.map(infoEntry),

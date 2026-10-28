@@ -93,6 +93,7 @@ import {
 	type StackHostStepId,
 } from '../../src/core/install/install_plan.ts';
 import { runInteractiveInstall } from '../../src/core/install/install_session.ts';
+import { defaultImageSource } from '../../src/core/install/installer_identity.ts';
 import { MEDIA_DIR_MODE } from '../../src/core/install/media_tree.ts';
 import { type ReviewMeasure, reviewMeasure } from '../../src/core/install/review_measure.ts';
 import {
@@ -107,9 +108,9 @@ import { readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
 import { imageTagOf } from '../../src/core/update/release_identity.ts';
 import {
-	DEDALO_NEXT_DEV_TRIPLE,
-	DEDALO_VERSION,
-	DEDALO_VERSION_TRIPLE,
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
 } from '../../src/core/update/version.ts';
 import {
 	COSIGN,
@@ -349,7 +350,7 @@ describe('the image is verified; the System check refuses before anything change
 		);
 		// The pull, then the verify — the placeholder stands for the digest the pull brings.
 		expect(lines).toEqual([
-			`${DOCKER} pull ${FIRST}:${DEDALO_VERSION}`,
+			`${DOCKER} pull ${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`,
 			`${COSIGN} verify --certificate-identity-regexp ${signing.identity_regexp} --certificate-oidc-issuer ${signing.issuer} ${FIRST}@${PULLED_DIGEST_PLACEHOLDER}`,
 		]);
 	});
@@ -778,8 +779,9 @@ describe('the official image of this version must be PUBLISHED — asked before 
 //
 // Owner 2026-10-15 (Q1, Q6; finding C3i-F1): a prerelease IS a release — its official image is
 // published as `:X.Y.Z-beta.N` and asked for by that tag, never by the bare `:X.Y.Z` (after the
-// stable release that is ANOTHER image). A development build (untagged) names no release: Official
-// is refused from the identity itself, NO registry is asked, and Build is the preselected source.
+// stable release that is ANOTHER image). A development build (untagged) names no release and is no
+// image: Official and Build are refused from the identity itself, NO registry is asked, and Custom
+// (the operator's own registry) is the preselected source (Q6, amended 2026-10-27).
 describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelease, development build (gate 6)', () => {
 	const registryAsked = (host: ScratchHost) =>
 		loggedCommands(host.root).filter((line) =>
@@ -806,11 +808,11 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 		await withInstallerIdentity(PINNED_IDENTITY.stable, async () => {
 			const { answers } = stackPlanCtx(TRIAL);
 			expect(answers.image_source).toBe('official');
-			expect(imageRefOf(answers)).toBe(`${FIRST}:${DEDALO_VERSION}`);
+			expect(imageRefOf(answers)).toBe(`${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`);
 			const host = machine(TRIAL);
 			expect(await refusals(host, TRIAL)).toEqual([]);
 			expect(registryAsked(host)).toContain(
-				`${DOCKER} manifest inspect ${FIRST}:${DEDALO_VERSION}`,
+				`${DOCKER} manifest inspect ${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`,
 			);
 		});
 	});
@@ -859,41 +861,26 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 			const asked = registryAsked(host);
 			expect(asked).toContain(`${DOCKER} manifest inspect ${BETA_REF}`);
 			// never the bare data version's tag — that is the stable release's image
-			expect(asked.filter((line) => line.endsWith(`:${DEDALO_VERSION}`))).toEqual([]);
+			expect(
+				asked.filter((line) => line.endsWith(`:${formatVersion(DEDALO_DATA_VERSION)}`)),
+			).toEqual([]);
 		});
 	});
 
-	test('prerelease + Official with an explicit X.Y.Z-dev tag, absent: refused as the dev branch’s image — never told to wait for a release', async () => {
+	test('prerelease + Official with an explicit X.Y.Z-dev tag: refused with the S3 sentence (Docker has no nightly images) — the registry is never asked', async () => {
 		await withInstallerIdentity(BETA, async () => {
 			const raw = {
 				...TRIAL,
 				image_source: 'official',
-				image_version: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
+				image_version: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
 			};
-			const devRef = `${FIRST}:${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`;
-			expect(imageRefOf(stackPlanCtx(raw).answers)).toBe(devRef);
-			const host = machine(raw, {
-				responses: [
-					{
-						match: `${DOCKER} manifest inspect ${devRef}`,
-						exit: 1,
-						stderr: `no such manifest: ${devRef}\n`,
-					},
-					{
-						match: `${DOCKER} buildx imagetools inspect ${devRef}`,
-						exit: 1,
-						stderr: `ERROR: ${devRef}: not found\n`,
-					},
-				],
+			// refused on the Image screen (the validation), the same answer the preflight gives: never a registry call
+			const plan = buildInstallPlan(raw, {
+				rootPassword: ROOT_PASSWORD,
+				requireRootPassword: true,
 			});
-			const refused = (await refusals(host, raw)).join('\n');
-			expect(refused).toContain(`no official image ${devRef} is published`);
-			expect(refused).toContain('development branch');
-			expect(refused).not.toContain('once its release');
-			expect(refused).not.toContain('for this release yet');
-			expect(refused).toContain('--image-source build');
-			expect(refused).toContain('--image-source custom');
-			expect(registryAsked(host)).toContain(`${DOCKER} manifest inspect ${devRef}`);
+			expect(plan.errors.join('\n')).toContain('Docker has no nightly images');
+			expect(plan.fieldErrors.map((error) => error.key)).toContain('image_version');
 		});
 	});
 
@@ -919,47 +906,43 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 				responses: [
 					{
 						match: `${DOCKER} image inspect --format {{index .Config.Labels`,
-						stdout: `${DEDALO_VERSION}\n`,
+						stdout: `${formatVersion(DEDALO_DATA_VERSION)}\n`,
 					},
 				],
 			});
 			const { outcome } = await runHost(host, fresh(TRIAL).request);
 			expect(outcome.result).not.toBe('complete');
-			expect(outcome.message).toContain(`declares version '${DEDALO_VERSION}', not ${BETA}`);
+			expect(outcome.message).toContain(
+				`declares version '${formatVersion(DEDALO_DATA_VERSION)}', not ${BETA}`,
+			);
 		});
 	});
 
-	test('development build: Build PRESELECTED; the run builds localhost/dedalo:X.Y.Z-dev and never asks a registry', async () => {
+	test('development build: Custom is preselected; Build is refused by the plan itself (S3), so no local build is planned', async () => {
 		await withInstallerIdentity(PINNED_IDENTITY.dev, async () => {
-			const { answers } = stackPlanCtx(TRIAL);
-			expect(answers.image_source).toBe('build');
-			const ref = `localhost/dedalo:${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`;
-			expect(imageRefOf(answers)).toBe(ref);
-			const host = machine(TRIAL);
-			expect(await refusals(host, TRIAL)).toEqual([]);
-			const { outcome } = await runHost(host, fresh(TRIAL).request);
-			expect(outcome.message).toBeNull();
-			expect(outcome.result).toBe('complete');
-			expect(registryAsked(host)).toEqual([]);
-			expect(
-				loggedCommands(host.root).some(
-					(line) => line.includes(` ${ref} `) || line.endsWith(` ${ref}`),
-				),
-			).toBe(true);
-			expect(envOf(host)).toContain(`DEDALO_VERSION=${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev\n`);
+			expect(defaultImageSource()).toBe('custom');
+			const plan = buildInstallPlan(
+				{ ...TRIAL, image_source: 'build' },
+				{ rootPassword: ROOT_PASSWORD, requireRootPassword: true },
+			);
+			expect(plan.errors.join('\n')).toContain('a local build of it is not an image install');
+			expect(plan.errors.join('\n')).toContain('choose Custom');
 		});
 	});
 
-	test('development build + Official: refused from the identity — on the Image screen (its question) and by the System check — with NO registry call, `-dev` tag or not', async () => {
+	test('development build + Official or Build: refused from the identity — on the Image screen (its question) and by the System check — with NO registry call', async () => {
 		await withInstallerIdentity(PINNED_IDENTITY.dev, async () => {
-			for (const raw of [
-				{ ...TRIAL, image_source: 'official' },
+			// an explicit -dev image_version is refused by the validation itself (no image exists)
+			const devTag = buildInstallPlan(
 				{
 					...TRIAL,
 					image_source: 'official',
-					image_version: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
+					image_version: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
 				},
-			]) {
+				{ rootPassword: ROOT_PASSWORD, requireRootPassword: true },
+			);
+			expect(devTag.errors.join('\n')).toContain('Docker has no nightly images');
+			for (const raw of [{ ...TRIAL, image_source: 'official' }]) {
 				// the plan: on the image_source question, before any Review
 				const plan = buildInstallPlan(raw, {
 					rootPassword: ROOT_PASSWORD,
@@ -967,7 +950,7 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 				});
 				const tagged = plan.fieldErrors.filter((error) => error.key === 'image_source');
 				expect(tagged.map((error) => error.message).join('\n')).toContain('development build');
-				expect(tagged.map((error) => error.message).join('\n')).toContain('--image-source build');
+				expect(tagged.map((error) => error.message).join('\n')).toContain('--image-source custom');
 				// the System check's own verdict (a plan written by another installer): refused, the runner never called
 				const asked: string[] = [];
 				const runner: CommandRunner = {
@@ -1002,7 +985,9 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 			);
 			expect(verdict.problems).toEqual([]);
 			expect(
-				asked.some((line) => line.includes(` manifest inspect ${FIRST}:${DEDALO_VERSION}`)),
+				asked.some((line) =>
+					line.includes(` manifest inspect ${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`),
+				),
 			).toBe(true);
 		});
 	});
@@ -1863,7 +1848,7 @@ describe('an install-time build of a checkout goes through the shared clean-snap
 		const labels = run.stdout.trim().split('\n');
 		// the version label is what the engine built from this checkout will call itself
 		// (its release identity as an image tag) — whatever this checkout's tag is today
-		const identity = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_VERSION_TRIPLE });
+		const identity = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_DATA_VERSION });
 		expect(labels).toContain(`org.opencontainers.image.version=${imageTagOf(identity.version)}`);
 		expect(labels).toContain(`org.opencontainers.image.revision=${head}`);
 		// Dédalo's own description, never blank (campaign 3c D6: source/url/description/licenses

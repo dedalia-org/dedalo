@@ -84,7 +84,11 @@ import {
 } from '../ontology/ontology_update.ts';
 import { type StagedFile, stageOntologyFiles } from '../ontology/ontology_update_target.ts';
 import { getTldFromTipo } from '../ontology/tld.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_MAJOR_MINOR } from '../update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_VERSION_MAJOR_MINOR,
+	formatVersion,
+} from '../update/version.ts';
 import {
 	type OntologyInstallRequest,
 	type OntologyOrigin,
@@ -283,7 +287,7 @@ export async function stageOntologies(
 	}
 	const manifest: StagedManifest = {
 		format: 1,
-		engine_version: DEDALO_VERSION,
+		engine_version: formatVersion(DEDALO_DATA_VERSION),
 		created_at: new Date().toISOString(),
 		source: request.source,
 		items,
@@ -500,7 +504,7 @@ export async function stagedMatches(
 	if (manifest === null) return { ok: false, detail: 'nothing staged (or staged.json unreadable)' };
 	const staged = manifest.items.map((item) => item.tld);
 	const problem =
-		manifest.engine_version !== DEDALO_VERSION
+		manifest.engine_version !== formatVersion(DEDALO_DATA_VERSION)
 			? `staged by engine ${manifest.engine_version}`
 			: staged.join(',') !== tlds.join(',')
 				? `staged ${staged.join(', ')}, the plan installs ${tlds.join(', ')}`

@@ -124,7 +124,11 @@ import { PLAIN_HTTP_DEV_LISTENER_ENV } from '../src/config/tcp_listener.ts';
 import { DEDALO_ENGINE_VERSION, readReleaseIdentityOf } from '../src/core/update/build_stamp.ts';
 import { UPDATE_CATALOG, type UpdateDescriptor } from '../src/core/update/catalog.ts';
 import { parseReleaseVersion } from '../src/core/update/release_identity.ts';
-import { compareVersionArrays, DEDALO_VERSION } from '../src/core/update/version.ts';
+import {
+	compareVersionArrays,
+	DEDALO_DATA_VERSION,
+	formatVersion,
+} from '../src/core/update/version.ts';
 import { scratchDir } from '../test/helpers/scratch_dir.ts';
 import {
 	assertServedDatabase,
@@ -149,7 +153,7 @@ import {
  * THE RUNG THE DRILL REHEARSES, DERIVED AT RUNTIME — never a literal.
  *
  * The pair was hardcoded `7.0.0 → 7.0.1`, which made the drill a bomb timed to
- * the exact moment it matters: cutting 7.0.1 (bumping DEDALO_VERSION_TRIPLE)
+ * the exact moment it matters: cutting 7.0.1 (bumping DEDALO_DATA_VERSION)
  * would have reddened the one gate that rehearses cutting a release.
  *
  * So the rung comes from `UPDATE_CATALOG`, which is the engine's own statement
@@ -209,7 +213,7 @@ const CURRENT_VERSION = RUNG.from.join('.');
  * last release, and installing it over the same version is the feature.
  */
 const RELEASE_VERSION = DEV_CHANNEL_MODE ? CURRENT_VERSION : RUNG.to.join('.');
-/** The literal `DEDALO_VERSION_TRIPLE` bodies the two trees must carry. */
+/** The literal `DEDALO_DATA_VERSION` bodies the two trees must carry. */
 const CURRENT_TRIPLE_LITERAL = `[${RUNG.from.join(', ')}]`;
 const RELEASE_TRIPLE_LITERAL = DEV_CHANNEL_MODE
 	? CURRENT_TRIPLE_LITERAL
@@ -610,7 +614,7 @@ function setVersionTriple(text: string, tripleLiteral: string, whose: string): s
 		`${tripleLiteral}) as [number, number, number]`,
 	);
 	if (replaced === text) {
-		throw new Error(`could not patch DEDALO_VERSION_TRIPLE in the ${whose}`);
+		throw new Error(`could not patch DEDALO_DATA_VERSION in the ${whose}`);
 	}
 	return replaced;
 }
@@ -1583,12 +1587,12 @@ async function main(): Promise<void> {
 			info: { version: string };
 		};
 		// `info.version` is the MASTER's OWN version (code_manifest.ts passes
-		// `serverVersion: DEDALO_VERSION_TRIPLE`), NOT the rung's FROM end — the
+		// `serverVersion: DEDALO_DATA_VERSION`), NOT the rung's FROM end — the
 		// two only coincided while this checkout still sat on 7.0.0. The master
 		// here runs this unpatched checkout, so the honest expectation is the
 		// running engine's DATA version (version.ts) — never derived from the
 		// release identity, which may be `7.0.0-beta.6` on a tagged checkout.
-		const masterDataVersion = DEDALO_VERSION;
+		const masterDataVersion = formatVersion(DEDALO_DATA_VERSION);
 		must(
 			info.info.version === masterDataVersion,
 			`manifest reports server version ${info.info.version}, expected ${masterDataVersion}`,

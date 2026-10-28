@@ -36,7 +36,7 @@ import {
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { DedaloError } from '../errors/dedalo_error.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import type { HostCreated, HostPreflight } from './host/state_types.ts';
 import type { InstallAnswers, InstallPlan, StepId } from './install_plan.ts';
 import { PLAIN_ANSWER_KEYS } from './install_plan.ts';
@@ -174,7 +174,7 @@ export function plainAnswers(answers: InstallAnswers): Partial<InstallAnswers> {
 export function buildPlanFile(plan: InstallPlan, secretsSupplied: Secrets): PlanFile {
 	const body: Omit<PlanFile, 'plan_hash' | 'created_at'> = {
 		schema: PLAN_SCHEMA,
-		engine_version: DEDALO_VERSION,
+		engine_version: formatVersion(DEDALO_DATA_VERSION),
 		answers: plainAnswers(plan.answers),
 		secrets_supplied: {
 			db_password: (secretsSupplied.db_password ?? '') !== '',

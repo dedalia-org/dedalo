@@ -176,7 +176,7 @@ const REFUSED: Row[] = [
 	},
 	{
 		// DATA RULE: a patch (versionMinor 1) carries no data. The key is the
-		// patch's own ('711' is 7.1.1), so only the rule can refuse it.
+		// patch's own ('7.1.1' is 7.1.1), so only the rule can refuse it.
 		rule: 'data descriptor on a patch release',
 		descriptor: descriptor({
 			versionMedium: 1,
@@ -429,7 +429,7 @@ const REFUSED: Row[] = [
 	},
 	{
 		rule: 'catalog key does not match the descriptor version',
-		key: '799',
+		key: '7.9.9',
 		descriptor: descriptor({ sqlUpdate: [insertFirst(TAG)] }),
 		code: 'update.refused',
 		runnable: false,
@@ -704,7 +704,7 @@ describe('update descriptor tripwire: non-vacuity', () => {
 
 /** One data entry the atomic contract refuses (transaction control), as source text. */
 const BAD_ENTRY =
-	"'790': { versionMajor: 7, versionMedium: 9, versionMinor: 0, updateFromMajor: 7, updateFromMedium: 9, updateFromMinor: 8, updateData: true, sqlUpdate: ['COMMIT'] },";
+	"'7.9.0': { versionMajor: 7, versionMedium: 9, versionMinor: 0, updateFromMajor: 7, updateFromMedium: 9, updateFromMinor: 8, updateData: true, sqlUpdate: ['COMMIT'] },";
 const FREEZE_OPEN = 'Object.freeze({';
 
 /**
@@ -761,7 +761,7 @@ describe('update descriptor tripwire: the module-load check runs', () => {
 		expect(control.exitCode, control.stderr).toBe(0);
 		const clean = driverResult<ModuleLoadResult>(control.stdout, control.stderr);
 		expect(clean.outcome.imported, JSON.stringify(clean.outcome)).toBe(true);
-		expect(clean.outcome.keys ?? []).not.toContain('799');
+		expect(clean.outcome.keys ?? []).not.toContain('7.9.9');
 
 		const bad = await loader.run('catalog_load_bad.ts', moduleLoadDriver(true), {});
 		expect(bad.exitCode, bad.stderr).toBe(0);
@@ -789,7 +789,7 @@ describe('update descriptor tripwire: data belongs to minor and major releases',
 			versionMinor: 1,
 			sqlUpdate: ['SELECT 1'],
 		});
-		const violations = validate()('711', patch, scriptIds);
+		const violations = validate()('7.1.1', patch, scriptIds);
 		expect(violations.map((v) => [v.rule, v.code])).toEqual([['data_on_patch', 'update.refused']]);
 	});
 
@@ -799,28 +799,28 @@ describe('update descriptor tripwire: data belongs to minor and major releases',
 			versionMinor: 1,
 			runScripts: [{ info: 'ok', scriptId: 'zz.ok', stopOnError: true }],
 		});
-		const rules = validate()('711', patch, scriptIds).map((v) => v.rule);
+		const rules = validate()('7.1.1', patch, scriptIds).map((v) => v.rule);
 		expect(rules).toContain('data_on_patch');
 	});
 
 	test('a minor and a major data descriptor validate clean, and the first code-only patch stays clean', () => {
 		expect(
 			validate()(
-				'710',
+				'7.1.0',
 				descriptor({ versionMedium: 1, versionMinor: 0, sqlUpdate: ['SELECT 1'] }),
 				scriptIds,
 			),
 		).toEqual([]);
 		expect(
 			validate()(
-				'800',
+				'8.0.0',
 				descriptor({ versionMajor: 8, versionMedium: 0, versionMinor: 0, sqlUpdate: ['SELECT 1'] }),
 				scriptIds,
 			),
 		).toEqual([]);
 		expect(
 			validate()(
-				'701',
+				'7.0.1',
 				{
 					versionMajor: 7,
 					versionMedium: 0,
@@ -840,7 +840,7 @@ describe('update descriptor tripwire: data belongs to minor and major releases',
 		let thrown: unknown = null;
 		try {
 			validateCatalog({
-				'711': descriptor({ versionMedium: 1, versionMinor: 1, sqlUpdate: ['SELECT 1'] }),
+				'7.1.1': descriptor({ versionMedium: 1, versionMinor: 1, sqlUpdate: ['SELECT 1'] }),
 			});
 		} catch (error) {
 			thrown = error;

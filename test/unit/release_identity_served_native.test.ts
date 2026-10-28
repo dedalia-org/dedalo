@@ -36,7 +36,7 @@ import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { RELEASE_IDENTITY } from '../../src/core/update/build_stamp.ts';
 import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 import { createRequestContext, handleRequest } from '../../src/server.ts';
 
 /** The data triple of an identity, by the engine's one parser (throws on garbage). */
@@ -45,7 +45,7 @@ function dataTripleOf(identity: string): string {
 	if (parsed === null) throw new Error(`'${identity}' is no release identity`);
 	// a developer identity names the NEXT triple: its data version is the tree's
 	// own, which the server publishes beside it (dedalo_data_version)
-	return parsed.dev ? DEDALO_VERSION : parsed.triple.join('.');
+	return parsed.dev ? formatVersion(DEDALO_DATA_VERSION) : parsed.triple.join('.');
 }
 
 /** The kind a release identity string IS, by the engine's one parser (throws on garbage). */
@@ -65,13 +65,15 @@ function isBareTriple(version: unknown): boolean {
 /** Assert the split every served surface must hold: identity for display, bare triple to compare. */
 function expectIdentityAndDataSplit(payload: Record<string, unknown>): void {
 	expect(payload.dedalo_version).toBe(RELEASE_IDENTITY.version);
-	expect(payload.dedalo_data_version).toBe(DEDALO_VERSION);
+	expect(payload.dedalo_data_version).toBe(formatVersion(DEDALO_DATA_VERSION));
 	expect(isBareTriple(payload.dedalo_data_version)).toBe(true);
 	expect(payload.dedalo_data_version).toBe(dataTripleOf(String(payload.dedalo_version)));
 	// the client's own fallback derivation agrees with what the server publishes
 	// (a developer identity has none: the served data key is the only source)
 	const dev = parseReleaseVersion(String(payload.dedalo_version))?.dev === true;
-	expect(data_version_of(String(payload.dedalo_version))).toBe(dev ? '' : DEDALO_VERSION);
+	expect(data_version_of(String(payload.dedalo_version))).toBe(
+		dev ? '' : formatVersion(DEDALO_DATA_VERSION),
+	);
 }
 
 async function loggedInGlobals(): Promise<Record<string, unknown>> {
@@ -117,7 +119,7 @@ describe('page_globals — dedalo_data_version is the bare data triple, never th
 		const stored = Array.isArray(globals.data_version)
 			? globals.data_version.join('.')
 			: String(globals.data_version ?? '');
-		expect(stored).toBe(DEDALO_VERSION);
+		expect(stored).toBe(formatVersion(DEDALO_DATA_VERSION));
 		expect(globals.dedalo_data_version).toBe(stored);
 	});
 

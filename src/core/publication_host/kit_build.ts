@@ -45,7 +45,7 @@ import {
 	readPublicationManifest,
 	verifyKitSourceTree,
 } from '../update/publication_manifest.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import {
 	API_BUILD_DIR,
 	ApiBundleError,
@@ -172,7 +172,7 @@ function releaseSeams(
 		treeRoot: seams.treeRoot ?? projectRoot,
 		backupRoot: seams.backupRoot ?? resolveCodeBackupRoot(),
 		digest: seams.digest === undefined ? INSTALLED_DIGEST : seams.digest,
-		version: seams.version ?? DEDALO_VERSION,
+		version: seams.version ?? formatVersion(DEDALO_DATA_VERSION),
 	};
 }
 

@@ -246,9 +246,9 @@ export async function loadDefaultDeps(): Promise<PublicationHostsDeps> {
 	const rules = await import('../../publication_host/rules.ts');
 	const status = await import('../../publication_host/host_status.ts');
 	const protection = await import('../../media/protection.ts');
-	// DEDALO_VERSION, not DEDALO_ENGINE_VERSION: release ids are `<DEDALO_VERSION>_<digest7>`
+	// The data version's string, not DEDALO_ENGINE_VERSION: release ids are `<data version>_<digest7>`
 	// (Task 6 lockstep); the prerelease tag would put every API check at warn.
-	const { DEDALO_VERSION } = await import('../../update/version.ts');
+	const { DEDALO_DATA_VERSION, formatVersion } = await import('../../update/version.ts');
 	const lockstep = await import('../../publication_host/api_reconcile.ts');
 	const { loadPanelRuntime } = await import('../../publication_host/panel_runtime.ts');
 	const { config } = await import('../../../config/config.ts');
@@ -277,7 +277,7 @@ export async function loadDefaultDeps(): Promise<PublicationHostsDeps> {
 		buildHostPanelRow: status.buildHostPanelRow,
 		engineQualities: protection.getPublicQualities,
 		filterPublicQualities: protection.filterPublicQualities,
-		engineVersion: () => DEDALO_VERSION,
+		engineVersion: () => formatVersion(DEDALO_DATA_VERSION),
 		bunPin: () => bunPinOf(projectRoot),
 		loadPanelRuntime: () => loadPanelRuntime(),
 		buildApiLockstepPanel: lockstep.buildApiLockstepPanel,

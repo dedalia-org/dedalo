@@ -148,7 +148,7 @@ import { refuseUpdate, rethrowOrRefuseUpdate } from './refuse.ts';
 import { parseReleaseVersion } from './release_identity.ts';
 import { smokeBootQuarantine } from './smoke_boot.ts';
 import { isSupervised, supervisorRefusalMessage } from './supervision.ts';
-import { DEDALO_VERSION_TRIPLE, parseVersionString } from './version.ts';
+import { DEDALO_DATA_VERSION, parseVersionString } from './version.ts';
 import { assertLinearUpgrade, identityWalkRefusal } from './version_walk.ts';
 
 // The walk rule moved to its leaf (version_walk.ts, 2026-10-09); re-exported so
@@ -1137,12 +1137,15 @@ function archiveNameIdentityOf(named: ReleaseArchiveName): string {
  * read itself at boot (build_stamp.ts readReleaseIdentityOf). Otherwise the
  * swap would land a tree that calls itself something else, /health would
  * answer that, and the panel could only report a rollback after the fact.
- * A developer build is exempt: what it calls itself is its archive's to say
- * (an exact tag or `-dev`), and its triple is the request's by construction.
+ * A developer build (`X.Y.Z-dev`, from targetIdentityOf) must call itself EXACTLY
+ * that: a nightly is an UNTAGGED commit (VERSIONING_SPEC D3, option a). An archive
+ * whose stamp names a tag — the same triple or any other, stable or prerelease —
+ * is a release or beta, named by its tag, and would install as that identity and
+ * report it: a `-dev` that became `7.0.0` (or `7.0.0-beta.7`) over `7.0.0-dev`,
+ * a move back in the ordering. It is refused here, through the same refusal.
  */
 async function refuseForeignQuarantine(codeRoot: string, request: UpdateRequest): Promise<void> {
-	const expected = expectedIdentityOf(request);
-	if (expected === null) return;
+	const expected = targetIdentityOf(request);
 	// The quarantined tree's OWN declared triples (its version.ts) — never the
 	// request's: the request names the release being installed, not what the
 	// archive's bytes say they are.
@@ -1159,9 +1162,13 @@ async function refuseForeignQuarantine(codeRoot: string, request: UpdateRequest)
 	];
 	const own = await readReleaseIdentityOf(codeRoot, { triple, nextDevTriple });
 	if (own.version !== expected) {
+		const taggedNightly =
+			parseReleaseVersion(expected)?.dev === true && own.tag !== null
+				? ` (its stamp names the tag ${own.tag}: a tagged commit is a release or beta, never a nightly)`
+				: '';
 		refuseUpdate(
 			'update.refused',
-			`Error. The downloaded archive calls itself ${own.version}, not the requested ${expected} — nothing was swapped`,
+			`Error. The downloaded archive calls itself ${own.version}, not the requested ${expected}${taggedNightly} — nothing was swapped`,
 		);
 	}
 }
@@ -1920,7 +1927,7 @@ export async function updateCode(
 		refuseIfStopped(seams.signal, 'before the swap');
 		phases.start('swap');
 		const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
-		const previousVersion = DEDALO_VERSION_TRIPLE.join('.');
+		const previousVersion = DEDALO_DATA_VERSION.join('.');
 		const backupDir = join(
 			backupRoot,
 			backupDirName(previousVersion, installedDigestOf(targetRoot), stamp),

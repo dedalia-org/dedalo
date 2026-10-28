@@ -26,7 +26,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { projectRoot } from '../../config/env.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import {
 	ONTOLOGY_RELEASE_DIR,
 	SEED_LANGS_PATH,
@@ -173,7 +173,7 @@ export async function buildSeedManifest(input: {
 	const bytes = await readFile(input.seedPath);
 	return {
 		format: SEED_MANIFEST_FORMAT,
-		engine_version: DEDALO_VERSION,
+		engine_version: formatVersion(DEDALO_DATA_VERSION),
 		seed: {
 			file: relative(projectRoot, input.seedFile),
 			bytes: bytes.length,
@@ -214,7 +214,7 @@ export async function observeCommittedSeed(seedPath: string): Promise<SeedObserv
 		tables: copyRowCounts(dump),
 		sources: await seedSourceDigests(),
 		rulesDigest: seedRulesDigest(),
-		engineVersion: DEDALO_VERSION,
+		engineVersion: formatVersion(DEDALO_DATA_VERSION),
 	};
 }
 

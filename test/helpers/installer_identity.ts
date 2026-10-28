@@ -14,13 +14,17 @@
 
 import { afterAll } from 'bun:test';
 import { INSTALLER_IDENTITY_SEAM } from '../../src/core/install/installer_identity.ts';
-import { DEDALO_NEXT_DEV_TRIPLE, DEDALO_VERSION } from '../../src/core/update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../../src/core/update/version.ts';
 
 /** The three identity kinds of THIS data version (the seam refuses another triple). */
 export const PINNED_IDENTITY = Object.freeze({
-	stable: DEDALO_VERSION,
-	prerelease: `${DEDALO_VERSION}-beta.7`,
-	dev: `${DEDALO_NEXT_DEV_TRIPLE.join('.')}-dev`,
+	stable: formatVersion(DEDALO_DATA_VERSION),
+	prerelease: `${formatVersion(DEDALO_DATA_VERSION)}-beta.7`,
+	dev: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
 });
 
 /** Run `fn` with the identity pinned; the previous value is restored after (also on a throw). */
