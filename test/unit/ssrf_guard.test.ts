@@ -727,7 +727,9 @@ describe('parseRetryAfterMs — the one Retry-After reader', () => {
 	];
 
 	test('all three HTTP-date forms are read, each as UTC, whatever the host time zone', () => {
-		const zone = process.env.TZ;
+		// bun test runs in UTC WITHOUT setting TZ: deleting the key would drop every
+		// later file in this process back to the host's zone, so restore the zone in effect
+		const zone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 		try {
 			for (const tz of ['UTC', 'Europe/Madrid', 'America/New_York', 'Asia/Tokyo']) {
 				process.env.TZ = tz;
@@ -736,8 +738,7 @@ describe('parseRetryAfterMs — the one Retry-After reader', () => {
 				}
 			}
 		} finally {
-			if (zone === undefined) delete process.env.TZ;
-			else process.env.TZ = zone;
+			process.env.TZ = zone;
 		}
 		expect(parseRetryAfterMs('Tue Sep  1 12:00:30 2026', NOW)).toBe(0); // asctime's padded day
 	});

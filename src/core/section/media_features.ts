@@ -22,11 +22,6 @@ const MEDIA_MODEL_CONFIG: Readonly<Record<string, MediaTypeConfig>> = {
 	component_3d: config.media.threeD,
 };
 
-/** True when the model carries a media `features` descriptor. */
-export function hasMediaFeatures(model: string): boolean {
-	return model in MEDIA_MODEL_CONFIG;
-}
-
 /** The client-facing media `features` object (PHP context->features). */
 export interface MediaFeatures {
 	allowed_extensions: string[];
