@@ -100,6 +100,17 @@ phone_rc=0
 bun run test:tools:phone || phone_rc=$?
 [ "$phone_rc" -eq 0 ] || { echo "== instance_tier: RED in the tool phone contract (exit $phone_rc)"; tier_status=1; }
 
+# ── STAGE 1c — EVERY FEATURE, AS EVERY PERSONA ───────────────────────────────
+#
+# scripts/feature_crawl.ts: root, a non-root global admin and a project-scoped
+# editor each walk their own menu (list + edit, components, inspector, tools),
+# the permission oracle refuses by direct URL, then the user journeys run.
+# Same suite database and server door. Baseline: test/helpers/feature_crawl_ratchet.ts.
+echo "== instance_tier: feature crawl per persona (bun run test:crawl)"
+crawl_rc=0
+bun run test:crawl || crawl_rc=$?
+[ "$crawl_rc" -eq 0 ] || { echo "== instance_tier: RED in the feature crawl (exit $crawl_rc)"; tier_status=1; }
+
 # ── STAGE 2 — THE CODE UPDATER, RELEASE CHANNEL ──────────────────────────────
 #
 # A real master builds and serves the 7.0.1 release through the wire; a

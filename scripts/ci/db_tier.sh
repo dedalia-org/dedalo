@@ -117,6 +117,7 @@ DB_TIER_TRIPWIRES=(
 	test/unit/duplicate_record_dataframe_native.test.ts
 	test/unit/dataframe_delete_policy_native.test.ts
 	test/unit/error_taxonomy_tripwire.test.ts
+	test/unit/feature_crawl_tripwire.test.ts
 	test/unit/export_gate_b_native.test.ts
 	test/unit/external_degradation_tripwire.test.ts
 	test/unit/external_egress_tripwire.test.ts

@@ -118,6 +118,15 @@ The live-oracle era is over. The baselines of record are FROZEN:
     allocator raises it with GREATEST (`insertMatrixRecordWithExplicitId`),
     which is why `test3`'s counter stands in the hundreds of thousands. That is
     correct behaviour, not drift. 
+- `bun run test:crawl` — every feature AS EVERY PERSONA on the SUITE database (own
+  server, minted sessions): root, a non-root global admin and a project-scoped editor
+  (`test/helpers/crawl_persona_fixture.ts`) walk their own menu — list + first-record
+  edit, one component per model at the server's grant level, every inspector block,
+  every offered tool — then the direct-URL permission oracle and the user journeys
+  (`test/helpers/journey_cases.ts`; tool-operation coverage in
+  `test/helpers/tool_operation_cases.ts`). `--persona`, `--only <tipo>`, `--max <n>`,
+  `--journey a,b`, `--no-journeys`, `--concurrency <n>`, `--out <dir>` (JSON + PNG per
+  finding). Ratchet: `test/helpers/feature_crawl_ratchet.ts`.
 - `bun run test:tools:phone` — every tool at 360×740 on the SUITE database (own
   server, real login, click-path probes, scratch records swept): the phone
   contract of `tools_common/css/tool_responsive.less`. `--shots <dir>` for the

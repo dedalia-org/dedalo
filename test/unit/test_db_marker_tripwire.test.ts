@@ -507,6 +507,25 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 			(await import('../helpers/acl_identity_fixture.ts')).removeAclIdentityFixture(),
 	},
 	{
+		name: 'installCrawlPersonaFixture',
+		run: async () =>
+			(await import('../helpers/crawl_persona_fixture.ts')).installCrawlPersonaFixture(),
+	},
+	{
+		name: 'removeCrawlPersonaFixture',
+		run: async () =>
+			(await import('../helpers/crawl_persona_fixture.ts')).removeCrawlPersonaFixture(),
+	},
+	{
+		name: 'sweepCrawlRecord',
+		run: async () =>
+			(await import('../helpers/crawl_persona_fixture.ts')).sweepCrawlRecord(
+				'matrix_test',
+				'test3',
+				1,
+			),
+	},
+	{
 		name: 'installReadDoorIdentityFixture',
 		run: async () =>
 			(await import('../helpers/read_door_identity_fixture.ts')).installReadDoorIdentityFixture(),

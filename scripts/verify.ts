@@ -181,6 +181,7 @@ const TRIPWIRES = [
 	'test/unit/dataframe_scan_coverage_tripwire.test.ts',
 	'test/unit/tool_header_contract_tripwire.test.ts',
 	'test/unit/tool_phone_tripwire.test.ts',
+	'test/unit/feature_crawl_tripwire.test.ts',
 	'test/unit/tool_color_contrast_tripwire.test.ts',
 	'test/unit/external_registry_totality_tripwire.test.ts',
 	'test/unit/external_outbound_tripwire.test.ts',

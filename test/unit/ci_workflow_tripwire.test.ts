@@ -534,6 +534,10 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		'Every assertion is about what a REAL write did to real state: it inserts dd128 records through the counter-allocating writer, logs them in, applies each of the five account transitions (and the record delete) through a real door, drives the two SEC-14 raw admin routes through handleRequest / handleCountersRequest against the live Principal, and then asks the session store and the media marker directory what survived — with the DB port closed 35 of its 40 legs are red, and a revocation gate that mocked either surface would prove nothing about the property it exists to hold',
 	],
 	[
+		'test/unit/feature_crawl_tripwire.test.ts',
+		'Its coverage, journey and baseline legs are pure, but the persona-contrast leg installs the crawl personas (dd128 users, dd234 profiles, dd153 projects, test3 records) and reads their grants and record scope back through getPermissions / principalCanAccessRecord — the guarantee that the crawl oracle never compares admin with admin rests on the real security doors, which do not exist without the suite database',
+	],
+	[
 		'test/unit/dd128_write_census_tripwire.test.ts',
 		"Its census legs read source and are pure, but the behavioural leg (GATE-24) mints a scratch dd234 profile and a scratch dd128 user, resolves a real principal carrying level 2 on (dd128, dd1725), and drives tool_propagate_component_data at that principal's own record to prove the refusal WORKS — an authorization decision may not rest on a source substring, and none of that exists without the suite database",
 	],

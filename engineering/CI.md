@@ -462,7 +462,9 @@ remote's level from its URL.
   then the browser client suite (`scripts/ci/client_gate.sh` → `bun run test:client`:
   own server on the suite DB, real login, pinned diffusion domain + projects fixture,
   Mocha in the system browser), `bun run test:tools:phone` (every tool at 360×740, same suite
-  server door) and `bun run test:update` / `test:update:dev` (a real
+  server door), `bun run test:crawl` (every menu entry, inspector block and offered tool as
+  root / non-root admin / project-scoped editor, the direct-URL permission oracle, then the
+  user journeys; baseline `test/helpers/feature_crawl_ratchet.ts`) and `bun run test:update` / `test:update:dev` (a real
   master builds and serves a release; a supervised consumer copy installs it across the
   planned-death restart). The checkout is `fetch-depth: 0` (the drills `git clone` it);
   the release commit is cut with `git checkout -B` (a PR checkout is a detached HEAD).
