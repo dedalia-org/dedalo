@@ -3,7 +3,8 @@
  *
  * `bun run test:crawl [--persona root,admin,editor] [--only <tipo,…>] [--max <n>]
  *                     [--concurrency <n>] [--journey <a,b>] [--no-journeys]
- *                     [--out <dir>] [--port <n>] [--headful] [--strict]`
+ *                     [--out <dir>] [--port <n>] [--headful] [--strict] [--update]`
+ *   --update  after a green FULL run, raise the coverage floors (engineering/crawl_inventory.json)
  *
  * Starts its OWN server on the SUITE database (the verified door of
  * test:client), installs the crawl personas (test/helpers/crawl_persona_fixture.ts)
@@ -48,12 +49,19 @@
  * holds no grant on.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import puppeteer, { type BrowserContext, type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
 import { isLocatorInArray } from '../src/core/concepts/locator.ts';
-import { INTERMITTENT, KNOWN_FAILING } from '../test/helpers/feature_crawl_ratchet.ts';
+import {
+	bankCrawlInventory,
+	CRAWL_INVENTORY_PATH,
+	type CrawlInventory,
+	crawlCoverageShortfalls,
+	INTERMITTENT,
+	KNOWN_FAILING,
+} from '../test/helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, type JourneyContext, type PersonaName } from '../test/helpers/journey_cases.ts';
 import {
 	findFreePort,
@@ -230,12 +238,30 @@ for (const id of stale)
 console.log(
 	`\n${PERSONAS.length} personas, ${pagesVisited} pages, ${checksRun} checks, ${findings.length} findings, ${unexpected.length + stale.length} red.`,
 );
+// coverage floors: only a full gate run is held to them, and only a green one banks
+const inventoryFile = join(import.meta.dir, '..', CRAWL_INVENTORY_PATH);
+const floor = JSON.parse(readFileSync(inventoryFile, 'utf8')) as CrawlInventory;
+const observed = { pages: pagesVisited, checks: checksRun };
+const shortfalls = audit || narrowed ? [] : crawlCoverageShortfalls(floor, observed);
+for (const s of shortfalls) console.log(`FAIL  coverage\n      ${s} (${CRAWL_INVENTORY_PATH})`);
+const red = unexpected.length + stale.length + shortfalls.length;
+if (args.includes('--update')) {
+	if (audit || narrowed || red > 0)
+		console.log(`--update REFUSED: only a green FULL gate run banks ${CRAWL_INVENTORY_PATH}`);
+	else {
+		writeFileSync(
+			inventoryFile,
+			`${JSON.stringify(bankCrawlInventory(floor, observed), null, '\t')}\n`,
+		);
+		console.log(`banked ${CRAWL_INVENTORY_PATH}: ${pagesVisited} pages, ${checksRun} checks`);
+	}
+}
 if (outDir)
 	writeFileSync(
 		join(outDir, 'crawl_report.json'),
 		JSON.stringify({ audit, pagesVisited, checksRun, findings, stale, auditBlocked }, null, '\t'),
 	);
-process.exit(unexpected.length + stale.length === 0 ? 0 : 1);
+process.exit(red === 0 ? 0 : 1);
 
 // ---- per persona -----------------------------------------------------------
 

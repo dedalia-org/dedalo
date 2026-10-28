@@ -17,6 +17,8 @@
  *  5. ONE SUITE RUN AT A TIME (test/helpers/suite_run_lock.ts): the lock refuses a
  *     live holder, reclaims a dead one's, lets the holder's children through, and
  *     every runner that reseeds the suite fixtures takes it.
+ *  6. COVERAGE FLOORS (engineering/crawl_inventory.json): the record carries its rule
+ *     and real floors; a shortfall is named, and banking never lowers a floor.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -24,7 +26,15 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trackedRepoFiles } from '../helpers/css_reference_corpus.ts';
-import { INTERMITTENT, KNOWN_FAILING } from '../helpers/feature_crawl_ratchet.ts';
+import {
+	bankCrawlInventory,
+	CRAWL_INVENTORY_PATH,
+	CRAWL_INVENTORY_RULE,
+	type CrawlInventory,
+	crawlCoverageShortfalls,
+	INTERMITTENT,
+	KNOWN_FAILING,
+} from '../helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, JOURNEYS_PENDING } from '../helpers/journey_cases.ts';
 import { acquireSuiteRunLock, suiteRunLockPath } from '../helpers/suite_run_lock.ts';
 import { isGrantOnlyTool } from '../helpers/tool_directory_corpus.ts';
@@ -192,5 +202,35 @@ describe('one suite run at a time — the suite run lock', () => {
 			expect(readFileSync(join(import.meta.dir, '../..', file), 'utf8')).toMatch(
 				/acquireSuiteRunLock\(/,
 			);
+	});
+});
+
+describe('coverage floors — engineering/crawl_inventory.json', () => {
+	const record = JSON.parse(
+		readFileSync(join(import.meta.dir, '../..', CRAWL_INVENTORY_PATH), 'utf8'),
+	) as CrawlInventory;
+
+	test('the record carries its rule and real floors (three personas, every menu branch)', () => {
+		expect(Object.keys(record).sort()).toEqual(['check_floor', 'page_floor', 'rule']);
+		expect(record.rule).toBe(CRAWL_INVENTORY_RULE);
+		expect(Number.isInteger(record.page_floor)).toBe(true);
+		expect(Number.isInteger(record.check_floor)).toBe(true);
+		expect(record.page_floor).toBeGreaterThan(500);
+		expect(record.check_floor).toBeGreaterThan(record.page_floor);
+	});
+
+	test('a run below a floor is named; one at or above is not', () => {
+		const floor = { rule: CRAWL_INVENTORY_RULE, page_floor: 10, check_floor: 100 };
+		expect(crawlCoverageShortfalls(floor, { pages: 9, checks: 99 })).toHaveLength(2);
+		expect(crawlCoverageShortfalls(floor, { pages: 10, checks: 100 })).toHaveLength(0);
+	});
+
+	test('banking raises a floor to the observed count less the slack, and never lowers one', () => {
+		const floor = { rule: 'old', page_floor: 10, check_floor: 100 };
+		expect(bankCrawlInventory(floor, { pages: 1000, checks: 90 })).toEqual({
+			rule: CRAWL_INVENTORY_RULE,
+			page_floor: 980,
+			check_floor: 100,
+		});
 	});
 });
