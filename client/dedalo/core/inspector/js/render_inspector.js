@@ -767,7 +767,7 @@ const get_content_data = function(self) {
 
 		// button_duplicate . Call API to duplicate current record
 		// use the section_button_new, if it's defined user can create or duplicate the section
-			if (section_button_new) {
+			if (section_button_new && has_inspected_record(self)) {
 				const button_duplicate = ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'button block_icon light duplicate',
@@ -787,7 +787,7 @@ const get_content_data = function(self) {
 
 		// button_delete . Call API to delete current record
 			const section_button_delete = section_buttons.find(el => el.model==='button_delete')
-			if (section_button_delete) {
+			if (section_button_delete && has_inspected_record(self)) {
 				const button_delete = ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'button block_icon light remove',
@@ -1991,11 +1991,25 @@ export const update_project_container_body = function(self) {
 * @returns {boolean}
 */
 export const has_relation_list_access = function(self) {
-	const tipo			= self.caller?.context?.config?.relation_list_tipo
-	const section_id	= self.caller?.section_id
-	return typeof tipo==='string' && tipo.length>0
-		&& section_id!==null && section_id!==undefined && section_id!==''
+	const tipo = self.caller?.context?.config?.relation_list_tipo
+	return typeof tipo==='string' && tipo.length>0 && has_inspected_record(self)
 }//end has_relation_list_access
+
+
+
+/**
+* HAS_INSPECTED_RECORD
+* True when the inspector's caller resolved a record. An edit view on a missing
+* id has none: every record-bound block (Relations, Latest changes, Component
+* history, duplicate / delete) would query or act on a null record.
+* 0 is a legitimate id, so the test is explicit.
+* @param {Object} self - Inspector instance.
+* @returns {boolean}
+*/
+export const has_inspected_record = function(self) {
+	const section_id = self.caller?.section_id
+	return section_id!==null && section_id!==undefined && section_id!==''
+}//end has_inspected_record
 
 
 
@@ -2206,7 +2220,8 @@ export const has_time_machine_access = function(self) {
 * RENDER_TIME_MACHINE_BLOCKS
 * Appends the Latest changes + Component history blocks to the inspector body
 * ONLY when the server granted this user the section's history
-* (has_time_machine_access). No grant: nothing is appended, so neither loader
+* (has_time_machine_access) and the caller resolved a record
+* (has_inspected_record). Otherwise nothing is appended, so neither loader
 * ever finds a container and no dd15 request is sent.
 * @param {Object} self - Inspector instance.
 * @param {HTMLElement} content_data - the inspector body
@@ -2214,7 +2229,7 @@ export const has_time_machine_access = function(self) {
 */
 export const render_time_machine_blocks = function(self, content_data) {
 
-	if (!has_time_machine_access(self)) {
+	if (!has_time_machine_access(self) || !has_inspected_record(self)) {
 		return false
 	}
 

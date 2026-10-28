@@ -8,6 +8,7 @@ import { ui } from '../../../core/common/js/ui.js';
 // (!) ORDER MATTERS: inspector.js first (see test_inspector_loading.js).
 import '../../../core/inspector/js/inspector.js';
 import {
+	has_inspected_record,
 	has_time_machine_access,
 	load_component_history,
 	load_time_machine_list,
@@ -116,6 +117,19 @@ describe(`INSPECTOR TIME MACHINE ACCESS`, function () {
 		assert.isTrue(render_time_machine_blocks(self, container));
 		assert.isOk(container.querySelector('.time_machine_list'));
 		assert.isOk(container.querySelector('.component_history'));
+	});
+
+	it(`granted, but the edit view resolved no record → no block (nothing to inspect)`, () => {
+		for (const section_id of [null, undefined, '']) {
+			const self = make_self('test3_tm');
+			self.caller.section_id = section_id;
+			assert.isFalse(has_inspected_record(self), String(section_id));
+			assert.isFalse(render_time_machine_blocks(self, container), String(section_id));
+		}
+		assert.isNull(container.querySelector('.time_machine_list'));
+		const zero = make_self('test3_tm');
+		zero.caller.section_id = 0;
+		assert.isTrue(has_inspected_record(zero), '0 is a valid id');
 	});
 
 	it(`build() false → a quiet panel-local line, render() never called`, async () => {

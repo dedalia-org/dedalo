@@ -33,6 +33,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The side panel of a record that does not exist no longer offers record actions.**
+
+    Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
+
 - **The menu no longer offers Maintenance or Development to users whose profile does not grant them.**
 
     An administrator or developer whose profile did not grant the Maintenance area still saw it in the menu, and opening it showed the no-access page. The same happened to developers with the Development area. Each now appears only when the profile grants it, as every other menu entry already did. The main administrator is not affected.
