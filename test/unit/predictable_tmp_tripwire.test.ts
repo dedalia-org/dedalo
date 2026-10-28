@@ -70,6 +70,11 @@ interface Exemption {
 
 /** Files that must keep a FIXED temp name. Shrink-only; every count exact. */
 const EXEMPTIONS: Readonly<Record<string, Exemption>> = {
+	'test/helpers/suite_run_lock.ts': {
+		count: 1,
+		reason:
+			'cross-process RENDEZVOUS: bun test, test:client and test:crawl, started independently, must find the SAME lock file for one suite database — its directory must be derivable; the lock file itself is created exclusively (O_EXCL) and holds no data',
+	},
 	'scripts/client_test_server.ts': {
 		count: 1,
 		reason:

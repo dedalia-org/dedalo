@@ -6,7 +6,8 @@
  * restored wholesale, the crawl's persona records live in it. Two of them at
  * once wiped each other's fixtures and failed with misleading reds (a crawl
  * sweep "removed 0 rows", client suites reading a reseeded test3). Each takes
- * this lock first and refuses loudly while another live process holds it.
+ * this lock first and refuses loudly while another live process holds it — and so
+ * do test:tools:phone, test:client:server and test:db:setup (which drops the database).
  *
  * The lock is a file named after the suite database (shards and lanes hold
  * different databases, so they never contend). A lock whose holder process is

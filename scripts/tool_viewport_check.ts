@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
 import { compareLocators, type Locator } from '../src/core/concepts/locator.ts';
+import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import {
 	NOT_YET_PHONE,
 	PHONE_CASES,
@@ -70,6 +71,7 @@ interface Verdict {
 // the repoint must precede the first dynamic import that connects
 const { suiteDb } = resolveSuiteDatabase();
 repointProcessToSuiteDatabase(suiteDb);
+acquireSuiteRunLock(suiteDb, 'test:tools:phone'); // one suite run at a time
 
 const { ensureSuiteLoginPassword, SUITE_LOGIN_PASSWORD } = await import(
 	'../src/core/test_data/suite_login.ts'

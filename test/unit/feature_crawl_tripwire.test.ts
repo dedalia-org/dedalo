@@ -143,7 +143,7 @@ describe('one suite run at a time — the suite run lock', () => {
 	let dir = '';
 	let savedToken: string | undefined;
 	beforeAll(() => {
-		dir = mkdtempSync(join(tmpdir(), 'zzlock_'));
+		dir = mkdtempSync(join(tmpdir(), 'suite_lock_'));
 		savedToken = process.env[TOKEN]; // this very process holds the REAL lock (preload)
 	});
 	afterAll(() => {
@@ -154,26 +154,28 @@ describe('one suite run at a time — the suite run lock', () => {
 	const plant = (db: string, pid: number) =>
 		writeFileSync(
 			suiteRunLockPath(db, dir),
-			JSON.stringify({ pid, holder: 'zz holder', started: 'then' }),
+			JSON.stringify({ pid, holder: 'lock holder', started: 'then' }),
 		);
 
 	test('free → taken; a second taker in another live process is refused, naming the holder', () => {
-		const release = acquireSuiteRunLock('zzfree', 'zz', { dir });
-		expect(existsSync(suiteRunLockPath('zzfree', dir))).toBe(true);
+		const release = acquireSuiteRunLock('lockfree', 'lock test', { dir });
+		expect(existsSync(suiteRunLockPath('lockfree', dir))).toBe(true);
 		release();
-		expect(existsSync(suiteRunLockPath('zzfree', dir))).toBe(false);
-		plant('zzheld', process.ppid); // a live process that is not us
+		expect(existsSync(suiteRunLockPath('lockfree', dir))).toBe(false);
+		plant('lockheld', process.ppid); // a live process that is not us
 		delete process.env[TOKEN];
-		expect(() => acquireSuiteRunLock('zzheld', 'zz', { dir })).toThrow(/REFUSED.*zz holder/);
+		expect(() => acquireSuiteRunLock('lockheld', 'lock test', { dir })).toThrow(
+			/REFUSED.*lock holder/,
+		);
 	});
 
 	test("a dead holder's lock is reclaimed; the holder's own children pass", () => {
-		plant('zzstale', 2 ** 22 + 12345); // above macOS/Linux default pid_max: never alive
-		acquireSuiteRunLock('zzstale', 'zz', { dir })();
-		plant('zznested', process.ppid);
-		process.env[TOKEN] = `${suiteRunLockPath('zznested', dir)}#${process.ppid}`;
-		expect(() => acquireSuiteRunLock('zznested', 'zz', { dir })).not.toThrow();
-		expect(JSON.parse(readFileSync(suiteRunLockPath('zznested', dir), 'utf8')).pid).toBe(
+		plant('lockstale', 2 ** 22 + 12345); // above macOS/Linux default pid_max: never alive
+		acquireSuiteRunLock('lockstale', 'lock test', { dir })();
+		plant('locknested', process.ppid);
+		process.env[TOKEN] = `${suiteRunLockPath('locknested', dir)}#${process.ppid}`;
+		expect(() => acquireSuiteRunLock('locknested', 'lock test', { dir })).not.toThrow();
+		expect(JSON.parse(readFileSync(suiteRunLockPath('locknested', dir), 'utf8')).pid).toBe(
 			process.ppid,
 		);
 	});
@@ -183,6 +185,9 @@ describe('one suite run at a time — the suite run lock', () => {
 			'test/preload/canonical_test3.ts',
 			'scripts/client_test_runner.ts',
 			'scripts/feature_crawl.ts',
+			'scripts/tool_viewport_check.ts',
+			'scripts/client_test_serve.ts',
+			'scripts/test_db_setup.ts',
 		])
 			expect(readFileSync(join(import.meta.dir, '../..', file), 'utf8')).toMatch(
 				/acquireSuiteRunLock\(/,

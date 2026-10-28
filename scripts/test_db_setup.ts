@@ -132,6 +132,7 @@ import {
 	TEST_MARKER_TABLE,
 } from '../src/core/test_data/test_database_marker_constants.ts';
 import { suitePsqlConnArgs, suitePsqlEnv } from '../test/helpers/suite_pg.ts';
+import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import { readOnlyRoleClusterSql, testDatabaseName } from '../test/helpers/test_database.ts';
 import {
 	rebuildTestExportArtifactsRoot,
@@ -177,6 +178,9 @@ if (testDb === appDb || testDb === '') {
 	);
 	process.exit(1);
 }
+
+// it DROPS and rebuilds the suite database: never under a running suite
+acquireSuiteRunLock(testDb, 'test:db:setup');
 
 // The name reaches SQL as a double-quoted identifier (the DROP/CREATE below) and
 // the provenance probes interpolate it too. A quote or a backslash inside it
