@@ -5,7 +5,8 @@
  * A non-admin viewer's tree keeps only nodes whose tipo is SELF-KEY
  * authorized in their dd774 permissions table; the maintenance area (dd88)
  * additionally requires admin-or-developer and the development area (dd770)
- * requires developer. Expectations are DERIVED from the superuser tree and
+ * developer — the role is a precondition, never a grant (PHP falls through to
+ * the same authorized lookup). Expectations are DERIVED from the superuser tree and
  * the viewer's own permissions table — never hardcoded.
  */
 
@@ -13,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { getMenuTreeDatalist } from '../../src/core/api/handlers/menu.ts';
 import { getAuthorizedAreaTipos } from '../../src/core/security/permissions.ts';
 import {
+	ACL_ADMIN_USER_ID,
 	ACL_NON_ADMIN_USER_ID,
 	installAclIdentityFixture,
 	removeAclIdentityFixture,
@@ -73,6 +75,29 @@ describe('non-admin menu filter (Phase 6 gate)', () => {
 		});
 		const tipos = new Set(tree.tree_datalist.map((node) => node.tipo));
 		expect(tipos.has('dd770')).toBe(false);
+	});
+
+	test('the role areas need the GRANT too, not the role alone', async () => {
+		// A user id with no profile → an empty permissions table.
+		const UNGRANTED = 987654321;
+		expect((await getAuthorizedAreaTipos(UNGRANTED)).size).toBe(0);
+		expect((await getAuthorizedAreaTipos(ACL_ADMIN_USER_ID)).has('dd88')).toBe(true);
+		const superuserTipos = new Set((await getMenuTreeDatalist()).tree_datalist.map((n) => n.tipo));
+		expect(superuserTipos.has('dd88')).toBe(true);
+		expect(superuserTipos.has('dd770')).toBe(true);
+		const tipos = async (userId: number, isGlobalAdmin: boolean, isDeveloper: boolean) =>
+			new Set(
+				(await getMenuTreeDatalist({ userId, isGlobalAdmin, isDeveloper })).tree_datalist.map(
+					(n) => n.tipo,
+				),
+			);
+		// admin, not developer: dd88 only with the grant
+		expect((await tipos(ACL_ADMIN_USER_ID, true, false)).has('dd88')).toBe(true);
+		expect((await tipos(UNGRANTED, true, false)).has('dd88')).toBe(false);
+		// developer, not admin: dd88 only with the grant; dd770 never without it
+		expect((await tipos(ACL_ADMIN_USER_ID, false, true)).has('dd88')).toBe(true);
+		expect((await tipos(UNGRANTED, false, true)).has('dd88')).toBe(false);
+		expect((await tipos(UNGRANTED, false, true)).has('dd770')).toBe(false);
 	});
 
 	test('the admin+developer path is unchanged (unfiltered)', async () => {

@@ -33,6 +33,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The menu no longer offers Maintenance or Development to users whose profile does not grant them.**
+
+    An administrator or developer whose profile did not grant the Maintenance area still saw it in the menu, and opening it showed the no-access page. The same happened to developers with the Development area. Each now appears only when the profile grants it, as every other menu entry already did. The main administrator is not affected.
+
+    Wire contract: `WC-2026-10-28-menu-role-areas-need-grant`.
+
 - **Your user settings show your profile, and selection lists no longer show another user's labels.**
 
     In the user settings tool (your name in the menu), an administrator other than the main administrator was refused their own user number, user name and profile, and the profile was often empty for everyone. The tool now shows all three, read-only. The profile shows only the name of your own profile, even if your permissions do not include the Profiles section.
@@ -175,12 +181,13 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 5 entries"
+??? note "Wire contract — 6 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
     - `WC-2026-10-27-relation-list-grant-stamp`
     - `WC-2026-10-27-start-deep-link-record-scope`
+    - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-user-record-read-floor`
 
 ## 7.0.0-beta.7 — 2026-10-25

@@ -30,8 +30,8 @@
  *
  * SCOPE — both viewer paths: admin+developer receives the walk unfiltered;
  * any other viewer gets the PHP permission filter (self-key-authorized areas
- * from their dd774 table, dd88 gated to admin-or-developer, dd770 to
- * developers) applied per node before the menu transforms.
+ * from their dd774 table; dd88 additionally needs admin-or-developer, dd770
+ * developer) applied per node before the menu transforms.
  *
  * REWRITES (PHP menu switch cases, all implemented):
  * - section_tool nodes WITH a `tool_config`: tipo/model rewritten to the
@@ -280,20 +280,27 @@ export async function getMenuTreeDatalist(viewer?: {
 	let areas = await getOntologyAreas();
 
 	// Non-(admin AND developer) viewers get the FILTERED menu (PHP
-	// get_tree_datalist): the maintenance area needs admin-or-developer, the
-	// development area needs developer, and every other area must be
-	// self-key-authorized in the viewer's permissions table. PHP applies the
-	// filter per node (children of a dropped area were collected independently
-	// and survive on their own authorization).
+	// get_tree_datalist): EVERY area must be self-key-authorized in the viewer's
+	// permissions table; the maintenance area additionally needs
+	// admin-or-developer and the development area developer. The role is a
+	// precondition, never a grant (PHP `continue`s past the role check into the
+	// same authorized lookup) — offering dd88 on the flag alone showed a non-root
+	// admin an entry getPermissions then refused. PHP applies the filter per
+	// node (children of a dropped area were collected independently and survive
+	// on their own authorization).
 	if (viewer !== undefined && !(viewer.isGlobalAdmin && viewer.isDeveloper)) {
 		const { getAuthorizedAreaTipos } = await import('../../security/permissions.ts');
 		const authorized = await getAuthorizedAreaTipos(viewer.userId);
 		areas = areas.filter((area) => {
-			if (area.tipo === MAINTENANCE_AREA_TIPO_MENU) {
-				return viewer.isGlobalAdmin || viewer.isDeveloper;
+			if (
+				area.tipo === MAINTENANCE_AREA_TIPO_MENU &&
+				!viewer.isGlobalAdmin &&
+				!viewer.isDeveloper
+			) {
+				return false;
 			}
-			if (area.tipo === DEVELOPMENT_AREA_TIPO) {
-				return viewer.isDeveloper;
+			if (area.tipo === DEVELOPMENT_AREA_TIPO && !viewer.isDeveloper) {
+				return false;
 			}
 			return authorized.has(area.tipo);
 		});

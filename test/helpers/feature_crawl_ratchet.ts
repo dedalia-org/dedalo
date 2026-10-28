@@ -54,11 +54,6 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
 		'same as root:tools@component_image:tool:tool_error:tool_transcription',
 	],
 	[
-		'admin:dd88:menu:orphan',
-		'menu offers dd88 maintenance to any global admin but getPermissions requires a profile grant — engine inconsistency, follow-up',
-	],
-	['admin:dd88:area:api:perm.denied', 'same as admin:dd88:menu:orphan'],
-	[
 		'admin:test1:menu:orphan',
 		'test1 sits under the developer-only dd770 in the suite ontology; non-developers see the child without its parent',
 	],
