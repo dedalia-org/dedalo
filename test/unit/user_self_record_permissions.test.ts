@@ -7,6 +7,8 @@
  *
  *   dd244 security-administrator          -> 1  (always, even for a global admin)
  *   dd1725/dd515/dd132/dd330              -> 1  (non-global-admins: anti self-elevation)
+ *                                            >= 1 (global admin: matrix, floored at READ —
+ *                                                  TODO-071, tool_user_admin's read-only rows)
  *   dd452/dd134/dd133/dd522               -> 2  (editable self-data, used by tool_user_admin)
  *
  * The TS port shipped only the SEARCH-mode branch, so both halves were missing:
@@ -26,16 +28,20 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
+import { clearDatalistCache, getDatalist } from '../../src/core/relations/datalist.ts';
 import {
 	getPermissions,
+	getRecordComponentPermission,
 	type Principal,
 	resolveComponentContextPermission,
 	resolveOwnUserRecordPermission,
 	resolvePrincipal,
 } from '../../src/core/security/permissions.ts';
+import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import {
 	installOntologyAreaAccessFixture,
+	OA_GRANT_PROFILE_ID,
 	OA_GRANTED_ADMIN_ID,
 	OA_GRANTED_NON_ADMIN_ID,
 	removeOntologyAreaAccessFixture,
@@ -125,6 +131,17 @@ describe('resolveComponentContextPermission applies the table (non-search only)'
 			'edit',
 		);
 		expect(level).toBe(1);
+	});
+
+	test("a global admin's own guarded fields are READABLE even with a zero matrix (TODO-071)", async () => {
+		const admin = principal(424245, true);
+		for (const tipo of GUARDED) {
+			expect(await getPermissions(admin, USERS, tipo)).toBe(0);
+			expect(await getRecordComponentPermission(admin, USERS, tipo, 424245)).toBe(1);
+			expect(await resolveComponentContextPermission(admin, USERS, tipo, 424245, 'edit')).toBe(1);
+			// another user's record: no floor
+			expect(await getRecordComponentPermission(admin, USERS, tipo, 424246)).toBe(0);
+		}
 	});
 
 	test('SEARCH mode does NOT apply the table — PHP returns before it', async () => {
@@ -219,8 +236,13 @@ describe('dd_core_api::read serves your OWN record to tool_user_admin (end to en
 		await removeOntologyAreaAccessFixture();
 	});
 
-	async function readOwn(tipo: string, model: string, sectionId: number | string) {
-		const token = createSession(OWN, 'zzoa_granted_reader', false);
+	async function readOwn(
+		tipo: string,
+		model: string,
+		sectionId: number | string,
+		actor: Principal = user,
+	) {
+		const token = createSession(actor.userId, 'zzoa_reader', actor.isGlobalAdmin);
 		const session = getSession(token);
 		const result = await dispatchRqo(
 			{
@@ -240,7 +262,7 @@ describe('dd_core_api::read serves your OWN record to tool_user_admin (end to en
 				clientIp: '127.0.0.1',
 				session,
 				csrfCandidate: session?.csrfToken ?? null,
-				principal: user,
+				principal: actor,
 			} as never,
 		);
 		const body = result.body as {
@@ -279,5 +301,83 @@ describe('dd_core_api::read serves your OWN record to tool_user_admin (end to en
 
 	test("ANOTHER user's record keeps the matrix level — refused", async () => {
 		expect((await readOwn('dd452', 'component_input_text', OA_GRANTED_ADMIN_ID)).status).toBe(403);
+	});
+
+	test('a non-root GLOBAL ADMIN reads their own id / username / profile read-only (TODO-071)', async () => {
+		const admin = await resolvePrincipal(OA_GRANTED_ADMIN_ID);
+		expect(admin.isGlobalAdmin).toBe(true);
+		for (const [tipo, model] of [
+			['dd330', 'component_section_id'],
+			['dd132', 'component_input_text'],
+			['dd1725', 'component_select'],
+		] as const) {
+			expect(await getPermissions(admin, USERS, tipo)).toBe(0);
+			const { status, body } = await readOwn(tipo, model, OA_GRANTED_ADMIN_ID, admin);
+			expect(`${tipo} ${status}`).toBe(`${tipo} 200`);
+			expect(body.data?.context.find((c) => c.tipo === tipo)?.permissions).toBe(1);
+		}
+		const { body } = await readOwn('dd132', 'component_input_text', OA_GRANTED_ADMIN_ID, admin);
+		expect(JSON.stringify(body.data?.data)).toContain('zzoa_granted_admin');
+	});
+
+	test('own profile (read-only) names ONLY your own profile, labelled (TODO-071)', async () => {
+		const admin = await resolvePrincipal(OA_GRANTED_ADMIN_ID);
+		for (const [id, actor] of [
+			[OWN, user],
+			[OA_GRANTED_ADMIN_ID, admin],
+		] as const) {
+			// non-vacuity: this profile grants nothing on the Profiles label component
+			expect(await getPermissions(actor, 'dd234', 'dd237')).toBe(0);
+			clearDatalistCache();
+			const { body } = await readOwn('dd1725', 'component_select', id, actor);
+			const item = (body.data?.data as { tipo: string; datalist?: unknown }[]).find(
+				(d) => d.tipo === 'dd1725',
+			);
+			expect(item?.datalist).toEqual([
+				expect.objectContaining({
+					section_id: OA_GRANT_PROFILE_ID,
+					label: 'zzoa ontology grant profile',
+				}),
+			]);
+		}
+	});
+});
+
+describe('the option list is keyed by the label fields the reader may see (TODO-071)', () => {
+	// request_config drops a label ddo the actor holds 0 on, so a user without a
+	// grant on dd237 builds BLANK labels. Keyed by (component, owner, lang) alone,
+	// whoever built first decided what everyone saw.
+	let reader: Principal;
+	beforeAll(async () => {
+		await installOntologyAreaAccessFixture();
+		reader = await resolvePrincipal(OA_GRANTED_NON_ADMIN_ID);
+	});
+	afterAll(async () => {
+		await removeOntologyAreaAccessFixture();
+	});
+
+	const labels = async (actor: Principal | undefined) => {
+		const build = () =>
+			getDatalist('dd1725', null, USERS, 'lg-eng').then((items) =>
+				items.filter((i) => i.section_id === OA_GRANT_PROFILE_ID).map((i) => i.label),
+			);
+		return actor === undefined
+			? build()
+			: runWithRequestContext(
+					{ principal: actor, session: null, requestId: 'k', clientIp: '' },
+					build,
+				);
+	};
+
+	test('an ungranted reader first does not blank the list for everyone', async () => {
+		clearDatalistCache();
+		expect(await labels(reader)).toEqual(['']);
+		expect(await labels(undefined)).toEqual(['zzoa ontology grant profile']);
+	});
+
+	test('a full list first is not served to an ungranted reader', async () => {
+		clearDatalistCache();
+		expect(await labels(undefined)).toEqual(['zzoa ontology grant profile']);
+		expect(await labels(reader)).toEqual(['']);
 	});
 });

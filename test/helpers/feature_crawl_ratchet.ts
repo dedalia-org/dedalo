@@ -62,10 +62,6 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
 		'admin:test1:menu:orphan',
 		'test1 sits under the developer-only dd770 in the suite ontology; non-developers see the child without its parent',
 	],
-	[
-		'admin:tools@menu:tool:tool_user_admin:api:perm.denied',
-		'a non-root admin opening tool_user_admin is refused reading their own dd128 record (dd132/dd330/dd1725) — follow-up',
-	],
 	['editor:test1:menu:orphan', 'same as admin:test1:menu:orphan'],
 	[
 		'editor:ontology40:menu:orphan',

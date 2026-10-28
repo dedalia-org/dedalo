@@ -795,7 +795,7 @@ const SELF_EDITABLE_COMPONENTS: ReadonlySet<string> = new Set(['dd452', 'dd134',
  * PHP guards the whole branch with `!empty($user_id)`, so user id 0 — the
  * "no logged user" sentinel — is deliberately skipped here too.
  */
-function isActorsOwnUserRecord(
+export function isActorsOwnUserRecord(
 	principal: Principal,
 	sectionTipo: string,
 	sectionId: number | string | null | undefined,
@@ -899,7 +899,18 @@ export async function getRecordComponentPermission(
 		sectionId,
 	);
 	if (ownRecordLevel !== null) return ownRecordLevel;
-	return getPermissions(principal, sectionTipo, componentTipo);
+	const level = await getPermissions(principal, sectionTipo, componentTipo);
+	// A global admin skips the guarded downgrade (PHP), so the matrix decides — and most
+	// profiles grant 0 on dd128, which refused tool_user_admin's read-only section id /
+	// username / profile rows on the admin's OWN record (TODO-071). Your own guarded
+	// fields are always readable: a floor, never a cap (a matrix 2 stays 2).
+	if (
+		level < 1 &&
+		SELF_ELEVATION_GUARDED.has(componentTipo) &&
+		isActorsOwnUserRecord(principal, sectionTipo, sectionId)
+	)
+		return 1;
+	return level;
 }
 
 /**
@@ -955,13 +966,12 @@ export async function resolveComponentContextPermission(
 		// PHP evaluates the own-record cases only after the search branch has
 		// returned, and they DOWNGRADE as well as upgrade — so they run even when
 		// the matrix already grants a level.
-		const ownRecordLevel = resolveOwnUserRecordPermission(principal, sectionTipo, tipo, sectionId);
-		if (ownRecordLevel !== null) return ownRecordLevel;
 		// NOTE: the ONT-TLD read-only cap on `ontology7` is NOT here. This function
 		// stamps only the MAIN element of a get_data; a section's component elements
 		// come from section/read.ts's subdatum loop, which never calls it. The rule
 		// lives at the one point both paths cross — resolve/structure_context.ts,
 		// beside the consultation-only cap.
+		return getRecordComponentPermission(principal, sectionTipo, tipo, sectionId);
 	}
 	return getPermissions(principal, sectionTipo, tipo);
 }

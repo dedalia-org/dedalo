@@ -182,6 +182,27 @@ const MAX_DATALIST_CACHE_ENTRIES = 500;
 const datalistCache = createOntologyCache<string, DatalistItem[]>();
 
 /**
+ * The cache key. The LABEL and HIDE ddo sets are part of it because they are
+ * PRINCIPAL-DEPENDENT: request_config drops the show ddos the actor holds level 0
+ * on (implicit.ts filterAuthorizedRelated, PHP filter_authorized_related), so a
+ * user without a grant on the target's label component builds blank labels. Keyed
+ * without them, the FIRST caller's list was served to everyone — blank profile
+ * names for root after an editor opened dd1725, or labels a user may not read
+ * after root did (TODO-071). Keyed by the resolved set, not the user: users with
+ * the same grants share one list.
+ */
+function datalistCacheKey(
+	componentTipo: string,
+	ownerSectionTipo: string,
+	lang: string,
+	labelDdos: readonly { tipo: string }[],
+	hideDdos: readonly { tipo: string }[],
+): string {
+	const tipos = (ddos: readonly { tipo: string }[]) => ddos.map((ddo) => ddo.tipo).join(',');
+	return `${componentTipo}_${ownerSectionTipo}_${lang}_${tipos(labelDdos)}|${tipos(hideDdos)}`;
+}
+
+/**
  * Populate-time index: target section tipo → the datalist cache keys built
  * from its records (S1-11). It stores WHOLE cache keys (opaque strings), so
  * without this index a record write to a TARGET section could not be mapped
@@ -384,19 +405,19 @@ export async function probeDatalistSize(
 	// A model-sourced list is small by construction and cheap to build: count it.
 	const modelSource = await modelDatalistSource(componentTipo);
 	if (modelSource !== null) return Math.min((await modelSource.options(lang)).length, limit);
-	// A list already built is already paid for — count it rather than re-probe.
-	// SAME key shape as getDatalist (owner section included) — the doc-block on
-	// resolveDatalistSources is the contract: probe and build must never
-	// disagree about what the component's options ARE.
-	const cached = datalistCache.get(`${componentTipo}_${ownerSectionTipo}_${lang}`);
-	if (cached !== undefined) return Math.min(cached.length, limit);
-
-	const { targetSections, filterGroup } = await resolveDatalistSources(
+	const { targetSections, labelDdos, hideDdos, filterGroup } = await resolveDatalistSources(
 		componentTipo,
 		componentProperties,
 		ownerSectionTipo,
 		lang,
 	);
+	// A list already built is already paid for — count it rather than re-probe.
+	// SAME key as getDatalist — the doc-block on resolveDatalistSources is the
+	// contract: probe and build must never disagree about what the options ARE.
+	const cached = datalistCache.get(
+		datalistCacheKey(componentTipo, ownerSectionTipo, lang, labelDdos, hideDdos),
+	);
+	if (cached !== undefined) return Math.min(cached.length, limit);
 	let found = 0;
 	for (const targetSection of targetSections) {
 		if (found >= limit) break;
@@ -598,19 +619,19 @@ async function getTargetSectionDatalist(
 	ownerSectionTipo: string,
 	lang: string,
 ): Promise<DatalistItem[]> {
-	// Owner section is part of the key — see the datalistCache doc-block: the
-	// sqo target can resolve from the CALLER, so the same component tipo means
-	// a different option list per owner section.
-	const cacheKey = `${componentTipo}_${ownerSectionTipo}_${lang}`;
-	const cached = datalistCache.get(cacheKey);
-	if (cached !== undefined) return cached;
-
 	const { targetSections, labelDdos, hideDdos, filterGroup } = await resolveDatalistSources(
 		componentTipo,
 		componentProperties,
 		ownerSectionTipo,
 		lang,
 	);
+	// Owner section is part of the key — see the datalistCache doc-block: the
+	// sqo target can resolve from the CALLER, so the same component tipo means
+	// a different option list per owner section. The label set too — see
+	// datalistCacheKey.
+	const cacheKey = datalistCacheKey(componentTipo, ownerSectionTipo, lang, labelDdos, hideDdos);
+	const cached = datalistCache.get(cacheKey);
+	if (cached !== undefined) return cached;
 	const items: DatalistItem[] = [];
 
 	for (const targetSection of targetSections) {

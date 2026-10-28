@@ -33,6 +33,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Your user settings show your profile, and selection lists no longer show another user's labels.**
+
+    In the user settings tool (your name in the menu), an administrator other than the main administrator was refused their own user number, user name and profile, and the profile was often empty for everyone. The tool now shows all three, read-only. The profile shows only the name of your own profile, even if your permissions do not include the Profiles section.
+
+    Selection lists could show the option names of whoever opened them first since the server started: empty names for users who should see them, or names a user is not allowed to read. Each user now sees the names their own permissions allow.
+
+    Wire contract: `WC-2026-10-28-own-user-record-read-floor`.
+
 - **Opening a record you cannot access shows the no-access page, and the Relations panel appears only when you may read it.**
 
     Opening a record by its address (a bookmark or a shared link) when the record belongs to a project you do not work in showed an empty form, and the side panel then showed an error message. It now shows the no-access page. A record that does not exist gets the same page, so the page never tells you whether a record you cannot see exists. Administrators are not affected.
@@ -167,12 +175,13 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 4 entries"
+??? note "Wire contract — 5 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
     - `WC-2026-10-27-relation-list-grant-stamp`
     - `WC-2026-10-27-start-deep-link-record-scope`
+    - `WC-2026-10-28-own-user-record-read-floor`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

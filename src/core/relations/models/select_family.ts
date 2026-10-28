@@ -108,13 +108,15 @@ async function buildOptionsItem(
 	storedLocators: StoredLocator[],
 	properties: NodeProperties,
 ): Promise<DataItem> {
-	const datalist = await getEditDatalist(
-		context.ddo.tipo,
-		properties,
-		configOwnerOf(context.row).section_tipo,
-		context.ddoLang,
-		storedLocators,
-	);
+	const datalist =
+		(await ownReadOnlyDatalist(context, storedLocators, properties)) ??
+		(await getEditDatalist(
+			context.ddo.tipo,
+			properties,
+			configOwnerOf(context.row).section_tipo,
+			context.ddoLang,
+			storedLocators,
+		));
 	const item = buildDataItem(
 		context.ddo.tipo,
 		context.row.section_tipo,
@@ -125,6 +127,52 @@ async function buildOptionsItem(
 	);
 	item.datalist = datalist;
 	return item;
+}
+
+/**
+ * YOUR OWN USER RECORD, READ-ONLY (TODO-071): tool_user_admin shows the actor's
+ * profile (dd1725) read-only, but its option labels come from the Profiles
+ * section, which most profiles grant nothing on — request_config drops the label
+ * ddo and the name rendered blank. A read-only field offers no choice, so the
+ * datalist carries only the STORED option(s), labelled without the per-user ddo
+ * filter: the user learns the name of their own profile, never the list of
+ * profiles. null = not this case (another record, or the field is editable).
+ */
+async function ownReadOnlyDatalist(
+	context: RelationEmitContext,
+	storedLocators: StoredLocator[],
+	properties: NodeProperties,
+): Promise<Awaited<ReturnType<typeof getEditDatalist>> | null> {
+	if (storedLocators.length === 0) return null;
+	const { currentRequestContext } = await import('../../security/request_context.ts');
+	const requestContext = currentRequestContext();
+	const principal = requestContext?.principal;
+	if (requestContext === undefined || principal === undefined) return null;
+	const { getRecordComponentPermission, isActorsOwnUserRecord } = await import(
+		'../../security/permissions.ts'
+	);
+	const { section_tipo: sectionTipo, section_id: sectionId } = context.row;
+	if (!isActorsOwnUserRecord(principal, sectionTipo, sectionId)) return null;
+	if ((await getRecordComponentPermission(principal, sectionTipo, context.ddo.tipo, sectionId)) > 1)
+		return null;
+	const { runWithRequestContext } = await import('../../security/request_context.ts');
+	const all = await runWithRequestContext({ ...requestContext, principal: undefined }, () =>
+		getEditDatalist(
+			context.ddo.tipo,
+			properties,
+			configOwnerOf(context.row).section_tipo,
+			context.ddoLang,
+			storedLocators,
+		),
+	);
+	const { isLocatorInArray } = await import('../../concepts/locator.ts');
+	return all.filter((option) => {
+		const value = (option as { value?: StoredLocator }).value;
+		return (
+			value !== undefined &&
+			isLocatorInArray(value as never, storedLocators as never[], ['section_tipo', 'section_id'])
+		);
+	});
 }
 
 export const selectFamilyResolver: RelationModelResolver = {
