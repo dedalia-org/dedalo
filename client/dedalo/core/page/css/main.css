@@ -5952,7 +5952,7 @@ dd-modal.dd_presets::part(content) {
   background-color: var(--color_grey_16);
 }
 .components_list_container > ul {
-  max-height: 80vh;
+  max-height: 50vh;
   overflow: auto;
 }
 .components_list_container ul {
