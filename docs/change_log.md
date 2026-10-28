@@ -95,6 +95,14 @@ Merged since the last release; these ship with the next one.
 
 ### For administrators
 
+#### Security
+
+- **The relations of a record are only shown to users who can open that record.**
+
+    A user with access to a section could ask which records point at any record of that section, including records outside their projects. Dédalo now refuses that request unless the user can open the record itself, and answers the same way when the record does not exist. Nothing changes for records you can open.
+
+    Wire contract: `WC-2026-10-28-related-host-record-scope`.
+
 #### Added
 
 - **The permissions tree filter can show the siblings of a found item.**
@@ -198,7 +206,7 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 8 entries"
+??? note "Wire contract — 9 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -206,6 +214,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-27-start-deep-link-record-scope`
     - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-user-record-read-floor`
+    - `WC-2026-10-28-related-host-record-scope`
     - `WC-2026-10-28-section-definition-defects`
     - `WC-2026-10-28-tool-open-defects`
 

@@ -247,7 +247,11 @@ const source = {
 };
 const filterByLocators = [{ section_tipo: HOST_SECTION, section_id: HOST_ID }];
 
-async function readPanel(userId: number, src: Record<string, unknown> = source) {
+async function readPanel(
+	userId: number,
+	src: Record<string, unknown> = source,
+	hosts: object[] = filterByLocators,
+) {
 	return dispatchRqo(
 		{
 			action: 'read',
@@ -258,21 +262,25 @@ async function readPanel(userId: number, src: Record<string, unknown> = source) 
 				mode: 'related',
 				limit: 10,
 				offset: 0,
-				filter_by_locators: filterByLocators,
+				filter_by_locators: hosts,
 			},
 		} as never,
 		(await contextFor(userId)) as never,
 	);
 }
 
-async function countPanel(userId: number, src: Record<string, unknown> = source) {
+async function countPanel(
+	userId: number,
+	src: Record<string, unknown> = source,
+	hosts: object[] = filterByLocators,
+) {
 	return dispatchRqo(
 		{
 			action: 'count',
 			dd_api: 'dd_core_api',
 			prevent_lock: true,
 			source: src,
-			sqo: { section_tipo: ['all'], mode: 'related', filter_by_locators: filterByLocators },
+			sqo: { section_tipo: ['all'], mode: 'related', filter_by_locators: hosts },
 		} as never,
 		(await contextFor(userId)) as never,
 	);
@@ -352,6 +360,29 @@ describe.if(DB_READY)('inspector Relations: the trigger is stamped per principal
 		const visible = REFS.filter((ref) => ref.visible).map((ref) => marker(ref.id));
 		expect(rows).toEqual(visible.sort());
 		expect((count.body.data as { total: number }).total).toBe(rows.length);
+	});
+
+	test('the HOST record is scoped too: out-of-project or missing → 403 (same answer), in-project → 200', async () => {
+		// zzrla20 is project-gated: record 1 is in the reader's project, record 2 is not.
+		// The dialog shape (tipo = the section) needs no node grant, so only the record decides.
+		const dialog = { ...source, section_tipo: REF_SECTION, tipo: REF_SECTION };
+		const answer = async (userId: number, sectionId: number) => {
+			const hosts = [{ section_tipo: REF_SECTION, section_id: sectionId }];
+			const read = await readPanel(userId, { ...dialog, section_id: sectionId }, hosts);
+			const count = await countPanel(userId, { ...dialog, section_id: sectionId }, hosts);
+			return [read.status, codeOf(read.body), count.status, codeOf(count.body)];
+		};
+		expect({
+			inProject: await answer(GRANTED_USER_ID, 1),
+			outOfProject: await answer(GRANTED_USER_ID, 2),
+			missing: await answer(GRANTED_USER_ID, 958899),
+			superuser: await answer(-1, 2),
+		}).toEqual({
+			inProject: [200, null, 200, null],
+			outOfProject: [403, 'perm.denied', 403, 'perm.denied'],
+			missing: [403, 'perm.denied', 403, 'perm.denied'],
+			superuser: [200, null, 200, null],
+		});
 	});
 
 	test('the superuser sees every referrer (the scope contrast is live)', async () => {

@@ -191,8 +191,21 @@ describe.if(DB_READY)('dd_core_api.count', () => {
 	beforeAll(async () => {
 		await installAclIdentityFixture();
 		await purge({ strict: false });
+		// The host is IN the non-admin's project: its referrers are what gets scoped
+		// (a host outside their projects is refused outright — the host-record test below).
 		await insertScratchRecord(HOST_ID, {
 			string: { test4: [{ id: 1, lang: 'lg-eng', value: 'zzcnt host record' }] },
+			relation: {
+				[PROJECTS_COMPONENT]: [
+					{
+						id: 1,
+						type: 'dd675',
+						section_id: ACL_PROJECT_ID,
+						section_tipo: 'dd153',
+						from_component_tipo: PROJECTS_COMPONENT,
+					},
+				],
+			},
 		});
 		await insertScratchRecord(REFERRER_IN_SCOPE, {
 			relation: referrerRelation(ACL_PROJECT_ID),
@@ -263,6 +276,27 @@ describe.if(DB_READY)('dd_core_api.count', () => {
 		const allowed = await dispatchRqo(rqo as never, adminContext as never);
 		expect(allowed.status).toBe(200);
 		expect(typeof totalOf(allowed.body)).toBe('number');
+	});
+
+	test('related mode: a host RECORD outside the caller\u2019s projects is 403, as for a missing one', async () => {
+		const asHost = (sectionId: number) => ({
+			action: 'count',
+			dd_api: 'dd_core_api',
+			sqo: {
+				mode: 'related',
+				section_tipo: [SECTION],
+				filter_by_locators: [{ section_tipo: SECTION, section_id: sectionId }],
+			},
+		});
+		const outOfScope = await dispatchRqo(
+			asHost(REFERRER_OUT_OF_SCOPE) as never,
+			nonAdminContext as never,
+		);
+		const missing = await dispatchRqo(asHost(937999) as never, nonAdminContext as never);
+		const admin = await dispatchRqo(asHost(REFERRER_OUT_OF_SCOPE) as never, adminContext as never);
+		expect([outOfScope.status, errorCodeOf(outOfScope.body)]).toEqual([403, 'perm.denied']);
+		expect([missing.status, errorCodeOf(missing.body)]).toEqual([403, 'perm.denied']);
+		expect(admin.status).toBe(200);
 	});
 
 	test('AUTHZ-05: the non-admin total counts ONLY references inside their projects', async () => {

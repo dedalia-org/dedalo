@@ -89,7 +89,27 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 			throw new DedaloError('perm.denied', { coordinates: { section_tipo: hostSectionTipo } });
 		}
 	}
+	await gateRelatedHostRecords(related.filter_by_locators, principal);
 	return true;
+}
+
+/**
+ * The host RECORD half: a section grant is not a record grant. "Who points at record N"
+ * is that record's data, so a host outside the caller's projects is refused — the same
+ * perm.denied for a missing and an out-of-scope id (no existence oracle), like start's
+ * deep link (WC-2026-10-28-related-host-record-scope). A locator without an id names no record.
+ */
+async function gateRelatedHostRecords(locators: unknown[], principal: Principal): Promise<void> {
+	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
+	for (const locator of locators as { section_tipo?: unknown; section_id?: unknown }[]) {
+		if (typeof locator?.section_tipo !== 'string' || locator.section_id == null) continue;
+		const sectionId = Number(locator.section_id);
+		if (!(await principalCanAccessRecord(locator.section_tipo, sectionId, principal))) {
+			throw new DedaloError('perm.denied', {
+				coordinates: { section_tipo: locator.section_tipo, section_id: String(locator.section_id) },
+			});
+		}
+	}
 }
 
 /**
