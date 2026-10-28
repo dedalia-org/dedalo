@@ -163,6 +163,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **After login, users open on the default section set in their user record.**
+
+    The "Default section" field of a user record (for example `numisdata6`) was saved but never used. Opening Dédalo without a section in the address now shows that section, provided the user is allowed to read it. If the field is empty, names something that is not a section or area, or names one the user cannot read, Dédalo opens as before: the installation's main section, or the menu.
+
+    Wire contract: `WC-2026-10-29-start-user-default-section`.
+
 - **Menu entries a user may open no longer disappear when their parent area is hidden from that user.**
 
     When a user's profile granted a section but not the area that contains it in the menu, the section was missing from that user's menu even though they could open it. It now appears under the nearest area the user can see, or at the top of the menu. Sections inside the Ontology, Development and Maintenance areas stay hidden from users who cannot open those areas.
@@ -277,7 +283,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-section-tool-test6402-config`.
 
-??? note "Wire contract — 15 entries"
+??? note "Wire contract — 16 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -294,6 +300,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-section-tool-test6402-config`
     - `WC-2026-10-28-start-component-deep-link-record-scope`
     - `WC-2026-10-28-tool-open-defects`
+    - `WC-2026-10-29-start-user-default-section`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

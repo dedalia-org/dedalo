@@ -14,6 +14,8 @@
  *   5. the superuser on the out-of-project record → 200 (non-vacuity: it exists);
  *   6. a COMPONENT deep link to the record is gated the same way
  *      (WC-2026-10-28-start-component-deep-link-record-scope); id 0 stays untouched.
+ *   7. no tipo in the URL → the user's dd1603 "Default section" when it names a
+ *      section they may read (TODO-070); an ungranted or malformed one falls back.
  *
  * Situation `zzsrs` (scratch TLD, torn down): section zzsrs1, project-gated by
  * component_filter zzsrs3, one record in the persona's project and one outside.
@@ -363,5 +365,24 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 			id: String(OUT_OF_SCOPE_ID),
 		});
 		expect(superuser.status).toBe(200);
+	});
+
+	test('no tipo in the URL: the user lands on their dd1603 default section — only one they may read', async () => {
+		const landing = async (value: string) => {
+			await sql.unsafe(
+				`UPDATE matrix_users SET string = jsonb_set(string, '{dd1603}', $1::text::jsonb)
+				 WHERE section_tipo = 'dd128' AND section_id = $2`,
+				[encodeForJsonb([{ id: 1, lang: 'lg-nolan', value }]), USER_ID],
+			);
+			const answer = await start(USER_ID, {});
+			expect(answer.status).toBe(200);
+			return sectionContextOf(answer.body) !== undefined;
+		};
+		expect(await landing(SECTION)).toBe(true);
+		// ungranted (the profile holds only the scratch section), and not a tipo at all
+		expect(await landing('dd128')).toBe(false);
+		expect(await landing(`${SECTION}; drop`)).toBe(false);
+		// back to a good value: the fall-backs above were the value, not a stuck state
+		expect(await landing(SECTION)).toBe(true);
 	});
 });

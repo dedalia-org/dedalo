@@ -60,3 +60,31 @@ export async function resolveUserName(
 	const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | undefined;
 	return typeof first?.value === 'string' ? first.value : null;
 }
+
+/** The users section's "Default section" component (TODO-070). */
+const USER_DEFAULT_SECTION_COMPONENT = 'dd1603';
+
+/**
+ * The tipo the user lands on after login when the URL names none (dd1603
+ * "Default section", e.g. 'numisdata6'), or null when the record has none.
+ * Only a shape check here: the caller decides whether that tipo is a page the
+ * user may open, because a stale or ungranted default must never block a login.
+ */
+export async function resolveUserDefaultSection(userId: number): Promise<string | null> {
+	const { readMatrixRecord } = await import('../db/matrix.ts');
+	const record = await readMatrixRecord('matrix_users', USERS_SECTION, userId);
+	if (record === null) return null;
+	const { resolveComponentValue } = await import('../resolve/component_data.ts');
+	const { getModelByTipo } = await import('../ontology/resolver.ts');
+	const { currentDataLang } = await import('../resolve/request_lang.ts');
+	const model = (await getModelByTipo(USER_DEFAULT_SECTION_COMPONENT)) ?? 'component_input_text';
+	const { value, fallbackValue } = await resolveComponentValue(
+		record,
+		USER_DEFAULT_SECTION_COMPONENT,
+		model,
+		currentDataLang(),
+	);
+	const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | string | undefined;
+	const tipo = (typeof first === 'string' ? first : first?.value)?.toString().trim() ?? '';
+	return /^[a-z]+[0-9]+$/.test(tipo) ? tipo : null;
+}

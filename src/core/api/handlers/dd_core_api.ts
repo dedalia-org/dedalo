@@ -1297,7 +1297,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			};
 		}
 
-		const requestedTipo = pick(locator?.tipo, searchObj.t, searchObj.tipo);
+		const requestedTipo =
+			pick(locator?.tipo, searchObj.t, searchObj.tipo) ?? (await userLandingTipo(principal));
 
 		// NO SECTION ASKED FOR, AND NONE CONFIGURED → the MENU (2026-08-22).
 		// MAIN_SECTION used to default to one installation's section, so a login
@@ -2020,4 +2021,19 @@ async function readMenu(
 			{ requestId: context.requestId },
 		),
 	};
+}
+
+/**
+ * TODO-070: with no tipo in the URL, the user's own dd1603 "Default section" wins
+ * over MAIN_FALLBACK_SECTION — but only a section/area the user may read; a stale
+ * or ungranted default falls through silently (it must never block a login).
+ */
+async function userLandingTipo(principal: Principal): Promise<string | null> {
+	const { resolveUserDefaultSection } = await import('../../security/user_identity.ts');
+	const tipo = await resolveUserDefaultSection(principal.userId);
+	if (tipo === null) return null;
+	const { getModelByTipo } = await import('../../ontology/resolver.ts');
+	const model = (await getModelByTipo(tipo)) ?? '';
+	if (model !== 'section' && !model.startsWith('area')) return null;
+	return (await getPermissions(principal, tipo, tipo)) >= 1 ? tipo : null;
 }
