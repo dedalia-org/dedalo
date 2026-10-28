@@ -427,8 +427,8 @@ function declaredEntries(root: string): MediaTreeEntry[] {
 		path: treePath(imageFolder, folderName(readString('DEDALO_IMAGE_WEB_FOLDER'))),
 		base: 'media',
 		reason:
-			'browser-optimised image variants uploaded from rich text (DEDALO_IMAGE_WEB_FOLDER, default /web); no TS writer yet — kept so it is never created ad-hoc',
-		consumer: null,
+			'images inserted into rich text from the editor (DEDALO_IMAGE_WEB_FOLDER, default /web)',
+		consumer: 'core/media/ingest/upload.ts publishWebImage',
 		probe: 'none',
 	});
 	entries.push({

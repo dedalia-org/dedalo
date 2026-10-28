@@ -220,6 +220,8 @@ describe('reconcile registry completeness (S-10)', () => {
 			publication_apis: 'src/core/publication_host/api_reconcile.ts',
 			media_copy: 'src/diffusion/api/reconcile.ts',
 			publication_probe: 'src/core/publication_host/probe.ts',
+			rich_text_images: 'src/core/media/rich_text_image_reconcile.ts',
+			web_image_exposure: 'src/diffusion/api/reconcile.ts',
 		};
 		for (const definition of REGISTERED) {
 			const owner = owners[definition.name];
@@ -253,6 +255,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			'ontology',
 			'hierarchy',
 			'public_tier',
+			'rich_text_images',
 		]) {
 			expect((REGISTERED.find((d) => d.name === name) as ReconcileDefinition).schedule).toBe(
 				'operator',
@@ -267,10 +270,16 @@ describe('reconcile registry completeness (S-10)', () => {
 		expect(REGISTERED.filter((d) => d.applyRefused !== undefined).map((d) => d.name)).toEqual([
 			'publication_apis',
 		]);
-		// An operator APPLY that touches a public machine is root-only at the widget door
-		// (E10): media_copy alone declares it, with a reason; reconcile_status enforces it.
+		// An operator APPLY that changes what the public can read is root-only at the widget
+		// door (E10): media_copy (a public machine), rich_text_images (makes login-only files
+		// public) and web_image_exposure (makes published files private), each with a reason;
+		// reconcile_status enforces it.
 		const rootOnly = REGISTERED.filter((d) => d.applyRootOnly !== undefined);
-		expect(rootOnly.map((d) => d.name)).toEqual(['media_copy']);
+		expect(rootOnly.map((d) => d.name)).toEqual([
+			'media_copy',
+			'rich_text_images',
+			'web_image_exposure',
+		]);
 		for (const definition of rootOnly) {
 			expect((definition.applyRootOnly as { reason: string }).reason.length).toBeGreaterThan(40);
 		}

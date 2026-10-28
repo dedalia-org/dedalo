@@ -150,3 +150,34 @@ media, and the tail is correct by construction), or publication needs a third,
 target-scoped base with `exportBase`'s never-guess semantics. Not decided here;
 no key invented. Whoever hits a split-origin publication site should settle it
 in its own entry and cite this paragraph.
+## Addendum 2026-10-26 — rich-text `<img src>`: stored relative, served on `webBase` (TODO-067)
+
+The CKEditor image upload (`media/ingest/upload_endpoint.ts`, key_dir `web`)
+answers `{ url: <webBase>/image/web/<name> }` — on `webBase` like every client
+media URL, so the editor displays the image at once on a split-origin install.
+The editor then writes that url VERBATIM into the text_area HTML, which made it
+**persisted content** — the "Deliberately NOT on it" row: a record must not
+embed the media origin. Same two-audience split as the 2026-09-01 addendum:
+
+- **Stored** (the html write gate, `save_component.ts` `applyWriteValueGates`,
+  after the sanitizer): `src="<webBase>/…"` → `src="/dedalo/<mediaDir>/…"`
+  (`media/web_base_src.ts` `relativizeMediaSrc`). Every write door funnels
+  through it, so a pre-fix record carrying the absolute host is cured on its
+  next save.
+- **Served** (`component_text_area/emit.ts` `transformValue`, every mode the
+  engine emits to its own client): `src="/dedalo/<mediaDir>/…"` →
+  `src="<webBase>/…"` (`appServedMediaSrc`). Diffusion does not read through
+  the emit hook, so published HTML keeps the relative form.
+- **Echoed** (the `save` response, `dd_core_api.ts` `servedRichTextEcho`): the
+  stored items rebased like the read. The client takes the echo as its
+  post-save change baseline (`component_common.js` `db_data`); a relative echo
+  against the editor's absolute src made every later blur re-send a no-op save.
+
+Both are exact `src="<base>/` string swaps and no-ops when the key is unset
+(`webBase` IS `/dedalo/<mediaDir>`), so the wire is byte-identical in the
+default config. **Re-harvest: NO.**
+
+Gate: `test/unit/text_area_media_src_split_origin.test.ts` — a child process
+under an absolute base saves through `dispatchRqo` (the client's door), reads the stored row
+(relative), the save echo and the `readSection` EDIT item (both absolute); red
+on the pre-fix code.

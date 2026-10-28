@@ -242,6 +242,47 @@ describe('PINNED RECORD VIEW — pin and offset are exclusive', function () {
 			await instance.destroy(true, true, true);
 		}
 	});
+
+	it('a Time Machine read is a page view: its one locator names a HISTORY (inspector component history)', async () => {
+		// the shape render_inspector.js load_component_history sends. Taken as a
+		// pin, build forced limit 1 and the next refresh (closing a TM note) listed
+		// only the newest row.
+		const instance = await get_instance({
+			model: 'section',
+			tipo: 'dd15',
+			section_tipo: 'dd15',
+			mode: 'list',
+			id_variant: 'pinned_record_view_tm',
+			session_save: false,
+			request_config: [
+				{
+					api_engine: 'dedalo',
+					type: 'main',
+					sqo: {
+						mode: 'tm',
+						section_tipo: ['test3'],
+						limit: 10,
+						offset: 0,
+						filter_by_locators: [
+							{ section_tipo: 'test3', section_id: record_id, tipo: 'test17', lang: 'lg-spa' },
+						],
+					},
+					show: {},
+				},
+			],
+		});
+
+		try {
+			// two reads: the second is what a refresh sends
+			await instance.build(true);
+			await instance.build(true);
+
+			assert.equal(instance.rqo.sqo.limit, 10, 'a re-read must keep the history page size');
+			assert.equal(instance.rqo.sqo.offset, 0);
+		} finally {
+			await instance.destroy(true, true, true);
+		}
+	});
 });
 
 // @license-end

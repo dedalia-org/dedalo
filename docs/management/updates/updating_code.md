@@ -644,7 +644,7 @@ directory `/opt/dedalo/bin`) — a manual update reads:
 
 ```bash
 sudo -u dedalo git -C /opt/dedalo/app/master_dedalo pull --ff-only
-sudo -u dedalo bash -c 'cd /opt/dedalo/app/master_dedalo && /opt/dedalo/bin/bun install --frozen-lockfile --production'
+sudo -u dedalo bash -c 'cd /opt/dedalo/app/master_dedalo && /opt/dedalo/bin/bun install --frozen-lockfile --production --ignore-scripts'
 systemctl restart dedalo-ts
 ```
 

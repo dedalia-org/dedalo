@@ -228,6 +228,11 @@ const get_content_value = (i, current_value, self) => {
 		})
 		.then(async function(component_dataframe){
 
+			// self destroyed while the dataframe resolved (context is null now)
+				if (self.status==='destroyed') {
+					return
+				}
+
 			// dataframe
 				// set the component_dataframe, is mandatory use it.
 				if(component_dataframe){
@@ -682,6 +687,11 @@ const get_content_value_read = (i, current_value, self) => {
 
 		dataframe_promise
 		.then(async function(component_dataframe){
+
+			// self destroyed while the dataframe resolved (context is null now)
+				if (self.status==='destroyed') {
+					return
+				}
 
 			// dataframe
 				// set the component_dataframe, is mandatory use it.

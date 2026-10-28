@@ -74,6 +74,7 @@ const QUALITIES = [
 	'av/subtitles',
 	'image/1.5MB',
 	'image/thumb',
+	'image/web',
 	'pdf/web',
 	'svg/web',
 	'3d/web',
@@ -127,6 +128,16 @@ function nginxPattern(text: string = NGINX): RegExp {
  * `key` is the record marker the gate must stat, or null = deny (anonymously).
  */
 const CASES: { path: string; key: string | null; why: string }[] = [
+	{
+		path: 'image/web/pic-1_test3_7.jpg',
+		key: 'test3_7',
+		why: 'a rich-text image (TODO-066) is keyed to the record its text lives in',
+	},
+	{
+		path: 'image/web/pic.jpg',
+		key: null,
+		why: 'a legacy unkeyed rich-text image stays login-only BY DESIGN',
+	},
 	{ path: 'av/404/rsc35_rsc167_2.mp4', key: 'rsc167_2', why: 'av delivery quality' },
 	{
 		path: 'av/posterframe/rsc35_rsc167_2.jpg',

@@ -991,8 +991,10 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 			}
 
 			// This may not find matching data but should not crash
+			// the re-render promise: settled before destroy, or it renders a destroyed instance
+			let rendered
 			try {
-				instance.filter_data_by_tag_id(tag_options)
+				rendered = instance.filter_data_by_tag_id(tag_options)
 				// status should be reset to 'built' for re-render
 				assert.equal(instance.status, 'built', 'status must be built after filter_data_by_tag_id')
 			} catch(e) {
@@ -1001,6 +1003,7 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 				assert.ok(true, 'filter_data_by_tag_id handled gracefully')
 			}
 
+			await rendered
 			await instance.destroy(true, true, true)
 		})
 	})//end describe FILTER_DATA_BY_TAG_ID
@@ -1019,8 +1022,10 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 			// set an active_tag first
 			instance.active_tag = { tag: { tag_id: '1' } }
 
+			// the re-render promise: settled before destroy, or it renders a destroyed instance
+			let rendered
 			try {
-				instance.reset_filter_data()
+				rendered = instance.reset_filter_data()
 				assert.equal(instance.active_tag, null, 'active_tag must be null after reset')
 				assert.equal(instance.status, 'built', 'status must be built after reset')
 			} catch(e) {
@@ -1028,6 +1033,7 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 				assert.ok(true, 'reset_filter_data handled gracefully')
 			}
 
+			await rendered
 			await instance.destroy(true, true, true)
 		})
 	})//end describe RESET_FILTER_DATA

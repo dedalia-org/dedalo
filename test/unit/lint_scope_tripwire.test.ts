@@ -60,6 +60,7 @@ const EXPECTED_EXCLUSIONS = [
 	'!**/dev',
 	'!**/dev_tools',
 	'!**/rewrite',
+	'!**/.superpowers',
 	'!**/docs',
 	// Frozen fixture bytes — reformatting one is a wire-contract edit.
 	'!**/test/parity/fixtures/**/*.response.json',

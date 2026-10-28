@@ -124,6 +124,15 @@ export const component_security_access = function() {
 	// by build()). The filtered tree paints every area open, so without it each
 	// paint re-scanned the whole ~32k-entry datalist once per area.
 	this.children_memo = null
+
+	// tree-filter paint generation. Bumped by every paint: deferred work a paint
+	// scheduled (global radio idle callbacks, lazy-expand rAF) captures it and drops
+	// itself once a newer paint replaced its nodes, so typing leaves no backlog.
+	this.paint_generation = 0
+
+	// filled_value index by `tipo_section_tipo` (see get_value_entry). Keyed to the
+	// filled_value ARRAY identity: build() replaces the array, update_value does not.
+	this.filled_value_index = null
 }//end component_security_access
 
 
@@ -294,13 +303,12 @@ component_security_access.prototype.build = async function(options) {
 * Contract:
 *   - `item` MUST be a datalist node object (see data shape below). If it is falsy
 *     (e.g. called before the datalist has loaded) the function logs an error and
-*     returns early. (!) Note: the early-return references `value` before it is
-*     declared — this is a pre-existing bug; do not reproduce.
+*     returns early.
 *   - `input_value` is coerced to an integer via `parseInt`. Passing a string like
 *     "2" is therefore valid. Values outside 0–3 are not validated here; the render
 *     layer is responsible for only emitting legal permission levels.
-*   - `self.filled_value` is mutated in place: the found entry's `.value` is updated
-*     directly on the shallow copy. If the node is absent from `filled_value`
+*   - `self.filled_value` is mutated in place (same array, found via
+*     `get_value_entry`, so a call is O(1)). If the node is absent from `filled_value`
 *     (should not occur after `build()`, but guarded anyway) a new stub is appended.
 *   - The `parent` field is intentionally commented out of the new stub — only
 *     `tipo`, `section_tipo`, and `value` are persisted in the DB.
@@ -329,10 +337,12 @@ component_security_access.prototype.update_value = function(item, input_value) {
 
 	const self = this
 
-	// value . Copy of current data.entries
+	// value. Updated IN PLACE: propagation calls this once per child, so copying and
+	// scanning the ~32k matrix here made ticking a large area quadratic
+		if (!self.filled_value) {
+			self.filled_value = []
+		}
 		const value = self.filled_value
-			? [...self.filled_value]
-			: []
 
 	// item check
 		if (!item) {
@@ -341,7 +351,7 @@ component_security_access.prototype.update_value = function(item, input_value) {
 		}
 
 	// find if already exists
-		const found = value.find(el => el.tipo===item.tipo && el.section_tipo===item.section_tipo)
+		const found = self.get_value_entry(item.tipo, item.section_tipo)
 		if (found) {
 			// update
 			found.value = parseInt(input_value)
@@ -354,10 +364,8 @@ component_security_access.prototype.update_value = function(item, input_value) {
 				value			: parseInt(input_value)
 			}
 			value.push(object_value)
+			self.filled_value_index.map.set(item.tipo+'_'+item.section_tipo, object_value)
 		}
-
-	// fix updated changed_value
-		self.filled_value = value
 
 	// event. publish update_item_value_xx event on change data.entries
 		event_manager.publish(
@@ -441,7 +449,7 @@ component_security_access.prototype.get_children = function(item, datalist) {
 	const current_datalist = datalist || self.data.datalist
 
 	// memo, full list only (an override list is the caller's own business)
-		const memoized = datalist===undefined
+		const memoized = datalist===undefined || datalist===self.data?.datalist
 		if (memoized && self.children_memo?.has(item.tipo)) {
 			return self.children_memo.get(item.tipo)
 		}
@@ -458,6 +466,36 @@ component_security_access.prototype.get_children = function(item, datalist) {
 
 	return children
 }//end get_children
+
+
+
+/**
+* GET_VALUE_ENTRY
+* The `filled_value` entry of one node, from an index built once per filled_value
+* array (build() replaces the array, which rebuilds the index on the next call).
+* First entry wins, as the former `find` did.
+* @param {string} tipo
+* @param {string} section_tipo
+* @returns {Object|undefined} {tipo, section_tipo, value}
+*/
+component_security_access.prototype.get_value_entry = function(tipo, section_tipo) {
+
+	const self = this
+
+	if (self.filled_value_index?.source!==self.filled_value) {
+		const map = new Map()
+		for (const el of (self.filled_value || [])) {
+			const key = el.tipo+'_'+el.section_tipo
+			if (!map.has(key)) {
+				map.set(key, el)
+			}
+		}
+		self.filled_value_index = {source : self.filled_value, map : map}
+	}
+
+
+	return self.filled_value_index.map.get(tipo+'_'+section_tipo)
+}//end get_value_entry
 
 
 
@@ -526,7 +564,7 @@ component_security_access.prototype.update_parents_radio_butons = function(item,
 						continue
 					}
 
-					const data_found = self.filled_value.find(el => el.tipo===child.tipo && el.section_tipo===child.section_tipo)
+					const data_found = self.get_value_entry(child.tipo, child.section_tipo)
 					if (!data_found) {
 						diff_value = true
 						break

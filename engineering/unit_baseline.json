@@ -4489,6 +4489,11 @@
 			"skipped": 0,
 			"assertions": 47
 		},
+		"test/unit/rich_text_image_reconcile.test.ts": {
+			"tests": 22,
+			"skipped": 0,
+			"assertions": 64
+		},
 		"test/unit/root_user_hidden_tripwire.test.ts": {
 			"tests": 25,
 			"skipped": 0,
@@ -4573,6 +4578,11 @@
 			"tests": 4,
 			"skipped": 0,
 			"assertions": 13
+		},
+		"test/unit/search_acl_deep_offset_flip_native.test.ts": {
+			"tests": 5,
+			"skipped": 0,
+			"assertions": 48
 		},
 		"test/unit/search_alias_sink_native.test.ts": {
 			"tests": 5,
@@ -5248,6 +5258,11 @@
 			"tests": 4,
 			"skipped": 0,
 			"assertions": 8
+		},
+		"test/unit/text_area_media_src_split_origin.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 7
 		},
 		"test/unit/text_area_svg_split_origin.test.ts": {
 			"tests": 2,

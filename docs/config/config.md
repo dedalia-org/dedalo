@@ -1044,7 +1044,7 @@ DEDALO_HTML_FILES_FOLDER `string`
 
 This parameter names the directory, inside the media directory, that holds self-contained HTML copies generated from records — the single files an institution hands to a visitor or publishes beside a catalogue.
 
-The directory is created and verified when the server starts, along with the rest of the media directories, so it always carries the same owner and permissions as the rest of the tree instead of being minted by whichever process happens to write there first. Nothing in this engine writes into it yet; it is provisioned so that an install keeps the shape it has always had and so no future subsystem has to create it on the fly.
+The directory is created and verified when the server starts, along with the rest of the media directories, so it always carries the same owner and permissions as the rest of the tree instead of being minted by whichever process happens to write there first. Images uploaded from the rich-text editor's toolbar are stored here and embedded in the text by URL. Each file is named after the record it was inserted into (`<name>_<section_tipo>_<section_id>.<ext>`), so an anonymous visitor can read it exactly while that record is published (see `DEDALO_MEDIA_PUBLIC_QUALITIES`).
 
 Change the value only to match a directory an install already carries. It names the folder Dédalo provisions — it does not move files that are already sitting in the old one, and it is a single folder name (a leading slash is optional and removed), never a path: the media directory is the only place this can live.
 
@@ -1450,7 +1450,7 @@ DEDALO_IMAGE_WEB_FOLDER `string`
 
 This parameter names the directory, inside the image directory, that holds browser-sized copies of pictures brought in from a rich-text field rather than from the image component itself.
 
-It sits beside the quality directories (`original`, `1.5MB`, `thumb`, …) and is created and verified when the server starts, so it carries the same owner and permissions as the rest of the media tree. Nothing in this engine writes into it yet; it is provisioned so that an install keeps the shape it has always had and so no future subsystem has to create it on the fly.
+It sits beside the quality directories (`original`, `1.5MB`, `thumb`, …) and is created and verified when the server starts, so it carries the same owner and permissions as the rest of the media tree. Images uploaded from the rich-text editor's toolbar are stored here and embedded in the text by URL. Each file is named after the record it was inserted into (`<name>_<section_tipo>_<section_id>.<ext>`), so an anonymous visitor can read it exactly while that record is published (see `DEDALO_MEDIA_PUBLIC_QUALITIES`).
 
 The value is a single folder name (a leading slash is optional and removed), never a path.
 
@@ -2354,7 +2354,13 @@ DEDALO_MEDIA_PUBLIC_QUALITIES `string[]` (optional)
 The quality folders an **anonymous** visitor may read when the record is published (rule B).
 A JSON array, or a comma-separated list. Leave it unset to derive the delivery-grade folders
 from this installation's own quality catalog — `av/404`, `av/posterframe`, `av/subtitles`,
-`image/1.5MB`, `image/thumb`, `pdf/web`, `svg/web`, `3d/web`.
+`image/1.5MB`, `image/thumb`, `image/web`, `pdf/web`, `svg/web`, `3d/web`.
+
+`image/web` holds the images inserted into rich text from the editor. Each is named after the
+record whose text it was inserted into, so it is public exactly while that record is published.
+Images inserted before this naming have no record in their name and stay visible to logged-in
+users only. If you set this list yourself, add `image/web` to it, or rich-text images stay
+private.
 
 Master and working qualities (`original`, `modified`) are **always refused, even if you list
 them**: they are the source files, they are the large ones, and they are never public. A

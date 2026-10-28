@@ -553,6 +553,10 @@ const render_image_node = function(self, file_info, content_value) {
 
 	// load handler: update image quality and apply cache-busting
 		const load_handler = async () => {
+			// the lazy-load observer / <object> load can fire after destroy (context is null)
+			if (self.status==='destroyed') {
+				return
+			}
 			if (quality!==self.context.features?.default_quality) {
 				await self.image_quality_change_handler(url)
 			}

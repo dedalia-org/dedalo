@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { __setTestDbExecute } from '../src/db/pool';
 import type { DbRow } from '../src/db/types';
 import { dbNames } from '../src/config';
@@ -48,6 +48,9 @@ const THEMES_COLUMNS = ['section_id', 'term_id', 'term', 'parent'];
 
 export const sqlLog: Array<{ sql: string; params: unknown[] }> = [];
 
+/** Set by the fulltext-error describe: the MATCH statements raise this instead of answering. */
+let fulltextRefusal: Error | null = null;
+
 function columnsResult(table: string, withTableName: boolean): Record<string, string>[] {
   const cols = table === 'interview' ? INTERVIEW_COLUMNS : table === 'ts_themes' ? THEMES_COLUMNS : [];
   return cols.map(name => ({
@@ -92,6 +95,12 @@ async function mockDbExecute(_db: string, sql: string, params: unknown[] = []): 
   const s = sql.replace(/\s+/g, ' ').trim();
 
   if (!s.includes('INFORMATION_SCHEMA')) assertMockColumnsExist(s);
+
+  // MariaDB raises errno 1191 when MATCH targets a column with no FULLTEXT index — a client
+  // problem the search service translates. The fixture table declares the index, so nothing
+  // else in the suite can provoke it; this switch exists for the one describe that proves the
+  // mapping, and for nothing else.
+  if (fulltextRefusal !== null && s.includes('MATCH(')) throw fulltextRefusal;
 
   if (s.includes('INFORMATION_SCHEMA.TABLES')) {
     return [
@@ -715,5 +724,54 @@ describe('unknown columns are a client error (400), not a server error (500)', (
   test('real columns still pass', async () => {
     const { res } = await get(`/${MOCK_DB}/tables/interview/records?sort=-section_id&fields=section_id,title`);
     expect(res.status).toBe(200);
+  });
+});
+
+describe('a missing FULLTEXT index is the client’s problem, not a 500', () => {
+  // MariaDB answers a MATCH on an unindexed column with errno 1191. Left unmapped it reaches
+  // the error handler as an unknown driver failure — a 500 blaming the server for a column the
+  // caller chose. search.service maps it to a ValidationError naming the column, and these are
+  // the only paths that exercise that mapping (the fixture table declares the index).
+  afterEach(() => {
+    fulltextRefusal = null;
+  });
+
+  test('the search statement (errno 1191) becomes a ValidationError naming the column', async () => {
+    const { ValidationError } = await import('../src/errors');
+    const { fulltextSearch } = await import('../src/services/search.service');
+    fulltextRefusal = Object.assign(new Error('ER_FT_MATCHING_KEY_NOT_FOUND'), { errno: 1191 });
+
+    const failed = fulltextSearch(MOCK_DB, 'interview', { q: 'guerra', column: 'title', limit: 5, offset: 0 });
+
+    await expect(failed).rejects.toThrow(ValidationError);
+    await expect(failed).rejects.toThrow('Column "title" has no FULLTEXT index');
+  });
+
+  test('the count statement maps the mysql2-era string code the same way', async () => {
+    const { ValidationError } = await import('../src/errors');
+    const { fulltextSearch } = await import('../src/services/search.service');
+    fulltextRefusal = Object.assign(new Error('ER_FT_MATCHING_KEY_NOT_FOUND'), {
+      code: 'ER_FT_MATCHING_KEY_NOT_FOUND',
+    });
+
+    const failed = fulltextSearch(MOCK_DB, 'interview', {
+      q: 'guerra',
+      column: 'title',
+      limit: 0,
+      offset: 0,
+      withTotal: true,
+    });
+
+    await expect(failed).rejects.toThrow(ValidationError);
+    await expect(failed).rejects.toThrow('Column "title" has no FULLTEXT index');
+  });
+
+  test('any other failure is rethrown untouched — never dressed up as a client error', async () => {
+    const { fulltextSearch } = await import('../src/services/search.service');
+    fulltextRefusal = new Error('MariaDB server has gone away');
+
+    await expect(
+      fulltextSearch(MOCK_DB, 'interview', { q: 'guerra', column: 'title', limit: 5, offset: 0 }),
+    ).rejects.toThrow('MariaDB server has gone away');
   });
 });

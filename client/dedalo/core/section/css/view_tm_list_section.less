@@ -205,6 +205,37 @@
 
 
 	// ---------------------------------------------------------------------
+	// PAGE-TURN DIM — both inspector variants, the same behaviour as Relations
+	//
+	// section.navigate marks `self.node_body` (this list_body) with the global
+	// `.loading`, whose instant `opacity: .4` blinked the rows on a fast turn.
+	// Cancel that here and dim the WHOLE panel through :has, with the same 0.35s
+	// deferral and 0.4 target as the strip (paginator.less) and the Relations
+	// body (relation_list.less): input locks immediately, the dim only appears
+	// when the turn is actually slow.
+	// ---------------------------------------------------------------------
+	&.tm_view_mini,
+	&.tm_view_history {
+
+		> .list_body.loading {
+			opacity: 1;
+		}
+
+		&:has(> .list_body.loading) {
+			opacity: 1;
+			animation: tm_list_loading_dim 0.2s ease-out 0.35s forwards;
+
+			// the panel dim already covers the strip; cancel the strip's own dim so
+			// it does not composite to .16 (.4 × .4) and read darker than the rows
+			.wrapper_paginator.loading {
+				opacity: 1;
+				animation: none;
+			}
+		}
+	}//end page-turn dim
+
+
+	// ---------------------------------------------------------------------
 	// PANEL FIT — both inspector variants
 	//
 	// These live in a ~300px side panel, so every unused pixel is one the value
@@ -415,3 +446,7 @@
 	}//end phone / tablet
 
 }//end .tm_list
+
+@keyframes tm_list_loading_dim {
+	to { opacity: 0.4; }
+}

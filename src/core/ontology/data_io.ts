@@ -91,7 +91,7 @@ export interface OntologyIoResponse {
 
 /**
  * Resolve the versioned IO directory (<base>/<major>.<minor>) and create it
- * when absent (PHP set_ontology_io_path). Returns false when the directory
+ * when absent (PHP set_ontology_io_path). Returns `{ error }` (path + errno) when the directory
  * cannot be created (PHP create_directory failure), never throws.
  * `baseDir` is a test seam; production callers use the config catalog key.
  */
@@ -119,14 +119,19 @@ function describeWrittenFile(
 	return { path, bytes, note: ` → ${path} (${humanSize(bytes)})` };
 }
 
-export function setOntologyIoPath(baseDir: string = config.ops.ontologyDataIoDir): string | false {
+export function setOntologyIoPath(
+	baseDir: string = config.ops.ontologyDataIoDir,
+): string | { error: string } {
 	// Only major.minor feed the IO path (patch releases share one dir, PHP parity).
 	const ioPath = join(baseDir, DEDALO_VERSION_MAJOR_MINOR);
 	try {
 		mkdirSync(ioPath, { recursive: true });
 	} catch (error) {
 		console.error(`[ontology_data_io] unable to create IO dir '${ioPath}':`, error);
-		return false;
+		const cause = (error as NodeJS.ErrnoException).code ?? String(error);
+		return {
+			error: `unable to create the ontology IO directory '${ioPath}': ${cause} (check ONTOLOGY_DATA_IO_DIR is writable by the service user)`,
+		};
 	}
 	return ioPath;
 }
@@ -505,9 +510,9 @@ export async function exportOntologyInfo(): Promise<OntologyIoResponse> {
 	const dataString = JSON.stringify(data, null, 4);
 
 	const ioPath = setOntologyIoPath();
-	if (ioPath === false) {
-		response.msg = `Error. Invalid directory: ${ioPath}`;
-		response.errors.push(`Unable to create directory: ${ioPath}`);
+	if (typeof ioPath !== 'string') {
+		response.msg = 'Error. Invalid IO directory';
+		response.errors.push(ioPath.error);
 		return response;
 	}
 	const pathFile = join(ioPath, 'ontology.json');
@@ -601,9 +606,9 @@ export async function exportToFile(tld: string): Promise<OntologyIoResponse> {
 	}
 
 	const ioPath = setOntologyIoPath();
-	if (ioPath === false) {
-		response.msg = `Error. Invalid directory: ${ioPath}`;
-		response.errors.push(`Unable to create directory: ${ioPath}`);
+	if (typeof ioPath !== 'string') {
+		response.msg = 'Error. Invalid IO directory';
+		response.errors.push(ioPath.error);
 		return response;
 	}
 	const filePath = confinedCopyPath(ioPath, `${tld}.copy.gz`);
@@ -655,9 +660,9 @@ export async function exportPrivateListsToFile(): Promise<OntologyIoResponse> {
 	};
 
 	const ioPath = setOntologyIoPath();
-	if (ioPath === false) {
-		response.msg = `Error. Invalid directory: ${ioPath}`;
-		response.errors.push(`Unable to create directory: ${ioPath}`);
+	if (typeof ioPath !== 'string') {
+		response.msg = 'Error. Invalid IO directory';
+		response.errors.push(ioPath.error);
 		return response;
 	}
 	const filePath = confinedCopyPath(ioPath, 'matrix_dd.copy.gz');
@@ -703,9 +708,9 @@ export async function exportLlmMap(): Promise<OntologyIoResponse> {
 	};
 
 	const ioPath = setOntologyIoPath();
-	if (ioPath === false) {
+	if (typeof ioPath !== 'string') {
 		response.msg = 'Error. Unable to create/access IO directory';
-		response.errors.push('io_dir_failed');
+		response.errors.push(ioPath.error);
 		return response;
 	}
 	const pathFile = join(ioPath, 'ontology_llm_map.json');

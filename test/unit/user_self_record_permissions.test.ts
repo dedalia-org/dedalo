@@ -15,21 +15,31 @@
  * assignment or developer flag through the generic save API.
  *
  * The rules are a WRITE gate, not only a display stamp — dd_core_api::save must
- * consult them too, which is what the end-to-end block below pins.
+ * consult them too, which is what the end-to-end save block below pins. And the
+ * READ doors must consult them as well (read Gate A + the get_data facade gate):
+ * up to 7.0.0-beta.7 they did not, so tool_user_admin answered perm.denied for
+ * every user without a dd128 grant — pinned by the end-to-end read block.
  */
 // Migrated to the generic `test` TLD 2026-08-20 (AGENTS.md hard rule). The tipos are
 // identifiers threaded through the unit under test — a generic `test` section carries
 // the same meaning here as the install one did.
 
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import {
+	getPermissions,
 	type Principal,
 	resolveComponentContextPermission,
 	resolveOwnUserRecordPermission,
 	resolvePrincipal,
 } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	installOntologyAreaAccessFixture,
+	OA_GRANTED_ADMIN_ID,
+	OA_GRANTED_NON_ADMIN_ID,
+	removeOntologyAreaAccessFixture,
+} from '../helpers/ontology_area_access_fixture.ts';
 
 const USERS = 'dd128';
 const SECURITY_ADMIN = 'dd244';
@@ -189,5 +199,85 @@ describe('dd_core_api::save honours the table (the WRITE gate, end to end)', () 
 			contextFor(-1, 'root', true, p) as never,
 		);
 		expect(result.status).not.toBe(403);
+	});
+});
+
+describe('dd_core_api::read serves your OWN record to tool_user_admin (end to end)', () => {
+	// The remote report (7.0.0-beta.7): a non-admin whose profile grants nothing
+	// on dd128 got perm.denied (Gate A), then — half fixed — an EMPTY shell (the
+	// get_data facade's own per-component gate). A real user record is needed:
+	// the assertions read the served context and data, not just the status.
+	const OWN = OA_GRANTED_NON_ADMIN_ID;
+	let user: Principal;
+
+	beforeAll(async () => {
+		await installOntologyAreaAccessFixture();
+		user = await resolvePrincipal(OWN);
+		expect(user.isGlobalAdmin).toBe(false);
+	});
+	afterAll(async () => {
+		await removeOntologyAreaAccessFixture();
+	});
+
+	async function readOwn(tipo: string, model: string, sectionId: number | string) {
+		const token = createSession(OWN, 'zzoa_granted_reader', false);
+		const session = getSession(token);
+		const result = await dispatchRqo(
+			{
+				action: 'read',
+				dd_api: 'dd_core_api',
+				source: {
+					action: 'get_data',
+					model,
+					tipo,
+					section_tipo: USERS,
+					section_id: sectionId,
+					mode: 'edit',
+				},
+			} as never,
+			{
+				requestId: 'self-read',
+				clientIp: '127.0.0.1',
+				session,
+				csrfCandidate: session?.csrfToken ?? null,
+				principal: user,
+			} as never,
+		);
+		const body = result.body as {
+			data?: { context: { tipo: string; permissions: number }[]; data: { value?: unknown }[] };
+		};
+		return { status: result.status, body };
+	}
+
+	test('the profile grants nothing on dd128 — the matrix alone would refuse', async () => {
+		expect(await getPermissions(user, USERS, 'dd452')).toBe(0);
+	});
+
+	test('the four self-editable components serve their context at WRITE (2)', async () => {
+		for (const [tipo, model] of [
+			['dd452', 'component_input_text'],
+			['dd134', 'component_email'],
+			['dd133', 'component_password'],
+			['dd522', 'component_image'],
+		] as const) {
+			const { status, body } = await readOwn(tipo, model, OWN);
+			expect(status).toBe(200);
+			expect(body.data?.context.find((c) => c.tipo === tipo)?.permissions).toBe(2);
+		}
+	});
+
+	test('own username serves its DATA, read-only (anti self-elevation)', async () => {
+		const { body } = await readOwn('dd132', 'component_input_text', OWN);
+		expect(body.data?.context.find((c) => c.tipo === 'dd132')?.permissions).toBe(1);
+		expect(JSON.stringify(body.data?.data)).toContain('zzoa_granted_reader');
+	});
+
+	test('a string section_id from the wire is the same own record', async () => {
+		const { body } = await readOwn('dd132', 'component_input_text', String(OWN));
+		expect(JSON.stringify(body.data?.data)).toContain('zzoa_granted_reader');
+	});
+
+	test("ANOTHER user's record keeps the matrix level — refused", async () => {
+		expect((await readOwn('dd452', 'component_input_text', OA_GRANTED_ADMIN_ID)).status).toBe(403);
 	});
 });

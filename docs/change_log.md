@@ -23,7 +23,61 @@ Merged since the last release; these ship with the next one.
 
     Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
 
+### For users
+
+#### Changed
+
+- **An empty date field is now blank until you hover or select it.**
+
+    An empty date field in the edit form showed its input format (`DD/MM/YYYY`), the `<>` range separator and the period labels even when it held no value. It now stays blank, like text fields and selectors, and shows them when you hover the field or select it. A range with only one date filled in keeps its separator. On a phone or tablet, the calendar button now appears once you tap the field.
+
+- **The inspector's Relations, Latest changes and Component history panels now page the same way.**
+
+    The Relations panel's old `Total / Page` line with two arrows is replaced by the compact strip used in **Latest changes** and **Component history** (`« ‹ › » 1-10 of 4.683`), so long relation lists can jump to the first or last page as well as step one page at a time. All three panels now page identically: the strip stays put, only the rows change, the new page slides the block to its height instead of the panel jumping, and a page that takes a moment dims the block after a short beat — a fast turn does not blink.
+
+#### Fixed
+
+- **The inspector's Component history keeps all its rows after you add a note, and pages through long histories.**
+
+    After adding or editing a Time Machine note in the inspector's Component history, the list showed only the newest change, or went empty. It now keeps the full history and the note icon updates in place. Histories longer than one page show the compact paginator (`1-10 of 47`) in the Component history and Latest changes panels, and paging there no longer changes the page address or adds browser-history entries.
+
+- **Uploading an image from the text editor toolbar works again.**
+
+    The "Upload image from computer" button of a rich-text field failed with `upload: missing file_to_upload`. The image is now stored in the image web folder (`DEDALO_IMAGE_WEB_FOLDER`) and inserted into the text. Only JPG, PNG, GIF, WebP and AVIF images can be inserted. An image with the same name as an earlier one gets a new name instead of replacing it, so other texts that show the earlier image keep it. A resized image now opens at its resized size, without first appearing at full size while the editor loads.
+
+- **Paging to the last records of a large section is fast for users limited to their projects.**
+
+    A user who is not an administrator, and who sees a section through their projects, waited
+    around half a second or more for every page near the end of a large section (for example
+    stepping through records in edit mode from the newest one). Administrators were already
+    fast there. Those pages are now read from the nearer end of the list, as they already
+    were for administrators, so the last records open in milliseconds. Pages in the middle of
+    a very large section are no slower than before. The records and their order are unchanged.
+
+- **User profile editor opens for ordinary users**
+
+    The user profile editor (avatar menu) failed with "Insufficient permissions" for any user whose profile grants no access to the Users section. Your own name, email, password and image are readable and editable again; other users' records stay protected.
+
 ### For administrators
+
+#### Added
+
+- **The permissions tree filter can show the siblings of a found item.**
+
+    While filtering a profile's access permissions, the tree shows only the path to each match. A parent that hides other children now carries the arrow: click it to show all of them around the match (still highlighted) and set their permissions in place; click again to go back to the matches only.
+
+- **Older images in rich text can be made visible on published pages, from Maintenance.**
+
+    Images inserted into rich text before this update keep their original file name and stay visible to
+    logged-in users only. **Maintenance → Reconcile status** has two new entries. `rich_text_images`
+    lists them and, when applied, renames a copy of each after the record that uses it (the original
+    file is kept, and every change is a normal save with a Time Machine entry; a text that cannot be
+    saved safely is listed and left alone). Both apply only for root. `web_image_exposure`
+    lists any image a visitor can open although the published record it is named after does not use
+    it, and, applied by root, makes it private. The second one checks by itself at every start. See
+    the upgrading guide for the steps.
+
+    Wire contract: `WC-2026-10-26-rich-text-image-legacy-reconcile`.
 
 #### Changed
 
@@ -92,6 +146,56 @@ Merged since the last release; these ship with the next one.
     Before: a refused update that went back to an older version suggested `--skip-version-check` for every stack, including one already pinned to a prerelease or a developer build, where the suggestion did not apply.
     Now: the suggestion appears only when the stack is pinned at a bare `X.Y.Z` version, the case of a beta built before `7.0.0-beta.7`. A stack pinned to a prerelease or `-dev` build is refused without it.
 
+- **The reconcile panel no longer reports "OK" when it found images it cannot fix.**
+
+    Running the rich-text images check when the referenced image files are not in the media web folder reported "OK. the two stores agree (drift 0)", as if no old image link existed, and Apply then changed nothing. The message now says how many references are missing, held or failed, and the report lists each one, so the files can be put back in place before the check is run again.
+
+- **The permissions tree filter no longer freezes after several searches.**
+
+    In a profile's access permissions, typing several searches in a row in the tree filter could leave the page slow and unresponsive, with areas stuck on "Checking...". Each search left background work behind for the areas of the searches it replaced, and that work kept running after the tree had changed. Background work for a replaced search is now dropped, and the per-search scans of the permission list are cached, so the filter stays responsive however many searches you type. The tree now also waits until you pause typing before it updates, instead of redrawing on every keystroke.
+
+- **Setting permissions on a large area is faster, and a failed change no longer locks the permissions tree.**
+
+    Ticking an area or a permission in a profile's access permissions updated every child by searching the whole permission list again, so large areas took long to apply. Each update is now immediate. And if applying a change ever failed, the permissions tree stayed greyed out and ignored clicks, filter included, until the page was reloaded; it is now always released, and a failed save no longer leaves the tree locked either.
+
+- **Ontology update and export now say why the ontology directory cannot be created.**
+
+    When the engine could not create the ontology exchange directory (`ONTOLOGY_DATA_IO_DIR/<major.minor>`), **Maintenance → Update ontology** answered only `unable to resolve the ontology IO directory`, and the export actions answered `Unable to create directory: false`. They now name the directory and the system error, for example `EACCES` when the service user cannot write to it. The usual fix is to give the service user ownership of that directory, or to point `ONTOLOGY_DATA_IO_DIR` at a writable one.
+
+- **The Reconcile panel's table is readable: each reconcile's name sits above its description, headers read as headers, and Check / Apply stay on one line.**
+
+    Maintenance → PostgreSQL → Reconcile listed every registered reconcile in a table whose first column squeezed the name into a few letters per line while the description ran beside it, and whose buttons wrapped their labels to `Che ck` / `App ly`. The name now reads as a heading with its description underneath, the header row is styled as a header, and the two buttons keep their width. A run whose last check found drift is marked on its **Last run** cell, which previously carried the mark on an element that painted nothing.
+
+- **Images inserted into rich text are visible on published pages.**
+
+    An image inserted into a rich-text field from the editor toolbar was visible only to logged-in
+    users: a visitor of the published page saw a broken image. New images are now named after the
+    record they are inserted into and follow its publication — public while the record is published,
+    hidden again when it is withdrawn — and they are copied to a separate publication server like any
+    other published media. Images inserted before this update keep their old names and stay visible to
+    logged-in users only. Only users who may edit the text can insert an image into it. As with any
+    other media of a published record, an image is visible from the moment it is inserted, and stays
+    visible after it is removed from the text while the record remains published.
+
+    For administrators: on nginx, reload it once after updating so the regenerated media rules take
+    effect (Apache needs nothing). If you set `DEDALO_MEDIA_PUBLIC_QUALITIES` yourself, add
+    `image/web` to it, or these images stay private.
+
+    Wire contract: `WC-2026-10-26-rich-text-image-record-keyed`.
+
+- **Profile permissions search: a matched section or area now shows its permission radios and can be opened.**
+
+    Searching the permissions tree of a profile (e.g. `rsc832`) showed the matched section without its x / r / rw radios and without a way to expand it, so its permissions could not be set from the search result. A match with no deeper match now shows its radios and its children, collapsed, as in the unfiltered tree.
+
+- **Installing or updating no longer leaves a hidden `.<hash>-<pid>.node-gyp` folder in the Dédalo folder.**
+
+    The production installer and the **Update code** panel installed the dependencies with
+    package scripts enabled. Each run left a small, empty-of-data helper folder (a one-file
+    `node-gyp` shim) inside the Dédalo folder. Dependencies are now installed with scripts
+    disabled, as every other install path already did, and nothing is left behind. A leftover
+    folder from an earlier install holds no data and can be deleted. The manual's
+    `bun install` commands now include `--ignore-scripts` too.
+
 - **The official Docker image now carries its signature in every registry that publishes it**
 
     The 7.0.0-beta.7 image reached GitHub Container Registry and Docker Hub without its
@@ -113,6 +217,11 @@ Merged since the last release; these ship with the next one.
 
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
+
+??? note "Wire contract — 2 entries"
+
+    - `WC-2026-10-26-rich-text-image-legacy-reconcile`
+    - `WC-2026-10-26-rich-text-image-record-keyed`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

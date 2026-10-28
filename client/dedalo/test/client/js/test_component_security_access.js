@@ -9,8 +9,10 @@ import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {is_empty} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
+import {set_before_unload} from '../../../core/common/js/events.js'
 import {
 	MATCH_LIMIT,
+	FILTER_DEBOUNCE_MS,
 	filter_tree,
 	item_matches,
 	normalize_text,
@@ -275,6 +277,34 @@ describe(`COMPONENT_SECURITY_ACCESS DATA OPERATIONS`, function() {
 		const found = result.find(el => el.tipo==='test45' && el.section_tipo==='test3')
 		assert.isOk(found, 'expected updated item in result')
 		assert.equal(found.value, 2, 'expected value 2 for updated item')
+	});
+
+
+
+	it(`update_value updates the matrix in place and keeps the index`, async function() {
+
+		const item = {
+			tipo			: 'test45',
+			section_tipo	: 'test3',
+			ar_parent		: ['test3']
+		}
+		const before = instance.filled_value
+
+		instance.update_value(item, 1)
+		assert.strictEqual(instance.filled_value, before, 'expected the same filled_value array (no per-call copy)')
+		assert.equal(instance.get_value_entry('test45', 'test3').value, 1, 'expected the indexed entry updated')
+
+		// a node absent from the matrix is appended AND indexed
+		const absent = {tipo: 'zz_absent_tipo', section_tipo: 'test3', ar_parent: ['test3']}
+		instance.update_value(absent, 2)
+		const added = instance.get_value_entry('zz_absent_tipo', 'test3')
+		assert.isOk(added, 'expected the new stub indexed')
+		assert.equal(added.value, 2)
+		assert.include(instance.filled_value, added, 'expected the stub in filled_value')
+
+		// restore
+		instance.filled_value.splice(instance.filled_value.indexOf(added), 1)
+		instance.update_value(item, 2)
 	});
 
 
@@ -556,6 +586,10 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 
 	let instance	= null
 	let node		= null
+	let leaf_tipo	= null // set by the first test, reused by the stale-work gate
+
+	// the search box paints FILTER_DEBOUNCE_MS after the last keystroke
+	const after_debounce = () => new Promise(resolve => setTimeout(resolve, FILTER_DEBOUNCE_MS + 50))
 
 	it(`renders the filter box and narrows the tree`, async function() {
 
@@ -601,6 +635,7 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 			}
 		}
 		assert.isOk(leaf, 'expected a component entry the filter can resolve')
+		leaf_tipo = leaf.tipo
 
 		const root_nodes_before = tree.querySelectorAll('.li_item').length
 		assert.isAbove(root_nodes_before, 0, 'expected the unfiltered tree to render its root nodes')
@@ -609,6 +644,7 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 		// filter by the node's own tipo
 		filter_input.value = leaf.tipo
 		filter_input.dispatchEvent(new Event('input'))
+		await after_debounce()
 
 		assert.include(tree.textContent, leaf.tipo, 'expected the matched node rendered with its tipo')
 		assert.include(
@@ -638,6 +674,7 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 		// a dead end says so instead of leaving a blank panel
 		filter_input.value = 'zzz_no_such_label'
 		filter_input.dispatchEvent(new Event('input'))
+		await after_debounce()
 		assert.isFalse(
 			tree.querySelector('.tree_filter_status').classList.contains('hide'),
 			'expected an explicit no-matches notice'
@@ -652,6 +689,160 @@ describe(`COMPONENT_SECURITY_ACCESS TREE FILTER (DOM)`, function() {
 			'expected the unfiltered tree back'
 		)
 		assert.isTrue(clear_button.classList.contains('hide'), 'expected the clear button hidden again')
+	})
+
+	it(`stale paints leave no deferred work behind`, async function() {
+
+		assert.isOk(leaf_tipo, 'expected the previous test to resolve a leaf')
+		const tree			= node.querySelector('.tree_root')
+		const filter_input	= tree.querySelector('.tree_filter_input')
+
+		const idle = () => new Promise(resolve => requestIdleCallback(resolve, {timeout: 2000}))
+		// every live area's global radio group built ('Checking...' gone), then two more idles
+		const settle = async () => {
+			const deadline = performance.now() + 8000
+			while (tree.querySelector('.permissions_global ~ .loading') && performance.now() < deadline) {
+				await idle()
+			}
+			await idle()
+			await idle()
+		}
+		// ul.paint(query) paints NOW (the search box is debounced): the burst must leave
+		// every replaced paint's idle callbacks queued, or this gate proves nothing
+		const type = (query) => {
+			filter_input.value = query
+			tree.paint(query)
+		}
+
+		// several searches in a row: each paint schedules one idle callback per area.
+		// Before the fix those of the replaced paints still ran (full scans + subscriptions)
+		type(leaf_tipo)
+		type(leaf_tipo.slice(0, -1))
+		type('zzz_no_such_label')
+		type(leaf_tipo)
+		await settle()
+		assert.isNull(
+			tree.querySelector('.permissions_global ~ .loading'),
+			'expected no area left "Checking..." in the live tree'
+		)
+		assert.isAbove(
+			tree.querySelectorAll('.permissions_global input.global').length,
+			0,
+			'expected the live paint to build its global radio groups'
+		)
+		const tokens_after_burst = instance.events_tokens.length
+
+		// the identical query painted once: same subscriptions, so nothing stale leaked in
+		type(leaf_tipo)
+		await settle()
+		assert.equal(
+			instance.events_tokens.length,
+			tokens_after_burst,
+			'expected the burst to hold exactly one paint of subscriptions'
+		)
+
+		// back to the unfiltered tree for the next test
+		type('')
+		await settle()
+	})
+
+	it(`the search box is debounced and Escape cancels a pending paint`, async function() {
+
+		const tree			= node.querySelector('.tree_root')
+		const filter_input	= tree.querySelector('.tree_filter_input')
+		const count_node	= tree.querySelector('.tree_filter_count')
+		const roots_before	= tree.querySelectorAll('.li_item').length
+
+		// two keystrokes in a row: nothing paints until the user stops, then the last one
+		filter_input.value = 'zzz_no_such'
+		filter_input.dispatchEvent(new Event('input'))
+		filter_input.value = 'zzz_no_such_label'
+		filter_input.dispatchEvent(new Event('input'))
+		assert.isTrue(count_node.classList.contains('hide'), 'expected no paint before the debounce elapses')
+		await after_debounce()
+		assert.isFalse(count_node.classList.contains('hide'), 'expected the last query painted')
+		assert.isFalse(
+			tree.querySelector('.tree_filter_status').classList.contains('hide'),
+			'expected the last query (a dead end) to be the one painted'
+		)
+
+		// Escape right after a keystroke: the late paint must not bring the query back
+		filter_input.value = leaf_tipo
+		filter_input.dispatchEvent(new Event('input'))
+		filter_input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))
+		await after_debounce()
+		assert.equal(filter_input.value, '', 'expected Escape to clear the query')
+		assert.isTrue(count_node.classList.contains('hide'), 'expected the unfiltered tree')
+		assert.equal(tree.querySelectorAll('.li_item').length, roots_before, 'expected the root nodes back')
+	})
+
+	it(`a found item's parent shows an arrow that reveals the hidden siblings`, async function() {
+
+		const tree			= node.querySelector('.tree_root')
+		const filter_input	= tree.querySelector('.tree_filter_input')
+
+		filter_input.value = leaf_tipo
+		filter_input.dispatchEvent(new Event('input'))
+		await after_debounce()
+
+		// the deepest toggle: the match's own parent
+		const toggles = tree.querySelectorAll('.area_label.show_siblings')
+		assert.isAbove(toggles.length, 0, 'expected an arrow on a parent that hides siblings of the match')
+		const toggle	= toggles[toggles.length - 1]
+		assert.isTrue(toggle.classList.contains('icon_arrow'), 'expected the arrow icon')
+		assert.isFalse(toggle.classList.contains('up'), 'expected the arrow closed (found children only)')
+		const branch		= toggle.parentNode.branch
+		const found_only	= branch.querySelectorAll('.li_item').length
+
+		// open: every sibling, the match still marked
+		toggle.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		assert.isTrue(toggle.classList.contains('up'), 'expected the arrow open')
+		assert.isAbove(branch.querySelectorAll('.li_item').length, found_only, 'expected the hidden siblings shown')
+		assert.isAbove(branch.querySelectorAll('.li_item.match').length, 0, 'expected the match still highlighted')
+
+		// close: back to the found children
+		toggle.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		assert.isFalse(toggle.classList.contains('up'), 'expected the arrow closed again')
+		assert.equal(branch.querySelectorAll('.li_item').length, found_only, 'expected the found children only')
+	})
+
+	it(`a propagation that throws still unlocks the component`, async function() {
+
+		const tree		= node.querySelector('.tree_root')
+		const radio		= tree.querySelector('.li_item.match .radio_buttons_container input.val_1')
+		assert.isOk(radio, 'expected the match radio (previous test leaves the filter on the leaf)')
+
+		// a sentinel throw inside the idle propagation, kept away from mocha's onerror
+		const sentinel		= new Error('sentinel propagation failure')
+		let thrown			= false
+		const prev_onerror	= window.onerror
+		window.onerror = function(message, source, line, column, error) {
+			if (error===sentinel) {
+				thrown = true
+				return true
+			}
+			return prev_onerror ? prev_onerror.apply(this, arguments) : false
+		}
+		const original = instance.update_parents_radio_butons
+		instance.update_parents_radio_butons = () => { throw sentinel }
+
+		try {
+			radio.checked = true
+			radio.dispatchEvent(new Event('change'))
+			assert.isTrue(instance.node.classList.contains('loading'), 'expected the component locked while propagating')
+
+			const deadline = performance.now() + 5000
+			while (!thrown && performance.now() < deadline) {
+				await new Promise(resolve => requestIdleCallback(resolve, {timeout: 500}))
+			}
+			assert.isTrue(thrown, 'expected the propagation to have thrown')
+			assert.isFalse(instance.node.classList.contains('loading'), 'expected the lock released after the throw')
+			assert.notInclude(tree.textContent, 'Propagating...', 'expected the feedback node removed')
+		} finally {
+			instance.update_parents_radio_butons = original
+			window.onerror = prev_onerror
+			set_before_unload(false) // the change marked the page unsaved; nothing is saved
+		}
 	})
 
 	it(`destroy after the tree filter test`, async function() {

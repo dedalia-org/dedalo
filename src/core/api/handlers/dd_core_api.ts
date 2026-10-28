@@ -33,7 +33,11 @@ import {
 	isLangSlicedModel,
 	saveComponentData,
 } from '../../section/record/save_component.ts';
-import { getPermissions, type Principal } from '../../security/permissions.ts';
+import {
+	getPermissions,
+	getRecordComponentPermission,
+	type Principal,
+} from '../../security/permissions.ts';
 import { getTermByLocator, getTermTipos } from '../../ts_object/term_resolver.ts';
 import {
 	type ActionHandler,
@@ -91,11 +95,18 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 /**
  * Gate A: the request source (section_tipo, tipo). For a dd15 source the level
  * is the Time Machine floor, which reads the TM scope — so the caller must run
- * this inside withTimeMachineReadScope.
+ * this inside withTimeMachineReadScope. The dd128 own-user-record rules apply
+ * first (PHP resolve_component_read_permission): tool_user_admin reads the
+ * actor's own name/email/password/image, which most profiles grant 0 on.
  */
 async function gateReadSource(source: RqoSource, principal: Principal): Promise<void> {
 	if (source.section_tipo === undefined || source.tipo === undefined) return;
-	const level = await getPermissions(principal, source.section_tipo, source.tipo);
+	const level = await getRecordComponentPermission(
+		principal,
+		source.section_tipo,
+		source.tipo,
+		source.section_id,
+	);
 	if (level < 1) {
 		throw new DedaloError('perm.denied', {
 			coordinates: { section_tipo: source.section_tipo, tipo: source.tipo },
@@ -182,6 +193,23 @@ async function countGatedRows(
 }
 
 /** dd_core_api action handlers, keyed by action (registered in dispatch.ts). */
+/**
+ * The save echo of an `html` render-class model, rebased like the read (TODO-067):
+ * the client's post-save baseline must equal what the editor holds — stored media
+ * src are relative, the read serves them on webBase.
+ */
+async function servedRichTextEcho(model: string | null, items: unknown[]): Promise<unknown[]> {
+	const { getComponentModel, getRenderClass } = await import('../../components/registry.ts');
+	if (
+		model === null ||
+		getComponentModel(model) === undefined ||
+		getRenderClass(model) !== 'html'
+	) {
+		return items;
+	}
+	return (await import('../../media/web_base_src.ts')).appServedMediaItems(items);
+}
+
 export const coreApiActions: Record<string, ActionHandler> = {
 	read: async (rqo, context) => {
 		// Permission gates BEFORE any search/DB work (PHP build_json_rows
@@ -455,6 +483,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				const echoLang = await effectiveSaveLang(source.tipo, echoModel, savedLang);
 				savedItems = filterItemsByLang(savedItems, echoLang);
 			}
+			savedItems = await servedRichTextEcho(echoModel, savedItems);
 		}
 		// Relation saves echo context too (populated in the block below); [] for scalars.
 		let savedContext: unknown[] = [];

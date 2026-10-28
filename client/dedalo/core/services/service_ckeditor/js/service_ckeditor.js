@@ -366,7 +366,14 @@ export const service_ckeditor = function() {
 					// the rqo will created as to use the 'upload' by default
 					// the main rqo vars needed as rqo.options will be created with the URI variables.
 					// rqo.upload property will created with the name of the file
-					uploadUrl: DEDALO_API_URL + '?resource_type=web&key_dir=web'
+					// the text's record names the file (rule B: public while that record is published)
+					uploadUrl: DEDALO_API_URL + '?' + new URLSearchParams({
+						resource_type	: 'web',
+						key_dir			: 'web',
+						section_tipo	: self.caller.section_tipo,
+						section_id		: self.caller.section_id,
+						component_tipo	: self.caller.tipo
+					})
 				},
 				placeholder: self.fallback_value
 			})
@@ -374,6 +381,23 @@ export const service_ckeditor = function() {
 
 				// fix the instance
 					self.editor = editor
+
+				// image upload CSRF: read page_globals.csrf_token per upload, not at init
+				// (data_manager refreshes it from every envelope, e.g. after a re-login);
+				// CKEditor copies its config at init, so stamp each upload adapter instead
+					if (editor.plugins.has('FileRepository')) {
+						const file_repository		= editor.plugins.get('FileRepository')
+						const create_upload_adapter	= file_repository.createUploadAdapter
+						if (create_upload_adapter) {
+							file_repository.createUploadAdapter = (loader) => {
+								const adapter = create_upload_adapter(loader)
+								adapter.options = Object.assign({}, adapter.options, {
+									headers : {'X-Dedalo-Csrf-Token' : page_globals.csrf_token || ''}
+								})
+								return adapter
+							}
+						}
+					}
 
 			// init editor status changes to track isDirty value
 					self.init_status_changes()

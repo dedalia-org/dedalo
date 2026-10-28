@@ -12,6 +12,7 @@
  *   component_select_lang, e.g. rsc263), equivalence-aware.
  */
 
+import { appServedMediaSrc } from '../../media/web_base_src.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
 import { filterItemsByLang, readComponentItems } from '../../resolve/component_data.ts';
 import { equivalentLangsOf } from '../../resolve/lang_alias.ts';
@@ -45,6 +46,13 @@ function renderListString(value: string): string {
 		TEXT_AREA_LIST_MAX_CHARS,
 		addTagImgOnTheFly(capped, { svgUrl: appServedSvgUrlFromTagLocator }),
 	);
+}
+
+/** The non-empty stored string of one item, or null when there is nothing to render. */
+function itemText(item: unknown): string | null {
+	if (item === null || typeof item !== 'object') return null;
+	const text = (item as { value?: unknown }).value;
+	return typeof text === 'string' && text !== '' ? text : null;
 }
 
 /** True when a lang slice holds at least one item with real text. */
@@ -111,16 +119,21 @@ export const textAreaEmitHook: ComponentEmitHook = {
 	},
 
 	transformValue(value: unknown[] | null, context: EmitHookContext): unknown[] | null {
-		if (context.ddoMode !== 'list' || !Array.isArray(value)) return value;
-		return value.map((item) => {
-			if (item === null || typeof item !== 'object') return item;
-			const typedItem = item as { value?: unknown };
-			if (typeof typedItem.value !== 'string' || typedItem.value === '') return item;
-			return {
-				...typedItem,
-				value: renderListString(typedItem.value),
-			};
+		if (!Array.isArray(value)) return value;
+		let changed = false;
+		const served = value.map((item) => {
+			const text = itemText(item);
+			if (text === null) return item;
+			// Stored media src are relative; this client may load media from another
+			// origin (TODO-067, WC-042 — same rebase as the svg tags below).
+			const rebased = appServedMediaSrc(text);
+			const next = context.ddoMode === 'list' ? renderListString(rebased) : rebased;
+			if (next === text) return item;
+			changed = true;
+			return { ...(item as object), value: next };
 		});
+		// Unchanged (non-list, no media src to rebase) → the value itself, untouched.
+		return changed ? served : value;
 	},
 
 	async decorateItem(item: DataItem, context: EmitHookContext): Promise<void> {

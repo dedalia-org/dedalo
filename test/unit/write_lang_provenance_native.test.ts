@@ -299,6 +299,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		{ lang: 'nolan', reason: 'Media companion metadata — structural, never translated.' },
 	],
 	[
+		'src/core/media/rich_text_image_reconcile.ts',
+		{
+			lang: 'items',
+			reason:
+				'The rich-text image reconciles save back the exact stored lang slice they read (filterItemsByLang, lang = the lang the items carry) — never a request or install language. A slice whose effective save lang differs is HELD and reported instead of written, so no language the operator was not editing is replaced.',
+		},
+	],
+	[
 		'src/core/ontology/data_io.ts',
 		{ lang: 'nolan', reason: 'Ontology data import writes DATA_NOLAN.' },
 	],

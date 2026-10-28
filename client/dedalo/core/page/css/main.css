@@ -13279,83 +13279,27 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 *
 * Included from main.less file
 */
+.relation_list_body.loading {
+  opacity: 1;
+  animation: relation_list_loading_dim 0.2s ease-out 0.35s forwards;
+}
+.relation_list_body.loading .wrapper_paginator.loading {
+  opacity: 1;
+  animation: none;
+}
+@keyframes relation_list_loading_dim {
+  to {
+    opacity: 0.4;
+  }
+}
 .relation_list {
   font-size: 0.9rem;
   color: var(--color_grey_8);
 }
-.relation_list > .relation_list_paginator {
-  -moz-user-select: none;
-  -ms-user-select: none;
-  -webkit-user-select: none;
-  user-select: none;
-  padding: 0.33rem;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons {
-  float: right;
-  display: flex;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .paginator_page_info {
-  margin-left: 4px;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button {
-  display: inline-block;
-  z-index: 1;
-  margin-left: 0.5rem;
-  padding: 0px;
-  opacity: 0.5;
-  background-color: var(--color_black);
-  display: inline-flex;
-  line-height: 1em;
-  margin: 0px;
-  margin-left: 0.25rem;
-  margin-right: 0.25rem;
-  min-width: 1em;
-  user-select: none;
-  font-weight: 300;
-  background: var(--color_grey_4);
-  height: 1em;
-  width: 1em;
-  opacity: 1;
-  -webkit-mask-image: url('../../themes/default/icons/play.svg');
-  mask-image: url('../../themes/default/icons/play.svg');
-  -webkit-mask-size: contain;
-  mask-size: contain;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  cursor: pointer;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button:hover {
-  opacity: 1 !important;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button:active {
-  opacity: 0.4 !important;
-}
-.buttons_container .relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button {
-  background-color: var(--color_white);
-  margin-top: 0px;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.white {
-  background-color: var(--color_white) !important;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.grey {
-  background-color: var(--color_grey_10);
-  opacity: 0.75;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.transparent {
-  background-color: transparent !important;
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.relation_list_paginator_next {
-  transform: scale(0.9);
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.relation_list_paginator_previous {
-  transform: scale(0.9) rotate(180deg);
-}
-.relation_list > .relation_list_paginator > .relation_list_paginator_buttons > .button.relation_list_paginator_offset_off {
-  opacity: 0.1;
-  pointer-events: none;
-  cursor: default;
+.relation_list > .paginator_container > .wrapper_paginator > .content_data {
+  height: auto;
+  min-height: 0;
+  padding: 0.1rem 0.25rem;
 }
 .relation_list > .content_data .relation_list_grid {
   border-left: 2px solid var(--color_orange_dedalo);
@@ -16332,7 +16276,12 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   color: var(--fg_muted);
 }
 .wrapper_widget.reconcile_status .dd_table {
-  grid-template-columns: minmax(9rem, 1.2fr) minmax(10rem, 1.6fr) 7rem minmax(10rem, 1.4fr) 9rem;
+  grid-template-columns: minmax(16rem, 2fr) minmax(11rem, 1.5fr) 8rem minmax(9rem, 1fr) max-content;
+}
+.wrapper_widget.reconcile_status .dd_table .dd_td.name {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
 }
 .wrapper_widget.reconcile_status .dd_table .description {
   font-size: 0.8rem;
@@ -16341,6 +16290,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.reconcile_status .dd_table .actions {
   display: flex;
   gap: 0.35rem;
+  align-items: flex-start;
 }
 .wrapper_widget.reconcile_status .body_response {
   margin-top: 0.75rem;
@@ -21093,6 +21043,20 @@ body.inspector_resizing {
   grid-row-start: 1;
   background-color: var(--color_grey_13);
 }
+.tm_list.tm_view_mini > .list_body.loading,
+.tm_list.tm_view_history > .list_body.loading {
+  opacity: 1;
+}
+.tm_list.tm_view_mini:has(> .list_body.loading),
+.tm_list.tm_view_history:has(> .list_body.loading) {
+  opacity: 1;
+  animation: tm_list_loading_dim 0.2s ease-out 0.35s forwards;
+}
+.tm_list.tm_view_mini:has(> .list_body.loading) .wrapper_paginator.loading,
+.tm_list.tm_view_history:has(> .list_body.loading) .wrapper_paginator.loading {
+  opacity: 1;
+  animation: none;
+}
 .tm_list.tm_view_mini,
 .tm_list.tm_view_history {
   display: block;
@@ -21228,6 +21192,11 @@ body.inspector_resizing {
     grid-column: 3;
     grid-row: 2;
     align-self: end;
+  }
+}
+@keyframes tm_list_loading_dim {
+  to {
+    opacity: 0.4;
   }
 }
 /**
@@ -22870,6 +22839,18 @@ body.inspector_resizing {
 }
 .component_date.search > .content_data > .content_value > .input-group > input {
   width: 100%;
+}
+.component_date.edit:not(:hover):not(.active) > .content_data > .content_value input:not(:focus)::placeholder {
+  color: transparent;
+}
+.component_date.edit:not(:hover):not(.active) > .content_data > .content_value:not(:has(input:not(:placeholder-shown))) > .dates_separator,
+.component_date.edit:not(:hover):not(.active) > .content_data > .content_value:not(:has(input:not(:placeholder-shown))) > .input-group label {
+  visibility: hidden;
+}
+@media (pointer: coarse) {
+  .component_date.edit:not(.active) > .content_data > .content_value > .input-group:not(:focus-within) > .button_container.button_calendar_container {
+    visibility: hidden;
+  }
 }
 @media screen and (max-width: 600px) {
   .component_date.edit > .content_data > .content_value > .input-group {
@@ -27928,6 +27909,31 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li {
 }
 dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hover {
   background-color: var(--color_grey_13);
+}
+:where(.component_text_area .editor_container) .image {
+  display: table;
+  clear: both;
+  text-align: center;
+  margin: 0.9em auto;
+  min-width: 50px;
+}
+:where(.component_text_area .editor_container) .image img {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  min-width: 100%;
+  height: auto;
+}
+:where(.component_text_area .editor_container) .image.image_resized {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+:where(.component_text_area .editor_container) .image.image_resized img {
+  width: 100%;
+}
+:where(.component_text_area .editor_container) img.image_resized {
+  height: auto;
 }
 /**
 * widget calculation

@@ -34,9 +34,9 @@ sits next to these neighbouring client subsystems:
 | --- | --- |
 | **section** (`client/dedalo/core/section/js/section.js`) | The inspector's `caller`. The section constructs the inspector in `mode==='edit'` with permissions, owns its lifecycle, and is the source of all `context`/`data`/`tools`/`rqo` the inspector reads. |
 | **view_default_edit_section** (`client/dedalo/core/section/js/view_default_edit_section.js`) | Builds `#inspector_container`, renders the inspector wrapper into it, attaches the resize handle, applies the persisted rail/width state, and moves the section paginator into the inspector. |
-| **service_time_machine** (Time Machine) | Instanced on demand by the inspector for the section "Latest changes" list and the per-component history. The inspector never reads `dd15` history itself; it delegates to the service. |
+| **Time Machine list** (a `dd15` `section` instance, `sqo.mode 'tm'`) | Instanced on demand for the section "Latest changes" list and the per-component history, 10 rows per page with the compact paginator (`1-10 of 47`). A `tm` read is a page view, never a single-record view: its one locator names the record (+ component) whose history is listed. Paging an embedded list never writes browser history or the address bar — only the page's own section does. A page turn refreshes the mounted rows in place (the block dims only if the turn is slow), exactly like the Relations card. |
 | **open_tool** | Every tool button in the inspector calls `open_tool()`; the inspector only decides *which* tools to show (`show_in_inspector`) and renders their buttons. |
-| **relation_list** | Instanced on demand to render the "Relations" block. |
+| **relation_list** | Instanced on demand to render the "Relations" block, paginated with the same compact strip (`1-10 of 47`) as the Time Machine panels; a page turn refreshes the mounted rows in place instead of rebuilding the block. |
 
 !!! note "No server counterpart"
     The inspector itself has no server-side object. The data it shows is
@@ -286,7 +286,7 @@ apply_inspector_state(self.inspector, inspector_container) // rail/width before 
 | `render_<caller.id>` | Clear the record-info cache, then `update_section_info()` — reset active component, re-render section info, load the record info, reload the time-machine list, clear component history, sync the paginator section_id. |
 | `activate_component` | Store `self.actived_component`, update selection label, `render_component_info()`, load that component's history; in developer mode re-point an open ontology window. |
 | `save` | Clear the record-info cache (the *Modified* stamp moved). If the saved instance is the active component, reload its history; always reload the section time-machine list and push an `activity_info` bubble. |
-| `deactivate_component` | After a 250 ms debounce, if no component is active, `update_section_info()` (back to the section view). |
+| `deactivate_component` | Ignored for a component of another section (a modal, e.g. the Time Machine note editor in `rsc832`), so closing a note keeps the history it was opened from. Otherwise, after a 250 ms debounce, if no component is active, `update_section_info()` (back to the section view). |
 | `render_component_filter_<section_tipo>` | Capture the rendered `component_filter` node (published by `render_edit_section_record`) and refresh the project block body. |
 
 ### Teardown
@@ -426,7 +426,9 @@ so each historical change can carry a note.
   `context.config.relation_list_tipo` (set server-side in
   `common` when the section declares a relation-list trigger). It renders the
   inbound "who references me" view — see [component_relation_index](../components/component_relation_index.md)
-  and [relation_list](../components/index.md#related-components).
+  and [relation_list](../components/index.md#related-components). Its paginator
+  is a `paginator` instance in `mini` mode, so it reads exactly like the
+  "Latest changes" strip.
 - The **Project** card surfaces the section's [component_filter](../components/component_filter.md)
   node, captured from the `render_component_filter_<section_tipo>` event, letting
   the curator change the record's project assignment from the panel.

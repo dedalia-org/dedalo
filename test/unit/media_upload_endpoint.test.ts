@@ -13,13 +13,27 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
+import { requireMediaRoot } from '../../src/core/media/path.ts';
+import { MEDIA_FILENAME_GRAMMAR } from '../../src/core/media/protection.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { handleRequest } from '../../src/server.ts';
+import {
+	AUTHZ_CONTROL_USER_ID,
+	AUTHZ_LEVEL_1_USER_ID,
+	AUTHZ_PROJECT_P,
+	AUTHZ_SECTION,
+	AUTHZ_TEXT,
+	AUTHZ_TEXT_AREA,
+	createDoorRecord,
+	installAuthzDoorFixture,
+	removeAuthzDoorFixture,
+} from '../helpers/authz_door_fixture.ts';
+import { DB_READY } from '../helpers/db_ready.ts';
 import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { scratchFile } from '../helpers/scratch_dir.ts';
 
@@ -43,7 +57,7 @@ interface ErrBody {
 }
 const UPLOAD_USER = 3;
 /** Every key_dir this file writes into — torn down before and after the run. */
-const KEY_DIRS = ['kd_ep', 'kd_chunk', 'kd_collide', 'kd_corrupt', 'kd_badid'];
+const KEY_DIRS = ['web', 'kd_ep', 'kd_chunk', 'kd_collide', 'kd_corrupt', 'kd_badid'];
 const clearStaging = (): void => {
 	for (const keyDir of KEY_DIRS) {
 		rmSync(stagingDir(UPLOAD_USER, keyDir), { recursive: true, force: true });
@@ -509,4 +523,160 @@ describe('upload_id is validated, not sanitized', () => {
 			expect(existsSync(stagingDir(UPLOAD_USER, 'kd_badid'))).toBe(false);
 		});
 	}
+});
+
+/** CKEditor's wire: field `upload`, key_dir + the text's record in the URL query, CSRF header only. */
+function ckeditorRequest(
+	blob: Blob,
+	name: string,
+	s: { token: string; csrf: string },
+	record: Record<string, string>,
+): Request {
+	const form = new FormData();
+	form.set('upload', blob, name);
+	const query = new URLSearchParams({ resource_type: 'web', key_dir: 'web', ...record });
+	return new Request(`${API_URL}?${query}`, {
+		method: 'POST',
+		body: form,
+		headers: { Cookie: `dedalo_ts_session=${s.token}`, 'x-dedalo-csrf-token': s.csrf },
+	});
+}
+/** Files (not dirs) under a tree — a staged copy and its display-name record both count. */
+const filesUnder = (dir: string): string[] =>
+	existsSync(dir)
+		? readdirSync(dir, { recursive: true, withFileTypes: true })
+				.filter((entry) => entry.isFile())
+				.map((entry) => resolve(entry.parentPath, entry.name))
+		: [];
+const webFolder = (): string => resolve(requireMediaRoot(), 'image', 'web');
+
+describe.if(DB_READY)(
+	"rich-text image upload (CKEditor SimpleUploadAdapter, key_dir 'web')",
+	() => {
+		// TODO-066: the file is named after the record whose text it goes into, so rule B
+		// (the generated rules, the marker writer, media_copy) decides its public life.
+		let recordId = 0;
+		beforeAll(async () => {
+			await installAuthzDoorFixture();
+			recordId = await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_P);
+		});
+		afterAll(async () => {
+			for (const user of [AUTHZ_CONTROL_USER_ID, AUTHZ_LEVEL_1_USER_ID]) {
+				rmSync(stagingDir(user, 'web'), { recursive: true, force: true });
+			}
+			await removeAuthzDoorFixture();
+		});
+		const writer = (): { token: string; csrf: string } => newSession(AUTHZ_CONTROL_USER_ID);
+		const coordinates = (): Record<string, string> => ({
+			section_tipo: AUTHZ_SECTION,
+			section_id: String(recordId),
+			component_tipo: AUTHZ_TEXT_AREA,
+		});
+
+		const webStaging = (user = AUTHZ_CONTROL_USER_ID): string => stagingDir(user, 'web');
+		const GRAMMAR = new RegExp(`^${MEDIA_FILENAME_GRAMMAR}`);
+
+		test.if(HAVE_MAGICK)(
+			'publishes a RECORD-KEYED name into the image web folder and answers a bare { url }; a same-named second upload keeps the key last',
+			async () => {
+				const urls: string[] = [];
+				for (let n = 0; n < 2; n++) {
+					const res = await handleRequest(
+						ckeditorRequest(await jpegBlob(), 'pic.jpg', writer(), coordinates()),
+						context,
+					);
+					expect(res.status).toBe(200);
+					urls.push(((await res.json()) as { url: string }).url);
+				}
+				const onDisk: string[] = [];
+				try {
+					for (const url of urls) {
+						const match = /\/(image\/web\/([^/]+))$/.exec(url);
+						expect(match).not.toBeNull();
+						onDisk.push(resolve(requireMediaRoot(), match![1]!));
+						// rule B's own grammar reads back THIS record
+						const key = GRAMMAR.exec(match![2]!);
+						expect(key?.slice(1, 3)).toEqual([AUTHZ_SECTION, String(recordId)]);
+					}
+					expect(basename(onDisk[0]!)).toBe(`pic_${AUTHZ_SECTION}_${recordId}.jpg`);
+					// the collision discriminator goes BEFORE the key, never after it
+					expect(basename(onDisk[1]!)).toMatch(
+						new RegExp(`^pic-[0-9a-f]+_${AUTHZ_SECTION}_${recordId}\\.jpg$`),
+					);
+					for (const file of onDisk) expect(existsSync(file)).toBe(true);
+					// moved, not copied: nothing of the transfer stays in staging
+					expect(filesUnder(webStaging())).toEqual([]);
+				} finally {
+					for (const file of onDisk) rmSync(file, { force: true });
+				}
+			},
+		);
+
+		test('no record coordinates → request.invalid, nothing staged or published', async () => {
+			const before = filesUnder(webFolder());
+			const res = await handleRequest(
+				ckeditorRequest(await jpegBlob(), 'pic.jpg', writer(), {}),
+				context,
+			);
+			const body = (await res.json()) as ErrBody;
+			expect(body.ok).toBe(false);
+			expect(body.error.code).toBe('request.invalid');
+			expect(filesUnder(webStaging())).toEqual([]);
+			expect(filesUnder(webFolder())).toEqual(before);
+		});
+
+		test('a writable component that is NOT the text cannot key an image (nor can the bare section)', async () => {
+			const before = filesUnder(webFolder());
+			const { component_tipo: _text, ...noComponent } = coordinates();
+			for (const record of [{ ...coordinates(), component_tipo: AUTHZ_TEXT }, noComponent]) {
+				const res = await handleRequest(
+					ckeditorRequest(await jpegBlob(), 'pic.jpg', writer(), record),
+					context,
+				);
+				const body = (await res.json()) as ErrBody;
+				expect(body.ok).toBe(false);
+				expect(body.error.code).toBe('request.invalid');
+			}
+			expect(filesUnder(webStaging())).toEqual([]);
+			expect(filesUnder(webFolder())).toEqual(before);
+		});
+
+		test('a user who cannot WRITE the text is refused (perm.*): an image cannot be keyed to a record by anyone', async () => {
+			const before = filesUnder(webFolder());
+			const res = await handleRequest(
+				ckeditorRequest(
+					await jpegBlob(),
+					'pic.jpg',
+					newSession(AUTHZ_LEVEL_1_USER_ID),
+					coordinates(),
+				),
+				context,
+			);
+			const body = (await res.json()) as ErrBody;
+			expect(body.ok).toBe(false);
+			expect(body.error.code.startsWith('perm.')).toBe(true);
+			expect(filesUnder(webStaging(AUTHZ_LEVEL_1_USER_ID))).toEqual([]);
+			expect(filesUnder(webFolder())).toEqual(before);
+		});
+	},
+);
+
+describe('rich-text image upload — format gate (no database needed)', () => {
+	test('a non-web format is refused before staging: the adapter reads error.message, nothing is left on disk', async () => {
+		const before = filesUnder(webFolder());
+		const pdf = new Blob([new TextEncoder().encode('%PDF-1.4\n%%EOF\n')], {
+			type: 'application/pdf',
+		});
+		const res = await handleRequest(
+			ckeditorRequest(pdf, 'doc.pdf', newSession(UPLOAD_USER), {}),
+			context,
+		);
+		const body = (await res.json()) as ErrBody;
+		expect(res.status).toBe(400);
+		expect(body.ok).toBe(false);
+		expect(body.error.code).toBe('media.upload_rejected');
+		expect(body.error.message).toContain('only jpg, png, gif, webp or avif');
+		expect(filesUnder(stagingDir(UPLOAD_USER, 'web'))).toEqual([]);
+		expect(filesUnder(webFolder())).toEqual(before);
+	});
 });

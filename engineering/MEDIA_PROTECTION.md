@@ -110,6 +110,29 @@ three classify one table of real filenames identically.
 `properties.image_id` or an external source). Document them; never loosen the regex to
 "fix" them — that hands anonymous users every unparseable file in a public quality folder.
 
+**Rich-text images are keyed at upload** (TODO-066, 2026-10-26). The editor's upload
+(`publishWebImage`, key_dir `web`) names the file `<stem>[-n]_<section_tipo>_<section_id>.<ext>`
+after the record whose text it goes into — the collision discriminator sits BEFORE the key, so
+the name still parses — and `image/<DEDALO_IMAGE_WEB_FOLDER>` is a default public quality. Rule B,
+the marker writer and `media_copy` therefore treat it like any other derivative, with no new
+surface. The endpoint asks the write door (`authorizeRecordAccess`, write level 2, section floor
+1) for the text's `(section_tipo, component_tipo, section_id)` BEFORE staging, and requires the
+component to be a `component_text_area`: otherwise a user could key an image to a published
+record whose text they cannot edit and make it public. Limits, by design: a legacy unkeyed name
+(`pic.jpg`) stays login-only; an image pasted into another record's text follows the publication
+of the record it was uploaded from. Historic data is brought in line by two reconciles
+(TODO-069, `src/core/media/rich_text_image_reconcile.ts`): `rich_text_images` (operator)
+copies each legacy image to a name keyed to the record that embeds it and rewrites its `src`
+(TM row, original kept); `web_image_exposure` (dry at boot, root-only apply) flags any
+web-folder name that parses to a PUBLISHED record whose own text does not embed it — a legacy
+name that happens to end like a record key, or a keyed image removed from its text — and
+renames it out of the grammar (`<stem>.legacy.<ext>`), repointing every text that uses it (the old
+name goes only once nothing resolves to it). `rich_text_images` holds any text a save would
+corrupt (another-lang slice of a non-translatable text, lang-less items); both applies are root-only. A file younger
+than 24 h is held (its text may not be saved yet). An explicit
+`DEDALO_MEDIA_PUBLIC_QUALITIES` must list `image/web` itself; nginx needs a reload for the new
+quality (§7).
+
 ## 5. The cookie
 
 Fixed NAME (`dedalo_media_auth`), rotating VALUE (128-char sha512 hex). **The fixed name

@@ -151,11 +151,15 @@
 			// rewrite/ joined 2026-10-12 (AGENTS.md: internal process, gitignored, never
 			// on a clone): an untracked TUI mockup under rewrite/plans/ put 11 errors
 			// into host `biome check .` that no runner can see.
+			// .superpowers/ joined 2026-10-26 on the same ground: an agent's own
+			// workspace (gitignored, never on a clone) held two planning markdown
+			// files whose code excerpts biome parsed as 25 errors in host mode.
 			"!**/audits",
 			"!**/.cache",
 			"!**/dev",
 			"!**/dev_tools",
 			"!**/rewrite",
+			"!**/.superpowers",
 
 			// HAND-AUTHORED PROSE — the manual (mkdocs sources, the style guide, the
 			// docs_current_engine_tripwire gate read it), tracked and edited

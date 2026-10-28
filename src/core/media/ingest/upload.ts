@@ -46,6 +46,7 @@
 
 import {
 	closeSync,
+	copyFileSync,
 	existsSync,
 	linkSync,
 	mkdirSync,
@@ -63,11 +64,15 @@ import {
 } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { config } from '../../../config/config.ts';
+import { readString } from '../../../config/readers.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
+import { MEDIA_DIR_MODE } from '../../install/media_tree.ts';
 import { sniffAndValidate } from '../engine/mime.ts';
 import { verifyFileContent } from '../engine/verify_content.ts';
+import { requireMediaRoot } from '../path.ts';
+import { MEDIA_FILENAME_GRAMMAR } from '../protection.ts';
 import { sanitizeSegment, stagingDir } from './add_file.ts';
-import { recordStagedDisplayName } from './staged_name_record.ts';
+import { forgetStagedDisplayName, recordStagedDisplayName } from './staged_name_record.ts';
 import { sweepStagedOrphans, UPLOAD_DIR_PREFIX, uploadArtifactDir } from './staging_gc.ts';
 
 /** The parsed upload request fields. */
@@ -202,7 +207,8 @@ export async function parseUploadRequest(request: Request): Promise<ParsedUpload
 	// `file` is Dropzone's stock default and is accepted as a fallback so a plain
 	// Dropzone/blueimp configuration is not silently rejected (PHP read $_FILES
 	// positionally and so accepted either).
-	const file = form.get('file_to_upload') ?? form.get('file');
+	// `upload` is CKEditor's SimpleUploadAdapter field (rich-text image upload).
+	const file = form.get('file_to_upload') ?? form.get('file') ?? form.get('upload');
 	if (!(file instanceof Blob)) {
 		throw new DedaloError('media.upload_rejected', {
 			message: 'upload: missing file_to_upload',
@@ -256,7 +262,8 @@ export async function parseUploadRequest(request: Request): Promise<ParsedUpload
 	const csrfField = form.get('csrf_token');
 	const uploadIdField = form.get('upload_id');
 	return {
-		keyDir: String(form.get('key_dir') ?? ''),
+		// CKEditor cannot add form fields: its key_dir rides the upload URL's query.
+		keyDir: String(form.get('key_dir') ?? new URL(request.url).searchParams.get('key_dir') ?? ''),
 		fileName,
 		chunked,
 		chunkIndex: readCount(form.get('chunk_index'), 0, 'chunk_index'),
@@ -393,7 +400,7 @@ function splitStagedName(name: string): { stem: string; suffix: string } {
  * under one `key_dir`), so a cross-device link is unreachable and pretending to
  * handle it would be an untested branch.
  */
-const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
+export const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
 	'EPERM',
 	'EOPNOTSUPP',
 	'ENOTSUP',
@@ -421,14 +428,16 @@ const NO_HARDLINK_ERRNOS: ReadonlySet<string> = new Set([
  * single-shot upload, and (once chunking is on for every file) silent CORRUPTION
  * for a chunked one, since the parts of two transfers interleaved under one name.
  */
-function claimStagedName(dir: string, proposal: string, sourcePath: string): string {
+function claimStagedName(dir: string, proposal: string, sourcePath: string, key = ''): string {
+	// `key` sits between the discriminator and the extension, so a keyed name
+	// keeps ending in `_<section_tipo>_<section_id>.<ext>` (MEDIA_FILENAME_GRAMMAR).
 	const { stem, suffix } = splitStagedName(proposal);
-	const candidates: string[] = [proposal];
-	for (let n = 1; n <= 999; n++) candidates.push(`${stem}-${n}${suffix}`);
+	const candidates: string[] = [`${stem}${key}${suffix}`];
+	for (let n = 1; n <= 999; n++) candidates.push(`${stem}-${n}${key}${suffix}`);
 	// Last resort when a user really has a thousand same-named staged files: a
 	// random discriminator, still inside the safe segment charset.
 	for (let n = 0; n < 8; n++) {
-		candidates.push(`${stem}-${Math.random().toString(16).slice(2, 10)}${suffix}`);
+		candidates.push(`${stem}-${Math.random().toString(16).slice(2, 10)}${key}${suffix}`);
 	}
 	// Sticky: once link(2) is known unsupported here, every later candidate takes
 	// the reservation path directly instead of paying a failing syscall each time.
@@ -1209,4 +1218,103 @@ function confine(dir: string, name: string): string {
 		});
 	}
 	return full;
+}
+
+/** A published rich-text image name — rule B's own grammar, anchored to the segment. */
+const WEB_IMAGE_NAME = new RegExp(`^${MEDIA_FILENAME_GRAMMAR}`);
+
+/** The rich-text editor's key_dir (PHP dd_utils_api::upload `case 'web'`). */
+export const WEB_IMAGE_KEY_DIR = 'web';
+
+/** Formats a browser renders inline — the web folder is embedded in HTML, never re-encoded. */
+const WEB_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
+	'jpg',
+	'jpeg',
+	'png',
+	'gif',
+	'webp',
+	'avif',
+]);
+
+/** Refuse a non-web format BEFORE staging, so a refused upload leaves nothing on disk. */
+export function assertWebImageFormat(fileName: string): void {
+	const extension = extensionOf(fileName);
+	if (!WEB_IMAGE_EXTENSIONS.has(extension)) {
+		throw new DedaloError('media.upload_rejected', {
+			message: `upload: '${extension}' is not a web image format`,
+			publicMessage: 'upload: only jpg, png, gif, webp or avif images can be inserted in a text',
+		});
+	}
+}
+
+/** The record a rich-text image belongs to — from a write-door grant, never the raw request. */
+export interface WebImageRecord {
+	sectionTipo: string;
+	sectionId: number | string;
+}
+
+/**
+ * Move a STAGED rich-text image into `<image>/<DEDALO_IMAGE_WEB_FOLDER>/` and
+ * return its media-root-relative path. Collision-free (claimStagedName): PHP
+ * overwrote a same-named file, silently swapping the picture inside every other
+ * text that embedded it. COPIED into the web dir first: staging may be another
+ * device (DEDALO_UPLOAD_TMP_SUBDIR on a different mount), and claimStagedName's
+ * link/rename are same-device only. The staged file is removed either way.
+ *
+ * RECORD-KEYED NAME (TODO-066): `<stem>[-n]_<section_tipo>_<section_id>.<ext>`,
+ * so rule B serves it anonymously exactly while its record is published (and
+ * media_copy ships it) — no second definition of "public". A key that would not
+ * parse is refused: an unkeyed file here would stay login-only forever.
+ */
+export function publishWebImage(
+	userId: number,
+	tmpName: string,
+	record: WebImageRecord,
+	mediaRoot?: string,
+): string {
+	const dir = stagingDir(userId, WEB_IMAGE_KEY_DIR, mediaRoot);
+	const source = confine(dir, tmpName);
+	try {
+		return claimKeyedWebImage(source, tmpName, record, mediaRoot);
+	} finally {
+		rmSync(source, { force: true });
+		forgetStagedDisplayName(dir, tmpName);
+	}
+}
+
+/**
+ * COPY `source` into the web folder under a name keyed to `record`, built from
+ * `proposal` (a SANITIZED name, e.g. stagedTmpName) — the ONE naming rule of
+ * the editor upload and of the legacy migration (rich_text_image_reconcile.ts).
+ * The source is never moved or removed. Returns the media-root-relative path.
+ */
+export function claimKeyedWebImage(
+	source: string,
+	proposal: string,
+	record: WebImageRecord,
+	mediaRoot?: string,
+): string {
+	const key = `_${record.sectionTipo}_${record.sectionId}`;
+	if (!WEB_IMAGE_NAME.test(`x${key}.jpg`)) {
+		throw new DedaloError('request.invalid', {
+			message: `upload: '${key}' is not a media record key`,
+		});
+	}
+	const relDir = webImageRelDir();
+	const webDir = resolve(requireMediaRoot(mediaRoot), relDir);
+	mkdirSync(webDir, { recursive: true, mode: MEDIA_DIR_MODE });
+	const incoming = resolve(webDir, `.incoming_${Math.random().toString(16).slice(2, 12)}`);
+	try {
+		copyFileSync(source, incoming);
+		return `${relDir}/${claimStagedName(webDir, proposal, incoming, key)}`;
+	} finally {
+		rmSync(incoming, { force: true });
+	}
+}
+
+/** `<image folder>/<DEDALO_IMAGE_WEB_FOLDER>`, media-root-relative and sanitized. */
+export function webImageRelDir(): string {
+	return [config.media.image.folder, readString('DEDALO_IMAGE_WEB_FOLDER')]
+		.map((folder) => sanitizeSegment(folder.replace(/^\/+|\/+$/g, '')))
+		.join('/');
 }

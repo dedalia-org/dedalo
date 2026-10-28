@@ -140,6 +140,8 @@ describe('public qualities (rule B folder allowlist)', () => {
 		expect(defaults).toContain('image/thumb');
 		expect(defaults).toContain('av/posterframe');
 		expect(defaults).toContain('pdf/web');
+		// rich-text images: rule B gates their record-keyed names (TODO-066)
+		expect(defaults).toContain('image/web');
 		// masters are never in the default set
 		expect(defaults).not.toContain('image/original');
 		expect(defaults).not.toContain('image/modified');

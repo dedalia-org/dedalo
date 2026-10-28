@@ -101,10 +101,19 @@
 * A pin list of TWO OR MORE locators is a result set (a semantic/RAG search
 * resolves its ranked hits into filter_by_locators) and is a page view.
 *
+* A Time Machine read (sqo.mode 'tm') is never a record view: its single
+* locator names the record (+ component) whose HISTORY is listed — many rows.
+* Taken as a pin, the build forced limit 1 and the next refresh (closing a TM
+* note) showed only the newest row.
+*
 * @param {Object} self - section instance
 * @returns {boolean}
 */
 const is_pinned_record_view = function(self) {
+
+	if (self.rqo?.sqo?.mode==='tm') {
+		return false
+	}
 
 	const pins = self.rqo?.sqo?.filter_by_locators
 
@@ -1918,7 +1927,9 @@ section.prototype.navigate = async function(options) {
 		}
 
 	// navigation history. When user paginates, store navigation history to allow browser navigation too
-		if (navigation_history===true) {
+	// Only the PAGE's own section: an embedded list (the inspector's Time Machine
+	// panels) paginating would push its own source and strip the record id from the URL
+		if (navigation_history===true && self.caller?.model==='page') {
 
 			const title		= self.id
 			const source	= create_source(self, null)

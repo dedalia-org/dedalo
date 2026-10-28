@@ -95,6 +95,18 @@ qualities, the posterframe, every subtitle language.
     fail-closed behavior, not a defect. Never ask for the grammar to be "loosened" to fix
     them: that would hand anonymous visitors every unparseable file in a public folder.
 
+!!! note "Images inserted into rich text"
+    An image inserted from the rich-text editor's toolbar is stored in `image/web` (the
+    `DEDALO_IMAGE_WEB_FOLDER`) under a name that ends with the record it was inserted into,
+    for example `photo_rsc167_2.jpg`. It is therefore public exactly while that record is
+    published, like the record's own media. Only a user who may edit that text can insert an
+    image into it. Images inserted before this naming (for example `photo.jpg`) have no record
+    in their name and stay login-only until the `rich_text_images` entry of **Maintenance →
+    Reconcile status** renames them after their record (see
+    [Upgrading](../install/upgrading.md#one-time-data-update-images-inserted-into-rich-text)).
+    The `web_image_exposure` entry, which runs at every start, lists any file in `image/web`
+    that is public although the published record its name points at does not use it.
+
 ## Configuration
 
 All keys live in `../private/.env`.
@@ -167,8 +179,12 @@ quality catalog**, so an install that renamed a quality still gets rules that ma
 folder names:
 
 ```text
-av/404, av/posterframe, av/subtitles, image/1.5MB, image/thumb, pdf/web, svg/web, 3d/web
+av/404, av/posterframe, av/subtitles, image/1.5MB, image/thumb, image/web, pdf/web, svg/web, 3d/web
 ```
+
+`image/web` holds the images inserted into rich text. If you set this key yourself, list it,
+or those images stay private. On nginx, reload it after the list changes (Apache reads the
+regenerated `.htaccess` by itself).
 
 ```ini
 # publish higher-quality video too, and keep thumbnails private

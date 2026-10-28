@@ -48,6 +48,7 @@ import { restoreCode } from '../../src/core/update/code_restore.ts';
 import {
 	acquireRunLockOrRefuse,
 	assertLinearUpgrade,
+	CODE_UPDATE_INSTALL_ARGS,
 	type CodeUpdateSeams,
 	codeRunLockPath,
 	extractArchive,
@@ -238,6 +239,10 @@ function unmockUpdateEnv(): void {
 	mock.module('../../src/config/config.ts', () => REAL_CONFIG);
 	mock.restore();
 }
+
+test('the quarantine install runs no lifecycle scripts (TODO-063: no .node-gyp shim left in the tree)', () => {
+	expect(CODE_UPDATE_INSTALL_ARGS).toContain('--ignore-scripts');
+});
 
 describe('assertLinearUpgrade (strict path backstop)', () => {
 	test('downgrade / same-version refused, legal rungs allowed, skips refused', () => {

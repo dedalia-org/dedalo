@@ -6,7 +6,7 @@ Self-service account panel: lets the logged-in user view and edit their own basi
 
 `tool_user_admin` opens a small panel — launched by clicking the **username** in the main menu header — that renders a few components of the current user's own record from the Users section (`dd128`): the user's id, username and profile (read-only), plus their full name, password, email and avatar image (editable). It exists so any logged-in person can maintain their own credentials and profile picture even when their profile does **not** grant write (or any) access to the Users management section as a whole.
 
-The tool itself is **UI-only**: it ships no server module and has **no remotely callable actions of its own**. Every save it performs goes through the ordinary, already-gated component/section save pipeline against the user's own `dd128` record. **The permission engine has no special case letting a low-privilege user write their own Users record independently of their profile's general Users-section grant** — a real, verified gap on this engine (see below).
+The tool itself is **UI-only**: it ships no server module and has **no remotely callable actions of its own**. Every read and save it performs goes through the ordinary, already-gated component pipeline against the user's own `dd128` record. What lets a low-privilege user use it is a core permission rule for the caller's **own** Users record (see below), not anything in the tool.
 
 Concrete heritage scenario: a documentalist at a museum is given a profile that lets them catalogue objects but explicitly **not** administer other users. They notice their displayed name is misspelled and they want to set a recognisable avatar and rotate their password after onboarding. They click their name in the top bar; the User admin panel opens showing their id / username / profile as read-only context, and editable fields for full name, password, email and a user image (with the standard upload tool enabled on the image). They fix the name, set a new password, upload a portrait, and close the panel — all without ever touching the Users section or seeing any other account.
 
@@ -16,7 +16,15 @@ Use it when: you want end users to self-manage their own account essentials from
 
 **Server.** `tools/tool_user_admin/` ships **no `server/` package** — confirmed: there is no `tools/tool_user_admin/server/` directory, so `dd_tools_api.tool_request` refuses any action named against it at dispatch gate 5 (`tool has no server module`). There is no `isAvailable`/`onRegister`/`onRemove` override.
 
-The behaviour that would let a low-privilege user edit their own data regardless of their profile's general Users-section grant lives in core, not in the tool — and **this engine does not have it**. `getPermissions` (`src/core/security/permissions.ts`) resolves every permission check through the caller's profile grants; there is no `userId`-vs-`section_id` special case anywhere in its resolution order (confirmed by inspection), so it never forces a level for the Users section (`dd128`) when the target record happens to be the caller's own. Concretely: a user whose profile denies write on `dd128` is refused writing their own record through this tool — the panel opens and shows the fields, but the save is refused by the ordinary component save gate. This is a real, safety-relevant gap: confirm a user's profile actually grants at least write (level 2) on `dd128` before relying on `tool_user_admin`'s self-service edit.
+The behaviour that lets a low-privilege user edit their own data regardless of their profile's Users-section grant lives in core, not in the tool: the **own-user-record rules** (`resolveOwnUserRecordPermission`, applied through `getRecordComponentPermission` in `src/core/security/permissions.ts`). When the target is `dd128` and `section_id` equals the caller's user id, the profile level is overridden before the matrix is consulted:
+
+| Components | Forced level | Why |
+| --- | --- | --- |
+| `dd452` name, `dd134` email, `dd133` password, `dd522` image | 2 (write) | the self-service edit — most profiles grant 0 on `dd128` |
+| `dd1725` profile, `dd515` developer, `dd132` username, `dd330` section id | 1 (read) for non-global-admins | anti self-elevation |
+| `dd244` security administrator | 1 (read), global admins included | anti self-elevation |
+
+Every door onto these components consults the rule: the `read` action's source gate (`gateReadSource`, `src/core/api/handlers/dd_core_api.ts`), the component `get_data` gate (`src/core/section/read_facade.ts`), the per-element context stamp (`src/core/section/read.ts`) and the save write door. Another user's record keeps the profile level. Up to 7.0.0-beta.7 the two read gates skipped the rule, so the panel failed with *Insufficient permissions* for any user with no `dd128` grant. Gate: `test/unit/user_self_record_permissions.test.ts`.
 
 **Client** (`tools/tool_user_admin/js/`). The instance is `tool_user_admin.js`; `render_tool_user_admin.js` builds the body; `index.js` re-exports the module. Notable points:
 
@@ -47,7 +55,7 @@ This tool declares **no** API actions of its own:
 | --- | --- |
 | `tool_user_admin` | *(no server module)* — UI-only, nothing dispatchable on this tool in either engine |
 
-There is therefore no `tool_request` envelope, no permission gate spec and no `backgroundRunnable` for this tool. Saves are issued by the rendered component instances through their normal save paths against the logged user's own `dd128` record; each is gated by the ordinary component permission checks, with no own-record carve-out (see the gap noted above). The client-side inputs the tool effectively works with are not request options but fixed globals it reads:
+There is therefore no `tool_request` envelope, no permission gate spec and no `backgroundRunnable` for this tool. Saves are issued by the rendered component instances through their normal save paths against the logged user's own `dd128` record; each is gated by the ordinary component permission checks, which apply the own-record rules above. The client-side inputs the tool effectively works with are not request options but fixed globals it reads:
 
 | Reads (client global) | Used for |
 | --- | --- |
@@ -108,5 +116,5 @@ const request_config = [{
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions` (incl. the no-server-module UI-only case), gates and lifecycle this page builds on.
 - [tool_indexation](tool_indexation.md), [tool_diffusion](tool_diffusion.md) — other UI-only tools with no server module (front-end orchestrators over existing component/section pipelines).
 - [tool_export](tool_export.md) — contrast: a section tool with a real dispatchable action and a permission-gated declarative `apiActions` map; see [Exporting data](../../../core/exporting_data.md).
-- Core glue (client): `core/menu/js/menu.js` (`open_tool_user_admin_handler`), `core/menu/js/view_default_edit_menu.js` (username link handler). Server-side permission resolution: `src/core/security/permissions.ts::getPermissions` — no own-record carve-out for `dd128` (see the gap above).
+- Core glue (client): `core/menu/js/menu.js` (`open_tool_user_admin_handler`), `core/menu/js/view_default_edit_menu.js` (username link handler). Server-side permission resolution: `src/core/security/permissions.ts::getRecordComponentPermission` (the own-record rules above, then `getPermissions`).
 - Source: `tools/tool_user_admin/register.json` (no `server/` package), `tools/tool_user_admin/js/{tool_user_admin,render_tool_user_admin,index}.js`, `tools/tool_user_admin/css/tool_user_admin.less`.

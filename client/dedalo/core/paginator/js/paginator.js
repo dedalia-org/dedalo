@@ -494,9 +494,21 @@ paginator.prototype.paginate = async function(offset) {
 
 	// the rows container whose height changes with the page. Measured NOW, while
 	// the old page is still mounted (see smooth_page_swap).
-		const height_node = self.caller.node?.querySelector
-			? (self.caller.node.querySelector('.list_body') || self.caller.node)
+	// DIRECT child only: an edit section's node also CONTAINS the inspector, and
+	// its open history panels have their own .list_body — animating one of those
+	// on a section page turn would move the wrong block.
+	// A direct .list_body may still be `display: contents` and measure 0 (the
+	// inspector's Component history): fall back to the caller's own node, so those
+	// panels get the same height FLIP as every other list.
+		const list_body = self.caller.node?.querySelector
+			? self.caller.node.querySelector(':scope > .list_body')
 			: null
+		const caller_node = self.caller.node?.getBoundingClientRect
+			? self.caller.node
+			: null
+		const height_node = (list_body && list_body.getBoundingClientRect().height > 0)
+			? list_body
+			: caller_node
 		const height_from = height_node
 			? height_node.getBoundingClientRect().height
 			: 0

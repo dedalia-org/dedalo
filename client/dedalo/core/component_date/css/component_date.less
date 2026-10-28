@@ -327,6 +327,32 @@
 	// hangs its trigger on the field corner by design (see `&.search`).
 	// (.edit also keeps the search block's higher-specificity overrides out.)
 	&.edit {
+		// BLANK AT REST (the literal-component policy, see general.less
+		// `.component_input_text.edit`): an empty date shows nothing until the
+		// component is hovered or active — no DD/MM/YYYY placeholder, no `<>`,
+		// no period Y/M/D labels. A row holding any value keeps its separator.
+		// `visibility` (not display) so the reveal shifts nothing.
+		&:not(:hover):not(.active) >.content_data >.content_value {
+			input:not(:focus)::placeholder {
+				color: transparent;
+			}
+			&:not(:has(input:not(:placeholder-shown))) {
+				>.dates_separator,
+				>.input-group label {
+					visibility: hidden;
+				}
+			}
+		}
+
+		// touch: the trigger is always shown on coarse pointers (base rule);
+		// in edit it waits for the tap that activates the component (its
+		// in-row slot is reserved, so it appears without reflow)
+		@media (pointer: coarse) {
+			&:not(.active) >.content_data >.content_value >.input-group:not(:focus-within) >.button_container.button_calendar_container {
+				visibility: hidden;
+			}
+		}
+
 		@media screen and (max-width: @width_break_point_phone) {
 			>.content_data >.content_value >.input-group {
 				width: 100%;

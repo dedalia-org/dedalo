@@ -10,9 +10,10 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {printf} from '../../common/js/utils/index.js'
+	import {make_activable, set_expanded} from '../../common/js/a11y.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {dd_request_idle_callback, when_in_viewport} from '../../common/js/events.js'
-	import {filter_tree, MATCH_LIMIT} from './security_access_filter.js'
+	import {filter_tree, MATCH_LIMIT, FILTER_DEBOUNCE_MS} from './security_access_filter.js'
 
 
 
@@ -221,15 +222,17 @@ const get_content_data = async function(self) {
 				// loading
 				content_data.classList.add('loading')
 
-				await self.save_changes()
-				button_save.classList.add('disable')
-				const warning_label_text = self.node.querySelector('.warning_label_text')
-				if (warning_label_text) {
-					warning_label_text.remove()
+				try {
+					await self.save_changes()
+					button_save.classList.add('disable')
+					const warning_label_text = self.node.querySelector('.warning_label_text')
+					if (warning_label_text) {
+						warning_label_text.remove()
+					}
+				}finally{
+					// a failed save keeps the unsaved state, but never the lock
+					content_data.classList.remove('loading')
 				}
-
-				// loading
-				content_data.classList.remove('loading')
 			}
 			button_save.addEventListener('click', save_handler)
 
@@ -366,6 +369,9 @@ const build_tree_filter = function(self, datalist, value, ul) {
 		let painted_from	= null
 		let painted_tokens	= null
 
+	// pending debounced paint of the search box (see the input event)
+		let debounce_timer	= null
+
 	/**
 	* RELEASE_PAINTED
 	* Unsubscribes every handler the last paint created and drops its tokens from
@@ -401,6 +407,11 @@ const build_tree_filter = function(self, datalist, value, ul) {
 	*/
 	const paint = function(query) {
 
+		// any paint supersedes a pending keystroke paint (Escape, clear and the
+		// changes-panel jump must not be undone by a late one)
+			clearTimeout(debounce_timer)
+			debounce_timer = null
+
 		// undefined = external repaint (changes-panel jump): drop the filter, not just
 		// its effect. The box is cleared with it, so input and tree never disagree.
 			const external	= query===undefined
@@ -411,6 +422,9 @@ const build_tree_filter = function(self, datalist, value, ul) {
 
 		// release the previous paint's subscriptions (its nodes are replaced)
 			release_painted()
+
+		// new generation: deferred work of earlier paints drops itself (render_area_item)
+			self.paint_generation++
 
 		// subset. null means no filter → normal lazy tree
 			const filtered = filter_tree(datalist, effective)
@@ -460,7 +474,11 @@ const build_tree_filter = function(self, datalist, value, ul) {
 	}//end paint
 
 	// events
-		input.addEventListener('input', () => paint(input.value))
+		// debounced: only the query the user stops at is painted
+		input.addEventListener('input', () => {
+			clearTimeout(debounce_timer)
+			debounce_timer = setTimeout(() => paint(input.value), FILTER_DEBOUNCE_MS)
+		})
 		input.addEventListener('keydown', (e) => {
 			if (e.key==='Escape' && input.value!=='') {
 				e.stopPropagation() // do not let Escape close the page while it still clears a query
@@ -481,6 +499,33 @@ const build_tree_filter = function(self, datalist, value, ul) {
 		paint	: paint
 	}
 }//end build_tree_filter
+
+
+
+/**
+* RUN_LOCKED
+* Runs a permission propagation in an idle callback with the component locked
+* (.loading: dimmed, pointer-events off) and ALWAYS unlocks it, plus removes its
+* 'Propagating...' node. Without the finally, one throw left the whole component,
+* filter included, dimmed and deaf to clicks.
+* @param {Object} self - component_security_access instance
+* @param {Function} work - the propagation
+* @param {HTMLElement} [loading_node] - feedback node to remove when done
+* @returns {void}
+*/
+const run_locked = function(self, work, loading_node) {
+
+	self.node.classList.add('loading')
+
+	dd_request_idle_callback(() => {
+		try {
+			work()
+		}finally{
+			self.node.classList.remove('loading')
+			loading_node?.remove()
+		}
+	})
+}//end run_locked
 
 
 
@@ -611,6 +656,154 @@ const render_tree_item = function(item, datalist, value, self) {
 
 
 /**
+* RESOLVE_BRANCH_SOURCE
+* Children of an area/section node and the list its branch is built FROM.
+* A filter match with no deeper match ends the filtered subset, so it would render
+* childless: no global radios and no way in. Such a match takes its real children
+* from the full datalist and renders them as the normal lazy tree (`filtering`
+* false), so the user can set its permissions or open it.
+* @param {Object} item - area/section datalist entry
+* @param {Array} datalist - full list or the filtered subset
+* @param {Object} self - component_security_access instance
+* @returns {Object} {datalist, children, filtering}
+*/
+const resolve_branch_source = function(item, datalist, self) {
+
+	const full_datalist	= self.data?.datalist || datalist
+	const children_of	= (list) => get_branch_children(item, list)
+
+	let source		= datalist
+	let children	= children_of(datalist)
+	if (children.length===0 && datalist!==full_datalist && self.filter_matches?.has(item)) {
+		source		= full_datalist
+		children	= children_of(full_datalist)
+	}
+
+	return {
+		datalist	: source,
+		children	: children,
+		filtering	: source!==full_datalist
+	}
+}//end resolve_branch_source
+
+
+
+/**
+* GET_BRANCH_CHILDREN
+* Children of an area/section node in `list`: a section's are all its own
+* elements (hierarchized later by `parent`), an area's are the nodes under it.
+* @param {Object} item - area/section datalist entry
+* @param {Array} list - full list or the filtered subset
+* @returns {Array}
+*/
+const get_branch_children = function(item, list) {
+
+	return item.model==='section'
+		? list.filter(el => el.section_tipo===item.tipo && el.tipo!==item.tipo)
+		: list.filter(el => el.parent===item.tipo)
+}//end get_branch_children
+
+
+
+// per full datalist: how many children each area/section has (see count_branch_children)
+const branch_children_counts = new WeakMap()
+
+/**
+* COUNT_BRANCH_CHILDREN
+* `get_branch_children(item, full_datalist).length` without the ~32k scan: the
+* counts are indexed once per datalist, because a filtered paint asks it for
+* every area it draws.
+* @param {Object} item - area/section datalist entry
+* @param {Array} full_datalist - self.data.datalist
+* @returns {number}
+*/
+const count_branch_children = function(item, full_datalist) {
+
+	let counts = branch_children_counts.get(full_datalist)
+	if (!counts) {
+		counts = {by_parent : new Map(), by_section : new Map()}
+		for (const el of full_datalist) {
+			counts.by_parent.set(el.parent, (counts.by_parent.get(el.parent) || 0) + 1)
+			if (el.tipo!==el.section_tipo) {
+				counts.by_section.set(el.section_tipo, (counts.by_section.get(el.section_tipo) || 0) + 1)
+			}
+		}
+		branch_children_counts.set(full_datalist, counts)
+	}
+
+	const map = item.model==='section' ? counts.by_section : counts.by_parent
+
+	return map.get(item.tipo) || 0
+}//end count_branch_children
+
+
+
+/**
+* ATTACH_SIBLINGS_TOGGLE
+* While filtering, a branch shows only the path to its matches. When the full
+* list holds more children than that path, the label gets the arrow and toggles
+* the branch between the found children and ALL of them, so the siblings of a
+* match can be seen (and set) in place. Children on a match path keep rendering
+* from the filtered subset (open, eager); the rest render as the normal lazy tree.
+* No collapse state is stored: the toggle lives only as long as this paint.
+* @param {Object} options
+*   {item, label, branch, children, datalist, value, self, render_items}
+*   children/datalist are the filtered ones; render_items is render_tree_items or
+*   render_tree_items_read
+* @returns {void}
+*/
+const attach_siblings_toggle = function(options) {
+
+	const {item, label, branch, children, datalist, value, self, render_items} = options
+
+	const full_datalist = self.data?.datalist
+	if (!full_datalist || datalist===full_datalist || count_branch_children(item, full_datalist)<=children.length) {
+		return // nothing hidden: no toggle
+	}
+
+	label.classList.add('icon_arrow', 'show_siblings')
+	label.title = get_label.show_all || 'Show all'
+
+	let showing_all = false
+	make_activable(label, {expanded: false, on_activate: (e) => {
+		e.stopPropagation()
+		showing_all = !showing_all
+
+		let nodes
+		if (showing_all) {
+			// a section's elements are one flat list hierarchized by parent: render them
+			// together. An area's children are separate subtrees: each keeps its source
+			const on_path		= new Set(datalist)
+			const all_children	= get_branch_children(item, full_datalist)
+			if (item.model==='section') {
+				nodes = render_items(all_children, full_datalist, value, self)
+			}else{
+				nodes = new DocumentFragment()
+				for (const child of all_children) {
+					nodes.appendChild(render_items(
+						[child],
+						on_path.has(child) ? datalist : full_datalist,
+						value,
+						self
+					))
+				}
+			}
+		}else{
+			nodes = render_items(children, datalist, value, self)
+		}
+		// shortcut: the replaced nodes' subscriptions stay until the next paint
+		// releases them (release_painted runs to the end of events_tokens)
+		branch.replaceChildren(nodes)
+
+		label.classList.toggle('up', showing_all)
+		set_expanded(label, showing_all)
+		label.title = showing_all ? '' : (get_label.show_all || 'Show all')
+	}})
+}//end attach_siblings_toggle
+
+
+
+/**
 * RENDER_AREA_ITEM
 * Create default tree item node (section, area)
 *
@@ -643,13 +836,15 @@ const render_tree_item = function(item, datalist, value, self) {
 * using the key `security_acccess_<tipo>` (note: double-c typo in the key is
 * intentional and must remain stable to avoid breaking stored states).
 *
-* FILTERED TREE: when `self.filter_query` is set (see `build_tree_filter`), the
-* branch renders EAGER and open instead of lazily, because a match is usually
+* FILTERED TREE: while rendering from the filtered subset (see `build_tree_filter`,
+* `resolve_branch_source`), the branch renders EAGER and open instead of lazily, because a match is usually
 * several collapsed levels down. No collapse state is read or written then, so
 * clearing the query restores the user's own open/closed branches. The children
 * resolved here come from the `datalist` passed in — the filtered subset in that
 * case — while the VALUE walks below always use the full `self.data.datalist`:
 * filtering may hide nodes, never narrow what a checkbox or a global radio grants.
+* A branch that hides siblings of its matches gets the arrow to show them all
+* (`attach_siblings_toggle`).
 *
 * @param {Object} item - datalist current item
 * @param {Array} datalist - list to build the tree FROM: the full ontology list, or
@@ -664,15 +859,22 @@ const render_area_item = function(item, datalist, value, self) {
 	// direct_children check and set
 		const tipo					= item.tipo
 		const section_tipo			= item.section_tipo
-		const direct_children		= item.model==='section'
-			? datalist.filter(el => el.section_tipo===tipo && el.tipo!==tipo)
-			: datalist.filter(el => el.parent===tipo)
+		const branch_source			= resolve_branch_source(item, datalist, self)
+		datalist					= branch_source.datalist
+		const filtering				= branch_source.filtering
+		const direct_children		= branch_source.children
 		const direct_children_length = direct_children.length
 		const has_child_section		 = direct_children.find(el => el.tipo===el.section_tipo)
 
 	// full ontology list. `datalist` may be the filtered subset; value propagation
 	// must always see every node or a parent would be cleared over hidden children
 		const full_datalist = self.data?.datalist || datalist
+
+	// paint this node belongs to: deferred work below drops itself once a newer
+	// paint (or destroy, which replaces events_tokens) made the node stale
+		const paint_generation	= self.paint_generation
+		const paint_tokens		= self.events_tokens
+		const is_stale			= () => paint_generation!==self.paint_generation || paint_tokens!==self.events_tokens
 
 	// item_value. get the current item value
 		const item_value	= value.find(el => el.section_tipo===section_tipo && el.tipo===tipo)
@@ -728,12 +930,8 @@ const render_area_item = function(item, datalist, value, self) {
 			const change_handler = async (e) => {
 				e.preventDefault()
 
-				// add main node loading style
-				self.node.classList.add('loading')
-
-				// execute decoupled
-				dd_request_idle_callback(
-				() => {
+				// execute decoupled, component locked (.loading) until it ends
+				run_locked(self, () => {
 
 					// input_value
 						const input_value = input_checkbox.checked
@@ -793,7 +991,7 @@ const render_area_item = function(item, datalist, value, self) {
 									// find every value of the direct children
 									// if any child has value set to 2, stop the propagation because it need give access from its parents.
 									// break the parent loop
-									const found = self.filled_value.find(el => el.tipo===child.tipo)
+									const found = self.get_value_entry(child.tipo, child.section_tipo)
 									if (found && found.value>=2) {
 										break parents_loop;
 									}
@@ -809,19 +1007,15 @@ const render_area_item = function(item, datalist, value, self) {
 
 					// show_save_button_
 						event_manager.publish( 'show_save_button_' + self.id )
-
-					// remove main node loading style
-					self.node.classList.remove('loading')
 				})
 			}//end change_handler
 			input_checkbox.addEventListener('change', change_handler)
 
 	// label
 			const css_selectors = ['area_label']
-			// add icon arrow when element has children. NOT while filtering: filtered
-			// branches are always open and carry no toggle, so an arrow would be a
-			// pointer-cursor control that does nothing.
-			if (direct_children_length>0 && !self.filter_query) {
+			// add icon arrow when element has children. While filtering the branch is
+			// open and only attach_siblings_toggle adds the arrow (when it hides siblings)
+			if (direct_children_length>0 && !filtering) {
 				css_selectors.push('icon_arrow')
 			}
 			// add selected when item matches a search (self.selected_tipo)
@@ -859,7 +1053,7 @@ const render_area_item = function(item, datalist, value, self) {
 			// several collapsed levels down, so lazy expansion would hide exactly what
 			// the user is looking for. collapse_toggle_track is skipped on purpose: it
 			// would persist filtered-view state over the user's own open/closed branches.
-				if (self.filter_query) {
+				if (filtering) {
 					branch.classList.remove('hide')
 					branch.appendChild(render_tree_items(
 						direct_children,
@@ -867,6 +1061,17 @@ const render_area_item = function(item, datalist, value, self) {
 						value,
 						self
 					))
+					// arrow to reveal the siblings the filter hid
+					attach_siblings_toggle({
+						item			: item,
+						label			: label,
+						branch			: branch,
+						children		: direct_children,
+						datalist		: datalist,
+						value			: value,
+						self			: self,
+						render_items	: render_tree_items
+					})
 				}else{
 					// track collapse toggle state of content
 						const collapse = function() {
@@ -880,6 +1085,9 @@ const render_area_item = function(item, datalist, value, self) {
 							label.classList.add('up')
 							if (!branch.hasChildNodes()) {
 								const callback = () => {
+									if (is_stale()) {
+										return
+									}
 									// direct_children render (return hierarchized children nodes)
 									const tree_node = render_tree_items(
 										direct_children,
@@ -921,8 +1129,15 @@ const render_area_item = function(item, datalist, value, self) {
 					dd_request_idle_callback(
 						() => {
 
+							// a newer paint replaced this node: no scan, no subscriptions.
+							// (!) Not li.isConnected: the first paint runs before the
+							// component is inserted, and the fallback timer may fire first.
+							if (is_stale()) {
+								return
+							}
+
 							// full datalist (not the filtered subset): the global radio
-							// speaks for EVERY child, visible or not
+							// speaks for EVERY child, visible or not (memoized)
 							const children = self.get_children(item, full_datalist)
 
 							const radio_group = create_global_radio_group(
@@ -1108,7 +1323,6 @@ const create_permissions_radio_group = function(self, item, permissions) {
 
 					const input_value = parseInt(radio_input.value)
 
-					self.node.classList.add('loading')
 					const loading_node = ui.create_dom_element({
 						element_type	: 'span',
 						inner_html		: '&nbsp;Propagating...',
@@ -1117,8 +1331,7 @@ const create_permissions_radio_group = function(self, item, permissions) {
 
 					// Update all parents of the item
 					// parents_radio_butons. update the state of all parents, checking his children state
-						dd_request_idle_callback(
-							async () => {
+						run_locked(self, () => {
 
 								// set the data of the parents and change the DOM node with update_value event
 								const children			= self.get_children(item)
@@ -1133,12 +1346,7 @@ const create_permissions_radio_group = function(self, item, permissions) {
 
 								// update parents
 								self.update_parents_radio_butons(item, input_value)
-
-								// remove
-								self.node.classList.remove('loading')
-								loading_node.remove()
-							}
-						)
+							}, loading_node)
 
 					// show_save_button
 						event_manager.publish('show_save_button_'+self.id)
@@ -1233,10 +1441,18 @@ const create_global_radio_group = function(self, item, permissions, datalist, co
 
 		const children_key = new Set(children_keys);
 
-		const children_data = self.filled_value.filter(el => {
-			const child_key = el.tipo+'_'+el.section_tipo
-			return  el.tipo !== el.section_tipo && children_key.has(child_key);
-		})
+		// look the children up in the filled_value index instead of scanning all ~32k
+		// values once per area
+		const children_data = []
+		for (const el of children) {
+			if (el.tipo === el.section_tipo) {
+				continue // areas carry no value of their own here
+			}
+			const found = self.get_value_entry(el.tipo, el.section_tipo)
+			if (found) {
+				children_data.push(found)
+			}
+		}
 
 		const data_values = children_data.map(el =>{
 			return el.value
@@ -1284,8 +1500,7 @@ const create_global_radio_group = function(self, item, permissions, datalist, co
 
 				const input_value = parseInt(radio_input.value)
 
-				// set style as loading to lock the component while the value is propagated
-				self.node.classList.add('loading')
+				// the component is locked (run_locked) while the value is propagated
 				const loading_node = ui.create_dom_element({
 					element_type	: 'span',
 					inner_html		: '&nbsp;Propagating...',
@@ -1293,8 +1508,7 @@ const create_global_radio_group = function(self, item, permissions, datalist, co
 				})
 
 				// update_parents_radio_butons
-					dd_request_idle_callback(
-						() => {
+					run_locked(self, () => {
 
 							const filled_length = self.filled_value.length
 							for (let i = filled_length - 1; i >= 0; i--) {
@@ -1322,12 +1536,7 @@ const create_global_radio_group = function(self, item, permissions, datalist, co
 
 							// update parents
 							self.update_parents_radio_butons(item, input_value)
-
-							// remove loading style. The value is propagated
-							self.node.classList.remove('loading')
-							loading_node.remove()
-						}
-					)
+						}, loading_node)
 
 				// show_save_button
 					event_manager.publish('show_save_button_'+self.id)
@@ -1531,8 +1740,8 @@ const render_tree_item_read = function(item, datalist, value, self) {
 * avoid blocking the main thread.  Collapse/expand state is persisted
 * through the same `security_acccess_<tipo>` key used by the editable tree.
 *
-* FILTERED TREE: same rule as `render_area_item` — when `self.filter_query` is
-* set the branch renders eager and open, and no collapse state is touched.
+* FILTERED TREE: same rule as `render_area_item` — while rendering from the
+* filtered subset the branch renders eager and open, and no collapse state is touched.
 *
 * @param {Object} item - datalist current item
 * @param {Array} datalist - list to build the tree FROM: the full ontology list, or
@@ -1549,9 +1758,10 @@ const render_area_item_read = function(item, datalist, value, self) {
 	// direct_children check and set
 		const tipo					= item.tipo
 		const section_tipo			= item.section_tipo
-		const direct_children		= item.model==='section'
-			? datalist.filter(el => el.section_tipo===tipo && el.tipo!==tipo)
-			: datalist.filter(el => el.parent===tipo)
+		const branch_source			= resolve_branch_source(item, datalist, self)
+		datalist					= branch_source.datalist
+		const filtering				= branch_source.filtering
+		const direct_children		= branch_source.children
 		const direct_children_length = direct_children.length
 		const has_child_section		 = direct_children.find(el => el.tipo===el.section_tipo)
 
@@ -1575,8 +1785,8 @@ const render_area_item_read = function(item, datalist, value, self) {
 
 	// label
 		const css_selectors = ['area_label']
-			// add icon arrow when element has children. Not while filtering (no toggle)
-			if (direct_children_length>0 && !self.filter_query) {
+			// add icon arrow when element has children. Filtering: see attach_siblings_toggle
+			if (direct_children_length>0 && !filtering) {
 				css_selectors.push('icon_arrow')
 			}
 			// add selected when item matches a search (self.selected_tipo)
@@ -1604,7 +1814,7 @@ const render_area_item_read = function(item, datalist, value, self) {
 				li.branch = branch
 
 			// tree filter: branches open and EAGER (see the editable renderer)
-				if (self.filter_query) {
+				if (filtering) {
 					branch.classList.remove('hide')
 					branch.appendChild(render_tree_items_read(
 						direct_children,
@@ -1612,6 +1822,17 @@ const render_area_item_read = function(item, datalist, value, self) {
 						value,
 						self
 					)) // return li node
+					// arrow to reveal the siblings the filter hid
+					attach_siblings_toggle({
+						item			: item,
+						label			: label,
+						branch			: branch,
+						children		: direct_children,
+						datalist		: datalist,
+						value			: value,
+						self			: self,
+						render_items	: render_tree_items_read
+					})
 				}else{
 					// track collapse toggle state of content
 						const collapse = function() {

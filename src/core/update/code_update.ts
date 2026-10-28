@@ -351,7 +351,7 @@ export interface CodeUpdateSeams {
 	verifySha?: (filePath: string) => string;
 	/** Override supervisor detection (tests). */
 	supervised?: boolean;
-	/** Dependency install in the quarantine (default: pinned-bun `install --frozen-lockfile --production`). */
+	/** Dependency install in the quarantine (default: pinned-bun `install --frozen-lockfile --production --ignore-scripts`). */
 	installDeps?: (codeRoot: string) => Promise<void>;
 	/** Pre-swap boot check of the quarantine (default: smoke_boot.ts). */
 	smokeBoot?: (codeRoot: string, stagingDir: string) => Promise<void>;
@@ -851,9 +851,17 @@ async function writeUpdateSentinel(backupRoot: string, sentinel: UpdateSentinel)
 	}
 }
 
+/** After `process.execPath` — no lifecycle scripts: any run leaves Bun's `.<hash>-<pid>.node-gyp` shim dir behind (TODO-063). */
+export const CODE_UPDATE_INSTALL_ARGS: readonly string[] = Object.freeze([
+	'install',
+	'--frozen-lockfile',
+	'--production',
+	'--ignore-scripts',
+]);
+
 /** Default deps install: the PINNED bun (process.execPath — never a floating `bun`). */
 async function installDepsReal(codeRoot: string): Promise<void> {
-	const child = Bun.spawn([process.execPath, 'install', '--frozen-lockfile', '--production'], {
+	const child = Bun.spawn([process.execPath, ...CODE_UPDATE_INSTALL_ARGS], {
 		cwd: codeRoot,
 		stdout: 'ignore',
 		stderr: 'pipe',

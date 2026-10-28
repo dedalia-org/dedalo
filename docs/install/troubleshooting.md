@@ -392,7 +392,7 @@ Almost always one of two things:
 **Fix.** Install as the service user, in the clone, in one command:
 
 ```shell
-sudo -u ded_<i> bash -c 'cd /home/ded_<i>/dedalo && /opt/dedalo/bun/<pin>/bun install --frozen-lockfile --production'
+sudo -u ded_<i> bash -c 'cd /home/ded_<i>/dedalo && /opt/dedalo/bun/<pin>/bun install --frozen-lockfile --production --ignore-scripts'
 ls -d /home/ded_<i>/dedalo/node_modules/zod      # proof it landed
 ```
 

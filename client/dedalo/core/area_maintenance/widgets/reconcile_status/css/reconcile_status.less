@@ -15,8 +15,23 @@
 
 	// name · stores · schedule · last run · actions
 	// (`.dd_tr { display: contents }` — the track count must equal the renderer's cell count)
+	//
+	// The name column holds a NAME plus a sentence, so it absorbs the leftover
+	// width (the kit sizes every cell as a flex BOX, not a table cell). Actions
+	// is max-content: the two buttons keep their natural width instead of
+	// shrinking to "Che ck" / "App ly".
 	.dd_table {
-		grid-template-columns: minmax(9rem, 1.2fr) minmax(10rem, 1.6fr) 7rem minmax(10rem, 1.4fr) 9rem;
+		grid-template-columns:
+			minmax(16rem, 2fr) minmax(11rem, 1.5fr) 8rem minmax(9rem, 1fr) max-content;
+
+		// two-line cell: name above its description — NOT the kit's flex row,
+		// which put them side by side and collapsed the name to one short word
+		// per line (same shape as ai_models' name cell).
+		.dd_td.name {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.15rem;
+		}
 
 		.description {
 			font-size: 0.8rem;
@@ -25,6 +40,8 @@
 		.actions {
 			display: flex;
 			gap: 0.35rem;
+			// buttons follow the FIRST line of a multi-line row, not its middle
+			align-items: flex-start;
 		}
 	}
 

@@ -19,7 +19,7 @@
 // install BINDING from a seed reference, and so the intent is explicit at each site.
 
 import { describe, expect, test } from 'bun:test';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildLlmMap } from '../../src/ai/mcp/tools/llm_map.ts';
 import {
@@ -130,6 +130,21 @@ describe('setOntologyIoPath', () => {
 			expect(existsSync(ioPath as string)).toBe(true);
 			// idempotent (mkdir recursive on an existing dir)
 			expect(setOntologyIoPath(base)).toBe(join(base, '7.0'));
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	test('an uncreatable dir answers WHY: the path and the errno', () => {
+		const base = scratchDir('dd_ontology_io_test');
+		try {
+			const blocker = join(base, 'not_a_dir');
+			writeFileSync(blocker, '');
+			const result = setOntologyIoPath(blocker);
+			expect(typeof result).toBe('object');
+			const { error } = result as { error: string };
+			expect(error).toContain(join(blocker, '7.0'));
+			expect(error).toContain('ENOTDIR');
 		} finally {
 			rmSync(base, { recursive: true, force: true });
 		}

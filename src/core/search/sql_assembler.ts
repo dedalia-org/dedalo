@@ -53,7 +53,7 @@ import {
 	TEMP_PRESET_SECTION,
 	FILTER_MASTER_COMPONENT as USERS_FILTER_MASTER_COMPONENT,
 } from '../security/permissions.ts';
-import { bareBrowseCount, scopedBrowseCount } from './bare_count.ts';
+import { scopedBrowseCount } from './bare_count.ts';
 import type { ConformedFilter } from './conform.ts';
 import { conformFilter } from './conform.ts';
 import { composeContains, relationProbeGroups } from './containment.ts';
@@ -1425,6 +1425,73 @@ function identityShape(
 	};
 }
 
+/** What the cached browse total needs from the assembler's state. */
+interface BrowseCountScope {
+	matrixTable: string;
+	sectionTipo: string;
+	whereAll: string[];
+	nonAclWhereParts: number;
+	joins: number;
+	multiSection: boolean;
+	/** The full_count query: same countColumn, FROM and WHERE as the paint. */
+	countSql: string;
+}
+
+const OPPOSITE_DIR = { ASC: 'DESC', DESC: 'ASC' } as const;
+
+/**
+ * THE CACHED BROWSE TOTAL — or null when this paint's total is not cacheable.
+ *
+ * Cacheable = no joins, one section, and `whereParts` holding NOTHING that is
+ * not the caller's own ACL (`nonAclWhereParts === 0`): the bare browse AND the
+ * non-admin's projects/filter_records browse (PERF-10). A client filter or a
+ * locator list makes the total request-specific: null.
+ *
+ * ONE door for both consumers — the full_count paint and the deep-page ORDER
+ * FLIP — so they share ONE key (browseCountScopeSignature: rendered WHERE +
+ * bound values, e.g. the principal's project ids, so no principal reads
+ * another's total) and the paginator's paint warms the flip. The query is the
+ * assembler's own count, never re-derived as `count(*) WHERE section_tipo`:
+ * `mainWhere` may carry more than the tipo pin (the users section's root-record
+ * exclusion), and a re-derived count would silently drop it.
+ *
+ * Stale exposure is the displayed total's own (event eviction + the freshValue
+ * TTL floor): a flip over a total off by k shifts a far-half page by k rows.
+ */
+async function cachedBrowseTotal(
+	scope: BrowseCountScope,
+	boundValues: unknown[],
+): Promise<number | null> {
+	if (scope.joins > 0 || scope.multiSection || scope.nonAclWhereParts > 0) return null;
+	return scopedBrowseCount(
+		scope.matrixTable,
+		scope.sectionTipo,
+		browseCountScopeSignature(scope.whereAll, boundValues),
+		scope.countSql,
+		boundValues,
+	);
+}
+
+/**
+ * ORDER FLIP arithmetic over a UNIQUE key: a far-half page is the same rows
+ * read from the other end with a small offset. `total` null → no flip.
+ */
+function flipDeepPage(
+	total: number | null,
+	offset: number,
+	limit: number,
+): { flip: boolean; offset: number; limit: number } {
+	const oppositeOffset = total === null ? offset : total - offset - limit;
+	if (total === null || total <= offset || oppositeOffset >= offset) {
+		return { flip: false, offset, limit };
+	}
+	return {
+		flip: true,
+		offset: Math.max(0, oppositeOffset), // last partial page skips 0 from the end
+		limit: Math.min(limit, total - offset), // last partial page: < LIMIT rows
+	};
+}
+
 /** The SQO→SQL assembler proper: one section (or a UNION of them), no pre-pass. */
 async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<BuiltQuery> {
 	const sectionTipos = getSectionTipos(sqo).map((tipo) =>
@@ -1671,7 +1738,17 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 	const whereAll = [...mainWhere, ...whereParts]
 		.filter((part) => part !== '')
 		.map((part) => `(${part})`);
-	let queryInside = `SELECT ${select.join(',\n')}\nFROM ${fromClause}${whereAll.length > 0 ? `\nWHERE ${whereAll.join('\n AND ')}` : ''}`;
+	const whereSql = whereAll.length > 0 ? `\nWHERE ${whereAll.join('\n AND ')}` : '';
+	let queryInside = `SELECT ${select.join(',\n')}\nFROM ${fromClause}${whereSql}`;
+	const countScope: BrowseCountScope = {
+		matrixTable,
+		sectionTipo: mainSectionTipo,
+		whereAll,
+		nonAclWhereParts,
+		joins: joinFragments.size,
+		multiSection,
+		countSql: `SELECT ${countColumn}\nFROM ${fromClause}${whereSql}`,
+	};
 
 	// --- multi-section UNION ALL (exact-substring FROM swap, PHP :1035) ---------
 	if (multiSection && tables.length > 1) {
@@ -1690,35 +1767,9 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 			return { sql: `${queryInside};`, params: params.toArray() };
 		}
 		// CACHED BROWSE TOTAL, served as a literal instead of re-counting the
-		// section on every list paint.
-		//
-		// THE SCOPE: no joins, one section, and `whereParts` holding NOTHING that
-		// is not the caller's own ACL (`nonAclWhereParts === 0`). That covers the
-		// bare browse AND — the whole point of PERF-10 — the NON-ADMIN's browse,
-		// whose projects predicate lands in `whereParts` and could therefore never
-		// reach the old `whereParts.length === 0` short-circuit. The old
-		// `policyForTable` gate is dropped too: it scoped the saving to the
-		// append-only logs, but a museum's ordinary section is counted on exactly
-		// the same paint and is exactly as cacheable.
-		//
-		// THE QUERY IS THE ASSEMBLER'S OWN, handed to the cache verbatim and keyed
-		// by its rendered WHERE plus its bound values. Never re-derived as
-		// `count(*) WHERE section_tipo`: `mainWhere` may carry more than the tipo
-		// pin (the users section's root-record exclusion), and a re-derived count
-		// would silently drop it. The key changes when the predicate does, so a
-		// grant change re-counts and no principal reads another's total.
-		//
-		// A client filter or a locator list makes the count request-specific:
-		// nonAclWhereParts is then > 0 and this does not fire.
-		if (joinFragments.size === 0 && !multiSection && nonAclWhereParts === 0) {
-			const boundValues = params.toArray();
-			const total = await scopedBrowseCount(
-				matrixTable,
-				mainSectionTipo,
-				browseCountScopeSignature(whereAll, boundValues),
-				queryInside,
-				boundValues,
-			);
+		// section on every list paint — scope and key: cachedBrowseTotal.
+		const total = await cachedBrowseTotal(countScope, params.toArray());
+		if (total !== null) {
 			return { sql: `SELECT ${Number(total)}::int AS full_count;`, params: [] };
 		}
 		return { sql: `${queryInside};`, params: params.toArray() };
@@ -1746,10 +1797,11 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 		//   1. LATE ROW LOOKUP — page the KEY on a narrow index scan, then join
 		//      back for the wide data columns; never reads a skipped row's jsonb.
 		//   2. ORDER FLIP — a far-half page is the SAME rows fetched from the
-		//      OTHER end with a small offset (last page → OFFSET 0, ≈ms). Needs the
-		//      row total; applied ONLY to the unfiltered browse, where the bare
-		//      count is exact and cached (bareBrowseCount). The matrix_activity
-		//      twin of read_tm.ts queryTmRows (matrix_time_machine cannot flatten).
+		//      OTHER end with a small offset (last page → OFFSET 0, ≈ms). Needs an
+		//      exact row total: the cached browse total (cachedBrowseTotal — the
+		//      bare and the pure-ACL browse); a client-filtered page never flips.
+		//      The matrix_activity twin of read_tm.ts queryTmRows
+		//      (matrix_time_machine cannot flatten).
 		const lateThreshold = config.ops.searchLateRowLookupOffset;
 		const offsetNum = sqo.offset != null ? Number(sqo.offset) : 0;
 		// WC-054: after the timestamp rewrite the ORDER BY is a two-column clause
@@ -1767,25 +1819,15 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 				timeOrder !== null
 					? `${alias}."timestamp" ${dir}, ${alias}.id ${dir}`
 					: `${alias}.${key} ${dir}`;
-			const limitNum = Number(sqo.limit);
-			let innerDir: 'ASC' | 'DESC' = requestedDir;
-			let effOffset = offsetNum;
-			let effLimit = limitNum;
-			// Flip only the UNFILTERED browse: the bare count is exact + cached,
-			// and a filtered set is far too small to reach the far half anyway.
-			if (whereParts.length === 0) {
-				const total = await bareBrowseCount(matrixTable, mainSectionTipo);
-				const oppositeOffset = total - offsetNum - limitNum;
-				if (total > offsetNum && oppositeOffset < offsetNum) {
-					innerDir = requestedDir === 'ASC' ? 'DESC' : 'ASC';
-					effOffset = Math.max(0, oppositeOffset); // last partial page skips 0 from the end
-					effLimit = Math.min(limitNum, total - offsetNum); // last partial page: < LIMIT rows
-				}
-			}
-			const pageWhere = whereAll.length > 0 ? `\nWHERE ${whereAll.join('\n AND ')}` : '';
+			const page = flipDeepPage(
+				await cachedBrowseTotal(countScope, params.toArray()),
+				offsetNum,
+				Number(sqo.limit),
+			);
+			const innerDir = page.flip ? OPPOSITE_DIR[requestedDir] : requestedDir;
 			const pageQuery =
-				`SELECT ${alias}.${key}\nFROM ${fromClause}${pageWhere}\n` +
-				`ORDER BY ${orderBy(innerDir)}\nLIMIT ${effLimit} OFFSET ${effOffset}`;
+				`SELECT ${alias}.${key}\nFROM ${fromClause}${whereSql}\n` +
+				`ORDER BY ${orderBy(innerDir)}\nLIMIT ${page.limit} OFFSET ${page.offset}`;
 			// Outer ORDER BY: the REQUESTED direction, alias-qualified (the JOIN
 			// makes a bare column ambiguous) — restores order after a flip.
 			const flatSql =
@@ -1844,7 +1886,9 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 		// first ((section_tipo, section_id) composite), then join back for the
 		// data columns. Identical rows/order/columns — guarded to the
 		// single-section, no-join, default-order shape where section_id is
-		// unique, so the join back on (section_tipo, section_id) is 1:1.
+		// unique, so the join back on (section_tipo, section_id) is 1:1. A
+		// far-half page ORDER-FLIPS like the flattened branch above (the
+		// default order is section_id ASC); the outer ORDER BY restores it.
 		const lateThreshold = config.ops.searchLateRowLookupOffset;
 		const lateLookup =
 			lateThreshold >= 0 &&
@@ -1854,8 +1898,13 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 			offsetSql !== '' &&
 			Number(sqo.offset) >= lateThreshold;
 		if (lateLookup) {
-			const pageWhere = whereAll.length > 0 ? `\nWHERE ${whereAll.join('\n AND ')}` : '';
-			const pageQuery = `SELECT ${alias}.section_id\nFROM ${fromClause}${pageWhere}\nORDER BY ${innerOrder}${limitSql}${offsetSql}`;
+			const page = flipDeepPage(
+				await cachedBrowseTotal(countScope, params.toArray()),
+				Number(sqo.offset),
+				Number(sqo.limit),
+			);
+			const pageOrder = page.flip ? `${alias}.section_id DESC` : innerOrder;
+			const pageQuery = `SELECT ${alias}.section_id\nFROM ${fromClause}${whereSql}\nORDER BY ${pageOrder}\nLIMIT ${page.limit} OFFSET ${page.offset}`;
 			const lateSql =
 				`SELECT ${select.join(',\n')}\nFROM ${fromClause}\n` +
 				`JOIN (\n${pageQuery}\n) page ON page.section_id = ${alias}.section_id\n` +

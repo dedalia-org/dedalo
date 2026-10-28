@@ -14,7 +14,13 @@ preload = ["./tests/preload.ts"]
 coverageThreshold = { lines = 0.8, functions = 0.8 }
 # The repo-root test helpers (scratch_dir, regex_escape) these gates import are GATE code
 # shared with the root suite, measured there — not this package's daemon code.
-coveragePathIgnorePatterns = ["../../test/**"]
+# tests/preload.ts is the suite's own harness (bunfig [test] preload): its planting path
+# EXISTS ONLY on a fresh .test-tmp and deliberately never runs again (that is the
+# "never wipes" law), so a second run in the same checkout measures 61.54% lines and
+# reddened the package on every run after the first — while what it plants is asserted
+# where it belongs, in tests/deployed_test_mode.test.ts (absent / symlinked / foreign
+# marker, and PRELOAD_INSTANCE pinned to the fixture's INSTANCE).
+coveragePathIgnorePatterns = ["../../test/**", "**/tests/preload.ts"]
 
 [run]
 bun = true

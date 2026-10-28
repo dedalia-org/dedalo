@@ -128,7 +128,13 @@ DEDALO_MEDIA_ACCESS_MODE=publication
 		doc: `The quality folders an **anonymous** visitor may read when the record is published (rule B).
 A JSON array, or a comma-separated list. Leave it unset to derive the delivery-grade folders
 from this installation's own quality catalog — \`av/404\`, \`av/posterframe\`, \`av/subtitles\`,
-\`image/1.5MB\`, \`image/thumb\`, \`pdf/web\`, \`svg/web\`, \`3d/web\`.
+\`image/1.5MB\`, \`image/thumb\`, \`image/web\`, \`pdf/web\`, \`svg/web\`, \`3d/web\`.
+
+\`image/web\` holds the images inserted into rich text from the editor. Each is named after the
+record whose text it was inserted into, so it is public exactly while that record is published.
+Images inserted before this naming have no record in their name and stay visible to logged-in
+users only. If you set this list yourself, add \`image/web\` to it, or rich-text images stay
+private.
 
 Master and working qualities (\`original\`, \`modified\`) are **always refused, even if you list
 them**: they are the source files, they are the large ones, and they are never public. A

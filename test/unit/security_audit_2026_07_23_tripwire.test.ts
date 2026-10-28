@@ -357,6 +357,11 @@ describe('AUTHZ-06: component_filter project datalist is narrowed per user', () 
 		// emit a component's data/datalist for a caller who holds level 0 on it,
 		// independent of any upstream gate (esp. the synthetic search_<n> path).
 		const readFacade = read('src/core/section/read_facade.ts');
-		expect(readFacade).toMatch(/ddoIsAuthorized\(principal, source\.section_tipo, source\.tipo\)/);
+		// Record-scoped since 2026-10-24 (tool_user_admin's dd128 own-record rules):
+		// the same component grant, judged with the addressed record in hand.
+		expect(readFacade).toMatch(
+			/getRecordComponentPermission\(\s*principal,\s*source\.section_tipo,\s*source\.tipo,\s*source\.section_id,?\s*\)/,
+		);
+		expect(readFacade).toMatch(/if \(level < 1\) \{\s*return emptyShell\(\);/);
 	});
 });
