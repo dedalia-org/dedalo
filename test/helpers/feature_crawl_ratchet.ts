@@ -46,13 +46,4 @@ export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string
  * pass — KNOWN_FAILING's shrink-only check would flap on them. Leaves this list
  * only when the bug is fixed; `--strict` ignores it too.
  */
-export const INTERMITTENT: ReadonlyMap<string, string> = new Map<string, string>([
-	[
-		'root:tools@menu:tool:tool_error:tool_user_admin',
-		'tool_user_admin opened from the menu answers client.bad_response (unreadable body) — engine/client bug, follow-up',
-	],
-	[
-		'root:tools@menu:tool:tool_user_admin:error_panel',
-		'same as root:tools@menu:tool:tool_error:tool_user_admin',
-	],
-]);
+export const INTERMITTENT: ReadonlyMap<string, string> = new Map<string, string>([]);

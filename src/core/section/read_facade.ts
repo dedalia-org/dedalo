@@ -495,6 +495,44 @@ export const SECTION_READ_ROUTES: ReadonlyMap<string, SectionReadRoute> = new Ma
  */
 export const SECTION_READ_DEFAULT_PAGE: SectionReadPagePosture = 'client_sqo';
 
+/**
+ * get_data's RECORD gate (the reasons live above its call site in routeSectionRead): true when
+ * the source addresses no record of ours, the actor's own account, or a record the principal
+ * may access.
+ */
+async function getDataRecordGateAdmits(
+	source: NonNullable<Rqo['source']>,
+	principal: Principal,
+): Promise<boolean> {
+	if (typeof source.section_tipo !== 'string' || isTemporalSource(source)) return true;
+	// Classifier refusal → skip the gate like any non-record kind: the id
+	// addresses nothing, and the downstream read serves the no-record
+	// widget (read.ts catches the same refusal). Never a 500 on a read.
+	const wireSectionId = await classifyWireSectionId(
+		source.section_id,
+		source.section_tipo,
+		'rqo.get_data.record_scope_gate',
+	).catch((error: unknown) => {
+		if (isErrorInDomain(error, 'section_id')) return { kind: 'absent' } as const;
+		throw error;
+	});
+	// The actor's OWN account record is readable by the actor — root (dd128/-1)
+	// included, or tool_user_admin, the one UI for the self-service writes of
+	// WC-2026-08-28-root-self-service-write, opens empty for root. The level gate
+	// below still applies (WC-2026-10-28-own-account-read).
+	if (wireSectionId.kind === 'record') {
+		const { isActorsOwnUserRecord } = await import('../security/permissions.ts');
+		const { principalCanAccessRecord } = await import('../security/record_scope.ts');
+		if (
+			!isActorsOwnUserRecord(principal, source.section_tipo, wireSectionId.id) &&
+			!(await principalCanAccessRecord(source.section_tipo, wireSectionId.id, principal))
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 /** Route a permission-gated dd_core_api read RQO to its read strategy. */
 export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<ApiResult> {
 	const source = rqo.source ?? {};
@@ -566,25 +604,7 @@ export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<
 		// so gating on it would blank a tool's editable clone for every user who
 		// happens to be out of scope for a record the clone never reads.
 		// readComponentData resolves it record-independently.
-		if (typeof source.section_tipo === 'string' && !isTemporalSource(source)) {
-			// Classifier refusal → skip the gate like any non-record kind: the id
-			// addresses nothing, and the downstream read serves the no-record
-			// widget (read.ts catches the same refusal). Never a 500 on a read.
-			const wireSectionId = await classifyWireSectionId(
-				source.section_id,
-				source.section_tipo,
-				'rqo.get_data.record_scope_gate',
-			).catch((error: unknown) => {
-				if (isErrorInDomain(error, 'section_id')) return { kind: 'absent' } as const;
-				throw error;
-			});
-			if (wireSectionId.kind === 'record') {
-				const { principalCanAccessRecord } = await import('../security/record_scope.ts');
-				if (!(await principalCanAccessRecord(source.section_tipo, wireSectionId.id, principal))) {
-					return emptyShell();
-				}
-			}
-		}
+		if (!(await getDataRecordGateAdmits(source, principal))) return emptyShell();
 		// §7.4 per-COMPONENT schema ACL — defense-in-depth (AUTHZ-06). The `read`
 		// handler's Gate A already checks (section_tipo, tipo) before routing here,
 		// but the component get_data facade must ALSO self-gate: it emits a

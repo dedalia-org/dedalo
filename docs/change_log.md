@@ -130,6 +130,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The root user's "My profile" tool opens again.**
+
+    For the root user, the "My profile" tool (user administration) opened with an error panel ("The server answered with an unreadable response") instead of the account's fields, so root could not change its own password, email, name or picture from the application. It now opens normally. No other user gains access to the root account.
+
+    Wire contract: `WC-2026-10-28-own-account-read`.
+
 - **The reconcile panel no longer reports "OK" when it found images it cannot fix.**
 
     Running the rich-text images check when the referenced image files are not in the media web folder reported "OK. the two stores agree (drift 0)", as if no old image link existed, and Apply then changed nothing. The message now says how many references are missing, held or failed, and the report lists each one, so the files can be put back in place before the check is run again.
@@ -212,13 +218,14 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 10 entries"
+??? note "Wire contract — 11 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
     - `WC-2026-10-27-relation-list-grant-stamp`
     - `WC-2026-10-27-start-deep-link-record-scope`
     - `WC-2026-10-28-menu-role-areas-need-grant`
+    - `WC-2026-10-28-own-account-read`
     - `WC-2026-10-28-own-user-record-read-floor`
     - `WC-2026-10-28-related-host-record-scope`
     - `WC-2026-10-28-section-definition-defects`
