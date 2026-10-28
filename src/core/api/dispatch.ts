@@ -437,6 +437,7 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	['dd_diffusion_api:cancel_process', 'mutating'],
 	['dd_diffusion_api:rebuild_media_index', 'mutating'],
 	['dd_diffusion_api:retry_pending_deletions', 'mutating'],
+	['dd_diffusion_api:count_pending_deletions', 'idempotent'],
 	['dd_diffusion_api:sweep_published_langs', 'mutating'],
 	['dd_diffusion_api:follow_queue', 'idempotent'],
 	['dd_diffusion_api:get_process_status', 'idempotent'],

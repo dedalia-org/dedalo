@@ -769,32 +769,27 @@ export async function retryPendingDeletionsPatiently(
 }
 
 /**
- * `retry_pending_deletions` — native dd1758 pending-unpublish retry. `count_only`
- * (PHP parity) only COUNTS: tool_diffusion asks it on every render for its badge,
- * and ignoring it ran the whole drain each time the tool opened.
+ * `count_pending_deletions` — the dd1758 pending-unpublish COUNT, nothing retried: tool_diffusion's
+ * badge asks it on every render. A read of its own (WC-2026-10-28-count-pending-deletions) so the
+ * action posture is honest: `retry_pending_deletions` only ever retries.
  */
+export async function countPendingDeletionsAction(): Promise<ApiResult> {
+	const { countPendingDiffusion } = await import('../../core/diffusion_bridge/diffusion_delete.ts');
+	const pending = await countPendingDiffusion();
+	return {
+		status: 200,
+		body: ok(
+			{ summary: `${pending} pending deletions`, total: pending, retried: 0, remaining: pending },
+			{ requestId: requestId() },
+		),
+	};
+}
+
+/** `retry_pending_deletions` — native dd1758 pending-unpublish retry. */
 export async function retryPendingDeletionsAction(
-	rqo: Rqo,
+	_rqo: Rqo,
 	_principal: Principal,
 ): Promise<ApiResult> {
-	if ((rqo.options as { count_only?: unknown } | undefined)?.count_only === true) {
-		const { countPendingDiffusion } = await import(
-			'../../core/diffusion_bridge/diffusion_delete.ts'
-		);
-		const pending = await countPendingDiffusion();
-		return {
-			status: 200,
-			body: ok(
-				{
-					summary: `${pending} pending deletions`,
-					total: pending,
-					retried: 0,
-					remaining: pending,
-				},
-				{ requestId: requestId() },
-			),
-		};
-	}
 	const summary = await retryPendingDeletionsPatiently();
 	return {
 		status: 200,

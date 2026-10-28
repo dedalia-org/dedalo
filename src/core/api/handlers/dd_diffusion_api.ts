@@ -66,6 +66,17 @@ export const diffusionApiActions: Record<string, ActionHandler> = {
 		const { followQueueAction } = await import('../../../diffusion/api/actions.ts');
 		return followQueueAction(rqo, principal);
 	},
+	count_pending_deletions: async (_rqo, context) => {
+		// Admin-only like the retry it counts for (DIFF-02): the pending queue is global.
+		const principal = requirePrincipal(context);
+		if (!principal.isGlobalAdmin) {
+			throw new DedaloError('perm.denied', {
+				coordinates: { action: 'count_pending_deletions', required: 'global_admin' },
+			});
+		}
+		const { countPendingDeletionsAction } = await import('../../../diffusion/api/actions.ts');
+		return countPendingDeletionsAction();
+	},
 	retry_pending_deletions: async (rqo, context) => {
 		// Admin-only (DIFF-02): re-drives the GLOBAL dd1758 pending-unpublish queue
 		// — background load a non-admin must not be able to trigger. Its siblings

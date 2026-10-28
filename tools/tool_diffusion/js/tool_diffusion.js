@@ -554,24 +554,13 @@ tool_diffusion.prototype.get_engine_advisory = function() {
 
 /**
 * RETRY_PENDING_DELETIONS
-* Retries (or counts) delete-propagation rows that could not reach their diffusion
-* target when a record was deleted from the work database.
+* Retries delete-propagation rows that could not reach their diffusion target when a
+* record was deleted from the work database (a target down at delete time logs the
+* failure to dd1758 as action='unpublish_pending').
 *
-* Background: when a record is deleted in Dédalo, the system must also remove it from
-* every external diffusion target (SQL table, RDF file, etc.). If a target is down at
-* delete time, the failure is logged to the dd1758 activity component as
-* action='unpublish_pending'. This method drives the retry mechanism exposed in the UI.
-*
-* count_only mode (options.count_only=true)
-*   Returns { result: { pending: number }, ... } so the render layer can display a
-*   badge count without executing any retries. Used on tool open and after each retry.
-*
-* retry mode (options.count_only falsy)
-*   PHP processes up to `options.limit` (default 100) pending rows and returns a
-*   summary message. The render layer re-calls count_only afterwards to refresh the badge.
-*
-* Routed: browser → Bun (pass-through) → PHP dd_diffusion_api::retry_pending_deletions().
-* The Bun layer authenticates the request and forwards it to PHP via the internal token.
+* With `options.count_only` it asks the read-only `count_pending_deletions` action
+* instead (the badge, on tool open and after each retry): nothing is retried.
+* Both answer `{summary, total, retried, remaining}`.
 *
 * On network failure resolves with `{ result: false, msg: <error message> }` so the
 * render layer always receives a safe response object.
@@ -585,21 +574,19 @@ tool_diffusion.prototype.retry_pending_deletions = function(options={}) {
 
 	const self = this
 
+	const action = options.count_only ? 'count_pending_deletions' : 'retry_pending_deletions'
+
 	// source
-		const source = create_source(self, 'retry_pending_deletions')
+		const source = create_source(self, action)
 
 	// rqo
 		const rqo = {
 			dd_api	: 'dd_diffusion_api',
-			action	: 'retry_pending_deletions',
+			action	: action,
 			source	: source,
-			options : {
-				count_only	: options.count_only || false,
-				limit		: options.limit || 100
-			}
+			options : options.count_only ? {} : { limit : options.limit || 100 }
 		}
 
-	// call to Bun API (pass-through to PHP)
 		return new Promise(function(resolve){
 			data_manager.request({
 				url		: typeof DEDALO_DIFFUSION_API_URL !== 'undefined' ? DEDALO_DIFFUSION_API_URL : data_manager.url,
@@ -607,12 +594,12 @@ tool_diffusion.prototype.retry_pending_deletions = function(options={}) {
 			})
 			.then(function(response){
 				if(SHOW_DEBUG===true) {
-					console.log('-> retry_pending_deletions API response:', response);
+					console.log('-> ' + action + ' API response:', response);
 				}
 				resolve(response)
 			})
 			.catch(function(err){
-				console.error('retry_pending_deletions error:', err)
+				console.error(action + ' error:', err)
 				resolve({ result: false, msg: err.message || 'Bun unreachable' })
 			})
 		})

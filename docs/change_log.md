@@ -109,6 +109,14 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
 
+#### Changed
+
+- **The publication tool asks for the number of pending deletions without using the retry action.**
+
+    The publication tool shows how many deletions are still waiting to reach the publication server. It now gets that number from a separate, read-only request instead of the request that retries the deletions. Nothing changes on screen; read-only checks of the installation no longer block it.
+
+    Wire contract: `WC-2026-10-28-count-pending-deletions`.
+
 #### Added
 
 - **The permissions tree filter can show the siblings of a found item.**
@@ -218,12 +226,13 @@ Merged since the last release; these ship with the next one.
     problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
     a listed problem that gets fixed must be removed from the list.
 
-??? note "Wire contract — 11 entries"
+??? note "Wire contract — 12 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
     - `WC-2026-10-27-relation-list-grant-stamp`
     - `WC-2026-10-27-start-deep-link-record-scope`
+    - `WC-2026-10-28-count-pending-deletions`
     - `WC-2026-10-28-menu-role-areas-need-grant`
     - `WC-2026-10-28-own-account-read`
     - `WC-2026-10-28-own-user-record-read-floor`
