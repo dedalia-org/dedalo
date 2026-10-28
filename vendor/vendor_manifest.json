@@ -67,6 +67,32 @@
 								}
 							]
 						}
+					},
+					{
+						"id": "GHSA-v6mg-96c6-gmpq",
+						"cve": "CVE-2026-116687",
+						"severity": "low",
+						"published": "2026-10-27",
+						"vulnerable_range": ">= 29.0.0, < 47.7.4",
+						"first_patched_version": "47.7.4",
+						"summary": "CKEditor: Cross-site scripting (XSS) in the engine package",
+						"accepted": {
+							"reason_code": "feature_absent",
+							"reason": "The advisory fires only where General HTML Support is enabled and configured to allow the affected markup (object insertion). Neither GeneralHtmlSupport nor HtmlEmbed is in the served bundle, so that configuration cannot exist here. The bundle mentions 'rawHtml' once, as a view-mapping table entry with no model registered. Same wholesale-replacement constraint as the rows above.",
+							"assessed": "2026-10-28",
+							"expires": "2027-02-28",
+							"evidence": "https://github.com/advisories/GHSA-v6mg-96c6-gmpq",
+							"verify": [
+								{
+									"file": "vendor/ckeditor/build/ckeditor.js",
+									"must_not_contain": "GeneralHtmlSupport"
+								},
+								{
+									"file": "vendor/ckeditor/build/ckeditor.js",
+									"must_not_contain": "HtmlEmbed"
+								}
+							]
+						}
 					}
 				]
 			},
