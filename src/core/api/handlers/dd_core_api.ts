@@ -115,7 +115,7 @@ async function assertHostRecordInScope(
 	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
 	if (!(await principalCanAccessRecord(sectionTipo, sectionId, principal))) {
 		throw new DedaloError('perm.denied', {
-			coordinates: { section_tipo: sectionTipo, section_id: String(sectionId) },
+			coordinates: { section_tipo: sectionTipo, section_id: sectionId },
 		});
 	}
 }
