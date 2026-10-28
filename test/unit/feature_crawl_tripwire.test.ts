@@ -19,6 +19,8 @@
  *     every runner that reseeds the suite fixtures takes it.
  *  6. COVERAGE FLOORS (engineering/crawl_inventory.json): the record carries its rule
  *     and real floors; a shortfall is named, and banking never lowers a floor.
+ *  7. PAGE POSTURE BUDGET (engineering/crawl_posture_budget.json): per-rule page
+ *     counts; a new rule or an overrun is red, banking only lowers.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -28,12 +30,17 @@ import { join } from 'node:path';
 import { trackedRepoFiles } from '../helpers/css_reference_corpus.ts';
 import {
 	bankCrawlInventory,
+	bankPostureBudget,
 	CRAWL_INVENTORY_PATH,
 	CRAWL_INVENTORY_RULE,
+	CRAWL_POSTURE_PATH,
+	CRAWL_POSTURE_RULE,
 	type CrawlInventory,
+	type CrawlPostureBudget,
 	crawlCoverageShortfalls,
 	INTERMITTENT,
 	KNOWN_FAILING,
+	postureOverruns,
 } from '../helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, JOURNEYS_PENDING } from '../helpers/journey_cases.ts';
 import { acquireSuiteRunLock, suiteRunLockPath } from '../helpers/suite_run_lock.ts';
@@ -231,6 +238,38 @@ describe('coverage floors — engineering/crawl_inventory.json', () => {
 			rule: CRAWL_INVENTORY_RULE,
 			page_floor: 980,
 			check_floor: 100,
+		});
+	});
+});
+
+describe('page posture budget — engineering/crawl_posture_budget.json', () => {
+	test('the record carries its rule and only positive per-rule budgets', () => {
+		const record = JSON.parse(
+			readFileSync(join(import.meta.dir, '../..', CRAWL_POSTURE_PATH), 'utf8'),
+		) as CrawlPostureBudget;
+		expect(record.rule).toBe(CRAWL_POSTURE_RULE);
+		const entries = Object.entries(record.budgets);
+		expect(entries.length).toBeGreaterThan(0);
+		for (const [key, pages] of entries) {
+			expect(key).toMatch(/^(a11y:[a-z0-9-]+|keyboard|phone_overflow)$/);
+			expect(Number.isInteger(pages) && pages > 0).toBe(true);
+		}
+	});
+
+	test('an unbudgeted rule and an overrun are red; within budget is not', () => {
+		const budget = { rule: CRAWL_POSTURE_RULE, budgets: { 'a11y:image-alt': 3 } };
+		expect(postureOverruns(budget, { 'a11y:image-alt': 3 })).toHaveLength(0);
+		expect(postureOverruns(budget, { 'a11y:image-alt': 4, keyboard: 1 })).toEqual([
+			'a11y:image-alt: 4 pages, the budget is 3',
+			'keyboard: 1 pages, a rule with no budget',
+		]);
+	});
+
+	test('banking lowers a budget, drops a cleared rule, and never raises one', () => {
+		const budget = { rule: 'old', budgets: { 'a11y:image-alt': 3, keyboard: 2 } };
+		expect(bankPostureBudget(budget, { 'a11y:image-alt': 5, phone_overflow: 9 })).toEqual({
+			rule: CRAWL_POSTURE_RULE,
+			budgets: { 'a11y:image-alt': 3 },
 		});
 	});
 });

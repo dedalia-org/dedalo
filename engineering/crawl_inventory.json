@@ -1,5 +1,5 @@
 {
 	"rule": "SHRINK-ONLY coverage floor for the feature crawl (bun run test:crawl). A FULL gate run (no --only/--persona/--max/--journey/--no-journeys, not --audit) must visit at least page_floor pages and run at least check_floor checks, or it is red. Banked by `bun run test:crawl --update` after a green full run at the observed counts less a run-to-run slack (2% pages, 3% checks), never lowering a floor; a legitimate drop is a hand edit whose commit says what went and why. Read by scripts/feature_crawl.ts and test/unit/feature_crawl_tripwire.test.ts.",
 	"page_floor": 774,
-	"check_floor": 7045
+	"check_floor": 9351
 }

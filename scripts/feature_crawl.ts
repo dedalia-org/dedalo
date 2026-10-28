@@ -49,18 +49,23 @@
  * holds no grant on.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import puppeteer, { type BrowserContext, type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
 import { isLocatorInArray } from '../src/core/concepts/locator.ts';
 import {
 	bankCrawlInventory,
+	bankPostureBudget,
 	CRAWL_INVENTORY_PATH,
+	CRAWL_POSTURE_PATH,
+	CRAWL_POSTURE_RULE,
 	type CrawlInventory,
+	type CrawlPostureBudget,
 	crawlCoverageShortfalls,
 	INTERMITTENT,
 	KNOWN_FAILING,
+	postureOverruns,
 } from '../test/helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, type JourneyContext, type PersonaName } from '../test/helpers/journey_cases.ts';
 import {
@@ -169,6 +174,8 @@ const mintedTokens: string[] = [];
 
 const findings: Finding[] = [];
 let pagesVisited = 0;
+/** pages failing each posture rule (`persona:tipo:mode`), judged against the budget */
+const postureSeen = new Map<string, Set<string>>();
 let checksRun = 0;
 const pendingShots: Promise<void>[] = [];
 /** audit: every non-read request the guard aborted, `persona tipo: action model` */
@@ -244,7 +251,25 @@ const floor = JSON.parse(readFileSync(inventoryFile, 'utf8')) as CrawlInventory;
 const observed = { pages: pagesVisited, checks: checksRun };
 const shortfalls = audit || narrowed ? [] : crawlCoverageShortfalls(floor, observed);
 for (const s of shortfalls) console.log(`FAIL  coverage\n      ${s} (${CRAWL_INVENTORY_PATH})`);
-const red = unexpected.length + stale.length + shortfalls.length;
+// page posture: per-rule page counts against the shrink-only budget (the gate's; an audit reports)
+const postureFile = join(import.meta.dir, '..', CRAWL_POSTURE_PATH);
+const postureBudget: CrawlPostureBudget | null = existsSync(postureFile)
+	? (JSON.parse(readFileSync(postureFile, 'utf8')) as CrawlPostureBudget)
+	: null;
+const postureCounts = Object.fromEntries(
+	[...postureSeen].map(([rule, pages]) => [rule, pages.size]),
+);
+const overruns =
+	audit || postureBudget === null ? [] : postureOverruns(postureBudget, postureCounts);
+for (const o of overruns) {
+	const rule = o.slice(0, o.indexOf(': '));
+	const pages = [...(postureSeen.get(rule) ?? [])].slice(0, 5).join(', ');
+	console.log(`FAIL  posture\n      ${o} (${CRAWL_POSTURE_PATH}) — e.g. ${pages}`);
+}
+if (audit || postureBudget === null)
+	for (const [rule, count] of Object.entries(postureCounts).sort())
+		console.log(`posture ${rule}: ${count} pages`);
+const red = unexpected.length + stale.length + shortfalls.length + overruns.length;
 if (args.includes('--update')) {
 	if (audit || narrowed || red > 0)
 		console.log(`--update REFUSED: only a green FULL gate run banks ${CRAWL_INVENTORY_PATH}`);
@@ -254,6 +279,16 @@ if (args.includes('--update')) {
 			`${JSON.stringify(bankCrawlInventory(floor, observed), null, '\t')}\n`,
 		);
 		console.log(`banked ${CRAWL_INVENTORY_PATH}: ${pagesVisited} pages, ${checksRun} checks`);
+		// bootstrapped once from the observed counts; afterwards a budget only falls
+		const nextPosture =
+			postureBudget === null
+				? {
+						rule: CRAWL_POSTURE_RULE,
+						budgets: Object.fromEntries(Object.entries(postureCounts).sort()),
+					}
+				: bankPostureBudget(postureBudget, postureCounts);
+		writeFileSync(postureFile, `${JSON.stringify(nextPosture, null, '\t')}\n`);
+		console.log(`banked ${CRAWL_POSTURE_PATH}`);
 	}
 }
 if (outDir)
@@ -707,6 +742,7 @@ async function visit(
 			await checkInspector(page, who, tipo);
 			await checkTools(context, page, who, tipo, url, instances, edit.granted, edit.toolsOpened);
 		}
+		await checkPagePosture(page, who, tipo, mode);
 		await reportSignals(signals, who, tipo, mode, page, false);
 		return ids;
 	} catch (err) {
@@ -715,6 +751,78 @@ async function visit(
 	} finally {
 		await closePage(page);
 	}
+}
+
+function posture(rule: string, who: string, tipo: string, mode: string): void {
+	const pages = postureSeen.get(rule) ?? new Set<string>();
+	pages.add(`${who}:${tipo}:${mode}`);
+	postureSeen.set(rule, pages);
+}
+
+/** axe-core, read once (a hoisted function: the crawl's top-level await runs before any const below). */
+function axeSource(): string {
+	const cache = axeSource as unknown as { text?: string };
+	cache.text ??= readFileSync(
+		join(import.meta.dir, '..', 'node_modules', 'axe-core', 'axe.min.js'),
+		'utf8',
+	);
+	return cache.text;
+}
+
+/**
+ * Every page, every persona: accessibility (axe, CRITICAL impact), keyboard (Tab
+ * leaves the document body and reaches a control) and phone width (360 px: no
+ * horizontal page scroll). Read-only — runs in audit mode too.
+ */
+async function checkPagePosture(
+	page: Page,
+	who: string,
+	tipo: string,
+	mode: string,
+): Promise<void> {
+	checksRun++;
+	await page.evaluate(axeSource());
+	const critical = await page.evaluate(async () => {
+		const axe = (
+			window as unknown as {
+				axe: {
+					run: (
+						ctx: unknown,
+						opts: unknown,
+					) => Promise<{ violations: { id: string; impact: string | null; nodes: unknown[] }[] }>;
+				};
+			}
+		).axe;
+		const result = await axe.run(document, { resultTypes: ['violations'] });
+		return result.violations
+			.filter((v) => v.impact === 'critical')
+			.map((v) => ({ id: v.id, nodes: v.nodes.length }));
+	});
+	for (const v of critical) posture(`a11y:${v.id}`, who, tipo, mode);
+
+	checksRun++;
+	await page.evaluate(() => {
+		(document.activeElement as HTMLElement | null)?.blur();
+		window.scrollTo(0, 0);
+	});
+	let reached = false;
+	for (let step = 0; step < 15 && !reached; step++) {
+		await page.keyboard.press('Tab');
+		reached = await page.evaluate(() => {
+			const el = document.activeElement;
+			return el !== null && el !== document.body && el !== document.documentElement;
+		});
+	}
+	if (!reached) posture('keyboard', who, tipo, mode);
+
+	checksRun++;
+	await page.setViewport({ width: 360, height: 740 });
+	await new Promise((r) => setTimeout(r, 400));
+	const overflow = await page.evaluate(
+		() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+	);
+	if (overflow > 1) posture('phone_overflow', who, tipo, mode);
+	await page.setViewport({ width: 1400, height: 1000 });
 }
 
 interface ToolCandidate {

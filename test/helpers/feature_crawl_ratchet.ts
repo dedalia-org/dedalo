@@ -78,3 +78,49 @@ export function bankCrawlInventory(
 		),
 	};
 }
+
+/**
+ * PAGE POSTURE BUDGET — engineering/crawl_posture_budget.json. Every page the crawl
+ * visits is checked for accessibility (axe, critical impact), keyboard reach and
+ * phone-width overflow; the existing debt is counted PER RULE (pages breaking it),
+ * not listed per page. A rule not in the budget, or more pages than budgeted, is red.
+ * `--update` after a green full run LOWERS a budget to what was observed; a budget
+ * never rises except by a hand edit whose commit says why. Bootstrapped once.
+ */
+export const CRAWL_POSTURE_PATH = 'engineering/crawl_posture_budget.json';
+
+export const CRAWL_POSTURE_RULE =
+	'SHRINK-ONLY per-rule budget of pages failing a posture check in the feature crawl (bun run test:crawl): a11y:<axe rule> (critical impact), keyboard (Tab never leaves the body), phone_overflow (sideways scroll at 360px). A rule missing here, or more pages than its budget, is red; `bun run test:crawl --update` after a green FULL run lowers each budget to the observed count and drops a rule no page breaks any more. A budget rises only by a hand edit whose commit says why. Read by scripts/feature_crawl.ts and test/unit/feature_crawl_tripwire.test.ts.';
+
+export interface CrawlPostureBudget {
+	rule: string;
+	budgets: Record<string, number>;
+}
+
+/** Over-budget and unbudgeted rules (red), given pages-per-rule observed. */
+export function postureOverruns(
+	budget: CrawlPostureBudget,
+	observed: Record<string, number>,
+): string[] {
+	return Object.entries(observed)
+		.filter(([key, pages]) => pages > (budget.budgets[key] ?? 0))
+		.map(([key, pages]) =>
+			key in budget.budgets
+				? `${key}: ${pages} pages, the budget is ${budget.budgets[key]}`
+				: `${key}: ${pages} pages, a rule with no budget`,
+		)
+		.sort();
+}
+
+/** The budget a green full run banks: each count falls to what was observed, never rises. */
+export function bankPostureBudget(
+	budget: CrawlPostureBudget,
+	observed: Record<string, number>,
+): CrawlPostureBudget {
+	const budgets: Record<string, number> = {};
+	for (const key of Object.keys(budget.budgets).sort()) {
+		const pages = Math.min(budget.budgets[key] ?? 0, observed[key] ?? 0);
+		if (pages > 0) budgets[key] = pages;
+	}
+	return { rule: CRAWL_POSTURE_RULE, budgets };
+}
