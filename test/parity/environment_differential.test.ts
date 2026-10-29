@@ -294,7 +294,9 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		// identity of the SAME data triple. A tag-less byte compare would pass on
 		// an untagged checkout only and red on every tagged one.
 		const tsIdentity = parseReleaseVersion(String(tsGlobals.dedalo_version));
-		const phpIdentity = parseReleaseVersion(legacyPhpDevToIdentity(String(phpGlobals.dedalo_version)));
+		const phpIdentity = parseReleaseVersion(
+			legacyPhpDevToIdentity(String(phpGlobals.dedalo_version)),
+		);
 		expect(tsIdentity).not.toBeNull();
 		expect(phpIdentity).not.toBeNull();
 		expect([...(tsIdentity?.triple ?? [])]).toEqual([...(phpIdentity?.triple ?? [])]);
