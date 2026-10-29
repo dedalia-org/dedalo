@@ -597,8 +597,11 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 	},
 	{
 		name: 'removeScopeBindingFixture',
+		// An EMPTY handle: were the refusal missing, the sweep would still address no row.
 		run: async () =>
-			(await import('../helpers/scope_binding_fixture.ts')).removeScopeBindingFixture(),
+			(await import('../helpers/scope_binding_fixture.ts')).removeScopeBindingFixture({
+				records: [],
+			} as never),
 	},
 	{
 		// The spawned runner children (kill / pool legs) reach runJob only here;

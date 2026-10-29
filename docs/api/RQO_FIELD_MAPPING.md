@@ -49,17 +49,17 @@ Unauthenticated (`session === null`) `start` returns the **login element context
   - `mode`: string (optional) — `edit`, `list`, `search`
   - `action`: string (optional) — `get_data` (component pagination), `resolve_data` (search filter chips), `get_relation_list` (the References panel)
   - `lang`: string (optional)
-- `sqo`: object (optional) — search query object (`limit`, `offset`, filters); `sqo.mode: "tm"` routes to the Time Machine read source.
+- `sqo`: object (optional) — search query object; `sqo.section_tipo` is mandatory whenever an `sqo` is sent (a string or an array of section tipos), plus `limit`, `offset`, filters; `sqo.mode: "tm"` routes to the Time Machine read source. A section read (`readSectionRows`) also needs `source.tipo` (the section's own tipo), or it is refused with `request.invalid_source`.
 
 **Permission gate**: read requires level ≥ 1 on `(section_tipo, tipo)` and on every SQO target section.
 
-**Example request**:
+**Example request** (a section list read; `source.tipo` names the section itself, `sqo.section_tipo` the sections to read):
 ```json
 {
   "dd_api": "dd_core_api",
   "action": "read",
-  "source": { "section_tipo": "rsc167", "mode": "list" },
-  "sqo": { "limit": 10, "offset": 0 }
+  "source": { "tipo": "rsc167", "section_tipo": "rsc167", "mode": "list" },
+  "sqo": { "section_tipo": ["rsc167"], "limit": 10, "offset": 0 }
 }
 ```
 

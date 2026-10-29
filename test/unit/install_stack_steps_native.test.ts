@@ -59,7 +59,14 @@ import {
 import { stackImages } from '../../src/core/install/host/stack/database.ts';
 import { stackSaltCommand } from '../../src/core/install/host/stack/engine_delegate.ts';
 import { curlReason } from '../../src/core/install/host/stack/health.ts';
-import { IMAGE_BUILDER, imageCommands } from '../../src/core/install/host/stack/image.ts';
+import {
+	IMAGE_BUILDER,
+	imageCommands,
+	PULL_HEARTBEAT_MS,
+	PULL_STALL_MS,
+	PULLED_DIGEST_PLACEHOLDER,
+	pullHeartbeat,
+} from '../../src/core/install/host/stack/image.ts';
 import {
 	IMAGE_PROBE_TIMEOUT_MS,
 	probeImageAvailability,
@@ -73,7 +80,9 @@ import {
 } from '../../src/core/install/host/stack/layout.ts';
 import {
 	imageCheckingLine,
+	imagePublishedLine,
 	officialImageVerdict,
+	STACK_MACHINE_CHECKS,
 } from '../../src/core/install/host/stack/preflight.ts';
 import { STACK_HOST_STEPS } from '../../src/core/install/host/stack/table.ts';
 import { containerEverStarted } from '../../src/core/install/host/stack/up.ts';
@@ -84,6 +93,7 @@ import {
 	type StackHostStepId,
 } from '../../src/core/install/install_plan.ts';
 import { runInteractiveInstall } from '../../src/core/install/install_session.ts';
+import { defaultImageSource } from '../../src/core/install/installer_identity.ts';
 import { MEDIA_DIR_MODE } from '../../src/core/install/media_tree.ts';
 import { type ReviewMeasure, reviewMeasure } from '../../src/core/install/review_measure.ts';
 import {
@@ -97,7 +107,11 @@ import { scriptedInstallPrompter } from '../../src/core/install/ui_plain/prompte
 import { readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
 import { imageTagOf } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../../src/core/update/version.ts';
 import {
 	COSIGN,
 	composePrefix,
@@ -132,6 +146,7 @@ import {
 	pinInstallerIdentity,
 	withInstallerIdentity,
 } from '../helpers/installer_identity.ts';
+import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 // The installer's release identity is the checkout's (a tagged commit says `-beta.N`, the
@@ -327,6 +342,38 @@ describe('the image is verified; the System check refuses before anything change
 		expect(loggedCommands(host.root).filter((line) => line.startsWith(COSIGN))).toEqual([
 			`${COSIGN} verify --certificate-identity-regexp ${signing.identity_regexp} --certificate-oidc-issuer ${signing.issuer} ${FIRST}@${IMAGE_DIGEST}`,
 		]);
+	});
+
+	test('the Review lists the cosign verify line with the bundled identity and issuer, the digest shown as the pulled one (F4)', () => {
+		const { signing } = loadImageRegistries();
+		const lines = imageCommands(stackPlanCtx(TRIAL)).flatMap((command) =>
+			command.kind === 'exec' ? [command.argv.join(' ')] : [],
+		);
+		// The pull, then the verify — the placeholder stands for the digest the pull brings.
+		expect(lines).toEqual([
+			`${DOCKER} pull ${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`,
+			`${COSIGN} verify --certificate-identity-regexp ${signing.identity_regexp} --certificate-oidc-issuer ${signing.issuer} ${FIRST}@${PULLED_DIGEST_PLACEHOLDER}`,
+		]);
+	});
+
+	test('the run executes the Review cosign line with the pulled digest filled in (REVIEW EQUALS RUN for checks)', async () => {
+		const host = machine(TRIAL);
+		expect((await runHost(host, fresh(TRIAL).request)).outcome.result).toBe('complete');
+		const reviewed = imageCommands(stackPlanCtx(TRIAL)).flatMap((command) =>
+			command.kind === 'exec' && command.argv[0] === COSIGN ? [command.argv.join(' ')] : [],
+		);
+		const logged = loggedCommands(host.root).filter((line) => line.startsWith(COSIGN));
+		expect(reviewed).toHaveLength(1);
+		expect(logged).toEqual(
+			reviewed.map((line) => line.replace(PULLED_DIGEST_PLACEHOLDER, IMAGE_DIGEST)),
+		);
+	});
+
+	test('the cosign line names the identity and issuer the manual names (docs/install/docker.md)', () => {
+		const { signing } = loadImageRegistries();
+		const manual = readFileSync(join(REPO_ROOT, 'docs/install/docker.md'), 'utf8');
+		expect(manual).toContain(signing.identity_regexp);
+		expect(manual).toContain(signing.issuer);
 	});
 
 	test('a re-pointed tag (the label is another version): refused at stack_image', async () => {
@@ -549,7 +596,13 @@ describe('the official image of this version must be PUBLISHED — asked before 
 	}
 
 	test('CONTROL: published — no refusal, nothing on the Review, and the registry WAS asked', async () => {
-		const host = machine(TRIAL, { responses: [{ match: MANIFEST, stdout: '{}\n' }] });
+		// the digest is named too (F4): nothing about the tag is said (a tag-only note is the fallback's)
+		const host = machine(TRIAL, {
+			responses: [
+				{ match: MANIFEST, stdout: '{}\n' },
+				{ match: IMAGETOOLS, stdout: `Digest: ${IMAGE_DIGEST}\n` },
+			],
+		});
 		expect(await refusalsOf(host, TRIAL)).toEqual([]);
 		expect(await todoOf(host, TRIAL)).not.toContain(REF);
 		expect(probed(host)).toContain(MANIFEST);
@@ -727,8 +780,9 @@ describe('the official image of this version must be PUBLISHED — asked before 
 //
 // Owner 2026-10-15 (Q1, Q6; finding C3i-F1): a prerelease IS a release — its official image is
 // published as `:X.Y.Z-beta.N` and asked for by that tag, never by the bare `:X.Y.Z` (after the
-// stable release that is ANOTHER image). A development build (untagged) names no release: Official
-// is refused from the identity itself, NO registry is asked, and Build is the preselected source.
+// stable release that is ANOTHER image). A development build (untagged) names no release and is no
+// image: Official and Build are refused from the identity itself, NO registry is asked, and Custom
+// (the operator's own registry) is the preselected source (Q6, amended 2026-10-27).
 describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelease, development build (gate 6)', () => {
 	const registryAsked = (host: ScratchHost) =>
 		loggedCommands(host.root).filter((line) =>
@@ -755,12 +809,30 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 		await withInstallerIdentity(PINNED_IDENTITY.stable, async () => {
 			const { answers } = stackPlanCtx(TRIAL);
 			expect(answers.image_source).toBe('official');
-			expect(imageRefOf(answers)).toBe(`${FIRST}:${DEDALO_VERSION}`);
+			expect(imageRefOf(answers)).toBe(`${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`);
 			const host = machine(TRIAL);
 			expect(await refusals(host, TRIAL)).toEqual([]);
 			expect(registryAsked(host)).toContain(
-				`${DOCKER} manifest inspect ${FIRST}:${DEDALO_VERSION}`,
+				`${DOCKER} manifest inspect ${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`,
 			);
+		});
+	});
+
+	test('a found official manifest is said: the checking line, then "<ref> is published" (F3); no refusal', async () => {
+		await withInstallerIdentity(PINNED_IDENTITY.stable, async () => {
+			const host = machine(TRIAL);
+			const marker = join(host.root, SCRATCH_DIR);
+			const said: string[] = [];
+			const ctx = {
+				answers: stackPlanCtx(TRIAL).answers,
+				runner: scratchRunner(marker),
+				say: (line: string) => said.push(line),
+			};
+			const verdict = await officialImageVerdict(ctx, scratchStackFacts());
+			expect(verdict).toEqual({ problems: [], warnings: [] });
+			const ref = imageRefOf(ctx.answers);
+			expect(said).toEqual([imageCheckingLine(ref), imagePublishedLine(ref)]);
+			expect(imagePublishedLine(ref)).toBe(`${ref} is published`);
 		});
 	});
 
@@ -790,37 +862,26 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 			const asked = registryAsked(host);
 			expect(asked).toContain(`${DOCKER} manifest inspect ${BETA_REF}`);
 			// never the bare data version's tag — that is the stable release's image
-			expect(asked.filter((line) => line.endsWith(`:${DEDALO_VERSION}`))).toEqual([]);
+			expect(
+				asked.filter((line) => line.endsWith(`:${formatVersion(DEDALO_DATA_VERSION)}`)),
+			).toEqual([]);
 		});
 	});
 
-	test('prerelease + Official with an explicit X.Y.Z-dev tag, absent: refused as the dev branch’s image — never told to wait for a release', async () => {
+	test('prerelease + Official with an explicit X.Y.Z-dev tag: refused with the S3 sentence (Docker has no nightly images) — the registry is never asked', async () => {
 		await withInstallerIdentity(BETA, async () => {
-			const raw = { ...TRIAL, image_source: 'official', image_version: `${DEDALO_VERSION}-dev` };
-			const devRef = `${FIRST}:${DEDALO_VERSION}-dev`;
-			expect(imageRefOf(stackPlanCtx(raw).answers)).toBe(devRef);
-			const host = machine(raw, {
-				responses: [
-					{
-						match: `${DOCKER} manifest inspect ${devRef}`,
-						exit: 1,
-						stderr: `no such manifest: ${devRef}\n`,
-					},
-					{
-						match: `${DOCKER} buildx imagetools inspect ${devRef}`,
-						exit: 1,
-						stderr: `ERROR: ${devRef}: not found\n`,
-					},
-				],
+			const raw = {
+				...TRIAL,
+				image_source: 'official',
+				image_version: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
+			};
+			// refused on the Image screen (the validation), the same answer the preflight gives: never a registry call
+			const plan = buildInstallPlan(raw, {
+				rootPassword: ROOT_PASSWORD,
+				requireRootPassword: true,
 			});
-			const refused = (await refusals(host, raw)).join('\n');
-			expect(refused).toContain(`no official image ${devRef} is published`);
-			expect(refused).toContain('development branch');
-			expect(refused).not.toContain('once its release');
-			expect(refused).not.toContain('for this release yet');
-			expect(refused).toContain('--image-source build');
-			expect(refused).toContain('--image-source custom');
-			expect(registryAsked(host)).toContain(`${DOCKER} manifest inspect ${devRef}`);
+			expect(plan.errors.join('\n')).toContain('Docker has no nightly images');
+			expect(plan.fieldErrors.map((error) => error.key)).toContain('image_version');
 		});
 	});
 
@@ -846,43 +907,43 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 				responses: [
 					{
 						match: `${DOCKER} image inspect --format {{index .Config.Labels`,
-						stdout: `${DEDALO_VERSION}\n`,
+						stdout: `${formatVersion(DEDALO_DATA_VERSION)}\n`,
 					},
 				],
 			});
 			const { outcome } = await runHost(host, fresh(TRIAL).request);
 			expect(outcome.result).not.toBe('complete');
-			expect(outcome.message).toContain(`declares version '${DEDALO_VERSION}', not ${BETA}`);
+			expect(outcome.message).toContain(
+				`declares version '${formatVersion(DEDALO_DATA_VERSION)}', not ${BETA}`,
+			);
 		});
 	});
 
-	test('development build: Build PRESELECTED; the run builds localhost/dedalo:X.Y.Z-dev and never asks a registry', async () => {
+	test('development build: Custom is preselected; Build is refused by the plan itself (S3), so no local build is planned', async () => {
 		await withInstallerIdentity(PINNED_IDENTITY.dev, async () => {
-			const { answers } = stackPlanCtx(TRIAL);
-			expect(answers.image_source).toBe('build');
-			const ref = `localhost/dedalo:${DEDALO_VERSION}-dev`;
-			expect(imageRefOf(answers)).toBe(ref);
-			const host = machine(TRIAL);
-			expect(await refusals(host, TRIAL)).toEqual([]);
-			const { outcome } = await runHost(host, fresh(TRIAL).request);
-			expect(outcome.message).toBeNull();
-			expect(outcome.result).toBe('complete');
-			expect(registryAsked(host)).toEqual([]);
-			expect(
-				loggedCommands(host.root).some(
-					(line) => line.includes(` ${ref} `) || line.endsWith(` ${ref}`),
-				),
-			).toBe(true);
-			expect(envOf(host)).toContain(`DEDALO_VERSION=${DEDALO_VERSION}-dev\n`);
+			expect(defaultImageSource()).toBe('custom');
+			const plan = buildInstallPlan(
+				{ ...TRIAL, image_source: 'build' },
+				{ rootPassword: ROOT_PASSWORD, requireRootPassword: true },
+			);
+			expect(plan.errors.join('\n')).toContain('a local build of it is not an image install');
+			expect(plan.errors.join('\n')).toContain('choose Custom');
 		});
 	});
 
-	test('development build + Official: refused from the identity — on the Image screen (its question) and by the System check — with NO registry call, `-dev` tag or not', async () => {
+	test('development build + Official or Build: refused from the identity — on the Image screen (its question) and by the System check — with NO registry call', async () => {
 		await withInstallerIdentity(PINNED_IDENTITY.dev, async () => {
-			for (const raw of [
-				{ ...TRIAL, image_source: 'official' },
-				{ ...TRIAL, image_source: 'official', image_version: `${DEDALO_VERSION}-dev` },
-			]) {
+			// an explicit -dev image_version is refused by the validation itself (no image exists)
+			const devTag = buildInstallPlan(
+				{
+					...TRIAL,
+					image_source: 'official',
+					image_version: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
+				},
+				{ rootPassword: ROOT_PASSWORD, requireRootPassword: true },
+			);
+			expect(devTag.errors.join('\n')).toContain('Docker has no nightly images');
+			for (const raw of [{ ...TRIAL, image_source: 'official' }]) {
 				// the plan: on the image_source question, before any Review
 				const plan = buildInstallPlan(raw, {
 					rootPassword: ROOT_PASSWORD,
@@ -890,7 +951,7 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 				});
 				const tagged = plan.fieldErrors.filter((error) => error.key === 'image_source');
 				expect(tagged.map((error) => error.message).join('\n')).toContain('development build');
-				expect(tagged.map((error) => error.message).join('\n')).toContain('--image-source build');
+				expect(tagged.map((error) => error.message).join('\n')).toContain('--image-source custom');
 				// the System check's own verdict (a plan written by another installer): refused, the runner never called
 				const asked: string[] = [];
 				const runner: CommandRunner = {
@@ -925,7 +986,9 @@ describe('the image follows the installer’s RELEASE IDENTITY: stable, prerelea
 			);
 			expect(verdict.problems).toEqual([]);
 			expect(
-				asked.some((line) => line.includes(` manifest inspect ${FIRST}:${DEDALO_VERSION}`)),
+				asked.some((line) =>
+					line.includes(` manifest inspect ${FIRST}:${formatVersion(DEDALO_DATA_VERSION)}`),
+				),
 			).toBe(true);
 		});
 	});
@@ -1786,7 +1849,7 @@ describe('an install-time build of a checkout goes through the shared clean-snap
 		const labels = run.stdout.trim().split('\n');
 		// the version label is what the engine built from this checkout will call itself
 		// (its release identity as an image tag) — whatever this checkout's tag is today
-		const identity = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_VERSION_TRIPLE });
+		const identity = await readReleaseIdentityOf(REPO_ROOT, { triple: DEDALO_DATA_VERSION });
 		expect(labels).toContain(`org.opencontainers.image.version=${imageTagOf(identity.version)}`);
 		expect(labels).toContain(`org.opencontainers.image.revision=${head}`);
 		// Dédalo's own description, never blank (campaign 3c D6: source/url/description/licenses
@@ -2100,5 +2163,123 @@ describe('a Ctrl-C that kills the engine child is ONE interruption; an abort run
 		expect(last?.mode).toBe('abort');
 		expect(last?.result).toBe('aborted');
 		expect(last?.finished_at).not.toBeNull();
+	});
+});
+
+// The Review shows the registry's digest in the cosign line (F4), a pull says it is alive (F5),
+// and `--status --json` on the docker and trial routes reads the stack's host record (F6).
+describe('the Review names the image digest; a pull says it is alive; --status reads the host record (F4, F5, F6)', () => {
+	const REF = imageRefOf(stackPlanCtx(TRIAL).answers);
+	const MANIFEST_OK = { match: `${DOCKER} manifest inspect ${REF}`, stdout: '{}\n' };
+	const IMAGETOOLS_OF = `${DOCKER} buildx imagetools inspect ${REF}`;
+
+	/** The Review's command lines of a stack plan, measured through the scratch seam (as the run would). */
+	async function reviewLines(host: ScratchHost, raw: Record<string, unknown>): Promise<string[]> {
+		const previous = process.env.DEDALO_INSTALL_HOST_ROOT;
+		process.env.DEDALO_INSTALL_HOST_ROOT = host.root;
+		try {
+			return (await reviewHostCommands(fresh(raw).plan)).flatMap((block) => block.commands);
+		} finally {
+			if (previous === undefined) delete process.env.DEDALO_INSTALL_HOST_ROOT;
+			else process.env.DEDALO_INSTALL_HOST_ROOT = previous;
+		}
+	}
+
+	test('the Review names the registry digest in the cosign line, and the run verifies that same digest (F4)', async () => {
+		const host = machine(TRIAL, {
+			responses: [
+				MANIFEST_OK,
+				{ match: IMAGETOOLS_OF, stdout: `Name: ${REF}\nDigest: ${IMAGE_DIGEST}\n` },
+			],
+		});
+		// The Review shows the argv shell-quoted; the digest it names is the registry's.
+		const cosign = (await reviewLines(host, TRIAL)).filter((line) =>
+			line.startsWith(`${COSIGN} verify`),
+		);
+		expect(cosign).toHaveLength(1);
+		expect(cosign[0]?.endsWith(` ${FIRST}@${IMAGE_DIGEST}`)).toBe(true);
+		// REVIEW EQUALS RUN: the run executes exactly the line the Review listed.
+		expect((await runHost(host, fresh(TRIAL).request)).outcome.result).toBe('complete');
+		// (the log holds the bare argv; the Review shows it shell-quoted)
+		expect(loggedCommands(host.root).filter((line) => line.startsWith(COSIGN))).toEqual(
+			cosign.map((line) => line.replaceAll("'", '')),
+		);
+	});
+
+	test('a registry that names no digest at Review: the cosign line shows the tag, never the placeholder (F4)', async () => {
+		const host = machine(TRIAL, {
+			responses: [
+				MANIFEST_OK,
+				{ match: IMAGETOOLS_OF, exit: 1, stderr: 'unexpected status from HEAD request\n' },
+			],
+		});
+		const lines = await reviewLines(host, TRIAL);
+		const cosign = lines.filter((line) => line.startsWith(`${COSIGN} verify`));
+		expect(cosign).toHaveLength(1);
+		expect(cosign[0]?.endsWith(` ${REF}`)).toBe(true);
+		expect(lines.join('\n')).not.toContain(PULLED_DIGEST_PLACEHOLDER);
+		// said on the Review, where the command lines are: the digest is pinned at pull
+		expect(lines.join('\n')).toContain('the digest the pull brings is pinned');
+	});
+
+	test('a pull says it is alive every 30 s, and once docker is silent for the stall window it says so and names the resume (F5)', () => {
+		let now = 0;
+		const said: string[] = [];
+		const ctx = {
+			now: () => now,
+			say: (line: string) => said.push(line),
+			answers: { route: 'trial' },
+		} as unknown as HostCtx;
+		const heartbeat = pullHeartbeat(ctx, REF);
+		now = 30_000;
+		heartbeat.beat();
+		now = 60_000;
+		heartbeat.beat();
+		// silent for the whole stall window: said once, with the resume command
+		now = PULL_STALL_MS;
+		heartbeat.beat();
+		now = PULL_STALL_MS + PULL_HEARTBEAT_MS;
+		heartbeat.beat();
+		// output again ends the silence; the next beat is a plain "still pulling" line
+		heartbeat.output();
+		now = PULL_STALL_MS + 2 * PULL_HEARTBEAT_MS;
+		heartbeat.beat();
+		expect(said).toEqual([
+			`    still pulling ${REF}… (30 s)`,
+			`    still pulling ${REF}… (60 s)`,
+			`    no output from docker for 3 min — the pull may be stalled. Stop it with Ctrl+C, then resume with: sh install.sh --route trial --resume`,
+			`    still pulling ${REF}… (${(PULL_STALL_MS + 2 * PULL_HEARTBEAT_MS) / 1000} s)`,
+		]);
+		expect(PULL_HEARTBEAT_MS).toBe(30_000);
+	});
+
+	test('--status --json on the trial route reads the stack host record the run wrote, not this process private directory (F6)', async () => {
+		const host = machine(TRIAL);
+		expect((await runHost(host, fresh(TRIAL).request)).outcome.result).toBe('complete');
+		const run = spawnSync(
+			'bun',
+			['run', join(REPO_ROOT, 'scripts/install_main.ts'), '--route', 'trial', '--status', '--json'],
+			{
+				cwd: REPO_ROOT,
+				env: { ...process.env, ...magickTestEnv(), DEDALO_INSTALL_HOST_ROOT: host.root },
+				encoding: 'utf8',
+				timeout: 120_000,
+			},
+		);
+		expect(run.status, run.stderr).toBe(0);
+		const answer = JSON.parse(run.stdout.trim().split('\n').at(-1) ?? '') as {
+			exists: boolean;
+			outcome: string | null;
+		};
+		expect(answer.exists).toBe(true);
+		expect(answer.outcome).toBe('complete');
+	}, 150_000);
+
+	test('cosign is a System check: a sentence when it is not installed, none when it is (F15)', () => {
+		const facts = scratchStackFacts();
+		expect(STACK_MACHINE_CHECKS.cosign({ ...facts, cosign: null })).toContain(
+			'cosign is not installed',
+		);
+		expect(STACK_MACHINE_CHECKS.cosign({ ...facts, cosign: COSIGN })).toBeNull();
 	});
 });

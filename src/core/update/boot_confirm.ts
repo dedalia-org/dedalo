@@ -32,7 +32,7 @@ import { config } from '../../config/config.ts';
 import { RUNTIME_PATH_CENSUS } from '../install/runtime_paths.ts';
 import { INSTALLED_DIGEST } from './install_stamp.ts';
 import { pruneRestorePoints } from './restore_points.ts';
-import { DEDALO_VERSION } from './version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from './version.ts';
 
 /** The one sentinel shape (flat, machine-written; the rollback script greps it). */
 export interface CodeUpdateSentinel {
@@ -96,7 +96,7 @@ function bootedTreeMatches(
  */
 export async function confirmBootedCodeUpdate(
 	sentinelPath: string | null = codeUpdateSentinelPath(),
-	runningVersion: string = DEDALO_VERSION,
+	runningVersion: string = formatVersion(DEDALO_DATA_VERSION),
 	runningDigest: string | null = INSTALLED_DIGEST,
 	afterConfirmed: (() => void) | null = null,
 ): Promise<void> {

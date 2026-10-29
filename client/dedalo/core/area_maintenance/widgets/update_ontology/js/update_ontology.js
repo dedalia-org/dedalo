@@ -39,7 +39,7 @@
 	import {widget_common} from '../../../../widgets/widget_common/js/widget_common.js'
 	import {area_maintenance} from '../../../../area_maintenance/js/area_maintenance.js'
 	import {render_update_ontology} from './render_update_ontology.js'
-	import {code_satisfies} from '../../../../common/js/release_identity.js'
+	import {code_satisfies, data_version_of} from '../../../../common/js/release_identity.js'
 
 
 
@@ -120,7 +120,7 @@ export const update_ontology = function() {
 * This required_version value comes from Ontology root term (dd1) properties
 *
 * Version strings use dot-separated integers, e.g. '6.2.5'.  The comparison
-* is lexicographic on each numeric segment so '6.10.0' > '6.9.0' as expected.
+* is numeric per segment so '6.10.0' > '6.9.0' as expected.
 *
 * Called after a successful `update_ontology` API response to check whether
 * the freshly imported ontology requires a newer Dédalo code version than
@@ -135,10 +135,14 @@ export const update_ontology = function() {
 */
 update_ontology.prototype.supported_code_version = (required_version) => {
 
-	// The running code's DATA triple against the requirement — never the release
-	// identity split on dots ('7.0.0-beta.6' → NaN, which waved every newer
-	// requirement through). See common/js/release_identity.js.
-	return code_satisfies(required_version, page_globals.dedalo_version)
+	// The running code's DATA triple against the requirement — the same basis the
+	// server compares (parseVersionString of the data triple). An untagged build's
+	// identity ('7.0.1-dev') has no data triple of its own, so the served
+	// dedalo_data_version is read first; the identity is derived only as fallback.
+	// Never a dot-split of the identity ('7.0.0-beta.6' → NaN).
+	const code_data_version = page_globals.dedalo_data_version
+		|| data_version_of(page_globals.dedalo_version)
+	return code_satisfies(required_version, code_data_version)
 }//end supported_code_version
 
 

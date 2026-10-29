@@ -18,7 +18,7 @@
  *    (campaign 3, C3-46): the SAME mechanism the release image and the
  *    production route use, so build_info.txt arrives expanded and the engine
  *    reports the version the image is tagged with (7.0.0 + the commit date),
- *    never `7.0.0.dev` under a `:7.0.0` tag. Committed files only — an edit
+ *    never `7.0.0-dev` under a `:7.0.0` tag. Committed files only — an edit
  *    not committed is not in the image (said on the Review). A verified
  *    release tree (no .git) is its own context, already expanded.
  *
@@ -34,7 +34,7 @@ import type {
 	HostPlanCtx,
 	HostStepDefinition,
 } from '../contract.ts';
-import { executeCommands } from '../execute.ts';
+import { failedSentence } from '../execute.ts';
 import { STACK_RUN_DIR } from '../layout.ts';
 import { probeOk, ran, verdictOf } from '../production/common.ts';
 import { hostRefuse } from '../refuse.ts';
@@ -42,11 +42,12 @@ import type { RunResult } from '../runner.ts';
 import { execute, inCheckout, stackCreated } from './common.ts';
 import { dockerCommand, stackExec } from './compose.ts';
 import { dockerOf, STACK_BINARIES } from './facts.ts';
-import { imagePresentProbe, pinHolds, verifyImage } from './image_verify.ts';
+import { cosignCommand, imagePresentProbe, pinHolds, verifyImage } from './image_verify.ts';
 import {
 	BUILD_DURATION,
 	imageModeOf,
 	imageRefOf,
+	imageRepositoryOf,
 	imageVerifyOf,
 	LOCAL_REPOSITORY,
 } from './layout.ts';
@@ -89,18 +90,60 @@ function buildCommand(ctx: HostPlanCtx): ExecCommand {
 	);
 }
 
-/** The image's commands (pull, or build here). */
-export function imageCommands(ctx: HostPlanCtx): HostCommand[] {
+/** The pull (the image source's registry tag). */
+function pullCommand(ctx: HostPlanCtx): ExecCommand {
 	const ref = imageRefOf(ctx.answers);
-	if (imageModeOf(ctx.answers) === 'build') {
-		return [buildCommand(ctx)];
-	}
+	return dockerCommand(
+		ctx,
+		['pull', ref],
+		`pull ${ref}, then check its version label${ctx.answers.image_source === 'official' ? " and Dédalo's signature on its digest (cosign)" : ''}`,
+		{ timeoutMs: 3600 * 1000 },
+	);
+}
+
+/**
+ * The digest a pull brings is unknown until the pull runs. The frozen digest of
+ * the steps (and so the run) lists the cosign line with this placeholder for it;
+ * the run executes the same argv with the digest the pulled image carries
+ * (verifyImage → checkSignature); the gate holds the logged argv to this line
+ * with the placeholder replaced (contract.ts REVIEW EQUALS RUN). The Review shows
+ * the registry's digest instead when it can name it before the pull (review.ts,
+ * ctx.reviewImage), and the tag when it cannot — never the placeholder.
+ */
+export const PULLED_DIGEST_PLACEHOLDER = '<digest>';
+
+/**
+ * The image's commands, as the Review lists them: the pull (or the build here),
+ * then — for a signed (official) image — the cosign verify of the pulled digest.
+ * The executed commands are imageGetCommands; the verify line is a check.
+ */
+export function imageCommands(ctx: HostPlanCtx): HostCommand[] {
+	return [...imageGetCommands(ctx), ...imageCheckCommands(ctx)];
+}
+
+/** The commands the run executes to get the image (the pull, or the build here). */
+function imageGetCommands(ctx: HostPlanCtx): HostCommand[] {
+	return imageModeOf(ctx.answers) === 'build' ? [buildCommand(ctx)] : [pullCommand(ctx)];
+}
+
+/**
+ * The cosign verify line of a signed image. The target is the repository at the
+ * digest: the placeholder in the frozen form (the run fills it in), the digest the
+ * Review resolved, or — when the registry could not name it at Review — the tag,
+ * with a label that says the digest is pinned at pull.
+ */
+function imageCheckCommands(ctx: HostPlanCtx): HostCommand[] {
+	if (imageVerifyOf(ctx.answers) !== 'cosign') return [];
+	const repository = imageRepositoryOf(ctx.answers);
+	const shown = ctx.reviewImage;
+	if (shown === undefined)
+		return [cosignCommand(ctx, `${repository}@${PULLED_DIGEST_PLACEHOLDER}`)];
+	if ('digest' in shown) return [cosignCommand(ctx, `${repository}@${shown.digest}`)];
 	return [
-		dockerCommand(
+		cosignCommand(
 			ctx,
-			['pull', ref],
-			`pull ${ref}, then check its version label${ctx.answers.image_source === 'official' ? " and Dédalo's signature on its digest (cosign)" : ''}`,
-			{ timeoutMs: 3600 * 1000 },
+			imageRefOf(ctx.answers),
+			"verify Dédalo's signature on the image's tag — the registry did not name its digest before the pull: the digest is pinned at pull, and the run verifies it",
 		),
 	];
 }
@@ -110,6 +153,12 @@ const BUILD_STEP = /^(#\d+ \[[^\]]+\] |Step \d+\/\d+ : )/;
 
 /** The interval of the "still building" line during a long step. */
 export const BUILD_HEARTBEAT_MS = 30_000;
+
+/** The interval of a pull's "still pulling" line (F5: a stalled pull showed nothing for ~8 min). */
+export const PULL_HEARTBEAT_MS = 30_000;
+
+/** Silence from docker after which a pull is said to be stalled, with the resume that picks it up. */
+export const PULL_STALL_MS = 180_000;
 
 /**
  * A build's output, condensed to what the operator needs to see it move
@@ -142,10 +191,69 @@ function buildFailed(result: RunResult): never {
 	);
 }
 
+/** The command that resumes this install on its route (the stalled pull's way out). */
+function resumeCommandOf(ctx: HostCtx): string {
+	const instance = String(ctx.answers.instance ?? '');
+	return `sh install.sh --route ${String(ctx.answers.route)}${instance === '' ? '' : ` --instance ${instance}`} --resume`;
+}
+
+/**
+ * A pull's progress (F5), condensed like buildProgress: a "still pulling" line on
+ * every beat, with the elapsed time; once docker has been silent for
+ * PULL_STALL_MS, one line that says so and names the resume command (said once per
+ * silence — any output ends the silence). `output` is the runner's line callback;
+ * `beat` is driven by a timer.
+ */
+export function pullHeartbeat(ctx: HostCtx, ref: string): { output: () => void; beat: () => void } {
+	const start = ctx.now();
+	let lastOutput = start;
+	let stallSaid = false;
+	return {
+		output: () => {
+			lastOutput = ctx.now();
+			stallSaid = false;
+		},
+		beat: () => {
+			const now = ctx.now();
+			const silent = now - lastOutput;
+			if (silent < PULL_STALL_MS) {
+				ctx.say(`    still pulling ${ref}… (${Math.round((now - start) / 1000)} s)`);
+				return;
+			}
+			if (!stallSaid) {
+				stallSaid = true;
+				ctx.say(
+					`    no output from docker for ${Math.floor(silent / 60_000)} min — the pull may be stalled. Stop it with Ctrl+C, then resume with: ${resumeCommandOf(ctx)}`,
+				);
+			}
+		},
+	};
+}
+
+/**
+ * The pull, with its heartbeat while docker runs (F5); refused like any command
+ * (the same sentence runExec would say).
+ */
+async function pullImage(ctx: HostCtx): Promise<void> {
+	const command = pullCommand(ctx);
+	const heartbeat = pullHeartbeat(ctx, imageRefOf(ctx.answers));
+	const timer = setInterval(() => heartbeat.beat(), PULL_HEARTBEAT_MS);
+	try {
+		await execute(
+			ctx,
+			command,
+			(result) => hostRefuse('install.step_failed', failedSentence(command, result)),
+			{ onStdoutLine: heartbeat.output, onStderrLine: heartbeat.output },
+		);
+	} finally {
+		clearInterval(timer);
+	}
+}
+
 /** Pull, or build with its progress shown (BuildKit writes it to stderr, the legacy builder to stdout). */
 async function getImage(ctx: HostCtx): Promise<void> {
 	if (imageModeOf(ctx.answers) !== 'build') {
-		await executeCommands(imageCommands(ctx), ctx);
+		await pullImage(ctx);
 		return;
 	}
 	const progress = buildProgress(ctx);

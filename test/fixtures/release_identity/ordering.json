@@ -1,5 +1,5 @@
 {
-	"_comment": "THE semver ordering fixture (release identity design gate 8). Every reader of release identities is held to it: src/core/update/release_identity.ts compareReleaseIdentities, scripts/lib/change_log.ts compareVersions, and the shell twin deploy/dedalo-image-lib.sh once it orders identities. 'ascending' is strictly increasing; each 'equal' pair compares 0; 'not_identities' must be refused by every reader.",
+	"_comment": "THE semver ordering fixture (release identity design gate 8). Every reader of release identities is held to it: src/core/update/release_identity.ts compareReleaseIdentities, scripts/lib/change_log.ts compareVersions, and the shell twin deploy/dedalo-image-lib.sh once it orders identities. 'ascending' is strictly increasing and includes the developer identities (X.Y.Z-dev, owner decision 2026-10-25: 7.0.0 < 7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2; a dev identity sorts above every prerelease of its triple and below its stable). 'dev' lists the developer identities among 'ascending' (the changelog refuses them: a release is never a dev build). 'dev_below_stable' pairs each dev identity with the stable of its own triple (strictly less, both ways). 'not_identities' must be refused by every reader. HAND-EDITED CONTRACT (no generator): the retired equal_dev tie pairs are replaced by dev_below_stable; the dotted spelling 7.0.0.dev is retired, and 7.0.0-dev is now a valid identity.",
 	"ascending": [
 		"0.9.9",
 		"6.9.9",
@@ -12,9 +12,12 @@
 		"7.0.0-beta.10",
 		"7.0.0-rc.1",
 		"7.0.0-rc.2",
+		"7.0.0-dev",
 		"7.0.0",
 		"7.0.1-alpha.1",
 		"7.0.1-beta.1",
+		"7.0.1-rc.1",
+		"7.0.1-dev",
 		"7.0.1",
 		"7.0.2",
 		"7.0.10",
@@ -23,7 +26,8 @@
 		"7.10.0",
 		"10.0.0"
 	],
-	"equal_dev": [["7.0.0.dev", "7.0.0"], ["7.0.1.dev", "7.0.1"]],
+	"dev": ["7.0.0-dev", "7.0.1-dev"],
+	"dev_below_stable": [["7.0.0-dev", "7.0.0"], ["7.0.1-dev", "7.0.1"]],
 	"not_identities": [
 		"",
 		"7",
@@ -36,9 +40,11 @@
 		"7.0.0-beta.01",
 		"7.0.0-pre.1",
 		"7.0.0-BETA.1",
+		"7.0.0.dev",
+		"7.0.1.dev",
 		"7.0.0.dev.1",
 		"7.0.0-beta.1.dev",
-		"7.0.0-dev",
+		"7.0.0-dev.1",
 		" 7.0.0"
 	]
 }

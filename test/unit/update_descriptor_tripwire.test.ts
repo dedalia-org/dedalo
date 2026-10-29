@@ -116,8 +116,8 @@ async function rowsTagged(tag: string): Promise<number> {
 function descriptor(parts: Record<string, unknown>): DataUpdateDescriptor {
 	return {
 		versionMajor: 7,
-		versionMedium: 0,
-		versionMinor: 1,
+		versionMedium: 1,
+		versionMinor: 0,
 		updateFromMajor: 7,
 		updateFromMedium: 0,
 		updateFromMinor: 0,
@@ -160,6 +160,19 @@ const TAG = 'must_not_run';
 
 const REFUSED: Row[] = [
 	{
+		// updateData:true with neither sqlUpdate nor runScripts would advance the data version and change nothing.
+		rule: 'data descriptor with no sqlUpdate and no runScripts',
+		descriptor: descriptor({}),
+		code: 'update.refused',
+		runnable: false,
+	},
+	{
+		rule: 'data descriptor with empty sqlUpdate and runScripts',
+		descriptor: descriptor({ sqlUpdate: [], runScripts: [] }),
+		code: 'update.refused',
+		runnable: false,
+	},
+	{
 		rule: 'runPreScripts present',
 		descriptor: descriptor({
 			sqlUpdate: [insertFirst(TAG)],
@@ -172,6 +185,18 @@ const REFUSED: Row[] = [
 		rule: 'componentsUpdate present',
 		descriptor: descriptor({ sqlUpdate: [insertFirst(TAG)], componentsUpdate: ['component_date'] }),
 		code: 'engine.uncovered_scope',
+		runnable: true,
+	},
+	{
+		// DATA RULE: a patch (versionMinor 1) carries no data. The key is the
+		// patch's own ('7.1.1' is 7.1.1), so only the rule can refuse it.
+		rule: 'data descriptor on a patch release',
+		descriptor: descriptor({
+			versionMedium: 1,
+			versionMinor: 1,
+			sqlUpdate: [insertFirst(TAG)],
+		}),
+		code: 'update.refused',
 		runnable: true,
 	},
 	{
@@ -417,7 +442,7 @@ const REFUSED: Row[] = [
 	},
 	{
 		rule: 'catalog key does not match the descriptor version',
-		key: '799',
+		key: '7.9.9',
 		descriptor: descriptor({ sqlUpdate: [insertFirst(TAG)] }),
 		code: 'update.refused',
 		runnable: false,
@@ -426,6 +451,26 @@ const REFUSED: Row[] = [
 
 /** Lexical look-alikes: a substring match would refuse these; the lexer must not. */
 const ALLOWED: { rule: string; descriptor: UpdateDescriptor; tag: string }[] = [
+	// DATA RULE: data belongs to a minor (7.1.0) or a major (8.0.0) release.
+	{
+		rule: 'data descriptor on a minor release',
+		descriptor: descriptor({
+			versionMedium: 1,
+			versionMinor: 0,
+			sqlUpdate: [`INSERT INTO "${TABLE}" (tag) VALUES ('minor_data')`],
+		}),
+		tag: 'minor_data',
+	},
+	{
+		rule: 'data descriptor on a major release',
+		descriptor: descriptor({
+			versionMajor: 8,
+			versionMedium: 0,
+			versionMinor: 0,
+			sqlUpdate: [`INSERT INTO "${TABLE}" (tag) VALUES ('major_data')`],
+		}),
+		tag: 'major_data',
+	},
 	{
 		rule: "'COMMIT' inside a string literal",
 		descriptor: descriptor({ sqlUpdate: [`INSERT INTO "${TABLE}" (tag) VALUES ('COMMIT')`] }),
@@ -672,7 +717,7 @@ describe('update descriptor tripwire: non-vacuity', () => {
 
 /** One data entry the atomic contract refuses (transaction control), as source text. */
 const BAD_ENTRY =
-	"'799': { versionMajor: 7, versionMedium: 9, versionMinor: 9, updateFromMajor: 7, updateFromMedium: 9, updateFromMinor: 8, updateData: true, sqlUpdate: ['COMMIT'] },";
+	"'7.9.0': { versionMajor: 7, versionMedium: 9, versionMinor: 0, updateFromMajor: 7, updateFromMedium: 9, updateFromMinor: 8, updateData: true, sqlUpdate: ['COMMIT'] },";
 const FREEZE_OPEN = 'Object.freeze({';
 
 /**
@@ -729,7 +774,7 @@ describe('update descriptor tripwire: the module-load check runs', () => {
 		expect(control.exitCode, control.stderr).toBe(0);
 		const clean = driverResult<ModuleLoadResult>(control.stdout, control.stderr);
 		expect(clean.outcome.imported, JSON.stringify(clean.outcome)).toBe(true);
-		expect(clean.outcome.keys ?? []).not.toContain('799');
+		expect(clean.outcome.keys ?? []).not.toContain('7.9.9');
 
 		const bad = await loader.run('catalog_load_bad.ts', moduleLoadDriver(true), {});
 		expect(bad.exitCode, bad.stderr).toBe(0);
@@ -745,4 +790,75 @@ describe('update descriptor tripwire: the module-load check runs', () => {
 		expect(refused.outcome.code, JSON.stringify(refused.outcome)).toBe('update.refused');
 		expect(refused.outcome.rule).toBe('transaction_control');
 	}, 60000);
+});
+
+describe('update descriptor tripwire: data belongs to minor and major releases', () => {
+	const validate = () => exported<ValidateDescriptor>(catalogModule, 'validateUpdateDescriptor');
+	const scriptIds = Object.keys(SCRIPT_REGISTRY);
+
+	test('a data descriptor keyed on a patch is refused with the data_on_patch rule', () => {
+		const patch = descriptor({
+			versionMedium: 1,
+			versionMinor: 1,
+			sqlUpdate: ['SELECT 1'],
+		});
+		const violations = validate()('7.1.1', patch, scriptIds);
+		expect(violations.map((v) => [v.rule, v.code])).toEqual([['data_on_patch', 'update.refused']]);
+	});
+
+	test('a patch data descriptor with runScripts still carries the data_on_patch rule', () => {
+		const patch = descriptor({
+			versionMedium: 1,
+			versionMinor: 1,
+			runScripts: [{ info: 'ok', scriptId: 'zz.ok', stopOnError: true }],
+		});
+		const rules = validate()('7.1.1', patch, scriptIds).map((v) => v.rule);
+		expect(rules).toContain('data_on_patch');
+	});
+
+	test('a minor and a major data descriptor validate clean, and the first code-only patch stays clean', () => {
+		expect(
+			validate()(
+				'7.1.0',
+				descriptor({ versionMedium: 1, versionMinor: 0, sqlUpdate: ['SELECT 1'] }),
+				scriptIds,
+			),
+		).toEqual([]);
+		expect(
+			validate()(
+				'8.0.0',
+				descriptor({ versionMajor: 8, versionMedium: 0, versionMinor: 0, sqlUpdate: ['SELECT 1'] }),
+				scriptIds,
+			),
+		).toEqual([]);
+		expect(
+			validate()(
+				'7.0.1',
+				{
+					versionMajor: 7,
+					versionMedium: 0,
+					versionMinor: 1,
+					updateFromMajor: 7,
+					updateFromMedium: 0,
+					updateFromMinor: 0,
+					updateData: false,
+				},
+				scriptIds,
+			),
+		).toEqual([]);
+	});
+
+	test('a data descriptor on a patch is refused at module load (validateCatalog throws data_on_patch)', () => {
+		const validateCatalog = exported<ValidateCatalog>(catalogModule, 'validateCatalog');
+		let thrown: unknown = null;
+		try {
+			validateCatalog({
+				'7.1.1': descriptor({ versionMedium: 1, versionMinor: 1, sqlUpdate: ['SELECT 1'] }),
+			});
+		} catch (error) {
+			thrown = error;
+		}
+		expect((thrown as { code?: string } | null)?.code, String(thrown)).toBe('update.refused');
+		expect(String((thrown as { message?: string } | null)?.message)).toContain('data_on_patch');
+	});
 });

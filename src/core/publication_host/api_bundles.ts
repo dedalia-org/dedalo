@@ -81,7 +81,7 @@ import {
 	readPublicationManifest,
 	verifyPublicationTree,
 } from '../update/publication_manifest.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { compareBundlePaths, writeBundle } from './bundle_writer.ts';
 
 export type { PublicationApi };
@@ -365,7 +365,7 @@ function resolveContext(seams: ApiBundleSeams): BuildContext {
 	return {
 		...resolveRoots(seams),
 		digest: seams.digest === undefined ? INSTALLED_DIGEST : seams.digest,
-		version: seams.version ?? DEDALO_VERSION,
+		version: seams.version ?? formatVersion(DEDALO_DATA_VERSION),
 		installDeps: seams.installDeps ?? installV2DepsReal,
 	};
 }

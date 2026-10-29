@@ -100,7 +100,7 @@ import { type BackupVerifyOptions, backupFreshnessWithin, PANEL_WAIT_MS } from '
 import type { ReleaseKind } from './release_identity.ts';
 import { type DeleteBlockReason, deletabilityOf, RESTORE_POINT_PREFIX } from './restore_points.ts';
 import { isSupervised } from './supervision.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE } from './version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from './version.ts';
 
 // ---------------------------------------------------------------------------
 // The check vocabulary
@@ -220,7 +220,7 @@ export interface ConsumerStatus {
 	engine: {
 		/** The DATA triple (`7.0.0`). */
 		version: string;
-		/** The RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`, `7.0.0.dev`). */
+		/** The RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`, `7.0.0-dev`). */
 		engine_version: string;
 		/**
 		 * Which kind the identity is — from the tag, never inferred from the
@@ -638,7 +638,7 @@ export async function consumerStatus(
 	];
 	return {
 		engine: {
-			version: DEDALO_VERSION,
+			version: formatVersion(DEDALO_DATA_VERSION),
 			engine_version: DEDALO_ENGINE_VERSION,
 			release_kind: RELEASE_IDENTITY.kind,
 			build: DEDALO_BUILD,
@@ -1419,7 +1419,7 @@ export function codeServerStatus(publicBaseUrl: string): CodeServerStatus {
  * distinct `updateFrom` triple in UPDATE_CATALOG.
  *
  * It used to ask exactly ONE question: "what would a consumer at the master's
- * OWN version get?" (`clientVersion: DEDALO_VERSION_TRIPLE`). That is the one
+ * OWN version get?" (`clientVersion: DEDALO_DATA_VERSION`). That is the one
  * version whose answer is least useful: the master publishes releases AT its
  * own version, so a correctly-operating master that had just published
  * `<v>.zip` rendered "No release is offered" — the panel reporting a fault in
@@ -1445,7 +1445,7 @@ function advertisedRungs(
 			for_version: key,
 			files: buildCodeUpdateInfo({
 				clientVersion: from,
-				serverVersion: DEDALO_VERSION_TRIPLE,
+				serverVersion: DEDALO_DATA_VERSION,
 				codeFilesDir: filesDir,
 				publicBaseUrl,
 				info: { date: '', entity_id: null, entity: null, host: null },
@@ -1453,8 +1453,8 @@ function advertisedRungs(
 		});
 	}
 	return {
-		for_version: DEDALO_VERSION,
-		files: rows.find((row) => row.for_version === DEDALO_VERSION)?.files ?? [],
+		for_version: formatVersion(DEDALO_DATA_VERSION),
+		files: rows.find((row) => row.for_version === formatVersion(DEDALO_DATA_VERSION))?.files ?? [],
 		rungs: rows,
 	};
 }
@@ -1494,7 +1494,7 @@ function tagVersionVerdict(tag: string, declared: string | null): [StatusCheck['
 	if (declared !== releaseTagVersion(tag)) {
 		return ['blocked', `${tag} declares ${declared} in ${VERSION_TS_PATH}`];
 	}
-	if (declared === DEDALO_VERSION) {
+	if (declared === formatVersion(DEDALO_DATA_VERSION)) {
 		return ['warn', `${declared} = the running engine — a same-version release is not installable`];
 	}
 	return ['ok', declared];

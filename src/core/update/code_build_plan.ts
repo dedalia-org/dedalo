@@ -41,6 +41,20 @@ export function parseDeclaredTriple(versionTsSource: string): string | null {
 	return matched === null ? null : `${matched[1]}.${matched[2]}.${matched[3]}`;
 }
 
+/**
+ * The NEXT dev triple a ref declares (version.ts DEDALO_NEXT_RELEASE): the
+ * release an untagged build precedes. It names the developer ARCHIVE
+ * (`<next>-dev.zip`), the identity the built tree calls itself — NOT the data
+ * triple, which the untagged build shares with the last released data version.
+ */
+export function parseDeclaredNextDevTriple(versionTsSource: string): string | null {
+	const matched =
+		/DEDALO_NEXT_RELEASE[\s\S]*?Object\.freeze\(\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*\]\)/.exec(
+			versionTsSource,
+		);
+	return matched === null ? null : `${matched[1]}.${matched[2]}.${matched[3]}`;
+}
+
 /** Where the declared triple lives inside any Dédalo tree. */
 export const VERSION_TS_PATH = 'src/core/update/version.ts';
 
@@ -318,12 +332,18 @@ function refRefusalOf(ref: string, versionString: string): CodeBuildPlan | null 
 }
 
 /**
+ * No ref: the version's own release tag — "build release 7.0.1" means its tag.
+ */
+const refOf = (options: { ref?: string }, versionString: string): string =>
+	options.ref ?? qualifiedReleaseTag(versionString);
+
+/**
  * Decide whether a release build may run and where its artifact goes.
  * Pure: no I/O, no mutation of the inputs. Gate order (the wire contract):
  * code server → dirs → version → ref → tag/version → confinement.
  */
 export function planCodeBuild(
-	options: { version: string; ref?: string },
+	options: { version: string; ref?: string; devVersion?: string },
 	cfg: CodeBuildConfig,
 ): CodeBuildPlan {
 	const dirs = configGateOf(cfg);
@@ -334,13 +354,23 @@ export function planCodeBuild(
 		return refused('Error. Invalid version number', `invalid version: ${options.version}`);
 	}
 	const versionString = triple.join('.');
-	// No ref: the version's own release tag — "build release 7.0.1" means its tag.
-	const ref = options.ref ?? qualifiedReleaseTag(versionString);
+	const ref = refOf(options, versionString);
 	const refRefusal = refRefusalOf(ref, versionString);
 	if (refRefusal !== null) return refRefusal;
-	const targetDir = join(filesDir, String(triple[0]), `${triple[0]}.${triple[1]}`);
 	const identity = releaseTagIdentity(ref);
-	const filePath = join(targetDir, releaseFileName(versionString, identity));
+	const archiveTriple = archiveTripleOf(triple, identity, options.devVersion);
+	if (archiveTriple === null) {
+		return refused(
+			'Error. Invalid next release version',
+			`invalid devVersion: ${options.devVersion}`,
+		);
+	}
+	const targetDir = join(
+		filesDir,
+		String(archiveTriple[0]),
+		`${archiveTriple[0]}.${archiveTriple[1]}`,
+	);
+	const filePath = join(targetDir, releaseFileName(archiveTriple.join('.'), identity));
 	// LEDGERED UNREACHABLE BRANCH — reason: the version guard above proves the
 	// triple is three NON-NEGATIVE INTEGERS, so every DIRECTORY segment
 	// interpolated here is `[0-9]+`; the file name is the triple plus `-dev`, or
@@ -354,6 +384,24 @@ export function planCodeBuild(
 		return refused('Error. Unconfined release path', 'unconfined release path');
 	}
 	return { ok: true, gitDir, ref, versionString, identity, targetDir, filePath };
+}
+
+/**
+ * The triple an archive is named after: a tag names its own release; an untagged
+ * (developer) build is named after the NEXT release it precedes (`devVersion`,
+ * the ref's DEDALO_NEXT_RELEASE), falling back to the data triple when the
+ * ref declares none.
+ */
+function archiveTripleOf(
+	triple: readonly number[],
+	identity: string | null,
+	devVersion: string | undefined,
+): number[] | null {
+	if (identity !== null || devVersion === undefined) return [...triple];
+	// A declared NEXT triple that is no release triple is refused by the caller:
+	// a NaN part would become a `NaN/` directory, never a silent name.
+	const next = parseVersionString(devVersion);
+	return isReleaseVersionTriple(next) ? next : null;
 }
 
 /**

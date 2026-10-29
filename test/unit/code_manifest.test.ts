@@ -9,7 +9,7 @@
  * keeps ONE empty-catalog case as the 7.0.0-is-current fact; the branch
  * coverage of both functions lives here, on synthetic catalogs.
  *
- * Catalog keys are the concatenated target triple ('701' = 7.0.1 — the
+ * Catalog keys are the dotted target triple ('7.0.1' = 7.0.1 — the
  * `catalogKeyOf` convention); `buildCodeUpdateInfo` re-derives that key from
  * the triple, so a mis-keyed catalog loses its descriptor (asserted below).
  */
@@ -50,11 +50,11 @@ function target(
 	};
 }
 
-/** '701' — the same key shape `catalogKeyOf`/`buildCodeUpdateInfo` compute. */
+/** '7.0.1' — the same key shape `catalogKeyOf`/`buildCodeUpdateInfo` compute. */
 function catalogOf(...descriptors: UpdateDescriptor[]): Record<string, UpdateDescriptor> {
 	const catalog: Record<string, UpdateDescriptor> = {};
 	for (const d of descriptors) {
-		catalog[`${d.versionMajor}${d.versionMedium}${d.versionMinor}`] = d;
+		catalog[`${d.versionMajor}.${d.versionMedium}.${d.versionMinor}`] = d;
 	}
 	return catalog;
 }
@@ -82,8 +82,8 @@ describe('linearUpgradeTargets (the linear walk, injected catalog)', () => {
 		// Insertion order is deliberately reversed to prove the final sort runs
 		// (the client walks the list in order and would install 7.1.0 first).
 		const catalog: Record<string, UpdateDescriptor> = {
-			'710': target(7, 1, 0),
-			'701': target(7, 0, 1),
+			'7.1.0': target(7, 1, 0),
+			'7.0.1': target(7, 0, 1),
 		};
 		expect(linearUpgradeTargets([7, 0, 0], catalog)).toEqual([
 			[7, 0, 1],
@@ -125,7 +125,7 @@ describe('linearUpgradeTargets (the linear walk, injected catalog)', () => {
 		// because a boundary triple can never equal a patch triple. The dedupe
 		// now runs over the whole target list, so a rung is advertised once.
 		const duplicated: Record<string, UpdateDescriptor> = {
-			'701': target(7, 0, 1),
+			'7.0.1': target(7, 0, 1),
 			'701_alias': target(7, 0, 1),
 		};
 		const result = linearUpgradeTargets([7, 0, 0], duplicated);
@@ -204,11 +204,12 @@ describe('buildCodeUpdateInfo (manifest assembly)', () => {
 	// set the key answers identically no matter what it is asked.
 	// -----------------------------------------------------------------------
 	describe('the dev channel', () => {
-		const devZip = join(FILES_DIR, '7', '7.0', '7.0.0-dev.zip');
+		// a developer build is named by the NEXT triple (version.ts): 7.0.1-dev
+		const devZip = join(FILES_DIR, '7', '7.0', '7.0.1-dev.zip');
 
 		beforeAll(() => {
 			writeFileSync(devZip, 'PK-dev');
-			writeFileSync(`${devZip}.sha256`, `${'f'.repeat(64)}  7.0.0-dev.zip\n`);
+			writeFileSync(`${devZip}.sha256`, `${'f'.repeat(64)}  7.0.1-dev.zip\n`);
 		});
 		afterAll(() => {
 			rmSync(devZip, { force: true });
@@ -231,10 +232,12 @@ describe('buildCodeUpdateInfo (manifest assembly)', () => {
 			const info = manifest({ channel: 'dev', devChannelEnabled: true });
 			const dev = info.files.find((f) => f.url.includes('-dev'));
 			expect(dev).toBeDefined();
-			// the consumer runs 7.0.0 and is offered 7.0.0 — no version bump, which
-			// is exactly what an unreleased branch build has to offer.
-			expect(dev?.version).toBe('7.0.0');
-			expect(dev?.url).toBe('http://m/7.0.0/7.0.0-dev.zip');
+			// the consumer runs 7.0.0 (its data) and is offered the NEXT developer
+			// build, 7.0.1-dev: the dev channel moves forward through the identity
+			// order, and the walk refuses the 7.0.0-dev a bare-triple asker would
+			// otherwise be offered (a downgrade below 7.0.0)
+			expect(dev?.version).toBe('7.0.1');
+			expect(dev?.url).toBe('http://m/7.0.1/7.0.1-dev.zip');
 			expect(dev?.channel).toBe('dev');
 			// the digest stays mandatory: an archive with no sidecar is not installable
 			expect(dev?.sha256).toBe('f'.repeat(64));
@@ -527,45 +530,60 @@ describe('gate 14: the prerelease channel (manifest exposure)', () => {
 		expect(devOnly.files.some((item) => item.channel === 'prerelease')).toBe(false);
 	});
 
-	test("§2.8.5 bootstrap: a DEVELOPER BUILD asking on dev is offered every tag of its triple (the walk's dev exception)", () => {
-		// beta.6 reports its bare triple; it installs 7.0.0-dev.zip and then
-		// runs 7.0.0.dev — which may sit before or after any tag of 7.0.0, so
-		// each tag-built archive is a legal next step (version_walk.ts
-		// sameTripleRefusal), in release order, then the next rung's newest
-		const dev = manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.0.dev' });
-		expect(offered(dev)).toEqual(['7.0.0-beta.6', '7.0.0-beta.7', '7.0.0', '7.0.1-beta.1']);
-		// each item keeps its OWN kind token: what the tree becomes, never `dev`
-		expect(dev.files.find((item) => item.release === '7.0.0-beta.7')?.channel).toBe('prerelease');
-		expect(Object.hasOwn(dev.files[2] as object, 'channel')).toBe(false);
-		// the prereleases still need THIS master's prerelease switch; the release does not
+	test('a DEVELOPER build (7.0.0-dev) is offered the stable 7.0.0 above it, never the prereleases below it (dev sorts above every prerelease of its triple)', () => {
+		// The dev identity sorts ABOVE beta.6 and beta.7 of its triple and BELOW
+		// the stable 7.0.0 (release_identity.ts comparePrereleases), so those
+		// prereleases are downgrades for it and are not listed. The stable is an
+		// ordinary "newer identity of the same triple": it is offered on the dev
+		// ask, and on the prerelease ask too (a stable release is no exposure).
+		const dev = manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.0-dev' });
+		expect(offered(dev)).toEqual(['7.0.0', '7.0.1-beta.1']);
+		// the stable item is a plain published item: what the tree becomes, never `dev`
+		expect(Object.hasOwn(dev.files[0] as object, 'channel')).toBe(false);
+		// the prereleases of the NEXT rung still need THIS master's prerelease switch; the release does not
 		const devOnly = manifest({
 			channel: 'dev',
-			clientRelease: '7.0.0.dev',
+			clientRelease: '7.0.0-dev',
 			prereleaseChannelEnabled: false,
 			devChannelEnabled: true,
 		});
 		expect(offered(devOnly)).toEqual(['7.0.0']);
-		// off the dev ask a .dev is its bare triple: nothing of 7.0.0 is newer,
-		// and a master ask never sees a prerelease
+		// a master ask (Published) sees the stable release of its triple, and never a prerelease
 		expect(
-			offered(manifest({ ...OPTED_IN, channel: 'master', clientRelease: '7.0.0.dev' })),
-		).toEqual([]);
+			offered(manifest({ ...OPTED_IN, channel: 'master', clientRelease: '7.0.0-dev' })),
+		).toEqual(['7.0.0']);
 		expect(
-			offered(manifest({ ...OPTED_IN, channel: 'prerelease', clientRelease: '7.0.0.dev' })),
-		).toEqual(['7.0.1-beta.1']);
-		// a .dev of ANOTHER triple is no claim about this asker (askerIdentity)
-		expect(offered(manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.9.dev' }))).toEqual([
+			offered(manifest({ ...OPTED_IN, channel: 'prerelease', clientRelease: '7.0.0-dev' })),
+		).toEqual(['7.0.0', '7.0.1-beta.1']);
+		// a dev claim of ANOTHER triple ABOVE the data triple is honoured as its own
+		// identity (askerIdentity: at or above data; below data falls back). No
+		// archive of 7.9.0 exists here, and the
+		// data-keyed rung `7.0.1-beta.1` ranks BELOW `7.9.0-dev`: a downgrade, so
+		// nothing is offered (WAS ['7.0.1-beta.1'] before the asker floor, 2026-10-27)
+		expect(offered(manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.9.0-dev' }))).toEqual(
+			[],
+		);
+	});
+
+	test('a bare-triple install that reports 7.0.0 (beta.6 before the dev switch) is offered no prerelease of its own triple', () => {
+		// the stable 7.0.0 asker sits ABOVE beta.6 and beta.7: a downgrade is never
+		// offered, and its own triple holds nothing newer than the stable release
+		expect(offered(manifest({ ...OPTED_IN, channel: 'dev', clientRelease: '7.0.0' }))).toEqual([
 			'7.0.1-beta.1',
 		]);
 	});
 
 	test('an untrusted release claim places the asker at its bare triple — never higher exposure, never a throw', () => {
-		// a claim of ANOTHER triple — below it would make every archive of 7.0.0
-		// "above" the asker — is no claim about this asker at all
+		// a claim BELOW the data triple — it would make every archive of 7.0.0
+		// "above" the asker — is no claim about this asker at all. (A stable or
+		// prerelease claim ABOVE the data triple is the asker's own identity; see the
+		// asker-floor tests below.)
 		for (const clientRelease of [
 			'6.0.0-beta.1',
 			'6.9.9',
-			'9.9.9-beta.1',
+			// a developer claim BELOW the data triple (7.0.0) is no claim either:
+			// the same bare-triple fallback as a stable claim (2026-10-27)
+			'6.9.9-dev',
 			'7.0.0-beta.6; rm -rf /',
 			'7.0.0-pre.1',
 			42,
@@ -598,9 +616,124 @@ describe('gate 14: the prerelease channel (manifest exposure)', () => {
 	});
 });
 
+describe('the asker floor: no offered item ranks at or below the asker identity', () => {
+	// Its own release dirs (the global FILES_DIR and the gate-14 dirs hold other
+	// archives). Three answers over one master: `files` holds 7.0.1 (+ its dev
+	// build), `beta` holds only the prerelease 7.0.1-beta.2.
+	const FLOOR = join(ROOT, 'floor');
+	const FLOOR_FILES = join(FLOOR, 'files');
+	const BETA_FILES = join(FLOOR, 'beta_files');
+	const archive = (dir: string, fileName: string) => {
+		mkdirSync(join(dir, '7', '7.0'), { recursive: true });
+		writeFileSync(join(dir, '7', '7.0', fileName), `PK-${fileName}`);
+	};
+
+	beforeAll(() => {
+		archive(FLOOR_FILES, '7.0.0.zip');
+		archive(FLOOR_FILES, '7.0.1.zip');
+		archive(FLOOR_FILES, '7.0.1-dev.zip');
+		archive(BETA_FILES, '7.0.1-beta.2.zip');
+	});
+	afterAll(() => {
+		rmSync(FLOOR, { recursive: true, force: true });
+	});
+
+	type Ask = Partial<
+		Pick<
+			Parameters<typeof buildCodeUpdateInfo>[0],
+			'channel' | 'clientRelease' | 'devChannelEnabled' | 'prereleaseChannelEnabled'
+		>
+	>;
+	function manifest(codeFilesDir: string, ask: Ask) {
+		return buildCodeUpdateInfo({
+			clientVersion: [7, 0, 0],
+			serverVersion: [7, 0, 0],
+			codeFilesDir,
+			publicBaseUrl: 'http://m',
+			info: { ...BASE_INFO },
+			catalog: catalogOf(target(7, 0, 1)),
+			...ask,
+		});
+	}
+	const urls = (info: ReturnType<typeof manifest>) => info.files.map((item) => item.url);
+	const OPTED_IN = { prereleaseChannelEnabled: true, devChannelEnabled: true } as const;
+
+	test('REPRO A: a claim of 7.0.2 is never offered the older 7.0.1 (a downgrade)', () => {
+		// anti-vacuity: the same archive IS offered to a 7.0.0 asker
+		expect(urls(manifest(FLOOR_FILES, { channel: 'master', clientRelease: '7.0.0' }))).toEqual([
+			'http://m/7.0.1/7.0.1.zip',
+		]);
+		const info = manifest(FLOOR_FILES, { ...OPTED_IN, channel: 'master', clientRelease: '7.0.2' });
+		expect(info.files).toEqual([]);
+	});
+
+	test('REPRO B: a 7.0.1-dev claim on the dev channel is offered nothing from an older prerelease', () => {
+		// anti-vacuity: a 7.0.0 asker on the prerelease rung IS offered the beta
+		expect(
+			urls(manifest(BETA_FILES, { ...OPTED_IN, channel: 'prerelease', clientRelease: '7.0.0' })),
+		).toEqual(['http://m/7.0.1/7.0.1-beta.2.zip']);
+		const info = manifest(BETA_FILES, {
+			...OPTED_IN,
+			channel: 'dev',
+			clientRelease: '7.0.1-dev',
+		});
+		expect(info.files).toEqual([]);
+	});
+
+	test('THE EQUAL CASE: a claim of 7.0.1 over data 7.0.0 is not offered 7.0.1 again', () => {
+		expect(urls(manifest(FLOOR_FILES, { channel: 'master', clientRelease: '7.0.0' }))).toEqual([
+			'http://m/7.0.1/7.0.1.zip',
+		]);
+		expect(manifest(FLOOR_FILES, { channel: 'master', clientRelease: '7.0.1' }).files).toEqual([]);
+		expect(
+			manifest(FLOOR_FILES, { ...OPTED_IN, channel: 'prerelease', clientRelease: '7.0.1' }).files,
+		).toEqual([]);
+	});
+
+	test('a dev build reinstalled over ITSELF on the dev channel is still offered (the one equal case)', () => {
+		// order 0 with a dev item on the dev channel: the walk's same-identity
+		// developer move (version_walk.ts sameTripleRefusal), not a downgrade
+		const info = manifest(FLOOR_FILES, { ...OPTED_IN, channel: 'dev', clientRelease: '7.0.1-dev' });
+		expect(urls(info)).toEqual(['http://m/7.0.1/7.0.1-dev.zip', 'http://m/7.0.1/7.0.1.zip']);
+		expect(info.files[0]?.channel).toBe('dev');
+	});
+
+	test('a DEV claim BELOW the data triple is the bare data triple: 7.0.0-dev over data 7.0.1 is not offered 7.0.0', () => {
+		// data 7.0.1 holds 7.0.0 (a downgrade for this asker): anti-vacuity, a
+		// 7.0.0-dev asker over data 7.0.0 IS offered the stable 7.0.0 above it
+		const build = (clientVersion: number[], clientRelease: string) =>
+			buildCodeUpdateInfo({
+				clientVersion,
+				serverVersion: clientVersion,
+				codeFilesDir: FLOOR_FILES,
+				publicBaseUrl: 'http://m',
+				info: { ...BASE_INFO },
+				catalog: catalogOf(target(7, 0, 2)),
+				...OPTED_IN,
+				channel: 'dev',
+				clientRelease,
+			});
+		expect(urls(build([7, 0, 0], '7.0.0-dev'))).toContain('http://m/7.0.0/7.0.0.zip');
+		const devClaim = build([7, 0, 1], '7.0.0-dev');
+		// the bare-triple fallback: the same answer as a 7.0.1 stable claim over 7.0.1
+		expect(urls(devClaim)).toEqual(urls(build([7, 0, 1], '7.0.1')));
+		expect(urls(devClaim).some((url) => url.includes('/7.0.0/'))).toBe(false);
+		expect(devClaim.files).toEqual([]);
+	});
+
+	test('a stable or prerelease claim ABOVE the data triple is honoured as the asker own identity', () => {
+		// 9.9.9-beta.1 over data 7.0.0: the asker is 9.9.9-beta.1, every archive below
+		// it (7.0.1 / 7.0.1-beta.2) is a downgrade, so nothing is offered
+		expect(
+			manifest(FLOOR_FILES, { ...OPTED_IN, channel: 'prerelease', clientRelease: '9.9.9-beta.1' })
+				.files,
+		).toEqual([]);
+	});
+});
+
 describe('release notes on the manifest', () => {
 	const CHANGES = join(ROOT, 'changes');
-	const devZip = join(FILES_DIR, '7', '7.0', '7.0.0-dev.zip');
+	const devZip = join(FILES_DIR, '7', '7.0', '7.0.1-dev.zip');
 	const fragment = (slug: string, front: string) =>
 		parseFragment(`changes/7.0.1/${slug}.md`, `---\n${front}\n---\nBody.\n`);
 	// the notes the release command would freeze, from REAL parsed fragments
@@ -741,12 +874,17 @@ describe('codeReleasePath (filename-grammar gate + layout)', () => {
 			kind: 'stable',
 			identity: '7.0.1',
 		});
+		// a developer archive names its identity `X.Y.Z-dev` (the same spelling as the file)
 		expect(releaseArchiveNameOf('7.0.1-dev.zip')).toEqual({
 			triple: '7.0.1',
 			kind: 'dev',
-			identity: null,
+			identity: '7.0.1-dev',
 		});
+		expect(releaseArchiveNameOf('07.0.1-dev.zip')).toBeNull();
 		for (const bad of [
+			'07.0.1-dev.zip', // leading zero: the dev identity is canonical, never named 07.0.1
+			'7.0.01-dev.zip',
+			'7.0.1-dev.dev.zip',
 			'7.0.1-pre.1.zip', // foreign label
 			'7.0.1-beta.01.zip', // non-canonical
 			'07.0.1.zip',

@@ -38,7 +38,7 @@ import {
 	readChannelStatus,
 	writeRequest,
 } from '../../src/core/update/image_update_channel.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, DEDALO_NEXT_RELEASE } from '../../src/core/update/version.ts';
 import {
 	assertLinearUpgrade,
 	parseImageTag,
@@ -48,7 +48,7 @@ import { engineCliAt } from '../helpers/engine_cli_tree.ts';
 
 const SCRATCH: string[] = [];
 /** The running engine: the stable release of this checkout's data version. */
-const RUNNING = DEDALO_VERSION_TRIPLE.join('.');
+const RUNNING = DEDALO_DATA_VERSION.join('.');
 const ENGINE_ROOT = mkdtempSync(join(tmpdir(), 'dedalo_image_channel_engine_'));
 SCRATCH.push(ENGINE_ROOT);
 const CLI = engineCliAt(ENGINE_ROOT, RUNNING);
@@ -84,7 +84,7 @@ function cli(args: string[], stdin?: string): Run {
 	};
 }
 
-const [MAJOR, MINOR, PATCH] = DEDALO_VERSION_TRIPLE;
+const [MAJOR, MINOR, PATCH] = DEDALO_DATA_VERSION;
 
 /** The census of targets around the running version (each a tag the code server could name). */
 const TARGETS: readonly string[] = [
@@ -128,7 +128,7 @@ function request(tag: string): ImageUpdateRequest {
 		tag,
 		version: parsed.version,
 		channel: parsed.channel,
-		from_version: DEDALO_VERSION_TRIPLE.join('.'),
+		from_version: DEDALO_DATA_VERSION.join('.'),
 		requested_at: new Date().toISOString(),
 		requested_by: -1,
 	};
@@ -139,7 +139,7 @@ const HEARTBEAT = {
 	interval_seconds: 60,
 	mode: 'pull',
 	image: 'ghcr.io/dedalia-org/dedalo',
-	pinned: DEDALO_VERSION_TRIPLE.join('.'),
+	pinned: DEDALO_DATA_VERSION.join('.'),
 	verify: 'cosign',
 	running_digest: `sha256:${'a'.repeat(64)}`,
 };
@@ -149,7 +149,7 @@ function outcome(requestId: string | null, overrides: Record<string, unknown> = 
 	return {
 		schema: 1,
 		request_id: requestId,
-		from: DEDALO_VERSION_TRIPLE.join('.'),
+		from: DEDALO_DATA_VERSION.join('.'),
 		to: `${MAJOR}.${MINOR}.${PATCH + 1}`,
 		mode: 'pull',
 		image: 'ghcr.io/dedalia-org/dedalo',
@@ -177,7 +177,7 @@ describe('check-target: the verdict IS the walk rule', () => {
 			const parsed = parseImageTag(tag);
 			return parsed === null
 				? 'malformed'
-				: assertLinearUpgrade(DEDALO_VERSION_TRIPLE, parsed.triple, parsed.channel);
+				: assertLinearUpgrade(DEDALO_DATA_VERSION, parsed.triple, parsed.channel);
 		});
 		expect(TARGETS.length).toBeGreaterThanOrEqual(11);
 		expect(verdicts.filter((verdict) => verdict === null).length).toBeGreaterThanOrEqual(4);
@@ -189,10 +189,15 @@ describe('check-target: the verdict IS the walk rule', () => {
 			const parsed = parseImageTag(tag);
 			if (parsed === null) throw new Error(`census tag ${tag} does not parse`);
 			const expected = walkRefusalOf(RUNNING, parsed.identity, parsed.channel);
-			// the id partition agrees with the sentence rule it is derived from
-			expect(expected === null).toBe(
-				assertLinearUpgrade(DEDALO_VERSION_TRIPLE, parsed.triple, parsed.channel) === null,
-			);
+			// the identity walk never admits what the triple walk refuses; the one
+			// legacy relaxation the triple walk keeps is a same-triple developer build
+			// (the identity order decides that one)
+			const triple = assertLinearUpgrade(DEDALO_DATA_VERSION, parsed.triple, parsed.channel);
+			if (expected === null) expect(triple, tag).toBeNull();
+			else if (triple === null)
+				expect(parsed.identity.endsWith('-dev') && parsed.triple.join('.') === RUNNING, tag).toBe(
+					true,
+				);
 			const run = cli(['check-target', tag, '--dir', scratchDir()]);
 			expect(run.code).toBe(expected === null ? 0 : 3);
 			expect(run.out).toBe(expected ?? '');
@@ -200,9 +205,12 @@ describe('check-target: the verdict IS the walk rule', () => {
 	}
 
 	test('the same version is refused on the release channel and accepted as a developer image', () => {
-		const same = DEDALO_VERSION_TRIPLE.join('.');
+		const same = DEDALO_DATA_VERSION.join('.');
 		expect(cli(['check-target', same]).out).toBe('not_newer_release');
-		expect(cli(['check-target', `${same}-dev`]).code).toBe(0);
+		// nothing moves back: the nightly of the running release sorts BELOW it (dev < stable)
+		expect(cli(['check-target', `${same}-dev`]).code).toBe(3);
+		// the nightly of the next patch triple is the admitted forward move (dev channel, above the release)
+		expect(cli(['check-target', `${MAJOR}.${MINOR}.${PATCH + 1}-dev`]).code).toBe(0);
 	});
 
 	for (const tag of MALFORMED) {
@@ -277,7 +285,7 @@ describe('heartbeat', () => {
 });
 
 describe('host-reported tags read the host grammar (design step 6): a prerelease pin and outcome are RECORDED', () => {
-	const data = DEDALO_VERSION_TRIPLE.join('.');
+	const data = DEDALO_DATA_VERSION.join('.');
 	// The installer pins every beta stack at its own `X.Y.Z-beta.N` (design step 5) and
 	// the host library writes such tags back; a reader refusing them blinded the panel.
 	test.each([`${data}-beta.7`, `${data}-rc.1`, `${data}-alpha.0`])(
@@ -319,10 +327,12 @@ describe('host-reported tags read the host grammar (design step 6): a prerelease
 });
 
 describe('from_version — the asking engine names itself by its RELEASE IDENTITY (design gate 5)', () => {
-	const data = DEDALO_VERSION_TRIPLE.join('.');
+	const data = DEDALO_DATA_VERSION.join('.');
 	// A private grammar here once refused a prerelease engine's OWN request: every
 	// image-update click from a `7.0.0-beta.6` failed its own validation.
-	test.each([data, `${data}.dev`, `${data}-alpha.1`, `${data}-beta.6`, `${data}-rc.2`])(
+	// a developer engine names itself by the NEXT triple (version.ts)
+	const next = DEDALO_NEXT_RELEASE.join('.');
+	test.each([data, `${next}-dev`, `${data}-alpha.1`, `${data}-beta.6`, `${data}-rc.2`])(
 		'%p is written, and the host claims it',
 		async (fromVersion) => {
 			const dir = scratchDir();
@@ -337,7 +347,7 @@ describe('from_version — the asking engine names itself by its RELEASE IDENTIT
 		`${data}-beta`,
 		`${data}-beta.01`,
 		`v${data}`,
-		`${data}-dev`,
+		`${data}.dev`, // the retired dotted spelling
 		'',
 		`${data}-beta.${'9'.repeat(70)}`,
 	])('%p is not an identity: refused, nothing written', async (fromVersion) => {

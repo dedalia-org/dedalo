@@ -41,7 +41,7 @@ const ROOT = join(import.meta.dir, '..', '..');
 const PROGRAM = join(ROOT, 'scripts', 'lib', 'release_tag.ts');
 
 const VERSION_TS = (triple: string) =>
-	`export const DEDALO_VERSION_TRIPLE: readonly [number, number, number] = Object.freeze([\n\t${triple.split('.').join(', ')},\n]) as [number, number, number];\n`;
+	`export const DEDALO_DATA_VERSION: readonly [number, number, number] = Object.freeze([\n\t${triple.split('.').join(', ')},\n]) as [number, number, number];\n`;
 
 let repo = '';
 const git = (...args: string[]): string => {

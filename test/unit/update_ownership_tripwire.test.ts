@@ -34,7 +34,7 @@ import {
 } from '../../src/core/area_maintenance/widgets/support.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -300,18 +300,18 @@ describe('engine-version single source (core/update/version.ts)', () => {
 	// bump instead of silently scanning for a version nobody ships any more.
 	// Quote-anchored: '<v>' / "<v>.dev" / `<v>` — never bare (would
 	// false-positive on '127.0.0.1'); plus the [M, m, p] array form.
-	const escaped = escapeRegExp(DEDALO_VERSION);
+	const escaped = escapeRegExp(formatVersion(DEDALO_DATA_VERSION));
 	const stringLiteral = new RegExp(`['"\`]${escaped}(\\.dev)?['"\`]`);
-	const arrayLiteral = new RegExp(`\\[\\s*${DEDALO_VERSION_TRIPLE.join('\\s*,\\s*')}\\s*\\]`);
+	const arrayLiteral = new RegExp(`\\[\\s*${DEDALO_DATA_VERSION.join('\\s*,\\s*')}\\s*\\]`);
 
 	test('self-check: the derived regexes match the current version (a dead regex is a dead gate)', () => {
-		expect(stringLiteral.test(`'${DEDALO_VERSION}'`)).toBe(true);
-		expect(stringLiteral.test(`"${DEDALO_VERSION}.dev"`)).toBe(true);
-		expect(stringLiteral.test(`\`${DEDALO_VERSION}.dev\``)).toBe(true);
-		expect(arrayLiteral.test(`[${DEDALO_VERSION_TRIPLE.join(', ')}]`)).toBe(true);
-		expect(arrayLiteral.test(`[${DEDALO_VERSION_TRIPLE.join(',')}]`)).toBe(true);
+		expect(stringLiteral.test(`'${formatVersion(DEDALO_DATA_VERSION)}'`)).toBe(true);
+		expect(stringLiteral.test(`"${formatVersion(DEDALO_DATA_VERSION)}.dev"`)).toBe(true);
+		expect(stringLiteral.test(`\`${formatVersion(DEDALO_DATA_VERSION)}.dev\``)).toBe(true);
+		expect(arrayLiteral.test(`[${DEDALO_DATA_VERSION.join(', ')}]`)).toBe(true);
+		expect(arrayLiteral.test(`[${DEDALO_DATA_VERSION.join(',')}]`)).toBe(true);
 		// quote-anchoring: an IP-shaped bare occurrence must NOT trip
-		expect(stringLiteral.test(`'12${DEDALO_VERSION}.1'`)).toBe(false);
+		expect(stringLiteral.test(`'12${formatVersion(DEDALO_DATA_VERSION)}.1'`)).toBe(false);
 	});
 
 	test('no version literals outside version.ts in src/, tools/ and scripts/', () => {

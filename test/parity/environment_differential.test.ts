@@ -38,6 +38,16 @@ import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
 import { hasPhpCredentials, PhpApiClient } from './php_client.ts';
 
 /**
+ * The frozen PHP fixture stores its dev identity in the PHP-era dotted form (`7.0.0.dev`).
+ * The engine names dev builds `X.Y.Z-dev` (build_stamp / release_identity). The fixture
+ * is frozen and cannot be re-harvested, so only this one legacy spelling is mapped onto
+ * the current one here — the data triple is what is compared, never the spelling.
+ */
+function legacyPhpDevToIdentity(version: string): string {
+	return version.replace(/^(\d+\.\d+\.\d+)\.dev$/, '$1-dev');
+}
+
+/**
  * Engine/deploy/INSTALLATION-specific page_globals keys compared for PRESENCE
  * only — their values are facts about the machine serving them, never about
  * the payload builder. `dedalo_db_name` is the strongest case: the frozen
@@ -284,7 +294,9 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		// identity of the SAME data triple. A tag-less byte compare would pass on
 		// an untagged checkout only and red on every tagged one.
 		const tsIdentity = parseReleaseVersion(String(tsGlobals.dedalo_version));
-		const phpIdentity = parseReleaseVersion(String(phpGlobals.dedalo_version));
+		const phpIdentity = parseReleaseVersion(
+			legacyPhpDevToIdentity(String(phpGlobals.dedalo_version)),
+		);
 		expect(tsIdentity).not.toBeNull();
 		expect(phpIdentity).not.toBeNull();
 		expect([...(tsIdentity?.triple ?? [])]).toEqual([...(phpIdentity?.triple ?? [])]);

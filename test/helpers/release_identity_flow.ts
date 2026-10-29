@@ -5,7 +5,7 @@
  *
  * Two values must never be confused (src/core/update/release_identity.ts):
  *  - the RELEASE IDENTITY — what the program calls itself (`7.0.0-beta.6`);
- *  - the DATA version — `version.ts` DEDALO_VERSION_TRIPLE and what derives
+ *  - the DATA version — `version.ts` DEDALO_DATA_VERSION and what derives
  *    from it (`7.0.0`), which compares, migrates and names code-server files.
  *
  * A literal scan for `DEDALO_ENGINE_VERSION` would enforce a spelling: a
@@ -24,7 +24,7 @@
  *  `installer_identity.ts`'s `installerIdentity`, and anything that calls
  *  them, are tainted without one of those names being written here.
  *
- *  DATA ALIASES. Seeded at `DEDALO_VERSION_TRIPLE` (version.ts) and closed
+ *  DATA ALIASES. Seeded at `DEDALO_DATA_VERSION` (version.ts) and closed
  *  over VALUE aliases only — import/re-export bindings and module-level
  *  const/let/var declarations — never through functions (nor a function
  *  inside a value, an action table's handlers): a function that merely
@@ -75,7 +75,7 @@ export const IDENTITY_SEED = Object.freeze({
 /** The one hand pin of the data version. */
 export const DATA_SEED = Object.freeze({
 	module: 'src/core/update/version.ts',
-	name: 'DEDALO_VERSION_TRIPLE',
+	name: 'DEDALO_DATA_VERSION',
 });
 
 interface ImportBinding {

@@ -54,7 +54,18 @@ const REPO_ROOT = join(import.meta.dir, '..', '..');
 const TRIPLE = TRUTH_TABLE.triple;
 const ORDERING = JSON.parse(
 	readFileSync(join(REPO_ROOT, 'test', 'fixtures', 'release_identity', 'ordering.json'), 'utf8'),
-) as { ascending: string[]; equal_dev: [string, string][]; not_identities: string[] };
+) as {
+	ascending: string[];
+	dev: string[];
+	dev_below_stable: [string, string][];
+	not_identities: string[];
+};
+/**
+ * The declared NEXT triple (version.ts DEDALO_NEXT_RELEASE): an untagged tree
+ * names its dev identity with it, so the truth table's untagged rows read
+ * `7.0.0-dev` (the next release is 7.0.0 until v7.0.0 is tagged, VERSIONING_SPEC §5).
+ */
+const NEXT_DEV_TRIPLE = [7, 0, 0] as const;
 
 const SCRATCH = mkdtempSync(join(tmpdir(), 'dedalo-release-identity-'));
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -119,10 +130,10 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		expect(await identityOf(tree)).toMatchObject({ version: '7.0.0-beta.6', kind: 'prerelease' });
 	});
 
-	test('a dev-channel archive of an untagged commit is .dev', async () => {
+	test('a dev-channel archive of an untagged commit is the next triple -dev', async () => {
 		const tree = archiveOf(repoWith('dev_untagged', [{ commit: true }]));
 		stampChannel(tree, 'dev');
-		expect(await identityOf(tree)).toMatchObject({ version: '7.0.0.dev', kind: 'dev' });
+		expect(await identityOf(tree)).toMatchObject({ version: '7.0.0-dev', kind: 'dev' });
 	});
 
 	test('no .git: a tree holding the unexpanded placeholder is .dev, and nothing is spawned', async () => {
@@ -131,14 +142,14 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		writeFileSync(join(tree, BUILD_INFO_PATH), REAL_PLACEHOLDER);
 		// a git that does not exist proves no spawn was needed: no notice about it
 		const identity = await identityOf(tree, join(SCRATCH, 'no-such-git'));
-		expect(identity).toMatchObject({ version: '7.0.0.dev', kind: 'dev', notice: null });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev', notice: null });
 	});
 
 	test('no git binary: a checkout whose git cannot run is .dev, SAYS so, never throws', async () => {
 		const repo = repoWith('no_git_binary', [{ tag: 'v7.0.0', annotated: true }]);
 		expect((await identityOf(repo)).version).toBe('7.0.0'); // the control: git can tell
 		const identity = await identityOf(repo, join(SCRATCH, 'no-such-git'));
-		expect(identity).toMatchObject({ version: '7.0.0.dev', kind: 'dev' });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev' });
 		expect(identity.notice ?? '').toMatch(/git describe could not read/);
 	});
 
@@ -157,7 +168,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		try {
 			const identity = await identityOf(repo, fakeGit);
 			const elapsed = performance.now() - started;
-			expect(identity).toMatchObject({ version: '7.0.0.dev', kind: 'dev' });
+			expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev' });
 			expect(identity.notice ?? '').toMatch(
 				new RegExp(`no answer within ${CHECKOUT_DESCRIBE_TIMEOUT_MS} ms`),
 			);
@@ -207,7 +218,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		);
 		expect(probe.exitCode, probe.stderr.toString()).toBe(0);
 		const identity = JSON.parse(probe.stdout.toString().trim().split('\n').at(-1) as string);
-		expect(identity).toMatchObject({ version: '7.0.0.dev', kind: 'dev', notice: null });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev', notice: null });
 	});
 
 	test('an inherited GIT_DIR does not make the checkout describe ANOTHER repository', () => {
@@ -223,7 +234,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 			{ cwd: SCRATCH, env: { ...process.env, GIT_DIR: join(tagged, '.git') } },
 		);
 		expect(probe.exitCode, probe.stderr.toString()).toBe(0);
-		expect(probe.stdout.toString().trim().split('\n').at(-1)).toBe('7.0.0.dev');
+		expect(probe.stdout.toString().trim().split('\n').at(-1)).toBe('7.0.0-dev');
 	});
 
 	describe('rule 4 — a LEGACY two-field stamp keeps the old channel rule', () => {
@@ -231,7 +242,7 @@ describe('GATE 1 — the release identity of real git trees', () => {
 		for (const [channel, version] of [
 			[null, '7.0.0'],
 			['master', '7.0.0'],
-			['dev', '7.0.0.dev'],
+			['dev', '7.0.0-dev'],
 		] as const) {
 			test(`channel ${channel ?? 'unstamped'} → ${version}`, async () => {
 				const tree = scratch(`legacy_${channel ?? 'none'}`);
@@ -258,10 +269,11 @@ describe('resolveReleaseIdentity — the rules on direct evidence', () => {
 		expect(
 			resolveReleaseIdentity({
 				triple: TRIPLE,
+				nextDevTriple: NEXT_DEV_TRIPLE,
 				describe: info.describe,
 				provenance: { stamp: 'other', channel: 'master' },
 			}).version,
-		).toBe('7.0.0.dev');
+		).toBe('7.0.0-dev');
 	});
 
 	test(`an archive an old git (< ${MIN_GIT_FOR_DESCRIBE}) left unexpanded is .dev and names the minimum`, () => {
@@ -270,25 +282,28 @@ describe('resolveReleaseIdentity — the rules on direct evidence', () => {
 		);
 		const identity = resolveReleaseIdentity({
 			triple: TRIPLE,
+			nextDevTriple: NEXT_DEV_TRIPLE,
 			describe: info.describe,
 			provenance: other,
 		});
-		expect(identity.version).toBe('7.0.0.dev');
+		expect(identity.version).toBe('7.0.0-dev');
 		expect(identity.notice ?? '').toContain(MIN_GIT_FOR_DESCRIBE);
 	});
 
 	test('a describe past a tag is dev with no notice (normal development)', () => {
 		const identity = resolveReleaseIdentity({
 			triple: TRIPLE,
+			nextDevTriple: NEXT_DEV_TRIPLE,
 			describe: 'v7.0.0-beta.5-889-g2915808635',
 			provenance: other,
 		});
-		expect(identity).toMatchObject({ version: '7.0.0.dev', kind: 'dev', notice: null, tag: null });
+		expect(identity).toMatchObject({ version: '7.0.0-dev', kind: 'dev', notice: null, tag: null });
 	});
 
 	test('the identity carries its tag and its data triple, frozen', () => {
 		const identity = resolveReleaseIdentity({
 			triple: TRIPLE,
+			nextDevTriple: NEXT_DEV_TRIPLE,
 			describe: 'v7.0.0-beta.6',
 			provenance: other,
 		});
@@ -309,13 +324,15 @@ describe('imageTagOf — the tag an identity is built/published under', () => {
 		['7.0.0', '7.0.0'],
 		['7.0.0-beta.6', '7.0.0-beta.6'],
 		['7.0.0-rc.1', '7.0.0-rc.1'],
-		['7.0.0.dev', '7.0.0-dev'],
+		['7.0.0-dev', '7.0.0-dev'],
+		['7.0.1-dev', '7.0.1-dev'],
 	])('%s → %s', (identity, tag) => {
 		expect(imageTagOf(identity)).toBe(tag);
 	});
 
-	test('a non-identity is refused, never tagged', () => {
+	test('a non-identity is refused, never tagged (the retired dotted spelling 7.0.1.dev included)', () => {
 		expect(() => imageTagOf('7.0.0-pre.1')).toThrow(/not a release identity/);
+		expect(() => imageTagOf('7.0.1.dev')).toThrow(/not a release identity/);
 	});
 });
 
@@ -363,15 +380,38 @@ describe('GATE 8 — semver ordering, one fixture, every reader', () => {
 		});
 	}
 
-	test('a .dev identity compares as its triple and is flagged unordered', () => {
-		for (const [dev, stable] of ORDERING.equal_dev) {
-			expect(compareReleaseIdentities(dev, stable)).toBe(0);
-			expect(parseReleaseVersion(dev)?.dev).toBe(true);
-			expect(parseReleaseVersion(stable)?.dev).toBe(false);
+	test('the full order of the plan: 7.0.0 < 7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2', () => {
+		const plan = [
+			'7.0.0',
+			'7.0.1-alpha.1',
+			'7.0.1-beta.1',
+			'7.0.1-rc.1',
+			'7.0.1-dev',
+			'7.0.1',
+			'7.0.2',
+		];
+		for (let i = 0; i + 1 < plan.length; i++) {
+			expect(
+				compareReleaseIdentities(plan[i] as string, plan[i + 1] as string),
+				`${plan[i]} < ${plan[i + 1]}`,
+			).toBe(-1);
 		}
 	});
 
-	test('the changelog accepts exactly the release grammar: every fixture release, no .dev, no non-identity', () => {
+	test('a dev identity is its own rank: strictly below the stable of its triple, strictly above every prerelease of it', () => {
+		for (const [dev, stable] of ORDERING.dev_below_stable) {
+			expect(compareReleaseIdentities(dev, stable)).toBe(-1);
+			expect(compareReleaseIdentities(stable, dev)).toBe(1);
+			expect(parseReleaseVersion(dev)?.dev).toBe(true);
+			expect(parseReleaseVersion(stable)?.dev).toBe(false);
+		}
+		// the comparator trap: a null prerelease is the STABLE release, never a
+		// missing label, so the dev rank must be explicit (beta.10 < dev, dev < stable)
+		expect(compareReleaseIdentities('7.0.1-rc.99', '7.0.1-dev')).toBe(-1);
+		expect(compareReleaseIdentities('7.0.1-dev', '7.0.1')).toBe(-1);
+	});
+
+	test('the changelog accepts exactly the release grammar: every fixture release, no dev identity, no non-identity', () => {
 		const release = (version: string) =>
 			JSON.stringify({
 				version,
@@ -381,10 +421,11 @@ describe('GATE 8 — semver ordering, one fixture, every reader', () => {
 				commits: 1,
 				wire_contract: [],
 			});
-		for (const version of ORDERING.ascending) {
+		for (const version of ORDERING.ascending.filter((v) => !ORDERING.dev.includes(v))) {
 			expect(parseRelease('changes/x/release.json', release(version)).version).toBe(version);
 		}
-		for (const bad of [...ORDERING.not_identities, ...ORDERING.equal_dev.map(([dev]) => dev)]) {
+		// a developer identity is an identity but never a release: the changelog refuses it
+		for (const bad of [...ORDERING.not_identities, ...ORDERING.dev]) {
 			expect(() => parseRelease('changes/x/release.json', release(bad)), `'${bad}'`).toThrow(
 				/is not <major>/,
 			);

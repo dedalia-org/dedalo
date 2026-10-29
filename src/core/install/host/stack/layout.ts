@@ -32,7 +32,14 @@ import {
 	normalizeRepository,
 	provisionedRegistries,
 } from '../../../update/image_registries.ts';
-import { imageTagOf, type ReleaseIdentity } from '../../../update/release_identity.ts';
+import {
+	imageTagOf,
+	nightlyImageMessage,
+	type ReleaseIdentity,
+} from '../../../update/release_identity.ts';
+
+export { nightlyImageMessage };
+
 import type { InstallAnswers } from '../../install_plan.ts';
 import { installerIdentity } from '../../installer_identity.ts';
 
@@ -143,7 +150,7 @@ export function nginxConfOf(answers: InstallAnswers): string {
 
 /**
  * The image version: the tag of the installer's own release identity (the plan
- * may only repeat it, or name its data version's -dev tag). A beta asks for
+ * may only repeat it). A beta asks for
  * `:7.0.0-beta.7`, never `:7.0.0` — after the stable release that tag is
  * another image, and its label would refuse it (C3i-F1).
  */
@@ -155,15 +162,47 @@ export function imageVersionOf(
 }
 
 /**
- * The versions an image of this installer may carry: its identity's tag and,
- * named explicitly, the `-dev` tag of its data version (the dev branch's
- * image — design §2.4). Nothing else: the engine steps run inside the image
- * with this installer's request format.
+ * The ONLY version an image install of this installer accepts: its identity's own
+ * tag (`7.0.0`, `7.0.0-beta.7`). Docker images are immutable and every tag names one
+ * fixed image, so nothing else is accepted: no other release, no nightly. A stable
+ * install never takes the next nightly; the nightly reaches an installation through
+ * the code update path (tree archives), never through docker.
+ *
+ * A DEV identity (`X.Y.Z-dev`) has no image at all (the dev channel publishes none):
+ * nothing is accepted (`[]`), so every caller refuses its tag on the existing
+ * "not this installer's" path, and devHasNoImageMessage says why.
  */
 export function acceptedImageVersions(identity: ReleaseIdentity = installerIdentity()): string[] {
-	const own = imageTagOf(identity.version);
-	const dev = `${identity.triple.join('.')}-dev`;
-	return own === dev ? [own] : [own, dev];
+	if (identity.kind === 'dev') return [];
+	return [imageTagOf(identity.version)];
+}
+
+/**
+ * The refusal for a nightly (`X.Y.Z-dev`) image or a development identity: Docker has
+ * no nightly images (VERSIONING_SPEC §7 S3). `nightly` names the version refused.
+ */
+
+/** The reason a DEV identity has no image: Docker has no nightly images. */
+export function devHasNoImageMessage(identity: ReleaseIdentity = installerIdentity()): string {
+	return nightlyImageMessage(identity.version);
+}
+
+/**
+ * The one refusal sentence for an image tag this installer does not accept: a `-dev`
+ * tag, or any tag on a development identity, gets the nightly sentence (S3); every
+ * other refusal names the accepted tags and carries the caller's own advice `tail`.
+ */
+export function imageRefusalMessage(
+	version: string,
+	tail: string,
+	identity: ReleaseIdentity = installerIdentity(),
+): string {
+	if (version.endsWith('-dev')) return nightlyImageMessage(version);
+	const accepted =
+		identity.kind === 'dev'
+			? 'none: Docker has no nightly images, and a development build has no image'
+			: acceptedImageVersions(identity).join(' or ');
+	return `image version ${version} is not this installer's (${accepted}) — ${tail}`;
 }
 
 /** The official repositories, primary first (the ONE list — never an environment value). */

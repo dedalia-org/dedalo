@@ -176,12 +176,13 @@ describe('authorizeUpdateManifest — gate 2: the version', () => {
 		expect(getOntologyIoPath(config.ops.ontologyDataIoDir, [0, 0])).toBe(false);
 	});
 
-	test('MOVED FAITHFULLY, NOT FIXED: an empty segment counts as 0 ("7..0")', () => {
-		// Same Number('') === 0 trap, one segment in: '7..0' passes BOTH doors.
-		// Pinned, not corrected — see the note on '.0' above.
+	test('an empty segment is refused ("7..0") — parseVersionString yields NaN, not 0', () => {
+		// The Number('') === 0 trap is closed in parseVersionString (version.ts): the
+		// three-part door refuses '7..0'. The two-part (ontology) door keeps its
+		// positional read, where '7..0' has the minor '' → 0 and stays as it was.
 		expect(authorizeUpdateManifest(codeInput({ versionRaw: '7..0' }))).toEqual({
-			ok: true,
-			version: [7, 0, 0],
+			ok: false,
+			msg: 'Error. Invalid version number',
 		});
 		expect(authorizeUpdateManifest(ontologyInput({ versionRaw: '7..0' }))).toEqual({
 			ok: true,

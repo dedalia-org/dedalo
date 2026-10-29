@@ -12,13 +12,13 @@
  * abbreviation length depends on the clone's object count and `core.abbrev`,
  * so two clones of one commit would otherwise archive different bytes. The
  * describe also depends on the clone HAVING the tags — a shallow, tagless
- * clone archives an empty field (`.dev`); every archiving job fetches them.
+ * clone archives an empty field (a dev identity); every archiving job fetches them.
  * That one file answers three questions:
  *  - DEDALO_BUILD: the commit date on an archive, null on a checkout — what the
  *    update_code widget shows as "Current build".
  *  - DEDALO_BUILD_SHA: WHICH commit (null on a checkout).
  *  - RELEASE_IDENTITY: what the program calls itself (release_identity.ts) —
- *    `7.0.0-beta.6` from an archive of that tag, `7.0.0.dev` off a tag.
+ *    `7.0.0-beta.6` from an archive of that tag, `7.0.0-dev` off an untagged commit.
  *
  * A CHECKOUT keeps the placeholder, so the tag is asked of git: one bounded
  * `git describe --exact-match` at import (see readCheckoutDescribe for why at
@@ -38,7 +38,7 @@ import {
 	type ReleaseIdentity,
 	resolveReleaseIdentity,
 } from './release_identity.ts';
-import { DEDALO_VERSION_TRIPLE } from './version.ts';
+import { DEDALO_DATA_VERSION, DEDALO_NEXT_RELEASE } from './version.ts';
 
 // The stamp grammar is pure and lives with the resolver; re-exported here, where
 // the file is read.
@@ -56,7 +56,7 @@ export function readBuildInfoOf(treeRoot: string): BuildInfo {
 	}
 }
 
-/** How long the checkout reader waits for git before calling the tree `.dev`. */
+/** How long the checkout reader waits for git before calling the tree a dev build. */
 export const CHECKOUT_DESCRIBE_TIMEOUT_MS = 3000;
 
 /**
@@ -111,13 +111,13 @@ function drain(stream: ReadableStream<Uint8Array>): { text: Promise<string>; can
  * The exact `v*` tag of a CHECKOUT's HEAD, asked of git (design §2.2 step 2).
  * `''` = git answered "no exact tag" (normal: an untagged commit). null +
  * notice = git could not answer (absent binary, timeout, an error that is not
- * the untagged answer) — the caller then says `.dev`, never throws.
+ * the untagged answer) — the caller then says a dev identity, never throws.
  *
  * - `--exact-match`, not a plain describe: only a commit that IS a release
  *   may call itself one; distance is irrelevant to identity.
  * - `--match 'v[0-9]*'`: a newer non-release annotated tag on the same commit
  *   (`museum-snapshot`) would otherwise win and the release would call
- *   itself `.dev` — the archive's `%(describe:match=…)` filters the same way.
+ *   itself a dev build — the archive's `%(describe:match=…)` filters the same way.
  * - No `--tags`: lightweight tags are ignored, exactly as the archive's
  *   `%(describe)` ignores them, so a checkout and an archive of the same
  *   commit always agree (release tags are annotated — owner Q7).
@@ -246,24 +246,31 @@ function describeAnswer(
 }
 
 function describeFailure(why: string): string {
-	return `git describe could not read this checkout's tag (${why}); calling it .dev`;
+	return `git describe could not read this checkout's tag (${why}); calling it a dev build (-dev)`;
 }
 
 /**
  * The release identity of the tree at `treeRoot`, from THAT tree's own
  * evidence (build_info.txt, install_stamp.json, its `.git`): the module
  * constant below reads this tree; gates read throwaway ones. `triple` is the
- * running data version — the tree's own version.ts in production.
+ * running DATA version — the tree's own version.ts in production.
+ * `nextDevTriple` names an untagged tree's dev identity; it defaults to
+ * version.ts DEDALO_NEXT_RELEASE so every caller resolves it the same way.
  */
 export async function readReleaseIdentityOf(
 	treeRoot: string,
-	options: { triple: readonly [number, number, number]; git?: string },
+	options: {
+		triple: readonly [number, number, number];
+		nextDevTriple?: readonly [number, number, number];
+		git?: string;
+	},
 	info: BuildInfo = readBuildInfoOf(treeRoot),
 ): Promise<ReleaseIdentity> {
 	const channel = readInstallStampOf(treeRoot)?.channel ?? null;
 	const reader = await checkoutEvidence(treeRoot, info, options.git);
 	const identity = resolveReleaseIdentity({
 		triple: options.triple,
+		nextDevTriple: options.nextDevTriple ?? DEDALO_NEXT_RELEASE,
 		describe: reader.describe,
 		provenance: { stamp: info.legacy ? 'legacy' : 'other', channel },
 	});
@@ -304,7 +311,7 @@ export const DEDALO_BUILD_SHA: string | null = INFO.sha;
 /** What this running tree calls itself (release_identity.ts). */
 export const RELEASE_IDENTITY: ReleaseIdentity = await readReleaseIdentityOf(
 	TREE_ROOT,
-	{ triple: DEDALO_VERSION_TRIPLE },
+	{ triple: DEDALO_DATA_VERSION, nextDevTriple: DEDALO_NEXT_RELEASE },
 	INFO,
 );
 

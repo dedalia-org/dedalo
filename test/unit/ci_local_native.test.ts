@@ -60,33 +60,46 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import {
+	accessSync,
+	chmodSync,
 	cpSync,
+	existsSync,
+	constants as fsConstants,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	CI_LOGS_DIR,
 	CONTAINER_GIT,
+	CONTAINER_LOG_DIR,
 	CONTAINER_OUT,
 	CONTAINER_SRC,
 	containerMounts,
 	DRIVER_SCRIPT,
+	dockerComposeEnv,
 	failFastSkip,
+	finishDockerRun,
 	gitScrubbedEnv,
+	keepRunLogs,
 	orphanCiVolumes,
 	parseStages,
+	pruneRunLogs,
 	recordArgsFault,
 	recordCopyFault,
 	recordEnv,
 	recordNewFiles,
 	recordRefFault,
 	type Stage,
+	statRunDir,
 	TIERS,
 	type TierResult,
 	workingTreeLists,
@@ -1069,3 +1082,291 @@ describe('leftover CI volumes — only a dead run’s, never a live one’s', ()
 		expect(/^volumes:\n(?: {2}.*\n)*? {2}pgdata:/m.test(compose)).toBe(true);
 	});
 });
+
+describe('tier logs leave the container before /ci-out is removed (keepRunLogs)', () => {
+	test('the logs dir is copied to <root>/<runId>/, one dir per run; nothing kept → null', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-keep-logs-'));
+		try {
+			const outputs = join(dir, 'out');
+			const root = join(dir, 'ci-logs');
+			mkdirSync(outputs);
+			expect(keepRunLogs(outputs, root, 'run-a')).toBeNull();
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'publication_site_builder.log'), 'kept\n');
+			expect(keepRunLogs(outputs, root, 'run-a')).toBe(join(root, 'run-a'));
+			expect(keepRunLogs(outputs, root, 'run-b')).toBe(join(root, 'run-b'));
+			for (const run of ['run-a', 'run-b'])
+				expect(
+					readFileSync(join(root, run, 'hermetic', 'publication_site_builder.log'), 'utf8'),
+				).toBe('kept\n');
+			// The container is told to write there: the log dir is under the writable mount,
+			// and compose passes DEDALO_CI_LOG_DIR through to the tier.
+			expect(CONTAINER_LOG_DIR).toBe(`${CONTAINER_OUT}/logs`);
+			const compose = readFileSync(join(REPO_ROOT, 'ci', 'compose.yml'), 'utf8');
+			expect(compose).toContain('DEDALO_CI_LOG_DIR: ${DEDALO_CI_LOG_DIR:-}');
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe('a docker run: the compose env, the end of the run, the driver hands /ci-out back', () => {
+	const facts = (outputs: string) => ({
+		image: 'img@sha256:x',
+		inputs: '/tmp/in',
+		outputs,
+		sha: 'a'.repeat(40),
+		branch: 'master',
+		base: undefined,
+		auditBase: '',
+		overlay: false,
+		args: { flags: new Set<string>() },
+		mounts: [
+			{ host: '/h/src', container: CONTAINER_SRC },
+			{ host: '/h/git', container: CONTAINER_GIT },
+		],
+	});
+
+	test('the env maps the tier log dir to the container log dir, under the writable mount', () => {
+		const env = dockerComposeEnv(facts('/tmp/out-x'));
+		expect(env.DEDALO_CI_LOG_DIR).toBe(CONTAINER_LOG_DIR);
+		expect(env.DEDALO_CI_OUT).toBe('/tmp/out-x');
+		expect(CONTAINER_LOG_DIR.startsWith(`${CONTAINER_OUT}/`)).toBe(true);
+		expect(env.DEDALO_CI_TIER_SCRIPT).toBe('none');
+		expect([env.DEDALO_CI_SRC, env.DEDALO_CI_GIT]).toEqual(['/h/src', '/h/git']);
+		// compose passes it through to the tier, which is what makes the mapping reach hermetic.sh.
+		expect(readFileSync(join(REPO_ROOT, 'ci', 'compose.yml'), 'utf8')).toContain(
+			'DEDALO_CI_LOG_DIR: ${DEDALO_CI_LOG_DIR:-}',
+		);
+	});
+
+	test('finishDockerRun keeps the logs BEFORE removing the mounts, and an unremovable tree never throws', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-finish-'));
+		try {
+			const inputs = join(dir, 'in');
+			const outputs = join(dir, 'out');
+			mkdirSync(inputs);
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'x.log'), 'kept\n');
+			const root = join(dir, CI_LOGS_DIR);
+			expect(finishDockerRun(inputs, outputs, root, 'docker-a')).toBe(join(root, 'docker-a'));
+			expect(readFileSync(join(root, 'docker-a', 'hermetic', 'x.log'), 'utf8')).toBe('kept\n');
+			expect(existsSync(outputs)).toBe(false);
+			expect(existsSync(inputs)).toBe(false);
+
+			// A tree the host cannot unlink (a 0555 dir with an entry — what a uid-1001 dir is to
+			// a Linux host): reported, never thrown over the run's verdict; the logs still kept.
+			const outputs2 = join(dir, 'out2');
+			const locked = join(outputs2, 'logs', 'hermetic');
+			mkdirSync(locked, { recursive: true });
+			writeFileSync(join(locked, 'y.log'), 'kept too\n');
+			chmodSync(locked, 0o555);
+			const inputs2 = join(dir, 'in2');
+			mkdirSync(inputs2);
+			const finished: { kept: string | null } = { kept: null };
+			const warnings = captureErrors(() => {
+				expect(() => {
+					finished.kept = finishDockerRun(inputs2, outputs2, root, 'docker-b');
+				}).not.toThrow();
+			});
+			// The precondition, or the case proves nothing (a uid-0 run ignores the mode bits).
+			expect(
+				existsSync(outputs2),
+				'precondition: the locked tree must survive the removal (running as root?)',
+			).toBe(true);
+			expect(warnings.some((w) => w.includes("could not remove the run's scratch dir"))).toBe(true);
+			expect(existsSync(inputs2), 'the removable mount was still removed').toBe(false);
+			expect(finished.kept).toBe(join(root, 'docker-b'));
+			expect(readFileSync(join(root, 'docker-b', 'hermetic', 'y.log'), 'utf8')).toBe('kept too\n');
+		} finally {
+			// cpSync keeps the 0555 mode on the copy too.
+			for (const locked of [
+				join(dir, 'out2', 'logs', 'hermetic'),
+				join(dir, CI_LOGS_DIR, 'docker-b', 'hermetic'),
+			])
+				if (existsSync(locked)) chmodSync(locked, 0o755);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('pruneRunLogs is total: an unlistable root warns and returns [], and the run still removes its own mounts', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-total-'));
+		const root = join(dir, CI_LOGS_DIR);
+		try {
+			// A FILE where the root should be: the listing fails (ENOTDIR).
+			writeFileSync(join(dir, 'not-a-dir'), '');
+			const asFile = captureErrors(() => {
+				expect(pruneRunLogs(join(dir, 'not-a-dir'))).toEqual([]);
+			});
+			expect(asFile.some((w) => w.includes('could not list'))).toBe(true);
+			// A root this user may write into but not list (0333): keepRunLogs still copies,
+			// the prune cannot read it — finishDockerRun returns and removes both mounts.
+			mkdirSync(root);
+			for (let i = 0; i < 12; i++) mkdirSync(join(root, `docker-old-${i}`));
+			chmodSync(root, 0o333);
+			// PRECONDITION: the root really is unlistable here (a uid-0 run reads through 0333 —
+			// then this case would prove nothing, so it says so instead of failing obscurely).
+			let listable = true;
+			try {
+				accessSync(root, fsConstants.R_OK);
+			} catch {
+				listable = false;
+			}
+			if (listable) {
+				throw new Error(
+					`precondition: a 0333 ${root} must be unlistable for this user (running as root?)`,
+				);
+			}
+			const inputs = join(dir, 'in');
+			const outputs = join(dir, 'out');
+			mkdirSync(inputs);
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'z.log'), 'z\n');
+			const unlistable = captureErrors(() => {
+				expect(finishDockerRun(inputs, outputs, root, 'docker-new')).toBe(join(root, 'docker-new'));
+			});
+			expect(unlistable.some((w) => w.includes('could not list'))).toBe(true);
+			expect(existsSync(inputs)).toBe(false);
+			expect(existsSync(outputs)).toBe(false);
+		} finally {
+			if (existsSync(root)) chmodSync(root, 0o755);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('pruneRunLogs skips an entry that vanished before its stat, and reports + skips one whose stat fails', () => {
+		const root = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-stat-'));
+		try {
+			for (let i = 0; i < 5; i++) mkdirSync(join(root, `docker-run-${i}`));
+			// The DEFAULT stat on a path another run just pruned: undefined, not an ENOENT throw.
+			expect(statRunDir(join(root, 'docker-gone'))).toBeUndefined();
+			const order: Record<string, number> = {
+				'docker-run-0': 1,
+				'docker-run-1': 2,
+				'docker-run-2': 3,
+				'docker-run-3': 4,
+				'docker-run-4': 5,
+			};
+			const stat = (path: string) => {
+				const name = path.slice(root.length + 1);
+				if (name === 'docker-run-3') {
+					rmSync(path, { recursive: true, force: true }); // pruned between listing and stat
+					return statRunDir(path);
+				}
+				if (name === 'docker-run-1') throw new Error('EACCES: permission denied (planted)');
+				return { mtimeMs: order[name] ?? 0 };
+			};
+			let removed: string[] = [];
+			const warnings = captureErrors(() => {
+				removed = pruneRunLogs(root, 1, stat);
+			});
+			// run-4 kept (newest), run-3 vanished, run-1 unstattable: only 0 and 2 pruned.
+			expect(removed.sort()).toEqual(['docker-run-0', 'docker-run-2']);
+			expect(existsSync(join(root, 'docker-run-4'))).toBe(true);
+			expect(existsSync(join(root, 'docker-run-1'))).toBe(true);
+			expect(warnings.filter((w) => w.includes('could not stat')).length).toBe(1);
+			expect(warnings.some((w) => w.includes('docker-run-1'))).toBe(true);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test('finishDockerRun: a prune that throws is reported, never thrown, and the mounts are already gone', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-throws-'));
+		const root = join(dir, CI_LOGS_DIR);
+		try {
+			const inputs = join(dir, 'in');
+			const outputs = join(dir, 'out');
+			mkdirSync(inputs);
+			mkdirSync(join(outputs, 'logs', 'hermetic'), { recursive: true });
+			writeFileSync(join(outputs, 'logs', 'hermetic', 'z.log'), 'z\n');
+			const mountsAtPrune: boolean[] = [];
+			const prune = (_root: string) => {
+				mountsAtPrune.push(existsSync(inputs), existsSync(outputs));
+				throw new Error('planted prune failure');
+			};
+			const result: { logs: string | null } = { logs: null };
+			const warnings = captureErrors(() => {
+				result.logs = finishDockerRun(inputs, outputs, root, 'docker-new', prune);
+			});
+			expect(result.logs).toBe(join(root, 'docker-new'));
+			expect(mountsAtPrune).toEqual([false, false]); // own mounts removed BEFORE the prune
+			expect(existsSync(inputs)).toBe(false);
+			expect(existsSync(outputs)).toBe(false);
+			expect(
+				warnings.some((w) => w.includes('pruning') && w.includes('planted prune failure')),
+			).toBe(true);
+			expect(readFileSync(join(root, 'docker-new', 'hermetic', 'z.log'), 'utf8')).toBe('z\n');
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('pruneRunLogs keeps the newest K docker-* run dirs and touches nothing else', () => {
+		const root = mkdtempSync(join(tmpdir(), 'dedalo-ci-prune-'));
+		try {
+			const now = Date.now() / 1000;
+			for (let i = 0; i < 5; i++) {
+				const run = join(root, `docker-run-${i}`);
+				mkdirSync(run);
+				utimesSync(run, now - (5 - i) * 60, now - (5 - i) * 60); // run-4 newest
+			}
+			mkdirSync(join(root, 'hermetic')); // a host run's dir, not a docker run
+			expect(pruneRunLogs(root, 2).sort()).toEqual([
+				'docker-run-0',
+				'docker-run-1',
+				'docker-run-2',
+			]);
+			for (const [name, kept] of [
+				['docker-run-0', false],
+				['docker-run-1', false],
+				['docker-run-2', false],
+				['docker-run-3', true],
+				['docker-run-4', true],
+				['hermetic', true],
+			] as const)
+				expect(existsSync(join(root, name)), name).toBe(kept);
+			expect(pruneRunLogs(join(root, 'absent'))).toEqual([]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("the driver's root half chmods the writable mount a+rwX and keeps the child's exit status", () => {
+		const perl = /exec (perl -e '[^']*') \\/.exec(DRIVER_SCRIPT)?.[1];
+		expect(perl, 'the driver no longer forks its tier under perl').toBeDefined();
+		expect(perl).toContain(`"chmod", "-R", "a+rwX", "${CONTAINER_OUT}"`);
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-driver-'));
+		try {
+			const owned = join(dir, 'logs', 'hermetic');
+			// Run the REAL one-liner with the mount swapped for a scratch dir: the child creates a
+			// 0755 tree and exits 3; perl must exit 3 and leave the tree a+rwX.
+			const local = (perl as string).replace(`"${CONTAINER_OUT}"`, JSON.stringify(dir));
+			const proc = Bun.spawnSync([
+				'bash',
+				'-c',
+				`${local.replace(/^perl -e /, 'perl -e ')} bash -c 'umask 022; mkdir -p ${owned}; echo x > ${owned}/f.log; exit 3'`,
+			]);
+			expect(proc.exitCode, proc.stderr.toString()).toBe(3);
+			expect(statSync(owned).mode & 0o777).toBe(0o777);
+			expect(statSync(join(owned, 'f.log')).mode & 0o666).toBe(0o666);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+/** Run `fn` with console.error captured; returns the lines it printed. */
+function captureErrors(fn: () => void): string[] {
+	const lines: string[] = [];
+	const original = console.error;
+	console.error = (...args: unknown[]) => {
+		lines.push(args.map(String).join(' '));
+	};
+	try {
+		fn();
+	} finally {
+		console.error = original;
+	}
+	return lines;
+}

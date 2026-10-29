@@ -257,6 +257,7 @@ async function askSecret(
 	reader: RawReader,
 	question: Question,
 	feedback: PasswordFeedback | undefined,
+	confirm: boolean,
 ): Promise<string> {
 	intro(io, question);
 	const state = newSecretEntry();
@@ -264,7 +265,7 @@ async function askSecret(
 		const first = state.first === null;
 		io.write(secretPrompt(question, first));
 		const entry = await io.hidden(reader);
-		const step = secretEntryStep(state, entry, question, feedback);
+		const step = secretEntryStep(state, entry, question, feedback, confirm);
 		if (rulesShown(first, step)) policyRules(io, entry, feedback);
 		showSecretStep(io, step);
 		if (step.kind === 'done') return step.value;
@@ -429,7 +430,8 @@ export function ttyInstallPrompter(
 		text: (question) => ask((reader) => askText(io, reader, question)),
 		choice: (question) => ask((reader) => askChoice(io, reader, question)),
 		multi: (question) => ask((reader) => askMulti(io, reader, question)),
-		secret: (question, feedback) => ask((reader) => askSecret(io, reader, question, feedback)),
+		secret: (question, feedback, options) =>
+			ask((reader) => askSecret(io, reader, question, feedback, options?.confirm ?? true)),
 		confirm: (question) => ask((reader) => askConfirm(io, reader, question)),
 		acknowledge: (question) => ask((reader) => askAcknowledge(io, reader, question)),
 		view: () => undefined,

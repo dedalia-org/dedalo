@@ -47,9 +47,17 @@ export const REAL_PLACEHOLDER = readFileSync(join(REPO_ROOT, BUILD_INFO_PATH), '
 /** version.ts's path inside a tree. */
 export const VERSION_TS_PATH = 'src/core/update/version.ts';
 
-/** A version.ts declaring `triple` the way the real one does (Object.freeze([a, b, c])). */
-export function versionTsOf(triple: readonly number[]): string {
-	return `export const DEDALO_VERSION_TRIPLE = Object.freeze([${triple.join(', ')}]);\n`;
+/**
+ * A version.ts declaring `triple` (the DATA triple) and `nextDevTriple` (the
+ * release an untagged build precedes), the way the real one does
+ * (Object.freeze([a, b, c])). The next triple defaults to the data triple: the
+ * next release is the data release until it is tagged (VERSIONING_SPEC §5).
+ */
+export function versionTsOf(triple: readonly number[], nextDevTriple?: readonly number[]): string {
+	const next = nextDevTriple ?? triple;
+	return `export const DEDALO_DATA_VERSION = Object.freeze([${triple.join(', ')}]);
+export const DEDALO_NEXT_RELEASE = Object.freeze([${next.join(', ')}]);
+`;
 }
 
 /** The builders over one scratch root (each gate owns and removes its root). */

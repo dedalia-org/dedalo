@@ -34,7 +34,7 @@ import {
 	SEED_SHIPPED_TABLES,
 } from '../../src/core/install/seed_sources.ts';
 import { REGISTRY_PROVISION_INPUTS_SQL } from '../../src/core/ontology/hierarchy_state.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 
 /**
  * One-column `-tA` rows (a failed query fails the gate with psql's sentence). The SQL
@@ -181,7 +181,7 @@ export async function assertSeedContract(conn: DbConnDescriptor): Promise<void> 
 			conn,
 			`SELECT data->>'dedalo_version' FROM matrix_updates WHERE data ? 'dedalo_version'`,
 		),
-	).toEqual([DEDALO_VERSION]);
+	).toEqual([formatVersion(DEDALO_DATA_VERSION)]);
 	// INT-CLEAN (WC-2026-10-21-seed-and-thesaurus-int-clean): no record address in
 	// the repealed string form anywhere, and the marker the contraction boot floor
 	// reads — the seed's stock is born swept. Nothing else in matrix_updates.

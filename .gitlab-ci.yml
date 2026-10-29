@@ -42,7 +42,7 @@ include:
 
 hermetic:
   image:
-    name: ghcr.io/dedalia-org/dedalo-ci@sha256:1a22e11dd7d8137306401dcfe23a19a445ffd427e0ef50bd74bcc763cf6092c4
+    name: ghcr.io/dedalia-org/dedalo-ci@sha256:7c94b9e0494fef24ad923e779ccb7b01735c3defab7a9a70818e50495e587d03
     docker:
       user: "1001"
   # uid 1001 has no passwd entry in the image, so HOME would be `/` (unwritable): bun's
@@ -61,6 +61,7 @@ hermetic:
   # `cd` holds for the tier.
   before_script:
     - export HOME=/tmp/runner-home
+    - export DEDALO_CI_LOG_DIR="$CI_PROJECT_DIR/ci-logs"
     - mkdir -p "$HOME"
     - umask 022
     - cp -R "$CI_PROJECT_DIR" /tmp/dedalo-src
@@ -70,3 +71,11 @@ hermetic:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - bash scripts/ci/hermetic.sh
+  # The daemon packages' logs (hermetic.sh HERMETIC_LOG_DIR): DEDALO_CI_LOG_DIR, exported in
+  # before_script, points them into the CLONE, not the /tmp copy the tier runs in —
+  # artifacts are collected from $CI_PROJECT_DIR only.
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - ci-logs/hermetic/

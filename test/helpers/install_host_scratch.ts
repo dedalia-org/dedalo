@@ -24,6 +24,7 @@
  * install_host_selinux_native, install_stack_steps_native.
  */
 
+import { afterAll } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
 	chmodSync,
@@ -60,6 +61,15 @@ import type { RunIo } from '../../src/core/install/run_events.ts';
 import { buildPlanFile, type PlanFile, type Secrets } from '../../src/core/install/run_files.ts';
 
 export const REPO_ROOT = join(import.meta.dir, '..', '..');
+
+// The scratch parents are made by mkdir, so their mode follows the developer's umask,
+// and the ancestor guard refuses a group- or world-writable parent (identity_rules
+// ancestorRule). A umask of 002 (common on Linux hosts) refused every host gate on the
+// VM: the gates measure the code, not the shell, so the umask is pinned for this file.
+const previousUmask = process.umask(0o022);
+afterAll(() => {
+	process.umask(previousUmask);
+});
 
 /** The marker a scratch root must carry (host/scratch.ts SCRATCH_MARKER). */
 export const SCRATCH_DIR = '.dedalo_install_scratch';

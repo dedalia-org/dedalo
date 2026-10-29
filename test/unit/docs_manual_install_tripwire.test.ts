@@ -96,7 +96,7 @@ import {
 	PRODUCTION_HOST_STEP_IDS,
 } from '../../src/core/install/install_plan.ts';
 import { readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
-import { DEDALO_VERSION_TRIPLE } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const MANUAL = readFileSync(join(REPO_ROOT, 'docs/install/manual_install.md'), 'utf8');
@@ -860,11 +860,12 @@ describe('manual_install.md: its samples are what the engine prints (8–9, camp
 			join(REPO_ROOT, 'src/core/update/build_info.txt'),
 			join(tarred, 'src/core/update/build_info.txt'),
 		);
-		const identity = await readReleaseIdentityOf(tarred, { triple: DEDALO_VERSION_TRIPLE });
+		const identity = await readReleaseIdentityOf(tarred, { triple: DEDALO_DATA_VERSION });
 		rmSync(tarred, { recursive: true, force: true });
-		const data = DEDALO_VERSION_TRIPLE.join('.');
-		expect(identity.version.startsWith(data)).toBe(true);
-		const tag = identity.version.slice(data.length);
+		// the identity's OWN triple: a developer build names the next one (version.ts)
+		const named = identity.triple.join('.');
+		expect(identity.version.startsWith(named)).toBe(true);
+		const tag = identity.version.slice(named.length);
 		expect(tag).not.toBe('');
 		const checkout = MANUAL.slice(MANUAL.indexOf('**From a checkout**'));
 		expect(checkout.slice(0, 2000)).toContain(`\`<version>${tag}\``);

@@ -43,7 +43,7 @@ import {
 	verifyPublicationTree,
 	writePublicationManifest,
 } from '../src/core/update/publication_manifest.ts';
-import { DEDALO_VERSION } from '../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../src/core/update/version.ts';
 import { assertDrillTree, DRIVER_ERROR, DRIVER_RESULT } from './lib/publication_host_lockstep.ts';
 
 const ACTOR = 'drill';
@@ -52,7 +52,7 @@ const ACTOR = 'drill';
 async function manifest(): Promise<{ digest: string; version: string }> {
 	if (INSTALLED_DIGEST === null) throw new Error('this tree carries no install stamp');
 	await writePublicationManifest(projectRoot, INSTALLED_DIGEST);
-	return { digest: INSTALLED_DIGEST, version: DEDALO_VERSION };
+	return { digest: INSTALLED_DIGEST, version: formatVersion(DEDALO_DATA_VERSION) };
 }
 
 /** Both verdicts awaited: an unawaited Promise would serialize as `{}`. */
@@ -69,7 +69,7 @@ async function reconcile(args: { apply: boolean; name: string }) {
 		hosts: [args.name],
 		actor: ACTOR,
 	});
-	return { version: DEDALO_VERSION, digest: INSTALLED_DIGEST, report };
+	return { version: formatVersion(DEDALO_DATA_VERSION), digest: INSTALLED_DIGEST, report };
 }
 
 type Apis = HostRuntime['apis'] | null;

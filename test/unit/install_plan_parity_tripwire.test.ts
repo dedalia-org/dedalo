@@ -135,6 +135,11 @@ import {
 	MAILER_ARGV,
 	MAILER_RECORD,
 } from '../helpers/install_answer_cases.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
+
+// The installer's release identity is the checkout's: a dev checkout names no image,
+// so these cases are written for a STABLE installer (test/helpers/installer_identity.ts).
+pinInstallerIdentity(PINNED_IDENTITY.stable);
 
 const ROOT = resolve(import.meta.dir, '../..');
 const CLI = join(ROOT, 'scripts/install.ts');
@@ -961,11 +966,19 @@ describe('install plan — the answers file decides what the record decides (j)'
 			[['--plain', '--abort'], '--plain cannot be combined with --abort'],
 			[
 				['--plain', '--entity', 'x'],
-				'--plain is the interactive front end — it takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+				'--entity cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
 			],
 			[
 				['--plain', '--answers', 'a.json'],
-				'--plain is the interactive front end — it takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+				'--answers cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+			],
+			[
+				['--plain', '--route', 'docker'],
+				'--route cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+			],
+			[
+				['--plain', '--entity', 'x', '--route', 'docker', '--plan'],
+				'--entity, --route, --plan cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
 			],
 			[
 				['--write-answers', 'a.json', '--resume'],

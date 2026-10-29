@@ -52,9 +52,9 @@ DEDALO_PRERELEASE_LABELS='alpha beta rc'
 DEDALO_PRERELEASE_RE="-(${DEDALO_PRERELEASE_LABELS// /|})\\.${DEDALO_NUMBER_RE}"
 # THE RELEASE IDENTITY (src/core/update/release_identity.ts — what a tree CALLS
 # ITSELF): X.Y.Z for an exact stable tag, X.Y.Z-(alpha|beta|rc).N for an exact
-# prerelease tag, X.Y.Z.dev for anything untagged.
+# prerelease tag, X.Y.Z-dev for anything untagged.
 DEDALO_RELEASE_VERSION_RE="^${DEDALO_TRIPLE_PART_RE}(${DEDALO_PRERELEASE_RE})?$"
-DEDALO_DEV_IDENTITY_RE="^${DEDALO_TRIPLE_PART_RE}\\.dev$"
+DEDALO_DEV_IDENTITY_RE="^${DEDALO_TRIPLE_PART_RE}-dev$"
 # AN IMAGE TAG (DEDALO_VERSION, --version): the identity it names, spelled the
 # way an image tag can carry it — a release or prerelease identity IS its tag,
 # a dev identity is X.Y.Z-dev (imageTagOf / identityOfImageTag).
@@ -97,29 +97,24 @@ dedalo_identity_grammar() {
 	[[ "${1-}" =~ $DEDALO_RELEASE_VERSION_RE ]] || [[ "${1-}" =~ $DEDALO_DEV_IDENTITY_RE ]]
 }
 
-# dedalo_identity_of_tag TAG — the identity an image tag names (identityOfImageTag):
-# X.Y.Z-dev → X.Y.Z.dev, a release or prerelease tag → itself. Status 1 for a
-# string that is no image tag.
+# dedalo_identity_of_tag TAG — the identity an image tag names (identityOfImageTag).
+# The spellings are the same now (X.Y.Z-dev is both the tag and the identity), so
+# this is the grammar check and nothing else. Status 1 for a string that is no tag.
 dedalo_identity_of_tag() {
 	dedalo_version_grammar "${1-}" || return 1
-	case "$1" in
-		*-dev) printf '%s.dev' "${1%-dev}" ;;
-		*) printf '%s' "$1" ;;
-	esac
+	printf '%s' "$1"
 }
 
 # dedalo_image_tag_of IDENTITY — the image tag an identity is built and published
-# under (imageTagOf): X.Y.Z.dev → X.Y.Z-dev, any other identity → itself.
+# under (imageTagOf): identity → itself (X.Y.Z-dev included). Status 1 for a
+# string that is no identity.
 dedalo_image_tag_of() {
 	dedalo_identity_grammar "${1-}" || return 1
-	case "$1" in
-		*.dev) printf '%s-dev' "${1%.dev}" ;;
-		*) printf '%s' "$1" ;;
-	esac
+	printf '%s' "$1"
 }
 
 # dedalo_version_triple TAG|IDENTITY — the X.Y.Z (the DATA version) either names:
-# everything from the first `-` or `.` that starts a word (-beta.6, -dev, .dev).
+# everything from the first `-` or `.` that starts a word (-beta.6, -dev).
 # (Parameter expansion, not BASH_REMATCH: every name this library reads is one it
 # sets — deploy_env_contract_tripwire.)
 dedalo_version_triple() {
@@ -141,27 +136,25 @@ dedalo_prerelease_rank() {
 }
 
 # dedalo_identity_key IDENTITY — five canonical numbers `X Y Z R N` that order as
-# semver §11 does: R is the prerelease's rank (alpha 0, beta 1, rc 2) and N its
-# number; a release has R = the label count, after every prerelease of its triple.
-# A .dev identity is keyed as ITS TRIPLE — equal to that release — exactly as
-# compareReleaseIdentities treats it: it names no point in the release sequence,
-# and a caller that needs an order for it must ask about .dev itself.
+# compareReleaseIdentities does: R is the prerelease's rank (alpha 0, beta 1,
+# rc 2), then a DEV identity (R = the label count), then the stable release
+# (R = the label count + 1). A dev identity sits above every prerelease of its
+# triple and strictly below that triple's stable release.
 dedalo_identity_key() {
 	local identity="${1-}" major='' minor='' patch='' prerelease='' labels=''
 	dedalo_identity_grammar "$identity" || return 1
 	IFS=. read -r major minor patch <<<"$(dedalo_version_triple "$identity")"
+	# shellcheck disable=SC2086 # deliberate split: count the labels
+	labels="$(set -- $DEDALO_PRERELEASE_LABELS && echo "$#")"
 	case "$identity" in
-		*.dev) : ;;
-		*-*) prerelease="${identity#*-}" ;; # label.N
+		*-dev) printf '%s %s %s %s 0' "$major" "$minor" "$patch" "$labels" ;;
+		*-*)
+			prerelease="${identity#*-}" # label.N
+			printf '%s %s %s %s %s' "$major" "$minor" "$patch" \
+				"$(dedalo_prerelease_rank "${prerelease%%.*}")" "${prerelease#*.}"
+			;;
+		*) printf '%s %s %s %s 0' "$major" "$minor" "$patch" "$((labels + 1))" ;;
 	esac
-	if [ -n "$prerelease" ]; then
-		printf '%s %s %s %s %s' "$major" "$minor" "$patch" \
-			"$(dedalo_prerelease_rank "${prerelease%%.*}")" "${prerelease#*.}"
-	else
-		# shellcheck disable=SC2086 # deliberate split: count the labels
-		labels="$(set -- $DEDALO_PRERELEASE_LABELS && echo "$#")"
-		printf '%s %s %s %s 0' "$major" "$minor" "$patch" "$labels"
-	fi
 }
 
 # dedalo_number_cmp A B — -1, 0 or 1 between two CANONICAL numbers of any length
@@ -391,10 +384,10 @@ dedalo_checkout_version() {
 # The rules:
 #  1/2. an exact stable or prerelease tag naming version.ts's triple → that version;
 #  3.   anything else with describe evidence (untagged, past a tag, a tag naming
-#       another triple, an old git's unexpanded field) → X.Y.Z.dev;
-#  4.   a legacy stamp → X.Y.Z, or X.Y.Z.dev on a dev-channel install;
+#       another triple, an old git's unexpanded field) → X.Y.Z-dev;
+#  4.   a legacy stamp → X.Y.Z, or X.Y.Z-dev on a dev-channel install;
 #  5.   the channel never overrides a tag (owner Q5).
-#  No evidence at all (a placeholder with no git to ask) → X.Y.Z.dev.
+#  No evidence at all (a placeholder with no git to ask) → X.Y.Z-dev.
 
 DEDALO_BUILD_INFO='src/core/update/build_info.txt'
 DEDALO_INSTALL_STAMP='src/core/update/install_stamp.json'
@@ -409,13 +402,32 @@ DEDALO_LEGACY_STAMP_RE="^(${DEDALO_STAMP_SHA_RE}) (${DEDALO_STAMP_DATE_RE})$"
 # 3 s). Whole seconds: `date +%s` is the only portable clock.
 DEDALO_DESCRIBE_TIMEOUT_S=3
 
+# dedalo_checkout_next_dev DIR — the NEXT dev triple the checkout declares
+# (version.ts DEDALO_NEXT_RELEASE: the release an untagged build precedes), the
+# same answer parseDeclaredNextDevTriple gives. Status 1 when absent.
+dedalo_checkout_next_dev() {
+	local file="${1-}/src/core/update/version.ts" found=''
+	[ -r "$file" ] || return 1
+	found="$(tr '\011\012\013\014\015' '     ' <"$file" | sed 's/^.*DEDALO_NEXT_RELEASE//' | grep -oE "$DEDALO_TRIPLE_RE" | head -n 1)" || true
+	[ -n "$found" ] || return 1
+	found="$(printf '%s' "$found" | tr -cs '0-9' ' ')"
+	# shellcheck disable=SC2086 # deliberate split: three numbers
+	set -- $found
+	[ "$#" -eq 3 ] || return 1
+	printf '%s.%s.%s' "$1" "$2" "$3"
+}
+
 # dedalo_release_identity DIR — prints the release identity of the Dédalo tree at
-# DIR (X.Y.Z | X.Y.Z-(alpha|beta|rc).N | X.Y.Z.dev). Never fails on odd evidence
-# (it says .dev, as the engine does); status 1 only when DIR declares no version.
+# DIR (X.Y.Z | X.Y.Z-(alpha|beta|rc).N | X.Y.Z-dev). Never fails on odd evidence
+# (it says -dev, as the engine does); status 1 only when DIR declares no version.
+# An UNTAGGED tree is named by the NEXT triple (dedalo_checkout_next_dev); a tag
+# names its own release, which must not be below the DATA triple it runs on.
 dedalo_release_identity() {
-	local dir="${1-}" triple='' line='' describe='' evidence='none' legacy='false' tagged=''
+	local dir="${1-}" triple='' next='' line='' describe='' evidence='none' legacy='false' tagged=''
 	triple="$(dedalo_checkout_version "$dir")" || return 1
 	triple="$(dedalo_canonical_triple "$triple")"
+	next="$(dedalo_checkout_next_dev "$dir")" || next="$triple"
+	next="$(dedalo_canonical_triple "$next")"
 	line="$(dedalo_stamp_line "$dir/$DEDALO_BUILD_INFO")"
 	if [[ "$line" =~ $DEDALO_DESCRIBED_STAMP_RE ]]; then
 		describe="${line#* }"     # drop the sha…
@@ -431,24 +443,49 @@ dedalo_release_identity() {
 		if [ "$legacy" = 'true' ] && [ "$(dedalo_install_channel "$dir")" != 'dev' ]; then
 			printf '%s' "$triple"
 		else
-			printf '%s.dev' "$triple"
+			printf '%s-dev' "$next"
 		fi
 		return 0
 	fi
 	if tagged="$(dedalo_release_tag_version "$describe")" &&
-		[ "$(dedalo_version_triple "$tagged")" = "$triple" ]; then
+		[ "$(dedalo_triple_cmp "$(dedalo_version_triple "$tagged")" "$triple")" -ge 0 ]; then
 		printf '%s' "$tagged"
 	else
-		printf '%s.dev' "$triple"
+		printf '%s-dev' "$next"
 	fi
+}
+
+# dedalo_triple_cmp A B — -1, 0 or 1 between two canonical X.Y.Z triples.
+dedalo_triple_cmp() {
+	local a1='' a2='' a3='' b1='' b2='' b3='' order=0
+	IFS=. read -r a1 a2 a3 <<<"$1"
+	IFS=. read -r b1 b2 b3 <<<"$2"
+	for order in "$(dedalo_number_cmp "$a1" "$b1")" "$(dedalo_number_cmp "$a2" "$b2")" "$(dedalo_number_cmp "$a3" "$b3")"; do
+		if [ "$order" != 0 ]; then
+			echo "$order"
+			return 0
+		fi
+	done
+	echo 0
 }
 
 # dedalo_canonical_triple X.Y.Z — the triple as numbers (`07` → `7`): the engine
 # reads version.ts's literals as numbers, so a tag compares against those.
+# The leading zeros are stripped as TEXT, never by arithmetic: `$((10#…))` wraps a
+# component past 2^63 (99999999999999999999 → 7766279631452241919) and the triple
+# would name another release.
 dedalo_canonical_triple() {
 	local a='' b='' c=''
 	IFS=. read -r a b c <<<"$1"
-	printf '%s.%s.%s' "$((10#$a))" "$((10#$b))" "$((10#$c))"
+	printf '%s.%s.%s' "$(dedalo_strip_zeros "$a")" "$(dedalo_strip_zeros "$b")" "$(dedalo_strip_zeros "$c")"
+}
+
+# dedalo_strip_zeros DIGITS — the same digits with leading zeros removed (`007` → `7`,
+# `0` stays `0`). Text only: the value is never converted to a number.
+dedalo_strip_zeros() {
+	local digits="$1"
+	while [ "${#digits}" -gt 1 ] && [ "${digits:0:1}" = 0 ]; do digits="${digits:1}"; done
+	printf '%s' "$digits"
 }
 
 # dedalo_stamp_line FILE — the stamp's first line as parseBuildInfo reads it:
@@ -536,9 +573,9 @@ dedalo_checkout_describe() {
 # the production route use: committed files only (an uncommitted edit, an
 # untracked file, .dedalo.env, deploy/certs never travel) and build_info.txt
 # arrives EXPANDED (export-subst), so the engine reports the version the image
-# is tagged with — never `X.Y.Z.dev` under an `:X.Y.Z` tag. A build straight
+# is tagged with — never `X.Y.Z-dev` under an `:X.Y.Z` tag. A build straight
 # from the checkout (`compose … -f deploy/compose.build.yml build`) reads the
-# working tree and its unexpanded `$Format:` placeholder: it reports `.dev`.
+# working tree and its unexpanded `$Format:` placeholder: it reports `-dev`.
 
 # The snapshot's directory, inside the checkout's run dir (STACK_RUN_DIR,
 # src/core/install/host/layout.ts — git-ignored and docker-ignored).
@@ -611,11 +648,16 @@ dedalo_tag_part() {
 # its own (dedalo_image_labels over the snapshot), never the base image's. A TAG
 # that names another release than the snapshot's identity is BUILT (the tag is
 # the operator's name for it) but SAID: the label tells the truth. Status: 0
-# built, 1 failed, 2 usage, 3 refused (no git — the sentence on stderr).
+# built, 1 failed, 2 usage, 3 refused (no git, or a -dev tag — the sentence on stderr).
 dedalo_image_build() {
 	local checkout="${1-}" tag="${2-}" docker="${3:-docker}" dir='' status=0 line='' label='' named=''
 	local labels=()
 	[ -n "$checkout" ] && [ -n "$tag" ] || return 2
+	# Docker has no nightly images (VERSIONING_SPEC §2, S3): no -dev tag is ever built.
+	if dedalo_is_dev_tag "$(dedalo_tag_part "$tag")"; then
+		printf 'refused: %s is a developer tag — Docker has no nightly images, so no image is built for it\n' "$tag" >&2
+		return 3
+	fi
 	if ! dedalo_is_checkout "$checkout"; then
 		dedalo_no_checkout_sentence "$checkout" >&2
 		printf '\n' >&2

@@ -45,7 +45,7 @@
 import { BODY_SESSION_STATE, DO_BLOCK, stripSqlLiterals } from '../db/sql_lexer.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { SCRIPT_REGISTRY } from './scripts.ts';
-import { compareVersionArrays } from './version.ts';
+import { compareVersionArrays, DATA_LINE_START } from './version.ts';
 
 /** One catalog script step (PHP run_scripts entry). */
 export interface UpdateScriptStep {
@@ -88,8 +88,11 @@ export interface DataUpdateDescriptor extends UpdateDescriptorVersion {
 export type UpdateDescriptor = CodeOnlyUpdateDescriptor | DataUpdateDescriptor;
 
 /**
- * The catalog, keyed by concatenated target version (PHP `$updates->700`
- * convention: '701' = 7.0.1).
+ * The catalog, keyed by the target version as a DOTTED triple: `'7.0.1'` names
+ * 7.0.1, `'7.11.1'` names 7.11.1 (VERSIONING_SPEC §4 rule 3, D5). A concatenated
+ * key cannot say which release it names: `'7110'` is both 7.1.10 and 7.11.0. The
+ * key must equal the entry's own triple (validateUpdateDescriptor refuses a
+ * mismatch).
  *
  * ⚠️ EVERY CODE RELEASE NEEDS A DESCRIPTOR HERE, even when it carries NO data
  * migration (`updateData: false`): `src/core/update/code_manifest.ts`
@@ -99,7 +102,7 @@ export type UpdateDescriptor = CodeOnlyUpdateDescriptor | DataUpdateDescriptor;
  * invisible from here, which is exactly why this comment exists.
  */
 export const UPDATE_CATALOG: Readonly<Record<string, UpdateDescriptor>> = Object.freeze({
-	'701': {
+	'7.0.1': {
 		versionMajor: 7,
 		versionMedium: 0,
 		versionMinor: 1,
@@ -119,9 +122,45 @@ export const UPDATE_CATALOG: Readonly<Record<string, UpdateDescriptor>> = Object
 	// Ratcheted by catalogRungIsReachable in test/unit/code_update.test.ts.
 } satisfies Record<string, UpdateDescriptor>);
 
-/** Key for a descriptor's target version (PHP implode('', [7,0,1]) = '701'). */
+/** Key for a descriptor's target version: the dotted triple (`'7.0.1'`). */
 export function catalogKeyOf(descriptor: UpdateDescriptorVersion): string {
-	return `${descriptor.versionMajor}${descriptor.versionMedium}${descriptor.versionMinor}`;
+	return `${descriptor.versionMajor}.${descriptor.versionMedium}.${descriptor.versionMinor}`;
+}
+
+// DATA_LINE_START (the first data version of the line) lives in version.ts: a
+// version literal belongs there only (update_ownership_tripwire). Re-exported here.
+export { DATA_LINE_START } from './version.ts';
+
+/**
+ * The data version a build derives from the catalog (VERSIONING_SPEC §4, D2/D4 b):
+ * the highest `updateData: true` entry BELOW the build's next release, plus the
+ * entry AT that release only when the build IS that release tagged (`tagged`).
+ * An untagged nightly of the next release never moves the data version: its
+ * unreleased entry waits for the tag. No such entry → the line start.
+ */
+export function dataVersionOf(
+	catalog: Readonly<Record<string, UpdateDescriptor>>,
+	next: readonly number[],
+	tagged: boolean,
+): number[] {
+	let best: number[] = [...DATA_LINE_START];
+	for (const descriptor of Object.values(catalog)) {
+		if (!isDataDescriptor(descriptor)) continue;
+		const triple = [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
+		if (!isDataVersionCandidate(triple, next, tagged)) continue;
+		if (compareVersionArrays(triple, best) > 0) best = triple;
+	}
+	return best;
+}
+
+/** Whether an entry's triple may set the data version of a build at `next` (see dataVersionOf). */
+function isDataVersionCandidate(
+	triple: number[],
+	next: readonly number[],
+	tagged: boolean,
+): boolean {
+	const order = compareVersionArrays(triple, next);
+	return order < 0 || (order === 0 && tagged);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +446,43 @@ function versionViolations(key: string, record: Record<string, unknown>): Descri
 			];
 }
 
+/**
+ * DATA RULE (2026-10-25): a data migration rides a MINOR or MAJOR release only.
+ * A patch (versionMinor > 0) is code-only by construction — its data triple is
+ * the minor it was cut from — so a data descriptor keyed on a patch would run
+ * SQL the release identity never declared. Refused here at module load and in
+ * the engine preflight; the gate is update_descriptor_tripwire.test.ts.
+ */
+function dataPlacementViolations(record: Record<string, unknown>): DescriptorViolation[] {
+	const minor = record.versionMinor;
+	return typeof minor === 'number' && minor !== 0
+		? refused(
+				'data_on_patch',
+				`a data descriptor belongs to a minor or major release, not patch ${record.versionMajor}.${record.versionMedium}.${minor}`,
+			)
+		: [];
+}
+
+/**
+ * A data descriptor must apply something: `updateData: true` with no
+ * `sqlUpdate` and no `runScripts` (absent or empty) would advance the data
+ * version while changing nothing. Refused at module load.
+ */
+function steplessDataViolations(record: Record<string, unknown>): DescriptorViolation[] {
+	const count = stepCount(record.sqlUpdate) + stepCount(record.runScripts);
+	return count === 0
+		? refused(
+				'data_without_steps',
+				'a data descriptor (updateData: true) carries no sqlUpdate and no runScripts: it would change nothing',
+			)
+		: [];
+}
+
+/** The number of entries of a step list (a non-list counts as none; its own rule refuses it). */
+function stepCount(steps: unknown): number {
+	return Array.isArray(steps) ? steps.length : 0;
+}
+
 /** A code-only release carries no steps. */
 function codeOnlyViolations(record: Record<string, unknown>): DescriptorViolation[] {
 	const steps = ['sqlUpdate', 'runScripts', 'executionOrder'].filter((name) => name in record);
@@ -434,6 +510,8 @@ export function validateUpdateDescriptor(
 	const scriptIds = knownScriptIds instanceof Set ? knownScriptIds : new Set(knownScriptIds);
 	return [
 		...head,
+		...dataPlacementViolations(record),
+		...steplessDataViolations(record),
 		...sqlUpdateViolations(record.sqlUpdate),
 		...executionOrderViolations(record),
 		...scriptViolations(record.runScripts, scriptIds),
@@ -508,7 +586,7 @@ export function getMatchedDescriptor(
 ): DataUpdateDescriptor | null {
 	const target = getUpdateVersion(current, catalog);
 	if (target === null) return null;
-	const descriptor = catalog[`${target[0]}${target[1]}${target[2]}`];
+	const descriptor = catalog[target.join('.')];
 	return descriptor !== undefined && isDataDescriptor(descriptor) ? descriptor : null;
 }
 

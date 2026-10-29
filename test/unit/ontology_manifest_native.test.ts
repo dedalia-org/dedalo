@@ -40,7 +40,7 @@ import {
 	buildOntologyPackage,
 	type FixtureOntologyTld,
 } from '../../src/core/test_data/ontology_package_fixture.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
 import { absentScratchPath } from '../helpers/scratch_dir.ts';
 
@@ -177,7 +177,7 @@ describe('fetchOntologyManifest — a configured master, through the bounded tra
 		const before = received.length;
 		const result = await fetchFrom('ok');
 		if (!result.ok) throw new Error(result.reason);
-		expect(result.version).toBe(DEDALO_VERSION);
+		expect(result.version).toBe(formatVersion(DEDALO_DATA_VERSION));
 		expect(result.ontologies.map((entry) => [entry.tld, entry.dependencies])).toEqual([
 			[
 				'zzma',
@@ -212,7 +212,7 @@ describe('fetchOntologyManifest — a configured master, through the bounded tra
 		expect(received.at(-1)?.body).toEqual({
 			dd_api: 'dd_utils_api',
 			action: 'get_ontology_update_info',
-			options: { version: DEDALO_VERSION, code: 'zzmcode' },
+			options: { version: formatVersion(DEDALO_DATA_VERSION), code: 'zzmcode' },
 		});
 	});
 

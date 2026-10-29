@@ -305,7 +305,9 @@ PIN=$(cat "$SRC/.bun-version")
 /usr/bin/git -C "$REL/tree" checkout "v$V"
 ```
 
-The archive step below leaves `.git` out of the release, so an instance built from a checkout reports its version as `<version>.dev`, with no build date, on `/health`, the login page and the Maintenance panel: only a published archive carries the build stamp. It runs the same code. `install_digest` on `/health` is `null` on every new install, the installer's included: it names the archive an in-app code update installed, and none has run yet. The archive holds the tree either at its top level or in one top-level directory; `SRC` is wherever `scripts/install.ts` is. Keep `$REL` until [`host_selinux`](#manual-host_selinux): the units and the policy module are copied from it, never from the instance's own tree.
+The archive step below leaves `.git` out of the release, so an instance built from a checkout reports its version as `<version>-dev`, with no build date, on `/health`, the login page and the Maintenance panel: only a published archive carries the build stamp. It runs the same code. `install_digest` on `/health` is `null` on every new install, the installer's included: it names the archive an in-app code update installed, and none has run yet. The archive holds the tree either at its top level or in one top-level directory; `SRC` is wherever `scripts/install.ts` is. Keep `$REL` until [`host_selinux`](#manual-host_selinux): the units and the policy module are copied from it, never from the instance's own tree.
+
+A manual install is a tree, not a container image, so it is the one route that can follow a developer build: the nightly (`<next>-dev`) reaches a production or dev installation as a tree archive through the code update path, never as a docker image. A container installation runs tagged releases only (stable or beta tags), because docker images are immutable and the dev channel publishes none.
 
 **Bun**, at the release's pin, root-owned. It comes only from a zip whose sha256 is the release's committed row in `.bun-sha256`, checked before it is unpacked:
 

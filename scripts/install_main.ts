@@ -285,14 +285,45 @@ async function statusAnswer(): Promise<StatusAnswer> {
 }
 
 /**
+ * The host record of a docker / trial install (F6): the stack's record in the
+ * checkout (host/stack/…, `<checkout>/.dedalo-install/`) that the host run writes
+ * and resumes. The engine's own record lives in the container's private volume,
+ * which this process cannot see — so the host answer reads the host record, the
+ * one `--resume` reads, and says what that record says.
+ */
+async function hostStatusAnswer(given: InstallAnswers): Promise<StatusAnswer> {
+	const { hostRunDirOf, readHostRecord } = await import(
+		'../src/core/install/host/host_executor.ts'
+	);
+	const { secretsNeeded } = await import('../src/core/install/steps.ts');
+	const record = readHostRecord(given);
+	const state = record?.state ?? null;
+	const failed = Object.entries(state?.steps ?? {}).find(([, step]) => step.status === 'failed');
+	const holder = liveLockHolder(hostRunDirOf(given));
+	return {
+		exists: state !== null,
+		outcome: state?.outcome ?? null,
+		failed_step: failed?.[0] ?? null,
+		needs: record === null || state === null ? [] : secretsNeeded(record.plan, state),
+		salt_generated: state?.created?.salt_generated === true,
+		running: holder === null ? null : { pid: holder.pid, started_at: holder.started_at },
+	};
+}
+
+/**
  * --status [--json]: the saved record of THIS process's private dir, then exit
  * — config-free (the run files only). What a host route's host_engine step
- * reads (as the instance user) instead of reading another user's tree.
+ * reads (as the instance user) instead of reading another user's tree. On the
+ * docker and trial routes the answer is the stack's host record (hostStatusAnswer).
  */
 async function printStatus(): Promise<never> {
 	let answer: StatusAnswer;
 	try {
-		answer = await statusAnswer();
+		const given = normalizeInstallAnswers(invocation.raw).answers;
+		answer =
+			given.route === 'docker' || given.route === 'trial'
+				? await hostStatusAnswer(given)
+				: await statusAnswer();
 	} catch (error) {
 		console.error(`✖ ${(error as Error).message}`);
 		process.exit(1);
@@ -866,7 +897,7 @@ async function hostContinue(request: ContinueRequest, given: InstallAnswers): Pr
 		// Only what a remaining step still needs — the engine child is asked (C3-51); asked
 		// only when this run may prompt at all (the child's answer costs a process).
 		if (canPromptSecrets())
-			await promptSecrets(await hostResumeSecrets(given), secrets, request.prompter);
+			await promptSecrets(await hostResumeSecrets(given), secrets, request.prompter, false);
 		request.reporter.prepare?.();
 	}
 	await beginSteps(request.reporter, record.plan);
@@ -930,15 +961,17 @@ async function headlessPrompter(): Promise<InstallPrompter | null> {
 }
 
 /**
- * Ask the missing `keys` on the terminal (hidden, twice; the root password held
- * to the policy, rule by rule) — on the interactive session's prompter when
- * there is one (the full-screen UI asks a resume's secrets itself). Nothing is
- * asked when the run may not prompt.
+ * Ask the missing `keys` on the terminal (the root password held to the policy,
+ * rule by rule; hidden, and twice unless `confirm` is false — a resume asks a
+ * password the install already set, once) — on the interactive session's
+ * prompter when there is one (the full-screen UI asks a resume's secrets
+ * itself). Nothing is asked when the run may not prompt.
  */
 async function promptSecrets(
 	keys: readonly SecretKey[],
 	into: Secrets,
 	given?: InstallPrompter,
+	confirm = true,
 ): Promise<void> {
 	const missing = keys.filter((key) => (into[key] ?? '') === '');
 	if (missing.length === 0 || !canPromptSecrets()) return;
@@ -962,6 +995,7 @@ async function promptSecrets(
 				errors: [],
 			},
 			key === 'root_password' ? passwordFeedback : undefined,
+			{ confirm },
 		);
 		if (isNav(answer)) fail('stopped at the password prompt — nothing was written');
 		into[key] = answer;
@@ -1007,6 +1041,8 @@ async function productionPlanChecks(
 async function freshInstall(interactive?: InteractiveRun): Promise<never> {
 	const reporter = interactive?.reporter ?? headlessReporter();
 	if (interactive === undefined && !invocation.planOnly) {
+		// A refused flag combination (or any parse error) is refused BEFORE the first prompt.
+		if (parseErrors.length > 0) fail(parseErrors.join('; '));
 		await promptSecrets(['root_password'], secrets);
 	}
 	// A HOST route (phase 4): its own config-free path — never the engine environment here.

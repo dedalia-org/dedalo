@@ -49,6 +49,11 @@ import {
 	type InstallPlan,
 } from '../../src/core/install/install_plan.ts';
 import { BASE_ARGV } from '../helpers/install_answer_cases.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
+
+// The installer's release identity is the checkout's: a dev checkout names no image,
+// so these cases are written for a STABLE installer (test/helpers/installer_identity.ts).
+pinInstallerIdentity(PINNED_IDENTITY.stable);
 
 const ROOT = resolve(import.meta.dir, '../..');
 const scratch = mkdtempSync(join(tmpdir(), 'dedalo_dev_deps_'));

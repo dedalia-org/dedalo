@@ -1,5 +1,5 @@
 {
-	"about": "THE IDENTITY WALK truth table (RELEASE_IDENTITY design §2.8 item 3, gate 15). One fixture, three readers: version_walk.ts identityWalkRefusal (the rule every door asks), the image-update channel CLI check-target run from an engine tree that calls itself `running` (test/helpers/engine_cli_tree.ts), and the client's post-restart verdict (update_code_phases.js resolve_health_outcome: a legal walk to a named identity must tell the new tree from the rolled-back one). `verdict` is null (legal) or the WalkRefusal id. `offered` (optional) is what a manifest lists for the target's rung — only the manifest knows it, so the CLI reader skips those rows. A developer-build target is written `X.Y.Z.dev`; the CLI reader asks it as the image tag `X.Y.Z-dev`.",
+	"about": "THE IDENTITY WALK truth table (RELEASE_IDENTITY design §2.8 item 3, gate 15). One fixture, three readers: version_walk.ts identityWalkRefusal (the rule every door asks), the image-update channel CLI check-target run from an engine tree that calls itself `running` (test/helpers/engine_cli_tree.ts), and the client's post-restart verdict (update_code_phases.js resolve_health_outcome: a legal walk to a named identity must tell the new tree from the rolled-back one). `verdict` is null (legal) or the WalkRefusal id. `offered` (optional) is what a manifest lists for the target's rung — only the manifest knows it, so the CLI reader skips those rows. A developer-build identity is written `X.Y.Z-dev` (the same spelling as its image tag, which the CLI reader asks as-is; the retired `X.Y.Z.dev` is no identity).",
 	"rows": [
 		{
 			"name": "beta.6 → beta.7 (same triple, no rung)",
@@ -142,78 +142,85 @@
 			"verdict": "version_skip"
 		},
 		{
-			"name": "dev keeps its same-triple exception (a release)",
+			"name": "a release does not walk back to the developer build of its own triple (7.0.0-dev < 7.0.0)",
 			"running": "7.0.0",
-			"target": "7.0.0.dev",
+			"target": "7.0.0-dev",
 			"channel": "dev",
-			"verdict": null
+			"verdict": "not_newer_release"
 		},
 		{
-			"name": "dev keeps its same-triple exception (a prerelease)",
+			"name": "a prerelease walks to the developer build of its triple (dev sorts above every prerelease of it)",
 			"running": "7.0.0-beta.6",
-			"target": "7.0.0.dev",
+			"target": "7.0.0-dev",
 			"channel": "dev",
 			"verdict": null
 		},
 		{
 			"name": "a developer build off the dev channel",
-			"running": "7.0.0",
-			"target": "7.0.0.dev",
+			"running": "7.0.0-rc.2",
+			"target": "7.0.0-dev",
 			"channel": "master",
 			"verdict": "channel_refused"
 		},
 		{
 			"name": "a developer build of the next rung",
 			"running": "7.0.0",
-			"target": "7.0.1.dev",
+			"target": "7.0.1-dev",
 			"channel": "dev",
 			"verdict": null
 		},
 		{
 			"name": "a developer build skipping a rung",
 			"running": "7.0.0",
-			"target": "7.0.2.dev",
+			"target": "7.0.2-dev",
 			"channel": "dev",
 			"verdict": "version_skip"
 		},
 		{
-			"name": "a RUNNING developer build returns to any release of its triple on the dev channel",
-			"running": "7.0.0.dev",
+			"name": "a RUNNING developer build moves to the stable release of its triple on the dev channel",
+			"running": "7.0.0-dev",
 			"target": "7.0.0",
 			"channel": "dev",
 			"verdict": null
 		},
 		{
-			"name": "a RUNNING developer build moves to a prerelease of its triple on the dev channel",
-			"running": "7.0.0.dev",
+			"name": "a RUNNING developer build does not step back to a prerelease of its triple (dev sorts above it)",
+			"running": "7.0.0-dev",
 			"target": "7.0.0-beta.7",
 			"channel": "dev",
-			"verdict": null
-		},
-		{
-			"name": "off the dev channel a RUNNING .dev is its bare triple: the same release is not newer",
-			"running": "7.0.1.dev",
-			"target": "7.0.1",
-			"channel": "master",
 			"verdict": "not_newer_release"
 		},
 		{
-			"name": "off the dev channel a RUNNING .dev is its bare triple: a prerelease of it is older",
-			"running": "7.0.1.dev",
+			"name": "a RUNNING developer build is offered the stable release of its triple (7.0.1-dev < 7.0.1)",
+			"running": "7.0.1-dev",
+			"target": "7.0.1",
+			"channel": "master",
+			"verdict": null
+		},
+		{
+			"name": "a RUNNING developer build is above every prerelease of its triple (7.0.1-beta.1 < 7.0.1-dev)",
+			"running": "7.0.1-dev",
 			"target": "7.0.1-beta.1",
 			"channel": "prerelease",
 			"verdict": "not_newer_release"
 		},
 		{
-			"name": "off the dev channel a RUNNING .dev still walks to the next rung",
-			"running": "7.0.0.dev",
+			"name": "a developer install reinstalls the SAME developer identity on the dev channel (the dev archive is rebuilt in place: a legal same-identity move)",
+			"running": "7.0.1-dev",
+			"target": "7.0.1-dev",
+			"channel": "dev",
+			"verdict": null
+		},
+		{
+			"name": "off the dev channel a RUNNING developer build still walks to the next rung",
+			"running": "7.0.0-dev",
 			"target": "7.0.1",
 			"channel": "master",
 			"verdict": null
 		},
 		{
 			"name": "a RUNNING developer build still walks the data rungs",
-			"running": "7.0.0.dev",
+			"running": "7.0.0-dev",
 			"target": "7.0.2",
 			"channel": "master",
 			"verdict": "version_skip"

@@ -17,7 +17,7 @@
  *     parseReleaseVersion accepts; the two spellings map as imageTagOf maps them.
  *  C. ORDER — dedalo_identity_cmp is driven by test/fixtures/release_identity/
  *     ordering.json, the SAME file the engine's and the changelog's comparators
- *     are held to: every ascending pair both ways, the .dev equalities, every
+ *     are held to: every ascending pair both ways, each dev identity strictly below its stable, every
  *     non-identity refused (status 2). dedalo_version_cmp orders image tags as
  *     their identities.
  *  D. deploy/deploy.sh (design map, deploy.sh:83-84) refuses a release ref the
@@ -57,7 +57,12 @@ const REPO_ROOT = join(import.meta.dir, '..', '..');
 const LIB = join(REPO_ROOT, 'deploy', 'dedalo-image-lib.sh');
 const ORDERING = JSON.parse(
 	readFileSync(join(REPO_ROOT, 'test', 'fixtures', 'release_identity', 'ordering.json'), 'utf8'),
-) as { ascending: string[]; equal_dev: [string, string][]; not_identities: string[] };
+) as {
+	ascending: string[];
+	dev: string[];
+	dev_below_stable: [string, string][];
+	not_identities: string[];
+};
 
 const SCRATCH = mkdtempSync(join(tmpdir(), 'dedalo-identity-shell-'));
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
@@ -207,13 +212,13 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		const expected = new Map<string, string>([
 			['legacy stamp, unstamped install', '7.0.0'],
 			['legacy stamp, master channel', '7.0.0'],
-			['legacy stamp, dev channel', '7.0.0.dev'],
+			['legacy stamp, dev channel', '7.0.0-dev'],
 			['legacy stamp, a dev stamp whose digest is not trusted', '7.0.0'],
-			['untagged three-field stamp (the trailing space), master channel', '7.0.0.dev'],
+			['untagged three-field stamp (the trailing space), master channel', '7.0.0-dev'],
 			['exact tag, DEV channel (Q5: the tag wins)', '7.0.0-rc.2'],
-			['an old git left the describe field unexpanded', '7.0.0.dev'],
+			['an old git left the describe field unexpanded', '7.0.0-dev'],
 			['leading blank lines and a CRLF', '7.0.0'],
-			['malformed stamp', '7.0.0.dev'],
+			['malformed stamp', '7.0.0-dev'],
 		]);
 		for (const [name, stamp, channel] of cases) {
 			test(`${name} → ${expected.get(name)}`, async () => {
@@ -239,8 +244,8 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		mkdirSync(join(tree, 'src', 'core', 'update'), { recursive: true });
 		writeFileSync(join(tree, BUILD_INFO_PATH), REAL_PLACEHOLDER);
 		writeFileSync(join(tree, VERSION_TS_PATH), versionTsOf(TRIPLE));
-		expect((await engineIdentity(tree)).version).toBe('7.0.0.dev');
-		expect(shellIdentity(tree)).toBe('7.0.0.dev');
+		expect((await engineIdentity(tree)).version).toBe('7.0.0-dev');
+		expect(shellIdentity(tree)).toBe('7.0.0-dev');
 	});
 
 	test('a tree that declares no version is refused (status 1), never given an identity', () => {
@@ -254,7 +259,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		expect(shellIdentity(repo, { PATH: NO_GIT_PATH })).toBe(
 			(await engineIdentity(repo, join(SCRATCH, 'no-such-git'))).version,
 		);
-		expect(shellIdentity(repo, { PATH: NO_GIT_PATH })).toBe('7.0.0.dev');
+		expect(shellIdentity(repo, { PATH: NO_GIT_PATH })).toBe('7.0.0-dev');
 	});
 
 	test('a git that never answers is BOUNDED (≈ 3 s): .dev, even when it leaves a grandchild holding its pipes', () => {
@@ -268,7 +273,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		chmodSync(join(bin, 'git'), 0o755);
 		const started = performance.now();
 		try {
-			expect(shellIdentity(repo, { PATH: `${bin}:${NO_GIT_PATH}` })).toBe('7.0.0.dev');
+			expect(shellIdentity(repo, { PATH: `${bin}:${NO_GIT_PATH}` })).toBe('7.0.0-dev');
 			const elapsed = performance.now() - started;
 			expect(elapsed).toBeGreaterThanOrEqual(2900);
 			expect(elapsed).toBeLessThan(7000);
@@ -285,7 +290,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		const tagged = trees.repoWith('foreign_tagged', [{ tag: 'v7.0.0', annotated: true }]);
 		const untagged = trees.repoWith('own_untagged', []);
 		expect(shellIdentity(untagged, { GIT_DIR: join(tagged, '.git'), GIT_WORK_TREE: tagged })).toBe(
-			'7.0.0.dev',
+			'7.0.0-dev',
 		);
 		expect(shellIdentity(tagged, { GIT_DIR: join(untagged, '.git') })).toBe('7.0.0');
 	});
@@ -307,7 +312,7 @@ describe('A. dedalo_release_identity ≡ readReleaseIdentityOf over the shared t
 		);
 		chmodSync(join(bin, 'git'), 0o755);
 		const env = { PATH: `${bin}:${NO_GIT_PATH}`, LANG: 'es_ES.UTF-8', LC_ALL: 'es_ES.UTF-8' };
-		expect(shellIdentity(repo, env)).toBe('7.0.0.dev');
+		expect(shellIdentity(repo, env)).toBe('7.0.0-dev');
 		// the lookup ran in the C locale: the stub saw it and answered in English
 		const said = bash('dedalo_checkout_describe "$1"; echo "status=$?"', { args: [repo], env });
 		expect(said.stdout).toBe('status=0\n');
@@ -323,7 +328,7 @@ const CORPUS = [
 	...new Set([
 		...ORDERING.ascending,
 		...ORDERING.not_identities,
-		...ORDERING.equal_dev.flat(),
+		...ORDERING.dev_below_stable.flat(),
 		...ORDERING.ascending.map((v) => `${v}-dev`),
 		...ORDERING.ascending.map((v) => `${v}.dev`),
 		'7.0.0-dev',
@@ -386,7 +391,7 @@ describe('B. the grammars are the engine grammars', () => {
 	test('the spellings: dedalo_image_tag_of ≡ imageTagOf, dedalo_identity_of_tag ≡ identityOfImageTag', () => {
 		const identities = CORPUS.filter((v) => parseReleaseVersion(v) !== null);
 		const tags = CORPUS.filter((v) => identityOfImageTag(v) !== null);
-		expect(identities.some((v) => v.endsWith('.dev'))).toBe(true);
+		expect(identities.some((v) => v.endsWith('-dev'))).toBe(true);
 		expect(tags.some((v) => v.endsWith('-dev'))).toBe(true);
 		const run = bash(
 			'for v in $1; do printf "%s\\n" "$(dedalo_image_tag_of "$v")"; done; echo --; for v in $2; do printf "%s\\n" "$(dedalo_identity_of_tag "$v")"; done',
@@ -408,7 +413,7 @@ describe('B. the grammars are the engine grammars', () => {
 			'7.0.1-rc.2',
 			'7.0.0-alpha.0',
 			'7.0.0-dev',
-			'7.0.0.dev',
+			'7.0.0.dev', // the retired spelling: refused
 			'7.0.0-pre.1',
 			'7.0.0-beta',
 			'07.0.0',
@@ -475,15 +480,16 @@ describe('C. semver order: dedalo_identity_cmp is held to ordering.json', () => 
 		});
 	});
 
-	test('a .dev identity compares as its triple (both ways)', () => {
-		const devPairs = ORDERING.equal_dev.flatMap(([dev, stable]) => [
+	test('a dev identity sorts strictly BELOW the stable of its triple (both ways)', () => {
+		const devPairs = ORDERING.dev_below_stable.flatMap(([dev, stable]) => [
 			[dev, stable] as [string, string],
 			[stable, dev] as [string, string],
 		]);
 		expect(devPairs.length).toBeGreaterThan(0);
-		for (const result of bashOrders('dedalo_identity_cmp', devPairs)) {
-			expect(result).toEqual({ order: '0', status: 0 });
-		}
+		// the pairs alternate dev-first (-1) and stable-first (1)
+		bashOrders('dedalo_identity_cmp', devPairs).forEach((result, k) => {
+			expect(result).toEqual({ order: k % 2 === 0 ? '-1' : '1', status: 0 });
+		});
 	});
 
 	test('every non-identity is REFUSED (status 2, no order printed) — on either side', () => {
@@ -500,7 +506,9 @@ describe('C. semver order: dedalo_identity_cmp is held to ordering.json', () => 
 	test('dedalo_version_cmp orders IMAGE TAGS as the identities they name (imageTagOf of the fixture)', () => {
 		const tagPairs: [string, string][] = [
 			...pairs.map(([a, b]) => [imageTagOf(a), imageTagOf(b)] as [string, string]),
-			...ORDERING.equal_dev.map(([dev, stable]) => [imageTagOf(dev), stable] as [string, string]),
+			...ORDERING.dev_below_stable.map(
+				([dev, stable]) => [imageTagOf(dev), stable] as [string, string],
+			),
 		];
 		const results = bashOrders('dedalo_version_cmp', tagPairs);
 		tagPairs.forEach(([a, b], k) => {
@@ -595,7 +603,7 @@ describe('D. deploy.sh refuses a release ref the tree cannot call itself, before
 		expect(result.restarted).toContain('systemctl restart');
 	});
 
-	test('a LIGHTWEIGHT release tag (the engine would run as 7.0.1.dev) is refused: nothing restarted, the checkout returned', () => {
+	test('a LIGHTWEIGHT release tag (the engine would run as 7.0.1-dev) is refused: nothing restarted, the checkout returned', () => {
 		const fixture = deployFixture();
 		const before = trees.git(fixture.repo, 'rev-parse', 'HEAD');
 		trees.git(fixture.repo, 'commit', '-q', '--allow-empty', '-m', 'later');
@@ -603,16 +611,16 @@ describe('D. deploy.sh refuses a release ref the tree cannot call itself, before
 		trees.git(fixture.repo, 'checkout', '-q', '--detach', before);
 		const result = deploy(fixture, 'v7.0.1');
 		expect(result.code).toBe(1);
-		expect(result.out).toContain('it says 7.0.1.dev');
+		expect(result.out).toContain('it says 7.0.1-dev');
 		expect(result.restarted).toBe('');
 		expect(result.head).toBe(before);
 	});
 
-	test('a branch is not a release ref: deployed, named by its .dev identity', () => {
+	test('a branch is not a release ref: deployed, named by its -dev identity', () => {
 		const fixture = deployFixture();
 		trees.git(fixture.repo, 'branch', 'feature-x');
 		const result = deploy(fixture, 'feature-x');
 		expect(result.code, result.out).toBe(0);
-		expect(result.out).toContain('feature-x is release identity 7.0.1.dev');
+		expect(result.out).toContain('feature-x is release identity 7.0.1-dev');
 	});
 });

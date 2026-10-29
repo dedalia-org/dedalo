@@ -65,7 +65,7 @@ import {
 	announceRetiredProperties,
 	resetRetiredPropertyAnnouncements,
 } from '../../src/core/ontology/retired_property_notice.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 import {
 	FAKE_BASE_ANSWERS,
 	type FakeTable,
@@ -476,7 +476,7 @@ describe('executor — resume', () => {
 			writeFileSync(planPath, JSON.stringify(otherEngine));
 			writeFileSync(join(runDirOf(dir), STATE_FILE), JSON.stringify(state));
 			expect((await resume()).message).toContain(
-				`plan was written by engine 0.0.1; this is ${DEDALO_VERSION}`,
+				`plan was written by engine 0.0.1; this is ${formatVersion(DEDALO_DATA_VERSION)}`,
 			);
 
 			writeFileSync(planPath, original);

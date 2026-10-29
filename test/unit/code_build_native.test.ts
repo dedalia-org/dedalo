@@ -28,7 +28,11 @@ import {
 	releaseTagVersion,
 } from '../../src/core/update/code_build_plan.ts';
 import { MIN_GIT_FOR_DESCRIBE } from '../../src/core/update/release_identity.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../../src/core/update/version.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 // Snapshot the REAL config module ONCE at top level: mock.restore() does NOT
@@ -233,25 +237,32 @@ describe('planCodeBuild — version guard', () => {
 		expect(defaulted.ref).toBe('refs/tags/v7.0.1');
 	});
 
-	// FOUND, NOT FIXED (moved faithfully): `parseVersionString` maps segments
-	// through `Number`, which coerces '' → 0 and trims whitespace. So sloppy
-	// version strings are silently ACCEPTED and normalised. Pinned here so the
-	// quirk cannot change unnoticed; it is not exploitable — the release path is
-	// rebuilt from the parsed integer triple, never from the raw input.
-	for (const [sloppy, normalised] of [
-		['7..1', '7.0.1'],
-		['7. 0 .1', '7.0.1'],
-		['7.0.1e0', '7.0.1'],
-	] as const) {
-		test(`quirk: ${JSON.stringify(sloppy)} is accepted and normalised to ${normalised}`, () => {
-			// explicit ref: some of these sloppy strings are not valid git refs,
-			// and the ref gate would otherwise mask the version behaviour.
+	// Sloppy version strings are REFUSED (the quirk that accepted them — Number('')
+	// is 0 — was closed: parseVersionString yields a NaN part, which the version
+	// guard refuses before any path is built).
+	for (const sloppy of ['7..1', '7. 0 .1', '7.0.1e0', '', ' ']) {
+		test(`sloppy version ${JSON.stringify(sloppy)} is refused, never normalised`, () => {
 			const plan = planCodeBuild({ version: sloppy, ref: 'refs/tags/v7.0.1' }, OK_CFG);
-			if (plan.ok !== true) throw new Error('expected an ok plan');
-			expect(plan.versionString).toBe(normalised);
-			expect(plan.filePath).toBe(`/f/7/7.0/${normalised}.zip`);
+			expect(plan.ok).toBe(false);
 		});
 	}
+
+	// The NEXT triple a tree declares must be a release triple: a garbage
+	// devVersion is refused, never named into a `NaN/` directory.
+	for (const badNext of ['', '7.x.0', '7.0.1-dev', 'NaN.0.0', '7..1']) {
+		test(`untagged build with a garbage declared next version ${JSON.stringify(badNext)} is refused`, () => {
+			const plan = planCodeBuild({ version: '7.0.0', ref: 'master', devVersion: badNext }, OK_CFG);
+			expect(plan.ok).toBe(false);
+			if (plan.ok) throw new Error('expected a refusal');
+			expect(plan.msg).toBe('Error. Invalid next release version');
+		});
+	}
+	test('untagged build with a valid declared next triple names its nightly after it', () => {
+		// devVersion is the bare triple parseDeclaredNextDevTriple returns (not an identity)
+		const plan = planCodeBuild({ version: '7.0.0', ref: 'master', devVersion: '7.0.1' }, OK_CFG);
+		if (plan.ok !== true) throw new Error('expected an ok plan');
+		expect(plan.filePath).toBe('/f/7/7.0/7.0.1-dev.zip');
+	});
 
 	test('a multi-digit / zero triple lands in the right major.minor directory', () => {
 		// omitted ref defaults to the version's release tag — the published name
@@ -735,9 +746,17 @@ describe('the release channel builds the NEWEST release tag (policy 2026-09-29)'
 				expect((none as { code: string }).code).toBe('update.refused');
 				expect((none as { publicMessage?: string }).publicMessage).toContain('No release tag');
 				expect(existsSync(join(filesDir, '6'))).toBe(false);
-				// …while the developer channel still builds
-				const beta = await buildVersionFromGit({ channel: 'dev' });
-				expect(beta.file_path).toBe(join(filesDir, '7', '7.0', '7.0.1-dev.zip'));
+				// …and the developer channel REFUSES this commit: it carries the beta tag
+				// (a LIGHTWEIGHT one), and a nightly is an untagged commit (VERSIONING_SPEC D3)
+				const taggedDev = await buildVersionFromGit({ channel: 'dev' }).then(
+					() => null,
+					(caught: unknown) => caught,
+				);
+				expect((taggedDev as { code: string }).code).toBe('update.refused');
+				expect((taggedDev as { publicMessage?: string }).publicMessage).toContain(
+					"'master' is the tagged commit v7.0.1-beta.1",
+				);
+				expect(existsSync(join(filesDir, '7', '7.0', '7.0.1-dev.zip'))).toBe(false);
 
 				// an ASKED tag that does not exist is named, before any dir or archive
 				const missing = await buildVersionFromGit({ channel: 'master', version: '7.0.5' }).then(
@@ -759,6 +778,18 @@ describe('the release channel builds the NEWEST release tag (policy 2026-09-29)'
 				// the dev channel is master's tip, named after master's own version
 				const dev = await buildVersionFromGit({ channel: 'dev' });
 				expect(dev.file_path).toBe(join(filesDir, '7', '7.0', '7.0.3-dev.zip'));
+
+				// an EXPLICIT release-tag ref on the dev channel is refused too: the
+				// channel decides, not the way the ref was given (VERSIONING_SPEC D3)
+				const taggedRefDev = await buildVersionFromGit({ ref: 'v7.0.2', channel: 'dev' }).then(
+					() => null,
+					(caught: unknown) => caught,
+				);
+				expect((taggedRefDev as { code: string }).code).toBe('update.refused');
+				expect((taggedRefDev as { publicMessage?: string }).publicMessage).toContain(
+					'is the tagged commit v7.0.2: a tagged commit is a release or beta',
+				);
+				expect(existsSync(join(filesDir, '7', '7.0', '7.0.2-dev.zip'))).toBe(false);
 
 				// a tag whose bytes declare another version is refused
 				await git('tag', 'v7.0.9');
@@ -787,7 +818,7 @@ describe('the release version comes from the ref, not the process', () => {
 			join(import.meta.dir, '../../src/core/update/version.ts'),
 			'utf8',
 		);
-		expect(parseDeclaredTriple(committed)).toBe(DEDALO_VERSION);
+		expect(parseDeclaredTriple(committed)).toBe(formatVersion(DEDALO_DATA_VERSION));
 		expect(parseDeclaredTriple('Object.freeze([7, 0, 4]) as [number, number, number]')).toBe(
 			'7.0.4',
 		);
@@ -840,7 +871,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 	test.skipIf(!GIT_PRESENT)(
 		'a server running X.Y.Z builds + serves X.Y.(Z+1)-beta.N; rebuild refused; lightweight / mismatched / superseded tags refused',
 		async () => {
-			const { DEDALO_VERSION_TRIPLE } = await import('../../src/core/update/version.ts');
+			const { DEDALO_DATA_VERSION } = await import('../../src/core/update/version.ts');
 			const { resolveCodeReleaseFile, serveCodeReleaseRequest } = await import(
 				'../../src/core/update/code_serving.ts'
 			);
@@ -850,7 +881,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 			);
 			const { createHash } = await import('node:crypto');
 			const { readdirSync, statSync } = await import('node:fs');
-			const [major, minor, patch] = DEDALO_VERSION_TRIPLE;
+			const [major, minor, patch] = DEDALO_DATA_VERSION;
 			const RUNNING = `${major}.${minor}.${patch}`;
 			const NEXT = `${major}.${minor}.${patch + 1}`;
 			const AFTER = `${major}.${minor}.${patch + 2}`;
@@ -943,6 +974,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 				expect(info.describe).toBe(`v${NEXT}-beta.1`);
 				const said = resolveReleaseIdentity({
 					triple: [major, minor, patch + 1],
+					nextDevTriple: DEDALO_NEXT_RELEASE,
 					describe: info.describe,
 					provenance: { stamp: 'other', channel: 'master' },
 				});

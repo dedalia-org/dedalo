@@ -23,7 +23,7 @@ import { config } from '../../config/config.ts';
 import { assertMatrixTable } from '../db/matrix.ts';
 import { insertMatrixRecordWithCounter, updateMatrixRecord } from '../db/matrix_write.ts';
 import { sql } from '../db/postgres.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { invalidateAllToolCaches } from './cache.ts';
 import { getLoadedTool } from './loader.ts';
 import { DD64_SECTION_TIPO, TIPO, TOOLS_REGISTER_SECTION_TIPO } from './ontology_map.ts';
@@ -323,7 +323,7 @@ export function validateRegister(record: ToolRecord, basename: string): string[]
 
 /** Current engine version with any trailing .dev stripped (PHP version_compare prep). */
 function currentDedaloVersion(): string {
-	return DEDALO_VERSION;
+	return formatVersion(DEDALO_DATA_VERSION);
 }
 
 /** Numeric-segment version compare: -1 / 0 / 1. */

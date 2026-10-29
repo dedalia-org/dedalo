@@ -9,11 +9,13 @@
  *  - the image tag it installs is `imageTagOf(identity)` (host/stack/layout.ts):
  *    `7.0.0`, `7.0.0-beta.7`, or `7.0.0-dev` for an untagged build — a beta
  *    never asks for `:7.0.0`, which after the stable release is ANOTHER image;
- *  - Official is decided from the identity's KIND: a stable or prerelease
- *    identity names a published, signed image (the Review asks the registry,
- *    host/stack/preflight.ts); a DEV identity (an untagged checkout) names no
- *    release at all, so Official is refused from the identity itself — no
- *    registry is asked — and Build is the preselected source (Q6).
+ *  - the image source is decided from the identity's KIND: a stable or
+ *    prerelease identity names a published, signed image (the Review asks the
+ *    registry, host/stack/preflight.ts); a DEV identity (an untagged checkout)
+ *    names no release and is no image: Official AND Build are refused from the
+ *    identity itself — no registry is asked — and Custom (your own registry) is
+ *    the only source, preselected (Q6, amended 2026-10-27: a local Build of a
+ *    dev checkout is not an image install).
  *
  * The identity is the RUNNING tree's (`build_stamp.ts` RELEASE_IDENTITY): the
  * installer installs the checkout or release tree it runs from.
@@ -29,7 +31,12 @@ import {
 	type ReleaseIdentity,
 	type ReleaseKind,
 } from '../update/release_identity.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import {
+	compareVersionArrays,
+	DEDALO_DATA_VERSION,
+	DEDALO_NEXT_RELEASE,
+	formatVersion,
+} from '../update/version.ts';
 
 /** The test seam's key (src/config/catalog/install.ts). */
 export const INSTALLER_IDENTITY_SEAM = 'DEDALO_INSTALL_RELEASE_IDENTITY';
@@ -53,6 +60,16 @@ export function installerIdentity(): ReleaseIdentity {
 	return pinned === '' ? RELEASE_IDENTITY : pinnedIdentity(pinned);
 }
 
+/**
+ * A pin belongs to this data version: the next dev build (`X.Y.Z-dev` of the
+ * declared next triple), or a release at or above the data triple (a code-only
+ * patch runs on its minor's data).
+ */
+function belongsToDataVersion(parsed: ParsedReleaseVersion): boolean {
+	if (parsed.dev) return compareVersionArrays(parsed.triple, DEDALO_NEXT_RELEASE) === 0;
+	return compareVersionArrays(parsed.triple, DEDALO_DATA_VERSION) >= 0;
+}
+
 /** The seam's identity — refused outside a test process, or for another data version. */
 function pinnedIdentity(pinned: string): ReleaseIdentity {
 	if (!isTestProcess()) {
@@ -61,9 +78,9 @@ function pinnedIdentity(pinned: string): ReleaseIdentity {
 		);
 	}
 	const parsed = parseReleaseVersion(pinned);
-	if (parsed === null || parsed.triple.join('.') !== DEDALO_VERSION) {
+	if (parsed === null || !belongsToDataVersion(parsed)) {
 		throw seamRefused(
-			`${INSTALLER_IDENTITY_SEAM}=${pinned} is not a release identity of this data version (${DEDALO_VERSION}, ${DEDALO_VERSION}-beta.N or ${DEDALO_VERSION}.dev)`,
+			`${INSTALLER_IDENTITY_SEAM}=${pinned} is not a release identity of this data version (${formatVersion(DEDALO_DATA_VERSION)} or later, ${formatVersion(DEDALO_DATA_VERSION)}-beta.N, or the next dev build ${DEDALO_NEXT_RELEASE.join('.')}-dev)`,
 		);
 	}
 	const kind = kindOf(parsed);
@@ -95,18 +112,27 @@ export function installerVersionLabel(identity: ReleaseIdentity = installerIdent
 	return identity.version;
 }
 
-/** The image source the Image screen preselects: Build for a dev identity (Q6), else Official. */
+/** The image source the Image screen preselects: Custom for a dev identity (Q6, amended), else Official. */
 export function defaultImageSource(identity: ReleaseIdentity = installerIdentity()): string {
-	return identity.kind === 'dev' ? 'build' : 'official';
+	return identity.kind === 'dev' ? 'custom' : 'official';
 }
 
 /**
- * Why Official is refused for this identity WITHOUT asking any registry, or
- * null when the registry decides (stable, prerelease). A dev identity names no
- * release: no official image is its bytes (a published `-dev` image is the dev
- * BRANCH's head, mutable, not this checkout — design §2.5: no `-dev` escape).
+ * Why an image source is refused for this identity WITHOUT asking any registry,
+ * or null when the registry decides (stable, prerelease, Custom). A dev identity
+ * names no release and is no image: Official (no published `-dev` image is its
+ * bytes: that is the dev BRANCH's head, mutable, not this checkout — design §2.5)
+ * and Build (a local build of a dev checkout is not an image install) are refused.
  */
-export function officialRefusedFor(identity: ReleaseIdentity = installerIdentity()): string | null {
+export function imageSourceRefusedFor(
+	source: string,
+	identity: ReleaseIdentity = installerIdentity(),
+): string | null {
 	if (identity.kind !== 'dev') return null;
-	return `this installer is a development build (${identity.version}: its commit carries no release tag), so no official image is its code — choose Build on the Image screen (--image-source build), or a registry of your own (Custom, --image-source custom)`;
+	const choose = 'choose Custom (--image-source custom) with a registry of your own';
+	if (source === 'official')
+		return `Docker has no nightly images: this installer is a development build (${identity.version}: its commit carries no release tag), so no official image is its code — ${choose}`;
+	if (source === 'build')
+		return `Docker has no nightly images: this installer is a development build (${identity.version}: its commit carries no release tag), and a local build of it is not an image install — ${choose}`;
+	return null;
 }

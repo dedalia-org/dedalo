@@ -116,7 +116,7 @@ import { checkUpdatePreconditions } from './preconditions.ts';
 import { refuseUpdate, rethrowOrRefuseUpdate } from './refuse.ts';
 import { removeRestorePointDir, resolveRestorePointOrRefuse } from './restore_points.ts';
 import { smokeBootQuarantine } from './smoke_boot.ts';
-import { DEDALO_VERSION_TRIPLE } from './version.ts';
+import { DEDALO_DATA_VERSION } from './version.ts';
 
 /**
  * The restore seams are a SUBSET of the update's, not a parallel type: every
@@ -447,7 +447,7 @@ export async function restoreCode(
 	checkUpdatePreconditions(principal);
 
 	const targetRoot = seams.targetRoot ?? projectRoot;
-	const runningVersion = DEDALO_VERSION_TRIPLE.join('.');
+	const runningVersion = DEDALO_DATA_VERSION.join('.');
 	const point = await selectRestorePointOrRefuse(
 		request.name,
 		resolveBackupRootOrRefuse(targetRoot, seams),

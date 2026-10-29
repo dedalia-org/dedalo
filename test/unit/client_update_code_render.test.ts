@@ -647,7 +647,7 @@ describe('update_code restore control', () => {
 	test('the downgrade decision compares the SERVER’s version, not the page global', () => {
 		// page_globals.dedalo_version is DEDALO_ENGINE_VERSION and carries the
 		// prerelease tag ('7.0.1.dev'); the pipeline compares
-		// DEDALO_VERSION_TRIPLE.join('.'), a bare '7.0.1'. Comparing the page
+		// DEDALO_DATA_VERSION.join('.'), a bare '7.0.1'. Comparing the page
 		// global drew the waiver on every developer-channel restore of the
 		// version already running, locked the submit behind it, and had the
 		// server log "VERSION CHANGE CONFIRMED … from 7.0.1 to 7.0.1".
@@ -1331,7 +1331,7 @@ describe('update_code image channel: source shape', () => {
 			widget_src.indexOf('});', widget_src.indexOf('const IMAGE_REQUEST_REFUSALS')),
 		);
 		const reasons = [...refusal_block.matchAll(/^\t([a-z_]+):/gm)].map((match) => match[1]);
-		expect(reasons.length).toBe(8); // incl. dev_channel_not_enabled
+		expect(reasons.length).toBe(7); // dev_channel_not_enabled retired (Docker has no dev images)
 		expect(
 			reasons.filter(
 				(reason) => master_labels[`update_code_image_refused_${reason}`] === undefined,

@@ -28,7 +28,7 @@ import {
 import { publicationHostFingerprint } from '../../src/core/publication_host/pairing.ts';
 import type { PublicationHostRecord } from '../../src/core/publication_host/registry.ts';
 import { registryError } from '../../src/core/publication_host/wire.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 
 const TOKEN = 'publication-host-status-token-000000000000';
 /** Stands in for key material (never a PEM-shaped literal: the secret scanner would flag it). */
@@ -457,21 +457,25 @@ describe('API lockstep (spec §3)', () => {
 	});
 
 	test('engineVersion is DEDALO_VERSION (no tag): a prerelease-tagged version would warn for ever', () => {
-		expect(DEDALO_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
-		const release = `${DEDALO_VERSION}_a1b2c3d`;
+		expect(formatVersion(DEDALO_DATA_VERSION)).toMatch(/^\d+\.\d+\.\d+$/);
+		const release = `${formatVersion(DEDALO_DATA_VERSION)}_a1b2c3d`;
 		const apis = {
 			v1: { current: release, previous: null },
 			v2: { current: release, previous: null },
 		};
 		const base = healthy({ status: { ok: true, status: agentStatus({ apis }) } });
-		expect(checkOf({ ...base, engineVersion: DEDALO_VERSION }, 'api_v1')).toEqual({
+		expect(
+			checkOf({ ...base, engineVersion: formatVersion(DEDALO_DATA_VERSION) }, 'api_v1'),
+		).toEqual({
 			state: 'ok',
 			detail: release,
 		});
 		// What passing DEDALO_ENGINE_VERSION (`${DEDALO_VERSION}.dev`) on a dev build would do:
-		expect(checkOf({ ...base, engineVersion: `${DEDALO_VERSION}.dev` }, 'api_v1')).toEqual({
+		expect(
+			checkOf({ ...base, engineVersion: `${formatVersion(DEDALO_DATA_VERSION)}.dev` }, 'api_v1'),
+		).toEqual({
 			state: 'warn',
-			detail: `${release} != ${DEDALO_VERSION}.dev`,
+			detail: `${release} != ${formatVersion(DEDALO_DATA_VERSION)}.dev`,
 		});
 	});
 });

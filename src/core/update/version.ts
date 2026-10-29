@@ -10,19 +10,54 @@
 import { parseReleaseVersion } from './release_identity.ts';
 
 /** The engine version triple (PHP get_dedalo_version() shape). */
-export const DEDALO_VERSION_TRIPLE: readonly [number, number, number] = Object.freeze([
-	7, 0, 0,
-]) as [number, number, number];
+export const DEDALO_DATA_VERSION: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [
+	number,
+	number,
+	number,
+];
 
-/** '7.0.0' — the data-version string (matrix_updates rows, login About panel). */
-export const DEDALO_VERSION: string = DEDALO_VERSION_TRIPLE.join('.');
+/**
+ * The first data version of the line (VERSIONING_SPEC §4): a build with no data
+ * entry below its next release is at this triple. The version literals live in
+ * this module only (update_ownership_tripwire).
+ */
+export const DATA_LINE_START: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [
+	number,
+	number,
+	number,
+];
 
-// The code's RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`, `7.0.0.dev`) lives in
+/**
+ * The string spelling of a triple (`[7, 0, 0]` → `'7.0.0'`) — the one helper that
+ * turns a version constant into text (VERSIONING_SPEC §5: no string copy of the
+ * triple exists, so none can drift). Compare triples, not strings.
+ */
+export function formatVersion(triple: readonly number[]): string {
+	return triple.join('.');
+}
+
+/**
+ * The next release the code is building toward (VERSIONING_SPEC §5, D6 name:
+ * DEDALO_NEXT_RELEASE): the triple an UNTAGGED tree names its nightly with
+ * (`7.0.0-dev`). It is the release that has NOT been tagged yet, so it stays at
+ * the data triple until that release is tagged (7.0.0 is next until v7.0.0 exists);
+ * it moves forward to the next patch triple in the post-release commit (spec §6).
+ * It is NOT a data version: DEDALO_DATA_VERSION above stays the last
+ * data-changing release, and nothing that migrates, names a code directory or
+ * crosses to a peer reads this constant. Never below the data triple.
+ */
+export const DEDALO_NEXT_RELEASE: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [
+	number,
+	number,
+	number,
+];
+
+// The code's RELEASE IDENTITY (`7.0.0`, `7.0.0-beta.6`, `7.0.0-dev`) lives in
 // build_stamp.ts / release_identity.ts: it is derived from the git tag, and
 // reading that needs fs/git — this module stays a leaf.
 
 /** '7.0' — the ontology IO directory segment (patch releases share one dir, PHP parity). */
-export const DEDALO_VERSION_MAJOR_MINOR: string = `${DEDALO_VERSION_TRIPLE[0]}.${DEDALO_VERSION_TRIPLE[1]}`;
+export const DEDALO_VERSION_MAJOR_MINOR: string = `${DEDALO_DATA_VERSION[0]}.${DEDALO_DATA_VERSION[1]}`;
 
 /**
  * Semantic int[] version compare: -1 / 0 / 1. Missing segments count as 0
@@ -40,18 +75,26 @@ export function compareVersionArrays(a: readonly number[], b: readonly number[])
 }
 
 /**
- * A version string → its numeric parts. Any RELEASE IDENTITY (`7.0.0`,
- * `7.0.0-beta.6`, `7.0.0-rc.1`, `7.0.0.dev`) → its data triple [7,0,0]: a
- * prerelease is the same data version as its release, and a peer that sends
- * one (an engine calling itself by its tag) must be read, never refused as
- * NaN. Anything else keeps the historical split (a trailing `.dev` stripped,
+ * A version string → its numeric parts. A tag-named RELEASE IDENTITY (`7.0.0`,
+ * `7.0.0-beta.6`, `7.0.0-rc.1`) → its triple [7,0,0]: a prerelease is the same
+ * data version as its release, and a peer that sends one (an engine calling
+ * itself by its tag) must be read, never refused as NaN. A dev identity
+ * (`7.0.0-dev`, the nightly of the unreleased 7.0.0) names the NEXT triple, not
+ * a data version, so data consumers must never be handed one; the data side
+ * sends DEDALO_DATA_VERSION. Anything
+ * else keeps the historical split (a legacy trailing `.dev` stripped,
  * extra parts preserved, garbage → NaN parts for the caller to refuse).
  */
 export function parseVersionString(version: string): number[] {
 	const identity = parseReleaseVersion(version);
-	if (identity !== null) return [...identity.triple];
+	// A dev identity is not a data triple (owner decision 2026-10-26): it falls
+	// through to the split below, where `7.0.0-dev` yields a NaN part for the
+	// caller to refuse.
+	if (identity !== null && !identity.dev) return [...identity.triple];
+	// Every segment must be digits: Number('') is 0 and Number(' ') is 0, so a
+	// bare Number() map would turn an empty or blank version into a silent 0.0.0.
 	return version
 		.replace(/\.dev$/, '')
 		.split('.')
-		.map(Number);
+		.map((segment) => (/^\d+$/.test(segment) ? Number(segment) : NaN));
 }

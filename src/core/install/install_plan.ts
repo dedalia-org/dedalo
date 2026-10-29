@@ -2021,10 +2021,48 @@ const HEADLESS_SOURCES: readonly ((invocation: CliInstallInvocation) => boolean)
 const headlessBesidesResume = (invocation: CliInstallInvocation): boolean =>
 	isHeadlessInvocation({ ...invocation, resume: false });
 
+/**
+ * The flags that make an invocation headless, by name — the offenders a --plain
+ * refusal names (an answer flag by the key it sets; the run controls by flag).
+ */
+/** The run-control flags an invocation can set, in the order a refusal names them. */
+const RUN_CONTROL_FLAGS: readonly {
+	sets: (invocation: CliInstallInvocation) => boolean;
+	flag: string;
+}[] = [
+	{ sets: (invocation) => invocation.answersFile !== undefined, flag: '--answers' },
+	{ sets: (invocation) => invocation.planOnly, flag: '--plan' },
+	{ sets: (invocation) => invocation.listOntologies, flag: '--list-ontologies' },
+	{ sets: (invocation) => invocation.listHierarchies, flag: '--list-hierarchies' },
+	{ sets: (invocation) => invocation.listLangs, flag: '--list-langs' },
+	{ sets: (invocation) => invocation.secretsStdin, flag: '--secrets-stdin' },
+	{ sets: (invocation) => invocation.execute, flag: '--execute' },
+	{ sets: (invocation) => invocation.rootPassword !== undefined, flag: '--root-password' },
+	{ sets: (invocation) => invocation.status, flag: '--status' },
+	{ sets: (invocation) => invocation.eventsJsonl, flag: '--events-jsonl' },
+	{ sets: (invocation) => invocation.requestStdin, flag: '--request-stdin' },
+];
+
+/** The flag an answer key sets: its registered flag, else the key spelled with dashes. */
+const flagOfAnswerKey = (key: string): string =>
+	FLAG_OF_KEY.get(key) ?? `--${key.replace(/_/g, '-')}`;
+
+function headlessFlags(invocation: CliInstallInvocation): string[] {
+	return [
+		...Object.keys(invocation.raw).map(flagOfAnswerKey),
+		...RUN_CONTROL_FLAGS.filter(({ sets }) => sets(invocation)).map(({ flag }) => flag),
+	];
+}
+
+/** The --plain refusal: names the flags, and says where their answers go instead. */
+const plainRefusal = (flags: readonly string[]): string =>
+	`${flags.join(', ')} cannot be combined with --plain: give the answers on the interactive screens — --plain is the interactive front end and takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password`;
+
 /** The run-control combinations that cannot mean anything — each a parser error. */
 const COMBINATION_RULES: readonly {
 	refuses: (invocation: CliInstallInvocation) => boolean;
-	error: string;
+	/** A sentence, or one built from the invocation (the refusal names the offending flags). */
+	error: string | ((invocation: CliInstallInvocation) => string);
 }[] = Object.freeze([
 	{
 		refuses: (invocation) => invocation.resume && invocation.abort,
@@ -2045,8 +2083,7 @@ const COMBINATION_RULES: readonly {
 	{
 		refuses: (invocation) =>
 			invocation.plain && !invocation.abort && headlessBesidesResume(invocation),
-		error:
-			'--plain is the interactive front end — it takes no answer flag, --answers, --plan, --list-*, --secrets-stdin, --execute or --root-password',
+		error: (invocation) => plainRefusal(headlessFlags(invocation)),
 	},
 	{
 		refuses: (invocation) =>
@@ -2079,7 +2116,9 @@ const COMBINATION_RULES: readonly {
 
 /** The run-control combinations that cannot mean anything, as parser errors. */
 function combinationErrors(invocation: CliInstallInvocation): string[] {
-	return COMBINATION_RULES.filter((rule) => rule.refuses(invocation)).map((rule) => rule.error);
+	return COMBINATION_RULES.filter((rule) => rule.refuses(invocation)).map((rule) =>
+		typeof rule.error === 'string' ? rule.error : rule.error(invocation),
+	);
 }
 
 /**

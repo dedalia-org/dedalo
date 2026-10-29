@@ -58,6 +58,11 @@ import {
 } from '../../src/core/install/install_plan.ts';
 import { rootPasswordErrors } from '../../src/core/install/install_validation.ts';
 import { passwordPolicyFailure } from '../../src/core/security/password_policy.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
+
+// The installer's release identity is the checkout's: a dev checkout names no image,
+// so these cases are written for a STABLE installer (test/helpers/installer_identity.ts).
+pinInstallerIdentity(PINNED_IDENTITY.stable);
 
 const ROOT = resolve(import.meta.dir, '../..');
 const CLI = join(ROOT, 'scripts/install.ts');

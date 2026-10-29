@@ -40,8 +40,6 @@ const IMAGE_REQUEST_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
 		'Error. The host updater is not running on the Docker host; run the update command there instead.',
 	request_pending: 'Error. An image update is already requested or running.',
 	malformed_version: 'Error. Invalid release version.',
-	dev_channel_not_enabled:
-		'Error. This installation runs a release; moving it onto developer images is done on the Docker host.',
 	version_refused: 'Error. That release is not on the upgrade path from the running version.',
 	request_claimed:
 		'Error. The host updater has already started this update; it can no longer be cancelled.',
@@ -49,11 +47,18 @@ const IMAGE_REQUEST_REFUSALS: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /** Refuse with the reason id in the coordinates (and the walk verdict, when there is one). */
-function refuseImageRequest(reason: string, walk?: string): never {
-	refuseAction(IMAGE_REQUEST_REFUSALS[reason] ?? `Error. ${reason}`, {
-		reason,
-		...(walk === undefined ? {} : { walk }),
-	});
+function refuseImageRequest(reason: string, walk?: string, message?: string): never {
+	// The refusal's own sentence (a nightly names itself: nightlyImageMessage) wins over the
+	// generic line for its id.
+	refuseAction(
+		message !== undefined
+			? `Error. ${message}`
+			: (IMAGE_REQUEST_REFUSALS[reason] ?? `Error. ${reason}`),
+		{
+			reason,
+			...(walk === undefined ? {} : { walk }),
+		},
+	);
 }
 
 /**
@@ -229,7 +234,7 @@ async function requestImageUpdateOwned(
 ): Promise<WidgetResponse> {
 	const { requestImageUpdate } = await import('../../update/image_update_request.ts');
 	const result = await requestImageUpdate(options, principal);
-	if (!result.ok) refuseImageRequest(result.reason, result.walk);
+	if (!result.ok) refuseImageRequest(result.reason, result.walk, result.message);
 	return { data: { request: result.request } };
 }
 

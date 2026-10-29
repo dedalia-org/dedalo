@@ -17,7 +17,7 @@ import { sql } from '../../db/postgres.ts';
 import { getModelByTipo } from '../../ontology/resolver.ts';
 import { contextLabelOf } from '../../resolve/structure_context.ts';
 import { DEDALO_BUILD, DEDALO_ENGINE_VERSION } from '../../update/build_stamp.ts';
-import { DEDALO_VERSION } from '../../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../../update/version.ts';
 
 /** The login element ontology tipo (PHP login::get_login_tipo). */
 const LOGIN_TIPO = 'dd229';
@@ -52,7 +52,7 @@ export async function buildLoginContext(): Promise<Record<string, unknown>> {
 		{ type: 'dedalo_entity', label: 'Dédalo entity', value: config.identity.entityLabel },
 		{ type: 'version', label: 'Code version', value: DEDALO_ENGINE_VERSION },
 		{ type: 'version', label: 'Code Build', value: DEDALO_BUILD }, // release commit date; null on dev
-		{ type: 'data_version', label: 'Data version', value: DEDALO_VERSION },
+		{ type: 'data_version', label: 'Data version', value: formatVersion(DEDALO_DATA_VERSION) },
 		{
 			type: 'version',
 			label: 'Ontology version',

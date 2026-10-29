@@ -98,6 +98,15 @@ so the panel does not replace it in place: a tree swap inside a container would
 be discarded the next time the container is recreated. The panel recognises
 such an installation and changes what it offers:
 
+Docker and image installations run **tagged releases only**: a stable tag
+(`7.0.1`) or a beta tag (`7.0.1-beta.1`). Docker images are immutable, and the
+dev channel publishes **no images**, so a developer build (`X.Y.Z-dev`) is never
+offered to a container installation and never installed by image. Nightlies are
+tree archives: they reach production and dev installations through the code
+update path only. An emergency fix for a stable Docker installation ships as a
+code-only patch tag (for example `7.0.1` over data `7.0.0`), which installs as
+its own release.
+
 - **Image updates** — where this installation's image comes from (pulled from a
   registry, and whether that is an official registry, an official mirror or your
   own; or built on the Docker host from its checkout), the pinned version, the
@@ -116,7 +125,7 @@ such an installation and changes what it offers:
     `DEDALO_IMAGE_VERIFY=cosign` — or checks out the release and builds it from
     a clean snapshot of that commit, exactly as the installer built the first
     image (committed files only, so it reports the release version, not
-    `.dev`). It
+    `-dev`). It
     takes a database backup before switching, re-pins `DEDALO_VERSION`, waits for
     the engine to report healthy, and rolls back to the previous image on its own
     when it does not.
@@ -437,8 +446,11 @@ archive it writes:
   installations that choose **Prereleases** (or **Developer builds**), and only
   when this code server sets `DEDALO_CODE_SERVER_PRERELEASE_CHANNEL=true`.
 - **Build developer release** archives the tip of the **`master`** branch —
-  the latest integrated code, before its release. It gets a `-dev` suffix, so
-  it can never overwrite the published release of the same version.
+  the latest integrated code, before its release. It is named for the next
+  version that code is heading to, with a `-dev` suffix (for example
+  `7.0.1-dev` while `7.0.0` is the latest release). It sorts above every
+  prerelease of that version and below its release, so it can never overwrite
+  the published release of the same version.
 
 Each archive is named after the version its own source declares, not after
 the running engine:
@@ -446,8 +458,14 @@ the running engine:
 ```
 <DEDALO_CODE_FILES_DIR>/<major>/<major.minor>/<version>.zip         (release tag vX.Y.Z)
 <DEDALO_CODE_FILES_DIR>/<major>/<major.minor>/<version>-beta.N.zip  (prerelease tag vX.Y.Z-beta.N)
-<DEDALO_CODE_FILES_DIR>/<major>/<major.minor>/<version>-dev.zip     (master)
+<DEDALO_CODE_FILES_DIR>/<major>/<major.minor>/<next>-dev.zip      (master, <next> = the next version)
 ```
+
+The version an untagged tree declares as its own is its **identity**, and the
+archive name is that identity. The identity grammar, from lowest to highest:
+`7.0.0` < `7.0.1-alpha.1` < `7.0.1-beta.1` < `7.0.1-rc.1` < `7.0.1-dev` <
+`7.0.1` < `7.0.2`. A developer build therefore sits above every prerelease of
+its version and below that version's release.
 
 A release and a prerelease **cannot be rebuilt**. If the archive and its
 `.sha256` sidecar are already on disk, the build is refused and the files are
@@ -546,25 +564,39 @@ itself to the public before it may reclaim it.
 ### Testing development work on a real installation
 
 A developer build is the tip of the **`master`** branch — integrated code that
-is not yet released. It carries **no version bump of its own**: it has the
-version `master` declares, usually the same as the last release. That is
-deliberate: a version number that moves without a release stops naming a
-release. So a developer build is installed *over* the same version, and it can
-be installed again as often as `master` moves. While a major version is in beta
-(no `vX.Y.Z` tag yet), developer builds are the only way its code reaches an
-installation.
+is not yet released. Its identity is the **next** version, written `X.Y.Z-dev`
+(for example `7.0.1-dev` while `7.0.0` is the latest release). `master`
+declares that next version beside the data version, so the release commit that
+publishes `7.0.1` does not have to bump anything for the developer build to
+name it. Until that release is tagged, every developer build of the same `master`
+line carries the same identity, and it can be installed again as often as
+`master` moves. While a major version is in beta (no `vX.Y.Z` tag yet),
+developer builds are the only way its code reaches an installation.
+
+Two rules follow from the order above:
+
+- **Developer builds reinstall over themselves.** On the developer channel, a
+  `-dev` build of the same identity can be installed over an install already
+  running that identity.
+- **A developer build cannot move back to a prerelease.** `7.0.1-dev` is above
+  `7.0.1-rc.1`, so an install running a developer build cannot be moved to a
+  release candidate or to an earlier prerelease of that version. The way off a
+  developer build is the stable release of its version (`7.0.1`), which sorts
+  above it, or the next release after it. **No channel moves an installation to
+  an earlier release**: a downgrade is refused everywhere.
 
 The receiving install chooses **Developer builds**, checks for updates, and picks
 the build (marked as a developer build, and listed first). Everything else is
 the ordinary update: superuser, maintenance mode, a recent backup, the same
 `.sha256` verification, the same backup, smoke boot, swap and rollback.
 
-Because the version cannot move, the panel does **not** use it to tell you the
-update landed. Each installed tree records the archive it came from, and the
-panel shows it as **Installed archive** — that value changing is the proof, and
-it is also what the rollback machinery compares. An install running a developer
-build says so everywhere: its version reads `<version>.dev` and its build
-posture is *Developer build (unreleased code from 'master')*.
+Because two developer builds of the same line share one identity, the panel's
+version does **not** change when a newer developer build lands. Each installed
+tree records the archive it came from, and the panel shows it as **Installed
+archive** — that value changing is the proof, and it is also what the rollback
+machinery compares. An install running a developer build says so everywhere:
+its version reads `<next>-dev` (for example `7.0.1-dev`) and its build posture
+is *Developer build (unreleased code from 'master')*.
 
 !!! warning "Not for production installations"
     A developer build is unreleased code. Use it to test development

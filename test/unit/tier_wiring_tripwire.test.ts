@@ -29,7 +29,8 @@
  *   E. Every tier root (a script a workflow runs directly) keeps the independent-stage
  *      accumulator, and every job that BUILDS the suite database declares its own
  *      service container.
- *   F. Every job that runs a tier root carries NO step-level `if:`, NO
+ *   F. Every job that runs a tier root carries NO step-level `if:` (EXCEPT `if: always()`
+ *      on a SHA-pinned artifact upload AFTER the tier step — postTierReportSteps), NO
  *      `continue-on-error:`, and no job-level `if:` EXCEPT the one sanctioned dedupe
  *      condition — a conditioned job is silent on the events it excludes, a tolerated
  *      step is green whatever the tier said; `needs:` no job that is itself
@@ -1891,6 +1892,23 @@ describe('tier wiring — every gate is reached by a workflow that executes', ()
 		const stepIf =
 			"jobs:\n  db:\n    runs-on: x\n    steps:\n      - run: bash scripts/ci/db_tier.sh\n        if: github.event_name == 'schedule'\n";
 		expect(tierJobFaults('x.yml', stepIf, new Set(['scripts/ci/db_tier.sh']))).toHaveLength(1);
+		// The post-tier report carve-out: `if: always()` on an artifact upload AFTER the tier
+		// step passes; before it, with another condition, on a run step, or tolerated, red.
+		const upload = (cond: string, extra = '') =>
+			`      - name: keep\n        if: ${cond}\n        uses: actions/upload-artifact@${'a'.repeat(40)} # v7\n        with:\n          path: ci-logs\n${extra}`;
+		const tierStep = '      - run: bash scripts/ci/db_tier.sh\n';
+		const job = (steps: string) => `jobs:\n  db:\n    runs-on: x\n    steps:\n${steps}`;
+		const dbRoot = new Set(['scripts/ci/db_tier.sh']);
+		expect([...tierJobFaults('x.yml', job(tierStep + upload('always()')), dbRoot)]).toEqual([]);
+		for (const steps of [
+			upload('always()') + tierStep, // before the tier: it runs first, whatever
+			tierStep + upload('success()'),
+			tierStep + upload("github.event_name == 'push'"),
+			tierStep + upload('always()', '        continue-on-error: true\n'),
+			`${tierStep}      - if: always()\n        run: echo not an upload\n`,
+			`${tierStep}      - name: keep\n        if: always()\n        uses: actions/upload-artifact@v7\n`, // unpinned
+		])
+			expect(tierJobFaults('x.yml', job(steps), dbRoot).length, steps).toBeGreaterThan(0);
 		const clean =
 			'jobs:\n  other:\n    if: false\n    steps:\n      - run: echo not a tier\n  db:\n    runs-on: x\n    steps:\n      - run: bash scripts/ci/db_tier.sh\n';
 		expect([...tierJobFaults('x.yml', clean, new Set(['scripts/ci/db_tier.sh']))]).toEqual([]);
@@ -2200,11 +2218,22 @@ function tierJobFaults(
 		const refs = scriptRefs(block).filter((r) => roots.has(r));
 		if (refs.length === 0) continue;
 		faults.jobsSeen++;
+		const reporting = postTierReportSteps(block, roots);
+		let at = 0;
 		for (const raw of block.split('\n')) {
+			const lineAt = at;
+			at += raw.length + 1;
 			const line = raw.trim();
 			if (line === '' || line.startsWith('#')) continue;
 			if (/^(?:-\s+)?if:/.test(line)) {
-				// Job-level (4-space key): the dedupe carve-out, EVALUATED. Anywhere else: red.
+				// Job-level (4-space key): the dedupe carve-out, EVALUATED. The post-tier
+				// report carve-out (postTierReportSteps): `if: always()` on an artifact
+				// upload AFTER the tier step. Anywhere else: red.
+				if (
+					/^(?:-\s+)?if:\s*always\(\)$/.test(line) &&
+					reporting.some(([a, b]) => lineAt >= a && lineAt < b)
+				)
+					continue;
 				const why = /^ {4}if:/.test(raw)
 					? skipConditionFaults(line.replace(/^if:\s*/, ''), needsOf(block))
 					: ['a step-level `if:` conditions the tier'];
@@ -2230,6 +2259,31 @@ function tierJobFaults(
 		}
 	}
 	return faults;
+}
+
+/**
+ * THE POST-TIER REPORT CARVE-OUT (2026-10-25): the [start, end) offsets, in a job block, of
+ * every step that comes AFTER the step running a tier root and is an artifact upload
+ * (`uses: actions/upload-artifact@…`) and nothing else — no `run:`, no
+ * `continue-on-error:`. Such a step runs after the verdict is decided, so `if: always()`
+ * on it cannot condition or tolerate the tier; without it a red tier would lose exactly
+ * the logs it kept (hermetic.sh HERMETIC_LOG_DIR). A step BEFORE the tier step, any other
+ * condition, or any other kind of step is not carved out.
+ */
+function postTierReportSteps(block: string, roots: ReadonlySet<string>): [number, number][] {
+	const starts = [...block.matchAll(/^ {6}- /gm)].map((m) => m.index as number);
+	const steps = starts.map((a, i) => [a, starts[i + 1] ?? block.length] as [number, number]);
+	const tierAt = steps.findIndex(([a, b]) =>
+		scriptRefs(block.slice(a, b)).some((r) => roots.has(r)),
+	);
+	if (tierAt === -1) return [];
+	return steps.slice(tierAt + 1).filter(([a, b]) => {
+		const step = block.slice(a, b);
+		return (
+			/^ {6}(?:- | {2})uses: actions\/upload-artifact@[0-9a-f]{40}\b/m.test(step) &&
+			!/^ {6}(?:- | {2})(?:run|continue-on-error):/m.test(step)
+		);
+	});
 }
 
 /**

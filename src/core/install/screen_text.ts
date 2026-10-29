@@ -336,7 +336,7 @@ export const QUESTION_TEXT: Readonly<Record<string, { label: string; description
 		image_source: {
 			label: 'Image source',
 			description:
-				"Official: pulled from the Dédalo registry under this installer's own version (a stable release or a prerelease such as 7.0.0-beta.7), its signature verified — the Review checks the registry before you install. A development build (a commit with no release tag) has no official image: Build is preselected for it. Custom: pulled from your own registry. Build: built here from this checkout's last commit (slow the first time: the Review says how long).",
+				"Official: pulled from the Dédalo registry under this installer's own version (a stable release or a prerelease such as 7.0.0-beta.7), its signature verified — the Review checks the registry before you install. A development build (a commit with no release tag) is no image: Official and Build are refused for it, and Custom is preselected — pulled from your own registry. Build: built here from a release or beta checkout's last commit (slow the first time: the Review says how long).",
 		},
 		image_repository: {
 			label: 'Image repository',
@@ -345,7 +345,7 @@ export const QUESTION_TEXT: Readonly<Record<string, { label: string; description
 		image_version: {
 			label: 'Image version',
 			description:
-				"The image tag; empty = this installer's own release (7.0.0, 7.0.0-beta.7, or 7.0.0-dev for a development build; the only other tag accepted is its data version's -dev).",
+				"The image tag; empty = this installer's own release. No other tag is accepted: Docker has no nightly images (a development build has no image).",
 		},
 		'route.trial_no_media_protection': {
 			label: 'Trial without media protection',
@@ -518,7 +518,10 @@ export const OPTION_TEXT = Object.freeze({
 				'The signed Dédalo image of this release, verified before use (not for a development build).',
 		},
 		custom: { label: 'Custom', description: 'An image from your own registry.' },
-		build: { label: 'Build', description: 'Built here from this checkout.' },
+		build: {
+			label: 'Build',
+			description: 'Built here from this checkout (not for a development build).',
+		},
 	} as Record<string, { label: string; description: string }>,
 	smtp_secure: {
 		tls: { label: 'STARTTLS', description: 'Plain connection upgraded to TLS (port 587).' },

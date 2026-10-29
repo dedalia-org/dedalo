@@ -48,21 +48,17 @@ import { mustGet } from '../helpers/assert.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import {
-	installScopeBindingFixture,
-	removeScopeBindingFixture,
 	SB_DENIED_SECTION,
 	SB_GRANTED_COMPONENT,
 	SB_GRANTED_SECTION,
-	SB_HIERARCHY_ID,
 	SB_HIERARCHY_SECTION,
 	SB_INPUT_COMPONENT,
 	SB_MEDIA_COMPONENT,
-	SB_PRESET_OF_A,
-	SB_PRESET_OF_B,
-	SB_PROJECT_OF_A,
-	SB_USER_A,
-	SB_USER_B,
+	scopeBindingSlot,
 } from '../helpers/scope_binding_fixture.ts';
+
+/** THIS file's slot for the scope-binding fixture (ids allocated at install). */
+const sb = scopeBindingSlot();
 
 /** A component of test3 NEITHER profile grants (test3's component_select). */
 const SB_UNGRANTED_COMPONENT = 'test91';
@@ -183,7 +179,7 @@ async function enumerateImportRacingCreate(sectionId: number, projectId: number)
 	const creator = withTransaction(async () => {
 		const pidRows = (await sql.unsafe('SELECT pg_backend_pid() AS pid')) as { pid: number }[];
 		creatorPid = Number(pidRows[0]?.pid ?? 0);
-		await createSectionRecord(SB_GRANTED_SECTION, SB_USER_B, new Date(), sectionId);
+		await createSectionRecord(SB_GRANTED_SECTION, sb.userB, new Date(), sectionId);
 		await stampProject(sectionId, projectId);
 		creatorWrote();
 		await creatorHold; // written; NOT committed
@@ -206,15 +202,15 @@ describe.if(DB_READY)(
 	'action_scope_binding — the gate refuses the declared-but-wrong grant',
 	() => {
 		beforeAll(async () => {
-			await installScopeBindingFixture();
-			A = await resolvePrincipal(SB_USER_A);
-			B = await resolvePrincipal(SB_USER_B);
+			await sb.install();
+			A = await resolvePrincipal(sb.userA);
+			B = await resolvePrincipal(sb.userB);
 			// The record axis needs a REAL record only one of them can reach. test3
 			// is the birth-defaults SENTINEL (record_defaults.ts
 			// FILTER_EXCLUDED_SECTIONS: a create stamps no project there, PHP
 			// parity), so the project B's scope runs on is stamped here, by the
 			// probe that owns the row — dd675 on test101, the stored shape.
-			recordOfB = await createSectionRecord(SB_GRANTED_SECTION, SB_USER_B);
+			recordOfB = await createSectionRecord(SB_GRANTED_SECTION, sb.userB);
 			await sql.unsafe(
 				`UPDATE matrix_test SET relation = coalesce(relation, '{}'::jsonb) || $3::text::jsonb
 				 WHERE section_tipo = $1 AND section_id = $2`,
@@ -236,8 +232,11 @@ describe.if(DB_READY)(
 			);
 		});
 		afterAll(async () => {
-			if (recordOfB > 0) await deleteSectionRecord(SB_GRANTED_SECTION, recordOfB, -1);
-			await removeScopeBindingFixture();
+			try {
+				if (recordOfB > 0) await deleteSectionRecord(SB_GRANTED_SECTION, recordOfB, -1);
+			} finally {
+				await sb.release();
+			}
 		});
 
 		test('the fixture is non-degenerate: A holds the DECLARED grant and 0 on the real targets', async () => {
@@ -354,7 +353,7 @@ describe.if(DB_READY)(
 			const generate = await spec('tool_hierarchy', 'generate_virtual_section');
 			// The audit shape: the client names the section it holds write on; the
 			// writer ignores it and rewrites hierarchy1/<id>.
-			const options = { section_tipo: SB_GRANTED_SECTION, section_id: SB_HIERARCHY_ID };
+			const options = { section_tipo: SB_GRANTED_SECTION, section_id: sb.hierarchyId };
 			expect(await assertActionPermission(generate, options, A)).toEqual({
 				ok: false,
 				msg: 'insufficient permissions on target',
@@ -420,12 +419,12 @@ describe.if(DB_READY)(
 				tipo: PRESET_NAME_COMPONENT,
 				files_data: [{ name: 'x.jpg', section_id: matchedId }],
 			});
-			expect(await assertActionPermission(importFiles, request(SB_PRESET_OF_B), A)).toEqual({
+			expect(await assertActionPermission(importFiles, request(sb.presetOfB), A)).toEqual({
 				ok: false,
 				msg: 'record is out of the user scope',
 				errors: ['unauthorized'],
 			});
-			expect(await assertActionPermission(importFiles, request(SB_PRESET_OF_A), A)).toEqual({
+			expect(await assertActionPermission(importFiles, request(sb.presetOfA), A)).toEqual({
 				ok: true,
 			});
 		});
@@ -510,7 +509,7 @@ describe.if(DB_READY)(
 			// — the probe runs and PASSES; the run fails later, at the staging lookup.
 			const racedId = await freeTest3Id();
 			try {
-				const { blocked, result } = await enumerateImportRacingCreate(racedId, SB_PROJECT_OF_A);
+				const { blocked, result } = await enumerateImportRacingCreate(racedId, sb.projectOfA);
 				expect(blocked).toBe(true);
 				expect(await isRecordInScope(SB_GRANTED_SECTION, racedId, A)).toBe(true);
 				expect(result.errors).toHaveLength(1);
@@ -548,7 +547,7 @@ describe.if(DB_READY)(
 				changedData: [
 					{ action: 'set_data', id: null, value: [{ value: MATCH_FILENAME, lang: 'lg-eng' }] },
 				],
-				userId: SB_USER_B,
+				userId: sb.userB,
 			});
 			expect(stored.ok).toBe(true);
 			const matcher = await spec('tool_import_files', 'get_media_section_match');
@@ -694,7 +693,7 @@ describe.if(DB_READY)(
 			const items = (written?.columns.string as Record<string, { value?: string }[]>)[
 				SB_INPUT_COMPONENT
 			];
-			expect(items?.map((item) => item.value)).toEqual([`written by ${SB_USER_B}`]);
+			expect(items?.map((item) => item.value)).toEqual([`written by ${sb.userB}`]);
 		});
 
 		test('through the dispatcher with background_running:true, the refusal PRECEDES the fork', async () => {
@@ -703,7 +702,7 @@ describe.if(DB_READY)(
 			const error = await refusalOf(
 				dispatchToolRequest(
 					A,
-					SB_USER_A,
+					sb.userA,
 					{ model: 'tool_update_cache', action: 'update_cache' },
 					{
 						background_running: true,
@@ -716,7 +715,7 @@ describe.if(DB_READY)(
 			expect(error.publicMessage).toContain('insufficient permissions on target');
 			// THE assertion: it THREW — no job handle, nothing forked, no row re-saved.
 			expect(error.extend).toBeUndefined();
-			expect(listBackgroundJobs('tool_update_cache', SB_USER_A, true)).toHaveLength(0);
+			expect(listBackgroundJobs('tool_update_cache', sb.userA, true)).toHaveLength(0);
 		}, 20000);
 	},
 );

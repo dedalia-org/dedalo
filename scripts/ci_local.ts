@@ -117,18 +117,21 @@
 
 import {
 	chmodSync,
+	cpSync,
+	type Dirent,
 	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ciImageFingerprint, lockedImageRef, readCiImageLock } from './lib/ci_image.ts';
-import { UNIT_TIER } from './unit_baseline.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..');
 
@@ -296,6 +299,185 @@ export const CONTAINER_OUT = '/ci-out';
 /** Either recording flag: the run is the db tier alone, in the image, and writes a baseline. */
 export function isRecording(args: Pick<Args, 'flags'>): boolean {
 	return args.flags.has('--record-unit-baseline') || args.flags.has('--record-parity-baseline');
+}
+
+/**
+ * The tier logs' way out (hermetic.sh HERMETIC_LOG_DIR's parent, DEDALO_CI_LOG_DIR): a
+ * subdir of the writable mount, copied by {@link keepRunLogs} before the mount is removed.
+ */
+export const CONTAINER_LOG_DIR = `${CONTAINER_OUT}/logs`;
+
+/**
+ * Copy the logs a docker run kept (`<outputs>/logs`, the container's
+ * {@link CONTAINER_LOG_DIR}) to `<intoRoot>/<runId>/` — <repo>/ci-logs/ is gitignored, and
+ * one dir per run, so concurrent runs never overwrite each other. Returns the destination,
+ * or null when the run kept nothing. Best-effort REPORTING: a copy failure is printed, never
+ * a verdict.
+ */
+export function keepRunLogs(outputs: string, intoRoot: string, runId: string): string | null {
+	const kept = join(outputs, 'logs');
+	if (!existsSync(kept)) return null;
+	const dest = join(intoRoot, runId);
+	try {
+		mkdirSync(intoRoot, { recursive: true });
+		cpSync(kept, dest, { recursive: true });
+		return dest;
+	} catch (error) {
+		console.error(
+			`== ci:local: WARNING — could not keep the run's logs (${kept} → ${dest}): ${String(error)}`,
+		);
+		return null;
+	}
+}
+
+/** `<repo>/ci-logs` — where host and docker runs keep tier logs (gitignored). */
+export const CI_LOGS_DIR = 'ci-logs';
+
+/**
+ * How many `docker-*` run directories {@link pruneRunLogs} keeps under `<repo>/ci-logs/`:
+ * the newest by modification time. Local runs get a bound like CI's artifact retention.
+ */
+export const KEPT_DOCKER_RUN_LOGS = 10;
+
+/**
+ * Delete all but the newest `keep` `docker-*` run directories under `root` (by mtime).
+ * Only `docker-*` entries are touched — a host run's `hermetic/` dir is not a run dir.
+ * Returns the names removed. Best-effort: a failed removal is reported, never thrown.
+ */
+/**
+ * The stat {@link pruneRunLogs} uses by default: `undefined` for an entry that is gone
+ * (another run pruned it between the listing and this stat), never an ENOENT throw.
+ */
+export const statRunDir = (path: string): { mtimeMs: number } | undefined =>
+	statSync(path, { throwIfNoEntry: false });
+
+export function pruneRunLogs(
+	root: string,
+	keep: number = KEPT_DOCKER_RUN_LOGS,
+	stat: (path: string) => { mtimeMs: number } | undefined = statRunDir,
+): string[] {
+	// TOTAL: a root that cannot be listed is reported and nothing is pruned; an entry that
+	// vanished is skipped; an entry whose stat fails otherwise (EACCES) is reported and
+	// skipped; a failed removal is reported — never thrown (this runs in a finally).
+	let entries: Dirent[];
+	try {
+		if (!existsSync(root)) return [];
+		entries = readdirSync(root, { withFileTypes: true });
+	} catch (error) {
+		console.error(`== ci:local: WARNING — could not list ${root} to prune it: ${String(error)}`);
+		return [];
+	}
+	const runs: { name: string; mtime: number }[] = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory() || !entry.name.startsWith('docker-')) continue;
+		try {
+			const info = stat(join(root, entry.name));
+			if (info !== undefined) runs.push({ name: entry.name, mtime: info.mtimeMs });
+		} catch (error) {
+			console.error(
+				`== ci:local: WARNING — could not stat ${join(root, entry.name)} to prune it: ${String(error)}`,
+			);
+		}
+	}
+	runs.sort((a, b) => b.mtime - a.mtime || b.name.localeCompare(a.name));
+	const removed: string[] = [];
+	for (const run of runs.slice(Math.max(0, keep))) {
+		try {
+			rmSync(join(root, run.name), { recursive: true, force: true });
+			removed.push(run.name);
+		} catch (error) {
+			console.error(
+				`== ci:local: WARNING — could not prune ${join(root, run.name)}: ${String(error)}`,
+			);
+		}
+	}
+	return removed;
+}
+
+/**
+ * The end of every docker run, in this order: keep the run's logs (`<outputs>/logs` →
+ * `<logsRoot>/<runId>/`), remove this run's scratch mounts, then prune old run dirs. A removal
+ * that fails (EACCES on a tree the container created, on a host that does not remap
+ * ownership) is REPORTED, never thrown: it runs in a `finally`, where a throw would
+ * replace the run's verdict. The driver's root half also hands /ci-out back
+ * (`chmod -R a+rwX`) before the container exits, so this is the second line, not the only one.
+ * Returns where the logs went (null when the run kept none).
+ */
+export function finishDockerRun(
+	inputs: string,
+	outputs: string,
+	logsRoot: string,
+	runId: string,
+	prune: (root: string) => unknown = pruneRunLogs,
+): string | null {
+	const logs = keepRunLogs(outputs, logsRoot, runId);
+	if (logs !== null) console.log(`\n== ci:local: tier logs kept in ${logs}`);
+	// This run's OWN mounts first: their removal never depends on pruning other runs' logs.
+	for (const dir of [inputs, outputs]) {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch (error) {
+			console.error(
+				`== ci:local: WARNING — could not remove the run's scratch dir ${dir}: ${String(error)} — remove it by hand`,
+			);
+		}
+	}
+	if (logs !== null) {
+		try {
+			prune(logsRoot);
+		} catch (error) {
+			console.error(`== ci:local: WARNING — pruning ${logsRoot} failed: ${String(error)}`);
+		}
+	}
+	return logs;
+}
+
+/** What {@link dockerComposeEnv} needs: the run's facts, resolved by runInDocker. */
+export interface DockerRunFacts {
+	readonly image: string;
+	readonly inputs: string;
+	readonly outputs: string;
+	readonly sha: string;
+	readonly branch: string;
+	readonly base: string | undefined;
+	readonly auditBase: string;
+	readonly overlay: boolean;
+	readonly args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> };
+	/** The source mounts ({@link containerMounts} — resolved by the caller: it inspects the repo). */
+	readonly mounts: readonly { host: string; container: string }[];
+}
+
+/**
+ * The compose environment of a docker run — every key ci/compose.yml interpolates.
+ * Pure over the run's facts (the mounts included — never inspected here), so the gate reads the real mapping (the writable mount, the
+ * tier log dir, the record mode), not a spelling.
+ */
+export function dockerComposeEnv(facts: DockerRunFacts): Record<string, string | undefined> {
+	const { image, inputs, outputs, sha, branch, base, auditBase, overlay, args, mounts } = facts;
+	return {
+		...gitScrubbedEnv(),
+		DEDALO_CI_IMAGE_REF: image,
+		...Object.fromEntries(
+			mounts.map((mount) => [
+				mount.container === CONTAINER_SRC ? 'DEDALO_CI_SRC' : 'DEDALO_CI_GIT',
+				mount.host,
+			]),
+		),
+		DEDALO_CI_IN: inputs,
+		DEDALO_CI_OUT: outputs,
+		DEDALO_CI_SHA: sha,
+		DEDALO_CI_BRANCH: base === undefined ? branch : `ci-local-pr`,
+		DEDALO_CI_GITHUB_REF: base === undefined ? `refs/heads/${branch}` : 'refs/pull/0/merge',
+		DEDALO_CI_EVENT: base === undefined ? 'push' : 'pull_request',
+		DEDALO_CI_BASE_REF: base ?? '',
+		DEDALO_CI_AUDIT_BASE: auditBase,
+		DEDALO_CI_OVERLAY: overlay ? '1' : '0',
+		DEDALO_CI_LOG_DIR: CONTAINER_LOG_DIR,
+		...recordEnv(args, CONTAINER_OUT),
+		// compose.yml REQUIRES this (`:?`) for every command it parses, `down` included —
+		// without it the teardown fails to interpolate and leaks the project's network.
+		DEDALO_CI_TIER_SCRIPT: 'none',
+	};
 }
 
 /**
@@ -844,7 +1026,10 @@ async function runOnHost(args: Args, tiers: readonly Tier[]): Promise<TierResult
  * exec`): perl stays PID 1 and waits ONLY on its own child (waitpid(pid), never -1), so a
  * killed detached server stays a zombie — the condition suite_mariadb's pidAlive guards.
  * An exec'd bash as PID 1 would reap it and hide that path. The child's exit status (or
- * 128+signal) is perl's.
+ * 128+signal) is perl's. Before exiting, perl (still root) runs `chmod -R a+rwX` over the
+ * writable mount: what uid 1001 created there (the daemon logs, a recorded baseline) is
+ * owned by 1001 with mode 0755 on a host that does not remap ownership (Linux, rootful
+ * docker), and the host's cleanup could not unlink it. Gated: ci_local_native.
  *
  * As uid 1001: clone the host's COMMON git dir (mounted read-only at CONTAINER_GIT) SHARING
  * its object store — full history, nothing copied — check out the requested sha on the branch name a push checkout has, and, in
@@ -858,7 +1043,7 @@ if [ "$(id -u)" = 0 ]; then
 	mkdir -p /home/runner/work/dedalo /home/runner/work/_temp /home/runner/.bun/install/cache
 	chown 1001:0 /home/runner /home/runner/work /home/runner/work/dedalo /home/runner/work/_temp \\
 		/home/runner/.bun /home/runner/.bun/install /home/runner/.bun/install/cache
-	exec perl -e 'my $p = fork(); die "fork: $!" unless defined $p; if (!$p) { exec @ARGV or die "exec: $!" } waitpid($p, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' \\
+	exec perl -e 'my $p = fork(); die "fork: $!" unless defined $p; if (!$p) { exec @ARGV or die "exec: $!" } waitpid($p, 0); my $s = $?; system("chmod", "-R", "a+rwX", "${CONTAINER_OUT}"); exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' \\
 		setpriv --reuid=1001 --regid=0 --clear-groups -- \\
 		env -u USER -u LOGNAME HOME=/home/runner bash /ci-in/driver.sh
 fi
@@ -1224,7 +1409,8 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	chmodSync(inputs, 0o755);
 	writeFileSync(join(inputs, 'driver.sh'), IN_CONTAINER_DRIVER, { mode: 0o644 });
 	// The ONE writable mount (/ci-out): empty, world-writable (the container writes as
-	// uid 1001, not as you), removed after the run. Only a recording writes to it.
+	// uid 1001, not as you), removed after the run. A recording writes its baseline there,
+	// and hermetic.sh its daemon logs (/ci-out/logs, kept by keepRunLogs).
 	const outputs = mkdtempSync(join(tmpdir(), 'dedalo-ci-out-'));
 	chmodSync(outputs, 0o777);
 	let overlay = false;
@@ -1253,29 +1439,18 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 
 	const results: TierResult[] = [];
 	let activeProject: string | undefined;
-	const composeEnvBase: Record<string, string | undefined> = {
-		...gitScrubbedEnv(),
-		DEDALO_CI_IMAGE_REF: image,
-		...Object.fromEntries(
-			containerMounts().map((mount) => [
-				mount.container === CONTAINER_SRC ? 'DEDALO_CI_SRC' : 'DEDALO_CI_GIT',
-				mount.host,
-			]),
-		),
-		DEDALO_CI_IN: inputs,
-		DEDALO_CI_OUT: outputs,
-		DEDALO_CI_SHA: sha,
-		DEDALO_CI_BRANCH: base === undefined ? branch : `ci-local-pr`,
-		DEDALO_CI_GITHUB_REF: base === undefined ? `refs/heads/${branch}` : 'refs/pull/0/merge',
-		DEDALO_CI_EVENT: base === undefined ? 'push' : 'pull_request',
-		DEDALO_CI_BASE_REF: base ?? '',
-		DEDALO_CI_AUDIT_BASE: auditBase,
-		DEDALO_CI_OVERLAY: overlay ? '1' : '0',
-		...recordEnv(args, CONTAINER_OUT),
-		// compose.yml REQUIRES this (`:?`) for every command it parses, `down` included —
-		// without it the teardown fails to interpolate and leaks the project's network.
-		DEDALO_CI_TIER_SCRIPT: 'none',
-	};
+	const composeEnvBase = dockerComposeEnv({
+		image,
+		inputs,
+		outputs,
+		sha,
+		branch,
+		base,
+		auditBase,
+		overlay,
+		args,
+		mounts: containerMounts(),
+	});
 	const teardown = (project: string) => {
 		const down = docker(
 			[
@@ -1348,8 +1523,12 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	} finally {
 		process.off('SIGINT', onSignal);
 		process.off('SIGTERM', onSignal);
-		rmSync(inputs, { recursive: true, force: true });
-		rmSync(outputs, { recursive: true, force: true });
+		finishDockerRun(
+			inputs,
+			outputs,
+			join(REPO_ROOT, CI_LOGS_DIR),
+			`docker-${sha.slice(0, 12)}-${process.pid}`,
+		);
 	}
 	return results;
 }
@@ -1412,15 +1591,8 @@ function copyRecordedBaseline(
 	}
 	// a --new recording accepts no regression: the reason (if any) was the parity writer's
 	const reason = args.values.has('--new') ? undefined : args.values.get('--reason');
-	// The record is stamped with this image (red_baseline.ts stampBaseline); while the
-	// pre-stamp transition is still live in code, --check refuses the stamped file beside it,
-	// so the first stamped record and the transition's removal are ONE commit.
-	const transition = UNIT_TIER.unstampedTransition ?? null;
 	console.log(
 		`\n== ci:local: RECORDED ${UNIT_BASELINE} (in the CI image). Commit it on its own` +
-			(transition === null
-				? ''
-				: ` — together with UNIT_TIER.unstampedTransition set to null in scripts/unit_baseline.ts: this is the first CI-image-stamped record, and --check refuses a stamped baseline beside a live transition`) +
 			(reason === undefined
 				? '.'
 				: `, with the accepted regressions' reason in the message:\n   ${reason}`),

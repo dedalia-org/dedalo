@@ -94,6 +94,7 @@ import {
 } from '../db/postgres.ts';
 import { DedaloError, isDedaloError } from '../errors/index.ts';
 import {
+	catalogKeyOf,
 	type DataUpdateDescriptor,
 	descriptorRefusal,
 	getMatchedDescriptor,
@@ -286,11 +287,7 @@ function preflight(
 	scripts: Readonly<Record<string, UpdateScriptFn>>,
 ): void {
 	const refusal = descriptorRefusal(
-		validateUpdateDescriptor(
-			`${descriptor.versionMajor}${descriptor.versionMedium}${descriptor.versionMinor}`,
-			descriptor,
-			Object.keys(scripts),
-		),
+		validateUpdateDescriptor(catalogKeyOf(descriptor), descriptor, Object.keys(scripts)),
 	);
 	if (refusal !== null) throw refusal;
 	const unchecked = [

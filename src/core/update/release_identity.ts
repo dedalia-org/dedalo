@@ -3,13 +3,18 @@
  * (owner decision 2026-10-15, finding C3i-F1).
  *
  * Two identities, never confused:
- *  - the DATA version (`version.ts` DEDALO_VERSION_TRIPLE / DEDALO_VERSION) —
+ *  - the DATA version (`version.ts` DEDALO_DATA_VERSION / DEDALO_VERSION) —
  *    what compares, migrates, names a code-server directory, crosses to an
- *    older peer. It stays the bare triple.
+ *    older peer. It is the last data-changing release, which may lag the code.
  *  - the RELEASE identity (this module): the bare triple for an exact stable
- *    tag, `X.Y.Z-(alpha|beta|rc).N` for an exact prerelease tag, `X.Y.Z.dev`
- *    for anything untagged. A build at tag `v7.0.0-beta.6` calls itself
- *    `7.0.0-beta.6` while its data stays `7.0.0`.
+ *    tag, `X.Y.Z-(alpha|beta|rc).N` for an exact prerelease tag, `X.Y.Z-dev`
+ *    for anything untagged (the triple is version.ts DEDALO_NEXT_RELEASE,
+ *    the release the tree is building toward). A build at tag `v7.0.0-beta.6`
+ *    calls itself `7.0.0-beta.6` while its data stays `7.0.0`.
+ *
+ * Dev identity order (owner decision 2026-10-25): a dev identity sorts ABOVE
+ * every alpha/beta/rc of its triple and BELOW the stable of that triple, so
+ * `7.0.0 < 7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2`.
  *
  * PURE LEAF: no fs, no spawn, no config — the evidence (the expanded
  * `build_info.txt` describe field, or a checkout's `git describe`) is READ by
@@ -29,19 +34,23 @@ export type PrereleaseLabel = (typeof PRERELEASE_LABELS)[number];
  * THE release-version grammar, shared by the resolver, the changelog
  * (`changes/<version>/`) and — later — the code server's tag list: a canonical
  * triple (no leading zeros, so `v7.0.01` can never name a second `7.0.1`),
- * optionally `-alpha.N` / `-beta.N` / `-rc.N`. No `.dev`: a dev build is never
- * a release.
+ * optionally `-alpha.N` / `-beta.N` / `-rc.N`. No `-dev` suffix: a dev build is
+ * never a release (its identity is `X.Y.Z-dev`, DEV_VERSION_RE, and no tag can name it).
  */
 export const RELEASE_VERSION_RE =
 	/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.(0|[1-9]\d*))?$/;
 
-/** A dev identity: the triple plus `.dev` (owner Q2 — the commit stays in DEDALO_BUILD_SHA). */
-const DEV_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.dev$/;
+/**
+ * A dev identity: the triple plus `-dev` (owner Q2 — the commit stays in DEDALO_BUILD_SHA).
+ * The same spelling as the dev ARCHIVE name (`<X.Y.Z>-dev.zip`), so an identity
+ * and the file that carries it read alike.
+ */
+const DEV_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-dev$/;
 
 /**
  * Oldest git whose `export-subst` expands `%(describe:match=…,abbrev=…)`.
  * An older git leaves the placeholder literally in the archive; the resolver
- * reads that as "no tag evidence" and says `.dev` — never a release — with a
+ * reads that as "no tag evidence" and says a dev identity — never a release — with a
  * notice naming this minimum. Building a release ARCHIVE with one is refused
  * outright (gitDescribeSupportFault: code_build.ts, scripts/ci/image_release.ts).
  *
@@ -62,7 +71,7 @@ export const MIN_GIT_FOR_DESCRIBE = '2.35';
  * Why `git --version` output (`git version 2.39.5 (Apple Git-154)`) names a
  * git too old to stamp the release tag into an archive, or null when it is
  * new enough. Output that names no version is a fault too (fail closed): a
- * release built by an unknown git may ship calling itself `.dev`.
+ * release built by an unknown git may ship calling itself a dev build.
  */
 export function gitDescribeSupportFault(versionOutput: string): string | null {
 	const found = /git version (\d+)\.(\d+)/.exec(versionOutput);
@@ -72,16 +81,20 @@ export function gitDescribeSupportFault(versionOutput: string): string | null {
 	const major = Number(found[1]);
 	const minor = Number(found[2]);
 	if (major > minMajor || (major === minMajor && minor >= minMinor)) return null;
-	return `git ${major}.${minor} cannot expand %(describe:match=…,abbrev=…) — the archive would not carry its release tag and would call itself .dev; git ${MIN_GIT_FOR_DESCRIBE} or newer is required`;
+	return `git ${major}.${minor} cannot expand %(describe:match=…,abbrev=…) — the archive would not carry its release tag and would call itself a dev build; git ${MIN_GIT_FOR_DESCRIBE} or newer is required`;
 }
 
 export type ReleaseKind = 'stable' | 'prerelease' | 'dev';
 
 export interface ReleaseIdentity {
-	/** The string the program calls itself: `X.Y.Z`, `X.Y.Z-beta.N` or `X.Y.Z.dev`. */
+	/** The string the program calls itself: `X.Y.Z`, `X.Y.Z-beta.N` or `X.Y.Z-dev`. */
 	version: string;
 	kind: ReleaseKind;
-	/** The DATA triple this identity belongs to (always version.ts's own). */
+	/**
+	 * The triple this identity names: the tag's own triple for a release, the
+	 * declared next triple (version.ts DEDALO_NEXT_RELEASE) for a dev identity.
+	 * It is NOT always the DATA triple (version.ts DEDALO_DATA_VERSION).
+	 */
 	triple: readonly [number, number, number];
 	/** The exact git tag the identity was read from; null when none applied. */
 	tag: string | null;
@@ -101,7 +114,7 @@ export interface ParsedReleaseVersion {
 	dev: boolean;
 }
 
-/** Parse a release identity (`X.Y.Z`, `X.Y.Z-rc.N`, `X.Y.Z.dev`); null when it is none of them. */
+/** Parse a release identity (`X.Y.Z`, `X.Y.Z-rc.N`, `X.Y.Z-dev`); null when it is none of them. */
 export function parseReleaseVersion(version: string): ParsedReleaseVersion | null {
 	const dev = DEV_VERSION_RE.exec(version);
 	if (dev !== null) {
@@ -135,13 +148,13 @@ export function releaseVersionOfTag(tag: string): string | null {
 
 /**
  * Semver §11 precedence between two identities: -1 / 0 / 1.
- * `7.0.0-alpha.1 < 7.0.0-beta.5 < 7.0.0-beta.6 < 7.0.0-rc.1 < 7.0.0 < 7.0.1`.
+ * the current order (VERSIONING_SPEC §3), dev included:
+ * `7.0.0-beta.6 < 7.0.0-beta.7 < 7.0.0-dev < 7.0.0 < 7.0.1-alpha.1 < 7.0.1-beta.1 < 7.0.1-rc.1 < 7.0.1-dev < 7.0.1 < 7.0.2`.
  *
- * A `.dev` identity compares as ITS TRIPLE (equal to the stable release of
- * that triple): it names no point in the release sequence, so a caller asking
- * an ordering question that a dev build cannot answer (the image updater's
- * forward check) must check `parseReleaseVersion(x).dev` itself — this
- * function never invents an order for it. Throws on a string that is no
+ * A `-dev` identity is NOT its bare triple: it sorts above every prerelease of
+ * its triple and strictly below that triple's stable release (comparePrereleases
+ * ranks dev explicitly; a null prerelease is the stable release, never a
+ * label index). Throws on a string that is no
  * identity at all: a silent order for garbage is how a downgrade gets waved
  * through.
  *
@@ -152,7 +165,7 @@ export function compareReleaseIdentities(a: string, b: string): number {
 	const x = requireParsed(a);
 	const y = requireParsed(b);
 	const byTriple = compareTriples(x.triple, y.triple);
-	return byTriple !== 0 ? byTriple : comparePrereleases(x.prerelease, y.prerelease);
+	return byTriple !== 0 ? byTriple : comparePrereleases(x, y);
 }
 
 function compareTriples(x: readonly number[], y: readonly number[]): number {
@@ -163,14 +176,27 @@ function compareTriples(x: readonly number[], y: readonly number[]): number {
 	return 0;
 }
 
-/** Same triple: any prerelease sorts BEFORE the release (semver §11.3), then label, then number. */
-function comparePrereleases(
-	x: ParsedReleaseVersion['prerelease'],
-	y: ParsedReleaseVersion['prerelease'],
-): number {
-	if (x === null || y === null) return (x === null ? 1 : 0) - (y === null ? 1 : 0);
-	const byLabel = PRERELEASE_LABELS.indexOf(x.label) - PRERELEASE_LABELS.indexOf(y.label);
-	return Math.sign(byLabel !== 0 ? byLabel : x.number - y.number);
+/**
+ * Precedence rank inside one triple: each prerelease label by its position in
+ * PRERELEASE_LABELS, then the dev identity, then the stable release (no
+ * prerelease). Dev and stable are EXPLICIT ranks, never a missing label: a dev
+ * identity carries prerelease null, so reading it as "the release" would tie it
+ * with the stable of its triple — the exact bug this order replaces.
+ */
+const DEV_PRECEDENCE_RANK = PRERELEASE_LABELS.length;
+const STABLE_PRECEDENCE_RANK = PRERELEASE_LABELS.length + 1;
+
+function precedenceRankOf(parsed: ParsedReleaseVersion): number {
+	if (parsed.dev) return DEV_PRECEDENCE_RANK;
+	if (parsed.prerelease === null) return STABLE_PRECEDENCE_RANK;
+	return PRERELEASE_LABELS.indexOf(parsed.prerelease.label);
+}
+
+/** Same triple: rank first (alpha < beta < rc < dev < stable), then the number within one label. */
+function comparePrereleases(x: ParsedReleaseVersion, y: ParsedReleaseVersion): number {
+	const byRank = precedenceRankOf(x) - precedenceRankOf(y);
+	if (byRank !== 0) return Math.sign(byRank);
+	return Math.sign((x.prerelease?.number ?? 0) - (y.prerelease?.number ?? 0));
 }
 
 function requireParsed(version: string): ParsedReleaseVersion {
@@ -186,31 +212,26 @@ function requireParsed(version: string): ParsedReleaseVersion {
 }
 
 /**
- * The container image tag an identity is published / built under: a stable or
- * prerelease identity IS its tag (`7.0.0`, `7.0.0-beta.6` — never a floating
- * `7.0.0` for a beta); a dev identity is `X.Y.Z-dev` (the image grammar has no
- * `.dev`, deploy/dedalo-image-lib.sh DEDALO_VERSION_RE).
+ * The container image tag an identity is published / built under. Every
+ * identity is its own tag: a stable or prerelease identity (`7.0.0`,
+ * `7.0.0-beta.6` — never a floating `7.0.0` for a beta) and a dev identity
+ * (`7.0.0-dev`, the same spelling the image grammar uses).
  */
 export function imageTagOf(version: string): string {
-	const parsed = requireParsed(version);
-	return parsed.dev ? `${parsed.triple.join('.')}-dev` : version;
+	requireParsed(version); // throws on a string that is no identity
+	return version;
 }
 
 /**
- * The identity an image tag names — the inverse of imageTagOf: a stable or
- * prerelease tag is its own identity, `X.Y.Z-dev` is `X.Y.Z.dev`; anything
- * else (`X.Y.Z.dev` included — that is an identity, never a tag) → null.
- * The image-tag grammar (`.dedalo.env DEDALO_VERSION`, the image updater's
- * `--version`) is exactly the set this accepts, and two tags order as their
- * identities do: deploy/dedalo-image-lib.sh DEDALO_VERSION_RE /
- * dedalo_version_cmp are held to it by test/unit/release_identity_shell_parity.test.ts.
+ * The identity an image tag names — the inverse of imageTagOf: every tag the
+ * image grammar accepts (`X.Y.Z`, `X.Y.Z-(alpha|beta|rc).N`, `X.Y.Z-dev`) is
+ * its own identity; anything else → null. Two tags order as their identities
+ * do: deploy/dedalo-image-lib.sh DEDALO_VERSION_RE / dedalo_version_cmp are
+ * held to it by test/unit/release_identity_shell_parity.test.ts.
  */
 export function identityOfImageTag(tag: string): string | null {
-	if (tag.endsWith('-dev')) {
-		const identity = `${tag.slice(0, -'-dev'.length)}.dev`;
-		return DEV_VERSION_RE.test(identity) ? identity : null;
-	}
-	return RELEASE_VERSION_RE.test(tag) ? tag : null;
+	if (DEV_VERSION_RE.test(tag) || RELEASE_VERSION_RE.test(tag)) return tag;
+	return null;
 }
 
 /** Parsed provenance: null build ⇒ no expanded stamp (a checkout, or malformed). */
@@ -283,8 +304,14 @@ export function parseBuildInfo(content: string): BuildInfo {
 
 /** The evidence the resolver decides from — every fs/git read happens in build_stamp.ts. */
 export interface ReleaseEvidence {
-	/** version.ts DEDALO_VERSION_TRIPLE of the running tree. */
+	/** version.ts DEDALO_DATA_VERSION of the running tree (the DATA triple: an exact tag must name it). */
 	triple: readonly [number, number, number];
+	/**
+	 * version.ts DEDALO_NEXT_RELEASE: the triple an UNTAGGED tree names its
+	 * dev identity with. Resolved here — the one place that decides it — so no
+	 * caller can pass a different triple for the same tree.
+	 */
+	nextDevTriple: readonly [number, number, number];
 	/**
 	 * The `git describe --exact-match --match 'v[0-9]*'` answer for the tree:
 	 * the expanded third field of build_info.txt (an archive), or the bounded
@@ -309,66 +336,89 @@ export interface ReleaseEvidence {
  *  1. exact stable tag `vX.Y.Z` whose triple = version.ts → `X.Y.Z` (stable);
  *  2. exact prerelease tag `vX.Y.Z-(alpha|beta|rc).N`, triple equal → that (prerelease);
  *  3. anything else with describe evidence — untagged, past a tag, a tag naming
- *     ANOTHER triple (with a notice), an old git's unexpanded field — → `X.Y.Z.dev`;
+ *     ANOTHER triple (with a notice), an old git's unexpanded field — → `X.Y.Z-dev`,
+ *     with X.Y.Z = evidence.nextDevTriple (the release being built toward);
  *  4. a LEGACY two-field stamp keeps the pre-identity rule: bare on a master /
- *     unstamped install, `.dev` on a dev-channel install;
+ *     unstamped install, `-dev` on a dev-channel install;
  *  5. the channel never overrides a TAG (owner Q5): a dev-channel archive of an
  *     exactly tagged commit IS that release's bytes, so it calls itself by the
  *     tag (posture stays channel-driven — status.ts enginePosture).
- * No evidence at all (an unexpanded placeholder with no git) → `.dev`.
+ * No evidence at all (an unexpanded placeholder with no git) → `-dev`.
  */
 export function resolveReleaseIdentity(evidence: ReleaseEvidence): ReleaseIdentity {
-	const { triple, describe, provenance } = evidence;
+	const { triple, nextDevTriple, describe, provenance } = evidence;
 	const data = triple.join('.');
 	if (describe === null) {
 		return provenance.stamp === 'legacy' && provenance.channel !== 'dev'
 			? freezeIdentity({ version: data, kind: 'stable', triple, tag: null, notice: null })
-			: devIdentity(triple, null);
+			: devIdentity(nextDevTriple, null);
 	}
 	const tagged = releaseVersionOfTag(describe);
-	if (tagged !== null) return taggedIdentity(triple, describe, tagged);
+	if (tagged !== null) return taggedIdentity(triple, nextDevTriple, describe, tagged);
 	if (describe.startsWith('%(')) {
 		return devIdentity(
-			triple,
-			`the build stamp's describe field was never expanded (git older than ${MIN_GIT_FOR_DESCRIBE} built this archive) — the release tag cannot be read; calling it ${data}.dev`,
+			nextDevTriple,
+			`the build stamp's describe field was never expanded (git older than ${MIN_GIT_FOR_DESCRIBE} built this archive) — the release tag cannot be read; calling it ${nextDevTriple.join('.')}-dev`,
 		);
 	}
-	return devIdentity(triple, null);
+	return devIdentity(nextDevTriple, null);
 }
 
-/** `X.Y.Z.dev`: no release names this tree (rule 3). */
+/** `X.Y.Z-dev`: no release names this tree (rule 3). */
 function devIdentity(
-	triple: readonly [number, number, number],
+	nextDevTriple: readonly [number, number, number],
 	notice: string | null,
 ): ReleaseIdentity {
 	return freezeIdentity({
-		version: `${triple.join('.')}.dev`,
+		version: `${nextDevTriple.join('.')}-dev`,
 		kind: 'dev',
-		triple,
+		triple: nextDevTriple,
 		tag: null,
 		notice,
 	});
 }
 
-/** Rules 1/2: an exact release tag — believed only when it names THIS data triple. */
+/**
+ * Rules 1/2: an exact release tag names its OWN release (owner decision,
+ * 2026-10-26). A code-only patch tag keeps the data version of its minor, so
+ * the tag's triple may be above DATA — it is still that release. Only a tag
+ * BELOW the data triple is refused (a tree cannot be an older release than the
+ * data it runs on) and falls back to the dev identity.
+ */
 function taggedIdentity(
 	triple: readonly [number, number, number],
+	nextDevTriple: readonly [number, number, number],
 	describe: string,
 	tagged: string,
 ): ReleaseIdentity {
-	const data = triple.join('.');
 	const parsed = requireParsed(tagged);
-	if (parsed.triple.join('.') !== data) {
+	if (compareTriples(parsed.triple, triple) < 0) {
 		return devIdentity(
-			triple,
-			`the tag ${describe} names ${tagged}, but version.ts says ${data} — the tree is not that release; calling it ${data}.dev`,
+			nextDevTriple,
+			`the tag ${describe} names ${tagged}, below the data version ${triple.join('.')} — the tree cannot be an older release than its data; calling it ${nextDevTriple.join('.')}-dev`,
 		);
 	}
 	const kind: ReleaseKind = parsed.prerelease === null ? 'stable' : 'prerelease';
-	return freezeIdentity({ version: tagged, kind, triple, tag: describe, notice: null });
+	return freezeIdentity({
+		version: tagged,
+		kind,
+		triple: parsed.triple,
+		tag: describe,
+		notice: null,
+	});
 }
 
 function freezeIdentity(identity: ReleaseIdentity): ReleaseIdentity {
 	const [major, minor, patch] = identity.triple;
 	return Object.freeze({ ...identity, triple: Object.freeze([major, minor, patch] as const) });
+}
+
+/**
+ * The refusal for a nightly (`X.Y.Z-dev`) image or a development identity: Docker has
+ * no nightly images (VERSIONING_SPEC §7 S3). Lives here, not in the install layout, so
+ * the server's update path can say it without reaching into the installer (the
+ * install_host_privilege closure gate).
+ */
+export function nightlyImageMessage(nightly: string): string {
+	return `Docker has no nightly images: ${nightly} is a development build, so there is no image to install. Nightlies reach tree installs through the code update path (tree archives); a Docker install runs tagged releases only`;
 }

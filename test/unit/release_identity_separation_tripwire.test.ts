@@ -3,7 +3,7 @@
  * WC-2026-10-15-release-identity-from-tag).
  *
  * The engine has two versions and they answer different questions:
- *  - the DATA version (`version.ts` DEDALO_VERSION_TRIPLE → DEDALO_VERSION,
+ *  - the DATA version (`version.ts` DEDALO_DATA_VERSION,
  *    `7.0.0`) compares, migrates, names a code-server file and crosses to an
  *    older peer;
  *  - the RELEASE IDENTITY (`build_stamp.ts` RELEASE_IDENTITY /
@@ -69,7 +69,7 @@ const DATA_CONSUMERS: ReadonlyArray<{
 }> = [
 	{
 		module: 'src/core/publication_host/host_status.ts',
-		why: 'release ids are `<DEDALO_VERSION>_<digest7>`; lockstep with the publication host',
+		why: 'release ids are `<data version>_<digest7>`; lockstep with the publication host',
 	},
 	{
 		module: 'src/core/area_maintenance/widgets/publication_hosts.ts',
@@ -157,11 +157,11 @@ const DATA_CONSUMERS: ReadonlyArray<{
 const MIXED: ReadonlyMap<string, string> = new Map([
 	[
 		'src/core/api/handlers/login_context.ts',
-		"login About: 'Code version' = identity (display site below), 'Data version' = DEDALO_VERSION",
+		"login About: 'Code version' = identity (display site below), 'Data version' = DEDALO_DATA_VERSION",
 	],
 	[
 		'src/core/resolve/environment.ts',
-		'page_globals / info_data: dedalo_version = identity (display sites below), dedalo_data_version = DEDALO_VERSION',
+		'page_globals / info_data: dedalo_version = identity (display sites below), dedalo_data_version = DEDALO_DATA_VERSION',
 	],
 	[
 		'src/core/update/status.ts',
@@ -246,12 +246,14 @@ describe('the flow model reads the engine (anti-vacuity)', () => {
 		expect(model.exportCarriesIdentity('src/core/update/build_stamp.ts', 'RELEASE_IDENTITY')).toBe(
 			true,
 		);
-		expect(model.exportIsDataAlias('src/core/update/version.ts', 'DEDALO_VERSION')).toBe(true);
+		expect(model.exportIsDataAlias('src/core/update/version.ts', 'DEDALO_DATA_VERSION')).toBe(true);
 		// …and they stay apart: the identity is not data, the data is not the identity.
 		expect(model.exportIsDataAlias('src/core/update/build_stamp.ts', 'DEDALO_ENGINE_VERSION')).toBe(
 			false,
 		);
-		expect(model.exportCarriesIdentity('src/core/update/version.ts', 'DEDALO_VERSION')).toBe(false);
+		expect(model.exportCarriesIdentity('src/core/update/version.ts', 'DEDALO_DATA_VERSION')).toBe(
+			false,
+		);
 		// The grammar and comparator are pure: a data consumer may use them.
 		expect(
 			model.exportCarriesIdentity('src/core/update/release_identity.ts', 'parseReleaseVersion'),
@@ -294,7 +296,7 @@ describe('1. data-version consumers never read the release identity', () => {
 			}
 			expect(
 				identityReadsOf(model, consumer.module, consumer.functions),
-				`${consumer.module} is a DATA-version consumer (${consumer.why}). It must compare / name / migrate with version.ts DEDALO_VERSION(_TRIPLE), never the release identity — a prerelease or dev identity is not a version it can order. Each line is a read and the chain down to the producer:`,
+				`${consumer.module} is a DATA-version consumer (${consumer.why}). It must compare / name / migrate with version.ts DEDALO_DATA_VERSION, never the release identity — a prerelease or dev identity is not a version it can order. Each line is a read and the chain down to the producer:`,
 			).toEqual([]);
 		});
 	}
@@ -401,13 +403,10 @@ describe('5. positive controls — every evasion the model claims to see is red'
 			'src/core/update/release_identity.ts',
 			'export function resolveReleaseIdentity(t: readonly number[]) { return { version: `${t.join(".")}.dev` }; }\nexport function parseReleaseVersion(v: string) { return v; }',
 		],
-		[
-			'src/core/update/version.ts',
-			'export const DEDALO_VERSION_TRIPLE = [7, 0, 0];\nexport const DEDALO_VERSION: string = DEDALO_VERSION_TRIPLE.join(".");',
-		],
+		['src/core/update/version.ts', 'export const DEDALO_DATA_VERSION = [7, 0, 0];'],
 		[
 			'src/core/update/build_stamp.ts',
-			"import { resolveReleaseIdentity } from './release_identity.ts';\nimport { DEDALO_VERSION_TRIPLE } from './version.ts';\nexport const RELEASE_IDENTITY = resolveReleaseIdentity(DEDALO_VERSION_TRIPLE);\nexport const DEDALO_ENGINE_VERSION: string = RELEASE_IDENTITY.version;",
+			"import { resolveReleaseIdentity } from './release_identity.ts';\nimport { DEDALO_DATA_VERSION } from './version.ts';\nexport const RELEASE_IDENTITY = resolveReleaseIdentity(DEDALO_DATA_VERSION);\nexport const DEDALO_ENGINE_VERSION: string = RELEASE_IDENTITY.version;",
 		],
 		[
 			'src/zz/relay.ts',
@@ -437,15 +436,15 @@ describe('5. positive controls — every evasion the model claims to see is red'
 		],
 		[
 			'src/zz/c_clean.ts',
-			"import { DEDALO_VERSION } from '../core/update/version.ts';\nimport { parseReleaseVersion } from '../core/update/release_identity.ts';\nexport function f() { return parseReleaseVersion(DEDALO_VERSION); }",
+			"import { DEDALO_DATA_VERSION } from '../core/update/version.ts';\nimport { parseReleaseVersion } from '../core/update/release_identity.ts';\nexport function f() { return parseReleaseVersion(DEDALO_DATA_VERSION); }",
 		],
 		[
 			'src/zz/display.ts',
-			"import { DEDALO_VERSION } from '../core/update/version.ts';\nimport { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from '../core/update/build_stamp.ts';\nimport { mixedLabel } from './mixed_helper';\nconst SHOWN = RELEASE_IDENTITY.kind === 'prerelease' ? DEDALO_VERSION : DEDALO_ENGINE_VERSION;\nfunction mixedShown() { return RELEASE_IDENTITY.kind === 'prerelease' ? DEDALO_VERSION : DEDALO_ENGINE_VERSION; }\nconst VIA = mixedShown();\nexport function bad() { const shown = DEDALO_VERSION; return { version: shown }; }\nexport function good() { return { version: DEDALO_ENGINE_VERSION, data_version: DEDALO_VERSION }; }\nexport function hoisted() { return { version: SHOWN }; }\nexport function helper() { return { version: VIA }; }\nexport function imported() { return { version: mixedLabel() }; }",
+			"import { DEDALO_DATA_VERSION } from '../core/update/version.ts';\nimport { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from '../core/update/build_stamp.ts';\nimport { mixedLabel } from './mixed_helper';\nconst SHOWN = RELEASE_IDENTITY.kind === 'prerelease' ? DEDALO_DATA_VERSION : DEDALO_ENGINE_VERSION;\nfunction mixedShown() { return RELEASE_IDENTITY.kind === 'prerelease' ? DEDALO_DATA_VERSION : DEDALO_ENGINE_VERSION; }\nconst VIA = mixedShown();\nexport function bad() { const shown = DEDALO_DATA_VERSION; return { version: shown }; }\nexport function good() { return { version: DEDALO_ENGINE_VERSION, data_version: DEDALO_DATA_VERSION }; }\nexport function hoisted() { return { version: SHOWN }; }\nexport function helper() { return { version: VIA }; }\nexport function imported() { return { version: mixedLabel() }; }",
 		],
 		[
 			'src/zz/mixed_helper.ts',
-			"import { DEDALO_VERSION } from '../core/update/version.ts';\nimport { RELEASE_IDENTITY } from '../core/update/build_stamp.ts';\nexport function mixedLabel() { return RELEASE_IDENTITY.kind === 'stable' ? RELEASE_IDENTITY.version : DEDALO_VERSION; }",
+			"import { DEDALO_DATA_VERSION } from '../core/update/version.ts';\nimport { RELEASE_IDENTITY } from '../core/update/build_stamp.ts';\nexport function mixedLabel() { return RELEASE_IDENTITY.kind === 'stable' ? RELEASE_IDENTITY.version : DEDALO_DATA_VERSION; }",
 		],
 		[
 			'src/zz/c_extensionless.ts',
@@ -481,7 +480,7 @@ describe('5. positive controls — every evasion the model claims to see is red'
 
 	test('a display site showing the data version is red; the identity is green', () => {
 		const [bad] = siteValues(fake, { module: 'src/zz/display.ts', fn: 'bad', key: 'version' });
-		expect(bad?.data).toContain('DEDALO_VERSION');
+		expect(bad?.data).toContain('DEDALO_DATA_VERSION');
 		expect(bad?.identity).toEqual([]);
 		// The producer handoff (build_stamp hands the triple in) is not a data read.
 		const [good] = siteValues(fake, { module: 'src/zz/display.ts', fn: 'good', key: 'version' });
@@ -495,7 +494,7 @@ describe('5. positive controls — every evasion the model claims to see is red'
 				...fakes,
 				[
 					'src/zz/ua_data.ts',
-					"import { DEDALO_VERSION } from '../core/update/version.ts';\nexport const UA = `dedalo/${DEDALO_VERSION} (+x)`;",
+					"import { DEDALO_DATA_VERSION } from '../core/update/version.ts';\nexport const UA = `dedalo/${DEDALO_DATA_VERSION} (+x)`;",
 				],
 				[
 					'src/zz/ua_identity.ts',
@@ -512,7 +511,7 @@ describe('5. positive controls — every evasion the model claims to see is red'
 	test('a value mixing both versions is red even when hoisted: module const, local helper, imported helper', () => {
 		for (const fn of ['hoisted', 'helper', 'imported']) {
 			const [value] = siteValues(fake, { module: 'src/zz/display.ts', fn, key: 'version' });
-			expect(value?.data, fn).toContain('DEDALO_VERSION');
+			expect(value?.data, fn).toContain('DEDALO_DATA_VERSION');
 		}
 	});
 

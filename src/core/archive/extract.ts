@@ -46,7 +46,7 @@ import {
 	getRecursiveChildrenTipos,
 	getSectionRealTipo,
 } from '../ontology/resolver.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import {
 	ARCHIVE_FORMAT,
 	ARCHIVE_FORMAT_VERSION,
@@ -381,7 +381,7 @@ export async function extractArchive(options: ExtractOptions): Promise<ExtractOu
 		format: ARCHIVE_FORMAT,
 		format_version: ARCHIVE_FORMAT_VERSION,
 		created_at: new Date().toISOString(),
-		engine_version: DEDALO_VERSION,
+		engine_version: formatVersion(DEDALO_DATA_VERSION),
 		ontology: {
 			file: ONTOLOGY_FILE,
 			sha256: sha256Hex(ontology.text),

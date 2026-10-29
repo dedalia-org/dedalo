@@ -43,7 +43,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { CORE_ONTOLOGY_TLDS } from '../ontology/core_tlds.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { SEED_DUMP_PATH } from './paths.ts';
 import { resolvePgBinary } from './pg_bin.ts';
 import {
@@ -505,7 +505,12 @@ export async function seedComplete(
 		(await stampProblem(conn, installId)) ??
 		(await seedTablesProblem(conn)) ??
 		(await engineHalfProblem(conn));
-	return problem ?? { ok: true, detail: `seed ${DEDALO_VERSION} restored and completed` };
+	return (
+		problem ?? {
+			ok: true,
+			detail: `seed ${formatVersion(DEDALO_DATA_VERSION)} restored and completed`,
+		}
+	);
 }
 
 /** The seed verify's answer (a conflict: the database is another install's). */
@@ -537,11 +542,11 @@ async function seedTablesProblem(conn: DbConnDescriptor): Promise<SeedVerdict | 
 		return { ok: false, detail: 'matrix_users is missing (no seed restored)' };
 	}
 	const version = await seededVersion(conn);
-	return version === DEDALO_VERSION
+	return version === formatVersion(DEDALO_DATA_VERSION)
 		? null
 		: {
 				ok: false,
-				detail: `the seed is stamped ${version ?? 'nothing'}, this engine is ${DEDALO_VERSION}`,
+				detail: `the seed is stamped ${version ?? 'nothing'}, this engine is ${formatVersion(DEDALO_DATA_VERSION)}`,
 			};
 }
 
@@ -579,10 +584,10 @@ export async function installDbFromSeedForInstall(installId: string): Promise<Db
 	const stamp = await installStampOf(connection);
 	if (stamp === installId) {
 		const version = await seededVersion(connection);
-		if (version !== DEDALO_VERSION) {
+		if (version !== formatVersion(DEDALO_DATA_VERSION)) {
 			refuseInstall(
 				'install.state_conflict',
-				`database '${db}' carries this install's seed stamped ${version ?? 'nothing'}; this engine is ${DEDALO_VERSION}`,
+				`database '${db}' carries this install's seed stamped ${version ?? 'nothing'}; this engine is ${formatVersion(DEDALO_DATA_VERSION)}`,
 			);
 		}
 		return {

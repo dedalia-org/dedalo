@@ -10,3 +10,7 @@ release process now signs the image in each registry it publishes to, with the s
 official identity, and a release already published unsigned is signed in place when its
 signature can be proven from the build. Verify an image as described in
 [Checking the signature](./install/docker.md#checking-the-signature).
+
+Mirroring an image into a registry of your own no longer suggests `cosign copy`, which is
+deprecated and drops current signatures: verify at a Dédalo registry, then copy that
+digest unchanged ([A registry of your own](./install/docker.md#a-registry-of-your-own)).

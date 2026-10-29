@@ -346,7 +346,6 @@ describe('the image-update request (D3/D4): gates, one write, and the walk rule'
 			[{ version: '7.0.1' }, null],
 			[{ version: '7.1.0' }, null],
 			[{ version: '8.0.0' }, null],
-			[{ version: '7.0.0', channel: 'dev' }, null],
 			[{ version: '7.0.0' }, 'not_newer_release'],
 			[{ version: '6.9.9' }, 'downgrade_or_same_version'],
 			[{ version: '7.0.2' }, 'version_skip'],
@@ -419,26 +418,23 @@ describe('the image-update request (D3/D4): gates, one write, and the walk rule'
 		).toEqual({ ok: false, reason: 'version_refused', walk: 'not_newer_release' });
 	});
 
-	test('a RELEASE installation never requests a -dev image: dev_channel_not_enabled, nothing written', async () => {
-		// A request is a superuser click (or a compromised engine's write): moving a
-		// release install onto unreleased code is the operator's own act on the host.
+	test('a -dev image is never requested, on any installation: version_refused with the nightly sentence, nothing written', async () => {
+		// Docker has no nightly images (VERSIONING_SPEC S3). The refusal is the same whatever
+		// the installation runs, release or developer, and it writes no request.
 		const m = await modules();
 		const release = channelDir(10, '7.0.0');
-		for (const options of [
-			{ version: '7.0.0', channel: 'dev' },
-			{ version: '7.0.1', channel: 'dev' },
-		])
-			expect(await m.requestImageUpdate(options, m.superuser, seams(release))).toEqual({
-				ok: false,
-				reason: 'dev_channel_not_enabled',
-			});
-		expect(requestFiles(release)).toEqual([]);
-		// positive control: the same ask on an installation already on developer images
 		const onDev = channelDir(10, '7.0.0-dev');
-		expect(
-			(await m.requestImageUpdate({ version: '7.0.1', channel: 'dev' }, m.superuser, seams(onDev)))
-				.ok,
-		).toBe(true);
+		for (const dir of [release, onDev])
+			for (const options of [
+				{ version: '7.0.0', channel: 'dev' },
+				{ version: '7.0.1', channel: 'dev' },
+			]) {
+				const result = await m.requestImageUpdate(options, m.superuser, seams(dir));
+				expect(result).toMatchObject({ ok: false, reason: 'version_refused' });
+				expect(result.ok === false && result.message).toContain('Docker has no nightly images');
+			}
+		expect(requestFiles(release)).toEqual([]);
+		expect(requestFiles(onDev)).toEqual([]);
 		// the release channel is unaffected on a release installation
 		expect((await m.requestImageUpdate({ version: '7.0.1' }, m.superuser, seams(release))).ok).toBe(
 			true,
@@ -466,13 +462,12 @@ describe('the image-update request (D3/D4): gates, one write, and the walk rule'
 			ok: false,
 			reason: 'request_pending',
 		});
-		// a developer image is named with its -dev tag (an installation already on one)
-		const dev = await m.requestImageUpdate(
-			{ version: '7.0.0', channel: 'dev' },
-			m.superuser,
-			seams(channelDir(10, '7.0.0-dev')),
-		);
-		expect(dev.ok && dev.request.tag).toBe('7.0.0-dev');
+		// a developer target is no image (Docker has no nightlies): refused, nothing written
+		const dev = await m.requestImageUpdate({ version: '7.0.0', channel: 'dev' }, m.superuser, {
+			...seams(channelDir(10, '7.0.0-dev')),
+			running: '7.0.0-dev',
+		});
+		expect(dev.ok).toBe(false);
 		// an inflight request blocks a new one too
 		const busy = channelDir();
 		await m.requestImageUpdate({ version: '7.0.1' }, m.superuser, seams(busy));

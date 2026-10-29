@@ -192,6 +192,24 @@ const READ_RE = /\bread\s+(?:-\w+\s+)*([A-Za-z_][A-Za-z0-9_]*)/g;
 /** A systemd unit setting a variable for the process it starts. */
 const UNIT_ENV_RE = /^\s*Environment=["']?([A-Za-z_][A-Za-z0-9_]*)=/;
 
+/**
+ * The line with its SINGLE-quoted spans blanked: the shell never expands `$name`
+ * inside `'…'`, so a Go template (`'{{range $platform, …}}'`) is not a reference.
+ * Double quotes and unquoted text stay as they are (`"$HOME"` still expands). A
+ * quote opened inside double quotes is literal and changes nothing.
+ */
+function unsingleQuoted(line: string): string {
+	let out = '';
+	let single = false;
+	let double = false;
+	for (const ch of line) {
+		if (!single && ch === '"') double = !double;
+		if (!double && ch === "'") single = !single;
+		out += single && ch !== "'" ? ' ' : ch;
+	}
+	return out;
+}
+
 function scan(text: string, file: string, isUnit: boolean): ScanResult {
 	const references: Reference[] = [];
 	const assigned = new Set<string>();
@@ -209,7 +227,7 @@ function scan(text: string, file: string, isUnit: boolean): ScanResult {
 			for (const m of line.matchAll(FOR_RE)) assigned.add(m[1] as string);
 			for (const m of line.matchAll(READ_RE)) assigned.add(m[1] as string);
 		}
-		for (const m of line.matchAll(REFERENCE_RE)) {
+		for (const m of unsingleQuoted(line).matchAll(REFERENCE_RE)) {
 			const braced = m[1] !== undefined;
 			const name = m[2] as string;
 			const after = m[3] ?? '';

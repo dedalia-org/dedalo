@@ -41,9 +41,13 @@ import { connFieldProblem, pgSocketProblem } from '../../config/pg_transport.ts'
 import { unixSocketLengthProblem } from '../../config/unix_socket.ts';
 import { DEV_TLS_MODES, type DevListenerPlan } from './dev_listener.ts';
 import { ENTITY_PATTERN } from './entity_name.ts';
-import { acceptedImageVersions } from './host/stack/layout.ts';
+import {
+	acceptedImageVersions,
+	devHasNoImageMessage,
+	imageRefusalMessage,
+} from './host/stack/layout.ts';
 import type { InstallAnswers } from './install_plan.ts';
-import { officialRefusedFor } from './installer_identity.ts';
+import { imageSourceRefusedFor, installerIdentity } from './installer_identity.ts';
 
 /**
  * The INSTANCE name of a production install (multi-instance hosts —
@@ -741,13 +745,29 @@ function mediaRootErrors(a: InstallAnswers, problems: Problems): void {
 
 /** The docker/trial-only answers: where the image comes from. */
 function stackHostErrors(a: InstallAnswers, problems: Problems): void {
+	imageSourceFormErrors(a, problems);
+	imageSourceIdentityErrors(a, problems);
+	imageVersionErrors(a, problems);
+}
+
+/** The image source's own shape: one of the three, and a custom one names its repository. */
+function imageSourceFormErrors(a: InstallAnswers, problems: Problems): void {
 	if (!['official', 'custom', 'build'].includes(a.image_source)) {
 		problems.push(problem('image_source', 'image_source must be official|custom|build'));
 	}
 	if (a.image_source === 'custom' && a.image_repository === '') {
 		problems.push(problem('image_repository', 'image_source custom requires image_repository'));
 	}
-	officialSourceErrors(a, problems);
+}
+
+/** The image tag: a development build may not run the nightly tag, and only an accepted tag passes. */
+function imageVersionErrors(a: InstallAnswers, problems: Problems): void {
+	// An empty image_version on a development build derives the nightly tag `X.Y.Z-dev`
+	// (layout.ts imageVersionOf): no Docker install may run it (VERSIONING_SPEC S3). Said
+	// here, on the Image screen, whatever the source — the run's preflight refuses it too.
+	if (a.image_version === '' && installerIdentity().kind === 'dev') {
+		problems.push(problem('image_version', devHasNoImageMessage()));
+	}
 	// The run's preflight refuses any other tag (stack/preflight.ts imageProblems): said on
 	// the Image screen itself, never first after `yes` (campaign 3c D2: `9.9.9` passed the
 	// field and the Review, every answer lost at the refusal).
@@ -755,19 +775,21 @@ function stackHostErrors(a: InstallAnswers, problems: Problems): void {
 		problems.push(
 			problem(
 				'image_version',
-				`image version ${a.image_version} is not this installer's (${acceptedImageVersions().join(' or ')}) — leave it empty: the engine steps run inside the image with this installer's request format`,
+				imageRefusalMessage(
+					a.image_version,
+					"leave it empty: the engine steps run inside the image with this installer's request format",
+				),
 			),
 		);
 	}
 }
 
 /**
- * A development build (untagged) has no official image: refused from the identity
- * itself, on the Image screen — the Review never asks a registry for it (Q6).
+ * A development build (untagged) is no image: Official and Build are refused from
+ * the identity itself, on the Image screen — the Review never asks a registry for it (Q6).
  */
-function officialSourceErrors(a: InstallAnswers, problems: Problems): void {
-	if (a.image_source !== 'official') return;
-	const refused = officialRefusedFor();
+function imageSourceIdentityErrors(a: InstallAnswers, problems: Problems): void {
+	const refused = imageSourceRefusedFor(a.image_source);
 	if (refused !== null) problems.push(problem('image_source', refused));
 }
 

@@ -7,38 +7,39 @@
  * and held NOTHING on the target the action wrote. A gate that only ever runs
  * as the superuser cannot tell the two apart — root passes every level check
  * before the matrix is consulted. So the gates mint two non-admin identities
- * whose grants are DISJOINT on exactly the axis each door confused:
+ * whose grants are DISJOINT on exactly the axis each door confused (every
+ * id is ALLOCATED at install and read from the returned handle):
  *
- *   946001  matrix_users     USER A   dd244 → dd64/2 (No), dd515 → No,
- *                                     dd1725 → dd234/946011,
- *                                     dd170 → dd153/946041 (A's OWN project)
- *   946002  matrix_users     USER B   same flags, dd1725 → dd234/946012,
+ *   userA       matrix_users     USER A   dd244 → dd64/2 (No), dd515 → No,
+ *                                     dd1725 → dd234/profileA,
+ *                                     dd170 → dd153/projectOfA (A's OWN project)
+ *   userB       matrix_users     USER B   same flags, dd1725 → dd234/profileB,
  *                                     dd170 → dd153/<the default project>
- *   946011  matrix_profiles  A's profile — misc.dd774: test3 = 2,
+ *   profileA    matrix_profiles  A's profile — misc.dd774: test3 = 2,
  *                                     test3.test52 = 2, test3.test99 = 2,
  *                                     test3.test80 = 2 (the portal a path
  *                                     search hops through and an import
  *                                     links through). NOTHING on test65,
  *                                     NOTHING on hierarchy1.
- *   946012  matrix_profiles  B's profile — misc.dd774: hierarchy1 = 2,
+ *   profileB    matrix_profiles  B's profile — misc.dd774: hierarchy1 = 2,
  *                                     test3 = 2, test3.test52 = 2,
  *                                     test3.test99 = 2, test3.test80 = 2,
  *                                     and READ ONLY on
  *                                     test65 = 1 / test65.test52 = 1 (the
  *                                     level a write action must refuse).
- *   946041  matrix_projects  A's project (dd153) — what puts a record A
+ *   projectOfA  matrix_projects  A's project (dd153) — what puts a record A
  *                                  creates inside A's scope and outside B's;
  *                                  B's records ride the default project, so
  *                                  the two scopes are DISJOINT on test3.
  *           Both profiles carry dd1067 locators for the three tools the
  *           probes dispatch (resolved by NAME from the active registry).
- *   946021  matrix_hierarchy_main  ONE hierarchy1 record (target test3,
+ *   hierarchyId matrix_hierarchy_main  ONE hierarchy1 record (target test3,
  *                                  servable shape copied from the real rows)
  *                                  — the record the hierarchy door PINS.
- *   946031  matrix_list      dd655 editing preset OWNED BY A (dd654 → dd128/A,
+ *   presetOfA   matrix_list      dd655 editing preset OWNED BY A (dd654 → dd128/A,
  *                                  data.created_by_user_id = A)
- *   946032  matrix_list      dd655 editing preset OWNED BY B
- *   946033  matrix_list      dd655 preset with the two owner arms SPLIT:
+ *   presetOfB   matrix_list      dd655 editing preset OWNED BY B
+ *   presetSplit matrix_list      dd655 preset with the two owner arms SPLIT:
  *                                  dd654 → A, created_by_user_id = B
  *
  * So: A holds the DECLARED-BUT-WRONG grant at each door (test3 write) and 0 on
@@ -48,16 +49,27 @@
  * out-of-scope creator on test3 (the record axis: a record B creates is one A
  * cannot reach, whatever A's section grant says).
  *
- * Every id is explicit and swept strictly (a 0-row delete throws), the
- * database must carry the `dedalo_test_marker` row before anything is written,
- * and the per-user security + tool caches are dropped on install and remove.
- * ISOLATION IS THE MARKER, NOT THE IDS: the explicit ids are a typo guard on
- * this module's own constants (see assertScratchIds), never a reserved band.
+ * EVERY ID IS ALLOCATED, PER INSTANCE (2026-10-25). The ids used to be fixed
+ * constants (946001…), so two copies of one gate on ONE suite database swept
+ * each other's fixture mid-run. Now each install mints its records through the
+ * engine's own allocator (`insertMatrixRecordWithCounter`, the counter door
+ * every real record is born through) and returns them in a
+ * {@link ScopeBindingFixture} handle; `removeScopeBindingFixture(handle)` sweeps
+ * exactly those rows, strictly (a 0-row delete throws), plus their TM rows. No id
+ * band is reserved or assumed — ISOLATION IS THE DATABASE AND ITS MARKER: the
+ * `dedalo_test_marker` row must be present before anything is written. Names
+ * carry a per-instance token, so two live instances never share a label either.
+ * An install that fails midway sweeps what it wrote before rethrowing. A run
+ * killed between install and remove leaves its rows behind (attributable by the
+ * `zzsb` token in their names); `bun run test:db:setup` rebuilds the database.
+ * The per-user security + tool caches are dropped on install and remove.
  */
 
 import { config } from '../../src/config/config.ts';
-import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
-import { deleteMatrixRecord } from '../../src/core/db/matrix_write.ts';
+import {
+	deleteMatrixRecord,
+	insertMatrixRecordWithCounter,
+} from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
 	clearPermissionsCache,
@@ -70,30 +82,44 @@ import {
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { invalidateAllToolCaches } from '../../src/core/tools/cache.ts';
 
-// --- the ids (band 946000-946999) -----------------------------------------
+// --- the handle --------------------------------------------------------------
 
-export const SB_USER_A = 946001;
-export const SB_USER_B = 946002;
-export const SB_PROFILE_A = 946011;
-export const SB_PROFILE_B = 946012;
-/** The one hierarchy1 record — what tool_hierarchy's writer is pinned to. */
-export const SB_HIERARCHY_ID = 946021;
-/** dd655 editing presets, one per user. */
-export const SB_PRESET_OF_A = 946031;
-export const SB_PRESET_OF_B = 946032;
-/**
- * A preset whose dd654 OWNER is A but whose `created_by_user_id` is B — the
- * two arms of the owner predicate split apart, so each can be proven to
- * reach on its own (A sees it by the locator arm, B by the creator arm).
- */
-export const SB_PRESET_SPLIT = 946033;
-/**
- * A's OWN project (dd153). A record created by A is born with it
- * (record_defaults.ts: a non-admin's FIRST project), B's records with the
- * default project — so on a projects-filtered section (test3) each user's
- * records are outside the other's scope.
- */
-export const SB_PROJECT_OF_A = 946041;
+/** The ids ONE install allocated — read every id from here, never a constant. */
+export interface ScopeBindingFixture {
+	readonly userA: number;
+	readonly userB: number;
+	readonly profileA: number;
+	readonly profileB: number;
+	/** The one hierarchy1 record — what tool_hierarchy's writer is pinned to. */
+	readonly hierarchyId: number;
+	/** dd655 editing presets, one per user. */
+	readonly presetOfA: number;
+	readonly presetOfB: number;
+	/**
+	 * A preset whose dd654 OWNER is A but whose `created_by_user_id` is B — the
+	 * two arms of the owner predicate split apart, so each can be proven to
+	 * reach on its own (A sees it by the locator arm, B by the creator arm).
+	 */
+	readonly presetSplit: number;
+	/**
+	 * A's OWN project (dd153). A record created by A is born with it
+	 * (record_defaults.ts: a non-admin's FIRST project), B's records with the
+	 * default project — so on a projects-filtered section (test3) each user's
+	 * records are outside the other's scope.
+	 */
+	readonly projectOfA: number;
+	/** This instance's name token (in its profile, project, user and hierarchy labels) — never shared by two installs. */
+	readonly token: string;
+	/** Every row this instance wrote, in write order — exactly what remove sweeps. */
+	readonly records: readonly OwnedRecord[];
+}
+
+/** One row an instance wrote. */
+export interface OwnedRecord {
+	table: string;
+	sectionTipo: string;
+	sectionId: number;
+}
 
 /** The section A and B both hold write on — the DECLARED grant at each door. */
 export const SB_GRANTED_SECTION = 'test3';
@@ -136,38 +162,6 @@ const TOOLS_REGISTER_SECTION = 'dd1324';
 const YES = 1;
 const NO = 2;
 
-const OWNED_RECORDS: { table: string; sectionTipo: string; sectionId: number }[] = [
-	{ table: 'matrix_users', sectionTipo: USERS_SECTION, sectionId: SB_USER_A },
-	{ table: 'matrix_users', sectionTipo: USERS_SECTION, sectionId: SB_USER_B },
-	{ table: 'matrix_profiles', sectionTipo: PROFILES_SECTION, sectionId: SB_PROFILE_A },
-	{ table: 'matrix_profiles', sectionTipo: PROFILES_SECTION, sectionId: SB_PROFILE_B },
-	{ table: 'matrix_hierarchy_main', sectionTipo: SB_HIERARCHY_SECTION, sectionId: SB_HIERARCHY_ID },
-	{ table: 'matrix_list', sectionTipo: TEMP_PRESET_SECTION, sectionId: SB_PRESET_OF_A },
-	{ table: 'matrix_list', sectionTipo: TEMP_PRESET_SECTION, sectionId: SB_PRESET_OF_B },
-	{ table: 'matrix_list', sectionTipo: TEMP_PRESET_SECTION, sectionId: SB_PRESET_SPLIT },
-	{ table: 'matrix_projects', sectionTipo: PROJECTS_SECTION, sectionId: SB_PROJECT_OF_A },
-];
-
-/**
- * A TYPO GUARD on this module's own constants — NOT a reserved band (there is
- * none: isolation is the `dedalo_test_marker` the writers assert, and any id
- * may legitimately belong to a real record on a real install). This module
- * sweeps by explicit hardcoded ids, so the one way it could ever address a
- * seeded row of the SUITE database is a constant edited down to a low value;
- * the floor refuses that edit and asserts nothing else.
- */
-const TYPO_GUARD_FLOOR = 900000;
-
-function assertScratchIds(): void {
-	for (const record of OWNED_RECORDS) {
-		if (!Number.isInteger(record.sectionId) || record.sectionId < TYPO_GUARD_FLOOR) {
-			throw new Error(
-				`scope_binding_fixture: ${record.table}/${record.sectionTipo} id ${record.sectionId} is below this module's typo-guard floor ${TYPO_GUARD_FLOOR} — a constant was edited down`,
-			);
-		}
-	}
-}
-
 /** A dd151-typed locator as the real rows carry it. */
 function locator(componentTipo: string, sectionTipo: string, sectionId: number) {
 	return {
@@ -177,29 +171,6 @@ function locator(componentTipo: string, sectionTipo: string, sectionId: number) 
 		section_tipo: sectionTipo,
 		from_component_tipo: componentTipo,
 	};
-}
-
-/** Insert one record at an EXPLICIT section_id — no counter, no advisory lock. */
-async function insertScratchRecord(
-	table: string,
-	sectionTipo: string,
-	sectionId: number,
-	columns: Record<string, unknown>,
-): Promise<void> {
-	const names = ['"section_tipo"', '"section_id"'];
-	const placeholders = ['$1', '$2'];
-	const params: (string | number)[] = [sectionTipo, sectionId];
-	let index = 3;
-	for (const [column, value] of Object.entries(columns)) {
-		names.push(`"${column}"`);
-		placeholders.push(`$${index}::text::jsonb`);
-		params.push(encodeForJsonb(value));
-		index++;
-	}
-	await sql.unsafe(
-		`INSERT INTO "${table}" (${names.join(', ')}) VALUES (${placeholders.join(', ')})`,
-		params,
-	);
 }
 
 /**
@@ -246,17 +217,19 @@ function userColumns(name: string, profileId: number, projectId: number): Record
 }
 
 /** A's project — the seeded row's shape (dd156 name), nothing else needed. */
-function projectColumns(): Record<string, unknown> {
+function projectColumns(token: string): Record<string, unknown> {
 	return {
-		string: { [PROJECT_NAME_COMPONENT]: [{ id: 1, lang: 'lg-eng', value: 'zzsb project of A' }] },
+		string: {
+			[PROJECT_NAME_COMPONENT]: [{ id: 1, lang: 'lg-eng', value: `zzsb project of A ${token}` }],
+		},
 	};
 }
 
 /** One hierarchy1 record, servable by construction (the pruning fixture's shape). */
-function hierarchyColumns(): Record<string, unknown> {
+function hierarchyColumns(token: string): Record<string, unknown> {
 	return {
 		string: {
-			hierarchy5: [{ id: 1, lang: 'lg-nolan', value: 'zzsb scope-binding hierarchy' }],
+			hierarchy5: [{ id: 1, lang: 'lg-nolan', value: `zzsb scope-binding hierarchy ${token}` }],
 			hierarchy53: [{ id: 1, lang: 'lg-nolan', value: SB_GRANTED_SECTION }],
 		},
 		relation: {
@@ -306,101 +279,135 @@ function clearCaches(): void {
 }
 
 /**
- * Mint the fixture. Idempotent: a crashed previous run's rows are swept first.
+ * Observation point for the fixture's OWN gate (scope_binding_fixture_native): called
+ * after every row is written with the rows so far. A throw from it is how that gate makes
+ * an install fail half-built and proves the half-build sweep. Not a seam over any
+ * authorization — it can only abort an install.
+ */
+export interface InstallHooks {
+	afterInsert?(written: readonly OwnedRecord[]): void;
+}
+
+/**
+ * Mint ONE instance of the fixture: every record allocated through the engine's
+ * counter door, so two instances on one database never share an id.
  * `extraGrantsOfA`: further [section, component] read-write grants on A's
  * profile — a gate's own scratch component (e.g. preset_ownership's hop, which
  * the SEC-1 root-step key refuses to a profile holding 0 on it).
  */
 export async function installScopeBindingFixture(
 	extraGrantsOfA: readonly (readonly [string, string])[] = [],
-): Promise<void> {
+	hooks: InstallHooks = {},
+): Promise<ScopeBindingFixture> {
 	await assertTestDatabase('installScopeBindingFixture');
-	assertScratchIds();
 	const tools = await grantedToolLocators();
-	await purge({ strict: false });
+	const token = `${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
+	const records: OwnedRecord[] = [];
+	const insert = async (
+		table: string,
+		sectionTipo: string,
+		columns: Record<string, unknown>,
+	): Promise<number> => {
+		const sectionId = await insertMatrixRecordWithCounter(table, sectionTipo, columns);
+		records.push({ table, sectionTipo, sectionId });
+		hooks.afterInsert?.([...records]);
+		// A section_id is a positive address; 0 / negatives are the installed-root band.
+		if (!Number.isInteger(sectionId) || sectionId < 1)
+			throw new Error(
+				`scope_binding_fixture: the allocator minted ${table}/${sectionTipo}/${sectionId} — not a positive section_id`,
+			);
+		return sectionId;
+	};
 
-	await insertScratchRecord('matrix_profiles', PROFILES_SECTION, SB_PROFILE_A, {
-		string: { dd237: [{ id: 1, lang: 'lg-eng', value: 'zzsb profile A' }] },
-		relation: { dd1067: tools },
-		misc: {
-			dd774: [
-				grant(1, SB_GRANTED_SECTION, SB_GRANTED_SECTION, 2),
-				grant(2, SB_GRANTED_SECTION, SB_GRANTED_COMPONENT, 2),
-				grant(3, SB_GRANTED_SECTION, SB_MEDIA_COMPONENT, 2),
-				grant(4, SB_GRANTED_SECTION, SB_HOP_COMPONENT, 2),
-				grant(5, SB_GRANTED_SECTION, SB_INPUT_COMPONENT, 2),
-				...extraGrantsOfA.map(([section, tipo], index) => grant(100 + index, section, tipo, 2)),
-			],
-		},
-	});
-	await insertScratchRecord('matrix_profiles', PROFILES_SECTION, SB_PROFILE_B, {
-		string: { dd237: [{ id: 1, lang: 'lg-eng', value: 'zzsb profile B' }] },
-		relation: { dd1067: tools },
-		misc: {
-			dd774: [
-				grant(1, SB_HIERARCHY_SECTION, SB_HIERARCHY_SECTION, 2),
-				grant(2, SB_GRANTED_SECTION, SB_GRANTED_SECTION, 2),
-				grant(3, SB_GRANTED_SECTION, SB_GRANTED_COMPONENT, 2),
-				grant(4, SB_GRANTED_SECTION, SB_MEDIA_COMPONENT, 2),
-				grant(7, SB_GRANTED_SECTION, SB_HOP_COMPONENT, 2),
-				grant(5, SB_DENIED_SECTION, SB_DENIED_SECTION, 1),
-				grant(6, SB_DENIED_SECTION, SB_GRANTED_COMPONENT, 1),
-				grant(8, SB_GRANTED_SECTION, SB_INPUT_COMPONENT, 2),
-			],
-		},
-	});
-	await insertScratchRecord('matrix_projects', PROJECTS_SECTION, SB_PROJECT_OF_A, projectColumns());
-	await insertScratchRecord(
-		'matrix_users',
-		USERS_SECTION,
-		SB_USER_A,
-		userColumns('zzsb_a', SB_PROFILE_A, SB_PROJECT_OF_A),
-	);
-	await insertScratchRecord(
-		'matrix_users',
-		USERS_SECTION,
-		SB_USER_B,
-		userColumns('zzsb_b', SB_PROFILE_B, config.features.defaultProject),
-	);
-	await insertScratchRecord(
-		'matrix_hierarchy_main',
-		SB_HIERARCHY_SECTION,
-		SB_HIERARCHY_ID,
-		hierarchyColumns(),
-	);
-	await insertScratchRecord(
-		'matrix_list',
-		TEMP_PRESET_SECTION,
-		SB_PRESET_OF_A,
-		presetColumns(SB_USER_A),
-	);
-	await insertScratchRecord(
-		'matrix_list',
-		TEMP_PRESET_SECTION,
-		SB_PRESET_OF_B,
-		presetColumns(SB_USER_B),
-	);
-	await insertScratchRecord(
-		'matrix_list',
-		TEMP_PRESET_SECTION,
-		SB_PRESET_SPLIT,
-		presetColumns(SB_USER_A, SB_USER_B),
-	);
-
-	clearCaches();
+	try {
+		const profileA = await insert('matrix_profiles', PROFILES_SECTION, {
+			string: { dd237: [{ id: 1, lang: 'lg-eng', value: `zzsb profile A ${token}` }] },
+			relation: { dd1067: tools },
+			misc: {
+				dd774: [
+					grant(1, SB_GRANTED_SECTION, SB_GRANTED_SECTION, 2),
+					grant(2, SB_GRANTED_SECTION, SB_GRANTED_COMPONENT, 2),
+					grant(3, SB_GRANTED_SECTION, SB_MEDIA_COMPONENT, 2),
+					grant(4, SB_GRANTED_SECTION, SB_HOP_COMPONENT, 2),
+					grant(5, SB_GRANTED_SECTION, SB_INPUT_COMPONENT, 2),
+					...extraGrantsOfA.map(([section, tipo], index) => grant(100 + index, section, tipo, 2)),
+				],
+			},
+		});
+		const profileB = await insert('matrix_profiles', PROFILES_SECTION, {
+			string: { dd237: [{ id: 1, lang: 'lg-eng', value: `zzsb profile B ${token}` }] },
+			relation: { dd1067: tools },
+			misc: {
+				dd774: [
+					grant(1, SB_HIERARCHY_SECTION, SB_HIERARCHY_SECTION, 2),
+					grant(2, SB_GRANTED_SECTION, SB_GRANTED_SECTION, 2),
+					grant(3, SB_GRANTED_SECTION, SB_GRANTED_COMPONENT, 2),
+					grant(4, SB_GRANTED_SECTION, SB_MEDIA_COMPONENT, 2),
+					grant(7, SB_GRANTED_SECTION, SB_HOP_COMPONENT, 2),
+					grant(5, SB_DENIED_SECTION, SB_DENIED_SECTION, 1),
+					grant(6, SB_DENIED_SECTION, SB_GRANTED_COMPONENT, 1),
+					grant(8, SB_GRANTED_SECTION, SB_INPUT_COMPONENT, 2),
+				],
+			},
+		});
+		const projectOfA = await insert('matrix_projects', PROJECTS_SECTION, projectColumns(token));
+		const userA = await insert(
+			'matrix_users',
+			USERS_SECTION,
+			userColumns(`zzsb_a_${token}`, profileA, projectOfA),
+		);
+		const userB = await insert(
+			'matrix_users',
+			USERS_SECTION,
+			userColumns(`zzsb_b_${token}`, profileB, config.features.defaultProject),
+		);
+		const hierarchyId = await insert(
+			'matrix_hierarchy_main',
+			SB_HIERARCHY_SECTION,
+			hierarchyColumns(token),
+		);
+		const presetOfA = await insert('matrix_list', TEMP_PRESET_SECTION, presetColumns(userA));
+		const presetOfB = await insert('matrix_list', TEMP_PRESET_SECTION, presetColumns(userB));
+		const presetSplit = await insert(
+			'matrix_list',
+			TEMP_PRESET_SECTION,
+			presetColumns(userA, userB),
+		);
+		clearCaches();
+		return {
+			userA,
+			userB,
+			profileA,
+			profileB,
+			hierarchyId,
+			presetOfA,
+			presetOfB,
+			presetSplit,
+			projectOfA,
+			token,
+			records,
+		};
+	} catch (error) {
+		// Never leak a half-built instance: sweep what was written, then rethrow.
+		await purge(records, { strict: false });
+		clearCaches();
+		throw error;
+	}
 }
 
-/** Sweep every record this fixture owns plus its TM rows; strict on the matrix rows. */
-export async function removeScopeBindingFixture(): Promise<void> {
+/** Sweep every record THIS instance wrote plus its TM rows; strict on the matrix rows. */
+export async function removeScopeBindingFixture(fixture: ScopeBindingFixture): Promise<void> {
 	await assertTestDatabase('removeScopeBindingFixture');
-	await purge({ strict: true });
+	await purge(fixture.records, { strict: true });
 	clearCaches();
 }
 
-async function purge(options: { strict: boolean }): Promise<void> {
-	assertScratchIds();
+async function purge(records: readonly OwnedRecord[], options: { strict: boolean }): Promise<void> {
+	if (options.strict && records.length === 0)
+		throw new Error('scope_binding_fixture: the handle names no records — nothing to sweep');
 	const missing: string[] = [];
-	for (const record of OWNED_RECORDS) {
+	// Reverse write order: the rows that point at others go first.
+	for (const record of [...records].reverse()) {
 		const removed = await deleteMatrixRecord(record.table, record.sectionTipo, record.sectionId);
 		if (removed === 0) missing.push(`${record.table}/${record.sectionTipo}/${record.sectionId}`);
 		await sql.unsafe(
@@ -413,4 +420,73 @@ async function purge(options: { strict: boolean }): Promise<void> {
 			`scope_binding_fixture: sweep deleted 0 rows for ${missing.join(', ')} — the filter is wrong, or the rows were never written`,
 		);
 	}
+}
+
+/** The ids of the installed instance, read through {@link scopeBindingSlot}. */
+export type ScopeBindingSlot = Omit<ScopeBindingFixture, 'records' | 'token'> & {
+	/** Install an instance into this slot (refused while one is held). */
+	install(extraGrantsOfA?: readonly (readonly [string, string])[]): Promise<void>;
+	/**
+	 * Remove the held instance, if any, and empty the slot FIRST — so an afterAll after a
+	 * failed install (nothing held: the install swept itself) or a second release is a no-op,
+	 * never a sweep of an undefined or already-removed handle.
+	 */
+	release(): Promise<void>;
+	/** Is an instance held? */
+	readonly installed: boolean;
+};
+
+/**
+ * A caller file's slot for ONE instance at a time. Reading an id while nothing is
+ * installed throws loudly (a test reading ids before its beforeAll, or after release).
+ */
+export function scopeBindingSlot(): ScopeBindingSlot {
+	let held: ScopeBindingFixture | undefined;
+	const current = (): ScopeBindingFixture => {
+		if (held === undefined)
+			throw new Error('scope_binding_fixture: no instance installed in this slot');
+		return held;
+	};
+	return {
+		async install(extraGrantsOfA = []) {
+			if (held !== undefined)
+				throw new Error('scope_binding_fixture: this slot already holds an instance');
+			held = await installScopeBindingFixture(extraGrantsOfA);
+		},
+		async release() {
+			const fixture = held;
+			held = undefined;
+			if (fixture !== undefined) await removeScopeBindingFixture(fixture);
+		},
+		get installed() {
+			return held !== undefined;
+		},
+		get userA() {
+			return current().userA;
+		},
+		get userB() {
+			return current().userB;
+		},
+		get profileA() {
+			return current().profileA;
+		},
+		get profileB() {
+			return current().profileB;
+		},
+		get hierarchyId() {
+			return current().hierarchyId;
+		},
+		get presetOfA() {
+			return current().presetOfA;
+		},
+		get presetOfB() {
+			return current().presetOfB;
+		},
+		get presetSplit() {
+			return current().presetSplit;
+		},
+		get projectOfA() {
+			return current().projectOfA;
+		},
+	};
 }

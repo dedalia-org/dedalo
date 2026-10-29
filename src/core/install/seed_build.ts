@@ -77,7 +77,7 @@ import {
 	type OntologyDependency,
 } from '../ontology/ontology_dependencies.ts';
 import { gzipStreamToFile } from '../ontology/recovery_file.ts';
-import { DEDALO_VERSION } from '../update/version.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import {
 	type CopySectionIdTally,
 	canonicalCopyChunks,
@@ -769,10 +769,11 @@ function dataVersionInsert(releaseDate: string, addressesConverted: number): str
 	const stamp = new Date(releaseDate).toISOString().slice(0, 19).replace('T', ' ');
 	if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(stamp))
 		fail(`refusing release date '${releaseDate}'`);
-	if (!/^\d+\.\d+\.\d+$/.test(DEDALO_VERSION)) fail(`refusing engine version '${DEDALO_VERSION}'`);
+	if (!/^\d+\.\d+\.\d+$/.test(formatVersion(DEDALO_DATA_VERSION)))
+		fail(`refusing engine version '${formatVersion(DEDALO_DATA_VERSION)}'`);
 	if (!Number.isSafeInteger(addressesConverted) || addressesConverted < 0)
 		fail(`refusing conversion count '${addressesConverted}'`);
-	const version = `jsonb_build_object('update_date', '${stamp}', 'dedalo_version', '${DEDALO_VERSION}')`;
+	const version = `jsonb_build_object('update_date', '${stamp}', 'dedalo_version', '${formatVersion(DEDALO_DATA_VERSION)}')`;
 	const marker = `jsonb_build_object('section_id_int_normalize', jsonb_build_object('date', '${stamp}', 'origin', 'seed_build', 'converted', ${addressesConverted}))`;
 	return `INSERT INTO matrix_updates (data) VALUES (${version}), (${marker});`;
 }

@@ -117,9 +117,21 @@ jobs:
     # runner user that owns the mounted workspace — never root, which defeats the
     # uid/permission gates. ci_workflow_tripwire holds this digest equal to the lock.
     container:
-      image: ghcr.io/dedalia-org/dedalo-ci@sha256:1a22e11dd7d8137306401dcfe23a19a445ffd427e0ef50bd74bcc763cf6092c4
+      image: ghcr.io/dedalia-org/dedalo-ci@sha256:7c94b9e0494fef24ad923e779ccb7b01735c3defab7a9a70818e50495e587d03
       options: --user 1001 --shm-size 1g
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Hermetic tier (install + tsc + biome + static tripwires)
         run: bash scripts/ci/hermetic.sh
+      # The daemon packages' logs, kept as files by hermetic.sh (HERMETIC_LOG_DIR, default
+      # ci-logs/hermetic) BEFORE their best-effort tail is printed: a non-blocking stdout
+      # (EAGAIN) can lose the printed copy, never this one. Always, so a red run keeps them.
+      - name: Keep the hermetic logs
+        if: always()
+        timeout-minutes: 1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hermetic-logs
+          path: ci-logs/hermetic
+          if-no-files-found: warn
+          retention-days: 14

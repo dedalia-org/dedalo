@@ -399,12 +399,23 @@ describe('a requested update', () => {
 		);
 	});
 
-	test('the same version is installed again only as a -dev image (positive control of the floor)', async () => {
+	test('a -dev request is refused even over a -dev pin: Docker has no nightly images (positive control: a release still runs)', async () => {
 		const stack = makeStack({ pinned: '7.0.0-dev' });
-		await placeRequest(stack, '7.0.0-dev');
+		const pending = await placeRequest(stack, '7.0.0-dev');
 		expect(runUpdater(stack).code).toBe(0);
-		expect(readFileSync(join(stack.state, 'update_argv'), 'utf8')).toStartWith(
-			'--version 7.0.0-dev ',
+		expect(existsSync(join(stack.state, 'update_argv'))).toBe(false);
+		const status = await readChannelStatus(new Date(), stack.channel);
+		expect(status.last_outcome).toMatchObject({
+			request_id: pending.id,
+			to: '7.0.0-dev',
+			status: 'refused',
+			detail: 'version_refused',
+		});
+		const release = makeStack({ pinned: '7.0.0' });
+		await placeRequest(release, '7.0.1');
+		expect(runUpdater(release).code).toBe(0);
+		expect(readFileSync(join(release.state, 'update_argv'), 'utf8')).toStartWith(
+			'--version 7.0.1 ',
 		);
 	});
 });
@@ -419,10 +430,10 @@ describe('the host floors hold whatever the engine says', () => {
 			detail: 'downgrade_refused',
 		},
 		{
-			name: 'an older -dev image',
+			name: 'an older -dev image (no nightly image: refused before the walk)',
 			pinned: '7.0.2-dev',
 			tag: '7.0.1-dev',
-			detail: 'downgrade_refused',
+			detail: 'version_refused',
 		},
 		// A request never moves a RELEASE installation onto developer images (build mode
 		// would check out the remote's master tip and run this program from it).

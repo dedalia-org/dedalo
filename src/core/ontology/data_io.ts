@@ -41,7 +41,11 @@ import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
 import { sql } from '../db/postgres.ts';
 import { connFromConfig, runPsqlScript } from '../install/pg_exec.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
-import { DEDALO_VERSION, DEDALO_VERSION_MAJOR_MINOR } from '../update/version.ts';
+import {
+	DEDALO_DATA_VERSION,
+	DEDALO_VERSION_MAJOR_MINOR,
+	formatVersion,
+} from '../update/version.ts';
 import { pickLangValue } from './manifest_lang_pick.ts';
 import {
 	normalizeOntologyDependencies,
@@ -396,7 +400,7 @@ export interface ManifestEnvelope {
 
 export function manifestEnvelope(now: Date = new Date()): ManifestEnvelope {
 	return {
-		version: DEDALO_VERSION,
+		version: formatVersion(DEDALO_DATA_VERSION),
 		date: isoTimestampNow(now),
 		entity_id: config.identity.entityId,
 		entity: config.entity,

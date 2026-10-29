@@ -16,6 +16,9 @@ A checklist; each item is explained below.
 | Docker Engine + Compose v2 plugin ≥ 2.24.4 | `docker compose version` |
 | your user in the `docker` group | `docker info` works without `sudo` |
 | `git` | `git --version` |
+| `curl` | `curl --version` |
+| `unzip` | `unzip -v` |
+| `sha256sum` (coreutils) | `sha256sum --version` |
 | `cosign` (official image only) | `cosign version` |
 | about 8 GiB free for Docker | `df -h /var/lib/docker` |
 | ports 80 and 443 free | `sudo ss -tlnp \| grep -E ':(80\|443)\b'` prints nothing |
@@ -71,13 +74,26 @@ Membership of `docker` is root-equivalent — exactly what `sudo docker` already
 
 ### 3. Host tools
 
-**`git`**, to get the checkout ([Get Dédalo](index.md#get-dedalo)) and, with a local build, to update it later. Minimal RHEL-family systems do not have it:
+**`git`**, to get the checkout ([Get Dédalo](index.md#get-dedalo)) and, with a local build, to update it later.
+
+**`curl`**, **`unzip`** and **`sha256sum`** (from `coreutils`), for the downloads and checks the installer and the update scripts make. Minimal systems may not have them:
 
 ```shell
-sudo dnf install git
+sudo apt install git curl unzip coreutils    # Debian, Ubuntu
+sudo dnf install git curl unzip coreutils    # RHEL, AlmaLinux, Rocky
 ```
 
-**`cosign`**, to verify the signature of an official image. Without it, choose a local build on the *Image* screen.
+**`cosign`**, to verify the signature of an official image. Without it, choose a local build on the *Image* screen. Install it from the release binary of [sigstore/cosign](https://github.com/sigstore/cosign/releases), checked against that release's `cosign_checksums.txt` (`v3.1.4` is only an example: use the latest release). The same commands serve Debian, Ubuntu and the RHEL family, on `amd64` (use `arm64` for ARM hosts):
+
+```shell
+VERSION=v3.1.4
+curl -sSLO "https://github.com/sigstore/cosign/releases/download/${VERSION}/cosign-linux-amd64"
+curl -sSLO "https://github.com/sigstore/cosign/releases/download/${VERSION}/cosign_checksums.txt"
+grep ' cosign-linux-amd64$' cosign_checksums.txt | sha256sum -c -
+sudo install -m 0755 cosign-linux-amd64 /usr/local/bin/cosign
+```
+
+The other installation methods are listed in the [Sigstore installation guide](https://docs.sigstore.dev/cosign/system_config/installation/).
 
 ### 4. Disk and ports
 
@@ -140,7 +156,7 @@ Choose **Docker** on the first screen (`--plain` asks the same questions one per
 | --- | --- |
 | **Install type** | the route |
 | **System check** | nothing: it shows Docker, Compose and the free disk. A failed row must be fixed first |
-| **Image** | where the image comes from: an **official** Dédalo registry (verified with `cosign`), a registry of your **own**, or a local **build** from this checkout's last commit. The official image is the one of the installer's **own release** — `7.0.1`, or `7.0.0-beta.7` for a prerelease; a development build has none, and **Build** is preselected for it. **Image version** is the image tag: leave it empty for the installer's own release — the only one accepted besides its data version's `-dev` tag. See [where the image comes from](#choose-where-the-image-comes-from) |
+| **Image** | where the image comes from: an **official** Dédalo registry (verified with `cosign`), a registry of your **own**, or a local **build** from this checkout's last commit. The official image is the one of the installer's **own release** — `7.0.1`, or `7.0.0-beta.7` for a prerelease; a development build has none: its Official and **Build** images are refused, and **Custom** is preselected. **Image version** is the image tag: leave it empty for the installer's own release — the only one accepted. See [where the image comes from](#choose-where-the-image-comes-from) |
 | **TLS & address** | the public address, and the certificate: **Let's Encrypt** (with its email), a **local certificate authority** (with the other addresses staff type), or your institution's **files** |
 | **Containers** | the published HTTP and HTTPS ports (`80` and `443`) |
 | **Identity** | the institution's short code and full name, the install fingerprint (**Information** and **Info key** — keep the defaults unless you are moving a v6 installation), the locale and the time zone |
@@ -177,7 +193,7 @@ The engine's own configuration is not in `.dedalo.env`: it is `/private/.env`, i
 | `stack_tls` | Let's Encrypt (certbot in its own container, `--standalone` on port 80, before nginx exists), a local CA (`deploy/dedalo-tls-rotate.sh --mode local-ca`), or your files copied into `deploy/certs` | `ls deploy/certs`, or `docker volume ls \| grep letsencrypt` |
 | `stack_files` | writes `.dedalo.env`, `compose.override.yaml` and the generated nginx site | the three files exist; `.dedalo.env` is `0600` |
 | `stack_database` | starts PostgreSQL and waits for `pg_isready` | `ddc ps postgres` is *healthy* |
-| `stack_engine` | runs the engine steps inside a throw-away container (`run --rm -T dedalo bun run scripts/install.ts --request-stdin --execute --events-jsonl`): the seed, the ontologies, the thesauri, the tools, the `root` password. Answers and secrets go on its standard input, never as `-e` (an environment value shows in `docker inspect`) | `ddc run --rm -T dedalo bun run scripts/install.ts --status --json` prints `"outcome":"complete"` |
+| `stack_engine` | runs the engine steps inside a throw-away container (`run --rm -T dedalo bun run scripts/install.ts --request-stdin --execute --events-jsonl`): the seed, the ontologies, the thesauri, the tools, the `root` password. Answers and secrets go on its standard input, never as `-e` (an environment value shows in `docker inspect`) | `ddc run --rm -T dedalo bun run scripts/install.ts --status --json` prints `"outcome":"complete"`; from the checkout, `sh install.sh --route docker --status --json` reports the same record |
 | `stack_up` | starts the engine first, waits for its `/health` (by then it has written the media rule files nginx includes), then the rest of the stack — nginx always in a new container, because a container whose start failed (a port held by another program) comes back *Up* with no port published — and waits for nginx to stay up: running, not restarting, every port it declares published, `nginx -t` passing. If it does not, the step fails with nginx's own `[emerg]` line, or names the port it could not publish | `ddc ps`: `postgres` and `dedalo` *healthy*, `nginx` *Up* with `0.0.0.0:80->80/tcp` and `0.0.0.0:443->443/tcp` |
 | `stack_health` | `/health` on the engine's socket, then through nginx over HTTPS with a verified chain, and the media gate: the marker store and an unpublished probe file both answer `404` to an anonymous request. A failed probe says why (`the certificate chain is not trusted by this host`, `nothing answers on that port`). A `--resume` that started the stack again (after an `--abort`, or a stopped stack) runs every probe again, the media gate included; one that re-did nothing probes `/health` again, read-only | [Verify](#verify) |
 
@@ -271,21 +287,21 @@ Dédalo publishes the engine image — built once per release, signed, and ident
 | **`custom`** (`--image-repository`) | the stack pulls from a registry of your own, trusted as pulled | an institution that keeps every image it runs in its own registry |
 | **`build`** | the image is built here, from this checkout's last commit (committed files only, so it reports the release it was built from and the commit date, like the production route) | an air-gapped host, a modified image, a version no registry publishes |
 
-Whatever the source, the image's version must be the installer's own release (or its data version's `-dev` tag): the engine steps run inside the image with this installer's request format.
+Whatever the source, the image's version must be the installer's own release: the engine steps run inside the image with this installer's request format.
 
 <a id="official-images-are-stable-releases-only"></a>
 
 ### Which official image the installer asks for
 
-The installer knows which release it is from the git tag of the checkout or release archive it runs from, and shows it in its header: `7.0.0` for a stable release, `7.0.0-beta.7 (prerelease)` for a prerelease, `7.0.0.dev (development build)` for a commit that carries no release tag. That name decides the image:
+The installer knows which release it is from the git tag of the checkout or release archive it runs from, and shows it in its header: `7.0.0` for a stable release, `7.0.0-beta.7 (prerelease)` for a prerelease, `7.0.0-dev (development build)` for a commit that carries no release tag. That name decides the image:
 
 | The installer is | Image tag | Official |
 | --- | --- | --- |
 | a stable release (`7.0.0`) | `7.0.0` | the Review asks the registry for `:7.0.0` |
 | a prerelease (`7.0.0-beta.7`) | `7.0.0-beta.7` | the Review asks the registry for `:7.0.0-beta.7` — never for `:7.0.0`, which is the stable release's image |
-| a development build (`7.0.0.dev`) | `7.0.0-dev` | refused straight away, no registry is asked: no published image holds this commit. **Build** is preselected |
+| a development build (`7.0.0-dev`) | `7.0.0-dev` | refused straight away, no registry is asked: no published image holds this commit, and a local build of a development checkout is not an image install. **Custom** is preselected |
 
-A local build is tagged and labelled with the same tag, `.dedalo.env` pins it as `DEDALO_VERSION`, and the engine's `/health` reports the release itself (`7.0.0-beta.7`, or `7.0.0.dev` for a development build).
+A local build is tagged and labelled with the same tag, `.dedalo.env` pins it as `DEDALO_VERSION`, and the engine's `/health` reports the release itself (`7.0.0-beta.7`, or `7.0.0-dev` for a development build).
 
 The Review asks the registry before you type `yes` (`docker manifest inspect`, then `docker buildx imagetools inspect`, as you — nothing is pulled). When the official image of this release is not published — a prerelease whose image is not out yet, for example — the Review says so and does not offer to install: your answers are kept — go back to the Image screen, choose **Build** (`--image-source build`; a first build takes about 2 to 6 minutes on 2 CPUs, longer on a slow network or disk) or a registry of your own that holds an image of this release (`--image-source custom`), and review again. While it asks, the screen shows `checking the official image <image>…`; it asks once each time the Review is built, and each question waits at most 15 seconds — a registry that does not answer by then counts as not reachable, never as "not published". When the registry cannot be reached (no network, a proxy, a firewall that drops the connection), the Review says it could not be checked, in plain words — `the registry did not answer within 15 s` or `could not reach ghcr.io` — and lets you install: `stack_image` then reports what the pull found. Docker's own error message is written to the install log of the run, not shown on the Review.
 
@@ -301,13 +317,14 @@ The list is kept in the repository (`engineering/image_registries.json`) and thi
 | Docker Hub | `docker.io/dedalia/dedalo` | mirror | available |
 <!-- END GENERATED -->
 
+The **Official** choice pulls only from **GitHub Container Registry** (`ghcr.io/dedalia-org/dedalo`), the one the Review names; the installer offers no registry choice. The Docker Hub mirror is reached only through the **`custom`** choice (`--image-source custom --image-repository docker.io/dedalia/dedalo`). A custom image is trusted as pulled: the installer checks its version label, not its signature, so use it only when you choose that trust on purpose.
+
 Images are published per **release**. The tags follow the code server's release names:
 
 | Tag | What it is |
 | --- | --- |
 | `X.Y.Z` (for example `7.0.1`) | a release. Immutable: once published, a release tag always names the same image |
 | `X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N` (for example `7.0.1-beta.2`) | a prerelease: a test version published before its release, signed and immutable like a release. It is published only under its own name — never as `7.0.1`, which is the release's image |
-| `X.Y.Z-dev` | a developer image of unreleased work, built on demand and rebuilt in place — never use it in production |
 
 There is no `latest` tag, and no `7` or `7.0` tag that moves to the newest image, on purpose: an installation always names the version it runs.
 
@@ -324,20 +341,27 @@ cosign verify \
 
 The update script also checks that the signed image says it **is** the version you asked for (its `org.opencontainers.image.version` label): a signature alone only proves Dédalo built the image, not which release it is.
 
+Each registry in the table carries its **own** signature of the image, made by the same workflow: the signature is stored in the registry beside the image, so it does not travel when an image is copied elsewhere. The check above works against any Dédalo registry; to check a copy you made, verify its digest against a Dédalo registry instead (see the next section).
+
 ### A registry of your own
 
-Copy the published image into your registry **keeping its digest** — a copy that re-packs the image is no longer the image Dédalo signed:
+Copy the published image into your registry **keeping its digest** — a copy that re-packs the image is no longer the image Dédalo signed. Verify it at Dédalo's registry first, then copy exactly that digest:
 
 ```shell
-# image only
-docker buildx imagetools create --tag registry.example.org/heritage/dedalo:7.0.1 \
+# 1. check the signature at a Dédalo registry (prints the signed digest)
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/dedalia-org/dedalo/\.github/workflows/image-release\.yml@refs/(tags/v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?|heads/master)$' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   <repository>:7.0.1
 
-# image AND its signature
-cosign copy <repository>:7.0.1 registry.example.org/heritage/dedalo:7.0.1
+# 2. copy that digest into your registry, unchanged
+docker buildx imagetools create --tag registry.example.org/heritage/dedalo:7.0.1 \
+  <repository>@sha256:<digest>
 ```
 
-Then install with `--image-source custom --image-repository registry.example.org/heritage/dedalo`. Mirror each new release before you update to it.
+The copy carries the image, not Dédalo's signature: the signature stays at Dédalo's registries. To prove later that your copy is the signed image, compare its digest (`docker buildx imagetools inspect registry.example.org/heritage/dedalo:7.0.1`) with the one `cosign verify` reports at a Dédalo registry. Do not use `cosign copy`: it is deprecated and does not carry the signatures current `cosign` makes.
+
+Then install with `--image-source custom --image-repository registry.example.org/heritage/dedalo`. The installer and the updater check a custom image's version label, not a signature. Mirror each new release before you update to it.
 
 ### A local build
 
@@ -359,7 +383,7 @@ The image half of `.dedalo.env` is the contract the image updater reads:
 | --- | --- | --- |
 | `DEDALO_COMPOSE_FILE` | the stack file in this directory | `docker-compose.yml` (`docker-compose.simple.yml` on the trial route) |
 | `DEDALO_IMAGE` | the repository, **without** a tag | a repository from the table above, yours, or `localhost/dedalo` for a local build |
-| `DEDALO_VERSION` | the version this installation runs — the image tag | `7.0.1`, `7.0.0-beta.7` (a prerelease), or `7.0.1-dev` |
+| `DEDALO_VERSION` | the version this installation runs — the image tag | `7.0.1` or `7.0.0-beta.7` (a prerelease) |
 | `DEDALO_IMAGE_MODE` | `pull` (a registry) or `build` (a local build) | `pull` |
 | `DEDALO_IMAGE_VERIFY` | `cosign` (check Dédalo's signature on every pull) or `none` | `cosign` |
 
@@ -500,13 +524,26 @@ A container installation updates by replacing its **image** — the code lives i
 ./deploy/dedalo-image-update.sh --version 7.0.2
 ```
 
-The version is a release the code server lists — the [code update panel](../management/updates/updating_code.md) shows them, with their release notes and this exact command — a prerelease of one (`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`), or a `X.Y.Z-dev` developer image. What the script does, each step refusing before the next one changes anything:
+To find out first whether that update would be accepted, add `--check`:
+
+```shell
+./deploy/dedalo-image-update.sh --version 7.0.2 --check
+```
+
+`--check` is a dry run, and it is read-only. It runs the version checks, the engine's check and the image check, and nothing else:
+
+- it takes **no lock**, makes **no backup** and creates **no rollback tag**;
+- it changes **no file** (`.dedalo.env` included), **re-pins nothing**, starts, stops, recreates and writes **no container** (its one contact with the running engine is the read-only `check-target` question) and pulls **no layer**: the image is checked by its manifest, and with `DEDALO_IMAGE_VERIFY=cosign` its signature and version label are read from the registry;
+- when the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`; when it would be refused, it prints the same refusal a real run gives and exits non-zero, and writes no outcome file;
+- in `build` mode it only checks that the release ref resolves in this checkout: it fetches nothing and does not move the checkout.
+
+The version is a release the code server lists — the [code update panel](../management/updates/updating_code.md) shows them, with their release notes and this exact command — or a prerelease of one (`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`). Docker has no nightly images: a `X.Y.Z-dev` version is refused. What the script does, each step refusing before the next one changes anything:
 
 1. **Reads `.dedalo.env`** to know where the image comes from. If the file does not say, it prints the exact lines to add and stops (see [an installation from before the image pin](#an-installation-from-before-the-image-pin)).
-2. **Checks the version**: it must move forward from the pinned `DEDALO_VERSION` (the same version only for a `-dev` image), and the running engine must agree it is the next step on the upgrade path. Versions are ordered as releases are: a prerelease comes before its release, so `7.0.0-beta.6` < `7.0.0-beta.7` < `7.0.0-rc.1` < `7.0.0` < `7.0.1`. A step back to an older `X.Y.Z` is always refused. The running engine checks the step from the version it calls itself: a later prerelease or the release of the same `X.Y.Z` is accepted, an earlier one refused, and another `X.Y.Z` must be the next one. An engine older than 7.0.0-beta.7 does not know prerelease versions: it is asked about the data version instead (`7.0.1-dev` for `7.0.1-beta.2`), and accepts the same `X.Y.Z` or the next one and refuses a skipped one. A step back within the same `X.Y.Z` crosses no database migration, and `--skip-version-check` waives it (see [a stack installed from a beta before 7.0.0-beta.7](#a-stack-installed-from-a-beta-before-700-beta7)).
+2. **Checks the version**: it must move forward from the pinned `DEDALO_VERSION`, and the running engine must agree it is the next step on the upgrade path. Versions are ordered as releases are: a prerelease comes before its release, so `7.0.0-beta.6` < `7.0.0-beta.7` < `7.0.0-rc.1` < `7.0.0` < `7.0.1`. A step back to an older `X.Y.Z` is always refused. The running engine checks the step from the version it calls itself: a later prerelease or the release of the same `X.Y.Z` is accepted, an earlier one refused, and another `X.Y.Z` must be the next one. An engine older than 7.0.0-beta.7 does not know prerelease versions: it is asked about the data version instead (`7.0.0-dev` for `7.0.1-beta.2`), and accepts the same `X.Y.Z` or the next one and refuses a skipped one. A step back within the same `X.Y.Z` crosses no database migration, and `--skip-version-check` waives it (see [a stack installed from a beta before 7.0.0-beta.7](#a-stack-installed-from-a-beta-before-700-beta7)).
 3. **Takes a database backup** through the stack's `backup` service and checks it is readable (`/backups/db/<time>.<database>.postgresql_pre-image-update.custom.backup`). There is no update without it; `--no-backup` waives it, and is never the default.
 4. **Keeps the running image** under a `rollback-<time>` tag.
-5. **Gets the new image**: `pull` mode pulls `<DEDALO_IMAGE>:<version>` and, with `DEDALO_IMAGE_VERIFY=cosign`, refuses it unless the signature checks out; `build` mode checks out the release tag `v<version>` in this checkout (`v7.0.0-beta.7` for a prerelease) and builds it from a clean snapshot of that commit — the same build as the installer's, so the image holds committed files only and reports the release version, never `.dev`. The commit must **be** that release: a tag that is not annotated, or that names another version than the code declares, is refused before anything is built. For a `-dev` image, or to reach a prerelease's commit under another name, `--ref <git ref>` names what to check out; without it a `-dev` build takes the `master` branch of the checkout's only remote. Local changes to tracked files are refused first (the checkout itself moves to the release); untracked files may stay, they never reach the image. A tree without git cannot be rebuilt: the script refuses and says so.
+5. **Gets the new image**: `pull` mode pulls `<DEDALO_IMAGE>:<version>` and, with `DEDALO_IMAGE_VERIFY=cosign`, refuses it unless the signature checks out; `build` mode checks out the release tag `v<version>` in this checkout (`v7.0.0-beta.7` for a prerelease) and builds it from a clean snapshot of that commit — the same build as the installer's, so the image holds committed files only and reports the release version, never `.dev`. The commit must **be** that release: a tag that is not annotated, or that names another version than the code declares, is refused before anything is built. To reach a prerelease's commit under another name, `--ref <git ref>` names what to check out; without it the build takes the prerelease's own tag. Local changes to tracked files are refused first (the checkout itself moves to the release); untracked files may stay, they never reach the image. A tree without git cannot be rebuilt: the script refuses and says so.
 6. **Re-pins `DEDALO_VERSION`** in `.dedalo.env` — the only line it changes.
 7. **Recreates `dedalo` and `backup`** — never `postgres` or `nginx` — and waits for the engine's healthcheck, up to 15 minutes (`--health-timeout`), since boot migrations on a large database take time.
 8. **Healthy**: done, and only the newest rollback tag is kept. **Not healthy**: it puts the previous image back under its old version, re-pins it, brings it up and says *rolled back* — or, if even that is not healthy, *rollback failed* with the path of the backup it took.
@@ -541,7 +578,7 @@ DEDALO_IMAGE_MODE=build
 DEDALO_IMAGE_VERIFY=none
 ```
 
-`DEDALO_VERSION` is the version this checkout calls itself (the script prints it): `7.0.1` when it is at the release tag `v7.0.1`, `7.0.1-beta.2` at a prerelease tag, `7.0.1-dev` on a commit with no release tag. Then build once under the new name and recreate the engine:
+`DEDALO_VERSION` is the version this checkout calls itself (the script prints it): `7.0.1` when it is at the release tag `v7.0.1`, `7.0.1-beta.2` at a prerelease tag. A commit with no release tag is a development build: it has no image, and the installer refuses it. Then build once under the new name and recreate the engine:
 
 ```shell
 ./deploy/dedalo-image-build.sh "$PWD" localhost/dedalo:7.0.1
@@ -577,7 +614,7 @@ sudo ./deploy/dedalo-image-updater.sh install-units
 That writes `/etc/systemd/system/dedalo-image-updater.service` and `.timer` with this stack's path in them, and starts the timer: one pass a minute, run as the owner of the checkout (who must be in the `docker` group; `--user` names another account). `print-units` shows the two files without installing anything.
 
 - **The panel only asks for a version.** The repository, pull or build, signature checking and every flag come from `.dedalo.env` and the script; the engine is never given access to Docker. A request still needs the superuser, maintenance mode and the normal upgrade path.
-- **Never onto developer images from a release.** A request for an `X.Y.Z-dev` image is accepted only when the installation already runs one.
+- **Never a developer image.** A request for an `X.Y.Z-dev` image is refused, whatever the installation runs: Docker has no nightly images. Nightlies reach a tree installation through the code update path.
 - **Never without a backup.** The host updater never waives the backup or the version check.
 - **An interrupted update is reported, not repeated.** Request it again from the panel once you have looked at why.
 

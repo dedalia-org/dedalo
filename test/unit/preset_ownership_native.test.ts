@@ -40,17 +40,10 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
-import {
-	installScopeBindingFixture,
-	removeScopeBindingFixture,
-	SB_GRANTED_SECTION,
-	SB_PRESET_OF_A,
-	SB_PRESET_OF_B,
-	SB_PRESET_SPLIT,
-	SB_PROJECT_OF_A,
-	SB_USER_A,
-	SB_USER_B,
-} from '../helpers/scope_binding_fixture.ts';
+import { SB_GRANTED_SECTION, scopeBindingSlot } from '../helpers/scope_binding_fixture.ts';
+
+/** THIS file's slot for the scope-binding fixture (ids allocated at install). */
+const sb = scopeBindingSlot();
 
 /** dd624 — the preset's name (component_input_text): the value the save writes. */
 const PRESET_NAME_COMPONENT = 'dd624';
@@ -187,11 +180,11 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 	beforeAll(async () => {
 		// A reads the hop component itself: the SEC-1 root-step key (conform.ts
 		// rootStepKey) refuses a path rooted on a component the profile holds 0 on.
-		await installScopeBindingFixture([[SB_GRANTED_SECTION, PRESET_HOP]]);
+		await sb.install([[SB_GRANTED_SECTION, PRESET_HOP]]);
 		await ensureSituation(PRESET_HOP_SITUATION);
-		A = await resolvePrincipal(SB_USER_A);
-		B = await resolvePrincipal(SB_USER_B);
-		hopHostOfA = await createSectionRecord(SB_GRANTED_SECTION, SB_USER_A);
+		A = await resolvePrincipal(sb.userA);
+		B = await resolvePrincipal(sb.userB);
+		hopHostOfA = await createSectionRecord(SB_GRANTED_SECTION, sb.userA);
 		await sql.unsafe(
 			`UPDATE matrix_test SET relation = coalesce(relation, '{}'::jsonb) || $3::text::jsonb
 			 WHERE section_tipo = $1 AND section_id = $2`,
@@ -203,20 +196,23 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 						{
 							id: 1,
 							type: 'dd675',
-							section_id: SB_PROJECT_OF_A,
+							section_id: sb.projectOfA,
 							section_tipo: config.features.filterSectionTipo,
 							from_component_tipo: 'test101',
 						},
 					],
-					[PRESET_HOP]: [presetLocator(1, SB_PRESET_OF_A), presetLocator(2, SB_PRESET_OF_B)],
+					[PRESET_HOP]: [presetLocator(1, sb.presetOfA), presetLocator(2, sb.presetOfB)],
 				}),
 			],
 		);
 	});
 	afterAll(async () => {
-		if (hopHostOfA > 0) await deleteSectionRecord(SB_GRANTED_SECTION, hopHostOfA, -1);
-		await dropSituation(PRESET_HOP_SITUATION);
-		await removeScopeBindingFixture();
+		try {
+			if (hopHostOfA > 0) await deleteSectionRecord(SB_GRANTED_SECTION, hopHostOfA, -1);
+			await dropSituation(PRESET_HOP_SITUATION);
+		} finally {
+			await sb.release();
+		}
 	});
 
 	test('the blanket rule still holds: every principal resolves level 2 on dd655', async () => {
@@ -228,35 +224,35 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 
 	test("LIST: a non-owner's row is absent from the list; the owner's row is present", async () => {
 		const seenByA = await visiblePresetIds(A);
-		expect(seenByA).toContain(SB_PRESET_OF_A);
-		expect(seenByA).not.toContain(SB_PRESET_OF_B);
+		expect(seenByA).toContain(sb.presetOfA);
+		expect(seenByA).not.toContain(sb.presetOfB);
 		const seenByB = await visiblePresetIds(B);
-		expect(seenByB).toContain(SB_PRESET_OF_B);
-		expect(seenByB).not.toContain(SB_PRESET_OF_A);
+		expect(seenByB).toContain(sb.presetOfB);
+		expect(seenByB).not.toContain(sb.presetOfA);
 	});
 
 	test('BOTH arms reach on their own: the dd654 owner locator, and created_by_user_id', async () => {
 		// The split row: dd654 → A, created_by → B. A reaches it through the
 		// locator arm alone, B through the creator arm alone — so neither arm can
 		// be dropped without one of these going red.
-		expect(await visiblePresetIds(A)).toContain(SB_PRESET_SPLIT);
-		expect(await visiblePresetIds(B)).toContain(SB_PRESET_SPLIT);
-		expect(await isRecordInScope(TEMP_PRESET_SECTION, SB_PRESET_SPLIT, A)).toBe(true);
-		expect(await isRecordInScope(TEMP_PRESET_SECTION, SB_PRESET_SPLIT, B)).toBe(true);
+		expect(await visiblePresetIds(A)).toContain(sb.presetSplit);
+		expect(await visiblePresetIds(B)).toContain(sb.presetSplit);
+		expect(await isRecordInScope(TEMP_PRESET_SECTION, sb.presetSplit, A)).toBe(true);
+		expect(await isRecordInScope(TEMP_PRESET_SECTION, sb.presetSplit, B)).toBe(true);
 	});
 
 	test('UNION: the predicate rides the multi-section branch too', async () => {
 		// dd655 beside a projects-ungated test section: the dd655 branch is still
 		// owner-narrowed (the exemption is per table; ownership is per section).
 		const seenByA = await visiblePresetIds(A, [TEMP_PRESET_SECTION, 'test3']);
-		expect(seenByA).toContain(SB_PRESET_OF_A);
-		expect(seenByA).not.toContain(SB_PRESET_OF_B);
+		expect(seenByA).toContain(sb.presetOfA);
+		expect(seenByA).not.toContain(sb.presetOfB);
 	});
 
 	test("READ scope: isRecordInScope answers false for a non-owner's row, true for the owner's", async () => {
-		expect(await isRecordInScope(TEMP_PRESET_SECTION, SB_PRESET_OF_B, A)).toBe(false);
-		expect(await isRecordInScope(TEMP_PRESET_SECTION, SB_PRESET_OF_A, A)).toBe(true);
-		expect(await isRecordInScope(TEMP_PRESET_SECTION, SB_PRESET_OF_A, B)).toBe(false);
+		expect(await isRecordInScope(TEMP_PRESET_SECTION, sb.presetOfB, A)).toBe(false);
+		expect(await isRecordInScope(TEMP_PRESET_SECTION, sb.presetOfA, A)).toBe(true);
+		expect(await isRecordInScope(TEMP_PRESET_SECTION, sb.presetOfA, B)).toBe(false);
 	});
 
 	test("FRONTIER HOP: a path search hopping INTO dd655 reaches the owner's row and NOT a stranger's", async () => {
@@ -267,37 +263,37 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 		// presets are matchable by name from any record that links to them.
 		const root = await resolvePrincipal(-1);
 		// The situation is real: the admin reaches both presets through the hop.
-		expect(await hostsReachingPresetNamed(root, `zzsb preset of ${SB_USER_B}`)).toEqual([
+		expect(await hostsReachingPresetNamed(root, `zzsb preset of ${sb.userB}`)).toEqual([
 			hopHostOfA,
 		]);
-		expect(await hostsReachingPresetNamed(root, `zzsb preset of ${SB_USER_A}`)).toEqual([
+		expect(await hostsReachingPresetNamed(root, `zzsb preset of ${sb.userA}`)).toEqual([
 			hopHostOfA,
 		]);
 		// A: their own preset is reachable through the hop (the positive control)…
-		expect(await hostsReachingPresetNamed(A, `zzsb preset of ${SB_USER_A}`)).toEqual([hopHostOfA]);
+		expect(await hostsReachingPresetNamed(A, `zzsb preset of ${sb.userA}`)).toEqual([hopHostOfA]);
 		// …and B's is not, although A's own record links to it by locator: the
 		// host that the admin's answer above proves reachable is absent for A.
-		const throughStrangersPreset = await hostsReachingPresetNamed(A, `zzsb preset of ${SB_USER_B}`);
+		const throughStrangersPreset = await hostsReachingPresetNamed(A, `zzsb preset of ${sb.userB}`);
 		expect(throughStrangersPreset).not.toContain(hopHostOfA);
 		expect(throughStrangersPreset).toHaveLength(0);
 	});
 
 	test("SAVE through the real door: a non-owner's save is REFUSED, the owner's succeeds", async () => {
-		const refused = await savePresetName(A, SB_PRESET_OF_B, 'hijacked');
+		const refused = await savePresetName(A, sb.presetOfB, 'hijacked');
 		expect(refused.status).toBe(403);
 		expect((refused.body as { error: { code: string } }).error.code).toBe('perm.out_of_scope');
 		// Nothing was written: B's row still carries its fixture name.
 		const [rowB] = (await sql.unsafe(
 			`SELECT string->'${PRESET_NAME_COMPONENT}'->0->>'value' AS name FROM matrix_list WHERE section_tipo = $1 AND section_id = $2`,
-			[TEMP_PRESET_SECTION, SB_PRESET_OF_B],
+			[TEMP_PRESET_SECTION, sb.presetOfB],
 		)) as { name: string }[];
-		expect(rowB?.name).toBe(`zzsb preset of ${SB_USER_B}`);
+		expect(rowB?.name).toBe(`zzsb preset of ${sb.userB}`);
 		// Positive control: the owner's save lands.
-		const accepted = await savePresetName(A, SB_PRESET_OF_A, 'renamed by owner');
+		const accepted = await savePresetName(A, sb.presetOfA, 'renamed by owner');
 		expect(accepted.status).toBe(200);
 		const [rowA] = (await sql.unsafe(
 			`SELECT string->'${PRESET_NAME_COMPONENT}'->0->>'value' AS name FROM matrix_list WHERE section_tipo = $1 AND section_id = $2`,
-			[TEMP_PRESET_SECTION, SB_PRESET_OF_A],
+			[TEMP_PRESET_SECTION, sb.presetOfA],
 		)) as { name: string }[];
 		expect(rowA?.name).toBe('renamed by owner');
 	});
@@ -305,10 +301,10 @@ describe.if(DB_READY)('preset_ownership — a dd655 row belongs to its owner', (
 	test('a global admin is unchanged: both rows are in scope', async () => {
 		const root = await resolvePrincipal(-1);
 		expect(root.isGlobalAdmin).toBe(true);
-		expect(await principalCanAccessRecord(TEMP_PRESET_SECTION, SB_PRESET_OF_A, root)).toBe(true);
-		expect(await principalCanAccessRecord(TEMP_PRESET_SECTION, SB_PRESET_OF_B, root)).toBe(true);
+		expect(await principalCanAccessRecord(TEMP_PRESET_SECTION, sb.presetOfA, root)).toBe(true);
+		expect(await principalCanAccessRecord(TEMP_PRESET_SECTION, sb.presetOfB, root)).toBe(true);
 		const seen = await visiblePresetIds(root);
-		expect(seen).toContain(SB_PRESET_OF_A);
-		expect(seen).toContain(SB_PRESET_OF_B);
+		expect(seen).toContain(sb.presetOfA);
+		expect(seen).toContain(sb.presetOfB);
 	});
 });

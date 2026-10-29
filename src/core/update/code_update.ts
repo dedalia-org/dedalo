@@ -111,6 +111,11 @@ import type { Principal } from '../security/permissions.ts';
 import { currentRequestContext } from '../security/request_context.ts';
 import { DEDALO_ENGINE_VERSION, readReleaseIdentityOf } from './build_stamp.ts';
 import { type DeploymentChannel, detectDeploymentChannel } from './channel.ts';
+import {
+	parseDeclaredNextDevTriple,
+	parseDeclaredTriple,
+	VERSION_TS_PATH,
+} from './code_build_plan.ts';
 import { downloadReleaseArchive } from './code_download.ts';
 import { type ReleaseArchiveName, releaseArchiveNameOf } from './code_manifest.ts';
 import {
@@ -143,7 +148,7 @@ import { refuseUpdate, rethrowOrRefuseUpdate } from './refuse.ts';
 import { parseReleaseVersion } from './release_identity.ts';
 import { smokeBootQuarantine } from './smoke_boot.ts';
 import { isSupervised, supervisorRefusalMessage } from './supervision.ts';
-import { DEDALO_VERSION_TRIPLE } from './version.ts';
+import { DEDALO_DATA_VERSION, parseVersionString } from './version.ts';
 import { assertLinearUpgrade, identityWalkRefusal } from './version_walk.ts';
 
 // The walk rule moved to its leaf (version_walk.ts, 2026-10-09); re-exported so
@@ -381,7 +386,7 @@ export interface CodeUpdateSeams {
 	/**
 	 * The RELEASE IDENTITY the walk starts from (default: this engine's own,
 	 * build_stamp.ts DEDALO_ENGINE_VERSION). A gate pins it: the checkout a
-	 * suite runs in is `X.Y.Z.dev` on a branch and the tag's identity on a
+	 * suite runs in is `X.Y.Z-dev` on a branch and the tag's identity on a
 	 * release commit, and a verdict must not change with that.
 	 */
 	runningRelease?: string;
@@ -756,7 +761,7 @@ function refuseAfterDoubleFailure(
  * Stamp the QUARANTINE with what it is, before it is smoke-booted and swapped
  * in (install_stamp.ts): the verified archive digest — the tree's only
  * per-bytes identity once the version stops changing — plus the channel that
- * built it, which is what makes a `v7` build report `.dev` instead of
+ * built it, which is what makes a `v7` build report `-dev` instead of
  * impersonating the published release.
  *
  * Written BEFORE the smoke boot on purpose: the tree that is validated is then
@@ -1021,19 +1026,19 @@ async function parseUpdateRequest(
 /**
  * The channel the identity walk judges the move on: the item's own token,
  * except for a tree that RUNS A DEVELOPER BUILD it was installed as — its
- * identity is `.dev` AND its own stamp says the dev channel put it there.
+ * identity is `-dev` AND its own stamp says the dev channel put it there.
  * That tree stands on the developer channel whatever it installs next, so the
- * walk's dev same-triple exception is its own: a `.dev` cannot tell whether it
- * sits before or after its triple's tags, and it got here by opting into
+ * walk's dev same-triple exception is its own: a `-dev` may move to or from
+ * any release of its triple on the dev channel, and it got here by opting into
  * exactly that. This is how an install bootstrapped off `7.0.0-beta.6` through
- * a developer build reaches `7.0.0-beta.7` and `7.0.0` (release identity design
- * §2.8 item 5): the manifest offers them to a `.dev` asker on a `dev` ask
- * (code_manifest.ts sameTripleItemsFor), and those items keep their own kind
- * token (`prerelease`, or none) — which names what the tree BECOMES, so the
- * stamp written next records that, never `dev`.
+ * a developer build reaches the stable `7.0.0` (release identity design §2.8
+ * item 5): the manifest offers the stable release to a `-dev` asker through
+ * ordinary ordering (code_manifest.ts sameTripleItemsFor), and that item keeps
+ * its own kind token (none) — which names what the tree BECOMES, so the stamp
+ * written next records that, never `dev`.
  *
  * The standing is read from the tree, never from the request: a crafted item
- * token cannot buy it, and a `.dev` with no dev stamp (an unstamped checkout,
+ * token cannot buy it, and a `-dev` with no dev stamp (an unstamped checkout,
  * an archive an old git could not tag) keeps the conservative reading — its
  * bare triple, off the dev channel.
  */
@@ -1128,9 +1133,9 @@ function refuseForeignArchiveName(request: UpdateRequest): void {
 	}
 }
 
-/** What an archive's file name says it is, in the walk's identity terms (`X.Y.Z.dev` for a developer build). */
+/** What an archive's file name says it is, in the walk's identity terms (`X.Y.Z-dev` for a developer build). */
 function archiveNameIdentityOf(named: ReleaseArchiveName): string {
-	return named.identity ?? `${named.triple}.dev`;
+	return named.identity;
 }
 
 /**
@@ -1140,19 +1145,38 @@ function archiveNameIdentityOf(named: ReleaseArchiveName): string {
  * read itself at boot (build_stamp.ts readReleaseIdentityOf). Otherwise the
  * swap would land a tree that calls itself something else, /health would
  * answer that, and the panel could only report a rollback after the fact.
- * A developer build is exempt: what it calls itself is its archive's to say
- * (an exact tag or `.dev`), and its triple is the request's by construction.
+ * A developer build (`X.Y.Z-dev`, from targetIdentityOf) must call itself EXACTLY
+ * that: a nightly is an UNTAGGED commit (VERSIONING_SPEC D3, option a). An archive
+ * whose stamp names a tag — the same triple or any other, stable or prerelease —
+ * is a release or beta, named by its tag, and would install as that identity and
+ * report it: a `-dev` that became `7.0.0` (or `7.0.0-beta.7`) over `7.0.0-dev`,
+ * a move back in the ordering. It is refused here, through the same refusal.
  */
 async function refuseForeignQuarantine(codeRoot: string, request: UpdateRequest): Promise<void> {
-	const expected = expectedIdentityOf(request);
-	if (expected === null) return;
-	// `version` is a canonical bare triple by now (assertReleaseShape).
-	const triple = request.version.split('.').map(Number) as [number, number, number];
-	const own = await readReleaseIdentityOf(codeRoot, { triple });
+	const expected = targetIdentityOf(request);
+	// The quarantined tree's OWN declared triples (its version.ts) — never the
+	// request's: the request names the release being installed, not what the
+	// archive's bytes say they are.
+	const declared = await Bun.file(join(codeRoot, VERSION_TS_PATH)).text();
+	const triple = parseVersionString(parseDeclaredTriple(declared) ?? '') as [
+		number,
+		number,
+		number,
+	];
+	const nextDevTriple = parseVersionString(parseDeclaredNextDevTriple(declared) ?? '') as [
+		number,
+		number,
+		number,
+	];
+	const own = await readReleaseIdentityOf(codeRoot, { triple, nextDevTriple });
 	if (own.version !== expected) {
+		const taggedNightly =
+			parseReleaseVersion(expected)?.dev === true && own.tag !== null
+				? ` (its stamp names the tag ${own.tag}: a tagged commit is a release or beta, never a nightly)`
+				: '';
 		refuseUpdate(
 			'update.refused',
-			`Error. The downloaded archive calls itself ${own.version}, not the requested ${expected} — nothing was swapped`,
+			`Error. The downloaded archive calls itself ${own.version}, not the requested ${expected}${taggedNightly} — nothing was swapped`,
 		);
 	}
 }
@@ -1178,15 +1202,15 @@ function isBareReleaseTriple(version: string): boolean {
  *  - a prerelease item names it (`release`, which must be a prerelease OF the
  *    item's data triple — anything else is refused: the walk would otherwise
  *    judge one release while the swap installs another's directory);
- *  - a developer build is `<triple>.dev` to the walk (what its archive calls
- *    itself — a tag's identity or `.dev` — is decided by its bytes);
+ *  - a developer build is `<triple>-dev` to the walk (what its archive calls
+ *    itself — a tag's identity or `-dev` — is decided by its bytes);
  *  - anything else is the stable release of its triple.
  * `version` is already a canonical bare triple (assertReleaseShape).
  */
 function targetIdentityOf({ version, channel, release }: UpdateRequest): string {
 	const triple = version;
 	if (release !== '') return requirePrereleaseOf(release, triple);
-	return channel === 'dev' ? `${triple}.dev` : triple;
+	return channel === 'dev' ? `${triple}-dev` : triple;
 }
 
 /** `release`, when it is a prerelease of `triple` — else the request is refused as malformed. */
@@ -1236,7 +1260,7 @@ function restartIntoInstalled(
  */
 function expectedIdentityOf(request: UpdateRequest): string | null {
 	const identity = targetIdentityOf(request);
-	return identity.endsWith('.dev') ? null : identity;
+	return identity.endsWith('-dev') ? null : identity;
 }
 
 /**
@@ -1911,7 +1935,7 @@ export async function updateCode(
 		refuseIfStopped(seams.signal, 'before the swap');
 		phases.start('swap');
 		const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
-		const previousVersion = DEDALO_VERSION_TRIPLE.join('.');
+		const previousVersion = DEDALO_DATA_VERSION.join('.');
 		const backupDir = join(
 			backupRoot,
 			backupDirName(previousVersion, installedDigestOf(targetRoot), stamp),

@@ -53,7 +53,7 @@ function plant(name: string, options: { bootable?: boolean } = {}): string {
 		mkdirSync(join(dir, 'src/core/update'), { recursive: true });
 		writeFileSync(
 			join(dir, 'src/core/update/version.ts'),
-			'export const DEDALO_VERSION_TRIPLE = Object.freeze([7, 0, 0]);',
+			'export const DEDALO_DATA_VERSION = Object.freeze([7, 0, 0]);',
 		);
 	}
 	plantSeq++;

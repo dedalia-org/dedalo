@@ -2,8 +2,9 @@
  * THE REVIEW'S HOST COMMANDS (terminal installer phase 4, 2026-10-12) — what a
  * host route's Review lists: the facts of THIS machine measured now (read-only
  * commands, the same gathering host_preflight freezes), then every host step's
- * `commands()` for them, rendered exactly as they will run. The run measures
- * again at host_preflight and prints its own list; a resume runs the frozen one.
+ * `commands()` for them, rendered as they will run (a check whose value only the
+ * run learns is shown with its placeholder: contract.ts REVIEW EQUALS RUN). The
+ * run measures again at host_preflight and prints its own list; a resume runs the frozen one.
  *
  * On a machine that cannot be measured from this process (not root, not the
  * target), the facts read what they can; every refusal they imply is the run's
@@ -25,7 +26,7 @@ import type { Subprocess } from 'bun';
 import type { InstallPlan } from '../install_plan.ts';
 import type { ReviewMeasure } from '../review_measure.ts';
 import { buildPlanFile } from '../run_files_core.ts';
-import type { HostPlanCtx } from './contract.ts';
+import type { HostPlanCtx, ReviewImage } from './contract.ts';
 import { gatherHostFacts, type HostFacts } from './facts.ts';
 import { type HostFs, hostFs } from './fs.ts';
 import type { HostExecutorOptions } from './host_executor.ts';
@@ -39,6 +40,8 @@ import { type CommandRunner, scratchRunner, systemRunner } from './runner.ts';
 import { readHostRootSeam } from './scratch.ts';
 import { bunPinOf, sourceTreeRoot } from './source.ts';
 import { gatherStackFacts, pendingStackFacts } from './stack/facts.ts';
+import { registryDigestOf } from './stack/image_verify.ts';
+import { imageRefOf, imageVerifyOf } from './stack/layout.ts';
 import { officialImageVerdict, stackPlanFacts, stackReviewTodo } from './stack/preflight.ts';
 
 /** The runner and the fs the Review (and the identity probe) measure through (the scratch seam's when it is armed). */
@@ -197,6 +200,34 @@ export async function reviewHostCommands(
 	return [...todoBlocks(reviewTodo(ctx, fs, Date.now())), ...markExisting(hostReview(ctx), fs)];
 }
 
+/** Whether the image verdict carries a problem or a warning (the digest is then not asked). */
+const verdictHasNotes = (verdict: {
+	problems: readonly string[];
+	warnings: readonly string[];
+}): boolean => verdict.problems.length > 0 || verdict.warnings.length > 0;
+
+/**
+ * The image digest a Review shows for a signed image (F4, the same identity the
+ * run verifies): the index digest the registry names, asked read-only BEFORE the
+ * pull — unresolved (the tag form, the digest pinned at pull) when docker is not
+ * there, the registry did not answer or said the image is absent (the image
+ * verdict already asked it: asked once, never again), or it names no digest.
+ * Undefined for an image with no signature check (a build, a registry of the
+ * operator's own).
+ */
+async function reviewImageOf(
+	ctx: HostPlanCtx,
+	runner: CommandRunner,
+	verdict: { problems: readonly string[]; warnings: readonly string[] },
+): Promise<ReviewImage | undefined> {
+	if (imageVerifyOf(ctx.answers) !== 'cosign') return undefined;
+	const stack = ctx.facts.stack ?? pendingStackFacts();
+	if (stack.docker === null) return { unresolved: true };
+	if (verdictHasNotes(verdict)) return { unresolved: true };
+	const digest = await registryDigestOf(runner, stack.docker, imageRefOf(ctx.answers), stack.home);
+	return digest === null ? { unresolved: true } : { digest };
+}
+
 /** A docker/trial plan's Review blocks: the TO DO (image, certificate), then the steps. */
 async function stackReviewBlocks(
 	ctx: HostPlanCtx,
@@ -209,9 +240,17 @@ async function stackReviewBlocks(
 		{ answers: ctx.answers, runner, ...(measure === undefined ? {} : { measure }) },
 		ctx.facts.stack ?? pendingStackFacts(),
 	);
+	const reviewImage = await reviewImageOf(ctx, runner, image);
+	// The signature check is listed by tag: say why, and that the run verifies the pulled digest.
+	const digestNote =
+		reviewImage !== undefined && 'unresolved' in reviewImage
+			? [
+					`the signature of ${imageRefOf(ctx.answers)} is listed by its tag: the registry did not name its digest before the pull — the digest the pull brings is pinned, and the run verifies that digest with cosign`,
+				]
+			: [];
 	return [
-		...todoBlocks([...image.warnings, ...stackReviewTodo(ctx, fs, Date.now())]),
-		...hostReview(ctx),
+		...todoBlocks([...image.warnings, ...digestNote, ...stackReviewTodo(ctx, fs, Date.now())]),
+		...hostReview(reviewImage === undefined ? ctx : { ...ctx, reviewImage }),
 	];
 }
 

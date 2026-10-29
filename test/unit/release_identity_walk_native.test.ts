@@ -180,7 +180,7 @@ describe('reader 3: the client tells the new tree from the rolled-back one', () 
 	test('the leg covers same-triple walks (the case a triple match gets wrong)', () => {
 		const sameTriple = LEGAL.filter(
 			(row) =>
-				!row.target.endsWith('.dev') &&
+				!row.target.endsWith('-dev') &&
 				parseReleaseVersion(row.running)?.triple.join('.') ===
 					parseReleaseVersion(row.target)?.triple.join('.'),
 		);
@@ -189,16 +189,16 @@ describe('reader 3: the client tells the new tree from the rolled-back one', () 
 
 	// a developer build's identity is its archive's to say: the job names the
 	// data triple and the DIGEST decides (the dev-channel rule, unchanged)
-	for (const row of LEGAL.filter((legal) => legal.target.endsWith('.dev'))) {
+	for (const row of LEGAL.filter((legal) => legal.target.endsWith('-dev'))) {
 		test(row.name, () => {
-			const triple = row.target.slice(0, -'.dev'.length);
+			const triple = row.target.slice(0, -'-dev'.length);
 			const state = { ...init_phase_state(triple, NEW), mode: 'polling' };
 			expect(resolve_health_outcome(state, row.target, NEW).outcome).toBe('updated');
 			expect(resolve_health_outcome(state, row.running, OLD).outcome).toBe('rolled_back');
 		});
 	}
 
-	for (const row of LEGAL.filter((legal) => !legal.target.endsWith('.dev'))) {
+	for (const row of LEGAL.filter((legal) => !legal.target.endsWith('-dev'))) {
 		test(row.name, () => {
 			// the live path: the click/restart frame carry the identity
 			const live = { ...init_phase_state(row.target), mode: 'polling' };
@@ -225,7 +225,7 @@ describe('reader 3: the client tells the new tree from the rolled-back one', () 
 
 describe('the catalog-once rule: the descriptor runs on the FIRST identity of its triple', () => {
 	// The suite database's REAL data version (matrix_updates, the engine's own
-	// reader) is the walk's start; the descriptor is its next patch rung, and
+	// reader) is the walk's start; the descriptor is its next minor rung, and
 	// every hop installs an identity of that rung.
 	let start: number[] = [];
 	let rung: number[] = [];
@@ -236,7 +236,9 @@ describe('the catalog-once rule: the descriptor runs on the FIRST identity of it
 		await assertTestDatabase('release_identity_walk_native:catalog_once');
 		start = await readInstalledDataVersionStrict();
 		expect(start.length, 'the suite database carries no data version row').toBe(3);
-		rung = [start[0] as number, start[1] as number, (start[2] as number) + 1];
+		// a data change rides a MINOR or MAJOR release (catalog.ts validateUpdateDescriptor:
+		// updateData on a patch is refused), so the rung is the next minor
+		rung = [start[0] as number, (start[1] as number) + 1, 0];
 		const rows = (await sql`SELECT COALESCE(MAX(id), 0) AS id FROM matrix_updates`) as {
 			id: number;
 		}[];

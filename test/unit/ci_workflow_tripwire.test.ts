@@ -2625,6 +2625,120 @@ describe('CI workflow tripwire', () => {
 	});
 
 	/**
+	 * Rule 15b — A DAEMON LOG IS KEPT AS A FILE BEFORE IT IS PRINTED (2026-10-25). The
+	 * container's stdout can turn non-blocking (EAGAIN: "cat: write error: Resource
+	 * temporarily unavailable"); the retry kept the verdicts but the printed copy was the
+	 * only one, so the log was lost. hermetic.sh's REAL `dump_log` is run here, under
+	 * `set -euo pipefail` as in the tier, with stdout CLOSED: it must keep the file
+	 * byte-for-byte in HERMETIC_LOG_DIR, succeed (printing is never a verdict), and remove
+	 * its temp log. With stdout open it prints a BOUNDED tail. Every daemon package's
+	 * log must go through it.
+	 */
+	test('daemon logs are kept as files first, then a bounded tail is printed best-effort (rule 15b)', () => {
+		const hermeticRaw = readFileSync(join(repoRoot, 'scripts/ci/hermetic.sh'), 'utf8');
+		const fn = /^dump_log\(\) \{\n[\s\S]*?\n\}$/m.exec(hermeticRaw)?.[0];
+		expect(
+			fn,
+			'hermetic.sh no longer defines dump_log() — the rule has nothing to run',
+		).toBeDefined();
+		const tail = /^HERMETIC_LOG_TAIL=(\d+)$/m.exec(hermeticRaw)?.[1];
+		expect(tail, 'hermetic.sh must bound the printed tail (HERMETIC_LOG_TAIL=<n>)').toBeDefined();
+		expect(hermeticRaw).toMatch(
+			/^HERMETIC_LOG_DIR="\$\{DEDALO_CI_LOG_DIR:-\$REPO_ROOT\/ci-logs\}\/hermetic"$/m,
+		);
+		// Every backgrounded package is dumped through it — none printed by a bare cat.
+		for (const pkg of DAEMON_PACKAGES)
+			expect(hermeticRaw, `${pkg}'s log is not dumped through dump_log`).toMatch(
+				new RegExp(`^dump_log "\\$\\w+" ${pkg.replace(/[/.]/g, '\\$&')}$`, 'm'),
+			);
+		// …and the upload sides keep that directory WHATEVER the tier said — a red run is
+		// the one case the kept file exists for. Planted controls first.
+		const tierStep = '      - name: t\n        run: bash scripts/ci/hermetic.sh\n';
+		const upload = (cond: string | null, path = 'ci-logs/hermetic', pin = 'a'.repeat(40)) =>
+			`      - name: keep\n${cond === null ? '' : `        if: ${cond}\n`}        uses: actions/upload-artifact@${pin} # v7\n        with:\n          path: ${path}\n`;
+		const gh = (steps: string) =>
+			`jobs:\n  hermetic:\n    runs-on: x\n    steps:\n${steps}  other:\n    steps:\n${upload('always()')}`;
+		expect(githubLogUploadFaults(gh(tierStep + upload('always()')))).toEqual([]);
+		for (const [label, yml] of [
+			['condition removed (default success())', gh(tierStep + upload(null))],
+			['if: success()', gh(tierStep + upload('success()'))],
+			['upload BEFORE the tier', gh(upload('always()') + tierStep)],
+			['another path', gh(tierStep + upload('always()', 'ci-logs'))],
+			['unpinned action', gh(tierStep + upload('always()', 'ci-logs/hermetic', 'v7'))],
+			['only another job uploads', gh(tierStep)],
+		] as const)
+			expect(githubLogUploadFaults(yml).length, `planted: ${label}`).toBeGreaterThan(0);
+		const gl = (artifacts: string, exportLine = true) =>
+			`hermetic:\n  before_script:\n${exportLine ? '    - export DEDALO_CI_LOG_DIR="$CI_PROJECT_DIR/ci-logs"\n' : ''}    - cd /tmp/x\n  script:\n    - bash scripts/ci/hermetic.sh\n${artifacts}other:\n  artifacts:\n    when: always\n    paths:\n      - ci-logs/hermetic/\n`;
+		const art = (when: string | null, path = 'ci-logs/hermetic/') =>
+			`  artifacts:\n${when === null ? '' : `    when: ${when}\n`}    paths:\n      - ${path}\n`;
+		expect(gitlabLogArtifactFaults(gl(art('always')))).toEqual([]);
+		for (const [label, yml] of [
+			['when: on_success', gl(art('on_success'))],
+			['when removed (default on_success)', gl(art(null))],
+			['another path', gl(art('always', 'ci-logs/'))],
+			['no artifacts on the job', gl('')],
+			['the log dir not pointed into the clone', gl(art('always'), false)],
+		] as const)
+			expect(gitlabLogArtifactFaults(yml).length, `planted: ${label}`).toBeGreaterThan(0);
+		expect(
+			githubLogUploadFaults(readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8')),
+			'ci.yml: the hermetic job must keep its logs on a red run',
+		).toEqual([]);
+		expect(
+			gitlabLogArtifactFaults(readFileSync(join(repoRoot, '.gitlab-ci.yml'), 'utf8')),
+			'.gitlab-ci.yml: the hermetic job must keep its logs on a red run',
+		).toEqual([]);
+
+		const lines = Number(tail) + 50;
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-dump-log-'));
+		try {
+			const run = (closeStdout: boolean) => {
+				const log = join(dir, `daemon.${closeStdout ? 'closed' : 'open'}.log`);
+				const body = `${Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join('\n')}\n`;
+				writeFileSync(log, body);
+				const logDir = join(dir, closeStdout ? 'kept-closed' : 'kept-open');
+				const script = [
+					'set -euo pipefail',
+					closeStdout ? 'exec 1>&-' : '',
+					`HERMETIC_LOG_DIR=${JSON.stringify(logDir)}`,
+					`HERMETIC_LOG_TAIL=${tail}`,
+					fn as string,
+					`dump_log ${JSON.stringify(log)} publication/site_builder`,
+					'echo "after dump_log" >&2',
+				].join('\n');
+				const proc = Bun.spawnSync(['bash', '-c', script], { stdout: 'pipe', stderr: 'pipe' });
+				return {
+					body,
+					log,
+					kept: join(logDir, 'publication_site_builder.log'),
+					code: proc.exitCode,
+					out: proc.stdout.toString(),
+					err: proc.stderr.toString(),
+				};
+			};
+			const closed = run(true);
+			expect(closed.code, `dump_log failed with stdout closed:\n${closed.err}`).toBe(0);
+			expect(closed.err).toContain('after dump_log');
+			expect(existsSync(closed.kept), 'the log was not kept as a file').toBe(true);
+			expect(readFileSync(closed.kept, 'utf8')).toBe(closed.body);
+			expect(existsSync(closed.log), 'the temp log was not removed').toBe(false);
+
+			const open = run(false);
+			expect(open.code, open.err).toBe(0);
+			expect(readFileSync(open.kept, 'utf8')).toBe(open.body);
+			expect(open.out).toContain(`full log (${lines} lines): ${open.kept}`);
+			expect(open.out).toContain(`line ${lines}\n`);
+			// Bounded: the first lines past the tail are not printed.
+			expect(open.out).not.toContain('line 1\n');
+			expect(open.out).not.toContain(`line ${lines - Number(tail)}\n`);
+			expect(open.out).toContain(`line ${lines - Number(tail) + 1}\n`);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	/**
 	 * Rule 16 — NO STAGE MAY ABORT THE TIER. Every stage command in
 	 * `scripts/ci/hermetic.sh` records its own verdict; none runs bare under
 	 * `set -e`.
@@ -3437,3 +3551,49 @@ describe('the official image (image-release.yml) is labelled from deploy/dedalo-
 		}
 	});
 });
+
+/**
+ * Rule 15b, upload side (GitHub): the faults of ci.yml's `hermetic` job against "its logs
+ * survive a red tier" — a SHA-pinned `actions/upload-artifact` step AFTER the step running
+ * `bash scripts/ci/hermetic.sh`, carrying `if: always()` and `path: ci-logs/hermetic`.
+ * Empty = holds.
+ */
+function githubLogUploadFaults(yml: string): string[] {
+	const job = /^ {2}hermetic:\n([\s\S]*?)(?=^ {2}[A-Za-z0-9_-]+:\s*$|(?![\s\S]))/m.exec(yml)?.[1];
+	if (job === undefined) return ['no `hermetic` job'];
+	const starts = [...job.matchAll(/^ {6}- /gm)].map((m) => m.index as number);
+	const steps = starts.map((a, i) => job.slice(a, starts[i + 1] ?? job.length));
+	const tierAt = steps.findIndex((step) =>
+		/^ {6}(?:- | {2})run: bash scripts\/ci\/hermetic\.sh\s*$/m.test(step),
+	);
+	if (tierAt === -1) return ['no step runs `bash scripts/ci/hermetic.sh`'];
+	const keeps = steps
+		.slice(tierAt + 1)
+		.filter((step) => /^ {6}(?:- | {2})uses: actions\/upload-artifact@[0-9a-f]{40}\b/m.test(step));
+	if (keeps.length === 0) return ['no SHA-pinned upload-artifact step after the tier step'];
+	const good = keeps.some(
+		(step) =>
+			/^ {6}(?:- | {2})if: always\(\)\s*$/m.test(step) &&
+			/^ {10}path: ci-logs\/hermetic\s*$/m.test(step),
+	);
+	return good ? [] : ['the upload after the tier lacks `if: always()` or `path: ci-logs/hermetic`'];
+}
+
+/**
+ * Rule 15b, upload side (GitLab): the faults of the top-level `hermetic` job — its
+ * before_script points DEDALO_CI_LOG_DIR into the clone, and `artifacts:` keeps
+ * `ci-logs/hermetic/` with `when: always`. Empty = holds.
+ */
+function gitlabLogArtifactFaults(yml: string): string[] {
+	const job = /^hermetic:\n([\s\S]*?)(?=^[^\s#]|(?![\s\S]))/m.exec(yml)?.[1];
+	if (job === undefined) return ['no `hermetic` job'];
+	const faults: string[] = [];
+	if (!/^ {4}- export DEDALO_CI_LOG_DIR="\$CI_PROJECT_DIR\/ci-logs"\s*$/m.test(job))
+		faults.push('before_script does not export DEDALO_CI_LOG_DIR into $CI_PROJECT_DIR');
+	const artifacts = /^ {2}artifacts:\n((?: {4,}.*\n|\s*#.*\n)*)/m.exec(job)?.[1];
+	if (artifacts === undefined) return [...faults, 'no `artifacts:`'];
+	if (!/^ {4}when: always\s*$/m.test(artifacts)) faults.push('artifacts lack `when: always`');
+	if (!/^ {6}- ci-logs\/hermetic\/?\s*$/m.test(artifacts))
+		faults.push('artifacts do not keep `ci-logs/hermetic/`');
+	return faults;
+}

@@ -109,8 +109,13 @@ import {
 	localOntologySource,
 } from '../helpers/install_answer_cases.ts';
 import { MAXIMAL_RAW, modelInput } from '../helpers/install_plain_script.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
 import { directImports, REPO_ROOT, reachableModules } from '../helpers/request_path_closure.ts';
 import { writePathSourceFiles } from '../helpers/write_path_corpus.ts';
+
+// The installer's release identity is the checkout's: a dev checkout names no image,
+// so these cases are written for a STABLE installer (test/helpers/installer_identity.ts).
+pinInstallerIdentity(PINNED_IDENTITY.stable);
 
 const scratchRoot = mkdtempSync(join(tmpdir(), 'dedalo_install_screen_model_'));
 

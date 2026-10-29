@@ -18,11 +18,11 @@
  *   3. the host updater is ALIVE (its heartbeat) — a request nobody will
  *      claim would sit there until the next unrelated install;
  *   4. nothing is pending or in flight — one update at a time;
- *   5. a developer (-dev) target only when the installation already runs a
- *      developer image (the heartbeat's pinned tag is -dev): a request never
- *      moves a release installation onto unreleased code — that move is the
- *      operator's own act on the host. The host updater holds the same floor
- *      (deploy/dedalo-image-updater.sh host_floor_refusal);
+ *   5. a developer (-dev) target is refused, whatever the installation runs:
+ *      Docker has no nightly images (VERSIONING_SPEC §2, §3, S3). The refusal
+ *      carries nightlyImageMessage (update/release_identity.ts). The host
+ *      updater refuses the same tags (deploy/dedalo-image-updater.sh
+ *      host_floor_refusal);
  *   6. the target is a legal step of the IDENTITY walk from what this engine
  *      calls itself (version_walk.ts identityWalkRefusal, THE rule the tree
  *      swap and the host CLI's check-target use): a prerelease target is
@@ -37,6 +37,7 @@
 import { randomUUID } from 'node:crypto';
 import { projectRoot } from '../../config/env.ts';
 import { DedaloError } from '../errors/index.ts';
+
 import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
 import { DEDALO_ENGINE_VERSION } from './build_stamp.ts';
 import { type DeploymentChannel, detectDeploymentChannel } from './channel.ts';
@@ -52,7 +53,7 @@ import {
 	writeRequest,
 } from './image_update_channel.ts';
 import { checkUpdatePreconditions } from './preconditions.ts';
-import { parseReleaseVersion } from './release_identity.ts';
+import { nightlyImageMessage, parseReleaseVersion } from './release_identity.ts';
 import { type ImageTag, parseImageTag, type WalkRefusal, walkRefusalOf } from './version_walk.ts';
 
 /** Why a request is refused — the closed id set the client labels. */
@@ -61,12 +62,11 @@ export type ImageRequestRefusal =
 	| 'host_updater_not_alive'
 	| 'request_pending'
 	| 'malformed_version'
-	| 'dev_channel_not_enabled'
 	| 'version_refused';
 
 export type ImageRequestResult =
 	| { ok: true; request: PendingRequestView }
-	| { ok: false; reason: ImageRequestRefusal; walk?: WalkRefusal };
+	| { ok: false; reason: ImageRequestRefusal; walk?: WalkRefusal; message?: string };
 
 /** Test seams — production passes none. */
 export interface ImageRequestSeams {
@@ -121,15 +121,10 @@ async function stateRefusal(
 	return requestOutstanding(dir) ? 'request_pending' : null;
 }
 
-/** Gate 5: a -dev target needs an installation that already runs a -dev image. */
-async function devChannelRefusal(
-	target: ImageTag,
-	seams: ImageRequestSeams,
-	dir: string,
-): Promise<ImageRequestRefusal | null> {
+/** Gate 5: Docker has no nightly images — a -dev target is refused, whatever runs now (S3). */
+function devImageRefusal(target: ImageTag): ImageRequestResult | null {
 	if (target.channel !== 'dev') return null;
-	const pinned = (await readHostUpdaterState(seams.now ?? new Date(), dir)).pinned;
-	return parseImageTag(pinned)?.channel === 'dev' ? null : 'dev_channel_not_enabled';
+	return { ok: false, reason: 'version_refused', message: nightlyImageMessage(target.tag) };
 }
 
 /** The request record a valid target becomes. */
@@ -206,8 +201,8 @@ export async function requestImageUpdate(
 	if (refusal !== null) return { ok: false, reason: refusal };
 	const target = requestedTag(options);
 	if (target === null) return { ok: false, reason: 'malformed_version' };
-	const devRefusal = await devChannelRefusal(target, seams, dir);
-	if (devRefusal !== null) return { ok: false, reason: devRefusal };
+	const devRefusal = devImageRefusal(target);
+	if (devRefusal !== null) return devRefusal;
 	return recordTarget(target, principal, seams, dir);
 }
 

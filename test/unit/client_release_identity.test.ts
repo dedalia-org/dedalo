@@ -41,21 +41,28 @@ import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
 const ROOT = join(import.meta.dir, '..', '..');
 const ORDERING = JSON.parse(
 	readFileSync(join(ROOT, 'test/fixtures/release_identity/ordering.json'), 'utf8'),
-) as { ascending: string[]; equal_dev: [string, string][]; not_identities: string[] };
+) as {
+	ascending: string[];
+	dev: string[];
+	dev_below_stable: [string, string][];
+	not_identities: string[];
+};
 
 describe('data_version_of — the client mirror of the one grammar', () => {
-	const identities = [...ORDERING.ascending, ...ORDERING.equal_dev.map(([dev]) => dev)];
+	// the developer identities are listed among the ascending ones (they are identities too)
+	const identities = [...ORDERING.ascending];
 
 	test('the fixture is not empty (anti-vacuity)', () => {
 		expect(identities.length).toBeGreaterThan(20);
 		expect(ORDERING.not_identities.length).toBeGreaterThan(10);
 	});
 
-	test("every identity of the shared fixture → the SERVER's data triple", () => {
+	test("every release identity of the shared fixture → the SERVER's data triple; a developer one → ''", () => {
 		for (const identity of identities) {
 			const server = parseReleaseVersion(identity);
 			expect(server, identity).not.toBeNull();
-			expect(data_version_of(identity), identity).toBe(server?.triple.join('.') ?? '');
+			const expected = server?.dev ? '' : (server?.triple.join('.') ?? '');
+			expect(data_version_of(identity), identity).toBe(expected);
 		}
 	});
 
@@ -81,6 +88,7 @@ describe("code_satisfies — an ontology's minimum code version against the runn
 		['7.1', '7.0.3', false],
 		['7.0.0', 'nonsense', false], // an unreadable code version is never "supported"
 		['7.x', '7.0.0', false],
+		['', '7.0.0', false], // an empty requirement is no requirement (Number('') is 0)
 	] as const)('requires %p, running %p → %p', (required, running, expected) => {
 		expect(code_satisfies(required, running)).toBe(expected);
 	});

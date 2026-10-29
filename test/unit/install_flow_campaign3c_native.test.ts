@@ -71,7 +71,7 @@ import { reviewPage } from '../../src/core/install/ui/screens/review.ts';
 import type { DrawContext } from '../../src/core/install/ui/widget.ts';
 import { scriptedInstallPrompter } from '../../src/core/install/ui_plain/prompter.ts';
 import { plainReporter } from '../../src/core/install/ui_plain/reporter.ts';
-import { DEDALO_VERSION } from '../../src/core/update/version.ts';
+import { DEDALO_NEXT_RELEASE } from '../../src/core/update/version.ts';
 import { allCases, splitCase } from '../helpers/install_parity_cases.ts';
 import {
 	fakeProbes,
@@ -80,11 +80,15 @@ import {
 	scriptForPlan,
 	thesaurusOffer,
 } from '../helpers/install_plain_script.ts';
+import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
 
 const scratchRoot = mkdtempSync(join(tmpdir(), 'dedalo_install_flow_3c_'));
 afterAll(() => rmSync(scratchRoot, { recursive: true, force: true }));
 
 const ROOT = join(import.meta.dir, '..', '..');
+// The Docker/trial walks need an image the identity accepts: a development checkout is no image.
+pinInstallerIdentity(PINNED_IDENTITY.prerelease);
+
 const CASES = allCases(join(scratchRoot, 'unused_source'));
 
 /** A route case's flags plan and the script that walks it to the Review (its commands given). */
@@ -217,10 +221,15 @@ describe('D2: what the run would refuse is said before yes, and a refusal keeps 
 			.flatMap((screen) => screen.questions)
 			.find((question) => question.key === 'image_version');
 		expect(field?.errors.join('\n')).toContain('9.9.9');
-		// CONTROL: empty and the -dev tag pass.
-		for (const version of ['', `${DEDALO_VERSION}-dev`]) {
-			expect(buildInstallPlan({ ...raw, image_version: version }).errors, version).toEqual([]);
-		}
+		// CONTROL: empty passes. The next nightly's -dev tag is refused too (docker images are
+		// immutable tags of tagged releases only): the S3 sentence, Docker has no nightly images.
+		expect(buildInstallPlan({ ...raw, image_version: '' }).errors).toEqual([]);
+		expect(
+			buildInstallPlan({
+				...raw,
+				image_version: `${DEDALO_NEXT_RELEASE.join('.')}-dev`,
+			}).errors.join('\n'),
+		).toContain('Docker has no nightly images');
 	});
 
 	test('a published port already held is a stack preflight refusal (the trial publishes HTTP only)', () => {
