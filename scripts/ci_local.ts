@@ -1410,7 +1410,8 @@ function copyRecordedBaseline(
 		);
 		return;
 	}
-	const reason = args.values.get('--reason');
+	// a --new recording accepts no regression: the reason (if any) was the parity writer's
+	const reason = args.values.has('--new') ? undefined : args.values.get('--reason');
 	// The record is stamped with this image (red_baseline.ts stampBaseline); while the
 	// pre-stamp transition is still live in code, --check refuses the stamped file beside it,
 	// so the first stamped record and the transition's removal are ONE commit.
