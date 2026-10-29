@@ -26937,14 +26937,24 @@ body.inspector_resizing {
     display: block;
   }
 }
-.component_security_access.edit > .content_data > .button_save {
+.component_security_access.edit > .content_data > .save_buttons {
   top: 5rem;
   position: sticky;
   float: right;
   flex: none;
   white-space: nowrap;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-self: flex-start;
+  gap: 0.5rem;
 }
-.component_security_access.edit > .content_data > .button_save.disable {
+.component_security_access.edit > .content_data > .save_buttons > .warning_label_text {
+  flex-basis: 100%;
+  margin-left: 0;
+  text-align: right;
+}
+.component_security_access.edit > .content_data > .save_buttons.disable {
   visibility: hidden;
 }
 .component_security_access.edit > .content_data > .changes_container {

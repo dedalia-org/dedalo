@@ -377,6 +377,71 @@ describe(`COMPONENT_SECURITY_ACCESS DATA OPERATIONS`, function() {
 
 
 
+	it(`activating a partly visible tall wrapper does not scroll the page`, async function() {
+
+		const wrapper = instance.node
+		wrapper.style.minHeight = (window.innerHeight * 3) + 'px'
+		try {
+			// wrapper top above the viewport, its body on screen (the first-click case)
+			window.scrollTo({top : window.scrollY + wrapper.getBoundingClientRect().top + 100, behavior : 'instant'})
+			const rect = wrapper.getBoundingClientRect()
+			assert.isOk(rect.top < 0 && rect.bottom > window.innerHeight, 'expected a partly visible wrapper')
+
+			const scroll_before = window.scrollY
+			await ui.component.activate(instance)
+			await new Promise(resolve => setTimeout(resolve, 600)) // idle callback + smooth scroll
+			assert.equal(window.scrollY, scroll_before, 'activation must not move the page')
+		}finally{
+			await ui.component.deactivate(instance)
+			wrapper.style.minHeight = ''
+		}
+	});
+
+
+
+	it(`discard button asks first, then reloads the stored value`, async function() {
+
+		const content_data	= instance.node.querySelector('.content_data')
+		const save_buttons	= content_data.querySelector(':scope > .save_buttons')
+		assert.isOk(save_buttons?.classList.contains('disable'), 'expected hidden save_buttons before any change')
+
+		// a real change shows the buttons; restoring the stored value hides them again
+		const item		= {tipo : 'test45', section_tipo : 'test3'}
+		instance.set_saved_values() // earlier tests already changed the value: rebase
+		const baseline	= instance.get_value_entry('test45', 'test3')?.value ?? 0
+		instance.update_value(item, baseline===2 ? 1 : 2)
+		event_manager.publish('show_save_button_' + instance.id)
+		assert.isNotOk(save_buttons.classList.contains('disable'), 'expected visible save_buttons after a change')
+		assert.isOk(save_buttons.querySelector('.warning_label_text'), 'expected the unsaved warning inside the sticky save_buttons')
+
+		instance.update_value(item, baseline)
+		event_manager.publish('show_save_button_' + instance.id)
+		assert.isOk(save_buttons.classList.contains('disable'), 'expected hidden save_buttons once the stored value is restored')
+
+		instance.update_value(item, baseline===2 ? 1 : 2)
+		event_manager.publish('show_save_button_' + instance.id)
+
+		const original_confirm	= window.confirm
+		const original_refresh	= instance.refresh
+		let refresh_calls		= 0
+		instance.refresh = async () => { refresh_calls++ }
+		try {
+			window.confirm = () => false
+			save_buttons.querySelector('.button_discard').click()
+			assert.equal(refresh_calls, 0, 'a declined confirm must not discard')
+
+			window.confirm = () => true
+			save_buttons.querySelector('.button_discard').click()
+			await new Promise(resolve => setTimeout(resolve, 0))
+			assert.equal(refresh_calls, 1, 'an accepted confirm must reload')
+		}finally{
+			window.confirm		= original_confirm
+			instance.refresh	= original_refresh
+		}
+	});
+
+
+
 	it(`destroy after data operations`, async function() {
 
 		if (instance) {
