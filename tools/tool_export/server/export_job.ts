@@ -56,6 +56,7 @@
  */
 
 import { config } from '../../../src/config/config.ts';
+import { isDiffusionLangCode } from '../../../src/config/lang_code.ts';
 import { isMediaModel } from '../../../src/core/concepts/media.ts';
 import {
 	DedaloError,
@@ -69,11 +70,7 @@ import {
 } from '../../../src/core/errors/index.ts';
 import { jobAbortInfo, mediaJobs } from '../../../src/core/media/jobs.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
-import { isDiffusionLangCode } from '../../../src/config/lang_code.ts';
-import {
-	currentApplicationLang,
-	currentDataLang,
-} from '../../../src/core/resolve/request_lang.ts';
+import { currentApplicationLang, currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import {
 	getPermissions,
 	type Principal,

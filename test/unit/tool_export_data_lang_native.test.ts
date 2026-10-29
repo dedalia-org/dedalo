@@ -13,18 +13,18 @@ import { withExportLang } from '../../tools/tool_export/server/export_job.ts';
 
 describe('withExportLang', () => {
 	test('keeps the lang the user picked, over the submitter lang', () => {
-		const options = withExportLang({ section_tipo: 'oh1', lang: 'lg-cat' }, 'lg-eng');
+		const options = withExportLang({ section_tipo: 'test3', lang: 'lg-cat' }, 'lg-eng');
 		expect(options.lang).toBe('lg-cat');
 	});
 
 	test('takes the submitter data lang when the request carries none', () => {
-		const options = withExportLang({ section_tipo: 'oh1' }, 'lg-fra');
+		const options = withExportLang({ section_tipo: 'test3' }, 'lg-fra');
 		expect(options.lang).toBe('lg-fra');
-		expect(options.section_tipo).toBe('oh1');
+		expect(options.section_tipo).toBe('test3');
 	});
 
 	test('does not mutate the caller options', () => {
-		const input = { section_tipo: 'oh1' };
+		const input = { section_tipo: 'test3' };
 		withExportLang(input, 'lg-eng');
 		expect(Object.hasOwn(input, 'lang')).toBe(false);
 	});
