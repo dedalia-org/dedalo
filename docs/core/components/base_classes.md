@@ -176,6 +176,15 @@ live on disk. The media engine resolves them:
   envelope: EDIT/viewer modes ship the full stored items plus image
   `external_source` / `base_svg_url`, AV/3D carry `posterframe_url` (and AV its
   `subtitles` descriptor in edit mode).
+- **Media URLs are versioned by the file, never by the render**, so the browser
+  reuses its cache across renders and a changed file gets a new URL. The server
+  stamps the URLs it builds (`posterframe_url`, `base_svg_url`, indexation-grid
+  thumbs) with `?v=<mtime ms>-<size>` through `media/url_version.ts`; the client
+  builds every `files_info` URL with `get_media_url()`
+  (`client/dedalo/core/component_media_common/js/media_url.js`) as
+  `?v=<file_time>-<file_size>`. All five media components share this, plus lazy
+  `<img>` stills and lazily imported search/rare views; the rule is pinned by
+  `test/unit/media_url_version_tripwire.test.ts`.
 
 Access to the files is enforced fail-closed by the web server through
 `src/core/media/protection.ts`: a fixed-name daily auth cookie plus a

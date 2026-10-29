@@ -10,6 +10,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -44,8 +45,7 @@ export const view_text_list_av = function() {
 *
 * Image resolution priority (highest to lowest):
 *   1. Thumb entry from data.entries where quality==='thumb' AND file_exist===true.
-*      URL: DEDALO_MEDIA_URL + thumb.file_path  (no cache-buster appended here,
-*      unlike view_default_list_av which adds ?t=<timestamp>).
+*      URL: get_media_url(thumb)  (versioned by its file (get_media_url, ?v=<file_time>-<size>)).
 *   2. data.posterframe_url (if present), versioned by the server (?v=<mtime ms>-<size>).
 *   3. page_globals.fallback_image — the application-wide placeholder image.
 *
@@ -94,7 +94,7 @@ view_text_list_av.render = async function(self, options) {
 	// URL
 	// if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 	// wrapper
@@ -109,6 +109,8 @@ view_text_list_av.render = async function(self, options) {
 	// Uses native createElement rather than ui.create_dom_element so that the error
 	// handler closure captures the `image` reference directly before src is set.
 		const image	= document.createElement('img')
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {
 			// Guard prevents an infinite error loop if the fallback image itself is missing.
 			if (image.src!==page_globals.fallback_image) {

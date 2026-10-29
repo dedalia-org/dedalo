@@ -25,6 +25,7 @@
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {ui} from '../../common/js/ui.js'
 	import {view_default_edit_3d} from './view_default_edit_3d.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -99,7 +100,7 @@ render_edit_component_3d.prototype.edit = async function(options) {
 *   }>
 *
 * On change, the selector publishes event '3d_quality_change_'+self.id with the
-* selected file URL (including a cache-busting `?t=<timestamp>` query string).
+* selected file URL, versioned by its file (get_media_url, ?v=<file_time>-<size>).
 * view_default_edit_3d subscribes to this event via quality_change_handler.
 *
 * mousedown and click events are stopped at the selector to prevent the
@@ -152,8 +153,8 @@ export const get_quality_selector = (self) => {
 			const file_info = quality_list[i]
 
 			// create the node with the all qualities sent by server
-			// append a cache-busting timestamp so the browser never serves a stale 3D model
-			const url = DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			// versioned by its file: a re-uploaded model gets a new URL
+			const url = get_media_url(file_info)
 
 			const select_option = ui.create_dom_element({
 				element_type	: 'option',

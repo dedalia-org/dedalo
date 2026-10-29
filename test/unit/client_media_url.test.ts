@@ -1,6 +1,6 @@
 /**
- * component_av client media URLs are versioned by the FILE, not the render
- * (WC-2026-10-29-posterframe-url-version): `get_media_url` (component_av/js/media_url.js)
+ * Media component client URLs are versioned by the FILE, not the render
+ * (WC-2026-10-29-posterframe-url-version): `get_media_url` (component_media_common/js/media_url.js)
  * yields `?v=<file_time.time>-<file_size>` — stable across renders (HTTP cache reused),
  * new when either changes (a re-transcode, a same-second rewrite of another size) —
  * and falls back to the render time when the scan has no file_time (never cached).
@@ -15,7 +15,17 @@ let get_media_url: (file_info: Record<string, unknown>) => string;
 beforeAll(async () => {
 	globals.DEDALO_MEDIA_URL = '/dedalo/media';
 	({ get_media_url } = await import(
-		join(import.meta.dir, '..', '..', 'client', 'dedalo', 'core', 'component_av', 'js', 'media_url.js')
+		join(
+			import.meta.dir,
+			'..',
+			'..',
+			'client',
+			'dedalo',
+			'core',
+			'component_media_common',
+			'js',
+			'media_url.js',
+		)
 	));
 });
 afterAll(() => {

@@ -435,6 +435,7 @@ const TRIPWIRES = [
 	'test/unit/advisory_lock_class_tripwire.test.ts',
 	'test/unit/psql_argv_sql_tripwire.test.ts',
 	'test/unit/hermetic_parallel_safety_tripwire.test.ts',
+	'test/unit/media_url_version_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

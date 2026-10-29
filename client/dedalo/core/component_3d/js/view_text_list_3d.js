@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -72,8 +73,7 @@ view_text_list_3d.render = async function(self, options) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe_url
-		// Append a timestamp query param to bypass any browser or CDN cache that may
-		// have stored a stale or placeholder frame from a previous processing state.
+		// versioned by the server (?v=<mtime ms>-<size>): a regenerated still gets a new URL
 		const posterframe_url = data.posterframe_url
 			? data.posterframe_url
 			: page_globals.fallback_image
@@ -81,7 +81,7 @@ view_text_list_3d.render = async function(self, options) {
 	// URL
 	// if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 	// wrapper
@@ -97,6 +97,8 @@ view_text_list_3d.render = async function(self, options) {
 		// before the browser attempts to load the URL. If the error guard were missing, a
 		// failed src would permanently show a broken-image icon.
 		const image	= document.createElement('img')
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {
 			if (image.src!==page_globals.fallback_image) {
 				image.src = page_globals.fallback_image

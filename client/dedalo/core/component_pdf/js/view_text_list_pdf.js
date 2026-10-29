@@ -76,6 +76,8 @@ view_text_list_pdf.render = async function(self, options) {
 
 	// image
 		const image	= document.createElement('img')
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.src = url
 		wrapper.appendChild(image)
 

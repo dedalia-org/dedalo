@@ -7,6 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -154,7 +155,7 @@ export const get_content_data = function(self) {
 	// URL
 	// if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 		const file_info	= files_info.find(item => item.quality===quality)
@@ -166,6 +167,7 @@ export const get_content_data = function(self) {
 			parent			: content_data
 		})
 		image.loading = 'lazy'
+		image.decoding = 'async'
 		// tells handler_open_viewer window dimensions
 		image.open_window_features = {
 			width	: 1024,

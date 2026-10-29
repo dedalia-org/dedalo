@@ -12,6 +12,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -66,7 +67,7 @@ export const view_mini_pdf = function() {
 *
 * Decision tree for the displayed image URL:
 *   - If a 'thumb' quality entry with file_exist===true is present:
-*       thumb_file = DEDALO_MEDIA_URL + thumb.file_path
+*       thumb_file = get_media_url(thumb)
 *   - Otherwise:
 *       thumb_file = DEDALO_CORE_URL + '/themes/default/icons/file-pdf-o.svg'
 *   - If a primary entry matching self.context.features.quality AND .extension
@@ -103,7 +104,7 @@ view_mini_pdf.render = async function(self, options) {
 		// Prefer the thumbnail file served from media storage; fall back to the
 		// generic PDF icon bundled with the default theme.
 		const thumb_file = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: DEDALO_CORE_URL + '/themes/default/icons/file-pdf-o.svg'
 
 		// Only show the thumbnail when the primary entry (quality+extension) exists
@@ -113,11 +114,13 @@ view_mini_pdf.render = async function(self, options) {
 			: page_globals.fallback_image // page_globals.fallback_image
 
 	// image append to wrapper
-		ui.create_dom_element({
+		const image = ui.create_dom_element({
 			element_type	: 'img',
 			src				: url,
 			parent			: wrapper
 		})
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 
 	return wrapper
 }//end render

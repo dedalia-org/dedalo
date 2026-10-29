@@ -22,7 +22,7 @@
 *      (the file-info array returned by the server) — the first entry where
 *      quality === 'thumb' AND file_exist === true.
 *   2. If no valid thumb exists, the component falls back to data.posterframe_url
-*      (a static frame extracted from the video) with a cache-busting timestamp appended.
+*      (a static frame extracted from the video), versioned by the server (?v=<mtime ms>-<size>).
 *   3. If neither thumb nor posterframe is available, page_globals.fallback_image
 *      (a system-wide placeholder defined at page bootstrap) is used.
 *   4. An 'error' listener on the <img> element implements a second-chance fallback:
@@ -44,6 +44,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -113,7 +114,7 @@ view_mini_list_av.render = async function(self) {
 	// (!) DEDALO_MEDIA_URL is a page-bootstrap global that is not declared in /*global*/
 	//     above; see the flag at the top of this file.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 	// image
@@ -124,6 +125,8 @@ view_mini_list_av.render = async function(self) {
 			element_type	: 'img',
 			parent			: wrapper
 		})
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {
 			// Prevent an infinite error loop: only replace src when it is not
 			// already pointing at the fallback image.

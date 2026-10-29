@@ -43,7 +43,6 @@
 	import {upload} from '../../services/service_upload/js/service_upload.js'
 	import {render_edit_component_3d} from '../../component_3d/js/render_edit_component_3d.js'
 	import {render_list_component_3d} from '../../component_3d/js/render_list_component_3d.js'
-	import {render_search_component_3d} from '../../component_3d/js/render_search_component_3d.js'
 	import {response_data} from '../../common/js/api_error.js'
 
 
@@ -161,7 +160,11 @@ export const component_3d = function(){
 	// render
 	component_3d.prototype.list					= render_list_component_3d.prototype.list
 	component_3d.prototype.edit					= render_edit_component_3d.prototype.edit
-	component_3d.prototype.search				= render_search_component_3d.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_3d.prototype.search				= async function(options) {
+		const {render_search_component_3d} = await import('../../component_3d/js/render_search_component_3d.js')
+		return render_search_component_3d.prototype.search.call(this, options)
+	}
 
 	component_3d.prototype.change_mode			= component_common.prototype.change_mode
 

@@ -11,7 +11,6 @@
 	import {component_common} from '../../component_common/js/component_common.js'
 	import {render_edit_component_image} from '../../component_image/js/render_edit_component_image.js'
 	import {render_list_component_image} from '../../component_image/js/render_list_component_image.js'
-	import {render_search_component_image} from '../../component_image/js/render_search_component_image.js'
 
 
 
@@ -117,7 +116,11 @@ export const component_image = function(){
 	// render
 	component_image.prototype.list				= render_list_component_image.prototype.list
 	component_image.prototype.edit				= render_edit_component_image.prototype.edit
-	component_image.prototype.search			= render_search_component_image.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_image.prototype.search			= async function(options) {
+		const {render_search_component_image} = await import('../../component_image/js/render_search_component_image.js')
+		return render_search_component_image.prototype.search.call(this, options)
+	}
 
 
 
@@ -580,7 +583,7 @@ component_image.prototype.get_active_extensions = function() {
 *      the vector editor's stage.setHref() so the drawing canvas stays in sync.
 *   2. SVG <object> node (default edit view): directly updates the href/xlink:href
 *      attribute on the <image> element inside the SVG document embedded in the
-*      object_node, with a cache-busting timestamp appended as a query parameter.
+*      object_node, with the URL as given (already versioned by its file).
 *      A 'loading' CSS class is toggled on the parent content_value element
 *      while the new image loads.
 *
@@ -644,11 +647,8 @@ component_image.prototype.image_quality_change_handler = async function(url) {
 					content_value.classList.remove('loading')
 				})
 
-			// update t var from image URL
-				const beats = url.split('?')
-
-			// new_url with cache-busting timestamp
-				const new_url = beats[0] + '?t=' + (new Date()).getTime()
+			// the URL arrives versioned by its file (media_url.js get_media_url): use as given
+				const new_url = url
 
 			// set the new source to the image node into the svg.
 			// Write BOTH: the vector editor's export uses SVG2 `href`, which wins

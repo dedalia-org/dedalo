@@ -22,7 +22,6 @@
  *   subtitles descriptor for the player's <track>.
  */
 
-import { statSync } from 'node:fs';
 import type { ComponentEmitHook, EmitHookContext } from '../components/emit_hooks.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
@@ -104,6 +103,7 @@ export const mediaEmitHook: ComponentEmitHook = {
 			const hasMedia = Array.isArray(storedItems) && storedItems.length > 0;
 			if (hasMedia) {
 				const { posterframeLocation, subtitlesUrl } = await import('./path.ts');
+				const { fileVersionToken } = await import('./url_version.ts');
 				const { resolveMediaPathOptions } = await import('./ontology_path.ts');
 				const { config: cfg } = await import('../../config/config.ts');
 				const spec = mediaTypeOf(model);
@@ -127,21 +127,13 @@ export const mediaEmitHook: ComponentEmitHook = {
 					// (the posterframe is not copied) or any fresh av. The client's fallback
 					// chain (thumb → posterframe → placeholder) can only work if this field
 					// is null when there is no file.
-					// `?v=<mtime ms>-<size>` versions the URL by the FILE, not the render: the
-					// browser caches the still across renders and a regenerated posterframe gets
-					// a new URL. Size too: some media mounts keep mtime to the second only
-					// (WC-2026-10-29-posterframe-url-version).
-					// ANY stat error (EACCES, ENOTDIR, a flaky mount) is "no file", exactly as
-					// existsSync answered: one unreadable posterframe must not fail the whole read.
-					let stat: ReturnType<typeof statSync> | undefined;
-					try {
-						stat = location !== null ? statSync(location.absolutePath) : undefined;
-					} catch {
-						stat = undefined;
-					}
+					// `?v=<mtime ms>-<size>` versions the URL by the FILE, not the render
+					// (url_version.ts, WC-2026-10-29-posterframe-url-version); any stat error
+					// is "no file", never a failed read.
+					const version = location !== null ? fileVersionToken(location.absolutePath) : null;
 					item.posterframe_url =
-						location !== null && stat !== undefined
-							? `${cfg.media.webBase}${location.relativePath}?v=${Math.trunc(stat.mtimeMs)}-${stat.size}`
+						location !== null && version !== null
+							? `${cfg.media.webBase}${location.relativePath}?v=${version}`
 							: null;
 					if (model === 'component_av' && ddoMode === 'edit') {
 						const { getLangNameFromCode, getAlpha2FromCode } = await import(

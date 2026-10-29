@@ -545,6 +545,10 @@ HERMETIC_TRIPWIRES=(
 	#     area_maintenance widget tree + planted controls; imports no src/ module
 	#     (verified with DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/maintenance_widget_kit_tripwire.test.ts
+	# --- 2026-10-29 (media URL versioning). DB-free: a text scan of the five media
+	#     component client trees + src/; imports no src/ module (verified with
+	#     DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/media_url_version_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

@@ -7,10 +7,12 @@
 /**
 * GET_MEDIA_URL
 * Media file URL versioned by the file itself — `file_time.time` (seconds) plus
-* `file_size`, both from the disk scan the server runs on every av read — so renders
-* share the HTTP cache and any re-publish (upload, transcode, rotate: all atomic
-* renames, so never a partial file) gets a new URL. Size covers two writes in one
-* second. Without a file_time the render time is used — never cached, never stale.
+* `file_size` from files_info — so renders share the HTTP cache and any re-publish
+* (upload, transcode, rotate: all atomic renames, so never a partial file) gets a
+* new URL. Size covers two writes in one second. THE one builder for every media
+* component (av, 3d, image, pdf, svg — WC-2026-10-29-posterframe-url-version);
+* server-emitted URLs (posterframe_url, base_svg_url) arrive already versioned.
+* Without a file_time the render time is used — never cached, never stale.
 * @param {Object} file_info - files_info item ({file_path, file_time})
 * @returns {string} url
 */

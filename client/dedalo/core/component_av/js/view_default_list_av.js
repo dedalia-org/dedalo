@@ -7,6 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -135,9 +136,9 @@ view_default_list_av.render = async function(self, options) {
 *
 * Fallback chain for the <img> source (evaluated in order):
 *   1. entries entry with quality === 'thumb' and file_exist === true
-*      → DEDALO_MEDIA_URL + file_path  (cache-busted with ?t=<timestamp>)
+*      → get_media_url(thumb)          (versioned by its file, ?v=<file_time>-<size>)
 *   2. data.posterframe_url             (versioned by the server, ?v=<mtime ms>-<size>)
-*   3. page_globals.fallback_image      (global placeholder PNG; no cache-bust)
+*   3. page_globals.fallback_image      (global placeholder PNG; unversioned)
 *
 * The error event on the image re-assigns src to page_globals.fallback_image
 * once, preventing infinite error loops (the condition guards against the case
@@ -180,7 +181,7 @@ const get_content_data = function(self) {
 		// (!) DEDALO_MEDIA_URL is not declared in the /*global*/ comment above;
 		//     ESLint will raise a no-undef error on this line at lint time.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(thumb)
 			: posterframe_url
 
 	// image
@@ -191,6 +192,7 @@ const get_content_data = function(self) {
 		})
 		image.draggable = false
 		image.loading = 'lazy'
+		image.decoding = 'async'
 		// tells handler_open_viewer window dimensions
 		// The viewer is a full-bleed stage, so the popup takes the thumbnail's
 		// ratio (read at click time, once loaded); 16:9 until then. The viewer

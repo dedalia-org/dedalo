@@ -11,6 +11,7 @@
 	import {
 		get_content_data_player
 	} from './view_player_edit_av.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -120,14 +121,12 @@ view_viewer_edit_av.render = async function(self, options) {
 	// url to download
 		// Resolve the playback file descriptor for the platform-default quality tier.
 		// The quality value comes from page_globals (e.g. '404' for 404p web quality).
-		// DEDALO_MEDIA_URL is a global base URL injected by the PHP template; combined
-		// with file_path it forms the fully-qualified media URL. A cache-buster query
-		// string (?t=<timestamp>) is appended to bypass aggressive CDN/browser caching.
+		// The URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
 		// Falls back to page_globals.fallback_image when no matching file descriptor exists.
 		const quality	= page_globals.dedalo_av_quality_default // '404'
 		const file_info	= files_info.find(el => el.quality===quality && el.extension===extension)
 		const url		= file_info
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: page_globals.fallback_image
 
 	// wrapper background color from posterframe image
@@ -227,7 +226,7 @@ view_viewer_edit_av.render = async function(self, options) {
 			// Falls back to `url` (the default quality URL) when no 'original' entry
 			// is recorded or when the original file is not present on disk (file_exist===false).
 			const download_url = original && original.file_exist
-				? DEDALO_MEDIA_URL + original.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(original)
 				: url // default image
 
 			// get the name of the original file uploaded (user filename)
@@ -339,7 +338,7 @@ const fit_viewer_window = function (media_width, media_height) {
 *
 * @param {Object} options
 * @param {string} options.download_url - Fully-qualified URL of the file to download,
-*   including cache-buster query string.
+*   versioned by its file (?v=<file_time>-<size>).
 * @param {string} options.name         - Base filename (without path); used as the
 *   suggested save name, prefixed with 'dedalo_download_'.
 * @returns {boolean} Always true.

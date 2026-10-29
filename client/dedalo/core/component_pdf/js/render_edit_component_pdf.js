@@ -6,8 +6,7 @@
 
 // imports
 	import {view_default_edit_pdf} from './view_default_edit_pdf.js'
-	import {view_mini_pdf} from './view_mini_pdf.js'
-	import {view_viewer_pdf} from './view_viewer_pdf.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
 
 
 
@@ -65,12 +64,16 @@ render_edit_component_pdf.prototype.edit = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		case 'mini': {
+			const {view_mini_pdf} = await import('./view_mini_pdf.js')
 			return view_mini_pdf.render(self, options)
+		}
 
 		case 'player':
-		case 'viewer':
+		case 'viewer': {
+			const {view_viewer_pdf} = await import('./view_viewer_pdf.js')
 			return view_viewer_pdf.render(self, options)
+		}
 
 		case 'print':
 			// view print use the same view as default, except it will use read only to render content_value

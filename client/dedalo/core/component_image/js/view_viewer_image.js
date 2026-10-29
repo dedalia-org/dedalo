@@ -8,6 +8,7 @@
 	import {download_file} from '../../common/js/utils/index.js'
 	import {ui} from '../../common/js/ui.js'
 	import {get_floating_dock} from '../../common/js/floating_dock.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -106,7 +107,7 @@ view_viewer_image.render = function(self, options) {
 		const url		= external_source
 			? external_source
 			: file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: page_globals.fallback_image
 
 	// image
@@ -185,7 +186,7 @@ view_viewer_image.render = function(self, options) {
 			// (!) If `original` is undefined (no 'original' quality entry in files_info), the
 			// property access on the next line will throw a TypeError. No null-guard exists here.
 			const download_url	= (original.file_exist)
-				? DEDALO_MEDIA_URL + original.file_path + '?t=' + (new Date()).getTime() // original image
+				? get_media_url(original) // original image
 				: url // default image
 
 			// get the name of the original file uploaded (user filename)

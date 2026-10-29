@@ -8,6 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {lazy_load_media, media_fade_in} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -181,8 +182,7 @@ export const get_content_data = function(self) {
 *     can upload an SVG file immediately. The tool descriptor is located by searching
 *     self.tools for model === 'tool_upload'.
 *
-* Cache-busting: the URL includes a `?t=<timestamp>` query string to prevent browsers
-* from serving a stale cached rendition after an SVG has been replaced.
+* The URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
 *
 * (!) DEDALO_MEDIA_URL is used as a global but is NOT declared in the /*global*\/
 *     comment at the top of this file. Under the active /*eslint no-undef:"error"*\/
@@ -220,7 +220,7 @@ const get_content_value = function(i, value, self) {
 	// media url from files_info based on selected context quality
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		const url		= file_info
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: page_globals.fallback_image
 
 	// svg item
@@ -340,7 +340,7 @@ const get_content_value_read = function(i, value, self) {
 	// media url from files_info based on selected context quality
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		const url		= file_info
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: page_globals.fallback_image
 
 	// svg item

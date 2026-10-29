@@ -8,7 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {when_in_viewport} from '../../common/js/events.js'
-	import {get_media_url} from './media_url.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 

@@ -6,8 +6,7 @@
 
 // imports
 	import {view_default_list_pdf} from './view_default_list_pdf.js'
-	import {view_mini_pdf} from './view_mini_pdf.js'
-	import {view_text_list_pdf} from './view_text_list_pdf.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
 
 
 
@@ -64,11 +63,15 @@ render_list_component_pdf.prototype.list = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		case 'mini': {
+			const {view_mini_pdf} = await import('./view_mini_pdf.js')
 			return view_mini_pdf.render(self, options)
+		}
 
-		case 'text':
+		case 'text': {
+			const {view_text_list_pdf} = await import('./view_text_list_pdf.js')
 			return view_text_list_pdf.render(self, options)
+		}
 
 		case 'default':
 		default:

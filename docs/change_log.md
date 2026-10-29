@@ -33,6 +33,12 @@ Merged since the last release; these ship with the next one.
 
     An empty link (IRI) field in the edit form no longer shows its "Label", "Title" and "http://" hints all the time. Like the date field, it stays blank until the pointer is over it or the field is selected, so empty fields no longer look filled in.
 
+- **Images, PDFs, SVGs and 3D models load faster and reuse cached files.**
+
+    Every media field now behaves like the audiovisual one: images, PDFs, SVGs and 3D models are no longer downloaded again each time a record is shown. A file's link changes only when the file itself changes (a new upload, a rotation, a regenerated version or a saved drawing layer), so the browser reuses what it already has. Thumbnails in lists and small previews load only when they scroll into view, the image quality selector appears only when there is more than one quality to choose, and the viewer, search and other rarely used displays load only when they are used.
+
+    Wire contract: `WC-2026-10-29-posterframe-url-version`.
+
 - **The search panel opens in one smooth step instead of stuttering in.**
 
     Opening the search panel used to show a loading line, then the empty panel, then each saved filter row popping in one by one, pushing the list down each time — most noticeable on slow connections. Now the panel's data loads in parallel, starts loading as soon as the pointer rests on the Search button, and the panel fades in once, complete (a row slower than 1.5 s fills in afterwards). Nothing extra loads with the page, so lists and counters are unaffected.

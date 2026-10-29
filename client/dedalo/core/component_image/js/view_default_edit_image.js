@@ -51,6 +51,7 @@
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {get_quality_selector} from './render_edit_component_image.js'
 	import {lazy_load_media, media_fade_in} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -264,7 +265,9 @@ const get_content_value = function(i, value, self) {
 
 	// quality_selector
 		const quality_selector = get_quality_selector(self)
-		content_value.appendChild(quality_selector)
+		if (quality_selector) {
+			content_value.appendChild(quality_selector)
+		}
 
 
 	return content_value
@@ -386,7 +389,7 @@ const get_content_value = function(i, value, self) {
 * — no SVG envelope, no quality switching, no lazy loading.
 *
 * Used when data.external_source is populated (e.g. an image imported from a
-* remote catalogue URL). External images bypass cache-busting because the URL
+* remote catalogue URL). External images are never versioned because the URL
 * is controlled by the third-party server, not by Dédalo.
 *
 * @param {string} file_url - absolute or root-relative URL of the external image
@@ -427,7 +430,7 @@ const render_image_external = function(file_url) {
 * ----------------
 * Priority order for the raster URL:
 *  1. data.external_source (non-null) — used verbatim
-*  2. file_info (non-null) — DEDALO_MEDIA_URL + file_info.file_path + cache-busting
+*  2. file_info (non-null) — get_media_url(file_info) (versioned by its file)
 *  3. fallback — page_globals.fallback_image (placeholder image)
 * (!) DEDALO_MEDIA_URL is a runtime global injected by the Dédalo bootstrap; it
 *     is not listed in the /*global*\/ pragma of this file.
@@ -440,8 +443,8 @@ const render_image_external = function(file_url) {
 * dozens of SVG documents on long record lists.
 *
 * When data.base_svg_url is present (the server has generated the SVG
-* envelope), object_node.data is set to that URL with a cache-busting query
-* string. When it is absent (image not yet uploaded / SVG not yet generated),
+* envelope), object_node.data is set to that URL as given (the server versions it,
+* ?v=<mtime ms>-<size>). When it is absent (image not yet uploaded / SVG not yet generated),
 * svg_fallback() points object_node.data to a generic placeholder SVG derived
 * from page_globals.fallback_image and, if the user has write permissions,
 * attaches a click handler that opens tool_upload so the user can upload an image.
@@ -452,9 +455,8 @@ const render_image_external = function(file_url) {
 *  1. If the current quality differs from default_quality, delegates to
 *     self.image_quality_change_handler(url) to update the <image> href inside
 *     the SVG document.
-*  2. Applies a cache-busting timestamp to the SVG-internal <image> href using
-*     setAttributeNS so the browser does not serve a stale cached file even
-*     when the SVG itself is fresh.
+*  2. Versions the SVG-internal <image> href by its files_info entry
+*     (get_media_url) so a rotated/re-uploaded raster is not served from cache.
 *  3. Fades image_container from opacity 0 to 1 for a smooth appearance.
 *
 * Error handler
@@ -489,7 +491,7 @@ const render_image_node = function(self, file_info, content_value) {
 		const url = external_source
 			? external_source
 			: file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: page_globals.fallback_image
 
 	// image_container
@@ -543,7 +545,7 @@ const render_image_node = function(self, file_info, content_value) {
 
 			if (data.base_svg_url) {
 				// svg file already exists
-				object_node.data = data.base_svg_url + '?t=' + (new Date()).getTime()
+				object_node.data = data.base_svg_url // versioned by the server (?v=<mtime ms>-<size>)
 			}else{
 				svg_fallback(object_node)
 			}
@@ -551,7 +553,7 @@ const render_image_node = function(self, file_info, content_value) {
 		// lazy load only when near viewport (shared media helper, 200px preload)
 		lazy_load_media(image_container, load_svg)
 
-	// load handler: update image quality and apply cache-busting
+	// load handler: update image quality and version the embedded raster
 		const load_handler = async () => {
 			// the lazy-load observer / <object> load can fire after destroy (context is null)
 			if (self.status==='destroyed') {
@@ -561,16 +563,22 @@ const render_image_node = function(self, file_info, content_value) {
 				await self.image_quality_change_handler(url)
 			}
 
-			// dynamic_url . prevents to cache files inside svg object
+			// the envelope embeds the raster by bare path: version it by its files_info
+			// entry so a rotated/re-uploaded raster is not served from cache
 			const svg_doc = object_node.contentDocument
 			if (svg_doc) {
 				const image = svg_doc.querySelector('image')
-				if (image) {
-					const dynamic_url = image.href.baseVal + '?t=' + (new Date()).getTime()
+				const href_path = image?.href.baseVal.split('?')[0]
+				const raster_info = href_path
+					? (data.entries || []).flatMap(el => el.files_info || [])
+						.find(el => el.file_exist===true && el.file_path && href_path.endsWith(el.file_path))
+					: null
+				if (raster_info) {
+					const versioned_url = get_media_url(raster_info)
 					// Both: an editor-exported envelope links the raster with SVG2 `href`,
 					// which takes precedence over xlink:href.
-					image.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', dynamic_url);
-					image.setAttribute('href', dynamic_url);
+					image.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', versioned_url);
+					image.setAttribute('href', versioned_url);
 				}
 			}
 

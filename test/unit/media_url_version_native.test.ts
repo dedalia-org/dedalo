@@ -1,10 +1,13 @@
 /**
- * component_av `posterframe_url` is versioned by the FILE (WC-2026-10-29-posterframe-url-version):
+ * Server-emitted media URLs are versioned by the FILE (WC-2026-10-29-posterframe-url-version,
+ * one helper: src/core/media/url_version.ts). component_av `posterframe_url`:
  * `?v=<mtime ms>-<size>` — so the client reuses the HTTP cache across renders and a regenerated
  * posterframe still gets a new URL. Built on the generic `test` TLD (test94 = av in test3),
  * the posterframe planted in the suite media root and removed after (with its bucket dir, when
  * this gate created it). Also: a stat ERROR (not only a missing file) is "no file", never a
- * failed read; the indexation grid's media cells carry the same token (versionedMediaUrl).
+ * failed read; the indexation grid's media cells carry the same token (versionedMediaUrl); the image
+ * `base_svg_url` too (test99 = image in test3) — layer saves rewrite the envelope without touching
+ * files_info, so only the stat can version it.
  */
 import { afterAll, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -15,8 +18,9 @@ import type { MatrixRecord } from '../../src/core/db/matrix.ts';
 import { mediaEmitHook } from '../../src/core/media/component_emit.ts';
 import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
 import { posterframeLocation } from '../../src/core/media/path.ts';
+import { baseSvgUrl, svgOverlayLocation } from '../../src/core/media/svg_overlay.ts';
+import { versionedMediaUrl } from '../../src/core/media/url_version.ts';
 import { EmissionContext } from '../../src/core/resolve/component_data.ts';
-import { versionedMediaUrl } from '../../src/core/section/indexation_grid.ts';
 
 const SECTION_TIPO = 'test3';
 const TIPO = 'test94';
@@ -106,7 +110,8 @@ test('posterframe_url carries ?v=<mtime ms>-<size> and changes when the file doe
 
 test('a stat ERROR (ENOTDIR) is "no posterframe", not a failed read', async () => {
 	const loc = await location();
-	if (createdDir === null) throw new Error('bucket dir pre-exists — cannot plant a file in its place');
+	if (createdDir === null)
+		throw new Error('bucket dir pre-exists — cannot plant a file in its place');
 	// a FILE where the bucket directory should be → stat answers ENOTDIR, not ENOENT
 	rmSync(createdDir, { recursive: true, force: true });
 	mkdirSync(dirname(createdDir), { recursive: true });
@@ -118,5 +123,40 @@ test('a stat ERROR (ENOTDIR) is "no posterframe", not a failed read', async () =
 		);
 	} finally {
 		rmSync(createdDir, { force: true });
+	}
+});
+
+test('image base_svg_url carries ?v=<mtime ms>-<size> and changes when the envelope does', async () => {
+	const spec = mediaTypeOf('component_image')!;
+	const identity = {
+		componentTipo: 'test99',
+		sectionTipo: SECTION_TIPO,
+		sectionId: SECTION_ID,
+		lang: null,
+	};
+	const pathOpts = await resolveMediaPathOptions('test99', SECTION_TIPO);
+	const loc = svgOverlayLocation(spec, identity, pathOpts);
+	if (existsSync(loc.absolutePath)) throw new Error(`refusing: ${loc.absolutePath} exists`);
+	const dir = dirname(loc.absolutePath);
+	const svgCreatedDir = existsSync(dir) ? null : dir;
+	try {
+		expect(baseSvgUrl(spec, identity, pathOpts)).toBeNull();
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(loc.absolutePath, '<svg/>');
+		const t0 = new Date(2026, 0, 1);
+		utimesSync(loc.absolutePath, t0, t0);
+		const first = baseSvgUrl(spec, identity, pathOpts);
+		const { mtimeMs, size } = statSync(loc.absolutePath);
+		expect(first).toBe(
+			`${config.media.webBase}${loc.relativePath}?v=${Math.trunc(mtimeMs)}-${size}`,
+		);
+		expect(baseSvgUrl(spec, identity, pathOpts)).toBe(first);
+		// a layer save rewrites the envelope (same second) → new URL
+		writeFileSync(loc.absolutePath, '<svg><g/></svg>');
+		utimesSync(loc.absolutePath, t0, t0);
+		expect(baseSvgUrl(spec, identity, pathOpts)).not.toBe(first);
+	} finally {
+		rmSync(loc.absolutePath, { force: true });
+		if (svgCreatedDir !== null) rmSync(svgCreatedDir, { recursive: true, force: true });
 	}
 });
