@@ -216,6 +216,10 @@
   overflow: hidden;
   z-index: 5;
 }
+.wrapper_tool.tool_indexation > .content_data > .right_container > .transcription_component_container > .wrapper_component.modified:after {
+  top: -1.7rem;
+  z-index: 7;
+}
 .wrapper_tool.tool_indexation > .content_data > .right_container > .info_container {
   flex: 0 0 auto;
   min-height: 2rem;
@@ -395,6 +399,9 @@
   border-bottom: 1px solid var(--border_default);
   overflow: hidden;
   z-index: 5;
+}
+.wrapper_tool.tool_indexation > .content_data > .right_container > .indexation_container > .indexation_note > .wrapper_component.component_text_area.modified:after {
+  z-index: 7;
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container > .indexation_container > .indexation_note > .empty_note {
   height: 100%;

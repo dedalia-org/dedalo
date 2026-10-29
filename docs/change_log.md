@@ -53,6 +53,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Indexation shows the orange unsaved-changes bar on its text boxes.**
+
+    In the Indexation tool, the orange bar that marks unsaved changes was hidden behind the editor toolbar on both the transcription text and the tag note's description. It now shows across the top of the toolbar, as it does in the Transcription tool.
+
 - **The side panel of a record that does not exist no longer offers record actions.**
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.

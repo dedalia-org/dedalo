@@ -428,6 +428,14 @@
 						// over the sticky `.top` it covers (that one is z-index 3)
 						z-index: 5;
 					}
+
+					// the unsaved bar (layout.less `.modified:after`) is drawn at the
+					// wrapper's top, which the raised toolbar sits ABOVE — so it was
+					// hidden. Raise it with the toolbar, on top of toolbar and pill.
+					&.modified:after {
+						top: -@transcription_chrome_top;
+						z-index: 7;
+					}
 				}
 			}
 
@@ -739,6 +747,12 @@
 							border-bottom: 1px solid var(--border_default);
 							overflow: hidden;
 							z-index: 5;
+						}
+
+						// the unsaved bar (layout.less `.modified:after`) already sits
+						// on this row's top; only the toolbar and pill hid it
+						&.modified:after {
+							z-index: 7;
 						}
 					}
 
