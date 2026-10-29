@@ -912,7 +912,13 @@ const get_content_data = function(self) {
 	// Every OTHER inspector tool (e.g. tool_ontology) is a separate tool and keeps
 	// its own tools_container row — created whenever at least one non-print tool
 	// is present, so a lone ontology tool still gets its own line.
-		const inspector_tools			= self.caller.context.tools.filter( el => el.show_in_inspector )
+		// tool_identify is offered only when the AI identify capability is enabled
+		// (page_globals.ai_capabilities.identify === true). Otherwise the tool is
+		// hidden from the inspector entirely, whatever its ontology flag says.
+		const identify_enabled			= page_globals.ai_capabilities?.identify === true
+		const inspector_tools			= self.caller.context.tools.filter( el =>
+			el.show_in_inspector && (el.name !== 'tool_identify' || identify_enabled)
+		)
 		const inspector_tools_length	= inspector_tools.length
 		const grouped_tools_length		= inspector_tools.filter( el => el.name !== 'tool_print' ).length
 		let tools_container				= null

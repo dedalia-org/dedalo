@@ -514,6 +514,10 @@ const get_content_data_edit = function(self) {
 		theme_toggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') toggle_theme() })
 
 	// ai_assistant button
+	// Created only when the server reports a configured assistant model
+	// (page_globals.ai_capabilities.assistant, see src/ai/capabilities.ts).
+	// A missing key (older server / absent payload) counts as HIDDEN.
+	if (page_globals.ai_capabilities?.assistant === true) {
 		const ai_assistant_button = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'ai_assistant_button top_item',
@@ -641,6 +645,7 @@ const get_content_data_edit = function(self) {
 		}
 		ai_assistant_button.addEventListener('click', ai_assistant_click_handler)
 		ai_assistant_button.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') ai_assistant_click_handler(e) })
+	}
 
 	// section label container
 		const section_label_container = ui.create_dom_element({

@@ -79,7 +79,7 @@
 	} from './search_user_presets.js'
 	import {is_filter_empty} from './search_utils.js'
 	import {response_data} from '../../common/js/api_error.js'
-	import {has_embed_groups} from './render_semantic.js'
+	import {has_embed_groups, is_semantic_enabled} from './render_semantic.js'
 	export {is_filter_empty} from './search_utils.js'
 
 
@@ -1633,7 +1633,10 @@ search.prototype.update_state = async function(options) {
 				if (self.caller?.model==='section') {
 					self.caller.semantic_status = null
 				}
-				if (!(await has_embed_groups(self.target_section_tipo))) {
+				// no embedding model on this install (ai_capabilities.semantic not true):
+				// the query is a dead field. Drop it WITHOUT sending the embed_groups
+				// probe — nothing to ask, nothing to report.
+				if (!is_semantic_enabled() || !(await has_embed_groups(self.target_section_tipo))) {
 					self.semantic.q = ''
 				}
 			}

@@ -152,7 +152,15 @@ export async function getUserTools(
 	deprecatedIsGlobalAdmin?: boolean,
 ): Promise<ToolSimpleContext[]> {
 	void deprecatedIsGlobalAdmin;
-	if (userId === SUPERUSER_ID) return getSuperuserUserTools();
+	// AI tools hidden without a model or until redesigned (src/ai/capabilities.ts).
+	// Applied HERE, once, so no door can offer or grant a hidden tool. Dynamic
+	// import keeps ai/ out of the tools registry's static import graph.
+	const { aiCapabilities, toolOfferedByCapabilities } = await import('../../ai/capabilities.ts');
+	const capabilities = aiCapabilities();
+	const offered = (tools: ToolSimpleContext[]) =>
+		tools.filter((tool) => toolOfferedByCapabilities(tool.name, capabilities));
+
+	if (userId === SUPERUSER_ID) return offered(await getSuperuserUserTools());
 
 	const allowedIds = await getProfileGrantedToolIds(userId);
 	const rows = await fetchActiveToolRows();
@@ -163,7 +171,7 @@ export async function getUserTools(
 		const tool = buildToolSimpleContext(row);
 		if (tool !== null) tools.push(tool);
 	}
-	return tools;
+	return offered(tools);
 }
 
 /**
@@ -560,6 +568,11 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 	// list, not the whole registry — so a tool their profile does not grant can
 	// never reach a toolbar. null = no filter (global admin / no request scope).
 	const actorTools = await currentActorToolNames();
+	// AI tools hidden without a model or until redesigned (src/ai/capabilities.ts).
+	// Applied for EVERY actor, the global admin included: actorTools is null for
+	// the superuser, so without this gate an admin's toolbar would still list them.
+	const { aiCapabilities, toolOfferedByCapabilities } = await import('../../ai/capabilities.ts');
+	const capabilities = aiCapabilities();
 	const inPropertyTools = new Set(target.toolConfigKeys);
 	const context = {
 		calledClass: target.model,
@@ -576,6 +589,7 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 	for (const tool of registered) {
 		// The user_tools membership gate, BEFORE the applies/availability work.
 		if (actorTools !== null && !actorTools.has(tool.name)) continue;
+		if (!toolOfferedByCapabilities(tool.name, capabilities)) continue;
 		const applies =
 			tool.affectedModels.includes(target.model) ||
 			tipoInArray(target.tipo, tool.affectedTipos) ||
@@ -643,6 +657,9 @@ export async function buildToolElementContext(
 	`) as ToolRow[];
 	const row = rows[0];
 	if (row === undefined) return null;
+	// A tool hidden on this deployment has no element context either (open_tool by name).
+	const { aiCapabilities, toolOfferedByCapabilities } = await import('../../ai/capabilities.ts');
+	if (!toolOfferedByCapabilities(name, aiCapabilities())) return null;
 
 	const appLang = currentApplicationLang();
 	const baseUrl = getToolUrl(name);

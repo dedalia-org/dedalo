@@ -180,6 +180,12 @@ export async function buildPageGlobals(
 		// the 2026-08-09 tool-ACL change. Both reads behind it are cached, so this
 		// replaces a per-page user_tools round-trip at no query cost.
 		tool_error_report_granted: await isErrorReportGranted(principal),
+		// TS-ONLY key: which AI entry points this deployment can offer (assistant
+		// needs the HTTP switch AND a model; semantic needs a real embedding sidecar;
+		// identify is hidden). The client hides an entry point unless its flag is
+		// true, so a missing key is treated as hidden. Dynamic import keeps ai/ out
+		// of environment's static import graph (SCC rule, as for tools/ above).
+		ai_capabilities: (await import('../../ai/capabilities.ts')).aiCapabilities(),
 		is_root: (session?.userId ?? null) === -1,
 		user_id: session?.userId ?? null,
 		username: session?.username ?? null,

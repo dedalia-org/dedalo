@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global get_label, SHOW_DEBUG */
+/*global get_label, SHOW_DEBUG, page_globals */
 /*eslint no-undef: "error"*/
 
 
@@ -38,6 +38,28 @@
 
 // embed-groups cache: section_tipo → Promise<string[]> (page-life cache)
 const embed_groups_cache = new Map()
+
+
+
+/**
+* IS_SEMANTIC_ENABLED
+* Server-declared capability (page_globals.ai_capabilities.semantic, built by
+* src/ai/capabilities.ts). True only when the server has a REAL embedding model
+* configured (sidecar provider + endpoint) — the deterministic hash fallback is
+* not a model and never counts. A missing key counts as HIDDEN.
+*
+* When false the whole feature is invisible: no embed_groups probe is sent, the
+* quick input and the semantic pin states never render, and no
+* "semantic unavailable" text is shown (the feature must be absent, not broken).
+*
+* @returns {boolean}
+*/
+export const is_semantic_enabled = function() {
+	// page_globals is a window global assigned by set_environment (common.js);
+	// the typeof guard keeps this safe if it is not yet declared on the page.
+	const globals_defined = typeof page_globals!=='undefined' && page_globals
+	return globals_defined && page_globals.ai_capabilities?.semantic===true
+}//end is_semantic_enabled
 
 
 
@@ -102,10 +124,18 @@ export const get_embed_groups = function(section_tipo) {
 *
 * An empty/absent target answers false — there is nothing to search.
 *
+* When the server declares no embedding model (is_semantic_enabled false) the
+* answer is false WITHOUT sending the probe: there is nothing to ask.
+*
 * @param {string|string[]} target_section_tipo
 * @returns {Promise<boolean>}
 */
 export const has_embed_groups = async function(target_section_tipo) {
+
+	// no embedding model on this install: never probe dd_rag_api
+	if (!is_semantic_enabled()) {
+		return false
+	}
 
 	const ar_tipo = Array.isArray(target_section_tipo)
 		? target_section_tipo
@@ -139,6 +169,13 @@ export const build_semantic_quick_input = function(section_self) {
 		element_type	: 'div',
 		class_name		: 'semantic_quick_search hide'
 	})
+
+	// no embedding model on this install: the input is never built visible and
+	// never probes the section. The hidden container is still returned so the
+	// toolbar mount point keeps its shape.
+	if (!is_semantic_enabled()) {
+		return container
+	}
 
 	const input = ui.create_dom_element({
 		element_type	: 'input',
@@ -209,9 +246,25 @@ export const build_semantic_quick_input = function(section_self) {
 export const build_pinned_chip = function(section_self) {
 
 	const pins = section_self.rqo?.sqo?.filter_by_locators
-	const unavailable = section_self.semantic_status==='unavailable'
+	const semantic_enabled = is_semantic_enabled()
+
+	// 'unavailable' is a semantic-only status: with no embedding model it can
+	// never be set, but a stale flag must not surface as a broken-looking chip.
+	const unavailable = semantic_enabled && section_self.semantic_status==='unavailable'
 
 	if (!unavailable && (!Array.isArray(pins) || pins.length===0)) {
+		return null
+	}
+
+	const is_sentinel = Array.isArray(pins)
+		&& pins.length===1
+		&& Number(pins[0]?.section_id)===-1
+
+	// neutral pins (navigate_to_new_section, open-in-window…) are NOT semantic and
+	// stay visible: hiding them would make the list silently filtered. Only the
+	// semantic-only states (sentinel 'no matches', 'unavailable') are dropped
+	// when the feature is off — a saved sentinel pin is a dead semantic remnant.
+	if (!semantic_enabled && is_sentinel) {
 		return null
 	}
 
@@ -220,16 +273,12 @@ export const build_pinned_chip = function(section_self) {
 		class_name		: 'semantic_pinned_chip'
 	})
 
-	const is_sentinel = Array.isArray(pins)
-		&& pins.length===1
-		&& Number(pins[0]?.section_id)===-1
-
 	// attribute the pins to the meaning search only when it is known to own
 	// them (live pin, or a restored semantic query). Anything else gets the
 	// neutral wording — it is never wrong, the semantic one can be.
 	const semantic		= section_self.filter?.semantic
-	const is_semantic	= semantic?.pinned===true
-		|| (typeof semantic?.q==='string' && semantic.q.trim()!=='')
+	const is_semantic	= semantic_enabled && (semantic?.pinned===true
+		|| (typeof semantic?.q==='string' && semantic.q.trim()!==''))
 
 	const label_text = unavailable
 		? (get_label.semantic_unavailable || 'Semantic search unavailable')

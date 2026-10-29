@@ -258,6 +258,12 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		expect('release_kind' in phpGlobals).toBe(false);
 		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep the key in Object.keys()
 		delete tsGlobals.release_kind;
+		// engineering/wire_contract/WC-2026-10-29-ai-capabilities-page-globals: TS-ONLY key
+		// (which AI entry points the deployment can offer). Same explicit-then-strip handling.
+		expect('ai_capabilities' in tsGlobals).toBe(true);
+		expect('ai_capabilities' in phpGlobals).toBe(false);
+		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep the key in Object.keys()
+		delete tsGlobals.ai_capabilities;
 		expect(Object.keys(tsGlobals).sort()).toEqual(Object.keys(phpGlobals).sort());
 		// engineering/wire_contract/WC-2026-08-23-projects-default-langs-derived.md:
 		// `dedalo_projects_default_langs` is DERIVED per installation now, and its ORDER
