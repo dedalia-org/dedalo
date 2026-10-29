@@ -87,6 +87,10 @@ Merged since the last release; these ship with the next one.
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
 
+- **The search panel's side lists now always end level with the search fields.**
+
+    With many fields added to a search, the centre area grew taller than the Fields, Type and Preset lists, so their bottoms no longer lined up. Now the centre area sets the panel's height and the side lists fill it, scrolling on their own. An open side list still gets at least half the screen height.
+
 - **A list could show the previous search's record total.**
 
     When a new search was started while the record total of the previous one was still loading (common on slow totals such as Activity or Time Machine), the list could show the old search's total ("1-10 of 50000") under the new results. The total now always belongs to the search on screen.

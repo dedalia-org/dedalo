@@ -526,18 +526,12 @@
 			// Center selection drag area
 			>.search_container_selection {
 				flex-grow: 1;
-				align-self: flex-start;
 				background-color: var(--bg_app); // the band is PAGE canvas, so it travels with it (grey_14 inverts in dark)
 				padding-top: 0px;
-				position: sticky;
-				top: 0.25rem;
 
 				.search_group_container {
 					display: flex;
 					justify-content: flex-end;
-					position: -webkit-sticky;
-					position: -moz-sticky;
-					position: sticky;
 					padding-left: 0.18rem;
 
 					@media screen and (max-width: @width_break_point_0) {
@@ -896,8 +890,8 @@
 			>.wrapper_sections_selector {
 				max-width: 130px;
 				min-width: 110px;
-				// same bound as the FIELDS list (layout.less .components_list_container >ul):
-				// unbounded, a long typology list stretched the row and the two scrolled out of sync
+				// bounded on the compact tier; on desktop it fills the row instead
+				// (see the height-sync block at the end of .search_global_container)
 				max-height: 50vh;
 				display: flex;
 				flex-direction: column;
@@ -985,7 +979,9 @@
 					}
 
 					>.list_body {
-						// display: block;
+						// content height, not the generic list's 100%: the preset column
+						// fills the panel, and a 100% grid spread its few rows over it
+						height: auto;
 
 						.section_record {
 							display: grid;
@@ -1058,6 +1054,63 @@
 					}
 				}
 			}//end .search_container_selection_presets
+
+			// One height for the whole row (desktop): the SELECTION sets it, the side
+			// columns (TYPE, FIELDS, PRESET) only FILL it and scroll inside. Each
+			// side list is `height: 0` so it never adds to the row, and grows once
+			// its column is stretched (a stretched flex item is definite for its
+			// children). Capping the side lists alone (50vh) let a tall selection
+			// outgrow them: bottoms misaligned, the old sticky center drifted.
+			// Below the breakpoint the panels stack, see the compact tier.
+			@media screen and (min-width: (@width_break_point_0 + 1)) {
+				// an open side list keeps its old 50vh room even under one card
+				&:has(> .search_container_selector:not(.display_none)),
+				&:has(> .wrapper_sections_selector:not(.display_none)),
+				&:has(> .search_container_selection_presets:not(.display_none)) {
+					min-height: 50vh;
+				}
+
+				// FIELDS: both drill columns (list + target) are direct <ul>s
+				>.search_container_selector {
+					align-self: stretch;
+
+					>ul {
+						max-height: none; // layout.less 50vh, shared with tool_export
+						height: 0;
+						min-height: 100%;
+					}
+				}
+
+				// TYPE: the select stays pinned, the checkbox list fills below it
+				>.wrapper_sections_selector {
+					align-self: stretch;
+					max-height: none;
+
+					>.wrapper_sections_selector_ul {
+						height: 0;
+						flex-grow: 1;
+					}
+				}
+
+				// PRESET: the label stays pinned, the preset list fills below it
+				>.search_container_selection_presets {
+					align-self: stretch;
+					display: flex;
+					flex-direction: column;
+
+					>.component_presets_label {
+						flex: none;
+					}
+					// block, not the list section's `table`: a table ignores overflow
+					// and stretched its .list_body grid, spreading the rows apart
+					>.wrapper_section {
+						display: block;
+						height: 0;
+						flex-grow: 1;
+						overflow-y: auto;
+					}
+				}
+			}
 		}//end .search_global_container
 	}//end .wrapper_search
 
@@ -1453,7 +1506,6 @@
 				min-height: 0;
 			}
 			>.wrapper_section > .list_body {
-				height: auto;
 				width: 100%;
 			}
 
@@ -1506,10 +1558,8 @@
 			}
 		}
 
-		// filter canvas — closes the column, full width, no sticky rail
+		// filter canvas — closes the column, full width
 		>.search_container_selection {
-			position: static;
-			top: auto;
 			order: 3;
 			flex: 1 1 100%;
 			width: 100%;
