@@ -103,3 +103,12 @@ database (parity `failing_tests` 100 → 101). Strictly additive: no existing ro
 removed or reworded, the frozen side carries neither name. The gate's `ADDED`
 set grows by exactly these two. Same registration rule as above. No re-harvest
 (the gate transforms the TS side before diffing).
+
+## Addendum 2026-10-29 — one more name: the `data_lang` selector label
+
+`tools/tool_export/register.json` gained (commit 8fbec16088, lg-eng and lg-spa rows) `data_lang`:
+the label of the export's data-language selector (the lang the values are resolved in). The frozen
+PHP side predates the selector, so `tool_element_context_differential` went red on a freshly
+registered suite database (parity `tier_pass` 268 → 267). Strictly additive: no existing row
+removed or reworded. The gate's `ADDED` set grows by exactly this one. Same registration rule as
+above. No re-harvest (the gate transforms the TS side before diffing).

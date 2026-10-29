@@ -104,6 +104,9 @@ describe.if(hasPhpCredentials())(
 						// dedalo_raw "parents not exported" note on the checkbox
 						'parents_not_in_raw',
 						'parents_not_in_raw_short',
+						// 2026-10-29 addendum (WC-2026-08-23 addendum 2026-10-29): the
+						// data-lang selector's label, added with the export data-lang fix
+						'data_lang',
 					]);
 					type LabelRow = { name?: unknown };
 					const tsLabels = tsContext.labels as LabelRow[];
