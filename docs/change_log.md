@@ -73,6 +73,10 @@ Merged since the last release; these ship with the next one.
 
     The first click in a field taller than the window, such as the permissions tree of a user profile, scrolled the page to the top of the field, so the pointer was no longer over the option just chosen. The page now stays where it is; it only scrolls when the activated field is entirely off screen.
 
+- **An active text field keeps its label visible above the editor toolbar.**
+
+    When a text field (such as Description / transcription) was selected, the editor toolbar covered its label, so it was no longer clear which field and language were being edited. The label now sits as a small tab on the field's top edge, in the field's highlight colour. The text does not move when the field is selected.
+
 - **A Time Machine note can be written again on every change in Component history.**
 
     Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.

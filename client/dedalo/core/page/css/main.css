@@ -27442,6 +27442,19 @@ body.inspector_resizing {
 .component_text_area.edit {
   align-content: unset;
 }
+.component_text_area.edit.active > .label {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  align-self: start;
+  max-width: 40%;
+  height: auto;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+  background-color: var(--color_hilite);
+  border-radius: 4px 4px 0 0;
+  transform: translateY(-100%);
+}
 .component_text_area.edit.fullscreen .ck-content {
   width: calc(100vw - 3rem);
 }
