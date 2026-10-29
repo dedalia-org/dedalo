@@ -1684,11 +1684,14 @@ export const ui = {
 					// pointer
 					wrapper.tool_buttons_container = tool_buttons_container
 
-				// activity_info_container
+				// activity_info_container. Out of tool_header (its `contain: content`
+				// clips anything below it, and its top-right corner is the close
+				// button): a zero-height row right under the header, reusing the
+				// global bubble styles.
 					const activity_info_container = ui.create_dom_element({
 						element_type	: 'div',
-						class_name		: 'activity_info_container',
-						parent			: tool_header
+						class_name		: 'activity_info_container bubbles_notification_container',
+						parent			: fragment
 					})
 					// pointer
 					wrapper.activity_info_container = activity_info_container

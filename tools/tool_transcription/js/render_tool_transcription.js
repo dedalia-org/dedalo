@@ -36,7 +36,7 @@
 	import { ui } from '../../../core/common/js/ui.js'
 	import { ua } from '../../../core/common/js/ua.js'
 	import { keyboard_codes } from '../../../core/common/js/utils/keyboard.js'
-	import { render_node_info } from '../../../core/common/js/utils/notifications.js'
+	import { render_node_info, prepend_bubble } from '../../../core/common/js/utils/notifications.js'
 	import { open_tool } from '../../../core/tools_common/js/tool_common.js'
 	import {
 		get_current_lang_info,
@@ -1100,7 +1100,7 @@ const render_activity_info = async function(self) {
 
 			// render notification node
 			const node_info = render_node_info(node_info_options)
-			activity_info_body.prepend(node_info)
+			prepend_bubble(activity_info_body, node_info)
 		}
 		self.events_tokens.push(
 			event_manager.subscribe('save', save_handler)

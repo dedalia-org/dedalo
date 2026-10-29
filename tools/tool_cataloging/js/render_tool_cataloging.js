@@ -42,7 +42,7 @@
 // imports
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {ui} from '../../../core/common/js/ui.js'
-	import {render_node_info} from '../../../core/common/js/utils/notifications.js'
+	import {render_node_info, prepend_bubble} from '../../../core/common/js/utils/notifications.js'
 
 
 
@@ -278,7 +278,7 @@ const render_activity_info = function(self) {
 
 			// render notification node
 			const node_info = render_node_info(node_info_options)
-			activity_info_body.prepend(node_info)
+			prepend_bubble(activity_info_body, node_info)
 		}
 
 

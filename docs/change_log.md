@@ -69,6 +69,10 @@ Merged since the last release; these ship with the next one.
 
     Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.
 
+- **Tool save notices are readable again and no longer cover the close button.**
+
+    In tools such as Transcription, "saved" messages appeared as bare text over the top-right corner of the header, on top of the close button. They now show as solid green (saved) or orange (not saved) cards just below the header, and repeated identical saves merge into one card with a ×N count.
+
 - **The menu no longer offers Maintenance or Development to users whose profile does not grant them.**
 
     An administrator or developer whose profile did not grant the Maintenance area still saw it in the menu, and opening it showed the no-access page. The same happened to developers with the Development area. Each now appears only when the profile grants it, as every other menu entry already did. The main administrator is not affected.
