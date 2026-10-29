@@ -13,6 +13,8 @@
 	import {handle_api_error} from '../../../../common/js/error_dispatch.js'
 	import {login} from '../../../../login/js/login.js'
 	import {render_servers_list} from '../../update_ontology/js/render_update_ontology.js'
+	import {MAINTENANCE_MODE_ENABLED_EVENT} from '../../../js/maintenance_events.js'
+	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
 	import {error_text} from '../../../../common/js/render_api_error.js'
 	import {
 		render_consumer_status,
@@ -263,6 +265,14 @@ const get_content_data_edit = async function(self) {
 		// modal in front of it reads the same fresh value and offers a waiver for
 		// a check the panel never shows.
 		let consumer_half = null
+		let actions_hint = null
+		const sync_actions_hint = function(consumer) {
+			if (actions_hint) {
+				actions_hint.textContent = (consumer && consumer.ready===false)
+					? (get_label.update_code_blocked_see_above || 'Update blocked: see the readiness checks above. You can still check what is available.')
+					: ''
+			}
+		}
 		const render_consumer_half = function(consumer) {
 			const holder = ui.create_dom_element({ element_type : 'div' })
 			if (consumer_half===null) {
@@ -271,6 +281,7 @@ const get_content_data_edit = async function(self) {
 				consumer_body.replaceChild(holder, consumer_half)
 			}
 			consumer_half = holder
+			sync_actions_hint(consumer)
 			if (consumer) {
 				// the restore points are ACTIONABLE here: each bootable one gets a
 				// Restore button that opens the confirm modal. The development entity
@@ -323,10 +334,15 @@ const get_content_data_edit = async function(self) {
 			}
 		}
 
+	// the readiness block's maintenance switch (maintenance_mode.js) was used:
+	// re-read so the gate, the verdict and the hint all move together
+		content_data.addEventListener(MAINTENANCE_MODE_ENABLED_EVENT, () => {
+			self.refresh_consumer()
+		})
+
 	// servers. The shared picker over CODE_SERVERS with its OWN storage key:
 	// remembering the choice must not collide with the ontology picker's.
 		const servers_list = render_servers_list( value, 'CODE_SERVERS', 'dedalo.update_code.server' )
-		consumer_body.appendChild(servers_list)
 
 	// resume a running update OR restore
 	// If a previous job was started (browser closed or page refreshed during
@@ -395,15 +411,43 @@ const get_content_data_edit = async function(self) {
 	// unchanged. The code server must have opted into that rung too, and one
 	// that did not answers with releases only (said so above the list:
 	// channel_shortfall_note).
-		const channel_row = ui.create_dom_element({
+		// ACTIONS zone: the source (server + offer) and the one primary button,
+		// closing the panel (verdict → attention → facts → actions → result).
+		const actions = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'channel_row',
-			parent			: consumer_body
+			class_name		: 'dd_actions update_actions'
 		})
 		ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'channel_heading',
+			class_name		: 'dd_eyebrow',
+			text_content	: get_label.update_code_source || 'Source',
+			parent			: actions
+		})
+		actions.appendChild(servers_list)
+		consumer_body.appendChild(actions)
+
+		const channel_row = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_options channel_row',
+			parent			: actions
+		})
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_k dd_options_label channel_heading',
 			text_content	: get_label.update_code_channel_choice || 'Offer',
+			parent			: channel_row
+		})
+		const channel_line = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_options_line',
+			parent			: channel_row
+		})
+		// ONE note slot, after every option: a note appearing grows the row
+		// downwards and never moves an option (it used to sit between two options
+		// and push the last one onto its own line).
+		const channel_note = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_note dd_options_note channel_note',
 			parent			: channel_row
 		})
 		// per-panel group name: two panels on one page never share a radio group
@@ -432,7 +476,7 @@ const get_content_data_edit = async function(self) {
 				element_type	: 'label',
 				class_name		: 'channel_option channel_option_' + option.token,
 				text_content	: option.label,
-				parent			: channel_row
+				parent			: channel_line
 			})
 			const input = ui.create_dom_element({
 				element_type	: 'input',
@@ -452,18 +496,15 @@ const get_content_data_edit = async function(self) {
 				}))
 			}
 			option_label.prepend(input)
-			// the caution is SHOWN once its option is chosen (CSS :has(:checked)) —
-			// it is what the operator has to read before checking WITH it on — and
-			// rides the option's tooltip before that, so the default panel stays quiet
+			// the caution is SHOWN once its option is chosen — it is what the
+			// operator has to read before checking WITH it on — and rides the
+			// option's tooltip before that, so the default panel stays quiet
 			if (option.note) {
 				option_label.title = option.note
-				ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'dd_note channel_note channel_note_' + option.token,
-					text_content	: option.note,
-					parent			: channel_row
-				})
 			}
+			input.addEventListener('change', () => {
+				channel_note.textContent = option.note || ''
+			})
 			return input
 		})
 		// the chosen token, read at click time (never cached: the operator may
@@ -475,8 +516,16 @@ const get_content_data_edit = async function(self) {
 			element_type	: 'button',
 			class_name		: 'light button_submit',
 			inner_html		: get_label.update_code_check_updates || 'Check available updates',
-			parent			: consumer_body
+			parent			: actions
 		})
+		// reading the offer is harmless, so the button stays live; but a blocked
+		// readiness is said HERE too, where the operator's eyes are
+		actions_hint = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_note actions_hint',
+			parent			: actions
+		})
+		sync_actions_hint(self.value?.consumer)
 		if (is_development) {
 			button_submit.disabled = true
 		}
@@ -599,6 +648,8 @@ const get_content_data_edit = async function(self) {
 							// and then the whole half is rendered again.
 							if (refresh_readiness(consumer_half, fresh_value.consumer)!==true) {
 								render_consumer_half(fresh_value.consumer)
+							} else {
+								sync_actions_hint(fresh_value.consumer)
 							}
 						}
 					} catch (error) {
@@ -1293,6 +1344,7 @@ export const render_info_modal = function( self, versions_info, body_response, a
 		// declared BEFORE mount_waive_row: the row inserts itself above the
 		// button, and `let` in the same block would leave it in the TDZ.
 		let button_update = null
+		let gate_blocked = false
 		let image_panel = null
 		let waive_backup_input = null
 		const mount_waive_row = function(check) {
@@ -1395,7 +1447,7 @@ export const render_info_modal = function( self, versions_info, body_response, a
 				value_node.classList.add('active')
 				date_node.classList.add('active')
 				if (button_update) {
-					button_update.disabled = false
+					button_update.disabled = gate_blocked
 				}
 				if (image_panel) {
 					image_panel.select(current_version)
@@ -1478,6 +1530,43 @@ export const render_info_modal = function( self, versions_info, body_response, a
 					parent			: footer
 				})
 				button_update.disabled = !files.some(el => el.active===true)
+
+				// THE GATE, before the choice is acted on: a blocked readiness
+				// check (server: core/update/status.ts) is a refusal the pipeline
+				// WILL answer, so Update stays disabled and says why — with the
+				// maintenance switch in place, never discovered after the click.
+				let gate_node = null
+				const paint_gate = function() {
+					const blocked = ((self.value?.consumer || {}).checks || []).filter(check => check.state==='blocked')
+					const node = ui.create_dom_element({
+						element_type	: 'div',
+						class_name		: 'update_gate'
+					})
+					blocked.forEach(check => {
+						if (check.id==='maintenance_mode') {
+							render_maintenance_prereq(node, async () => {
+								await self.refresh_consumer() // re-reads self.value AND the panel behind
+								paint_gate()
+							})
+							return
+						}
+						ui.create_dom_element({
+							element_type	: 'div',
+							class_name		: 'dd_note state_danger',
+							text_content	: (get_label['update_code_check_' + check.id] || check.id) + ': ' + (get_label.update_code_state_blocked || 'blocked'),
+							parent			: node
+						})
+					})
+					if (gate_node) {
+						footer.replaceChild(node, gate_node)
+					} else {
+						footer.insertBefore(node, button_update)
+					}
+					gate_node = node
+					gate_blocked = blocked.length>0
+					button_update.disabled = gate_blocked || !files.some(el => el.active===true)
+				}
+				paint_gate()
 
 				// click event
 				const click_handler = async (e) => {
@@ -1658,7 +1747,7 @@ export const render_release_notes = function(parent, notes) {
 
 	const block = ui.create_dom_element({
 		element_type	: 'details',
-		class_name		: 'release_notes',
+		class_name		: 'dd_fold release_notes',
 		parent			: parent
 	})
 	ui.create_dom_element({

@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 784,
-		"functions": 12924,
+		"files": 785,
+		"functions": 13026,
 		"functionsOverCap": 669,
 		"filesOverCap": 258
 	},
@@ -363,7 +363,7 @@
 		"src/core/section/list_definitions/section_list.ts": 8,
 		"src/core/section/locks.ts": 15,
 		"src/core/section/read.ts": 74,
-		"src/core/section/read_facade.ts": 24,
+		"src/core/section/read_facade.ts": 21,
 		"src/core/section/read_source.ts": 11,
 		"src/core/section/record/delete_record.ts": 25,
 		"src/core/section/record/duplicate_record.ts": 19,

@@ -78,7 +78,9 @@ describe('root user record (dd128,-1) — record-level gate beats the admin bypa
 		expect(await isRecordInScope('dd128', -1, SUPERUSER)).toBe(false);
 	});
 
-	test('a get_data on (dd128,-1) returns the EMPTY shell even for the superuser', async () => {
+	// WC-2026-10-28-own-account-read: the admin bypass still never reaches -1 — but root's OWN
+	// read does (tool_user_admin, the UI of WC-2026-08-28-root-self-service-write).
+	test('a get_data on (dd128,-1) returns the EMPTY shell for a non-root global admin, the record for root itself', async () => {
 		const rqo = {
 			dd_api: 'dd_core_api',
 			action: 'read',
@@ -90,10 +92,12 @@ describe('root user record (dd128,-1) — record-level gate beats the admin bypa
 				lang: 'lg-nolan',
 			},
 		} as unknown as Parameters<typeof routeSectionRead>[0];
-		const result = await routeSectionRead(rqo, SUPERUSER);
-		const data = (result.body as { data?: { data?: unknown[] } }).data?.data ?? [];
-		expect(Array.isArray(data)).toBe(true);
-		expect(data.length).toBe(0);
+		const dataOf = async (principal: Principal) =>
+			((await routeSectionRead(rqo, principal)).body as { data?: { data?: unknown[] } }).data
+				?.data ?? [];
+		const otherAdmin: Principal = { userId: 987654320, isGlobalAdmin: true, isDeveloper: true };
+		expect(await dataOf(otherAdmin)).toHaveLength(0);
+		expect((await dataOf(SUPERUSER)).length).toBeGreaterThan(0); // non-vacuity: the row is there
 	});
 });
 

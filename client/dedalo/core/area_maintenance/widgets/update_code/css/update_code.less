@@ -11,39 +11,6 @@
 
 	>.content_data {
 
-		// main submit button for Check available updates.
-		// (Direct children of `.content_data` again since 2026-09-28: the role
-		// blocks went away with the serve_code split.)
-		// The widget's ONE primary action. It used to inherit the shared `.light`
-		// grey-on-grey look and disappeared under the note text above it, so it is
-		// promoted here: accent fill, on-accent label, its own reading weight.
-		>.button_submit {
-			margin: 1rem;
-			margin-left: 0px;
-			margin-bottom: 2rem;
-			padding: 0.5rem 1.1rem;
-			font-size: 1em;
-			font-weight: 600;
-			color: var(--fg_on_brand); // the brand fill flips per theme; so does its ink (audit P1-18)
-			background-color: var(--color_orange_dedalo);
-			border: 1px solid color-mix(in srgb, var(--color_orange_dedalo) 75%, #000);
-			border-radius: 4px;
-
-			&:before {
-				background-color: var(--button-bg-color, #ffffff) !important;
-			}
-
-			&:hover:not(:disabled) {
-				background-color: color-mix(in srgb, var(--color_orange_dedalo) 88%, #000);
-			}
-
-			&:disabled {
-				color: var(--fg_muted);
-				background-color: var(--bg_surface_alt);
-				border-color: var(--border_default);
-			}
-		}
-
 		>.dd_readout {
 			margin-bottom: 0.75rem;
 		}
@@ -52,62 +19,67 @@
 			margin: 0.5rem 0;
 		}
 
-		// CHANNEL choice — published / prereleases / developer builds (the
-		// ladder, update_code_channel.js). Deliberately quiet: it sits above the
-		// submit button as one radio row plus the chosen option's note, never a
-		// warning bar (the note carries the caution).
-		>.channel_row {
-			display: flex;
-			flex-wrap: wrap;
-			align-items: center;
-			gap: 0.25rem 1.25rem;
-			margin: 0.75rem 0 0.25rem 0;
+		// ACTIONS zone (kit .dd_actions): source picker + offer + the one
+		// primary button + the blocked hint, closing the panel.
+		>.update_actions {
+			margin-bottom: 1rem;
 
-			>.channel_heading {
-				font-weight: bold;
+			>.server_picker,
+			>.channel_row {
+				align-self: stretch;
+			}
+			>.actions_hint:empty {
+				display: none;
 			}
 
-			>.channel_option {
-				display: flex;
-				align-items: center;
-				gap: 0.5rem;
-				cursor: pointer;
-				padding-bottom: 0px;
+			// main submit button for Check available updates.
+			// The widget's ONE primary action. It used to inherit the shared `.light`
+			// grey-on-grey look and disappeared under the note text above it, so it is
+			// promoted here: accent fill, on-accent label, its own reading weight.
+			>.button_submit {
+				margin: 0;
+				padding: 0.5rem 1.1rem;
+				font-size: 1em;
+				font-weight: 600;
+				color: var(--fg_on_brand); // the brand fill flips per theme; so does its ink (audit P1-18)
+				background-color: var(--color_orange_dedalo);
+				border: 1px solid color-mix(in srgb, var(--color_orange_dedalo) 75%, #000);
+				border-radius: 4px;
 
-				>.channel_radio {
-					height: initial;
+				&:before {
+					background-color: var(--button-bg-color, #ffffff) !important;
+				}
+
+				&:hover:not(:disabled) {
+					background-color: color-mix(in srgb, var(--color_orange_dedalo) 88%, #000);
+				}
+
+				&:disabled {
+					color: var(--fg_muted);
+					background-color: var(--bg_surface_alt);
+					border-color: var(--border_default);
 				}
 			}
 
-			// the development-facing options read in the row's accent
-			>.channel_option_prerelease,
-			>.channel_option_dev {
-				color: var(--color_blue_2);
-			}
+			// CHANNEL choice — the kit's .dd_options row (one note slot after all
+			// options, so a shown note never moves an option). Only the accent and
+			// the dev icon are local.
+			>.channel_row {
+				// the development-facing options read in the row's accent
+				.channel_option_prerelease,
+				.channel_option_dev {
+					color: var(--color_blue_2);
+				}
 
-			// reads BEFORE the words: the one development-facing control on an
-			// otherwise production panel. Masked svg in the area_maintenance
-			// vocabulary — the same bug.svg its map uses for the 'dev' category.
-			// Tinted with the row's own accent, not the muted grey, so the icon
-			// belongs to the label rather than to the panel chrome.
-			>.channel_option_dev >.dev_channel_icon {
-				.fn_maintenance_icon('bug.svg');
-				background-color: var(--color_blue_2);
+				// reads BEFORE the words: the one development-facing control on an
+				// otherwise production panel. Masked svg in the area_maintenance
+				// vocabulary — the same bug.svg its map uses for the 'dev' category.
+				.channel_option_dev >.dev_channel_icon {
+					.fn_maintenance_icon('bug.svg');
+					background-color: var(--color_blue_2);
+				}
 			}
-
-			>.dd_note.channel_note {
-				flex-basis: 100%;
-				margin: 0.25rem 0 0 0;
-				max-width: 60rem;
-			}
-
-			// a caution reads once its option is chosen; the option's title
-			// carries it before that (render_update_code.js)
-			&:not(:has(.channel_option_prerelease >.channel_radio:checked)) >.dd_note.channel_note_prerelease,
-			&:not(:has(.channel_option_dev >.channel_radio:checked)) >.dd_note.channel_note_dev {
-				display: none;
-			}
-		}
+		}//end .update_actions
 
 		// STATUS readouts (render_update_status.js) — layout shared with
 		// serve_code through the .dd_update_status() mixin below.
@@ -284,7 +256,7 @@
 			margin-top: 2rem;
 
 			.file_container {
-				border-bottom: 1px @color_grey_13 solid;
+				border-bottom: 1px var(--color_grey_13) solid;
 				padding: 0.5rem;
 				border-radius: 3px;
 				display: flex;
@@ -342,7 +314,7 @@
 				}
 				.value {
 					font-weight: 300;
-					color: @color_grey_9;
+					color: var(--color_grey_9);
 				}
 			}
 
@@ -367,6 +339,21 @@
 		// presence is the warning; the note carries the caution in the shared
 		// widget_kit severity vocabulary (.dd_note.state_warning), never a
 		// global warning bar.
+		// the blocked-check gate above Update (render_info_modal paint_gate):
+		// left-aligned like the waiver row, one note per refusing check
+		.update_gate {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+			text-align: left;
+			max-width: 60rem;
+			margin: 0 auto 1.5rem auto;
+
+			&:empty {
+				display: none;
+			}
+		}
+
 		.waive_backup_row {
 			text-align: left;
 			max-width: 60rem;
@@ -379,7 +366,7 @@
 				cursor: pointer;
 				font-weight: bold;
 				padding-bottom: 0px;
-				color: @color_danger;
+				color: var(--color_danger);
 
 				>.waive_backup_check {
 					height: initial;
@@ -437,7 +424,7 @@
 				cursor: pointer;
 				font-weight: bold;
 				padding-bottom: 0px;
-				color: @color_danger;
+				color: var(--color_danger);
 
 				>.confirm_downgrade_check {
 					height: initial;
@@ -464,7 +451,7 @@
 			padding-top: 0;
 
 			&.error {
-				color: @color_danger;
+				color: var(--color_danger);
 			}
 		}
 
@@ -503,65 +490,17 @@
 		.status_block {
 			margin-bottom: 0.75rem;
 
-			.dd_eyebrow {
+			// a heading OF the block only — never the eyebrow inside a fold's
+			// summary, which must sit on the summary's baseline
+			>.dd_eyebrow {
 				margin-bottom: 0.33rem;
 			}
 		}
 
-		// FOLDED blocks (fold_section): the summary IS the block's one-line
-		// readout — eyebrow, then the hint / count chips — and the readout
-		// opens under it. Same ▸ disclosure as update_ontology's serving_info.
-		.status_fold {
+		// FOLDED blocks (fold_section) are the kit's .dd_fold — the app chevron
+		// (widget_kit.less); only the spacing between stacked folds is local.
+		.dd_fold {
 			margin-bottom: 0.4rem;
-
-			>.status_fold_summary {
-				display: flex;
-				flex-wrap: wrap;
-				align-items: baseline;
-				gap: 0.5rem;
-				padding: 0.3rem 0;
-				cursor: pointer;
-				list-style: none;
-				user-select: none;
-
-				&::-webkit-details-marker {
-					display: none;
-				}
-				&:before {
-					content: '\25B8';
-					color: var(--fg_muted);
-					font-size: 0.8rem;
-					transition: transform 0.12s ease;
-				}
-				>.dd_eyebrow {
-					margin-bottom: 0;
-				}
-				// the facts that make opening optional: quieter than a value,
-				// wrapping rather than widening the panel
-				>.fold_hint {
-					font-size: 0.9em;
-					color: var(--fg_muted);
-					overflow-wrap: anywhere;
-				}
-				>.dd_badge {
-					white-space: nowrap;
-				}
-				&:hover >.dd_eyebrow {
-					color: var(--fg_default);
-				}
-			}
-			&[open] >.status_fold_summary {
-				margin-bottom: 0.33rem;
-
-				&:before {
-					transform: rotate(90deg);
-				}
-			}
-			// a closed <details> hides its content through UA styles, but an
-			// explicit `display` (the readout grid) wins in some engines
-			&:not([open]) >.dd_readout {
-				display: none;
-			}
 		}
 
 		// readiness: eyebrow, verdict, what needs attention, then the folded
@@ -576,29 +515,19 @@
 			>.attention_checks {
 				margin-bottom: 0.5rem;
 			}
-			>.status_fold {
+			>.dd_fold {
 				margin-bottom: 0;
+			}
+			>.maintenance_prereq {
+				margin-bottom: 0.5rem;
 			}
 		}
 
-		// the headline verdict of a role, above its checks
+		// the headline verdict of a role, above its checks — colour and weight
+		// are the kit's .dd_verdict (theme tokens); only the spacing is local
 		.status_verdict {
-			font-size: 1rem;
-			font-weight: bold;
 			margin-top: 0.5rem;
-			margin-bottom: 2rem;
-
-			&.state_ok {
-				color: @color_success;
-			}
-			&.state_danger {
-				color: @color_danger;
-			}
-			// ready, but only because a gate is waivable: neither green nor
-			// red — the operator has one more decision to make.
-			&.state_warning {
-				color: @color_warning;
-			}
+			margin-bottom: 0.75rem;
 		}
 
 		// a check's value cell: chip, then the server's fact, then the why
@@ -624,7 +553,9 @@
 			.check_scope {
 				font-size: 0.9em;
 				opacity: 0.7;
-				white-space: nowrap;
+				// a scope can be a long backup path: wrap it, never clip it on a
+				// narrow card (stacked readout)
+				overflow-wrap: anywhere;
 			}
 
 			// the explanation, rendered only on a non-ok check

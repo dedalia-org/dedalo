@@ -56,6 +56,7 @@
 		"test:client": "bun run scripts/client_test_runner.ts",
 		"test:client:server": "bun run scripts/client_test_serve.ts",
 		"test:tools:phone": "bun run scripts/tool_viewport_check.ts",
+		"test:crawl": "bun run scripts/feature_crawl.ts",
 		"test:update": "bun run scripts/update_drill.ts",
 		"test:update:dev": "bun run scripts/update_drill.ts --dev",
 		"probe:update": "bun run scripts/update_probe.ts",

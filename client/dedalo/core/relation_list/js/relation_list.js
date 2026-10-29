@@ -291,11 +291,19 @@ relation_list.prototype.init = function(options) {
 *
 * @param {boolean} [autoload=true] - when false, skips the read request (datum
 *   must be pre-populated; useful in tests or server-side-render scenarios)
-* @returns {Promise<boolean>} resolves to true when the build completes
+* @returns {Promise<boolean>} resolves to true when the build completes; false
+*   with no record (no request sent) or a failed read (self.build_error set)
 */
 relation_list.prototype.build = async function(autoload=true){
 
 	const self = this
+
+	// no record (a record-less edit view): a null pin is never sent (0 stays a valid id)
+		if (self.section_id===null || self.section_id===undefined || self.section_id==='') {
+			self.status = 'built'
+			return false
+		}
+		self.build_error = null
 
 	// status update
 		self.status = 'building'
@@ -356,6 +364,12 @@ relation_list.prototype.build = async function(autoload=true){
 					body		: self.rqo
 				})
 				.then((api_response) => {
+					// a refused/failed read leaves an explicit empty state (never a count over nothing)
+					if (request_failed(api_response)) {
+						self.build_error = api_response.error || {}
+						self.datum = {data:[], context:[]}
+						return
+					}
 					// set the result to the datum
 					self.datum = response_data(api_response)
 				})
@@ -401,6 +415,13 @@ relation_list.prototype.build = async function(autoload=true){
 		}
 
 		await Promise.all(tasks)
+
+	// failed read: the count's total must not survive it
+		if (self.build_error) {
+			self.total = 0
+			self.status = 'built'
+			return false
+		}
 
 	// paginator. Its state is read from caller.rqo at render time (get_total), so
 	// a 'built' status here is enough for every page turn to repaint the strip.

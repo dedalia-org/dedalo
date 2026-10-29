@@ -1044,6 +1044,28 @@ search.prototype.get_component_instance = async function(options) {
 				lang			: lang
 			}
 			const component_instance = await get_instance(component_options)
+			if (!component_instance) {
+				// stored model with no client module (e.g. a stale preset leaf)
+				console.error('Ignored search component, no instance for model:', model, component_tipo)
+				return null
+			}
+
+	// discard. A leaf that cannot be built is destroyed here (it is already in the
+	// instances registry). Proven stale (tipo gone, model changed) → null, the one
+	// 'invalid' contract of the caller; any other failure (transport, timeout, 5xx,
+	// session) rethrows, so the caller keeps the condition instead of repair-saving it away.
+		const discard = async (stale, reason, error) => {
+			console.error('Ignored search component instance:', reason, {section_tipo, component_tipo, model}, error ?? '')
+			try {
+				await component_instance.destroy(true)
+			} catch (destroy_error) {
+				console.error('get_component_instance: destroy failed', destroy_error)
+			}
+			if (!stale) {
+				throw error || new Error(reason)
+			}
+			return null
+		}
 
 	// data. Inject entries from search user preset before build is needed for portal 'resolve_data' API call.
 		component_instance.data = {
@@ -1057,10 +1079,20 @@ search.prototype.get_component_instance = async function(options) {
 		// }
 
 	// build component to force load datalist, portal resolve_data etc.
-		const build_result = await component_instance.build(true)
-		if(build_result===false){
-			console.error("Ignored component instance, build result is: ",build_result);
-			return null
+		// A stale preset leaf (tipo gone from the ontology) rejects with request.invalid_tipo.
+		try {
+			const build_result = await component_instance.build(true)
+			if(build_result===false){
+				return discard(false, 'build result is false')
+			}
+		} catch (error) {
+			return discard(error?.code==='request.invalid_tipo', 'build failed', error)
+		}
+		// context comes from the server's CURRENT ontology: a model other than the
+		// stored one means the model changed or the tipo was recycled.
+		const current_model = component_instance.context?.model
+		if (current_model !== model) {
+			return discard(!!current_model, 'model mismatch, current: ' + current_model)
 		}
 
 	// data. Inject entries from search user preset after build again for non portal components.

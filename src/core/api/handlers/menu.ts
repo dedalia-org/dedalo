@@ -30,8 +30,8 @@
  *
  * SCOPE — both viewer paths: admin+developer receives the walk unfiltered;
  * any other viewer gets the PHP permission filter (self-key-authorized areas
- * from their dd774 table, dd88 gated to admin-or-developer, dd770 to
- * developers) applied per node before the menu transforms.
+ * from their dd774 table; dd88 additionally needs admin-or-developer, dd770
+ * developer) applied per node before the menu transforms.
  *
  * REWRITES (PHP menu switch cases, all implemented):
  * - section_tool nodes WITH a `tool_config`: tipo/model rewritten to the
@@ -278,22 +278,30 @@ export async function getMenuTreeDatalist(viewer?: {
 	isDeveloper: boolean;
 }): Promise<MenuTreeResult> {
 	let areas = await getOntologyAreas();
+	const allAreasByTipo = new Map(areas.map((area) => [area.tipo, area]));
 
 	// Non-(admin AND developer) viewers get the FILTERED menu (PHP
-	// get_tree_datalist): the maintenance area needs admin-or-developer, the
-	// development area needs developer, and every other area must be
-	// self-key-authorized in the viewer's permissions table. PHP applies the
-	// filter per node (children of a dropped area were collected independently
-	// and survive on their own authorization).
+	// get_tree_datalist): EVERY area must be self-key-authorized in the viewer's
+	// permissions table; the maintenance area additionally needs
+	// admin-or-developer and the development area developer. The role is a
+	// precondition, never a grant (PHP `continue`s past the role check into the
+	// same authorized lookup) — offering dd88 on the flag alone showed a non-root
+	// admin an entry getPermissions then refused. PHP applies the filter per
+	// node (children of a dropped area were collected independently and survive
+	// on their own authorization).
 	if (viewer !== undefined && !(viewer.isGlobalAdmin && viewer.isDeveloper)) {
 		const { getAuthorizedAreaTipos } = await import('../../security/permissions.ts');
 		const authorized = await getAuthorizedAreaTipos(viewer.userId);
 		areas = areas.filter((area) => {
-			if (area.tipo === MAINTENANCE_AREA_TIPO_MENU) {
-				return viewer.isGlobalAdmin || viewer.isDeveloper;
+			if (
+				area.tipo === MAINTENANCE_AREA_TIPO_MENU &&
+				!viewer.isGlobalAdmin &&
+				!viewer.isDeveloper
+			) {
+				return false;
 			}
-			if (area.tipo === DEVELOPMENT_AREA_TIPO) {
-				return viewer.isDeveloper;
+			if (area.tipo === DEVELOPMENT_AREA_TIPO && !viewer.isDeveloper) {
+				return false;
 			}
 			return authorized.has(area.tipo);
 		});
@@ -375,7 +383,74 @@ export async function getMenuTreeDatalist(viewer?: {
 		});
 	}
 
-	return { tree_datalist, skipped };
+	return { tree_datalist: reattachOrphans(tree_datalist, allAreasByTipo, skipped), skipped };
+}
+
+/** Areas a ROLE gates (not only a grant): what sits under them stays hidden with them. */
+const ROLE_GATED_AREA_TIPOS: ReadonlySet<string> = new Set([
+	AREA_ONTOLOGY_TIPO,
+	DEVELOPMENT_AREA_TIPO,
+	MAINTENANCE_AREA_TIPO_MENU,
+]);
+
+/**
+ * ORPHANS — an entry the viewer holds whose parent area was filtered out. The client builds
+ * the tree from the roots down, so left as is the entry is unreachable (a grant with no menu
+ * entry). Under a dropped ROLE-gated area it is dropped too (and recorded); otherwise it is
+ * re-parented to its nearest visible ancestor, or the top level (WC-2026-10-28-menu-orphans).
+ */
+export function reattachOrphans(
+	items: MenuTreeItem[],
+	allAreasByTipo: ReadonlyMap<string, AreaNode>,
+	skipped: { tipo: string; reason: string }[],
+): MenuTreeItem[] {
+	const listed = new Set(items.map((item) => item.tipo));
+	// first the drops, at ANY depth: a visible ancestor between the item and the hidden
+	// role-gated area does not save it (that ancestor is dropped too)
+	const dropped = new Set(
+		items
+			.filter((item) => underHiddenRoleArea(item.parent, listed, allAreasByTipo))
+			.map((i) => i.tipo),
+	);
+	const visible = new Set([...listed].filter((tipo) => !dropped.has(tipo)));
+	const kept: MenuTreeItem[] = [];
+	for (const item of items) {
+		if (dropped.has(item.tipo)) {
+			skipped.push({ tipo: item.tipo, reason: 'under a role-gated area the viewer lacks' });
+			continue;
+		}
+		const anchor = visibleAnchor(item.parent, visible, allAreasByTipo);
+		kept.push(anchor === item.parent ? item : { ...item, parent: anchor });
+	}
+	return kept;
+}
+
+function underHiddenRoleArea(
+	parent: string | null,
+	listed: ReadonlySet<string>,
+	allAreasByTipo: ReadonlyMap<string, AreaNode>,
+): boolean {
+	for (let tipo = parent; tipo !== null; tipo = allAreasByTipo.get(tipo)?.parent ?? null) {
+		if (ROLE_GATED_AREA_TIPOS.has(tipo) && !listed.has(tipo)) return true;
+	}
+	return false;
+}
+
+/**
+ * The nearest visible ancestor (null = top level; a non-area parent is returned as is). Skip
+ * wrappers are walked through.
+ */
+function visibleAnchor(
+	parent: string | null,
+	visible: ReadonlySet<string>,
+	allAreasByTipo: ReadonlyMap<string, AreaNode>,
+): string | null {
+	let tipo = parent;
+	// a parent that is no area at all (the menu's own roots) is kept as it is
+	while (tipo !== null && !visible.has(tipo) && allAreasByTipo.has(tipo)) {
+		tipo = allAreasByTipo.get(tipo)?.parent ?? null;
+	}
+	return tipo;
 }
 
 /**

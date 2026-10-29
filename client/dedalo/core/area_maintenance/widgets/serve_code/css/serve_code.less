@@ -7,6 +7,9 @@
 * action button beside the archive it writes — live here.
 */
 .wrapper_widget.serve_code {
+	// the build rows put a real button in the key cell: the column may grow to
+	// fit it, but every readout of the widget still shares the one width
+	--dd_k_width: minmax(min-content, 16rem);
 
 	>.content_data {
 
@@ -20,15 +23,18 @@
 			margin-top: 0;
 		}
 
-		.dd_readout {
-			grid-template-columns: minmax(min-content, 20rem) 1fr;
-		}
-
 		// BUILD AND PUBLISH — one row per channel: the action button in the
 		// key cell, the archive it writes in the value cell. The key cell is
 		// the readout's label column, so its label styling (uppercase, small)
 		// has to be undone for a real control to sit in it.
 		.build_row {
+
+			// an ACTION row, not a fact row: the button (or the "nothing to
+			// build" sentence) and the artifact it writes are centred on each
+			// other — the kit's first-line alignment is for text rows
+			>.dd_v {
+				align-items: center;
+			}
 
 			>.dd_k.build_action {
 				display: flex;

@@ -148,6 +148,7 @@ const IDEMPOTENT_CEILING: ReadonlySet<string> = new Set([
 	'dd_core_api:get_ip_country',
 	'dd_core_api:get_environment',
 	'dd_tools_api:user_tools',
+	'dd_diffusion_api:count_pending_deletions', // a COUNT: executing it twice changes nothing
 	'dd_diffusion_api:follow_queue',
 	'dd_diffusion_api:get_process_status',
 	'dd_diffusion_api:get_diffusion_info',

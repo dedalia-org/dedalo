@@ -32,16 +32,21 @@ import { hasPhpCredentials, PhpApiClient } from './php_client.ts';
 /**
  * The configured section_tool exemplars (AREA_SPEC §6), as their generic
  * clones: test6877 = transcription over the seed-shipped rsc167; test6269 /
- * test6413 = epigraphy / order over test6099 — plus the config-less sibling
- * test6402.
+ * test6413 = epigraphy / order over test6099 — plus test6402, config-less
+ * when the oracle was harvested (PHP refused it) and fixed on master since.
  */
 const REROUTED_TIPOS = ['test6269', 'test6413', 'test6877'];
 const EMPTY_TIPO = 'test6402';
 
-/** The section_tool whose 'coins' role points at a component_alias (WC-020). */
+/** The section_tool whose 'coins' role pointed at a component_alias (WC-020) when the oracle was harvested. */
 const ALIAS_TOOL_TIPO = 'test6269';
-/** The alias component that role resolves through. */
-const ALIAS_COMPONENT_TIPO = 'test6271';
+/**
+ * Where that role points TODAY: master moved it back to the portal itself
+ * (numisdata201 coins → numisdata77, with an inline properties copy), so the
+ * frozen body's alias entry (test6271) is no longer the definition
+ * (WC-2026-10-28-parity-definition-drift).
+ */
+const COINS_COMPONENT_TIPO = 'test6157';
 
 /**
  * WHERE THE CLONE WAS CUT, stated instead of compared (the context_differential
@@ -180,9 +185,9 @@ describe.if(hasPhpCredentials())('section_tool start differential', () => {
 				const tsCoins = (ts.config as ToolConfig).tool_context?.tool_config?.ddo_map?.find(
 					(entry) => entry.role === 'coins',
 				);
-				expect(tsCoins?.tipo).toBe(ALIAS_COMPONENT_TIPO);
-				expect(tsCoins?.model).toBe('component_portal'); // the alias TARGET's model
-				expect(tsCoins?.properties).toBeUndefined(); // no inline copy survives
+				expect(tsCoins?.tipo).toBe(COINS_COMPONENT_TIPO);
+				expect(tsCoins?.model).toBe('component_portal');
+				expect(tsCoins?.properties).toBeDefined(); // the definition's inline copy is carried
 				return;
 			}
 			expect(JSON.stringify(ts.config)).toBe(JSON.stringify(php.config));
@@ -206,13 +211,17 @@ describe.if(hasPhpCredentials())('section_tool start differential', () => {
 		});
 	}
 
-	test(`${EMPTY_TIPO} (no config/tool_config): BOTH engines refuse`, () => {
-		// PHP fatals building a section on the non-section tipo (set_lang on
-		// false) and answers `result:false`; TS refuses loudly in envelope v2
-		// (`ok:false` — the failure is the contract, the message text is TS's
-		// own). The frozen PHP body is a php_fault_not_reproduced row in
-		// FROZEN_ERROR_BODIES, so there is no code to reconcile against.
+	test(`${EMPTY_TIPO}: PHP refused the then config-less node; TS now reroutes it (master fixed it)`, () => {
+		// WC-2026-10-28-section-tool-test6402-config: the frozen PHP body is the pre-fix answer
+		// (numisdata625 carried the v6 `properties.context`, PHP fatals building a section on the
+		// non-section tipo → result:false). The master ontology renamed it `config` on 2026-10-28,
+		// so the twin reroutes to its target. The refusal contract itself moved to a scratch
+		// section_tool in test/unit/section_tool_context.test.ts.
 		expect(phpBodies[EMPTY_TIPO]!.result).toBe(false);
-		expect(tsBodies[EMPTY_TIPO]!.ok).toBe(false);
+		expect(tsBodies[EMPTY_TIPO]!.ok).toBe(true);
+		expect(tsContextsOf(tsBodies[EMPTY_TIPO]!)[0]).toMatchObject({
+			tipo: 'test6099',
+			model: 'section',
+		});
 	});
 });

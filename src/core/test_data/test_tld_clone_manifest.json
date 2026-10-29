@@ -303,6 +303,18 @@
 	},
 	"exclude": {
 		"_doc": "Tokens that LOOK like a tipo but are not a clonable reference. `keep_token` leaves the token verbatim (it is not a tipo at all — it must then be registered in src/core/test_data/test_tld_foreign_refs.json with the same reason). `drop_ref` removes the innermost array element that carries it (a value in `sqo.section_tipo[].value[]`, a `ddo_map[]` entry, a `relations[]` entry). `not_a_root` only keeps it out of the root set — it is a tipo that deliberately does not exist. Anything unresolvable and NOT listed here makes the clone script REFUSE.",
+		"mdcat4500": {
+			"action": "drop_ref",
+			"reason": "an install diffusion PUBLICATION reference (global_table_maps / publication_schema.dd_relations, under the blocked `diffusion` properties policy): names the install's own publication tables/sections, never test structure — dropped, not cloned (2026-10-28, appeared with the 2026-10 vendored mdcat refresh)"
+		},
+		"mdcat597": {
+			"action": "drop_ref",
+			"reason": "an install diffusion PUBLICATION reference (global_table_maps / publication_schema.dd_relations, under the blocked `diffusion` properties policy): names the install's own publication tables/sections, never test structure — dropped, not cloned (2026-10-28, appeared with the 2026-10 vendored mdcat refresh)"
+		},
+		"mdcat681": {
+			"action": "drop_ref",
+			"reason": "an install diffusion PUBLICATION reference (global_table_maps / publication_schema.dd_relations, under the blocked `diffusion` properties policy): names the install's own publication tables/sections, never test structure — dropped, not cloned (2026-10-28, appeared with the 2026-10 vendored mdcat refresh)"
+		},
 		"ee9916": {
 			"action": "keep_token",
 			"reason": "CSS colour literal `#ee9916` inside a css blob, not a tipo"

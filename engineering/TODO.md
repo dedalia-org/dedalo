@@ -15,7 +15,7 @@
 - [ ] TODO-011: Deep search gates: add a multi-section (UNION) search with a deep leaf to test/unit/search_deep_semantics_native.test.ts (only hand-probed so far).
 - [ ] TODO-012: Deep reversed shape: an intermediate hop's source is constrained to neither the declared step table nor its section_tipo when that hop has no ACL; and the index skips non-int4 locator ids that the correlated form still casts. Both pre-existing; decide whether the reversed shape should match the correlated one exactly.
 - [ ] TODO-013: Search: verify multiple left join issues (MDCAT case)
-- [ ] TODO-014: Search presets: clean up all presets to prevent issues. Important.
+- [x] TODO-014: Search presets: clean up all presets to prevent issues. Important. (2026-10-28: client-only — a stored leaf the current ontology no longer supports (tipo gone → build rejects; model changed/recycled → `context.model` differs from the stored one) is discarded in `get_component_instance` (destroyed, null), and `build_search_component` never throws: placeholder row, model node removed, one temp-preset (dd655) repair save once all leaves settle. Named presets (dd623) not rewritten. Gate: test_search_teardown, stale preset leaf case.)
 - [x] TODO-015: Search: improve search panel design (see 'CSS search panel design' session)
 
 ## UI & Responsive
@@ -113,7 +113,7 @@ to start to work.
 
 
 ## Others
-- [ ] TODO-061: lock_components does not work at all from widget 'lock_components'.
+- [x] TODO-061: lock_components does not work at all from widget 'lock_components'.
 - [ ] TODO-062: tool_import_dedalo_csv limit: Maximun file 64MB. (commit 823065a238 — fix(security): bound upload sniff + CSV analysis memory — DOS-03 / DOS-04 — by Alejandro Peña Carbonell, 2026-07-28. So it's a security-audit decision (finding DOS-04), not an arbitrary tuning leftover).
     - The CSV parser materializes every cell as a separate JS string, ~39× the source bytes. Your 746 MB file → ~29 GB of live strings inside the analysis worker → OOM (worker dies, server stalls). 64 MB ≈ 2.5 GB — heavy but safe.
     - Rationale for the ceiling itself: "a real ontology import is far under it, and a 200 MB+ file is either a mistake or an availability attack" — it's a DoS-style memory bound: one user uploading 1 GB should not take the whole server down.
@@ -124,6 +124,7 @@ to start to work.
 - [ ] TODO-065: Folder /client/dedalo reorganization:
       - Move test and dev pages out of the served tree first, e.g. test/client/ and dev/. The test runner and client:server can mount them in dev mode only. This fixes a real exposure whatever we name the folder.
       - Then flatten client/dedalo/core to client/core (or web/), with the URL mount /dedalo/ set in config rather than in the folder layout.
-
-
-
+- [ ] TODO-070: The default section (dd1603) for the user (e.g. numisdata6) does not work when logging in. Review the user's default access section tipo.
+- [x] TODO-071: user admin tool do not display the user profile (dd1725). It should be display it as read only.
+- [ ] TODO-072: component_text_area, component_json: When it is active, pressing the 'ESC' key does not deactivate it like the other components. Unify this behaviour.
+- [ ] TODO-073: component_security_access: add a button to discard changes (include an alert to prevent accidental click). Sometimes, admins accidentally change a value.

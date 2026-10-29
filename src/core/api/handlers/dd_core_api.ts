@@ -89,7 +89,52 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 			throw new DedaloError('perm.denied', { coordinates: { section_tipo: hostSectionTipo } });
 		}
 	}
+	await gateRelatedHostRecords(related.filter_by_locators, principal);
 	return true;
+}
+
+/**
+ * The host RECORD half: a section grant is not a record grant. "Who points at record N"
+ * (a related search, the thesaurus indexation grid) is that record's data, so a host
+ * outside the caller's projects is refused — the same perm.denied for a missing and an
+ * out-of-scope id (no existence oracle), like start's deep link
+ * (WC-2026-10-28-related-host-record-scope). A locator without an id names no record.
+ */
+async function gateRelatedHostRecords(locators: unknown[], principal: Principal): Promise<void> {
+	for (const locator of locators as { section_tipo?: unknown; section_id?: unknown }[]) {
+		if (typeof locator?.section_tipo !== 'string' || locator.section_id == null) continue;
+		await assertHostRecordInScope(locator.section_tipo, Number(locator.section_id), principal);
+	}
+}
+
+async function assertHostRecordInScope(
+	sectionTipo: string,
+	sectionId: number,
+	principal: Principal,
+): Promise<void> {
+	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
+	if (!(await principalCanAccessRecord(sectionTipo, sectionId, principal))) {
+		throw new DedaloError('perm.denied', {
+			coordinates: { section_tipo: sectionTipo, section_id: sectionId },
+		});
+	}
+}
+
+/**
+ * start's record half: a deep link that addresses a RECORD — a section page or a single
+ * component of it, with an id >= 1 — must name a record the caller can access. Other
+ * pages (areas, tools, id 0, a non-numeric external id) address no record of ours.
+ */
+async function deepLinkRecordInScope(
+	pageModel: string | null,
+	sectionTipo: string,
+	sectionId: unknown,
+	principal: Principal,
+): Promise<boolean> {
+	if (typeof sectionId !== 'number' || sectionId < 1) return true;
+	if (pageModel !== 'section' && !pageModel?.startsWith('component_')) return true;
+	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
+	return principalCanAccessRecord(sectionTipo, sectionId, principal);
 }
 
 /**
@@ -99,8 +144,8 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
  * first (PHP resolve_component_read_permission): tool_user_admin reads the
  * actor's own name/email/password/image, which most profiles grant 0 on.
  */
-async function gateReadSource(source: RqoSource, principal: Principal): Promise<void> {
-	if (source.section_tipo === undefined || source.tipo === undefined) return;
+async function gateReadSource(source: RqoSource | undefined, principal: Principal): Promise<void> {
+	if (source?.section_tipo === undefined || source.tipo === undefined) return;
 	const level = await getRecordComponentPermission(
 		principal,
 		source.section_tipo,
@@ -142,7 +187,7 @@ async function readGatedSection(
 	context: Parameters<ActionHandler>[1],
 	principal: Principal,
 ): Promise<ApiResult> {
-	await gateReadSource(rqo.source ?? {}, principal);
+	await gateReadSource(rqo.source, principal);
 	await gateReadTargets(rqo.sqo, principal);
 
 	// Sub-action routing + the generic section read live in the section
@@ -1148,6 +1193,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				section_tipo?: string[] | 'all';
 				group_by?: string[];
 			};
+			// Read's Gate A too (no-op without source.tipo): count and read decide alike.
+			await gateReadSource(rqo.source, principal);
 			await gateRelatedHosts(rqo.sqo, principal);
 			const locators = Array.isArray(sqoRelated.filter_by_locators)
 				? sqoRelated.filter_by_locators
@@ -1250,7 +1297,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			};
 		}
 
-		const requestedTipo = pick(locator?.tipo, searchObj.t, searchObj.tipo);
+		const requestedTipo =
+			pick(locator?.tipo, searchObj.t, searchObj.tipo) ?? (await userLandingTipo(principal));
 
 		// NO SECTION ASKED FOR, AND NONE CONFIGURED → the MENU (2026-08-22).
 		// MAIN_SECTION used to default to one installation's section, so a login
@@ -1385,6 +1433,25 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				extend: { environment: await buildEnv(context.session, principal) },
 			});
 		}
+		// A SECTION deep link carrying a record id is the EDIT view (PHP start
+		// :477-501 forces set_mode('edit')): `?tipo=rsc0&section_id=1054` means
+		// "open this record", never a one-row list. The client inherits the mode
+		// into its instance and its first read, so without this the record opens
+		// as a list of one with no edit form (the inspector's "Local Ontology"
+		// pen is one such caller). Components/areas keep their requested mode,
+		// exactly like PHP's switch, which only forces on the section branch.
+		const pageModel = await getModelByTipo(pageTipo);
+		const sectionRecordDeepLink = pageSectionId !== null && pageModel === 'section';
+		// The record behind a section OR component deep link is scope-gated like get_data,
+		// but REFUSED (no empty shell): the same perm.denied for a missing and an
+		// out-of-scope id, so no existence oracle (WC-2026-10-27-start-deep-link-record-scope,
+		// WC-2026-10-28-start-component-deep-link-record-scope).
+		if (!(await deepLinkRecordInScope(pageModel, pageSectionTipo, pageSectionId, principal))) {
+			throw new DedaloError('perm.denied', {
+				publicMessage: 'Insufficient permissions to read',
+				extend: { environment: await buildEnv(context.session, principal) },
+			});
+		}
 		// PHP start instantiates page elements with DEDALO_DATA_LANG and no
 		// nolan forcing (differentially verified: section + menu contexts
 		// carry lg-spa). The client's instances INHERIT this lang and thread
@@ -1396,15 +1463,6 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// Promise.all branch, engineering/REQUEST_ISOLATION.md); the context array is
 		// then assembled in the original order (menu first) for wire stability.
 		const menuWanted = (rqo.options as { menu?: boolean } | undefined)?.menu === true;
-		// A SECTION deep link carrying a record id is the EDIT view (PHP start
-		// :477-501 forces set_mode('edit')): `?tipo=rsc0&section_id=1054` means
-		// "open this record", never a one-row list. The client inherits the mode
-		// into its instance and its first read, so without this the record opens
-		// as a list of one with no edit form (the inspector's "Local Ontology"
-		// pen is one such caller). Components/areas keep their requested mode,
-		// exactly like PHP's switch, which only forces on the section branch.
-		const sectionRecordDeepLink =
-			pageSectionId !== null && (await getModelByTipo(pageTipo)) === 'section';
 		const [sectionContext, menuContext, environment] = await Promise.all([
 			buildStructureContext({
 				tipo: pageTipo,
@@ -1684,6 +1742,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			limit: page.limit,
 			offset: page.offset,
 		} as import('../../section/indexation_grid.ts').IndexationGridSqo;
+		// The grid lists who indexes THIS term record: scoped like the related search host.
+		await assertHostRecordInScope(sectionTipo as string, gridSectionId, principal);
 		const grid = await buildIndexationGrid(
 			{
 				sectionTipo: sectionTipo as string,
@@ -1961,4 +2021,19 @@ async function readMenu(
 			{ requestId: context.requestId },
 		),
 	};
+}
+
+/**
+ * TODO-070: with no tipo in the URL, the user's own dd1603 "Default section" wins
+ * over MAIN_FALLBACK_SECTION — but only a section/area the user may read; a stale
+ * or ungranted default falls through silently (it must never block a login).
+ */
+async function userLandingTipo(principal: Principal): Promise<string | null> {
+	const { resolveUserDefaultSection } = await import('../../security/user_identity.ts');
+	const tipo = await resolveUserDefaultSection(principal.userId);
+	if (tipo === null) return null;
+	const { getModelByTipo } = await import('../../ontology/resolver.ts');
+	const model = (await getModelByTipo(tipo)) ?? '';
+	if (model !== 'section' && !model.startsWith('area')) return null;
+	return (await getPermissions(principal, tipo, tipo)) >= 1 ? tipo : null;
 }

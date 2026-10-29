@@ -541,6 +541,10 @@ HERMETIC_TRIPWIRES=(
 	#     controls; imports no src/ module (re-verified with DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/psql_argv_sql_tripwire.test.ts
 	test/unit/hermetic_parallel_safety_tripwire.test.ts
+	# --- 2026-10-28 (maintenance widget kit). DB-free: a text scan of the
+	#     area_maintenance widget tree + planted controls; imports no src/ module
+	#     (verified with DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/maintenance_widget_kit_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

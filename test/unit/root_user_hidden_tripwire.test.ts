@@ -593,6 +593,43 @@ describe('the write DOORS refuse section_id < 1 for EVERY caller, admins include
 		expect(await rootPasswordHash()).toBe(before);
 	});
 
+	test('ROOT READS ITS OWN ACCOUNT through get_data (tool_user_admin); a non-root admin still gets nothing', async () => {
+		// WC-2026-10-28-own-account-read: the write exception above is useless without the
+		// read — tool_user_admin is the UI for it and builds each component by get_data.
+		const read = async (principal: Principal, tipo: string) => {
+			const handler = coreApiActions.read;
+			if (!handler) throw new Error("dd_core_api has no 'read' action registered");
+			const response = await handler(
+				{
+					action: 'read',
+					source: {
+						action: 'get_data',
+						model: 'component_input_text',
+						tipo,
+						section_tipo: USERS,
+						section_id: -1,
+						mode: 'edit',
+						lang: 'lg-nolan',
+					},
+				} as unknown as Parameters<typeof handler>[0],
+				{
+					principal,
+					session: { userId: principal.userId },
+					clientIp: '127.0.0.1',
+					requestId: ROOT_RUN_TAG,
+				} as unknown as Parameters<typeof handler>[1],
+			);
+			return response.body as { data?: { context?: unknown[]; data?: unknown[] } };
+		};
+		const own = await read(realSuperuser, 'dd132');
+		expect(own.data?.context?.length).toBeGreaterThan(0);
+		expect(JSON.stringify(own.data?.data)).toContain('"value"');
+		// dd133: the one dd128 component this admin holds at 2, so the RECORD gate is what refuses
+		const other = await read(grantedAdmin, 'dd133');
+		expect(other.data?.context ?? []).toHaveLength(0);
+		expect(other.data?.data ?? []).toHaveLength(0);
+	});
+
 	test('CONTROL: the same doors still admit a positive, in-scope record', async () => {
 		// The anti-over-tightening half. Without it this whole describe could be green
 		// because the doors refuse everything.

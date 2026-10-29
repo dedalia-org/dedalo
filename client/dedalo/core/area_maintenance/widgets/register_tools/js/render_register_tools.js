@@ -1139,7 +1139,7 @@ const render_raw = (parent, api_response) => {
 
 	const details = ui.create_dom_element({
 		element_type	: 'details',
-		class_name		: 'report_raw',
+		class_name		: 'dd_fold report_raw',
 		parent			: parent
 	})
 	ui.create_dom_element({

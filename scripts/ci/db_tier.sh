@@ -117,6 +117,7 @@ DB_TIER_TRIPWIRES=(
 	test/unit/duplicate_record_dataframe_native.test.ts
 	test/unit/dataframe_delete_policy_native.test.ts
 	test/unit/error_taxonomy_tripwire.test.ts
+	test/unit/feature_crawl_tripwire.test.ts
 	test/unit/export_gate_b_native.test.ts
 	test/unit/external_degradation_tripwire.test.ts
 	test/unit/external_egress_tripwire.test.ts
@@ -271,7 +272,7 @@ bun test --timeout=30000 "${TEST_ORDER_PATHS[@]}" || tw_rc=$?
 # those new files' floors. Both writers refuse outside the CI image
 # (UNIT_TIER.recordOnlyInCiImage). A refused write is RED; only a written baseline is
 # copied out, and ci:local copies it into the checkout only if this whole tier ends green.
-# No workflow names any of these keys (ci_workflow_tripwire).
+# No workflow names any of these keys, nor the parity tier's (ci_workflow_tripwire).
 echo "== db_tier: unit tier (test/unit + test/integration) vs its frozen red baseline"
 unit_rc=0
 if [ -n "${DEDALO_CI_UNIT_RECORD_OUT:-}" ]; then
@@ -298,9 +299,25 @@ fi
 # gate replaced by a generic-`test`-TLD twin LOWERS these numbers.
 #
 # This tier was previously proved only by `scripts/verify.ts` on a developer's machine.
+#
+# RECORD MODE, as the unit tier's: `DEDALO_CI_PARITY_RECORD_OUT=<dir>` (set only by `ci:local
+# --docker --record-parity-baseline`) makes this stage the WRITER. The parity tier reads the
+# environment it runs in (environment_differential compares config), so a desk recording
+# would freeze the desk; this is the one place the record matches what the runner checks.
+# `DEDALO_CI_PARITY_RECORD_ALLOW=1` adds --allow-regression (ci:local demands a --reason).
+# A refused write is RED; ci:local copies the written file only if this whole tier is green.
 echo "== db_tier: parity tier vs its frozen red baseline"
 parity_rc=0
-bun run scripts/parity_baseline.ts --check || parity_rc=$?
+if [ -n "${DEDALO_CI_PARITY_RECORD_OUT:-}" ]; then
+	echo "== db_tier: RECORDING engineering/parity_baseline.json (ci:local --record-parity-baseline)"
+	precord_args=''
+	[ "${DEDALO_CI_PARITY_RECORD_ALLOW:-0}" != 1 ] || precord_args=--allow-regression
+	# shellcheck disable=SC2086 # empty → no argument
+	bun run scripts/parity_baseline.ts $precord_args || parity_rc=$?
+	[ "$parity_rc" -ne 0 ] || cp engineering/parity_baseline.json "$DEDALO_CI_PARITY_RECORD_OUT/parity_baseline.json"
+else
+	bun run scripts/parity_baseline.ts --check || parity_rc=$?
+fi
 [ "$parity_rc" -eq 0 ] || { echo "== db_tier: RED in the parity tier (exit $parity_rc)"; tier_status=1; }
 
 # ── THE MARIADB TIER (PUB-05) — BLOCKING ─────────────────────────────────────

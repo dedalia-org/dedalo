@@ -427,6 +427,13 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 		'dd_diffusion_api:retry_pending_deletions',
 		{ posture: 'mutating', reason: 'replays deletions.' },
 	],
+	[
+		'dd_diffusion_api:count_pending_deletions',
+		{
+			posture: 'structure_only',
+			reason: 'a global queue size, global-admin only; no record data.',
+		},
+	],
 	['dd_diffusion_api:sweep_published_langs', { posture: 'mutating', reason: 'sweeps a target.' }],
 	[
 		'dd_diffusion_api:follow_queue',

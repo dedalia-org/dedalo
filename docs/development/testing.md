@@ -523,6 +523,7 @@ Check both before you "fix" the code.
 ## See also
 
 - [Development overview](index.md) — code style, commit convention, the broader dev guide
+- [The feature crawl](feature_crawl.md) — every feature as every persona, in a real browser (`bun run test:crawl`)
 - [Breaking change detection](breaking_change_detection.md) — how contract stability is guarded
 - [Runtime & request-scoped context](runtime_and_workers.md) — `handleRequest()` / `dispatchRqo()`, the surfaces these gates drive
 - [Performance metrics](metrics.md) — latency signal in the runtime

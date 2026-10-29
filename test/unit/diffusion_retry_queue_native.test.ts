@@ -38,6 +38,7 @@ process.env.DIFFUSION_ACTIVITY_TABLE = SCRATCH_ACTIVITY_TABLE;
 
 import {
 	activityTable,
+	countPendingDiffusion,
 	DIFFUSION_ACTION,
 	deleteDiffusionRecord,
 	logDiffusionActivity,
@@ -291,6 +292,40 @@ describe('retryPendingDiffusion', () => {
 		expect(await actionsOf(932040)).toEqual([3, 3]); // NOT flipped
 		// the retry drives logActivity=false — no second generation of rows
 		expect(await pendingRowCount()).toBe(2);
+	});
+
+	test('count_pending_deletions COUNTS and retries nothing, is a READ posture, and is admin-only (tool_diffusion badge)', async () => {
+		await seedPending(932039);
+		let calls = 0;
+		registerNativeDiffusionSqlDelete(async () => {
+			calls++;
+			return { deleted: [], errors: [] };
+		});
+		const { diffusionApiActions } = await import('../../src/core/api/handlers/dd_diffusion_api.ts');
+		const handler = diffusionApiActions.count_pending_deletions;
+		if (!handler) throw new Error("dd_diffusion_api has no 'count_pending_deletions' action");
+		const ask = (isGlobalAdmin: boolean) =>
+			handler(
+				{ dd_api: 'dd_diffusion_api', action: 'count_pending_deletions' } as never,
+				{
+					principal: { userId: isGlobalAdmin ? -1 : 932001, isGlobalAdmin, isDeveloper: false },
+				} as never,
+			);
+		const response = await ask(true);
+		expect(await countPendingDiffusion()).toBe(2);
+		expect((response.body as { data?: { remaining?: number } }).data?.remaining).toBe(2);
+		expect(calls).toBe(0); // no delete re-run
+		expect(await actionsOf(932039)).toEqual([3, 3]);
+		// an audit run lets it through: the engine's own posture says read
+		const { READ_DOOR_POSTURE } = await import('../../src/core/security/read_door.ts');
+		expect(READ_DOOR_POSTURE.get('dd_diffusion_api:count_pending_deletions')?.posture).toBe(
+			'structure_only',
+		);
+		const refused = await ask(false).then(
+			() => null,
+			(error: { code?: string }) => error.code,
+		);
+		expect(refused).toBe('perm.denied');
 	});
 
 	test('a retry that confirms targets flips the pending rows in place', async () => {

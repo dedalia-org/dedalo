@@ -13,38 +13,40 @@
 @component_buttons_offset: 2.4rem;
 
 // hilite (used on focus)
-	.hilite_mixin(@outline_offset:0) {
-		outline-offset: @outline_offset;
-		outline: 1px solid var(--focus_ring);
-		box-shadow: var(--shadow-focus);
-		opacity: 1;
-		z-index: 1;
-	}
+.hilite_mixin(@outline_offset: 0) {
+	outline-offset: @outline_offset;
+	outline: 1px solid var(--focus_ring);
+	box-shadow: var(--shadow-focus);
+	opacity: 1;
+	z-index: 1;
+}
+
 // hilite static
-	.hilite_element {
-		will-change: background-color; // @see https://developer.mozilla.org/en-US/docs/Web/CSS/will-change
-		transition: background-color 600ms linear;
-		background-color: @color_hilite ;
-		.label {
-			color: @color_grey_3;
-		}
+.hilite_element {
+	will-change: background-color; // @see https://developer.mozilla.org/en-US/docs/Web/CSS/will-change
+	transition: background-color 600ms linear;
+	background-color: @color_hilite ;
+
+	.label {
+		color: @color_grey_3;
 	}
+}
 
 // label_top. It's used in section group and inspector labels
-	.label_top {
-		background-color: @color_grey_14;
-		position: relative;
-		padding: 0.33em;
-		padding-left: 0.5em;
-		cursor: pointer;
-		// text-transform: uppercase;
-		font-variant: small-caps;
-		color: @color_grey_4;
+.label_top {
+	background-color: @color_grey_14;
+	position: relative;
+	padding: 0.33em;
+	padding-left: 0.5em;
+	cursor: pointer;
+	// text-transform: uppercase;
+	font-variant: small-caps;
+	color: @color_grey_4;
 
-		@media screen and (max-width: @width_break_point_1) {
-			padding: 1rem;
-		}
+	@media screen and (max-width: @width_break_point_1) {
+		padding: 1rem;
 	}
+}
 
 // native checkbox / radio: the CHECKED fill token, deepened so every engine
 // paints the tick/dot WHITE (>= 3:1 against white; Chromium's threshold — see
@@ -52,581 +54,614 @@
 // is why Chrome painted a black tick there. The custom-drawn boxes
 // (component_check_box/filter in dark, component_radio_button in both themes)
 // take the same fill via the token.
-	input[type="checkbox"],
-	input[type="radio"] {
-		accent-color: var(--checkbox_checked_bg);
-	}
+input[type="checkbox"],
+input[type="radio"] {
+	accent-color: var(--checkbox_checked_bg);
+}
 
 // generic html inputs appearance. Used by search, tools, etc.
-	.dd_input {
-		font-size: 1em;
-		height: 2.0em;
-		margin-right: 0.5em;
-		padding: 0.25em;
-		border: none;
-		outline: 1px solid @color_grey_13;
-		transition: outline-color .5s ease, outline-offset .5s ease, box-shadow .5s ease, opacity .5s ease;
-		opacity: 0.75;
-		vertical-align: bottom;
+.dd_input {
+	font-size: 1em;
+	height: 2.0em;
+	margin-right: 0.5em;
+	padding: 0.25em;
+	border: none;
+	outline: 1px solid @color_grey_13;
+	transition: outline-color .5s ease, outline-offset .5s ease, box-shadow .5s ease, opacity .5s ease;
+	opacity: 0.75;
+	vertical-align: bottom;
 
-		// &.typology_selector { // , &input[type="select"]
-		&,select {
-			width: 100%;
-		}
+	// &.typology_selector { // , &input[type="select"]
+	&,
+	select {
+		width: 100%;
+	}
 
-		// on focus inputs, adds a soft shadow and outline
-		&:focus {
-			.hilite_mixin();
-		}
-	}//end .dd_input
+	// on focus inputs, adds a soft shadow and outline
+	&:focus {
+		.hilite_mixin();
+	}
+}
+
+//end .dd_input
 
 // placeholder common style
-	// The ink is THEMED, not left to the UA: Chrome paints a placeholder with its
-	// own light-scheme default (#757575) unless a rule sets one, and this document
-	// never declares `color-scheme: dark`, so that default lands on the dark
-	// palette's #1f2227 input fill at 3.1:1 — under AA, on the FIRST surface a
-	// curator meets (the login form). --fg_muted is the muted-ink role and is AA
-	// on the input fills of both palettes (#666666 light, #aeb4bd dark).
-	input::-webkit-input-placeholder { /* Chrome/Safari/Edge */
-	  color: var(--fg_muted);
-	  font-style: italic;
-	  opacity: 0.95;
-	}
-	input::placeholder {
-	  color: var(--fg_muted);
-	  font-style: italic;
-	  opacity: 0.95;
-	}
+// The ink is THEMED, not left to the UA: Chrome paints a placeholder with its
+// own light-scheme default (#757575) unless a rule sets one, and this document
+// never declares `color-scheme: dark`, so that default lands on the dark
+// palette's #1f2227 input fill at 3.1:1 — under AA, on the FIRST surface a
+// curator meets (the login form). --fg_muted is the muted-ink role and is AA
+// on the input fills of both palettes (#666666 light, #aeb4bd dark).
+input::-webkit-input-placeholder {
+	/* Chrome/Safari/Edge */
+	color: var(--fg_muted);
+	font-style: italic;
+	opacity: 0.95;
+}
+
+input::placeholder {
+	color: var(--fg_muted);
+	font-style: italic;
+	opacity: 0.95;
+}
 
 // area common definitions
-	.wrapper_area {
-		display: block;
+.wrapper_area {
+	display: block;
+	width: 100%;
+	padding: 1rem;
+
+	>.label {
+		font-size: 1.6rem;
+		padding-top: 0px;
+		padding-bottom: 0.5rem;
+		padding-left: 0.2rem;
+	}
+
+	>.content_data {
+		display: flex;
+		flex-wrap: wrap;
+	}
+
+	>.buttons {
+		display: flex;
+		flex-direction: row-reverse;
 		width: 100%;
-		padding: 1rem;
+		margin: 0px;
 
-		>.label {
-			font-size: 1.6rem;
-			padding-top: 0px;
-			padding-bottom: 0.5rem;
-			padding-left: 0.2rem;
-		}
-
-		>.content_data {
+		>.button {
+			background-color: @color_orange_dedalo;
+			color: var(--fg_on_brand);
 			display: flex;
-			flex-wrap: wrap;
-		}
+			width: auto;
+			padding: 1em;
+			padding-top: 0.5em;
+			padding-bottom: 0.5em;
+			border-radius: 0.25em;
 
-		>.buttons {
-			display: flex;
-			flex-direction: row-reverse;
-			width: 100%;
-			margin: 0px;
-
-			>.button {
-				background-color: @color_orange_dedalo;
-				color: var(--fg_on_brand);
-				display: flex;
-				width: auto;
-				padding: 1em;
-				padding-top: 0.5em;
-				padding-bottom: 0.5em;
-				border-radius: 0.25em;
-
-				&:hover {
-					color: @color_black;
-				}
-				&:active {
-					color: @color_white;
-				}
-			}
-		}//end .buttons
-	}//end area
-
-// wrapper_error. Used by components to display server side errors like 'Loop detected' in component_relation_parent
-	.wrapper_error {
-		margin: 1rem;
-		padding: 0.5rem;
-		padding-left: 0.75rem;
-		padding-right: 0.75rem;
-		border-radius: 3px;
-		line-height: 1.1rem;
-		font-weight: 200;
-
-		>.wrapper_error_title {
-			text-transform: uppercase;
-			padding-bottom: .25rem;
-			border-bottom: 1px solid @color_grey_11;
-			margin-bottom: 0.5rem;
-
-			>.icon {
-				background-color: @color_white ;
-				float: right;
-			}
-		}
-
-		>.error_wrap {
-
-			>.error_type {
-
+			&:hover {
+				color: @color_black;
 			}
 
-			>.error_msg {
-
-			}
-
-			>.error_info {
-				white-space: pre;
+			&:active {
+				color: @color_white;
 			}
 		}
 	}
 
+	//end .buttons
+}
+
+//end area
+
+// wrapper_error. Used by components to display server side errors like 'Loop detected' in component_relation_parent
+.wrapper_error {
+	margin: 1rem;
+	padding: 0.5rem;
+	padding-left: 0.75rem;
+	padding-right: 0.75rem;
+	border-radius: 3px;
+	line-height: 1.1rem;
+	font-weight: 200;
+
+	>.wrapper_error_title {
+		text-transform: uppercase;
+		padding-bottom: .25rem;
+		border-bottom: 1px solid @color_grey_11;
+		margin-bottom: 0.5rem;
+
+		>.icon {
+			background-color: @color_white ;
+			float: right;
+		}
+	}
+
+	>.error_wrap {
+
+		>.error_type {}
+
+		>.error_msg {}
+
+		>.error_info {
+			white-space: pre;
+		}
+	}
+}
+
 // component common definitions
-	.wrapper_component {
-		contain: style; // Set as 'style' to prevent service autocomplete issues
-		position: relative;
-		margin: 0px;
-		padding: 0px;
-		z-index: auto; // (!) important to allow fullscreen configs
-		color: @color_grey_4;
+.wrapper_component {
+	contain: style; // Set as 'style' to prevent service autocomplete issues
+	position: relative;
+	margin: 0px;
+	padding: 0px;
+	z-index: auto; // (!) important to allow fullscreen configs
+	color: @color_grey_4;
 
-		&.edit {
-			display: grid;
-			// grid-template-rows: var(--component_label_height) auto;
-			grid-template-rows: var(--component_label_height) minmax(auto, 100%);
-			// grid-column: 1 / span 10; // default width is 100% (10 columns of 10)
-			align-content: start;
-		}
+	&.edit {
+		display: grid;
+		// grid-template-rows: var(--component_label_height) auto;
+		grid-template-rows: var(--component_label_height) minmax(auto, 100%);
+		// grid-column: 1 / span 10; // default width is 100% (10 columns of 10)
+		align-content: start;
+	}
 
-		// save lock (component_common.save adds 'loading'). Pointer lock is
-		// immediate; the global .loading dim is DEFERRED so a fast save does not
-		// blink the whole component (click-to-save chips: radio, check_box…).
-		// Only a slow save fades to the loading opacity.
-		&.loading {
-			opacity: 1;
-			animation: wrapper_loading_dim 0.2s ease-out 0.4s forwards;
-			// !important: exec_save_successfully_animation leaves an inline
-			// animationPlayState='paused' on the wrapper (its line lives on ::before)
-			animation-play-state: running !important;
-		}
+	// save lock (component_common.save adds 'loading'). Pointer lock is
+	// immediate; the global .loading dim is DEFERRED so a fast save does not
+	// blink the whole component (click-to-save chips: radio, check_box…).
+	// Only a slow save fades to the loading opacity.
+	&.loading {
+		opacity: 1;
+		animation: wrapper_loading_dim 0.2s ease-out 0.4s forwards;
+		// !important: exec_save_successfully_animation leaves an inline
+		// animationPlayState='paused' on the wrapper (its line lives on ::before)
+		animation-play-state: running !important;
+	}
 
-		&.modified {
-			&:after {
-				content: " ";
-				display: block;
-				width: 100%;
-				height: 3px;
-				position: absolute;
-				left: 0px;
-				top: 0px;
-				background-color: @color_orange_dedalo;
-				z-index: 2;
-			}
-		}
-
-		&.fullscreen {
-			.buttons_fold {
-				top: 0.5rem !important;
-				position: fixed !important;
-			}
-		}
-
-		// label
-		>.label {
-			padding: 1rem;
-			padding-left: var(--field_inset_x); // FIELD GRID: shared with the value text
-			padding-bottom: 0px;
-			padding-top: 0.4rem;
-			flex: 1 1 100%;
-			letter-spacing: 0.5px;
-			text-overflow: ellipsis;
-			overflow: hidden;
-			white-space: nowrap;
-			cursor: default;
-			font-weight: 200;
-		}
-
-		// buttons_container. The per-component tool strip revealed on the
-		// active component: a floating orange pill hovering just above the
-		// field, softly elevated instead of the old flush sharp-cornered box.
-		>.buttons_container {
+	&.modified {
+		&:after {
+			content: " ";
+			display: block;
+			width: 100%;
+			height: 3px;
 			position: absolute;
+			left: 0px;
+			top: 0px;
 			background-color: @color_orange_dedalo;
-			user-select: none;
-			display: none;
-			flex: 0 1 1em;
-			z-index: 1;
-			box-shadow: var(--shadow-2);
+			z-index: 2;
+		}
+	}
+
+	&.fullscreen {
+		.buttons_fold {
+			top: 0.5rem !important;
+			position: fixed !important;
+		}
+	}
+
+	// label
+	>.label {
+		padding: 1rem;
+		padding-left: var(--field_inset_x); // FIELD GRID: shared with the value text
+		padding-bottom: 0px;
+		padding-top: 0.4rem;
+		flex: 1 1 100%;
+		letter-spacing: 0.5px;
+		text-overflow: ellipsis;
+		overflow: hidden;
+		white-space: nowrap;
+		cursor: default;
+		font-weight: 200;
+	}
+
+	// buttons_container. The per-component tool strip revealed on the
+	// active component: a floating orange pill hovering just above the
+	// field, softly elevated instead of the old flush sharp-cornered box.
+	>.buttons_container {
+		position: absolute;
+		background-color: @color_orange_dedalo;
+		user-select: none;
+		display: none;
+		flex: 0 1 1em;
+		z-index: 1;
+		box-shadow: var(--shadow-2);
+		right: 0px;
+		width: auto;
+		padding: 0px;
+		top: -@component_buttons_offset; // small air gap: the strip floats instead of docking
+		max-height: 2rem;
+		border-radius: var(--radius-pill);
+		font-size: 1.1rem;
+
+		.buttons_fold {}
+
+		.button {}
+
+		// buttons inside
+		span {
+			margin-left: 0.5em;
+			margin-bottom: 0.45em;
+			margin-top: 0.45rem;
+			transition: transform var(--transition-fast), opacity var(--transition-fast);
+
+			&:first-child {
+				margin-left: 0.75rem;
+			}
+
+			&:last-child {
+				margin-right: 0.75rem;
+			}
+
+			&:hover {
+				transform: translateY(-1px) scale(1.08);
+			}
+
+			&:active {
+				transform: none;
+				opacity: 0.7;
+			}
+		}
+	}
+
+	//end >.buttons_container
+
+	// component_warning
+	>.component_warning {
+		position: absolute;
+		display: flex;
+		justify-content: center;
+		background-color: @color_danger;
+		color: @color_white;
+		user-select: none;
+		left: -2rem;
+		top: 0px;
+		width: 2rem;
+		z-index: 1;
+		border-top-left-radius: 0.25em;
+		border-bottom-left-radius: 0.25em;
+		font-size: 1.1rem;
+		overflow: hidden;
+
+		&.right_side {
 			right: 0px;
-			width: auto;
-			padding: 0px;
-			top: -@component_buttons_offset; // small air gap: the strip floats instead of docking
-			max-height: 2rem;
-			border-radius: var(--radius-pill);
-			font-size: 1.1rem;
+			left: unset;
+			border-top-left-radius: 0px;
+			border-bottom-left-radius: .25em;
+		}
 
-			.buttons_fold {
+		// buttons inside
+		span {
+			margin-top: 0.25em;
+			margin-bottom: 0.25rem;
+			background-color: @color_white;
+		}
+	}
 
+	// content_data
+	>.content_data {
+		contain: style; // Set as 'style' to prevent service autocomplete issues
+		color: @color_grey_4;
+		height: inherit;
+		display: flex;
+		flex: 1 1 100%;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		align-content: flex-start;
+		padding: 1em;
+		padding-left: var(--field_inset_x); // FIELD GRID: shared with the label
+		padding-top: 0.5em;
+		overflow-wrap: anywhere; // force break long text like URL
+	}
+
+	//end >.content_data
+
+	&.edit,
+	&.search,
+	&.player {
+		// no border/box-shadow outline on components (flat look)
+
+		// inside column, remove shadow
+		.column & {
+			&:not(.active) {
+				box-shadow: none;
 			}
 
-			.button {
-
+			.content_data {
+				padding: 0px;
 			}
+		}
 
-			// buttons inside
-			span {
-				margin-left: 0.5em;
-				margin-bottom: 0.45em;
-				margin-top: 0.45rem;
-				transition: transform var(--transition-fast), opacity var(--transition-fast);
+		@media screen and (max-width: @width_break_point_1) {
+			display: block; // avoid PDF player issue in small screens
+			flex: 0 0 100%;
+			overflow-x: auto;
+			max-width: calc(100vw - 2rem);
+		}
 
-				&:first-child {
-					margin-left: 0.75rem;
+		>.label {
+			height: var(--component_label_height);
+			color: @color_grey_8;
+
+			>.icon {
+				vertical-align: bottom;
+
+				&.alternative {
+					background-color: @color_grey_10;
 				}
-				&:last-child {
+
+				&.deprecated {
+					background-color: @color_orange_dedalo;
+				}
+			}
+
+			.error& {
+				color: @color_white !important;
+			}
+
+			// label_info is used in search mode
+			>.label_info {
+				font-size: 80%;
+				margin-left: 0.5rem;
+				font-weight: 200;
+
+				&:before {
+					content: '[';
+				}
+
+				&:after {
+					content: ']';
+				}
+			}
+		}
+
+		.button_exit_edit {
+			display: none;
+			position: absolute;
+			top: -6px;
+			right: -9px;
+			z-index: 3;
+		}
+
+		// content data defaults
+		>.content_data {
+			height: inherit;
+			max-height: inherit;
+
+			// former li
+			>.content_value {
+				height: auto;
+				position: relative;
+				width: 100%;
+			}
+		}
+
+		.show_on_active {
+			display: none;
+		}
+
+		&.active {
+			z-index: 3; // 3 allow over portal drag handlers
+			// no border/box-shadow on active components (the orange text +
+			// light background already signal the active state). 'none'
+			// also overrides the grey edit/search/player outline above.
+			box-shadow: none;
+			color: @color_orange_dedalo;
+			// overflow. allow set flex-basis (properties width). Remember labels are 'text-overflow: ellipsis'
+			overflow: initial; // !important
+
+			// --color_orange_light (#fffaf5) is 1.02:1 on the light card —
+			// the tint was invisible, so only the orange label read as
+			// "active". --color_hilite is the palette's declared orange field
+			// tint (light #fff7ef / dark #4a3424), already paired per theme,
+			// so the whole field lights up in both
+			// modes. The guard keeps the search hilite of a valued field.
+			&:not(.hilite_element) {
+				background-color: @color_hilite;
+				border-radius: 3px;
+
+				// The tint is the surface of everything the field holds, so
+				// the list surfaces painted INSIDE it stop painting: the
+				// list card — at every depth, because a nested portal draws
+				// its own — and each row's grey remove column. Measured on
+				// numisdata3/2 numisdata249 (1 row): the only white inside
+				// the tinted field was `.list_body` #ffffff, and the grey
+				// `.column_remove` slab beside it. Paint only: padding,
+				// radius, min-height and flex/grid are untouched, so nothing
+				// reflows. Empty portals read the same way, with no card.
+				.list_body,
+				.column_remove {
+					background-color: transparent;
+				}
+			}
+
+			// THE LABEL'S INK ON THE TINT. The tint IS the field's surface,
+			// so the label reads in the palette's DEEP orange —
+			// `--color_orange_dedalo` is a FILL (2.05:1 on the light tint,
+			// 4.76 dark) and no rule may put it behind text as ink.
+			// --color_orange_dark is 5.0:1 here (5.6 dark). Explicit because the shared
+			// label rule above paints every mode's label grey — 4.4:1 on
+			// the tint, under AA.
+			>.label {
+				color: var(--color_orange_dark);
+			}
+
+			.show_on_active {
+				display: block;
+			}
+
+			// @media screen and (max-width: @width_break_point_1) {
+			// 	flex: 0 0 calc(100% - 2em) !important;
+			// }
+
+			>.buttons_container {
+				display: block !important;
+				white-space: nowrap;
+				z-index: 2;
+
+				.button:last-of-type {
 					margin-right: 0.75rem;
 				}
-
-				&:hover {
-					transform: translateY(-1px) scale(1.08);
-				}
-				&:active {
-					transform: none;
-					opacity: 0.7;
-				}
-			}
-		}//end >.buttons_container
-
-		// component_warning
-		>.component_warning {
-			position: absolute;
-			display: flex;
-			justify-content: center;
-			background-color: @color_danger;
-			color: @color_white;
-			user-select: none;
-			left: -2rem;
-			top: 0px;
-			width: 2rem;
-			z-index: 1;
-			border-top-left-radius: 0.25em;
-			border-bottom-left-radius: 0.25em;
-			font-size: 1.1rem;
-			overflow: hidden;
-
-			&.right_side {
-				right: 0px;
-				left: unset;
-				border-top-left-radius: 0px;
-				border-bottom-left-radius: .25em;
-			}
-
-			// buttons inside
-			span {
-				margin-top: 0.25em;
-				margin-bottom: 0.25rem;
-				background-color: @color_white;
 			}
 		}
 
-		// content_data
-		>.content_data {
-			contain: style; // Set as 'style' to prevent service autocomplete issues
-			color: @color_grey_4;
-			height: inherit;
+		//end &.active
+	}
+
+	//end &.edit
+
+	&.search {
+		flex: 1 1 100%;
+		overflow: visible; // enable to see the tool-tip
+
+		.switcher_translatable {
+			cursor: pointer;
+
+			&::after {
+				-webkit-mask-image: url('../../themes/default/icons/lang.svg');
+				mask-image: url('../../themes/default/icons/lang.svg');
+				content: ' ';
+				background-color: @color_grey_10;
+				background-size: contain;
+				background-repeat: no-repeat;
+				height: 1.35em;
+				width: 1.35em;
+				display: inline-flex;
+				align-items: center;
+				margin-left: 0.2rem;
+				margin-right: 0.2rem;
+				margin-top: 0.27rem;
+			}
+
+			&.off::after {
+				background-color: @color_black;
+			}
+
+			input {
+				display: none;
+			}
+		}
+	}
+
+	&.list {
+
+		// media_wrapper
+		&.media_wrapper {
+			display: inline-block;
+			padding: 0px;
+			text-align: center;
+			height: 100%;
+
+			@media screen and (max-width: @width_break_point_0) {
+				height: auto;
+			}
+
+			>.content_data {
+				display: contents;
+			}
+
+			// image, content_data>img
+			>img,
+			>.content_data>img {
+				display: inline-block;
+				padding: 0px;
+				width: 100%;
+				height: 100%;
+				// fit image contains
+				object-fit: contain;
+				object-position: center;
+				cursor: pointer;
+
+				&:active {
+					opacity: 0.33;
+				}
+			}
+		}
+	}
+
+	//end &.list
+
+	&.error {
+		transition: background-color 0.3s ease;
+		background-color: @color_danger !important;
+	}
+
+	// inside .section_record.edit context
+	.wrapper_tool &,
+	.search_group &,
+	dd-modal &,
+	// dd-modal .content &, //  dd-modal .content
+	.project_container & {
+		// , .page &
+
+		&.list {}
+
+		>.top {
 			display: flex;
-			flex: 1 1 100%;
-			flex-wrap: wrap;
-			align-items: flex-start;
-			align-content: flex-start;
-			padding: 1em;
-			padding-left: var(--field_inset_x); // FIELD GRID: shared with the label
-			padding-top: 0.5em;
-			overflow-wrap: anywhere; // force break long text like URL
-		}//end >.content_data
+			flex: 0 1 100%;
+			align-items: center;
+			justify-content: flex-end;
+			padding-top: 0.75em;
+			padding-bottom: 0px;
 
-		&.edit, &.search, &.player {
-			// no border/box-shadow outline on components (flat look)
+			>select.mono {
+				background-color: transparent;
+				outline: none;
+				-webkit-appearance: none;
+				-moz-appearance: none;
+				appearance: none;
+				text-indent: 1px;
+				text-overflow: '';
+				width: auto;
+				pointer-events: none;
+			}
+		}
 
-			// inside column, remove shadow
-			.column & {
-				&:not(.active) {
-					box-shadow: none;
-				}
-				.content_data {
-					padding: 0px;
-				}
+		//end >.top
+
+		>.content_data {
+
+			.list & {
+				padding: 0px;
 			}
 
 			@media screen and (max-width: @width_break_point_1) {
-				display: block; // avoid PDF player issue in small screens
-				flex: 0 0 100%;
-				overflow-x: auto;
-				max-width: calc(100vw - 2rem);
+				flex: 1 1 100%;
 			}
 
-			>.label {
-				height: var(--component_label_height);
-				color: @color_grey_8;
-
-				>.icon {
-					vertical-align: bottom;
-
-					&.alternative {
-						background-color: @color_grey_10;
-					}
-					&.deprecated {
-						background-color: @color_orange_dedalo;
-					}
-				}
-
-				.error& {
-					color: @color_white !important;
-				}
-
-				// label_info is used in search mode
-				>.label_info {
-					font-size: 80%;
-					margin-left: 0.5rem;
-					font-weight: 200;
-
-					&:before {
-						content: '[';
-					}
-					&:after {
-						content: ']';
-					}
-				}
+			>.q_operator {
+				width: 3em;
+				padding: 0px;
+				text-align: center;
 			}
 
-			.button_exit_edit {
-				display: none;
+			.close99 {
 				position: absolute;
 				top: -6px;
 				right: -9px;
 				z-index: 3;
-			}
 
-			// content data defaults
-			>.content_data {
-				height: inherit;
-				max-height: inherit;
-
-				// former li
-				>.content_value {
-					height: auto;
-					position: relative;
-					width: 100%;
-				}
-			}
-
-			.show_on_active {
 				display: none;
 			}
-			&.active {
-				z-index: 3; // 3 allow over portal drag handlers
-				// no border/box-shadow on active components (the orange text +
-				// light background already signal the active state). 'none'
-				// also overrides the grey edit/search/player outline above.
-				box-shadow: none;
-				color: @color_orange_dedalo;
-				// overflow. allow set flex-basis (properties width). Remember labels are 'text-overflow: ellipsis'
-				overflow: initial; // !important
-				// --color_orange_light (#fffaf5) is 1.02:1 on the light card —
-				// the tint was invisible, so only the orange label read as
-				// "active". --color_hilite is the palette's declared orange field
-				// tint (light #fff7ef / dark #4a3424), already paired per theme,
-				// so the whole field lights up in both
-				// modes. The guard keeps the search hilite of a valued field.
-				&:not(.hilite_element) {
-					background-color: @color_hilite;
-					border-radius: 3px;
 
-					// The tint is the surface of everything the field holds, so
-					// the list surfaces painted INSIDE it stop painting: the
-					// list card — at every depth, because a nested portal draws
-					// its own — and each row's grey remove column. Measured on
-					// numisdata3/2 numisdata249 (1 row): the only white inside
-					// the tinted field was `.list_body` #ffffff, and the grey
-					// `.column_remove` slab beside it. Paint only: padding,
-					// radius, min-height and flex/grid are untouched, so nothing
-					// reflows. Empty portals read the same way, with no card.
-					.list_body,
-					.column_remove {
-						background-color: transparent;
-					}
-				}
-
-				// THE LABEL'S INK ON THE TINT. The tint IS the field's surface,
-				// so the label reads in the palette's DEEP orange —
-				// `--color_orange_dedalo` is a FILL (2.05:1 on the light tint,
-				// 4.76 dark) and no rule may put it behind text as ink.
-				// --color_orange_dark is 5.0:1 here (5.6 dark). Explicit because the shared
-				// label rule above paints every mode's label grey — 4.4:1 on
-				// the tint, under AA.
-				>.label {
-					color: var(--color_orange_dark);
-				}
-
-				.show_on_active {
-					display: block;
-				}
-
-				// @media screen and (max-width: @width_break_point_1) {
-				// 	flex: 0 0 calc(100% - 2em) !important;
-				// }
-
-				>.buttons_container {
-					display: block !important;
-					white-space: nowrap;
-					z-index: 2;
-
-					.button:last-of-type {
-						margin-right: 0.75rem;
-					}
-				}
-			}//end &.active
-		}//end &.edit
-
-		&.search {
-			flex: 1 1 100%;
-			overflow: visible; // enable to see the tool-tip
-
-			.switcher_translatable {
-				cursor: pointer;
-
-				&::after {
-					-webkit-mask-image: url('../../themes/default/icons/lang.svg');
-					mask-image: url('../../themes/default/icons/lang.svg');
-					content: ' ';
-					background-color: @color_grey_10;
-					background-size: contain;
-					background-repeat: no-repeat;
-					height: 1.35em;
-					width: 1.35em;
-					display: inline-flex;
-					align-items: center;
-					margin-left: 0.2rem;
-					margin-right: 0.2rem;
-					margin-top: 0.27rem;
-				}
-
-				&.off::after {
-					background-color: @color_black;
-				}
-
-				input {
-					display: none;
-				}
+			&.vertical {
+				flex: 1 1 100%;
+				background-color: @color_grey_5;
+				justify-content: center;
+				flex-flow: unset;
 			}
 		}
 
-		&.list {
-
-			// media_wrapper
-			&.media_wrapper {
-				display: inline-block;
-				padding: 0px;
-				text-align: center;
-				height: 100%;
-
-				@media screen and (max-width: @width_break_point_0) {
-					height: auto;
-				}
-
-				>.content_data {
-					display: contents;
-				}
-
-				// image, content_data>img
-				>img, >.content_data > img {
-					display: inline-block;
-					padding: 0px;
-					width: 100%;
-					height: 100%;
-					// fit image contains
-					object-fit: contain;
-					object-position: center;
-					cursor: pointer;
-					&:active {
-						opacity: 0.33;
-					}
-				}
-			}
-		}//end &.list
-
-		&.error {
-			transition: background-color 0.3s ease;
-			background-color: @color_danger !important;
-		}
-
-		// inside .section_record.edit context
-		.wrapper_tool &,
-		.search_group &,
-		dd-modal &, // dd-modal .content &, //  dd-modal .content
-		.project_container & { // , .page &
-
-			&.list {
-
-			}
-
-			>.top {
-				display: flex;
-				flex: 0 1 100%;
-				align-items: center;
-				justify-content: flex-end;
-				padding-top: 0.75em;
-				padding-bottom: 0px;
-
-				>select.mono {
-					background-color: transparent;
-					outline: none;
-					-webkit-appearance: none;
-					-moz-appearance: none;
-					appearance: none;
-					text-indent: 1px;
-					text-overflow: '';
-					width: auto;
-					pointer-events: none;
-				}
-			}//end >.top
-
-			>.content_data {
-
-				.list & {
-					padding: 0px;
-				}
-
-				@media screen and (max-width: @width_break_point_1) {
-					flex: 1 1 100%;
-				}
-
-				>.q_operator {
-					width: 3em;
-					padding: 0px;
-					text-align: center;
-				}
-
-				.close99 {
-					position: absolute;
-					top: -6px;
-					right: -9px;
-					z-index: 3;
-
-					display: none;
-				}
-
-				&.vertical {
-					flex: 1 1 100%;
-					background-color: @color_grey_5;
-					justify-content: center;
-					flex-flow: unset;
-				}
-			}//end >.content_data
-		}//end .section_record &, .wrapper_tool &
-	}//end .wrapper_component
-	@keyframes wrapper_loading_dim {
-		to { opacity: 0.4; }
+		//end >.content_data
 	}
+
+	//end .section_record &, .wrapper_tool &
+}
+
+//end .wrapper_component
+@keyframes wrapper_loading_dim {
+	to {
+		opacity: 0.4;
+	}
+}
 
 // ---- FIELD GRID (every edit field, wherever it is drawn) ----
 // Before this block every family carried its own inset, so three different
@@ -646,53 +681,55 @@
 // tool_indexation note is Título + Descripción), modals and ts_object panels.
 // One class deep on purpose, so any container that has a reason to set its own
 // metrics still out-specifies it (see tool_indexation's transcription band).
-	.wrapper_component.edit {
+.wrapper_component.edit {
 
-		// Literals: the value lives inside an <input> that already carries
-		// --field_box_bleed, so .content_data gives back exactly that much —
-		// the text lands on --field_inset_x and the field box bleeds left of it,
-		// matching the text_area editor surface exactly.
-		&.component_input_text,
-		&.component_number,
-		&.component_date,
-		&.component_email,
-		&.component_url,
-		&.component_password,
-		&.component_iri {
+	// Literals: the value lives inside an <input> that already carries
+	// --field_box_bleed, so .content_data gives back exactly that much —
+	// the text lands on --field_inset_x and the field box bleeds left of it,
+	// matching the text_area editor surface exactly.
+	&.component_input_text,
+	&.component_number,
+	&.component_date,
+	&.component_email,
+	&.component_url,
+	&.component_password,
+	&.component_iri {
 
-			>.content_data {
-				padding-left: calc(var(--field_inset_x) - var(--field_box_bleed));
-			}
-
-			// The bleed is set HERE, not on the global input rule, so the calc()
-			// above can never disagree with the input's real inset — and so an
-			// input in some other font size elsewhere keeps its em-relative
-			// padding. Same line-height as a block value too: with both line
-			// boxes the same height, --field_value_pad_t lands them on the same
-			// row exactly, instead of within a fraction of it.
-			>.content_data input.input_value {
-				padding-left: var(--field_box_bleed);
-				line-height: var(--field_line_h);
-				// one resting appearance in BOTH themes — see --field_rest_bg. Scoped
-				// to the field grid, so the inputs that are NOT fields (search panel,
-				// login, tool forms, modals) keep the surface they sit on.
-				background-color: var(--field_rest_bg);
-			}
-
-			// A read-only value (permissions < 2, Time Machine preview) is a plain
-			// block, not an input: it carries no bleed of its own, so give it back
-			// or its text lands --field_box_bleed left of the label above it.
-			// iri is excluded: it pads its own link (component_iri.less).
-			&:not(.component_iri) >.content_data >.content_value.read_only {
-				padding-left: var(--field_box_bleed);
-			}
+		>.content_data {
+			padding-left: calc(var(--field_inset_x) - var(--field_box_bleed));
 		}
 
-		// The text_area's half of the grid is NOT here: its editor surface is
-		// owned by a deeper selector in component_text_area.less (which is
-		// imported after this file, so it wins any tie). It reads the same
-		// --field_* tokens there — one source, applied where the box lives.
-	}//end FIELD GRID
+		// The bleed is set HERE, not on the global input rule, so the calc()
+		// above can never disagree with the input's real inset — and so an
+		// input in some other font size elsewhere keeps its em-relative
+		// padding. Same line-height as a block value too: with both line
+		// boxes the same height, --field_value_pad_t lands them on the same
+		// row exactly, instead of within a fraction of it.
+		>.content_data input.input_value {
+			padding-left: var(--field_box_bleed);
+			line-height: var(--field_line_h);
+			// one resting appearance in BOTH themes — see --field_rest_bg. Scoped
+			// to the field grid, so the inputs that are NOT fields (search panel,
+			// login, tool forms, modals) keep the surface they sit on.
+			background-color: var(--field_rest_bg);
+		}
+
+		// A read-only value (permissions < 2, Time Machine preview) is a plain
+		// block, not an input: it carries no bleed of its own, so give it back
+		// or its text lands --field_box_bleed left of the label above it.
+		// iri is excluded: it pads its own link (component_iri.less).
+		&:not(.component_iri)>.content_data>.content_value.read_only {
+			padding-left: var(--field_box_bleed);
+		}
+	}
+
+	// The text_area's half of the grid is NOT here: its editor surface is
+	// owned by a deeper selector in component_text_area.less (which is
+	// imported after this file, so it wins any tie). It reads the same
+	// --field_* tokens there — one source, applied where the box lives.
+}
+
+//end FIELD GRID
 
 // ---- QUIET GRID (section edit view only) ----
 // Readability retune: darker label/value ink, resting hairline per field,
@@ -701,346 +738,370 @@
 // --component_label_height grid row with ellipsis overflow). Scoped under
 // .section_record.edit so list / search / tool / ts_object views are
 // untouched. Tokens: --field_* in vars.less (+ dark set in theme_dark.less).
-	.section_record.edit .wrapper_component.edit {
+.section_record.edit .wrapper_component.edit {
 
-		// no resting outline/hairline on fields: delineation comes from the
-		// label/value ink contrast and the hover tint alone
-		transition: background-color var(--transition-fast);
+	// no resting outline/hairline on fields: delineation comes from the
+	// label/value ink contrast and the hover tint alone
+	transition: background-color var(--transition-fast);
 
-		// component_section_id carries its own solid background (static grey or
-		// the ontology section colour injected at runtime); exclude it so the
-		// tint never repaints that badge on hover
-		&:hover:not(.active):not(.disabled_component):not(.component_section_id) {
-			background-color: var(--field_hover_bg);
+	// component_section_id carries its own solid background (static grey or
+	// the ontology section colour injected at runtime); exclude it so the
+	// tint never repaints that badge on hover
+	&:hover:not(.active):not(.disabled_component):not(.component_section_id) {
+		background-color: var(--field_hover_bg);
 
-			// Same law as the `.active` rule above: the tint IS the field's
-			// surface, so the list card and the grey remove slab painted inside
-			// it stop painting. Without this a portal shows a white band under
-			// its label the moment the pointer enters (empty portal: a bare
-			// white box; the tint's own colour was the only thing being hidden).
-			.list_body,
-			.column_remove {
-				background-color: transparent;
-			}
+		// Same law as the `.active` rule above: the tint IS the field's
+		// surface, so the list card and the grey remove slab painted inside
+		// it stop painting. Without this a portal shows a white band under
+		// its label the moment the pointer enters (empty portal: a bare
+		// white box; the tint's own colour was the only thing being hidden).
+		.list_body,
+		.column_remove {
+			background-color: transparent;
 		}
+	}
 
+	>.label {
+		color: var(--field_label_fg); // edit labels were color_grey_8
+		font-size: 1rem;
+		font-weight: 100;
+		// letter-spacing: 0.015em;
+	}
+
+	>.content_data {
+		color: var(--field_value_fg); // full-strength value ink (was color_grey_4)
+	}
+
+	// refined active state: the tint (painted by the `.active` rule above)
+	// IS the orange field, so the label ink is the palette's deep orange —
+	// the brand FILL is 2.3:1 on --color_hilite and can never be ink there.
+	// --color_orange_dark is 5.6:1 on the light tint (5.6 dark); values keep readable ink.
+	&.active {
 		>.label {
-			color: var(--field_label_fg); // edit labels were color_grey_8
-			font-size: 1rem;
-			font-weight: 100;
-			// letter-spacing: 0.015em;
+			color: var(--color_orange_dark); // explicit: the label rule above outranks the wrapper-level orange
+			// font-weight: 600;
 		}
 
 		>.content_data {
-			color: var(--field_value_fg); // full-strength value ink (was color_grey_4)
+			color: var(--field_value_fg);
 		}
+	}
+}
 
-		// refined active state: the tint (painted by the `.active` rule above)
-		// IS the orange field, so the label ink is the palette's deep orange —
-		// the brand FILL is 2.3:1 on --color_hilite and can never be ink there.
-		// --color_orange_dark is 5.6:1 on the light tint (5.6 dark); values keep readable ink.
-		&.active {
-			>.label {
-				color: var(--color_orange_dark); // explicit: the label rule above outranks the wrapper-level orange
-				// font-weight: 600;
-			}
-			>.content_data {
-				color: var(--field_value_fg);
-			}
-		}
-	}//end QUIET GRID
+//end QUIET GRID
 
 // tool_container (where is place the tool)
-	.tool_container {
+.tool_container {}
 
-	}//end tool_container
+//end tool_container
 
 // dd-modal
-	dd-modal {
-		margin: 0px;
-		padding: 0px;
-		border: 0px;
-		font-size: 100%;
-		font: inherit;
-		vertical-align: baseline;
-		z-index: unset;
+dd-modal {
+	margin: 0px;
+	padding: 0px;
+	border: 0px;
+	font-size: 100%;
+	font: inherit;
+	vertical-align: baseline;
+	z-index: unset;
 
-		@media screen and (max-width: @width_break_point_0) {
-			width: 100%;
+	@media screen and (max-width: @width_break_point_0) {
+		width: 100%;
+	}
+
+	.spinner_modal {
+		position: relative;
+		margin: 1rem;
+	}
+
+	// an edit FORM as the modal body — a section in edit mode, slotted directly
+	// or as the direct child of the body (preset editors, the portal / select /
+	// dataframe "open record" dialogs). The active field's tool strip floats
+	// @component_buttons_offset above it: without room the first field's strip
+	// slid under the header. Deeper sections (inside a tool's own layout) are
+	// not matched.
+	>.wrapper_section.edit[slot="body"],
+	>[slot="body"]>.wrapper_section.edit {
+		padding-top: calc(@component_buttons_offset + 0.25rem);
+	}
+
+	.header {
+		display: flex;
+		padding: 1rem;
+		// keep the title clear of the shadow-root window buttons (dd-modal.js):
+		// minimise at right 3.25rem + its 2.5rem box, plus a 0.75rem gap
+		@modal_window_buttons_clearance: 6.5rem;
+		padding-right: @modal_window_buttons_clearance;
+		background-color: var(--modal_header_bg);
+		// brand accent stripe (see --modal_header_accent); painted, no layout shift
+		background-image: linear-gradient(var(--modal_header_accent, transparent) 0 4px, transparent 4px);
+		color: var(--modal_header_color);
+		font-weight: normal;
+		z-index: 2;
+		box-shadow: var(--modal_header_shadow, 0 2px 3px @color_grey_10);
+		transition: background-color 0.4s ease;
+
+		&.label,
+		&.content,
+		>div.label,
+		>span.label {
+			font-size: 1.35rem;
+			line-height: 1.5rem;
+			padding-right: 0.5em;
+
+			text-overflow: ellipsis;
+			overflow: hidden;
+			padding-right: 1rem;
+
+			.button {
+				vertical-align: text-bottom;
+				margin-right: 0.5em;
+				display: inline-block;
+			}
 		}
 
-		.spinner_modal {
-			position: relative;
-			margin: 1rem;
-		}
-
-		// an edit FORM as the modal body — a section in edit mode, slotted directly
-		// or as the direct child of the body (preset editors, the portal / select /
-		// dataframe "open record" dialogs). The active field's tool strip floats
-		// @component_buttons_offset above it: without room the first field's strip
-		// slid under the header. Deeper sections (inside a tool's own layout) are
-		// not matched.
-		>.wrapper_section.edit[slot="body"],
-		>[slot="body"] >.wrapper_section.edit {
-			padding-top: calc(@component_buttons_offset + 0.25rem);
-		}
-
-		.header {
-			display: flex;
-			padding: 1rem;
-			// keep the title clear of the shadow-root window buttons (dd-modal.js):
-			// minimise at right 3.25rem + its 2.5rem box, plus a 0.75rem gap
-			@modal_window_buttons_clearance: 6.5rem;
+		// ...restated: the group above resets it for a label/content header
+		&.label,
+		&.content {
 			padding-right: @modal_window_buttons_clearance;
-			background-color: var(--modal_header_bg);
-			// brand accent stripe (see --modal_header_accent); painted, no layout shift
-			background-image: linear-gradient(var(--modal_header_accent, transparent) 0 4px, transparent 4px);
-			color: var(--modal_header_color);
-			font-weight: normal;
-			z-index: 2;
-			box-shadow: var(--modal_header_shadow, 0 2px 3px @color_grey_10);
-			transition: background-color 0.4s ease;
-
-			&.label, &.content, >div.label, >span.label {
-				font-size: 1.35rem;
-    			line-height: 1.5rem;
-				padding-right: 0.5em;
-
-				text-overflow: ellipsis;
-				overflow: hidden;
-				padding-right: 1rem;
-
-				.button {
-					vertical-align: text-bottom;
-					margin-right: 0.5em;
-					display: inline-block;
-				}
-			}
-			// ...restated: the group above resets it for a label/content header
-			&.label, &.content {
-				padding-right: @modal_window_buttons_clearance;
-			}
-
-			.description {
-				font-size: 0.95rem;
-				font-weight: 300;
-				padding-top: 0.25rem;
-			}
-
-			&.mini {
-				display: flex;
-				align-items: center;
-				padding: 0px;
-				height: 60px;
-				width: 100%;
-
-				.close_modal {
-					color: var(--modal_btn_hover_color, @color_black);
-				}
-				.label {
-					width: calc(100% - 1rem);
-					overflow: hidden;
-					font-size: 15px;
-					font-weight: normal;
-					line-height: 1.2rem;
-					padding: 0.5rem;
-					display: flex;
-				}
-				select, .description {
-					display: none;
-				}
-				.wrapper_tool {
-					display: none;
-				}
-			}
 		}
 
-		.header_custom {
-			// Slotted into the shadow .modal-header (a flex bar, min-height
-			// 3.66rem): stretched to its full height by the bar itself, so the
-			// two orange bars + two box-shadows coincide (no double header line).
-			padding: 0.5rem;
+		.description {
+			font-size: 0.95rem;
+			font-weight: 300;
+			padding-top: 0.25rem;
+		}
+
+		&.mini {
 			display: flex;
 			align-items: center;
+			padding: 0px;
+			height: 60px;
+			width: 100%;
 
-			span.label {
-				padding-left: 0.5rem;
-				font-weight: 300;
+			.close_modal {
+				color: var(--modal_btn_hover_color, @color_black);
 			}
 
-			select {
-				outline: none;
-				border-radius: 4px;
-				padding-right: 2rem;
-			}
-		}
-
-		.body {
-
-			&.content {
-				padding: 1rem;
-				padding-bottom: 1.5rem;
-				padding-top: 3rem;
+			.label {
+				width: calc(100% - 1rem);
+				overflow: hidden;
+				font-size: 15px;
+				font-weight: normal;
 				line-height: 1.2rem;
-			}
-
-			&.content_no_buttons {
 				padding: 0.5rem;
-				min-width: 34rem;
-				min-height: 20rem;
-				// phone: the modal is a full sheet (dd-modal.js); a 544px floor
-				// would overflow it by definition
-				@media screen and (max-width: @width_break_point_phone) {
-					min-width: 0;
-					min-height: 0;
-				}
-
-				>.wrapper_component {
-					margin: 1rem;
-					margin-top: 2rem;
-				}
-			}
-
-			&.fill_vertical {
-				height: calc(70vh - 6rem);
-			}
-
-			.block_label {
-				display: block;
-				padding: 1rem;
-
-				input {
-					cursor: pointer;
-					margin-right: 0.5rem;
-					vertical-align: bottom;
-				}
-			}
-
-			.block {
-				display: block;
-				padding: 1rem;
-
-				// user_name_info like 'created by user: Root'
-				&.user_name_info {
-					div {
-						display: contents;
-					}
-				}
-			}
-
-		}//end .body
-
-		.iframe_container {
-
-			>iframe {
-				// height: calc(100vh - 68px);
-				height: calc(100vh - 8rem);
-				width: 100%;
-				z-index: 1;
-				padding: 0px;
-
-				.header_wrapper_list {
-					top: 0 !important;
-				}
-			}
-		}
-
-		.footer {
-			text-align: right;
-
-			>div {
-				padding: 1rem;
-				padding-bottom: 2rem;
-			}
-
-			button {
-				margin-bottom: 1rem;
-				margin-left: 0.5rem;
-			}
-			button:first-of-type {
-				margin-left: 0rem;
-			}
-
-			&.content {
-				padding: 1.5rem;
-				padding-top: 0px;
-				padding-bottom: 0px;
-			}
-
-			.block_label {
-				display: block;
-				padding: 0.5rem;
-
-				input {
-					cursor: pointer;
-					margin-right: 0.5rem;
-					vertical-align: bottom;
-				}
-			}
-
-			div.warning {
-				color: @color_orange_dedalo;
-			}
-
-			// default text align is right
-			// overwrite it using this selectors:
-			&.center {
-				text-align: center;
-			}
-			&.left {
-				text-align: left;
-			}
-			&.distribute {
 				display: flex;
-				justify-content: space-between;
-				padding-top: 0rem;
+			}
+
+			select,
+			.description {
+				display: none;
+			}
+
+			.wrapper_tool {
+				display: none;
 			}
 		}
-	}//end dd-modal
+	}
+
+	.header_custom {
+		// Slotted into the shadow .modal-header (a flex bar, min-height
+		// 3.66rem): stretched to its full height by the bar itself, so the
+		// two orange bars + two box-shadows coincide (no double header line).
+		padding: 0.5rem;
+		display: flex;
+		align-items: center;
+
+		span.label {
+			padding-left: 0.5rem;
+			font-weight: 300;
+		}
+
+		select {
+			outline: none;
+			border-radius: 4px;
+			padding-right: 2rem;
+		}
+	}
+
+	.body {
+
+		&.content {
+			padding: 1rem;
+			padding-bottom: 1.5rem;
+			padding-top: 3rem;
+			line-height: 1.2rem;
+		}
+
+		&.content_no_buttons {
+			padding: 0.5rem;
+			min-width: 34rem;
+			min-height: 20rem;
+
+			// phone: the modal is a full sheet (dd-modal.js); a 544px floor
+			// would overflow it by definition
+			@media screen and (max-width: @width_break_point_phone) {
+				min-width: 0;
+				min-height: 0;
+			}
+
+			>.wrapper_component {
+				margin: 1rem;
+				margin-top: 2rem;
+			}
+		}
+
+		&.fill_vertical {
+			height: calc(70vh - 6rem);
+		}
+
+		.block_label {
+			display: block;
+			padding: 1rem;
+
+			input {
+				cursor: pointer;
+				margin-right: 0.5rem;
+				vertical-align: bottom;
+			}
+		}
+
+		.block {
+			display: block;
+			padding: 1rem;
+
+			// user_name_info like 'created by user: Root'
+			&.user_name_info {
+				div {
+					display: contents;
+				}
+			}
+		}
+
+	}
+
+	//end .body
+
+	.iframe_container {
+
+		>iframe {
+			// height: calc(100vh - 68px);
+			height: calc(100vh - 8rem);
+			width: 100%;
+			z-index: 1;
+			padding: 0px;
+
+			.header_wrapper_list {
+				top: 0 !important;
+			}
+		}
+	}
+
+	.footer {
+		text-align: right;
+
+		>div {
+			padding: 1rem;
+			padding-bottom: 2rem;
+		}
+
+		button {
+			margin-bottom: 1rem;
+			margin-left: 0.5rem;
+		}
+
+		button:first-of-type {
+			margin-left: 0rem;
+		}
+
+		&.content {
+			padding: 1.5rem;
+			padding-top: 0px;
+			padding-bottom: 0px;
+		}
+
+		.block_label {
+			display: block;
+			padding: 0.5rem;
+
+			input {
+				cursor: pointer;
+				margin-right: 0.5rem;
+				vertical-align: bottom;
+			}
+		}
+
+		div.warning {
+			color: @color_orange_dedalo;
+		}
+
+		// default text align is right
+		// overwrite it using this selectors:
+		&.center {
+			text-align: center;
+		}
+
+		&.left {
+			text-align: left;
+		}
+
+		&.distribute {
+			display: flex;
+			justify-content: space-between;
+			padding-top: 0rem;
+		}
+	}
+}
+
+//end dd-modal
 
 // dd-modal.dd_confirm
 // Transient yes/no dialog built by ui.confirm(). Same visual language as the
 // delete-record dialog (small modal, themed header bar, right-aligned footer),
 // but sized declaratively and without the 3rem body top padding, which exists
 // for the scrolling dialogs and leaves a one-line question floating.
-	dd-modal.dd_confirm {
+dd-modal.dd_confirm {
 
-		// (!) ::part is the only reach into the shadow box. An outer-tree ::part
-		// rule beats the shadow's own `.modal_small .modal-content` sizing
-		// regardless of specificity, so no !important is needed here.
-		// This replaces the imperative `modal_content.style.width` the older
-		// dialogs set from their attach_to_modal callback.
-		&::part(content) {
-			width: 32rem;
-			max-width: 92vw;
-		}
+	// (!) ::part is the only reach into the shadow box. An outer-tree ::part
+	// rule beats the shadow's own `.modal_small .modal-content` sizing
+	// regardless of specificity, so no !important is needed here.
+	// This replaces the imperative `modal_content.style.width` the older
+	// dialogs set from their attach_to_modal callback.
+	&::part(content) {
+		width: 32rem;
+		max-width: 92vw;
+	}
 
-		.body.content {
-			padding: 1.5rem;
-			padding-top: 1.75rem;
-			min-height: 2.5rem;
-		}
+	.body.content {
+		padding: 1.5rem;
+		padding-top: 1.75rem;
+		min-height: 2.5rem;
+	}
 
-		// footer: Cancel (ghost) + accept share one row height and centre line;
-		// the accept icon must not make it taller than its sibling
-		.footer.content {
-			display: flex;
-			justify-content: flex-end;
-			align-items: stretch;
-			gap: 0.5rem;
-			// the bottom gap the buttons' margin-bottom gave, now on the row
-			padding-bottom: 1.25rem;
-			>button {
-				margin: 0;
-				// keep the desktop icon→label gap on phones: fn_append_icon's
-				// breakpoint squeeze (2px) is for cramped toolbars, and a lone
-				// dialog button reads as '⊕Continue' with it
-				&::before {
-					margin-right: 0.25rem;
-				}
+	// footer: Cancel (ghost) + accept share one row height and centre line;
+	// the accept icon must not make it taller than its sibling
+	.footer.content {
+		display: flex;
+		justify-content: flex-end;
+		align-items: stretch;
+		gap: 0.5rem;
+		// the bottom gap the buttons' margin-bottom gave, now on the row
+		padding-bottom: 1.25rem;
+
+		>button {
+			margin: 0;
+
+			// keep the desktop icon→label gap on phones: fn_append_icon's
+			// breakpoint squeeze (2px) is for cramped toolbars, and a lone
+			// dialog button reads as '⊕Continue' with it
+			&::before {
+				margin-right: 0.25rem;
 			}
 		}
-	}//end dd-modal.dd_confirm
+	}
+}
+
+//end dd-modal.dd_confirm
 
 // dd-modal.dd_presets
 // The per-user preset editors (export presets dd1781, search presets dd623):
@@ -1048,471 +1109,504 @@
 // form needs the room there. Declarative (`::part`), like dd_confirm, and NOT an
 // imperative `modal_content.style.width`: an inline width beats the shadow's
 // 600px full-sheet tier, which is exactly how this dialog opened half-width.
-	dd-modal.dd_presets {
+dd-modal.dd_presets {
 
-		&::part(content) {
-			width: 20rem;
-			max-width: 92vw;
+	&::part(content) {
+		width: 20rem;
+		max-width: 92vw;
 
-			// the phone sheet is full width, like every other modal there
-			@media screen and (max-width: @width_break_point_phone) {
-				width: 100vw;
-				max-width: 100vw;
-			}
-		}
-	}//end dd-modal.dd_presets
-
-// disabled_component
-	.disabled_component {
-		// pointer-events: none !important;
-
-		.content_data.component, .buttons_container, input, .radio_label {
-			pointer-events: none !important;
-			user-select: none;
-		}
-		.content_data.component .column .media .link, .button_edit{
-			pointer-events: all !important;
-		}
-
-		.autocomplete_search_wrapper {
-			display: none !important;
-		}
-
-		.buttons_container, .button:not(.button_edit):not(.activate) {
-			display: none !important;
-		}
-
-		input, select {
-			outline: none;
-		}
-
-		select {
-			-webkit-appearance: none;
-			appearance: none;
-			text-indent: 1px;
-			text-overflow: '';
-		}
-
-		&.active {
-
-			// lock icon at top right
-			&:after {
-				content: " ";
-				.fn_build_button('lock.svg', @color_danger, 1);
-				position: absolute;
-				top: -1.3rem;
-    			right: 0.1rem;
-				opacity: 0.8;
-			}
+		// the phone sheet is full width, like every other modal there
+		@media screen and (max-width: @width_break_point_phone) {
+			width: 100vw;
+			max-width: 100vw;
 		}
 	}
+}
+
+//end dd-modal.dd_presets
+
+// disabled_component
+.disabled_component {
+	// pointer-events: none !important;
+
+	.content_data.component,
+	.buttons_container,
+	input,
+	.radio_label {
+		pointer-events: none !important;
+		user-select: none;
+	}
+
+	.content_data.component .column .media .link,
+	.button_edit {
+		pointer-events: all !important;
+	}
+
+	.autocomplete_search_wrapper {
+		display: none !important;
+	}
+
+	.buttons_container,
+	.button:not(.button_edit):not(.activate) {
+		display: none !important;
+	}
+
+	input,
+	select {
+		outline: none;
+	}
+
+	select {
+		-webkit-appearance: none;
+		appearance: none;
+		text-indent: 1px;
+		text-overflow: '';
+	}
+
+	&.active {
+
+		// lock icon at top right
+		&:after {
+			content: " ";
+			.fn_build_button('lock.svg', @color_danger, 1);
+			position: absolute;
+			top: -1.3rem;
+			right: 0.1rem;
+			opacity: 0.8;
+		}
+	}
+}
 
 
 // component_message
-	.component_message {
-		position: absolute;
-		min-height: 3em;
-		top: -3em;
-		width: 100%;
-		color: @color_white;
-		user-select: none;
-		line-height: 1.5em;
+.component_message {
+	position: absolute;
+	min-height: 3em;
+	top: -3em;
+	width: 100%;
+	color: @color_white;
+	user-select: none;
+	line-height: 1.5em;
 
-		&.error {
-			background-color: @color_danger;
-		}
-
-		&.warning {
-			background-color: @color_warning;
-		}
-
-		&.ok {
-			background-color: @color_success;
-		}
-
-		.text {
-			padding: 0.5em;
-		}
-
-		.close {
-			cursor: pointer;
-			width: 1em;
-			height: 1em;
-			text-align: center;
-			position: absolute;
-			right: 0.25em;
-			top: 0px;
-			height: 1.5em;
-			margin: 0px;
-		}
-	}//end .component_message
-
-// input_tex_area contenteditable
-	.input_tex_area {
-		width: 100%;
-		background-color: @color_white;
-		margin-right: 0.25em;
-		padding: 0.5em;
-		padding-right: 1em;
-		min-height: 8em;
-		overflow: auto;
-		max-height: 14em;
-		word-break: break-word;
-	}//.input_tex_area
-
-// components wrapper modifiers
-	&.width_100 {
-		flex: 1 1 100% !important;
-		width: 100%;
+	&.error {
+		background-color: @color_danger;
 	}
 
+	&.warning {
+		background-color: @color_warning;
+	}
+
+	&.ok {
+		background-color: @color_success;
+	}
+
+	.text {
+		padding: 0.5em;
+	}
+
+	.close {
+		cursor: pointer;
+		width: 1em;
+		height: 1em;
+		text-align: center;
+		position: absolute;
+		right: 0.25em;
+		top: 0px;
+		height: 1.5em;
+		margin: 0px;
+	}
+}
+
+//end .component_message
+
+// input_tex_area contenteditable
+.input_tex_area {
+	width: 100%;
+	background-color: @color_white;
+	margin-right: 0.25em;
+	padding: 0.5em;
+	padding-right: 1em;
+	min-height: 8em;
+	overflow: auto;
+	max-height: 14em;
+	word-break: break-word;
+}
+
+//.input_tex_area
+
+// components wrapper modifiers
+&.width_100 {
+	flex: 1 1 100% !important;
+	width: 100%;
+}
+
 // full screen
-	.fullscreen {
-		position: fixed !important;
-		top: 0px !important;
-		left: 0px !important;
-		width: 100% !important;
-		height: 100% !important;
-		z-index: 10 !important;
+.fullscreen {
+	position: fixed !important;
+	top: 0px !important;
+	left: 0px !important;
+	width: 100% !important;
+	height: 100% !important;
+	z-index: 10 !important;
+	max-height: unset !important;
+	background-color: @color_white !important;
+
+	.buttons_container {
+		left: unset !important;
+		right: 0px !important;
+	}
+
+	.content_data {
+		padding-right: 1rem !important;
 		max-height: unset !important;
-		background-color: @color_white !important;
+		height: 100% !important;
 
-		.buttons_container {
-			left: unset !important;
-			right: 0px !important;
-		}
+		>ul {
+			width: 100% !important;
 
-		.content_data {
-			padding-right: 1rem !important;
-			max-height: unset !important;
-			height: 100% !important;
+			>li {
+				height: calc(100% - var(--component_label_height)) !important;
 
-			>ul{
-				width: 100% !important;
-				>li{
-					height: calc(100% - var(--component_label_height)) !important;
-
-					.canvas[resize] {
-						height: 100%;
-						width: 100%;
-					}
+				.canvas[resize] {
+					height: 100%;
+					width: 100%;
 				}
 			}
 		}
+	}
 
-		.exit_button {
-			position: fixed;
-			top: 0.25rem;
-			right: 0.5rem;
-			width: 1.5rem;
-			height: 1.5rem;
-			background-color: @color_orange_dedalo;
-			z-index: 9999;
-			cursor: pointer;
-			-webkit-mask-image: url('../../themes/default/icons/full_screen.svg');
-					mask-image: url('../../themes/default/icons/full_screen.svg');
-			-webkit-mask-size: contain;
-				mask-size: contain;
-			-webkit-mask-repeat: no-repeat;
-					mask-repeat: no-repeat;
-			-webkit-mask-position: center;
-					mask-position: center;
-		}
-	}//end .fullscreen
+	.exit_button {
+		position: fixed;
+		top: 0.25rem;
+		right: 0.5rem;
+		width: 1.5rem;
+		height: 1.5rem;
+		background-color: @color_orange_dedalo;
+		z-index: 9999;
+		cursor: pointer;
+		-webkit-mask-image: url('../../themes/default/icons/full_screen.svg');
+		mask-image: url('../../themes/default/icons/full_screen.svg');
+		-webkit-mask-size: contain;
+		mask-size: contain;
+		-webkit-mask-repeat: no-repeat;
+		mask-repeat: no-repeat;
+		-webkit-mask-position: center;
+		mask-position: center;
+	}
+}
+
+//end .fullscreen
 
 
 
 // component buttons show / hide PROPOSAL !
-	// former ul
-	.content_data {
-		>.content_value {
-			// default state of buttons here
-			.hidden_button {
-				display: none;
-				// user click force show to prevents hide the button again
-				&:active {
-					display: inline-block;
-				}
-			}
+// former ul
+.content_data {
+	>.content_value {
 
-			// if any li inside element is focused, show hidden buttons
-			&:focus-within {
-				.hidden_button {
-					display: inline-block;
-				}
+		// default state of buttons here
+		.hidden_button {
+			display: none;
+
+			// user click force show to prevents hide the button again
+			&:active {
+				display: inline-block;
 			}
 		}
-	}//end .content_data
+
+		// if any li inside element is focused, show hidden buttons
+		&:focus-within {
+			.hidden_button {
+				display: inline-block;
+			}
+		}
+	}
+}
+
+//end .content_data
 
 // json_editor
-	.jse-main {
-		contain: content;
-		--jse-theme-color: @color_grey_8;
-		// resize: vertical;
-		overflow: auto;
+.jse-main {
+	contain: content;
+	--jse-theme-color: @color_grey_8;
+	// resize: vertical;
+	overflow: auto;
 
-		.jse-menu {
-			padding-right: 3.617rem;
+	.jse-menu {
+		padding-right: 3.617rem;
 
-			>button.svelte-3erbu0 {
-				width: 2.25rem;
-			}
-		}
-
-	}//end .jse-main
-
-// json-container. Is the JSON data viewer used to show fold-able data like
-// server messages in area_development widgets
-	.json-container {
-		background-color: @color_grey_16;
-		margin: 0px;
-		margin-top: 1em;
-		padding: 0.5rem;
-		font-size: 14px;
-		border-radius: 3px;
-
-		.json-key {
-			word-break: initial;
+		>button.svelte-3erbu0 {
+			width: 2.25rem;
 		}
 	}
 
-// components_list_container (used in search and tool_export)
-	.components_list_container {
-		display: flex;
-		width: fit-content;
-		border-right: 1px solid @color_grey_10;
-		font-size: 1em;
-		background-color: @color_grey_16;
+}
 
-		// first UL defines max height
-		>ul {
-			max-height: 80vh;
-			overflow: auto;
+//end .jse-main
+
+// json-container. Is the JSON data viewer used to show fold-able data like
+// server messages in area_development widgets
+.json-container {
+	background-color: @color_grey_16;
+	margin: 0px;
+	margin-top: 1em;
+	padding: 0.5rem;
+	font-size: 14px;
+	border-radius: 3px;
+
+	.json-key {
+		word-break: initial;
+	}
+}
+
+// components_list_container (used in search and tool_export)
+.components_list_container {
+	display: flex;
+	width: fit-content;
+	border-right: 1px solid @color_grey_10;
+	font-size: 1em;
+	background-color: @color_grey_16;
+
+	// first UL defines max height
+	>ul {
+		max-height: 50vh;
+		overflow: auto;
+	}
+
+	ul {
+		display: block;
+		position: relative;
+
+		// Standard section container (receive all JSON elements inside)
+		&.list_container {}
+
+		&.target_list_container {
+			display: flex;
+			border-left: 1px solid @color_grey_10;
 		}
 
-		ul {
-			display: block;
+		li {
 			position: relative;
+			line-height: 1em;
+			// same inset as the search panel's spacing scale (0.5rem sides)
+			padding: 0.4rem 1.33rem 0.4rem 0.5rem;
+			display: block;
+			user-select: none;
 
-			// Standard section container (receive all JSON elements inside)
-			&.list_container {
-
-			}
-
-			&.target_list_container {
-				display: flex;
-				border-left: 1px solid @color_grey_10;
-			}
-
-			li {
-				position: relative;
-				line-height: 1em;
-				// same inset as the search panel's spacing scale (0.5rem sides)
-				padding: 0.4rem 1.33rem 0.4rem 0.5rem;
+			// Section label bar
+			// Level header (People, Family unit…): the same grey-ramp chrome
+			// as the FIELDS/PRESET tabs (grey_10 / grey_4, legible in both
+			// themes from one pair), sticky so the level's name stays in
+			// view while its column scrolls.
+			// Three levels, three looks (search-panel mockup): the LEVEL
+			// header is chrome (small caps-style uppercase on grey_10), the
+			// GROUP header a light band with bold ink, the FIELD rows white
+			// and indented under it. They used to share grey_10 and read as
+			// one block.
+			&.section_bar_label {
 				display: block;
-				user-select: none;
+				background-color: @color_grey_10;
+				color: @color_grey_4;
+				font-size: 0.85em;
+				font-weight: 600;
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+				padding-top: 0.55rem;
+				padding-bottom: 0.55rem;
+				position: sticky;
+				top: 0;
+				z-index: 2;
+				// Avoid click events affect here (received with :after)
+				pointer-events: none;
+				padding-right: 0.5rem;
 
-				// Section label bar
-				// Level header (People, Family unit…): the same grey-ramp chrome
-				// as the FIELDS/PRESET tabs (grey_10 / grey_4, legible in both
-				// themes from one pair), sticky so the level's name stays in
-				// view while its column scrolls.
-				// Three levels, three looks (search-panel mockup): the LEVEL
-				// header is chrome (small caps-style uppercase on grey_10), the
-				// GROUP header a light band with bold ink, the FIELD rows white
-				// and indented under it. They used to share grey_10 and read as
-				// one block.
-				&.section_bar_label {
+				// Navigation path (ancestors + this level). The desktop drill shows
+				// the ancestor columns side by side, so the plain level name is enough
+				// here; the phone layout REPLACES the parents and reveals this path
+				// instead (see search.less).
+				>.section_bar_full_path {
+					display: none;
+				}
+
+				&:after {
+					content: '×';
 					display: block;
-					background-color: @color_grey_10;
-					color: @color_grey_4;
-					font-size: 0.85em;
-					font-weight: 600;
-					text-transform: uppercase;
-					letter-spacing: 0.06em;
-					padding-top: 0.55rem;
-					padding-bottom: 0.55rem;
-					position: sticky;
-					top: 0;
-					z-index: 2;
-					// Avoid click events affect here (received with :after)
-					pointer-events: none;
-					padding-right: 0.5rem;
+					float: right;
+					width: 1em;
+					font-size: 1.2em;
+					line-height: 0.85;
+					text-align: center;
+					cursor: pointer;
+					// Allow receive here the click button of real DOM element
+					pointer-events: all;
+				}
 
-					// Navigation path (ancestors + this level). The desktop drill shows
-					// the ancestor columns side by side, so the plain level name is enough
-					// here; the phone layout REPLACES the parents and reveals this path
-					// instead (see search.less).
-					>.section_bar_full_path {
-						display: none;
-					}
+				&.close_hide:after {
+					display: none;
+				}
+
+			}
+
+			//end section_bar_label
+
+			// section_group_label
+			// Group bar (IDENTIFICATION, DOCUMENTATION…): panel chrome, like
+			// the FIELDS/PRESETS tabs — the grey RAMP, not an inverse fill,
+			// so it stops out-darkening the rows it groups and stays
+			// legible in both themes from ONE pair (see search.less).
+			&.section_group_label {
+				background-color: @color_grey_15;
+				color: @color_grey_4;
+				font-weight: 600;
+				border-bottom: 1px solid @color_grey_13;
+				cursor: pointer;
+
+				&:active {
+					opacity: 0.5;
+				}
+
+				&.closed {
+					opacity: 0.75;
 
 					&:after {
-						content: '×';
-						display: block;
-						float: right;
-						width: 1em;
-						font-size: 1.2em;
-						line-height: 0.85;
-						text-align: center;
-						cursor: pointer;
-						// Allow receive here the click button of real DOM element
-						pointer-events: all;
+						content: " ";
+						mask-image: url(../../themes/default/icons/arrow_down.svg);
+						background-color: @color_grey_5;
+						transition: transform .26s ease-out;
+						position: absolute;
+						right: 0.33rem;
+						top: 0.33rem;
+						height: 1rem;
+						width: 1rem;
+					}
+				}
+			}
+
+			// component_label
+			// field row: quiet separators (grey_13 inverts per theme), a
+			// light tint on hover; full orange is kept for the OPEN level
+			// row (.has_subquery.active) so it marks the path.
+			&.component_label {
+				background-color: @color_white;
+				border-bottom: 1px solid @color_grey_13;
+				padding-left: 1.25rem; // indented under its group header
+
+				// truncate text
+				padding-right: 2.0em;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+
+				&:hover {
+					background-color: @color_hilite !important;
+				}
+
+				&:active {
+					opacity: 0.6;
+				}
+
+				@background-top: 7px;
+
+				// Drag-gable background svg
+				// drag handle: shown on row hover only (was on every row)
+				&.element_draggable {
+					cursor: move;
+					background-image: none;
+
+					&:hover {
+						background-image: url('../../themes/default/draggable.svg');
 					}
 
-					&.close_hide:after {
-						display: none;
-					}
+					background-color: @color_white;
+					background-position-x: 0%;
+					background-position-y: 0%;
+					background-size: auto auto;
+					background-position: right 5px bottom @background-top;
+					background-repeat: no-repeat;
+					background-size: 12px;
 
-				}//end section_bar_label
+					:root[data-theme="dark"] & {
+						position: relative;
+						background-color: @color_grey_14;
+						background-image: none;
 
-				// section_group_label
-				// Group bar (IDENTIFICATION, DOCUMENTATION…): panel chrome, like
-				// the FIELDS/PRESETS tabs — the grey RAMP, not an inverse fill,
-				// so it stops out-darkening the rows it groups and stays
-				// legible in both themes from ONE pair (see search.less).
-				&.section_group_label {
-					background-color: @color_grey_15;
-					color: @color_grey_4;
-					font-weight: 600;
-					border-bottom: 1px solid @color_grey_13;
-					cursor: pointer;
-
-					&:active {
-						opacity: 0.5;
-					}
-
-					&.closed {
-						opacity: 0.75;
-
-						&:after {
-							content: " ";
-							mask-image: url(../../themes/default/icons/arrow_down.svg);
-							background-color: @color_grey_5;
-							transition: transform .26s ease-out;
+						&:before {
+							content: '';
+							display: block;
+							pointer-events: none;
 							position: absolute;
-							right: 0.33rem;
-							top: 0.33rem;
-							height: 1rem;
-							width: 1rem;
+							right: 5px;
+							bottom: @background-top;
+							width: 12px;
+							height: 12px;
+							background-color: @color_grey_6;
+							mask-image: url('../../themes/default/draggable.svg');
+							mask-size: 12px;
+							mask-repeat: no-repeat;
+							opacity: 0;
+						}
+
+						&:hover:before {
+							opacity: 1;
+						}
+
+						&.has_subquery:before {
+							right: calc(1em);
+						}
+
+						&:hover:before,
+						&.has_subquery:hover:after {
+							background-color: #000000;
 						}
 					}
 				}
 
-				// component_label
-				// field row: quiet separators (grey_13 inverts per theme), a
-				// light tint on hover; full orange is kept for the OPEN level
-				// row (.has_subquery.active) so it marks the path.
-				&.component_label {
-					background-color: @color_white;
-					border-bottom: 1px solid @color_grey_13;
-					padding-left: 1.25rem; // indented under its group header
+				// has_subquery
+				&.has_subquery {
+					cursor: pointer;
+					background-position: right 1em bottom @background-top;
 
-					// truncate text
-					padding-right: 2.0em;
-					white-space: nowrap;
-					overflow: hidden;
-					text-overflow: ellipsis;
-
-					&:hover {
-						background-color: @color_hilite !important;
-					}
-					&:active {
-						opacity: 0.6;
-					}
-
-					@background-top: 7px;
-
-					// Drag-gable background svg
-					// drag handle: shown on row hover only (was on every row)
-					&.element_draggable {
-						cursor: move;
-						background-image: none;
-
-						&:hover {
-							background-image: url('../../themes/default/draggable.svg');
-						}
-						background-color: @color_white;
-						background-position-x: 0%;
-						background-position-y: 0%;
-						background-size: auto auto;
-						background-position: right 5px bottom @background-top;
-						background-repeat: no-repeat;
-						background-size: 12px;
+					// Arrow
+					&:after {
+						content: ' ';
+						display: block;
+						pointer-events: none;
+						position: absolute;
+						background-color: @color_grey_1;
+						mask-image: url('../../themes/default/icons/play.svg');
+						mask-size: 0.55em;
+						mask-repeat: no-repeat;
+						mask-position: center;
+						width: 1em;
+						height: 1em;
+						right: 0px;
+						top: 0.308rem;
+						cursor: pointer;
 
 						:root[data-theme="dark"] & {
-							position: relative;
-							background-color: @color_grey_14;
-							background-image: none;
-
-							&:before {
-								content: '';
-								display: block;
-								pointer-events: none;
-								position: absolute;
-								right: 5px;
-								bottom: @background-top;
-								width: 12px;
-								height: 12px;
-								background-color: @color_grey_6;
-								mask-image: url('../../themes/default/draggable.svg');
-								mask-size: 12px;
-								mask-repeat: no-repeat;
-								opacity: 0;
-							}
-							&:hover:before {
-								opacity: 1;
-							}
-
-							&.has_subquery:before {
-								right: calc(1em);
-							}
-
-							&:hover:before,
-							&.has_subquery:hover:after {
-								background-color: #000000;
-							}
+							background-color: @color_grey_6;
 						}
 					}
 
-					// has_subquery
-					&.has_subquery {
-						cursor: pointer;
-						background-position: right 1em bottom @background-top;
-
-						// Arrow
-						&:after {
-							content: ' ';
-							display: block;
-							pointer-events: none;
-							position: absolute;
-							background-color: @color_grey_1;
-							mask-image: url('../../themes/default/icons/play.svg');
-							mask-size: 0.55em;
-							mask-repeat: no-repeat;
-							mask-position: center;
-							width: 1em;
-							height: 1em;
-							right: 0px;
-							top: 0.308rem;
-							cursor: pointer;
-
-							:root[data-theme="dark"] & {
-								background-color: @color_grey_6;
-							}
-						}
-
-						&.active {
-							background-color: @color_orange_dedalo !important;
-							color: var(--fg_on_brand);
-						}
+					&.active {
+						background-color: @color_orange_dedalo !important;
+						color: var(--fg_on_brand);
 					}
+				}
 
-				}//end component_label
+			}
 
-			}//end li
-		}//end ul.components_list_container
-	}//end .components_list_container
+			//end component_label
+
+		}
+
+		//end li
+	}
+
+	//end ul.components_list_container
+}
+
+//end .components_list_container
 
 // media components base CSS unified
 .media_wrapper.edit.wrapper_component {
@@ -1591,7 +1685,9 @@
 		object-position: center;
 	}
 
-	&.view_default, &.view_mosaic, &.view_tool {
+	&.view_default,
+	&.view_mosaic,
+	&.view_tool {
 		height: var(--view_line_height);
 
 		@media screen and (max-width: @width_break_point_0) {
@@ -1603,7 +1699,7 @@
 // prevents component_3d an other media to loose the necessary height in the
 // upload window preview
 .preview_component_container {
-	.media_wrapper.edit.wrapper_component .media_content_value  {
+	.media_wrapper.edit.wrapper_component .media_content_value {
 		@media screen and (max-width: @width_break_point_1) {
 			height: var(--media_min_height);
 		}
@@ -1648,7 +1744,7 @@
 		isolation: isolate;
 
 		// background Raspa error (viewport-pinned)
-		 &:after {
+		&:after {
 			content: ' ';
 			background-image: url('../../themes/default/raspa_404.jpg');
 			background-size: cover;
@@ -1666,7 +1762,7 @@
 	}
 
 	&.not_logged_error {
-		 &:after {
+		&:after {
 			content: ' ';
 			opacity: 0.3;
 		}
@@ -1737,7 +1833,7 @@
 			font-family: monospace;
 			font-size: 1.1rem;
 			line-height: 1.35;
-			padding: 1.25rem ;
+			padding: 1.25rem;
 			padding-right: 5.4rem;
 			padding-left: 3.8rem; // gap for spinner
 			margin-bottom: 1rem;
@@ -1758,11 +1854,11 @@
 		}
 
 		// pre json_data. Using default pre styles
-		>.json_data {
-
-		}
+		>.json_data {}
 	}
-}//end .process_status_node
+}
+
+//end .process_status_node
 
 
 // relation_list_container
@@ -1773,6 +1869,7 @@
 	min-height: 3.67rem;
 	max-width: 100%;
 }
+
 .relation_list_container {
 	.relation_list_head {
 		user-select: none;
@@ -1798,7 +1895,7 @@
 	z-index: 4;
 	resize: auto;
 
-    min-height: 10rem;
+	min-height: 10rem;
 
 	.grid_choose_header {
 		height: 2.5rem;
@@ -1865,4 +1962,6 @@
 			cursor: move;
 		}
 	}
-}//end .grid_choose_container
+}
+
+//end .grid_choose_container

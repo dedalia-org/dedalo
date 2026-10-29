@@ -613,7 +613,7 @@ const render_rollback = function (self, host, parent, body_response, agent_block
 const render_edit_form = function (self, host, card, body_response) {
 	const details = ui.create_dom_element({
 		element_type: 'details',
-		class_name: 'host_edit',
+		class_name: 'dd_fold host_edit',
 		parent: card,
 	});
 	ui.create_dom_element({

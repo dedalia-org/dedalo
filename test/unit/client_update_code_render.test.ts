@@ -932,9 +932,19 @@ describe('update_code developer-builds switch', () => {
 		// followed; with the blocks gone a left-behind `.role_body >` matches
 		// NOTHING and the styles silently vanish.
 		expect(css_src).not.toContain('.role_body');
-		for (const node of ['button_submit', 'dd_readout', 'dd_note', 'channel_row']) {
+		for (const node of ['update_actions', 'dd_readout', 'dd_note']) {
 			expect(new RegExp(`^\\t\\t>\\.${node}\\b`, 'm').test(css_src), `>.${node}`).toBe(true);
 		}
+		// the source + primary action live in ONE actions zone (kit .dd_actions),
+		// so their selectors sit one level under it — and the DOM must agree
+		for (const node of ['button_submit', 'channel_row']) {
+			expect(
+				new RegExp(`^\\t\\t\\t>\\.${node}\\b`, 'm').test(css_src),
+				`>.update_actions >.${node}`,
+			).toBe(true);
+		}
+		expect(render_src).toContain("class_name		: 'dd_actions update_actions'");
+		expect(render_src).toContain('parent			: actions');
 	});
 
 	test('the health poll reads install_digest and hands it to the verdict', () => {

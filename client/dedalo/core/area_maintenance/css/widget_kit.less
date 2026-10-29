@@ -23,12 +23,30 @@
 * All colour routes through semantic tokens + color-mix, so it holds light & dark.
 */
 
+// .fn_add_mask (the .dd_fold chevron). Already in main.css via main.less; the
+// reference import is for tool_diffusion, which imports this kit on its own.
+@import (once, reference) '../../page/css/layout/buttons';
+
+// WARNING severity: AMBER, deliberately far from danger red. --color_warning
+// (#c4511d) sat a few degrees from --color_danger (#dc3545), so a "warning"
+// pill read as a second "blocked". Built on existing palette tokens, both
+// theme-aware: the ink is --color_orange_dark (AA on light AND dark), the fill
+// the light amber --color_orange. Every maintenance widget uses these, never
+// --color_warning (maintenance_widget_kit_tripwire).
+@dd_warn_ink: var(--color_orange_dark);
+@dd_warn_fill: color-mix(in srgb, var(--color_orange) 32%, transparent);
+@dd_warn_line: color-mix(in srgb, var(--color_orange_dark) 40%, transparent);
+
 @dd_mono: Menlo, Monaco, Consolas, 'Courier New', monospace;
 
 // ---- readout grid -------------------------------------------------------
+// ONE key-column width for every readout. `max-content` sized each readout to
+// its own longest key, so two readouts stacked in one widget never aligned. A
+// widget that needs another width sets --dd_k_width on its root, never per
+// readout (maintenance_widget_kit_tripwire).
 .dd_readout {
 	display: grid;
-	grid-template-columns: max-content 1fr;
+	grid-template-columns: var(--dd_k_width, 13rem) minmax(0, 1fr);
 	align-items: stretch;
 	border: 1px solid var(--border_default);
 	border-radius: 8px;
@@ -60,6 +78,24 @@
 	min-width: 0;
 	color: var(--fg_default);
 }
+// a long key wraps on spaces inside the fixed column instead of widening it
+.dd_readout .dd_k {
+	white-space: normal;
+	overflow-wrap: normal;
+}
+// FIRST-LINE alignment: a value can run to several lines (chip + note) and a
+// key can wrap; centred, the two drifted apart in every tall row. Both start
+// at the top, and the small-caps key is nudged down by half the difference
+// between its line box (0.68rem × 1.4) and the value's (~1rem × 1.4 — a pill
+// row measures the same), so its text sits on the value's first line.
+.dd_readout .dd_k,
+.dd_readout .dd_v {
+	align-items: flex-start;
+}
+.dd_readout .dd_k {
+	padding-top: calc(0.44rem + 0.22rem);
+}
+// (narrow-card stacking: .dd_narrow_rules() at the end of this file)
 
 // uppercase micro-label — the key cell and any standalone section heading
 .dd_k,
@@ -179,6 +215,7 @@
 .dd_badge.pill_ok,
 .dd_badge.pill_warning,
 .dd_badge.pill_danger,
+.dd_badge.pill_neutral,
 .dd_badge.mode_off,
 .dd_badge.mode_on,
 .dd_badge.mode_private,
@@ -212,9 +249,14 @@
 	border-color: color-mix(in srgb, var(--color_success) 35%, transparent);
 }
 .dd_badge.pill_warning {
-	color: var(--color_warning);
-	background-color: color-mix(in srgb, var(--color_warning) 13%, transparent);
-	border-color: color-mix(in srgb, var(--color_warning) 35%, transparent);
+	color: @dd_warn_ink;
+	background-color: @dd_warn_fill;
+	border-color: @dd_warn_line;
+}
+.dd_badge.pill_neutral {
+	color: var(--fg_muted);
+	background-color: var(--bg_surface_alt);
+	border-color: var(--border_default);
 }
 .dd_badge.pill_danger,
 .dd_badge.mode_off {
@@ -244,8 +286,8 @@
 	border-radius: 0 5px 5px 0;
 }
 .dd_badge.state_warning {
-	background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-	border-left-color: var(--color_warning);
+	background-color: @dd_warn_fill;
+	border-left-color: @dd_warn_ink;
 }
 .dd_badge.state_danger {
 	background-color: color-mix(in srgb, var(--color_danger) 11%, transparent);
@@ -254,6 +296,7 @@
 
 // ---- notes --------------------------------------------------------------
 .dd_note {
+	max-width: 60rem; // readable line length on a wide card
 	color: var(--fg_muted);
 	font-size: 0.85rem;
 	line-height: 1.4;
@@ -267,12 +310,172 @@
 	border-radius: 0 6px 6px 0;
 }
 .dd_note.state_warning {
-	background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-	border-left-color: var(--color_warning);
+	background-color: @dd_warn_fill;
+	border-left-color: @dd_warn_ink;
 }
 .dd_note.state_danger {
 	background-color: color-mix(in srgb, var(--color_danger) 11%, transparent);
 	border-left-color: var(--color_danger);
+}
+
+// ---- widget anatomy -----------------------------------------------------
+// One reading order for every widget: verdict → attention → facts → actions →
+// result. .dd_section stacks the zones with ONE gap (instead of per-block
+// margins); .dd_actions is the closing zone, set off by a rule.
+.dd_section {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 0.9rem;
+}
+.dd_actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.6rem;
+	padding-top: 0.9rem;
+	border-top: 1px solid var(--border_default);
+}
+
+// the headline state of a widget, one line, at the top
+.dd_verdict {
+	font-size: 1rem;
+	font-weight: 600;
+	color: var(--fg_default);
+
+	&.state_ok { color: var(--color_success); }
+	&.state_warning { color: @dd_warn_ink; }
+	&.state_danger { color: var(--color_danger); }
+}
+
+// a gate the action will refuse on, WITH its fix in place (e.g. "Maintenance
+// mode is off" + Enable). The operator learns it before the last step.
+.dd_prereq {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 1rem;
+
+	> .dd_prereq_text {
+		flex: 1 1 18rem;
+		min-width: 0;
+	}
+	> button {
+		flex: 0 0 auto;
+		margin: 0;
+	}
+}
+
+// ---- fold (disclosure) --------------------------------------------------
+// The ONE disclosure: native <details>/<summary> (keyboard + a11y for free)
+// drawn with the application's chevron — the same arrow_down.svg, size and
+// side as .icon_arrow (widget headers, inspector, sections), rotated when open.
+// Colour from the theme token only (data-theme aware), not a media query.
+.dd_fold {
+	> summary {
+		display: flex;
+		flex-wrap: wrap;
+		// BASELINE, not center: the eyebrow (0.68rem caps), the hint and the
+		// pills have different boxes — centred, their text sat at three heights
+		align-items: baseline;
+		gap: 0.5rem;
+		position: relative;
+		padding: 0.4rem 2.2rem 0.4rem 0.6rem;
+		border-radius: 6px;
+		cursor: pointer;
+		list-style: none;
+		user-select: none;
+
+		&::-webkit-details-marker {
+			display: none;
+		}
+		&:after {
+			.fn_add_mask('arrow_down.svg');
+			content: ' ';
+			position: absolute;
+			right: 0.6rem;
+			top: 50%;
+			width: 1em;
+			height: 1em;
+			margin-top: -0.5em;
+			background-color: var(--color_grey_10);
+			transition: transform 0.26s ease-out;
+		}
+		&:hover {
+			background-color: var(--bg_surface_alt);
+		}
+		&:focus-visible {
+			outline: 2px solid var(--color_primary);
+			outline-offset: 1px;
+		}
+		> .dd_eyebrow {
+			margin: 0;
+		}
+		&:hover > .dd_eyebrow {
+			color: var(--fg_default);
+		}
+		> .dd_fold_hint {
+			font-size: 0.85rem;
+			color: var(--fg_muted);
+			overflow-wrap: anywhere;
+		}
+		> .dd_badge {
+			white-space: nowrap;
+		}
+	}
+	&[open] > summary {
+		margin-bottom: 0.33rem;
+
+		&:after {
+			transform: rotate(180deg);
+		}
+	}
+	// a closed <details> hides its content through UA styles, but an explicit
+	// `display` (the readout grid) wins in some engines
+	&:not([open]) > :not(summary) {
+		display: none;
+	}
+}
+
+// ---- option row ---------------------------------------------------------
+// A labelled radio choice that never re-flows: the label sits in the readout
+// key column (aligned with readouts above), the options on one wrapping line,
+// and the chosen option's note in its OWN slot under them — a note appearing
+// grows the row downwards, it never moves an option.
+.dd_options {
+	display: grid;
+	grid-template-columns: var(--dd_k_width, 13rem) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 0.35rem 0.85rem;
+
+	> .dd_options_label {
+		padding-left: 0.85rem;
+	}
+	> .dd_options_line {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 1.5rem;
+
+		> label {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.45rem;
+			cursor: pointer;
+
+			> input {
+				height: initial;
+				margin: 0;
+			}
+		}
+	}
+	> .dd_options_note {
+		grid-column: 2;
+		margin: 0;
+
+		&:empty {
+			display: none;
+		}
+	}
 }
 
 // ---- progress bar -------------------------------------------------------
@@ -311,7 +514,7 @@
 	transition: width 0.3s ease;
 }
 .dd_bar_fill.state_warning {
-	background-color: var(--color_warning);
+	background-color: @dd_warn_ink;
 }
 .dd_bar_fill.state_danger {
 	background-color: var(--color_danger);
@@ -412,7 +615,7 @@
 	color: var(--color_success);
 }
 .dd_stat_n.state_warning {
-	color: var(--color_warning);
+	color: @dd_warn_ink;
 }
 .dd_stat_n.state_danger {
 	color: var(--color_danger);
@@ -479,12 +682,12 @@
 		}
 	}
 	button.warning, button.light.warning {
-		color: var(--color_warning);
-		border: 1px solid color-mix(in srgb, var(--color_warning) 45%, transparent);
-		background-color: color-mix(in srgb, var(--color_warning) 10%, transparent);
+		color: @dd_warn_ink;
+		border: 1px solid @dd_warn_line;
+		background-color: @dd_warn_fill;
 
 		&:hover {
-			background-color: color-mix(in srgb, var(--color_warning) 18%, transparent);
+			background-color: color-mix(in srgb, var(--color_orange) 50%, transparent);
 		}
 	}
 	// primary action (the main "do it" button of a widget) — filled blue
@@ -539,8 +742,8 @@
 		color: var(--fg_default);
 		font-weight: 500;
 		line-height: 1.4;
-		background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-		border-left: 3px solid var(--color_warning);
+		background-color: @dd_warn_fill;
+		border-left: 3px solid @dd_warn_ink;
 		border-radius: 0 6px 6px 0;
 	}
 
@@ -556,8 +759,8 @@
 			background-color: color-mix(in srgb, var(--color_danger) 8%, var(--bg_surface_alt));
 		}
 		&.warning {
-			border-left: 3px solid var(--color_warning);
-			background-color: color-mix(in srgb, var(--color_warning) 8%, var(--bg_surface_alt));
+			border-left: 3px solid @dd_warn_ink;
+			background-color: color-mix(in srgb, var(--color_orange) 25%, var(--bg_surface_alt));
 		}
 	}
 }
@@ -734,6 +937,37 @@
 		code {
 			white-space: normal;
 			word-break: break-all;
+		}
+	}
+}
+
+
+// narrow card (phone, split map panel): key above value, one column.
+// A MIXIN, called from area_maintenance.less: under tool_diffusion's
+// (reference) import a top-level @container leaks as an empty block.
+.dd_narrow_rules() {
+	.area_maintenance .widget_body {
+		container-type: inline-size;
+	}
+	@container (max-width: 34rem) {
+		.dd_readout {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.dd_readout .dd_k {
+			border-right: 0;
+		}
+		.dd_readout .dd_v {
+			border-top: 0;
+		}
+		.dd_options {
+			grid-template-columns: minmax(0, 1fr);
+
+			> .dd_options_label {
+				padding-left: 0;
+			}
+			> .dd_options_note {
+				grid-column: 1;
+			}
 		}
 	}
 }

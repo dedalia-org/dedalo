@@ -1689,7 +1689,7 @@ process.exit(0);`;
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
-	});
+	}, 30_000); // ~5 s under full-tier load: a run without --timeout must not depend on the CLI flag
 
 	test('tier set: integration minus the install-bound rows, plus every unit and parity acquirer; floor and stale rows', () => {
 		const HELPER = 'test/helpers/suite_mariadb.ts';

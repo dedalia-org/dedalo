@@ -83,6 +83,7 @@
 	import {data_manager} from '../../../../common/js/data_manager.js'
 	import {login} from '../../../../login/js/login.js'
 	import {set_widget_label_style} from '../../../js/render_area_maintenance.js'
+	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
 
 	// hljs
 	import hljs from '../../../../../lib/highlightjs/es/core.min.js';
@@ -398,13 +399,8 @@ const get_content_data = async function(self) {
 				})
 				break;
 			case (maintenance_mode!==true):
-				// message not allowed
-				ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'warning',
-					inner_html		: 'Update data is not allowed if Dédalo is not in maintenance_mode',
-					parent			: body_response
-				})
+				// not allowed yet — the reason AND the switch, in place
+				render_maintenance_prereq(body_response, () => self.refresh())
 				break;
 			case (updates.lock === true):
 				// When the server marks the bundle as locked (update already running),

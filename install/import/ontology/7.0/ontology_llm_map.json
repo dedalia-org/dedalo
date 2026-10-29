@@ -99507,6 +99507,19 @@
                 "type": "number"
             },
             {
+                "tipo": "dd1539",
+                "label": {
+                    "lg-deu": "Öffentlich",
+                    "lg-eng": "Public",
+                    "lg-eus": "Publikoa",
+                    "lg-fra": "Public",
+                    "lg-ita": "Pubblico",
+                    "lg-por": "Público",
+                    "lg-spa": "Público"
+                },
+                "type": "link"
+            },
+            {
                 "tipo": "dd131",
                 "label": {
                     "lg-cat": "Compte actiu",
@@ -99578,30 +99591,65 @@
                 ]
             },
             {
-                "tipo": "dd1539",
+                "tipo": "dd1725",
                 "label": {
-                    "lg-deu": "Öffentlich",
-                    "lg-eng": "Public",
-                    "lg-eus": "Publikoa",
-                    "lg-fra": "Public",
-                    "lg-ita": "Pubblico",
-                    "lg-por": "Público",
-                    "lg-spa": "Público"
+                    "lg-cat": "Perfil d'usuari",
+                    "lg-deu": "Benutzerprofil",
+                    "lg-ell": "Προφίλ του χρήστη",
+                    "lg-eng": "User profile",
+                    "lg-eus": "Erabiltzailearen profila",
+                    "lg-fra": "Profil de l'utilisateur",
+                    "lg-ita": "Profilo dell'utente",
+                    "lg-por": "Perfil de usuário",
+                    "lg-spa": "Perfil de usuario"
                 },
-                "type": "link"
+                "type": "link",
+                "target_sections": [
+                    "dd234"
+                ]
             },
             {
-                "tipo": "dd1603",
+                "tipo": "dd132",
                 "label": {
-                    "lg-cat": "Secció per defecte",
-                    "lg-deu": "Standardabschnitt",
-                    "lg-ell": "Προεπιλεγμένη ενότητα",
-                    "lg-eng": "Default section",
-                    "lg-eus": "Atal lehenetsia",
-                    "lg-fra": "Section par défaut",
-                    "lg-ita": "Sezione predefinita",
-                    "lg-por": "Seção padrão",
-                    "lg-spa": "Sección por defecto"
+                    "lg-cat": "Usuari",
+                    "lg-deu": "Benutzername",
+                    "lg-ell": "χρήστη",
+                    "lg-eng": "Username",
+                    "lg-eus": "Erabiltzailea",
+                    "lg-fra": "Utilisateur",
+                    "lg-ita": "Utente",
+                    "lg-por": "Usuário",
+                    "lg-spa": "Usuario"
+                },
+                "type": "text"
+            },
+            {
+                "tipo": "dd468",
+                "label": {
+                    "lg-cat": "Caducitat de la contrasenya",
+                    "lg-deu": "Gültigkeitsdauer des Passworts",
+                    "lg-ell": "Λήξης κωδικού πρόσβασης",
+                    "lg-eng": "Password expiration",
+                    "lg-eus": "Pasahitza iraungitzea",
+                    "lg-fra": "Expiration du mot de passe",
+                    "lg-ita": "Scadenza della password",
+                    "lg-por": "Validade da senha",
+                    "lg-spa": "Caducidad de la contraseña"
+                },
+                "type": "date"
+            },
+            {
+                "tipo": "dd1053",
+                "label": {
+                    "lg-cat": "Codi",
+                    "lg-deu": "Code",
+                    "lg-ell": "Κωδικός",
+                    "lg-eng": "Code",
+                    "lg-eus": "Kodea",
+                    "lg-fra": "Code",
+                    "lg-ita": "Codice",
+                    "lg-por": "Código",
+                    "lg-spa": "Código"
                 },
                 "type": "text"
             },
@@ -99621,52 +99669,34 @@
                 "type": "text"
             },
             {
-                "tipo": "dd132",
+                "tipo": "dd170",
                 "label": {
-                    "lg-cat": "Usuari",
-                    "lg-deu": "Benutzername",
-                    "lg-ell": "χρήστη",
-                    "lg-eng": "Username",
-                    "lg-eus": "Erabiltzailea",
-                    "lg-fra": "Utilisateur",
-                    "lg-ita": "Utente",
-                    "lg-por": "Usuário",
-                    "lg-spa": "Usuario"
+                    "lg-cat": "Projectes",
+                    "lg-deu": "Projekte",
+                    "lg-ell": "έργα",
+                    "lg-eng": "Projects",
+                    "lg-eus": "Proiektuak",
+                    "lg-fra": "Projets",
+                    "lg-ita": "Progetti",
+                    "lg-por": "Projetos",
+                    "lg-spa": "Proyectos"
+                },
+                "type": "link"
+            },
+            {
+                "tipo": "dd1603",
+                "label": {
+                    "lg-cat": "Secció per defecte",
+                    "lg-deu": "Standardabschnitt",
+                    "lg-ell": "Προεπιλεγμένη ενότητα",
+                    "lg-eng": "Default section",
+                    "lg-eus": "Atal lehenetsia",
+                    "lg-fra": "Section par défaut",
+                    "lg-ita": "Sezione predefinita",
+                    "lg-por": "Seção padrão",
+                    "lg-spa": "Sección por defecto"
                 },
                 "type": "text"
-            },
-            {
-                "tipo": "dd1725",
-                "label": {
-                    "lg-cat": "Perfil d'usuari",
-                    "lg-deu": "Benutzerprofil",
-                    "lg-ell": "Προφίλ του χρήστη",
-                    "lg-eng": "User profile",
-                    "lg-eus": "Erabiltzailearen profila",
-                    "lg-fra": "Profil de l'utilisateur",
-                    "lg-ita": "Profilo dell'utente",
-                    "lg-por": "Perfil de usuário",
-                    "lg-spa": "Perfil de usuario"
-                },
-                "type": "link",
-                "target_sections": [
-                    "dd234"
-                ]
-            },
-            {
-                "tipo": "dd468",
-                "label": {
-                    "lg-cat": "Caducitat de la contrasenya",
-                    "lg-deu": "Gültigkeitsdauer des Passworts",
-                    "lg-ell": "Λήξης κωδικού πρόσβασης",
-                    "lg-eng": "Password expiration",
-                    "lg-eus": "Pasahitza iraungitzea",
-                    "lg-fra": "Expiration du mot de passe",
-                    "lg-ita": "Scadenza della password",
-                    "lg-por": "Validade da senha",
-                    "lg-spa": "Caducidad de la contraseña"
-                },
-                "type": "date"
             },
             {
                 "tipo": "dd134",
@@ -99684,34 +99714,19 @@
                 "type": "text"
             },
             {
-                "tipo": "dd1053",
+                "tipo": "dd522",
                 "label": {
-                    "lg-cat": "Codi",
-                    "lg-deu": "Code",
-                    "lg-ell": "Κωδικός",
-                    "lg-eng": "Code",
-                    "lg-eus": "Kodea",
-                    "lg-fra": "Code",
-                    "lg-ita": "Codice",
-                    "lg-por": "Código",
-                    "lg-spa": "Código"
+                    "lg-cat": "Fotografia de perfil",
+                    "lg-deu": "Profilbild",
+                    "lg-ell": "Εικόνα προφίλ",
+                    "lg-eng": "Profile picture",
+                    "lg-eus": "Profileko argazkia",
+                    "lg-fra": "Photo de profil",
+                    "lg-ita": "Foto del profilo",
+                    "lg-por": "Foto de perfil",
+                    "lg-spa": "Foto de perfil"
                 },
-                "type": "text"
-            },
-            {
-                "tipo": "dd170",
-                "label": {
-                    "lg-cat": "Projectes",
-                    "lg-deu": "Projekte",
-                    "lg-ell": "έργα",
-                    "lg-eng": "Projects",
-                    "lg-eus": "Proiektuak",
-                    "lg-fra": "Projets",
-                    "lg-ita": "Progetti",
-                    "lg-por": "Projetos",
-                    "lg-spa": "Proyectos"
-                },
-                "type": "link"
+                "type": "media"
             },
             {
                 "tipo": "dd135",
@@ -99727,21 +99742,6 @@
                     "lg-spa": "Observaciones"
                 },
                 "type": "html"
-            },
-            {
-                "tipo": "dd522",
-                "label": {
-                    "lg-cat": "Fotografia de perfil",
-                    "lg-deu": "Profilbild",
-                    "lg-ell": "Εικόνα προφίλ",
-                    "lg-eng": "Profile picture",
-                    "lg-eus": "Profileko argazkia",
-                    "lg-fra": "Photo de profil",
-                    "lg-ita": "Foto del profilo",
-                    "lg-por": "Foto de perfil",
-                    "lg-spa": "Foto de perfil"
-                },
-                "type": "media"
             },
             {
                 "tipo": "dd692",
@@ -499565,12 +499565,12 @@
         "label": {
             "lg-deu": "Textstrukturen",
             "lg-ell": "Κειμένου δόμηση",
-            "lg-eng": "Text structuration",
+            "lg-eng": "Text structuration [DEPRECATED]",
             "lg-eus": "Testu-egituraketak",
             "lg-fra": "Structures de texte",
             "lg-ita": "Strutturazioni del testo",
             "lg-por": "Estruturações de texto",
-            "lg-spa": "Estructuraciones de texto"
+            "lg-spa": "Estructuraciones de texto [DEPRECATED]"
         },
         "fields": [
             {

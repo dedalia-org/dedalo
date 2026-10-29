@@ -5952,7 +5952,7 @@ dd-modal.dd_presets::part(content) {
   background-color: var(--color_grey_16);
 }
 .components_list_container > ul {
-  max-height: 80vh;
+  max-height: 50vh;
   overflow: auto;
 }
 .components_list_container ul {
@@ -13962,7 +13962,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 */
 .dd_readout {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: var(--dd_k_width, 13rem) minmax(0, 1fr);
   align-items: stretch;
   border: 1px solid var(--border_default);
   border-radius: 8px;
@@ -13993,6 +13993,17 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   align-items: center;
   min-width: 0;
   color: var(--fg_default);
+}
+.dd_readout .dd_k {
+  white-space: normal;
+  overflow-wrap: normal;
+}
+.dd_readout .dd_k,
+.dd_readout .dd_v {
+  align-items: flex-start;
+}
+.dd_readout .dd_k {
+  padding-top: calc(0.44rem + 0.22rem);
 }
 .dd_k,
 .dd_eyebrow {
@@ -14088,6 +14099,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .dd_badge.pill_ok,
 .dd_badge.pill_warning,
 .dd_badge.pill_danger,
+.dd_badge.pill_neutral,
 .dd_badge.mode_off,
 .dd_badge.mode_on,
 .dd_badge.mode_private,
@@ -14106,6 +14118,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .dd_badge.pill_ok:before,
 .dd_badge.pill_warning:before,
 .dd_badge.pill_danger:before,
+.dd_badge.pill_neutral:before,
 .dd_badge.mode_off:before,
 .dd_badge.mode_on:before,
 .dd_badge.mode_private:before,
@@ -14126,9 +14139,14 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-color: color-mix(in srgb, var(--color_success) 35%, transparent);
 }
 .dd_badge.pill_warning {
-  color: var(--color_warning);
-  background-color: color-mix(in srgb, var(--color_warning) 13%, transparent);
-  border-color: color-mix(in srgb, var(--color_warning) 35%, transparent);
+  color: var(--color_orange_dark);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-color: color-mix(in srgb, var(--color_orange_dark) 40%, transparent);
+}
+.dd_badge.pill_neutral {
+  color: var(--fg_muted);
+  background-color: var(--bg_surface_alt);
+  border-color: var(--border_default);
 }
 .dd_badge.pill_danger,
 .dd_badge.mode_off {
@@ -14155,14 +14173,15 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-radius: 0 5px 5px 0;
 }
 .dd_badge.state_warning {
-  background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-  border-left-color: var(--color_warning);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-left-color: var(--color_orange_dark);
 }
 .dd_badge.state_danger {
   background-color: color-mix(in srgb, var(--color_danger) 11%, transparent);
   border-left-color: var(--color_danger);
 }
 .dd_note {
+  max-width: 60rem;
   color: var(--fg_muted);
   font-size: 0.85rem;
   line-height: 1.4;
@@ -14176,12 +14195,149 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-radius: 0 6px 6px 0;
 }
 .dd_note.state_warning {
-  background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-  border-left-color: var(--color_warning);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-left-color: var(--color_orange_dark);
 }
 .dd_note.state_danger {
   background-color: color-mix(in srgb, var(--color_danger) 11%, transparent);
   border-left-color: var(--color_danger);
+}
+.dd_section {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.9rem;
+}
+.dd_actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border_default);
+}
+.dd_verdict {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg_default);
+}
+.dd_verdict.state_ok {
+  color: var(--color_success);
+}
+.dd_verdict.state_warning {
+  color: var(--color_orange_dark);
+}
+.dd_verdict.state_danger {
+  color: var(--color_danger);
+}
+.dd_prereq {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+.dd_prereq > .dd_prereq_text {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.dd_prereq > button {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.dd_fold > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  position: relative;
+  padding: 0.4rem 2.2rem 0.4rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.dd_fold > summary::-webkit-details-marker {
+  display: none;
+}
+.dd_fold > summary:after {
+  -webkit-mask-image: url('../../themes/default/icons/arrow_down.svg');
+  mask-image: url('../../themes/default/icons/arrow_down.svg');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  content: ' ';
+  position: absolute;
+  right: 0.6rem;
+  top: 50%;
+  width: 1em;
+  height: 1em;
+  margin-top: -0.5em;
+  background-color: var(--color_grey_10);
+  transition: transform 0.26s ease-out;
+}
+.dd_fold > summary:hover {
+  background-color: var(--bg_surface_alt);
+}
+.dd_fold > summary:focus-visible {
+  outline: 2px solid var(--color_primary);
+  outline-offset: 1px;
+}
+.dd_fold > summary > .dd_eyebrow {
+  margin: 0;
+}
+.dd_fold > summary:hover > .dd_eyebrow {
+  color: var(--fg_default);
+}
+.dd_fold > summary > .dd_fold_hint {
+  font-size: 0.85rem;
+  color: var(--fg_muted);
+  overflow-wrap: anywhere;
+}
+.dd_fold > summary > .dd_badge {
+  white-space: nowrap;
+}
+.dd_fold[open] > summary {
+  margin-bottom: 0.33rem;
+}
+.dd_fold[open] > summary:after {
+  transform: rotate(180deg);
+}
+.dd_fold:not([open]) > :not(summary) {
+  display: none;
+}
+.dd_options {
+  display: grid;
+  grid-template-columns: var(--dd_k_width, 13rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.35rem 0.85rem;
+}
+.dd_options > .dd_options_label {
+  padding-left: 0.85rem;
+}
+.dd_options > .dd_options_line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+}
+.dd_options > .dd_options_line > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+.dd_options > .dd_options_line > label > input {
+  height: initial;
+  margin: 0;
+}
+.dd_options > .dd_options_note {
+  grid-column: 2;
+  margin: 0;
+}
+.dd_options > .dd_options_note:empty {
+  display: none;
 }
 .dd_bar {
   display: flex;
@@ -14200,7 +14356,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   transition: width 0.3s ease;
 }
 .dd_bar_fill.state_warning {
-  background-color: var(--color_warning);
+  background-color: var(--color_orange_dark);
 }
 .dd_bar_fill.state_danger {
   background-color: var(--color_danger);
@@ -14284,7 +14440,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   color: var(--color_success);
 }
 .dd_stat_n.state_warning {
-  color: var(--color_warning);
+  color: var(--color_orange_dark);
 }
 .dd_stat_n.state_danger {
   color: var(--color_danger);
@@ -14300,6 +14456,29 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 * literal `.env_sample` block and a `.serve_url` endpoint row. Shared by
 * update_ontology (the ONTOLOGY_SERVERS note) and serve_ontology.
 */
+.area_maintenance .widget_body {
+  container-type: inline-size;
+}
+@container (max-width: 34rem) {
+  .dd_readout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dd_readout .dd_k {
+    border-right: 0;
+  }
+  .dd_readout .dd_v {
+    border-top: 0;
+  }
+  .dd_options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dd_options > .dd_options_label {
+    padding-left: 0;
+  }
+  .dd_options > .dd_options_note {
+    grid-column: 1;
+  }
+}
 .area_maintenance > .content_data h1 {
   line-height: 1em;
 }
@@ -14352,13 +14531,13 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_maintenance > .content_data button.warning,
 .area_maintenance > .content_data button.light.warning {
-  color: var(--color_warning);
-  border: 1px solid color-mix(in srgb, var(--color_warning) 45%, transparent);
-  background-color: color-mix(in srgb, var(--color_warning) 10%, transparent);
+  color: var(--color_orange_dark);
+  border: 1px solid color-mix(in srgb, var(--color_orange_dark) 40%, transparent);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
 }
 .area_maintenance > .content_data button.warning:hover,
 .area_maintenance > .content_data button.light.warning:hover {
-  background-color: color-mix(in srgb, var(--color_warning) 18%, transparent);
+  background-color: color-mix(in srgb, var(--color_orange) 50%, transparent);
 }
 .area_maintenance > .content_data button.primary,
 .area_maintenance > .content_data button.light.button_apply {
@@ -14384,7 +14563,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-radius: 0.25rem;
 }
 .area_maintenance > .content_data .warning {
-  color: var(--color_warning);
+  color: var(--color_orange_dark);
   font-weight: 500;
 }
 .area_maintenance > .content_data .config_grid {
@@ -15026,8 +15205,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   color: var(--fg_default);
   font-weight: 500;
   line-height: 1.4;
-  background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-  border-left: 3px solid var(--color_warning);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-left: 3px solid var(--color_orange_dark);
   border-radius: 0 6px 6px 0;
 }
 .area_maintenance > .content_data .widget_container > .widget_body .body_response pre {
@@ -15047,8 +15226,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   background-color: color-mix(in srgb, var(--color_danger) 8%, var(--bg_surface_alt));
 }
 .area_maintenance > .content_data .widget_container > .widget_body .body_response pre.warning {
-  border-left: 3px solid var(--color_warning);
-  background-color: color-mix(in srgb, var(--color_warning) 8%, var(--bg_surface_alt));
+  border-left: 3px solid var(--color_orange_dark);
+  background-color: color-mix(in srgb, var(--color_orange) 25%, var(--bg_surface_alt));
 }
 .area_maintenance > .content_data .widget_container > .widget_body .body_response > * {
   padding: 0.5em;
@@ -15208,7 +15387,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   gap: 0.4rem;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_summary .s_seg.warn {
-  color: var(--color_warning);
+  color: var(--color_orange_dark);
   cursor: pointer;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_hint {
@@ -15216,9 +15395,14 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   font-size: 12px;
   color: var(--fg_muted);
 }
-.area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_hint .danger_key {
-  color: var(--color_danger);
-  font-weight: 600;
+.area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_hint .tc_dot.danger_key {
+  display: inline-block;
+  vertical-align: middle;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0 0.1rem;
+  border-radius: 50%;
+  background-color: var(--color_danger);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_dot {
   width: 0.6rem;
@@ -15231,7 +15415,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   background-color: var(--color_success);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_dot.warn {
-  background-color: var(--color_warning);
+  background-color: var(--color_orange_dark);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_dot.bad {
   background-color: var(--color_danger);
@@ -15280,7 +15464,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   stroke-width: 2.1;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_edges path.warn {
-  stroke: var(--color_warning);
+  stroke: var(--color_orange_dark);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_node {
   position: absolute;
@@ -15446,7 +15630,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   color: var(--fg_muted);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_node.warn {
-  border-color: color-mix(in srgb, var(--color_warning) 45%, var(--border_default));
+  border-color: color-mix(in srgb, var(--color_orange_dark) 40%, transparent);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_node.bad {
   border-color: color-mix(in srgb, var(--color_danger) 45%, var(--border_default));
@@ -15464,7 +15648,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   display: grid;
   place-items: center;
   color: var(--fg_on_warning);
-  background-color: var(--color_warning);
+  background-color: var(--color_orange_dark);
   border-radius: 50%;
   font-size: 0.62rem;
   font-weight: 700;
@@ -15547,27 +15731,19 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-color: var(--border_strong);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .tool_chip .tc_dot {
-  width: 0.45rem;
-  height: 0.45rem;
+  width: 0.5rem;
+  height: 0.5rem;
   border-radius: 50%;
   background-color: var(--border_strong);
 }
-.area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .tool_chip.danger {
-  color: var(--color_danger);
-  border-color: color-mix(in srgb, var(--color_danger) 30%, var(--border_default));
-}
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .tool_chip.danger .tc_dot {
   background-color: var(--color_danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color_danger) 18%, transparent);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .tool_chip.sel {
   font-weight: 600;
   border-color: var(--color_orange_dedalo);
   background-color: color-mix(in srgb, var(--color_orange_dedalo) 14%, transparent);
-}
-.area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .tool_chip.danger.sel {
-  color: var(--color_danger);
-  border-color: var(--color_danger);
-  background-color: color-mix(in srgb, var(--color_danger) 12%, transparent);
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_body {
   padding: 0.9rem 1.15rem 1.2rem;
@@ -15885,7 +16061,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   padding-left: 1.6rem;
   font-size: 0.78rem;
   line-height: 1.35;
-  color: var(--color_warning);
+  color: var(--color_orange_dark);
 }
 .wrapper_widget.add_hierarchy .hierarchy_field_help.recommended_declined[hidden] {
   display: none;
@@ -15999,9 +16175,9 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   box-shadow: inset 0 0 0 1px var(--fg_muted);
 }
 .wrapper_widget.ai_models .model_state.state_incomplete {
-  color: var(--color_warning);
-  background-color: color-mix(in srgb, var(--color_warning) 13%, transparent);
-  border-color: color-mix(in srgb, var(--color_warning) 35%, transparent);
+  color: var(--color_orange_dark);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-color: color-mix(in srgb, var(--color_orange_dark) 40%, transparent);
 }
 .wrapper_widget.ai_models .model_state.state_damaged {
   color: var(--color_danger);
@@ -17230,8 +17406,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   color: var(--fg_default);
   font-size: 0.85rem;
   line-height: 1.4;
-  background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-  border-left: 3px solid var(--color_warning);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-left: 3px solid var(--color_orange_dark);
   border-radius: 0 6px 6px 0;
 }
 .wrapper_widget.register_tools .version_notice p {
@@ -17404,6 +17580,9 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 * vocabulary for both halves of the code exchange); only the build rows — the
 * action button beside the archive it writes — live here.
 */
+.wrapper_widget.serve_code {
+  --dd_k_width: minmax(min-content, 16rem);
+}
 .wrapper_widget.serve_code > .content_data > .serve_code_note {
   margin: 0 0 0.9rem 0;
 }
@@ -17420,53 +17599,11 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data .update_status .status_block {
   margin-bottom: 0.75rem;
 }
-.wrapper_widget.serve_code > .content_data .update_status .status_block .dd_eyebrow {
+.wrapper_widget.serve_code > .content_data .update_status .status_block > .dd_eyebrow {
   margin-bottom: 0.33rem;
 }
-.wrapper_widget.serve_code > .content_data .update_status .status_fold {
+.wrapper_widget.serve_code > .content_data .update_status .dd_fold {
   margin-bottom: 0.4rem;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.3rem 0;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary::-webkit-details-marker {
-  display: none;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary:before {
-  content: '\25B8';
-  color: var(--fg_muted);
-  font-size: 0.8rem;
-  transition: transform 0.12s ease;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary > .dd_eyebrow {
-  margin-bottom: 0;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary > .fold_hint {
-  font-size: 0.9em;
-  color: var(--fg_muted);
-  overflow-wrap: anywhere;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary > .dd_badge {
-  white-space: nowrap;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold > .status_fold_summary:hover > .dd_eyebrow {
-  color: var(--fg_default);
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold[open] > .status_fold_summary {
-  margin-bottom: 0.33rem;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold[open] > .status_fold_summary:before {
-  transform: rotate(90deg);
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_fold:not([open]) > .dd_readout {
-  display: none;
 }
 .wrapper_widget.serve_code > .content_data .update_status .readiness_block > .status_verdict {
   margin-top: 0.25rem;
@@ -17475,23 +17612,15 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data .update_status .readiness_block > .attention_checks {
   margin-bottom: 0.5rem;
 }
-.wrapper_widget.serve_code > .content_data .update_status .readiness_block > .status_fold {
+.wrapper_widget.serve_code > .content_data .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
 }
+.wrapper_widget.serve_code > .content_data .update_status .readiness_block > .maintenance_prereq {
+  margin-bottom: 0.5rem;
+}
 .wrapper_widget.serve_code > .content_data .update_status .status_verdict {
-  font-size: 1rem;
-  font-weight: bold;
   margin-top: 0.5rem;
-  margin-bottom: 2rem;
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_verdict.state_ok {
-  color: var(--color_success);
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_verdict.state_danger {
-  color: var(--color_danger);
-}
-.wrapper_widget.serve_code > .content_data .update_status .status_verdict.state_warning {
-  color: var(--color_warning);
+  margin-bottom: 0.75rem;
 }
 .wrapper_widget.serve_code > .content_data .update_status .check_row .dd_v {
   display: flex;
@@ -17506,7 +17635,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data .update_status .check_row .check_scope {
   font-size: 0.9em;
   opacity: 0.7;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .wrapper_widget.serve_code > .content_data .update_status .check_row .check_note {
   flex-basis: 100%;
@@ -17562,8 +17691,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data > .serve_code_body > .update_status:first-child {
   margin-top: 0;
 }
-.wrapper_widget.serve_code > .content_data .dd_readout {
-  grid-template-columns: minmax(min-content, 20rem) 1fr;
+.wrapper_widget.serve_code > .content_data .build_row > .dd_v {
+  align-items: center;
 }
 .wrapper_widget.serve_code > .content_data .build_row > .dd_k.build_action {
   display: flex;
@@ -17891,7 +18020,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   font-size: 0.8rem;
 }
 .wrapper_widget.system_info .datalist_container > .list_container .info_item > .info.warning {
-  color: var(--color_warning);
+  color: var(--color_orange_dark);
   font-weight: 600;
 }
 .wrapper_widget.system_info .datalist_container > .health_list_container > .info_item,
@@ -18055,23 +18184,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   background-color: var(--bg_surface);
 }
 .wrapper_widget.update_ontology .serving_info > summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.75rem;
   font-size: 0.85rem;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.wrapper_widget.update_ontology .serving_info > summary::-webkit-details-marker {
-  display: none;
-}
-.wrapper_widget.update_ontology .serving_info > summary:before {
-  content: '\25B8';
-  color: var(--fg_muted);
-  font-size: 0.8rem;
-  transition: transform 0.12s ease;
+  border-radius: 0;
 }
 .wrapper_widget.update_ontology .serving_info > summary .ttl {
   font-weight: 600;
@@ -18081,8 +18195,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_ontology .serving_info > summary .dd_badge {
   flex: 0 0 auto;
 }
-.wrapper_widget.update_ontology .serving_info[open] > summary:before {
-  transform: rotate(90deg);
+.wrapper_widget.update_ontology .serving_info[open] > summary {
+  margin-bottom: 0;
 }
 .wrapper_widget.update_ontology .serving_info:not([open]) .serving_body {
   display: none;
@@ -18374,28 +18488,13 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   margin-top: 0.5rem;
 }
 .wrapper_widget.update_ontology .body_response .response_detail > summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--fg_default);
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
+  border-radius: 0;
 }
-.wrapper_widget.update_ontology .body_response .response_detail > summary::-webkit-details-marker {
-  display: none;
-}
-.wrapper_widget.update_ontology .body_response .response_detail > summary:before {
-  content: '▸';
-  color: var(--fg_muted);
-  font-size: 0.8rem;
-  transition: transform 0.12s ease;
-}
-.wrapper_widget.update_ontology .body_response .response_detail[open] > summary:before {
-  transform: rotate(90deg);
+.wrapper_widget.update_ontology .body_response .response_detail[open] > summary {
+  margin-bottom: 0;
 }
 .wrapper_widget.update_ontology .body_response .response_detail > pre {
   margin: 0;
@@ -18463,10 +18562,24 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code .server_picker .server_row .dd_badge {
   flex: 0 0 auto;
 }
-.wrapper_widget.update_code > .content_data > .button_submit {
-  margin: 1rem;
-  margin-left: 0px;
-  margin-bottom: 2rem;
+.wrapper_widget.update_code > .content_data > .dd_readout {
+  margin-bottom: 0.75rem;
+}
+.wrapper_widget.update_code > .content_data > .dd_note {
+  margin: 0.5rem 0;
+}
+.wrapper_widget.update_code > .content_data > .update_actions {
+  margin-bottom: 1rem;
+}
+.wrapper_widget.update_code > .content_data > .update_actions > .server_picker,
+.wrapper_widget.update_code > .content_data > .update_actions > .channel_row {
+  align-self: stretch;
+}
+.wrapper_widget.update_code > .content_data > .update_actions > .actions_hint:empty {
+  display: none;
+}
+.wrapper_widget.update_code > .content_data > .update_actions > .button_submit {
+  margin: 0;
   padding: 0.5rem 1.1rem;
   font-size: 1em;
   font-weight: 600;
@@ -18475,48 +18588,22 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border: 1px solid color-mix(in srgb, var(--color_orange_dedalo) 75%, #000);
   border-radius: 4px;
 }
-.wrapper_widget.update_code > .content_data > .button_submit:before {
+.wrapper_widget.update_code > .content_data > .update_actions > .button_submit:before {
   background-color: var(--button-bg-color, #ffffff) !important;
 }
-.wrapper_widget.update_code > .content_data > .button_submit:hover:not(:disabled) {
+.wrapper_widget.update_code > .content_data > .update_actions > .button_submit:hover:not(:disabled) {
   background-color: color-mix(in srgb, var(--color_orange_dedalo) 88%, #000);
 }
-.wrapper_widget.update_code > .content_data > .button_submit:disabled {
+.wrapper_widget.update_code > .content_data > .update_actions > .button_submit:disabled {
   color: var(--fg_muted);
   background-color: var(--bg_surface_alt);
   border-color: var(--border_default);
 }
-.wrapper_widget.update_code > .content_data > .dd_readout {
-  margin-bottom: 0.75rem;
-}
-.wrapper_widget.update_code > .content_data > .dd_note {
-  margin: 0.5rem 0;
-}
-.wrapper_widget.update_code > .content_data > .channel_row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 1.25rem;
-  margin: 0.75rem 0 0.25rem 0;
-}
-.wrapper_widget.update_code > .content_data > .channel_row > .channel_heading {
-  font-weight: bold;
-}
-.wrapper_widget.update_code > .content_data > .channel_row > .channel_option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  padding-bottom: 0px;
-}
-.wrapper_widget.update_code > .content_data > .channel_row > .channel_option > .channel_radio {
-  height: initial;
-}
-.wrapper_widget.update_code > .content_data > .channel_row > .channel_option_prerelease,
-.wrapper_widget.update_code > .content_data > .channel_row > .channel_option_dev {
+.wrapper_widget.update_code > .content_data > .update_actions > .channel_row .channel_option_prerelease,
+.wrapper_widget.update_code > .content_data > .update_actions > .channel_row .channel_option_dev {
   color: var(--color_blue_2);
 }
-.wrapper_widget.update_code > .content_data > .channel_row > .channel_option_dev > .dev_channel_icon {
+.wrapper_widget.update_code > .content_data > .update_actions > .channel_row .channel_option_dev > .dev_channel_icon {
   content: ' ';
   display: inline-block;
   flex: 0 0 auto;
@@ -18532,15 +18619,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   mask-position: center;
   background-color: var(--color_blue_2);
 }
-.wrapper_widget.update_code > .content_data > .channel_row > .dd_note.channel_note {
-  flex-basis: 100%;
-  margin: 0.25rem 0 0 0;
-  max-width: 60rem;
-}
-.wrapper_widget.update_code > .content_data > .channel_row:not(:has(.channel_option_prerelease >.channel_radio:checked)) > .dd_note.channel_note_prerelease,
-.wrapper_widget.update_code > .content_data > .channel_row:not(:has(.channel_option_dev >.channel_radio:checked)) > .dd_note.channel_note_dev {
-  display: none;
-}
 .wrapper_widget.update_code > .content_data .update_status {
   margin-bottom: 1rem;
 }
@@ -18554,53 +18632,11 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code > .content_data .update_status .status_block {
   margin-bottom: 0.75rem;
 }
-.wrapper_widget.update_code > .content_data .update_status .status_block .dd_eyebrow {
+.wrapper_widget.update_code > .content_data .update_status .status_block > .dd_eyebrow {
   margin-bottom: 0.33rem;
 }
-.wrapper_widget.update_code > .content_data .update_status .status_fold {
+.wrapper_widget.update_code > .content_data .update_status .dd_fold {
   margin-bottom: 0.4rem;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.3rem 0;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary::-webkit-details-marker {
-  display: none;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary:before {
-  content: '\25B8';
-  color: var(--fg_muted);
-  font-size: 0.8rem;
-  transition: transform 0.12s ease;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary > .dd_eyebrow {
-  margin-bottom: 0;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary > .fold_hint {
-  font-size: 0.9em;
-  color: var(--fg_muted);
-  overflow-wrap: anywhere;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary > .dd_badge {
-  white-space: nowrap;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold > .status_fold_summary:hover > .dd_eyebrow {
-  color: var(--fg_default);
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold[open] > .status_fold_summary {
-  margin-bottom: 0.33rem;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold[open] > .status_fold_summary:before {
-  transform: rotate(90deg);
-}
-.wrapper_widget.update_code > .content_data .update_status .status_fold:not([open]) > .dd_readout {
-  display: none;
 }
 .wrapper_widget.update_code > .content_data .update_status .readiness_block > .status_verdict {
   margin-top: 0.25rem;
@@ -18609,23 +18645,15 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code > .content_data .update_status .readiness_block > .attention_checks {
   margin-bottom: 0.5rem;
 }
-.wrapper_widget.update_code > .content_data .update_status .readiness_block > .status_fold {
+.wrapper_widget.update_code > .content_data .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
 }
+.wrapper_widget.update_code > .content_data .update_status .readiness_block > .maintenance_prereq {
+  margin-bottom: 0.5rem;
+}
 .wrapper_widget.update_code > .content_data .update_status .status_verdict {
-  font-size: 1rem;
-  font-weight: bold;
   margin-top: 0.5rem;
-  margin-bottom: 2rem;
-}
-.wrapper_widget.update_code > .content_data .update_status .status_verdict.state_ok {
-  color: var(--color_success);
-}
-.wrapper_widget.update_code > .content_data .update_status .status_verdict.state_danger {
-  color: var(--color_danger);
-}
-.wrapper_widget.update_code > .content_data .update_status .status_verdict.state_warning {
-  color: var(--color_warning);
+  margin-bottom: 0.75rem;
 }
 .wrapper_widget.update_code > .content_data .update_status .check_row .dd_v {
   display: flex;
@@ -18640,7 +18668,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code > .content_data .update_status .check_row .check_scope {
   font-size: 0.9em;
   opacity: 0.7;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .wrapper_widget.update_code > .content_data .update_status .check_row .check_note {
   flex-basis: 100%;
@@ -18845,6 +18873,17 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   text-align: center;
   margin-top: 2rem;
   min-height: 6rem;
+}
+.widget_update_code_modal .footer .update_gate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
+  max-width: 60rem;
+  margin: 0 auto 1.5rem auto;
+}
+.widget_update_code_modal .footer .update_gate:empty {
+  display: none;
 }
 .widget_update_code_modal .footer .waive_backup_row {
   text-align: left;
@@ -19219,53 +19258,11 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.publication_hosts .update_status .status_block {
   margin-bottom: 0.75rem;
 }
-.wrapper_widget.publication_hosts .update_status .status_block .dd_eyebrow {
+.wrapper_widget.publication_hosts .update_status .status_block > .dd_eyebrow {
   margin-bottom: 0.33rem;
 }
-.wrapper_widget.publication_hosts .update_status .status_fold {
+.wrapper_widget.publication_hosts .update_status .dd_fold {
   margin-bottom: 0.4rem;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.3rem 0;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary::-webkit-details-marker {
-  display: none;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary:before {
-  content: '\25B8';
-  color: var(--fg_muted);
-  font-size: 0.8rem;
-  transition: transform 0.12s ease;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary > .dd_eyebrow {
-  margin-bottom: 0;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary > .fold_hint {
-  font-size: 0.9em;
-  color: var(--fg_muted);
-  overflow-wrap: anywhere;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary > .dd_badge {
-  white-space: nowrap;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold > .status_fold_summary:hover > .dd_eyebrow {
-  color: var(--fg_default);
-}
-.wrapper_widget.publication_hosts .update_status .status_fold[open] > .status_fold_summary {
-  margin-bottom: 0.33rem;
-}
-.wrapper_widget.publication_hosts .update_status .status_fold[open] > .status_fold_summary:before {
-  transform: rotate(90deg);
-}
-.wrapper_widget.publication_hosts .update_status .status_fold:not([open]) > .dd_readout {
-  display: none;
 }
 .wrapper_widget.publication_hosts .update_status .readiness_block > .status_verdict {
   margin-top: 0.25rem;
@@ -19274,23 +19271,15 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.publication_hosts .update_status .readiness_block > .attention_checks {
   margin-bottom: 0.5rem;
 }
-.wrapper_widget.publication_hosts .update_status .readiness_block > .status_fold {
+.wrapper_widget.publication_hosts .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
 }
+.wrapper_widget.publication_hosts .update_status .readiness_block > .maintenance_prereq {
+  margin-bottom: 0.5rem;
+}
 .wrapper_widget.publication_hosts .update_status .status_verdict {
-  font-size: 1rem;
-  font-weight: bold;
   margin-top: 0.5rem;
-  margin-bottom: 2rem;
-}
-.wrapper_widget.publication_hosts .update_status .status_verdict.state_ok {
-  color: var(--color_success);
-}
-.wrapper_widget.publication_hosts .update_status .status_verdict.state_danger {
-  color: var(--color_danger);
-}
-.wrapper_widget.publication_hosts .update_status .status_verdict.state_warning {
-  color: var(--color_warning);
+  margin-bottom: 0.75rem;
 }
 .wrapper_widget.publication_hosts .update_status .check_row .dd_v {
   display: flex;
@@ -19305,7 +19294,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.publication_hosts .update_status .check_row .check_scope {
   font-size: 0.9em;
   opacity: 0.7;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .wrapper_widget.publication_hosts .update_status .check_row .check_note {
   flex-basis: 100%;
@@ -19377,10 +19366,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   background-color: var(--bg_surface);
   padding: 0.75rem 0.9rem;
   margin-bottom: 0;
-}
-.wrapper_widget.publication_hosts .publication_host .dd_readout,
-.wrapper_widget.publication_hosts .publication_host_draft .dd_readout {
-  grid-template-columns: minmax(min-content, 14rem) 1fr;
 }
 .wrapper_widget.publication_hosts .host_actions {
   display: flex;
@@ -19537,8 +19522,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   padding: 0.55rem 0.7rem;
   color: var(--fg_default);
   line-height: 1.4;
-  background-color: color-mix(in srgb, var(--color_warning) 12%, transparent);
-  border-left: 3px solid var(--color_warning);
+  background-color: color-mix(in srgb, var(--color_orange) 32%, transparent);
+  border-left: 3px solid var(--color_orange_dark);
   border-radius: 0 6px 6px 0;
 }
 .wrapper_widget.update_data_version .info_text.error_text {
@@ -26061,21 +26046,11 @@ body.inspector_resizing {
 * view_tree_portal
 *
 * Included from component_portal.less file
+* Rows render as view_line (see view_tree_edit_portal.js), styled by view_line_portal.less
 */
 .component_portal.view_tree.edit,
 .portal.view_tree.edit {
   display: block;
-}
-.component_portal.view_tree.edit > .content_data,
-.portal.view_tree.edit > .content_data {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  overflow: auto;
-  padding: 0px;
-}
-.component_portal.view_tree.edit > .content_data > .column,
-.portal.view_tree.edit > .content_data > .column {
-  padding: 0.12rem;
 }
 /**
 * view_indexation_portal

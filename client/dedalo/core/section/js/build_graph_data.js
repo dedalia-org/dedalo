@@ -1097,13 +1097,14 @@ export const parse_relation_list_response = function(result, root_section_tipo, 
 *   - `links` — inverse links (`is_inverse: true`)
 *   - `total` — full count of referencing records (for pagination)
 *   - `loaded` — number of nodes actually returned in this batch
-*   Returns `{ nodes: [], links: [], total: 0, loaded: 0 }` on failure or when
-*   `relation_list_tipo` is not configured.
+*   Returns `{ nodes: [], links: [], total: 0, loaded: 0 }` on failure, when
+*   `relation_list_tipo` is not stamped, or with no root_section_id.
 */
 export const fetch_inverse_relations = async function(self, root_section_tipo, root_section_id, options={}) {
 
 	const relation_list_tipo = self?.context?.config?.relation_list_tipo
-	if (!relation_list_tipo) {
+	// no grant (stamped per principal) or no record: no request (a null pin is invalid)
+	if (!relation_list_tipo || root_section_id===null || root_section_id===undefined || root_section_id==='') {
 		return { nodes: [], links: [], total: 0, loaded: 0 }
 	}
 

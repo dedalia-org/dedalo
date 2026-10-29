@@ -818,14 +818,21 @@ export const build_map_view = function(self, widgets, opts={}) {
 			class_name		: 'map_summary',
 			parent			: root
 		})
-		ui.create_dom_element({
+		const map_hint = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'map_hint',
-			inner_html		: (get_label.maintenance_map_hint
-				|| 'Click a subsystem to see its status and the tools that act on it.')
-				+ ' Tools in <span class="danger_key">red</span> are destructive or irreversible.',
+			text_content	: (get_label.maintenance_map_hint
+				|| 'Click a subsystem to see its status and the tools that act on it.') + ' ',
 			parent			: root
 		})
+		// the legend's key IS the dot the destructive chips carry
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'tc_dot danger_key',
+			parent			: map_hint
+		})
+		map_hint.appendChild(document.createTextNode(' ' + (get_label.maintenance_map_danger_hint
+			|| 'Red dot: destructive or irreversible tool.')))
 
 	// stage + edges svg
 		const stage_wrap = ui.create_dom_element({
@@ -1031,8 +1038,13 @@ export const build_map_view = function(self, widgets, opts={}) {
 				chip.innerHTML = '<span class="tc_dot"></span>'
 				chip.appendChild(document.createTextNode(tool_label(tid)))
 				chip.dataset.id = tid
+				// destructive: the red DOT is the only visual mark (subtle by design —
+				// these are the most-used tools); the meaning is also in words for
+				// hover and assistive technology, never colour alone
 				if (MAP_DANGER_IDS.has(tid)) {
-					chip.title = 'Destructive / irreversible operation'
+					const destructive_text = get_label.maintenance_tool_destructive || 'Destructive / irreversible operation'
+					chip.title = destructive_text
+					chip.setAttribute('aria-label', tool_label(tid) + ' — ' + destructive_text)
 				}
 				chip.addEventListener('click', () => select_tool(id, tid))
 			})
@@ -2111,17 +2123,20 @@ export const set_widget_label_style = function (self, style, mode, ref_node) {
 		return
 	}
 
-	const wrapper = self.node
-	const widget_container = wrapper.parentNode?.parentNode
-	if (widget_container) {
-		requestAnimationFrame(()=>{
-			if (mode==='remove') {
-				widget_container.classList.remove(style)
-			}else{
-				widget_container.classList.add(style)
-			}
-		})
-	}
+	requestAnimationFrame(()=>{
+		// resolved in the frame: until mounted, the grandparent is the render
+		// DocumentFragment (no classList) — and stays one when a newer System Map
+		// selection drops this widget
+		const widget_container = self.node.parentNode?.parentNode
+		if (!(widget_container instanceof Element)) {
+			return
+		}
+		if (mode==='remove') {
+			widget_container.classList.remove(style)
+		}else{
+			widget_container.classList.add(style)
+		}
+	})
 }//end set_widget_label_style
 
 

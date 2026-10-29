@@ -1870,6 +1870,11 @@ async function runModelRepair(
 
 export const tool: ToolServerModule = {
 	name: 'tool_transcription',
+	// Its media / transcription / status roles come ONLY from the caller's
+	// properties.tool_config.tool_transcription ddo_map (no default map): offered on a
+	// bare av/image/pdf (a user avatar, a gallery image) it opened on null roles and
+	// crashed (`null.model`). Offered where it is configured (rsc29/35/37, oh81).
+	isAvailable: (context) => context.hasToolConfig,
 	// `permission: null` throughout, because the target of every media action is a
 	// NESTED ddo (or a model name) or a (section, component, record) triple the
 	// declarative kinds cannot express on BOTH halves (build_subtitles_file gates

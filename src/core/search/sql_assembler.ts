@@ -32,7 +32,7 @@ import { config } from '../../config/config.ts';
 import { readString } from '../../config/readers.ts';
 import type { Sqo } from '../concepts/sqo.ts';
 import { getSectionTipos } from '../concepts/sqo.ts';
-import { assertMatrixTable } from '../db/matrix.ts';
+import { assertMatrixTable, isMatrixTable } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
@@ -1172,7 +1172,7 @@ async function scopedRowsSectionDisjunct(
 			message: `scoped existence: no resolvable matrix table for section '${sectionTipo}'`,
 		});
 	}
-	assertMatrixTable(table);
+	assertSectionRecordTable(sectionTipo, table);
 	const conditions = [
 		`${alias}.section_tipo = scoped_rows.section_tipo`,
 		`${alias}.section_id = scoped_rows.section_id`,
@@ -1492,6 +1492,24 @@ function flipDeepPage(
 	};
 }
 
+/**
+ * The table a section's ontology names must be a v7 RECORD table. One that is not
+ * (rsc370 → the v6 `matrix_structurations`, never migrated, absent from every v7
+ * database) is a DEFINITION defect the install must correct — `ontology.invalid_node`,
+ * never `internal.invariant` (an engine bug) — so the section answers the "ontology
+ * definition is unusable" page instead of a crash. assertMatrixTable stays as the
+ * identifier gate (defense in depth).
+ */
+function assertSectionRecordTable(sectionTipo: string, table: string): void {
+	if (!isMatrixTable(table)) {
+		throw new DedaloError('ontology.invalid_node', {
+			message: `section '${sectionTipo}' stores its records in '${table}', which is not a record table in this version — the ontology must retire or repoint the section`,
+			coordinates: { tipo: sectionTipo, table },
+		});
+	}
+	assertMatrixTable(table);
+}
+
 /** The SQO→SQL assembler proper: one section (or a UNION of them), no pre-pass. */
 async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<BuiltQuery> {
 	const sectionTipos = getSectionTipos(sqo).map((tipo) =>
@@ -1509,7 +1527,7 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 	for (const tipo of sectionTipos) {
 		const table = await getMatrixTableFromTipo(tipo);
 		if (table !== null && !tables.includes(table)) {
-			assertMatrixTable(table);
+			assertSectionRecordTable(tipo, table);
 			tables.push(table);
 		}
 	}

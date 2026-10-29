@@ -6,6 +6,8 @@
 
 // imports
 	import {ui} from '../../../../common/js/ui.js'
+	import {MAINTENANCE_MODE_ENABLED_EVENT} from '../../../js/maintenance_events.js'
+	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
 	import {item_release} from './update_code_channel.js'
 
 
@@ -47,8 +49,9 @@
 * (`area_maintenance/css/widget_kit.less`: .dd_badge + pill_ok / pill_warning /
 * pill_danger, calm by default and coloured only where action is needed). A
 * parallel chip system local to this widget would drift from every other
-* maintenance panel, so there is none — `unknown` is a plain, muted badge
-* because "not decidable here" is information, not an alarm.
+* maintenance panel, so there is none — `unknown` is a NEUTRAL pill: muted,
+* because "not decidable here" is information, not an alarm, but the same
+* shape as its neighbours so a column of states lines up.
 * @param {string} state - 'ok' | 'warn' | 'blocked' | 'unknown'
 * @returns {HTMLElement}
 */
@@ -58,7 +61,7 @@ const state_chip = function(state) {
 		ok		: 'dd_badge pill_ok',
 		warn	: 'dd_badge pill_warning',
 		blocked	: 'dd_badge pill_danger',
-		unknown	: 'dd_badge'
+		unknown	: 'dd_badge pill_neutral'
 	}
 	const words = {
 		ok		: get_label.update_code_state_ok || 'ok',
@@ -159,7 +162,7 @@ export const fold_section = function(parent, key, title, options) {
 
 	const block = ui.create_dom_element({
 		element_type	: 'details',
-		class_name		: `status_block status_fold fold_${key}`,
+		class_name		: `status_block dd_fold fold_${key}`,
 		parent			: parent
 	})
 	if (opts.force_open===true || read_fold(key)===true) {
@@ -168,7 +171,6 @@ export const fold_section = function(parent, key, title, options) {
 
 	const summary = ui.create_dom_element({
 		element_type	: 'summary',
-		class_name		: 'status_fold_summary',
 		parent			: block
 	})
 	ui.create_dom_element({
@@ -180,7 +182,7 @@ export const fold_section = function(parent, key, title, options) {
 	if (opts.hint) {
 		ui.create_dom_element({
 			element_type	: 'span',
-			class_name		: 'fold_hint',
+			class_name		: 'dd_fold_hint',
 			text_content	: opts.hint,
 			parent			: summary
 		})
@@ -528,7 +530,7 @@ export const verdict = function(parent, ready, ok_label, bad_label, waived_label
 	const waived = ready===true && typeof waived_label==='string'
 	const node = ui.create_dom_element({
 		element_type	: 'div',
-		class_name		: `status_verdict ${ready ? (waived ? 'state_warning' : 'state_ok') : 'state_danger'}`,
+		class_name		: `dd_verdict status_verdict ${ready ? (waived ? 'state_warning' : 'state_ok') : 'state_danger'}`,
 		text_content	: ready ? (waived ? waived_label : ok_label) : bad_label,
 		parent			: parent
 	})
@@ -596,6 +598,14 @@ const render_readiness = function(parent, consumer) {
 	const attention = checks.filter(check =>
 		check.state==='blocked' || check.state==='warn' || check===waiver_check
 	)
+	// maintenance mode is the one blocked gate the operator can lift HERE: the
+	// reason and the switch, before any picker or modal. The event tells the
+	// panel (and an open version modal) to re-read the status.
+	if (checks.some(check => check.id==='maintenance_mode' && check.state==='blocked')) {
+		render_maintenance_prereq(block, () => {
+			block.dispatchEvent(new CustomEvent(MAINTENANCE_MODE_ENABLED_EVENT, {bubbles : true}))
+		})
+	}
 	if (attention.length) {
 		const attention_readout = ui.create_dom_element({
 			element_type	: 'div',
@@ -1025,6 +1035,13 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 		parent			: parent
 	})
 
+	// readiness FIRST on a tree-swap install: the verdict heads the panel
+	// (verdict → attention → facts → actions). A container install folds it
+	// under the image block instead.
+		if (!consumer.image) {
+			render_readiness(wrapper, consumer)
+		}
+
 	// what is running
 		const engine = consumer.engine || {}
 		// THREE postures, not two: 'dev' now covers a working checkout AND an
@@ -1064,8 +1081,10 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 			render_image_updates(wrapper, consumer.image, image_actions)
 		}
 
-	// readiness
-		render_readiness(wrapper, consumer)
+	// readiness (container install: folded, after the image block)
+		if (consumer.image) {
+			render_readiness(wrapper, consumer)
+		}
 
 	// last update — only when there has been one
 		const sentinel = consumer.last_update

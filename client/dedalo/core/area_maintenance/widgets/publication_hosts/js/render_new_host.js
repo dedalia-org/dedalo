@@ -340,7 +340,7 @@ const save_kit = function (self, data) {
 const render_pair_form = function (self, row, card, body_response) {
 	const details = ui.create_dom_element({
 		element_type: 'details',
-		class_name: 'host_edit pair_package',
+		class_name: 'dd_fold host_edit pair_package',
 		parent: card,
 	});
 	ui.create_dom_element({
@@ -429,7 +429,7 @@ const render_pair_form = function (self, row, card, body_response) {
 const render_draft_form = function (self, parent, body_response) {
 	const details = ui.create_dom_element({
 		element_type: 'details',
-		class_name: 'host_edit new_host_form',
+		class_name: 'dd_fold host_edit new_host_form',
 		parent: parent,
 	});
 	ui.create_dom_element({

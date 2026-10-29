@@ -19,6 +19,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Tree-picker portals show their linked records like Parent and Children.**
+
+    Portals that link terms through the tree picker (for example "Connected to" in an ontology record) spread each linked record across wide columns. They now show it on one line, `term | tld | id | model`, with the same edit, tree and remove buttons as the Parent and Children fields.
+
 - **An empty date field is now blank until you hover or select it.**
 
     An empty date field in the edit form showed its input format (`DD/MM/YYYY`), the `<>` range separator and the period labels even when it held no value. It now stays blank, like text fields and selectors, and shows them when you hover the field or select it. A range with only one date filled in keeps its separator. On a phone or tablet, the calendar button now appears once you tap the field.
@@ -32,6 +36,61 @@ Merged since the last release; these ship with the next one.
     Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
 
 #### Fixed
+
+- **The side panel of a record that does not exist no longer offers record actions.**
+
+    Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
+
+- **The menu no longer offers Maintenance or Development to users whose profile does not grant them.**
+
+    An administrator or developer whose profile did not grant the Maintenance area still saw it in the menu, and opening it showed the no-access page. The same happened to developers with the Development area. Each now appears only when the profile grants it, as every other menu entry already did. The main administrator is not affected.
+
+    Wire contract: `WC-2026-10-28-menu-role-areas-need-grant`.
+
+- **A saved search whose field no longer exists in the ontology no longer breaks the search panel.**
+
+    A search filter stores each field as it was when it was saved. After an ontology
+    update removed a field, or changed its type, opening the search panel with that
+    filter left an empty row and could stop the panel from loading the rest. Now the
+    row shows *Invalid component* in the field's place, the field is left out of every
+    search, and your current (unsaved) filter is saved again without it, so the next
+    load is clean. A field that only failed to load (a network drop, a timeout, a
+    server error) also shows *Invalid component*, but its condition is kept. Named presets are not rewritten for you: load one, check it and save
+    it again to remove the field for good. Until the current filter has been saved
+    again, the panel may offer the error report once for the missing field.
+
+- **Three sections with ontology defects now open, or say clearly why they cannot.**
+
+    The Ontology and Ontology commons lists (in Development) failed to open on development servers and showed an empty column elsewhere, because their column list includes a program label. Labels are no longer treated as columns, so both lists open.
+
+    The Text structuration list (in Auxiliary) failed with an internal error. Its definition points at a table from Dédalo 6 that version 7 does not have. It now shows the message that an ontology definition is unusable, which is the real cause. The section is marked deprecated in the master ontology and no longer points at that table; installations receive the change with their next ontology update.
+
+    Wire contract: `WC-2026-10-28-section-definition-defects`.
+
+- **Four tools that failed to open, or did more than asked, are fixed.**
+
+    - The Transcription tool is offered only on media fields set up for transcription. On other images, audio and PDFs (such as a user's picture) it used to appear and fail to open.
+    - The Upload tool works again on JSON fields: uploading a `.json` file replaces the field's value. A file that is not valid JSON is refused and nothing changes.
+    - The Time Machine tool opens from inverse-relation fields; it failed with an error before.
+    - Opening the Diffusion tool no longer retries pending deletions behind the scenes. It only counts them for the "Pending deletions" badge; the retry runs when you press Retry.
+
+    Wire contract: `WC-2026-10-28-tool-open-defects`.
+
+- **Your user settings show your profile, and selection lists no longer show another user's labels.**
+
+    In the user settings tool (your name in the menu), an administrator other than the main administrator was refused their own user number, user name and profile, and the profile was often empty for everyone. The tool now shows all three, read-only. The profile shows only the name of your own profile, even if your permissions do not include the Profiles section.
+
+    Selection lists could show the option names of whoever opened them first since the server started: empty names for users who should see them, or names a user is not allowed to read. Each user now sees the names their own permissions allow.
+
+    Wire contract: `WC-2026-10-28-own-user-record-read-floor`.
+
+- **Opening a record you cannot access shows the no-access page, and the Relations panel appears only when you may read it.**
+
+    Opening a record by its address (a bookmark or a shared link) when the record belongs to a project you do not work in showed an empty form, and the side panel then showed an error message. It now shows the no-access page. A record that does not exist gets the same page, so the page never tells you whether a record you cannot see exists. Administrators are not affected.
+
+    The Relations panel in the side panel of a record is now shown only to users whose profile grants it for that section. Before, it was shown to everyone and then refused to open for users without that permission. If the panel cannot be loaded, it now shows a short message instead of an empty list.
+
+    Wire contract: `WC-2026-10-27-start-deep-link-record-scope`, `WC-2026-10-27-relation-list-grant-stamp`.
 
 - **The inspector's Component history keeps all its rows after you add a note, and pages through long histories.**
 
@@ -56,7 +115,40 @@ Merged since the last release; these ship with the next one.
 
 ### For administrators
 
+#### Security
+
+- **The relations of a record are only shown to users who can open that record.**
+
+    A user with access to a section could ask which records point at any record of that section, including records outside their projects. The same was true of the thesaurus "show indexations" list for a term. Dédalo now refuses that request unless the user can open the record itself, and answers the same way when the record does not exist. Nothing changes for records you can open.
+
+    Wire contract: `WC-2026-10-28-related-host-record-scope`.
+
+- **A link to a single field of a record outside your projects is refused like a link to the record.**
+
+    Opening a link to one field of a record outside your projects used to show an empty page instead of the "no permission" page that a link to the record itself shows. No data was shown, but the two answers did not match. Both links now show the same "no permission" page, which is also what a link to a record that does not exist shows.
+
+    Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
+
 #### Changed
+
+- **The publication tool asks for the number of pending deletions without using the retry action.**
+
+    The publication tool shows how many deletions are still waiting to reach the publication server. It now gets that number from a separate, read-only request instead of the request that retries the deletions. Nothing changes on screen; read-only checks of the installation no longer block it.
+
+    Wire contract: `WC-2026-10-28-count-pending-deletions`.
+
+- **The code update panel tells you about maintenance mode up front and lets you switch it on there.**
+
+    A code update is refused while maintenance mode is off, but the update code panel only said so after you had chosen a version and pressed Update. The panel now shows this at the top, under the readiness verdict, with an **Enable maintenance mode** button. The version window also keeps Update disabled until the refusing check is resolved, and offers the same button. Update data version gets the same button in place of its old message.
+
+    The maintenance widgets also look more consistent:
+
+    - Folded sections use the same arrow as the rest of the application, on the right.
+    - Every key/value table in a widget uses the same label column width, so stacked tables line up. On a narrow screen the label sits above its value.
+    - In update code, the server list, the **Offer** choice and **Check available updates** are grouped under **Source** at the end of the panel. Choosing an option no longer moves the other options: its note appears below them.
+    - Warnings are now amber instead of a red-orange that was hard to tell from "blocked". An unknown state is a grey pill like the others, so a column of states lines up.
+    - In a key/value table, the key now lines up with the first line of its value, even when the value runs to several lines.
+    - In the System Map, a destructive or irreversible tool is marked only by a red dot. Its name and border are no longer red. Hovering the chip still says it is destructive.
 
 - **The Docker install guide says the Official image comes from GitHub Container Registry only, and that the Docker Hub mirror is reached through a custom image.**
 
@@ -113,6 +205,24 @@ Merged since the last release; these ship with the next one.
     When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
 
 #### Fixed
+
+- **After login, users open on the default section set in their user record.**
+
+    The "Default section" field of a user record (for example `numisdata6`) was saved but never used. Opening Dédalo without a section in the address now shows that section, provided the user is allowed to read it. If the field is empty, names something that is not a section or area, or names one the user cannot read, Dédalo opens as before: the installation's main section, or the menu.
+
+    Wire contract: `WC-2026-10-29-start-user-default-section`.
+
+- **Menu entries a user may open no longer disappear when their parent area is hidden from that user.**
+
+    When a user's profile granted a section but not the area that contains it in the menu, the section was missing from that user's menu even though they could open it. It now appears under the nearest area the user can see, or at the top of the menu. Sections inside the Ontology, Development and Maintenance areas stay hidden from users who cannot open those areas.
+
+    Wire contract: `WC-2026-10-28-menu-orphans`.
+
+- **The root user's "My profile" tool opens again.**
+
+    For the root user, the "My profile" tool (user administration) opened with an error panel ("The server answered with an unreadable response") instead of the account's fields, so root could not change its own password, email, name or picture from the application. It now opens normally. No other user gains access to the root account.
+
+    Wire contract: `WC-2026-10-28-own-account-read`.
 
 - **The host `--status --json` on the Docker and trial routes reports the install record the run wrote.**
 
@@ -205,17 +315,74 @@ Merged since the last release; these ship with the next one.
 
 ### For developers
 
+#### Changed
+
+- **Four read-path comparison tests now expect the current ontology definitions.**
+
+    After the ontology refresh, four tests that compare the engine with frozen answers saw definition changes made on the master ontology: a section tool's "coins" role points at the portal again instead of an alias, the mint section is called "Ceca", and two more components are now cloned into the test ontology. Each test keeps the old frozen value and checks the new one explicitly.
+
+    Wire contract: `WC-2026-10-28-parity-definition-drift`.
+
+#### Added
+
+- **The parity test baseline can be re-recorded in the CI image.**
+
+    `bun run ci:local --docker --record-parity-baseline` re-records `engineering/parity_baseline.json` inside the CI image, the same way `--record-unit-baseline` does for the unit tests. Recording it on a developer machine froze that machine's own configuration into the baseline. It can be combined with `--record-unit-baseline --new <file>` so a single green run records both.
+
+- **The test suites refuse to run at the same time on one test database.**
+
+    `bun test`, `bun run test:client` and `bun run test:crawl` reseed the same test fixtures, so running two of them at once made each fail in confusing ways. Each now takes a lock on the test database first and refuses, naming the run that holds it, while another one is running. A lock left by a run that died is cleared automatically, and a test that starts its own `bun test` inside a run is let through.
+
+- **`bun run test:crawl` checks every feature as an administrator and as a project-scoped editor.**
+
+    Checking Dédalo by hand as an administrator and again as an editor took days. A new
+    browser check does it on the test database: three users — the superuser, an
+    administrator who is not the superuser, and an editor limited to one project — each open
+    everything their own menu offers. For every section it opens the list and a record, checks
+    one field of each kind at the permission level the server grants, opens every inspector
+    panel and every tool offered, and fails on any script error, refused request or error panel.
+
+    It then tries what a user must NOT be able to do, by typing the address directly: a section
+    without permission, a record of another project, a tool not granted. Each must be refused.
+    Finally it replays real user actions — logging in through the form, logging out, editing
+    and saving, creating and deleting a record, exporting a CSV — and checks the result on the
+    server. An export by the editor must contain only their project's records.
+
+    Run it with `bun run test:crawl` (`--out <dir>` keeps a report and a screenshot of every
+    problem). Known problems are listed with their reason in `test/helpers/feature_crawl_ratchet.ts`;
+    a listed problem that gets fixed must be removed from the list.
+
 #### Fixed
+
+- **The test ontology's "Countermark descriptions" section tool now opens its target section.**
+
+    The test ontology's copy of the "Countermark descriptions" section tool (test6402) used an old setting name that the engine does not read, so it could not open. It now uses the current name, matching the fix on the master ontology. Tests that need a section tool without a target build their own.
+
+    Wire contract: `WC-2026-10-28-section-tool-test6402-config`.
 
 - **The section read example in the API field mapping names the section in source.tipo and lists it in sqo.section_tipo.**
 
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 2 entries"
+??? note "Wire contract — 16 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
+    - `WC-2026-10-27-relation-list-grant-stamp`
+    - `WC-2026-10-27-start-deep-link-record-scope`
+    - `WC-2026-10-28-count-pending-deletions`
+    - `WC-2026-10-28-menu-orphans`
+    - `WC-2026-10-28-menu-role-areas-need-grant`
+    - `WC-2026-10-28-own-account-read`
+    - `WC-2026-10-28-own-user-record-read-floor`
+    - `WC-2026-10-28-parity-definition-drift`
+    - `WC-2026-10-28-related-host-record-scope`
+    - `WC-2026-10-28-section-definition-defects`
+    - `WC-2026-10-28-section-tool-test6402-config`
+    - `WC-2026-10-28-start-component-deep-link-record-scope`
+    - `WC-2026-10-28-tool-open-defects`
+    - `WC-2026-10-29-start-user-default-section`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

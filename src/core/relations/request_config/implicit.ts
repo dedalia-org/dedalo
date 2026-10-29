@@ -36,6 +36,7 @@
 import { EXPLICIT_CONFIG_REQUIRED_MODELS } from '../../concepts/request_config.ts';
 import { sql } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
+import { LABEL_NODE_MODEL } from '../../ontology/label_node_guard.ts';
 import {
 	getModelByTipo,
 	getNode,
@@ -145,6 +146,12 @@ function applyModelDefaultTarget(
 	return context.modelDefaultTargets[0] ?? null;
 }
 
+/** Section_list relations that never become a column (marker + inert label nodes). */
+const NEVER_A_COLUMN_MODELS: ReadonlySet<string | null> = new Set([
+	'exclude_elements',
+	LABEL_NODE_MODEL,
+]);
+
 /**
  * Implicit config from a node's ontology relation nodes (PHP resolve_ar_related_*
  * + clean_and_extract_related + build_legacy_ddo_map): the first
@@ -220,8 +227,11 @@ export async function buildImplicitComponentListConfig(
 			continue;
 		}
 		// PHP clean_and_extract_related :531-538: marker nodes + deprecated skip.
-		// Everything else survives (PHP keeps non-component nodes in the map).
-		if (model === 'exclude_elements' || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
+		// Everything else survives (PHP keeps non-component nodes in the map) —
+		// except a model='label' node: labels are inert program strings (owner
+		// decision 2026-10-12, label_node_guard.ts), no client module renders one,
+		// and resolving its column label crashed the dd1500/dd1560 lists.
+		if (NEVER_A_COLUMN_MODELS.has(model) || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
 			continue;
 		}
 		ddoMap.push({

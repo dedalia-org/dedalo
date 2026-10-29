@@ -147,8 +147,9 @@ export interface StructureContextEntry extends StructureContextCore {
 	columns_map?: unknown[];
 	/** Section-only extras (PHP :2056-2100). */
 	matrix_table?: string | null;
-	/** Section-only relation_list_tipo (PHP :2056-2100) and the principal-gated
-	 * time_machine_list trigger (WC-2026-10-22-tm-scope-whole-request); search-mode
+	/** Section-only principal-gated relation_list_tipo (PHP :2056-2100,
+	 * WC-2026-10-27-relation-list-grant-stamp) and time_machine_list trigger
+	 * (WC-2026-10-22-tm-scope-whole-request); search-mode
 	 * parent_grouper_label on any element with a parent grouper (PHP :1700). */
 	config?: {
 		relation_list_tipo?: string | null;
@@ -1273,10 +1274,9 @@ export async function buildStructureContext(options: {
 	// component_<media>_json default branch). The client reads
 	// context.features.quality/allowed_extensions to render the edit view — a
 	// missing features object crashes any media section's edit form.
-	const { hasMediaFeatures, buildMediaFeatures } = await import('../section/media_features.ts');
-	if (hasMediaFeatures(core.model)) {
-		entry.features = buildMediaFeatures(core.model, options.tipo, options.sectionTipo);
-	}
+	const { buildUploadFeatures } = await import('../section/media_features.ts');
+	const uploadFeatures = buildUploadFeatures(core.model, options.tipo, options.sectionTipo);
+	if (uploadFeatures !== null) entry.features = uploadFeatures;
 
 	// component_geolocation: the FULL context carries features.geo_provider so the
 	// client map widget knows which Leaflet tile backend to initialise (PHP

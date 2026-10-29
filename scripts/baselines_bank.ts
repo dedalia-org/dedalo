@@ -298,6 +298,20 @@ export const REGISTRY: readonly RatchetEntry[] = [
 			'measured only by the axe phase of a real browser run (bun run test:client); every row carries a human reason, and the gate is judged there',
 	},
 	{
+		id: 'crawl_inventory',
+		artifacts: ['engineering/crawl_inventory.json'],
+		tier: 'manual',
+		reason:
+			'measured only by a real browser run (bun run test:crawl, its own server and three personas); banked there by `--update` after a green FULL run, which never lowers a floor',
+	},
+	{
+		id: 'crawl_posture_budget',
+		artifacts: ['engineering/crawl_posture_budget.json'],
+		tier: 'manual',
+		reason:
+			'measured only by a real browser run (bun run test:crawl: axe, keyboard and 360px checks on every page as three personas); lowered there by `--update` after a green FULL run',
+	},
+	{
 		id: 'client_a11y_backlog',
 		artifacts: ['engineering/client_a11y_backlog.json'],
 		tier: 'manual',

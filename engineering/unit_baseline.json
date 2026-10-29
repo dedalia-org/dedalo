@@ -519,6 +519,11 @@
 			"skipped": 0,
 			"assertions": 9
 		},
+		"test/unit/client_component_update_datum.test.ts": {
+			"tests": 1,
+			"skipped": 0,
+			"assertions": 3
+		},
 		"test/unit/client_control_naming_tripwire.test.ts": {
 			"tests": 8,
 			"skipped": 0,
@@ -1874,6 +1879,11 @@
 			"skipped": 0,
 			"assertions": 41
 		},
+		"test/unit/feature_crawl_tripwire.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 120
+		},
 		"test/unit/ffmpeg_progress_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -2758,6 +2768,11 @@
 			"tests": 1,
 			"skipped": 0,
 			"assertions": 39
+		},
+		"test/unit/maintenance_widget_kit_tripwire.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 19
 		},
 		"test/unit/marc21.test.ts": {
 			"tests": 3,
@@ -4364,6 +4379,11 @@
 			"skipped": 0,
 			"assertions": 44
 		},
+		"test/unit/relation_list_inspector_access_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 14
+		},
 		"test/unit/relation_list_narrowing.test.ts": {
 			"tests": 2,
 			"skipped": 0,
@@ -4819,6 +4839,11 @@
 			"skipped": 0,
 			"assertions": 7
 		},
+		"test/unit/section_definition_defects_native.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 5
+		},
 		"test/unit/section_elements_context.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -5083,6 +5108,11 @@
 			"tests": 4,
 			"skipped": 0,
 			"assertions": 8
+		},
+		"test/unit/start_record_scope_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 17
 		},
 		"test/unit/statement_ceiling_scope_native.test.ts": {
 			"tests": 138,
@@ -5823,6 +5853,11 @@
 			"tests": 7,
 			"skipped": 0,
 			"assertions": 21
+		},
+		"test/unit/tool_upload_json_native.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 6
 		},
 		"test/unit/tools_background.test.ts": {
 			"tests": 13,

@@ -767,25 +767,44 @@ const PENDING_ROW_PROJECTION = `section_id,
  * instead of pinning its head; and a TERMINAL row (misc.dd1758_retry.terminal)
  * is not selected at all — it stays on the ledger as reported debt.
  */
+function pendingRowsWhere(): { where: string; params: string[] } {
+	// `->>` yields text for a stored int as well as a stored string, so the
+	// projected target/element ids read identically in both typed forms; only
+	// the ACTION probe needs the shape tolerance (D16 + dual-form).
+	const params: string[] = [];
+	const pendingProbe = diffusionActionContains(
+		'relation',
+		DIFFUSION_ACTION.unpublishPending,
+		(payload) => `$${params.push(payload)}`,
+	);
+	return {
+		where: `section_tipo = 'dd1758'
+		   AND ${pendingProbe}
+		   AND (misc->'${RETRY_STAMP_KEY}'->>'terminal') IS NULL`,
+		params,
+	};
+}
+
+/** The retryable (non-terminal) pending rows — the read behind the tool's badge (PHP count_pending). */
+export async function countPendingDiffusion(): Promise<number> {
+	await ensureDiffusionActivityTable();
+	const { where, params } = pendingRowsWhere();
+	const rows = (await sql.unsafe(
+		`SELECT count(*)::int AS n FROM "${activityTable()}" WHERE ${where}`,
+		params,
+	)) as { n: number }[];
+	return rows[0]?.n ?? 0;
+}
+
 export async function retryPendingDiffusion(
 	limit = 100,
 ): Promise<{ total: number; retried: number; remaining: number }> {
 	await ensureDiffusionActivityTable();
-	// `->>` yields text for a stored int as well as a stored string, so the
-	// projected target/element ids read identically in both typed forms; only
-	// the ACTION probe needs the shape tolerance (D16 + dual-form).
-	const pendingParams: string[] = [];
-	const pendingProbe = diffusionActionContains(
-		'relation',
-		DIFFUSION_ACTION.unpublishPending,
-		(payload) => `$${pendingParams.push(payload)}`,
-	);
+	const { where, params: pendingParams } = pendingRowsWhere();
 	const rows = (await sql.unsafe(
 		`SELECT ${PENDING_ROW_PROJECTION}
 		 FROM "${activityTable()}"
-		 WHERE section_tipo = 'dd1758'
-		   AND ${pendingProbe}
-		   AND (misc->'${RETRY_STAMP_KEY}'->>'terminal') IS NULL
+		 WHERE ${where}
 		 ORDER BY (misc->'${RETRY_STAMP_KEY}'->>'last_attempt') ASC NULLS FIRST, section_id ASC
 		 LIMIT ${Math.max(1, Math.floor(limit))}`,
 		pendingParams,

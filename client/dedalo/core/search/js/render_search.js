@@ -877,8 +877,11 @@ render_search.prototype.render_search_group = function(parent_div, options={}) {
 *  3. Calls `get_component_instance()` with the last path element's identifiers
 *     (`section_tipo`, `component_tipo`, `model`, `ar_target_section_tipo`)
 *     and the injected `entries`, `q_operator`, `q_lang`.
-*  4. Calls `component_instance.render()` and appends the result. Falls back to
-*     an `.invalid_component.error` div if the instance could not be created.
+*  4. Calls `component_instance.render()` and appends the result. Never throws:
+*     a leaf that cannot be built or rendered gets the `.invalid_component.error`
+*     placeholder. Proven stale (tipo gone, model changed): its model node is
+*     removed and the temp preset is saved once all pending leaves settle. Any
+*     other failure (transport, timeout, 5xx): the stored condition is kept.
 *  5. Binds `component_model_node.instance` now that the instance is ready.
 *  6. Adds a close button that calls `remove_model_node`, removes the DOM node,
 *     splices the instance from `self.ar_instances`, calls `instance.destroy()`,
@@ -951,36 +954,73 @@ render_search.prototype.build_search_component = async function(options) {
 			})
 			search_component.__node = component_model_node
 
-		// component_instance. Get functional component, build and returns it ready to render
-			const component_instance = await self.get_component_instance({
-				section_id				: section_id,
-				section_tipo			: last_item.section_tipo,
-				component_tipo			: last_item.component_tipo,
-				model					: last_item.model,
-				ar_target_section_tipo	: last_item.ar_target_section_tipo || null,
-				mode					: 'search',
-				entries					: entries || null, // entries will be injected to data.entries
-				q_operator				: q_operator || null,
-				q_lang					: q_lang || null,
-				path					: path
-			})
+		// component_instance. Get functional component, build and returns it ready to render.
+		// Never throws: a stored leaf the current ontology no longer supports (tipo gone,
+		// model changed) must not block the panel. get_component_instance answers null.
+			self.pending_leaf_builds = (self.pending_leaf_builds || 0) + 1
+			let component_instance	= null
+			let component_node		= null
+			let build_failed		= false
+			try {
+				component_instance = await self.get_component_instance({
+					section_id				: section_id,
+					section_tipo			: last_item.section_tipo,
+					component_tipo			: last_item.component_tipo,
+					model					: last_item.model,
+					ar_target_section_tipo	: last_item.ar_target_section_tipo || null,
+					mode					: 'search',
+					entries					: entries || null, // entries will be injected to data.entries
+					q_operator				: q_operator || null,
+					q_lang					: q_lang || null,
+					path					: path
+				})
+				// render component
+				// note that component here is already built with custom injected data
+				if (component_instance) {
+					component_node = await component_instance.render()
+				}
+			} catch (error) {
+				// not proven stale (transport, timeout, 5xx, session, render failure)
+				console.error('build_search_component: leaf failed to build', path, error)
+				build_failed = true
+			}
 
-		// render component
-			// note that component here is already built with custom injected data
-			const component_node = component_instance
-				? await component_instance.render()
-				: ui.create_dom_element({
+		// model node. Bind the instance into the canonical node that was created
+		// synchronously above (keeps model child order aligned with DOM order).
+			component_model_node.instance = component_instance
+
+		// invalid leaf. Show where it was.
+			if (!component_node) {
+				component_node = ui.create_dom_element({
 					element_type	: 'div',
 					class_name		: "invalid_component error",
 					inner_html 		: get_label.invalid_component || 'Invalid component',
 				})
+				if (build_failed) {
+					// a failure keeps the condition: a built instance whose render threw stays
+					// bound; otherwise a data-only stand-in (no destroy) serializes the stored
+					// q/q_operator/q_lang, so no later save erases it
+					if (!component_instance) {
+						component_model_node.instance = { data : { entries : entries || [], q_operator, q_lang } }
+					}
+				}else{
+					// proven stale: drop it from the model (the teardown door destroys a
+					// bound instance) and flag the editing preset for repair
+					self.remove_model_node(component_model_node)
+					self.dropped_invalid_leaf = true
+				}
+			}
 
 		// add component node
 			search_component.appendChild(component_node)
 
-		// model node. Bind the now-built instance into the canonical node that was
-		// created synchronously above (keeps model child order aligned with DOM order).
-			component_model_node.instance = component_instance
+		// repair. Once every concurrent leaf of this render has settled (an in-flight leaf
+		// has no instance yet and would be left out of the save), save the temp preset once.
+			self.pending_leaf_builds--
+			if (self.pending_leaf_builds===0 && self.dropped_invalid_leaf===true) {
+				self.dropped_invalid_leaf = false
+				self.update_state({state:'changed'})
+			}
 
 	// button close
 		const search_component_button_close = ui.create_dom_element({
@@ -995,7 +1035,10 @@ render_search.prototype.build_search_component = async function(options) {
 			// remove search box and content (component) from dom
 			search_component.parentNode.removeChild(search_component)
 			// delete the instance from search ar_instances
-			const delete_instance_index = self.ar_instances.findIndex( instance => instance.id===component_instance.id )
+			// (a leaf that failed to build has no instance)
+			const delete_instance_index = component_instance
+				? self.ar_instances.findIndex( instance => instance.id===component_instance.id )
+				: -1
 
 			if(delete_instance_index !== -1){
 				self.ar_instances.splice(delete_instance_index, 1)

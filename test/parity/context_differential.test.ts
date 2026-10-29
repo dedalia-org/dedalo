@@ -38,6 +38,12 @@ const COMPONENTS = ['testmint1002', 'testmint1003'] as const;
  */
 const CLONE_ROOT_PARENT = 'testmint0';
 const CLONE_ROOT_LABEL_SUFFIX = ' | testmint';
+/**
+ * The section label as the frozen body recorded it, and as the definition reads
+ * TODAY: master singularized it after the harvest (WC-2026-10-28-parity-definition-drift).
+ */
+const FROZEN_SECTION_LABEL = 'Cecas';
+const CURRENT_SECTION_LABEL = 'Ceca';
 
 const READ_RQO = {
 	action: 'read',
@@ -133,7 +139,8 @@ describe.if(hasPhpCredentials())('structure-context subset differential (Phase 4
 				// compared byte for byte).
 				expect(phpSubset.parent_grouper).toBe('numis' + 'data1');
 				expect(tsSubset.parent_grouper).toBe(CLONE_ROOT_PARENT);
-				expect(tsSubset.label).toBe(`${String(phpSubset.label)}${CLONE_ROOT_LABEL_SUFFIX}`);
+				expect(phpSubset.label).toBe(FROZEN_SECTION_LABEL);
+				expect(tsSubset.label).toBe(`${CURRENT_SECTION_LABEL}${CLONE_ROOT_LABEL_SUFFIX}`);
 				phpSubset.parent_grouper = null;
 				tsSubset.parent_grouper = null;
 				phpSubset.label = null;

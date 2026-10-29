@@ -67,11 +67,11 @@ import {
 import {
 	ddoIsAuthorized,
 	getPermissions,
+	getRecordComponentPermission,
 	getSectionPermissions,
 	inheritSubdatumPermission,
 	type Principal,
 	resolveComponentContextPermission,
-	resolveOwnUserRecordPermission,
 } from '../security/permissions.ts';
 import type { LaneValue, RowLaneState } from '../tm_record/lane_state.ts';
 import {
@@ -254,12 +254,15 @@ async function readSectionScoped(rqo: Rqo, principal?: Principal): Promise<ReadR
 		elementTipo: string,
 	): Promise<number> => {
 		if (principal === undefined) return capForReadTarget(3);
-		const ownLevel =
-			elementSection === readTargetSection
-				? resolveOwnUserRecordPermission(principal, elementSection, elementTipo, ownRecordSectionId)
-				: null;
 		return capForReadTarget(
-			ownLevel ?? (await getPermissions(principal, elementSection, elementTipo)),
+			elementSection === readTargetSection
+				? await getRecordComponentPermission(
+						principal,
+						elementSection,
+						elementTipo,
+						ownRecordSectionId,
+					)
+				: await getPermissions(principal, elementSection, elementTipo),
 		);
 	};
 

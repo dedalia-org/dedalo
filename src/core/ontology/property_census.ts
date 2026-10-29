@@ -89,11 +89,6 @@ export const RETIRED_PROPERTY_KEYS: Readonly<Record<string, RetiredPropertyKey>>
 			'v6 dataframe-slot "delete the frame target record" opt-in (~58 nodes), DELIBERATELY retired in v6 — "REMOVED because time machine needs to show the previous state, so, never deletes it". The slot unlinks and the target survives (WC-2026-09-29-dataframe-hard-delete-retired). (`dataframe.delete_policy: "delete_target"` is a different opt-in, for frame-PRIVATE targets only: it empties the target, and past states then render it empty.)',
 		replacement: null,
 	},
-	data_to_be_used: {
-		reason:
-			'v6 component_portal/autocomplete value selector ("dato" vs "valor", 15 nodes). The v7 read path resolves the published value from the component descriptor, not from a per-node switch.',
-		replacement: null,
-	},
 	process_dato_arguments: {
 		reason:
 			'Arguments of the retired v6 `process_dato` diffusion directive (14 nodes). Its owner is reported at use in diffusion/plan/compile.ts; the arguments travel inside the new directive.',
@@ -155,11 +150,6 @@ export const RETIRED_PROPERTY_KEYS: Readonly<Record<string, RetiredPropertyKey>>
 		reason:
 			'v6 component_inverse display switch (2 nodes). The v7 inverse resolver emits one shape.',
 		replacement: null,
-	},
-	dragable_connectWith: {
-		reason:
-			'v6 jQuery-UI drag-and-drop pairing (2 nodes, misspelled in the ontology). The v7 client states drag targets in properties.draggable_to.',
-		replacement: 'properties.draggable_to',
 	},
 	SQL_logical_operators: {
 		reason: 'v6 hand-written SQL fragment grammar (2 nodes). No v7 answer: search is SQO-driven.',
@@ -259,7 +249,6 @@ export const HONOURED_PROPERTY_KEYS: readonly string[] = [
 	'color',
 	'config',
 	'config_relation',
-	'context',
 	'css',
 	'data_limit',
 	'dataframe',
@@ -275,7 +264,6 @@ export const HONOURED_PROPERTY_KEYS: readonly string[] = [
 	'entity',
 	'entity_id',
 	'entity_label',
-	'enum',
 	'exclude_column',
 	'export',
 	'external_source',
@@ -297,6 +285,7 @@ export const HONOURED_PROPERTY_KEYS: readonly string[] = [
 	'length',
 	'limit',
 	'list_show_key',
+	'look_inside',
 	'main_tld',
 	'mandatory',
 	'match',

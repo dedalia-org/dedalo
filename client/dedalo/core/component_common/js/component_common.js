@@ -448,6 +448,11 @@ const do_build = async (self, autoload) => {
 				if (!api_response) {
 					return false
 				}
+				// server: a failure envelope rejects with its own ApiError (its code tells
+				// a gone tipo from a transport/server failure), not a TypeError on datum
+				if (api_response.ok===false) {
+					throw api_response.error || new Error('component build: failure envelope without error')
+				}
 				// server: bad build component context
 				const datum = response_data(api_response)
 				if(!datum.context?.length){

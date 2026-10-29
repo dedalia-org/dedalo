@@ -716,6 +716,15 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 		expect(recordArgsFault(args(['--record-unit-baseline']))).toMatch(/needs --docker/);
 		for (const flag of ['--hermetic', '--instance', '--fail-fast', '--keep'])
 			expect(recordArgsFault(args(['--docker', '--record-unit-baseline', flag]))).toContain(flag);
+		// The parity recording: the same door, the same refusals.
+		expect(recordArgsFault(args(['--docker', '--record-parity-baseline']))).toBeNull();
+		expect(recordArgsFault(args(['--record-parity-baseline']))).toMatch(/needs --docker/);
+		expect(recordArgsFault(args(['--docker', '--record-parity-baseline', '--keep']))).toContain(
+			'--keep',
+		);
+		expect(
+			recordArgsFault(args(['--docker', '--record-parity-baseline', '--allow-regression'])),
+		).toMatch(/needs --reason/);
 		// --db is what a recording runs anyway: harmless, not refused.
 		expect(recordArgsFault(args(['--docker', '--record-unit-baseline', '--db']))).toBeNull();
 	});
@@ -765,6 +774,19 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 			'test/unit/$(x).test.ts',
 		])
 			expect(recordArgsFault(args(rec, { '--new': bad })), bad).toContain(bad);
+		// --new is a unit-tier list: beside a parity-only recording it has nothing to name,
+		// and with BOTH recordings --allow-regression is the parity writer's.
+		expect(
+			recordArgsFault(args(['--docker', '--record-parity-baseline'], { '--new': NEW })),
+		).toMatch(/belongs to --record-unit-baseline/);
+		expect(
+			recordArgsFault(
+				args([...rec, '--record-parity-baseline', '--allow-regression'], {
+					'--new': NEW,
+					'--reason': REASON,
+				}),
+			),
+		).toBeNull();
 		expect(recordNewFiles(undefined)).toEqual([]);
 		expect(recordNewFiles(`${NEW},,test/unit/b.test.ts `)).toEqual([NEW, 'test/unit/b.test.ts']);
 	});
@@ -811,7 +833,11 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 	});
 
 	test('both record keys are ALWAYS set — off is explicit, so a shell export never turns a check into a write', () => {
-		const NEW_OFF = { DEDALO_CI_UNIT_RECORD_NEW: '' };
+		const NEW_OFF = {
+			DEDALO_CI_UNIT_RECORD_NEW: '',
+			DEDALO_CI_PARITY_RECORD_OUT: '',
+			DEDALO_CI_PARITY_RECORD_ALLOW: '0',
+		} as const;
 		expect(recordEnv(args([]), CONTAINER_OUT)).toEqual({
 			DEDALO_CI_UNIT_RECORD_OUT: '',
 			DEDALO_CI_UNIT_RECORD_ALLOW: '0',
@@ -840,6 +866,33 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 			DEDALO_CI_UNIT_RECORD_OUT: '/ci-out',
 			DEDALO_CI_UNIT_RECORD_ALLOW: '0',
 			DEDALO_CI_UNIT_RECORD_NEW: 'test/unit/a.test.ts test/unit/b.test.ts',
+			DEDALO_CI_PARITY_RECORD_OUT: '',
+			DEDALO_CI_PARITY_RECORD_ALLOW: '0',
+		});
+		// The parity writer: its own keys; --allow-regression reaches it, and beside a unit
+		// --new recording it reaches ONLY it (--record-new refuses a red by design).
+		expect(
+			recordEnv(args(['--record-parity-baseline', '--allow-regression']), CONTAINER_OUT),
+		).toEqual({
+			DEDALO_CI_UNIT_RECORD_OUT: '',
+			DEDALO_CI_UNIT_RECORD_ALLOW: '0',
+			DEDALO_CI_UNIT_RECORD_NEW: '',
+			DEDALO_CI_PARITY_RECORD_OUT: '/ci-out',
+			DEDALO_CI_PARITY_RECORD_ALLOW: '1',
+		});
+		expect(
+			recordEnv(
+				args(['--record-unit-baseline', '--record-parity-baseline', '--allow-regression'], {
+					'--new': 'test/unit/a.test.ts',
+				}),
+				CONTAINER_OUT,
+			),
+		).toEqual({
+			DEDALO_CI_UNIT_RECORD_OUT: '/ci-out',
+			DEDALO_CI_UNIT_RECORD_ALLOW: '0',
+			DEDALO_CI_UNIT_RECORD_NEW: 'test/unit/a.test.ts',
+			DEDALO_CI_PARITY_RECORD_OUT: '/ci-out',
+			DEDALO_CI_PARITY_RECORD_ALLOW: '1',
 		});
 		expect(recordEnv(args([], { '--new': files }), CONTAINER_OUT)).toEqual({
 			DEDALO_CI_UNIT_RECORD_OUT: '',
@@ -852,6 +905,8 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 		expect(compose).toContain('DEDALO_CI_UNIT_RECORD_OUT: ${DEDALO_CI_UNIT_RECORD_OUT:-}');
 		expect(compose).toContain('DEDALO_CI_UNIT_RECORD_ALLOW: ${DEDALO_CI_UNIT_RECORD_ALLOW:-0}');
 		expect(compose).toContain('DEDALO_CI_UNIT_RECORD_NEW: ${DEDALO_CI_UNIT_RECORD_NEW:-}');
+		expect(compose).toContain('DEDALO_CI_PARITY_RECORD_OUT: ${DEDALO_CI_PARITY_RECORD_OUT:-}');
+		expect(compose).toContain('DEDALO_CI_PARITY_RECORD_ALLOW: ${DEDALO_CI_PARITY_RECORD_ALLOW:-0}');
 		expect(compose).toContain(`\${DEDALO_CI_OUT:?set by scripts/ci_local.ts}:${CONTAINER_OUT}\n`);
 		const mounts = compose.split('\n').filter((line) => /^\s+- \$\{DEDALO_CI_[A-Z]+:\?/.test(line));
 		expect(mounts.filter((line) => !line.endsWith(':ro'))).toEqual([
@@ -934,6 +989,68 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 			// The writer REFUSED: nothing leaves the container, and the tier is red.
 			expect(drive({ ...rec, BUN_RC: '1' })).toEqual([
 				'bun run scripts/unit_baseline.ts',
+				'tier_status=1',
+			]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("db_tier.sh's parity stage, EXECUTED with bun and cp stubbed: record writes, check checks, a refusal copies nothing and is red", () => {
+		const dbTier = readFileSync(join(REPO_ROOT, 'scripts/ci/db_tier.sh'), 'utf8');
+		const start = dbTier.indexOf('echo "== db_tier: parity tier');
+		const end = dbTier.indexOf('# ── THE MARIADB TIER');
+		expect(start).toBeGreaterThan(0);
+		expect(end).toBeGreaterThan(start);
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo-ci-precord-'));
+		try {
+			const script = join(dir, 'stage.sh');
+			writeFileSync(
+				script,
+				[
+					'set -euo pipefail',
+					'tier_status=0',
+					'bun() { printf "bun %s\\n" "$*" >> "$LOG"; return "$BUN_RC"; }',
+					'cp() { printf "cp %s\\n" "$*" >> "$LOG"; }',
+					dbTier.slice(start, end),
+					'printf "tier_status=%s\\n" "$tier_status" >> "$LOG"',
+				].join('\n'),
+			);
+			const drive = (env: Record<string, string>) => {
+				const log = join(dir, 'log');
+				writeFileSync(log, '');
+				const proc = Bun.spawnSync(['bash', script], {
+					env: { PATH: process.env.PATH ?? '/usr/bin:/bin', LOG: log, BUN_RC: '0', ...env },
+					stdout: 'pipe',
+					stderr: 'pipe',
+				});
+				expect(proc.exitCode).toBe(0);
+				return readFileSync(log, 'utf8').trim().split('\n');
+			};
+			const off = { DEDALO_CI_PARITY_RECORD_OUT: '', DEDALO_CI_PARITY_RECORD_ALLOW: '0' };
+			expect(drive(off)).toEqual(['bun run scripts/parity_baseline.ts --check', 'tier_status=0']);
+			expect(drive({ ...off, BUN_RC: '1' })).toEqual([
+				'bun run scripts/parity_baseline.ts --check',
+				'tier_status=1',
+			]);
+			// ALLOW alone records nothing.
+			expect(drive({ ...off, DEDALO_CI_PARITY_RECORD_ALLOW: '1' })).toEqual([
+				'bun run scripts/parity_baseline.ts --check',
+				'tier_status=0',
+			]);
+			const rec = { DEDALO_CI_PARITY_RECORD_OUT: '/ci-out', DEDALO_CI_PARITY_RECORD_ALLOW: '0' };
+			expect(drive(rec)).toEqual([
+				'bun run scripts/parity_baseline.ts',
+				'cp engineering/parity_baseline.json /ci-out/parity_baseline.json',
+				'tier_status=0',
+			]);
+			expect(drive({ ...rec, DEDALO_CI_PARITY_RECORD_ALLOW: '1' })).toEqual([
+				'bun run scripts/parity_baseline.ts --allow-regression',
+				'cp engineering/parity_baseline.json /ci-out/parity_baseline.json',
+				'tier_status=0',
+			]);
+			expect(drive({ ...rec, BUN_RC: '1' })).toEqual([
+				'bun run scripts/parity_baseline.ts',
 				'tier_status=1',
 			]);
 		} finally {

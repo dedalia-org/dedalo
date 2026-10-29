@@ -263,6 +263,7 @@ describe('tool_sitebuilder proxy', () => {
 				sectionTipo: '',
 				isComponent: false,
 				mode: 'list',
+				hasToolConfig: false,
 			}),
 		).toBe(true);
 	});
@@ -590,6 +591,7 @@ describe('tool_sitebuilder proxy', () => {
 				sectionTipo: '',
 				isComponent: false,
 				mode: 'list',
+				hasToolConfig: false,
 			}),
 		).toBe(false);
 		const refusal = await refusalOf(tool.apiActions.list_sites!.handler(ctx(DEV, {})));

@@ -2,34 +2,13 @@
 * view_tree_portal
 *
 * Included from component_portal.less file
+* Rows render as view_line (see view_tree_edit_portal.js), styled by view_line_portal.less
 */
 .component_portal.view_tree, .portal.view_tree {
 
 	// edit
 	&.edit {
 		display: block;
-
-		>.content_data {
-			display: grid;
-			grid-template-columns: 1fr auto;
-			overflow: auto;
-			padding: 0px;
-
-			>.column {
-				padding: 0.12rem;
-			}
-
-			.section_record:first-child {
-
-				>.column {
-
-				}
-			}
-		}
 	}//end &.edit
-
-	&.search {
-
-	}//end .search
 
 }//end .component_portal.view_tree, .portal.view_tree

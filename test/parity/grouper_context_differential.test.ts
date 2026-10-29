@@ -31,12 +31,13 @@ import { hasPhpCredentials, PhpApiClient } from './php_client.ts';
  * — a test file that names an install tipo binds it — so the bound is a count,
  * and the compared grouper keys are separately asserted to carry none of them.
  *   test6099: the install AREA above the clone cut (1).
- *   test6100: that area plus the two COMPONENT entries the clone manifest did
- *             not carry (3).
+ *   test6100: that area only (1). It was 3 — plus two COMPONENT entries the
+ *             clone did not carry — until the 2026-10-28 regeneration cloned
+ *             them (WC-2026-10-28-parity-definition-drift).
  */
 const SECTIONS: readonly { tipo: string; leftovers: number }[] = [
 	{ tipo: 'test6099', leftovers: 1 },
-	{ tipo: 'test6100', leftovers: 3 },
+	{ tipo: 'test6100', leftovers: 1 },
 ];
 
 function editRqo(sectionTipo: string): Rqo {
@@ -87,10 +88,9 @@ describe.if(hasPhpCredentials())('grouper context differential (SECTION_SPEC §8
 			//     built the `test` TLD stops at the SECTION root, so the section
 			//     entry's `parent_grouper` cannot be mapped) — asserted to BE that
 			//     field, on both sides;
-			//   - on the second section, two further COMPONENT entries the clone
-			//     manifest did not carry. They are outside what this gate compares,
-			//     and that is asserted, not assumed: the compared GROUPER keys are
-			//     asserted to carry no install token at all, on both sides.
+			//   - (until 2026-10-28, two further COMPONENT entries on the second
+			//     section; the regeneration cloned them.) The compared GROUPER keys
+			//     are still asserted to carry no install token at all, on both sides.
 			const adopted = adoptTipoIdMap(body, 'grouper_context_differential');
 			expect(adopted.kind).toBe('install_tipo_left');
 			expect(adopted.rewrites.tipos).toBeGreaterThan(0);

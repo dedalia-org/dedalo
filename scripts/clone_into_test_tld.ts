@@ -810,6 +810,7 @@ function rewriteValue(
 		const out: Record<string, unknown> = {};
 		let dropped = false;
 		for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+			let keyDropped = false;
 			const nextKey = key.replace(TOKEN_RE, (token) => {
 				const resolved = resolveToken(
 					token,
@@ -820,11 +821,16 @@ function rewriteValue(
 					overrides,
 				);
 				if (resolved === 'drop') {
-					dropped = true;
+					keyDropped = true;
 					return token;
 				}
 				return resolved === 'keep' ? token : resolved;
 			});
+			if (keyDropped) {
+				// the keyed entry goes (as the comment below states) — its value is not visited
+				dropped = true;
+				continue;
+			}
 			const next = rewriteValue(
 				item,
 				path === '' ? key : `${path}.${key}`,

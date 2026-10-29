@@ -36,6 +36,12 @@ const INPUT_TEXT = 'testmint1002';
  */
 const CLONE_ROOT_PARENT = 'testmint0';
 const CLONE_ROOT_LABEL_SUFFIX = ' | testmint';
+/**
+ * The section label as the frozen body recorded it, and as the definition reads
+ * TODAY: master singularized it after the harvest (WC-2026-10-28-parity-definition-drift).
+ */
+const FROZEN_SECTION_LABEL = 'Cecas';
+const CURRENT_SECTION_LABEL = 'Ceca';
 
 const CASES = [
 	{
@@ -188,7 +194,8 @@ describe.if(hasPhpCredentials())('get_element_context differential (Phase 6 gate
 			if (model === 'section') {
 				// The clone's ` | <tld>` label suffix (see CLONE_ROOT_LABEL_SUFFIX):
 				// asserted exactly, then removed — every other field stays byte-compared.
-				expect(tsSubset.label).toBe(`${String(phpSubset.label)}${CLONE_ROOT_LABEL_SUFFIX}`);
+				expect(phpSubset.label).toBe(FROZEN_SECTION_LABEL);
+				expect(tsSubset.label).toBe(`${CURRENT_SECTION_LABEL}${CLONE_ROOT_LABEL_SUFFIX}`);
 				phpSubset.label = null;
 				tsSubset.label = null;
 			}

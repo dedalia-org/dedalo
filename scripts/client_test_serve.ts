@@ -22,6 +22,7 @@
  * job — the reseed is the runner's, and only the runner's.
  */
 
+import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import {
 	findFreePort,
 	localSuiteFingerprint,
@@ -37,6 +38,7 @@ const preferredPort = portValue === undefined ? 4390 : Number.parseInt(portValue
 
 const { suiteDb } = resolveSuiteDatabase();
 repointProcessToSuiteDatabase(suiteDb);
+acquireSuiteRunLock(suiteDb, 'test:client:server'); // one suite run at a time
 
 // The install seed ships root with NO password; set the suite credential so the
 // page's own login form works, exactly as ensureSuiteLogin does for the runner.
