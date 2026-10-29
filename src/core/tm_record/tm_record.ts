@@ -220,7 +220,13 @@ async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
 		assertMatrixTable(table);
 		// PHP searches rsc835 as component_number with q = the TM row id; the
 		// jsonb text projection matches both number and numeric-string storage.
-		// Table identifier is allowlist-gated above; values are bound params.
+		// A row can own several note records (the lost-id bug minted one per
+		// click): the oldest one WITH text wins, so an empty duplicate never
+		// shadows the note the user actually wrote.
+		// Table and column identifiers are allowlist-gated; values are bound params.
+		if (!MATRIX_JSONB_COLUMNS.includes(column as MatrixJsonbColumn)) {
+			throw new Error(`tmNoteValue: ${TM_NOTES_TEXT} resolves to non-jsonb column ${column}`);
+		}
 		const rows = (await sql.unsafe(
 			`SELECT section_id
 			 FROM "${table}"
@@ -229,9 +235,12 @@ async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
 			     SELECT 1 FROM jsonb_array_elements(COALESCE(number->$2, '[]'::jsonb)) AS code
 			     WHERE code->>'value' = $3
 			   )
-			 ORDER BY section_id ASC
+			 ORDER BY CASE WHEN jsonb_typeof("${column}"->$4) = 'array'
+			               THEN jsonb_array_length("${column}"->$4) > 0
+			               ELSE false END DESC,
+			          section_id ASC
 			 LIMIT 1`,
-			[TM_NOTES_SECTION_TIPO, TM_NOTES_CODE_TIPO, String(tmRowId)],
+			[TM_NOTES_SECTION_TIPO, TM_NOTES_CODE_TIPO, String(tmRowId), TM_NOTES_TEXT],
 		)) as { section_id: number }[];
 		const found = rows[0]?.section_id ?? null;
 		if (found !== null) {

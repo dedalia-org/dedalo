@@ -708,24 +708,30 @@ function tmEnvelopeExtra(row: TmRow): Record<string, unknown> {
  * rsc832 + the existing note record, or null) and `created_by_user_id`. None of
  * those are properties of the VALUE, so no emit hook could produce them.
  *
- * `parent_section_id` is lifted OFF the first entry, where tm_record.ts's
+ * `parent_section_id` is read off the first STORED item, where tm_record.ts's
  * `tmNoteValue` parked it (PHP component_text_area_json's 'tm' branch did the
- * same lift). The rest of the entry array is ADOPTED STORED TM DATA and is never
+ * same lift), and stripped from the emitted entries. It must come from the
+ * stored value, not the lang-filtered entries: an empty note (created on the
+ * first click, before any text) or one written in another lang has no
+ * request-lang item, so the id was dropped and every click minted a NEW note
+ * record. The rest of the entry array is ADOPTED STORED TM DATA and is never
  * rewritten — a snapshot must keep the bytes the engine of the day wrote.
  *
  * A dd15 column with no decorator is simply generic. That is the point: the
  * default is the shared pipeline, and every deviation is enumerable here.
  */
 const TM_CELL_DECORATORS: Readonly<
-	Record<string, (item: Record<string, unknown>, row: TmRow) => void>
+	Record<string, (item: Record<string, unknown>, row: TmRow, stored: unknown) => void>
 > = {
-	[TIPO_NOTES]: (item, row) => {
+	[TIPO_NOTES]: (item, row, stored) => {
+		const storedFirst = Array.isArray(stored) ? stored[0] : undefined;
+		const parentSectionId =
+			storedFirst !== undefined && storedFirst !== null && typeof storedFirst === 'object'
+				? (((storedFirst as Record<string, unknown>).parent_section_id ??
+						null) as StoredSectionId | null)
+				: null;
 		const entries = Array.isArray(item.entries) ? (item.entries as Record<string, unknown>[]) : [];
 		const first = entries[0];
-		const parentSectionId =
-			first !== undefined && first !== null && typeof first === 'object'
-				? ((first.parent_section_id ?? null) as StoredSectionId | null)
-				: null;
 		if (first !== undefined && first !== null && typeof first === 'object') {
 			const { parent_section_id: _lifted, ...rest } = first;
 			item.entries = [rest, ...entries.slice(1)];
@@ -1188,7 +1194,12 @@ async function emitTmRow(
 				// column); they need no special handling now that nothing is restamped.
 				item.from_component_tipo ??= tipo;
 				item.parent_section_id ??= row.id;
-				TM_CELL_DECORATORS[tipo]?.(item, row);
+				const column = getColumnNameByModel(model) as MatrixJsonbColumn | null;
+				const stored =
+					column === null
+						? undefined
+						: (tmRecord.columns[column] as Record<string, unknown> | null | undefined)?.[tipo];
+				TM_CELL_DECORATORS[tipo]?.(item, row, stored);
 			} else if (isPortalFamily && item.parent_section_id === undefined) {
 				item.parent_section_id = item.section_id;
 			}

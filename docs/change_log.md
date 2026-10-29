@@ -41,6 +41,10 @@ Merged since the last release; these ship with the next one.
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
 
+- **A Time Machine note can be written again on every change in Component history.**
+
+    Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.
+
 - **The menu no longer offers Maintenance or Development to users whose profile does not grant them.**
 
     An administrator or developer whose profile did not grant the Maintenance area still saw it in the menu, and opening it showed the no-access page. The same happened to developers with the Development area. Each now appears only when the profile grants it, as every other menu entry already did. The main administrator is not affected.
