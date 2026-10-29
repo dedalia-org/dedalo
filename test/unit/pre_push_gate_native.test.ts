@@ -1142,7 +1142,7 @@ describe('pre-push gate: every v* tag is checked as a CUT release first (gate 11
 		write(
 			repo,
 			'src/core/update/version.ts',
-			'export const DEDALO_DATA_VERSION: readonly [number, number, number] = Object.freeze([\n\t7, 0, 1,\n]) as [number, number, number];\n',
+			'export const DEDALO_DATA_VERSION: readonly [number, number, number] = Object.freeze([\n\t7, 0, 1,\n]) as [number, number, number];\nexport const DEDALO_NEXT_RELEASE: readonly [number, number, number] = Object.freeze([\n\t7, 0, 1,\n]) as [number, number, number];\n',
 		);
 		write(
 			repo,

@@ -11,7 +11,7 @@
  * the library under bash with stub `docker`/`cosign` binaries and checks each
  * answer against the engine's own definition of the same thing:
  *
- *  A. the checkout version equals parseDeclaredTriple (code_build_plan.ts) on
+ *  A. the checkout version equals parseDeclaredDataTriple (code_build_plan.ts) on
  *     the real version.ts and on fixtures, malformed ones included;
  *  B. the .dedalo.env reader/writer: a set keeps every other line byte for
  *     byte, appends an absent key, is atomic and owner-only;
@@ -72,7 +72,7 @@ import {
 import { emptyHostCreated, type StackImage } from '../../src/core/install/host/state_types.ts';
 import { newInstallState } from '../../src/core/install/run_files_core.ts';
 import { BUILD_INFO_PATH, readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
-import { parseDeclaredTriple } from '../../src/core/update/code_build_plan.ts';
+import { parseDeclaredDataTriple } from '../../src/core/update/code_build_plan.ts';
 import {
 	isRepositoryReference,
 	loadImageRegistries,
@@ -172,10 +172,10 @@ const VERSION_FIXTURES: Record<string, string> = {
 	empty: '',
 };
 
-describe('A. the checkout version is parseDeclaredTriple, in bash', () => {
+describe('A. the checkout version is parseDeclaredDataTriple, in bash', () => {
 	test('the real version.ts', () => {
 		const source = readFileSync(join(REPO_ROOT, 'src', 'core', 'update', 'version.ts'), 'utf8');
-		const expected = parseDeclaredTriple(source);
+		const expected = parseDeclaredDataTriple(source);
 		expect(expected, 'the real version.ts declares no triple').not.toBeNull();
 		const run = bash('dedalo_checkout_version "$1"', { args: [REPO_ROOT] });
 		expect(run.code).toBe(0);
@@ -186,7 +186,7 @@ describe('A. the checkout version is parseDeclaredTriple, in bash', () => {
 		let accepted = 0;
 		let refused = 0;
 		for (const [name, source] of Object.entries(VERSION_FIXTURES)) {
-			const expected = parseDeclaredTriple(source);
+			const expected = parseDeclaredDataTriple(source);
 			expect({ name, got: checkoutVersion(source) }).toEqual({ name, got: expected });
 			if (expected === null) refused += 1;
 			else accepted += 1;

@@ -1342,11 +1342,12 @@ describe('the pure verdicts', () => {
 // plan — the code server's release rules, on a real scratch repository
 // ─────────────────────────────────────────────────────────────────────────────
 
-// a real version.ts: the data triple, and the NEXT triple an untagged build names
+// a real version.ts: the data triple, and the NEXT triple — the release the commit names
+// (RELEASE.md step 1): the tag's own triple on a tagged commit.
 const VERSION_TS = (triple: string) => {
 	const [major = 0, minor = 0, patch = 0] = triple.split('.').map(Number);
 	return `export const DEDALO_DATA_VERSION = Object.freeze([${major}, ${minor}, ${patch}]);
-export const DEDALO_NEXT_RELEASE = Object.freeze([${major}, ${minor}, ${patch + 1}]);
+export const DEDALO_NEXT_RELEASE = Object.freeze([${major}, ${minor}, ${patch}]);
 `;
 };
 
@@ -1634,7 +1635,7 @@ describe('plan — which release a run publishes', () => {
 			GITHUB_SHA: lightBetaSha,
 		});
 		expect(result.code).toBe(1);
-		expect(result.text).toContain('calls itself 7.0.3-dev, not 7.0.2-beta.2');
+		expect(result.text).toContain('calls itself 7.0.2-dev, not 7.0.2-beta.2');
 		expect(result.out).toEqual({});
 	});
 
@@ -1679,7 +1680,7 @@ describe('plan — which release a run publishes', () => {
 			GITHUB_SHA: lightSha,
 		});
 		expect(result.code).toBe(1);
-		expect(result.text).toContain('calls itself 7.0.4-dev, not 7.0.3');
+		expect(result.text).toContain('calls itself 7.0.3-dev, not 7.0.3');
 		expect(result.text).toContain('ANNOTATED');
 		expect(result.out).toEqual({});
 	});

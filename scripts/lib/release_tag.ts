@@ -45,7 +45,10 @@
  *     exit 1: refused, with the sentence; exit 2: a malformed call.
  */
 
-import { parseDeclaredTriple, VERSION_TS_PATH } from '../../src/core/update/code_build_plan.ts';
+import {
+	parseDeclaredReleaseTriple,
+	VERSION_TS_PATH,
+} from '../../src/core/update/code_build_plan.ts';
 import {
 	compareReleaseIdentities,
 	parseReleaseVersion,
@@ -109,7 +112,7 @@ export function releaseTagFault(tag: string, commit: string, git: ReleaseTagGit)
 		return `'${tag}' is not a release tag v<X.Y.Z>[-(alpha|beta|rc).N]`;
 	const triple = parsed.triple.join('.');
 	const versionTs = git.fileAt(commit, VERSION_TS_PATH);
-	const declared = versionTs === null ? null : parseDeclaredTriple(versionTs);
+	const declared = versionTs === null ? null : parseDeclaredReleaseTriple(versionTs);
 	if (declared !== triple)
 		return `tag ${tag} names version ${triple}, but ${VERSION_TS_PATH} at ${commit} declares ${declared ?? 'nothing'} — bump the version (or tag the commit that declares it)`;
 	const notesPath = releaseNotesPath(identity);

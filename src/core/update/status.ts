@@ -52,7 +52,7 @@ import {
 	BUILD_INFO_TREE_PATH,
 	DEV_REF,
 	newestPublishableTag,
-	parseDeclaredTriple,
+	parseDeclaredReleaseTriple,
 	placeholderNamesItsTag,
 	planCodeBuild,
 	prereleaseTagAbove,
@@ -1462,7 +1462,7 @@ function advertisedRungs(
 /** The version a ref's own version.ts declares, read from the object store. */
 function declaredVersionAtRef(gitDir: string, ref: string): string | null {
 	const source = git(gitDir, ['show', `${ref}:${VERSION_TS_PATH}`]);
-	return source === null ? null : parseDeclaredTriple(source);
+	return source === null ? null : parseDeclaredReleaseTriple(source);
 }
 
 /** The qualified ref of `source`'s release tag, or null when there is none. */

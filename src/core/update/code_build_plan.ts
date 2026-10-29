@@ -18,8 +18,11 @@ import {
 import { parseVersionString } from './version.ts';
 
 /**
- * The version triple a tree's `src/core/update/version.ts` DECLARES ('7.0.1'),
- * or null when the source does not carry one.
+ * The DATA triple a tree's `src/core/update/version.ts` declares
+ * (DEDALO_DATA_VERSION, the first triple in the file), or null when the source
+ * does not carry one. It is the LOWER BOUND of the tree's release identity and
+ * the version a restore point was taken at — NOT the release's name. The name is
+ * parseDeclaredReleaseTriple (DEDALO_NEXT_RELEASE).
  *
  * THE RELEASE'S NAME MUST COME FROM ITS BYTES. Until 2026-08-24 the build took
  * the artifact's version from the RUNNING MASTER PROCESS (`DEDALO_VERSION`)
@@ -34,7 +37,7 @@ import { parseVersionString } from './version.ts';
  * Whitespace- and linebreak-insensitive: the committed source spreads the
  * triple over three lines, a probe's bump writes it on one.
  */
-export function parseDeclaredTriple(versionTsSource: string): string | null {
+export function parseDeclaredDataTriple(versionTsSource: string): string | null {
 	const matched = /Object\.freeze\(\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*\]\)/.exec(
 		versionTsSource,
 	);
@@ -42,12 +45,12 @@ export function parseDeclaredTriple(versionTsSource: string): string | null {
 }
 
 /**
- * The NEXT dev triple a ref declares (version.ts DEDALO_NEXT_RELEASE): the
- * release an untagged build precedes. It names the developer ARCHIVE
- * (`<next>-dev.zip`), the identity the built tree calls itself — NOT the data
- * triple, which the untagged build shares with the last released data version.
+ * The RELEASE triple a ref declares (version.ts DEDALO_NEXT_RELEASE). A tagged
+ * commit names its own release here (the tag's triple, RELEASE.md step 1); an
+ * untagged build precedes it and names the developer ARCHIVE (`<next>-dev.zip`).
+ * NOT the data triple, which a code-only release leaves where it was.
  */
-export function parseDeclaredNextDevTriple(versionTsSource: string): string | null {
+export function parseDeclaredReleaseTriple(versionTsSource: string): string | null {
 	const matched =
 		/DEDALO_NEXT_RELEASE[\s\S]*?Object\.freeze\(\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*\]\)/.exec(
 			versionTsSource,

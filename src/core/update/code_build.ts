@@ -35,8 +35,7 @@ import {
 	BUILD_INFO_TREE_PATH,
 	DEV_REF,
 	isSafeGitRef,
-	parseDeclaredNextDevTriple,
-	parseDeclaredTriple,
+	parseDeclaredReleaseTriple,
 	placeholderNamesItsTag,
 	planCodeBuild,
 	prereleaseTagAbove,
@@ -87,7 +86,7 @@ async function declaredVersionOfRef(
 	if (gitDir === undefined || gitDir === '') return null;
 	if (!isSafeGitRef(ref)) return null;
 	const source = await gitShow(gitDir, `${ref}:${VERSION_TS_PATH}`);
-	return source === null ? null : parseDeclaredTriple(source);
+	return source === null ? null : parseDeclaredReleaseTriple(source);
 }
 
 /** The next dev triple a ref declares, or null when it cannot be read. */
@@ -97,7 +96,7 @@ async function declaredNextDevOfRef(
 ): Promise<string | undefined> {
 	if (gitDir === undefined || gitDir === '' || !isSafeGitRef(ref)) return undefined;
 	const source = await gitShow(gitDir, `${ref}:${VERSION_TS_PATH}`);
-	return source === null ? undefined : (parseDeclaredNextDevTriple(source) ?? undefined);
+	return source === null ? undefined : (parseDeclaredReleaseTriple(source) ?? undefined);
 }
 
 /**
@@ -544,7 +543,7 @@ export async function buildVersionFromGit(options: {
 }): Promise<CodeBuildResponse> {
 	// THE BYTES NAME THE RELEASE. Resolve the version the REF declares before
 	// planning, so the artifact can never be named after the running process
-	// (see parseDeclaredTriple). An explicit caller `version` is now a claim to
+	// (see parseDeclaredReleaseTriple). An explicit caller `version` is now a claim to
 	// be CHECKED, not the source of the name.
 	refuseUnlessBuildable();
 	const ref = await resolveBuildRefOrRefuse(options);
