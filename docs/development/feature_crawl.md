@@ -4,13 +4,57 @@
 bun run test:crawl            # scripts/feature_crawl.ts
 ```
 
-The feature crawl opens Dédalo in a real browser as three different users and visits
-everything each one's menu offers. On every page it checks for errors, permission leaks,
-accessibility and phone layout. It then replays a set of written **user journeys**:
-multi-step actions whose result is checked on the server.
+## In a nutshell
 
-It answers one question that no unit gate can: *does every feature work, for each kind of
-user, in the actual client?*
+- **What it is:** an automatic tester that uses Dédalo the way people do: in a real web
+  browser, logged in, clicking through the menus.
+- **Who it pretends to be:** three users with different rights. One is the all-powerful
+  `root`. One is an administrator who is still limited by their permissions. One is an
+  ordinary editor who may only work on one project.
+- **What it does:**
+  - It opens every section each user's menu shows them, as a list and as one record.
+  - On each page it checks for errors and for data the user should not see.
+  - It also checks basic accessibility and whether the page fits a phone screen.
+  - It tries to open, by typing the address directly, things the user is not allowed to
+    reach. Each must be refused.
+  - It carries out a few real tasks (log in, edit and save, create a record, export) and
+    checks the result in the database.
+- **Where it runs:** only on the separate test database the suite builds
+  (`bun run test:db:setup`). It never touches an installation's real records.
+- **Result:**
+  - A run is **green** when nothing new is wrong.
+  - It is **red** when any problem appears that is not already listed, with a reason,
+    as a known one.
+  - With `--out <dir>` it also writes a report with a screenshot of each problem.
+
+## Why it matters
+
+A Dédalo installation holds records that several teams share, and each user may see only
+part of them. Most of what can go wrong there only shows up in the browser, and only for
+some users:
+
+- **Hiding is not protecting.** A menu that hides a section is not a refusal. If the
+  server still serves that section to someone who types its address, an editor can read
+  another project's records. The crawl tries exactly that, as each user.
+- **A form can fail for one user only.** A screen may work for the administrator who
+  tested it and still break for an editor with fewer rights. The crawl repeats every page
+  for each kind of user.
+- **The unit tests do not open the browser.** The engine's thousands of unit tests check
+  the server's answers. They cannot see a page that throws an error while it draws, a
+  read-only field that can still be typed into, or a tool that never opens.
+- **Problems cannot pile up unnoticed.** Every known problem is listed with its reason,
+  and the list can only shrink. The crawl must also reach a minimum number of pages, so
+  it cannot quietly skip part of the application and still pass.
+
+!!! note "Reading this page as an AI agent"
+    The commands, file paths and finding ids on this page are exact and can be used as
+    written. The ground truth is the code: `scripts/feature_crawl.ts` (the walk),
+    `test/helpers/feature_crawl_ratchet.ts` (known failures and banking rules),
+    `test/helpers/journey_cases.ts` and `test/helpers/tool_operation_cases.ts` (what is
+    and is not exercised). Counts on this page (pages, checks, budgets) are dated
+    2026-10-29. Read the current values from `engineering/crawl_inventory.json` and
+    `engineering/crawl_posture_budget.json`. Never run the crawl at the same time as
+    `bun test` or `bun run test:client`; they share one lock and the second run is refused.
 
 ## At a glance
 
