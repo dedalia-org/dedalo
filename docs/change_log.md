@@ -27,6 +27,10 @@ Merged since the last release; these ship with the next one.
 
     Opening the search panel used to show a loading line, then the empty panel, then each saved filter row popping in one by one, pushing the list down each time — most noticeable on slow connections. Now the panel's data loads in parallel, starts loading as soon as the pointer rests on the Search button, and the panel fades in once, complete (a row slower than 1.5 s fills in afterwards). Nothing extra loads with the page, so lists and counters are unaffected.
 
+- **Tools that open in a dialog appear about half a second sooner on slow connections.**
+
+    The first time a tool opened in a dialog on a page, its stylesheet only started loading after its code had finished, adding one extra network round trip to the wait. Both now load at the same time, which saves about 0.6 s per first open on a slow connection (measured on Slow 4G: for example 2.96 s → 2.40 s for the posterframe tool). Tools that open in their own window are unchanged.
+
 - **Tree-picker portals show their linked records like Parent and Children.**
 
     Portals that link terms through the tree picker (for example "Connected to" in an ontology record) spread each linked record across wide columns. They now show it on one line, `term | tld | id | model`, with the same edit, tree and remove buttons as the Parent and Children fields.
