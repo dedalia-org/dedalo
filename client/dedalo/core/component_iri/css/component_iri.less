@@ -25,6 +25,18 @@
 			outline-color: transparent;
 		}
 
+		// BLANK AT REST (see component_date `&.edit`): the Title / http://
+		// placeholders and the empty dataframe's label hint show only on hover
+		// or active. `visibility` (not display) so the reveal shifts nothing.
+		&:not(:hover):not(.active) >.content_data >.content_value {
+			>.input_value:not(:focus)::placeholder {
+				color: transparent;
+			}
+			>.component_dataframe .component_placeholder {
+				visibility: hidden;
+			}
+		}
+
 		// group the embedded dataframe's pen + trash together at the right (like
 		// the component_portal view_line) so the linked-record text sits on the left.
 		.component_dataframe .section_record {
