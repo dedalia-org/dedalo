@@ -9248,13 +9248,19 @@ body:has(.component_av.view_viewer) {
 .wrapper_search > .search_global_container > .wrapper_sections_selector {
   max-width: 130px;
   min-width: 110px;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
 }
 .wrapper_search > .search_global_container > .wrapper_sections_selector > .typology_selector {
+  flex: none;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
 .wrapper_search > .search_global_container > .wrapper_sections_selector > .wrapper_sections_selector_ul {
+  min-height: 0;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;

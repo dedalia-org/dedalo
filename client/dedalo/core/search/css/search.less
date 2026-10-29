@@ -896,9 +896,15 @@
 			>.wrapper_sections_selector {
 				max-width: 130px;
 				min-width: 110px;
+				// same bound as the FIELDS list (layout.less .components_list_container >ul):
+				// unbounded, a long typology list stretched the row and the two scrolled out of sync
+				max-height: 50vh;
+				display: flex;
+				flex-direction: column;
 
 				// select. Fills the panel: a fixed 10rem overflowed the 130px cap
 				>.typology_selector {
+					flex: none;
 					// padding: 0px;
 					width: 100%;
 					min-width: 0;
@@ -908,6 +914,8 @@
 				// one row per section. The global .dd_input (width 100% + margin-right)
 				// made each inline-block <li> overflow the panel and wrap side by side
 				>.wrapper_sections_selector_ul {
+					min-height: 0;
+					overflow-y: auto;
 					margin: 0;
 					padding: 0;
 					list-style: none;
