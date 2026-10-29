@@ -623,8 +623,13 @@ const cache_first = async (request) => {
 	if (!cache_name || !files_set) {
 		await restore_state()
 	}
-	// only check cache for files we actually cached
-	if (cache_name && files_set && files_set.has(request.url)) {
+	// only check cache for files we actually cached. Keyed WITHOUT the query string:
+	// the manifest lists bare URLs, and the page's entry is requested as
+	// index.js?ckcachebust=… — keyed on the full URL it always missed and went to the
+	// network (one round trip on every page load). The cache is per dedalo_version,
+	// so the entry and its static imports now come from the same version.
+	const url = new URL(request.url)
+	if (cache_name && files_set && files_set.has(url.origin + url.pathname)) {
 		// (!) has() before open(): caches.open CREATES the cache when the key is
 		// absent. After the logout purge the worker still controls already-loaded
 		// clients for a moment, and one intercepted request was enough to resurrect
@@ -637,7 +642,9 @@ const cache_first = async (request) => {
 		// cache in the origin, so a superseded one would keep answering with the
 		// stale file even after the key moved.
 		const cache = await caches.open(cache_name);
-		const responseFromCache = await cache.match(request);
+		// exact lookup of the bare URL. NOT {ignoreSearch:true}: that scans every
+		// entry of the cache per request (measured: list paint 1.31 s → 2.10 s on Fast 4G)
+		const responseFromCache = await cache.match(url.origin + url.pathname);
 		if (responseFromCache) {
 			return responseFromCache;
 		}
@@ -781,10 +788,14 @@ self.addEventListener('fetch', (event) => {
 
 	// Manage only javascript files excluding images, css, etc.
 	// that will be handled by the browser normally
-	if (	event.request.url.endsWith('.js')
-		&& !event.request.url.endsWith('/service_worker.js')
-		&& !event.request.url.endsWith('/sw.js')
-		&& !event.request.url.includes('/lib/')
+	// (!) the PATH, not the URL: index.js?ckcachebust=… must count as a .js file
+	const request_url	= new URL(event.request.url)
+	const path			= request_url.pathname
+	if (	request_url.origin===self.location.origin // never intercept a foreign .js
+		&& path.endsWith('.js')
+		&& !path.endsWith('/service_worker.js')
+		&& !path.endsWith('/sw.js')
+		&& !path.includes('/lib/')
 		) {
 
 		event.respondWith(

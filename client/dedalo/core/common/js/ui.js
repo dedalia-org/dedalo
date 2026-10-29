@@ -28,7 +28,14 @@
 	// here is used while the modules evaluate.
 	import {ApiError, CLIENT_ERROR, is_api_error} from '../../common/js/api_error.js'
 	import {render_error_panel} from '../../common/js/render_api_error.js'
-	import '../../../lib/codex-tooltip/dist/tooltip.js';
+
+	// codex-tooltip (UMD: assigns the global `Tooltip`). Started here but NOT awaited:
+	// a static import put it on the boot critical path — /dedalo/lib/ is never served
+	// by the service worker, so it cost one network round trip before the first API
+	// request on every page load (measured: ~0.57 s on Slow 4G). activate_tooltips
+	// waits for it instead.
+	const tooltip_lib = import('../../../lib/codex-tooltip/dist/tooltip.js')
+	tooltip_lib.catch((error) => console.error('codex-tooltip failed to load. Tooltips disabled.', error))
 
 
 
@@ -4787,6 +4794,20 @@ export const ui = {
 
 			// mobile do not use tooltip
 			if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+				return
+			}
+
+			// library still loading (see tooltip_lib): register once it lands
+			if (typeof Tooltip==='undefined') {
+				tooltip_lib.then(
+					() => {
+						// guard: a load that defined no global must not re-enter this branch forever
+						if (typeof Tooltip!=='undefined') {
+							ui.activate_tooltips(wrapper, selector, reset, placement)
+						}
+					},
+					() => {} // already reported by the import's own catch
+				)
 				return
 			}
 
