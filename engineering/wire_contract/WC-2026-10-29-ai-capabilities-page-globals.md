@@ -24,8 +24,11 @@
   key-set compare) must strip this TS-only key before the exact compare, the WC-031 /
   WC-2026-10-21-error-report-granted pattern. That test file is outside this change.
 
-## Addendum 2026-10-29 — `tool_identify` withdrawn from the TS tool lists
+## Addendum 2026-10-29 — `tool_identify` withdrawn from the TS tool lists (PROVISIONAL)
 
+- **Status:** provisional. The withdrawal holds only until `tool_identify` is redesigned; the tool is
+  to be redesigned, not removed. When its redesign lands, this addendum and the two gate assertions
+  that encode absence (below) are reversed in the same change.
 - **Shape:** `tool_identify` is no longer offered on the TS side by any door: `getUserTools`,
   `getElementTools` and the section toolbar (`getSectionTools`) filter it through
   `toolOfferedByCapabilities` (`src/ai/capabilities.ts`, identify always `false`). The
