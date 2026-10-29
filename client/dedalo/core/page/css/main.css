@@ -14882,10 +14882,10 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   height: 3.15rem;
 }
 .area_maintenance > .content_data .widget_container > .widget_label:before {
-  background-color: var(--color_white);
+  background-color: currentColor;
 }
 .area_maintenance > .content_data .widget_container > .widget_label.icon_arrow:after {
-  background-color: var(--color_white);
+  background-color: currentColor;
   margin-right: 1rem;
 }
 .area_maintenance > .content_data .widget_container > .widget_label > * {

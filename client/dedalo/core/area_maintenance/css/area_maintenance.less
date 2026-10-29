@@ -310,15 +310,15 @@
 				height: 3.15rem;
 				// min-height: 3.15rem;
 
-				// category icon (white mask). content set by per-category rules below
+				// category icon (mask) in the label's ink. content set by per-category rules below
 				&:before {
-					background-color: var(--color_white);
+					background-color: currentColor;
 				}
 
-				// chevron (icon_arrow provided globally) tinted white on colored header
+				// chevron (icon_arrow provided globally) in the label's ink
 				&.icon_arrow {
 					&:after {
-						background-color: var(--color_white);
+						background-color: currentColor;
 						margin-right: 1rem;
 					}
 				}
