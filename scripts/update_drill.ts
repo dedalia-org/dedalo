@@ -40,7 +40,7 @@
  *   RELEASE.md steps 1–8 (the master side)
  *     1. a throwaway `git clone --shared` of THIS checkout gets the release
  *        commit a human release manager would make (RELEASE.md steps 1–2):
- *        version triple bumped to the rung's TO end + `.bun-version` pinned to
+ *        `DEDALO_DATA_VERSION` set to the rung's TO end + `.bun-version` pinned to
  *        the RUNNING bun, committed on `master` and tagged `v<version>` (only
  *        a release TAG claims the published `<v>.zip` name);
  *     2. a REAL master instance boots (suite database, scratch state) with
@@ -599,9 +599,11 @@ function instanceEnvironment(options: {
 // ---------------------------------------------------------------------------
 
 /**
- * The one-line source edit a release commit makes (RELEASE.md step 1), applied
- * to whichever tree needs pinning: the clone to the release version, the
- * consumer copy to the version it upgrades FROM.
+ * The one-line source edit the drill makes to `DEDALO_DATA_VERSION`, applied to
+ * whichever tree needs pinning: the release clone to the release version, the
+ * consumer copy to the version it upgrades FROM. Which constant a real release
+ * moves, and when, is RELEASE.md steps 1 and 2a (NEXT in the follow-up commit,
+ * DATA only in a data release's tagged commit).
  *
  * The match is the GENERIC triple shape, not this release's digits — the whole
  * point of deriving the rung is defeated by a regex that only recognises one
