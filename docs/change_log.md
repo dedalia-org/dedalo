@@ -57,6 +57,10 @@ Merged since the last release; these ship with the next one.
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
 
+- **A list could show the previous search's record total.**
+
+    When a new search was started while the record total of the previous one was still loading (common on slow totals such as Activity or Time Machine), the list could show the old search's total ("1-10 of 50000") under the new results. The total now always belongs to the search on screen.
+
 - **The thesaurus search Type list no longer grows taller than the Fields list.**
 
     On short screens a long Type (typology) list stretched the search panel past the Fields list, so the two scrolled out of step. The Type list now has the same height limit as Fields and scrolls on its own; its selector stays visible at the top.
