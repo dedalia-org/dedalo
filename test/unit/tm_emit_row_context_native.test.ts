@@ -75,6 +75,11 @@ const ID_SNAPSHOT = 935001;
 const ID_HISTORY = 935002;
 const ID_NOTED = 935003;
 const NOTE_RECORD_ID = 935001;
+const ID_EMPTY_NOTED = 935004;
+const ID_DUP_NOTED = 935005;
+const EMPTY_NOTE_ID = 935002;
+const DUP_EMPTY_NOTE_ID = 935003;
+const DUP_TEXT_NOTE_ID = 935004;
 
 const LANG = 'lg-spa';
 const SELECT_TIPO = 'test91'; // component_select   → SELECT family
@@ -89,6 +94,8 @@ let snapshotRowId = 0;
 let historySelectRowId = 0;
 let historyScalarRowId = 0;
 let notedRowId = 0;
+let emptyNotedRowId = 0;
+let dupNotedRowId = 0;
 
 const locator = (
 	sectionTipo: string,
@@ -243,6 +250,40 @@ beforeAll(async () => {
 		},
 		{ table: 'matrix_notes' },
 	);
+
+	// --- rows whose note has NO request-lang item: an empty note (the client
+	//     creates the record on the first click, before any text), and a row
+	//     with an older empty duplicate + a newer note written in another lang.
+	const notedRow = async (sectionId: number, at: string): Promise<number> => {
+		await createScratchRecord(SECTION_TIPO, sectionId, {});
+		await recordTimeMachine(
+			{
+				sectionTipo: SECTION_TIPO,
+				sectionId,
+				componentTipo: SCALAR_TIPO,
+				lang: LANG,
+				userId: -1,
+				data: [{ id: 1, lang: LANG, value: 'noted' }],
+			},
+			at,
+		);
+		return newestTmRowId(sectionId, SCALAR_TIPO);
+	};
+	const noteRecord = (id: number, rowId: number, text?: unknown[]) =>
+		createScratchRecord(
+			NOTES_SECTION_TIPO,
+			id,
+			{
+				number: { [TM_NOTES_CODE_TIPO]: [{ id: 1, value: rowId }] },
+				...(text === undefined ? {} : { string: { [TM_NOTES_TEXT]: text } }),
+			},
+			{ table: 'matrix_notes' },
+		);
+	emptyNotedRowId = await notedRow(ID_EMPTY_NOTED, '2026-08-09 09:00:03');
+	await noteRecord(EMPTY_NOTE_ID, emptyNotedRowId);
+	dupNotedRowId = await notedRow(ID_DUP_NOTED, '2026-08-09 09:00:04');
+	await noteRecord(DUP_EMPTY_NOTE_ID, dupNotedRowId);
+	await noteRecord(DUP_TEXT_NOTE_ID, dupNotedRowId, [{ id: 1, lang: 'lg-eng', value: 'eng note' }]);
 });
 
 afterAll(async () => {
@@ -565,6 +606,24 @@ describe('emitTmRow — the TM annotation column', () => {
 		// injected parent_section_id is STRIPPED from the first entry.
 		expect(entries).toEqual([{ id: 1, lang: LANG, value: 'la anotación' }]);
 		expect(Object.hasOwn(entries[0] as object, 'parent_section_id')).toBe(false);
+	});
+
+	test('REGRESSION: an EMPTY note keeps its record id (else every click mints a new note)', async () => {
+		// The id rode on the first stored item; an empty note has no request-lang
+		// item, so the lang filter dropped it and the client saw null.
+		const { data } = await readTm(historySqo(ID_EMPTY_NOTED), [{ tipo: TM_NOTES_TEXT }]);
+		const note = itemOf(data, emptyNotedRowId, TM_NOTES_TEXT);
+		expect(note.entries).toEqual([]);
+		expect(note.parent_section_id).toBe(EMPTY_NOTE_ID);
+	});
+
+	test('REGRESSION: an older EMPTY duplicate never shadows the note with text', async () => {
+		// The text is lg-eng only: entries filter to [] but the id must still be
+		// the written note's, not the empty duplicate's.
+		const { data } = await readTm(historySqo(ID_DUP_NOTED), [{ tipo: TM_NOTES_TEXT }]);
+		const note = itemOf(data, dupNotedRowId, TM_NOTES_TEXT);
+		expect(note.entries).toEqual([]);
+		expect(note.parent_section_id).toBe(DUP_TEXT_NOTE_ID);
 	});
 
 	test('a row with NO note emits [] (WC-001) and a null parent_section_id', async () => {

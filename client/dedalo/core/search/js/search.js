@@ -318,6 +318,9 @@ search.prototype.init = async function(options) {
 	// ar_resolved_elements
 		self.ar_resolved_elements = []
 
+	// leaf_builds. Pending filter row builds of the last render_filter
+		self.leaf_builds = []
+
 	// status update
 		self.status = 'initialized'
 
@@ -422,6 +425,12 @@ search.prototype.build = async function() {
 				resolve(self.limit)
 			})
 		}))
+
+		// section elements. Started here, in parallel with the presets, so list()
+		// joins the memoized request instead of waiting another round trip
+		ar_promises.push( self.get_section_elements({
+			use_real_sections : self.caller.model!=='section'
+		}) )
 
 		// wait until all request are resolved or rejected
 		await Promise.allSettled(ar_promises);
@@ -922,15 +931,15 @@ search.prototype.build_dom_group = function(filter, dom_element, options={}) {
 					q_lang 			= null
 				}
 
-				// Add. If not already resolved, add
-				self.build_search_component({
+				// Add. If not already resolved, add. list() awaits leaf_builds to reveal the panel once
+				self.leaf_builds.push( self.build_search_component({
 					parent_div		: dom_element,
 					path_plain		: JSON.stringify(filter.path),
 					entries			: current_value,
 					q_operator		: q_operator,
 					q_lang			: q_lang,
 					section_id		: section_id
-				})
+				}) )
 
 				// Set as resolved
 				if (allow_duplicates!==true) {

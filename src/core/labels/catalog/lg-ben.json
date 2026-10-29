@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "এই কোড সার্ভার প্রি-রিলিজ অফার করে না: প্রকাশিত সংস্করণ এবং ডেভেলপার বিল্ড তালিকাভুক্ত।",
 	"update_code_channel_prerelease": "প্রি-রিলিজ",
 	"update_code_channel_published": "প্রকাশিত সংস্করণ",
+	"update_code_channel_published_note": "শুধুমাত্র স্থিতিশীল সংস্করণ, সাধারণ ব্যবহারের জন্য প্রকাশিত। প্রোডাকশন ইনস্টলেশনের জন্য প্রস্তাবিত বিকল্প।",
 	"update_code_check_advertised_origin": "বিজ্ঞাপিত উৎসটি সর্বজনীন",
 	"update_code_check_advertised_url_reachable": "বিজ্ঞাপিত রিলিজ URL সাড়া দেয়",
 	"update_code_check_archive_installable": "আর্কাইভে কোনো সিমবলিক লিঙ্ক নেই",

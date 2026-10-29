@@ -102,6 +102,24 @@ describe('UPDATE_CODE WIDGET', function() {
 
 			content_data.remove()
 		})
+
+		it('before the value loads: only the readout, marked as the loader slot — no picker, no actions', async function() {
+
+			const self = new update_code()
+			self.id				= 'test_update_code_preload'
+			self.caller			= null
+			self.events_tokens	= []
+
+			const content_data = await self.list({ render_level : 'content' })
+			container.appendChild(content_data)
+			try {
+				assert.ok(content_data.querySelector('.widget_load_slot .dd_readout'), 'the readout is the spinner slot')
+				assert.strictEqual(content_data.querySelector('.server_picker'), null, 'no picker yet')
+				assert.strictEqual(content_data.querySelector('button.button_submit'), null, 'no check button yet')
+			} finally {
+				content_data.remove()
+			}
+		})
 	})
 
 
@@ -429,6 +447,9 @@ describe('UPDATE_CODE WIDGET', function() {
 			try {
 				const headline = wrapper.querySelector('.status_verdict')
 				assert.include(headline.className, 'state_danger', 'a hard gate outranks the waiver wording')
+				// maintenance mode is the version modal's gate (it carries the switch): the panel neither lists it nor offers one
+				assert.isNull(wrapper.querySelector('.maintenance_prereq'), 'no switch on the panel')
+				assert.notInclude(wrapper.querySelector('.attention_checks').textContent.toLowerCase(), 'maintenance', 'no attention row')
 			} finally {
 				wrapper.remove()
 			}

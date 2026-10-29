@@ -9248,13 +9248,19 @@ body:has(.component_av.view_viewer) {
 .wrapper_search > .search_global_container > .wrapper_sections_selector {
   max-width: 130px;
   min-width: 110px;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
 }
 .wrapper_search > .search_global_container > .wrapper_sections_selector > .typology_selector {
+  flex: none;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
 .wrapper_search > .search_global_container > .wrapper_sections_selector > .wrapper_sections_selector_ul {
+  min-height: 0;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -9766,6 +9772,24 @@ body:has(.component_av.view_viewer) {
   .wrapper_search > .search_global_container > .search_container_selector ul li.section_group_label.closed:after {
     top: 50%;
     transform: translateY(-50%);
+  }
+}
+@keyframes search_panel_in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.wrapper_search > .search_global_container {
+  animation: search_panel_in 0.18s ease-out;
+}
+.search_container > .container_placeholder {
+  animation: search_panel_in 0.2s 0.25s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrapper_search > .search_global_container,
+  .search_container > .container_placeholder {
+    animation: none;
   }
 }
 /**
@@ -12276,6 +12300,18 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   padding: 1rem;
   padding-top: 2rem;
 }
+.wrapper_tool > .activity_info_container {
+  width: 100%;
+  height: 0px;
+  position: relative;
+  z-index: 10;
+}
+.wrapper_tool > .activity_info_container > .activity_info_body {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
+  max-width: 22rem;
+}
 .wrapper_tool > .content_data.content_data_error.tool_error {
   display: block;
   background-color: var(--color_white);
@@ -12478,49 +12514,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   .tool_header > .tool_buttons_container > select {
     flex: 1 0 auto;
   }
-}
-.tool_header > .activity_info_container {
-  z-index: 2;
-}
-.tool_header > .activity_info_container > .activity_info_body {
-  position: absolute;
-  top: 0px;
-  right: 0px;
-}
-.tool_header > .activity_info_container > .activity_info_body > .node_info_save_msg {
-  background-color: var(--color_orange_dedalo);
-  position: relative;
-  font-size: 0.96rem;
-  box-shadow: 2px 2px 4px 0px rgba(0, 0, 0, 0.5);
-  padding: 0.75rem;
-  outline: 1px solid var(--color_grey_13);
-  border-radius: 4px;
-  margin-top: 0.5rem;
-  margin-right: 0.5rem;
-  padding-right: 1.5rem;
-  user-select: none;
-}
-.tool_header > .activity_info_container > .activity_info_body > .node_info_save_msg.ok {
-  background-color: var(--color_success);
-}
-.tool_header > .activity_info_container > .activity_info_body > .node_info_save_msg.error,
-.tool_header > .activity_info_container > .activity_info_body > .node_info_save_msg.warning {
-  background-color: var(--color_danger);
-}
-.tool_header > .activity_info_container > .activity_info_body > .node_info_save_msg:after {
-  content: ' x ';
-  width: 15px;
-  height: 15px;
-  display: block;
-  position: absolute;
-  right: 0px;
-  top: 3px;
-  font-family: Arial, sans-serif;
-  cursor: pointer;
-  color: var(--color_white);
-}
-.tool_header > .activity_info_container > .activity_info_body > .node_info_save_msg:after:hover {
-  color: var(--color_black);
 }
 .tool_header > .button.close {
   position: absolute;
@@ -14882,10 +14875,10 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   height: 3.15rem;
 }
 .area_maintenance > .content_data .widget_container > .widget_label:before {
-  background-color: var(--color_white);
+  background-color: currentColor;
 }
 .area_maintenance > .content_data .widget_container > .widget_label.icon_arrow:after {
-  background-color: var(--color_white);
+  background-color: currentColor;
   margin-right: 1rem;
 }
 .area_maintenance > .content_data .widget_container > .widget_label > * {
@@ -15044,6 +15037,13 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   resize: vertical;
   overflow: auto;
   width: 100%;
+}
+.area_maintenance > .content_data .widget_container > .widget_body .widget_load_spinner {
+  position: relative;
+  display: block;
+  left: auto;
+  top: auto;
+  margin: 1rem auto;
 }
 .area_maintenance > .content_data .widget_container > .widget_body:not(.hide) {
   animation: maintenance_reveal 180ms ease-out;
@@ -17615,9 +17615,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
 }
-.wrapper_widget.serve_code > .content_data .update_status .readiness_block > .maintenance_prereq {
-  margin-bottom: 0.5rem;
-}
 .wrapper_widget.serve_code > .content_data .update_status .status_verdict {
   margin-top: 0.5rem;
   margin-bottom: 0.75rem;
@@ -18568,6 +18565,9 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code > .content_data > .dd_note {
   margin: 0.5rem 0;
 }
+.wrapper_widget.update_code > .content_data .dd_options_note {
+  min-height: 2.4rem;
+}
 .wrapper_widget.update_code > .content_data > .update_actions {
   margin-bottom: 1rem;
 }
@@ -18647,9 +18647,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .wrapper_widget.update_code > .content_data .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
-}
-.wrapper_widget.update_code > .content_data .update_status .readiness_block > .maintenance_prereq {
-  margin-bottom: 0.5rem;
 }
 .wrapper_widget.update_code > .content_data .update_status .status_verdict {
   margin-top: 0.5rem;
@@ -19273,9 +19270,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .wrapper_widget.publication_hosts .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
-}
-.wrapper_widget.publication_hosts .update_status .readiness_block > .maintenance_prereq {
-  margin-bottom: 0.5rem;
 }
 .wrapper_widget.publication_hosts .update_status .status_verdict {
   margin-top: 0.5rem;
@@ -24545,6 +24539,12 @@ body.inspector_resizing {
 .component_iri.edit > .content_data > .content_value > .input_value:not(:focus) {
   outline-color: transparent;
 }
+.component_iri.edit:not(:hover):not(.active) > .content_data > .content_value > .input_value:not(:focus)::placeholder {
+  color: transparent;
+}
+.component_iri.edit:not(:hover):not(.active) > .content_data > .content_value > .component_dataframe .component_placeholder {
+  visibility: hidden;
+}
 .component_iri.edit .component_dataframe .section_record > .column_section_id {
   order: 2;
   margin-left: auto;
@@ -26936,14 +26936,24 @@ body.inspector_resizing {
     display: block;
   }
 }
-.component_security_access.edit > .content_data > .button_save {
+.component_security_access.edit > .content_data > .save_buttons {
   top: 5rem;
   position: sticky;
   float: right;
   flex: none;
   white-space: nowrap;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-self: flex-start;
+  gap: 0.5rem;
 }
-.component_security_access.edit > .content_data > .button_save.disable {
+.component_security_access.edit > .content_data > .save_buttons > .warning_label_text {
+  flex-basis: 100%;
+  margin-left: 0;
+  text-align: right;
+}
+.component_security_access.edit > .content_data > .save_buttons.disable {
   visibility: hidden;
 }
 .component_security_access.edit > .content_data > .changes_container {

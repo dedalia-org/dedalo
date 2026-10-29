@@ -282,6 +282,10 @@ component_security_access.prototype.build = async function(options) {
 			return value_map.has(key) ? value_map.get(key) : { tipo: item.tipo, section_tipo: item.section_tipo, value: 0 };
 		});
 
+	// stored value snapshot: has_unsaved_changes() diffs filled_value against it.
+	// Copied values, not entries: filled_value mutates the entry objects in place
+		self.set_saved_values()
+
 	// the payload may be fresh on every build: drop the get_children memo
 		self.children_memo = null
 
@@ -291,6 +295,45 @@ component_security_access.prototype.build = async function(options) {
 
 	return common_build
 }//end build
+
+
+
+/**
+* SET_SAVED_VALUES
+* Snapshots the current filled_value as the stored state (`tipo_section_tipo` → value).
+* Called by build() (server value) and after a successful save_changes().
+* @returns {void}
+*/
+component_security_access.prototype.set_saved_values = function() {
+
+	const self = this
+
+	self.saved_values = new Map(
+		(self.filled_value || []).map(el => [el.tipo+'_'+el.section_tipo, el.value])
+	)
+}//end set_saved_values
+
+
+
+/**
+* HAS_UNSAVED_CHANGES
+* True when any filled_value entry differs from the stored snapshot, so a value
+* changed and then set back to its stored level counts as no change.
+* Absent stored entries are 0 (zero is never persisted).
+* @returns {boolean}
+*/
+component_security_access.prototype.has_unsaved_changes = function() {
+
+	const self = this
+
+	for (const el of (self.filled_value || [])) {
+		if (el.value !== (self.saved_values?.get(el.tipo+'_'+el.section_tipo) ?? 0)) {
+			return true
+		}
+	}
+
+	return false
+}//end has_unsaved_changes
 
 
 
@@ -639,10 +682,15 @@ component_security_access.prototype.save_changes = async function() {
 		})]
 
 	// change_value to save
-		const result = self.change_value({
+		const result = await self.change_value({
 			changed_data	: changed_data,
 			refresh			: false
 		})
+
+	// the saved state is the new baseline
+		if (result) {
+			self.set_saved_values()
+		}
 
 
 	return result

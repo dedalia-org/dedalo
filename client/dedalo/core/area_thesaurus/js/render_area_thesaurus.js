@@ -649,6 +649,10 @@ const get_buttons = function(self) {
 			event_manager.publish('toggle_search_panel_'+self.id)
 		}
 		filter_button.addEventListener('mousedown', mousedown_handler)
+		// warm up on intent: build requests start before the click
+		const warm_handler = () => self.warm_search_panel?.()
+		filter_button.addEventListener('pointerenter', warm_handler)
+		filter_button.addEventListener('focus', warm_handler)
 		// ui.create_dom_element({
 		// 	element_type	: 'span',
 		// 	class_name		: 'button white search',

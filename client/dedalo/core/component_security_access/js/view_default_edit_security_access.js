@@ -82,8 +82,8 @@ export const view_default_edit_security_access = function() {
 *
 * When `self.permissions === 1` the tree is rendered read-only (no checkboxes,
 * no save button).  When permissions > 1 the editable tree is shown together
-* with a Save button that is initially disabled and becomes enabled whenever
-* any permission value is mutated (via the `show_save_button_<id>` event).
+* with Save + Cancel (discard) buttons, shown only while the value differs from
+* the stored one (re-checked on every `show_save_button_<id>` event).
 *
 * @param {Object} self - component_security_access instance
 * @param {Object} options - render configuration
@@ -208,12 +208,18 @@ const get_content_data = async function(self) {
 		 }
 
 	// Read and write
+		// save_buttons (hidden until a value changes)
+			const save_buttons = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'save_buttons disable',
+				parent			: content_data
+			})
 		// button_save
 			const button_save = ui.create_dom_element({
 				element_type	: 'button',
-				class_name		: 'primary save button_save folding disable',
+				class_name		: 'success save button_save folding',
 				inner_html		: get_label.save || 'Save',
-				parent			: content_data
+				parent			: save_buttons
 			})
 			// click event
 			const save_handler = async (e) => {
@@ -224,11 +230,7 @@ const get_content_data = async function(self) {
 
 				try {
 					await self.save_changes()
-					button_save.classList.add('disable')
-					const warning_label_text = self.node.querySelector('.warning_label_text')
-					if (warning_label_text) {
-						warning_label_text.remove()
-					}
+					show_save_button_handler()
 				}finally{
 					// a failed save keeps the unsaved state, but never the lock
 					content_data.classList.remove('loading')
@@ -236,19 +238,39 @@ const get_content_data = async function(self) {
 			}
 			button_save.addEventListener('click', save_handler)
 
-			// subscribe event show_save_button_
-			const show_save_button_handler = () => {
-				button_save.classList.remove('disable')
-				const label = self.node.querySelector('.label')
-				if (label && !label.querySelector('.warning_label_text')) {
-					// warning_label_text
-					ui.create_dom_element({
-						element_type	: 'span',
-						class_name		: 'warning_label_text blink',
-						inner_html		: get_label.unsaved_changes || 'Unsaved changes!',
-						parent			: label
-					})
+		// button_discard. Reloads the stored value, dropping every unsaved change (TODO-073)
+			const button_discard = ui.create_dom_element({
+				element_type	: 'button',
+				class_name		: 'warning cancel button_discard',
+				inner_html		: get_label.cancel || 'Cancel',
+				parent			: save_buttons
+			})
+		// warning_label_text. Below the buttons, sticky with them: a label-side warning
+		// scrolled away on a long tree
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'warning_label_text blink',
+				inner_html		: get_label.unsaved_changes || 'Unsaved changes!',
+				parent			: save_buttons
+			})
+			button_discard.addEventListener('click', async (e) => {
+				e.stopPropagation()
+				if (!confirm(get_label.discard_changes || 'Discard unsaved changes?')) {
+					return
 				}
+				set_before_unload(false)
+				await self.refresh()
+			})
+
+			// subscribe event show_save_button_. Shows or hides by the REAL diff against
+			// the stored value: a value set back to its stored level is no change
+			const show_save_button_handler = () => {
+				if (!self.has_unsaved_changes()) {
+					save_buttons.classList.add('disable')
+					set_before_unload(false)
+					return
+				}
+				save_buttons.classList.remove('disable')
 				// page unload event
 				// set_before_unload (bool) add
 				set_before_unload(true)
@@ -523,6 +545,8 @@ const run_locked = function(self, work, loading_node) {
 		}finally{
 			self.node.classList.remove('loading')
 			loading_node?.remove()
+			// after the work: the save buttons diff the value it changed
+			event_manager.publish('show_save_button_' + self.id)
 		}
 	})
 }//end run_locked
@@ -1004,9 +1028,6 @@ const render_area_item = function(item, datalist, value, self) {
 
 					// update self item data
 						self.update_value(item, input_value)
-
-					// show_save_button_
-						event_manager.publish( 'show_save_button_' + self.id )
 				})
 			}//end change_handler
 			input_checkbox.addEventListener('change', change_handler)
@@ -1347,9 +1368,6 @@ const create_permissions_radio_group = function(self, item, permissions) {
 								// update parents
 								self.update_parents_radio_butons(item, input_value)
 							}, loading_node)
-
-					// show_save_button
-						event_manager.publish('show_save_button_'+self.id)
 				}
 				radio_input.addEventListener('change', change_handler)
 
@@ -1537,9 +1555,6 @@ const create_global_radio_group = function(self, item, permissions, datalist, co
 							// update parents
 							self.update_parents_radio_butons(item, input_value)
 						}, loading_node)
-
-				// show_save_button
-					event_manager.publish('show_save_button_'+self.id)
 			}
 			radio_input.addEventListener('change', change_handler)
 

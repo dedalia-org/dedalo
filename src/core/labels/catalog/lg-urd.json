@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "یہ کوڈ سرور پری ریلیز پیش نہیں کرتا: شائع شدہ ریلیز اور ڈویلپر بلڈز درج ہیں۔",
 	"update_code_channel_prerelease": "پری ریلیز",
 	"update_code_channel_published": "شائع شدہ ریلیز",
+	"update_code_channel_published_note": "صرف مستحکم ورژن، عام استعمال کے لیے شائع شدہ۔ پروڈکشن انسٹالیشن کے لیے تجویز کردہ انتخاب۔",
 	"update_code_check_advertised_origin": "مشتہر کردہ ماخذ عوامی ہے",
 	"update_code_check_advertised_url_reachable": "مشتہر کردہ ریلیز URL جواب دیتا ہے",
 	"update_code_check_archive_installable": "آرکائیو میں کوئی سمبولک لنک نہیں",

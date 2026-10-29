@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "이 코드 서버는 프리릴리스를 제공하지 않습니다: 공개 릴리스와 개발자 빌드가 표시됩니다.",
 	"update_code_channel_prerelease": "프리릴리스",
 	"update_code_channel_published": "공개 릴리스",
+	"update_code_channel_published_note": "일반 사용을 위해 게시된 안정 릴리스만 제공합니다. 운영 환경 설치에 권장되는 선택입니다.",
 	"update_code_check_advertised_origin": "게시된 원본은 공개되어 있습니다",
 	"update_code_check_advertised_url_reachable": "게시된 릴리스 URL이 응답합니다",
 	"update_code_check_archive_installable": "아카이브에 심볼릭 링크가 없음",

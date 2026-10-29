@@ -19,6 +19,22 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Pages open noticeably faster for returning users on slow connections.**
+
+    On HTTPS installations the browser keeps Dédalo's program files in a local cache after login, but three files were still fetched from the server on every page load, one after another, before the page could show anything: the page's entry file and two small helper libraries (tooltips, and a decompressor only used when opening a tag link). Now the entry file comes from the local cache and the two libraries load only when needed. Measured on a simulated slow mobile connection (Slow 4G), a section list appears in 2.8 s instead of 3.9 s and an edit form in 4.5 s instead of 5.7 s; on Fast 4G a list appears in 0.9 s instead of 1.3 s. First visits and installations without HTTPS are unchanged.
+
+- **Link fields show their hints only on hover or when selected.**
+
+    An empty link (IRI) field in the edit form no longer shows its "Label", "Title" and "http://" hints all the time. Like the date field, it stays blank until the pointer is over it or the field is selected, so empty fields no longer look filled in.
+
+- **The search panel opens in one smooth step instead of stuttering in.**
+
+    Opening the search panel used to show a loading line, then the empty panel, then each saved filter row popping in one by one, pushing the list down each time — most noticeable on slow connections. Now the panel's data loads in parallel, starts loading as soon as the pointer rests on the Search button, and the panel fades in once, complete (a row slower than 1.5 s fills in afterwards). Nothing extra loads with the page, so lists and counters are unaffected.
+
+- **Tools that open in a dialog appear about half a second sooner on slow connections.**
+
+    The first time a tool opened in a dialog on a page, its stylesheet only started loading after its code had finished, adding one extra network round trip to the wait. Both now load at the same time, which saves about 0.6 s per first open on a slow connection (measured on Slow 4G: for example 2.96 s → 2.40 s for the posterframe tool). Tools that open in their own window are unchanged.
+
 - **Tree-picker portals show their linked records like Parent and Children.**
 
     Portals that link terms through the tree picker (for example "Connected to" in an ontology record) spread each linked record across wide columns. They now show it on one line, `term | tld | id | model`, with the same edit, tree and remove buttons as the Parent and Children fields.
@@ -44,6 +60,26 @@ Merged since the last release; these ship with the next one.
 - **The side panel of a record that does not exist no longer offers record actions.**
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
+
+- **A list could show the previous search's record total.**
+
+    When a new search was started while the record total of the previous one was still loading (common on slow totals such as Activity or Time Machine), the list could show the old search's total ("1-10 of 50000") under the new results. The total now always belongs to the search on screen.
+
+- **The thesaurus search Type list no longer grows taller than the Fields list.**
+
+    On short screens a long Type (typology) list stretched the search panel past the Fields list, so the two scrolled out of step. The Type list now has the same height limit as Fields and scrolls on its own; its selector stays visible at the top.
+
+- **Clicking inside a tall field no longer scrolls the page.**
+
+    The first click in a field taller than the window, such as the permissions tree of a user profile, scrolled the page to the top of the field, so the pointer was no longer over the option just chosen. The page now stays where it is; it only scrolls when the activated field is entirely off screen.
+
+- **A Time Machine note can be written again on every change in Component history.**
+
+    Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.
+
+- **Tool save notices are readable again and no longer cover the close button.**
+
+    In tools such as Transcription, "saved" messages appeared as bare text over the top-right corner of the header, on top of the close button. They now show as solid green (saved) or orange (not saved) cards just below the header, and repeated identical saves merge into one card with a ×N count.
 
 - **The menu no longer offers Maintenance or Development to users whose profile does not grant them.**
 
@@ -135,6 +171,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The Update code panel shows its options only once loaded, and maintenance mode is switched on from the update dialog only.**
+
+    In Maintenance → Update code, the panel no longer repeats the maintenance-mode warning, its switch and its row: the dialog opened by "Check available updates" already offers the switch where the update is started. While the panel loads, a spinner stands where the status will appear, and the source, offer and "Check available updates" controls appear together once loading finishes. The "Published releases" option now carries a short description, like the other two. Every maintenance widget's loading spinner now takes its own space instead of floating over the content.
+
 - **The publication tool asks for the number of pending deletions without using the retry action.**
 
     The publication tool shows how many deletions are still waiting to reach the publication server. It now gets that number from a separate, read-only request instead of the request that retries the deletions. Nothing changes on screen; read-only checks of the installation no longer block it.
@@ -184,6 +224,10 @@ Merged since the last release; these ship with the next one.
     Now: the Review lists the `cosign verify` command that checks the pulled image's digest against Dédalo's signing identity, so the operator reads the check before the install runs it. When the registry confirms the image is published, the run prints a success line.
 
 #### Added
+
+- **Profile permissions can be discarded before saving.**
+
+    The permissions tree of a user profile now shows a Cancel button next to Save once a value changes. It asks for confirmation, then reloads the stored permissions, so a value changed by accident can be undone without saving it. Setting a value back to its saved level hides both buttons and the "Unsaved changes!" warning again.
 
 - **The permissions tree filter can show the siblings of a found item.**
 

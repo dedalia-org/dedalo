@@ -28,7 +28,14 @@
 	// here is used while the modules evaluate.
 	import {ApiError, CLIENT_ERROR, is_api_error} from '../../common/js/api_error.js'
 	import {render_error_panel} from '../../common/js/render_api_error.js'
-	import '../../../lib/codex-tooltip/dist/tooltip.js';
+
+	// codex-tooltip (UMD: assigns the global `Tooltip`). Started here but NOT awaited:
+	// a static import put it on the boot critical path — /dedalo/lib/ is never served
+	// by the service worker, so it cost one network round trip before the first API
+	// request on every page load (measured: ~0.57 s on Slow 4G). activate_tooltips
+	// waits for it instead.
+	const tooltip_lib = import('../../../lib/codex-tooltip/dist/tooltip.js')
+	tooltip_lib.catch((error) => console.error('codex-tooltip failed to load. Tooltips disabled.', error))
 
 
 
@@ -992,9 +999,18 @@ export const ui = {
 									// received the implicit scroll that first_input.focus() performs, so
 									// restore_section_selection selected them without bringing them on screen.
 									// Scroll the wrapper into view instead.
+									// Only when NO part of it is on screen: for a wrapper taller than
+									// the viewport (component_security_access tree) 'nearest' still
+									// aligns an edge, so the first click jumped the page away from
+									// the pointer.
 									dd_request_idle_callback(
 										() => {
-											if (component.active) {
+											if (!component.active) {
+												return
+											}
+											const rect = wrapper.getBoundingClientRect()
+											const on_screen = rect.bottom > 0 && rect.top < window.innerHeight
+											if (!on_screen) {
 												scroll_into_view(wrapper)
 											}
 										}
@@ -1668,11 +1684,14 @@ export const ui = {
 					// pointer
 					wrapper.tool_buttons_container = tool_buttons_container
 
-				// activity_info_container
+				// activity_info_container. Out of tool_header (its `contain: content`
+				// clips anything below it, and its top-right corner is the close
+				// button): a zero-height row right under the header, reusing the
+				// global bubble styles.
 					const activity_info_container = ui.create_dom_element({
 						element_type	: 'div',
-						class_name		: 'activity_info_container',
-						parent			: tool_header
+						class_name		: 'activity_info_container bubbles_notification_container',
+						parent			: fragment
 					})
 					// pointer
 					wrapper.activity_info_container = activity_info_container
@@ -4778,6 +4797,20 @@ export const ui = {
 
 			// mobile do not use tooltip
 			if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+				return
+			}
+
+			// library still loading (see tooltip_lib): register once it lands
+			if (typeof Tooltip==='undefined') {
+				tooltip_lib.then(
+					() => {
+						// guard: a load that defined no global must not re-enter this branch forever
+						if (typeof Tooltip!=='undefined') {
+							ui.activate_tooltips(wrapper, selector, reset, placement)
+						}
+					},
+					() => {} // already reported by the import's own catch
+				)
 				return
 			}
 

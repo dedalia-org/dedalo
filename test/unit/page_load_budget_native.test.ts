@@ -76,7 +76,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Static ES modules on the cold-boot critical path, the entry included. */
-const BOOT_MODULES = 36;
+const BOOT_MODULES = 35;
 /** Discovery levels: serial round-trips before the last module is known. */
 const BOOT_DEPTH = 5;
 /** Subresources the HTML declares besides the module entry. */

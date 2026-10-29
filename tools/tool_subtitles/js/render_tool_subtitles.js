@@ -8,7 +8,7 @@
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {ui} from '../../../core/common/js/ui.js'
 	import {keyboard_codes} from '../../../core/common/js/utils/keyboard.js'
-	import {render_node_info} from '../../../core/common/js/utils/notifications.js'
+	import {prepend_bubble, render_node_info} from '../../../core/common/js/utils/notifications.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 
 
@@ -554,7 +554,7 @@ const render_activity_info = function(self) {
 		)
 		function fn_saved(options){
 			const node_info = render_node_info(options)
-			activity_info_body.prepend(node_info)
+			prepend_bubble(activity_info_body, node_info)
 		}
 
 

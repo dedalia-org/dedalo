@@ -331,15 +331,22 @@ widget_common.prototype.load = async function() {
 
 	self._load_state = 'loading'
 
-	// loading feedback inside the current content node
+	// loading feedback inside the current content node: after the node the
+	// widget marked `.widget_load_slot` (where the loaded content will land),
+	// else at the end
 		const content_node = self.node ? self.node.content_data : null
 		let spinner = null
 		if (content_node) {
 			spinner = ui.create_dom_element({
 				element_type	: 'div',
-				class_name		: 'spinner medium',
-				parent			: content_node
+				class_name		: 'spinner medium widget_load_spinner'
 			})
+			const slot = content_node.querySelector('.widget_load_slot')
+			if (slot) {
+				slot.after(spinner)
+			} else {
+				content_node.appendChild(spinner)
+			}
 		}
 
 	try {

@@ -1105,24 +1105,26 @@ const view_modal = async function(options) {
 	// load_tool_instance. Instance load / recover + tool CSS.
 		const load_tool_instance = async () => {
 
-			const instance = await get_instance(instance_options)
-
-			// already running elsewhere (status other than 'initialized'): toggle-close
-			if (instance && instance.status && instance.status!=='initialized') {
-				return {instance, already_open : true}
-			}
-
 			// load tool CSS
-			// Await to prevent a first paint of the tool before its stylesheet is
-			// applied (build() awaits its own load_style the same way).
+			// Awaited (below) to prevent a first paint of the tool before its stylesheet
+			// is applied (build() awaits its own load_style the same way). Started in
+			// PARALLEL with the module import: sequenced after it, it cost one extra
+			// network round trip on every first open (~0.6s on a slow network).
 			// (!) Build the versioned URL exactly as build() does so the two loads
 			// dedup to a single request — the server css.url is unversioned, and
 			// load_style keys on the exact string, so a bare url would fetch twice.
 			const tool_css_url = tool_context.model
 				? tool_base_url(tool_context.model) + '/css/' + tool_context.model + '.css' + `?v=${page_globals.dedalo_version}`
 				: tool_context.css?.url
-			if(tool_css_url) {
-				await load_style(tool_css_url)
+
+			const [instance] = await Promise.all([
+				get_instance(instance_options),
+				tool_css_url ? load_style(tool_css_url) : null
+			])
+
+			// already running elsewhere (status other than 'initialized'): toggle-close
+			if (instance && instance.status && instance.status!=='initialized') {
+				return {instance, already_open : true}
 			}
 
 			return {instance, already_open : false}

@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "خادم الشيفرة هذا لا يعرض الإصدارات التجريبية: تُدرج الإصدارات المنشورة وإصدارات التطوير.",
 	"update_code_channel_prerelease": "إصدار تجريبي",
 	"update_code_channel_published": "الإصدارات المنشورة",
+	"update_code_channel_published_note": "الإصدارات المستقرة فقط، المنشورة للاستخدام العام. الخيار الموصى به لتثبيت إنتاجي.",
 	"update_code_check_advertised_origin": "المصدر المُعلن عنه عام",
 	"update_code_check_advertised_url_reachable": "عنوان URL للإصدار المُعلن عنه يستجيب",
 	"update_code_check_archive_installable": "الأرشيف لا يحتوي على روابط رمزية",

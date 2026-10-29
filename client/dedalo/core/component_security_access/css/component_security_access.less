@@ -16,12 +16,23 @@
 				display: block;
 			}
 
-			>.button_save {
+			>.save_buttons {
 				top: 5rem;
 				position: sticky;
 				float: right;
 				flex: none;
 				white-space: nowrap;
+				display: flex;
+				flex-wrap: wrap;
+				justify-content: flex-end;
+				align-self: flex-start;
+				gap: .5rem;
+
+				>.warning_label_text {
+					flex-basis: 100%;
+					margin-left: 0;
+					text-align: right;
+				}
 
 				&.disable {
 					visibility: hidden;

@@ -328,6 +328,13 @@ area_thesaurus.prototype.init = async function(options) {
 	// events subscription
 
 		// toggle_search_panel. Triggered by button 'search' placed into section inspector buttons
+			// warm_search_panel. Called on search button hover/focus (user intent, never
+			// at page load): the build requests start before the click
+			self.warm_search_panel = () => {
+				if (self.filter && self.search_container?.children.length===0) {
+					self.filter_build_promise ??= self.filter.build()
+				}
+			}
 			const toggle_search_panel_handler = async () => {
 
 				// Lazy-load: only build+render the filter the first time the panel opens.
@@ -337,7 +344,9 @@ area_thesaurus.prototype.init = async function(options) {
 						container	: self.search_container,
 						label		: 'filter',
 						callback	: async () => {
-							await self.filter.build()
+							const build_promise = self.filter_build_promise ?? self.filter.build()
+							self.filter_build_promise = null // a later reopen rebuilds fresh
+							await build_promise
 							return self.filter.render()
 						}
 					})
@@ -366,7 +375,10 @@ area_thesaurus.prototype.init = async function(options) {
 							container	: self.search_container,
 							label		: 'filter',
 							callback	: async () => {
-								await self.filter.build()
+								// consume a hover warmup, so it is never reused stale on a later open
+								const build_promise = self.filter_build_promise ?? self.filter.build()
+								self.filter_build_promise = null
+								await build_promise
 								return self.filter.render()
 							}
 						})

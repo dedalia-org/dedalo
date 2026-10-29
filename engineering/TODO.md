@@ -17,6 +17,7 @@
 - [ ] TODO-013: Search: verify multiple left join issues (MDCAT case)
 - [x] TODO-014: Search presets: clean up all presets to prevent issues. Important. (2026-10-28: client-only — a stored leaf the current ontology no longer supports (tipo gone → build rejects; model changed/recycled → `context.model` differs from the stored one) is discarded in `get_component_instance` (destroyed, null), and `build_search_component` never throws: placeholder row, model node removed, one temp-preset (dd655) repair save once all leaves settle. Named presets (dd623) not rewritten. Gate: test_search_teardown, stale preset leaf case.)
 - [x] TODO-015: Search: improve search panel design (see 'CSS search panel design' session)
+- [ ] TODO-074: (priority: low) List total 0.7 s sooner (warm Slow 4G test3 list: rows 2.7 s, total 3.5 s → ~2.8 s): send `count` together with `read`. Needs the server `count` to apply the saved session search like `read` does (`mergeSessionSqo` + `sessionSqoForMerge`, opt-in on explicit `source.session_save:true`), plus a client re-key of the early count to the adopted `sqo_session`, a WC entry and native + client gates. A client-only early count was tried and dropped 2026-10-29 (a saved search showed the unfiltered total; `parsed:false` made every load send two counts). Plan: rewrite/plans/2026-10-29-list-count-with-read.md (local).
 
 ## UI & Responsive
 
@@ -127,4 +128,4 @@ to start to work.
 - [ ] TODO-070: The default section (dd1603) for the user (e.g. numisdata6) does not work when logging in. Review the user's default access section tipo.
 - [x] TODO-071: user admin tool do not display the user profile (dd1725). It should be display it as read only.
 - [ ] TODO-072: component_text_area, component_json: When it is active, pressing the 'ESC' key does not deactivate it like the other components. Unify this behaviour.
-- [ ] TODO-073: component_security_access: add a button to discard changes (include an alert to prevent accidental click). Sometimes, admins accidentally change a value.
+- [x] TODO-073: component_security_access: add a button to discard changes (include an alert to prevent accidental click). Sometimes, admins accidentally change a value. (2026-10-29: Cancel button beside Save, confirm(discard_changes) then refresh() reloads the stored value; client gate in test_component_security_access.js.)

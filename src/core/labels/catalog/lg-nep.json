@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "यो कोड सर्भरले प्रि-रिलिजहरू प्रदान गर्दैन: प्रकाशित संस्करणहरू र विकासकर्ता बिल्डहरू सूचीबद्ध छन्।",
 	"update_code_channel_prerelease": "प्रि-रिलिज",
 	"update_code_channel_published": "प्रकाशित संस्करणहरू",
+	"update_code_channel_published_note": "सामान्य प्रयोगका लागि प्रकाशित स्थिर संस्करणहरू मात्र। उत्पादन स्थापनाका लागि सिफारिस गरिएको विकल्प।",
 	"update_code_check_advertised_origin": "विज्ञापित स्रोत सार्वजनिक छ",
 	"update_code_check_advertised_url_reachable": "विज्ञापित रिलिज URL ले जवाफ दिन्छ",
 	"update_code_check_archive_installable": "अभिलेखमा कुनै सांकेतिक लिङ्क छैन",

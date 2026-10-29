@@ -998,7 +998,9 @@ export const build_map_view = function(self, widgets, opts={}) {
 
 	// ---- context panel ----
 		let mount_token = 0
-		const select_node = (id, preferred_tool) => {
+		// last tool picked per node, so returning to a group restores its selection
+		const last_tool_by_node = {}
+		const select_node = (id, preferred_tool=last_tool_by_node[id]) => {
 			selected = id
 			const n = MAP_NODES.find(x => x.id===id)
 			Object.keys(node_els).forEach(k => { node_els[k].classList.toggle('sel', k===id) })
@@ -1063,6 +1065,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 			const body = context.querySelector('.ctx_body')
 			if (!body) { return }
 			context.querySelectorAll('.tool_chip').forEach(c => { c.classList.toggle('sel', c.dataset.id===tid) })
+			last_tool_by_node[node_id] = tid
 			persist_sel(node_id, tid)
 
 			// widget name — the module id (e.g. 'update_ontology'), non-intrusive in

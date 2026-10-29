@@ -941,6 +941,10 @@ const get_buttons = function(self) {
 			// Note that self section is who is observing this event (init)
 			event_manager.publish('toggle_search_panel_'+self.id)
 		})
+		// warm up on intent: build requests start before the click
+		const warm_handler = () => self.warm_search_panel?.()
+		filter_button.addEventListener('pointerenter', warm_handler)
+		filter_button.addEventListener('focus', warm_handler)
 
 
 	return fragment

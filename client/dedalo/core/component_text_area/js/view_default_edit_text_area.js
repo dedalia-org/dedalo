@@ -12,7 +12,6 @@
 	import {get_instance} from '../../common/js/instances.js'
 	import {pause, url_vars_to_object, same_section_id} from '../../common/js/utils/index.js'
 	import {dd_request_idle_callback} from '../../common/js/events.js'
-	import {LZString as lzstring} from '/dedalo/lib/lz-string/lz-string.js'
 	import {render_draw} from './render_draw.js'
 
 
@@ -505,11 +504,14 @@ const get_content_value = (i, current_value, self) => {
 				// raw_data param, automatically select the referenced tag in the editor
 				// so the user lands in the correct indexation context.
 				dd_request_idle_callback(
-					() => {
+					async () => {
 						const url_vars = url_vars_to_object(window.location.search)
 						const raw_data = url_vars.raw_data ?? null
 						if(raw_data) {
 
+							// lazy: a static import put lz-string (/dedalo/lib/, never served by the
+							// service worker) on the critical path of every page holding a text_area
+							const { LZString: lzstring } = await import('/dedalo/lib/lz-string/lz-string.js')
 							const url_data_string	= lzstring.decompressFromEncodedURIComponent(raw_data)
 							const url_data_object	= JSON.parse(url_data_string)
 							const tag_id			= url_data_object.caller_options?.tag_id || null

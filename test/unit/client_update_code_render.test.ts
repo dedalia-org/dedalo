@@ -878,6 +878,7 @@ describe('update_code channel choice (gate 14, consumer half)', () => {
 		for (const key of [
 			'update_code_channel_choice',
 			'update_code_channel_published',
+			'update_code_channel_published_note',
 			'update_code_prerelease_channel',
 			'update_code_prerelease_channel_note',
 			'update_code_channel_not_offered_prerelease',

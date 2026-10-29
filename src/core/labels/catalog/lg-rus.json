@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "Этот сервер кода не предлагает предварительные версии: перечислены опубликованные версии и сборки для разработчиков.",
 	"update_code_channel_prerelease": "предварительная версия",
 	"update_code_channel_published": "Опубликованные версии",
+	"update_code_channel_published_note": "Только стабильные версии, опубликованные для общего использования. Рекомендуемый выбор для рабочей установки.",
 	"update_code_check_advertised_origin": "Объявленный источник является публичным",
 	"update_code_check_advertised_url_reachable": "Объявленный URL-адрес выпуска отвечает",
 	"update_code_check_archive_installable": "Архив не содержит символических ссылок",

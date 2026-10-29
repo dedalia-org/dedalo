@@ -18,12 +18,4 @@
  */
 export const OPEN_WIDGET_EVENT = 'dd_maintenance_open_widget';
 
-/**
- * MAINTENANCE_MODE_ENABLED_EVENT
- * Bubbling CustomEvent dispatched by a `.dd_prereq` maintenance switch
- * (maintenance_mode.js) after the server confirmed it: the widget that hosts
- * it re-reads its status, so the gate disappears without a page reload.
- */
-export const MAINTENANCE_MODE_ENABLED_EVENT = 'dd_maintenance_mode_enabled';
-
 // @license-end

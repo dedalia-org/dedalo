@@ -574,6 +574,13 @@ section.prototype.init = async function(options) {
 			)
 
 		// toggle_search_panel event. Triggered by button 'search' placed into section inspector buttons
+			// warm_search_panel. Called on search button hover/focus (user intent, never
+			// at page load): the build requests start before the click
+			self.warm_search_panel = () => {
+				if (self.filter && self.search_container?.children.length===0) {
+					self.filter_build_promise ??= self.filter.build()
+				}
+			}
 			const toggle_search_panel_handler = async () => {
 				if (!self.search_container || !self.filter) {
 
@@ -585,7 +592,9 @@ section.prototype.init = async function(options) {
 						container	: self.search_container,
 						label		: 'filter',
 						callback	: async () => {
-							await self.filter.build()
+							const build_promise = self.filter_build_promise ?? self.filter.build()
+							self.filter_build_promise = null // a later reopen rebuilds fresh
+							await build_promise
 							return self.filter.render()
 						}
 					})
@@ -669,7 +678,10 @@ section.prototype.init = async function(options) {
 										container	: self.search_container,
 										label		: 'filter',
 										callback	: async () => {
-											await self.filter.build()
+											// consume a hover warmup, so it is never reused stale on a later open
+											const build_promise = self.filter_build_promise ?? self.filter.build()
+											self.filter_build_promise = null
+											await build_promise
 											const node = await self.filter.render()
 											// display hidden search_global_container
 											self.filter.search_global_container.classList.remove('hide')
@@ -2352,8 +2364,23 @@ section.prototype.get_total = async function(sqo) {
 			return self.total
 		}
 
+	// count sqo. Simplified version from current self.rqo.sqo
+		const count_sqo = sqo
+			? clone(sqo) // custom sqo from params
+			: clone(self.rqo.sqo) // section rqo.sqo (default)
+		// remove unused properties
+		delete count_sqo.limit
+		delete count_sqo.offset
+		delete count_sqo.select
+		delete count_sqo.order
+		delete count_sqo.generated_time
+		// the pending default count is shared only for the SAME query: a new search resets
+		// self.total while the previous filter's count can still be in flight, and
+		// reusing it would show the old filter's total under the new rows
+		const total_key = JSON.stringify(count_sqo)
+
 	// If a promise to fetch the (default) total is already pending, reuse it for debouncing/queueing.
-		if (use_cache && self._total_promise) {
+		if (use_cache && self._total_promise && self._total_key===total_key) {
 			return self._total_promise;
 		}
 
@@ -2363,17 +2390,6 @@ section.prototype.get_total = async function(sqo) {
 			try {
 				// Execute the actual API call to get the total.
 				// API request
-
-					// count sqo. Simplified version from current self.rqo.sqo
-					const count_sqo = sqo
-						? clone(sqo) // custom sqo from params
-						: clone(self.rqo.sqo) // section rqo.sqo (default)
-					// remove unused properties
-					delete count_sqo.limit
-					delete count_sqo.offset
-					delete count_sqo.select
-					delete count_sqo.order
-					delete count_sqo.generated_time
 
 					// source
 					const source = create_source(self, null)
@@ -2413,8 +2429,9 @@ section.prototype.get_total = async function(sqo) {
 				// set result
 					const total = response_data(api_count_response).total
 
-				// only cache the default/unfiltered count on the instance
-				if (use_cache) {
+				// only cache the default/unfiltered count on the instance, and only while it
+				// is still the current query (a superseded count must not overwrite it)
+				if (use_cache && self._total_key===total_key) {
 					self.total = total
 					// Once the operation completes (successfully), clear the promise
 					// so that future calls to get_total will trigger a new API request.
@@ -2429,7 +2446,7 @@ section.prototype.get_total = async function(sqo) {
 
 				// In case of an error, clear the promise so that the next call to get_total
 				// will attempt to re-fetch the total, rather than endlessly returning a rejected promise.
-				if (use_cache) {
+				if (use_cache && self._total_key===total_key) {
 					self._total_promise = null;
 				}
 
@@ -2440,7 +2457,8 @@ section.prototype.get_total = async function(sqo) {
 
 	// store the pending promise only for the default count (used for dedup above)
 		if (use_cache) {
-			self._total_promise = total_promise;
+			self._total_promise	= total_promise;
+			self._total_key		= total_key;
 		}
 
 	return total_promise; // Return the promise that was just created

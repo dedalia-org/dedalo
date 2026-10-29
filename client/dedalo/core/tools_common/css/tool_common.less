@@ -46,6 +46,23 @@
 		padding-top: 2rem;
 	}
 
+	// save bubbles (ui.build_wrapper_edit): a zero-height full-width row right
+	// under the header, so the stack floats over the content top-right whatever
+	// the header height. Bubble look: general.less .bubbles_notification_container.
+	>.activity_info_container {
+		width: 100%;
+		height: 0px;
+		position: relative;
+		z-index: 10;
+
+		>.activity_info_body {
+			position: absolute;
+			top: 0.5rem;
+			right: 0.6rem;
+			max-width: 22rem;
+		}
+	}
+
 	>.content_data.content_data_error.tool_error {
 		display: block;
 		background-color: @color_white;
@@ -507,55 +524,6 @@
 			>button,
 			>select {
 				flex: 1 0 auto;
-			}
-		}
-	}
-
-	>.activity_info_container {
-		z-index: 2;
-
-		>.activity_info_body {
-			position: absolute;
-			top: 0px;
-			right: 0px;
-
-			// bubble message info
-			>.node_info_save_msg {
-				background-color: @color_orange_dedalo;
-				position: relative;
-				font-size: 0.96rem;
-				box-shadow: 2px 2px 4px 0px rgb(0 0 0 / 50%);
-				padding: 0.75rem;
-				outline: 1px solid @color_grey_13;
-				border-radius: 4px;
-				margin-top: 0.5rem;
-				margin-right: 0.5rem;
-				padding-right: 1.5rem;
-				user-select: none;
-
-				&.ok {
-					background-color: @color_success;
-				}
-				&.error, &.warning {
-					background-color: @color_danger;
-				}
-
-				&:after {
-					content: ' x ';
-					width: 15px;
-					height: 15px;
-					display: block;
-					position: absolute;
-					right: 0px;
-					top: 3px;
-					font-family: Arial, sans-serif;
-					cursor: pointer;
-					color: @color_white;
-
-					&:hover {
-						color: @color_black;
-					}
-				}
 			}
 		}
 	}

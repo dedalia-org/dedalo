@@ -190,8 +190,9 @@ else {
 		//
 		// The mask CANNOT be undone in afterAll (bun's mock.module is process-global
 		// and mock.restore() does not revert it), and it does not need to be: ui.js is
-		// not importable from disk AT ALL — it pulls `lib/codex-tooltip/dist/tooltip.js`
-		// through a SERVING path that exists only in the browser's URL tree. So every
+		// not importable from disk AT ALL — its module graph touches `window` while it
+		// evaluates (the codex-tooltip lib it once pulled statically is now loaded lazily,
+		// so that is no longer the reason). So every
 		// test that reaches ui.js must mask it (transcription_status_panel,
 		// component_change_value_refresh, component_info_widget_client all do); a
 		// leaked stub can only replace a module that would otherwise THROW, never a
