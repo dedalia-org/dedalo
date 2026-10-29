@@ -341,8 +341,8 @@ const get_content_data_edit = async function(self) {
 				const transcription_component = self.transcription_component || await self.get_component(self.lang)
 				// set auto_init_editor = true to force init editor instead use user click to activate it
 				transcription_component.auto_init_editor = true
-				// show_interface
-				transcription_component.show_interface.tools = false
+				// show_interface. Only the time machine, for quick access to previous versions
+				transcription_component.show_interface.tools = ['tool_time_machine']
 
 				const transcription_component_node = await transcription_component.render()
 				transcription_component_container.appendChild(transcription_component_node)

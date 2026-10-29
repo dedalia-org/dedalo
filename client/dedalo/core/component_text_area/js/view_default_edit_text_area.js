@@ -673,7 +673,7 @@ const get_content_value_read = (i, current_value, self) => {
 *
 * Which buttons appear is controlled by self.show_interface flags (all optional,
 * default false):
-*   show_interface.tools            → generic tool buttons via ui.add_tools
+*   show_interface.tools            → generic tool buttons via ui.add_tools (true = all, array = only those tool names)
 *   show_interface.button_fullscreen → fullscreen toggle (expands self.node)
 *   show_interface.button_save       → explicit save button (calls text_editor[0].save)
 *
@@ -692,9 +692,15 @@ const get_buttons = (self) => {
 	// fragment
 		const fragment = new DocumentFragment()
 
-	// buttons tools
+	// buttons tools. An array of tool names renders only those (e.g. tool_indexation keeps tool_time_machine)
 		if(show_interface.tools === true){
 			ui.add_tools(self, fragment)
+		}else if (Array.isArray(show_interface.tools)) {
+			for (const tool_context of self.tools || []) {
+				if (!show_interface.tools.includes(tool_context.name)) continue
+				const tool_button = ui.build_tool_button(self, tool_context)
+				if (tool_button) fragment.appendChild(tool_button)
+			}
 		}
 
 	// button_fullscreen

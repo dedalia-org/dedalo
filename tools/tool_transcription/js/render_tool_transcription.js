@@ -17,7 +17,7 @@
 *                   subtitle build button, and (when configured) the automatic-transcription
 *                   block that drives the local browser Whisper worker or a remote API server.
 *   - Header bar  : language selector, related-section dropdown, and optional external tool
-*                   buttons (tool_tr_print, tool_time_machine).
+*                   button (tool_tr_print).
 *   - Activity strip: live save-notification area driven by the 'save' event.
 *
 * All private helpers are module-scoped `const` functions (not exported) and are therefore
@@ -267,8 +267,8 @@ const get_content_data_edit = function(self) {
 
 	// component_text_area. render another node of component caller and append to container
 		const component_text_area = self.transcription_component
-		// show_interface
-		component_text_area.show_interface.tools = false
+		// show_interface. Only the time machine, for quick access to previous versions
+		component_text_area.show_interface.tools = ['tool_time_machine']
 		// set auto_init_editor for convenience
 		component_text_area.auto_init_editor = true
 		component_text_area.render()
@@ -882,7 +882,7 @@ const render_related_list = function(self) {
 * Build the header-bar fragment containing: the related-section selector,
 * a language switcher, and optional external-tool buttons.
 *
-* External tool buttons (tool_tr_print, tool_time_machine) are shown only when the
+* External tool button (tool_tr_print; time machine lives on the text area) is shown only when the
 * current user has access to those tools; availability is determined by
 * `self.get_user_tools()` which calls the `dd_tools_api` 'user_tools' action.
 * Each button opens the tool via `open_tool()` with the transcription component as caller.
@@ -963,9 +963,8 @@ const render_transcription_options = async function(self) {
 		})
 
 	// external tools
-		const ar_register_tools	= await self.get_user_tools(['tool_time_machine', 'tool_tr_print'])
+		const ar_register_tools	= await self.get_user_tools(['tool_tr_print'])
 		const tool_tr_print		= ar_register_tools.find(el => el.name === 'tool_tr_print')
-		const tool_tm			= ar_register_tools.find(el => el.name === 'tool_time_machine')
 
 	// Button tool transcription print
 		if(tool_tr_print) {
@@ -986,31 +985,6 @@ const render_transcription_options = async function(self) {
 				// open_tool (tool_common)
 					open_tool({
 						tool_context	: tool_tr_print,
-						caller			: self.transcription_component
-					})
-			})
-		}
-
-	// Button tool time machine
-		if(tool_tm) {
-			const tool_tm_button = ui.create_dom_element({
-				element_type	: 'button',
-				class_name		: 'tool_button tool_tm_button light',
-				title			: tool_tm.label || 'Tool Time machine',
-				parent			: fragment
-			})
-			const tool_tm_icon = ui.create_dom_element({
-				element_type	: 'img',
-				class_name		: 'icon',
-				src				: tool_tm.icon,
-				parent			: tool_tm_button
-			})
-			tool_tm_button.prepend(tool_tm_icon)
-			tool_tm_button.addEventListener('click', function(event) {
-				event.stopPropagation();
-				// open_tool (tool_common)
-					open_tool({
-						tool_context	: tool_tm,
 						caller			: self.transcription_component
 					})
 			})
