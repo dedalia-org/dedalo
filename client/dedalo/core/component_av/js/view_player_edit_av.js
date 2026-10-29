@@ -8,6 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {when_in_viewport} from '../../common/js/events.js'
+	import {get_media_url} from './media_url.js'
 	import {event_manager} from '../../common/js/event_manager.js'
 
 
@@ -42,7 +43,7 @@
 *   self.data.entries       {Array}   - array of entry objects; entries[0] is the primary file group
 *   self.data.entries[0].files_info {Array} - array of file_info objects per quality/extension
 *     file_info shape: { quality, extension, file_path, file_exist, file_size, file_time }
-*   self.data.posterframe_url {string} - absolute URL of the poster image (cache-busted at render time)
+*   self.data.posterframe_url {string} - absolute URL of the poster image, versioned by the server (?v=<mtime ms>-<size>)
 *   self.data.subtitles     {Object|undefined}
 *     subtitles shape: { subtitles_url: string, lang: string, lang_name: string }
 *   self.fragment           {Object|null} - active fragment window; null means no fragment
@@ -206,12 +207,12 @@ export const get_content_data_player = function(options) {
 
 	// url
 		// posterframe
-			const posterframe_url = data.posterframe_url + '?t=' + (new Date()).getTime()
+			const posterframe_url = data.posterframe_url || page_globals.fallback_image
 
 		// media
 			const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true && el.extension===extension)
 			const video_url	= file_info && file_info.file_path
-				? DEDALO_MEDIA_URL + file_info.file_path
+				? get_media_url(file_info) // file-versioned: a rebuilt rendition gets a new URL
 				: null
 
 	// player

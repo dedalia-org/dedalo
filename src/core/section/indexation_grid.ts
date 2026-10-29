@@ -31,6 +31,7 @@
  *   (cu1_1 → oh1 portal renders empty).
  */
 
+import { statSync } from 'node:fs';
 import { config } from '../../config/config.ts';
 import {
 	dateItemToValue,
@@ -48,7 +49,7 @@ import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { getLabels } from '../labels/catalog.ts';
-import { additionalPath as mediaBucketPath } from '../media/path.ts';
+import { absoluteFromRelative, additionalPath as mediaBucketPath } from '../media/path.ts';
 import { termByTipo } from '../ontology/labels.ts';
 import {
 	getColumnNameByModel,
@@ -580,7 +581,9 @@ async function mediaCellUrl(
 
 	// av/3d: posterframe grammar (no initial_media_path, no '//' cleanup)
 	if (model === 'component_av' || model === 'component_3d') {
-		return `${mediaUrlBase}${spec.folder}/posterframe${bucket}/${id}.${config.media.avExtras.posterframeExtension}`;
+		return versionedMediaUrl(
+			`${mediaUrlBase}${spec.folder}/posterframe${bucket}/${id}.${config.media.avExtras.posterframeExtension}`,
+		);
 	}
 
 	// image/pdf/svg: thumb-quality media dir (PHP get_media_url_dir)
@@ -589,7 +592,25 @@ async function mediaCellUrl(
 	const quality = config.media.thumb.quality;
 	let dir = `${mediaUrlBase}${spec.folder}${pathOpts.initialMediaPath}/${quality}${bucket}`;
 	dir = dir.replace(/^\/\//, '/');
-	return `${dir}/${id}.${spec.defaultExtension}`;
+	return versionedMediaUrl(`${dir}/${id}.${spec.defaultExtension}`);
+}
+
+/**
+ * The grid cell URL + `?v=<mtime ms>-<size>` of the file it names, so the browser
+ * caches the thumb/posterframe until the file changes
+ * (WC-2026-10-29-posterframe-url-version). The PATH stays the PHP grammar byte for
+ * byte; a URL that names no readable file inside the media root (PHP's
+ * test_file=false posture never checked) is returned bare, exactly as before.
+ */
+export function versionedMediaUrl(url: string): string {
+	const base = config.media.webBase;
+	if (!url.startsWith(base)) return url;
+	try {
+		const stat = statSync(absoluteFromRelative(url.slice(base.length)));
+		return `${url}?v=${Math.trunc(stat.mtimeMs)}-${stat.size}`;
+	} catch {
+		return url; // no file, unreadable, no media root, or a path escaping the root
+	}
 }
 
 /**

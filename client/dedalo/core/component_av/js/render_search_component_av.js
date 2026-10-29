@@ -15,9 +15,9 @@
 * Client-side search renderer for component_av.
 *
 * Builds and manages the DOM subtree for a `component_av` instance when
-* `mode === 'search'`. The module is mixed into `component_av` via prototype
-* assignment in `component_av.js`:
-*   `component_av.prototype.search = render_search_component_av.prototype.search`
+* `mode === 'search'`. `component_av.js` loads it lazily on the first search
+* render and calls `render_search_component_av.prototype.search` with the
+* instance as `this`.
 *
 * Responsibilities:
 * - Renders one `input[type=text]` per `data.entries` item (or a single blank

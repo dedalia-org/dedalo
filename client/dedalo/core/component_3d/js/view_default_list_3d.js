@@ -108,7 +108,7 @@ view_default_list_3d.render = async function(self, options) {
 *   1. 'thumb' entry in `data.entries` where `file_exist === true`
 *      → prepend DEDALO_MEDIA_URL to `file_path`
 *   2. `data.posterframe_url` (server-rendered still)
-*      → append `?t=<timestamp>` to bust the browser cache
+*      → versioned by the server (?v=<mtime ms>-<size>)
 *   3. `page_globals.fallback_image` (global placeholder path)
 *
 * The resolved `quality` from `self.quality` or `self.context.features.quality`
@@ -145,7 +145,7 @@ export const get_content_data = function(self) {
 
 	// posterframe (used as fallback)
 		const posterframe_url = data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// thumb, if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.

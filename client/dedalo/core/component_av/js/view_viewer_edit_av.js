@@ -135,7 +135,7 @@ view_viewer_edit_av.render = async function(self, options) {
 		// used here to fire the 'load' / 'error' events so we can conditionally
 		// show the download button after a successful posterframe fetch.
 		const posterframe_url = self.data.posterframe_url
-			? self.data.posterframe_url + '?t=' + (new Date()).getTime()
+			? self.data.posterframe_url
 			: page_globals.fallback_image
 		const image = ui.create_dom_element({
 			element_type : 'img'

@@ -64,10 +64,9 @@ view_mini_list_3d.render = async function(self, options) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe (used as fallback)
-	// Cache-bust the posterframe URL with a timestamp so stale browser caches
-	// don't serve the old snapshot after a new posterframe has been generated.
+	// The server versions the URL by file mtime+size (?v=), so a regenerated posterframe gets a new URL.
 		const posterframe_url = data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// URL

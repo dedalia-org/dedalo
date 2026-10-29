@@ -21,7 +21,7 @@
 *
 * Image resolution priority (same waterfall as view_mini_list_3d / view_default_list_3d):
 *   1. 'thumb' quality entry from data.entries where file_exist === true
-*   2. data.posterframe_url (with cache-busting timestamp appended)
+*   2. data.posterframe_url (versioned by the server, ?v=<mtime ms>-<size>)
 *   3. page_globals.fallback_image (global placeholder, set at page bootstrap)
 *
 * The module exports one namespace object `view_text_list_3d` with a single static
@@ -75,7 +75,7 @@ view_text_list_3d.render = async function(self, options) {
 		// Append a timestamp query param to bypass any browser or CDN cache that may
 		// have stored a stale or placeholder frame from a previous processing state.
 		const posterframe_url = data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// URL

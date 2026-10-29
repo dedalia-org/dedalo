@@ -173,10 +173,13 @@ describe.if(hasPhpCredentials())('six-component get_data lifecycle differential'
 	}
 
 	// AV media envelope.
+	// TS versions posterframe_url by file (`?v=<mtime ms>-<size>`); the frozen PHP store has
+	// the bare path (WC-2026-10-29-posterframe-url-version).
+	const unversioned = (u: unknown) => (typeof u === 'string' ? u.replace(/\?v=\d+-\d+$/, '') : u);
 	test('av: posterframe + subtitles (edit) match PHP', async () => {
 		if (!ready) return;
 		const { php, ts } = await both('component_av', seed('rsc', 35), seed('rsc', 167), '1', 'edit');
-		expect(ts?.posterframe_url).toEqual(php?.posterframe_url);
+		expect(unversioned(ts?.posterframe_url)).toEqual(php?.posterframe_url);
 		expect(ts?.subtitles).toEqual(php?.subtitles);
 	});
 	test('av: list value includes thumb quality (match PHP)', async () => {
@@ -185,7 +188,7 @@ describe.if(hasPhpCredentials())('six-component get_data lifecycle differential'
 		const q = (it: DataItem | undefined) =>
 			Array.isArray(it?.entries) ? (it.entries as { quality: string }[]).map((e) => e.quality) : [];
 		expect(q(ts)).toEqual(q(php));
-		expect(ts?.posterframe_url).toEqual(php?.posterframe_url);
+		expect(unversioned(ts?.posterframe_url)).toEqual(php?.posterframe_url);
 	});
 
 	// security_access ACL tree datalist (13k nodes) — count + envelope.

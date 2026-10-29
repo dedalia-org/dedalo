@@ -247,9 +247,9 @@ export const get_content_value = (i, current_value, self) => {
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		if(file_info) {
 			// posterframe image
-			// Cache-bust the posterframe URL so a freshly re-uploaded image is always shown.
+			// The server versions the URL by file mtime+size (?v=), so a re-uploaded image gets a new URL.
 			const posterframe_url = data.posterframe_url
-				? data.posterframe_url + '?t=' + (new Date()).getTime()
+				? data.posterframe_url
 				: page_globals.fallback_image
 			content_value.posterframe = ui.create_dom_element({
 				element_type	: 'img',
@@ -501,9 +501,9 @@ export const get_content_value_read = (i, current_value, self) => {
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		if(file_info) {
 			// posterframe image
-			// Cache-bust the posterframe URL so a freshly re-uploaded image is always shown.
+			// The server versions the URL by file mtime+size (?v=), so a re-uploaded image gets a new URL.
 			const posterframe_url = data.posterframe_url
-				? data.posterframe_url + '?t=' + (new Date()).getTime()
+				? data.posterframe_url
 				: page_globals.fallback_image
 			content_value.posterframe = ui.create_dom_element({
 				element_type	: 'img',

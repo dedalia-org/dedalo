@@ -136,7 +136,7 @@ view_default_list_av.render = async function(self, options) {
 * Fallback chain for the <img> source (evaluated in order):
 *   1. entries entry with quality === 'thumb' and file_exist === true
 *      → DEDALO_MEDIA_URL + file_path  (cache-busted with ?t=<timestamp>)
-*   2. data.posterframe_url             (cache-busted with ?t=<timestamp>)
+*   2. data.posterframe_url             (versioned by the server, ?v=<mtime ms>-<size>)
 *   3. page_globals.fallback_image      (global placeholder PNG; no cache-bust)
 *
 * The error event on the image re-assigns src to page_globals.fallback_image
@@ -167,7 +167,7 @@ const get_content_data = function(self) {
 
 	// posterframe (used as fallback)
 		const posterframe_url = data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// thumb

@@ -19,6 +19,12 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Audiovisual records load faster and reuse cached media.**
+
+    The audiovisual field no longer downloads its poster image and video again every time a record is shown. Media links now change only when the file itself changes (a new upload, a new transcode or a new poster image), so the browser reuses what it already has. Poster images below the visible part of the page load only when they scroll into view, the quality selector appears only when there is more than one quality to choose, and the player, viewer and search displays load only when they are used.
+
+    Wire contract: `WC-2026-10-29-posterframe-url-version`.
+
 - **Pages open noticeably faster for returning users on slow connections.**
 
     On HTTPS installations the browser keeps Dédalo's program files in a local cache after login, but three files were still fetched from the server on every page load, one after another, before the page could show anything: the page's entry file and two small helper libraries (tooltips, and a decompressor only used when opening a tag link). Now the entry file comes from the local cache and the two libraries load only when needed. Measured on a simulated slow mobile connection (Slow 4G), a section list appears in 2.8 s instead of 3.9 s and an edit form in 4.5 s instead of 5.7 s; on Fast 4G a list appears in 0.9 s instead of 1.3 s. First visits and installations without HTTPS are unchanged.
@@ -435,7 +441,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 16 entries"
+??? note "Wire contract — 17 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -452,6 +458,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-section-tool-test6402-config`
     - `WC-2026-10-28-start-component-deep-link-record-scope`
     - `WC-2026-10-28-tool-open-defects`
+    - `WC-2026-10-29-posterframe-url-version`
     - `WC-2026-10-29-start-user-default-section`
 
 ## 7.0.0-beta.7 — 2026-10-25
