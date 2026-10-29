@@ -136,11 +136,10 @@ render_search.prototype.list = async function() {
 		const wrapper = self.render_base()
 
 	// components_list. render section component list [left]
-		const use_real_sections = self.caller.model==='section'
-			? false // searching from regular section like 'es1'
-			: true // searching from 'area_thesaurus' or 'area_ontology'
+		// false from a regular section like 'es1', true from area_thesaurus/area_ontology.
+		// Same options as build() so this joins its already started request.
 		const section_elements = await self.get_section_elements({
-			use_real_sections : use_real_sections
+			use_real_sections : self.caller.model!=='section'
 		})
 		render_components_list({
 			self				: self,
@@ -159,6 +158,14 @@ render_search.prototype.list = async function() {
 
 	// render buttons
 		self.render_search_buttons()
+
+	// wait the saved filter rows, so the panel appears once, complete (no row pop-in).
+	// Capped: one slow row (request timeout/retry) must not hold the whole panel back;
+	// past the cap the panel shows and late rows fill in place
+		await Promise.race([
+			Promise.allSettled(self.leaf_builds),
+			new Promise(resolve => setTimeout(resolve, 1500))
+		])
 
 	// panels status (close/open)
 		self.get_panels_status()
@@ -480,6 +487,7 @@ export const render_filter = function(options) {
 
 	// Reset resolved
 		self.ar_resolved_elements = []
+		self.leaf_builds = []
 
 	// Reset canonical model. Rebuilt as a side effect of render_search_group /
 	// build_search_component while build_dom_group walks the preset.

@@ -748,6 +748,10 @@ const get_content_data = function(self) {
 				event_manager.publish('toggle_search_panel_' + self.caller.id)
 			}
 			button_search.addEventListener('mousedown', button_search_mousedown_handler)
+			// warm up on intent: build requests start before the click
+			const warm_handler = () => self.caller.warm_search_panel?.()
+			button_search.addEventListener('pointerenter', warm_handler)
+			button_search.addEventListener('focus', warm_handler)
 
 		// button_new . Call API to create new section and navigate to the new record
 			const section_button_new = section_buttons.find(el => el.model==='button_new')

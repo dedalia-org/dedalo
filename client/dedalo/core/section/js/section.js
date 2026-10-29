@@ -574,6 +574,13 @@ section.prototype.init = async function(options) {
 			)
 
 		// toggle_search_panel event. Triggered by button 'search' placed into section inspector buttons
+			// warm_search_panel. Called on search button hover/focus (user intent, never
+			// at page load): the build requests start before the click
+			self.warm_search_panel = () => {
+				if (self.filter && self.search_container?.children.length===0) {
+					self.filter_build_promise ??= self.filter.build()
+				}
+			}
 			const toggle_search_panel_handler = async () => {
 				if (!self.search_container || !self.filter) {
 
@@ -585,7 +592,9 @@ section.prototype.init = async function(options) {
 						container	: self.search_container,
 						label		: 'filter',
 						callback	: async () => {
-							await self.filter.build()
+							const build_promise = self.filter_build_promise ?? self.filter.build()
+							self.filter_build_promise = null // a later reopen rebuilds fresh
+							await build_promise
 							return self.filter.render()
 						}
 					})
@@ -669,7 +678,10 @@ section.prototype.init = async function(options) {
 										container	: self.search_container,
 										label		: 'filter',
 										callback	: async () => {
-											await self.filter.build()
+											// consume a hover warmup, so it is never reused stale on a later open
+											const build_promise = self.filter_build_promise ?? self.filter.build()
+											self.filter_build_promise = null
+											await build_promise
 											const node = await self.filter.render()
 											// display hidden search_global_container
 											self.filter.search_global_container.classList.remove('hide')

@@ -9768,6 +9768,24 @@ body:has(.component_av.view_viewer) {
     transform: translateY(-50%);
   }
 }
+@keyframes search_panel_in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.wrapper_search > .search_global_container {
+  animation: search_panel_in 0.18s ease-out;
+}
+.search_container > .container_placeholder {
+  animation: search_panel_in 0.2s 0.25s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrapper_search > .search_global_container,
+  .search_container > .container_placeholder {
+    animation: none;
+  }
+}
 /**
 * menu
 *

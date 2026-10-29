@@ -567,6 +567,10 @@ const get_buttons = function(self) {
 			pointer_event	: 'mousedown',
 			on_activate		: mousedown_handler
 		})
+		// warm up on intent: build requests start before the click
+		const warm_handler = () => self.warm_search_panel?.()
+		filter_button.addEventListener('pointerenter', warm_handler)
+		filter_button.addEventListener('focus', warm_handler)
 
 	// show_all_button. Show all records button
 		const show_all_button	= ui.create_dom_element({

@@ -1643,3 +1643,22 @@
 		}
 	}
 }
+
+// search panel entry. ONE short fade on every open (.hide is display:none, so the
+// animation replays with no JS); the loading placeholder shows only when the wait
+// is perceptible, so a fast open never flashes a spinner.
+@keyframes search_panel_in {
+	from { opacity: 0; transform: translateY(-4px); }
+}
+.wrapper_search > .search_global_container {
+	animation: search_panel_in 0.18s ease-out;
+}
+.search_container > .container_placeholder {
+	animation: search_panel_in 0.2s 0.25s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+	.wrapper_search > .search_global_container,
+	.search_container > .container_placeholder {
+		animation: none;
+	}
+}
