@@ -43,10 +43,12 @@ const PROGRAM = join(ROOT, 'scripts', 'lib', 'release_tag.ts');
 // A tagged commit names its release in DEDALO_NEXT_RELEASE (RELEASE.md step 1); the
 // data triple is the lower bound, and a code-only release leaves it below the name.
 const VERSION_TS = (data: string, release: string = data) =>
-	[
-		['DEDALO_DATA_VERSION', data],
-		['DEDALO_NEXT_RELEASE', release],
-	]
+	(
+		[
+			['DEDALO_DATA_VERSION', data],
+			['DEDALO_NEXT_RELEASE', release],
+		] as const
+	)
 		.map(
 			([constant, triple]) =>
 				`export const ${constant}: readonly [number, number, number] = Object.freeze([\n\t${triple.split('.').join(', ')},\n]) as [number, number, number];\n`,
