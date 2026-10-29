@@ -6,6 +6,7 @@
 
 // imports
 @import (once) '../../../client/dedalo/core/page/css/layout/vars';
+@import (once, reference) '../../../client/dedalo/core/tools_common/css/tool_mixins';
 
 // local vars
 :root {
@@ -215,11 +216,9 @@
 				// clipped strip was not scrollable because the box is
 				// overflow:hidden). 1fr takes what is LEFT after the label; the
 				// minmax(0,…) floor is what lets it actually shrink.
-				grid-template-rows: auto minmax(0, 1fr);
-
-				>.buttons_container {
-					visibility: hidden;
-				}
+				// Header row + toolbar swap, shared with tool_lang (tool_mixins.less);
+				// it sets the fixed label track too.
+				.text_area_pane_header();
 
 				>.content_data {
 					height: unset;

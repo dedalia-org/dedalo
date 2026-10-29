@@ -712,8 +712,8 @@ const get_buttons = (self) => {
 			})
 		}
 
-	// save
-		if (show_interface.button_save === true) {
+	// save. Not on a read-only editor (e.g. tool_lang source): there is nothing to save
+		if (show_interface.button_save === true && show_interface.read_only !== true) {
 
 			const save = ui.create_dom_element({
 				element_type	: 'span',

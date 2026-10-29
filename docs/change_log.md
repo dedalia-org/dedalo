@@ -35,6 +35,10 @@ Merged since the last release; these ship with the next one.
 
     The first time a tool opened in a dialog on a page, its stylesheet only started loading after its code had finished, adding one extra network round trip to the wait. Both now load at the same time, which saves about 0.6 s per first open on a slow connection (measured on Slow 4G: for example 2.96 s → 2.40 s for the posterframe tool). Tools that open in their own window are unchanged.
 
+- **The Transcription and Translation tools' text panes now look like the Indexation tool's.**
+
+    In the Transcription and Translation tools, the field name is now a header row across the top of the text pane, as in the Indexation tool. While you edit, the editor toolbar takes over that row, with the full-screen and save buttons at its right end. The text no longer moves or gets covered when the editor is selected, and in the Translation tool the language selectors stay visible above it.
+
 - **Tree-picker portals show their linked records like Parent and Children.**
 
     Portals that link terms through the tree picker (for example "Connected to" in an ontology record) spread each linked record across wide columns. They now show it on one line, `term | tld | id | model`, with the same edit, tree and remove buttons as the Parent and Children fields.
@@ -52,6 +56,10 @@ Merged since the last release; these ship with the next one.
     Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
 
 #### Fixed
+
+- **Indexation — the text pane's header now matches the selected field.**
+
+    In the Indexation tool, selecting the transcription left the header row above it grey, and the editor toolbar and its buttons sat slightly too low: a grey strip showed above them and they overlapped the first line of text. The header now takes the field's highlight colour while it is selected, as in the Transcription tool, and the toolbar covers the header row exactly. The pane also has the same space above it as in the Transcription tool.
 
 - **Indexation shows the orange unsaved-changes bar on its text boxes.**
 
@@ -80,6 +88,10 @@ Merged since the last release; these ship with the next one.
 - **A Time Machine note can be written again on every change in Component history.**
 
     Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.
+
+- **Translation tool — full screen works again, and the read-only source has no save button.**
+
+    In the Translation tool, the full-screen button on either text showed a blank page, because the tool's header and action bar were drawn on top of the editor. It now fills the screen as expected. The source text is read-only there, so its button bar no longer offers a save button. This applies to any read-only text editor.
 
 - **Tool save notices are readable again and no longer cover the close button.**
 
