@@ -252,6 +252,105 @@ flowchart LR
 `--out <dir>` writes `crawl_report.json`, a self-contained `crawl_report.html` grouped by
 persona and section, and one screenshot per finding.
 
+### Sample report
+
+The report comes in three forms: the terminal output, a JSON file and an HTML page. The
+samples below are real output from this repository's suite database.
+
+#### Terminal: a green full run
+
+This run, from 2026-10-29, was run with `--update`. Each finding prints as `known` (tolerated by the ratchet) or `FAIL` (red),
+with its detail on the next line. Then come the totals, pages per posture rule, and what
+`--update` banked. The exit code is `0`.
+
+```text
+known root:tools@section:tool:tool_identify:api:identify.no_profile
+      ok:false: get_proposals  /
+known root:tools@section:tool:tool_identify:api:identify.no_profile
+      ok:false: find_matches  /
+
+3 personas, 790 pages, 9641 checks, 2 findings, 0 red.
+posture a11y:aria-valid-attr: 105 pages
+posture a11y:button-name: 65 pages
+posture a11y:image-alt: 27 pages
+posture a11y:select-name: 715 pages
+posture keyboard: 7 pages
+posture phone_overflow: 49 pages
+banked engineering/crawl_inventory.json: 790 pages, 9641 checks
+banked engineering/crawl_posture_budget.json
+```
+
+#### Terminal: a red run
+
+This excerpt is from the first full run, on 2026-10-27, before the bugs it found were
+fixed. The exit code is `1`.
+
+```text
+3 personas, 795 pages, 7422 checks, 32 findings, 32 red.
+FAIL  root:rsc370:list:api:internal.invariant
+      ok:false: read section rsc370/rsc370
+FAIL  root:rsc370:list:error_panel
+      Error: Could not build element "section" rsc370: The server detected an internal contract violation; …
+FAIL  root:tools@component_json:tool:tool_error:tool_upload
+      tool rendered its error panel (caller component_json hierarchy60 on hierarchy1): Error : TypeError: Cannot read properties of undefined (reading 'allowed_extensions') …
+FAIL  root:dd15:edit:components
+      edit page rendered no component
+FAIL  admin:dd88:menu:orphan
+      menu parent 'dd207' is not visible to this user
+FAIL  editor:test3:oracle:other_project_record
+      no refusal shown (no .no_access and no perm.* answer)
+```
+
+How to read one line, using the last finding as the example:
+
+| Part | Value | Meaning |
+|---|---|---|
+| persona | `editor` | Which user saw it. |
+| section | `test3` | The section tipo. Tool findings use `tools@<caller model>`; journeys use `journey`. |
+| mode | `oracle` | `list`, `edit`, `area`, `tool`, `menu`, `oracle` or the journey name. |
+| check | `other_project_record` | Which check failed (see the tables above). |
+| detail | `no refusal shown …` | What was observed: here, another project's record was opened without being refused. |
+
+A crawl finding points at the place a problem *shows*, not at its cause. In the run above,
+the `rsc370` pair (`api:` + `error_panel`) is one server fault seen twice: once in the API
+answer, once in what the page showed. Start from the `api:<code>` finding.
+
+#### `crawl_report.json`
+
+The JSON file is meant for scripts and agents. It holds the same findings with no
+formatting.
+
+```json
+{
+	"audit": false,
+	"pagesVisited": 795,
+	"checksRun": 7422,
+	"findings": [
+		{ "id": "root:rsc370:list:api:internal.invariant", "detail": "ok:false: read section rsc370/rsc370" },
+		{ "id": "admin:dd88:menu:orphan", "detail": "menu parent 'dd207' is not visible to this user" },
+		{ "id": "editor:test3:oracle:other_project_record", "detail": "no refusal shown (no .no_access and no perm.* answer)" }
+	],
+	"stale": [],
+	"auditBlocked": []
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `findings` | Every finding, tolerated or not. Whether it counts as red is decided by the ratchet, not stored here. |
+| `stale` | `KNOWN_FAILING` entries that passed this run: they must be removed. |
+| `auditBlocked` | Audit mode only: write requests the browser aborted. |
+
+#### `crawl_report.html`
+
+The HTML page is meant for people. Findings are grouped by persona. Each has a red bar
+(`RED`) or a grey one (`known`), its detail and the screenshot taken at that moment.
+
+![Feature crawl HTML report: summary line, pages per posture rule, then findings grouped by persona, each with a red or grey bar, its detail and a screenshot](assets/2026-10-29_feature_crawl_report.png)
+
+This image shows four findings from the 2026-10-27 run, re-rendered with the current
+report layout. The real page lists all of a run's findings.
+
 ### Posture is budgeted per rule, not per page
 
 Accessibility, keyboard and phone-width debt is too large to list page by page, so it is
