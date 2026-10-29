@@ -166,7 +166,7 @@ import {
  * pinned to `from` and the release clone to `to`, so the drill keeps working
  * when the checkout has already moved past both.
  */
-function newestCatalogRung(): { from: number[]; to: number[] } {
+function newestCatalogRung(): { from: number[]; to: number[]; data: boolean } {
 	const descriptors = Object.values(UPDATE_CATALOG) as UpdateDescriptor[];
 	if (descriptors.length === 0) {
 		throw new Error(
@@ -184,6 +184,7 @@ function newestCatalogRung(): { from: number[]; to: number[] } {
 	return {
 		from: [newest.updateFromMajor, newest.updateFromMedium, newest.updateFromMinor],
 		to: [newest.versionMajor, newest.versionMedium, newest.versionMinor],
+		data: newest.updateData === true,
 	};
 }
 
@@ -599,26 +600,31 @@ function instanceEnvironment(options: {
 // ---------------------------------------------------------------------------
 
 /**
- * The one-line source edit the drill makes to `DEDALO_DATA_VERSION`, applied to
- * whichever tree needs pinning: the release clone to the release version, the
- * consumer copy to the version it upgrades FROM. Which constant a real release
- * moves, and when, is RELEASE.md steps 1 and 2a (NEXT in the follow-up commit,
- * DATA only in a data release's tagged commit).
+ * The one-line source edit the drill makes to one triple constant in version.ts
+ * (`DEDALO_DATA_VERSION` or `DEDALO_NEXT_RELEASE`). Which constant a real release
+ * moves, and when, is RELEASE.md steps 1 and 2a: NEXT names the release in its
+ * tagged commit, DATA moves only when the release migrates data.
  *
  * The match is the GENERIC triple shape, not this release's digits — the whole
  * point of deriving the rung is defeated by a regex that only recognises one
- * version. It is anchored on the `as [number, number, number]` assertion, which
- * exists exactly once in version.ts.
+ * version. It is anchored on the constant's own declaration, so the two triples
+ * in version.ts are never confused.
  */
-function setVersionTriple(text: string, tripleLiteral: string, whose: string): string {
-	const replaced = text.replace(
-		/\[\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,?\s*\]\s*\)\s*as\s*\[number,\s*number,\s*number\]/,
-		`${tripleLiteral}) as [number, number, number]`,
+function setVersionTriple(
+	text: string,
+	constant: 'DEDALO_DATA_VERSION' | 'DEDALO_NEXT_RELEASE',
+	tripleLiteral: string,
+	whose: string,
+): string {
+	const declaration = new RegExp(
+		`(export const ${constant}\\b[^=]*=\\s*Object\\.freeze\\()\\[[^\\]]*\\]\\)`,
 	);
-	if (replaced === text) {
-		throw new Error(`could not patch DEDALO_DATA_VERSION in the ${whose}`);
+	// Test the match, not the text: an already-pinned triple rewrites to itself,
+	// and that is idempotent, not a failure (the consumer at its FROM end).
+	if (!declaration.test(text)) {
+		throw new Error(`could not patch ${constant} in the ${whose}`);
 	}
-	return replaced;
+	return text.replace(declaration, `$1${tripleLiteral})`);
 }
 
 /**
@@ -769,6 +775,7 @@ function materializeConsumer(fromRoot: string, to: string): Promise<void> {
 			consumerVersionTs,
 			setVersionTriple(
 				readFileSync(consumerVersionTs, 'utf8'),
+				'DEDALO_DATA_VERSION',
 				CURRENT_TRIPLE_LITERAL,
 				'consumer install',
 			),
@@ -1401,14 +1408,22 @@ async function main(): Promise<void> {
 				// code under test (overlayWorkingTree; a no-op on a clean checkout).
 				reportOverlay('release clone', overlayWorkingTree(projectRoot, dir));
 				const versionTsPath = join(dir, 'src', 'core', 'update', 'version.ts');
-				writeFileSync(
-					versionTsPath,
-					setVersionTriple(
-						readFileSync(versionTsPath, 'utf8'),
+				// NEXT names the release; DATA moves only when the rung migrates data (2a).
+				let versionTs = setVersionTriple(
+					readFileSync(versionTsPath, 'utf8'),
+					'DEDALO_NEXT_RELEASE',
+					RELEASE_TRIPLE_LITERAL,
+					'release clone',
+				);
+				if (RUNG.data) {
+					versionTs = setVersionTriple(
+						versionTs,
+						'DEDALO_DATA_VERSION',
 						RELEASE_TRIPLE_LITERAL,
 						'release clone',
-					),
-				);
+					);
+				}
+				writeFileSync(versionTsPath, versionTs);
 				writeFileSync(join(dir, '.bun-version'), Bun.version);
 				// The clone INHERITS the repo's export rules — it never repairs them.
 				// A drill that patched a missing `export-ignore` would go green on the
