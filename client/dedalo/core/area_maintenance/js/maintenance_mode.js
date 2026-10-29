@@ -5,10 +5,10 @@
 
 
 // imports
-	import {ui} from '../../common/js/ui.js'
-	import {data_manager} from '../../common/js/data_manager.js'
 	import {request_failed, response_data} from '../../common/js/api_error.js'
+	import {data_manager} from '../../common/js/data_manager.js'
 	import {handle_api_error} from '../../common/js/error_dispatch.js'
+	import {ui} from '../../common/js/ui.js'
 
 
 

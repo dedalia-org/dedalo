@@ -6,9 +6,9 @@
 
 // imports
 	import {ui} from '../../../../common/js/ui.js'
-	import {item_release} from './update_code_channel.js'
-	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
 	import {MAINTENANCE_MODE_ENABLED_EVENT} from '../../../js/maintenance_events.js'
+	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
+	import {item_release} from './update_code_channel.js'
 
 
 

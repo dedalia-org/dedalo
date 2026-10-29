@@ -196,14 +196,19 @@ describe('SEARCH_TEARDOWN', function () {
 			const root = self.create_group_model_node('$and', null, null);
 			self.filter_model = root;
 			const leaf = (component_tipo, model) =>
-				JSON.stringify([{ section_tipo: section_tipo, component_tipo, model, name: component_tipo }]);
+				JSON.stringify([
+					{ section_tipo: section_tipo, component_tipo, model, name: component_tipo },
+				]);
 			// spy the change path: the temp-preset repair save. Snapshot what the save
 			// would serialize AT CALL TIME (proves the
 			// pending-leaf counter: a premature save would miss the in-flight good leaf)
 			const calls = [];
 			self.update_state = async (options) => {
 				const { filter } = self.parse_dom_to_json_filter({ mode: 'default' });
-				calls.push({ state: options.state, paths: filter.$and.map((item) => JSON.stringify(item.path)) });
+				calls.push({
+					state: options.state,
+					paths: filter.$and.map((item) => JSON.stringify(item.path)),
+				});
 			};
 			// the good leaf settles last; a transient failure (timeout/5xx) is not stale
 			const transient = leaf('test53', 'component_input_text');
@@ -229,12 +234,26 @@ describe('SEARCH_TEARDOWN', function () {
 				// concurrent, as build_dom_group fires them
 				const results = await Promise.all([
 					// (a) a tipo the ontology does not hold: the server answers request.invalid_tipo
-					self.build_search_component({ parent_div, path_plain: leaf('test999999', 'component_input_text'), section_id: 'search_1' }),
+					self.build_search_component({
+						parent_div,
+						path_plain: leaf('test999999', 'component_input_text'),
+						section_id: 'search_1',
+					}),
 					// (b) a real tipo stored with another model: context.model answers component_input_text
-					self.build_search_component({ parent_div, path_plain: leaf('test52', 'component_number'), section_id: 'search_1' }),
+					self.build_search_component({
+						parent_div,
+						path_plain: leaf('test52', 'component_number'),
+						section_id: 'search_1',
+					}),
 					self.build_search_component({ parent_div, path_plain: good, section_id: 'search_1' }),
 					// (c) a transient failure: placeholder, but the condition is KEPT
-					self.build_search_component({ parent_div, path_plain: transient, section_id: 'search_1', entries: [{ value: 'kept' }], q_operator: '=' }),
+					self.build_search_component({
+						parent_div,
+						path_plain: transient,
+						section_id: 'search_1',
+						entries: [{ value: 'kept' }],
+						q_operator: '=',
+					}),
 				]);
 				assert.deepEqual(results, [true, true, true, true], 'nothing throws, every row resolves');
 
@@ -254,7 +273,11 @@ describe('SEARCH_TEARDOWN', function () {
 					);
 				}
 				const { filter: kept_filter } = self.parse_dom_to_json_filter({ mode: 'default' });
-				assert.deepEqual(kept_filter.$and[1].q, [{ value: 'kept', id: 1 }], '(c) its stored q survives');
+				assert.deepEqual(
+					kept_filter.$and[1].q,
+					[{ value: 'kept', id: 1 }],
+					'(c) its stored q survives',
+				);
 				assert.equal(kept_filter.$and[1].q_operator, '=', '(c) its stored q_operator survives');
 				assert.deepEqual(
 					calls,

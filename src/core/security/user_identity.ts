@@ -84,7 +84,12 @@ export async function resolveUserDefaultSection(userId: number): Promise<string 
 		model,
 		currentDataLang(),
 	);
-	const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | string | undefined;
-	const tipo = (typeof first === 'string' ? first : first?.value)?.toString().trim() ?? '';
+	const tipo = firstItemText(value ?? fallbackValue);
 	return /^[a-z]+[0-9]+$/.test(tipo) ? tipo : null;
+}
+
+/** The first item's text — a bare string or a `{ value }` item — trimmed; '' when none. */
+function firstItemText(items: readonly unknown[] | null | undefined): string {
+	const first = items?.[0] as { value?: unknown } | string | undefined;
+	return (typeof first === 'string' ? first : first?.value)?.toString().trim() ?? '';
 }
