@@ -33,23 +33,24 @@ const WIDGETS = 'client/dedalo/core/area_maintenance/widgets/';
 
 // the TRACKED tree through the registered shared lister (census_derivation_tripwire)
 const WIDGET_FILES = trackedRepoFiles()
-	.filter(f => f.startsWith(WIDGETS))
-	.map(f => f.slice(WIDGETS.length));
-const LESS = WIDGET_FILES.filter(f => /^[^/]+\/css\/[^/]+\.less$/.test(f)).sort();
-const JS = WIDGET_FILES.filter(f => /^[^/]+\/js\/[^/]+\.js$/.test(f)).sort();
+	.filter((f) => f.startsWith(WIDGETS))
+	.map((f) => f.slice(WIDGETS.length));
+const LESS = WIDGET_FILES.filter((f) => /^[^/]+\/css\/[^/]+\.less$/.test(f)).sort();
+const JS = WIDGET_FILES.filter((f) => /^[^/]+\/js\/[^/]+\.js$/.test(f)).sort();
 
 const read = (rel: string): string => readFileSync(join(ROOT, WIDGETS, rel), 'utf8');
 
 // the rules, as functions, so the positive controls below run the SAME code
 const glyphFold = (src: string): boolean => /\\25B8|▸|::-webkit-details-marker/.test(src);
-const readoutColumns = (src: string): boolean => /\.dd_readout\s*\{[^{}]*grid-template-columns/.test(src);
+const readoutColumns = (src: string): boolean =>
+	/\.dd_readout\s*\{[^{}]*grid-template-columns/.test(src);
 const lessColour = (src: string): boolean => /@color_[a-z0-9_]+/.test(src);
 const redWarning = (src: string): boolean => /--color_warning\b/.test(src);
 const unfoldedDetails = (src: string): string[] => {
 	const bad: string[] = [];
 	for (const m of src.matchAll(/element_type\s*:\s*'details'[^}]*\}/g)) {
 		const cls = /class_name\s*:\s*['`"]([^'`"]*)/.exec(m[0]);
-		if (!cls || !cls[1].split(/\s+/).includes('dd_fold')) bad.push(m[0].slice(0, 80));
+		if (!cls?.[1]?.split(/\s+/).includes('dd_fold')) bad.push(m[0].slice(0, 80));
 	}
 	return bad;
 };
@@ -70,29 +71,37 @@ describe('maintenance_widget_kit_tripwire', () => {
 		expect(lessColour('color: var(--color_danger);')).toBe(false);
 		expect(redWarning('color: var(--color_warning);')).toBe(true);
 		expect(redWarning('color: @dd_warn_ink;')).toBe(false);
-		expect(unfoldedDetails("ui.create_dom_element({ element_type : 'details', class_name : 'x' })")).toHaveLength(1);
-		expect(unfoldedDetails("ui.create_dom_element({ element_type : 'details', parent : p })")).toHaveLength(1);
-		expect(unfoldedDetails("ui.create_dom_element({ element_type: 'details', class_name: 'dd_fold x' })")).toHaveLength(0);
+		expect(
+			unfoldedDetails("ui.create_dom_element({ element_type : 'details', class_name : 'x' })"),
+		).toHaveLength(1);
+		expect(
+			unfoldedDetails("ui.create_dom_element({ element_type : 'details', parent : p })"),
+		).toHaveLength(1);
+		expect(
+			unfoldedDetails(
+				"ui.create_dom_element({ element_type: 'details', class_name: 'dd_fold x' })",
+			),
+		).toHaveLength(0);
 	});
 
 	test('A. no disclosure styling outside the kit', () => {
-		expect(LESS.filter(f => glyphFold(read(f)))).toEqual([]);
+		expect(LESS.filter((f) => glyphFold(read(f)))).toEqual([]);
 	});
 
 	test('B. every <details> a widget builds is a .dd_fold', () => {
-		const offenders = JS.flatMap(f => unfoldedDetails(read(f)).map(s => `${f}: ${s}`));
+		const offenders = JS.flatMap((f) => unfoldedDetails(read(f)).map((s) => `${f}: ${s}`));
 		expect(offenders).toEqual([]);
 	});
 
 	test('C. no per-readout key column — --dd_k_width on the widget root', () => {
-		expect(LESS.filter(f => readoutColumns(read(f)))).toEqual([]);
+		expect(LESS.filter((f) => readoutColumns(read(f)))).toEqual([]);
 	});
 
 	test('D. widget stylesheets use theme tokens, never LESS @color_*', () => {
-		expect(LESS.filter(f => lessColour(read(f)))).toEqual([]);
+		expect(LESS.filter((f) => lessColour(read(f)))).toEqual([]);
 	});
 
 	test('E. warning is the kit amber, never --color_warning', () => {
-		expect(LESS.filter(f => redWarning(read(f)))).toEqual([]);
+		expect(LESS.filter((f) => redWarning(read(f)))).toEqual([]);
 	});
 });

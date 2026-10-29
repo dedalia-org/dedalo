@@ -938,7 +938,10 @@ describe('update_code developer-builds switch', () => {
 		// the source + primary action live in ONE actions zone (kit .dd_actions),
 		// so their selectors sit one level under it — and the DOM must agree
 		for (const node of ['button_submit', 'channel_row']) {
-			expect(new RegExp(`^\\t\\t\\t>\\.${node}\\b`, 'm').test(css_src), `>.update_actions >.${node}`).toBe(true);
+			expect(
+				new RegExp(`^\\t\\t\\t>\\.${node}\\b`, 'm').test(css_src),
+				`>.update_actions >.${node}`,
+			).toBe(true);
 		}
 		expect(render_src).toContain("class_name		: 'dd_actions update_actions'");
 		expect(render_src).toContain('parent			: actions');
