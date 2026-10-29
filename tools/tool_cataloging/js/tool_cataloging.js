@@ -11,6 +11,11 @@
 	import {tool_common} from '../../../core/tools_common/js/tool_common.js'
 	import {attach_picker} from '../../../core/area_thesaurus/js/thesaurus_picker.js'
 	import {render_tool_cataloging} from './render_tool_cataloging.js'
+	import {
+		refresh_used_state,
+		subscribe_used_triggers,
+		unsubscribe_used_triggers
+	} from './used_state.js'
 
 
 
@@ -41,7 +46,7 @@
 *
 * Prototype chain (methods delegated to shared implementations):
 *   - render  → tool_common.prototype.render
-*   - destroy → common.prototype.destroy
+*   - destroy → common.prototype.destroy (own wrapper: removes the window listener)
 *   - refresh → common.prototype.refresh
 *   - edit    → render_tool_cataloging.prototype.edit
 *
@@ -70,6 +75,10 @@
 *                                               thesaurus panel (resolved from the ddo_map role
 *                                               `indexing_component` in build; null when the
 *                                               install does not configure that role).
+*   @var {Function|null} used_focus_handler    - window focus / visibilitychange listener that
+*                                               re-reads the cards' "used" marker (removed on
+*                                               destroy).
+*   @var {number|null}   used_focus_timer      - debounce timer of used_focus_handler.
 */
 export const tool_cataloging = function () {
 
@@ -89,6 +98,8 @@ export const tool_cataloging = function () {
 	this.section_to_cataloging	= null // main section to be cataloging
 	this.area_thesaurus			= null
 	this.indexing_component		= null // component that receives a term picked in the thesaurus panel
+	this.used_focus_handler		= null // window listener re-reading the cards' used marker
+	this.used_focus_timer		= null // debounce timer of used_focus_handler
 }//end tool_cataloging
 
 
@@ -99,7 +110,6 @@ export const tool_cataloging = function () {
 */
 // prototypes assign
 	tool_cataloging.prototype.render	= tool_common.prototype.render
-	tool_cataloging.prototype.destroy	= common.prototype.destroy
 	tool_cataloging.prototype.refresh	= common.prototype.refresh
 	tool_cataloging.prototype.edit		= render_tool_cataloging.prototype.edit
 
@@ -119,6 +129,8 @@ export const tool_cataloging = function () {
 *   3. Subscribes to the `ts_add_child_tool_cataloging` global event, which the thesaurus tree
 *      fires whenever the user drops a record onto a node, triggering a new child-term creation
 *      flow (see the handler inline docs below).
+*   4. Wires the "used" marker recalculation triggers (used_state.subscribe_used_triggers):
+*      a catalog term deleted, a term link saved, the window regaining focus.
 *
 * @param {Object} options - Initialisation options forwarded verbatim to tool_common.prototype.init.
 * @returns {Promise<boolean>} Resolves to the boolean returned by the common init (`true` on success).
@@ -142,6 +154,10 @@ tool_cataloging.prototype.init = async function(options) {
 		self.error = error
 		console.error(error)
 	}
+
+	// used marker recalculation triggers (term deleted, link saved, window
+	// focus).
+		subscribe_used_triggers(self)
 
 	// ts_add_child_tool_cataloging event subscription
 		// listen the thesaurus to update the data of the component_portal when the locator drag by user
@@ -227,6 +243,8 @@ tool_cataloging.prototype.init = async function(options) {
 						if (response===false) {
 							return
 						}
+					// used marker of the dragged card, from the server (dd1596)
+						self.refresh_used_state([locator])
 					// dispatch the callback to the thesaurus to update the node in the thesaurus tree
 						if (callback) {
 							callback(response)
@@ -326,6 +344,41 @@ tool_cataloging.prototype.build = async function(autoload=false) {
 
 	return common_build
 }//end build
+
+
+
+/**
+* REFRESH_USED_STATE
+* Re-reads the "used" marker of the given cards (or every materialized card)
+* from the server — see used_state.js.
+* @param {Array<Object>|null} [locators=null] - {section_tipo, section_id} records.
+* @returns {Promise<boolean>}
+*/
+tool_cataloging.prototype.refresh_used_state = function(locators=null) {
+
+	return refresh_used_state(this, locators)
+}//end refresh_used_state
+
+
+
+/**
+* DESTROY
+* common.prototype.destroy, plus the window listener the used marker
+* recalculation added in init (event_manager tokens are released by common).
+* @param {...*} args - Forwarded to common.prototype.destroy.
+* @returns {Promise<Object>}
+*/
+tool_cataloging.prototype.destroy = async function(...args) {
+
+	const self = this
+
+	const delete_self = args[0] ?? true
+	if (delete_self) {
+		unsubscribe_used_triggers(self)
+	}
+
+	return common.prototype.destroy.apply(self, args)
+}//end destroy
 
 
 
