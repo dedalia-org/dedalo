@@ -55,13 +55,16 @@ export function acquireSuiteRunLock(
 ): () => void {
 	const path = suiteRunLockPath(suiteDb, options.dir);
 	mkdirSync(join(path, '..'), { recursive: true });
+	// A `bun test --parallel` worker locks on behalf of the run — the parent every sibling
+	// shares — and never removes it: the lock goes stale (reclaimed) when that run ends.
+	const owner = process.env.BUN_TEST_WORKER_ID ? process.ppid : process.pid;
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
 			const fd = openSync(path, 'wx');
-			const body: LockBody = { pid: process.pid, holder, started: new Date().toISOString() };
+			const body: LockBody = { pid: owner, holder, started: new Date().toISOString() };
 			writeSync(fd, JSON.stringify(body));
 			closeSync(fd);
-			process.env[TOKEN_ENV] = `${path}#${process.pid}`;
+			process.env[TOKEN_ENV] = `${path}#${owner}`;
 			let released = false;
 			const release = () => {
 				if (released) return;
@@ -86,7 +89,9 @@ export function acquireSuiteRunLock(
 		}
 		if (current !== null && alive(current.pid)) {
 			// a descendant of the holder runs inside the holder's run
-			if (process.env[TOKEN_ENV] === `${path}#${current.pid}`) return () => {};
+			if (process.env[TOKEN_ENV] === `${path}#${current.pid}` || current.pid === owner) {
+				return () => {};
+			}
 			throw new Error(
 				`REFUSED: suite database '${suiteDb}' is in use by ${current.holder} (pid ${current.pid}, since ${current.started}). One suite run at a time — bun test, test:client and test:crawl reseed the same fixtures. Wait for it, or stop it; a dead holder's lock is reclaimed automatically (${path}).`,
 			);
