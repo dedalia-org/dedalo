@@ -105,8 +105,7 @@ describe('nothing registers sw.js; the live worker is service_worker.js', () => 
 			if (f === TOMBSTONE) return false;
 			const code = stripComments(readFileSync(f, 'utf-8'));
 			// the live worker's fetch handler excludes the URL by name — that is not a reference to load it
-			const scrubbed =
-				f === WORKER ? code.replace("!path.endsWith('/sw.js')", '') : code;
+			const scrubbed = f === WORKER ? code.replace("!path.endsWith('/sw.js')", '') : code;
 			return /['"`][^'"`]*\bsw\.js/.test(scrubbed);
 		});
 		expect(offenders).toEqual([]);

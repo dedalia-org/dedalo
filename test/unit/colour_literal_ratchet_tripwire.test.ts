@@ -171,7 +171,8 @@ const BANK = {
 		undeclared_fallback: 4,
 		/** OUTER budget: every literal in a paint position, drift or not (retune-stable) */
 		// 2026-10-12: 267 — the browser installer's installer.less left with it.
-		paint_literals: 267,
+		// 2026-10-29: 266 — tool_common dead .node_info_save_msg styles removed (52d85b3dc2).
+		paint_literals: 266,
 	},
 	js: {
 		has_token: 27,

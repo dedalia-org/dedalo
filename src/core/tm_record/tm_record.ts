@@ -50,6 +50,7 @@ import { assertMatrixTable, MATRIX_JSONB_COLUMNS, readMatrixRecord } from '../db
 import { sql } from '../db/postgres.ts';
 import type { TimeMachineRow } from '../db/time_machine.ts';
 import { TIME_MACHINE_SECTION_TIPO } from '../db/time_machine.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import { ontologyTermLabel } from '../ontology/labels.ts';
 import {
 	getColumnNameByModel,
@@ -196,6 +197,21 @@ async function injectTmField(
 }
 
 /**
+ * The jsonb column the note text (rsc329) stores in, or null when its model is
+ * unresolved. Allowlist-gated: the column is interpolated into tmNoteValue's SQL.
+ */
+async function tmNoteColumn(): Promise<MatrixJsonbColumn | null> {
+	const model = await getModelByTipo(TM_NOTES_TEXT);
+	const column = model !== null ? getColumnNameByModel(model) : null;
+	if (column !== null && !MATRIX_JSONB_COLUMNS.includes(column as MatrixJsonbColumn)) {
+		throw new DedaloError('internal.invariant', {
+			message: `tmNoteValue: ${TM_NOTES_TEXT} resolves to non-jsonb column ${column}`,
+		});
+	}
+	return column as MatrixJsonbColumn | null;
+}
+
+/**
  * The rsc329 annotation value for one TM row (PHP class.tm_record.php:690-755):
  * search the notes section (rsc832) for the record whose Code (rsc835) equals
  * the TM row id, adopt its rsc329 data verbatim (all langs — the emit side
@@ -207,8 +223,7 @@ async function injectTmField(
  */
 async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
 	const table = await getMatrixTableFromTipo(TM_NOTES_SECTION_TIPO);
-	const model = await getModelByTipo(TM_NOTES_TEXT);
-	const column = model !== null ? getColumnNameByModel(model) : null;
+	const column = await tmNoteColumn();
 
 	// The note record's own address, MINTED here from an int PK column (PHP
 	// carried the DB driver's string; WC-2026-08-10-section-id-int-canonical
@@ -224,9 +239,6 @@ async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
 		// click): the oldest one WITH text wins, so an empty duplicate never
 		// shadows the note the user actually wrote.
 		// Table and column identifiers are allowlist-gated; values are bound params.
-		if (!MATRIX_JSONB_COLUMNS.includes(column as MatrixJsonbColumn)) {
-			throw new Error(`tmNoteValue: ${TM_NOTES_TEXT} resolves to non-jsonb column ${column}`);
-		}
 		const rows = (await sql.unsafe(
 			`SELECT section_id
 			 FROM "${table}"
@@ -246,7 +258,7 @@ async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
 		if (found !== null) {
 			noteSectionId = Number(found);
 			const noteRecord = await readMatrixRecord(table, TM_NOTES_SECTION_TIPO, noteSectionId);
-			const columnValue = noteRecord?.columns[column as MatrixJsonbColumn];
+			const columnValue = noteRecord?.columns[column];
 			const items = (columnValue as Record<string, unknown> | null | undefined)?.[TM_NOTES_TEXT];
 			// PHP get_data coerces non-array data to [$data]; null keeps the placeholder.
 			noteItems = items == null ? null : Array.isArray(items) ? items : [items];

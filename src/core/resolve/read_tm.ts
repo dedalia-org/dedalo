@@ -948,6 +948,13 @@ function emptyKeyOf(law: { sliced: boolean }): unknown {
 	return law.sliced ? [] : null;
 }
 
+/** The raw stored value of one TM cell (pre lang-filter), read off the snapshot record. */
+function storedCellValue(record: MatrixRecord, model: string, tipo: string): unknown {
+	const column = getColumnNameByModel(model) as MatrixJsonbColumn | null;
+	if (column === null) return undefined;
+	return (record.columns[column] as Record<string, unknown> | null | undefined)?.[tipo];
+}
+
 /** Whether a model stores into a matrix jsonb column (component_section_id does not). */
 function hasJsonbColumn(model: string): boolean {
 	const column = getColumnNameByModel(model);
@@ -1194,12 +1201,7 @@ async function emitTmRow(
 				// column); they need no special handling now that nothing is restamped.
 				item.from_component_tipo ??= tipo;
 				item.parent_section_id ??= row.id;
-				const column = getColumnNameByModel(model) as MatrixJsonbColumn | null;
-				const stored =
-					column === null
-						? undefined
-						: (tmRecord.columns[column] as Record<string, unknown> | null | undefined)?.[tipo];
-				TM_CELL_DECORATORS[tipo]?.(item, row, stored);
+				TM_CELL_DECORATORS[tipo]?.(item, row, storedCellValue(tmRecord, model, tipo));
 			} else if (isPortalFamily && item.parent_section_id === undefined) {
 				item.parent_section_id = item.section_id;
 			}

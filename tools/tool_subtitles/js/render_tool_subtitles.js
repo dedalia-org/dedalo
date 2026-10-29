@@ -8,7 +8,7 @@
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {ui} from '../../../core/common/js/ui.js'
 	import {keyboard_codes} from '../../../core/common/js/utils/keyboard.js'
-	import {render_node_info, prepend_bubble} from '../../../core/common/js/utils/notifications.js'
+	import {prepend_bubble, render_node_info} from '../../../core/common/js/utils/notifications.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 
 

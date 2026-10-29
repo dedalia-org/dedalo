@@ -33,7 +33,7 @@
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import * as touch_pick from '../../../core/common/js/touch_pick.js'
 	import {ui} from '../../../core/common/js/ui.js'
-	import {render_node_info, prepend_bubble} from '../../../core/common/js/utils/notifications.js'
+	import {prepend_bubble, render_node_info} from '../../../core/common/js/utils/notifications.js'
 
 
 

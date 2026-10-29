@@ -84,4 +84,3 @@ describe(`SECTION TOTAL`, function () {
 		assert.equal(await s.get_total(), 3);
 	});
 });
-
