@@ -80,7 +80,13 @@
 					>.content_data {
 						cursor: pointer;
 
-						.section_record {
+						// the tool's OWN rows only (child combinator). A descendant
+						// selector also hit the nested portal rows (e.g. the coin images
+						// portal): flex turned each nested row into ONE grid item of the
+						// portal's 1fr 1fr list_body, collapsing both image cells into the
+						// first track so the thumbnails overlapped. Nested rows must keep
+						// the core list display:contents.
+						>.section_record {
 							background-color: @color_white;
 							display: flex;
 							align-items: center;
@@ -160,6 +166,11 @@
 							grid-template-columns: 73px auto 73px;
 							grid-template-rows: minmax(3rem, auto) 2fr minmax(3rem, auto);
 							overflow: hidden;
+							// the overlay is a section_record nested in the tile: it no longer
+							// inherits the row rule above (child combinator), so it states the
+							// row background and alignment it used to receive from it.
+							background-color: @color_white;
+							align-items: center;
 							@bg_color_buttons: @color_grey_15;
 
 							>.column {

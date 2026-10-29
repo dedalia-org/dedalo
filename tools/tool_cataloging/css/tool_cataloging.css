@@ -61,19 +61,19 @@
 .wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data {
   cursor: pointer;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record {
   background-color: var(--color_white);
   display: flex;
   align-items: center;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .component_input_text_mini {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .component_input_text_mini {
   padding-left: 1rem;
   font-size: 1.3rem;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .column_section_id {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column_section_id {
   position: absolute;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record.snap {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record.snap {
   position: sticky !important;
   position: -webkit-sticky !important;
   top: 1px;
@@ -83,18 +83,18 @@
   background-color: var(--color_white);
   box-shadow: 2px 2px 12px var(--color_grey_15);
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .component_image img {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .component_image img {
   height: 9rem;
   width: 9rem;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .column_drag {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column_drag {
   padding: unset;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .column_drag .options_left_contaniner {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column_drag .options_left_contaniner {
   display: flex;
   flex-direction: column;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .column_drag .dragger {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column_drag .dragger {
   background-image: url(../img/drag.svg);
   background-position: center;
   background-repeat: no-repeat;
@@ -106,11 +106,11 @@
   height: 100%;
   width: 34px;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .column_drag .dragger.used {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column_drag .dragger.used {
   opacity: 1;
   background-color: var(--color_hilite_2);
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .section_record .column_drag .dragger:hover {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column_drag .dragger:hover {
   background-color: var(--color_grey_10);
   opacity: 0.7;
 }
@@ -125,6 +125,8 @@
   grid-template-columns: 73px auto 73px;
   grid-template-rows: minmax(3rem, auto) 2fr minmax(3rem, auto);
   overflow: hidden;
+  background-color: var(--color_white);
+  align-items: center;
 }
 .wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .sr_mosaic_hover > .column {
   z-index: 2;

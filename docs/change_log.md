@@ -23,6 +23,10 @@ Merged since the last release; these ship with the next one.
 
     On HTTPS installations the browser keeps Dédalo's program files in a local cache after login, but three files were still fetched from the server on every page load, one after another, before the page could show anything: the page's entry file and two small helper libraries (tooltips, and a decompressor only used when opening a tag link). Now the entry file comes from the local cache and the two libraries load only when needed. Measured on a simulated slow mobile connection (Slow 4G), a section list appears in 2.8 s instead of 3.9 s and an edit form in 4.5 s instead of 5.7 s; on Fast 4G a list appears in 0.9 s instead of 1.3 s. First visits and installations without HTTPS are unchanged.
 
+- **AI entry points are hidden when the installation has no model.**
+
+    The assistant icon is no longer shown unless the installation has an AI model enabled. Semantic search is shown only when a real embedding sidecar is configured; without one it is hidden instead of falling back to a placeholder. Object identification is hidden for now while it is being redesigned. Nothing else changes for installations that already have a model.
+
 - **Link fields show their hints only on hover or when selected.**
 
     An empty link (IRI) field in the edit form no longer shows its "Label", "Title" and "http://" hints all the time. Like the date field, it stays blank until the pointer is over it or the field is selected, so empty fields no longer look filled in.
@@ -76,6 +80,23 @@ Merged since the last release; these ship with the next one.
 - **A Time Machine note can be written again on every change in Component history.**
 
     Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.
+
+- **The cataloguing tool shows only its own thesauri, marks used types, and shows every configured coin again.**
+
+    Four defects of the cataloguing tool are fixed, restoring the behaviour of version 6:
+
+    - **Only the configured thesauri load.** When the tool's configuration limits the thesaurus panel
+      to some hierarchy typologies (for example `hierarchy_types: [8]`), only those hierarchies are
+      loaded; thesauri of any other typology no longer appear.
+    - **Used types are marked again.** A record already used as a term shows the highlighted
+      background behind its drag handle. The "Relation list" (`component_inverse`) field now carries
+      the records that point to each record, as in version 6, wherever it is shown.
+    - **Portals inside portals keep their configured limit.** A nested portal declared with, for
+      example, `limit: 4` (the ordered coins) showed only one item after any refresh or save; it now
+      shows the configured number.
+    - **Thumbnails in the tool's record list are whole** — no longer clipped or overlapping.
+
+    Wire contract: `WC-2026-10-29-area-declared-hierarchy-types`.
 
 - **Tool save notices are readable again and no longer cover the close button.**
 
@@ -413,7 +434,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 16 entries"
+??? note "Wire contract — 18 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -430,6 +451,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-section-tool-test6402-config`
     - `WC-2026-10-28-start-component-deep-link-record-scope`
     - `WC-2026-10-28-tool-open-defects`
+    - `WC-2026-10-29-ai-capabilities-page-globals`
+    - `WC-2026-10-29-area-declared-hierarchy-types`
     - `WC-2026-10-29-start-user-default-section`
 
 ## 7.0.0-beta.7 — 2026-10-25

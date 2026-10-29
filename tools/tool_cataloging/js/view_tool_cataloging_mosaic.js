@@ -604,8 +604,9 @@ const rebuild_columns_map = async function(base_columns_map, self, view_mosaic) 
 *    These are the hierarchy section types that are loaded as valid drop targets.
 * 2. Reads `section_record.datum.data` for the
 *    `DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS` (dd1596) datum matching the
-*    current record's locator. This datum carries the record's incoming relation
-*    list from the server-side section_info pre-calculation.
+*    current record's locator. This component_inverse datum carries the record's
+*    incoming relation list in `entries` (the v7 wire key, WC-001 — v6 used
+*    `value`), computed live by the server (component_inverse emit hook).
 * 3. `get_related_hierarchy` walks that relation list and returns true if any entry's
 *    `from_section_tipo` matches one of the loaded hierarchy target_section_tipos.
 *
@@ -664,10 +665,10 @@ const render_column_drag = function(options) {
 		}
 		return false
 	}
-	// if current section_record has relations, it has value, check with hierarchies
-	// else it doesn't has value and set use as false
-		const used = relation_data && relation_data.value
-			? get_related_hierarchy(relation_data.value)
+	// if current section_record has relations, it has entries, check with hierarchies
+	// else it doesn't has entries and set use as false
+		const used = relation_data && Array.isArray(relation_data.entries)
+			? get_related_hierarchy(relation_data.entries)
 			: false
 
 	// DocumentFragment

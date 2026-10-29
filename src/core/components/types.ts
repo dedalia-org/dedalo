@@ -58,7 +58,8 @@ export type EmitHookId =
 	| 'text_area'
 	| 'filter_records'
 	| 'security_access'
-	| 'external';
+	| 'external'
+	| 'inverse';
 
 /**
  * The import-parser IDs a descriptor may name in `importConform`. Adding one =
