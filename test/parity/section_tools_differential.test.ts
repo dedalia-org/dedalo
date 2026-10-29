@@ -83,7 +83,9 @@ type ToolDdo = Record<string, unknown> & { name: string };
  *   in the frozen tree). The oracle cannot be asked about a tool that postdates
  *   it; a re-harvest is impossible by definition.
  */
-const TS_ONLY_TOOLS = ['tool_error_report', 'tool_identify'] as const;
+// tool_identify is no longer here: WITHDRAWN from the TS toolbars 2026-10-29
+// (WC-2026-10-29-ai-capabilities-page-globals) and asserted absent below.
+const TS_ONLY_TOOLS = ['tool_error_report'] as const;
 
 /**
  * tool_diffusion is availability-gated on the DIFFUSION SECTION-MAP, which is
@@ -139,11 +141,11 @@ describe.if(hasPhpCredentials())('section tools differential (Phase 6 gate)', ()
 		if (!hasPhpCredentials()) return;
 		const phpNames = new Set(phpTools.map((tool) => tool.name));
 		const tsNames = new Set(tsAll.map((tool) => tool.name));
-		// tool_identify is the entry a SECTION toolbar carries: present in TS (a
-		// declaration that matches nothing is a stale exemption) and absent from
-		// the frozen PHP answer. tool_error_report is a user_tools-level row that
-		// no section toolbar carries on either engine — asserted as such.
-		expect(tsNames.has('tool_identify')).toBe(true);
+		// tool_identify: absent from the frozen PHP answer (PHP never had it) and
+		// WITHDRAWN from the TS toolbar (WC-2026-10-29-ai-capabilities-page-globals).
+		// tool_error_report is a user_tools-level row that no section toolbar
+		// carries on either engine — asserted as such.
+		expect(tsNames.has('tool_identify')).toBe(false);
 		expect(phpNames.has('tool_identify')).toBe(false);
 		expect(tsNames.has('tool_error_report')).toBe(false);
 		expect(phpNames.has('tool_error_report')).toBe(false);

@@ -23,3 +23,18 @@
 - **Parity note:** `test/parity/environment_differential.test.ts` (page_globals
   key-set compare) must strip this TS-only key before the exact compare, the WC-031 /
   WC-2026-10-21-error-report-granted pattern. That test file is outside this change.
+
+## Addendum 2026-10-29 — `tool_identify` withdrawn from the TS tool lists
+
+- **Shape:** `tool_identify` is no longer offered on the TS side by any door: `getUserTools`,
+  `getElementTools` and the section toolbar (`getSectionTools`) filter it through
+  `toolOfferedByCapabilities` (`src/ai/capabilities.ts`, identify always `false`). The
+  `tools/tool_identify/register.json` registration is kept; it is hidden, not deleted.
+- **Oracle:** PHP never had the tool, so the frozen side is unchanged and carries no `tool_identify`.
+  The divergence is the TS side only, deliberate and documented here.
+- **Gates:** `test/parity/section_tools_differential.test.ts` asserts `tool_identify` absent on both
+  sides (was: present on TS as a one-sided declaration). `test/parity/get_element_context_differential.test.ts`
+  drops it from `TS_ONLY_TOOLS` and asserts it absent on both sides in every case. No re-harvest
+  (the gates transform the TS side before diffing).
+- **Recording:** the parity baseline is not banked by this addendum. Its `tier_pass` drop is an
+  intended regression recorded with `--allow-regression --reason` in the CI image.
