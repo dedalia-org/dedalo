@@ -1044,6 +1044,11 @@
 			"skipped": 0,
 			"assertions": 21
 		},
+		"test/unit/data_version_tripwire.test.ts": {
+			"tests": 11,
+			"skipped": 1,
+			"assertions": 10
+		},
 		"test/unit/database_info_consolidate_native.test.ts": {
 			"tests": 15,
 			"skipped": 0,
@@ -2444,6 +2449,11 @@
 			"skipped": 0,
 			"assertions": 19
 		},
+		"test/unit/install_plain_combination_native.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 10
+		},
 		"test/unit/install_plain_parity_tripwire.test.ts": {
 			"tests": 66,
 			"skipped": 0,
@@ -2498,6 +2508,11 @@
 			"tests": 75,
 			"skipped": 0,
 			"assertions": 2066
+		},
+		"test/unit/install_secret_single_entry_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 8
 		},
 		"test/unit/install_seed_contract_native.test.ts": {
 			"tests": 1,
@@ -3243,6 +3258,11 @@
 			"tests": 10,
 			"skipped": 0,
 			"assertions": 21
+		},
+		"test/unit/nightly_no_data_tripwire.test.ts": {
+			"tests": 5,
+			"skipped": 0,
+			"assertions": 5
 		},
 		"test/unit/no_install_surface_tripwire.test.ts": {
 			"tests": 10,
