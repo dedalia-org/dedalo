@@ -150,6 +150,147 @@ menu the server builds for that user. The expected permission level of each comp
 comes from `getPermissions`. The expected tools come from `getUserTools`. Nothing the
 crawl compares against is written by hand.
 
+## Where the test data comes from
+
+The crawl needs records to open, users to log in as and projects to separate them. None
+of this comes from a real installation. It is built in **four layers**, each with its own
+lifetime. Think of a theatre:
+
+- the **stage** is built once and reused for every show;
+- the **cast** arrives before each show and leaves after it;
+- the **props** are moved around during the show and put back at the end;
+- the **tickets** are valid for one show only.
+
+```mermaid
+flowchart TB
+    L1["<b>1. The stage</b> — the suite database<br/>built once by bun run test:db:setup<br/>lives until you rebuild it"]
+    L2["<b>2. The cast</b> — personas fixture<br/>2 users, 2 profiles, 2 projects, 2 records<br/>installed at the start of every run, removed at the end"]
+    L3["<b>3. The props</b> — what journeys write<br/>edited values, a created record, a grant<br/>swept after each journey"]
+    L4["<b>4. The tickets</b> — login sessions<br/>one per persona<br/>destroyed at the end of the run"]
+    L1 --> L2 --> L3
+    L2 --> L4
+```
+
+### Layer 1 — the stage: the suite database
+
+You build it **once** (and again whenever you want a clean start):
+
+```bash
+bun run test:db:setup
+```
+
+This creates a separate database, named after the application database with `_test`
+added (for example `dedalo7_myinstall_test`), and fills it the way a new installation
+is filled:
+
+1. **A fresh installation.** It uses the installer's own steps: the core database, the
+   languages, and the default ontology.
+2. **A marker row** (`dedalo_test_marker`). It says "this database is for tests". Every
+   piece of test code that writes checks for this row first and refuses to write
+   anywhere it is missing. That is what makes it impossible for a test to write into a
+   real installation by mistake.
+3. **The test ontology:** the generic `test` TLD. It has sections built to exercise every
+   component model, such as `test3` (the "playground", which has one of everything),
+   `testplace0` (a small thesaurus), `test1001` and `test480`.
+4. **Test records** in those sections, plus hierarchies and the tool register.
+
+The crawl **reads** this layer and doesn't change it. When it opens "the first record" of
+a section, that record comes from here.
+
+!!! note
+    The crawl doesn't rebuild or reseed this layer. `bun test` and `bun run test:client`
+    *do* reseed the `test3` playground wholesale, which would wipe records the crawl is
+    using. That is why the three commands share one lock and never run at the same time.
+
+### Layer 2 — the cast: the personas fixture
+
+At the start of **every** run, `test/helpers/crawl_persona_fixture.ts` adds the people
+and the situation the permission checks need:
+
+| Row | Id | What it is |
+|---|---|---|
+| User `zzcrawl_admin` | 948001 | Global administrator, not root |
+| User `zzcrawl_editor` | 948002 | Ordinary user, member of project A only |
+| Admin profile | 948011 | Full rights on `test3` |
+| Editor profile | 948012 | The mixed grants shown under [The three personas](#the-three-personas) |
+| Project A | 948021 | The editor's project |
+| Project B | 948022 | A project the editor does not belong to |
+| `test3` record | 948101 | Assigned to project A: the editor may open it |
+| `test3` record | 948102 | Assigned to project B: the editor must be refused |
+
+How it is done, step by step:
+
+1. **Check the marker.** If the database is not the marked suite database, stop.
+2. **Clean up first.** Delete these ids if a crashed earlier run left them behind.
+3. **Insert the rows** at the fixed ids above. The editor profile's grants are not typed
+   out by hand. The fixture reads the ontology to list every component under each
+   section, so the profile stays correct when the test ontology changes.
+4. **Set passwords** for `root`, `zzcrawl_admin` and `zzcrawl_editor`, so the login
+   journeys can type them into the real login form.
+
+At the end of the run, the same ids are deleted again, along with their Time Machine
+history. This clean-up is **strict**: if a row it expected to delete is already gone,
+the run reports a `fixture:teardown:sweep` finding. Something else touched the cast
+during the show, and you want to know.
+
+!!! info "Why fixed ids and a raw insert?"
+    Fixed ids make the clean-up exact: it deletes these eight rows and nothing else. The
+    rows are inserted directly rather than through the application, because they are the
+    *starting situation*, not something under test. Everything the crawl *does test*
+    then goes through the real application in the browser.
+
+### Layer 3 — the props: what journeys write
+
+Most of the crawl only looks. The **journeys** act, and some of them write:
+
+| Journey | What it writes | How it is put back |
+|---|---|---|
+| `edit_save_reload` | Types a new value into record 948101 | Record 948101 is deleted with the cast |
+| `create_record_in_own_project` | Creates a new record in `test1001`, then deletes it | Sweep of records created during the run (below) |
+| `admin_grant_propagates` | Grants, then revokes, a permission on the editor profile | The journey revokes it; the profile is deleted with the cast |
+| `restore_component_value` | Restores an earlier value on a cast record | Deleted with the cast |
+
+**The sweep of created records.** When the application creates a record, the record's
+number comes from a counter that only goes up. Before a journey creates anything, the
+crawl notes the counter's current value. Afterwards it deletes every row of that section
+above that value: the record, its Time Machine history and its Activity entries. Older
+rows sit at or below the noted value and are never touched.
+
+```mermaid
+sequenceDiagram
+    participant J as Journey
+    participant DB as Suite DB (test1001)
+    J->>DB: note counter = N
+    J->>DB: create record (via the browser) → id N+1
+    J->>DB: delete it (via the browser)
+    Note over DB: the delete keeps a Time Machine<br/>snapshot and Activity rows
+    J->>DB: sweep: remove every row above N<br/>(record, Time Machine, Activity)
+```
+
+### Layer 4 — the tickets: login sessions
+
+The crawl doesn't log in through the form for every page; that would be slow. For each
+persona it creates a session directly in the server's session store, a store that
+belongs to this run only, and hands the cookie to that persona's browser context. The
+sessions are destroyed when the run ends.
+
+### Summary table
+
+| Layer | Created by | When | Removed |
+|---|---|---|---|
+| Suite database | `bun run test:db:setup` | Once, by you | When you rebuild it |
+| Personas fixture | `crawl_persona_fixture.ts` | Start of each run | End of each run (strict) |
+| Journey writes | The journeys, through the browser | During the run | After each journey, or with the cast |
+| Sessions | The crawl | Start of each persona | End of the run |
+
+**What this means for you:**
+
+- If the crawl says "no `dedalo_test_marker` row", run `bun run test:db:setup`.
+- If a run crashed, just run it again. Layer 2 cleans up its own leftovers before
+  installing.
+- The application database is never opened by the crawl in gate mode. Audit mode is
+  different: it creates no test data at all, and blocks every write.
+
 ## The three personas
 
 The crawl walks as `root` and as two users built by
