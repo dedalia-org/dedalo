@@ -46,6 +46,61 @@ some users:
   and the list can only shrink. The crawl must also reach a minimum number of pages, so
   it cannot quietly skip part of the application and still pass.
 
+## What "a real browser" means here
+
+The crawl doesn't imitate a browser. It runs **Google Chrome**, the same program people
+use, and controls it from a script.
+
+```mermaid
+flowchart LR
+    subgraph U["Unit tests (bun test)"]
+      T1[test code] -->|calls a function or<br/>sends an API request| E1[Engine]
+      E1 -->|JSON answer| T1
+    end
+    subgraph C["Feature crawl (bun run test:crawl)"]
+      T2[crawl script] -->|"opens pages, clicks, types<br/>(Puppeteer → Chrome DevTools Protocol)"| B[Chrome]
+      B -->|loads HTML, CSS and the<br/>client's JavaScript| E2[Engine + suite DB]
+      E2 -->|API answers| B
+      B -->|what the page shows,<br/>errors, screenshots| T2
+    end
+```
+
+**How it works:**
+
+- **The program.** [Puppeteer](https://pptr.dev/) starts Chrome and sends it commands
+  over the Chrome DevTools Protocol, the same channel Chrome's own developer tools use. It
+  uses the Chrome installed on the machine, or the one named in
+  `PUPPETEER_EXECUTABLE_PATH`.
+- **The pages.** Chrome loads Dédalo's client from the crawl's own server: the same HTML,
+  CSS and JavaScript an installation serves. It draws the pages exactly as a user's
+  browser would. Nothing in the client is replaced or mocked.
+- **The user.** Each persona gets its own isolated browser context, like a separate
+  private window, with its own session cookie. One persona can never borrow another's
+  login.
+- **The actions.** Journeys type into fields key by key and click buttons with real mouse
+  events, so the client's own event handlers run, including the automatic save when a
+  field loses focus (the journey presses Tab). The `login_form` journey types the username and password into the
+  real login form.
+- **What it watches.** Chrome reports to the script every uncaught JavaScript error, every
+  console error and every API answer. The script also reads the page as drawn: which
+  components rendered, whether an error panel appeared, which inputs are enabled.
+- **Why it matters.** A unit test can only prove the server's answer was right. The crawl
+  proves the page that answer produced works. A field drawn as editable that should be
+  read-only, a tool that crashes while opening, or a page that throws while drawing only
+  show up here.
+
+**Where it differs from a person at a screen:**
+
+| | Feature crawl | A person |
+|---|---|---|
+| Window | Invisible ("headless") by default. `--headful` shows it. | Visible |
+| Logging in | A session is created directly and handed to Chrome, to save time. The `login_form` and `admin_grant_propagates` journeys use the real login form. | Always the login form |
+| Screen size | 1400 × 1000. Each page is also checked at 360 × 740 (phone). | Any |
+| Browser | Chrome only | Chrome, Firefox, Safari, … |
+| Inspector blocks | Opened by a click event fired inside the page, not by a mouse movement | Mouse or touch |
+| Reading state | Sometimes asks the client's own modules what is on screen (for example, the list of component instances), where no visible label shows it | Looks at the screen |
+| Judging looks | Never: it checks behaviour, not appearance | Sees everything |
+
 !!! note "Reading this page as an AI agent"
     The commands, file paths and finding ids on this page are exact and can be used as
     written. The ground truth is the code: `scripts/feature_crawl.ts` (the walk),
