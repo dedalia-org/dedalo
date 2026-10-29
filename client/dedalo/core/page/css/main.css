@@ -15045,6 +15045,13 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   overflow: auto;
   width: 100%;
 }
+.area_maintenance > .content_data .widget_container > .widget_body .widget_load_spinner {
+  position: relative;
+  display: block;
+  left: auto;
+  top: auto;
+  margin: 1rem auto;
+}
 .area_maintenance > .content_data .widget_container > .widget_body:not(.hide) {
   animation: maintenance_reveal 180ms ease-out;
 }
@@ -17615,9 +17622,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
 }
-.wrapper_widget.serve_code > .content_data .update_status .readiness_block > .maintenance_prereq {
-  margin-bottom: 0.5rem;
-}
 .wrapper_widget.serve_code > .content_data .update_status .status_verdict {
   margin-top: 0.5rem;
   margin-bottom: 0.75rem;
@@ -18568,6 +18572,9 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code > .content_data > .dd_note {
   margin: 0.5rem 0;
 }
+.wrapper_widget.update_code > .content_data .dd_options_note {
+  min-height: 2.4rem;
+}
 .wrapper_widget.update_code > .content_data > .update_actions {
   margin-bottom: 1rem;
 }
@@ -18647,9 +18654,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .wrapper_widget.update_code > .content_data .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
-}
-.wrapper_widget.update_code > .content_data .update_status .readiness_block > .maintenance_prereq {
-  margin-bottom: 0.5rem;
 }
 .wrapper_widget.update_code > .content_data .update_status .status_verdict {
   margin-top: 0.5rem;
@@ -19273,9 +19277,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .wrapper_widget.publication_hosts .update_status .readiness_block > .dd_fold {
   margin-bottom: 0;
-}
-.wrapper_widget.publication_hosts .update_status .readiness_block > .maintenance_prereq {
-  margin-bottom: 0.5rem;
 }
 .wrapper_widget.publication_hosts .update_status .status_verdict {
   margin-top: 0.5rem;

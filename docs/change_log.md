@@ -131,6 +131,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The Update code panel shows its options only once loaded, and maintenance mode is switched on from the update dialog only.**
+
+    In Maintenance → Update code, the panel no longer repeats the maintenance-mode warning, its switch and its row: the dialog opened by "Check available updates" already offers the switch where the update is started. While the panel loads, a spinner stands where the status will appear, and the source, offer and "Check available updates" controls appear together once loading finishes. The "Published releases" option now carries a short description, like the other two. Every maintenance widget's loading spinner now takes its own space instead of floating over the content.
+
 - **The publication tool asks for the number of pending deletions without using the retry action.**
 
     The publication tool shows how many deletions are still waiting to reach the publication server. It now gets that number from a separate, read-only request instead of the request that retries the deletions. Nothing changes on screen; read-only checks of the installation no longer block it.

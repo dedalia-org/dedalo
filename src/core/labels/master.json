@@ -885,6 +885,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "This code server does not offer prereleases: published releases and developer builds are listed.",
 	"update_code_channel_prerelease": "prerelease",
 	"update_code_channel_published": "Published releases",
+	"update_code_channel_published_note": "Only stable releases, published for general use. The recommended choice for a production installation.",
 	"update_code_check_advertised_origin": "Advertised origin is public",
 	"update_code_check_advertised_url_reachable": "Advertised release URL answers",
 	"update_code_check_archive_installable": "Archive carries no symlinks",

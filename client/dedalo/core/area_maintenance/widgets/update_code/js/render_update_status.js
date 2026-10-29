@@ -6,8 +6,6 @@
 
 // imports
 	import {ui} from '../../../../common/js/ui.js'
-	import {MAINTENANCE_MODE_ENABLED_EVENT} from '../../../js/maintenance_events.js'
-	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
 	import {item_release} from './update_code_channel.js'
 
 
@@ -593,19 +591,13 @@ const render_readiness = function(parent, consumer) {
 	// or warn on, plus the waiver check whatever its state (an `unknown` backup
 	// also puts a waiver on the table). The headline names the condition; these
 	// rows name the cause, with their notes. `unknown` alone is information,
-	// not an alarm — it stays in the folded list below.
+	// not an alarm — it stays in the folded list below. Maintenance mode is
+	// left to the version modal's gate, which carries its switch.
 	const checks = consumer.checks || []
 	const attention = checks.filter(check =>
-		check.state==='blocked' || check.state==='warn' || check===waiver_check
+		check.id!=='maintenance_mode'
+		&& (check.state==='blocked' || check.state==='warn' || check===waiver_check)
 	)
-	// maintenance mode is the one blocked gate the operator can lift HERE: the
-	// reason and the switch, before any picker or modal. The event tells the
-	// panel (and an open version modal) to re-read the status.
-	if (checks.some(check => check.id==='maintenance_mode' && check.state==='blocked')) {
-		render_maintenance_prereq(block, () => {
-			block.dispatchEvent(new CustomEvent(MAINTENANCE_MODE_ENABLED_EVENT, {bubbles : true}))
-		})
-	}
 	if (attention.length) {
 		const attention_readout = ui.create_dom_element({
 			element_type	: 'div',

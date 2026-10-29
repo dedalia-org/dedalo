@@ -646,6 +646,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "Aquest servidor de codi no ofereix prellançaments: es llisten les versions publicades i les compilacions de desenvolupament.",
 	"update_code_channel_prerelease": "prellançament",
 	"update_code_channel_published": "Versions publicades",
+	"update_code_channel_published_note": "Només versions estables, publicades per a ús general. L'opció recomanada per a una instal·lació de producció.",
 	"update_code_check_advertised_origin": "L'origen anunciat és públic",
 	"update_code_check_advertised_url_reachable": "L'URL de la versió anunciada respon",
 	"update_code_check_archive_installable": "L'arxiu no conté enllaços simbòlics",

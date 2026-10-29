@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "このコードサーバーはプレリリースを提供していません：公開リリースと開発者ビルドが表示されます。",
 	"update_code_channel_prerelease": "プレリリース",
 	"update_code_channel_published": "公開リリース",
+	"update_code_channel_published_note": "一般利用向けに公開された安定版リリースのみ。本番環境のインストールに推奨される選択です。",
 	"update_code_check_advertised_origin": "公開されているオリジンはパブリックです",
 	"update_code_check_advertised_url_reachable": "公開されているリリース URL が応答します",
 	"update_code_check_archive_installable": "アーカイブにシンボリックリンクが含まれていない",

@@ -390,6 +390,16 @@
 				overflow: auto;
 				width: 100%;
 
+				// widget_common.load's spinner: in FLOW, on its own row below the
+				// content — the global .spinner is absolute and floats over it
+				.widget_load_spinner {
+					position: relative;
+					display: block;
+					left: auto;
+					top: auto;
+					margin: 1rem auto;
+				}
+
 				// smooth reveal on expand
 				&:not(.hide) {
 					animation: maintenance_reveal 180ms ease-out;

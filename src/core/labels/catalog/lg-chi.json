@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "此代码服务器不提供预发布版本：列出已发布版本和开发者构建。",
 	"update_code_channel_prerelease": "预发布",
 	"update_code_channel_published": "已发布版本",
+	"update_code_channel_published_note": "仅提供已发布供普遍使用的稳定版本。生产环境安装的推荐选择。",
 	"update_code_check_advertised_origin": "公布的来源是公开的",
 	"update_code_check_advertised_url_reachable": "公布的发行版 URL 有响应",
 	"update_code_check_archive_installable": "压缩包不含符号链接",

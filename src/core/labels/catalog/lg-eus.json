@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "Kode-zerbitzari honek ez du aurreko bertsiorik eskaintzen: argitaratutako bertsioak eta garatzaileen konpilazioak zerrendatzen dira.",
 	"update_code_channel_prerelease": "aurre-bertsioa",
 	"update_code_channel_published": "Argitaratutako bertsioak",
+	"update_code_channel_published_note": "Bertsio egonkorrak soilik, erabilera orokorrerako argitaratuak. Ekoizpeneko instalazio baterako gomendatutako aukera.",
 	"update_code_check_advertised_origin": "Iragarritako jatorria publikoa da",
 	"update_code_check_advertised_url_reachable": "Iragarritako bertsioaren URLak erantzuten du",
 	"update_code_check_archive_installable": "Artxiboak ez du esteka sinbolikorik",

@@ -13,7 +13,6 @@
 	import {handle_api_error} from '../../../../common/js/error_dispatch.js'
 	import {login} from '../../../../login/js/login.js'
 	import {render_servers_list} from '../../update_ontology/js/render_update_ontology.js'
-	import {MAINTENANCE_MODE_ENABLED_EVENT} from '../../../js/maintenance_events.js'
 	import {render_maintenance_prereq} from '../../../js/maintenance_mode.js'
 	import {error_text} from '../../../../common/js/render_api_error.js'
 	import {
@@ -304,6 +303,8 @@ const get_content_data_edit = async function(self) {
 					is_development ? null : { on_cancel : () => cancel_image_request(self, body_response) }
 				)
 			} else {
+				// the status replaces this readout once loaded: widget_common.load's spinner goes here
+				holder.classList.add('widget_load_slot')
 				holder.appendChild(build_readout([
 					{ k : (get_label.update_code_current_version || 'Current version'), v : page_globals.dedalo_version, mono : true },
 					{ k : (get_label.update_code_current_build || 'Current build'), v : page_globals.dedalo_build, mono : true }
@@ -312,6 +313,13 @@ const get_content_data_edit = async function(self) {
 			return holder
 		}
 		render_consumer_half(value.consumer)
+
+	// NOT LOADED YET (widget_common.load fetches self.value on open): the source
+	// picker and the actions need the loaded servers/readiness, so they appear
+	// together once it arrives — the loader's spinner holds their place
+		if (!self.value) {
+			return content_data
+		}
 
 	// RE-READ the consumer half from the server. Deleting a restore point
 	// changes the very list this half renders, so the row that was acted on has
@@ -333,12 +341,6 @@ const get_content_data_edit = async function(self) {
 				console.error('update_code: could not refresh the consumer readout', error)
 			}
 		}
-
-	// the readiness block's maintenance switch (maintenance_mode.js) was used:
-	// re-read so the gate, the verdict and the hint all move together
-		content_data.addEventListener(MAINTENANCE_MODE_ENABLED_EVENT, () => {
-			self.refresh_consumer()
-		})
 
 	// servers. The shared picker over CODE_SERVERS with its OWN storage key:
 	// remembering the choice must not collide with the ontology picker's.
@@ -456,7 +458,7 @@ const get_content_data_edit = async function(self) {
 			{
 				token	: 'master',
 				label	: get_label.update_code_channel_published || 'Published releases',
-				note	: null
+				note	: get_label.update_code_channel_published_note || 'Only stable releases, published for general use. The recommended choice for a production installation.'
 			},
 			{
 				token	: 'prerelease',
@@ -496,11 +498,14 @@ const get_content_data_edit = async function(self) {
 				}))
 			}
 			option_label.prepend(input)
-			// the caution is SHOWN once its option is chosen — it is what the
+			// the note is SHOWN while its option is chosen — it is what the
 			// operator has to read before checking WITH it on — and rides the
-			// option's tooltip before that, so the default panel stays quiet
+			// option's tooltip before that
 			if (option.note) {
 				option_label.title = option.note
+			}
+			if (input.checked) {
+				channel_note.textContent = option.note || ''
 			}
 			input.addEventListener('change', () => {
 				channel_note.textContent = option.note || ''

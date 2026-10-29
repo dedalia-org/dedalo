@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "Este servidor de código não oferece pré-lançamentos: são listadas as versões publicadas e as compilações de desenvolvimento.",
 	"update_code_channel_prerelease": "pré-lançamento",
 	"update_code_channel_published": "Versões publicadas",
+	"update_code_channel_published_note": "Apenas versões estáveis, publicadas para uso geral. A escolha recomendada para uma instalação de produção.",
 	"update_code_check_advertised_origin": "A origem anunciada é pública",
 	"update_code_check_advertised_url_reachable": "O URL da versão anunciada responde",
 	"update_code_check_archive_installable": "O arquivo não contém ligações simbólicas",

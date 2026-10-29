@@ -637,6 +637,7 @@
 	"update_code_channel_not_offered_prerelease_with_dev": "Αυτός ο διακομιστής κώδικα δεν προσφέρει προεκδόσεις: εμφανίζονται οι δημοσιευμένες εκδόσεις και οι εκδόσεις ανάπτυξης.",
 	"update_code_channel_prerelease": "προέκδοση",
 	"update_code_channel_published": "Δημοσιευμένες εκδόσεις",
+	"update_code_channel_published_note": "Μόνο σταθερές εκδόσεις, δημοσιευμένες για γενική χρήση. Η προτεινόμενη επιλογή για εγκατάσταση παραγωγής.",
 	"update_code_check_advertised_origin": "Η διαφημιζόμενη προέλευση είναι δημόσια",
 	"update_code_check_advertised_url_reachable": "Η διαφημιζόμενη διεύθυνση URL έκδοσης απαντά",
 	"update_code_check_archive_installable": "Το αρχείο δεν περιέχει συμβολικούς συνδέσμους",
