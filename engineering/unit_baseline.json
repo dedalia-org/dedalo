@@ -2754,6 +2754,11 @@
 			"skipped": 0,
 			"assertions": 39
 		},
+		"test/unit/maintenance_widget_kit_tripwire.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 19
+		},
 		"test/unit/marc21.test.ts": {
 			"tests": 3,
 			"skipped": 0,

@@ -261,7 +261,7 @@
 		"test/parity/context_differential.test.ts": {
 			"tests": 2,
 			"skipped": 0,
-			"assertions": 9
+			"assertions": 10
 		},
 		"test/parity/count_differential.test.ts": {
 			"tests": 3,
@@ -276,7 +276,7 @@
 		"test/parity/dedalo_files_differential.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 2142
+			"assertions": 2166
 		},
 		"test/parity/default_ddo_map_differential.test.ts": {
 			"tests": 3,
@@ -301,7 +301,7 @@
 		"test/parity/environment_differential.test.ts": {
 			"tests": 3,
 			"skipped": 0,
-			"assertions": 60
+			"assertions": 68
 		},
 		"test/parity/error_envelope_transform.test.ts": {
 			"tests": 9,
@@ -316,7 +316,7 @@
 		"test/parity/get_element_context_differential.test.ts": {
 			"tests": 1,
 			"skipped": 0,
-			"assertions": 12
+			"assertions": 13
 		},
 		"test/parity/get_ontologies_differential.test.ts": {
 			"tests": 5,
@@ -481,7 +481,7 @@
 		"test/parity/section_tool_start_differential.test.ts": {
 			"tests": 10,
 			"skipped": 0,
-			"assertions": 90
+			"assertions": 91
 		},
 		"test/parity/section_tools_differential.test.ts": {
 			"tests": 6,
@@ -516,7 +516,7 @@
 		"test/parity/tool_export_breakdown_differential.test.ts": {
 			"tests": 21,
 			"skipped": 0,
-			"assertions": 127
+			"assertions": 125
 		},
 		"test/parity/tool_export_differential.test.ts": {
 			"tests": 15,
