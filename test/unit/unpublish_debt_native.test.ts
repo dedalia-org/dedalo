@@ -171,6 +171,12 @@ function mediaRoot(): string {
 
 /** Scratch test3 records this file created through the REAL doors (swept). */
 const scratchRecords: number[] = [];
+/**
+ * The publication markers (`.publication/pub/<key>`) the MariaDB writer put in
+ * the REAL suite media store for the record and its sibling — swept in afterAll.
+ * A sibling is never a matrix record here, so scratchRecords cannot carry it.
+ */
+const scratchMarkerKeys: string[] = [];
 /** The MariaDB table the ROW leg published into (dropped in afterAll). */
 let publishedTable: { database: string; table: string } | null = null;
 
@@ -209,6 +215,9 @@ describe.if(DB_READY)('unpublish debt — removed from the public tier, or REPOR
 				   AND relation->'dd1763'->0->>'section_tipo' = $1 AND relation->'dd1763'->0->>'section_id' = $2`,
 				[SQL_SECTION, String(id)],
 			);
+		}
+		for (const key of scratchMarkerKeys.splice(0)) {
+			rmSync(join(mediaRoot(), '.publication', 'pub', key), { force: true });
 		}
 		rmSync(join(mediaRoot(), '.publication', 'dbs', 'zzd_probe_db'), {
 			recursive: true,
@@ -460,6 +469,7 @@ describe.if(DB_READY)('unpublish debt — removed from the public tier, or REPOR
 				)) as { section_id: number }[]
 			).map((row) => Number(row.section_id));
 		expect(await idsIn()).toEqual([sectionId, sibling]);
+		scratchMarkerKeys.push(`${SQL_SECTION}_${sectionId}`, `${SQL_SECTION}_${sibling}`);
 
 		// THE REAL DOOR with THE REAL EXECUTOR (what src/server.ts registers at boot).
 		registerNativeDiffusionSqlDelete(executeSqlDeleteTargets);
@@ -515,6 +525,7 @@ describe.if(DB_READY)('unpublish debt — removed from the public tier, or REPOR
 				)) as { section_id: number }[]
 			).map((row) => Number(row.section_id));
 		expect(await idsIn()).toEqual([sectionId, sibling]);
+		scratchMarkerKeys.push(`${SQL_SECTION}_${sectionId}`, `${SQL_SECTION}_${sibling}`);
 		registerNativeDiffusionSqlDelete(executeSqlDeleteTargets);
 
 		// A scratch marker store with real drift IN THIS DATABASE (the sibling's
