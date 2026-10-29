@@ -159,13 +159,18 @@ describe('one suite run at a time — the suite run lock', () => {
 	const TOKEN = 'DEDALO_SUITE_RUN_LOCK';
 	let dir = '';
 	let savedToken: string | undefined;
+	let savedWorker: string | undefined;
 	beforeAll(() => {
 		dir = mkdtempSync(join(tmpdir(), 'suite_lock_'));
 		savedToken = process.env[TOKEN]; // this very process holds the REAL lock (preload)
+		// the cases model a standalone process; the worker case sets it itself
+		savedWorker = process.env.BUN_TEST_WORKER_ID;
+		delete process.env.BUN_TEST_WORKER_ID;
 	});
 	afterAll(() => {
 		if (savedToken === undefined) delete process.env[TOKEN];
 		else process.env[TOKEN] = savedToken;
+		if (savedWorker !== undefined) process.env.BUN_TEST_WORKER_ID = savedWorker;
 		rmSync(dir, { recursive: true, force: true });
 	});
 	const plant = (db: string, pid: number) =>
@@ -179,11 +184,26 @@ describe('one suite run at a time — the suite run lock', () => {
 		expect(existsSync(suiteRunLockPath('lockfree', dir))).toBe(true);
 		release();
 		expect(existsSync(suiteRunLockPath('lockfree', dir))).toBe(false);
-		plant('lockheld', process.ppid); // a live process that is not us
+		plant('lockheld', 1); // a live process that is neither us nor our run (ppid)
 		delete process.env[TOKEN];
 		expect(() => acquireSuiteRunLock('lockheld', 'lock test', { dir })).toThrow(
 			/REFUSED.*lock holder/,
 		);
+	});
+
+	test('a `bun test --parallel` worker passes a lock its run (ppid) holds, and hands the token on', () => {
+		try {
+			process.env.BUN_TEST_WORKER_ID = '1';
+			delete process.env[TOKEN];
+			plant('locksibling', process.ppid);
+			expect(() => acquireSuiteRunLock('locksibling', 'lock test', { dir })).not.toThrow();
+			expect(process.env[TOKEN]).toBe(`${suiteRunLockPath('locksibling', dir)}#${process.ppid}`);
+			delete process.env.BUN_TEST_WORKER_ID;
+			delete process.env[TOKEN];
+			expect(() => acquireSuiteRunLock('locksibling', 'lock test', { dir })).toThrow(/REFUSED/);
+		} finally {
+			delete process.env.BUN_TEST_WORKER_ID;
+		}
 	});
 
 	test("a dead holder's lock is reclaimed; the holder's own children pass", () => {

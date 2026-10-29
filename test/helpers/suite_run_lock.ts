@@ -90,6 +90,7 @@ export function acquireSuiteRunLock(
 		if (current !== null && alive(current.pid)) {
 			// a descendant of the holder runs inside the holder's run
 			if (process.env[TOKEN_ENV] === `${path}#${current.pid}` || current.pid === owner) {
+				process.env[TOKEN_ENV] = `${path}#${current.pid}`; // a sibling worker's children inherit it
 				return () => {};
 			}
 			throw new Error(
