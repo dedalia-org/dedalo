@@ -802,10 +802,8 @@
 				// the underline is drawn as an inset shadow, not a border: a border
 				// would change the box height between states and shift the labels.
 				box-shadow: inset 0 0 0 0 transparent;
-				transition:
-					color var(--transition-fast),
-					background-color var(--transition-fast),
-					box-shadow var(--transition-fast);
+				// (!) no transition: the panel swaps instantly, a fading selection
+				// mark trails it and the tab reads as slow to respond.
 
 				&:before {
 					margin-right: 10px;

@@ -428,7 +428,6 @@
   border-top-left-radius: var(--radius-md);
   border-top-right-radius: var(--radius-md);
   box-shadow: inset 0 0 0 0 transparent;
-  transition: color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container .tab_label:before {
   margin-right: 10px;

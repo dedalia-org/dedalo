@@ -515,6 +515,8 @@ const get_content_data_edit = async function(self) {
 					})
 					tab_references.addEventListener('click', async function(e){
 						e.stopPropagation()
+						// switch first: the lazy build below is a server round trip
+						activate_tab('references')
 						// lazy-create the deferred instance on first activation
 						if (!self.references_component && self._lazy_ddos?.references_component) {
 							self.references_component = await self._ensure_lazy_instance('references_component')
@@ -523,7 +525,6 @@ const get_content_data_edit = async function(self) {
 								self.component_references_container.appendChild(ref_node)
 							})
 						}
-						activate_tab('references')
 					})
 					tab_nodes.push({
 						name: 'references',
