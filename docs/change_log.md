@@ -41,6 +41,10 @@ Merged since the last release; these ship with the next one.
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
 
+- **Clicking inside a tall field no longer scrolls the page.**
+
+    The first click in a field taller than the window, such as the permissions tree of a user profile, scrolled the page to the top of the field, so the pointer was no longer over the option just chosen. The page now stays where it is; it only scrolls when the activated field is entirely off screen.
+
 - **A Time Machine note can be written again on every change in Component history.**
 
     Opening the note of a change in Component history and closing it without typing left an empty note behind, and from then on that change never showed its note: each click opened a new blank one, and the text saved there never appeared (the icon stayed grey). Notes written in another language had the same problem. A change now always reopens its own note, and where earlier attempts left several notes on one change, the one with text is shown.
@@ -188,6 +192,10 @@ Merged since the last release; these ship with the next one.
     Now: the Review lists the `cosign verify` command that checks the pulled image's digest against Dédalo's signing identity, so the operator reads the check before the install runs it. When the registry confirms the image is published, the run prints a success line.
 
 #### Added
+
+- **Profile permissions can be discarded before saving.**
+
+    The permissions tree of a user profile now shows a Cancel button next to Save once a value changes. It asks for confirmation, then reloads the stored permissions, so a value changed by accident can be undone without saving it. Setting a value back to its saved level hides both buttons and the "Unsaved changes!" warning again.
 
 - **The permissions tree filter can show the siblings of a found item.**
 

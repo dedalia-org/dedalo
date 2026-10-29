@@ -992,9 +992,18 @@ export const ui = {
 									// received the implicit scroll that first_input.focus() performs, so
 									// restore_section_selection selected them without bringing them on screen.
 									// Scroll the wrapper into view instead.
+									// Only when NO part of it is on screen: for a wrapper taller than
+									// the viewport (component_security_access tree) 'nearest' still
+									// aligns an edge, so the first click jumped the page away from
+									// the pointer.
 									dd_request_idle_callback(
 										() => {
-											if (component.active) {
+											if (!component.active) {
+												return
+											}
+											const rect = wrapper.getBoundingClientRect()
+											const on_screen = rect.bottom > 0 && rect.top < window.innerHeight
+											if (!on_screen) {
 												scroll_into_view(wrapper)
 											}
 										}
