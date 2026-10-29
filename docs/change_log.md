@@ -37,6 +37,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The export now writes the data language you select in the tool, not always the main one.**
+
+    Before, the tool export always wrote values in the main language of the install, whatever data language the menu showed. Now the tool has a **Data language** selector, starting on the menu's data language, and the export is written in the language you pick. Thesaurus terms (toponymy included) show the term in the data language when it exists, and otherwise in the thesaurus's own language, never translated. To get every language in one file, choose **Dédalo (Raw)**; the selector is disabled for that format.
+
 - **The side panel of a record that does not exist no longer offers record actions.**
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.

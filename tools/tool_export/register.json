@@ -498,6 +498,16 @@
             "value": "Break down"
           },
           {
+            "lang": "lg-eng",
+            "name": "data_lang",
+            "value": "Data language"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "data_lang",
+            "value": "Idioma de datos"
+          },
+          {
             "lang": "lg-spa",
             "name": "breakdown",
             "value": "Desglose"
