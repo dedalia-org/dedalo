@@ -49,9 +49,9 @@
  * known before the first line without moving a row to the process.
  */
 
+import { isDiffusionLangCode } from '../../config/lang_code.ts';
 import { CLIENT_MAX_LIMIT, getSectionTipos, sanitizeClientSqo } from '../../core/concepts/sqo.ts';
 import { DedaloError, ok } from '../../core/errors/index.ts';
-import { isDiffusionLangCode } from '../../config/lang_code.ts';
 import { termByTipo } from '../../core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../core/ontology/resolver.ts';
 import { EmissionContext } from '../../core/resolve/component_data.ts';

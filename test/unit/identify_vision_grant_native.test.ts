@@ -94,7 +94,7 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 		await removeAuthzDoorFixture();
 	});
 
-	test('the contrast is live: the SAME grants, tool_identify is the only difference', async () => {
+	test.skip('the contrast is live: the SAME grants, tool_identify is the only difference — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
 		await assertAuthzDoorContrast(ids);
 		const toolsOf = async (principal: Principal) =>
 			(await getUserTools(principal.userId)).some((tool) => tool.name === VISION_SPEND_TOOL);
@@ -111,7 +111,7 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 			options: { section_tipo: AUTHZ_SECTION, section_id: seedId, source },
 		}) as unknown as Rqo;
 
-	test('get_proposals (the registered door): vision ungranted → tool.not_authorized; granted and vote-only pass the grant', async () => {
+	test.skip('get_proposals (the registered door): vision ungranted → tool.not_authorized; granted and vote-only pass the grant — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
 		const door = identifyApiActions.get_proposals;
 		if (door === undefined) throw new Error('dd_identify_api.get_proposals is not registered');
 		const answers = {
@@ -138,7 +138,7 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 	// profile (identify.no_profile vs tool.not_authorized). Both the model calls
 	// and the PROFILE LOADS are counted.
 	for (const source of ['vision', 'all'] as const) {
-		test(`get_proposals (${source}): a refused vision request loads NO profile and calls NO model; the granted twin does both`, async () => {
+		test.skip(`get_proposals (${source}): a refused vision request loads NO profile and calls NO model; the granted twin does both — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)`, async () => {
 			const calls = { profile: 0, vision: 0 };
 			const deps: IdentifyProposalsDeps = {
 				...defaultIdentifyProposalsDeps(),
@@ -193,7 +193,7 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 	}
 	const image = { action: 'identify_by_image', options: { image: PNG } } as unknown as Rqo;
 
-	test('identify_by_image, EXTERNAL encoder: ungranted → tool.not_authorized with ZERO embeds; the granted twin embeds', async () => {
+	test.skip('identify_by_image, EXTERNAL encoder: ungranted → tool.not_authorized with ZERO embeds; the granted twin embeds — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
 		const calls = { embed: 0 };
 		const handler = buildIdentifyByImage(imageDeps(true, calls));
 		const refused = await codeOf(handler(image, ctx(ids.control)));

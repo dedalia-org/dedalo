@@ -47,9 +47,7 @@ describe('resolveLocatorLabels — thesaurus term label', () => {
 
 	test('data lang missing, thesaurus main lang present: the term in the main lang, untranslated', async () => {
 		// test3/1 has no lg-spa term; test3's main lang (lg-eng) supplies it.
-		expect(await labelsOf('lg-spa', [LOCATOR_ENGLISH_ONLY])).toEqual([
-			'input text content of one',
-		]);
+		expect(await labelsOf('lg-spa', [LOCATOR_ENGLISH_ONLY])).toEqual(['input text content of one']);
 	});
 
 	test('neither the data lang nor the main lang has the term: nothing, never a foreign translation', async () => {

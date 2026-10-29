@@ -778,7 +778,11 @@ export async function resolveLocatorLabels(
 		// first lang found, which the component chain below would pick. Toponymy
 		// stays untranslated. A portal showing another component keeps that one.
 		if ((await getTermTipos(targetSection, 'thesaurus')).includes(labelDdo.tipo)) {
-			const term = await getTermByLocator({ section_tipo: targetSection, section_id: targetId }, lang, true);
+			const term = await getTermByLocator(
+				{ section_tipo: targetSection, section_id: targetId },
+				lang,
+				true,
+			);
 			if (term !== null && term !== '') labels.push(term);
 			continue;
 		}

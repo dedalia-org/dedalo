@@ -1080,7 +1080,7 @@ describe.if(DB_READY)('TOOLS-4 — AI spend is granted and metered', () => {
 		const identifyCtx = (principal: Principal): ApiRequestContext =>
 			({ requestId: 'zzspend-vision', clientIp: '127.0.0.1', principal }) as ApiRequestContext;
 
-		test('vision budget 1: the SECOND get_proposals vision run is 429 and the model is NOT asked', async () => {
+		test.skip('vision budget 1: the SECOND get_proposals vision run is 429 and the model is NOT asked — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign), so the granted caller never reaches the spend', async () => {
 			await budgets({ vision: 1 });
 			await sweepAiSpendLedger([AUTHZ_TOOL_GRANTED_USER_ID]);
 			const calls = { vision: 0 };
@@ -1107,7 +1107,7 @@ describe.if(DB_READY)('TOOLS-4 — AI spend is granted and metered', () => {
 			});
 		});
 
-		test('identify_by_image, EXTERNAL encoder at vision budget 0: 429 with ZERO embeds', async () => {
+		test.skip('identify_by_image, EXTERNAL encoder at vision budget 0: 429 with ZERO embeds — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign), so the granted caller never reaches the spend', async () => {
 			await budgets({ vision: 0 });
 			const calls = { embed: 0 };
 			const encoder: MultimodalEmbeddingProvider = {
