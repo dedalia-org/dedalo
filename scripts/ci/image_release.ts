@@ -96,7 +96,7 @@ import {
 import { join } from 'node:path';
 import {
 	DEV_REF,
-	parseDeclaredNextDevTriple,
+	parseDeclaredReleaseTriple,
 	qualifiedReleaseTag,
 	releaseTagIdentity,
 } from '../../src/core/update/code_build_plan.ts';
@@ -499,7 +499,7 @@ function archivedNextDevTriple(
 ): readonly [number, number, number] | null {
 	const shown = run(['tar', '-xOf', tarPath, VERSION_TS_IN_ARCHIVE]);
 	if (shown.code !== 0) return null;
-	const next = parseDeclaredNextDevTriple(shown.stdout);
+	const next = parseDeclaredReleaseTriple(shown.stdout);
 	if (next === null) return null;
 	const [major = 0, minor = 0, patch = 0] = next.split('.').map(Number);
 	return [major, minor, patch];

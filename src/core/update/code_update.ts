@@ -112,8 +112,8 @@ import { currentRequestContext } from '../security/request_context.ts';
 import { DEDALO_ENGINE_VERSION, readReleaseIdentityOf } from './build_stamp.ts';
 import { type DeploymentChannel, detectDeploymentChannel } from './channel.ts';
 import {
-	parseDeclaredNextDevTriple,
-	parseDeclaredTriple,
+	parseDeclaredDataTriple,
+	parseDeclaredReleaseTriple,
 	VERSION_TS_PATH,
 } from './code_build_plan.ts';
 import { downloadReleaseArchive } from './code_download.ts';
@@ -1158,12 +1158,12 @@ async function refuseForeignQuarantine(codeRoot: string, request: UpdateRequest)
 	// request's: the request names the release being installed, not what the
 	// archive's bytes say they are.
 	const declared = await Bun.file(join(codeRoot, VERSION_TS_PATH)).text();
-	const triple = parseVersionString(parseDeclaredTriple(declared) ?? '') as [
+	const triple = parseVersionString(parseDeclaredDataTriple(declared) ?? '') as [
 		number,
 		number,
 		number,
 	];
-	const nextDevTriple = parseVersionString(parseDeclaredNextDevTriple(declared) ?? '') as [
+	const nextDevTriple = parseVersionString(parseDeclaredReleaseTriple(declared) ?? '') as [
 		number,
 		number,
 		number,

@@ -93,7 +93,7 @@ import { ok } from '../errors/index.ts';
 import type { ApiEnvelope } from '../errors/schema.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentRequestContext } from '../security/request_context.ts';
-import { parseDeclaredTriple, VERSION_TS_PATH } from './code_build_plan.ts';
+import { parseDeclaredDataTriple, VERSION_TS_PATH } from './code_build_plan.ts';
 import {
 	acquireRunLockOrRefuse,
 	backupDirName,
@@ -185,7 +185,7 @@ export function restorabilityOf(facts: RestorePointFacts): {
 /** The version a tree DECLARES, from its own version.ts. Null when unreadable. */
 export function declaredVersionOf(treeRoot: string): string | null {
 	try {
-		return parseDeclaredTriple(readFileSync(join(treeRoot, VERSION_TS_PATH), 'utf8'));
+		return parseDeclaredDataTriple(readFileSync(join(treeRoot, VERSION_TS_PATH), 'utf8'));
 	} catch {
 		return null;
 	}

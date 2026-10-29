@@ -65,7 +65,7 @@ DEDALO_REPO_HOST_RE='[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9]
 DEDALO_REPO_COMPONENT_RE='[a-z0-9]+([._-][a-z0-9]+)*'
 DEDALO_REPOSITORY_RE="^(${DEDALO_REPO_HOST_RE}/)?${DEDALO_REPO_COMPONENT_RE}(/${DEDALO_REPO_COMPONENT_RE})*$"
 DEDALO_DIGEST_RE='^sha256:[0-9a-f]{64}$'
-# parseDeclaredTriple (src/core/update/code_build_plan.ts): whitespace-insensitive.
+# parseDeclaredDataTriple (src/core/update/code_build_plan.ts): whitespace-insensitive.
 DEDALO_TRIPLE_RE='Object\.freeze\(\[[[:space:]]*[0-9]+[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*,[[:space:]]*[0-9]+[[:space:]]*,?[[:space:]]*\]\)'
 # The stack file name DEDALO_COMPOSE_FILE may hold: a file in the stack directory.
 DEDALO_COMPOSE_FILE_RE='^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$'
@@ -350,7 +350,7 @@ dedalo_env_value_valid() {
 
 # dedalo_checkout_version DIR — the X.Y.Z the checkout at DIR declares in
 # src/core/update/version.ts: the FIRST Object.freeze([a, b, c]) triple, read
-# whitespace- and line-break-insensitively — the same answer parseDeclaredTriple
+# whitespace- and line-break-insensitively — the same answer parseDeclaredDataTriple
 # gives (gate: install_sh_image_source). Status 1 when unreadable or absent.
 dedalo_checkout_version() {
 	local file="${1-}/src/core/update/version.ts" found=''
@@ -404,7 +404,7 @@ DEDALO_DESCRIBE_TIMEOUT_S=3
 
 # dedalo_checkout_next_dev DIR — the NEXT dev triple the checkout declares
 # (version.ts DEDALO_NEXT_RELEASE: the release an untagged build precedes), the
-# same answer parseDeclaredNextDevTriple gives. Status 1 when absent.
+# same answer parseDeclaredReleaseTriple gives. Status 1 when absent.
 dedalo_checkout_next_dev() {
 	local file="${1-}/src/core/update/version.ts" found=''
 	[ -r "$file" ] || return 1

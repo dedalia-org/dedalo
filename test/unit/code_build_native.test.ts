@@ -19,7 +19,7 @@ import { buildVersionFromGit } from '../../src/core/update/code_build.ts';
 import {
 	BUILD_INFO_TREE_PATH,
 	newestPublishableTag,
-	parseDeclaredTriple,
+	parseDeclaredDataTriple,
 	placeholderNamesItsTag,
 	planCodeBuild,
 	prereleaseTagAbove,
@@ -258,7 +258,7 @@ describe('planCodeBuild — version guard', () => {
 		});
 	}
 	test('untagged build with a valid declared next triple names its nightly after it', () => {
-		// devVersion is the bare triple parseDeclaredNextDevTriple returns (not an identity)
+		// devVersion is the bare triple parseDeclaredReleaseTriple returns (not an identity)
 		const plan = planCodeBuild({ version: '7.0.0', ref: 'master', devVersion: '7.0.1' }, OK_CFG);
 		if (plan.ok !== true) throw new Error('expected an ok plan');
 		expect(plan.filePath).toBe('/f/7/7.0/7.0.1-dev.zip');
@@ -460,7 +460,7 @@ describe('buildVersionFromGit — rewired to planCodeBuild', () => {
 		expect(source).not.toContain('unconfined release path');
 		// …and the call site must actually run the extraction. The options object
 		// is now BUILT (the version is derived from the ref's own bytes before
-		// planning, see parseDeclaredTriple), so the call no longer forwards
+		// planning, see parseDeclaredDataTriple), so the call no longer forwards
 		// `options` verbatim — what matters is that planCodeBuild is what
 		// decides, and that the ref allowlist is still the planner's ONE copy.
 		expect(source).toContain("from './code_build_plan.ts'");
@@ -705,7 +705,7 @@ describe('the release channel builds the NEWEST release tag (policy 2026-09-29)'
 			const commitVersion = async (triple: string) => {
 				writeFileSync(
 					join(repo, 'src', 'core', 'update', 'version.ts'),
-					`export const V = Object.freeze([${triple.replaceAll('.', ', ')}]);\n`,
+					`export const DEDALO_DATA_VERSION = Object.freeze([${triple.replaceAll('.', ', ')}]);\nexport const DEDALO_NEXT_RELEASE = Object.freeze([${triple.replaceAll('.', ', ')}]);\n`,
 				);
 				await git('add', '-A');
 				await git('commit', '-q', '-m', triple);
@@ -810,7 +810,7 @@ describe('the release channel builds the NEWEST release tag (policy 2026-09-29)'
 });
 
 describe('the release version comes from the ref, not the process', () => {
-	test('parseDeclaredTriple reads both the committed and the bumped spelling', () => {
+	test('parseDeclaredDataTriple reads both the committed and the bumped spelling', () => {
 		// The committed source spreads the triple over three lines; a probe's
 		// bump writes it on one. A substring match on one spelling silently
 		// misreads the other (that exact bug half-wiped the probe museum).
@@ -818,12 +818,12 @@ describe('the release version comes from the ref, not the process', () => {
 			join(import.meta.dir, '../../src/core/update/version.ts'),
 			'utf8',
 		);
-		expect(parseDeclaredTriple(committed)).toBe(formatVersion(DEDALO_DATA_VERSION));
-		expect(parseDeclaredTriple('Object.freeze([7, 0, 4]) as [number, number, number]')).toBe(
+		expect(parseDeclaredDataTriple(committed)).toBe(formatVersion(DEDALO_DATA_VERSION));
+		expect(parseDeclaredDataTriple('Object.freeze([7, 0, 4]) as [number, number, number]')).toBe(
 			'7.0.4',
 		);
-		expect(parseDeclaredTriple('Object.freeze([\n\t8, 1, 12,\n])')).toBe('8.1.12');
-		expect(parseDeclaredTriple('no triple here')).toBeNull();
+		expect(parseDeclaredDataTriple('Object.freeze([\n\t8, 1, 12,\n])')).toBe('8.1.12');
+		expect(parseDeclaredDataTriple('no triple here')).toBeNull();
 	});
 
 	test('the widget no longer names the artifact from the running process', () => {
@@ -913,7 +913,7 @@ describe('GATE 13 — prerelease builds: identity name, self-naming archive, imm
 			const commitVersion = (triple: string, note: string) => {
 				writeFileSync(
 					join(repo, 'src', 'core', 'update', 'version.ts'),
-					`export const V = Object.freeze([${triple.replaceAll('.', ', ')}]);\n`,
+					`export const DEDALO_DATA_VERSION = Object.freeze([${triple.replaceAll('.', ', ')}]);\nexport const DEDALO_NEXT_RELEASE = Object.freeze([${triple.replaceAll('.', ', ')}]);\n`,
 				);
 				writeFileSync(join(repo, 'note.txt'), note);
 				git('add', '-A');

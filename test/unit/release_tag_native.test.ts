@@ -40,8 +40,18 @@ import {
 const ROOT = join(import.meta.dir, '..', '..');
 const PROGRAM = join(ROOT, 'scripts', 'lib', 'release_tag.ts');
 
-const VERSION_TS = (triple: string) =>
-	`export const DEDALO_DATA_VERSION: readonly [number, number, number] = Object.freeze([\n\t${triple.split('.').join(', ')},\n]) as [number, number, number];\n`;
+// A tagged commit names its release in DEDALO_NEXT_RELEASE (RELEASE.md step 1); the
+// data triple is the lower bound, and a code-only release leaves it below the name.
+const VERSION_TS = (data: string, release: string = data) =>
+	[
+		['DEDALO_DATA_VERSION', data],
+		['DEDALO_NEXT_RELEASE', release],
+	]
+		.map(
+			([constant, triple]) =>
+				`export const ${constant}: readonly [number, number, number] = Object.freeze([\n\t${triple.split('.').join(', ')},\n]) as [number, number, number];\n`,
+		)
+		.join('');
 
 let repo = '';
 const git = (...args: string[]): string => {
@@ -113,6 +123,14 @@ describe('GATE 11 — a release tag is publishable only when its commit is the c
 		const why = fault('v7.0.1', 'uncut');
 		expect(why).toContain('carries no changes/7.0.1/release.json');
 		expect(why).toContain('bun run changelog release 7.0.1');
+	});
+
+	test('a code-only release names its NEXT triple, not the data triple it keeps (the drill case)', () => {
+		write('src/core/update/version.ts', VERSION_TS('7.0.0', '7.0.1'));
+		write(releaseNotesPath('7.0.1'), cutJson('7.0.1', 'v7.0.1'));
+		const codeOnly = commit('code-only 7.0.1: data stays 7.0.0');
+		expect(releaseTagFault('v7.0.1', codeOnly, gitShowLookups(repo))).toBeNull();
+		expect(releaseTagFault('v7.0.0', codeOnly, gitShowLookups(repo))).toContain('declares 7.0.1');
 	});
 
 	test("a tag naming another triple than the commit's version.ts is refused", () => {
