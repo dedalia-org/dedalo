@@ -205,8 +205,13 @@
   overflow: visible;
   position: relative;
 }
+.wrapper_tool.tool_indexation > .content_data > .right_container > .transcription_component_container > .wrapper_component .content_value {
+  display: contents;
+}
 .wrapper_tool.tool_indexation > .content_data > .right_container > .transcription_component_container > .wrapper_component .toolbar_container {
   top: -2.2rem;
+  position: absolute;
+  margin-top: 0;
   left: 0;
   width: 100%;
   height: 2.2rem;
@@ -389,8 +394,13 @@
   overflow: visible;
   position: relative;
 }
+.wrapper_tool.tool_indexation > .content_data > .right_container > .indexation_container > .indexation_note > .wrapper_component.component_text_area .content_value {
+  display: contents;
+}
 .wrapper_tool.tool_indexation > .content_data > .right_container > .indexation_container > .indexation_note > .wrapper_component.component_text_area .toolbar_container {
   top: -1.7rem;
+  position: absolute;
+  margin-top: 0;
   left: 0;
   width: 100%;
   height: 1.7rem;

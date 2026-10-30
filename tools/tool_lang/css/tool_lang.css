@@ -134,6 +134,7 @@
 .wrapper_tool.tool_lang > .content_data > .components_container .source_component_container > .wrapper_component.component_text_area,
 .wrapper_tool.tool_lang > .content_data > .components_container .target_component_container > .wrapper_component.component_text_area {
   grid-template-rows: 2.2rem minmax(0, 1fr);
+  --text_area_toolbar_lift: calc(-1 * 2.2rem);
 }
 .wrapper_tool.tool_lang > .content_data > .components_container .source_component_container > .wrapper_component.component_text_area > .label,
 .wrapper_tool.tool_lang > .content_data > .components_container .target_component_container > .wrapper_component.component_text_area > .label,

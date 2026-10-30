@@ -2008,7 +2008,11 @@ component_text_area.prototype.focus_first_input = function() {
 	const wrapper = self.node
 	if (wrapper && typeof wrapper.scrollIntoView==='function') {
 		requestAnimationFrame(() => {
-			if (self.active) {
+			// only when fully off-screen: on a wrapper taller than the viewport
+			// 'nearest' still aligns its top, so a click inside a long text jumped
+			const rect = wrapper.getBoundingClientRect()
+			const off_screen = rect.bottom < 0 || rect.top > window.innerHeight
+			if (self.active && off_screen) {
 				wrapper.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 			}
 		})

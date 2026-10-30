@@ -95,6 +95,7 @@
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component {
   height: 100%;
   grid-template-rows: 2.2rem minmax(0, 1fr);
+  --text_area_toolbar_lift: calc(-1 * 2.2rem);
 }
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .label,
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component.active > .label {

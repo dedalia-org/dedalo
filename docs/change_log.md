@@ -27,6 +27,10 @@ Merged since the last release; these ship with the next one.
 
     The map component fetches fewer files before showing a map: the colour picker library loads only when a layer's colour swatch is first opened, turf and the language table load in parallel with Leaflet, and the search and mini/text views load only when used.
 
+- **The text editor toolbar stays in view while you scroll a long text.**
+
+    In both plain and rich text fields, the editing toolbar now stays visible just below the top menu while you scroll through a long text, so the formatting tools no longer disappear off the top of the page. When you first click into a field, the toolbar appears over the field's label without moving the text, and the page no longer jumps: clicking inside a long rich text used to scroll the page to the top. The toolbar also always appears when the field is selected, including when you select it by clicking its label or button bar.
+
 - **Audiovisual records load faster and reuse cached media.**
 
     The audiovisual field no longer downloads its poster image and video again every time a record is shown. Media links now change only when the file itself changes (a new upload, a new transcode or a new poster image), so the browser reuses what it already has. Poster images below the visible part of the page load only when they scroll into view, the quality selector appears only when there is more than one quality to choose, and the player, viewer and search displays load only when they are used.

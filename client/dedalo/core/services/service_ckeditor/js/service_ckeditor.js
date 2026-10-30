@@ -204,16 +204,36 @@ export const service_ckeditor = function() {
 
 		// create editor (ddEditor|InlineEditor)
 			const create = async function (){
-				// init ckeditor (InlineEditor|ddEditor)
-				switch(editor_class) {
-					case 'InlineEditor':
-						await self.create_InlineEditor(editor_config)
-						break;
+				// hold the preview's height while the editor replaces it: create()
+				// empties value_container first, the page collapses and its scroll
+				// clamps (a click inside a long text jumped to the page top). Held on
+				// the parent box: ckeditor owns the editable root's style attribute
+				const holder = value_container.closest('.content_data') || value_container.parentElement
+				// counted: multi-entry fields create several editors in one holder
+				const holds = Number(holder.dataset.height_holds || 0)
+				if (holds===0) {
+					holder.dataset.held_height = holder.style.minHeight
+					holder.style.minHeight = holder.offsetHeight + 'px'
+				}
+				holder.dataset.height_holds = holds + 1
+				try {
+					// init ckeditor (InlineEditor|ddEditor)
+					switch(editor_class) {
+						case 'InlineEditor':
+							await self.create_InlineEditor(editor_config)
+							break;
 
-					case 'ddEditor':
-					default:
-						await self.create_ddEditor(editor_config)
-						break;
+						case 'ddEditor':
+						default:
+							await self.create_ddEditor(editor_config)
+							break;
+					}
+				} finally {
+					const left = Number(holder.dataset.height_holds) - 1
+					holder.dataset.height_holds = left
+					if (left===0) {
+						holder.style.minHeight = holder.dataset.held_height
+					}
 				}
 			}
 

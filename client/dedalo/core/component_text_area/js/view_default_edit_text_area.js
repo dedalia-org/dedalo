@@ -572,8 +572,14 @@ const get_content_value = (i, current_value, self) => {
 				// click event
 				// (!) Uses mousedown (not click) so the editor receives focus before
 				// any click event on child elements fires, avoiding a missed first click.
+				let starting = false
 				const click_handler = function(e) {
-					e.stopPropagation()
+					e?.stopPropagation()
+					// once: a mousedown inside the text also activates the component
+					if (starting) {
+						return
+					}
+					starting = true
 
 					value_container.classList.add('loading')
 
@@ -581,7 +587,7 @@ const get_content_value = (i, current_value, self) => {
 					init_current_service_text_editor()
 					.then(function(service_editor) {
 						value_container.classList.remove('loading')
-						if (self.context?.view === 'html_text') {
+						if (self.context?.view === 'html_text' || !e) {
 							service_editor.editor?.focus()
 						}else{
 							// trigger service_editor click action (show toolbar and focus it)
@@ -596,6 +602,7 @@ const get_content_value = (i, current_value, self) => {
 						// dead until a reload. Only when no editor was produced — a
 						// failure AFTER the editor attached must not build a second one.
 						if (!self.service_text_editor_instance[i]?.editor) {
+							starting = false
 							content_value.addEventListener('mousedown', click_handler)
 						}
 					})
@@ -603,6 +610,19 @@ const get_content_value = (i, current_value, self) => {
 					content_value.removeEventListener('mousedown', click_handler)
 				}//end click_handler
 				content_value.addEventListener('mousedown', click_handler)
+
+				// activation without a click inside the text (label, pill, keyboard)
+				// starts it too: an active field without its editor has no toolbar
+				// one per entry: a re-render replaces the previous render's subscription
+				self.activate_editor_tokens = self.activate_editor_tokens || []
+				event_manager.unsubscribe(self.activate_editor_tokens[i])
+				const activate_token = event_manager.subscribe('activate_component', (component) => {
+					if (component===self && !self.service_text_editor_instance[i]?.editor) {
+						click_handler()
+					}
+				})
+				self.activate_editor_tokens[i] = activate_token
+				self.events_tokens.push(activate_token)
 			}
 		}//end if (self.show_interface.read_only!==true)
 
