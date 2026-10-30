@@ -74,6 +74,26 @@ interface RcEntry {
  * the whole section list. Local concern ⇒ selectLocalConfigItem: the dedalo
  * item, else the first item.
  */
+// PHP validate_ddo_tipo: a ddo naming a tipo with no resolvable model (an
+// optional TLD not installed here — rsc's tchi15 on an install without tchi)
+// is DROPPED, never emitted; every rawDdos consumer would otherwise throw.
+async function dropUnresolvableDdos(
+	flattened: RawConfigDdo[],
+	ownerTipo: string,
+): Promise<RawConfigDdo[]> {
+	const ddos: RawConfigDdo[] = [];
+	for (const ddo of flattened) {
+		if (typeof ddo?.tipo === 'string' && (await getModelByTipo(ddo.tipo)) === null) {
+			console.warn(
+				`[section_list] dropped ddo '${ddo.tipo}' from '${ownerTipo}' map: no resolvable ontology model (tld not installed?)`,
+			);
+			continue;
+		}
+		ddos.push(ddo);
+	}
+	return ddos;
+}
+
 async function pickConfig(
 	properties: unknown,
 	ownerTipo: string,
@@ -86,19 +106,7 @@ async function pickConfig(
 		ownerTipo,
 		includeHideDdos: options?.includeHideDdos,
 	}) as unknown as RawConfigDdo[];
-	// PHP validate_ddo_tipo: a ddo naming a tipo with no resolvable model (an
-	// optional TLD not installed here — rsc's tchi15 on an install without tchi)
-	// is DROPPED, never emitted; every rawDdos consumer would otherwise throw.
-	const ddos: RawConfigDdo[] = [];
-	for (const ddo of flattened) {
-		if (typeof ddo?.tipo === 'string' && (await getModelByTipo(ddo.tipo)) === null) {
-			console.warn(
-				`[section_list] dropped ddo '${ddo.tipo}' from '${ownerTipo}' map: no resolvable ontology model (tld not installed?)`,
-			);
-			continue;
-		}
-		ddos.push(ddo);
-	}
+	const ddos = await dropUnresolvableDdos(flattened, ownerTipo);
 	const main = selectLocalConfigItem(rcs);
 	const rawLimit = main?.show?.sqo_config?.limit ?? main?.sqo?.limit;
 	return {
