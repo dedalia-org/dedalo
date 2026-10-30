@@ -95,6 +95,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Records open when a portal's list layout names a field from an uninstalled ontology.**
+
+    A portal's list layout can name fields from optional ontologies (for example `tchi`). On an installation without that ontology, opening the record failed with "The identifier is not a valid ontology tipo". Those fields are now left out of the layout, and the server logs a warning naming each one.
+
 - **Catalog terms show the coins of their type again, and legend symbols follow their legend.**
 
     Before, cataloguing a term (dropping a type onto it in the cataloging tool) left the term's *Coins* and *Ordered coins* portals empty, and the symbol lists derived from a coin legend never updated when the legend's tags changed. Both kinds of field are calculated, and the server did not know how to calculate them. Now it does: a term's coins are a copy of its type's coins, in the type's order, and they update when a coin is linked to the type as well as when the term is catalogued; a legend's symbol list is the symbols tagged in the legend text, in the order they appear. See [Server-side observers — the value laws](./core/system/observers.md#the-value-laws-of-set_dato_external).
@@ -418,6 +422,15 @@ Merged since the last release; these ship with the next one.
     Now: the Review lists the `cosign verify` command that checks the pulled image's digest against Dédalo's signing identity, so the operator reads the check before the install runs it. When the registry confirms the image is published, the run prints a success line.
 
 #### Added
+
+- **The Publication server API panel can open the v2 API documentation.**
+
+    The "Open Swagger UI" buttons of Maintenance → Publication → Publication server API open the
+    legacy v1 documentation, a separate application Dédalo does not serve: on an installation whose web server
+    does not route `/dedalo/publication/` to it they answered "not found". A new optional setting,
+    `DEDALO_PUBLICATION_API_V2_URL` (the v2 API address, `BASE_PATH` included), adds an
+    "Open API v2 docs" button that opens the v2 API's own documentation page (`<address>/docs`).
+    The v1 buttons are unchanged.
 
 - **Profile permissions can be discarded before saving.**
 

@@ -49,6 +49,7 @@
 *     code    : string,  // authentication token for the publication API
 *     api_ui  : string|null // optional override URL for the Swagger UI; null → use default
 *   }>,
+*   publication_api_v2_url : string|null, // DEDALO_PUBLICATION_API_V2_URL (BASE_PATH included); null → no v2 button
 *   diffusion_map: Object  // result of diffusion_utils::get_diffusion_map() with connection status
 * }
 *
@@ -115,6 +116,8 @@ render_publication_api.prototype.list = async function(options) {
 * Builds the inner content DOM for the publication_api widget.
 *
 * Produces a <div> containing:
+*   - One "Open API v2 docs" button when `self.value.publication_api_v2_url`
+*     is set, opening `<url>/docs` (the v2 API's own Swagger UI / Scalar page).
 *   - One "Open Swagger UI <db_name>" button for each entry in
 *     `self.value.api_web_user_code_multiple`. Clicking a button builds a
 *     query-string from the entry's `code`, `db_name`, and the current
@@ -157,6 +160,21 @@ const get_content_data_edit = async function(self) {
 			element_type : 'div',
 			class_name	 : 'content_data'
 		})
+
+	// publication_api_v2_url
+	// The v2 API serves its own docs page (Swagger UI / Scalar) at <BASE_PATH>/docs.
+		if (value.publication_api_v2_url) {
+			const button_v2 = ui.create_dom_element({
+				element_type	: 'button',
+				class_name		: 'light',
+				text_content	: 'Open API v2 docs',
+				parent			: content_data
+			})
+			button_v2.addEventListener('click', (e) => {
+				e.stopPropagation()
+				window.open(value.publication_api_v2_url + '/docs')
+			})
+		}
 
 	// api_web_user_code_multiple iterate
 	// Each entry represents one configured publication database endpoint; we

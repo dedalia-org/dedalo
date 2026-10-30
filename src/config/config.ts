@@ -47,6 +47,7 @@ import {
 	readOptionalList,
 	readOptionalString,
 	readPublicationApiUsers,
+	readPublicationApiV2Url,
 	readServerList,
 	readString,
 	readToolRoots,
@@ -753,6 +754,8 @@ export interface DiffusionConfig {
 		readonly code: string;
 		readonly api_ui: string | null;
 	}[];
+	/** Publication server API v2 base URL (DEDALO_PUBLICATION_API_V2_URL): the docs launcher. */
+	readonly publicationApiV2Url: string | null;
 }
 
 export interface DedaloConfig {
@@ -1256,6 +1259,7 @@ export const config: DedaloConfig = Object.freeze({
 		// opt-in; ['all'] is the explicit "every element" spelling of the same thing.
 		nativeElements: readList('DEDALO_DIFFUSION_NATIVE_ELEMENTS'),
 		publicationApiUsers: readPublicationApiUsers('API_WEB_USER_CODE_MULTIPLE'),
+		publicationApiV2Url: readPublicationApiV2Url('DEDALO_PUBLICATION_API_V2_URL'),
 	}),
 	geoip: Object.freeze({
 		enabled: readBool('DEDALO_GEOIP_ENABLED'),

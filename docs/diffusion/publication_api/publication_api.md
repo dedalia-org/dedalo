@@ -133,6 +133,12 @@ The panel shows one button per entry of `API_WEB_USER_CODE_MULTIPLE` in Dédalo'
 API_WEB_USER_CODE_MULTIPLE=[{"db_name":"web_my_entity","code":"My_API_code","api_ui":"https://my_domain.org/dedalo/publication/server_api/v1/docu/ui/"}]
 ```
 
+The publication server API v2 serves its own documentation (Swagger UI and Scalar) at `<BASE_PATH>/docs`. Set `DEDALO_PUBLICATION_API_V2_URL` to the v2 address, `BASE_PATH` included, and the same panel shows an "Open API v2 docs" button opening that page:
+
+```bash
+DEDALO_PUBLICATION_API_V2_URL=https://my_domain.org/publication/server_api/v2
+```
+
 !!! warning
     If you have problems with getting data review the [public api configuration](server_config_api.md),and MariaDB / MySQL installation.
 

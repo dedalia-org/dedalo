@@ -7,7 +7,8 @@
  * the ontology diffusion scan.
  * api_web_user_code_multiple = API_WEB_USER_CODE_MULTIPLE (config.diffusion
  * .publicationApiUsers): one Swagger-docu button per publication server API v1
- * database. Codes reach the client — safe only because the maintenance read is
+ * database. publication_api_v2_url = DEDALO_PUBLICATION_API_V2_URL: one button to
+ * the v2 API's own `<url>/docs`. Codes reach the client — safe only because the maintenance read is
  * global-admin-gated (core/area/read.ts).
  */
 
@@ -37,6 +38,7 @@ async function buildPublicationApiValue(): Promise<Record<string, unknown>> {
 			dedalo_diffusion_resolve_levels:
 				levelsRaw !== undefined && levelsRaw !== '' ? Number(levelsRaw) : null,
 			api_web_user_code_multiple: config.diffusion.publicationApiUsers,
+			publication_api_v2_url: config.diffusion.publicationApiV2Url,
 			// The ONE resolution of the publication languages (config.diffusion),
 			// never a second parse of the raw key: the value may be a JSON array
 			// (what the v6->v7 migration writes) and the hand `.split(',')` that
@@ -56,6 +58,7 @@ async function buildPublicationApiValue(): Promise<Record<string, unknown>> {
 			dedalo_diffusion_domain: null,
 			dedalo_diffusion_resolve_levels: null,
 			api_web_user_code_multiple: [],
+			publication_api_v2_url: null,
 			dedalo_diffusion_langs: [],
 			diffusion_map: { sections: [], engine_reachable: null },
 		};

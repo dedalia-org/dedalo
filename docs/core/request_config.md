@@ -329,7 +329,9 @@ There is no config-level cache: every `buildRequestConfigForElement()` call is a
 
 ## Error contract and warnings
 
-An invalid tipo, an unresolvable node, or a missing model simply produces `null`/is filtered out of the ddo_map (the `return null` steps in `processSingleDdo()`) — there is no separate warnings collection or debug-gated surface to inspect. `EXPLICIT_CONFIG_REQUIRED_MODELS` (`component_relation_parent`/`children`) is the one case that throws instead of dropping silently. To debug an empty `ddo_map`, step through `buildRequestConfigForElement()`/`processSingleDdo()` directly rather than reading a warnings field from the response.
+An invalid tipo, an unresolvable node, or a missing model simply produces `null`/is filtered out of the ddo_map (the `return null` steps in `processSingleDdo()`) — there is no separate warnings collection or debug-gated surface to inspect. `EXPLICIT_CONFIG_REQUIRED_MODELS` (`component_relation_parent`/`children`) is the one case that throws instead of dropping silently.
+
+The raw maps a relation component's LIST cell expands (`resolveListCellMap()` / `resolveOwnConfigMap()` / `resolveFrameConfig()` in `src/core/section/list_definitions/section_list.ts`) do not pass through `processSingleDdo()`, so `pickConfig()` applies the same rule there: a ddo whose tipo has no resolvable model is dropped with a `[section_list] dropped ddo …` server warning. This is what keeps a shipped config naming an optional TLD the installation does not have (the `rsc` place components rsc92/rsc65/rsc119 name `tchi15`) from failing the whole record read with `request.invalid_tipo`. Gate: `test/unit/list_cell_unresolvable_ddo_native.test.ts`. To debug an empty `ddo_map`, step through `buildRequestConfigForElement()`/`processSingleDdo()` directly rather than reading a warnings field from the response.
 
 ## Best practices
 

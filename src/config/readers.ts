@@ -413,6 +413,30 @@ export function readToolRoots(key: string): readonly { path: string; url: string
 	}
 }
 
+/** An address the browser may open: http(s) or root-relative — never `//host`, `javascript:`, `data:`. */
+function isBrowserAddress(value: string): boolean {
+	return /^https?:\/\//i.test(value) || (value.startsWith('/') && !value.startsWith('//'));
+}
+
+/**
+ * Publication server API v2 base URL (BASE_PATH included, no trailing slash). The browser
+ * opens `<url>/docs`, so only an http(s) or root-relative address survives — anything else
+ * is ignored, loudly, and the panel shows no v2 button.
+ */
+export function readPublicationApiV2Url(key: string): string | null {
+	const value = raw(key)?.trim();
+	if (value === undefined || value === '') return null;
+	const url = value.replace(/\/+$/, '');
+	// '/' alone strips to '' — the origin root is Dédalo's own, never the v2 API.
+	if (!isBrowserAddress(value) || url === '') {
+		console.error(
+			`[config] ${key} is not an http(s) or root-relative address — ignoring the value.`,
+		);
+		return null;
+	}
+	return url;
+}
+
 /**
  * Publication server API v1 users (JSON `[{"db_name":...,"code":...,"api_ui":...}]`).
  * An entry without string db_name/code is DROPPED, loudly. `api_ui` is optional and is
@@ -445,11 +469,7 @@ export function readPublicationApiUsers(
 		const code = (entry as { code?: unknown })?.code;
 		if (typeof dbName !== 'string' || dbName === '' || typeof code !== 'string') continue;
 		const apiUi = (entry as { api_ui?: unknown })?.api_ui;
-		const safeUi =
-			typeof apiUi === 'string' &&
-			(/^https?:\/\//i.test(apiUi) || (apiUi.startsWith('/') && !apiUi.startsWith('//')))
-				? apiUi
-				: null;
+		const safeUi = typeof apiUi === 'string' && isBrowserAddress(apiUi) ? apiUi : null;
 		if (apiUi !== undefined && apiUi !== null && apiUi !== '' && safeUi === null) {
 			console.error(
 				`[config] ${key}: api_ui of '${dbName}' is not an http(s) or root-relative address — using the default docu path.`,
