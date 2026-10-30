@@ -95,6 +95,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Records open when a portal's list layout names a field from an uninstalled ontology.**
+
+    A portal's list layout can name fields from optional ontologies (for example `tchi`). On an installation without that ontology, opening the record failed with "The identifier is not a valid ontology tipo". Those fields are now left out of the layout, and the server logs a warning naming each one.
+
 - **Portals without a configured page size show their paginator again.**
 
     A portal in an edit form whose ontology declares no page size showed only its first 10 records, with no paginator to reach the rest. It now pages at the installation's default rows per page (`DEDALO_MAX_ROWS_PER_PAGE`, 10 unless changed) and shows the paginator when there are more records.

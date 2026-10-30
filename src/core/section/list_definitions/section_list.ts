@@ -25,6 +25,7 @@
 import { sql } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
+import { getModelByTipo } from '../../ontology/resolver.ts';
 import { type ConfigDdoMapSource, flattenConfigDdoMaps } from '../../relations/config_ddo_map.ts';
 import { selectLocalConfigItem } from '../../relations/request_config/engine_select.ts';
 
@@ -81,10 +82,23 @@ async function pickConfig(
 	const rcs = (properties as { source?: { request_config?: RcEntry[] } } | null)?.source
 		?.request_config;
 	if (!Array.isArray(rcs) || rcs.length === 0) return null;
-	const ddos = flattenConfigDdoMaps(rcs as unknown as ConfigDdoMapSource[], {
+	const flattened = flattenConfigDdoMaps(rcs as unknown as ConfigDdoMapSource[], {
 		ownerTipo,
 		includeHideDdos: options?.includeHideDdos,
 	}) as unknown as RawConfigDdo[];
+	// PHP validate_ddo_tipo: a ddo naming a tipo with no resolvable model (an
+	// optional TLD not installed here — rsc's tchi15 on an install without tchi)
+	// is DROPPED, never emitted; every rawDdos consumer would otherwise throw.
+	const ddos: RawConfigDdo[] = [];
+	for (const ddo of flattened) {
+		if (typeof ddo?.tipo === 'string' && (await getModelByTipo(ddo.tipo)) === null) {
+			console.warn(
+				`[section_list] dropped ddo '${ddo.tipo}' from '${ownerTipo}' map: no resolvable ontology model (tld not installed?)`,
+			);
+			continue;
+		}
+		ddos.push(ddo);
+	}
 	const main = selectLocalConfigItem(rcs);
 	const rawLimit = main?.show?.sqo_config?.limit ?? main?.sqo?.limit;
 	return {
