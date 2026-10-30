@@ -4449,6 +4449,11 @@
 			"skipped": 0,
 			"assertions": 12
 		},
+		"test/unit/referenced_by_filter_native.test.ts": {
+			"tests": 43,
+			"skipped": 0,
+			"assertions": 8821
+		},
 		"test/unit/region_split.test.ts": {
 			"tests": 6,
 			"skipped": 0,
@@ -4543,6 +4548,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 9
+		},
+		"test/unit/relation_targets_native.test.ts": {
+			"tests": 20,
+			"skipped": 0,
+			"assertions": 141
 		},
 		"test/unit/relation_tree_target_native.test.ts": {
 			"tests": 8,
@@ -4973,6 +4983,11 @@
 			"tests": 10,
 			"skipped": 0,
 			"assertions": 11
+		},
+		"test/unit/search_statement_chokepoint_tripwire.test.ts": {
+			"tests": 41,
+			"skipped": 0,
+			"assertions": 95
 		},
 		"test/unit/search_store_decision_native.test.ts": {
 			"tests": 9,
