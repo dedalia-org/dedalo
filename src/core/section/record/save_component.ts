@@ -80,6 +80,7 @@ import {
 	applyAddNewElement,
 	applySortByColumn,
 	applySortData,
+	assertSortDataKeys,
 	type RelationInsertContext,
 	removeDataframeDataById,
 	type SortByColumnChange,
@@ -1728,9 +1729,19 @@ async function applySaveComponentData(
 		if (change.action === 'sort_data') {
 			// PHP update_data_value 'sort_data': move one locator from its
 			// absolute position (source_key = paginated_key) to target_key.
-			const sorted = applySortData(items, change as unknown as SortDataChange);
+			// A malformed / out-of-range key is a caller fault, refused typed
+			// (request.invalid_data) BEFORE the move — it used to drop the
+			// locator and answer ok (WC-2026-10-30-sort-data-key-range). The
+			// null left below is the locator mismatch (stale drag) alone.
+			const sortChange = change as unknown as SortDataChange;
+			assertSortDataKeys(items.length, sortChange, {
+				tipo: componentTipo,
+				section_tipo: sectionTipo,
+				section_id: sectionId,
+			});
+			const sorted = applySortData(items, sortChange);
 			if (sorted === null) {
-				return { ok: false, message: 'sort_data failed (key/locator mismatch)' };
+				return { ok: false, message: 'sort_data failed (locator mismatch)' };
 			}
 			items = sorted;
 			hasReorders = true;
