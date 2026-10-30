@@ -53,11 +53,6 @@ export const render_list_component_geolocation = function() {
 * modules serialise them with JSON.stringify and join them via
 * self.context.fields_separator before inserting into the DOM.
 *
-* Note: the `return null` statement after the switch is unreachable because
-* every branch of the switch returns — it is dead code left for defensive
-* intent. (!) Do not remove it without reviewing callers that may rely on
-* the switch always returning.
-*
 * @param {Object} options - render options forwarded verbatim to the chosen
 *   view module (e.g. render_level, mode overrides)
 * @returns {Promise<HTMLElement>} the rendered wrapper element
@@ -86,8 +81,6 @@ render_list_component_geolocation.prototype.list = async function(options) {
 		default:
 			return view_default_list_geolocation.render(self, options)
 	}
-
-	return null
 }//end list
 
 

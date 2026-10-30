@@ -93,65 +93,12 @@ export const mediaEmitHook: ComponentEmitHook = {
 				);
 			}
 		}
-		// AV and 3D items carry posterframe_url in EVERY mode (the client shows a
-		// poster thumbnail without an extra request — the 3D snapshot / video
-		// still); AV also carries, in EDIT mode, the subtitles descriptor for the
-		// player's <track> (PHP component_av_json.php:167-190 /
-		// component_3d_json.php:108-114). posterframe_url is null when the
-		// component holds no media yet (PHP empty($value) → null).
+		// AV/3D: posterframe_url (+ AV edit subtitles) — see emitPosterframe
 		if (model === 'component_av' || model === 'component_3d') {
 			const hasMedia = Array.isArray(storedItems) && storedItems.length > 0;
-			if (hasMedia) {
-				const { posterframeLocation, subtitlesUrl } = await import('./path.ts');
-				const { fileVersionToken } = await import('./url_version.ts');
-				const { resolveMediaPathOptions } = await import('./ontology_path.ts');
-				const { config: cfg } = await import('../../config/config.ts');
-				const spec = mediaTypeOf(model);
-				if (spec !== null) {
-					const identity = {
-						componentTipo: ddo.tipo,
-						sectionTipo: row.section_tipo,
-						sectionId: Number(row.section_id),
-						lang: null,
-					};
-					const pathOpts = await resolveMediaPathOptions(ddo.tipo, row.section_tipo);
-					// ONE GRAMMAR (path.ts posterframeLocation). This used to be an inline
-					// template string — a third copy of the posterframe path beside the two
-					// in tools/posterframe.ts — and it silently ignored
-					// `additionalPathOverride`, so on an install that uses that ontology
-					// property the URL would point at a bucket the writer never wrote to.
-					const location = posterframeLocation(spec, identity, pathOpts);
-					// AND IT IS EXISTENCE-CHECKED, exactly like its sibling `base_svg_url`
-					// below. The URL was emitted by grammar alone, so every record without a
-					// posterframe handed the client a link that 404s — a duplicated record
-					// (the posterframe is not copied) or any fresh av. The client's fallback
-					// chain (thumb → posterframe → placeholder) can only work if this field
-					// is null when there is no file.
-					// `?v=<mtime ms>-<size>` versions the URL by the FILE, not the render
-					// (url_version.ts, WC-2026-10-29-posterframe-url-version); any stat error
-					// is "no file", never a failed read.
-					const version = location !== null ? fileVersionToken(location.absolutePath) : null;
-					item.posterframe_url =
-						location !== null && version !== null
-							? `${cfg.media.webBase}${location.relativePath}?v=${version}`
-							: null;
-					if (model === 'component_av' && ddoMode === 'edit') {
-						const { getLangNameFromCode, getAlpha2FromCode } = await import(
-							'../resolve/lang_names.ts'
-						);
-						const { currentDataLang } = await import('../resolve/request_lang.ts');
-						const dataLang = currentDataLang();
-						item.subtitles = {
-							// Shared grammar (path.ts subtitlesUrl) — the same builder
-							// tool_transcription build_subtitles_file writes with.
-							subtitles_url: subtitlesUrl(identity, dataLang),
-							lang_name: await getLangNameFromCode(dataLang),
-							lang: getAlpha2FromCode(dataLang),
-						};
-					}
-				}
-			} else {
-				item.posterframe_url = null;
+			item.posterframe_url = hasMedia ? await posterframeUrl(context) : null;
+			if (hasMedia && model === 'component_av' && ddoMode === 'edit') {
+				item.subtitles = await avSubtitles(context);
 			}
 		}
 		item.row_section_id = row.section_id;
@@ -159,6 +106,67 @@ export const mediaEmitHook: ComponentEmitHook = {
 		emission.items.push(item);
 	},
 };
+
+/**
+ * AV and 3D items carry posterframe_url in EVERY mode (the client shows a
+ * poster thumbnail without an extra request — the 3D snapshot / video
+ * still); AV also carries, in EDIT mode, the subtitles descriptor for the
+ * player's <track> (PHP component_av_json.php:167-190 /
+ * component_3d_json.php:108-114). posterframe_url is null when the
+ * component holds no media yet (PHP empty($value) → null).
+ */
+async function posterframeUrl(context: EmitHookContext): Promise<string | null> {
+	const { ddo, row, model } = context;
+	const spec = mediaTypeOf(model);
+	// av/3d always have a media spec; null kept as the type guard
+	if (spec === null) return null;
+	const { posterframeLocation } = await import('./path.ts');
+	const { fileVersionToken } = await import('./url_version.ts');
+	const { resolveMediaPathOptions } = await import('./ontology_path.ts');
+	const { config: cfg } = await import('../../config/config.ts');
+	const pathOpts = await resolveMediaPathOptions(ddo.tipo, row.section_tipo);
+	// ONE GRAMMAR (path.ts posterframeLocation). This used to be an inline
+	// template string — a third copy of the posterframe path beside the two
+	// in tools/posterframe.ts — and it silently ignored
+	// `additionalPathOverride`, so on an install that uses that ontology
+	// property the URL would point at a bucket the writer never wrote to.
+	const location = posterframeLocation(spec, mediaIdentity(context), pathOpts);
+	// AND IT IS EXISTENCE-CHECKED, exactly like its sibling `base_svg_url`.
+	// The URL was emitted by grammar alone, so every record without a
+	// posterframe handed the client a link that 404s — a duplicated record
+	// (the posterframe is not copied) or any fresh av. The client's fallback
+	// chain (thumb → posterframe → placeholder) can only work if this field
+	// is null when there is no file.
+	// `?v=<mtime ms>-<size>` versions the URL by the FILE, not the render
+	// (url_version.ts, WC-2026-10-29-posterframe-url-version); any stat error
+	// is "no file", never a failed read.
+	const version = location && fileVersionToken(location.absolutePath);
+	return version ? `${cfg.media.webBase}${location.relativePath}?v=${version}` : null;
+}
+
+/** AV edit: the subtitles descriptor for the player's <track>. */
+async function avSubtitles(context: EmitHookContext): Promise<Record<string, unknown>> {
+	const { subtitlesUrl } = await import('./path.ts');
+	const { getLangNameFromCode, getAlpha2FromCode } = await import('../resolve/lang_names.ts');
+	const { currentDataLang } = await import('../resolve/request_lang.ts');
+	const dataLang = currentDataLang();
+	return {
+		// Shared grammar (path.ts subtitlesUrl) — the same builder
+		// tool_transcription build_subtitles_file writes with.
+		subtitles_url: subtitlesUrl(mediaIdentity(context), dataLang),
+		lang_name: await getLangNameFromCode(dataLang),
+		lang: getAlpha2FromCode(dataLang),
+	};
+}
+
+function mediaIdentity({ ddo, row }: EmitHookContext) {
+	return {
+		componentTipo: ddo.tipo,
+		sectionTipo: row.section_tipo,
+		sectionId: Number(row.section_id),
+		lang: null,
+	};
+}
 
 /**
  * PHP media_common::get_external_source — the image component's
