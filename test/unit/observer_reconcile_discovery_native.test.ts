@@ -28,10 +28,13 @@ import { getCounters } from '../../src/core/api/counters.ts';
 /** Seed-shipped tipo, spelled so the census sees a reference, not a binding. */
 const seed = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;
 
+import type { ExternalLaw } from '../../src/core/section/record/external_laws/types.ts';
 import {
 	classifyReconcileOutcome,
 	type ExternalRecomputeOutcome,
+	expandTuplesByHostSections,
 	expandTuplesByIndexSections,
+	isCoveredReconcileEdge,
 	type ReconcileIO,
 	type ReconcileRecord,
 	type ReconcileTuple,
@@ -77,14 +80,24 @@ function edge(over: Partial<ObserverSubscription> = {}): ObserverSubscription {
 	};
 }
 
+/** Law (c) over component `C` — the default tuple law. */
+function inverseLaw(componentToSearch = 'C', observerTipo = 'observer1'): ExternalLaw {
+	return {
+		kind: 'inverse_search',
+		observerTipo,
+		componentToSearch,
+		sectionToSearch: 'all',
+		dataFromField: undefined,
+	};
+}
+
 function tuple(over: Partial<ReconcileTuple> = {}): ReconcileTuple {
 	return {
 		observedTipo: 'observed1',
 		observerTipo: 'observer1',
 		hostSection: 'host1',
-		componentToSearch: 'C',
-		sectionToSearch: 'all',
-		sublaw: null,
+		law: inverseLaw(),
+		host: true,
 		...over,
 	};
 }
@@ -267,11 +280,14 @@ describe('classifyReconcileOutcome', () => {
 const SOURCE_WITH_C = (): unknown => ({ component_to_search: ['C'] });
 
 describe('selectReconcileTuples', () => {
-	test('only the COVERED server shape reconciles (the four shapes differ ONLY in `server`)', () => {
+	test('only a COVERED server shape reconciles (the shapes differ ONLY in `server`)', () => {
 		// Every other field is identical on purpose: same hostSection, same
 		// observerTipo family, same source. If the shape filter were removed,
-		// (b)/(c)/(d) would survive — they cannot die at the
-		// `typeof componentToSearch !== 'string'` skip, because they all have one.
+		// (c)/(d)/(e) would survive — they cannot die at the law classifier,
+		// because they all carry a component_to_search. The covered set is the
+		// LIVE DISPATCH's resolver table (classifyObserverServerShape): (b)
+		// `use_observable_dato:false` + set_dato_external is the 'self' resolver
+		// (the S7 legend shape) and reconciles since 2026-10-30.
 		const edges: ObserverSubscription[] = [
 			edge({ observerTipo: 'a' }),
 			edge({
@@ -292,37 +308,113 @@ describe('selectReconcileTuples', () => {
 				},
 			}),
 			edge({ observerTipo: 'd', entry: { component_tipo: 'obs1' } }),
+			edge({
+				// An SQO filter next to `self` is not a shape the table runs.
+				observerTipo: 'e',
+				entry: {
+					component_tipo: 'obs1',
+					server: {
+						config: { use_observable_dato: false },
+						filter: { $and: [] },
+						perform: { function: 'set_dato_external' },
+					},
+				} as ObserveEntry,
+			}),
 		];
 		const { tuples } = selectReconcileTuples(edges, SOURCE_WITH_C, null);
-		expect(tuples.length).toBe(1);
-		expect(tuples[0]?.observerTipo).toBe('a');
-		expect(tuples[0]?.componentToSearch).toBe('C');
-		expect(tuples[0]?.sectionToSearch).toBe('all');
-		expect(tuples[0]?.sublaw).toBeNull();
+		expect(tuples.map((t) => t.observerTipo)).toEqual(['a', 'b']);
+		expect(tuples[0]?.law).toEqual(inverseLaw('C', 'a'));
 	});
 
-	test('sub-law detection runs BEFORE component_to_search — the tuple surfaces refused', () => {
-		const a = selectReconcileTuples([edge()], () => ({ source_overwrite: true }), null);
-		expect(a.tuples.length).toBe(1);
-		expect(a.tuples[0]?.sublaw).toBe('source_overwrite');
-		expect(a.tuples[0]?.componentToSearch).toBe('');
+	test('a LAW-DERIVED inverse edge (registry pass 3) is a covered reconcile edge', () => {
+		// The entry shape observer_subscriptions.ts mints for a source_overwrite
+		// observer's data_from_field dependency: use_inverse_relations +
+		// set_dato_external, no params. It must reconcile exactly as it dispatches.
+		const derived = edge({
+			observerTipo: 'derived',
+			declaration: 'law-derived',
+			origin: 'law',
+			via: 'P',
+			entry: {
+				component_tipo: 'observed1',
+				server: {
+					config: { use_inverse_relations: true },
+					perform: { function: 'set_dato_external' },
+				},
+			},
+		});
+		expect(isCoveredReconcileEdge(derived)).toBe(true);
+		const { tuples } = selectReconcileTuples(
+			[derived],
+			() => ({ source_overwrite: { data_from_field: 'observed1' }, component_to_search: ['P'] }),
+			null,
+		);
+		expect(tuples.map((t) => t.law.kind)).toEqual(['source_overwrite']);
+	});
 
-		const b = selectReconcileTuples(
+	test('the classifier decides the tuple law: ported sub-laws are POSITIVE, ambiguous/malformed ones surface REFUSED', () => {
+		const overwrite = selectReconcileTuples(
+			[edge()],
+			() => ({ source_overwrite: { data_from_field: 'test6157' }, component_to_search: ['P'] }),
+			null,
+		);
+		expect(overwrite.tuples[0]?.law).toEqual({
+			kind: 'source_overwrite',
+			observerTipo: 'observer1',
+			pointerTipo: 'P',
+			dataFromField: 'test6157',
+		});
+
+		const observed = selectReconcileTuples(
+			[edge()],
+			() => ({
+				set_observed_data: [
+					{
+						tipo: 'test6263',
+						perform: { function: 'get_locators_of_tags', params: { ar_tags: ['svg'] } },
+					},
+				],
+			}),
+			null,
+		);
+		expect(observed.tuples[0]?.law.kind).toBe('observed_data');
+
+		// Malformed sub-laws are refused tuples (reported, never swept) — the
+		// refusal runs BEFORE component_to_search, so a present pointer does not
+		// turn a malformed sub-law node into law (c).
+		const malformedOverwrite = selectReconcileTuples(
+			[edge()],
+			() => ({ source_overwrite: true, component_to_search: ['C'] }),
+			null,
+		);
+		expect(malformedOverwrite.tuples.length).toBe(1);
+		expect(malformedOverwrite.tuples[0]?.law).toMatchObject({
+			kind: 'refused',
+			reason: 'source_overwrite_malformed',
+		});
+		const malformedObserved = selectReconcileTuples(
 			[edge()],
 			() => ({ set_observed_data: {}, component_to_search: ['test6230'] }),
 			null,
 		);
-		expect(b.tuples[0]?.sublaw).toBe('set_observed_data');
-		expect(b.tuples[0]?.componentToSearch).toBe('test6230');
+		expect(malformedObserved.tuples[0]?.law).toMatchObject({
+			kind: 'refused',
+			reason: 'observed_data_malformed',
+		});
 	});
 
-	test('set_observed_data wins over source_overwrite (declared key order)', () => {
+	test('BOTH sub-laws on one node is refused as ambiguous (PHP silently took set_observed_data)', () => {
 		const { tuples } = selectReconcileTuples(
 			[edge()],
 			() => ({ source_overwrite: true, set_observed_data: {} }),
 			null,
 		);
-		expect(tuples[0]?.sublaw).toBe('set_observed_data');
+		expect(tuples[0]?.law).toMatchObject({ kind: 'refused', reason: 'both_sublaws' });
+	});
+
+	test('a LAW-LESS node (no component_to_search) yields no tuple at all — not a refused one', () => {
+		const { tuples } = selectReconcileTuples([edge()], () => ({ section_to_search: ['s'] }), null);
+		expect(tuples).toEqual([]);
 	});
 
 	test('MALFORMED scalar source: no sub-law, no tuple, no throw', () => {
@@ -344,8 +436,11 @@ describe('selectReconcileTuples', () => {
 			() => ({ component_to_search: 'C', section_to_search: ['s1', 's2'] }),
 			null,
 		);
-		expect(tuples[0]?.componentToSearch).toBe('C');
-		expect(tuples[0]?.sectionToSearch).toEqual(['s1', 's2']);
+		expect(tuples[0]?.law).toMatchObject({
+			kind: 'inverse_search',
+			componentToSearch: 'C',
+			sectionToSearch: ['s1', 's2'],
+		});
 	});
 
 	test('UNRESOLVED host: no tuple, but returned loudly as `observed->observer`', () => {
@@ -405,7 +500,7 @@ describe('selectReconcileTuples', () => {
 
 describe('expandTuplesByIndexSections', () => {
 	test('index faces are unioned in, originals kept, already-seen keys skipped', async () => {
-		const seed = [tuple({ hostSection: 'testplace1', componentToSearch: 'C' })];
+		const seed = [tuple({ hostSection: 'testplace1', law: inverseLaw('C') })];
 		const out = await expandTuplesByIndexSections(seed, async () => [
 			'testplace1', // already seen — must not duplicate
 			'test6101',
@@ -414,30 +509,65 @@ describe('expandTuplesByIndexSections', () => {
 		]);
 		expect(out.map((t) => t.hostSection)).toEqual(['testplace1', 'test6101', 'testimmovable1']);
 		// The fan-out clones every other field verbatim.
-		expect(out[1]?.componentToSearch).toBe('C');
+		expect(out[1]?.law).toEqual(inverseLaw('C'));
 		expect(out[1]?.observedTipo).toBe('observed1');
 	});
 
-	test('SUB-LAW tuples are never fanned out — even with a real component_to_search', async () => {
-		// The corrected shape: give the refused tuple a NON-EMPTY
-		// componentToSearch whose index knows two sections. Deleting the
-		// `if (tuple.sublaw !== null) continue` guard therefore ADDS tuples.
+	test('ONLY law (c) tuples fan out by the index — copy-law and refused tuples never do', async () => {
+		// The index is keyed by what a record POINTS AT; only law (c)'s targets
+		// are "where the referenced records live". A copy law's records are the
+		// sections that declare the observer (expandTuplesByHostSections), and a
+		// refused tuple is reported once, never swept. Deleting the kind guard
+		// therefore ADDS tuples here.
 		const calls: string[] = [];
 		const out = await expandTuplesByIndexSections(
-			[tuple({ sublaw: 'set_observed_data', componentToSearch: 'test6230' })],
+			[
+				tuple({
+					observerTipo: 'so',
+					law: {
+						kind: 'source_overwrite',
+						observerTipo: 'so',
+						pointerTipo: 'test6230',
+						dataFromField: 'X',
+					},
+				}),
+				tuple({
+					observerTipo: 'od',
+					law: {
+						kind: 'observed_data',
+						observerTipo: 'od',
+						ddoTipo: 'test6263',
+						fn: 'get_locators_of_tags',
+						tags: ['svg'],
+					},
+				}),
+				tuple({
+					observerTipo: 'rf',
+					law: {
+						kind: 'refused',
+						observerTipo: 'rf',
+						reason: 'both_sublaws',
+						detail: '',
+						counters: [],
+					},
+				}),
+			],
 			async (component) => {
 				calls.push(component);
 				return ['test6101', 'testimmovable1'];
 			},
 		);
-		expect(out.length).toBe(1);
-		expect(out[0]?.hostSection).toBe('host1');
+		expect(out.map((t) => `${t.observerTipo}@${t.hostSection}`)).toEqual([
+			'so@host1',
+			'od@host1',
+			'rf@host1',
+		]);
 		expect(calls).toEqual([]);
 	});
 
 	test('an index-seeded tuple is NOT re-expanded (only the input list is walked)', async () => {
 		const seen: string[] = [];
-		await expandTuplesByIndexSections([tuple({ componentToSearch: 'C' })], async (component) => {
+		await expandTuplesByIndexSections([tuple({ law: inverseLaw('C') })], async (component) => {
 			seen.push(component);
 			return ['s1', 's2'];
 		});
@@ -451,6 +581,54 @@ describe('expandTuplesByIndexSections', () => {
 			async () => ['h3'],
 		);
 		expect(out.map((t) => t.hostSection)).toEqual(['h1', 'h2', 'h3']);
+	});
+});
+
+describe('expandTuplesByHostSections', () => {
+	const copyLaw: ExternalLaw = {
+		kind: 'source_overwrite',
+		observerTipo: 'observer1',
+		pointerTipo: 'P',
+		dataFromField: 'X',
+	};
+
+	test('a copy-law tuple fans out to EVERY section that declares the observer (the virtual faces)', async () => {
+		const asked: string[] = [];
+		const out = await expandTuplesByHostSections(
+			[tuple({ hostSection: 'real1', law: copyLaw })],
+			async (observerTipo) => {
+				asked.push(observerTipo);
+				return ['real1', 'virtual1', 'virtual2', 'virtual1'];
+			},
+		);
+		expect(asked).toEqual(['observer1']);
+		expect(out.map((t) => t.hostSection)).toEqual(['real1', 'virtual1', 'virtual2']);
+		expect(out[2]?.law).toEqual(copyLaw);
+	});
+
+	test('law (c) and refused tuples are NOT fanned out by declaration', async () => {
+		const asked: string[] = [];
+		const out = await expandTuplesByHostSections(
+			[
+				tuple(),
+				tuple({
+					observerTipo: 'rf',
+					law: {
+						kind: 'refused',
+						observerTipo: 'rf',
+						reason: 'both_sublaws',
+						detail: '',
+						counters: [],
+					},
+				}),
+			],
+			async (observerTipo) => {
+				asked.push(observerTipo);
+				return ['elsewhere'];
+			},
+		);
+		expect(asked).toEqual([]);
+		expect(out.length).toBe(2);
 	});
 });
 
@@ -483,10 +661,14 @@ function stubIO(
 				cycles: [],
 				malformedSpecs: [],
 				malformedServerEntries: [],
+				lawDerived: [],
+				lawShadowed: [],
 			},
 		}),
 		getNodeProperties: async () => ({ source }) as Record<string, unknown>,
 		indexSectionsFor: async () => [],
+		hostSectionsFor: async () => [],
+		isHostSection: async () => true,
 		matrixTableFor: async () => 'matrix_test',
 		candidateIds: async () => {
 			spy.candidateIdsCalls++;
@@ -505,7 +687,7 @@ function freshSpy(): Spy {
 }
 
 describe('reconcileObserverMirrors (stubbed IO)', () => {
-	test('SUB-LAW tuple: refused wholesale — never swept, never reported clean', async () => {
+	test('REFUSED-LAW tuple: refused wholesale — never swept, never reported clean', async () => {
 		const spy = freshSpy();
 		const lines: string[] = [];
 		const summary = await reconcileObserverMirrors(
@@ -656,6 +838,8 @@ describe('observer reconcile extraction is rewired (static)', () => {
 		const discovery = RECONCILE_SOURCE.slice(discoveryAt, orchestratorAt);
 		expect(discovery).toContain('selectReconcileTuples(');
 		expect(discovery).toContain('expandTuplesByIndexSections(');
+		expect(discovery).toContain('expandTuplesByHostSections(');
+		expect(discovery).toContain('io.isHostSection(');
 	});
 
 	for (const marker of [
@@ -665,10 +849,14 @@ describe('observer reconcile extraction is rewired (static)', () => {
 		"refusal: 'big_result'",
 		'>2000-reference FREEZE',
 		'SHRINK held — DEGRADED SEED',
-		// discovery internals
-		'use_observable_dato !== true',
-		"['set_observed_data', 'source_overwrite']",
-		"if (sublaw === null && typeof componentToSearch !== 'string') continue;",
+		// discovery internals — the covered edge shape is the dispatch's resolver
+		// table, the tuple law is THE classifier's, a host tuple's candidates are
+		// its law's, and only law (c) fans out by the index
+		'classifyObserverServerShape(server)',
+		'resolveExternalLaw(',
+		'LAWLESS_REASONS.has(law.reason)',
+		'externalValueLawOf(law).candidateIds(',
+		"if (tuple.law.kind !== 'inverse_search') continue;",
 		'SELECT DISTINCT target_section_tipo',
 	]) {
 		test(`inline copy of \`${marker}\` is GONE — it exists once, above the orchestrator`, () => {

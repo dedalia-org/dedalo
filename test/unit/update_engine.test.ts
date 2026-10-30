@@ -259,7 +259,7 @@ describe('engine step semantics (fixture catalog, injected writer)', () => {
 		);
 		expect(out.ok).toBe(true);
 		expect(out.msg).toContain(
-			'Observer mirrors reconciled: 4 repaired, 2 shrink(s) held, 1 observer(s) REFUSED (unported sub-law), 3 record(s) at the >2000-reference freeze (not written) (see update log)',
+			'Observer mirrors reconciled: 4 repaired, 2 shrink(s) held, 1 observer(s) REFUSED (ambiguous or malformed value law), 3 record(s) at the >2000-reference freeze (not written) (see update log)',
 		);
 	});
 

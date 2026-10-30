@@ -45,7 +45,7 @@
 	import {window_section_rows} from '../../section/js/section.js'
 	import {
 		add_wrapper_events,
-		get_buttons
+		get_buttons_by_permissions
 	} from './render_edit_component_portal.js'
 	import {view_line_edit_portal} from './view_line_edit_portal.js'
 
@@ -127,9 +127,7 @@ view_tree_edit_portal.render = async function(self, options) {
 		// view ADDS an input path and removes none, so the autocomplete input a portal
 		// declares (e.g. properties.source.mode 'autocomplete') survives. That was
 		// incidental while this block existed; with the declared toolbar it is intentional.
-		const buttons = (self.permissions > 1)
-			? get_buttons(self)
-			: null
+		const buttons = get_buttons_by_permissions(self) // full toolbar >1; update-external only at 1
 
 	// wrapper. ui build_edit returns component wrapper
 		const wrapper = ui.component.build_wrapper_edit(self, {

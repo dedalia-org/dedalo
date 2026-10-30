@@ -9,6 +9,7 @@ import {data_manager} from '../../../core/common/js/data_manager.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {clone, pause} from '../../../core/common/js/utils/util.js'
 import {response_data} from '../../../core/common/js/api_error.js'
+import {get_buttons_by_permissions} from '../../../core/component_portal/js/render_edit_component_portal.js'
 
 
 
@@ -1406,6 +1407,140 @@ describe(`COMPONENT_PORTAL FULL LIFECYCLE`, async function() {
 	})
 
 })//end describe COMPONENT_PORTAL FULL LIFECYCLE
+
+
+
+/**
+* COMPONENT_PORTAL UPDATE EXTERNAL
+* The update-external button of an external portal (`source.mode:'external'`):
+* - it sends `build_options:{get_data_external:true}` (the v6 spelling
+*   `get_dato_external` is not honoured by the server) and the flag is
+*   SINGLE-USE — gone once the refresh settles, so a later read of the same rqo
+*   does not recompute again;
+* - refresh is READ-level, so a read-only portal (permissions 1) still gets the
+*   button — and nothing else of the toolbar; print and no-access get none.
+* Stub instances: the contract is the client's own (what it sends, what it
+*   renders per permission), not a server round trip.
+*/
+describe(`COMPONENT_PORTAL UPDATE EXTERNAL`, function() {
+
+	const make_stub = (permissions, view='default') => {
+		const sent = []
+		const self = {
+			permissions		: permissions,
+			view			: view,
+			context			: {view: view, properties: {source: {mode: 'external'}}},
+			target_section	: [],
+			show_interface	: {
+				button_external		: true,
+				button_add			: true,
+				button_link			: true,
+				button_tree			: true,
+				button_list			: false,
+				tools				: false,
+				button_fullscreen	: false
+			},
+			rqo		: {source: {tipo: portal_tipo}},
+			refresh	: async function(options) {
+				// capture what the request would carry at send time
+				sent.push({
+					options			: options,
+					build_options	: self.rqo.source.build_options
+						? clone(self.rqo.source.build_options)
+						: undefined
+				})
+				return true
+			}
+		}
+		return {self, sent}
+	}
+
+	it(`read-only (permissions 1) renders ONLY the update-external button`, function() {
+		const {self} = make_stub(1)
+		const node = get_buttons_by_permissions(self)
+		assert.notEqual(node, null, 'a reader of an external portal must get the refresh button')
+		assert.equal(node.querySelectorAll('.button.sync').length, 1)
+		assert.equal(node.querySelector('.button.add'), null, 'no add button for a reader')
+		assert.equal(node.querySelector('.button.link'), null, 'no link button for a reader')
+		assert.equal(node.querySelector('.button.tree'), null, 'no tree button for a reader')
+		assert.equal(node.querySelectorAll('.buttons_fold > *').length, 1, 'nothing but the refresh button')
+	})
+
+	it(`read-only non-external portal, print view and no access get no toolbar`, function() {
+		const non_external = make_stub(1)
+		non_external.self.show_interface.button_external = false
+		assert.equal(get_buttons_by_permissions(non_external.self), null)
+		assert.equal(get_buttons_by_permissions(make_stub(1, 'print').self), null)
+		assert.equal(get_buttons_by_permissions(make_stub(0).self), null)
+	})
+
+	it(`edit (permissions 2) keeps the full toolbar incl. update-external`, function() {
+		const {self} = make_stub(2)
+		// the external switch in component_portal.init turns these off for an external portal
+		self.show_interface.button_add	= false
+		self.show_interface.button_link	= false
+		self.show_interface.button_tree	= false
+		const node = get_buttons_by_permissions(self)
+		assert.notEqual(node, null)
+		assert.equal(node.querySelectorAll('.button.sync').length, 1)
+	})
+
+	it(`click sends get_data_external once and clears build_options after the refresh`, async function() {
+		const {self, sent} = make_stub(1)
+		const node = get_buttons_by_permissions(self)
+		const button = node.querySelector('.button.sync')
+
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+
+		assert.equal(sent.length, 1, 'one refresh per click')
+		assert.deepEqual(sent[0].build_options, {get_data_external: true})
+		assert.equal(sent[0].options.build_autoload, true)
+		assert.equal('build_options' in self.rqo.source, false, 'the flag is single-use')
+
+		// a later refresh of the same rqo carries no flag
+		await self.refresh({build_autoload: true})
+		assert.equal(sent[1].build_options, undefined)
+	})
+
+	it(`one refresh at a time: a click while one is in flight is ignored, the button is disabled until it settles`, async function() {
+		const {self, sent} = make_stub(1)
+		// hold the refresh open until the test releases it
+		let release = null
+		const plain_refresh = self.refresh
+		self.refresh = async function(options) {
+			await plain_refresh(options)
+			await new Promise(resolve => { release = resolve })
+			return true
+		}
+		const node = get_buttons_by_permissions(self)
+		const button = node.querySelector('.button.sync')
+
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+		assert.equal(sent.length, 1, 'the first click refreshes')
+		assert.equal(button.classList.contains('loading'), true, 'in flight: class loading')
+		assert.equal(button.getAttribute('aria-disabled'), 'true', 'in flight: aria-disabled')
+
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+		assert.equal(sent.length, 1, 'clicks while in flight must not stack refreshes')
+
+		release()
+		await pause(20)
+		assert.equal(button.classList.contains('loading'), false, 'settled: loading removed')
+		assert.equal(button.hasAttribute('aria-disabled'), false, 'settled: aria-disabled removed')
+		assert.equal('build_options' in self.rqo.source, false, 'the flag is single-use')
+
+		// settled: the next click refreshes again
+		self.refresh = plain_refresh
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+		assert.equal(sent.length, 2, 'a click after the refresh settled refreshes again')
+	})
+
+})//end describe COMPONENT_PORTAL UPDATE EXTERNAL
 
 
 

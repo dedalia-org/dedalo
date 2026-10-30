@@ -423,6 +423,170 @@ describe('acyclicity of the declared graph', () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Law-derived edges (pass 3 — owner ruling 2026-10-30, Q1)
+// ---------------------------------------------------------------------------
+
+/** A covered source_overwrite observer: copies `dff` off the record `ptr` names. */
+function overwriteObserver(
+	tipo: string,
+	dff: string,
+	ptr: string,
+	extra: Record<string, unknown> = {},
+): NodeWithProperties {
+	return node(tipo, {
+		observe: [
+			{
+				component_tipo: ptr,
+				server: {
+					config: { use_observable_dato: true, use_self_section: true },
+					perform: { function: 'set_dato_external' },
+				},
+			},
+			...((extra.observe as unknown[] | undefined) ?? []),
+		],
+		source: { source_overwrite: { data_from_field: dff }, component_to_search: [ptr] },
+	});
+}
+
+describe('law-derived edges (pass 3)', () => {
+	test('a covered source_overwrite observer DERIVES an inverse edge from its data_from_field, through its pointer', () => {
+		const index = buildSubscriptionIndex([overwriteObserver('so1', 'dff1', 'ptr1')]);
+		const derived = index.byObserved.get('dff1') ?? [];
+		expect(derived.length).toBe(1);
+		expect(derived[0]).toMatchObject({
+			observedTipo: 'dff1',
+			observerTipo: 'so1',
+			declaration: 'law-derived',
+			origin: 'law',
+			via: 'ptr1',
+			viaWildcard: false,
+		});
+		// The inverse resolver, set_dato_external, and NO params: the kernel
+		// needs none on this path (no references_limit, no save flag).
+		expect(derived[0]?.entry).toEqual({
+			component_tipo: 'dff1',
+			server: {
+				config: { use_inverse_relations: true },
+				perform: { function: 'set_dato_external' },
+			},
+		});
+		expect(entryServerBlock(derived[0]?.entry)).toBeDefined(); // dispatchable
+		expect(index.diagnostics.lawDerived).toEqual(['dff1->so1']);
+		expect(index.diagnostics.lawShadowed).toEqual([]);
+		// A derived edge carries no authored observe entry — the observe-entry
+		// contract checks do not apply, so the build is contract-clean.
+		expect(validateSubscriptionContract(index)).toEqual([]);
+		// The declared pointer edge is still there, unchanged.
+		expect(index.byObserved.get('ptr1')?.[0]?.declaration).toBe('reverse-only');
+		expect(index.byObserved.get('ptr1')?.[0]?.origin).toBe('declared');
+	});
+
+	test('a DECLARED server edge on the same key wins — the derived one is shadowed, never doubled', () => {
+		const index = buildSubscriptionIndex([
+			overwriteObserver('so2', 'dff2', 'ptr2', {
+				observe: [
+					{
+						component_tipo: 'dff2',
+						server: {
+							config: { use_inverse_relations: true },
+							perform: { function: 'set_dato_external' },
+						},
+					},
+				],
+			}),
+		]);
+		const edges = index.byObserved.get('dff2') ?? [];
+		expect(edges.length).toBe(1);
+		expect(edges[0]?.declaration).toBe('reverse-only');
+		expect(edges[0]?.origin).toBe('declared');
+		expect(index.diagnostics.lawDerived).toEqual([]);
+		expect(index.diagnostics.lawShadowed).toEqual(['dff2->so2']);
+	});
+
+	test('a CLIENT-ONLY observe entry on the dependency is the per-edge kill switch (no server edge at all)', () => {
+		const index = buildSubscriptionIndex([
+			overwriteObserver('so3', 'dff3', 'ptr3', {
+				observe: [{ component_tipo: 'dff3', client: { event: 'update_value' } }],
+			}),
+		]);
+		expect(index.byObserved.get('dff3') ?? []).toEqual([]);
+		expect(index.diagnostics.lawShadowed).toEqual(['dff3->so3']);
+		expect(index.diagnostics.lawDerived).toEqual([]);
+	});
+
+	test('a FORWARD spec on the same key also wins (any declaration shadows the derivation)', () => {
+		const index = buildSubscriptionIndex([
+			node('dff4', { observers: [{ component_tipo: 'so4' }] }),
+			overwriteObserver('so4', 'dff4', 'ptr4'),
+		]);
+		expect((index.byObserved.get('dff4') ?? []).some((sub) => sub.origin === 'law')).toBe(false);
+		expect(index.diagnostics.lawShadowed).toEqual(['dff4->so4']);
+	});
+
+	test('one derived edge per key — a node listed twice does not mint two', () => {
+		const observer = overwriteObserver('so5', 'dff5', 'ptr5');
+		const index = buildSubscriptionIndex([observer, observer]);
+		expect((index.byObserved.get('dff5') ?? []).filter((sub) => sub.origin === 'law').length).toBe(
+			1,
+		);
+		expect(index.diagnostics.lawDerived).toEqual(['dff5->so5']);
+	});
+
+	test('law (c) and observed_data declare NO dependencies — pass 3 never mints an edge per data_from_field node', () => {
+		const index = buildSubscriptionIndex([
+			node('lawc1', {
+				observe: [{ component_tipo: 'ptrc', server: EXTERNAL_SERVER }],
+				source: { component_to_search: ['refc'], data_from_field: ['dffc'] },
+			}),
+			node('od1', {
+				observe: [
+					{ component_tipo: 'txt1', server: { perform: { function: 'set_dato_external' } } },
+				],
+				source: {
+					set_observed_data: [
+						{
+							tipo: 'txt1',
+							perform: { function: 'get_locators_of_tags', params: { ar_tags: ['svg'] } },
+						},
+					],
+				},
+			}),
+		]);
+		expect(index.byObserved.get('dffc') ?? []).toEqual([]);
+		expect(index.edges.every((sub) => sub.origin !== 'law')).toBe(true);
+		expect(index.diagnostics.lawDerived).toEqual([]);
+	});
+
+	test('a law the author never wired to the kernel (no set_dato_external server entry) derives nothing', () => {
+		const index = buildSubscriptionIndex([
+			node('so6', {
+				observe: [{ component_tipo: 'ptr6', client: { event: 'update_value' } }],
+				source: { source_overwrite: { data_from_field: 'dff6' }, component_to_search: ['ptr6'] },
+			}),
+			// and a refused (malformed) sub-law next to a covered entry
+			node('so7', {
+				observe: [{ component_tipo: 'ptr7', server: EXTERNAL_SERVER }],
+				source: { source_overwrite: { data_from_field: 42 }, component_to_search: ['ptr7'] },
+			}),
+		]);
+		expect(index.byObserved.get('dff6') ?? []).toEqual([]);
+		expect(index.edges.every((sub) => sub.origin !== 'law')).toBe(true);
+		expect(index.diagnostics.lawDerived).toEqual([]);
+	});
+
+	test('derived edges take part in the cycle scan (a derived cycle is a real runtime cycle)', () => {
+		const index = buildSubscriptionIndex([
+			overwriteObserver('so8', 'dff8', 'ptr8'),
+			// dff8 observes so8: so8 → dff8 declared, dff8 → so8 derived.
+			node('dff8', { observe: [{ component_tipo: 'so8', server: EXTERNAL_SERVER }] }),
+		]);
+		expect(index.diagnostics.lawDerived).toEqual(['dff8->so8']);
+		expect(index.diagnostics.cycles.length).toBeGreaterThan(0);
+		expect(validateSubscriptionContract(index).some((error) => error.includes('CYCLE'))).toBe(true);
+	});
+});
+
 describe('index immutability', () => {
 	test('the built index is deep-frozen (rebuild on invalidation, never patch)', () => {
 		const index = buildSubscriptionIndex([
@@ -611,6 +775,44 @@ describe('live-ontology gates (suite DB)', () => {
 		expect(registry.diagnostics.deadWildcards).toEqual([]);
 		expect(registry.diagnostics.hostUnresolved).toEqual([]);
 		expect(registry.diagnostics.cycles).toEqual([]);
+	});
+
+	test('LAW-DERIVED (pass 3, live): the catalog term copy observer derives its type-side edge; the declared one shadows', async () => {
+		// The suite twins of the reported bug: the catalog term's two
+		// source_overwrite copies of its coin type (pointer testcoincatalog1004).
+		// testcoincatalog1013 copies test6157 and declares NO edge on it — derived;
+		// testcoincatalog1019 copies test6105 and DECLARES the inverse edge — the
+		// declaration wins (no second edge).
+		const registry = await getSubscriptionRegistry();
+		expect(registry.diagnostics.lawDerived).toContain('test6157->testcoincatalog1013');
+		expect(registry.diagnostics.lawShadowed).toContain('test6105->testcoincatalog1019');
+		const derived = (registry.byObserved.get('test6157') ?? []).filter(
+			(sub) => sub.observerTipo === 'testcoincatalog1013',
+		);
+		expect(derived.length).toBe(1);
+		expect(derived[0]).toMatchObject({
+			declaration: 'law-derived',
+			origin: 'law',
+			via: 'testcoincatalog1004',
+		});
+		expect(
+			(registry.byObserved.get('test6105') ?? []).filter(
+				(sub) => sub.observerTipo === 'testcoincatalog1019' && sub.origin === 'law',
+			),
+		).toEqual([]);
+		// The consumers that read getObserverSubscriptions see the derived edge
+		// with no change on their side (critique 11): the write ledger's
+		// observed-tipo gate and the cascade's leaf pre-gate both count it.
+		const { getObserverSubscriptions } = await import(
+			'../../src/core/section/record/observer_subscriptions.ts'
+		);
+		expect(
+			(await getObserverSubscriptions('test6157')).some(
+				(sub) => sub.observerTipo === 'testcoincatalog1013' && sub.origin === 'law',
+			),
+		).toBe(true);
+		const { isObservedTipo } = await import('../../src/core/section_record/obligation_ledger.ts');
+		expect(await isObservedTipo('test6157')).toBe(true);
 	});
 
 	test('SINGLE-DECLARATION (gate a, live): the reported bug edge is dispatchable, host = the observer own section', async () => {

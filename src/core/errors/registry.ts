@@ -3068,6 +3068,43 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: false,
 	},
+	// --- observers.* — the external-mirror refresh door ----------------------
+	// The portal's "update external data" button asks the read to recompute
+	// the requested component's external mirror first
+	// (section/record/external_refresh.ts maybeRefreshExternal). The read is
+	// ALWAYS served — with the stored mirror when the refresh did not run — so
+	// both codes are NOTICES (ok:true + notices[]), never thrown.
+	'observers.refresh_refused': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_observers_refresh_refused',
+		// The caller may not ask for the refresh on this (section, component,
+		// record): the read-level authorizeRecordAccess refused (pair level,
+		// record scope, grammar), or the section is consultation-only. The
+		// refusal's own code stays in the operator log.
+		message: 'The external data was not refreshed: not permitted here; the stored data is shown',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+	},
+	'observers.refresh_withheld': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_observers_refresh_withheld',
+		// The refresh was asked for and permitted, but nothing was written:
+		// `reason` names why — law_refused (the observer's external value law is
+		// refused by the classifier), target_not_host (the record's section does
+		// not declare the observer), degraded_seed (drops withheld AND nothing
+		// to add — a degraded seed that persisted additions is a done refresh),
+		// frozen (the >2000 freeze), busy (the target row stayed locked past
+		// the refresh's lock_timeout — the ONE reason whose notice is
+		// retryable:true), or error (the recompute failed; logged + counted).
+		message: 'The external data could not be refreshed; the stored data is shown',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['reason'],
+	},
 } as const satisfies Record<string, ErrorSpec>;
 
 export type ErrorCode = keyof typeof ERROR_REGISTRY;

@@ -119,6 +119,7 @@ import {
 	deleteSectionRecord,
 	wipedComponentValue,
 } from '../../../src/core/section/record/delete_record.ts';
+import { getExternalLaw } from '../../../src/core/section/record/external_laws/classify.ts';
 import { isCoveredObserverTipo } from '../../../src/core/section/record/observers.ts';
 import { isLangSlicedModel } from '../../../src/core/section/record/save_component.ts';
 import {
@@ -628,9 +629,10 @@ async function wipedKeysOf(
 			if (canonicalJson(value) === canonicalJson(liveValue)) continue;
 			// Already at the state the revert produces: its units find it unchanged.
 			if (state.settled(column, tipo, liveValue)) continue;
-			// A COVERED OBSERVER slot is derived state ("who references me"): never
-			// judged a write since (the recompute writes it whenever a referencer
-			// moves). It IS put back from the snapshot — its item ids are the
+			// A COVERED OBSERVER slot is derived state ("who references me", or a
+			// copy law's projection of the record's own pointer/text — the S7
+			// tag locators included): never judged a write since (the recompute
+			// writes it whenever what it derives from moves). It IS put back from the snapshot — its item ids are the
 			// pairing keys of the frames the restore puts back beside it (the
 			// covered UNIT, record_write.ts §3e: a recompute into the wiped-empty
 			// slot minted fresh ids and re-paired every frame onto another
@@ -963,8 +965,10 @@ async function holdsForeignValue(
 			if (canonicalJson(value) === canonicalJson(keyOf(birth, column, tipo))) continue;
 			// A COVERED OBSERVER slot is derived state, never anyone's write: a birth
 			// stores none (record_write.ts prepareBirthColumns) and the recompute
-			// fills it from whoever references the record — a referencer is the
-			// `referenced` deferral's business, not a foreign value.
+			// fills it — from whoever references the record (a referencer is the
+			// `referenced` deferral's business, not a foreign value), or for a copy
+			// law from the record's own pointer/text (whose own key is the foreign
+			// value when someone else wrote it).
 			if (column === 'relation' && (await isCoveredObserverTipo(tipo))) continue;
 			return true;
 		}
@@ -974,12 +978,18 @@ async function holdsForeignValue(
 
 /**
  * Whether any record LINKS to this one. A locator held in a COVERED OBSERVER
- * slot is not a link: it is the mirror of THIS record's own edge ("who
- * references me" on the record it points at), derived state the delete strips
- * and the recompute re-derives. Counted as a link it deadlocked D2 once the
- * undelete propagated (CORE-1): an undeleted term and its undeleted referencer
- * each "referenced" the other — the referencer by its link, the term by its
- * mirror of that link — and neither could ever be deleted.
+ * slot is not a link when it only RE-STATES an indexed edge: an
+ * `inverse_search` mirror is the mirror of THIS record's own edge ("who
+ * references me" on the record it points at), a `source_overwrite` slot a copy
+ * of another record's bag (whose own locator is the link, found as its own
+ * hit) — derived state the delete strips and the recompute re-derives. Counted
+ * as a link the mirror deadlocked D2 once the undelete propagated (CORE-1): an
+ * undeleted term and its undeleted referencer each "referenced" the other — the
+ * referencer by its link, the term by its mirror of that link — and neither
+ * could ever be deleted. An `observed_data` slot (the locators of its record's
+ * text tags) IS a link: the tag lives in a text value, which no relation index
+ * holds, so the slot is the edge's only indexed witness — discounted, a record a
+ * tag still points at was deleted under it.
  */
 async function isReferenced(marker: RecordMarker): Promise<boolean> {
 	const hits = await findInverseReferenceLocators(
@@ -988,9 +998,18 @@ async function isReferenced(marker: RecordMarker): Promise<boolean> {
 	);
 	for (const hit of hits) {
 		const from = hit.locator_data.from_component_tipo;
-		if (typeof from !== 'string' || !(await isCoveredObserverTipo(from))) return true;
+		if (typeof from !== 'string' || !(await isRestatedEdgeSlot(from))) return true;
 	}
 	return false;
+}
+
+/**
+ * A covered observer slot whose locators re-state an indexed edge (see
+ * isReferenced). Exported for covered_slot_consumers_native only.
+ */
+export async function isRestatedEdgeSlot(tipo: string): Promise<boolean> {
+	if (!(await isCoveredObserverTipo(tipo))) return false;
+	return (await getExternalLaw(tipo)).kind !== 'observed_data';
 }
 
 /**

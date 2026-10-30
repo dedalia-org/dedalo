@@ -218,6 +218,7 @@ HERMETIC_TRIPWIRES=(
 	test/unit/xss_csp_tripwire.test.ts
 	test/unit/error_report_xss_tripwire.test.ts
 	test/unit/security_audit_2026_07_23_tripwire.test.ts
+	test/unit/external_law_registry_tripwire.test.ts
 	test/unit/no_remote_code_tripwire.test.ts
 	test/unit/agent_egress_tripwire.test.ts
 	test/unit/human_write_scope_tripwire.test.ts

@@ -16,8 +16,14 @@
  *
  * The kernel replays the ONE recompute law (recomputeExternalRelation —
  * row-locked, order-preserved keep, next-id append, TM audit pair) per
- * candidate: referenced targets from matrix_relation_index (trigger truth)
- * ∪ stored-mirror holders, host sections from spec ∪ index truth.
+ * candidate. Which law runs, and which records are candidates, is the law
+ * registry's (core/section/record/external_laws/): law (c) visits referenced
+ * targets from matrix_relation_index (trigger truth) ∪ stored-mirror holders,
+ * at sections from spec ∪ index truth; the copy laws (source_overwrite,
+ * set_observed_data) visit records carrying their pointer / ddo ∪ holders, at
+ * every section that DECLARES the observer. A section that does not declare
+ * the observer (an index face) visits stored holders only — tagged
+ * `[not a host — stored slots only]` in the report.
  *
  * USAGE (dry-run is the default and prints every drifted record):
  *
@@ -44,10 +50,12 @@
  * ceiling — a re-runnable pre-deploy check, so a future value-law change that
  * would mass-delete fails here rather than at the next save.
  *
- * UNPORTED SUB-LAWS: observers whose source carries `set_observed_data` /
- * `source_overwrite` (PHP sub-laws a/b, not ported) are REFUSED wholesale
- * and reported as such — law (c) is provably the wrong law for them
- * (numisdata679/965 would wipe ~131,800 mirror locators).
+ * REFUSED LAWS: an observer whose node the classifier refuses (both
+ * sub-laws declared, a sub-law next to a top-level data_from_field, a
+ * malformed set_observed_data / source_overwrite) is REFUSED wholesale and
+ * reported as such — never swept under a fallback law, never reported clean.
+ * Both PHP sub-laws (a: set_observed_data, b: source_overwrite) are ported
+ * since 2026-10-30; a well-formed one is swept like law (c).
  */
 
 import { readFileSync } from 'node:fs';
@@ -93,7 +101,7 @@ const report = `\nTOTAL: ${summary.tuples} tuple(s), ${summary.candidates} candi
 		: ''
 }${
 	summary.sublawRefused > 0
-		? `; ${summary.sublawRefused} tuple(s) REFUSED (unported sub-law — not swept)`
+		? `; ${summary.sublawRefused} tuple(s) REFUSED (external value law refused — not swept)`
 		: ''
 }${
 	summary.bigResultRefused > 0

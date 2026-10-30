@@ -21,3 +21,19 @@ oracle-captured mirror/relation_search goldens; suite-DB seeding via
 `test/helpers/observer_term_seed.ts`) ·
 `test/unit/observer_reconcile_native.test.ts` (bypass-drift dry-run/repair/
 idempotence/shrink; planted-seed-gated so a live snapshot is never written).
+
+## Addendum 2026-10-30 — phase notes: the copy laws, a derived edge and a read-door refresh
+
+- The recompute law fired from the chokepoint now covers both PHP sub-laws
+  (`WC-2026-10-30-observer-external-value-laws`), resolves targets through PHP's
+  closed config switch including `use_inverse_relations`
+  (`WC-2026-10-30-observer-target-resolvers`), and writes only on records whose section
+  declares the observer (`WC-2026-10-30-observer-target-not-host`).
+- One edge is now derived from a law rather than declared (`numisdata77 → numisdata679`,
+  `WC-2026-10-30-observer-law-derived-edges`).
+- One door outside the write chokepoint now recomputes a mirror on request: the
+  portal's update-external read (`WC-2026-10-30-portal-get-data-external-refresh`). It
+  is not a propagation of a write — it recomputes the one requested mirror from
+  committed truth and hops only when it wrote.
+- Duplicate now recomputes the copy's copy-law slots by declaration; the reconciler
+  sweeps the copy laws at every declaring section.

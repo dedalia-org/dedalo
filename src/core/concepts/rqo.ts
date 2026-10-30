@@ -155,6 +155,34 @@ export const rqoSourceSchema = z
 		 * agrees about.
 		 */
 		tm_surface: z.string().max(64).nullish(),
+		/**
+		 * BUILD OPTIONS (PHP `$this->build_options`, set from `source.build_options`
+		 * by the component json controllers) — per-request switches on HOW an
+		 * element is built, never WHAT it addresses.
+		 *
+		 * - `get_data_external` — the portal's "update external data" button
+		 *   (component_portal buttons.js): recompute the requested component's
+		 *   external mirror (properties.source.mode 'external') BEFORE it is read.
+		 *   Honoured by ONE reader, section/record/external_refresh.ts
+		 *   maybeRefreshExternal, for a top-level component get_data only. STRICT
+		 *   `=== true`. The v6 spelling `get_dato_external` is NOT honoured: it is
+		 *   counted (`rqo_deprecated_get_dato_external`) and ignored — it rides the
+		 *   passthrough below, undeclared on purpose so no door can read it.
+		 * - `terms_are_model` — the area_thesaurus / area_ontology model view
+		 *   (area/read.ts, area/tree.ts).
+		 *
+		 * Declared rather than left to `.passthrough()` for the reason the notes
+		 * above give: a key that rides through undeclared is a key no door agrees
+		 * about. Passthrough INSIDE, so a stale client's unknown option degrades to
+		 * "ignored" rather than a 400 on every read.
+		 */
+		build_options: z
+			.object({
+				get_data_external: z.boolean().nullish(),
+				terms_are_model: z.boolean().nullish(),
+			})
+			.passthrough()
+			.nullish(),
 	})
 	.passthrough();
 export type RqoSource = z.infer<typeof rqoSourceSchema>;

@@ -341,10 +341,22 @@ export async function createSectionRecord(
 	// THE BIRTH COLUMNS (record_write.ts prepareBirthColumns — the one law every
 	// record birth stores by): a relation default on an `_hi` component gets its
 	// ancestor index in the insert, and a default on a covered observer slot is
-	// left out (a mirror is derived — recomputed after the birth). Dynamic import:
-	// record_write.ts statically imports this module (import_scc_tripwire).
-	const { prepareBirthColumns } = await import('../../section_record/record_write.ts');
-	const pinned = await prepareBirthColumns(jsonbColumns as MatrixWriteValues);
+	// left out (a mirror is derived — recomputed after the birth). The section's
+	// COPY-LAW slots (ownDataCoveredSlots: source_overwrite / observed_data) are
+	// recomputed BY DECLARATION too, as in duplicate_record.ts: a `dato_default`
+	// may fill a copy law's input (a pointer, a tagged text), and a text default
+	// is no relation edge — no birth hop would ever reach its slot. On an empty
+	// input the recompute is a no-drift no-op. Dynamic import: record_write.ts
+	// statically imports this module (import_scc_tripwire).
+	const { prepareBirthColumns, ownDataCoveredSlots } = await import(
+		'../../section_record/record_write.ts'
+	);
+	const pinned = [
+		...new Set([
+			...(await prepareBirthColumns(jsonbColumns as MatrixWriteValues)),
+			...(await ownDataCoveredSlots(sectionTipo)),
+		]),
+	];
 	const { newSectionId, inserted } = await withTransaction(async () => {
 		// The birth is the STATEMENT's answer: a counter allocation and an
 		// explicit-id insert that throws on conflict inserted or threw; the

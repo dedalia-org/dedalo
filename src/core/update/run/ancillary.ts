@@ -149,7 +149,7 @@ async function reconcileMirrors({
 		drifted: summary.drifted,
 		repaired: summary.repaired,
 		shrinks_held: summary.shrinksSkipped,
-		sublaw_refused: summary.sublawRefused,
+		sublaw_refused: summary.sublawRefused, // key kept: since 2026-10-30 = classifier-refused value law (WC-2026-10-30-observer-external-value-laws)
 		big_result_refused: summary.bigResultRefused,
 	};
 }

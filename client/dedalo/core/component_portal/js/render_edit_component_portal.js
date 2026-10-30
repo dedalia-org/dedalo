@@ -26,6 +26,7 @@
 *    - `render_column_component_info` — optional `ddinfo` overlay for a row.
 *    - `render_column_remove`       — unlink / delete button with confirmation modal.
 *    - `get_buttons`                — toolbar above the list (add, link, tree, fullscreen…).
+*    - `get_buttons_by_permissions` — permission-aware toolbar: full at >1, external refresh only at 1.
 *    - `activate_autocomplete`      — lazily instantiates `service_autocomplete` on demand.
 *    - `build_header`               — column-header row (hidden when list is empty).
 *    - `render_references`          — read-only back-reference list for relation-related views.
@@ -1023,6 +1024,53 @@ export const get_buttons = (self) => {
 
 	return buttons_container
 }//end get_buttons
+
+
+
+/**
+* GET_BUTTONS_BY_PERMISSIONS
+* Permission-aware toolbar entry point for the edit views: the ONE place that
+* decides which toolbar a given permission level gets.
+*
+* - `permissions > 1`  — the full toolbar (`get_buttons`).
+* - `permissions === 1` (read-only) — only the update-external button, and only
+*   when the portal is external (`show_interface.button_external`): refreshing an
+*   external mirror is a READ-level action (the mirror is a pure function of
+*   committed data and the server gates it at record read access), so a reader
+*   may ask for it. Every edit/link/add/tree/tools control stays hidden.
+* - The `print` view (which forces `permissions = 1`) and `permissions < 1`
+*   get no toolbar.
+*
+* @param {Object} self - The `component_portal` instance.
+* @returns {HTMLElement|null} The buttons_container node, or null when no toolbar applies.
+*/
+export const get_buttons_by_permissions = (self) => {
+
+	// full edit toolbar
+		if (self.permissions > 1) {
+			return get_buttons(self)
+		}
+
+	// read-only: external refresh only (never in print context)
+		const view = self.view || self.context?.view || null
+		if (self.permissions===1 && view!=='print' && self.show_interface?.button_external===true) {
+
+			const buttons_container = ui.component.build_buttons_container(self)
+			const buttons_fold = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'buttons_fold',
+				parent			: buttons_container
+			})
+			buttons_fold.appendChild(
+				buttons.render_button_update_data_external(self)
+			)
+
+			return buttons_container
+		}
+
+
+	return null
+}//end get_buttons_by_permissions
 
 
 

@@ -44,7 +44,7 @@
 		render_column_id,
 		render_column_component_info,
 		render_column_remove,
-		get_buttons,
+		get_buttons_by_permissions,
 		add_wrapper_events,
 		build_header,
 		render_references
@@ -164,9 +164,7 @@ view_default_edit_portal.render = async function(self, options) {
 		list_body.appendChild(content_data)
 
 	// buttons
-		const buttons = (self.permissions > 1)
-			? get_buttons(self)
-			: null
+		const buttons = get_buttons_by_permissions(self) // full toolbar >1; update-external only at 1
 
 	// wrapper. ui build_edit returns component wrapper
 		const wrapper_options = {

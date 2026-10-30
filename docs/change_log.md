@@ -91,6 +91,18 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Catalog terms show the coins of their type again, and legend symbols follow their legend.**
+
+    Before, cataloguing a term (dropping a type onto it in the cataloging tool) left the term's *Coins* and *Ordered coins* portals empty, and the symbol lists derived from a coin legend never updated when the legend's tags changed. Both kinds of field are calculated, and the server did not know how to calculate them. Now it does: a term's coins are a copy of its type's coins, in the type's order, and they update when a coin is linked to the type as well as when the term is catalogued; a legend's symbol list is the symbols tagged in the legend text, in the order they appear. See [Server-side observers — the value laws](./core/system/observers.md#the-value-laws-of-set_dato_external).
+
+    The **update** button of a calculated portal works again. It recomputes that portal on that record from the current data and shows the result; anyone who can read the record may use it, because the value is the same whoever asks. If nothing changed, nothing is saved. See [Refreshing a mirror by hand](./core/system/observers.md#refreshing-a-mirror-by-hand).
+
+    Existing stored values are not rewritten by the update: they are corrected the next time their source is saved, when the button is pressed, or by an administrator running the observer reconcile (dry run first — on large catalogues review the proposed removals before applying them).
+
+    For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created on records whose section declares the field.
+
+    Wire contract: `WC-2026-10-30-observer-external-value-laws`, `WC-2026-10-30-observer-target-resolvers`, `WC-2026-10-30-observer-target-not-host`, `WC-2026-10-30-observer-law-derived-edges`, `WC-2026-10-30-portal-get-data-external-refresh`.
+
 - **Search panel no longer forced tall by the fields list**
 
     The Fields, Type and Preset columns of the search panel now take the height of their content (up to half the screen, scrolling past that) instead of always reserving half the screen.
@@ -607,7 +619,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 29 entries"
+??? note "Wire contract — 34 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -630,8 +642,13 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-29-start-user-default-section`
     - `WC-2026-10-30-health-boot-facts`
     - `WC-2026-10-30-maintenance-door-classes`
+    - `WC-2026-10-30-observer-external-value-laws`
+    - `WC-2026-10-30-observer-law-derived-edges`
+    - `WC-2026-10-30-observer-target-not-host`
+    - `WC-2026-10-30-observer-target-resolvers`
     - `WC-2026-10-30-ontology-file-digests`
     - `WC-2026-10-30-ontology-import-census-restore`
+    - `WC-2026-10-30-portal-get-data-external-refresh`
     - `WC-2026-10-30-restore-point-release-identity`
     - `WC-2026-10-30-tools-registry-import-switch-retired`
     - `WC-2026-10-30-update-door-refusals`

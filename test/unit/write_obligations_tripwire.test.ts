@@ -38,7 +38,8 @@
  *         namespace escape included) the cascade, the recompute unit and
  *         kernel, the ledger's enqueue, the derivation's birth law, the
  *         removal-law, mirror and covered-slot entries, the per-key kernel
- *         (its flag-value hatches: only the four named entries reach it) and
+ *         (its flag-value hatches: only the four named entries reach it), the
+ *         explicit mirror refresh (only the read door reaches it) and
  *         the files_info writer are the enumerated ones, and each enumerated caller PROVABLY
  *         still calls it — a door that remembers an obligation itself is red;
  *         and every afterRecordWrite caller outside the chokepoint is pinned to
@@ -56,7 +57,9 @@
  *      `deferPostTransaction`.
  *   D. observers.ts TOTAL — every `catch` block increments a counter; the
  *      in-transaction rethrow lane is GONE (B6: propagation never runs inside a
- *      transaction, so there is nothing to rethrow into).
+ *      transaction, so there is nothing to rethrow into). The same TOTAL rule
+ *      covers the external-value law registry (external_laws/**) and the
+ *      refresh door (external_refresh.ts).
  *
  * The behavioural twins: write_obligations_native (every door's obligation
  * effects), obligation_ledger_native (the ledger's outcomes: restore/undelete
@@ -101,6 +104,8 @@ const DUPLICATE_RECORD = 'src/core/section/record/duplicate_record.ts';
 const DELETE_RECORD = 'src/core/section/record/delete_record.ts';
 const RELATIONS_SAVE = 'src/core/relations/save.ts';
 const OBSERVERS = 'src/core/section/record/observers.ts';
+const EXTERNAL_REFRESH = 'src/core/section/record/external_refresh.ts';
+const EXTERNAL_LAWS_DIR = 'src/core/section/record/external_laws';
 const FILES_INFO_PERSIST = 'src/core/media/tools/files_info_persist.ts';
 const DD_CORE_API = 'src/core/api/handlers/dd_core_api.ts';
 const CACHE_INVALIDATION = 'src/core/ontology/cache_invalidation.ts';
@@ -125,6 +130,9 @@ const U = {
 	drainEntry: `${LEDGER}#drainEntry`,
 	propagateToObservers: `${OBSERVERS}#propagateToObservers`,
 	recomputeMirrorAndHop: `${OBSERVERS}#recomputeMirrorAndHop`,
+	refreshExternalMirror: `${OBSERVERS}#refreshExternalMirror`,
+	maybeRefreshExternal: `${EXTERNAL_REFRESH}#maybeRefreshExternal`,
+	runRefresh: `${EXTERNAL_REFRESH}#runRefresh`,
 	runObserverCascadeHop: `${OBSERVERS}#runObserverCascadeHop`,
 	recomputeExternalRelation: `${OBSERVERS}#recomputeExternalRelation`,
 	requestCoveredSlotRecompute: `${RECORD_WRITE}#requestCoveredSlotRecompute`,
@@ -568,8 +576,18 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 	},
 	{
 		target: U.recomputeMirrorAndHop,
-		allowed: [U.propagateToObservers, U.drainEntry],
-		why: 'a mirror recompute is the cascade’s (its dispatch loop) or the ledger’s (a whole-record write’s covered slot) — a door recomputing a mirror itself remembered an obligation.',
+		allowed: [U.propagateToObservers, U.drainEntry, U.refreshExternalMirror],
+		why: 'a mirror recompute is the cascade’s (its dispatch loop), the ledger’s (a whole-record write’s covered slot), or the explicit derived-truth REFRESH (refreshExternalMirror — a portal’s get_data_external read asking for the mirror’s current truth, not a remembered obligation: a fresh root guard, outside any transaction) — a door recomputing a mirror itself remembered an obligation.',
+	},
+	{
+		target: U.refreshExternalMirror,
+		allowed: [U.runRefresh],
+		why: 'the explicit refresh is the ONE read door’s (dd_core_api read → read_facade → maybeRefreshExternal → runRefresh), behind its read-level authorizeRecordAccess (door dd_core_api.read.refresh_external) and its preconditions (a record get_data of an external portal, never a TM read) — a second caller would recompute a mirror past that gate.',
+	},
+	{
+		target: U.runRefresh,
+		allowed: [U.maybeRefreshExternal],
+		why: 'the refresh runner is reached only AFTER the door’s grant: maybeRefreshExternal asks authorizeRecordAccess (read level 1) and the law/host preconditions first, then hands runRefresh the grant whose userId is the Time Machine actor.',
 	},
 	{
 		target: U.enqueueObservedChange,
@@ -1021,6 +1039,17 @@ function catchBlocks(source: string): string[] {
 const uncountedCatches = (source: string): string[] =>
 	catchBlocks(source).filter((block) => !block.includes('incrementCounter('));
 
+/**
+ * The observer subsystem's other post-commit, error-swallowing modules (the
+ * external-value law registry and the refresh door, 2026-10-30): the same
+ * TOTAL rule as observers.ts — a swallowed failure is a counted one.
+ */
+function observerSideFiles(): string[] {
+	// From the ONE write-path corpus (no private walk — census_derivation_tripwire).
+	const laws = writePathSourceFiles().filter((file) => file.startsWith(`${EXTERNAL_LAWS_DIR}/`));
+	return [...laws, EXTERNAL_REFRESH];
+}
+
 describe('D. every catch in observers.ts increments a counter (DATA-29)', () => {
 	test('POSITIVE CONTROL: a swallow with only console.error is reported', () => {
 		const offender =
@@ -1047,5 +1076,16 @@ describe('D. every catch in observers.ts increments a counter (DATA-29)', () => 
 		expect(source).toContain("incrementCounter('observers_propagation_failed')");
 		// documented for operators, beside its sibling
 		expect(read('engineering/PRODUCTION.md')).toContain('`observers_propagation_failed`');
+	});
+
+	test('TOTAL over the external-value law registry and the refresh door: no uncounted catch', () => {
+		const files = observerSideFiles();
+		// non-vacuous: the law modules exist, and the refresh door has catches
+		expect(files.length).toBeGreaterThanOrEqual(7);
+		expect(catchBlocks(code(EXTERNAL_REFRESH)).length).toBeGreaterThanOrEqual(2);
+		const offenders = files.flatMap((file) =>
+			uncountedCatches(code(file)).map((block) => `${file}: ${block.slice(0, 80)}`),
+		);
+		expect(offenders, 'catch block(s) with no incrementCounter').toEqual([]);
 	});
 });

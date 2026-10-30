@@ -68,6 +68,13 @@ import { saveComponentData } from '../../src/core/section/record/save_component.
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const KERNEL_FILE = 'src/core/section/record/observers.ts';
 const kernelSource = readFileSync(join(REPO_ROOT, KERNEL_FILE), 'utf-8');
+// The expansion and the lock-order sort moved out of the kernel (2026-10-30
+// external-value law registry): law (c)'s equivalence walk lives with the law,
+// the sort with the target resolvers the dispatch calls.
+const LAW_C_FILE = 'src/core/section/record/external_laws/inverse_search.ts';
+const lawCSource = readFileSync(join(REPO_ROOT, LAW_C_FILE), 'utf-8');
+const RESOLVERS_FILE = 'src/core/section/record/external_laws/resolvers.ts';
+const resolversSource = readFileSync(join(REPO_ROOT, RESOLVERS_FILE), 'utf-8');
 
 // --- the two SCRATCH SECTIONS this file builds (2026-08-20 migration) --------
 /** The TERM section holding the equivalence class (was the install `on1`). */
@@ -228,11 +235,16 @@ beforeAll(async () => {
 			],
 		);
 	}
+	// Each component is declared BY THE SECTION whose records store it: the
+	// mirror's HOST PRECONDITION (observer ∈ declaredSectionComponents of the
+	// target section — external_laws/resolvers.ts isObserverHostSection)
+	// refuses a mirror born on a section that does not declare its observer.
 	for (const node of SCRATCH_NODES) {
+		const parent = node.tipo === EQ_REF ? REF_SECTION : TERM_SECTION;
 		await sql.unsafe(
 			`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1400 FROM dd_ontology), $1, 'test3', $2, 'test', $3::text::jsonb)`,
-			[node.tipo, node.model, JSON.stringify(node.properties)],
+			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1400 FROM dd_ontology), $1, $2, $3, 'test', $4::text::jsonb)`,
+			[node.tipo, parent, node.model, JSON.stringify(node.properties)],
 		);
 	}
 	await clearResolverCaches();
@@ -411,14 +423,17 @@ describe('equivalence expansion (static pins)', () => {
 		// example) must pay NOTHING — not "resolve the model, then find an empty
 		// closure". Ordering is the whole cost story: this branch runs on every
 		// covered save in the install.
-		const dffTest = kernelSource.indexOf('dataFromField.includes(observedTipo)');
-		const modelResolve = kernelSource.indexOf('const observedModel = await getModelByTipo(');
+		const dffTest = lawCSource.indexOf('dataFromField.includes(observedTipo)');
+		const modelResolve = lawCSource.indexOf('const observedModel = await getModelByTipo(');
 		expect(dffTest).toBeGreaterThan(0);
 		expect(modelResolve).toBeGreaterThan(dffTest);
 		// And the walk itself is gated on the SAME dispatch getStoredWithReferences
 		// uses, so a dd620 or non-related peer skips it instead of computing empty.
-		expect(kernelSource).toContain("observedModel === 'component_relation_related'");
-		expect(kernelSource).toContain('RELATED_MULTIDIRECTIONAL');
+		expect(lawCSource).toContain("observedModel !== 'component_relation_related'");
+		expect(lawCSource).toContain('RELATED_MULTIDIRECTIONAL');
+		// The expansion runs for law (c) only, on the observable resolvers.
+		expect(resolversSource).toContain("if (input.law.kind === 'inverse_search') {");
+		expect(resolversSource).toContain('await expandEquivalenceTargets(');
 	});
 
 	test('targets are sorted before the recompute loop, with a total comparator', () => {
@@ -432,19 +447,28 @@ describe('equivalence expansion (static pins)', () => {
 		// taken earlier, outside this set, and a residual window remains (see the
 		// kernel comment's HONEST LIMIT note). Do not "strengthen" this test into
 		// asserting something the code does not do.
-		const sortAt = kernelSource.indexOf('observableTargets.sort(');
-		const loopAt = kernelSource.indexOf('for (const target of observableTargets)');
+		//
+		// The sort is the resolver's (every resolver returns sortTargets(...));
+		// the kernel loops over the resolved list and never re-orders it.
+		const sortAt = resolversSource.indexOf('function sortTargets(');
+		const sortEnd = resolversSource.indexOf('\n}\n', sortAt);
 		expect(sortAt).toBeGreaterThan(0);
-		expect(loopAt).toBeGreaterThan(sortAt);
-		// A non-numeric section_id must not yield NaN (implementation-defined
-		// order); the comparator falls back to a string compare.
-		expect(kernelSource.slice(sortAt, loopAt)).toContain('Number.isFinite(left)');
+		expect(resolversSource.slice(sortAt, sortEnd)).toContain('Number.isFinite(left)');
+		expect(resolversSource).toContain("return { resolver: 'inverse', targets: sortTargets(");
+		expect(resolversSource).toContain(
+			'return { resolver: shape.resolver, targets: sortTargets(targets) };',
+		);
+		const resolveAt = kernelSource.indexOf('const resolved = await resolveObserverTargets(');
+		const loopAt = kernelSource.indexOf('for (const target of resolved.targets)');
+		expect(resolveAt).toBeGreaterThan(0);
+		expect(loopAt).toBeGreaterThan(resolveAt);
+		expect(kernelSource.slice(resolveAt, loopAt)).not.toContain('.sort(');
 	});
 
 	test('a degenerate class is reported but never refused', () => {
 		// Refusing a wide class would re-create exactly the staleness the
 		// expansion exists to remove — it is a signal, not a gate.
-		expect(kernelSource).toContain("incrementCounter('observers_equivalence_class_wide')");
-		expect(kernelSource).toContain('EQUIVALENCE_CLASS_WIDE');
+		expect(lawCSource).toContain("incrementCounter('observers_equivalence_class_wide')");
+		expect(lawCSource).toContain('EQUIVALENCE_CLASS_WIDE');
 	});
 });

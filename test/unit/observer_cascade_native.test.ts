@@ -381,11 +381,18 @@ beforeAll(async () => {
 	// Residue-tolerant: sweep FIRST, then seed unconditionally (a crashed run
 	// must never turn these gates vacuous-green).
 	await sweepScratch();
+	// Each component is declared BY THE SECTION whose records store it — the
+	// external-mirror HOST PRECONDITION (observer ∈ declaredSectionComponents
+	// of the target section — external_laws/resolvers.ts isObserverHostSection)
+	// refuses a mirror born on a section that does not declare its observer. The two
+	// saved components live on the referencer records; every relay/recompute
+	// observer lives on the term records.
 	for (const node of SCRATCH_NODES) {
+		const parent = node.tipo === OBSERVED || node.tipo === DIAMOND_OBS ? REF_SECTION : TERM_SECTION;
 		await sql.unsafe(
 			`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, 'test3', $2, 'test', $3::text::jsonb)`,
-			[node.tipo, node.model, JSON.stringify(node.properties)],
+			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, $2, $3, 'test', $4::text::jsonb)`,
+			[node.tipo, parent, node.model, JSON.stringify(node.properties)],
 		);
 	}
 	// The TWO SCRATCH SECTIONS (2026-08-20 migration). Each carries the `test24`

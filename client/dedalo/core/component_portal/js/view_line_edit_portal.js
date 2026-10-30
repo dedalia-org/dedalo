@@ -82,7 +82,7 @@
 		render_column_component_info,
 		add_wrapper_events,
 		add_section_record_drag_and_drop,
-		get_buttons,
+		get_buttons_by_permissions,
 		render_references,
 	} from './render_edit_component_portal.js'
 
@@ -158,9 +158,7 @@ view_line_edit_portal.render = async function(self, options) {
 		}
 
 	// buttons
-		const buttons = (self.permissions > 1)
-			? get_buttons(self)
-			: null
+		const buttons = get_buttons_by_permissions(self) // full toolbar >1; update-external only at 1
 
 	// wrapper. ui build_edit returns component wrapper
 		const wrapper = ui.component.build_wrapper_edit(self, {

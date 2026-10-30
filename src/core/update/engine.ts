@@ -493,7 +493,7 @@ function reconcileSummaryLine(summary: {
 }): string {
 	const sublaw =
 		(summary.sublawRefused ?? 0) > 0
-			? `, ${summary.sublawRefused} observer(s) REFUSED (unported sub-law)`
+			? `, ${summary.sublawRefused} observer(s) REFUSED (ambiguous or malformed value law)`
 			: '';
 	const frozen =
 		(summary.bigResultRefused ?? 0) > 0

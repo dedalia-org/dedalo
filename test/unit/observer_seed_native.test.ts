@@ -67,6 +67,12 @@ import installDataFromFieldJson from './fixtures/observer_seed/install_data_from
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const kernelSource = readFileSync(join(REPO_ROOT, 'src/core/section/record/observers.ts'), 'utf-8');
+// Law (c)'s compute moved out of the kernel into its law module (2026-10-30
+// external-value law registry); the kernel keeps the refusals around it.
+const lawCSource = readFileSync(
+	join(REPO_ROOT, 'src/core/section/record/external_laws/inverse_search.ts'),
+	'utf-8',
+);
 
 // ---------------------------------------------------------------------------
 // The REAL declared data_from_field users (app ontology census 2026-08-02:
@@ -120,7 +126,8 @@ describe('D3 declared data_from_field users (ontology cross-check)', () => {
 			expect(source?.component_to_search).toEqual([user.cts]);
 			expect(source?.data_from_field).toEqual([...user.dff]);
 			expect(source?.section_to_search).toEqual([...user.sts]);
-			// every declared peer must NOT be refused territory (sub-laws a/b)
+			// every declared peer is law (c) — a sub-law key would make it a copy
+			// law (or a refused one), and this table pins law (c)'s seed
 			expect(source !== undefined && 'source_overwrite' in source).toBe(false);
 			expect(source !== undefined && 'set_observed_data' in source).toBe(false);
 		}
@@ -449,23 +456,29 @@ describe('D3 kernel wiring (static pins)', () => {
 	test('the recompute searches the collectExternalSeed result, never a hand-built single locator', () => {
 		// The call is multiline since the defect sink landed (2026-08-06), so pin
 		// the arguments individually rather than one brittle source substring.
-		const call = kernelSource.slice(
-			kernelSource.indexOf('const seed = await collectExternalSeed('),
-		);
+		// Since the law registry (2026-10-30) the source is the classified law's
+		// data_from_field, never the raw node (a refused law never reaches here).
+		const call = lawCSource.slice(lawCSource.indexOf('const seed = await collectExternalSeed('));
 		expect(call.startsWith('const seed = await collectExternalSeed(')).toBe(true);
-		for (const argument of ['source,', 'componentToSearch,', 'targetSection,', 'targetId,']) {
+		for (const argument of [
+			'{ data_from_field: law.dataFromField },',
+			'law.componentToSearch,',
+			'targetSection,',
+			'targetId,',
+		]) {
 			expect(call.slice(0, 260)).toContain(argument);
 		}
 		// The per-call defect sink MUST be threaded through: without it the
 		// degraded-seed shrink refusal can never fire and a partially-installed
 		// ontology turns every save into a mass delete.
 		expect(call.slice(0, 260)).toContain('defects,');
-		expect(kernelSource).toContain('findInverseReferences(seed');
+		expect(lawCSource).toContain('findInverseReferences(seed');
 	});
 
 	test('the write-path search is uncapped (limit: false) with the pure-SQL PHP order', () => {
-		expect(kernelSource).toContain('limit: false,');
-		expect(kernelSource).toContain("order: 'section_tipo_section_id',");
+		const search = lawCSource.slice(lawCSource.indexOf('findInverseReferences(seed'));
+		expect(search.slice(0, 200)).toContain('limit: false,');
+		expect(search.slice(0, 200)).toContain("order: 'section_tipo_section_id',");
 		expect(kernelSource).toContain("incrementCounter('observers_references_limit_refused')");
 		expect(kernelSource).toContain("incrementCounter('observers_big_result_refused')");
 	});
@@ -605,10 +618,15 @@ beforeAll(async () => {
 	REF_TABLE = (await getMatrixTableFromTipo(REF_SECTION)) ?? 'matrix_test';
 	await sweepScratch();
 	// Scratch ontology: the D3 observer (component_to_search rsc387 within
-	// rsc205, equivalents through PEER_TIPO) + the dd621 peer node.
+	// rsc205, equivalents through PEER_TIPO) + the dd621 peer node. Both are
+	// declared BY THE TERM SECTION whose records store them: the mirror's HOST
+	// PRECONDITION (observer ∈ declaredSectionComponents of the target section
+	// — external_laws/resolvers.ts isObserverHostSection) refuses a mirror born
+	// on a section that does not declare its observer. Swept by tipo before
+	// dropObserverTerm counts the situation's residue.
 	await sql.unsafe(
 		`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, 'test3', 'component_portal', 'test', $2::text::jsonb)`,
+		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, $3, 'component_portal', 'test', $2::text::jsonb)`,
 		[
 			OBSERVER_TIPO,
 			JSON.stringify({
@@ -619,12 +637,13 @@ beforeAll(async () => {
 					data_from_field: [PEER_TIPO],
 				},
 			}),
+			TERM_SECTION,
 		],
 	);
 	await sql.unsafe(
 		`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, 'test3', 'component_relation_related', 'test', $2::text::jsonb)`,
-		[PEER_TIPO, JSON.stringify({ config_relation: { relation_type_rel: 'dd621' } })],
+		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, $3, 'component_relation_related', 'test', $2::text::jsonb)`,
+		[PEER_TIPO, JSON.stringify({ config_relation: { relation_type_rel: 'dd621' } }), TERM_SECTION],
 	);
 	await clearResolverCaches();
 	// The dd621 equivalence chain: 58 —stored→ 59 —stored→ 60 (each hop only

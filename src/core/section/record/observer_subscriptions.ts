@@ -89,6 +89,32 @@
  * alone does not seal Map internals — the mutators are shadowed to throw);
  * a stale index is rebuilt on the next miss, never patched.
  *
+ * LAW-DERIVED EDGES (pass 3, owner ruling 2026-10-30, Q1): an external-value
+ * law that READS a component D without SUBSCRIBING to D is stale by
+ * construction — the copy law (`source.source_overwrite`) copies
+ * `data_from_field` D off the record its pointer names, so a save of D on
+ * that source record must recompute every holder of the pointer. The law's
+ * own `dependencies()` (external_laws/) is the ONE statement of what it reads;
+ * pass 3 turns each dependency into a subscription with the inverse resolver
+ * (`use_inverse_relations` through the law's pointer — the exact lookup).
+ * Only `source_overwrite` declares dependencies (`inverse_search` and
+ * `observed_data` return `[]`: the first is law (c), whose edges are the
+ * declared ones, and the second's self edge is declared) — so pass 3 never
+ * mints an edge per `data_from_field` node. Bounds, each deliberate:
+ *   - only a COVERED external observer derives (a stored law AND a declared
+ *     set_dato_external server entry — isCoveredExternalObserverNode): a law
+ *     the author never wired to the kernel is not activated by a derivation;
+ *   - a DECLARED edge wins: any forward spec or observe entry (server or
+ *     client-only) on the same `observed->observer` key shadows the derived
+ *     one — so the per-edge kill switch stays an ontology edit (declare a
+ *     client-only observe entry for D on the observer);
+ *   - derived edges carry no authored observe entry (no `client` block, no
+ *     host scope), so the observe-entry contract checks do not apply to
+ *     them; they are LISTED in `diagnostics.lawDerived` / `lawShadowed`
+ *     instead, and they take part in the cycle scan (a derived cycle is a
+ *     real runtime cycle).
+ * Read-only over existing properties: no ontology node is created.
+ *
  * CONSUMERS: ./observers.ts (dispatch + the cascade leaf pre-gate) and
  * ./observer_reconcile.ts (tuple discovery — previously its own third copy of
  * forward-only discovery). The contract validator below is shared between the
@@ -107,6 +133,12 @@ import {
 	getNodesWithProperty,
 	type NodeWithProperties,
 } from '../../ontology/resolver.ts';
+import { resolveExternalLaw } from './external_laws/classify.ts';
+import {
+	externalLawDependencies,
+	isCoveredExternalObserverNode,
+} from './external_laws/resolvers.ts';
+import type { LawDependency } from './external_laws/types.ts';
 
 /** One `observe` entry as declared on an observer node (shared with observers.ts). */
 export interface ObserveEntry {
@@ -116,7 +148,14 @@ export interface ObserveEntry {
 	section_tipo?: string;
 	server?: {
 		filter?: unknown;
-		config?: { use_observable_dato?: boolean; use_self_section?: boolean };
+		config?: {
+			use_observable_dato?: boolean;
+			use_self_section?: boolean;
+			/** Targets = the records whose relations point at the saved record
+			 * (PHP `use_inverse_relations`; the declared ordered-coins shape, and
+			 * every law-derived edge — see the header). */
+			use_inverse_relations?: boolean;
+		};
 		perform?: { function?: string; params?: Record<string, unknown> };
 	};
 }
@@ -132,9 +171,18 @@ export interface ObserverSubscription {
 	 * 'mirrored'     — forward spec + matching observe entry;
 	 * 'forward-only' — forward spec, no observe entry at all (dead config, RED);
 	 * 'reverse-only' — observe entry with server, no forward spec (the
-	 *                  single-declaration model — dispatches like any other).
+	 *                  single-declaration model — dispatches like any other);
+	 * 'law-derived'  — synthesized from the observer's external-value law
+	 *                  (pass 3 — header LAW-DERIVED EDGES); `origin:'law'`.
 	 */
-	declaration: 'mirrored' | 'forward-only' | 'reverse-only';
+	declaration: 'mirrored' | 'forward-only' | 'reverse-only' | 'law-derived';
+	/** 'declared' = authored in the ontology (passes 1-2); 'law' = derived from
+	 * the observer's law (pass 3). Absent reads as 'declared' (hand-built
+	 * fixtures predate the field); the builder always sets it. */
+	origin?: 'declared' | 'law';
+	/** Law-derived edges only: the pointer component the inverse lookup goes
+	 * through (the law dependency's `via`). */
+	via?: string;
 	/** Matched through the observer's 'all' wildcard entry (compiled at build). */
 	viaWildcard: boolean;
 	/** The matching observe entry (first exact-or-'all' in array order — the
@@ -174,6 +222,12 @@ export interface SubscriptionDiagnostics {
 	 * (server:null etc) — malformed authoring: excluded from dispatch, RED.
 	 * Zero instances on either live ontology (shape scan 2026-08-02). */
 	malformedServerEntries: readonly { observerTipo: string; componentTipo: string }[];
+	/** Law-derived edges (pass 3) — listed, not validated as observe entries.
+	 * The builder always sets it (and lawShadowed); optional only so the
+	 * hand-built diagnostics fixtures that predate pass 3 stay valid. */
+	lawDerived?: readonly string[];
+	/** Law dependencies a DECLARED edge already covers (declared wins). */
+	lawShadowed?: readonly string[];
 }
 
 export interface SubscriptionIndex {
@@ -358,6 +412,71 @@ function resolveHostSection(
 }
 
 /**
+ * PASS 3 of buildSubscriptionIndex (header LAW-DERIVED EDGES): one inverse
+ * edge per law dependency of each covered observer node, unless an author
+ * declared that key (`declaredKeys`, complete when this runs — a declared edge
+ * wins and the key is listed as shadowed). Grows `declaredKeys` (dedup: one
+ * derived edge per key) and the two diagnostics lists in place; scratch
+ * namespaces stay out of the diagnostics.
+ */
+function addLawDerivedEdges(
+	nodes: readonly NodeWithProperties[],
+	declaredKeys: Set<string>,
+	/** Pass 1's forward-spec keys: declared too (folded into `declaredKeys` first). */
+	forwardKeys: ReadonlySet<string>,
+	hostContext: HostSectionContext,
+	push: (sub: ObserverSubscription) => void,
+	diagnostics: { lawDerived: string[]; lawShadowed: string[] },
+): void {
+	for (const key of forwardKeys) declaredKeys.add(key);
+	for (const node of nodes) {
+		if (!isCoveredExternalObserverNode(node)) continue;
+		for (const dependency of externalLawDependencies(resolveExternalLaw(node))) {
+			addLawDerivedEdge(node, dependency, declaredKeys, hostContext, push, diagnostics);
+		}
+	}
+}
+
+/** One law dependency of one covered observer node (see addLawDerivedEdges). */
+function addLawDerivedEdge(
+	node: NodeWithProperties,
+	dependency: LawDependency,
+	declaredKeys: Set<string>,
+	hostContext: HostSectionContext,
+	push: (sub: ObserverSubscription) => void,
+	diagnostics: { lawDerived: string[]; lawShadowed: string[] },
+): void {
+	const key = observerEdgeKey({ observed: dependency.observed, observer: node.tipo });
+	const scratch = touchesScratchObserverNamespace(dependency.observed, node.tipo);
+	if (declaredKeys.has(key)) {
+		if (!scratch && !diagnostics.lawShadowed.includes(key)) diagnostics.lawShadowed.push(key);
+		return;
+	}
+	declaredKeys.add(key); // one derived edge per key (dedup)
+	const entry: ObserveEntry = {
+		component_tipo: dependency.observed,
+		server: {
+			config: { use_inverse_relations: true },
+			perform: { function: 'set_dato_external' },
+		},
+	};
+	push({
+		observedTipo: dependency.observed,
+		observerTipo: node.tipo,
+		declaration: 'law-derived',
+		origin: 'law',
+		via: dependency.via,
+		viaWildcard: false,
+		entry,
+		// The inverse resolver needs no host (its targets come from the
+		// relation index through `via`, host-checked per row by the
+		// kernel); the own section is kept for the reconciler, like any edge.
+		hostSection: resolveHostSection(node.tipo, entry, undefined, hostContext),
+	});
+	if (!scratch) diagnostics.lawDerived.push(key);
+}
+
+/**
  * Build the subscription index from ontology nodes — PURE (nodes + section
  * facts in, frozen index out) so every law is hermetically gateable.
  */
@@ -378,6 +497,11 @@ export function buildSubscriptionIndex(
 	const hostUnresolved: string[] = [];
 	const malformedSpecs: { observedTipo: string; spec: unknown }[] = [];
 	const malformedServerEntries: { observerTipo: string; componentTipo: string }[] = [];
+	const lawDerived: string[] = [];
+	const lawShadowed: string[] = [];
+	// Every key an author DECLARED (forward spec or observe entry, server or
+	// client-only) — the set a law-derived edge may never override (pass 3).
+	const declaredKeys = new Set<string>();
 
 	const push = (sub: ObserverSubscription): void => {
 		const list = byObserved.get(sub.observedTipo);
@@ -433,6 +557,7 @@ export function buildSubscriptionIndex(
 				observedTipo: node.tipo,
 				observerTipo,
 				declaration,
+				origin: 'declared',
 				viaWildcard,
 				entry,
 				hostSection: resolveHostSection(observerTipo, entry, specSection, hostContext),
@@ -497,6 +622,7 @@ export function buildSubscriptionIndex(
 				continue;
 			}
 			const key = `${observedTipo}->${node.tipo}`;
+			declaredKeys.add(key);
 			// FIRST-MATCH LAW (same law as pass 1 — review 2026-08-02): the FIRST
 			// entry in array order owns the observed tipo; a later duplicate never
 			// mints, whatever its server presence. Without this, [client-only A,
@@ -515,6 +641,7 @@ export function buildSubscriptionIndex(
 				observedTipo,
 				observerTipo: node.tipo,
 				declaration: 'reverse-only',
+				origin: 'declared',
 				viaWildcard: false,
 				entry,
 				hostSection: resolveHostSection(node.tipo, entry, undefined, hostContext),
@@ -526,7 +653,14 @@ export function buildSubscriptionIndex(
 		}
 	}
 
-	// Cycle scan over the DECLARED server-edge graph (scratch excluded — those
+	// PASS 3 — law-derived edges (header LAW-DERIVED EDGES). Runs after the
+	// declared passes so `declaredKeys` is complete: a declared edge wins.
+	addLawDerivedEdges(nodes, declaredKeys, forwardKeys, hostContext, push, {
+		lawDerived,
+		lawShadowed,
+	});
+
+	// Cycle scan over the DECLARED (and law-derived) server-edge graph (scratch excluded — those
 	// suites plant cycles ON PURPOSE to exercise the D2 guard). The runtime is
 	// bounded either way (CascadeGuard); a real-ontology cycle is an authoring
 	// error the gate turns red.
@@ -567,6 +701,8 @@ export function buildSubscriptionIndex(
 			cycles,
 			malformedSpecs,
 			malformedServerEntries,
+			lawDerived,
+			lawShadowed,
 		},
 	};
 	// Deep-freeze everything reachable AND runtime-harden the two Maps (see
@@ -586,6 +722,8 @@ export function buildSubscriptionIndex(
 	deepFreeze(index.diagnostics.cycles);
 	deepFreeze(index.diagnostics.malformedSpecs);
 	deepFreeze(index.diagnostics.malformedServerEntries);
+	deepFreeze(index.diagnostics.lawDerived);
+	deepFreeze(index.diagnostics.lawShadowed);
 	Object.freeze(index.diagnostics);
 	Object.freeze(index);
 	return index;

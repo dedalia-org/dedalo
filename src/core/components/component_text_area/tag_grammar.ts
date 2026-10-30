@@ -288,3 +288,106 @@ export function parseTagId(raw: string): ParsedTag {
 
 	return { kind: 'invalid' };
 }
+
+// ---------------------------------------------------------------------------
+// Tag LOCATORS inside a stored text (the `get_locators_of_tags` value law)
+// ---------------------------------------------------------------------------
+
+/**
+ * The tag types whose in-text marker carries a `-data:…:data` payload at the
+ * position PHP `get_locators_of_tags` reads (class.component_text_area.php:
+ * 311-326 takes capture 7 of TR::get_mark_pattern($tag), which exists only for
+ * these patterns — the `index`/`reference`/`person` patterns have no capture
+ * 7). The closed set the external-law classifier validates a node's tag list
+ * against (section/record/external_laws/classify.ts).
+ */
+export const LOCATOR_TAG_TYPES: readonly string[] = Object.freeze([
+	'svg',
+	'draw',
+	'geo',
+	'page',
+	'note',
+	'lang',
+]);
+
+/**
+ * Per-type data-bearing marker patterns — PHP TR::get_mark_pattern($type)
+ * (standalone, no id, no state; shared/class.TR.php), reduced to the one
+ * capture used: the payload. `page` requires its label when data is present
+ * (PHP's `(-label-data:…:data)?` group); the others make the label optional.
+ */
+function dataMarkerPattern(type: string): RegExp {
+	const label = type === 'page' ? '-[^-]{0,22}' : '(?:-[^-]{0,22})?';
+	return new RegExp(`\\[${type}-[a-z]-[0-9]{1,6}${label}-data:(.*?):data\\]`, 'g');
+}
+
+/** One locator read out of a tag payload: canonical address + its other keys. */
+export interface TagLocator {
+	readonly section_tipo: string;
+	readonly section_id: StoredSectionId;
+	readonly [key: string]: unknown;
+}
+
+/** Key-order-independent identity of a parsed payload (PHP in_array on objects). */
+function payloadIdentity(value: Record<string, unknown>): string {
+	return JSON.stringify(
+		Object.keys(value)
+			.sort()
+			.map((key) => [key, value[key]]),
+	);
+}
+
+/**
+ * The locators inside a text's tags, in DOCUMENT ORDER (the order the user
+ * wrote the symbols in — the owner ruling for the observed-data law: across
+ * tag types too, not PHP's per-type passes), deduplicated on the first
+ * occurrence (PHP `in_array`).
+ *
+ * A payload counts only when parseTagId reads it as a LOCATOR (a JSON object
+ * with a section_tipo and a scalar section_id); every other payload (a draw's
+ * paper data, a lang tag's `"lg-spa"`) is skipped — PHP pushed whatever
+ * json_decode returned, null and non-locators included. Every key of the
+ * payload is kept (a legend's svg tag carries component_tipo); section_id
+ * leaves canonicalized (`'86'` → 86, WC-2026-08-10-section-id-int-canonical).
+ * The marker bytes themselves are never touched.
+ */
+export function extractTagLocators(text: string, tags: readonly string[]): TagLocator[] {
+	if (text === '') return [];
+	const locators: TagLocator[] = [];
+	const seen: string[] = [];
+	for (const { payload } of tagPayloadHits(text, tags)) {
+		const locator = locatorOfPayload(payload);
+		if (locator === null) continue;
+		const identity = payloadIdentity(locator);
+		if (seen.includes(identity)) continue;
+		seen.push(identity);
+		locators.push(locator);
+	}
+	return locators;
+}
+
+/** Every data payload of the locator-bearing `tags` in `text`, in document order. */
+function tagPayloadHits(text: string, tags: readonly string[]): { at: number; payload: string }[] {
+	const hits: { at: number; payload: string }[] = [];
+	for (const type of tags) {
+		if (!LOCATOR_TAG_TYPES.includes(type)) continue;
+		for (const match of text.matchAll(dataMarkerPattern(type))) {
+			hits.push({ at: match.index ?? 0, payload: match[1] ?? '' });
+		}
+	}
+	return hits.sort((left, right) => left.at - right.at);
+}
+
+/** One payload as a locator (every key kept, address canonical), or `null` when it is none. */
+function locatorOfPayload(payload: string): TagLocator | null {
+	const parsed = parseTagId(payload);
+	if (parsed.kind !== 'locator') return null;
+	// parseTagId validated the shape; re-read the object for its OTHER keys.
+	let raw: Record<string, unknown>;
+	try {
+		raw = JSON.parse(payload.trim().replace(/&#0?39;|'/g, '"')) as Record<string, unknown>;
+	} catch {
+		return null; // unreachable: parseTagId just parsed the same bytes
+	}
+	return { ...raw, section_tipo: parsed.section_tipo, section_id: parsed.section_id };
+}

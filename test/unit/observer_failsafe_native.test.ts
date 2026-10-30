@@ -26,7 +26,7 @@
  * itself — no caller can grant or deny a shrink, which closes lesson (1) by
  * construction rather than by a gate on a parameter:
  *
- *   a. unported PHP sub-law    → refusedSublaw       (pre-compute)
+ *   a. refused value law       → refusedLaw          (pre-compute)
  *   b. >2000-reference freeze  → refusedBigResult
  *   c. finite referencesLimit  → possiblyTruncated
  *   d. DEGRADED SEED           → skippedShrink + seedDefects
@@ -38,15 +38,26 @@
  * the full law it would be a mass delete — the measured 247,933-locator-loss
  * shape. Precise, per-record, and un-disableable.
  *
+ * 2026-10-30: BOTH SUB-LAWS ARE PORTED (src/core/section/record/external_laws/
+ * — source_overwrite, set_observed_data, law (c)), so refusal (a) no longer
+ * means "any sub-law node": ONE closed classifier maps every node to exactly
+ * one law or to a NAMED refusal (ambiguous authoring — both sub-laws; a
+ * malformed sub-law; a sub-law next to law (c)'s seed key; an unknown
+ * set_observed_data function), and never falls back from one law to another —
+ * law (c) run on a source_overwrite node was the wipe. The well-formed sub-law
+ * shapes below are therefore POSITIVE-law cases now; the refusal gates keep a
+ * mixed and a malformed node.
+ *
  * Scratch hygiene: the behavioral tests seed throwaway dd_ontology nodes
  * (test99901-04, tld 'test' — a range no shipped ontology uses, so leftovers
  * from a crashed run are scratch by construction and are SWEPT before
  * seeding, never "skipped": the old warn-and-skip guard turned these gates
  * permanently vacuous-green after one SIGKILL between seed and sweep —
- * review 2026-08-02). The sub-law tests touch no matrix rows: both refusals
- * fire BEFORE table resolution, which the no-write assertions rely on (target
- * section 'zzz-none' has no matrix table either way). The degraded-seed test
- * DOES need a row, so it seeds and sweeps one on a scratch section.
+ * review 2026-08-02). The refused-law tests touch no matrix rows: every
+ * refusal fires BEFORE table resolution, which the no-write assertions rely on
+ * (target section 'zzz-none' has no matrix table either way). The
+ * degraded-seed test DOES need a row, so it seeds and sweeps one on a scratch
+ * section that DECLARES its observer (the host precondition).
  */
 // Migrated to the generic `test` TLD 2026-08-20 (AGENTS.md hard rules). The
 // install section `rsc205` and component `rsc387` were used two ways here, and
@@ -65,6 +76,7 @@ import { Glob } from 'bun';
 import { getCounters } from '../../src/core/api/counters.ts';
 import { DATAFRAME_RELATION_TYPE } from '../../src/core/concepts/subdatum.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { getExternalLaw } from '../../src/core/section/record/external_laws/classify.ts';
 import { recomputeExternalRelation } from '../../src/core/section/record/observers.ts';
 import { removedLocators } from '../../src/core/section_record/index.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
@@ -72,6 +84,16 @@ import { stripComments } from '../helpers/strip_comments.ts';
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const KERNEL_FILE = 'src/core/section/record/observers.ts';
 const kernelSource = readFileSync(join(REPO_ROOT, KERNEL_FILE), 'utf-8');
+/** The closed external-law classifier (2026-10-30) — owns the refusal counters. */
+const classifySource = readFileSync(
+	join(REPO_ROOT, 'src/core/section/record/external_laws/classify.ts'),
+	'utf-8',
+);
+/** Law (c) — owns the D3 seed and its never-narrow escapes since the move. */
+const lawCSource = readFileSync(
+	join(REPO_ROOT, 'src/core/section/record/external_laws/inverse_search.ts'),
+	'utf-8',
+);
 
 // ---------------------------------------------------------------------------
 // 1. Static gates — the shrink fail-safe cannot be reopened silently.
@@ -169,15 +191,30 @@ describe('observer shrink fail-safe (static)', () => {
 		}
 		expect(
 			offenders,
-			`A caller-supplied shrink switch is back. Drops are adjudicated by the KERNEL (unported sub-law / >2000 freeze / referencesLimit / degraded seed) — not by whoever calls it:\n${offenders.join('\n')}`,
+			`A caller-supplied shrink switch is back. Drops are adjudicated by the KERNEL (refused value law / >2000 freeze / referencesLimit / degraded seed) — not by whoever calls it:\n${offenders.join('\n')}`,
 		).toEqual([]);
 	});
 
 	test('all four kernel refusals are wired, each with its own counter', () => {
-		// (a) unported PHP sub-law
-		expect(kernelSource).toContain("'set_observed_data'");
-		expect(kernelSource).toContain("'source_overwrite'");
-		expect(kernelSource).toContain("incrementCounter('observers_unported_sublaw_refused')");
+		// (a) refused value law — the classifier decides, the kernel reports it
+		// BEFORE the table lookup (the behavioural gates below prove the order)
+		// and surfaces it to aggregating callers. The counters are the law's
+		// own (classify.ts): the new name + the Phase-0 name as an alias, so an
+		// ops dashboard watching observers_unported_sublaw_refused keeps seeing
+		// the refusals; a node with no law at all keeps the never-narrow counter.
+		const refuseAt = kernelSource.indexOf('const law = await getExternalLaw(observerTipo);');
+		const tableAt = kernelSource.indexOf(
+			'const table = await getMatrixTableFromTipo(targetSection);',
+		);
+		expect(refuseAt).toBeGreaterThan(0);
+		expect(tableAt).toBeGreaterThan(refuseAt);
+		expect(kernelSource.slice(refuseAt, tableAt)).toContain('reportRefusedLaw(law,');
+		expect(kernelSource.slice(refuseAt, tableAt)).toContain('refusedLaw: { reason: law.reason }');
+		expect(classifySource).toContain("'observers_law_refused',");
+		expect(classifySource).toContain("'observers_unported_sublaw_refused',");
+		expect(classifySource).toContain(
+			'for (const counter of law.counters) incrementCounter(counter);',
+		);
 		// (b) >2000-reference freeze
 		expect(kernelSource).toContain("incrementCounter('observers_big_result_refused')");
 		// (c) finite references_limit
@@ -185,8 +222,8 @@ describe('observer shrink fail-safe (static)', () => {
 		// (d) degraded seed — the one that replaced blanket grow-only
 		expect(kernelSource).toContain("incrementCounter('observers_shrink_refused_degraded_seed')");
 		expect(kernelSource).toContain('defects.length > 0');
-		// never-narrow skip
-		expect(kernelSource).toContain("incrementCounter('observers_component_to_search_missing')");
+		// never-narrow skip — the law's counter (no pointer, no source, no node)
+		expect(classifySource).toContain("'observers_component_to_search_missing',");
 	});
 
 	test('every never-narrow seed escape feeds the per-call defect sink, not just a counter', () => {
@@ -199,7 +236,8 @@ describe('observer shrink fail-safe (static)', () => {
 			"defects?.push('invalid_data_from_field')",
 			'defects?.push(`peer_node_missing:${peerTipo}`)',
 		]) {
-			expect(kernelSource, `seed escape not recorded in the defect sink: ${defect}`).toContain(
+			// Law (c)'s seed moved with its law (external_laws/inverse_search.ts).
+			expect(lawCSource, `seed escape not recorded in the defect sink: ${defect}`).toContain(
 				defect,
 			);
 		}
@@ -325,7 +363,7 @@ describe('removal plumbing (static)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Behavioral gates — unported sub-laws refused, never-narrow skip counted.
+// 2. Behavioral gates — refused laws refused, ported laws run, never-narrow skip counted.
 // ---------------------------------------------------------------------------
 
 /**
@@ -344,8 +382,10 @@ const SCRATCH_NODES: { tipo: string; source: Record<string, unknown> }[] = [
 	{
 		tipo: 'test99901',
 		source: {
-			// sub-law (b) — the numisdata679/965 shape that armed the wipe
+			// MIXED: both sub-laws on one node. PHP silently took set_observed_data;
+			// the classifier refuses the ambiguity (both_sublaws).
 			source_overwrite: { data_from_field: 'test1' },
+			set_observed_data: [{ tipo: SEARCH_COMPONENT }],
 			section_to_search: [SEARCH_SECTION],
 			component_to_search: [SEARCH_COMPONENT],
 		},
@@ -353,10 +393,33 @@ const SCRATCH_NODES: { tipo: string; source: Record<string, unknown> }[] = [
 	{
 		tipo: 'test99902',
 		source: {
-			// sub-law (a)
+			// MALFORMED sub-law (a): a scalar where the ddo list belongs — the
+			// shape the Phase-0 disarm refused; still refused, now by name.
 			set_observed_data: 'test1',
 			section_to_search: [SEARCH_SECTION],
 			component_to_search: [SEARCH_COMPONENT],
+		},
+	},
+	{
+		tipo: 'test99907',
+		source: {
+			// WELL-FORMED sub-law (b) — the numisdata679/965 shape that armed the
+			// wipe under law (c). A POSITIVE law since the port: never refused.
+			source_overwrite: { data_from_field: 'test1' },
+			section_to_search: [SEARCH_SECTION],
+			component_to_search: [SEARCH_COMPONENT],
+		},
+	},
+	{
+		tipo: 'test99908',
+		source: {
+			// WELL-FORMED sub-law (a) — the S7 legend shape. A POSITIVE law.
+			set_observed_data: [
+				{
+					tipo: SEARCH_COMPONENT,
+					perform: { function: 'get_locators_of_tags', params: { ar_tags: ['svg'] } },
+				},
+			],
 		},
 	},
 	{
@@ -431,11 +494,14 @@ beforeAll(async () => {
 			JSON.stringify({ 'lg-eng': 'observer failsafe scratch section' }),
 		],
 	);
+	// Declared BY the scratch section (the host precondition: a mirror is born
+	// only on a section that declares its observer — the degraded-seed gate
+	// below is about the seed, not about an orphan slot).
 	for (const node of SCRATCH_NODES) {
 		await sql.unsafe(
 			`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1200 FROM dd_ontology), $1, 'test3', 'component_autocomplete_hi', 'test', $2::text::jsonb)`,
-			[node.tipo, JSON.stringify({ source: node.source })],
+			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1200 FROM dd_ontology), $1, $3, 'component_autocomplete_hi', 'test', $2::text::jsonb)`,
+			[node.tipo, JSON.stringify({ source: node.source }), DEGRADED_SECTION],
 		);
 	}
 	await clearResolverCaches();
@@ -452,13 +518,14 @@ afterAll(async () => {
 	await clearResolverCaches();
 });
 
-describe('unported sub-law refusal (behavioral)', () => {
-	for (const [tipo, key] of [
-		['test99901', 'source_overwrite'],
-		['test99902', 'set_observed_data'],
+describe('refused value law (behavioral)', () => {
+	for (const [tipo, reason] of [
+		['test99901', 'both_sublaws'],
+		['test99902', 'observed_data_malformed'],
 	] as const) {
-		test(`${key} node is refused BEFORE any write — the refusal precedes every read`, async () => {
-			const before = getCounters().observers_unported_sublaw_refused ?? 0;
+		test(`a ${reason} node is refused BEFORE any write — the refusal precedes every read`, async () => {
+			const before = getCounters().observers_law_refused ?? 0;
+			const aliasBefore = getCounters().observers_unported_sublaw_refused ?? 0;
 			const outcome = await recomputeExternalRelation(
 				tipo,
 				'zzz-none',
@@ -467,15 +534,45 @@ describe('unported sub-law refusal (behavioral)', () => {
 				new Date(),
 				{},
 			);
-			// refusedSublaw keeps the refusal visible to aggregating callers (the
+			// refusedLaw keeps the refusal visible to aggregating callers (the
 			// reconciler must never count these nodes as clean).
-			expect(outcome).toEqual({ changed: false, before: 0, after: 0, refusedSublaw: key });
-			expect((getCounters().observers_unported_sublaw_refused ?? 0) - before).toBe(1);
+			expect(outcome).toEqual({ changed: false, before: 0, after: 0, refusedLaw: { reason } });
+			expect((getCounters().observers_law_refused ?? 0) - before).toBe(1);
+			// the Phase-0 counter name stays an alias of the same event
+			expect((getCounters().observers_unported_sublaw_refused ?? 0) - aliasBefore).toBe(1);
 			// no write of ANY kind reached the DB for the scratch tipo
 			const tm = (await sql.unsafe('SELECT 1 FROM matrix_time_machine WHERE tipo = $1 LIMIT 1', [
 				tipo,
 			])) as unknown[];
 			expect(tm.length).toBe(0);
+		});
+	}
+});
+
+describe('ported sub-laws are POSITIVE laws (behavioral)', () => {
+	for (const [tipo, key, kind] of [
+		['test99907', 'source_overwrite', 'source_overwrite'],
+		['test99908', 'set_observed_data', 'observed_data'],
+	] as const) {
+		test(`a well-formed ${key} node is NOT refused — the kernel reaches past the classifier`, async () => {
+			expect((await getExternalLaw(tipo)).kind).toBe(kind);
+			const before = getCounters().observers_law_refused ?? 0;
+			const skipBefore = getCounters().observers_component_to_search_missing ?? 0;
+			// 'zzz-none' has no matrix table: a law that passed the classifier
+			// stops at the table lookup (the unchanged no-op) — which is the
+			// OUTCOME that proves the classifier let it through (a refused law
+			// would carry refusedLaw, a lawless node would tick the skip counter).
+			const outcome = await recomputeExternalRelation(
+				tipo,
+				'zzz-none',
+				999999901,
+				-1,
+				new Date(),
+				{},
+			);
+			expect(outcome).toEqual({ changed: false, before: 0, after: 0 });
+			expect((getCounters().observers_law_refused ?? 0) - before).toBe(0);
+			expect((getCounters().observers_component_to_search_missing ?? 0) - skipBefore).toBe(0);
 		});
 	}
 });
@@ -540,6 +637,7 @@ describe('degraded seed refuses the drop half (behavioral)', () => {
 describe('never-narrow: missing component_to_search is a counted skip', () => {
 	test('a covered node without source.component_to_search skips loudly (counter), no write', async () => {
 		const before = getCounters().observers_component_to_search_missing ?? 0;
+		const refusedBefore = getCounters().observers_law_refused ?? 0;
 		const outcome = await recomputeExternalRelation(
 			'test99903',
 			'zzz-none',
@@ -548,7 +646,10 @@ describe('never-narrow: missing component_to_search is a counted skip', () => {
 			new Date(),
 			{},
 		);
+		// No law at all is the plain counted skip — NOT a refused law (no
+		// refusedLaw key, the law_refused counter untouched).
 		expect(outcome).toEqual({ changed: false, before: 0, after: 0 });
 		expect((getCounters().observers_component_to_search_missing ?? 0) - before).toBe(1);
+		expect((getCounters().observers_law_refused ?? 0) - refusedBefore).toBe(0);
 	});
 });

@@ -248,6 +248,8 @@
 	"error_media_unsupported_operation": "This media operation is not supported for this component",
 	"error_media_upload_conflict": "The upload conflicts with another staged transfer",
 	"error_media_upload_rejected": "Upload rejected",
+	"error_observers_refresh_refused": "You may not refresh this external data here; the stored data is shown",
+	"error_observers_refresh_withheld": "The external data could not be refreshed (${reason}); the stored data is shown",
 	"error_on_upload_file": "Error on upload file",
 	"error_ontology_invalid_node": "An ontology definition is unusable; contact the administrator",
 	"error_password_reset_failed": "The password could not be reset",

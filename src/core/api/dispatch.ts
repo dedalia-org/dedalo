@@ -409,6 +409,12 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	['dd_core_api:delete', 'mutating'],
 	// THE save door the whole component family shares (component_common.js).
 	['dd_core_api:save', 'mutating'],
+	// A read MAY write: the portal's "update external data" refresh
+	// (source.build_options.get_data_external → section/record/external_refresh.ts)
+	// recomputes the requested external mirror before serving it. Still
+	// idempotent BY THE CLAIM ABOVE: the mirror is a pure function of committed
+	// data, and a second run finds no drift and writes nothing (no TM row, no
+	// hop), so it leaves the same end state and answers the same thing.
 	['dd_core_api:read', 'idempotent'],
 	['dd_core_api:read_raw', 'idempotent'],
 	['dd_core_api:count', 'idempotent'],

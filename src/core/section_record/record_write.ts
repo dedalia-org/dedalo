@@ -932,10 +932,13 @@ async function pinCoveredObserverSlots(
 
 /**
  * The COVERED UNITS of a NEW record's birth (create, duplicate) are DROPPED,
- * main and frames: nothing can reference a record that does not exist yet, so
- * its mirror is empty by construction — a duplicate's copy of its source's
- * mirror (and the frames on it) are the SOURCE's referencers', and a create's
- * `dato_default` on a covered slot is a phantom (case 7d). Frames left behind
+ * main and frames: a stored copy is never the new record's truth — an
+ * `inverse_search` mirror is empty by construction (nothing can reference a
+ * record that does not exist yet; a duplicate's copy of it, and the frames on
+ * it, are the SOURCE's referencers'), a copy law's (`source_overwrite`,
+ * `observed_data`) is recomputed from the record's own data after the insert
+ * (ownDataCoveredSlots), and a create's `dato_default` on a covered slot is a
+ * phantom (case 7d). Frames left behind
  * would pair with the ids the first recompute mints (1..N): a frame of the
  * source's referencer landing on the clone's. In place. Returns the dropped
  * mains (each still recomputed after the insert).
@@ -1277,6 +1280,28 @@ async function declaredCoveredSlots(sectionTipo: string): Promise<string[]> {
 	const slots: string[] = [];
 	for (const component of await declaredSectionComponents(sectionTipo)) {
 		if (await isCoveredObserverTipo(component.tipo)) slots.push(component.tipo);
+	}
+	return slots;
+}
+
+/**
+ * The COVERED OBSERVER slots a section declares whose value law reads the
+ * RECORD'S OWN DATA (external_laws/: `source_overwrite` — the copy of the bag
+ * its own pointer names; `observed_data` — the locators of its own text's
+ * tags), by declaration. A NEW record born carrying data (a duplicate copies
+ * its source's pointer and text) is NOT empty by construction there: only the
+ * `inverse_search` mirror ("who references me") is — nothing can reference a
+ * record that does not exist yet. So a birth that copies data recomputes these
+ * slots from truth after its insert (its selfRecompute), never inherits the
+ * source's stored copy (dropped with the other covered units). Refused laws are
+ * not covered (isCoveredObserverTipo), so they never reach the list.
+ */
+export async function ownDataCoveredSlots(sectionTipo: string): Promise<string[]> {
+	const { getExternalLaw } = await import('../section/record/external_laws/classify.ts');
+	const slots: string[] = [];
+	for (const slot of await declaredCoveredSlots(sectionTipo)) {
+		const law = await getExternalLaw(slot);
+		if (law.kind === 'source_overwrite' || law.kind === 'observed_data') slots.push(slot);
 	}
 	return slots;
 }

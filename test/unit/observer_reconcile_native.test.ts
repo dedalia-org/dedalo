@@ -581,8 +581,8 @@ describe('observer mirror reconcile law (recomputeExternalRelation)', () => {
 	test('duplicate STRIPS the covered-observer mirror slot from the copy (empty by construction)', async () => {
 		// Re-grow the term's mirror so there is a non-empty bag to (not) copy —
 		// the pre-fix byte-copy would have handed it to the duplicate wholesale
-		// (for unported-sub-law nodes: ~1,000 phantom locators with no repair
-		// path — review 2026-08-02).
+		// (for the then-unported sub-law nodes: ~1,000 phantom locators with no
+		// repair path — review 2026-08-02).
 		await insertReferencer(REFERENCER_ID2);
 		await recomputeExternalRelation(
 			MIRROR,

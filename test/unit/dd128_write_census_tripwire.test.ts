@@ -120,6 +120,8 @@ const NON_PRIMITIVE_EXPORTS: Record<string, string> = {
 		'DOES write the matrix, but only the modified-by/modified-date audit columns of a record a primitive is already writing. It can never carry a dd131/dd244/dd133 value, so it is not an account transition and adding it to the primitive list would widen the door set to every save path twice over.',
 	prepareBirthColumns:
 		'the NEW-record birth-column law (CLOSURE_PLAN Step 2): drops the covered observer units (mirror + its frames) out of a whole-record column set and re-derives its `_hi` relation_search, IN MEMORY — the create/duplicate primitives persist what it returns; it writes nothing.',
+	ownDataCoveredSlots:
+		'a section census (the covered copy-law slots it declares — source_overwrite / observed_data), READ-ONLY: the create/duplicate births add it to their selfRecompute; it writes nothing.',
 	dropCoveredObserverUnits:
 		'the covered-unit half of the birth law, IN MEMORY: removes each covered observer mirror AND its own dataframe frames from a column set (the duplicate calls it before its frame-target re-mint); it writes nothing.',
 	requestCoveredSlotRecompute:

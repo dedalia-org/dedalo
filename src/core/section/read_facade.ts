@@ -628,6 +628,18 @@ export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<
 				return emptyShell();
 			}
 		}
+		// THE EXTERNAL-MIRROR REFRESH (the portal's "update external data"
+		// button, source.build_options.get_data_external — PHP
+		// component_portal_json.php :97): recompute the requested external
+		// mirror BEFORE it is read, AWAITED to commit, so the read below serves
+		// the fresh row (this branch opens no record memo). Here — the top-level
+		// component get_data only, after the record gate and the level ≥ 1 check
+		// above — and nowhere else: never a subdatum, a section read, a search or
+		// a TM read (external_refresh.ts states every precondition). The read is
+		// ALWAYS served; a refresh that did not run rides as a notice. Dynamic
+		// import: the section/record write graph (import_scc_tripwire).
+		const { maybeRefreshExternal } = await import('./record/external_refresh.ts');
+		const refreshNotices = await maybeRefreshExternal(rqo, principal);
 		const { readComponentData, buildGetDataContext } = await import('./read.ts');
 		// component_filter_records' datalist rides the SHARED emission hook
 		// (components/component_filter_records/emit.ts), so this door and the
@@ -636,7 +648,10 @@ export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<
 		const componentContext = await buildGetDataContext(rqo, componentData, principal);
 		return {
 			status: 200,
-			body: ok({ context: componentContext, data: componentData }, { requestId }),
+			body: ok(
+				{ context: componentContext, data: componentData },
+				{ requestId, notices: joinNotices(refreshNotices) },
+			),
 		};
 	}
 

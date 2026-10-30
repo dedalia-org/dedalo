@@ -1,0 +1,53 @@
+{
+	"_doc": "Data for test/unit/external_law_registry_tripwire.test.ts — the NAMED exemptions of the external-value law registry and the outcome pins of the nodes the 2026-10-30 catalog-term bug is about, over the two judged corpora (src/core/test_data/test_tld_ontology.json + the shipped install/import/ontology/<release> packages). Kept here, not in the gate, because it names install-TLD tipos the shipped packages carry (fixtures/ is data, outside the generic_tld census). SHRINK-ONLY: an entry whose node stops matching it (now a law, no longer carrying the edge, gone) is red until removed; a new refusal is red until it is either fixed in the ontology or named here with a reason.",
+	"server_shape_exemptions": {
+		"rsc1214": {
+			"observed": "rsc1156",
+			"perform": "refresh_data",
+			"reason": "component_relation_index externals: a refresh of data computed at READ time (params.actions empty_data on_empty), not a stored mirror — no external-value law applies; tracked separately (owner ruling 2026-10-30). Counted as observers_server_shape_not_covered at dispatch (SERVER_SHAPE_EXEMPTIONS)."
+		}
+	},
+	"lawless_set_dato_external": {
+		"tch557": "a set_dato_external edge on the `all` wildcard with no source.component_to_search: no law is defined, the kernel's counted skip observers_component_to_search_missing — it never computes, never writes (R3 census 2026-10-30).",
+		"numisdata250": "a set_dato_external edge on the `all` wildcard with no source.component_to_search: no law is defined, the kernel's counted skip observers_component_to_search_missing — it never computes, never writes (R3 census 2026-10-30: 5 PHP-era slots stored on numisdata4 are left as-is, no data repair).",
+		"numisdata257": "a set_dato_external edge on the `all` wildcard with no source.component_to_search: no law is defined, the kernel's counted skip observers_component_to_search_missing — it never computes, never writes (R3 census 2026-10-30).",
+		"rsc1435": "set_dato_external edges on rsc619/rsc620 with no source.component_to_search: no law is defined, the kernel's counted skip observers_component_to_search_missing — it never computes, never writes (R3 census 2026-10-30).",
+		"testimmovable1000": "the test-TLD twin of the lawless `all`-wildcard shape (no source.component_to_search): the counted skip; NOT a covered slot, so a duplicate copies it verbatim (no law can recompute it).",
+		"testimmovable1001": "the test-TLD twin of the lawless `all`-wildcard shape (no source.component_to_search): the counted skip; NOT a covered slot, so a duplicate copies it verbatim (no law can recompute it).",
+		"testimmovable1002": "the test-TLD twin of the lawless `all`-wildcard shape (no source.component_to_search): the counted skip; NOT a covered slot, so a duplicate copies it verbatim (no law can recompute it)."
+	},
+	"pinned_laws": {
+		"numisdata679": {
+			"kind": "source_overwrite",
+			"pointerTipo": "numisdata656",
+			"dataFromField": "numisdata77"
+		},
+		"numisdata965": {
+			"kind": "source_overwrite",
+			"pointerTipo": "numisdata656",
+			"dataFromField": "numisdata11"
+		},
+		"testcoincatalog1013": {
+			"kind": "source_overwrite",
+			"pointerTipo": "testcoincatalog1004",
+			"dataFromField": "test6157"
+		},
+		"testcoincatalog1019": {
+			"kind": "source_overwrite",
+			"pointerTipo": "testcoincatalog1004",
+			"dataFromField": "test6105"
+		},
+		"numisdata563": {
+			"kind": "observed_data",
+			"ddoTipo": "numisdata195",
+			"fn": "get_locators_of_tags",
+			"tags": ["svg"]
+		},
+		"test6380": {
+			"kind": "observed_data",
+			"ddoTipo": "test6263",
+			"fn": "get_locators_of_tags",
+			"tags": ["svg"]
+		}
+	}
+}
