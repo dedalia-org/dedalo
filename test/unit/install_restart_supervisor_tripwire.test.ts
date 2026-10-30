@@ -909,8 +909,13 @@ describe('restart supervisor contract', () => {
 		f: Fixture,
 		healthGreen: boolean,
 		extraArgs: string[] = [],
+		body = '',
 	): { exitCode: number | null; calls: string } {
-		writeFileSync(join(f.binDir, 'curl'), `#!/usr/bin/env bash\nexit ${healthGreen ? 0 : 22}\n`);
+		// --fail-with-body: a red /health still prints its body (the boot facts)
+		writeFileSync(
+			join(f.binDir, 'curl'),
+			`#!/usr/bin/env bash\nprintf '%s' ${JSON.stringify(body)}\nexit ${healthGreen ? 0 : 22}\n`,
+		);
 		chmodSync(join(f.binDir, 'curl'), 0o755);
 		rmSync(f.systemctlLog, { force: true });
 		const proc = Bun.spawnSync(
@@ -1194,6 +1199,36 @@ describe('restart supervisor contract', () => {
 
 			// Already attempted: back to a restart.
 			writePendingSentinel(f, { rollback_attempted: true });
+			expect(runWatchdog(f, false, named).calls).toBe(
+				'systemctl start dedalo-ts-restart@site1.service\n',
+			);
+
+			// BOOT FACTS (update audit 2026-10-29, U-01/U-04, D-2): a red /health
+			// whose body says the boot migration failed, or the data version is
+			// ahead of the code, NEEDS A HUMAN — no restart loop, no rollback.
+			const schemaFailed = '{"result":"error","db":"ok","boot_schema":"failed"}';
+			const dataAhead =
+				'{"result":"error","db":"ok","boot_schema":"ok","data_version":{"state":"ahead","installed":"7.1.0","code":"7.0.0"}}';
+			for (const body of [schemaFailed, dataAhead]) {
+				const human = runWatchdog(f, false, named, body);
+				expect(human.exitCode).toBe(1);
+				expect(human.calls, body).toBe('');
+			}
+			// a data update merely PENDING is not a boot-fact red: a restart as before
+			const pendingData =
+				'{"result":"error","db":"down","data_version":{"state":"pending","installed":"7.0.0","code":"7.1.0"}}';
+			expect(runWatchdog(f, false, named, pendingData).calls).toBe(
+				'systemctl start dedalo-ts-restart@site1.service\n',
+			);
+			// a PENDING update still rolls back first: its failed migration moved nothing
+			writePendingSentinel(f);
+			expect(runWatchdog(f, false, named, schemaFailed).calls).toBe(
+				'systemctl start dedalo-ts-rollback@site1.service\n',
+			);
+			// needs_restore is never rolled back; with no boot fact on THIS boot (a
+			// human repaired the database, then the server hung) a restart is due
+			writePendingSentinel(f, { status: 'needs_restore' });
+			expect(runWatchdog(f, false, named, schemaFailed).calls).toBe('');
 			expect(runWatchdog(f, false, named).calls).toBe(
 				'systemctl start dedalo-ts-restart@site1.service\n',
 			);

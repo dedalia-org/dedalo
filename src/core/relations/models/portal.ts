@@ -26,7 +26,12 @@
 
 import type { Ddo } from '../../concepts/ddo.ts';
 import { configOwnerOf, type EmitRow } from '../../concepts/emit_row.ts';
-import { type ConfigDdoMapSource, flattenConfigDdoMaps } from '../config_ddo_map.ts';
+import {
+	type ConfigDdo,
+	type ConfigDdoMapSource,
+	configChildRenderFields,
+	flattenConfigDdoMaps,
+} from '../config_ddo_map.ts';
 import type { RelationEmitContext, RelationModelResolver } from '../registry.ts';
 import { expandPortal } from '../relation_core.ts';
 
@@ -195,14 +200,11 @@ async function buildOwnConfigDescendants(args: {
 			if (typeof child?.tipo !== 'string') continue;
 			fullMap.push({
 				tipo: child.tipo,
-				section_tipo: child.section_tipo,
 				parent: child.parent === 'self' || child.parent === undefined ? ddo.tipo : child.parent,
-				mode: child.mode,
 				lang: await stampLang(child.tipo, child.lang),
-				limit: child.limit,
-				// carried through for the breadcrumb trigger
-				// (relation_core portalCellEmitsDdinfo)
-				value_with_parents: (child as { value_with_parents?: boolean }).value_with_parents,
+				// section_tipo / mode / limit / value_with_parents: the ONE mapper
+				// shared with the get_data twin (section/read.ts)
+				...configChildRenderFields(child as unknown as ConfigDdo),
 			} as Ddo);
 		}
 	} else {
@@ -232,21 +234,18 @@ async function buildOwnConfigDescendants(args: {
 			if (typeof childTipo !== 'string' || childTipo === '') continue;
 			fullMap.push({
 				tipo: childTipo,
-				// Keep the DECLARED section list intact — a multi-target hi
-				// component's 'self' children resolve to EVERY target
-				// (numisdata20's hierarchy25 spans 26 hierarchy sections);
-				// flattening to [0] made the per-locator grouping skip all
-				// but the first target (the numisdata6 §2 client bug). It is
-				// ALSO what keeps a multi-engine map safe: the zenon ddos
-				// declare zenon1, so only a zenon1 locator ever sees them.
-				section_tipo: child.section_tipo as string | string[] | undefined,
 				parent: child.parent === 'self' ? ddo.tipo : (child.parent as string),
-				mode: child.mode as string | undefined,
 				lang: await stampLang(childTipo, child.lang as string | undefined),
-				limit: child.limit as number | undefined,
-				// carried through for the breadcrumb trigger
-				// (relation_core portalCellEmitsDdinfo)
-				value_with_parents: child.value_with_parents as boolean | undefined,
+				// section_tipo / mode / limit / value_with_parents: the ONE mapper
+				// shared with the get_data twin (section/read.ts). It keeps the
+				// DECLARED section list intact — a multi-target hi component's
+				// 'self' children resolve to EVERY target (numisdata20's
+				// hierarchy25 spans 26 hierarchy sections); flattening to [0] made
+				// the per-locator grouping skip all but the first target (the
+				// numisdata6 §2 client bug). It is ALSO what keeps a multi-engine
+				// map safe: the zenon ddos declare zenon1, so only a zenon1
+				// locator ever sees them.
+				...configChildRenderFields(child),
 			} as Ddo);
 		}
 	}

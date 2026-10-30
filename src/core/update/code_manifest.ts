@@ -4,7 +4,8 @@
  * upgrade-path check (PHP update_code.js supported_code_version).
  *
  * The manifest advertises ONLY release archives that (a) sit on the linear
- * upgrade path from the caller's version and (b) actually exist on disk. The
+ * upgrade path from the caller's RELEASE IDENTITY (never its data version —
+ * audit U-06) and (b) actually exist on disk. The
  * TS UPDATE_CATALOG is EMPTY for 7.x, so a stock 7.0.0 master advertises no
  * releases — correct: there is no next version to build yet.
  *
@@ -28,8 +29,9 @@ import {
 	parseReleaseVersion,
 	RELEASE_VERSION_RE,
 } from './release_identity.ts';
+import { type WireReleasePlan, wirePlansAbove } from './release_plans_wire.ts';
 import { compareVersionArrays } from './version.ts';
-import { identityWalkRefusal, newestOfRung } from './version_walk.ts';
+import { identityWalkRefusal, newestOfRung, nextRungKind } from './version_walk.ts';
 
 /**
  * One advertised release (PHP file_item).
@@ -109,25 +111,36 @@ export interface CodeUpdateInfo {
 		channels?: InstallChannel[];
 	};
 	files: CodeReleaseItem[];
+	/**
+	 * The plan of every catalog release above the asker (release_plans_wire.ts):
+	 * how the consumer's update run learns the steps of a release its own
+	 * catalog does not know yet. Ignored by an older consumer.
+	 */
+	plans: WireReleasePlan[];
 }
 
 /**
- * The versions on the LINEAR upgrade path from `clientVersion` (PHP
+ * The versions on the LINEAR upgrade path from `origin` (PHP
  * get_code_update_info walk): the next minor within the current major must be
  * exhausted before the next major boundary (x.0.0) becomes visible. Returns
  * the catalog target triples in ascending order.
+ *
+ * `origin` is the triple of the asker's RELEASE IDENTITY ({@link
+ * codeLadderTargets} — never its data version: audit U-06). Which triple is
+ * "the next rung" is THE swap door's own rule (version_walk.ts nextRungKind),
+ * so the manifest offers exactly the rungs the door accepts.
  */
 export function linearUpgradeTargets(
-	clientVersion: readonly number[],
+	origin: readonly number[],
 	catalog: typeof UPDATE_CATALOG = UPDATE_CATALOG,
 ): number[][] {
-	const client = normalizedClientTriple(clientVersion);
+	const from = normalizedClientTriple(origin);
 	const targets: number[][] = [];
 	let nextMajor: number[] | null = null;
 	let nextMinor: number[] | null = null;
 	for (const descriptor of Object.values(catalog)) {
 		const triple = [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
-		const rung = upgradeRung(triple, client);
+		const rung = nextRungKind(from, triple);
 		if (rung === 'major') nextMajor = triple;
 		else if (rung === 'minor') nextMinor = triple;
 		else if (rung === 'patch') targets.push(triple);
@@ -138,6 +151,26 @@ export function linearUpgradeTargets(
 	// candidate, and a duplicated rung would be advertised twice in the manifest.
 	const unique = [...new Map(targets.map((triple) => [triple.join('.'), triple])).values()];
 	return unique.sort(compareVersionArrays);
+}
+
+/**
+ * THE CODE LADDER (audit U-06, 2026-10-29): the catalog rungs above the
+ * asker's RELEASE IDENTITY `releaseIdentity` (`X.Y.Z`, `X.Y.Z-beta.N`,
+ * `X.Y.Z-dev`) — walked from that identity's triple, the triple the swap door
+ * walks from (version_walk.ts identityWalkRefusal → assertLinearUpgrade).
+ *
+ * WHY NOT THE DATA VERSION: a code-only patch never moves DEDALO_DATA_VERSION,
+ * so a `7.0.1` install still reports data `7.0.0`. Walked from the data triple
+ * the ladder reached only `7.0.1` — which the asker floor then dropped as its
+ * own identity — and `7.0.2` (which the door accepts from `7.0.1`) was never
+ * offered. Garbage (not an identity) walks from nothing: no rung.
+ */
+export function codeLadderTargets(
+	releaseIdentity: string,
+	catalog: typeof UPDATE_CATALOG = UPDATE_CATALOG,
+): number[][] {
+	const parsed = parseReleaseVersion(releaseIdentity);
+	return parsed === null ? [] : linearUpgradeTargets(parsed.triple, catalog);
 }
 
 /** The ONE boundary rung the manifest advertises: the minor candidate
@@ -152,37 +185,22 @@ function appendBoundaryTarget(
 	if (boundary !== null) targets.push(boundary);
 }
 
-/** The client version as an exact [major, minor, patch], missing parts = 0. */
-function normalizedClientTriple(clientVersion: readonly number[]): [number, number, number] {
-	return [clientVersion[0] ?? 0, clientVersion[1] ?? 0, clientVersion[2] ?? 0];
-}
-
-/**
- * Which rung of the linear upgrade path a catalog triple sits on, relative to
- * the client: the x+1.0.0 major boundary, the next minor within the current
- * major, the next patch within the current minor — or none.
- */
-function upgradeRung(
-	triple: readonly number[],
-	[cMajor, cMinor, cPatch]: readonly [number, number, number],
-): 'major' | 'minor' | 'patch' | null {
-	if (tripleEquals(triple, cMajor + 1, 0, 0)) return 'major';
-	if (tripleEquals(triple, cMajor, cMinor + 1, 0)) return 'minor';
-	if (tripleEquals(triple, cMajor, cMinor, cPatch + 1)) return 'patch';
-	return null;
-}
-
-function tripleEquals(
-	triple: readonly number[],
-	major: number,
-	minor: number,
-	patch: number,
-): boolean {
-	return triple[0] === major && triple[1] === minor && triple[2] === patch;
+/** A version as an exact [major, minor, patch], missing parts = 0. */
+function normalizedClientTriple(version: readonly number[]): [number, number, number] {
+	return [version[0] ?? 0, version[1] ?? 0, version[2] ?? 0];
 }
 
 /** Everything `buildCodeUpdateInfo` needs to answer one consumer's ask. */
 export interface CodeUpdateInfoOptions {
+	/**
+	 * The asker's DATA version (the wire `options.version`, a bare `X.Y.Z` —
+	 * the one shape every master, older ones included, parses). NOT the walk
+	 * origin (audit U-06): it only bounds which release claim is believed
+	 * ({@link askerIdentity}) and, when no claim is believed, stands in for
+	 * the identity (an asker that predates `options.release` — before the
+	 * release identity existed its identity WAS its data triple, so the walk
+	 * from it is exact for that asker).
+	 */
 	clientVersion: readonly number[];
 	serverVersion: readonly number[];
 	codeFilesDir: string | undefined;
@@ -192,11 +210,12 @@ export interface CodeUpdateInfoOptions {
 	/** What the CONSUMER asked for (its panel choice). Default: releases only. */
 	channel?: InstallChannel;
 	/**
-	 * The consumer's RELEASE IDENTITY (`options.release`, e.g. `7.0.0-beta.6`) —
-	 * what decides which prereleases and same-triple releases sit ABOVE it.
-	 * Untrusted wire text: used only when it parses AND names the asker's own
-	 * data triple; otherwise the asker is placed at its bare triple (the stable
-	 * release of it), which offers nothing of its own triple — never more.
+	 * The consumer's RELEASE IDENTITY (`options.release`, e.g. `7.0.1`,
+	 * `7.0.0-beta.6`) — THE ORIGIN OF THE CODE LADDER ({@link codeLadderTargets})
+	 * and what decides which prereleases and same-triple releases sit ABOVE it.
+	 * Untrusted wire text: used only when it parses AND ranks at or above the
+	 * asker's data triple; otherwise the asker is placed at its bare data triple
+	 * (the stable release of it) — see {@link askerIdentity}.
 	 */
 	clientRelease?: unknown;
 	/** Whether THIS master publishes developer builds (DEDALO_CODE_SERVER_DEV_CHANNEL). */
@@ -209,10 +228,12 @@ export interface CodeUpdateInfoOptions {
 
 /**
  * Build the release manifest (PHP get_code_update_info). Advertises a release
- * only when its `<major.minor.patch>.zip` exists under `codeFilesDir`.
+ * only when its `<major.minor.patch>.zip` exists under `codeFilesDir`. The
+ * rungs are walked from the asker's RELEASE identity, never its data version
+ * (audit U-06; {@link codeLadderTargets}).
  */
 export function buildCodeUpdateInfo(options: CodeUpdateInfoOptions): CodeUpdateInfo {
-	const targets = linearUpgradeTargets(options.clientVersion, options.catalog ?? UPDATE_CATALOG);
+	const targets = codeLadderTargets(askerIdentity(options), options.catalog ?? UPDATE_CATALOG);
 	const exposure = channelExposure(options);
 	return {
 		info: {
@@ -221,6 +242,7 @@ export function buildCodeUpdateInfo(options: CodeUpdateInfoOptions): CodeUpdateI
 			channels: honouredChannels(exposure),
 		},
 		files: manifestFiles(options, targets, exposure),
+		plans: wirePlansAbove(parseReleaseVersion(askerIdentity(options))?.triple ?? []),
 	};
 }
 
@@ -273,10 +295,10 @@ function manifestFiles(
 	if (options.codeFilesDir === undefined || !existsSync(options.codeFilesDir)) return [];
 	const running = askerIdentity(options);
 	const dev = exposure.dev ? devItemsFor(options.codeFilesDir, options.publicBaseUrl, running) : [];
-	// One archive, one row: a developer asker's identity triple can be a catalog
-	// rung too (a `7.0.1-dev` of the next release, once `7.0.0` is tagged, on data
-	// 7.0.0 reaches `7.0.1` both ways), so the same-triple and the rung lists can
-	// name the same file.
+	// One archive, one row: the same-triple list (the asker's identity triple)
+	// and the rung list (the rungs ABOVE that triple) are disjoint by
+	// construction since the ladder walks from the identity (U-06); the dedupe
+	// stays as the guard that one archive is never listed twice.
 	const published = uniqueByUrl([
 		...sameTripleItemsFor(options, exposure),
 		...rungItemsFor(options.codeFilesDir, options.publicBaseUrl, targets, exposure),
@@ -299,11 +321,18 @@ function uniqueByUrl(items: CodeReleaseItem[]): CodeReleaseItem[] {
 }
 
 /**
- * Where the asker stands in the release sequence: its `clientRelease` when
+ * Where the asker stands in the release sequence — the origin of the code
+ * ladder AND the floor every item must outrank: its `clientRelease` when
  * that is an identity it may hold, else the bare data triple. The bare triple
  * is the conservative reading — an asker that did not say (an older client) or
  * said something else is treated as running the stable release of its triple,
- * so nothing of that triple is offered to it.
+ * so nothing of that triple is offered to it, and its ladder starts there.
+ *
+ * AN OLDER CONSUMER (asks with `version` only, no `release`): it predates the
+ * release identity (WC-2026-10-15-release-identity-from-tag), so its code IS
+ * its data triple and the walk from that triple is its exact ladder. The
+ * fallback never offers a downgrade: every item offered sits on a rung above
+ * the bare triple or is a newer identity of it.
  *
  * Which identities it may hold: a stable or prerelease identity at or ABOVE the
  * data triple is the asker's own identity (a code-only patch tag over data
@@ -314,8 +343,12 @@ function uniqueByUrl(items: CodeReleaseItem[]): CodeReleaseItem[] {
  * below the data triple, so it falls back to the bare `7.0.1` (no 7.0.0 is
  * offered). A developer claim at or above the data triple is honoured.
  * Nothing a claim reaches is offered unless it outranks it
- * ({@link outranksAsker}), so an accepted claim can only narrow the offer,
- * never widen it: the swap door re-judges with the tree's OWN identity.
+ * ({@link outranksAsker}). An accepted claim also MOVES the ladder (U-06) —
+ * that is the point: a `7.0.1` over data 7.0.0 is offered `7.0.2`. A false
+ * claim gains nothing a client could not fetch anyway (the archives are
+ * public, the ask is authenticated by its code): the swap door re-judges every
+ * move with the tree's OWN identity, so an offer the claim alone justified is
+ * refused there.
  * A legacy `X.Y.Z.dev` claim reads as `X.Y.Z-dev`: unparsed it falls back to
  * stable `X.Y.Z`, above which its own nightly ranks as a downgrade — so
  * every pre-grammar dev install could never be offered a nightly.
@@ -562,7 +595,7 @@ function devItemsFor(
 /**
  * The triples a developer build can be named after from `identity`: its own,
  * then the next patch, the next minor and the next major (the rungs the walk's
- * data step admits — version_walk.ts isNextRung). Deduplicated, own first.
+ * data step admits — version_walk.ts nextRungKind). Deduplicated, own first.
  */
 function devCandidateTriples(identity: readonly number[]): number[][] {
 	const [major = 0, minor = 0, patch = 0] = identity;

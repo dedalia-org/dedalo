@@ -19,13 +19,7 @@
 import { config } from '../../../config/config.ts';
 import { publicOrigin } from '../../resolve/public_origin.ts';
 import type { Principal } from '../../security/permissions.ts';
-import {
-	engineDenied,
-	fromOutcome,
-	gated,
-	type WidgetModule,
-	type WidgetResponse,
-} from './support.ts';
+import { engineDenied, gated, type WidgetModule, type WidgetResponse } from './support.ts';
 
 /**
  * PHP parity: the 'Local files' pseudo-server is THIS install, so it is forced
@@ -121,8 +115,12 @@ async function updateOntologyGetValue(): Promise<WidgetResponse> {
 	// `..._configured` tells the panel whether ACTIVE_ONTOLOGY_TLDS was set at all
 	// or the list below is the engine's fallback — an administrator needs to know
 	// which of the two they are looking at before editing anything.
+	// The core pair is the update door's own constant: the server refuses any
+	// TLD outside this list ∪ matrix_dd (U-52, ontology_update.ts
+	// assertUpdateTldScope), so the panel offers exactly what will be accepted.
+	const { CORE_UPDATE_TLDS } = await import('../../ontology/ontology_update.ts');
 	const activeOntologyTlds = [
-		...new Set([...config.ontologyIo.activeOntologyTlds, 'ontology', 'ontologytype']),
+		...new Set([...config.ontologyIo.activeOntologyTlds, ...CORE_UPDATE_TLDS]),
 	];
 
 	const labels = await getLabels(currentApplicationLang());
@@ -143,31 +141,59 @@ async function updateOntologyGetValue(): Promise<WidgetResponse> {
 					'The ontology of every selected TLD (the common/shared ontologies) will be replaced\n' +
 					"by the master's server version and re-processed. This cannot be undone.\n" +
 					'Your local ontology is NOT overwritten: custom TLDs and localontology overrides\n' +
-					"are kept — unless you include 'localontology' in the list to update.\n" +
+					'are kept — the server refuses any TLD outside the active ontology list.\n' +
 					'Are you sure you want to continue?',
 		},
 	};
 }
 
+/** The operator's selection, as the run's narrowing: the TLDs named by the request's files. */
+function requestedScope(files: unknown): { scope?: string[] } {
+	if (!Array.isArray(files)) return {};
+	const tlds = files
+		.map((file) => (file as { tld?: unknown } | null)?.tld)
+		.filter((tld): tld is string => typeof tld === 'string' && tld !== 'matrix_dd');
+	return tlds.length === 0 ? {} : { scope: [...new Set(tlds)] };
+}
+
 /**
- * The OPEN (owned) branch: the staged/recoverable import (WC-023).
+ * The OPEN (owned) branch: an ONTOLOGY-ONLY UPDATE RUN (update audit
+ * 2026-10-29, Phase 2.4; core/update/run/start.ts startOntologyUpdateRun) —
+ * journaled, under maintenance, behind the run's backup and lock, and resumed
+ * by the next boot if the process dies mid-import. The TLD set is the
+ * server's (every active shared TLD from its one source, D-6/D-8); the TLDs of
+ * the request's file list only NARROW it (never add to it). `waive_backup:
+ * true` waives the run's database backup, journaled. The staged/recoverable import itself (WC-023) is
+ * core/ontology/ontology_update.ts, gated by ontology_update_shell_native.
  *
  * COVERAGE-EXEMPT (coverage plan §5.2; reason registered in
- * engineering/crap_coverage_exempt.json): a two-field unwrap forwarding to
- * `core/ontology/ontology_update.ts`, whose orchestrator IS gated (over the `zzd`
- * scratch TLD) by test/unit/ontology_update_shell_native.test.ts. Executing it
- * through this shell REPLACES THE SHARED ONTOLOGY.
+ * engineering/crap_coverage_exempt.json): a thin shell over the run, whose
+ * planner/executor/phase are gated (update_run_*_native). Executing it through
+ * this shell REPLACES THE SHARED ONTOLOGY.
  */
 async function updateOntologyOwned(
 	options: Record<string, unknown>,
 	principal: Principal,
 ): Promise<WidgetResponse> {
-	const { updateOntology } = await import('../../ontology/ontology_update.ts');
-	const outcome = await updateOntology(options, principal.userId);
-	// The client reads root_info at the TOP LEVEL of the response
-	// (render_update_ontology.js), so it rides as an extension key.
-	const { ok: _ok, msg: _msg, errors: _errors, ...rest } = outcome;
-	return fromOutcome(outcome, { extend: rest });
+	const { startOntologyUpdateRun } = await import('../../update/run/start.ts');
+	const { ontologyRunAnswer } = await import('../../update/run/ontology_phase.ts');
+	const outcome = await startOntologyUpdateRun(principal, {
+		waiveBackup: options.waive_backup === true,
+		...requestedScope(options.files),
+	});
+	// The client reads msg/errors and root_info at the TOP LEVEL of the response
+	// (render_update_ontology.js), so root_info rides as an extension key.
+	const answer = ontologyRunAnswer(outcome.journal);
+	return {
+		data: true,
+		msg: answer.msg,
+		...(answer.errors.length === 0 ? {} : { errors: answer.errors }),
+		extend: {
+			run_id: outcome.journal.run_id,
+			root_info: answer.rootInfo,
+			...(answer.census === null ? {} : { census: answer.census }),
+		},
+	};
 }
 
 export const widget: WidgetModule = {

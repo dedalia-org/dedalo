@@ -17,7 +17,7 @@
  *
  *  1. DATA-VERSION CONSUMERS never read the identity — the deliberate list of
  *     design §1 (publication host, tool min-version, seeds / matrix_updates,
- *     install-plan engine checks, boot confirm, the update walk / catalog, the
+ *     install-plan engine checks, the update walk / catalog, the
  *     code server's file names). Whole module where the module is pure data;
  *     the named functions where a module also displays (status.ts) or imports
  *     an install-step table the image steps taint (the executors).
@@ -61,7 +61,12 @@ import {
 	siteValues,
 } from '../helpers/release_identity_flow.ts';
 
-/** Design §1 "deliberately DATA-version consumers". `functions` narrows a mixed module to its data sites. */
+/**
+ * Design §1 "deliberately DATA-version consumers". `functions` narrows a mixed module to its data sites.
+ * NOT boot_confirm.ts / code_update.ts's restore-point naming / code_restore.ts since 2026-10-30
+ * (update audit U-07): code artifacts are named and compared by the RELEASE IDENTITY — the data
+ * triple is shared by every beta of one triple (WC-2026-10-30-restore-point-release-identity).
+ */
 const DATA_CONSUMERS: ReadonlyArray<{
 	module: string;
 	why: string;
@@ -113,7 +118,6 @@ const DATA_CONSUMERS: ReadonlyArray<{
 		why: 'host resume refuses a plan of another data version (its step tables are image-tainted)',
 		functions: ['resumeRun'],
 	},
-	{ module: 'src/core/update/boot_confirm.ts', why: 'confirms the booted code by data version' },
 	{
 		module: 'src/core/update/version_walk.ts',
 		why: 'the walk is a pure rule: each door hands it the running identity, it imports none (the data walk is on triples)',
@@ -168,16 +172,16 @@ const MIXED: ReadonlyMap<string, string> = new Map([
 		'consumerStatus: engine_version = identity (display site), version = data; the code-server half is a data consumer (above)',
 	],
 	[
+		'src/core/update/code_manifest_pin.ts',
+		"fetchManifestText asks the master the panel's own question (U-41): options.version = data (the master's plans are rungs above it), options.release = identity (the asker's build, never ordered or compared here)",
+	],
+	[
 		'src/core/install/installer_identity.ts',
 		'the installer identity, validated against the data version its seam may name',
 	],
 	[
 		'src/core/install/executor.ts',
 		'INSTALL_STEPS reaches the image steps (identity image tag); resumeRun is a data consumer (above)',
-	],
-	[
-		'src/core/update/code_update.ts',
-		'the identity walk starts from the running identity (design §2.8 item 3); the backup dir / sentinel previousVersion name the data version boot_confirm compares',
 	],
 ]);
 

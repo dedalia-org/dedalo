@@ -46,10 +46,11 @@ import { AI_MODEL_URL_PREFIX, serveModelRequest } from './core/ai/model_store.ts
 import { handleCountersRequest } from './core/api/counters.ts';
 import { type ApiRequestContext, dispatchRqo } from './core/api/dispatch.ts';
 import { handleEnvironmentView } from './core/api/environment_view.ts';
-import { buildHealthPayload } from './core/api/health_payload.ts';
+import { anonymousHealthView, buildHealthPayload } from './core/api/health_payload.ts';
 import { getProcessPoison } from './core/api/process_health.ts';
 import { handleRawView } from './core/api/raw_view.ts';
 import { MIN_GZIP_BYTES, SECURITY_HEADERS, staticAssetResponse } from './core/api/static_asset.ts';
+import { readInstalledDataVersionStrict } from './core/area_maintenance/backup.ts';
 import { CLIENT_LIB_URL_PREFIX, serveClientLibRequest } from './core/client_libs/serving.ts';
 import { handleTagRequest } from './core/components/component_text_area/tag_endpoint.ts';
 import { mediaTypeOf } from './core/concepts/media.ts';
@@ -107,10 +108,22 @@ import {
 import { startToolBootHooks, toolHttpRouteFor } from './core/tools/loader.ts';
 import { safeRealpath } from './core/tools/paths.ts';
 import { serveToolsRequest } from './core/tools/serving.ts';
+import {
+	bootSchemaMoved,
+	bootSchemaStateName,
+	bootSchemaVerdict,
+	dataVersionState,
+	recordBootSchemaVerdict,
+	recordUpdateRunFacts,
+	refreshDataVersionState,
+	updateRunFacts,
+} from './core/update/boot_state.ts';
 import { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from './core/update/build_stamp.ts';
 import { ensureCodeFilesDirAtBoot } from './core/update/code_files_dir.ts';
 import { CODE_RELEASE_URL_PREFIX, serveCodeReleaseRequest } from './core/update/code_serving.ts';
 import { INSTALLED_DIGEST } from './core/update/install_stamp.ts';
+import { bootRunDecision, readBootRun, resumeBootRun } from './core/update/run/boot.ts';
+import { runFactsOf } from './core/update/run/production.ts';
 
 /**
  * CLIENT_ROOT canonicalised once. The symlink-escape check in serveClientAsset
@@ -994,27 +1007,32 @@ export async function handleRequest(request: Request, context: RequestContext): 
 			);
 		}
 		const dbOk = await checkDbHealth();
-		return jsonResponse(
-			buildHealthPayload({
-				dbOk,
-				entity: config.entity,
-				// The running engine version (update_code post-restart poll) AND, since
-				// 2026-08-24, the installed archive digest — the only token that moves
-				// across a same-version dev-channel swap. NOT the database name — see
-				// test_db_marker_tripwire's /health rule.
-				version: DEDALO_ENGINE_VERSION,
-				// …and which kind that identity is (stable | prerelease | dev), so
-				// no reader infers it from the string's shape.
-				releaseKind: RELEASE_IDENTITY.kind,
-				installDigest: INSTALLED_DIGEST,
-				requestId: context.requestId,
-				// Dev mode only, and an opaque hash even then (see above).
-				...(DEV_MODE_HEALTH_DB_IDENTITY && dbOk
-					? { testDatabase: await healthTestDatabaseFingerprint() }
-					: {}),
-			}),
-			dbOk ? 200 : 503,
-		);
+		const payload = buildHealthPayload({
+			dbOk,
+			entity: config.entity,
+			// The running engine version (update_code post-restart poll) AND, since
+			// 2026-08-24, the installed archive digest — the only token that moves
+			// across a same-version dev-channel swap. NOT the database name — see
+			// test_db_marker_tripwire's /health rule.
+			version: DEDALO_ENGINE_VERSION,
+			// …and which kind that identity is (stable | prerelease | dev), so
+			// no reader infers it from the string's shape.
+			releaseKind: RELEASE_IDENTITY.kind,
+			installDigest: INSTALLED_DIGEST,
+			requestId: context.requestId,
+			// Dev mode only, and an opaque hash even then (see above).
+			...(DEV_MODE_HEALTH_DB_IDENTITY && dbOk
+				? { testDatabase: await healthTestDatabaseFingerprint() }
+				: {}),
+			// Boot facts (U-01 / U-04): a failed migration run or a database
+			// newer than the code turns the probe red.
+			bootSchema: bootSchemaStateName(),
+			bootSchemaMoved: bootSchemaMoved(),
+			dataVersion: dataVersionState(),
+			// The update run in flight (design §3.5) — red only for an ordered code rollback.
+			updateRun: updateRunFacts(),
+		});
+		return jsonResponse(anonymousHealthView(payload), payload.result === 'ok' ? 200 : 503);
 	}
 
 	// Operational counters (S2-37) — session-gated, global-admin-only.
@@ -1835,10 +1853,36 @@ export async function startServer() {
 	// fault-tolerant boot posture (S1-15). Skipped in a smoke boot (read-only by
 	// construction — running migrations pre-swap would mutate the shared DB while
 	// the old code is live).
-	if (!smokeBoot) {
+	// THE UPDATE RUN IN FLIGHT (update audit 2026-10-29, design §3.2): a run whose
+	// code phase started CLAIMS this boot — its own schema phase applies the
+	// migrations in release order (ontology first, D-1), and it confirms only on
+	// VERIFIED. Read before the runner it may replace; a smoke boot never reads it.
+	const bootRun = smokeBoot ? null : await readBootRun();
+	if (bootRun !== null) recordUpdateRunFacts(runFactsOf(bootRun.journal));
+	// One pure decision (run/boot.ts bootRunDecision, gated) for every branch below.
+	const bootDecision = bootRunDecision(smokeBoot, bootRun);
+	if (bootRun !== null && !bootDecision.bootMigrations) {
+		console.log(
+			`[boot] update run ${bootRun.journal.run_id} owns this boot: migrations are its schema phase (resumed after listen)`,
+		);
+		await refreshDataVersionState(readInstalledDataVersionStrict);
+	} else if (bootDecision.bootMigrations) {
 		// runBootSchema logs a failed run and continues, then heals the
 		// tm_role column outside any transaction (migrate.ts) — never throws.
-		await runBootSchema();
+		// Its VERDICT is recorded (U-01): /health turns red on a failed run and
+		// the code-update confirmation below refuses a tree whose schema did
+		// not land. The data version is classified next to it (U-04).
+		const schemaVerdict = await runBootSchema();
+		recordBootSchemaVerdict(schemaVerdict);
+		// A FAILED run is written into a pending update's sentinel NOW, before
+		// the listener: the watchdog must never see a red /health beside a
+		// still-pending sentinel of a moved schema (it would roll back onto it).
+		// Dynamic like the post-listen confirm below: a cold path (a failed run).
+		if (schemaVerdict.state === 'failed') {
+			const { markFailedBootSchema } = await import('./core/update/boot_confirm.ts');
+			await markFailedBootSchema(schemaVerdict);
+		}
+		await refreshDataVersionState(readInstalledDataVersionStrict);
 
 		// Derived search-store self-provisioning (2026-07-21): a database from a
 		// previous beta (no matrix_string_search / matrix_relation_index, or
@@ -2400,34 +2444,48 @@ export async function startServer() {
 	// outlasted the systemd watchdog (rollback / restart loop). Background, never
 	// awaited; every reader is correct without the index. Same skip as the boot
 	// runner (smoke boot: read-only by construction).
-	if (!smokeBoot) void startOnlineMigrations();
+	// …unless a run owns the boot: its confirm starts the online lane (post-VERIFIED).
+	if (bootDecision.onlineMigrations) void startOnlineMigrations();
 
 	// CODE-UPDATE BOOT CONFIRMATION (core/update/boot_confirm.ts): once the
 	// listener is up AND the first DB ping is green, flip a pending update
 	// sentinel to 'confirmed' so the supervisor-side rollback stands down.
 	// Skipped in a smoke boot (the quarantine must never confirm an update it is merely rehearsing).
 	if (!smokeBoot) {
+		// PUBLICATION API LOCKSTEP (PUBLICATION_HOST_SPEC §3, phase 4): once THIS tree
+		// is confirmed, push its verified API releases to every paired publication
+		// host — detached, never throwing. Dynamic (CONVENTIONS §2 rationale 3: a
+		// cold path, once per confirmed boot). The module is loaded INSIDE the hook,
+		// AFTER the flip: a publication-host module that fails to load is logged and
+		// can never veto the confirmation (an unconfirmed sentinel makes the
+		// supervisor roll back a healthy update). The trigger re-checks the smoke
+		// flag itself: this block's guard is the first line of defence, not the only one.
+		const afterConfirmed = () => {
+			void import('./core/publication_host/api_reconcile.ts')
+				.then(({ triggerPublicationApiPush }) => {
+					triggerPublicationApiPush({ smokeBoot });
+				})
+				.catch((error) =>
+					console.error('[publication_apis] post-confirm trigger failed to load:', error),
+				);
+		};
 		void (async () => {
 			if (await checkDbHealth()) {
+				// A run in flight drives the rest itself (phases → verify → confirm),
+				// and its confirm runs the same hook (run/production.ts).
+				if (bootDecision.resumeRun) {
+					await resumeBootRun(afterConfirmed, () => shuttingDown);
+					return;
+				}
 				const { confirmBootedCodeUpdate } = await import('./core/update/boot_confirm.ts');
-				// PUBLICATION API LOCKSTEP (PUBLICATION_HOST_SPEC §3, phase 4): once THIS tree
-				// is confirmed, push its verified API releases to every paired publication
-				// host — detached, never throwing. Dynamic for the same reason as the line
-				// above (CONVENTIONS §2 rationale 3: a cold path, once per confirmed boot).
-				// The module is loaded INSIDE the hook, AFTER the flip: a publication-host
-				// module that fails to load is logged and can never veto the confirmation
-				// (an unconfirmed sentinel makes the supervisor roll back a healthy update).
-				// The trigger re-checks the smoke flag itself: this block's guard is the
-				// first line of defence, not the only one.
-				await confirmBootedCodeUpdate(undefined, undefined, undefined, () => {
-					void import('./core/publication_host/api_reconcile.ts')
-						.then(({ triggerPublicationApiPush }) => {
-							triggerPublicationApiPush({ smokeBoot });
-						})
-						.catch((error) =>
-							console.error('[publication_apis] post-confirm trigger failed to load:', error),
-						);
-				});
+				await confirmBootedCodeUpdate(
+					undefined,
+					undefined,
+					undefined,
+					afterConfirmed,
+					// The migration verdict: a failed run is never confirmed (U-01).
+					bootSchemaVerdict(),
+				);
 			} else {
 				console.warn('[code update] boot confirmation deferred: DB ping failed at boot');
 			}

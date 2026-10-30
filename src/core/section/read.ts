@@ -1736,22 +1736,27 @@ async function readComponentDataUnflagged(
 	// class.common.php:2312) — the get_data twin of the section-read rule in
 	// relations/models/portal.ts. Without it, paging a two-source component
 	// (rsc368: dedalo + zenon) drops the second source's columns.
-	const { flattenConfigDdoMaps } = await import('../relations/config_ddo_map.ts');
+	const { configChildRenderFields, flattenConfigDdoMaps } = await import(
+		'../relations/config_ddo_map.ts'
+	);
 	const childDdos: Ddo[] = flattenConfigDdoMaps(config, { ownerTipo: tipo }).map(
 		(ddo) =>
 			({
 				tipo: ddo.tipo,
-				// Keep the DECLARED section list INTACT (same rule as the section-read
-				// twin, relations/models/portal.ts): a multi-target component's child
-				// spans EVERY target section and the per-locator grouping picks the
-				// matching one. Flattening to [0] skipped every non-first target —
-				// rsc92's hierarchy25 spans [es1,fr1,…], so a picked fr1 term emitted
-				// NO subdatum in the save echo and the chip stayed blank until reload
-				// (found live 2026-07-09).
-				section_tipo: ddo.section_tipo,
 				parent: ddo.parent,
-				mode: ddo.mode,
 				lang: (ddo as { lang?: string }).lang,
+				// section_tipo / mode / limit / value_with_parents: the ONE mapper
+				// shared with the section-read twin (relations/models/portal.ts).
+				// It keeps the DECLARED section list INTACT: a multi-target
+				// component's child spans EVERY target section and the per-locator
+				// grouping picks the matching one. Flattening to [0] skipped every
+				// non-first target — rsc92's hierarchy25 spans [es1,fr1,…], so a
+				// picked fr1 term emitted NO subdatum in the save echo and the chip
+				// stayed blank until reload (found live 2026-07-09). And it carries
+				// the child `limit`: without it a nested portal cell
+				// (numisdata965 → numisdata9 limit 4) fell back to the 1-locator
+				// list default on every refresh / save echo / page.
+				...configChildRenderFields(ddo),
 			}) as Ddo,
 	);
 

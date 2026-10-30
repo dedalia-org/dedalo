@@ -1,10 +1,10 @@
 # How a code update works
 
-> See also: [Updating code](updating_code.md) · [Updates](index.md)
+> See also: [Updating code](updating_code.md) · [The update run](index.md#the-update-run)
 
 The panel self-update (`update_code` widget, `src/core/update/code_update.ts`) always performs a **clean, rename-based swap**: the release is downloaded, verified and prepared in a quarantine directory, the current tree is moved aside as a backup, and the new tree becomes the live tree in one rename. There is no in-place "incremental" overlay any more — an overlay could not delete files a release removed, and left nothing to roll back to.
 
-This page describes what actually happens, what the update refuses, and how rollback works — the operator-facing walkthrough is in [Updating code](updating_code.md).
+The swap is the `code` phase of an [update run](index.md#the-update-run): the run's preflight, backup and journal come before it, and the release's ontology, schema, data and ancillary phases after it. This page describes what the `code` phase does, what it refuses, and how rollback works — the operator-facing walkthrough is in [Updating code](updating_code.md).
 
 ## The phases
 
@@ -18,23 +18,24 @@ The panel shows a phase track while the update runs. The phases, in order:
 | `deps` | The release's dependencies are installed **in the quarantine**, with the running Bun, against the release's own lockfile. |
 | `preflight` | The quarantine tree is boot-tested once (a smoke boot): it must start, answer a health check, and shut down cleanly. A release that cannot even start never replaces a working one. |
 | `swap` | The rollback sentinel is written, the live tree is renamed into the backup directory, and the quarantine tree is renamed into place. `.git` is carried over from the old tree. |
-| `restart` | The server restarts itself so the supervisor boots the new code. |
+| `restart` | The server restarts itself so the supervisor boots the new code. The run's journal keeps the `code` phase open across the restart; the new code settles it at start and runs the remaining phases. |
 | `health` | The **browser** polls the server's health endpoint until the new version answers (or reports a rollback / a server that did not come back). |
 
 Nothing before the `swap` phase touches the live tree: dependencies are installed and the new tree is boot-tested in quarantine first, so any failure up to and including `preflight` leaves the installation exactly as it was.
 
 !!! note "What the smoke boot does — and does not — prove"
-    The pre-flight boot proves the new tree parses, starts, and answers one request. It deliberately does **not** run the release's database migrations (those run only when the new code boots for real, after the swap), and it says nothing about behaviour under load.
+    The pre-flight boot proves the new tree parses, starts, and answers one request. It deliberately does **not** run the release's database migrations (the run's `schema` phase applies them after the swap, in the new code), and it says nothing about behaviour under load.
 
 ## Preconditions — the update refuses, it does not warn
 
 Before anything is downloaded, the update **refuses** unless all of the following hold:
 
 - the operator is the **superuser** (`root`);
-- the server is in **maintenance mode** (see [maintenance status](../maintenance_status.md));
-- a **recent database backup** exists (newer than the configured backup window).
+- the server is in **maintenance mode** (see [maintenance status](../maintenance_status.md)) — the readiness panel blocks the Update button without it, and the run holds it from its preflight until it ends;
+- a **recent database backup** exists (inside `DEDALO_BACKUP_TIME_RANGE`) and is proven restorable — the run records its path, because it is the dump a `NEEDS_DB_RESTORE` names;
+- the database is on the data version the running code declares: a pending data update is run first.
 
-The backup requirement is the only one of the three an operator can waive. When the newest backup is stale — or there is none at all — the version modal offers an **Update without a recent database backup** checkbox above the Update button; ticking it puts `waive_backup: true` in the update request, the confirmation restates the waiver, and the server logs it loudly with the requesting user. The checkbox is not rendered when the backup is fresh, since there would be nothing to waive.
+The backup requirement is the only one an operator can waive. When the newest backup is stale — or there is none at all — the version modal offers an **Update without a recent database backup** checkbox above the Update button; ticking it puts `waive_backup: true` in the update request, the confirmation restates the waiver, and the server logs it loudly with the requesting user. The checkbox is not rendered when the backup is fresh, since there would be nothing to waive.
 
 Because the waiver exists, the readiness panel reports a stale or absent backup as a **warning**, not as a block: it does not make the panel say "Update blocked" for a run the updater will accept. The headline says so precisely — *Ready to update, but only with a waiver* — since an update submitted **without** the waiver still refuses outright.
 
@@ -62,15 +63,16 @@ Each of these refuses with a message naming the problem, and changes nothing:
 
 ## What is backed up
 
-The swap moves the whole previous tree into the code backup directory — `DEDALO_BACKUP_PATH` (default `../backups/code`) — as `dedalo_<previous version>_<timestamp>/`, including its `node_modules`, so the backed-up tree is bootable offline, with no network and no dependency install. The backup directory must be on the same filesystem as the install so the renames are atomic; the update refuses otherwise.
+The swap moves the whole previous tree into the code backup directory — `DEDALO_BACKUP_PATH` (default `../backups/code`) — as `dedalo_<previous version>[_<digest>]_<timestamp>/` — the version is the release name the replaced code called itself (`7.0.0-beta.7`, `7.0.0`, `7.0.1-dev`), the digest the first seven characters of the archive it was installed from — including its `node_modules`, so the backed-up tree is bootable offline, with no network and no dependency install. The backup directory must be on the same filesystem as the install so the renames are atomic; the update refuses otherwise.
 
 `../private/` — your configuration and secrets — lives outside the code tree entirely and is never touched.
 
 ## Rollback
 
-Before the first rename, the update writes a **rollback sentinel** (`last_code_update.json` in the backup root) with status `pending`, naming the backup directory the swap is about to create. Once the new code boots and reaches the database, it flips the sentinel to `confirmed`.
+Before the first rename, the update writes a **rollback sentinel** (`last_code_update.json` in the backup root) with status `pending`, naming the backup directory the swap is about to create. The sentinel flips to `confirmed` only when the run reaches `VERIFIED` after every phase of the release: until then the supervisor's rollback stays armed. When a database phase of a release that is not declared `compatible` starts, the run flips the sentinel to `needs_restore` first, and no supervisor rolls back from then on ([the update run](index.md#when-a-phase-fails)).
 
 - **With the shipped systemd units** (main service, watchdog and rollback units — see the files under `deploy/`), a new tree that fails to come up is rolled back **automatically**: the supervisor restores the previous tree from the backup directory and starts it again. This works because the backup keeps its own `node_modules`. It depends on the root-run scripts: the watchdog and rollback units run `dedalo-ts-watchdog.sh` and `dedalo-code-rollback.sh` from a root-owned directory outside the code tree, because the tree is exactly what is missing or broken when they are needed — `/opt/dedalo/instances/<i>/bin/` on an instance installed by the installer, which places them, and the root bin directory you chose (`/opt/dedalo/bin/` in the example) on a [host set up by hand](../../install/manual_host.md#the-units). The supervisor's moves, like the update's own, stay inside the instance directory that holds the code. A code update does not refresh those copies ([Upgrading](../../install/upgrading.md#per-route)). Without them the watchdog fails with `status=203/EXEC` and nothing rolls back.
+- **A run that fails after the swap, within one data model** (`ROLLED_BACK_CODE`), turns `/health` red on the new tree, and the same watchdog and rollback script put the previous tree back. A run that ends in `NEEDS_DB_RESTORE` is never rolled back automatically: a human restores the database backup together with the previous code.
 - **Under any other supervisor** (a plain restart loop, pm2, …), there is no automatic rollback. You still have the full previous tree in the backup directory; the manual procedure is to stop the server, move the backup directory back to the install path, and start the server again.
 
 If the swap itself fails midway, the update restores the previous tree in place and reports that nothing changed; in the rare case where the restore also fails, both trees are preserved (the old one in the backup directory, the new one parked in staging) and the panel tells you operator recovery is required — see the server log.
@@ -90,22 +92,35 @@ differs in three ways:
 
 - **It is a move, not a copy.** The restore point is consumed by the swap, and
   the outgoing tree is renamed aside as a new restore point
-  (`dedalo_<running version>[_<digest>]_<timestamp>/`). A restore is therefore
+  (`dedalo_<running release>[_<digest>]_<timestamp>/`). A restore is therefore
   itself undoable, and it does not need room for a second copy of the tree.
 - **`download`, `verify`, `extract` and `deps` are reported *skipped*.** There
   is nothing to fetch or install: a restore point carries its own
   `node_modules`.
-- **The recent-database-backup precondition does not apply.** Superuser and
-  maintenance mode still do; in place of the backup gate a restore has its own
-  explicit confirmation.
+- **It is a destructive maintenance action, not a run.** It needs the
+  superuser, maintenance mode, a fresh proven database backup (the request may
+  carry `waive_backup: true`, logged with the user; the restore modal offers no
+  such checkbox), no update run in flight, and the update lock
+  ([precondition classes](index.md#which-maintenance-actions-need-the-superuser-maintenance-mode-and-a-backup)).
+  A version change also needs its own explicit confirmation (below).
 
 ### The database is not restored
 
 Restoring code does not revert migrations already applied. A restore point
-whose declared version differs from the running one is **refused** unless the
-request carries an explicit confirmation (`confirm_downgrade`, the modal's
-checkbox), and the waiver is logged loudly with the requesting user — the same
-idiom as `waive_backup`. At an equal version no confirmation is asked for.
+that holds other code than the running one is **refused** unless the request
+carries an explicit confirmation (`confirm_downgrade`, the modal's checkbox),
+and the waiver is logged loudly with the requesting user — the same idiom as
+`waive_backup`. Other code means another release name (`7.0.0-beta.5` against
+a running `7.0.0-beta.7` counts, although both are data version `7.0.0`), or
+the same release name installed from another archive (both digests known and
+different — two developer builds). The same release from the same archive, or
+from an archive that cannot be told apart because one side has no digest, asks
+for no confirmation.
+
+Each restore point lists its release name as `version` and the data version
+its source declares as `data_version`; the rollback sentinel's `version` and
+`previousVersion` are release names too (before 2026-10-30 all three were the
+data version).
 
 !!! danger "An acknowledged downgrade is not a repaired one"
     The confirmation only records that the hazard was understood. The
@@ -134,9 +149,8 @@ flag.
 
 Each of these refuses with a message naming the problem, and changes nothing:
 
-- **The engine does not own this install** — a closed installation cannot run a
-  code restore, exactly as it cannot run an update.
-- **Not the superuser, or not in maintenance mode.**
+- **Not the superuser, not in maintenance mode, no fresh proven database
+  backup, or an update run in flight.**
 - **A malformed restore point name** — the request names a restore point, never
   a path. A name carrying `/`, `\`, a `..` segment or a NUL byte, or one that
   does not begin with `dedalo_`, is refused before it is ever joined to a

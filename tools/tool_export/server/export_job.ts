@@ -56,6 +56,7 @@
  */
 
 import { config } from '../../../src/config/config.ts';
+import { isDiffusionLangCode } from '../../../src/config/lang_code.ts';
 import { isMediaModel } from '../../../src/core/concepts/media.ts';
 import {
 	DedaloError,
@@ -69,7 +70,7 @@ import {
 } from '../../../src/core/errors/index.ts';
 import { jobAbortInfo, mediaJobs } from '../../../src/core/media/jobs.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
-import { currentApplicationLang } from '../../../src/core/resolve/request_lang.ts';
+import { currentApplicationLang, currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import {
 	getPermissions,
 	type Principal,
@@ -834,13 +835,33 @@ export async function currentExportPrincipal(context: ToolActionContext): Promis
 	return principal;
 }
 
+/**
+ * The export's DATA lang: the one the user picked in the tool (`options.lang`),
+ * else the submitter's data lang captured at handler entry. A re-run never
+ * reaches this (buildOptionsOf returns the recorded options, lang included);
+ * an artifact recorded before the language existed takes the submitter's.
+ */
+export function withExportLang(
+	options: Record<string, unknown>,
+	submitterDataLang: string,
+): Record<string, unknown> {
+	const lang = options.lang ?? submitterDataLang;
+	if (typeof lang !== 'string' || !isDiffusionLangCode(lang)) {
+		throw new DedaloError('request.invalid_options', {
+			publicMessage: 'options.lang must be a data language code (e.g. lg-eng)',
+		});
+	}
+	return { ...options, lang };
+}
+
 /** tool_export.build_export_artifact — background (lane 'export'). */
 export async function toolExportBuildArtifact(context: ToolActionContext): Promise<ToolResponse> {
 	assertBackground(context, 'build_export_artifact');
-	// The interface lang, read at ENTRY (before any await) from the ambient scope
-	// — the submitter's, pinned by the job manager at submit (media/jobs.ts
-	// JobRunScope) — and handed to the run EXPLICITLY from here on.
+	// The interface lang and the data lang, read at ENTRY (before any await) from
+	// the ambient scope — the submitter's, pinned by the job manager at submit
+	// (media/jobs.ts JobRunScope) — and handed to the run EXPLICITLY from here on.
 	const applicationLang = currentApplicationLang();
+	const submitterDataLang = currentDataLang();
 	const store = openArtifactStore();
 	// as of NOW, not of submit (currentExportPrincipal)
 	const principal = await currentExportPrincipal(context);
@@ -848,7 +869,7 @@ export async function toolExportBuildArtifact(context: ToolActionContext): Promi
 		store,
 		principal,
 		userId: context.userId,
-		options: await buildOptionsOf(store, principal, context),
+		options: withExportLang(await buildOptionsOf(store, principal, context), submitterDataLang),
 		// Read at handler entry (above): the submit-time lang the job manager pins.
 		applicationLang,
 		signal: context.signal,
@@ -887,7 +908,12 @@ async function buildOptionsOf(
 		String(context.options.section_tipo ?? ''),
 		rerunOf,
 	);
-	return structuredClone(manifest.options);
+	const recorded = structuredClone(manifest.options);
+	// An artifact recorded before the data-lang selector was written in the
+	// install's historical default (lg-spa): a re-run keeps that language, it
+	// does not take the submitter's.
+	if (recorded.lang === undefined) recorded.lang = 'lg-spa';
+	return recorded;
 }
 
 // ---------------------------------------------------------------------------

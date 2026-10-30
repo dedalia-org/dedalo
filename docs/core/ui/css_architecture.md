@@ -26,7 +26,7 @@ The watcher walks the `@import` graph and rebuilds **only what your change affec
 
 Because nothing rebuilds it on the way to production:
 
-- deploying is a **checkout** — `deploy/deploy.sh` states *"the repo IS the artifact"*; there is no build step on the host;
+- a release is a **`git archive`** of the repository — the repository IS the artifact; there is no build step on the host;
 - a production install runs `bun install --frozen-lockfile --production`, which does not install the LESS compiler at all.
 
 So the bytes in git are the bytes the browser receives. That is a deliberate trade: a simple deploy, paid for by having to commit build output.

@@ -29,13 +29,16 @@ import {
 	gitShowLookups,
 	NOTHING_TO_HOLD,
 	predatesReleaseCutRule,
+	RELEASE_CATALOG_PATH,
 	releaseNotesPath,
 	releaseTagFault,
+	SEED_MANIFEST_PATH,
 } from '../../scripts/lib/release_tag.ts';
 import {
 	gitDescribeSupportFault,
 	MIN_GIT_FOR_DESCRIBE,
 } from '../../src/core/update/release_identity.ts';
+import { releaseCommitFiles } from '../helpers/release_commit_files.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 const PROGRAM = join(ROOT, 'scripts', 'lib', 'release_tag.ts');
@@ -68,6 +71,11 @@ const write = (path: string, text: string) => {
 	mkdirSync(join(repo, path, '..'), { recursive: true });
 	writeFileSync(join(repo, path), text);
 };
+/** version.ts plus the release commit's catalog + seed manifest (rules 3–4). */
+const writeVersion = (data: string, release: string = data) => {
+	write('src/core/update/version.ts', VERSION_TS(data, release));
+	for (const [path, text] of Object.entries(releaseCommitFiles(data, [release]))) write(path, text);
+};
 const cutJson = (version: string, to: string) =>
 	`${JSON.stringify({ version, date: '2026-10-15', from: null, to, commits: 3, wire_contract: [] }, null, '\t')}\n`;
 const commit = (message: string): string => {
@@ -82,11 +90,11 @@ const at: Record<string, string> = {};
 beforeAll(() => {
 	repo = mkdtempSync(join(tmpdir(), 'dedalo-release-tag-'));
 	git('init', '--quiet', '-b', 'master');
-	write('src/core/update/version.ts', VERSION_TS('7.0.1'));
+	writeVersion('7.0.1');
 	at.uncut = commit('7.0.1, no cut');
 	write(releaseNotesPath('7.0.1'), cutJson('7.0.1', 'v7.0.1'));
 	at.stable = commit('cut 7.0.1');
-	write('src/core/update/version.ts', VERSION_TS('7.0.2'));
+	writeVersion('7.0.2');
 	write(releaseNotesPath('7.0.2-beta.1'), cutJson('7.0.2-beta.1', 'v7.0.2-beta.1'));
 	at.prerelease = commit('cut 7.0.2-beta.1');
 	// A cut of ANOTHER release only (its directory is not the tag's).
@@ -128,11 +136,43 @@ describe('GATE 11 — a release tag is publishable only when its commit is the c
 	});
 
 	test('a code-only release names its NEXT triple, not the data triple it keeps (the drill case)', () => {
-		write('src/core/update/version.ts', VERSION_TS('7.0.0', '7.0.1'));
+		writeVersion('7.0.0', '7.0.1');
 		write(releaseNotesPath('7.0.1'), cutJson('7.0.1', 'v7.0.1'));
 		const codeOnly = commit('code-only 7.0.1: data stays 7.0.0');
 		expect(releaseTagFault('v7.0.1', codeOnly, gitShowLookups(repo))).toBeNull();
 		expect(releaseTagFault('v7.0.0', codeOnly, gitShowLookups(repo))).toContain('declares 7.0.1');
+	});
+
+	test('a release commit with no catalog entry for its triple is refused (rule 3)', () => {
+		writeVersion('7.0.5');
+		write(RELEASE_CATALOG_PATH, '{"format":1,"releases":{"7.0.4":{}}}\n');
+		write(releaseNotesPath('7.0.5'), cutJson('7.0.5', 'v7.0.5'));
+		const uncatalogued = commit('7.0.5 cut, no catalog entry');
+		expect(releaseTagFault('v7.0.5', uncatalogued, gitShowLookups(repo))).toContain(
+			"has no '7.0.5' release",
+		);
+	});
+
+	test('a line-start release needs no catalog entry — the line start is the walk base, never a key (rule 3)', () => {
+		write(
+			'src/core/update/version.ts',
+			`${VERSION_TS('7.0.0')}export const DATA_LINE_START: readonly [number, number, number] = Object.freeze([7, 0, 0]) as [number, number, number];\n`,
+		);
+		write(RELEASE_CATALOG_PATH, '{"format":1,"releases":{}}\n');
+		write(SEED_MANIFEST_PATH, '{"format":1,"engine_version":"7.0.0"}\n');
+		write(releaseNotesPath('7.0.0-beta.8'), cutJson('7.0.0-beta.8', 'v7.0.0-beta.8'));
+		const lineStart = commit('7.0.0-beta.8 cut, empty catalog');
+		expect(releaseTagFault('v7.0.0-beta.8', lineStart, gitShowLookups(repo))).toBeNull();
+	});
+
+	test('a release commit whose seed was compiled for another data version is refused (rule 4)', () => {
+		writeVersion('7.0.6');
+		write(SEED_MANIFEST_PATH, '{"format":1,"engine_version":"7.0.5"}\n');
+		write(releaseNotesPath('7.0.6'), cutJson('7.0.6', 'v7.0.6'));
+		const staleSeed = commit('7.0.6 cut, seed of 7.0.5');
+		expect(releaseTagFault('v7.0.6', staleSeed, gitShowLookups(repo))).toContain(
+			'was compiled for data version 7.0.5, but the commit declares 7.0.6',
+		);
 	});
 
 	test("a tag naming another triple than the commit's version.ts is refused", () => {

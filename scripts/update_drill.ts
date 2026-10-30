@@ -172,8 +172,8 @@ function newestCatalogRung(): { from: number[]; to: number[]; data: boolean } {
 		throw new Error(
 			'UPDATE_CATALOG is EMPTY, so there is no upgrade rung to rehearse. The drill will not ' +
 				'invent one: the master advertises releases by walking this catalog, so a synthetic ' +
-				'target would exercise a path no consumer can reach. Add the descriptor for the next ' +
-				'release (engineering/RELEASE.md) and re-run.',
+				'target would exercise a path no consumer can reach. Add the next release to ' +
+				'install/update/catalog.json (engineering/RELEASE.md) and re-run.',
 		);
 	}
 	const newest = descriptors.reduce((best, entry) => {
@@ -1849,9 +1849,11 @@ async function main(): Promise<void> {
 			await Bun.sleep(500);
 		}
 		must(sentinel.status === 'confirmed', `sentinel not confirmed: ${JSON.stringify(sentinel)}`);
+		// RELEASE IDENTITIES on both ends (U-07): what /health answered for the
+		// new tree, and what the consumer ran before the swap.
 		must(
-			sentinel.version === RELEASE_VERSION && sentinel.previousVersion === CURRENT_VERSION,
-			'sentinel names the wrong versions',
+			sentinel.version === health.version && sentinel.previousVersion === consumerIdentity,
+			`sentinel names the wrong identities (want ${String(health.version)} ← ${consumerIdentity}): ${JSON.stringify(sentinel)}`,
 		);
 		must(
 			sentinel.installDigest === builtSha,
@@ -1861,8 +1863,11 @@ async function main(): Promise<void> {
 			// The confirmation above is only meaningful BECAUSE the digest differs
 			// while the versions do not: boot_confirm compared versions until
 			// 2026-08-24, and on this exact path that check confirms a rollback.
+			// Same DATA triple on both ends — the identities may differ (the
+			// consumer may run a tag's identity, the dev build calls itself -dev).
 			must(
-				sentinel.version === sentinel.previousVersion,
+				parseReleaseVersion(String(sentinel.version))?.triple.join('.') ===
+					parseReleaseVersion(String(sentinel.previousVersion))?.triple.join('.'),
 				'the dev drill is not rehearsing a same-version install',
 			);
 			const stamp = JSON.parse(

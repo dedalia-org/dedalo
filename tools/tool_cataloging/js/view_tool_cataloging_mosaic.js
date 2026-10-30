@@ -10,6 +10,7 @@
 	import {window_section_rows} from '../../../core/section/js/section.js'
 	import {ui} from '../../../core/common/js/ui.js'
 	import {set_element_css} from '../../../core/page/js/css.js'
+	import {get_catalog_target_tipos, is_used} from './used_state.js'
 	import {
 		render_column_id
 	} from '../../../core/section/js/render_list_section.js'
@@ -44,9 +45,10 @@
 * 3. `set_drag_and_drop` marks the node draggable and attaches a dragstart handler.
 * 4. `on_dragstart_mosaic` serialises locator + paginated_key as JSON in
 *    dataTransfer so the drop target (thesaurus) can read them.
-* 5. On drop the thesaurus fires `ts_add_child_tool_cataloging`; `render_column_drag`
-*    is subscribed to this event and adds CSS class `used` to the drag indicator
-*    of the matching mosaic card.
+* 5. On drop the thesaurus fires `ts_add_child_tool_cataloging`; the tool inserts
+*    the locator and then re-reads the card's dd1596 (used_state.refresh_used_state),
+*    which sets or clears the CSS class `used` on the drag indicator. A removed term
+*    (delete, emptied link) clears it the same way — see used_state.js.
 *
 * HOVER OVERLAY
 * Each row's hover record (hover columns, `id_variant: 'hover'`) is built by the
@@ -238,8 +240,8 @@ view_tool_cataloging_mosaic.render = async function(self, options) {
 *   3. Attaches drag-and-drop (`set_drag_and_drop`, `paginated_key` = row index).
 *   4. Attaches the `mouseenter` / `mouseleave` listeners that toggle the overlay
 *      and the `mosaic_over` class.
-* Per released row: destroys both records and unsubscribes the drag column's
-* `ts_add_child_tool_cataloging` listeners (see render_column_drag).
+* Per released row: destroys both records and drops the row's drag handle from
+* the section's `drag_nodes` registry (see render_column_drag).
 *
 * CSS from `self.context.css['.content_data'].style.height` is applied inline if
 * present (legacy selector support for per-section overrides stored in the ontology).
@@ -255,6 +257,13 @@ const get_content_data = async function(self, rows, maps) {
 
 	// content_data
 		const content_data = ui.tool.build_content_data(self)
+
+	// drag handle registry (render_column_drag / used_state.js): a new page
+	// starts a new registry, so handles of the previous page are not refreshed.
+	// The release below closes over THIS map: a late release of a previous
+	// page's row cannot delete the same index of the new page.
+		const drag_nodes = new Map()
+		self.drag_nodes = drag_nodes
 
 	// row window
 		if (rows.length > 0) {
@@ -323,8 +332,8 @@ const get_content_data = async function(self, rows, maps) {
 					return section_record_node
 				},
 				release			: async (row, i) => {
-					// the drag column subscribes one listener per rendered card
-					unsubscribe_drag_tokens(self, i)
+					// the drag column registers one handle per rendered card
+					drag_nodes.delete(i)
 					const companion = companions.get(i)
 					companions.delete(i)
 					if (!companion) {
@@ -503,40 +512,6 @@ const render_hover_view = async function(hover_section_record) {
 
 
 /**
-* UNSUBSCRIBE_DRAG_TOKENS
-* Releases the `ts_add_child_tool_cataloging` subscriptions the drag column
-* opened for ONE row (see render_column_drag). Called when the window releases
-* that row: a windowed mosaic re-materializes rows as the user scrolls, so an
-* unreleased listener would accumulate on the shared channel — and would keep
-* pointing at a node that is no longer in the DOM.
-*
-* The tokens live on the SECTION keyed by row index, not on the section_record:
-* a column callback is handed `self.caller` (the section), never the record
-* itself — see view_default_list_section_record.render_callback.
-*
-* @param {Object} self    - Section instance.
-* @param {number} row_key - The released row's page index.
-* @returns {boolean} Always true.
-*/
-const unsubscribe_drag_tokens = function(self, row_key) {
-
-	const ar_tokens = self.ar_drag_tokens instanceof Map
-		? self.ar_drag_tokens.get(row_key)
-		: null
-	if (Array.isArray(ar_tokens)) {
-		for (let i = ar_tokens.length - 1; i >= 0; i--) {
-			event_manager.unsubscribe(ar_tokens[i])
-		}
-		self.ar_drag_tokens.delete(row_key)
-	}
-
-
-	return true
-}//end unsubscribe_drag_tokens
-
-
-
-/**
 * REBUILD_COLUMNS_MAP
 * Builds the final columns_map array handed to the row window (one section_record
 * per row and slice) by prepending
@@ -595,34 +570,32 @@ const rebuild_columns_map = async function(base_columns_map, self, view_mosaic) 
 /**
 * RENDER_COLUMN_DRAG
 * Column cell renderer that produces the drag handle for each mosaic card. The
-* handle doubles as a visual "used" indicator: it gains the CSS class `used` if
-* the record has already been dropped onto a thesaurus hierarchy node.
+* handle doubles as a visual "used" indicator: it carries the CSS class `used`
+* while the record is referenced by a term of a catalog hierarchy loaded in the
+* thesaurus panel.
 *
-* USED DETECTION LOGIC
-* 1. Reads `area_thesaurus.data` to find the dd100 (DEDALO_THESAURUS_TIPO) datum,
-*    then extracts its `value` array filtering for `type === 'hierarchy'` nodes.
-*    These are the hierarchy section types that are loaded as valid drop targets.
-* 2. Reads `section_record.datum.data` for the
-*    `DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS` (dd1596) datum matching the
-*    current record's locator. This datum carries the record's incoming relation
-*    list from the server-side section_info pre-calculation.
-* 3. `get_related_hierarchy` walks that relation list and returns true if any entry's
-*    `from_section_tipo` matches one of the loaded hierarchy target_section_tipos.
+* USED DETECTION LOGIC (used_state.js)
+* 1. `get_catalog_target_tipos` reads the dd100 datum of `area_thesaurus` and
+*    keeps the target_section_tipo of its `type === 'hierarchy'` nodes.
+* 2. The record's `DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS` (dd1596) datum
+*    carries its incoming relations in `entries` (the v7 wire key, WC-001 — v6
+*    used `value`), computed live by the server (component_inverse emit hook).
+* 3. `is_used` is true when any entry's `from_section_tipo` is one of those tipos.
 *
-* EVENT SUBSCRIPTION
-* Subscribes to `ts_add_child_tool_cataloging` on every render call — one
-* subscription per card. The token is stored on the card's section_record
-* (`ar_drag_tokens`) and released by the row window's `release`
-* (unsubscribe_drag_tokens): a windowed row re-materializes as the user scrolls,
-* so an unreleased listener would accumulate on the shared channel.
+* RECALCULATION
+* The handle is registered in the section's `drag_nodes` Map (row_key →
+* {locator, node}); the row window's release deletes it. The tool's
+* refresh_used_state re-reads dd1596 for the registered cards after a drop, a
+* term delete, a save of the term link component and a return to the window, and
+* toggles `used` from that answer — a removed term clears the marker.
 *
 * @param {Object} options
 * @param {Object} options.caller - The tool_cataloging-owned SECTION instance (a
 *   column callback receives the record's `caller`, not the record itself).
 * @param {Object} options.caller.caller - The tool_cataloging instance, giving
 *   access to `area_thesaurus`.
-* @param {number} options.row_key - The row's page index; keys the subscription
-*   token released when the row window releases the row.
+* @param {number} options.row_key - The row's page index; keys the registry entry
+*   deleted when the row window releases the row.
 * @param {Object} options.locator - Locator of the record being rendered
 *   ({ section_id, section_tipo }).
 * @returns {DocumentFragment} Fragment containing the dragger div (and the used indicator).
@@ -637,75 +610,36 @@ const render_column_drag = function(options) {
 		const tool_caller		= caller.caller
 		const locator			= options.locator
 
-	// area_thesaurus
-		const area_thesaurus = tool_caller.area_thesaurus
-
-	// get hierarchy sections
-	const data			= area_thesaurus.data.find(item => item.tipo==='dd100')
-	const hierarchies	= data && data.value
-		? data.value.filter(node => node.type==='hierarchy')
-		: []
+	// catalog hierarchies loaded in the thesaurus panel
+		const target_tipos = get_catalog_target_tipos(tool_caller.area_thesaurus)
 
 	// get inverse_relations data
 		const inverse_relations_tipo = DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS
 		const relation_data = caller.datum.data.find(el => el.tipo === inverse_relations_tipo
 			&& el.section_tipo === locator.section_tipo
-			&& el.section_id === locator.section_id)
+			&& String(el.section_id) === String(locator.section_id))
 
-	// check if the hierarchies of catalog loaded in area_thesarurs has relation with current locator.
-	function get_related_hierarchy(relation_value) {
-		// get every target_section_tipo loaded as possible catalog hierarchy
-		for (let i = hierarchies.length - 1; i >= 0; i--) {
-			const current_tipo = hierarchies[i].target_section_tipo
-			const found = relation_value.find(el => el.from_section_tipo === current_tipo)
-			if(found){
-				return true
-			}
-		}
-		return false
-	}
-	// if current section_record has relations, it has value, check with hierarchies
-	// else it doesn't has value and set use as false
-		const used = relation_data && relation_data.value
-			? get_related_hierarchy(relation_data.value)
-			: false
+	// used: the record has an incoming relation from a catalog hierarchy term
+		const used = is_used(relation_data?.entries, target_tipos)
 
 	// DocumentFragment
 		const fragment = new DocumentFragment()
 
-	// already used columns drag indication
-		const used_class = used
-			? ' used'
-			: ''
-
 	// drag_item
 		const draged_node = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'dragger' + used_class,
+			class_name		: 'dragger' + (used ? ' used' : ''),
 			parent			: fragment
 		})
 
-	// ts_add_child_tool_cataloging event subscription
-		// when the user drop a node in thesaurus, it send an event
-		// use it to change the class of the dragged
-		// The token is stored on the section, keyed by the row's page index: the
-		// row window's release unsubscribes it (unsubscribe_drag_tokens) when the
-		// row leaves the window.
-		const drag_token = event_manager.subscribe('ts_add_child_tool_cataloging', add_data_to_ts_component)
-		caller.ar_drag_tokens = (caller.ar_drag_tokens instanceof Map)
-			? caller.ar_drag_tokens
+	// registry. The tool's refresh_used_state toggles `used` on this node
+		caller.drag_nodes = (caller.drag_nodes instanceof Map)
+			? caller.drag_nodes
 			: new Map()
-		const ar_row_tokens = caller.ar_drag_tokens.get(options.row_key) || []
-		ar_row_tokens.push(drag_token)
-		caller.ar_drag_tokens.set(options.row_key, ar_row_tokens)
-		async function add_data_to_ts_component(options) {
-			// the locator drag by the user (the section as the term of the ts)
-			const added_locator = options.locator
-
-			if(added_locator.section_id === locator.section_id && added_locator.section_tipo === locator.section_tipo){
-				draged_node.classList.add('used')
-			}
-		}
+		caller.drag_nodes.set(options.row_key, {
+			locator	: locator,
+			node	: draged_node
+		})
 
 
 	return fragment

@@ -14,8 +14,9 @@
 # THE .dedalo.env CONTRACT (host side only — never the engine's /private/.env):
 #   DEDALO_COMPOSE_FILE   the stack: docker-compose.simple.yml | docker-compose.yml
 #   DEDALO_IMAGE          the repository, no tag (localhost/dedalo for a local build)
-#   DEDALO_VERSION        the pinned tag: X.Y.Z, X.Y.Z-(alpha|beta|rc).N for a prerelease,
-#                         or X.Y.Z-dev for a developer image (dedalo_version_grammar)
+#   DEDALO_VERSION        the pinned tag: X.Y.Z, or X.Y.Z-(alpha|beta|rc).N for a prerelease.
+#                         The grammar (dedalo_version_grammar) also parses X.Y.Z-dev, but no
+#                         host tool installs one: Docker has no nightly images (dedalo_is_dev_tag)
 #   DEDALO_IMAGE_MODE     pull | build
 #   DEDALO_IMAGE_VERIFY   cosign | none
 # Writer: the terminal installer (src/core/install/host/stack/files.ts — docker and

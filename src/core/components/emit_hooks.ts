@@ -28,6 +28,7 @@ import type { DataItem, EmissionContext } from '../resolve/component_data.ts';
 import { externalEmitHook } from './component_external/emit.ts';
 import { filterRecordsEmitHook } from './component_filter_records/emit.ts';
 import { infoEmitHook } from './component_info/emit.ts';
+import { inverseEmitHook } from './component_inverse/emit.ts';
 import { sectionIdEmitHook } from './component_section_id/emit.ts';
 import { securityAccessEmitHook } from './component_security_access/emit.ts';
 import { textAreaEmitHook } from './component_text_area/emit.ts';
@@ -106,6 +107,7 @@ const EMIT_HOOKS: Readonly<Record<EmitHookId, ComponentEmitHook>> = {
 	filter_records: filterRecordsEmitHook,
 	security_access: securityAccessEmitHook,
 	external: externalEmitHook,
+	inverse: inverseEmitHook,
 };
 
 /** The emit hook a model's descriptor declares, or undefined (generic path). */

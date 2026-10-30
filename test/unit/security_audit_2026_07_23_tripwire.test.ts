@@ -208,6 +208,10 @@ describe('AUTHZ-05: inverse-reference scan is principal-scoped at the user-facin
 			kind: 'door',
 			why: "mode='related' paginator: the total is an existence count — countInverseReferences scoped by rowScopeFor (D1)",
 		},
+		'src/core/components/component_inverse/emit.ts': {
+			kind: 'door',
+			why: "component_inverse's emitted backlinks (tool_cataloging's 'used' marker, the component's list/edit views): the owners of a host record go back to the requester, so they are scoped by scopeInverseReferenceHits",
+		},
 		'src/core/section/indexation_grid.ts': {
 			kind: 'door',
 			why: 'the thesaurus indexation grid (2026-08 test6813 beta §5.4); the read-grant half of its scoping diverges from PHP — WC-2026-08-09-indexation-grid-read-grant-scope',

@@ -1,9 +1,12 @@
 /**
  * Ontology UPDATE orchestrator (UPDATE_PROCESS Phase 2) — the TS twin of PHP
  * widgets/update_ontology::update_ontology(). Options come from the
- * byte-identical client: `{server, files, info}` — the CLIENT fetched the
- * manifest from the selected master and built the file list (matrix_dd
- * prepended); this engine validates, stages, and imports.
+ * byte-identical client: `{server, files, info}` — the client fetched the
+ * manifest to SHOW it and relays which TLDs (matrix_dd prepended); since
+ * 2026-10-30 (U-08/U-41) the engine reads the master's manifest ITSELF,
+ * refuses an ontology on another data model or source, and stages each file
+ * as the MANIFEST describes it (ontology_update_source.ts) — then validates,
+ * stages, and imports.
  *
  * PHP step order preserved: download per file → per-TLD import branch
  * (matrix_dd = whole-table private lists; others = add_main_section +
@@ -57,19 +60,26 @@ import {
 	searchDdOntology,
 	validateDdOntologyIdentifierConstraints,
 } from '../db/dd_ontology.ts';
+import { MATRIX_TABLE_ALLOWLIST } from '../db/matrix.ts';
 import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
+import { DedaloError } from '../errors/index.ts';
 import { connFromConfig, type DbConnDescriptor, runPsqlScript } from '../install/pg_exec.ts';
 import { engineOwnsInstall } from '../update/ownership.ts';
 import { clearOntologyDerivedCaches } from './cache_invalidation.ts';
+import { isTestFixtureTld } from './core_tlds.ts';
 import { isSafeSectionTipo, setOntologyIoPath } from './data_io.ts';
 import {
 	assertTlsVerificationOn,
 	confinedPath,
 	consolidateSectionCounter,
+	countRecordsBySectionTipo,
 	importFromCopyFile,
 	MAX_MANIFEST_FILES,
 	normalizeOntologyTld,
 	type OntologyIoResponse,
+	type StagedSliceChange,
+	type StoredModelLocator,
+	stagedOntologyDiff,
 } from './data_io_import.ts';
 import { reportMissingDependencies } from './dependency_report.ts';
 import { termByTipo } from './labels.ts';
@@ -79,6 +89,8 @@ import {
 	rebuildFailure,
 	rebuildOntology,
 } from './ontology_state.ts';
+import { STRUCTURE_LANG } from './ontology_tipos.ts';
+import { type OntologySourceDeps, resolveOntologySource } from './ontology_update_source.ts';
 import {
 	type OntologyUpdateCatalog,
 	resolveUpdateTarget,
@@ -91,6 +103,7 @@ import {
 	isTypologyGrouperTld,
 	syncMainSectionFromDefinition,
 } from './ontology_write.ts';
+import { getTermIdFromLocator } from './parser.ts';
 import { getOrderedSubtree } from './resolver.ts';
 import { LOCAL_ONTOLOGY_SECTION } from './tld.ts';
 
@@ -325,6 +338,57 @@ export const updateOntologyOptionsSchema = z.object({
 export type UpdateOntologyOptions = z.infer<typeof updateOntologyOptionsSchema>;
 
 /**
+ * The core TLD pair an update always offers, whatever `ACTIVE_ONTOLOGY_TLDS`
+ * says (the update panel unions it into its list — widgets/update_ontology.ts).
+ */
+export const CORE_UPDATE_TLDS: readonly string[] = ['ontology', 'ontologytype'];
+
+/**
+ * TLDs an update may NEVER touch, even when configured: the installation's own
+ * local ontology (`localontology0`) is not a shared ontology (owner rule
+ * 2026-10-29 — an update replaces shared TLDs only).
+ */
+const NEVER_UPDATED_TLDS: ReadonlySet<string> = new Set([LOCAL_ONTOLOGY_SECTION.slice(0, -1)]);
+
+/**
+ * U-52 — the SERVER-computed set of TLDs an ontology update may replace:
+ * the configured active TLDs ∪ the core pair ∪ `matrix_dd` (the shared value
+ * lists the ontology process owns), minus the never-updated local ontology.
+ * The client's own filter is a convenience, never the boundary.
+ */
+export function admissibleUpdateTlds(activeTlds: readonly string[]): Set<string> {
+	const admissible = new Set([...activeTlds, ...CORE_UPDATE_TLDS, 'matrix_dd']);
+	for (const tld of NEVER_UPDATED_TLDS) admissible.delete(tld);
+	// the suite's fixture TLD never reaches an installation (core_tlds.ts)
+	for (const tld of admissible) if (isTestFixtureTld(tld)) admissible.delete(tld);
+	return admissible;
+}
+
+/**
+ * Refuse the WHOLE update (`update.refused`, nothing staged) when any requested
+ * file names a TLD outside {@link admissibleUpdateTlds}: a crafted request must
+ * not replace an inactive or local TLD. Names every offending TLD. Sits on the
+ * UPDATE door only — the installer drives the shared lower layer
+ * (`importStagedOntologyFiles`) with its own resolved plan.
+ */
+export function assertUpdateTldScope(
+	files: readonly { readonly tld: string }[],
+	activeTlds: readonly string[],
+): void {
+	const admissible = admissibleUpdateTlds(activeTlds);
+	const offending = [...new Set(files.map((file) => file.tld))].filter(
+		(tld) => !admissible.has(tld),
+	);
+	if (offending.length === 0) return;
+	const sentence = `Error. Ontology update refused: TLD(s) outside the active ontology set (ACTIVE_ONTOLOGY_TLDS): ${offending.join(', ')}`;
+	throw new DedaloError('update.refused', {
+		message: sentence,
+		publicMessage: sentence,
+		coordinates: { tlds: offending.join(',') },
+	});
+}
+
+/**
  * Single-flight latch — two concurrent runs must never interleave DELETEs. ONE
  * flag for every door that imports ontology files (the update panel and the
  * installer): claimed and released through the two functions below.
@@ -428,7 +492,7 @@ async function optimizeTables(
  * `IS_AN_ONTOLOGY_SERVER`) and therefore DIFFERENT on every machine. Without
  * it a gate takes a different branch on a developer box than on a CI clone.
  */
-export interface UpdateOntologyDeps {
+export interface UpdateOntologyDeps extends OntologySourceDeps {
 	/** psql seam for the snapshot/COPY steps; defaults to the configured DB. */
 	conn?: DbConnDescriptor;
 	/** Ontology-server catalog the target is re-resolved against (WC-023 D5). */
@@ -437,6 +501,12 @@ export interface UpdateOntologyDeps {
 	ioBaseDir?: string;
 	/** Directory the operator-facing schema-changes artifact is written to. */
 	changesDir?: string;
+	/**
+	 * The configured active TLDs the request is scoped against (U-52);
+	 * defaults to `config.ontologyIo.activeOntologyTlds` — env-shaped like
+	 * `catalog`, so a gate injects it to take the same branch on every machine.
+	 */
+	activeTlds?: readonly string[];
 }
 
 /**
@@ -447,8 +517,13 @@ export interface UpdateOntologyDeps {
 function resolveUpdateDeps(deps: UpdateOntologyDeps): {
 	conn: DbConnDescriptor;
 	catalog: OntologyUpdateCatalog;
+	activeTlds: readonly string[];
 } {
-	return { conn: deps.conn ?? connFromConfig(), catalog: deps.catalog ?? config.ontologyIo };
+	return {
+		conn: deps.conn ?? connFromConfig(),
+		catalog: deps.catalog ?? config.ontologyIo,
+		activeTlds: deps.activeTlds ?? config.ontologyIo.activeOntologyTlds,
+	};
 }
 
 /**
@@ -490,7 +565,7 @@ export async function updateOntology(
 	userId: number,
 	deps: UpdateOntologyDeps = {},
 ): Promise<OntologyIoResponse> {
-	const { conn, catalog } = resolveUpdateDeps(deps);
+	const { conn, catalog, activeTlds } = resolveUpdateDeps(deps);
 	const response: OntologyIoResponse = {
 		ok: false,
 		msg: 'Error. Request failed [update_ontology::update_ontology]',
@@ -519,6 +594,14 @@ export async function updateOntology(
 		response.msg = target.msg;
 		return response;
 	}
+
+	// U-52: the TLD scope is decided HERE, server-side — before the latch, the
+	// io dir and any staging. Throws `update.refused` naming the offenders.
+	assertUpdateTldScope(options.files, activeTlds);
+	// U-08 / U-41: the server reads the master's manifest itself, refuses an
+	// ontology on another data model, and takes each file from the MANIFEST
+	// (URL, names, dependencies) — the browser only relays which TLDs.
+	const files = await resolveOntologySource(options.files, target, catalog, deps);
 
 	if (!claimOntologyImportLatch()) {
 		response.errors.push('an ontology update is already running');
@@ -551,7 +634,7 @@ export async function updateOntology(
 		// ------------------------------------------------------------------
 		rmSync(stagingDir, { recursive: true, force: true });
 		mkdirSync(stagingDir, { recursive: true });
-		const staging = await stageOntologyFiles(options.files, target, { ioPath, stagingDir });
+		const staging = await stageOntologyFiles(files, target, { ioPath, stagingDir });
 		if ('errors' in staging) {
 			response.errors.push(...staging.errors);
 			if (staging.msg !== undefined) response.msg = staging.msg;
@@ -559,6 +642,13 @@ export async function updateOntology(
 		}
 		const staged = staging.staged;
 		messages.push(...staging.messages);
+
+		// U-14: what this package is about to remove / re-model, measured against
+		// the rows still in place (before Phase B). Report only (D-6) — rides the
+		// response (`census`) on success AND failure; never refuses.
+		const census = await censusStagedPackages(staged, conn);
+		response.census = census.census;
+		messages.push(...census.lines);
 
 		// Pre-import schema for the operator-facing changes artifact. Captured
 		// HERE — after every refusal gate, before the shared layer's Phase B and
@@ -641,6 +731,159 @@ export async function updateOntology(
 		rmSync(stagingDir, { recursive: true, force: true });
 		releaseOntologyImportLatch();
 	}
+}
+
+// ---------------------------------------------------------------------------
+// U-14 — THE IMPORT CENSUS (report only — D-6: report, never refuse)
+// ---------------------------------------------------------------------------
+
+/** A node of `<tld>0` the package no longer carries. `records`: see OntologyImportCensus. */
+export interface CensusRemovedNode {
+	tipo: string;
+	model: string | null;
+	records?: number | null;
+}
+
+/** A node the package keeps under ANOTHER model. `records`: see OntologyImportCensus. */
+export interface CensusRemodelledNode {
+	tipo: string;
+	from: string | null;
+	to: string | null;
+	records?: number | null;
+}
+
+/**
+ * The census of one staged TLD, taken after staging and before Phase B/C: what
+ * the import is about to REMOVE from `<tld>0` and what it RE-MODELS (same tipo,
+ * another ontology6 model). A model is its model node's `lg-spa` term, read the
+ * way the parser reads it (ontology6 locator → getTermIdFromLocator →
+ * dd_ontology term) — or the model TIPO when that node is not in dd_ontology
+ * yet (a model the same update introduces), null when no model is stated.
+ * Overrides (localontology0) are not applied: the census compares the canonical
+ * rows the import replaces. `records` is set only when the node's CURRENT model
+ * is `section`: how many records are stored under that tipo across the matrix
+ * record tables (null = the count failed). Response key `census` — one entry
+ * per node-deriving staged TLD, findings or not.
+ */
+export interface OntologyImportCensus {
+	tld: string;
+	removed: CensusRemovedNode[];
+	remodelled: CensusRemodelledNode[];
+}
+
+/**
+ * The census of every node-deriving staged TLD + one message line per TLD with
+ * findings (or whose census could not be read). Read-only; it never fails an
+ * update — one read-only psql round trip per TLD (data_io_import.stagedOntologyDiff),
+ * plus one count per TLD that drops or re-models a section.
+ */
+export async function censusStagedPackages(
+	staged: readonly StagedFile[],
+	conn: DbConnDescriptor,
+): Promise<{ census: OntologyImportCensus[]; lines: string[] }> {
+	const report = { census: [] as OntologyImportCensus[], lines: [] as string[] };
+	for (const file of staged.filter(derivesNodes)) {
+		const entry = await censusPackage(file, conn);
+		if (entry === null) {
+			report.lines.push(
+				`${file.tld}: import census unavailable (its read-only diff failed) — the import proceeds`,
+			);
+			continue;
+		}
+		report.census.push(entry);
+		const line = censusLine(entry);
+		if (line !== null) report.lines.push(line);
+	}
+	return report;
+}
+
+async function censusPackage(
+	file: StagedFile,
+	conn: DbConnDescriptor,
+): Promise<OntologyImportCensus | null> {
+	const changes = await stagedOntologyDiff(file.sectionTipo, file.stagedPath, conn);
+	if (changes === null) return null;
+	const entry: OntologyImportCensus = { tld: file.tld, removed: [], remodelled: [] };
+	for (const change of changes) await addCensusChange(entry, change);
+	await attachSectionRecordCounts(entry, conn);
+	return entry;
+}
+
+async function addCensusChange(
+	entry: OntologyImportCensus,
+	change: StagedSliceChange,
+): Promise<void> {
+	const tipo = `${entry.tld}${change.sectionId}`;
+	const from = await censusModel(change.from);
+	if (change.kind === 'removed') {
+		entry.removed.push({ tipo, model: from });
+		return;
+	}
+	const to = await censusModel(change.to);
+	// two different locators naming the same model are not a re-model
+	if (from !== to) entry.remodelled.push({ tipo, from, to });
+}
+
+/** A stored ontology6 locator → its model (OntologyImportCensus: the parser's reading). */
+async function censusModel(locator: StoredModelLocator): Promise<string | null> {
+	if (locator === null || typeof locator !== 'object') return null;
+	const modelTipo = await getTermIdFromLocator(
+		locator as Parameters<typeof getTermIdFromLocator>[0],
+	);
+	if (modelTipo === null) return null;
+	const row = await readDdOntologyRow(modelTipo);
+	return row?.term?.[STRUCTURE_LANG] ?? modelTipo;
+}
+
+/** `records` on every removed / re-modelled node whose current model is `section`. */
+async function attachSectionRecordCounts(
+	entry: OntologyImportCensus,
+	conn: DbConnDescriptor,
+): Promise<void> {
+	const sections: { tipo: string; records?: number | null }[] = [
+		...entry.removed.filter((node) => node.model === 'section'),
+		...entry.remodelled.filter((node) => node.from === 'section'),
+	];
+	if (sections.length === 0) return;
+	const counts = await countRecordsBySectionTipo(
+		sections.map((node) => node.tipo),
+		MATRIX_TABLE_ALLOWLIST,
+		conn,
+	);
+	for (const node of sections)
+		node.records = counts === null ? null : Number(counts[node.tipo] ?? 0);
+}
+
+/** First ten items, then `…+N`. */
+function censusList(items: readonly string[]): string {
+	const head = items.slice(0, 10).join(', ');
+	return items.length > 10 ? `${head}, …+${items.length - 10}` : head;
+}
+
+/** The operator line of one TLD's census; null when it found nothing. */
+function censusLine(entry: OntologyImportCensus): string | null {
+	const parts: string[] = [];
+	if (entry.removed.length > 0) {
+		parts.push(
+			`${entry.removed.length} node(s) removed (${censusList(entry.removed.map((n) => n.tipo))})`,
+		);
+	}
+	if (entry.remodelled.length > 0) {
+		const named = entry.remodelled.map((n) => `${n.tipo} ${n.from ?? '?'} → ${n.to ?? '?'}`);
+		parts.push(`${entry.remodelled.length} node(s) re-modelled (${censusList(named)})`);
+	}
+	if (parts.length === 0) return null;
+	return `${entry.tld}: import census — ${parts.join('; ')}${censusRecordsTail(entry)} (report only — the import proceeds)`;
+}
+
+/** The records clause of a census line: stored records under dropped / re-modelled sections. */
+function censusRecordsTail(entry: OntologyImportCensus): string {
+	const counted = [...entry.removed, ...entry.remodelled].filter((n) => n.records !== undefined);
+	if (counted.some((n) => n.records === null)) {
+		return '; record count of the affected section(s) unavailable';
+	}
+	const total = counted.reduce((sum, n) => sum + (n.records ?? 0), 0);
+	return total > 0 ? `; ${total} record(s) are stored under the affected section(s)` : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -765,8 +1008,13 @@ export async function restoreAfterThrow(
 	}
 	progress.errors.push((error as Error).message);
 	if (progress.mutated.length === 0) return null;
-	await restoreSnapshots(progress.mutated, ctx.recoveryDir, ctx.conn, progress.errors);
-	return restoreFailureMessage(progress.provisioned, progress.errors);
+	const complete = await restoreSnapshots(
+		progress.mutated,
+		ctx.recoveryDir,
+		ctx.conn,
+		progress.errors,
+	);
+	return restoreFailureMessage(progress.provisioned, progress.errors, complete);
 }
 
 /** Phase B: one snapshot per staged slice; false (with the refusal set) when one cannot be taken. */
@@ -801,15 +1049,25 @@ function snapshotStagedSlice(
 		: snapshotTableRows('matrix_ontology', file.sectionTipo, outFile, conn);
 }
 
-/** Restore everything replaced so far (+ `file`) and set the failure line; always false. */
+/**
+ * Restore everything replaced so far (+ `file`) and set the failure line; always
+ * false. The line is restoreFailureMessage's, whatever failed: the cause (a COPY
+ * error, `ontology7 normalization failed for …`) is already an `errors` line, and
+ * only that function may say what the restore achieved (U-17 — a provisioned TLD
+ * is "partial", an incomplete restore says so, never "restored").
+ */
 async function failImport(
 	file: StagedFile,
 	ctx: StagedImportContext,
 	result: StagedImportResult,
-	msg: string | null,
 ): Promise<false> {
-	await restoreSnapshots(result.mutated.concat(file), ctx.recoveryDir, ctx.conn, result.errors);
-	result.msg = msg ?? restoreFailureMessage(result.provisioned, result.errors);
+	const complete = await restoreSnapshots(
+		result.mutated.concat(file),
+		ctx.recoveryDir,
+		ctx.conn,
+		result.errors,
+	);
+	result.msg = restoreFailureMessage(result.provisioned, result.errors, complete);
 	return false;
 }
 
@@ -832,16 +1090,7 @@ async function importStagedFile(
 	});
 	result.messages.push(...outcome.messages);
 	result.errors.push(...outcome.errors);
-	if (outcome.fatal !== null) {
-		return failImport(
-			file,
-			ctx,
-			result,
-			outcome.fatal === 'normalize'
-				? 'Error. ONT-TLD normalization failed — previous state restored'
-				: null,
-		);
-	}
+	if (outcome.fatal !== null) return failImport(file, ctx, result);
 	result.mutated.push(file);
 	return true;
 }
@@ -861,7 +1110,7 @@ async function importStagedPrivateLists(
 	result.messages.push(imported.msg);
 	if (imported.ok !== true) {
 		result.errors.push(...imported.errors);
-		return failImport(file, ctx, result, null);
+		return failImport(file, ctx, result);
 	}
 	result.mutated.push(file);
 	return true;
@@ -939,35 +1188,66 @@ async function deriveLandedImport(
  * "previous state restored" after a provisioned TLD is a FALSE statement about
  * the database — the actual defect. When nothing was provisioned the original
  * claim is true and its PHP bytes are kept verbatim.
+ *
+ * U-17 (2026-10-30): "matrix rows restored" is now TRUE for a TLD that was
+ * EMPTY before the import — restoreSnapshots replays an empty snapshot as an
+ * empty slice (the scoped DELETE runs; it used to be skipped, defect D9). And a
+ * restore that did NOT complete (`restoreComplete` false: a snapshot missing or
+ * its replay failed — each named in `errors`) never claims anything was
+ * restored: the line says the restore is INCOMPLETE. The provisioned registry
+ * record + root node stay the "partial" case — never "restored".
  */
-export function restoreFailureMessage(provisioned: readonly string[], errors: string[]): string {
+export function restoreFailureMessage(
+	provisioned: readonly string[],
+	errors: string[],
+	restoreComplete = true,
+): string {
+	if (provisioned.length > 0) {
+		errors.push(
+			`registry record (matrix_ontology_main) and dd_ontology root node NOT reverted for: ${provisioned.join(', ')} — MANUAL REVIEW REQUIRED`,
+		);
+	}
+	if (!restoreComplete) {
+		return 'Error. Import failed — the restore is INCOMPLETE (see errors); the database state is partial';
+	}
 	if (provisioned.length === 0) return 'Error. Import failed — previous state restored';
-	errors.push(
-		`registry record (matrix_ontology_main) and dd_ontology root node NOT reverted for: ${provisioned.join(', ')} — MANUAL REVIEW REQUIRED`,
-	);
 	return 'Error. Import failed — matrix rows restored; registry and dd_ontology state may be partial';
 }
 
-/** Restore every mutated table from the Phase-B snapshots (best-effort, loud). */
+/**
+ * Restore every mutated table from the Phase-B snapshots (best-effort, loud).
+ * A snapshot is what the slice WAS, so an EMPTY one restores an empty slice
+ * (`emptyFile: 'empty_slice'` — the scoped DELETE runs; U-17). True when every
+ * file was restored; each failure is a named `errors` line.
+ */
 export async function restoreSnapshots(
 	files: readonly StagedFile[],
 	recoveryDir: string,
 	conn: DbConnDescriptor,
 	errors: string[],
-): Promise<void> {
+): Promise<boolean> {
+	let complete = true;
 	for (const file of files) {
 		const snapshot = confinedPath(recoveryDir, `${file.tld}.copy`);
 		if (snapshot === null || !statSafe(snapshot)) {
 			errors.push(`recovery snapshot missing for ${file.tld} — MANUAL RESTORE REQUIRED`);
+			complete = false;
 			continue;
 		}
 		const restored = await importFromCopyFile(
 			file.tld === 'matrix_dd'
-				? { filePath: snapshot, matrixTable: 'matrix_dd', deleteTable: true, conn }
+				? {
+						filePath: snapshot,
+						matrixTable: 'matrix_dd',
+						deleteTable: true,
+						emptyFile: 'empty_slice',
+						conn,
+					}
 				: {
 						filePath: snapshot,
 						matrixTable: 'matrix_ontology',
 						sectionTipo: file.sectionTipo,
+						emptyFile: 'empty_slice',
 						conn,
 					},
 		);
@@ -975,8 +1255,10 @@ export async function restoreSnapshots(
 			errors.push(
 				`RESTORE FAILED for ${file.tld}: ${restored.errors.join('; ')} — MANUAL RESTORE REQUIRED from ${snapshot}`,
 			);
+			complete = false;
 		}
 	}
+	return complete;
 }
 
 function statSafe(path: string): boolean {

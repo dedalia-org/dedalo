@@ -535,8 +535,7 @@ const CLIENT_DOWNLOAD_SHAPE =
  * SHRINK-ONLY: a browser-built download that is NOT an export, with the reason.
  * A stale entry (the file no longer builds one) is red.
  */
-const CLIENT_DOWNLOAD_EXEMPT: Readonly<Record<string, string>> = {
-};
+const CLIENT_DOWNLOAD_EXEMPT: Readonly<Record<string, string>> = {};
 
 /**
  * The shipped code files, from the registered shared lister

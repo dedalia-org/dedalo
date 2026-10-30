@@ -294,7 +294,7 @@ httpRoutes: [
 - top-level `name` key → the flat **authoring** format (`authoringRegisterSchema`, a Zod mirror of `src/core/tools/register.schema.json`) — converted to the column-keyed shape;
 - column-keyed (`data`/`string`/`relation`/…) → pass-through, validated as-is. **All 34 in-repo `register.json` files are this form** — they are seeded matrix-row dumps, not hand-authored files.
 
-**Write gating.** `importTools` defaults to **dry-run** (`config.tools.enableRegistryImport = false`): for every tool it reports whether the registry already reflects the declared identity (empty diff = no-op), writing nothing. The write path (`enableRegistryImport = true`) is gated behind the write-parity procedure in `engineering/TOOLS_SPEC.md` (a `test/parity/tools_register_differential.test.ts` no-op gate plus one manual scratch-DB write-parity run) before it may be documented as supported.
+**Write gating.** `importTools()` without options is a **dry run**: for every tool it reports whether the registry already reflects the declared identity (empty diff = no-op), writing nothing. A caller writes by passing `dryRun: false` — the installer, the *Register tools* widget, and the code update's ancillary phase (which passes `keepStoredActive: true`, so each tool keeps the Active value an administrator stored).
 
 A missing/invalid `apiActions` shape, a `tool.name` that does not match the directory, or a lifecycle hook listed inside `apiActions` all fail the loader's `validateModule` check (logged, tool absent from the registry) — there is no silent partial registration.
 

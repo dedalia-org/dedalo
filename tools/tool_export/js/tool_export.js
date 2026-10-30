@@ -124,6 +124,7 @@ export const tool_export = function () {
 	tool_export.prototype.build_export_component		= render_tool_export.prototype.build_export_component
 	tool_export.prototype.component_has_parent_targets	= render_tool_export.prototype.component_has_parent_targets
 	tool_export.prototype.update_parents_checks_state	= render_tool_export.prototype.update_parents_checks_state
+	tool_export.prototype.update_lang_state			= render_tool_export.prototype.update_lang_state
 	tool_export.prototype.sync_ar_ddo_to_export			= render_tool_export.prototype.sync_ar_ddo_to_export
 	// server round-trip helper (components_with_parent action — WC-049)
 	tool_export.prototype.tool_request					= tool_common.prototype.tool_request
@@ -450,6 +451,7 @@ tool_export.prototype.start_export_job = function(options) {
 		model				: self.caller.model,
 		data_format			: options.data_format,
 		breakdown			: options.breakdown || 'default',
+		lang				: options.lang,
 		fill_the_gaps		: options.fill_the_gaps,
 		ar_ddo_to_export	: options.ar_ddo_to_export,
 		sqo					: sqo

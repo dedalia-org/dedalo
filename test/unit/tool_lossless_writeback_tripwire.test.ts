@@ -1666,6 +1666,12 @@ else {
 				'the PURE grammar of an online migration (its header: no DB import, nothing that writes a row); the install seed compiler reads only isOnlineMigration() to choose whether a migration file runs in one transaction.',
 		},
 		{
+			id: 'migration-ledger',
+			matches: (target) => target === 'install/db/migration_ledger.ts',
+			reason:
+				'the FROZEN MIGRATION LEDGER reader + the compatible-class lexer (update audit U-23): imports only node:fs readFile and node:path, no DB handle — it reads migrations.lock.json and judges SQL text, and writes nothing.',
+		},
+		{
 			id: 'json-data',
 			matches: (target) => target.endsWith('.json'),
 			reason:
@@ -3982,6 +3988,7 @@ else {
 				'suite',
 				'migration-runner',
 				'online-migration-grammar',
+				'migration-ledger',
 				'json-data',
 				'tool-client-js',
 				'tools-js-leaf',

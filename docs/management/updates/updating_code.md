@@ -1,12 +1,12 @@
 # Updating code
 
-> See also: [Updating ontology](updating_ontology.md) · [Updating data](updating_data.md) · [How a code update works](updating_code_options.md)
+> See also: [The update run](index.md#the-update-run) · [Updating ontology](updating_ontology.md) · [Updating data](updating_data.md) · [How a code update works](updating_code_options.md)
 
 Dédalo is an active, rapidly developing software project. It is therefore important to keep it updated and in good condition for stability and security reasons.
 
 The maintenance-panel **self-update** (below), driven by a configured code server, is how an instance installed by the installer is updated; it operates on this install's own tree. A container installation updates by image instead ([below](#installations-that-run-from-a-container-image)), and a git checkout — a development machine, or a [host set up by hand](../../install/manual_host.md) — can also be updated with a **manual** `git pull` (see [Updating manually](#updating-manually)).
 
-The update process is based on the Dédalo cadence numbering. Versions are installed step by step — the updater refuses to skip **any** version, patch releases included: the only target it accepts is the very next rung — and a code version sometimes depends on the ontology version. Update the ontology before updating the Dédalo code, following [this guide](updating_ontology.md).
+The update process is based on the Dédalo cadence numbering. Versions are installed step by step — the updater refuses to skip **any** version, patch releases included: the only target it accepts is the very next rung. A code update is one [update run](index.md#the-update-run): the code swap is one of its phases, and the ontology, schema, data and ancillary phases the release declares run in the release's order, after the swap or (an ontology precondition) before it. You do not update the ontology or the data by hand around a code update.
 
 Updating the Dédalo code should be supervised by the IT team. Some changes — such as **new configuration settings** — must be applied manually in `../private/.env`, because neither update path touches your configuration.
 
@@ -78,9 +78,10 @@ after the update.
     dangerous mistake left.
 
 The update **refuses to start** — it does not merely warn — unless the operator
-is the superuser (`root`), the server is in **maintenance mode**, and a
-**recent database backup** exists. The backup requirement is the one an
-operator can waive: when the backup is stale or missing, the version modal
+is the superuser (`root`) and a **recent database backup** exists, proven
+restorable. The readiness panel also blocks the Update button until the server
+is in **maintenance mode**; the run then holds maintenance mode until it ends.
+The backup requirement is the one an operator can waive: when the backup is stale or missing, the version modal
 offers an **Update without a recent database backup** checkbox above the Update
 button, and every waiver is logged loudly in the server log with the requesting
 user. It waives the *database* backup only — the code backup is the swap itself
@@ -90,6 +91,32 @@ data inside the code tree, an unaccounted file at the tree root, a
 containerised (image) deployment, a Bun version mismatch, a failed dependency
 install or pre-flight boot of the new tree; see
 [How a code update works](updating_code_options.md#what-else-makes-the-update-refuse).
+
+### The update run
+
+**Update code** starts an [update run](index.md#the-update-run): one journaled process that takes
+the installation from its version to the chosen one, with the code swap as one of its phases.
+The server reads the code server's release list itself and plans every phase of the release from
+the steps the code server publishes for it (`install/update/catalog.json` on the code server). A
+release the code server does not offer is refused before anything changes.
+
+In short, for a release that declares no steps:
+
+1. Preflight (the superuser), maintenance mode on, the run's database backup (or your waiver).
+2. The `code` phase: the pipeline in [How a code update works](updating_code_options.md), which
+   restarts the server onto the new code.
+3. After the restart the run resumes from its journal, in the new code: the `ontology`,
+   `schema` (the migrations, applied by the run, not at boot) and `ancillary` phases.
+4. Verification, then confirmation. Only now does the supervisor's rollback stand down.
+
+A failure before the swap changes nothing (`FAILED_PRE_SWAP`). After the swap, the code goes back
+automatically only while the database is still on the previous code's data model
+(`ROLLED_BACK_CODE`); otherwise the run stops in `NEEDS_DB_RESTORE` and a human restores the
+database backup together with the previous code. The rules, the states and the commands
+(`bun run update status`, `bun run update check`, `bun run update plan <release>`,
+`bun run update abort`) are on [the update run](index.md#the-update-run) page.
+
+The panel follows the run after the restart and reports how it ended.
 
 ### Installations that run from a container image
 
@@ -168,8 +195,8 @@ run:
 - **Last code update** — which version replaced which, when, and whether the
   new tree confirmed itself at boot. A status still reading *pending
   confirmation* means the update did not complete its own health check.
-- **Restore points** — the code copies on disk, each with the Dédalo version
-  it holds and a **Restore** button that puts it back on the tree (see
+- **Restore points** — the code copies on disk, each with the release it
+  holds (`7.0.0-beta.5`, `7.0.0`, `7.0.1-dev`) and a **Restore** button that puts it back on the tree (see
   [Restoring a previous code version](#restoring-a-previous-code-version)).
   Each row is marked *bootable* or *incomplete* (a copy without its
   dependencies cannot be started again). The Restore button is **disabled**,
@@ -211,14 +238,14 @@ running Bun and this tree's pin, and the bytes free where the update stages.
 
 1. Close access to the work system.
 
-    Change the Dédalo status to maintenance — the update refuses to run otherwise. Follow [this guide](../maintenance_status.md) to change the Dédalo status and disable Dédalo access.
+    Change the Dédalo status to maintenance — the readiness panel blocks the update otherwise. Follow [this guide](../maintenance_status.md) to change the Dédalo status and disable Dédalo access.
 
 2. Enter the maintenance panel.
 
     Log in as root user and go to the Maintenance panel, located in:
     > System administration -> Maintenance
 
-    Make a backup of the database first — the update refuses without a recent one. Follow [this guide](../backup.md#backup-the-work-system).
+    Make a backup of the database first — the update refuses without a recent one that is proven restorable, unless you waive it. It is the dump a database restore would use if the run ends in `NEEDS_DB_RESTORE`. Follow [this guide](../backup.md#backup-the-work-system).
 
 3. Locate the "Update code" control panel.
 
@@ -237,13 +264,13 @@ running Bun and this tree's pin, and the bytes free where the update stages.
 
     Some code updates add or change configuration settings. Settings live in `../private/.env`: compare it against `install/sample.env` of the **new** code tree, or the [settings reference](../../config/config.md), and add any new key(s). `../private/sample.env` is the copy the installer took at install time, so it lacks every key added since. A retired key stops the server at boot and names its replacement. See the [Configuration Administrator Guide](../../config/administration.md).
 
-5. Follow the update instructions and update data.
+5. Check how the run ended.
 
-    Locate the update code panel and check if it indicates further instructions. Some code updates require a data process; follow [update data](updating_data.md).
+    The panel reports the run's end state; `bun run update status` shows the same from a terminal. A release's data phase runs inside the run — there is no separate data update after a code update. On `NEEDS_DB_RESTORE`, follow the steps the run names (see [the update run](index.md#when-a-phase-fails)) and keep maintenance mode on.
 
 6. Open access to the work system.
 
-    Revert the maintenance status to `false`.
+    Revert the maintenance status to `false` once the run is `CONFIRMED`.
 
 7. Log out and re-login with a normal user.
 
@@ -294,15 +321,15 @@ version on the code server.
     Prereleases are published from 7.0.0-beta.7 on. An earlier beta reports
     the bare version `7.0.0`, and its panel has no **Prereleases** choice, so
     it is offered neither `7.0.0-beta.7` nor, later, `7.0.0`. Choose
-    **Developer builds** and install the developer build of `7.0.0` the code
-    server offers. The installation then runs a developer build, and its
-    panel has the **Prereleases** choice. Keep **Developer builds** chosen
-    for the next step: a developer build cannot tell which published builds of
-    its own version are older than it, so it is offered all of them —
-    `7.0.0-beta.7` and the later prereleases (when the code server publishes
-    prereleases), and `7.0.0` itself once it is released. Install one, and
-    from then on **Prereleases** or **Published releases** works as described
-    above. A Docker installation updates its image instead (see
+    **Developer builds** and install the developer build of `7.0.0`
+    (`7.0.0-dev`) the code server offers. The installation then runs a
+    developer build, and its panel has the **Prereleases** choice. A
+    developer build sorts above every prerelease of its version, so from
+    `7.0.0-dev` the prereleases of `7.0.0` (`7.0.0-beta.7`, `7.0.0-rc.1`) are
+    neither offered nor accepted: no channel moves an installation back. The
+    way on is `7.0.0` itself once it is released, or a later developer build
+    of `7.0.0` on the **Developer builds** choice. From `7.0.0` on,
+    **Prereleases** or **Published releases** works as described above. A Docker installation updates its image instead (see
     [a stack installed from a beta before 7.0.0-beta.7](../../install/docker.md#a-stack-installed-from-a-beta-before-700-beta7)).
 
 ## Restoring a previous code version
@@ -327,9 +354,10 @@ tree that was running is renamed aside as a **new** restore point. Nothing is
 deleted, disk usage does not double, and the move can be undone the same way.
 
 1. Close access to the work system — maintenance mode, superuser, as for an
-   update ([maintenance status](../maintenance_status.md)). A restore refuses
-   on the same preconditions, except the recent-backup one: it has its own
-   confirmation instead.
+   update ([maintenance status](../maintenance_status.md)), and make a fresh
+   database backup. A restore is a destructive maintenance action: it refuses
+   without the superuser, maintenance mode and a fresh proven backup, and while
+   an update run is in flight. The restore modal has no backup waiver.
 
 2. In the "Update code" panel, find the copy under **Restore points** and press
    `Restore`.
@@ -337,11 +365,13 @@ deleted, disk usage does not double, and the move can be undone the same way.
 3. Read the confirmation modal. It names the version running now, the version
    the copy holds, and the copy's name.
 
-    When the two versions **differ**, the modal adds a checkbox that must be
-    ticked before the Restore button unlocks: it acknowledges that the
-    installation will run the older code while the database stays as it is. At
-    an equal version — a developer build restored over itself — no checkbox is
-    shown, because there is nothing to acknowledge.
+    When the copy holds **other code** — another release (also two betas of
+    the same version, such as `7.0.0-beta.5` and `7.0.0-beta.7`), or the same
+    release installed from another archive — the modal adds a checkbox that
+    must be ticked before the Restore button unlocks: it acknowledges that the
+    installation will run that code while the database stays as it is. When it
+    holds the same release from the same archive, no checkbox is shown, because
+    there is nothing to acknowledge.
 
 4. The phase track runs as for an update, with `download`, `verify`, `extract`
    and `deps` reported *skipped* (a restore fetches and installs nothing — the
@@ -631,8 +661,8 @@ so the storage directory does not have to sit in the web root, and should not.
     two differ.
 
 !!! note "A built release is not automatically offered"
-    A release is advertised only when the engine's update catalogue knows the
-    target version, and only to callers for which it is the next step on the
+    A release is advertised only when the update catalog
+    (`install/update/catalog.json`) has an entry for the target version, and only to callers for which it is the next step on the
     upgrade path. Building an archive publishes the file; it does not make every
     install eligible for it.
 
@@ -651,8 +681,13 @@ systemctl restart dedalo-ts
 The full procedure — the runtime pin, the scripts installed outside the tree, the
 supervision check, retired keys and rollback — is [Upgrading](../../install/upgrading.md).
 
+A manual update is **not** an [update run](index.md#the-update-run): there is no
+journal, no backup check, no data or ancillary phase and no automatic rollback.
 Boot migrations (`install/db/migrations/`) run automatically at startup — there
-is nothing extra to run for schema changes to `dedalo_ts_*` tables. Your
+is nothing extra to run for schema changes to `dedalo_ts_*` tables. Each
+migration is recorded with the hash of the exact file that ran. If the code holds
+a different version of an already-applied migration file, startup reports the
+schema migration as failed and names the file, instead of applying anything. Your
 per-install configuration and secrets live in `../private/`, a sibling of the
 install tree, so a `git pull` never touches it.
 

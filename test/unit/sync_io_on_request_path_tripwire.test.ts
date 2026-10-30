@@ -107,6 +107,8 @@ const ENGINE_CORPUS = writePathSourceFiles();
  */
 const REACHABLE_OUTSIDE_CORPUS = [
 	'install/db/migrate.ts',
+	// The frozen migration ledger the runner verifies against (U-23): async readFile only.
+	'install/db/migration_ledger.ts',
 	'install/db/online_migration.ts',
 	// The publication agent's zero-dependency provisioning modules the engine judges a
 	// publication-host draft with (owner decision D1: one rule set) and opens a sealed pairing
@@ -413,12 +415,13 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 		reason: 'reads/writes the small server state JSON (install status, versions), not per request',
 	},
 	{
-		file: 'src/core/update/boot_confirm.ts',
-		reason: 'reads the code-update sentinel ONCE at boot to confirm or roll back the swap',
-	},
-	{
 		file: 'src/core/update/build_stamp.ts',
 		reason: 'reads the committed build_info.txt ONCE and caches it',
+	},
+	{
+		file: 'src/core/update/catalog_file.ts',
+		reason:
+			"reads the release catalog's per-release SQL files (a few KB each) ONCE at module load, and a gate's scratch catalog — never per request",
 	},
 	{
 		file: 'src/core/update/channel.ts',

@@ -795,24 +795,6 @@
             "typology_name": "Catálogo"
         },
         {
-            "tld": "test",
-            "name": "Test | test",
-            "name_data": [
-                {
-                    "id": 1,
-                    "lang": "lg-eng",
-                    "value": "Test | test"
-                },
-                {
-                    "id": 1,
-                    "lang": "lg-spa",
-                    "value": "Test | test"
-                }
-            ],
-            "typology_id": 5,
-            "typology_name": "Especial"
-        },
-        {
             "tld": "numisdata",
             "name": "Patrimonio numismático | numisdata",
             "name_data": [

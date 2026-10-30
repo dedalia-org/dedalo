@@ -28,12 +28,19 @@ import { join } from 'node:path';
 import {
 	MIGRATION_LOCK_TIMEOUT,
 	MIGRATIONS_DIR,
+	MIGRATIONS_VERSION_TABLE,
 	pendingMigrations,
 	runMigrations,
 	runOnlineMigrations,
 	stopOnlineMigrations,
 } from '../../install/db/migrate.ts';
+import {
+	type MigrationLedger,
+	migrationSha256,
+	readMigrationLedger,
+} from '../../install/db/migration_ledger.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 
 const VERSION_TABLE = `dedalo_ts_test_migrations_${process.pid}`;
 const TARGET_TABLE = `dedalo_ts_test_migr_target_${process.pid}`;
@@ -375,5 +382,179 @@ describe('migrations runner (S2-39)', () => {
 		await expect(runMigrations({ dir, versionTable: 'bad"name; DROP TABLE x' })).rejects.toThrow(
 			/invalid version table/,
 		);
+	});
+});
+
+describe('migration content hashes (U-23): an applied file is never edited', () => {
+	const hashDir = mkdtempSync(join(tmpdir(), 'dedalo_migrations_hash_'));
+	const hashTable = `dedalo_ts_test_migr_hash_${process.pid}`;
+	const file = '0001_hash_probe.sql';
+	const original = 'SELECT 1';
+	const ledgerOf = (content: string, release = '7.0.0'): MigrationLedger => ({
+		format: 1,
+		migrations: {
+			[file]: { sha256: migrationSha256(content), class: 'compatible', release },
+		},
+	});
+	const recordedRow = async () =>
+		(
+			(await sql.unsafe(`SELECT sha256, release FROM "${hashTable}" WHERE version = $1`, [
+				file,
+			])) as { sha256: string | null; release: string | null }[]
+		)[0];
+
+	afterAll(async () => {
+		rmSync(hashDir, { recursive: true, force: true });
+		await sql.unsafe(`DROP TABLE IF EXISTS "${hashTable}"`, []);
+	});
+
+	test('a run records each file’s sha256 and the release that shipped it', async () => {
+		writeFileSync(join(hashDir, file), original);
+		const run = await runMigrations({
+			dir: hashDir,
+			versionTable: hashTable,
+			ledger: ledgerOf(original, '7.0.3'),
+		});
+		expect(run.applied).toEqual([file]);
+		expect(await recordedRow()).toEqual({ sha256: migrationSha256(original), release: '7.0.3' });
+	});
+
+	test('the file edited after it ran: the run REFUSES, naming it — with or without a ledger', async () => {
+		writeFileSync(join(hashDir, file), 'SELECT 2');
+		try {
+			await expect(runMigrations({ dir: hashDir, versionTable: hashTable })).rejects.toThrow(
+				/0001_hash_probe\.sql was applied here as/,
+			);
+			await expect(
+				runOnlineMigrations({ dir: hashDir, versionTable: hashTable }),
+			).resolves.toBeDefined(); // recorded files are not the online run's to judge
+		} finally {
+			writeFileSync(join(hashDir, file), original);
+		}
+		const healed = await runMigrations({ dir: hashDir, versionTable: hashTable });
+		expect(healed.skipped).toBe(1);
+	});
+
+	test('a file disagreeing with the frozen ledger is refused BEFORE it is ever applied', async () => {
+		const fresh = '0002_hash_unledgered.sql';
+		writeFileSync(join(hashDir, fresh), 'SELECT 3');
+		try {
+			await expect(
+				runMigrations({ dir: hashDir, versionTable: hashTable, ledger: ledgerOf(original) }),
+			).rejects.toThrow(/0002_hash_unledgered\.sql is not in install\/db\/migrations\.lock\.json/);
+			const [row] = (await sql.unsafe(`SELECT 1 FROM "${hashTable}" WHERE version = $1`, [
+				fresh,
+			])) as unknown[];
+			expect(row).toBeUndefined();
+			await expect(
+				runMigrations({ dir: hashDir, versionTable: hashTable, ledger: ledgerOf('SELECT 9') }),
+			).rejects.toThrow(/does not match its frozen hash/);
+		} finally {
+			rmSync(join(hashDir, fresh), { force: true });
+		}
+	});
+
+	test('a row recorded before the hash column is backfilled once, then verified', async () => {
+		await sql.unsafe(`UPDATE "${hashTable}" SET sha256 = NULL, release = NULL WHERE version = $1`, [
+			file,
+		]);
+		await runMigrations({ dir: hashDir, versionTable: hashTable, ledger: ledgerOf(original) });
+		expect(await recordedRow()).toEqual({ sha256: migrationSha256(original), release: '7.0.0' });
+		writeFileSync(join(hashDir, file), 'SELECT 4');
+		try {
+			await expect(runMigrations({ dir: hashDir, versionTable: hashTable })).rejects.toThrow(
+				/was applied here as/,
+			);
+		} finally {
+			writeFileSync(join(hashDir, file), original);
+		}
+	});
+
+	test('throughRelease (an update run’s schema phase): STOPS at the first later-release file; undated files are never beyond', async () => {
+		// Scratch dir + planted ledger + scratch version table, a fresh pair per bound.
+		const boundDir = mkdtempSync(join(tmpdir(), 'dedalo_migrations_bound_'));
+		const files: Record<string, string | null> = {
+			'0001_bound_a.sql': '7.0.1',
+			'0002_bound_b.sql': '7.0.2',
+			'0003_bound_c.sql': '7.1.0',
+			'0004_bound_d.sql': '7.0.1', // earlier release AFTER the later one: a break, not a skip
+		};
+		const contents = (file: string) => `SELECT '${file}'`;
+		for (const file of Object.keys(files)) writeFileSync(join(boundDir, file), contents(file));
+		const ledger = (planted: Record<string, string | null>): MigrationLedger =>
+			({
+				format: 1,
+				migrations: Object.fromEntries(
+					// An undated file: an entry with no release (what `?.release ?? null` reads as null).
+					Object.entries(planted).map(([file, release]) => [
+						file,
+						{
+							sha256: migrationSha256(contents(file)),
+							class: 'compatible',
+							...(release === null ? {} : { release }),
+						},
+					]),
+				),
+			}) as unknown as MigrationLedger;
+		const tables: string[] = [];
+		const run = async (
+			planted: Record<string, string | null> | null,
+			throughRelease: string | undefined,
+		) => {
+			const versionTable = `dedalo_ts_test_migr_bound_${process.pid}_${tables.length}`;
+			tables.push(versionTable);
+			const result = await runMigrations({
+				dir: boundDir,
+				versionTable,
+				ledger: planted === null ? null : ledger(planted),
+				...(throughRelease === undefined ? {} : { throughRelease }),
+			});
+			const recorded = (await sql.unsafe(
+				`SELECT version FROM "${versionTable}" ORDER BY version`,
+				[],
+			)) as { version: string }[];
+			return { applied: result.applied, recorded: recorded.map((row) => row.version) };
+		};
+		try {
+			// Bound 7.0.2: the 7.0.1 + 7.0.2 files land; 7.1.0 stops the run, and the
+			// later 7.0.1-dated file after it stays unapplied (break, not skip).
+			const bounded = await run(files, '7.0.2');
+			expect(bounded.applied).toEqual(['0001_bound_a.sql', '0002_bound_b.sql']);
+			expect(bounded.recorded).toEqual(['0001_bound_a.sql', '0002_bound_b.sql']);
+			// No bound (the boot): every file.
+			const all = await run(files, undefined);
+			expect(all.applied).toEqual(Object.keys(files));
+			// An undated file is never beyond, under any bound — even the lowest one.
+			const undated = { ...files, '0001_bound_a.sql': null };
+			const lowest = await run(undated, '0.0.1');
+			expect(lowest.applied).toEqual(['0001_bound_a.sql']);
+			// …and below a dated one it sits in the bounded prefix like any other.
+			const undatedMiddle = { ...files, '0002_bound_b.sql': null };
+			const middle = await run(undatedMiddle, '7.0.1');
+			expect(middle.applied).toEqual(['0001_bound_a.sql', '0002_bound_b.sql']);
+			// No ledger at all (a scratch dir): nothing is dated, so a bound stops nothing.
+			const unledgered = await run(null, '0.0.1');
+			expect(unledgered.applied).toEqual(Object.keys(files));
+		} finally {
+			rmSync(boundDir, { recursive: true, force: true });
+			for (const table of tables) await sql.unsafe(`DROP TABLE IF EXISTS "${table}"`, []);
+		}
+	});
+
+	test('the shipped run verifies the suite database against the ledger, and records its hashes', async () => {
+		// The boot path itself: the default dir + the shipped ledger. It adds the
+		// hash column on an older table and backfills — a write, so the marker first.
+		await assertTestDatabase('ops_migrations: shipped hash backfill');
+		const boot = await runMigrations();
+		expect(boot.applied).toEqual([]);
+		const ledger = await readMigrationLedger();
+		const rows = (await sql.unsafe(
+			`SELECT version, sha256 FROM "${MIGRATIONS_VERSION_TABLE}" WHERE sha256 IS NOT NULL`,
+			[],
+		)) as { version: string; sha256: string }[];
+		expect(rows.length).toBeGreaterThanOrEqual(Object.keys(ledger.migrations).length);
+		for (const row of rows) {
+			expect(row.sha256, row.version).toBe(ledger.migrations[row.version]?.sha256 as string);
+		}
 	});
 });

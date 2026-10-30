@@ -42,7 +42,7 @@
 		"src/core/media/tools/files_info_persist.ts": 1,
 		"src/core/media/tools/posterframe.ts": 1,
 		"src/core/media/tools/transcription.ts": 2,
-		"src/core/ontology/data_io.ts": 2,
+		"src/core/ontology/data_io.ts": 1,
 		"src/core/ontology/data_io_import.ts": 2,
 		"src/core/ontology/hierarchy_provision.ts": 2,
 		"src/core/ontology/resolver.ts": 2,
@@ -70,6 +70,6 @@
 	},
 	"summary": {
 		"files": 65,
-		"total": 123
+		"total": 122
 	}
 }

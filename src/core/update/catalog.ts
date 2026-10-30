@@ -1,6 +1,7 @@
 /**
  * Data-migration catalog (UPDATE_PROCESS Phase 3) — the TS twin of PHP
- * core/base/update/updates.php. One descriptor per reachable upgrade,
+ * core/base/update/updates.php, whose releases are DEFINED in
+ * install/update/catalog.json (catalog_file.ts). One descriptor per reachable upgrade,
  * matched on `updateFrom*` against the INSTALLED data version
  * (matrix_updates), strictly linear (no skipping — PHP parity).
  *
@@ -44,6 +45,7 @@
 
 import { BODY_SESSION_STATE, DO_BLOCK, stripSqlLiterals } from '../db/sql_lexer.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { loadCatalogFile, type ReleasePlan } from './catalog_file.ts';
 import { SCRIPT_REGISTRY } from './scripts.ts';
 import { compareVersionArrays, DATA_LINE_START } from './version.ts';
 
@@ -89,38 +91,41 @@ export type UpdateDescriptor = CodeOnlyUpdateDescriptor | DataUpdateDescriptor;
 
 /**
  * The catalog, keyed by the target version as a DOTTED triple: `'7.0.1'` names
- * 7.0.1, `'7.11.1'` names 7.11.1 (VERSIONING_SPEC §4 rule 3, D5). A concatenated
- * key cannot say which release it names: `'7110'` is both 7.1.10 and 7.11.0. The
- * key must equal the entry's own triple (validateUpdateDescriptor refuses a
- * mismatch).
+ * 7.0.1, `'7.11.1'` names 7.11.1 (VERSIONING_SPEC §4 rule 3, D5). The key must
+ * equal the entry's own triple (validateUpdateDescriptor refuses a mismatch).
  *
- * ⚠️ EVERY CODE RELEASE NEEDS A DESCRIPTOR HERE, even when it carries NO data
- * migration (`updateData: false`): `src/core/update/code_manifest.ts`
- * (`linearUpgradeTargets`) WALKS THIS CATALOG to decide which release zips the
- * master advertises. An empty/omitted entry means the master answers
- * `files: []` and no consumer can ever see the release — the coupling is
- * invisible from here, which is exactly why this comment exists.
+ * THE RELEASES LIVE IN `install/update/catalog.json` (owner decision D-7,
+ * update audit 2026-10-29) — read and validated by catalog_file.ts, which
+ * derives each descriptor's `updateFrom*` from the walk (no hand-written
+ * triple to drift). A file that fails its rules fails the process at import,
+ * like a bad descriptor always did.
+ *
+ * ⚠️ EVERY CODE RELEASE NEEDS AN ENTRY THERE, even when it carries NO data
+ * migration (`"7.0.1": {}`): `src/core/update/code_manifest.ts`
+ * (`codeLadderTargets`) WALKS THIS CATALOG to decide which release zips the
+ * master advertises. A missing entry means the master answers `files: []` and
+ * no consumer can ever see the release.
+ *
+ * NO FABRICATED RUNGS BEYOND THE NEXT ONE: `scripts/update_drill.ts` picks the
+ * NEWEST entry, so an invented rung makes `bun run test:update` rehearse a hop
+ * nobody will cut, and the manifest advertise releases that do not exist
+ * (ratcheted by the describe 'UPDATE_CATALOG may not run ahead of the engine'
+ * in test/unit/code_update.test.ts).
  */
-export const UPDATE_CATALOG: Readonly<Record<string, UpdateDescriptor>> = Object.freeze({
-	'7.0.1': {
-		versionMajor: 7,
-		versionMedium: 0,
-		versionMinor: 1,
-		updateFromMajor: 7,
-		updateFromMedium: 0,
-		updateFromMinor: 0,
-		updateData: false, // code-only release — no data migration
-	},
-	// NO FABRICATED RUNGS BEYOND THE NEXT ONE. '702'/'703' lived here to let the
-	// museum-cycle probe walk several hops, and they cost more than they bought:
-	// `scripts/update_drill.ts` picks the NEWEST descriptor, so `bun run
-	// test:update` rehearsed 7.0.2 → 7.0.3 — a hop nobody will ever cut —
-	// instead of the rung a release manager actually ships, and the shipped
-	// manifest advertised upgrade paths to releases that do not exist. The probe
-	// is made repeatable by RESETTING the museum tree to the rung's FROM end
-	// (it already re-materializes that tree), never by inventing more rungs.
-	// Ratcheted by catalogRungIsReachable in test/unit/code_update.test.ts.
-} satisfies Record<string, UpdateDescriptor>);
+const CATALOG_FILE = loadCatalogFile();
+{
+	const refusal = descriptorRefusal(CATALOG_FILE.violations);
+	if (refusal !== null) throw refusal;
+}
+
+export const UPDATE_CATALOG: Readonly<Record<string, UpdateDescriptor>> = Object.freeze(
+	CATALOG_FILE.descriptors,
+);
+
+/** Each release's declared steps and compat class, for the update run (catalog_file.ts ReleasePlan). */
+export const RELEASE_PLANS: Readonly<Record<string, ReleasePlan>> = Object.freeze(
+	CATALOG_FILE.plans,
+);
 
 /** Key for a descriptor's target version: the dotted triple (`'7.0.1'`). */
 export function catalogKeyOf(descriptor: UpdateDescriptorVersion): string {

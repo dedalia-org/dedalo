@@ -45,7 +45,9 @@ import {
 import { basename, join, resolve, sep } from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { z } from 'zod';
+import { config } from '../../config/config.ts';
 import { readEnv } from '../../config/env.ts';
+import { isSecureUpdateSource } from '../../config/readers.ts';
 import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
 import {
 	connFromConfig,
@@ -53,8 +55,8 @@ import {
 	runPsql,
 	runPsqlScript,
 } from '../install/pg_exec.ts';
-import { isSafeSectionTipo, safeTld } from './data_io.ts';
-import { DATA_NOLAN, ONTOLOGY_TLD } from './ontology_tipos.ts';
+import { fileSha256, isSafeSectionTipo, safeTld } from './data_io.ts';
+import { DATA_NOLAN, ONTOLOGY_MODEL, ONTOLOGY_TLD } from './ontology_tipos.ts';
 import { requiredOntologyTld } from './tld.ts';
 
 // ---------------------------------------------------------------------------
@@ -245,18 +247,85 @@ export function buildOntologyUpdateInfo(
 // ---------------------------------------------------------------------------
 
 /**
+ * U-41 — a fetched (or locally copied) ontology file must be the bytes the
+ * master's manifest names (`info.files_sha256`, data_io.ts exportOntologyInfo),
+ * checked BEFORE anything decompresses it. Null when it matches or when no
+ * digest is declared (an older master — the caller warns); otherwise the file
+ * is DELETED and the refusal returned.
+ */
+export async function digestRefusal(
+	filePath: string,
+	expectedSha256: string | undefined,
+): Promise<{ msg: string; error: string } | null> {
+	if (expectedSha256 === undefined) return null;
+	if ((await fileSha256(filePath)) === expectedSha256) return null;
+	rmSync(filePath, { force: true });
+	return {
+		msg: 'Error. Ontology file does not match the master manifest',
+		error: `sha256 mismatch: ${basename(filePath)}`,
+	};
+}
+
+/**
+ * The download's origin must be the configured master's, AND satisfy the
+ * update-source transport rule (U-24: https, or http on loopback / under the
+ * development seam) — re-checked here although config already dropped an http
+ * master, because this is the door the bytes come through.
+ */
+function sourceOriginError(
+	parsed: URL,
+	configuredOrigin: string,
+	allowHttp: boolean,
+): { msg: string; error: string } | null {
+	if (parsed.origin !== configuredOrigin) {
+		return {
+			msg: 'Error. URL origin does not match the configured ontology server',
+			error: `origin mismatch: ${parsed.origin} != ${configuredOrigin}`,
+		};
+	}
+	return isSecureUpdateSource(parsed.href, allowHttp)
+		? null
+		: {
+				msg: 'Error. An ontology master must be reached over https',
+				error: `insecure source: ${parsed.origin}`,
+			};
+}
+
+/**
+ * The checks a COMPLETED download must pass before it is reported ok: not
+ * empty, and — when the manifest names one — the expected sha256 (U-41). On
+ * refusal the file is removed.
+ */
+async function completedDownloadRefusal(
+	filePath: string,
+	total: number,
+	expectedSha256: string | undefined,
+): Promise<{ msg: string; error: string } | null> {
+	if (total === 0) {
+		rmSync(filePath, { force: true });
+		return { msg: 'Error. empty data', error: 'empty data' };
+	}
+	return digestRefusal(filePath, expectedSha256);
+}
+
+/**
  * Download one ontology file (PHP download_remote_ontology_file, hardened —
  * WC-023 D1/D2/D3/D5): the URL must parse, sit on `configuredOrigin` (the
  * operator-config server origin — remote manifests never choose the network
  * target), and end with `expectedBasename` (constructed from the validated
  * tld, never taken from the manifest). Streams to `<targetDir>/<basename>`
- * under byte + stall ceilings; redirects are refused.
+ * under byte + stall ceilings; redirects are refused. With `expectedSha256`
+ * the completed file must hash to it (digestRefusal) before it is reported ok.
  */
 export async function downloadRemoteOntologyFile(options: {
 	url: string;
 	configuredOrigin: string;
 	expectedBasename: string;
 	targetDir: string;
+	/** The U-24 development seam (default: config.update.httpSourcesDev). */
+	allowHttp?: boolean;
+	/** The manifest's sha256 of this file (U-41); absent = unverified (older master). */
+	expectedSha256?: string | undefined;
 }): Promise<OntologyIoResponse> {
 	assertTlsVerificationOn();
 	const response: OntologyIoResponse = { ok: false, msg: '', errors: [] };
@@ -270,9 +339,14 @@ export async function downloadRemoteOntologyFile(options: {
 		response.errors.push('Invalid URL provided');
 		return response;
 	}
-	if (parsed.origin !== options.configuredOrigin) {
-		response.msg = 'Error. URL origin does not match the configured ontology server';
-		response.errors.push(`origin mismatch: ${parsed.origin} != ${options.configuredOrigin}`);
+	const originError = sourceOriginError(
+		parsed,
+		options.configuredOrigin,
+		options.allowHttp ?? config.update.httpSourcesDev,
+	);
+	if (originError !== null) {
+		response.msg = originError.msg;
+		response.errors.push(originError.error);
 		return response;
 	}
 	if (basename(parsed.pathname) !== options.expectedBasename) {
@@ -341,10 +415,10 @@ export async function downloadRemoteOntologyFile(options: {
 			await new Promise<void>((resolveEnd) => sink.end(() => resolveEnd()));
 			reader.releaseLock();
 		}
-		if (total === 0) {
-			rmSync(filePath, { force: true });
-			response.msg = 'Error. empty data';
-			response.errors.push('empty data');
+		const rejected = await completedDownloadRefusal(filePath, total, options.expectedSha256);
+		if (rejected !== null) {
+			response.msg = rejected.msg;
+			response.errors.push(rejected.error);
 			return response;
 		}
 		response.ok = true;
@@ -455,14 +529,86 @@ export interface ImportCopyFileOptions {
 	matrixTable: 'matrix_ontology' | 'matrix_dd';
 	/** true = whole-table replace (matrix_dd); false = scoped DELETE. */
 	deleteTable?: boolean;
+	/**
+	 * What a ZERO-BYTE file MEANS — the two callers disagree, so each says it (U-17):
+	 *  - `'nothing_to_import'` (default — the IMPORT path): an empty package is a
+	 *    no-op and the slice keeps its rows (PHP backup::import_from_copy_file
+	 *    parity). Kept deliberately: an empty `.copy` reaching an import is far
+	 *    more likely a truncated/failed export on the master than a master that
+	 *    really emptied a whole TLD, and the import path must never wipe a TLD on
+	 *    that guess. A master that wants a TLD gone deletes its registry row.
+	 *  - `'empty_slice'` (the RESTORE path — ontology_update restoreSnapshots): the
+	 *    file is a snapshot of what the slice WAS, and empty means "had no rows".
+	 *    The scoped DELETE runs and nothing is copied back — restoring a TLD that
+	 *    was empty before the import leaves it empty. (Skipping it was defect D9: a
+	 *    restore that kept the imported rows while reporting them restored.)
+	 */
+	emptyFile?: 'nothing_to_import' | 'empty_slice';
 	/** Test/scratch-DB seam; defaults to the configured live DB. */
 	conn?: DbConnDescriptor;
+}
+
+/** The option checks of importFromCopyFile (PHP parity + allowlists); null = valid. */
+function importOptionsRefusal(
+	options: ImportCopyFileOptions,
+	deleteTable: boolean,
+): { msg: string; error: string } | null {
+	if (!IMPORT_TABLE_ALLOWLIST.has(options.matrixTable)) {
+		return {
+			msg: 'Error. Invalid matrix_table',
+			error: `matrix_table not allowlisted: ${options.matrixTable}`,
+		};
+	}
+	const tipo = options.sectionTipo;
+	if (!deleteTable && (tipo === undefined || !isSafeSectionTipo(tipo))) {
+		return {
+			msg: 'Error. Invalid section_tipo',
+			error: 'section_tipo is mandatory when delete_table is false',
+		};
+	}
+	return filePathRefusal(options.filePath);
+}
+
+/** The staged file must be a screened path that exists (it is inlined into a `\copy`). */
+function filePathRefusal(filePath: string): { msg: string; error: string } | null {
+	if (/^[a-zA-Z0-9_/.-]+$/.test(filePath) && existsSync(filePath)) return null;
+	return { msg: 'Error. Invalid file_path', error: `file_path is not valid: ${filePath}` };
+}
+
+/** The plain `.copy` to load: a `.gz` is gunzipped next to it under caps (`temp`: remove after). */
+async function uncompressedCopyFile(
+	filePath: string,
+): Promise<{ path: string; temp: boolean } | { error: string }> {
+	if (!filePath.endsWith('.gz')) return { path: filePath, temp: false };
+	const path = filePath.slice(0, -'.gz'.length);
+	try {
+		await gunzipWithCaps(filePath, path);
+		return { path, temp: true };
+	} catch (error) {
+		return { error: (error as Error).message };
+	}
+}
+
+/**
+ * The two lines that load a staged `.copy` into a transaction-local stage table
+ * shaped like `table` — shared by the scoped import and the import census
+ * (`stagedOntologyDiff`), so both read the file through the same statement.
+ * `uncompressed` is a regex-screened, confined path (psql cannot interpolate
+ * inside a `\copy` argument).
+ */
+function stageCopyLines(table: string, uncompressed: string): string[] {
+	const columnsList = MATRIX_COPY_COLUMNS.map((column) => `"${column}"`).join(',');
+	return [
+		`CREATE TEMP TABLE dd_import_stage (LIKE "${table}" INCLUDING DEFAULTS) ON COMMIT DROP;`,
+		`\\copy dd_import_stage (${columnsList}) FROM '${uncompressed}'`,
+	];
 }
 
 /**
  * DELETE + `\copy FROM` one staged ontology file in ONE psql transaction
  * (PHP backup::import_from_copy_file, atomicity added — WC-023 D7). PHP msg
- * bytes preserved on the empty-export and success paths.
+ * bytes preserved on the empty-export and success paths. A zero-byte file
+ * follows `options.emptyFile` (see ImportCopyFileOptions).
  */
 export async function importFromCopyFile(
 	options: ImportCopyFileOptions,
@@ -472,51 +618,30 @@ export async function importFromCopyFile(
 	const conn = options.conn ?? connFromConfig();
 	const deleteTable = options.deleteTable === true;
 
-	// -- validations (PHP parity + allowlists)
-	if (!IMPORT_TABLE_ALLOWLIST.has(options.matrixTable)) {
-		response.errors.push(`matrix_table not allowlisted: ${options.matrixTable}`);
-		response.msg = 'Error. Invalid matrix_table';
+	const refusal = importOptionsRefusal(options, deleteTable);
+	if (refusal !== null) {
+		response.errors.push(refusal.error);
+		response.msg = refusal.msg;
 		return response;
 	}
-	if (
-		!deleteTable &&
-		(options.sectionTipo === undefined || !isSafeSectionTipo(options.sectionTipo))
-	) {
-		response.errors.push('section_tipo is mandatory when delete_table is false');
-		response.msg = 'Error. Invalid section_tipo';
+	const source = await uncompressedCopyFile(options.filePath);
+	if ('error' in source) {
+		response.errors.push(`decompress failed: ${source.error}`);
+		response.msg = 'Error. Failed to decompress file';
 		return response;
-	}
-	if (!/^[a-zA-Z0-9_/.-]+$/.test(options.filePath) || !existsSync(options.filePath)) {
-		response.errors.push(`file_path is not valid: ${options.filePath}`);
-		response.msg = 'Error. Invalid file_path';
-		return response;
-	}
-
-	// -- decompress (streamed, capped) or accept a pre-staged plain file
-	let uncompressed = options.filePath;
-	let createdTemp = false;
-	if (options.filePath.endsWith('.gz')) {
-		uncompressed = options.filePath.slice(0, -'.gz'.length);
-		try {
-			await gunzipWithCaps(options.filePath, uncompressed);
-			createdTemp = true;
-		} catch (error) {
-			response.errors.push(`decompress failed: ${(error as Error).message}`);
-			response.msg = 'Error. Failed to decompress file';
-			return response;
-		}
 	}
 
 	try {
-		// -- empty-export short-circuit (PHP: skip the DELETE entirely)
-		if (statSync(uncompressed).size === 0) {
+		// -- an empty IMPORT is a no-op (PHP: skip the DELETE entirely); an empty
+		//    RESTORE still runs it (ImportCopyFileOptions.emptyFile).
+		if (statSync(source.path).size === 0 && options.emptyFile !== 'empty_slice') {
 			response.ok = true;
 			response.msg = `OK. Empty export, nothing to import [import_from_copy_file] ${basename(options.filePath)}`;
 			return response;
 		}
 
-		// -- COPY-shape sanity BEFORE the destructive statement
-		const sanity = copySanityCheck(uncompressed, MATRIX_COPY_COLUMNS.length);
+		// -- COPY-shape sanity BEFORE the destructive statement (an empty file passes)
+		const sanity = copySanityCheck(source.path, MATRIX_COPY_COLUMNS.length);
 		if (sanity !== null) {
 			response.errors.push(`copy sanity check failed: ${sanity}`);
 			response.msg = 'Error. Staged file failed the COPY sanity check';
@@ -525,7 +650,7 @@ export async function importFromCopyFile(
 
 		// -- one transaction: DELETE (scoped or whole) + \copy FROM the staged
 		//    file. Identifiers are static; the tipo rides a psql variable.
-		const columnsList = MATRIX_COPY_COLUMNS.map((column) => `"${column}"`).join(',');
+		//
 		// SECTION-SCOPED IMPORT LANDS IN THE TARGET SECTION, BY CONSTRUCTION.
 		//
 		// A `.copy.gz` carries the `section_tipo` it was EXPORTED with, while the
@@ -542,6 +667,8 @@ export async function importFromCopyFile(
 		// which is what makes export-as-X / import-as-Y a real tld rename rather than
 		// a duplication. The whole-table path (matrix_dd) has no single target tipo
 		// and keeps the direct COPY.
+		const uncompressed = source.path;
+		const columnsList = MATRIX_COPY_COLUMNS.map((column) => `"${column}"`).join(',');
 		const projected = MATRIX_COPY_COLUMNS.map((column) =>
 			column === 'section_tipo' ? `:'tipo'` : `"${column}"`,
 		).join(',');
@@ -556,8 +683,7 @@ export async function importFromCopyFile(
 			: [
 					'BEGIN;',
 					`DELETE FROM "${options.matrixTable}" WHERE section_tipo = :'tipo';`,
-					`CREATE TEMP TABLE dd_import_stage (LIKE "${options.matrixTable}" INCLUDING DEFAULTS) ON COMMIT DROP;`,
-					`\\copy dd_import_stage (${columnsList}) FROM '${uncompressed}'`,
+					...stageCopyLines(options.matrixTable, uncompressed),
 					`INSERT INTO "${options.matrixTable}" (${columnsList}) SELECT ${projected} FROM dd_import_stage;`,
 					'COMMIT;',
 					'',
@@ -596,8 +722,123 @@ export async function importFromCopyFile(
 		response.msg = `OK. Request done successfully [import_from_copy_file] ${basename(options.filePath)} | ${Date.now() - started} ms`;
 		return response;
 	} finally {
-		if (createdTemp) rmSync(uncompressed, { force: true });
+		if (source.temp) rmSync(source.path, { force: true });
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 5b. The import CENSUS — what a staged package would remove or re-model (U-14)
+// ---------------------------------------------------------------------------
+
+/** A model reference as stored (the record's ontology6 locator); null = none. */
+export type StoredModelLocator = { section_tipo?: unknown; section_id?: unknown } | null;
+
+/** One node of `<tld>0` the staged package drops (`to` null) or re-models. */
+export interface StagedSliceChange {
+	sectionId: number;
+	kind: 'removed' | 'remodelled';
+	from: StoredModelLocator;
+	to: StoredModelLocator;
+}
+
+/**
+ * The census diff of one staged ontology package against the CURRENT rows of
+ * its section, READ-ONLY (D-6: report, never refuse). Answers the section_ids
+ * present now and absent from the package (`removed`), and the ones whose model
+ * reference (ontology6 — the relation the parser reads the model from) differs
+ * (`remodelled`), with both stored locators; null when the diff itself failed.
+ * Resolving a locator to a model is the caller's (parser helpers).
+ *
+ * WHY A TEMP TABLE IN THE DATABASE, not a JS read of the file: the staged file
+ * is COPY TEXT (backslash escapes, `\N`), and the only parser of it this module
+ * trusts is the server's own COPY — the same `stageCopyLines` statement the
+ * import runs, so the census reads exactly what the import would load. The
+ * diff is then one hash join in SQL over two narrow projections, one psql
+ * round trip per TLD, with no row ever shipped to the engine: an import
+ * without removals pays one COPY of its package into a session-local table.
+ * Writes nothing shared: the stage is `TEMP … ON COMMIT DROP`, the diff runs
+ * after `SET TRANSACTION READ ONLY` (so a stray write would fail, not land),
+ * and the transaction ROLLS BACK. (`BEGIN READ ONLY` is not usable: it refuses
+ * the CREATE TEMP TABLE.)
+ *
+ * Identity: a node's tipo is `<tld><section_id>` on both sides — the import
+ * projects the target section over the file's and normalizes ontology7 to the
+ * target tld, so section_id is the join key. A zero-byte package imports
+ * nothing (importFromCopyFile's import semantics), so it removes nothing: [].
+ */
+export async function stagedOntologyDiff(
+	sectionTipo: string,
+	stagedPath: string,
+	conn: DbConnDescriptor = connFromConfig(),
+): Promise<StagedSliceChange[] | null> {
+	if (!isSafeSectionTipo(sectionTipo) || !/^[a-zA-Z0-9_/.-]+$/.test(stagedPath)) return null;
+	if (!existsSync(stagedPath)) return null;
+	if (statSync(stagedPath).size === 0) return [];
+	const model = `relation->'${ONTOLOGY_MODEL}'->0`;
+	const script = [
+		'BEGIN;',
+		...stageCopyLines('matrix_ontology', stagedPath),
+		'SET TRANSACTION READ ONLY;',
+		`SELECT coalesce(json_agg(json_build_object(
+		         'sectionId', cur.section_id,
+		         'kind', CASE WHEN stg.section_id IS NULL THEN 'removed' ELSE 'remodelled' END,
+		         'from', cur.m, 'to', stg.m) ORDER BY cur.section_id), '[]'::json)
+		   FROM (SELECT section_id, ${model} AS m FROM matrix_ontology WHERE section_tipo = :'tipo') cur
+		   LEFT JOIN (SELECT DISTINCT ON (section_id) section_id, ${model} AS m FROM dd_import_stage) stg
+		     ON stg.section_id = cur.section_id
+		  WHERE stg.section_id IS NULL
+		     OR (cur.m->>'section_tipo', cur.m->>'section_id') IS DISTINCT FROM (stg.m->>'section_tipo', stg.m->>'section_id');`,
+		'ROLLBACK;',
+		'',
+	].join('\n');
+	const run = await runPsqlScript(conn, script, {
+		flags: ['-q', '-t', '-A', '-v', `tipo=${sectionTipo}`],
+	});
+	if (run.exitCode !== 0) return null;
+	return parseJsonLine<StagedSliceChange[]>(run.stdout);
+}
+
+/** The single JSON value a `-q -t -A` psql run printed; null when it is not one. */
+function parseJsonLine<T>(stdout: string): T | null {
+	try {
+		return JSON.parse(stdout.trim()) as T;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * How many records each section tipo stores, summed over `tables` (the caller
+ * passes the matrix record-table allowlist, db/matrix.ts) — READ-ONLY, ONE
+ * statement: the tables that do not exist on this install are skipped by the
+ * information_schema join, so no per-install list is needed. Null on failure.
+ * Every tipo and table is screened before it is inlined (no psql variable can
+ * carry an array into `format()`); `format('%I', '%L')` quotes them again.
+ */
+export async function countRecordsBySectionTipo(
+	tipos: readonly string[],
+	tables: readonly string[],
+	conn: DbConnDescriptor = connFromConfig(),
+): Promise<Record<string, number> | null> {
+	if (tipos.length === 0) return {};
+	const safeTables = tables.filter((table) => /^[a-z_]+$/.test(table));
+	if (!tipos.every(isSafeSectionTipo) || safeTables.length === 0) return null;
+	const array = (values: readonly string[]) =>
+		`ARRAY[${values.map((value) => `'${value}'`).join(',')}]::text[]`;
+	const script = `BEGIN READ ONLY;
+SELECT coalesce(json_object_agg(tipo, n), '{}'::json) FROM (
+  SELECT s.tipo, sum((xpath('/row/c/text()', query_to_xml(
+           format('SELECT count(*) AS c FROM %I WHERE section_tipo = %L', t.table_name, s.tipo),
+           false, true, '')))[1]::text::bigint) AS n
+    FROM information_schema.tables t CROSS JOIN unnest(${array(tipos)}) AS s(tipo)
+   WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+     AND t.table_name = ANY(${array(safeTables)})
+   GROUP BY s.tipo) q;
+ROLLBACK;
+`;
+	const run = await runPsqlScript(conn, script, { flags: ['-q', '-t', '-A'] });
+	if (run.exitCode !== 0) return null;
+	return parseJsonLine<Record<string, number>>(run.stdout);
 }
 
 // ---------------------------------------------------------------------------

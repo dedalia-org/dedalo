@@ -125,6 +125,21 @@ function langSliceValue(
  * the pre-picker projection. No ordering claim is made against the ACL loop in
  * read.ts — a pure filter cannot re-admit, so neither position changes the
  * result.
+ *
+ * `hierarchyTypeIds` is the TYPOLOGY narrowing declared by the area's ddo
+ * (`properties.hierarchy_types` on a tool_config ddo_map entry, read by
+ * read.ts) — the PHP twin of class.area_thesaurus.php:237's
+ * `hierarchy_types` filter, and the same rule: a hierarchy is kept only when
+ * its OWN typology (hierarchy9) is one of the declared ids. Compared on the
+ * registry row itself, never through the hierarchy's target section: two
+ * hierarchies may resolve to the same real section through a virtual one, and
+ * a target comparison would then re-admit the other typology. `null` means no
+ * typology is declared: every active hierarchy is projected. A NON-null list
+ * (even one whose ids match nothing) keeps only the declared typologies, so the
+ * others are never loaded and never reach the payload. Applied in addition to
+ * `targetSections`; both must admit a hierarchy. Thesaurus-only: an ontology
+ * row's typology is pinned (ONTOLOGY_TYPOLOGY_ID), so read.ts never passes one
+ * for area_ontology.
  */
 export async function readAreaHierarchyData(
 	model: 'area_thesaurus' | 'area_ontology',
@@ -132,6 +147,7 @@ export async function readAreaHierarchyData(
 	lang: string,
 	termsAreModel = false,
 	targetSections: readonly string[] | null = null,
+	hierarchyTypeIds: readonly number[] | null = null,
 ): Promise<Record<string, unknown>> {
 	const isOntology = model === 'area_ontology';
 	const mainSection = isOntology ? ONTOLOGY_MAIN_SECTION : THESAURUS_MAIN_SECTION;
@@ -195,17 +211,11 @@ export async function readAreaHierarchyData(
 		// target at all: no constraint, hence no narrowing (the same declared
 		// exemption the write chokepoint carries).
 		if (targetSections !== null && !(await isTargetAllowed(targetSections, target))) continue;
-		const typologyId = row.typology_locators?.[0]?.section_id;
-		if (typologyId === undefined || typologyId === null || typologyId === '') continue;
+		const typologyId = admittedTypologyId(row.typology_locators, hierarchyTypeIds);
+		if (typologyId === null) continue;
 		const activeInThesaurus = String(row.active_locators?.[0]?.section_id ?? '') === '1';
 		if (!isOntology && !activeInThesaurus) continue;
-		const rootTerms = (row.root_term_locators ?? []).filter(
-			(term) =>
-				typeof term === 'object' &&
-				term !== null &&
-				term.section_tipo !== undefined &&
-				term.section_id !== undefined,
-		);
+		const rootTerms = rootTermLocators(row.root_term_locators);
 		if (!isOntology && rootTerms.length === 0) continue;
 		const childrenTipo = isOntology
 			? ONTOLOGY_CHILDREN_TIPO
@@ -241,6 +251,36 @@ export async function readAreaHierarchyData(
 	const typologies = await readTypologies(typologyOrder, typologySources, lang);
 
 	return { tipo: areaTipo, value, typologies };
+}
+
+/**
+ * The hierarchy's own typology id, or null when it has none or the typology
+ * narrowing (ddo properties.hierarchy_types; see readAreaHierarchyData's doc)
+ * does not admit it. Checked BEFORE the row is projected, so a hierarchy of
+ * another typology is never loaded further (no children_tipo lookup, no
+ * typology read). The stored locator's section_id is string- or int-form
+ * (WC-2026-08-10-section-id-int-canonical): compared as a number, the loose
+ * `in_array` PHP used.
+ */
+function admittedTypologyId(
+	locators: { section_id?: unknown }[] | null,
+	hierarchyTypeIds: readonly number[] | null,
+): unknown {
+	const typologyId = locators?.[0]?.section_id;
+	if (typologyId === undefined || typologyId === null || typologyId === '') return null;
+	if (hierarchyTypeIds !== null && !hierarchyTypeIds.includes(Number(typologyId))) return null;
+	return typologyId;
+}
+
+/** The root-term locators that name a record (section_tipo + section_id). */
+function rootTermLocators(locators: Record<string, unknown>[] | null): Record<string, unknown>[] {
+	return (locators ?? []).filter(
+		(term) =>
+			typeof term === 'object' &&
+			term !== null &&
+			term.section_tipo !== undefined &&
+			term.section_id !== undefined,
+	);
 }
 
 /**

@@ -105,6 +105,7 @@ import { config } from '../../config/config.ts';
 import { projectRoot, readEnv } from '../../config/env.ts';
 import { DedaloError, ok } from '../errors/index.ts';
 import type { ApiEnvelope } from '../errors/schema.ts';
+import { writeTextFileDurablyAsync } from '../files/durable_async.ts';
 import { dirIsWritable } from '../install/dir_probe.ts';
 import { runtimePathsInsideTree } from '../install/runtime_paths.ts';
 import type { Principal } from '../security/permissions.ts';
@@ -118,6 +119,7 @@ import {
 } from './code_build_plan.ts';
 import { downloadReleaseArchive } from './code_download.ts';
 import { type ReleaseArchiveName, releaseArchiveNameOf } from './code_manifest.ts';
+import { type CodeManifestReader, pinToMasterManifest } from './code_manifest_pin.ts';
 import {
 	availableBytesAt,
 	checkUpdateSpace,
@@ -141,6 +143,7 @@ import {
 	type Freshness,
 	PANEL_WAIT_MS,
 	type PendingFreshness,
+	requireDataVersionCurrent,
 	requireFreshBackup,
 } from './preconditions.ts';
 import { writePublicationManifest } from './publication_manifest.ts';
@@ -148,7 +151,7 @@ import { refuseUpdate, rethrowOrRefuseUpdate } from './refuse.ts';
 import { parseReleaseVersion } from './release_identity.ts';
 import { smokeBootQuarantine } from './smoke_boot.ts';
 import { isSupervised, supervisorRefusalMessage } from './supervision.ts';
-import { DEDALO_DATA_VERSION, parseVersionString } from './version.ts';
+import { parseVersionString } from './version.ts';
 import { assertLinearUpgrade, identityWalkRefusal } from './version_walk.ts';
 
 // The walk rule moved to its leaf (version_walk.ts, 2026-10-09); re-exported so
@@ -351,6 +354,12 @@ export interface CodeUpdateSeams {
 	verifySha?: (filePath: string) => string;
 	/** Override supervisor detection (tests). */
 	supervised?: boolean;
+	/**
+	 * Read the selected master's offered items (U-41: the engine pins the
+	 * requested archive to the master's OWN manifest). Default: the guarded
+	 * fetch in code_manifest_pin.ts.
+	 */
+	readCodeManifest?: CodeManifestReader;
 	/** Dependency install in the quarantine (default: pinned-bun `install --frozen-lockfile --production --ignore-scripts`). */
 	installDeps?: (codeRoot: string) => Promise<void>;
 	/** Pre-swap boot check of the quarantine (default: smoke_boot.ts). */
@@ -397,6 +406,11 @@ export interface CodeUpdateSeams {
 	 * ({@link walkChannelOf}); a gate pins both.
 	 */
 	runningChannel?: InstallChannel | null;
+	/**
+	 * The installed data version read (default: matrix_updates, strict) — the
+	 * data-version gate (preconditions.ts requireDataVersionCurrent). Tests pin it.
+	 */
+	installedDataVersion?: () => Promise<number[]>;
 }
 
 function sha256Of(filePath: string): string {
@@ -795,7 +809,9 @@ export function installedDigestOf(targetRoot: string): string | null {
 }
 
 /**
- * The restore point's name. It carried only `dedalo_<version>_<stamp>`, which
+ * The restore point's name — `previousVersion` is the RELEASE IDENTITY of the
+ * tree moved aside (U-07: the data triple named every beta of a triple alike).
+ * It carried only `dedalo_<version>_<stamp>`, which
  * on the dev channel names every iteration identically (the version does not
  * move) — five restore points, nothing but a timestamp to tell them apart. The
  * short digest of the tree the dir HOLDS makes it identifiable; a tree with no
@@ -813,7 +829,11 @@ export function backupDirName(
 
 /** The rollback sentinel (deploy/dedalo-code-rollback.sh contract — flat, exact keys). */
 export interface UpdateSentinel {
+	/** The RELEASE IDENTITY the swapped-in tree calls itself — what /health answers
+	 * once it boots and what boot_confirm.ts compares when there is no digest
+	 * (U-07; it was the data triple, shared by every beta of one triple). */
 	version: string;
+	/** The RELEASE IDENTITY of the tree moved aside (the restore point's name). */
 	previousVersion: string;
 	updateMode: 'clean';
 	stamp: string;
@@ -840,7 +860,9 @@ async function writeUpdateSentinel(backupRoot: string, sentinel: UpdateSentinel)
 	mkdirSync(backupRoot, { recursive: true });
 	const path = join(backupRoot, 'last_code_update.json');
 	const bytes = JSON.stringify(sentinel, null, '\t');
-	await Bun.write(path, bytes);
+	// Atomic + durable (U-19): temp, fsync, rename, fsync dir — a crash leaves
+	// the previous bytes or these, never a torn file the rollback reads as empty.
+	await writeTextFileDurablyAsync(path, bytes);
 	// Verify: readable and parseable, not merely "the write did not throw".
 	const readBack = JSON.parse(readFileSync(path, 'utf8')) as UpdateSentinel;
 	if (readBack.version !== sentinel.version || readBack.status !== 'pending') {
@@ -1000,6 +1022,8 @@ async function parseUpdateRequest(
 	const waiveBackup = options.waive_backup === true;
 	const { databaseBackupDir, databaseBackupVerify } = seams;
 	checkUpdatePreconditions(principal);
+	// U-04: never walk the code further while the data does not match it.
+	await requireDataVersionCurrent(seams.installedDataVersion);
 	if (waiveBackup) {
 		void warnBackupWaiver(principal, databaseBackupDir, databaseBackupVerify).catch(
 			(error: unknown) => console.error('[code update] waiver audit line failed:', error),
@@ -1017,10 +1041,15 @@ async function parseUpdateRequest(
 	}
 	const request: UpdateRequest = { ...readReleaseFields(options), backupWaived: waiveBackup };
 	assertReleaseShape(request, {
-		release: seams.runningRelease ?? DEDALO_ENGINE_VERSION,
+		release: runningReleaseOf(seams),
 		channel: seams.runningChannel === undefined ? INSTALLED_CHANNEL : seams.runningChannel,
 	});
 	return request;
+}
+
+/** The RUNNING release identity: the seam a gate pins, else this engine's own. */
+function runningReleaseOf(seams: CodeUpdateSeams): string {
+	return seams.runningRelease ?? DEDALO_ENGINE_VERSION;
 }
 
 /**
@@ -1430,6 +1459,9 @@ async function acquireVerifiedArchive(
 			'Error. Release URL is not on a configured code server',
 		);
 	}
+	// U-41: the archive and its digest must be what the MASTER offers this
+	// install — the browser only selected the item.
+	await pinToMasterManifest(request, codeServer, seams.readCodeManifest);
 	phases.start('download');
 	const zipPath = join(stagingDir, `${request.version}.zip`);
 	await downloadReleaseArchive({
@@ -1935,7 +1967,10 @@ export async function updateCode(
 		refuseIfStopped(seams.signal, 'before the swap');
 		phases.start('swap');
 		const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
-		const previousVersion = DEDALO_DATA_VERSION.join('.');
+		// The RELEASE IDENTITY names the restore point and the sentinel's
+		// `previousVersion` (U-07): the data triple is shared by every beta of
+		// it, so a backup named after it could not say which build it holds.
+		const previousVersion = runningReleaseOf(seams);
 		const backupDir = join(
 			backupRoot,
 			backupDirName(previousVersion, installedDigestOf(targetRoot), stamp),
@@ -1953,7 +1988,7 @@ export async function updateCode(
 			backupDir,
 			stagingDir,
 			{
-				version,
+				version: targetIdentityOf(request),
 				previousVersion,
 				updateMode: 'clean',
 				stamp,

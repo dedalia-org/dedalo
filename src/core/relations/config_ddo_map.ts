@@ -153,3 +153,39 @@ export function flattenConfigDdoMaps(
 	}
 	return flattened;
 }
+
+/**
+ * The render fields a config child ddo carries VERBATIM into the subdatum map —
+ * ONE definition shared by the two twins that build that map from a
+ * component's own config: the section read (models/portal.ts
+ * buildOwnConfigDescendants) and the component get_data read
+ * (section/read.ts readComponentData). `tipo`, `parent` and `lang` stay the
+ * caller's business (each twin resolves `'self'` and stamps the lang its own way).
+ *
+ * WHY ONE MAPPER. The get_data twin once copied only tipo/section_tipo/parent/
+ * mode/lang, so a child `limit` was lost there: a nested portal cell
+ * (numisdata965 → numisdata9 `limit: 4`) rendered 4 coins per row on the first
+ * load and collapsed to the 1-locator list default on every refresh, save echo
+ * or page of the outer portal. Gate: test/unit/portal_nested_ddo_limit_native.test.ts.
+ *
+ *  - `section_tipo` keeps the DECLARED list intact (a multi-target child spans
+ *    every target; the per-locator grouping picks the match — numisdata6 §2);
+ *  - `limit` is the child cell's own page size (relation_core.expandPortal);
+ *  - `value_with_parents` is the breadcrumb trigger
+ *    (relation_core portalCellEmitsDdinfo).
+ */
+export interface ConfigChildRenderFields {
+	section_tipo: string | string[] | undefined;
+	mode: string | undefined;
+	limit: number | undefined;
+	value_with_parents: boolean | undefined;
+}
+
+export function configChildRenderFields(child: ConfigDdo): ConfigChildRenderFields {
+	return {
+		section_tipo: child.section_tipo as string | string[] | undefined,
+		mode: child.mode as string | undefined,
+		limit: child.limit as number | undefined,
+		value_with_parents: child.value_with_parents as boolean | undefined,
+	};
+}

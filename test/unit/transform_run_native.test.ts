@@ -33,6 +33,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { registerCommitAction, sql } from '../../src/core/db/postgres.ts';
+import { getServerState, setServerState } from '../../src/core/resolve/server_state.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { COMMIT_ONLY_ACTIONS_DROPPED_LINE } from '../../src/core/update/scripts.ts';
 import type { TransformRecorder } from '../../src/core/update/transform/report.ts';
@@ -89,8 +90,15 @@ const { runTransform } = await import('../../src/core/update/transform/engine.ts
 /** The scratch table the atomicity legs write through a fake executor. */
 const SCRATCH = `dedalo_ts_test_tr_${process.pid}`;
 
+// The DOOR legs execute a destructive_shared door (core/update/door_class.ts):
+// maintenance mode, the backup waived (that leg is gated in
+// update_door_precondition_class_tripwire — these legs are about the job).
+let maintenanceBefore = false;
+
 beforeAll(async () => {
 	await assertTestDatabase('transform_run_native');
+	maintenanceBefore = getServerState().maintenance_mode === true;
+	setServerState({ maintenance_mode: true });
 	await sql.unsafe(
 		`CREATE TABLE IF NOT EXISTS "${SCRATCH}" (id serial PRIMARY KEY, tag text NOT NULL)`,
 		[],
@@ -98,6 +106,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+	setServerState({ maintenance_mode: maintenanceBefore });
 	mock.module(DEFINITIONS_PATH, () => REAL_DEFINITIONS);
 	mock.module(TIPOS_PATH, () => REAL_TIPOS);
 	mock.restore();
@@ -882,6 +891,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 
 		const submittedAt = performance.now();
 		const response = await dispatchWidgetRequest(ROOT, SOURCE, {
+			waive_backup: true,
 			dry_run: false,
 			files_selected: ['a.json', 'b.json'],
 		});
@@ -900,12 +910,14 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		// A resubmit while the first runs is REFUSED, not queued behind its locks.
 		let refusal: unknown = null;
 		await dispatchWidgetRequest(ROOT, SOURCE, {
+			waive_backup: true,
 			dry_run: false,
 			files_selected: ['b.json'],
 		}).catch((error) => {
 			refusal = error;
 		});
-		expect((refusal as { code?: string } | null)?.code).toBe('resource.conflict');
+		// The door's UPDATE_RUN lock (held by the running job) refuses it first.
+		expect((refusal as { code?: string } | null)?.code).toBe('update.refused');
 		expect(sleeping.ran).toEqual([1]);
 
 		const stoppedAt = performance.now();
@@ -941,6 +953,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		// The door is free again: the next execute is accepted and applies.
 		doorExecutor = sleepingExecutor(() => {}).executor;
 		const again = await dispatchWidgetRequest(ROOT, SOURCE, {
+			waive_backup: true,
 			dry_run: false,
 			files_selected: ['b.json'],
 		});
@@ -985,7 +998,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		const response = await dispatchWidgetRequest(
 			ROOT,
 			{ model: 'move_tld', action: 'move_tld' },
-			{ dry_run: false, files_selected: ['a.json', 'b.json'] },
+			{ waive_backup: true, dry_run: false, files_selected: ['a.json', 'b.json'] },
 		);
 		const jobId = String(response.extend?.pfile ?? '').slice(0, -'.json'.length);
 		const record = await settledJob(jobId);
@@ -1020,7 +1033,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 			const response = await dispatchWidgetRequest(
 				ROOT,
 				{ model: 'move_tld', action: 'move_tld' },
-				{ dry_run: false, files_selected: ['a.json'] },
+				{ waive_backup: true, dry_run: false, files_selected: ['a.json'] },
 			);
 			const record = await settledJob(
 				String(response.extend?.pfile ?? '').slice(0, -'.json'.length),
@@ -1064,6 +1077,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		};
 		try {
 			const queued = await dispatchWidgetRequest(ROOT, SOURCE, {
+				waive_backup: true,
 				dry_run: false,
 				files_selected: ['a.json'],
 			});
@@ -1075,6 +1089,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 			expect(sleeping.ran).toEqual([]);
 			// The claim went with it: the next execute is ACCEPTED (it queues too).
 			const next = await dispatchWidgetRequest(ROOT, SOURCE, {
+				waive_backup: true,
 				dry_run: false,
 				files_selected: ['a.json'],
 			});
@@ -1107,6 +1122,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		try {
 			process.env.DEDALO_MEDIA_PROCESSES_DIR = unmarked;
 			await dispatchWidgetRequest(ROOT, SOURCE, {
+				waive_backup: true,
 				dry_run: false,
 				files_selected: ['a.json'],
 			}).catch((error) => {
@@ -1120,6 +1136,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		expect((refusal as { code?: string } | null)?.code).toBe('media.invalid_path');
 		// The claim was released: the next execute is accepted.
 		const next = await dispatchWidgetRequest(ROOT, SOURCE, {
+			waive_backup: true,
 			dry_run: false,
 			files_selected: ['a.json'],
 		});
@@ -1163,7 +1180,10 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 			} else await executor(items, recorder);
 		};
 		const submittedAt = performance.now();
-		const response = await dispatchWidgetRequest(ROOT, SOURCE, { files_selected: ['a.json'] });
+		const response = await dispatchWidgetRequest(ROOT, SOURCE, {
+			waive_backup: true,
+			files_selected: ['a.json'],
+		});
 		expect(performance.now() - submittedAt).toBeLessThan(3000);
 		expect(response.extend?.dry_run).toBe(true);
 		expect(response.extend?.pid).toBe(process.pid);
@@ -1177,6 +1197,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		await dryEntered.promise;
 		// No claim: an execute submitted while the dry run runs is ACCEPTED.
 		const execute = await dispatchWidgetRequest(ROOT, SOURCE, {
+			waive_backup: true,
 			dry_run: false,
 			files_selected: ['a.json'],
 		});
@@ -1213,7 +1234,7 @@ describe('runTransform execute: a stop rolls the running file back; a concurrent
 		const response = await dispatchWidgetRequest(
 			ROOT,
 			{ model: 'move_tld', action: 'move_tld' },
-			{ files_selected: ['a.json'] },
+			{ waive_backup: true, files_selected: ['a.json'] },
 		);
 		const record = await settledJob(String(response.extend?.pfile ?? '').slice(0, -'.json'.length));
 		expect(record?.status).toBe('error');

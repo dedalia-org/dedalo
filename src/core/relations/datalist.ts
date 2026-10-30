@@ -42,6 +42,7 @@ import { getMatrixTableFromTipo, getModelByTipo } from '../ontology/resolver.ts'
 import { resolveComponentValue } from '../resolve/component_data.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
 import { registerSectionDataListener } from '../section_record/save_event.ts';
+import { getTermByLocator, getTermTipos } from '../ts_object/term_resolver.ts';
 import type { FilterDatalistItem } from './filter_projects.ts';
 import { buildRequestConfigForElement } from './request_config/build.ts';
 import { extractSqoSectionTipos, type RequestConfigContext } from './request_config/explicit.ts';
@@ -771,6 +772,20 @@ export async function resolveLocatorLabels(
 		const targetSection = String(locator.section_tipo ?? '');
 		const targetId = Number(locator.section_id ?? 0);
 		if (targetSection === '' || !Number.isFinite(targetId)) continue;
+		// A THESAURUS target whose configured label IS its term component
+		// (toponymy, thesauri) is read through the term resolver: data lang first,
+		// then the thesaurus's OWN main lang — never the install default or the
+		// first lang found, which the component chain below would pick. Toponymy
+		// stays untranslated. A portal showing another component keeps that one.
+		if ((await getTermTipos(targetSection, 'thesaurus')).includes(labelDdo.tipo)) {
+			const term = await getTermByLocator(
+				{ section_tipo: targetSection, section_id: targetId },
+				lang,
+				true,
+			);
+			if (term !== null && term !== '') labels.push(term);
+			continue;
+		}
 		const table = await getMatrixTableFromTipo(targetSection);
 		if (table === null) continue;
 		const record = await memoizedReadMatrixRecord(table, targetSection, targetId);

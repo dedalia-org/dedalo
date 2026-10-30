@@ -49,13 +49,18 @@
  * known before the first line without moving a row to the process.
  */
 
+import { isDiffusionLangCode } from '../../config/lang_code.ts';
 import { CLIENT_MAX_LIMIT, getSectionTipos, sanitizeClientSqo } from '../../core/concepts/sqo.ts';
 import { DedaloError, ok } from '../../core/errors/index.ts';
 import { termByTipo } from '../../core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../core/ontology/resolver.ts';
 import { EmissionContext } from '../../core/resolve/component_data.ts';
 import type { MediaReadAddress } from '../../core/resolve/relation_list.ts';
-import { currentApplicationLang, runWithRequestLangs } from '../../core/resolve/request_lang.ts';
+import {
+	currentApplicationLang,
+	currentDataLang,
+	runWithRequestLangs,
+} from '../../core/resolve/request_lang.ts';
 import { buildSearchSql } from '../../core/search/sql_assembler.ts';
 import { getDataframeChildTipos } from '../../core/section/list_definitions/section_list.ts';
 import {
@@ -812,9 +817,20 @@ export interface OpenedExportGrid {
 	externalDegradation: () => ExportExternalDegradation | null;
 }
 
-/** The export data lang (`options.lang`, PHP default 'lg-spa'). */
+/**
+ * The export data lang: `options.lang`, the language the user picked in the tool
+ * (tool_export always sends it; the build handler fills in the submitter's
+ * data lang when it is absent). The request-scoped data lang is the backstop —
+ * never a hardcoded install language.
+ */
 function exportLangOf(options: Record<string, unknown>): string {
-	return String(options.lang ?? 'lg-spa');
+	const lang = options.lang ?? currentDataLang();
+	if (typeof lang !== 'string' || !isDiffusionLangCode(lang)) {
+		throw new DedaloError('request.invalid_options', {
+			publicMessage: 'options.lang must be a data language code (e.g. lg-eng)',
+		});
+	}
+	return lang;
 }
 
 /** Runs one step of the export walk inside the export's own identity scope. */

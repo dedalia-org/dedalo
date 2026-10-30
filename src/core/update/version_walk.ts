@@ -79,27 +79,49 @@ export function assertLinearUpgrade(
  * published sidecar of the skipped-to release, so a consumer pointed at a
  * master with several archives on disk could jump the queue.
  *
- * Now it asks ONE question, the same notion of "next rung" the manifest builds
- * from (code_manifest.ts upgradeRung): major+1.0.0, minor+1.0, or patch+1.
+ * Now it asks ONE question, the SAME function the manifest's code ladder asks
+ * (code_manifest.ts linearUpgradeTargets → {@link nextRungKind}): major+1.0.0,
+ * minor+1.0, or patch+1. One function, so what the manifest offers and what
+ * this door accepts cannot disagree (audit U-06, 2026-10-29: they did — the
+ * manifest walked from the DATA triple, the door from the release identity).
  */
 function versionSkipReason(current: readonly number[], target: readonly number[]): string | null {
-	const [cMajor = 0, cMinor = 0, cPatch = 0] = current;
+	if (nextRungKind(current, target) !== null) return null;
+	const [cMajor = 0, cMinor = 0] = current;
 	const [tMajor = 0, tMinor = 0, tPatch = 0] = target;
-	if (isNextRung([cMajor, cMinor, cPatch], [tMajor, tMinor, tPatch])) return null;
 	if (tMajor > cMajor) return 'major version skip is not allowed';
 	if (tMinor <= cMinor) return 'patch version skip is not allowed';
 	return tPatch !== 0 ? 'a minor/major bump must land on .0' : 'minor version skip is not allowed';
 }
 
-/** Is `target` the ONE rung above `current`: major+1.0.0, minor+1.0, or patch+1? */
-function isNextRung(
-	[cMajor, cMinor, cPatch]: readonly [number, number, number],
-	[tMajor, tMinor, tPatch]: readonly [number, number, number],
-): boolean {
-	if (tMajor === cMajor + 1) return tMinor === 0 && tPatch === 0;
-	if (tMajor !== cMajor) return false;
-	if (tMinor === cMinor + 1) return tPatch === 0;
-	return tMinor === cMinor && tPatch === cPatch + 1;
+/** Which axis a next rung moves: the x+1.0.0 major boundary, the next minor, or the next patch. */
+export type RungKind = 'major' | 'minor' | 'patch';
+
+/**
+ * THE NEXT-RUNG RULE — is `target` the ONE rung above `current` (major+1.0.0,
+ * minor+1.0, or patch+1), and on which axis? Null when it is not. Missing
+ * triple parts read as 0. Shared by the data walk above (the swap door) and
+ * the manifest's code ladder (code_manifest.ts linearUpgradeTargets), which
+ * walks it from the asker's RELEASE identity triple.
+ */
+export function nextRungKind(
+	current: readonly number[],
+	target: readonly number[],
+): RungKind | null {
+	const [major = 0, minor = 0, patch = 0] = current;
+	const wanted = triple(target).join('.');
+	const rungs: readonly [RungKind, readonly number[]][] = [
+		['major', [major + 1, 0, 0]],
+		['minor', [major, minor + 1, 0]],
+		['patch', [major, minor, patch + 1]],
+	];
+	return rungs.find(([, rung]) => rung.join('.') === wanted)?.[0] ?? null;
+}
+
+/** A version as a full triple (missing parts read as 0). */
+function triple(version: readonly number[]): [number, number, number] {
+	const [major = 0, minor = 0, patch = 0] = version;
+	return [major, minor, patch];
 }
 
 // ---------------------------------------------------------------------------

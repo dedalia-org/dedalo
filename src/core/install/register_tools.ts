@@ -3,9 +3,8 @@
  * registry (matrix_tools / dd1324) from THIS server's own tools tree
  * (each tools/<name>/register.json). Reuses the existing import machinery
  * (core/tools/register.ts importTools)
- * with dryRun:false to force the real write regardless of the standing
- * enableRegistryImport flag — a fresh install has an empty matrix_tools and must
- * be populated for the tools to appear in the UI.
+ * with dryRun:false — a fresh install has an empty matrix_tools and must be
+ * populated for the tools to appear in the UI.
  *
  * Response shape: `{ok, errors, report:[{name,dir,version,imported,errors,
  * warnings}]}`, read by the terminal installer's step table (step_runs.ts).

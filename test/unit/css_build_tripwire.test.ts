@@ -2,8 +2,8 @@
  * CSS BUILD tripwire (DEC-12: every documented invariant has one).
  *
  * The client's CSS is COMPILED from LESS and COMMITTED. That is not a style choice, it is
- * forced by the deployment model: `deploy/deploy.sh` states "the repo IS the artifact —
- * deploy = fetch + checkout <ref> on the host", and production installs with
+ * forced by the deployment model: a release archive is a `git archive` of the tree (the
+ * repo IS the artifact — no build step on the way to an install), and production installs with
  * `bun install --frozen-lockfile --production`, which does not even install the LESS
  * compiler. Nothing builds CSS on the way to production. So the bytes in git ARE the bytes
  * the browser gets, and the only question worth gating is: **do they still match the source

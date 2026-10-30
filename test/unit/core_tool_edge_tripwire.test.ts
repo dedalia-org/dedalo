@@ -65,6 +65,11 @@ const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; 
 			reason:
 				'The AI model catalog keys the ASR model list by the owning tool name (`const TOOL`) — a registry key, not a branch. Clears when the tool contributes its models through its ToolServerModule.',
 		},
+		'src/ai/capabilities.ts': {
+			names: { tool_assistant: 1, tool_identify: 1 },
+			reason:
+				'The AI capability map names the two AI tools whose visibility the deployment flags gate (CAPABILITY_GATED_TOOLS): a tool-name key into a hide rule, applied once by getUserTools. A real name-keyed coupling, ADDED 2026-10-29 with owner-visible reason (WC-2026-10-29-ai-capabilities-page-globals). Clears when the ToolServerModule contract can declare its own capability gate and the tools stop being named here.',
+		},
 		'src/core/api/handlers/dd_mcp_api.ts': {
 			names: { tool_assistant: 1 },
 			reason:

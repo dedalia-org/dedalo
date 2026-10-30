@@ -259,14 +259,35 @@ export const resolve_final_frame = function(state, frame) {
 * @param {Object} state - reducer state (mode 'polling')
 * @param {string|null} health_version - `version` from /health, null when the
 *   server never came back before the deadline
+* THE NEW TREE MUST ALSO HAVE MIGRATED (update audit 2026-10-29, U-01). A
+* server that boots the new code but whose boot migration FAILED answers /health
+* 503 with `boot_schema: 'failed'`, and the server refuses to confirm the update.
+* That is never 'updated', whatever the version or digest says: it is
+* 'schema_failed' while the schema is untouched (`boot_schema_moved` false: the
+* watchdog rolls the code back, so the caller keeps watching), and
+* 'needs_restore' when it moved or nobody could tell (true/null: the sentinel
+* is needs_restore, no automatic action will come — a human restores a backup).
+*
+* @param {Object} state - reducer state (mode 'polling')
+* @param {string|null} health_version - `version` from /health, null when the
+*   server never came back before the deadline
 * @param {string|null} [health_digest] - `install_digest` from /health
+* @param {string|null} [boot_schema] - `boot_schema` from /health (ok|failed|skipped;
+*   absent on an older server)
+* @param {boolean|null} [boot_schema_moved] - `boot_schema_moved` from /health
+*   (present only when boot_schema is failed; null = unknown, read as moved)
 * @returns {{outcome:string, message:(string|null)}}
-*   outcome ∈ updated | rolled_back | server_gone
+*   outcome ∈ updated | schema_failed | needs_restore | rolled_back | server_gone
 */
-export const resolve_health_outcome = function(state, health_version, health_digest=null) {
+export const resolve_health_outcome = function(state, health_version, health_digest=null, boot_schema=null, boot_schema_moved=null) {
 
 	if (health_version===null || health_version===undefined || health_version==='') {
 		return { outcome : 'server_gone', message : state.message }
+	}
+	if (boot_schema==='failed') {
+		return boot_schema_moved===false
+			? { outcome : 'schema_failed', message : state.message }
+			: { outcome : 'needs_restore', message : state.message }
 	}
 	if (state.expected_digest && health_digest) {
 		return health_digest===state.expected_digest
@@ -279,6 +300,74 @@ export const resolve_health_outcome = function(state, health_version, health_dig
 	// the server is back but not on the new version → the job rolled back
 	return { outcome : 'rolled_back', message : state.message }
 }//end resolve_health_outcome
+
+
+
+/**
+* READ_HEALTH_BODY
+* What one /health answer says to the poller. A 200 is a server that came back.
+* A 503 still carries the body, and two 503s are verdicts, not a server still
+* restarting: `boot_schema: 'failed'` (U-01 — resolve_health_outcome decides
+* between schema_failed and needs_restore), and `data_version.state: 'ahead'`
+* (the database is newer than the booted code — a deliberate restore of older
+* code across a data version: the operation HAPPENED, and the server stays
+* unhealthy until a human restores the matching database). Any other answer
+* (`version` null) keeps the poll going.
+*
+* @param {number} status - the HTTP status
+* @param {Object|null} body - the parsed body (null when there is none)
+* @returns {{version:(string|null), digest:(string|null), boot_schema:(string|null), boot_schema_moved:(boolean|null), data_ahead:boolean, run:(Object|null)}}
+*/
+export const read_health_body = function(status, body) {
+	const boot_schema	= body?.boot_schema ?? null
+	const data_ahead	= status===503 && body?.data_version?.state==='ahead'
+	const came_back		= status===200 || (status===503 && (boot_schema==='failed' || data_ahead))
+	return {
+		version				: came_back ? (body?.version ?? null) : null,
+		// null on a server older than the install stamp — the verdict falls
+		// back to the version compare in that case.
+		digest				: body?.install_digest ?? null,
+		boot_schema			: boot_schema,
+		boot_schema_moved	: body?.boot_schema_moved ?? null,
+		data_ahead			: data_ahead,
+		// the update run this boot belongs to (core/update/run/), or null
+		run					: body?.update_run ?? null
+	}
+}//end read_health_body
+
+
+
+/**
+* RUN_PROGRESS
+* Where the update run stands, read from /health's `update_run` (update audit
+* 2026-10-29, Phase 2.6). The new tree answering is NOT the end of an update
+* any more: after the restart the run applies the ontology, schema, data and
+* ancillary phases, and confirms only once VERIFIED. Pure.
+*  - 'none'          no run on this server (an older engine): the version verdict decides
+*  - 'running'       phases still running — keep watching, the update is not done
+*  - 'confirmed'     the run confirmed — the version verdict decides
+*  - 'needs_restore' the walk crossed a data model and failed: a human restores a backup
+*  - 'rolling_back'  the run ordered the previous code back — the old version answers next
+*  - 'failed'        ended without a confirm (MANUAL / ABANDONED / FAILED_PRE_SWAP / REFUSED)
+* @param object|null run
+* @return string
+*/
+export const run_progress = function(run) {
+	const state = run?.state ?? null
+	if (state===null) {
+		return 'none'
+	}
+	switch (state) {
+		case 'CONFIRMED':			return 'confirmed'
+		case 'NEEDS_DB_RESTORE':	return 'needs_restore'
+		case 'ROLLED_BACK_CODE':	return 'rolling_back'
+		case 'MANUAL':
+		case 'ABANDONED':
+		case 'FAILED_PRE_SWAP':
+		case 'REFUSED':				return 'failed'
+		default:					return 'running'
+	}
+}//end run_progress
 
 
 

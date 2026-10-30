@@ -309,6 +309,8 @@ const TRIPWIRES = [
 	'test/unit/audit_trigger_closure_native.test.ts',
 	'test/unit/update_engine_atomic_native.test.ts',
 	'test/unit/update_descriptor_tripwire.test.ts',
+	'test/unit/update_catalog_json_tripwire.test.ts',
+	'test/unit/migration_content_hash_tripwire.test.ts',
 	'test/unit/statement_ceiling_scope_native.test.ts',
 	'test/unit/maintenance_door_unbounded_native.test.ts',
 	'test/unit/optimize_concurrent_leftover_native.test.ts',
@@ -435,6 +437,9 @@ const TRIPWIRES = [
 	'test/unit/advisory_lock_class_tripwire.test.ts',
 	'test/unit/psql_argv_sql_tripwire.test.ts',
 	'test/unit/hermetic_parallel_safety_tripwire.test.ts',
+	'test/unit/release_manifest_completeness_tripwire.test.ts',
+	'test/unit/update_door_precondition_class_tripwire.test.ts',
+	'test/unit/update_docs_claims_tripwire.test.ts',
 	'test/unit/media_url_version_tripwire.test.ts',
 ];
 

@@ -78,12 +78,12 @@ type ToolDdo = Record<string, unknown> & { name: string };
  * tool_error_report — registered in dd1324 with no PHP package on disk; PHP's
  *   get_all_registered_tools skips such a row ("bad config" continue,
  *   tool_common.php:788-796), so its lists never carry it.
- * tool_identify — the object-identification tool did not exist on 2026-07-11,
- *   the day the store was harvested (built 2026-07-28, TS-only, no PHP package
- *   in the frozen tree). The oracle cannot be asked about a tool that postdates
- *   it; a re-harvest is impossible by definition.
+ *
+ * tool_identify is NOT here: it is WITHDRAWN from the TS toolbars until its
+ * redesign (WC-2026-10-29-ai-capabilities-page-globals, provisional addendum)
+ * and asserted absent on both sides below.
  */
-const TS_ONLY_TOOLS = ['tool_error_report', 'tool_identify'] as const;
+const TS_ONLY_TOOLS = ['tool_error_report'] as const;
 
 /**
  * tool_diffusion is availability-gated on the DIFFUSION SECTION-MAP, which is
@@ -139,11 +139,11 @@ describe.if(hasPhpCredentials())('section tools differential (Phase 6 gate)', ()
 		if (!hasPhpCredentials()) return;
 		const phpNames = new Set(phpTools.map((tool) => tool.name));
 		const tsNames = new Set(tsAll.map((tool) => tool.name));
-		// tool_identify is the entry a SECTION toolbar carries: present in TS (a
-		// declaration that matches nothing is a stale exemption) and absent from
-		// the frozen PHP answer. tool_error_report is a user_tools-level row that
-		// no section toolbar carries on either engine — asserted as such.
-		expect(tsNames.has('tool_identify')).toBe(true);
+		// tool_identify: absent from the frozen PHP answer (PHP never had it) and
+		// WITHDRAWN from the TS toolbar (WC-2026-10-29-ai-capabilities-page-globals).
+		// tool_error_report is a user_tools-level row that no section toolbar
+		// carries on either engine — asserted as such.
+		expect(tsNames.has('tool_identify')).toBe(false);
 		expect(phpNames.has('tool_identify')).toBe(false);
 		expect(tsNames.has('tool_error_report')).toBe(false);
 		expect(phpNames.has('tool_error_report')).toBe(false);

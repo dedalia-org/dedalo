@@ -54,14 +54,14 @@
  * tipo-confined, and skipping it would mean gating a path production never
  * takes.
  *
- * Two defects are PINNED here, not fixed (each needs its own wire-contract
- * entry):
- *   - D9 restore-of-an-empty-snapshot is a NO-OP: `importFromCopyFile`
- *     short-circuits a zero-byte file ("Empty export, nothing to import")
- *     WITHOUT running its scoped DELETE, so a TLD that was EMPTY before the
- *     import keeps the imported rows after an auto-restore while the response
- *     still claims "matrix rows restored". Case 5 seeds a pre-existing row
- *     precisely so the restore it asserts is a real one.
+ * D9 (restore-of-an-empty-snapshot was a NO-OP) is FIXED (U-17, 2026-10-30):
+ * `importFromCopyFile` short-circuited a zero-byte file WITHOUT its scoped
+ * DELETE, so a TLD that was EMPTY before the import kept the imported rows after
+ * an auto-restore while the response claimed "matrix rows restored". The restore
+ * now replays a snapshot with `emptyFile: 'empty_slice'`; case 4b is the
+ * red-then-green proof (an empty-before TLD is empty again after the restore).
+ *
+ * One defect stays PINNED here, not fixed:
  *   - The `matrix_ontology_main` counter (`ontology35`) consumed by
  *     `createMainSection` is a shared monotonic sequence; the sweep removes the
  *     minted row but cannot give the id back.
@@ -77,10 +77,15 @@ import { validateDdOntologyIdentifierConstraints } from '../../src/core/db/dd_on
 import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import type { DbConnDescriptor } from '../../src/core/install/pg_exec.ts';
+import type { OntologyDependency } from '../../src/core/ontology/ontology_dependencies.ts';
 import { inspectOntology } from '../../src/core/ontology/ontology_state.ts';
 import { updateOntology } from '../../src/core/ontology/ontology_update.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import {
+	manifestSourceDeps,
+	type PlantedManifestFile,
+} from '../helpers/ontology_manifest_fixture.ts';
 
 // ---------------------------------------------------------------------------
 // scratch surface
@@ -90,6 +95,11 @@ import { assertTestDatabase } from '../../src/core/test_data/test_database_marke
 const TLD = 'zzd';
 const TLD_B = 'zzdb';
 const SCRATCH_LIKE = 'zzd%';
+/**
+ * The injected active-TLD set (U-52 scope check, `deps.activeTlds`): the
+ * scratch TLDs are never configured, so without it every case is refused.
+ */
+const SCRATCH_ACTIVE_TLDS = [TLD, TLD_B];
 /** Scratch section_id band (942000-942999). */
 const SEEDED_ID = 942900;
 const IMPORT_IDS = [942500, 942501];
@@ -215,6 +225,21 @@ function optionsFor(origin: string, tlds: readonly string[]): unknown {
 		server: { name: 'zzd master', url: `${origin}/api/`, code: 'zzdmaster' },
 		files: tlds.map((tld) => ({ tld, url: `${origin}/${tld}.copy.gz` })),
 	};
+}
+
+/**
+ * The master's manifest the engine reads ITSELF (U-08 / U-41): it lists exactly
+ * the files `optionsFor` requests, at the same URLs, on this code's data model.
+ * `extra` adds manifest-only fields (e.g. declared dependencies) per TLD.
+ */
+function sourceFor(
+	origin: string,
+	tlds: readonly string[],
+	extra: Record<string, Partial<PlantedManifestFile>> = {},
+) {
+	return manifestSourceDeps(
+		tlds.map((tld) => ({ tld, url: `${origin}/${tld}.copy.gz`, ...extra[tld] })),
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +432,7 @@ describe('target refusal short-circuits before any artifact exists', () => {
 			},
 			ioBaseDir,
 			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
 		});
 
 		expect(out.ok).toBe(false);
@@ -430,6 +456,7 @@ describe('target refusal short-circuits before any artifact exists', () => {
 			catalog: { servers: [], isOntologyServer: false },
 			ioBaseDir,
 			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
 		});
 		expect(refused.errors).toEqual(['unknown ontology server: http://localhost']);
 		expect(readdirSync(ioBaseDir)).toEqual([]);
@@ -439,8 +466,10 @@ describe('target refusal short-circuits before any artifact exists', () => {
 		// answer depends on this developer's ../private/.env.
 		const accepted = await updateOntology(localhostOptions, -1, {
 			catalog: { servers: [], isOntologyServer: true },
+			...manifestSourceDeps(localhostOptions.files),
 			ioBaseDir,
 			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
 		});
 		expect(accepted.ok).toBe(false);
 		expect(accepted.msg).toBe('Error. Local ontology file missing: zzd.copy.gz');
@@ -479,7 +508,13 @@ describe('single-flight latch', () => {
 			},
 		});
 		const origin = `http://localhost:${inflightServer.port}`;
-		const deps = { catalog: remoteCatalog(origin), ioBaseDir, changesDir };
+		const deps = {
+			catalog: remoteCatalog(origin),
+			...sourceFor(origin, [TLD]),
+			ioBaseDir,
+			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
+		};
 
 		const first = updateOntology(optionsFor(origin, [TLD]), -1, deps);
 		await hasArrived;
@@ -529,8 +564,10 @@ describe('Phase B recovery snapshot', () => {
 			const out = await updateOntology(optionsFor(fixture.origin, [TLD]), -1, {
 				conn: deadConn,
 				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD]),
 				ioBaseDir,
 				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
 			});
 			fixture.stop();
 
@@ -568,8 +605,10 @@ describe('Phase C auto-restore', () => {
 		await assertScratchOnly(async () => {
 			const out = await updateOntology(optionsFor(fixture.origin, [TLD, TLD_B]), -1, {
 				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD, TLD_B]),
 				ioBaseDir,
 				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
 			});
 			fixture.stop();
 
@@ -587,6 +626,52 @@ describe('Phase C auto-restore', () => {
 			// 942500/942501 are gone and the seeded row is byte-identical.
 			expect(await scratchRows()).toEqual(before);
 			// and the provisioned roots the message names really are still there.
+			expect(await scratchOntologyTipos()).toEqual(
+				expect.arrayContaining(['zzd0', 'zzdb0']) as unknown as string[],
+			);
+		});
+		await sweepScratch(true);
+	}, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// 4b. U-17 — an EMPTY-before TLD is empty again after the restore (D9)
+// ---------------------------------------------------------------------------
+
+describe('Phase C auto-restore of an empty-before TLD (U-17)', () => {
+	test('the restore of an EMPTY snapshot removes the imported rows — "restored" is true', async () => {
+		const { ioBaseDir, changesDir } = makeDirs();
+		// NO seed: zzd0 holds no row, so its Phase-B snapshot is a zero-byte file.
+		expect(await scratchRows()).toEqual([]);
+
+		const fixture = serveFiles({
+			'zzd.copy.gz': validPayload('zzd0'),
+			'zzdb.copy.gz': copyBreakingPayload('zzdb0'),
+		});
+
+		await assertScratchOnly(async () => {
+			const out = await updateOntology(optionsFor(fixture.origin, [TLD, TLD_B]), -1, {
+				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD, TLD_B]),
+				ioBaseDir,
+				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
+			});
+			fixture.stop();
+
+			expect(out.ok).toBe(false);
+			// the restore trigger: zzdb's COPY failed AFTER zzd's committed (staged
+			// order). Red-then-green proof: without U-17 the rows below are
+			// [942500, 942501] — this case was run red against the pre-fix restore.
+			expect(out.errors.join('\n')).toContain('psql import failed');
+			expect(out.msg).toBe(
+				'Error. Import failed — matrix rows restored; registry and dd_ontology state may be partial',
+			);
+			expect(out.errors.some((line) => line.startsWith('RESTORE FAILED'))).toBe(false);
+			// D9: before U-17 the zero-byte snapshot short-circuited the restore and
+			// 942500/942501 stayed in zzd0 under that very message.
+			expect(await scratchRows()).toEqual([]);
+			// the provisioned roots are what the message calls partial
 			expect(await scratchOntologyTipos()).toEqual(
 				expect.arrayContaining(['zzd0', 'zzdb0']) as unknown as string[],
 			);
@@ -618,8 +703,10 @@ describe('success tail', () => {
 		await assertScratchOnly(async () => {
 			const out = await updateOntology(optionsFor(fixture.origin, [TLD]), -1, {
 				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD]),
 				ioBaseDir,
 				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
 			});
 			fixture.stop();
 
@@ -675,8 +762,10 @@ describe('SURF-1 identifier-grammar tail step', () => {
 		await assertScratchOnly(async () => {
 			const out = await updateOntology(optionsFor(fixture.origin, [TLD]), -1, {
 				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD]),
 				ioBaseDir,
 				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
 			});
 			fixture.stop();
 
@@ -722,19 +811,23 @@ describe('declared dependencies of an updated ontology', () => {
 	test('stored as hierarchy60 on its registry row; a missing MANDATORY one is a warning line, an optional one a log note, nothing installed', async () => {
 		const { ioBaseDir, changesDir } = makeDirs();
 		const fixture = serveFiles({ 'zzd.copy.gz': validPayload('zzd0') });
-		const declared = [
+		const declared: OntologyDependency[] = [
 			{ tld: 'dd', main: 'ontology35', mandatory: true }, // core: present
 			{ tld: 'zzdq', main: 'ontology35', mandatory: true }, // nowhere: missing, mandatory
 			{ tld: 'zzdq', main: 'hierarchy1', mandatory: false }, // nowhere: missing, optional
 		];
-		const options = optionsFor(fixture.origin, [TLD]) as { files: Record<string, unknown>[] };
-		(options.files[0] as Record<string, unknown>).dependencies = declared;
+		// The declaration lives IN THE MASTER'S MANIFEST — the engine stages the
+		// manifest's entry and ignores whatever dependencies the browser relays
+		// (U-41), so the client file here carries none.
+		const options = optionsFor(fixture.origin, [TLD]);
 
 		await assertScratchOnly(async () => {
 			const out = await updateOntology(options, -1, {
 				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD], { [TLD]: { dependencies: declared } }),
 				ioBaseDir,
 				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
 			});
 			fixture.stop();
 
@@ -804,8 +897,10 @@ describe('ONT-1: the re-derive is the one writer’s reconcile', () => {
 		try {
 			return await updateOntology(optionsFor(fixture.origin, [TLD]), -1, {
 				catalog: remoteCatalog(fixture.origin),
+				...sourceFor(fixture.origin, [TLD]),
 				ioBaseDir,
 				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
 			});
 		} finally {
 			fixture.stop();

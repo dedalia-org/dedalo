@@ -103,3 +103,18 @@ Before this the panel's whole answer was a refusal.
   `maintenance_door_unbounded_native` (REQUEST_BOUNDED) enumerate both actions.
 - **Fixture interaction (DEC-14b):** NO re-harvest; the frozen PHP fixtures never
   contained `consumer` (a TS-native panel) nor these actions.
+
+## Addendum 2026-10-30 (update audit 2026-10-29: U-35, U-43, U-20)
+
+- `last_outcome.detail` gains `same_version` (already in the shape above): a request for the
+  version the stack is pinned at is refused with it, not `downgrade_refused`.
+- **Claim is rename-first** (`image_update_channel.ts claimRequest`): the updater renames the
+  request file to its claimed name BEFORE it reads or rewrites it, so a cancel racing a claim either
+  removes the request (no claim) or finds nothing (the claim won). `request.state` keeps its values.
+- **Interrupted update** (`deploy/dedalo-image-update.sh`): before the re-pin the script writes
+  `.dedalo-image-update.pin` (`from`, `to`, the rollback tag, request id, checkout to restore) and
+  traps TERM/INT/HUP → one rollback with `status: rolled_back|rollback_failed`, `detail:
+  interrupted`. A marker left by a KILL refuses every run (`refused`/`interrupted`) until
+  `--recover` reconciles it (rollback when the pin still names the marker's source or target;
+  refused, marker kept, when it was changed by hand). The host updater runs `--recover` first on
+  each pass (`reconcile_pin`). Gates: `image_update_script_native`, `image_update_claim_native`.

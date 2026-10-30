@@ -42,8 +42,8 @@ explicit `root` — see [Every committed third-party byte](#every-committed-thir
 !!! note "No install-time fetch step, deliberately"
     An earlier design downloaded pdf.js from its GitHub release via a `postinstall`
     hook. That meant a hand-rolled zip extractor, a download cache, and — worse — a
-    hard dependency on GitHub being reachable **on the deploy path** (`deploy.sh`
-    runs `bun install`). All of that machinery existed for exactly one library. It
+    hard dependency on GitHub being reachable **on the install and update path**
+    (both run `bun install`). All of that machinery existed for exactly one library. It
     was cheaper to commit the 3.5 MB. A clone is now self-contained: `bun install`
     is the entire setup, and nothing can be half-materialised.
 

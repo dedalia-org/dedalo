@@ -1,12 +1,10 @@
 # Updating ontology
 
-> See also: [Updating code](updating_code.md) · [Updating data](updating_data.md) · [Active ontology TLDs](../../config/config.md#defining-active-ontology-tlds)
+> See also: [The update run](index.md#the-update-run) · [Updating code](updating_code.md) · [Updating data](updating_data.md) · [Active ontology TLDs](../../config/config.md#defining-active-ontology-tlds)
 
 The Dédalo ontology is the core of the application. It controls the data definition and how the data is interpreted. The ontology changes several times a day. Updating the ontology ensures that your Dédalo installation has the latest definition.
 
-The ontology version is identified by the timestamp and the build location of the definition.
-
-> Dédalo 2023-09-10T13:38:47+02:00 Benimamet
+An exported ontology carries a `version`: the data version of the master that exported it (for example `7.0.0` in the `ontology.json` shipped under `install/import/ontology/7.0/`). The installation compares that version's data model with its own and refuses an ontology exported for another one. The export also records its `date` and `host`; they tell you when and where it was built, and they are never compared.
 
 The ontology is built from different tlds. These tlds identify which part of the ontology is loaded and which parts will be updated.
 
@@ -166,11 +164,18 @@ same request in the server log.
 
 ## Update process
 
-To update the shared ontology enter into the Maintenance panel in the System administration -> Maintenance and locate the update ontology control:
+The ontology is updated in two ways, both as [update runs](index.md#the-update-run):
+
+* **With a code update.** The `ontology` phase is part of a release's default steps, so a code update run updates the shared ontology after the code swap, from every configured source. You do nothing extra.
+* **On its own, from this panel.** **Update Dédalo Ontology** starts an *ontology-only* run: a run with one `ontology` phase, no code swap and no restart. It is journaled like any run: the superuser only, maintenance mode switched on for its duration and put back afterwards, the run's database backup (or the **Update without a recent database backup** waiver, recorded in the journal), the update lock, and resume on the next start if the server goes away mid-import. A failure ends in `FAILED_PRE_SWAP`: the code that runs is the code that ran.
+
+In both cases the phase fails when no ontology source is configured (no `ONTOLOGY_SERVERS` entry and this installation is not an ontology master), or when any source fails.
+
+To update the shared ontology on its own, enter into the Maintenance panel in the System administration -> Maintenance and locate the update ontology control:
 
 ![Updating ontology control panel](assets/20230910_141614_updating_ontology_panel.png)
 
-The control panel will show the ontology configuration and the tlds to be updated; it's possible to change the tlds to be updated by editing the input field to add or remove one.
+The control panel shows the ontology configuration and the tlds to be updated. The server decides the set itself: every tld of `ACTIVE_ONTOLOGY_TLDS` plus the core pair below, never the installation's own local ontology (`localontology`), that the source's manifest lists — and, with several masters, that the source's `tlds` list names — plus `matrix_dd` (the shared value lists). The tlds in the input field can only **narrow** that set; a tld outside it is never added, and `matrix_dd` is never narrowed away.
 
 ### Which tlds are updated
 
@@ -203,9 +208,37 @@ When ready, press the "Update Dédalo Ontology to the latest version" button, an
 
 Dédalo will erase all definitions of the specified tlds and import the new definition.
 
+Before anything is downloaded, the server reads the master's ontology list itself; the browser only says which tlds to update. The update is refused, with a message naming the reason, when:
+
+* the master's ontology was exported for a data model this installation is not on. A master on a newer line needs a code update here first.
+* this installation's database is not yet on the data model of its code. Run "Update data" first.
+* the master does not list a requested tld.
+* several ontology masters are configured and a tld is not assigned to exactly one of them (below).
+
+**Several ontology masters.** When `ONTOLOGY_SERVERS` lists more than one master, each entry names the tlds this installation takes from it in a `tlds` list (put `matrix_dd`, the shared value lists, in exactly one). A tld that no master lists, or that two masters list, is refused, and so is a tld requested from a master that does not list it. With a single master no `tlds` list is needed. Masters must be reached over `https://`.
+
+**Every file is checked against the master's digest.** When a master exports its ontologies it records the sha256 of each exported file (`<tld>.copy.gz`, `matrix_dd.copy.gz`) in its `ontology.json`, under `files_sha256`. Each file this installation downloads, or copies from its own export directory, must match that digest before it is decompressed: a file that does not match is deleted and the update stops with *Ontology file does not match the master manifest*. A master that has not re-exported since digests were introduced publishes none. An update run (*Update ontology*, or the ontology phase of a code update) refuses such a source and names the files with no digest. Re-export on the master to publish digests.
+
 ![Updating ontology result](assets/20230910_141614_updating_ontology_result.png)
 
-The import pipeline (`update_ontology` widget, `src/core/ontology/ontology_update.ts`) stages and validates every downloaded file before making any destructive change, takes a per-table recovery snapshot before importing each tld, and auto-restores that snapshot if the import fails partway through — an import either fully succeeds or fully rolls back, tld by tld. A schema-changes snapshot of the update is written under `../private/backups/ontology/changes/`.
+The import pipeline (`update_ontology` widget, `src/core/ontology/ontology_update.ts`) stages and validates every downloaded file before making any destructive change, then takes a recovery snapshot of the ontology records of every tld it will replace. If the import fails partway through, the records of every tld already replaced are put back from those snapshots, including a tld that had no records before the update, which is left empty again.
+
+That restore is **not a full rollback**, and the result message says so:
+
+* Before importing a tld's records, the update creates or refreshes that tld's entry in the ontology registry and its root node in the active ontology. The snapshots do not cover these, so a failed import leaves them in place. The message then reads *matrix rows restored; registry and dd_ontology state may be partial*, and an error line names the tlds to review.
+* If a snapshot is missing or cannot be put back, the message says the restore is *INCOMPLETE*, and an error line names the snapshot file to restore by hand.
+* Only when neither applies does the message say *previous state restored*.
+
+Once every tld's records have been imported, the update counts as done. A later step that fails is reported as an error line, and the imported records are not rolled back.
+
+A schema-changes snapshot of the update is written under `../private/backups/ontology/changes/`.
+
+**What the update will remove (census).** Before replacing anything, the update compares each tld's current definitions with the new package and reports, for each tld where it finds something:
+
+* the nodes the package no longer contains, and
+* the nodes whose model changes (for example a `component_input_text` that becomes a `component_text_area`).
+
+When one of those nodes is a section, the report also counts the records stored in that section. Each such tld gets one line in the import log, and the full list comes back in the response as `census`. The census only reports. It never stops the update: decide from it whether the records under a removed section need attention.
 
 ### Updating without a network (air-gapped installs)
 

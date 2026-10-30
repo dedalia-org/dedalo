@@ -316,7 +316,11 @@ const TOOLING_SCRIPT_PREFIXES = new Set([
 // `tls:*` (2026-10-17, DEV_ROUTE_SERVE §1.2): renew / untrust the developer
 // route's local authority — it acts on an INSTALLATION's certificate and this
 // machine's trust stores, so it is operator-run (gate: install_dev_tls_native).
-const PRODUCTION_SCRIPT_PREFIXES = new Set(['start', 'dedalo', 'media', 'tls']);
+// `update` (2026-10-30, update audit U-33): `bun run update status|check|plan|abort`
+// is the update run's OPERATOR command line on an installation (its journals, its
+// UPDATE_RUN lock, its master's manifest) — production, covered by
+// test/unit/update_cli_native.test.ts.
+const PRODUCTION_SCRIPT_PREFIXES = new Set(['start', 'dedalo', 'media', 'tls', 'update']);
 
 function scriptPrefix(key: string): string {
 	return key.split(':')[0] as string;

@@ -28,31 +28,95 @@ your versions; the walk is strictly linear (`code_manifest.ts` — the next
 minor within the major, no skipping).
 
 1. **Name the release.** `DEDALO_NEXT_RELEASE` in `src/core/update/version.ts`
-   already reads `[7, 0, 1]`: the follow-up commit that followed the `7.0.0`
-   tag moved it there (VERSIONING_SPEC §6.4), so every nightly from then on is
-   `7.0.1-dev`. A tagged build must name its own triple: `NEXT` equals the tag's
-   triple in the tagged commit (`data_version_tripwire`). The build reads the
-   TAG's own `version.ts`, never the running process (step 6), and the manifest
-   advertises releases strictly above the CONSUMER's version and on the linear
-   walk from it. The first prerelease tag (`7.0.1-beta.1`) is the first commit
-   where this holds for the triple; later prereleases and the release repeat
-   nothing (*Cutting a prerelease* below).
+   is the release an untagged tree is heading to (its nightlies are
+   `<NEXT>-dev`). It equals the data triple until that release is tagged and is
+   moved to the next patch triple by the post-release commit that follows the
+   tag (VERSIONING_SPEC §6.4) — in the example, the commit after `v7.0.0` moved
+   it to `[7, 0, 1]`. A tagged build must name its own triple: `NEXT` equals the
+   tag's triple in the tagged commit (`data_version_tripwire`). The build reads
+   the TAG's own `version.ts`, never the running process (step 6), and the
+   manifest advertises releases strictly above the CONSUMER's identity and on
+   the linear walk from it. The first prerelease tag (`7.0.1-beta.1`) is the
+   first commit where this holds for the triple; later prereleases and the
+   release repeat nothing (*Cutting a prerelease* below).
 
-2. **Add the catalog descriptor.** Append a `7.0.1` `UpdateDescriptor` to
-   `UPDATE_CATALOG` (`src/core/update/catalog.ts`) in the same commit as step 1,
-   stating what the release needs: `updateData: false` for a code-only release,
-   or the `sqlUpdate`/`runScripts` steps for a data migration. Script steps key
-   into `SCRIPT_REGISTRY` (`src/core/update/engine.ts`) — register the script
-   there first. Every release has an entry, even a code-only one (spec §4 rule 3).
+2. **Write the release plan in `install/update/catalog.json`.** The file is the
+   update definition (owner decision D-7): one entry per release under
+   `releases`, and the entry IS the plan every consumer's update run executes —
+   the master publishes it with its code manifest (`get_code_update_info`,
+   top-level `plans`, `src/core/update/release_plans_wire.ts`), so a consumer
+   plans from the master's catalog, never from its own older one. Add `"7.0.1"`
+   in the same commit as step 1:
 
-2a. **Set the data version, only for a data release.** A catalog entry with
-   `updateData: true` moves the data version in the TAGGED commit, not before:
-   set `DEDALO_DATA_VERSION` in `version.ts` to the entry's triple (`[7, 0, 1]`).
+   ```jsonc
+   "7.0.1": {}                                   // code only: the default steps
+   "7.1.0": {
+     "compat": "incompatible",
+     "steps": [
+       { "kind": "code" },
+       { "kind": "schema" },
+       { "kind": "data", "sql": ["7.1.0/01_rename.sql"],
+         "scripts": [{ "id": "…", "info": "…", "stop_on_error": true }] },
+       { "kind": "ancillary" }
+     ]
+   }
+   ```
+
+   What the loader (`src/core/update/catalog_file.ts`) enforces — a bad file
+   refuses at load, so it never ships (`update_catalog_json_tripwire`):
+   - **The walk.** Keys are dotted triples in order, each the next rung
+     (patch, minor `.0`, major `.0.0`) of the one before; the first is the next
+     rung of the data line start (`DATA_LINE_START`, `7.0.0`), which is never a
+     key itself. A data release's `from` is the previous data release, derived,
+     never written.
+   - **`steps`.** Absent = the default `code → ontology → schema → ancillary`.
+     Declared: `code` exactly once; `schema`, `data`, `ancillary` at most once,
+     after `code` (`step_placement`);
+     `ontology` at most twice — one with `min` (a precondition the run executes
+     BEFORE the swap; `min` is an earlier release of this catalog on the same
+     data model) and one without (after the swap). The run's `ontology` phase
+     (`src/core/update/run/ontology_phase.ts`) executes both; a step with `min`
+     fails when the source offers an older ontology version.
+   - **`compat`** (D-4). Required when the release declares a `schema`, `data`
+     or `ontology` step, forbidden otherwise. `incompatible` (an SQL schema or
+     data change: crossing it needs a human database restore, D-2) only on a
+     minor or major; a `data` step is always `incompatible`. `compatible` (an
+     index, an ontology change with no schema/data impact) may ride a patch.
+   - **`data`.** SQL in files `install/update/<release>/<name>.sql`, one
+     statement each (the atomic contract of `catalog.ts`); `scripts` key into
+     `SCRIPT_REGISTRY` (`src/core/update/engine.ts`) — register the script
+     there first; `order` (default `sql`, `scripts`).
+
+   What the plan decides on the consumer (`src/core/update/run/rollback.ts`):
+   after the swap, a failure rolls the code back automatically only while no
+   `ontology`/`schema`/`data` phase of a release whose `compat` is not
+   `compatible` has started; otherwise the run ends in `NEEDS_DB_RESTORE`. A
+   release that declares no steps declares no `compat`, and its default
+   `ontology` and `schema` phases therefore count as crossing the data model.
+   Every release has an entry, even a code-only one (step 3, rule 3).
+
+2a. **Set the data version, only for a data release.** A catalog entry with a
+   `data` step moves the data version in the TAGGED commit, not before:
+   set `DEDALO_DATA_VERSION` in `version.ts` to the entry's triple (`[7, 1, 0]`).
    `dataVersionOf` derives it from the catalog, and `data_version_tripwire` holds
    the constant to it on a tagged build. Until then nightlies stay on the data of
-   the last data-changing release (VERSIONING_SPEC D2), so an untagged `7.0.1-dev`
-   never carries the migration. A code-only release leaves `DEDALO_DATA_VERSION`
-   alone.
+   the last data-changing release (VERSIONING_SPEC D2), so an untagged `7.1.0-dev`
+   never carries the migration. A release without a `data` step leaves
+   `DEDALO_DATA_VERSION` alone. A data release also recompiles the install seed
+   for that data version (`bun run seed:build`, step 3 rule 4).
+
+2b. **Bump a derivation version when the release changes what an ancillary
+   reconciler derives.** The run's `ancillary` phase re-derives a surface only
+   when its stamp moved. Two surfaces carry a hand-bumped version:
+   `TEMPLATE_VERSION` (`src/core/media/protection.ts`, the generated media rule
+   files) and `SEARCH_STORE_DERIVATION_VERSION` (`src/core/db/db_assets.ts`,
+   the search stores' sync functions and backfill templates). Bump the version
+   in the same commit as the change, then re-record the bank:
+   `bun run scripts/derivation_versions.ts --update` (it refuses a hash that
+   moved under an unchanged version, and a version that went backwards).
+   `engineering/derivation_versions.json` is generated — never hand-edit it.
+   Gate: `release_manifest_completeness_tripwire` (a moved hash under an
+   unchanged version is a forgotten bump: no install would re-derive).
 
 3. **Verify the gates.** `DEDALO_DATABASE_CONN=<suite db> bun test
    test/unit/…` for the touched surfaces, `bunx tsc --noEmit` (zero NEW
@@ -74,9 +138,25 @@ minor within the major, no skipping).
    (`src/core/update/release_identity.ts`); the pre-push hook REFUSES a
    lightweight release tag, and the code-server build refuses an archive that
    does not call itself the tag. The tag IS the release: its
-   name and the commit's `version.ts` must agree, and the commit must carry
-   its changelog cut (`changes/<identity>/release.json`, version = the tag's
-   identity, `to` = the tag). ONE check holds both (`scripts/lib/release_tag.ts`):
+   name and the commit's `version.ts` must agree. ONE check holds the four rules,
+   every one read from the git objects of the tag's commit, never the working
+   tree (`scripts/lib/release_tag.ts`):
+   1. `version.ts` declares the tag's triple;
+   2. the commit carries its changelog cut (`changes/<identity>/release.json`,
+      version = the tag's identity, `to` = the tag);
+   3. `install/update/catalog.json` has a `releases` entry for the tag's triple
+      (step 2) — except the data line start (`DATA_LINE_START`), whose releases
+      ride the seed, not a catalog rung. A release without an entry is never
+      advertised by any master;
+   4. the install seed manifest (`install/db/dedalo_install.manifest.json`)
+      says `engine_version` = the commit's `DEDALO_DATA_VERSION` — a fresh install
+      of the release starts on the data version the release declares (its
+      freshness against its sources is `install_seed_manifest_tripwire`).
+
+   A release tag is `vX.Y.Z` or `vX.Y.Z-(alpha|beta|rc).N`; a `-dev` name is
+   never a release tag: `releaseVersionOfTag` answers null, so `releaseTagFault`
+   refuses it (the image plan publishes nothing) and the push door holds nothing
+   for it (exit 3).
    the pre-push hook runs it on every pushed `v*` tag (`bun run
    push:release-tag <tag> <commit> <object>`) and image-release.yml's `plan` runs it
    again. At the push door a tag whose identity sorts below `FIRST_CUT_RELEASE`
@@ -214,8 +294,10 @@ existing releases by a `release`-channel dispatch per tag (input `tag: vX.Y.Z`):
 the already-published, already-signed digest and never rebuilds. Provisioning itself is a
 list edit (`engineering/CI.md`, *The product image*).
 
-Note: `deploy/deploy.sh` is a PARKED git-based deploy that has never run
-against a real host — it is not a step of this runbook.
+Note: there is no other code-delivery channel beside the update run (the panel
+self-update and the image updater). The parked git-based `deploy/deploy.sh` and
+its self-hosted workflow were deleted on 2026-10-30 (update audit U-34;
+`engineering/CI.md` *Deploy*).
 
 Automated twin: steps 1–11 are rehearsed end to end by
 `bun run test:update` (`scripts/update_drill.ts`) — a scratch clone gets the
@@ -238,7 +320,7 @@ the same steps as above, held to the same gates, minus the version bump. The
 example publishes `7.0.1-beta.2`.
 
 1. **No version bump.** `version.ts` already declares `[7, 0, 1]` as NEXT — the
-   `UPDATE_CATALOG` descriptor and, for a data release, `DEDALO_DATA_VERSION`
+   `install/update/catalog.json` entry and, for a data release, `DEDALO_DATA_VERSION`
    (steps 1, 2, 2a) landed with the triple's first prerelease (`7.0.1-beta.1`); a
    later prerelease contributes none of them (the triple's data step runs once,
    on the first identity of it an install receives). Each tagged commit must hold
@@ -276,12 +358,12 @@ is immutable like a release: different bytes need a new tag.
 
 **Bootstrap (design §2.8 item 5).** An install running `7.0.0-beta.6` or
 older has no `prerelease` channel token and calls itself the bare `7.0.0`, so
-it is never offered a prerelease: it reaches the first prerelease release
-(`7.0.0-beta.7`) by a fresh image (`docs/install/docker.md`, *A stack installed
-from a beta before 7.0.0-beta.7*) or, on a tree install, through the dev
-channel: it installs the `7.0.1-dev.zip` developer build, then — still on a
-`dev` ask — is offered every tag-built archive of `7.0.0` (`code_manifest.ts`
-`sameTripleItemsFor`: a `.dev` cannot say which tags are older than it), and
-the swap door admits them because the tree's own stamp says the dev channel
-installed it (`code_update.ts` `walkChannelOf`). The beta.7 release notes say
-so (changelog fragment `prereleases-are-published`).
+it is never offered a prerelease: it reaches the prerelease line by a fresh
+image (`docs/install/docker.md`, *A stack installed from a beta before
+7.0.0-beta.7*) or, on a tree install, through the dev channel: it installs the
+`7.0.0-dev` developer build. From there no door moves it back: `7.0.0-dev`
+sorts above every prerelease of `7.0.0`, so `code_manifest.ts`
+`sameTripleItemsFor` offers only identities above it and `version_walk.ts`
+`sameTripleRefusal` refuses anything not newer (the one same-identity move is
+a `-dev` reinstalled over itself on the dev channel). Its way on is `7.0.0`
+once tagged, or the next release.

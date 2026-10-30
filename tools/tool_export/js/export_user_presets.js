@@ -264,6 +264,9 @@ export const apply_export_preset = async function(options) {
 		if (typeof self.update_parents_checks_state==='function') {
 			self.update_parents_checks_state()
 		}
+		if (typeof self.update_lang_state==='function') {
+			self.update_lang_state()
+		}
 
 	// persist the applied preset as the current working state
 		await self.update_local_db_data()

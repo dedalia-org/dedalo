@@ -438,6 +438,49 @@ async function resolveDeclaredPickerCaller(
 	return resolvePickerCaller(caller, principal, lang);
 }
 
+/**
+ * The TYPOLOGY narrowing an area declares for itself: `rqo.source.properties.hierarchy_types`
+ * (the PHP dd_core_api get_data copy of `ddo_source->properties->hierarchy_types`
+ * onto the area, consumed by class.area_thesaurus.php get_hierarchy_sections).
+ *
+ * Where it comes from. The client sends the instance's own `properties` in
+ * `source` (common.js create_source). For a tool-built child instance that is
+ * the ddo entry's `properties` (tool_common load_ddo_map), so a tool's
+ * `tool_config.ddo_map` entry `{role:'area_thesaurus', properties:{hierarchy_types:[8]}}`
+ * arrives here as `source.properties.hierarchy_types = [8]` — on the boot read
+ * and on every refresh/search read, which reuse the same rqo. The ontology node
+ * dd100 itself does not carry it.
+ *
+ * Why a request value is acceptable here when `hierarchy_sections` /
+ * `hierarchy_terms` / `thesaurus_mode` are not (engineering/AREA_SPEC.md §5.5):
+ * it can only NARROW. It drops hierarchies before the per-hierarchy ACL loop
+ * runs, never adds one, and grants no mode — the worst a forged value can do is
+ * show the caller less of what they may already read.
+ *
+ * Only the thesaurus area is narrowed. An ontology area's typology is pinned
+ * (ontology tipos have no hierarchy13 typology of their own), so a declared
+ * list there is ignored rather than compared against the wrong registry.
+ *
+ * Returns null when nothing is declared — absent, null, or an EMPTY list, the
+ * PHP `!empty($hierarchy_types_filter)` rule: every active hierarchy is
+ * projected. Otherwise the declared ids as numbers (one id or a list, the value
+ * shape the portal `{source:'hierarchy_types'}` branch accepts); an entry that
+ * is not an integer can match no typology and is dropped, so a non-empty
+ * declaration of nothing valid admits nothing rather than everything.
+ */
+function readDeclaredHierarchyTypeIds(
+	rqo: Rqo,
+	areaModel: 'area_thesaurus' | 'area_ontology',
+): number[] | null {
+	if (areaModel !== 'area_thesaurus') return null;
+	const declared = (rqo.source as { properties?: { hierarchy_types?: unknown } } | undefined)
+		?.properties?.hierarchy_types;
+	if (declared === undefined || declared === null) return null;
+	const declaredList = Array.isArray(declared) ? declared : [declared];
+	if (declaredList.length === 0) return null;
+	return [...new Set(declaredList.map((id) => Number(id)).filter((id) => Number.isInteger(id)))];
+}
+
 /** The pruned hierarchy list plus the two drop counters (see filterHierarchiesByGrant). */
 interface PrunedHierarchies {
 	kept: HierarchyBootItem['value'];
@@ -596,12 +639,18 @@ async function readTreeArea(
 	// client-sent section list. Independent of the mode grant — which thesaurus
 	// belongs to this caller does not depend on whether the principal may pick
 	// from it.
+	// Typology narrowing declared by the area's ddo (properties.hierarchy_types,
+	// e.g. the cataloguing tool's area_thesaurus entry) — see
+	// readDeclaredHierarchyTypeIds. Applied inside the tree read so the other
+	// typologies are never loaded at all.
+	const hierarchyTypeIds = readDeclaredHierarchyTypeIds(rqo, areaModel);
 	const item = (await readAreaHierarchyData(
 		areaModel,
 		areaTipo,
 		lang,
 		termsAreModel,
 		picker?.constraint?.targets ?? null,
+		hierarchyTypeIds,
 	)) as unknown as HierarchyBootItem;
 
 	// Per-hierarchy read-permission filter (PHP area_thesaurus_json loop) —

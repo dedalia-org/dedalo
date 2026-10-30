@@ -33,7 +33,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const WIDGET_DIR = join(
@@ -64,8 +64,10 @@ import {
 import {
 	apply_phase_frame,
 	init_phase_state,
+	read_health_body,
 	resolve_final_frame,
 	resolve_health_outcome,
+	run_progress,
 	UPDATE_PHASES,
 } from '../../client/dedalo/core/area_maintenance/widgets/update_code/js/update_code_phases.js';
 
@@ -346,6 +348,82 @@ describe('update_code phase reducer (pure)', () => {
 		const rolled = resolve_health_outcome(state, '6.4.0');
 		expect(rolled.outcome).toBe('rolled_back');
 		expect(resolve_health_outcome(state, null).outcome).toBe('server_gone');
+	});
+
+	test('a failed boot migration is never an update, whatever the version says (U-01)', () => {
+		// biome-ignore lint/suspicious/noExplicitAny: plain-JS reducer, untyped by design
+		let state: any = init_phase_state('6.4.1');
+		state = apply_phase_frame(state, frame_at('restart'));
+		state = apply_phase_frame(state, { interrupted: true, message: 'restarting' });
+
+		// schema untouched: a rollback is still due — keep watching
+		expect(resolve_health_outcome(state, '6.4.1', null, 'failed', false).outcome).toBe(
+			'schema_failed',
+		);
+		// schema moved, or unknown (read as moved): needs a human restore, now
+		expect(resolve_health_outcome(state, '6.4.1', null, 'failed', true).outcome).toBe(
+			'needs_restore',
+		);
+		expect(resolve_health_outcome(state, '6.4.1', null, 'failed', null).outcome).toBe(
+			'needs_restore',
+		);
+		expect(resolve_health_outcome(state, '6.4.1', null, 'ok').outcome).toBe('updated');
+		// an older server publishes no boot_schema: the version compare stands
+		expect(resolve_health_outcome(state, '6.4.1', null, null).outcome).toBe('updated');
+	});
+});
+
+describe('read_health_body — which /health answers are a server that came back', () => {
+	const body = (extra: Record<string, unknown>) => ({ version: '7.0.0-beta.7', ...extra });
+
+	test('200 is back; a 503 is back only as a verdict (failed migration, database ahead)', () => {
+		expect(read_health_body(200, body({})).version).toBe('7.0.0-beta.7');
+		expect(read_health_body(503, body({ boot_schema: 'ok' })).version).toBeNull();
+		expect(
+			read_health_body(503, body({ boot_schema: 'failed', boot_schema_moved: false })),
+		).toMatchObject({
+			version: '7.0.0-beta.7',
+			boot_schema: 'failed',
+			boot_schema_moved: false,
+			data_ahead: false,
+		});
+		// the deliberate restore of older code across a data version: done, not healthy
+		const ahead = read_health_body(
+			503,
+			body({
+				boot_schema: 'ok',
+				data_version: { state: 'ahead', installed: '7.1.0', code: '7.0.0' },
+			}),
+		);
+		expect(ahead).toMatchObject({ version: '7.0.0-beta.7', data_ahead: true });
+		expect(read_health_body(503, body({ data_version: { state: 'pending' } })).version).toBeNull();
+		expect(read_health_body(503, null).version).toBeNull();
+	});
+
+	test('the update run rides along; the new tree answering is not the end while it runs', () => {
+		const run = { run_id: 'r1', state: 'SCHEMA_APPLIED' };
+		expect(read_health_body(200, body({ update_run: run })).run).toEqual(run);
+		expect(read_health_body(200, body({})).run).toBeNull();
+		expect(run_progress(null)).toBe('none');
+		for (const state of [
+			'CODE_SWAPPED',
+			'ONTOLOGY_APPLIED',
+			'SCHEMA_APPLIED',
+			'DATA_APPLIED',
+			'VERIFIED',
+		]) {
+			expect(run_progress({ state })).toBe('running');
+		}
+		expect(run_progress({ state: 'CONFIRMED' })).toBe('confirmed');
+		expect(run_progress({ state: 'NEEDS_DB_RESTORE' })).toBe('needs_restore');
+		expect(run_progress({ state: 'ROLLED_BACK_CODE' })).toBe('rolling_back');
+		for (const state of ['MANUAL', 'ABANDONED', 'FAILED_PRE_SWAP', 'REFUSED']) {
+			expect(run_progress({ state })).toBe('failed');
+		}
+	});
+
+	test('the data-ahead sentence ships in the label master', () => {
+		expect(master_labels.update_code_data_ahead).toBeString();
 	});
 });
 
@@ -644,26 +722,52 @@ describe('update_code waive-backup control', () => {
 // string is invisible in the DOM until a dev-channel install meets it.
 // ---------------------------------------------------------------------------
 describe('update_code restore control', () => {
-	test('the downgrade decision compares the SERVER’s version, not the page global', () => {
-		// page_globals.dedalo_version is DEDALO_ENGINE_VERSION and carries the
-		// prerelease tag ('7.0.1.dev'); the pipeline compares
-		// DEDALO_DATA_VERSION.join('.'), a bare '7.0.1'. Comparing the page
-		// global drew the waiver on every developer-channel restore of the
-		// version already running, locked the submit behind it, and had the
-		// server log "VERSION CHANGE CONFIRMED … from 7.0.1 to 7.0.1".
+	test('the downgrade decision is the SERVER’s rule on the SERVER’s engine facts (U-07)', () => {
+		// code_restore.ts restoreChangesCode: a change is another RELEASE IDENTITY,
+		// or two KNOWN digests that differ. The modal used to compare the DATA
+		// triple (engine.version), which every beta of one triple shares — beta.5
+		// over beta.7 asked for no waiver while the server (now) refuses it.
+		// Executed, not spelled: the decision is extracted and run on fixtures.
 		expect(render_src).toContain(
-			'export const render_restore_modal = function( self, point, body_response, running_version )',
+			'export const render_restore_modal = function( self, point, body_response, engine )',
 		);
-		expect(render_src).toContain('const from_version		= String(running_version ||');
-		// …and the panel hands it the server's own field. Matched by SHAPE, not by
-		// the holder's name: the consumer half became one re-callable writer
-		// (render_consumer_half) on 2026-08-26 and `value.consumer` there is now
-		// simply `consumer` — what must not drift is that the version comes off
-		// the payload's engine, never off the page global.
-		expect(/\(\s*consumer\.engine \|\| \{\}\)\.version/.test(render_src)).toBe(true);
+		const decision =
+			/const running\s+= engine \|\| \{\}[\s\S]*?const version_changes\s+= [^\n]*(?:\n\t+\|\|[^\n]*)*/.exec(
+				render_src,
+			)?.[0];
+		expect(decision, 'the decision block moved — update this gate').toBeDefined();
+		const changes = new Function(
+			'engine',
+			'point',
+			`${decision as string}\nreturn version_changes`,
+		) as (engine: object, point: object) => boolean;
+		const A = 'a'.repeat(64);
+		const B = 'b'.repeat(64);
+		const beta7 = { engine_version: '7.0.0-beta.7', install_digest: A, version: '7.0.0' };
+		// same data triple, another identity → change
+		expect(changes(beta7, { version: '7.0.0-beta.5', data_version: '7.0.0', digest: B })).toBe(
+			true,
+		);
+		// same identity, other KNOWN digest → change
+		expect(changes(beta7, { version: '7.0.0-beta.7', digest: B })).toBe(true);
+		// same identity, same digest → none
+		expect(changes(beta7, { version: '7.0.0-beta.7', digest: A })).toBe(false);
+		// an unknown digest on either side is no evidence: the identity decides
+		expect(changes(beta7, { version: '7.0.0-beta.7', digest: null })).toBe(false);
 		expect(
-			/render_restore_modal\([^)]*page_globals\.dedalo_version/.test(render_src),
-			'the restore modal must never be handed the page global as the running version',
+			changes({ ...beta7, install_digest: null }, { version: '7.0.0-beta.7', digest: B }),
+		).toBe(false);
+		// an unreadable point always asks
+		expect(changes(beta7, { version: null, digest: A })).toBe(true);
+		// …and the panel hands it the payload's engine, never the page global.
+		expect(
+			/render_restore_modal\(self, point, body_response, consumer\.engine \|\| \{\}\)/.test(
+				render_src,
+			),
+		).toBe(true);
+		expect(
+			/render_restore_modal\([^)]*page_globals/.test(render_src),
+			'the restore modal must never be handed a page global as the running version',
 		).toBe(false);
 	});
 

@@ -48,7 +48,18 @@ export const check_health = async (health_url) => {
 	try {
 		const url		= health_url + (health_url.includes('?') ? '&' : '?') + 'time=' + Date.now() + Math.floor(Math.random() * 1000)
 		const response	= await fetch(url, {method:'GET', cache:'no-cache'})
-		return response.ok
+		if (response.ok) {
+			return true
+		}
+		// ALIVE BUT NOT READY (update audit 2026-10-29, U-01/U-04): a server whose
+		// boot migration failed, or whose database is ahead of its code, answers
+		// 503 with `db: 'ok'`. It is answering — this probe tells slow from DEAD,
+		// so it must not read that as a dead server.
+		if (response.status===503) {
+			const body = await response.json().catch(() => null)
+			return body?.db==='ok'
+		}
+		return false
 	} catch (error) {
 		return false
 	}

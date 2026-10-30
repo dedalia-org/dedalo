@@ -22,6 +22,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isTestFixtureTld } from '../ontology/core_tlds.ts';
 import {
 	fetchOntologyManifest,
 	type ManifestOntology,
@@ -74,19 +75,29 @@ function catalogEntry(ontology: ManifestOntology, origin: OntologyOrigin): Ontol
 }
 
 /** A parsed manifest → the source's own catalog (`matrix` is a whole-table dump, never an ontology). */
-function manifestCatalog(
+export function manifestCatalog(
 	manifest: Extract<ManifestResult, { ok: true }>,
 	source: OntologySource,
 	origin: 'local' | 'server',
 ): OntologyCatalog {
 	const matrixDdUrl = manifest.matrixDdUrl;
+	const offered = manifest.ontologies.filter((ontology) => ontology.tld !== 'matrix');
+	// An installation receives no test fixture: a source that exports the suite's
+	// `test` TLD (a master with it registered) has it dropped here, said once.
+	const fixtures = offered.filter((ontology) => isTestFixtureTld(ontology.tld));
 	return {
 		source,
-		entries: manifest.ontologies
-			.filter((ontology) => ontology.tld !== 'matrix')
+		entries: offered
+			.filter((ontology) => !isTestFixtureTld(ontology.tld))
 			.map((ontology) => catalogEntry(ontology, origin)),
 		matrixDd: matrixDdUrl === null ? null : { origin, file: fileOf(matrixDdUrl, origin) },
-		warnings: manifest.warnings,
+		warnings:
+			fixtures.length === 0
+				? manifest.warnings
+				: [
+						...manifest.warnings,
+						`not offered (test-suite fixtures, never installed): ${fixtures.map((ontology) => ontology.tld).join(', ')}`,
+					],
 	};
 }
 

@@ -2,7 +2,7 @@
  * EXPORT DATA LANG REACHES THE AMBIENT-LANG CELLS — the component_external
  * pin (WC-2026-09-24-tool-export-server-built-artifacts, "get_export_grid").
  *
- * THE CLAIM. An export has ONE data lang: `options.lang` (default 'lg-spa').
+ * THE CLAIM. An export has ONE data lang: `options.lang` (the tool's selector; the request's data lang when absent).
  * Literal cells always resolved in it (the lang is passed down explicitly).
  * A component_external cell does NOT receive it: relation_list.ts
  * resolveCellValue → deriveExternalValue → external/cache.ts fetchExternalRows
@@ -179,10 +179,12 @@ describe('the export data lang reaches the component_external cell', () => {
 		expect(eng).not.toContain('Autora, Española');
 	});
 
-	test("no options.lang = the export default 'lg-spa', never the session's", async () => {
+	test("no options.lang = the request's data lang, never a hardcoded install lang", async () => {
+		// The build handler always sends options.lang (withExportLang); a producer
+		// call without it takes the request-scoped data lang, not 'lg-spa'.
 		const text = await streamUnderSession('lg-eng', undefined);
-		expect(text).toContain('Autora, Española');
-		expect(text).not.toContain('Author, English');
+		expect(text).toContain('Author, English');
+		expect(text).not.toContain('Autora, Española');
 	});
 
 	test('a detached producer (no session at all) gives the same bytes', async () => {

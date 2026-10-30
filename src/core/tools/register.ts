@@ -2,12 +2,13 @@
  * Tool registration (PHP tools_register::import_tools).
  *
  * Scans the tool roots, parses each register.json, validates it, and reconciles
- * the tools registry (dd1324 in matrix_tools). Because that registry is SHARED
- * with a live PHP install, importTools defaults to DRY-RUN: it computes, per
- * tool, whether the registry already reflects the tool's declared identity and
- * returns a diff — WITHOUT writing. Real writes happen only when
- * config.tools.enableRegistryImport is true (see engineering/TOOLS_SPEC.md for the
- * write-parity procedure that must pass before enabling it).
+ * the tools registry (dd1324 in matrix_tools). A bare importTools() is a DRY RUN
+ * (it computes, per tool, whether the registry already reflects the tool's
+ * declared identity and returns a diff, writing nothing); a caller WRITES by
+ * passing `dryRun: false` — the installer, the Register tools widget, the update
+ * run's ancillary phase. (The TOOLS_ENABLE_REGISTRY_IMPORT switch that once gated
+ * this, while the registry was shared with a live PHP install, was retired on
+ * 2026-10-30 — update audit 2026-10-29, U-39: no caller consulted it any more.
  *
  * Format detection mirrors PHP:
  *   - top-level `components` key → legacy v6 dump (NOT supported this wave);
@@ -19,10 +20,13 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { config } from '../../config/config.ts';
 import { assertMatrixTable } from '../db/matrix.ts';
-import { insertMatrixRecordWithCounter, updateMatrixRecord } from '../db/matrix_write.ts';
-import { sql } from '../db/postgres.ts';
+import {
+	insertMatrixRecordWithCounter,
+	readMatrixKeyForUpdate,
+	updateMatrixRecord,
+} from '../db/matrix_write.ts';
+import { sql, withTransaction } from '../db/postgres.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { invalidateAllToolCaches } from './cache.ts';
 import { getLoadedTool } from './loader.ts';
@@ -78,6 +82,12 @@ export interface ImportReportItem {
 	 * and the installer's per-tool rows alike.
 	 */
 	version: string | null;
+	/**
+	 * The registry WRITE failed (dryRun:false) — distinct from an invalid
+	 * register.json: the declaration was fine, dd1324 still holds the old row.
+	 * The update run fails its ancillary phase on it (review 2026-10-30 #11).
+	 */
+	writeFailed?: boolean;
 }
 
 // The tool components grouped by their matrix column (fixed contract — avoids a
@@ -530,17 +540,30 @@ export async function missingServerWarning(
 
 /**
  * Reconcile the tools registry. Dry-run (default) validates every tool and
- * reports whether the shared dd1324 registry already matches — writing nothing.
- * A real write runs only when config.tools.enableRegistryImport is true.
+ * reports whether the dd1324 registry already matches — writing nothing;
+ * `dryRun: false` writes.
  *
  * `activeOverrides` (name → active) forces the dd1354 ACTIVE radio per tool,
  * outranking the register.json declaration — see applyActiveOverride. A tool
  * absent from the map keeps whatever its file declares.
+ *
+ * `keepStoredActive` (the update run's ancillary phase): a tool already in the
+ * registry keeps the ACTIVE value STORED on its row, read under the row lock in
+ * the write's own transaction (writeRegistryRecord) — the admin's choice
+ * survives an update, and a toggle committed while the import runs is never
+ * reverted by a value read before it (review 2026-10-30, #25).
  */
 export async function importTools(
-	options: { dryRun?: boolean; activeOverrides?: Record<string, boolean> } = {},
+	options: {
+		dryRun?: boolean;
+		activeOverrides?: Record<string, boolean>;
+		keepStoredActive?: boolean;
+		/** The registry writer (the gate injects a failing one — review 2026-10-30 (4) #10). */
+		writeRecord?: typeof writeRegistryRecord;
+	} = {},
 ): Promise<ImportReportItem[]> {
-	const dryRun = options.dryRun ?? !config.tools.enableRegistryImport;
+	const writeRecord = options.writeRecord ?? writeRegistryRecord;
+	const dryRun = options.dryRun ?? true;
 	const activeOverrides = options.activeOverrides ?? {};
 	const registry = await readRegistryByName();
 	const report: ImportReportItem[] = [];
@@ -613,16 +636,18 @@ export async function importTools(
 			item.diff = diffIdentity(projectIdentity(record), projectIdentity(registryRow.record));
 		}
 
-		// Real write (flag-gated). Left dormant by default — the shared dd1324 is
-		// only written when the operator has run the write-parity procedure.
-		// PER-TOOL FAULT ISOLATION (S1-07): a failing write reports on ITS item
+		// The write (dryRun: false). PER-TOOL FAULT ISOLATION (S1-07): a failing write reports on ITS item
 		// and the loop continues — a mid-loop failure no longer strands the
 		// import half-applied with no per-tool account of what landed.
 		if (!dryRun && item.valid) {
 			try {
-				await writeRegistryRecord(name, record, registry.get(name) ?? null);
+				await writeRecord(name, record, registry.get(name) ?? null, undefined, {
+					keepStoredActive: options.keepStoredActive === true,
+				});
+				item.active = radioYes(record, TIPO.ACTIVE);
 			} catch (error) {
 				item.valid = false;
+				item.writeFailed = true;
 				item.errors.push(`registry write failed: ${(error as Error).message}`);
 			}
 		}
@@ -646,9 +671,7 @@ const DEFAULT_REGISTRY_TARGET: RegistryWriteTarget = {
 };
 
 /**
- * Upsert one tool's registry record (dd1324). DORMANT unless
- * enableRegistryImport is on — the shared registry is write-parity-gated. This
- * writes the identity columns; the dd1353 simple-tool-object cache blob and
+ * Upsert one tool's registry record (dd1324). This writes the identity columns; the dd1353 simple-tool-object cache blob and
  * ontology renumeration are ledgered for the write-parity milestone.
  *
  * S1-07: routed through the matrix_write chokepoint. The previous raw SQL had
@@ -658,25 +681,60 @@ const DEFAULT_REGISTRY_TARGET: RegistryWriteTarget = {
  * execute, which also shielded a bare MAX+1 counter race behind it).
  * updateMatrixRecord/insertMatrixRecordWithCounter encode via json_codec, bind
  * `$n::text::jsonb`, and allocate section_id through the advisory counter.
- * Exported for the round-trip scratch gate (tools_register_write.test.ts) that
- * must stay green BEFORE TOOLS_ENABLE_REGISTRY_IMPORT is ever enabled.
+ * Exported for the round-trip scratch gate (tools_register_write.test.ts).
+ *
+ * `keepStoredActive`: for a registered tool, the row is locked and its stored
+ * dd1354 ACTIVE value is put on `record` (mutated: the caller reports it) before
+ * the update, in ONE transaction — no value read earlier can revert a toggle
+ * committed in between. A row without a stored value keeps the record's.
  */
 export async function writeRegistryRecord(
 	_name: string,
 	record: ToolRecord,
 	existing: RegistryRow | null,
 	target: RegistryWriteTarget = DEFAULT_REGISTRY_TARGET,
+	options: { keepStoredActive?: boolean } = {},
 ): Promise<void> {
-	const columns = {
+	if (existing === null) {
+		await insertMatrixRecordWithCounter(target.table, target.sectionTipo, columnsOf(record));
+		return;
+	}
+	await withTransaction(async () => {
+		if (options.keepStoredActive === true) await keepStoredActive(record, existing, target);
+		// updateMatrixRecord is the PHP upsert-by-update: a registry row deleted
+		// between read and write is recreated at the SAME coordinates.
+		await updateMatrixRecord(
+			target.table,
+			target.sectionTipo,
+			existing.sectionId,
+			columnsOf(record),
+		);
+	});
+}
+
+function columnsOf(record: ToolRecord) {
+	return {
 		string: record.string ?? {},
 		relation: record.relation ?? {},
 		misc: record.misc ?? {},
 	};
-	if (existing !== null) {
-		// updateMatrixRecord is the PHP upsert-by-update: a registry row deleted
-		// between read and write is recreated at the SAME coordinates.
-		await updateMatrixRecord(target.table, target.sectionTipo, existing.sectionId, columns);
-	} else {
-		await insertMatrixRecordWithCounter(target.table, target.sectionTipo, columns);
-	}
+}
+
+/** The stored ACTIVE value, read under the row lock, onto `record` (inside the write's transaction). */
+async function keepStoredActive(
+	record: ToolRecord,
+	existing: RegistryRow,
+	target: RegistryWriteTarget,
+): Promise<void> {
+	const stored = await readMatrixKeyForUpdate(
+		target.table,
+		target.sectionTipo,
+		existing.sectionId,
+		'relation',
+		TIPO.ACTIVE,
+	);
+	if (stored === null || stored.length === 0) return;
+	record.relation = { ...(record.relation ?? {}), [TIPO.ACTIVE]: stored } as NonNullable<
+		ToolRecord['relation']
+	>;
 }

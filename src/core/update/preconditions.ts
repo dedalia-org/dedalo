@@ -31,11 +31,14 @@ import {
 	newestUsableBackup,
 	newestUsableBackupWithin,
 	PANEL_WAIT_MS,
+	readInstalledDataVersionStrict,
 	type VerifyOptions,
 } from '../area_maintenance/backup.ts';
 import { DedaloError } from '../errors/index.ts';
 import { getServerState } from '../resolve/server_state.ts';
 import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
+import { classifyDataVersion } from './boot_state.ts';
+import { DEDALO_DATA_VERSION } from './version.ts';
 
 /** How long an HTTP surface waits on the backup verdict before saying `verifying`. */
 export { PANEL_WAIT_MS };
@@ -236,4 +239,42 @@ export function checkUpdatePreconditions(
 	if (options.maintenance !== false && getServerState().maintenance_mode !== true) {
 		throw new DedaloError('maintenance.mode_required');
 	}
+}
+
+/**
+ * THE DATA-VERSION GATE of a code update (update audit 2026-10-29, U-04;
+ * VERSIONING_SPEC S7). The installed data version (matrix_updates) must equal
+ * the data version the RUNNING code declares before another code release may
+ * be installed:
+ *  - `pending` (database behind): the "Update data" this code needs has not run
+ *    — walking further would carry the install across a data-changing release
+ *    whose migration never ran, and a later engine would then execute it;
+ *  - `ahead` (database newer): older code over a newer database — a human
+ *    restores or installs the matching code first;
+ *  - unreadable / no version row: the state cannot be proven, so it refuses.
+ * `read` / `code` are the test seams; production passes neither.
+ */
+export async function requireDataVersionCurrent(
+	read: () => Promise<number[]> = readInstalledDataVersionStrict,
+	code: readonly number[] = DEDALO_DATA_VERSION,
+): Promise<void> {
+	let installed: number[] | null;
+	try {
+		installed = await read();
+	} catch {
+		installed = null;
+	}
+	const verdict = classifyDataVersion(installed, code);
+	if (verdict.state === 'ok') return;
+	const detail =
+		verdict.state === 'pending'
+			? `the database is on data version ${verdict.installed} but this code declares ${verdict.code} — run "Update data" first, then update the code`
+			: verdict.state === 'ahead'
+				? `the database is on data version ${verdict.installed}, NEWER than this code (${verdict.code}) — restore a compatible backup or install the matching code first`
+				: `the installed data version could not be read — fix the database (matrix_updates) before updating the code`;
+	throw new DedaloError('update.refused', {
+		message: `code update refused: data version ${verdict.state} — ${detail}`,
+		publicMessage: `Error. Code update refused: ${detail}`,
+		coordinates: { rule: `data_version_${verdict.state}` },
+	});
 }

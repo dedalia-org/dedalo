@@ -100,6 +100,7 @@ import { type BackupVerifyOptions, backupFreshnessWithin, PANEL_WAIT_MS } from '
 import type { ReleaseKind } from './release_identity.ts';
 import { type DeleteBlockReason, deletabilityOf, RESTORE_POINT_PREFIX } from './restore_points.ts';
 import { isSupervised } from './supervision.ts';
+import { releaseIdentityOfTree } from './tree_identity.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from './version.ts';
 
 // ---------------------------------------------------------------------------
@@ -193,8 +194,12 @@ export interface RestorePoint {
 	stamp: number;
 	/** Carries package.json + node_modules — the rollback-BOOTABILITY contract. */
 	bootable: boolean;
-	/** The version the held tree DECLARES (its own version.ts), null when unreadable. */
+	/** The RELEASE IDENTITY the held tree calls itself (`7.0.0-beta.5`;
+	 * tree_identity.ts), null when its version.ts is unreadable. Since 2026-10-30
+	 * (U-07) — it was the data triple, which every beta of one triple shares. */
 	version: string | null;
+	/** The DATA triple the held tree's version.ts declares, null when unreadable. */
+	data_version: string | null;
 	/** The Bun the held tree PINS (its own `.bun-version`), null when it pins
 	 * none. A pin other than the running runtime is a HARD blocker: the swap
 	 * hands the tree to the running bun (code_update.ts prepareQuarantine says
@@ -545,39 +550,48 @@ function readSentinel(): CodeUpdateSentinel | null {
 }
 
 /**
+ * One restore point's facts, read from its own tree. `version` is the RELEASE
+ * IDENTITY the held tree calls itself (tree_identity.ts — what /health answers
+ * once it is restored, U-07), `data_version` the data triple its version.ts
+ * declares. NO `bytes`: it used to report `statSync(dir).size` — the DIRECTORY
+ * INODE's size (measured 672 B–1.6 KB for multi-GB trees), rendered beside a
+ * green "bootable" pill; walking the tree is not the fix either (node_modules is
+ * ~10^5 inodes on a panel path).
+ */
+async function readRestorePoint(
+	backupRoot: string,
+	name: string,
+): Promise<Omit<RestorePoint, 'deletable' | 'deletable_reason'>> {
+	const dir = join(backupRoot, name);
+	const facts = {
+		bootable: restorePointIsBootable(dir),
+		version: await releaseIdentityOfTree(dir),
+		bun_pin: bunPinOf(dir),
+	};
+	const verdict = restorabilityOf(facts);
+	return {
+		name,
+		stamp: statSync(dir).mtimeMs,
+		...facts,
+		data_version: declaredVersionOf(dir),
+		digest: installedDigestOf(dir),
+		restorable: verdict.restorable,
+		restorable_reason: verdict.reason,
+	};
+}
+
+/**
  * The rollback candidates on disk, newest first, with their bootability and the
  * restore pipeline's own verdict. EXPORTED because code_restore.ts resolves the
  * requested point BY NAME against this very listing — a client never names a
  * path, and the two must be looking at the same set.
  */
-export function readRestorePoints(backupRoot: string): RestorePoint[] {
+export async function readRestorePoints(backupRoot: string): Promise<RestorePoint[]> {
 	try {
-		const points = readdirSync(backupRoot)
-			.filter((name) => name.startsWith(RESTORE_POINT_PREFIX))
-			.map((name) => {
-				const dir = join(backupRoot, name);
-				// NO `bytes`. It used to report `statSync(dir).size` — the
-				// DIRECTORY INODE's size (measured 672 B–1.6 KB for multi-GB
-				// trees), rendered through format_bytes beside a green
-				// "bootable" pill, so every restore point advertised a
-				// nonsense KB figure. Walking the tree is not the fix either:
-				// node_modules is ~10^5 inodes on a synchronous panel path.
-				const facts = {
-					bootable: restorePointIsBootable(dir),
-					version: declaredVersionOf(dir),
-					bun_pin: bunPinOf(dir),
-				};
-				const verdict = restorabilityOf(facts);
-				return {
-					name,
-					stamp: statSync(dir).mtimeMs,
-					...facts,
-					digest: installedDigestOf(dir),
-					restorable: verdict.restorable,
-					restorable_reason: verdict.reason,
-				};
-			})
-			.sort((a, b) => b.stamp - a.stamp);
+		const names = readdirSync(backupRoot).filter((name) => name.startsWith(RESTORE_POINT_PREFIX));
+		const points = (
+			await Promise.all(names.map((name) => readRestorePoint(backupRoot, name)))
+		).sort((a, b) => b.stamp - a.stamp);
 		// DELETABILITY IS A PROPERTY OF THE SET, not of one directory: the point
 		// that must survive is the newest BOOTABLE one, which cannot be known
 		// while mapping a single entry. Same shape as `restorable` — the panel
@@ -655,7 +669,7 @@ export async function consumerStatus(
 		checks,
 		ready: !checks.some((entry) => entry.state === 'blocked'),
 		last_update: readSentinel(),
-		restore_points: readRestorePoints(backupRoot),
+		restore_points: await readRestorePoints(backupRoot),
 		tree: {
 			root: projectRoot,
 			backup_root: backupRoot,

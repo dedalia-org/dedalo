@@ -426,6 +426,27 @@ const get_content_data_edit = async function(self) {
 			})
 			self.progress_ui = { container: progress_container, bar: progress_bar, text_bg: progress_text_bg, text_fg: progress_text_fg };
 
+		// data lang selector: the language the values are resolved in. It starts on
+		// the menu's data lang (DEDALO_DATA_LANG) every time the tool opens — the
+		// choice is not stored. Dédalo (Raw) carries every stored language, so the
+		// selector is disabled for it (see update_lang_state).
+			const data_lang = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'data_format data_lang',
+				text_content	: self.get_tool_label('data_lang') || 'Data language',
+				parent			: export_buttons_config
+			})
+			const select_lang_export = ui.build_select_lang({
+				langs		: self.langs,
+				selected	: self.lang,
+				class_name	: 'select_lang_export'
+			})
+			select_lang_export.addEventListener('change', () => {
+				self.lang = select_lang_export.value
+			})
+			data_lang.appendChild(select_lang_export)
+			self.select_lang_export = select_lang_export
+
 		// data_format selectors
 			const data_format = ui.create_dom_element({
 				element_type	: 'div',
@@ -446,6 +467,8 @@ const get_content_data_edit = async function(self) {
 					storage_set('selected_data_format_export', select_data_format_export.value)
 					// breakdown mode only applies to the breakdown format
 					update_breakdown_state()
+					// the data lang does not apply to the Dédalo (Raw) format
+					self.update_lang_state()
 					// the per-column parents checkbox only applies to value/grid_value
 					self.update_parents_checks_state()
 				}
@@ -479,6 +502,7 @@ const get_content_data_edit = async function(self) {
 					? stored_data_format
 					: 'value'
 				select_data_format_export.value = self.data_format
+				self.update_lang_state()
 
 		// breakdown mode selector (relation explosion, only for the breakdown format)
 			const breakdown_container = ui.create_dom_element({
@@ -584,6 +608,7 @@ const get_content_data_edit = async function(self) {
 				run_export(self, {
 					data_format			: self.data_format,
 					breakdown			: self.breakdown,
+					lang				: self.lang,
 					ar_ddo_to_export	: self.ar_ddo_to_export,
 					fill_the_gaps		: fill_the_gaps_check.checked
 				})
@@ -3047,6 +3072,21 @@ render_tool_export.prototype.build_export_component = async function(ddo) {
 }//end build_export_component
 
 
+
+/**
+ * UPDATE_LANG_STATE
+ * The data-lang selector applies to every format but Dédalo (Raw), which carries
+ * every stored language. Called on format change and after a preset is applied.
+ * @returns {void}
+ */
+render_tool_export.prototype.update_lang_state = function() {
+
+	const self = this
+
+	if (self.select_lang_export) {
+		self.select_lang_export.disabled = (self.data_format==='dedalo_raw')
+	}
+}//end update_lang_state
 
 /**
  * UPDATE_PARENTS_CHECKS_STATE

@@ -130,6 +130,8 @@ export const OUTCOME_DETAILS = [
 	'build_failed',
 	'backup_failed',
 	'version_refused',
+	// the pinned release asked for again (deploy/dedalo-image-update.sh check_version)
+	'same_version',
 	'downgrade_refused',
 	'not_running',
 	'env_incomplete',
@@ -514,39 +516,48 @@ function malformedRequestOutcome(now: Date): ImageUpdateOutcome {
 	};
 }
 
+/** Test seam: a hook run immediately before the claim's rename (the claim window). */
+export interface ClaimSeams {
+	beforeRename?: () => Promise<void> | void;
+}
+
 /**
  * Claim the pending request for the host updater. The claim is a RENAME
  * (request.json → inflight.json), so it and a concurrent cancel cannot both
- * win; the claimed copy is then re-written with `claimed_at`.
+ * win. The rename comes FIRST and the claimed inflight.json is what is read,
+ * validated and stamped with `claimed_at`: a request read before the rename
+ * could be cancelled and replaced in between, and the claim would then
+ * install the cancelled request over the new one (U-43).
  */
 export async function claimRequest(
 	now: Date,
 	dir: string = imageUpdateDir(),
+	seams: ClaimSeams = {},
 ): Promise<ClaimResult> {
 	if (existsSync(join(dir, INFLIGHT_FILE))) return { kind: 'busy' };
-	const read = await readChannelFile(dir, REQUEST_FILE);
-	if (read.state === 'absent') return { kind: 'none' };
-	if (read.state === 'malformed' || !validRequest(read.value)) {
-		removeChannelFile(dir, REQUEST_FILE);
+	if (!existsSync(join(dir, REQUEST_FILE))) return { kind: 'none' };
+	await seams.beforeRename?.();
+	if (!renameRequestToInflight(dir)) return { kind: 'none' }; // cancelled before the rename
+	const read = await readChannelFile(dir, INFLIGHT_FILE);
+	if (read.state !== 'ok' || !validRequest(read.value)) {
+		removeChannelFile(dir, INFLIGHT_FILE);
 		await recordOutcome(malformedRequestOutcome(now), now, dir);
 		return { kind: 'malformed' };
 	}
-	return claimValidRequest(read.value, now, dir);
-}
-
-async function claimValidRequest(
-	request: ImageUpdateRequest,
-	now: Date,
-	dir: string,
-): Promise<ClaimResult> {
-	try {
-		renameSync(join(dir, REQUEST_FILE), join(dir, INFLIGHT_FILE));
-	} catch {
-		return { kind: 'none' }; // cancelled between the read and the rename
-	}
-	const inflight: ImageUpdateInflight = { ...request, claimed_at: now.toISOString() };
+	const inflight: ImageUpdateInflight = { ...read.value, claimed_at: now.toISOString() };
 	await writeChannelFile(dir, INFLIGHT_FILE, inflight);
 	return { kind: 'claimed', inflight };
+}
+
+/** The claim's one atomic step; false when there was no request.json to move. */
+function renameRequestToInflight(dir: string): boolean {
+	try {
+		renameSync(join(dir, REQUEST_FILE), join(dir, INFLIGHT_FILE));
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+		throw error;
+	}
 }
 
 export type OrphanResult =

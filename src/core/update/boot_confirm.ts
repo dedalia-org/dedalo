@@ -24,26 +24,46 @@
  * (no `installDigest`) still fall back to the version compare: an old pending
  * sentinel must not become unconfirmable across the upgrade that introduces
  * the field.
+ *
+ * THE VERSION COMPARED IS THE RELEASE IDENTITY (2026-10-30, U-07), both sides:
+ * the sentinel's `version` is the identity the installed/restored tree calls
+ * itself and the default `runningVersion` is this tree's DEDALO_ENGINE_VERSION.
+ * It was the data triple, which every beta of one triple shares — so a
+ * rolled-back beta.5 confirmed a pending update to beta.7. A sentinel written
+ * before this names a data triple, which a tagged-stable identity equals and
+ * a prerelease/dev identity does not: such a legacy pending sentinel reports a
+ * mismatch (loud, untouched) instead of a false confirmation.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { BootSchemaVerdict } from '../../../install/db/migrate.ts';
 import { config } from '../../config/config.ts';
+import { writeTextFileDurablyAsync } from '../files/durable_async.ts';
 import { RUNTIME_PATH_CENSUS } from '../install/runtime_paths.ts';
+import { DEDALO_ENGINE_VERSION } from './build_stamp.ts';
 import { INSTALLED_DIGEST } from './install_stamp.ts';
 import { pruneRestorePoints } from './restore_points.ts';
-import { DEDALO_DATA_VERSION, formatVersion } from './version.ts';
 
 /** The one sentinel shape (flat, machine-written; the rollback script greps it). */
 export interface CodeUpdateSentinel {
+	/** The RELEASE IDENTITY the installed tree calls itself (data triple before 2026-10-30). */
 	version: string;
+	/** The RELEASE IDENTITY of the tree it replaced (data triple before 2026-10-30). */
 	previousVersion: string;
 	updateMode: string;
 	stamp: string;
 	backupDir: string;
 	/** sha256 of the installed archive — the tree's identity (absent: pre-2026-08-24). */
 	installDigest?: string;
-	status: 'pending' | 'confirmed' | 'rolled_back';
+	/**
+	 * `needs_restore` (2026-10-29, owner rule D-2): the new tree booted, its schema
+	 * migration FAILED after changing the schema. The old tree cannot simply take
+	 * over a database moved under it, so no automatic rollback acts on this status
+	 * (the rollback script and the watchdog act only on `pending`): a human
+	 * restores a compatible backup or fixes forward.
+	 */
+	status: 'pending' | 'confirmed' | 'rolled_back' | 'needs_restore';
 	rollback_attempted: boolean;
 	/**
 	 * TRUE when this tree was swapped WITHOUT a verified restore point
@@ -72,7 +92,8 @@ export function codeUpdateSentinelPath(): string | null {
 
 /**
  * Does the booted tree match what the pending sentinel installed? Digest when
- * the sentinel carries one, version otherwise (legacy sentinels).
+ * the sentinel carries one, release identity otherwise (an unstamped restore
+ * point, a legacy sentinel).
  */
 function bootedTreeMatches(
 	sentinel: CodeUpdateSentinel,
@@ -88,6 +109,24 @@ function bootedTreeMatches(
  * Confirm (or loudly report) a pending code update. `sentinelPath` /
  * `runningVersion` / `runningDigest` are test seams; production passes nothing.
  *
+ * `schema` (2026-10-29, U-01): this boot's migration verdict. A tree whose
+ * migrations FAILED is not "demonstrably alive" — confirming it used to disarm
+ * every rollback while the panel showed green. On a failed verdict the sentinel
+ * is NOT confirmed and nothing is pruned:
+ *  - schema untouched (`schemaMoved` false) → it stays `pending`; the red
+ *    /health makes the watchdog start the rollback (the old tree fits the
+ *    unchanged schema);
+ *  - schema moved (`schemaMoved` true) OR UNKNOWN (null: the census after the
+ *    failure could not be read) → `needs_restore`: an automatic rollback might
+ *    put old code on a changed schema (D-2), so it waits for a human. Unknown
+ *    is treated as moved — the conservative reading of a fact we cannot see.
+ * The boot writes that verdict BEFORE it listens (markFailedBootSchema, below),
+ * so the watchdog never sees a red /health beside a still-pending sentinel of a
+ * moved schema; this post-listen call repeats it idempotently.
+ * A sentinel already at `needs_restore` is confirmed by a later boot of the SAME
+ * tree whose verdict is `ok` (a human repaired the database forward).
+ * `null` = no migration run happened (smoke boot / legacy caller): confirm as before.
+ *
  * `afterConfirmed` (publication host phase 4, L5) runs ONLY after THIS tree flipped
  * the sentinel — never on a mismatch, an absent or a non-pending sentinel — and a
  * throw from it is logged, never propagated: server.ts passes the detached
@@ -96,19 +135,27 @@ function bootedTreeMatches(
  */
 export async function confirmBootedCodeUpdate(
 	sentinelPath: string | null = codeUpdateSentinelPath(),
-	runningVersion: string = formatVersion(DEDALO_DATA_VERSION),
+	runningVersion: string = DEDALO_ENGINE_VERSION,
 	runningDigest: string | null = INSTALLED_DIGEST,
 	afterConfirmed: (() => void) | null = null,
+	schema: BootSchemaVerdict | null = null,
 ): Promise<void> {
 	try {
-		if (sentinelPath === null || !existsSync(sentinelPath)) return;
-		const sentinel = JSON.parse(readFileSync(sentinelPath, 'utf8')) as CodeUpdateSentinel;
-		if (sentinel.status !== 'pending') return;
+		const pending = await readUnconfirmedSentinel(sentinelPath, schema?.state === 'ok');
+		if (pending === null) return;
+		const { sentinel, path } = pending;
 		if (!bootedTreeMatches(sentinel, runningVersion, runningDigest)) {
-			reportBootMismatch(sentinel, sentinelPath, runningVersion, runningDigest);
+			reportBootMismatch(sentinel, path, runningVersion, runningDigest);
 			return;
 		}
-		await Bun.write(sentinelPath, JSON.stringify({ ...sentinel, status: 'confirmed' }, null, '\t'));
+		if (schema?.state === 'failed') {
+			await refuseConfirmation(sentinel, path, schema);
+			return;
+		}
+		await writeTextFileDurablyAsync(
+			path,
+			JSON.stringify({ ...sentinel, status: 'confirmed' }, null, '\t'),
+		);
 		reportBootConfirmed(runningVersion, runningDigest);
 		runAfterConfirmed(afterConfirmed);
 		// RETENTION RUNS HERE AND NOWHERE ELSE. Not when the swap happens — until
@@ -126,9 +173,57 @@ export async function confirmBootedCodeUpdate(
 		// asking every caller to remember a second seam: the two can no longer
 		// name different disks. codeUpdateSentinelPath() builds it as
 		// <backupRoot>/last_code_update.json, so dirname IS the root.
-		await pruneConfirmedRestorePoints(sentinel, dirname(sentinelPath));
+		await pruneConfirmedRestorePoints(sentinel, dirname(path));
 	} catch (error) {
 		console.error('[code update] boot confirmation failed (sentinel unreadable?):', error);
+	}
+}
+
+/**
+ * The sentinel at `path` when it is pending — or at needs_restore, when
+ * `orNeedsRestore` (a boot whose schema verdict is ok may confirm it); null
+ * otherwise. Throws on an unparsable file (logged by the caller).
+ */
+async function readUnconfirmedSentinel(
+	path: string | null,
+	orNeedsRestore: boolean,
+): Promise<{ sentinel: CodeUpdateSentinel; path: string } | null> {
+	if (path === null) return null;
+	const text = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+		if (error.code === 'ENOENT') return null;
+		throw error;
+	});
+	if (text === null) return null;
+	const sentinel = JSON.parse(text) as CodeUpdateSentinel;
+	const open =
+		sentinel.status === 'pending' || (orNeedsRestore && sentinel.status === 'needs_restore');
+	return open ? { sentinel, path } : null;
+}
+
+/**
+ * PRE-LISTEN (server.ts, right after the boot migration run): when this boot's
+ * migrations FAILED and the booted tree is the pending update's, record the
+ * verdict in the sentinel NOW — before /health can answer red and the watchdog
+ * read a still-pending sentinel as "roll back". A file write, never gated on a
+ * database ping. Never throws into the boot path.
+ */
+export async function markFailedBootSchema(
+	schema: BootSchemaVerdict,
+	sentinelPath: string | null = codeUpdateSentinelPath(),
+	runningVersion: string = DEDALO_ENGINE_VERSION,
+	runningDigest: string | null = INSTALLED_DIGEST,
+): Promise<void> {
+	if (schema.state !== 'failed') return;
+	try {
+		const pending = await readUnconfirmedSentinel(sentinelPath, false);
+		if (pending === null) return;
+		if (!bootedTreeMatches(pending.sentinel, runningVersion, runningDigest)) return;
+		await refuseConfirmation(pending.sentinel, pending.path, schema);
+	} catch (error) {
+		console.error(
+			'[code update] could not record the failed boot migration in the sentinel:',
+			error,
+		);
 	}
 }
 
@@ -136,6 +231,35 @@ export async function confirmBootedCodeUpdate(
 function reportBootConfirmed(runningVersion: string, runningDigest: string | null): void {
 	console.log(
 		`[code update] boot CONFIRMED: running ${runningVersion} (installed digest ${runningDigest ?? 'none'}) matches the pending update (sentinel flipped to confirmed)`,
+	);
+}
+
+/**
+ * The booted tree matches the update but its migrations failed: never confirm.
+ * A moved schema flips the sentinel to `needs_restore` (no automatic rollback);
+ * otherwise it stays `pending` for the watchdog's rollback.
+ */
+async function refuseConfirmation(
+	sentinel: CodeUpdateSentinel,
+	sentinelPath: string,
+	schema: BootSchemaVerdict,
+): Promise<void> {
+	if (schema.schemaMoved !== false) {
+		await writeTextFileDurablyAsync(
+			sentinelPath,
+			JSON.stringify({ ...sentinel, status: 'needs_restore' }, null, '\t'),
+		);
+		const what =
+			schema.schemaMoved === true
+				? `applied ${schema.applied.join(', ')} and then a migration failed`
+				: 'failed a migration, and whether the schema moved could not be read (treated as moved)';
+		console.error(
+			`[code update] NOT CONFIRMED — NEEDS A HUMAN: the update to ${sentinel.version} ${what} (${schema.error ?? 'unknown error'}). No automatic rollback will act (sentinel status needs_restore). Restore a compatible database backup together with the previous code at ${sentinel.backupDir}, or fix the failing migration forward.`,
+		);
+		return;
+	}
+	console.error(
+		`[code update] NOT CONFIRMED: the update to ${sentinel.version} booted but its schema migration failed (${schema.error ?? 'unknown error'}) without changing the schema. The sentinel stays pending and /health is red, so the supervisor-side rollback restores ${sentinel.backupDir}.`,
 	);
 }
 
@@ -189,7 +313,7 @@ async function pruneConfirmedRestorePoints(
 		// dynamic import that is not doing work is an edge the SCC tripwire
 		// cannot see (review finding 2026-08-28).
 		const { readRestorePoints } = await import('./status.ts');
-		const points = readRestorePoints(backupRoot);
+		const points = await readRestorePoints(backupRoot);
 		const keep = config.update.restorePointsKeep;
 		if (points.length <= keep) return;
 		const protectName = sentinel.backupDir.split('/').filter(Boolean).pop() ?? null;

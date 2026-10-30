@@ -74,10 +74,10 @@ const PHP_ONLY_TOOLS: Record<string, string> = {
 		// deployment's diffusion section-map; the twin is not.
 		"is_available walks the DIFFUSION SECTION-MAP, and a diffusion mapping is install DATA the generic ontology deliberately does not hold. Availability is tool_diffusion's own contract (src/core/tools/registry.ts), not the element-context builder's.",
 };
-const TS_ONLY_TOOLS: Record<string, string> = {
-	tool_identify:
-		'Object identification (src/core/identify/) was built 2026-07-28 — SEVENTEEN DAYS AFTER the final oracle harvest (2026-07-11). PHP never had the tool, so its absence on the frozen side is a fact about the freeze, not a divergence. A re-harvest is impossible by definition (engineering/ORACLE_HARVEST.md).',
-};
+// tool_identify is NOT declared here: it was WITHDRAWN from the TS tool lists on
+// 2026-10-29 (WC-2026-10-29-ai-capabilities-page-globals, addendum). It is asserted
+// absent on the TS side in every case below instead of being a one-sided declaration.
+const TS_ONLY_TOOLS: Record<string, string> = {};
 
 /**
  * Availability-ledgered tools the TS resolver omits on purpose (their
@@ -178,6 +178,10 @@ describe.if(hasPhpCredentials())('get_element_context differential (Phase 6 gate
 			// otherwise), then removed. The rest of the list is compared verbatim.
 			const phpTools = phpSubset.tools as string[];
 			const tsTools = tsSubset.tools as string[];
+			// WC-2026-10-29-ai-capabilities-page-globals: the TS side withdraws
+			// tool_identify in every context; PHP never had it.
+			expect(tsTools).not.toContain('tool_identify');
+			expect(phpTools).not.toContain('tool_identify');
 			for (const name of Object.keys(PHP_ONLY_TOOLS)) {
 				if (!phpTools.includes(name)) continue;
 				exercised.add(name);

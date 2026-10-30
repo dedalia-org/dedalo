@@ -152,7 +152,15 @@ export async function getUserTools(
 	deprecatedIsGlobalAdmin?: boolean,
 ): Promise<ToolSimpleContext[]> {
 	void deprecatedIsGlobalAdmin;
-	if (userId === SUPERUSER_ID) return getSuperuserUserTools();
+	// AI tools hidden without a model or until redesigned (src/ai/capabilities.ts).
+	// Applied HERE, once, so no door can offer or grant a hidden tool. Dynamic
+	// import keeps ai/ out of the tools registry's static import graph.
+	const { aiCapabilities, toolOfferedByCapabilities } = await import('../../ai/capabilities.ts');
+	const capabilities = aiCapabilities();
+	const offered = (tools: ToolSimpleContext[]) =>
+		tools.filter((tool) => toolOfferedByCapabilities(tool.name, capabilities));
+
+	if (userId === SUPERUSER_ID) return offered(await getSuperuserUserTools());
 
 	const allowedIds = await getProfileGrantedToolIds(userId);
 	const rows = await fetchActiveToolRows();
@@ -163,7 +171,7 @@ export async function getUserTools(
 		const tool = buildToolSimpleContext(row);
 		if (tool !== null) tools.push(tool);
 	}
-	return tools;
+	return offered(tools);
 }
 
 /**
@@ -551,6 +559,32 @@ async function getRegisteredTools(): Promise<RegisteredTool[]> {
  * the element's effective translatable, and is_available() must pass.
  * Availability-ledgered tools are reported, not guessed.
  */
+/**
+ * The declaration match (see getElementTools' doc): affected_models, the tipo
+ * in affected_tipos, 'all_components' for a component, or the element's own
+ * tool_config — then a non-empty affected_tipos must also name the tipo.
+ */
+function toolApplies(
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	target: ElementToolsTarget,
+	inPropertyTools: ReadonlySet<string>,
+): boolean {
+	if (!toolDeclared(tool, target, inPropertyTools)) return false;
+	// affected_tipos[0] restriction: when set, the tipo must match.
+	return tool.affectedTipos.length === 0 || tipoInArray(target.tipo, tool.affectedTipos);
+}
+
+/** The element is named by the tool's declaration, or names the tool in its tool_config. */
+function toolDeclared(
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	target: ElementToolsTarget,
+	inPropertyTools: ReadonlySet<string>,
+): boolean {
+	if (inPropertyTools.has(tool.name) || tool.affectedModels.includes(target.model)) return true;
+	if (target.isComponent && tool.affectedModels.includes('all_components')) return true;
+	return tipoInArray(target.tipo, tool.affectedTipos);
+}
+
 export async function getElementTools(target: ElementToolsTarget): Promise<ElementToolsResult> {
 	// Models that hard-override get_tools() to [] never show a toolbar.
 	if (NO_TOOLS_MODELS.has(target.model)) return { tools: [], ledgered: [] };
@@ -560,6 +594,11 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 	// list, not the whole registry — so a tool their profile does not grant can
 	// never reach a toolbar. null = no filter (global admin / no request scope).
 	const actorTools = await currentActorToolNames();
+	// AI tools hidden without a model or until redesigned (src/ai/capabilities.ts).
+	// Applied for EVERY actor, the global admin included: actorTools is null for
+	// the superuser, so without this gate an admin's toolbar would still list them.
+	const { aiCapabilities, toolOfferedByCapabilities } = await import('../../ai/capabilities.ts');
+	const capabilities = aiCapabilities();
 	const inPropertyTools = new Set(target.toolConfigKeys);
 	const context = {
 		calledClass: target.model,
@@ -576,17 +615,8 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 	for (const tool of registered) {
 		// The user_tools membership gate, BEFORE the applies/availability work.
 		if (actorTools !== null && !actorTools.has(tool.name)) continue;
-		const applies =
-			tool.affectedModels.includes(target.model) ||
-			tipoInArray(target.tipo, tool.affectedTipos) ||
-			(target.isComponent && tool.affectedModels.includes('all_components')) ||
-			inPropertyTools.has(tool.name);
-		if (!applies) continue;
-
-		// affected_tipos[0] restriction: when set, the tipo must match.
-		if (tool.affectedTipos.length > 0 && !tipoInArray(target.tipo, tool.affectedTipos)) {
-			continue;
-		}
+		if (!toolOfferedByCapabilities(tool.name, capabilities)) continue;
+		if (!toolApplies(tool, target, inPropertyTools)) continue;
 		// requirement_translatable: a tool requiring translatability is shown only
 		// when the element is (effectively) translatable (PHP requirement === translatable).
 		if (tool.requirementTranslatable && !effectiveTranslatable) continue;
@@ -643,6 +673,9 @@ export async function buildToolElementContext(
 	`) as ToolRow[];
 	const row = rows[0];
 	if (row === undefined) return null;
+	// A tool hidden on this deployment has no element context either (open_tool by name).
+	const { aiCapabilities, toolOfferedByCapabilities } = await import('../../ai/capabilities.ts');
+	if (!toolOfferedByCapabilities(name, aiCapabilities())) return null;
 
 	const appLang = currentApplicationLang();
 	const baseUrl = getToolUrl(name);

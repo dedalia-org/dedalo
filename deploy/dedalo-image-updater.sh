@@ -25,6 +25,12 @@
 #   1. one pass at a time (a mkdir lock in the stack directory); a held lock is
 #      a pass already running — this one stops quietly;
 #   2. .dedalo.env says where the image comes from, or nothing happens (logged);
+#   2b. RECONCILE: an update interrupted after it re-pinned DEDALO_VERSION (its pin
+#      marker, .dedalo-image-update.pin, is still in the stack directory — a KILL
+#      or a host reboot between the re-pin and the health check) is rolled back
+#      by `./deploy/dedalo-image-update.sh --recover`, and its outcome recorded —
+#      before anything else, the engine may be down or running the unverified
+#      target (U-20);
 #   3. the engine is running, or nothing happens (the request waits);
 #   4. HEARTBEAT: tells the engine "a host updater is installed" — its interval,
 #      the pinned source and version — which is what turns the panel's manual
@@ -271,6 +277,31 @@ record_orphan() {
 	record_own failed interrupted
 }
 
+# --- 2b. the interrupted re-pin -----------------------------------------------------
+
+# The update script's pin marker (deploy/dedalo-image-update.sh, U-20): present
+# only while DEDALO_VERSION may name a target nobody saw healthy. It is in the
+# stack directory — the host's own files, not the engine's channel.
+PIN_MARKER='.dedalo-image-update.pin'
+
+# reconcile_pin — roll an interrupted re-pin back (the script's --recover) and
+# record its outcome; it addresses the interrupted request, so `orphan` then
+# finds nothing left in flight.
+reconcile_pin() {
+	local tmp='' code=0
+	[ -f "$PIN_MARKER" ] || return 0
+	say "an update was interrupted after it re-pinned DEDALO_VERSION ($PIN_MARKER) — rolling it back"
+	tmp="$(mktemp "${TMPDIR:-/tmp}/dedalo-image-outcome.XXXXXX")"
+	./deploy/dedalo-image-update.sh --recover --outcome-file "$tmp" || code=$?
+	if [ -s "$tmp" ]; then
+		record_outcome "$tmp"
+	else
+		say "the recovery ended (exit $code) without an outcome — the marker is left for the next pass"
+	fi
+	rm -f "$tmp"
+	read_pinned
+}
+
 # --- 8. the update ----------------------------------------------------------------
 
 # run_update — the update script with exactly three flags; its outcome recorded.
@@ -296,6 +327,7 @@ pass() {
 	local line='' refusal=''
 	env_ready || return 0
 	read_pinned
+	reconcile_pin
 	engine_running || { say 'the dedalo service is not running — nothing to do'; return 0; }
 	send_heartbeat || return 0
 	record_orphan

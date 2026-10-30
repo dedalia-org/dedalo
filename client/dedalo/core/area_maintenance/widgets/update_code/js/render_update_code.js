@@ -32,7 +32,9 @@
 		init_phase_state,
 		apply_phase_frame,
 		resolve_final_frame,
-		resolve_health_outcome
+		resolve_health_outcome,
+		read_health_body,
+		run_progress
 	} from './update_code_phases.js'
 
 
@@ -291,10 +293,10 @@ const get_content_data_edit = async function(self) {
 					consumer,
 					is_development
 						? null
-						// The SERVER's own version string travels with the point: the
-						// modal's downgrade decision must be the pipeline's, and the
-						// page global carries a prerelease tag the pipeline never sees.
-						: (point) => render_restore_modal(self, point, body_response, (consumer.engine || {}).version),
+						// The SERVER's own engine facts (release identity + install
+						// digest) travel with the point: the modal's downgrade decision
+						// must be the pipeline's (code_restore.ts restoreChangesCode).
+						: (point) => render_restore_modal(self, point, body_response, consumer.engine || {}),
 					// DELETE, on the same terms as Restore: a development checkout
 					// gets neither, because neither may touch its tree.
 					is_development ? null : (point) => delete_restore_point(self, point, body_response),
@@ -963,7 +965,7 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 		// DOM-stub guarded).
 		const reveal = (node) => ui.reveal(node, { block:'center' })
 
-		const finish_success = async (version) => {
+		const finish_success = async (version, data_ahead=false) => {
 			end_tracking()
 			state = { ...state, mode:'done' }
 			track.paint(state)
@@ -975,6 +977,16 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 					.replace('%s', String(version || state.expected_version || '')),
 				parent			: body_response
 			}))
+			// …the database newer than the code that now runs (/health 503 'ahead'):
+			// done, and not healthy — no automatic step follows, a human decides.
+			if (data_ahead===true) {
+				reveal(ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'dd_note state_warning update_data_ahead',
+					text_content	: get_label.update_code_data_ahead || 'The database is at a newer data version than the code now running. The server reports itself unhealthy until a database backup from that code’s version is restored, or the newer code is installed again.',
+					parent			: body_response
+				}))
+			}
 			// …then the reload prompt: the browser still holds the OLD ES modules
 			// and only a full re-login reloads them.
 			const accepted = await ui.confirm({
@@ -1051,26 +1063,82 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 		}
 
 		const poll_health = () => {
-			const deadline = Date.now() + 120000
+			let deadline = Date.now() + 120000
+			// the last update-run state seen: every NEW state moves the deadline
+			// (a data rung may run long; a run that stops moving still times out)
+			let run_state = null
+			// set once a /health answered boot_schema 'failed' (see below)
+			let schema_failed = false
 			const tick = async () => {
 				let version = null
 				let digest = null
+				let boot_schema = null
+				let boot_schema_moved = null
+				let data_ahead = false
+				let run = null
 				try {
 					const health_response = await fetch('/health')
-					if (health_response.ok) {
-						const health = await health_response.json()
-						version = health?.version ?? null
-						// null on a server older than the install stamp — the verdict
-						// falls back to the version compare in that case.
-						digest = health?.install_digest ?? null
+					// A 503 still carries the body (read_health_body: a failed boot
+					// migration, or a database ahead of the code, is a verdict).
+					if (health_response.ok || health_response.status===503) {
+						const read = read_health_body(
+							health_response.ok ? 200 : 503,
+							await health_response.json()
+						)
+						version				= read.version
+						digest				= read.digest
+						boot_schema			= read.boot_schema
+						boot_schema_moved	= read.boot_schema_moved
+						data_ahead			= read.data_ahead
+						run					= read.run
 					}
 				} catch (_error) {
 					// server still restarting: keep polling until the deadline
 				}
-				if (version!==null) {
-					const ending = resolve_health_outcome(state, version, digest)
+				const progress = run_progress(run)
+				if (version!==null && progress==='running') {
+					// the new tree answers, its update run is still applying phases
+					if (run.state!==run_state) {
+						run_state	= run.state
+						deadline	= Date.now() + 600000
+					}
+					if (Date.now() < deadline) {
+						setTimeout(tick, 2000)
+						return
+					}
+				}
+				if (version!==null && progress==='needs_restore') {
+					state = { ...state, mode:'failed' }
+					finish_failed(get_label.update_code_schema_failed || 'The new version started but its database migration failed, and it was not rolled back automatically. The database may need a backup restore — check the server log before using it.')
+					return
+				}
+				if (version!==null && progress==='failed') {
+					state = { ...state, mode:'failed' }
+					finish_failed(get_label.update_code_run_failed || 'The update did not complete — check the server log and the update run journal.')
+					return
+				}
+				if (version!==null && progress!=='rolling_back') {
+					const ending = resolve_health_outcome(state, version, digest, boot_schema, boot_schema_moved)
 					if (ending.outcome==='updated') {
-						finish_success(version)
+						finish_success(version, data_ahead)
+						return
+					}
+					// THE NEW CODE BOOTED BUT ITS MIGRATION MOVED THE SCHEMA AND
+					// FAILED (or nobody could tell). The update is needs_restore:
+					// no rollback will come, so say it now — a human restores a
+					// database backup together with the previous code.
+					if (ending.outcome==='needs_restore') {
+						state = { ...state, mode:'failed' }
+						finish_failed(get_label.update_code_schema_failed || 'The new version started but its database migration failed, and it was not rolled back automatically. The database may need a backup restore — check the server log before using it.')
+						return
+					}
+					// ITS MIGRATION FAILED WITHOUT TOUCHING THE SCHEMA. The update
+					// stays pending and the watchdog rolls the code back after its
+					// boot grace (the old version then answers — reported below as
+					// a rollback). Keep watching; the deadline says it did not come.
+					if (ending.outcome==='schema_failed') {
+						schema_failed = true
+						setTimeout(tick, 2000)
 						return
 					}
 					// NOTHING TO COMPARE AGAINST. On the panel-RESUME path both
@@ -1109,7 +1177,9 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 				}
 				if (Date.now() >= deadline) {
 					state = { ...state, mode:'failed' }
-					finish_failed(get_label.update_code_server_gone || 'The server did not come back — check the logs.')
+					finish_failed(schema_failed
+						? (get_label.update_code_schema_failed_unmoved || 'The new version started but its database migration failed without changing the database, and the automatic rollback did not happen. Restoring the previous code is enough — check the server log.')
+						: (get_label.update_code_server_gone || 'The server did not come back — check the logs.'))
 					return
 				}
 				setTimeout(tick, 2000)
@@ -2223,10 +2293,10 @@ const delete_restore_point = async function(self, point, body_response) {
 *   3. NOTHING IS LOST. The swap is two renames: the live tree does not
 *      disappear, it becomes a new restore point.
 *
-* SAME VERSION, NO CHECKBOX. Restoring a point that declares the version already
-* running (the developer-channel case: a branch build installed over its own
-* release) carries no schema hazard, so no waiver is asked for — a guard offered
-* where it changes nothing teaches operators to tick guards.
+* SAME CODE, NO CHECKBOX. Restoring a point that holds the code already running
+* (same release identity and, when both archives are known, the same digest)
+* carries no schema hazard, so no waiver is asked for — a guard offered where it
+* changes nothing teaches operators to tick guards.
 *
 * On accept the restore starts as a BACKGROUND JOB with the SAME frames as an
 * update, so it is followed by the SAME `track_process` on the panel surface —
@@ -2239,38 +2309,41 @@ const delete_restore_point = async function(self, point, body_response) {
 * "the submit unlocks only when the checkbox is ticked, and only when the versions
 * differ" is a decision, not a shape, and a source-shape gate cannot see one.
 *
-* THE COMPARISON BASIS IS THE SERVER'S, NOT THE PAGE'S (2026-08-25 review).
-* `page_globals.dedalo_version` is DEDALO_ENGINE_VERSION, which carries the
-* prerelease tag — '7.0.1-dev' on a dev checkout or a dev-channel install —
-* while the pipeline compares `DEDALO_DATA_VERSION.join('.')`, a bare
-* '7.0.1'. Read from the page, every developer-channel restore of its OWN
-* version drew the downgrade waiver, locked the button behind it, and then had
-* the server log a "VERSION CHANGE CONFIRMED … from 7.0.1 to 7.0.1" audit line
-* for a change that was not one — the panel/pipeline disagreement this widget's
-* headers forbid, in the exact case this header calls the no-checkbox case.
-* `running_version` is `value.consumer.engine.version`: the string the server
-* itself compares.
+* THE COMPARISON IS THE SERVER'S RULE, ON THE SERVER'S FIELDS (U-07, 2026-10-30).
+* code_restore.ts restoreChangesCode: the restore CHANGES the code when the
+* RELEASE IDENTITY differs (`engine.engine_version` vs `point.version`), or when
+* both archive digests are known and differ (`engine.install_digest` vs
+* `point.digest` — two builds of one identity, the developer channel). An
+* unknown digest on either side is not evidence of a change. It used to compare
+* the DATA triple (`engine.version`), which every beta of one triple shares, so
+* restoring beta.5 over beta.7 asked for no waiver. Both values come off the
+* status payload's `engine`, never the page global: the modal's decision must
+* be the pipeline's.
 *
 * @param {Object} self - update_code widget instance
 * @param {Object} point - one value.consumer.restore_points[] entry:
-*   {name, stamp, bootable, version, bun_pin, digest, restorable, restorable_reason}
+*   {name, stamp, bootable, version (release identity), data_version, bun_pin,
+*   digest, restorable, restorable_reason}
 * @param {HTMLElement} body_response - the PANEL response surface (phase track home)
-* @param {string} running_version - value.consumer.engine.version, the BARE
-*   version triple the server's own compare uses
+* @param {Object} engine - value.consumer.engine: {engine_version, install_digest, …}
 * @returns {HTMLElement} modal element (already attached to the DOM)
 */
-export const render_restore_modal = function( self, point, body_response, running_version ) {
+export const render_restore_modal = function( self, point, body_response, engine ) {
 
 	// blur any selection
 		document.activeElement.blur();
 
-	// the two ends of the move. The running version is the SERVER's bare triple
-	// (see above) — the restore point's is what its own version.ts declares
-	// (null when it cannot be read: then the version compare cannot be made and
-	// the waiver is asked for, never skipped).
-		const from_version		= String(running_version || page_globals.dedalo_data_version || '')
+	// the two ends of the move, as RELEASE IDENTITIES (see above). The point's is
+	// null when its version.ts cannot be read: then the compare cannot be made
+	// and the waiver is asked for, never skipped.
+		const running			= engine || {}
+		const from_version		= String(running.engine_version || '')
 		const to_version		= point.version ? String(point.version) : null
-		const version_changes	= to_version===null || to_version!==from_version
+		const running_digest	= running.install_digest || null
+		const point_digest		= point.digest || null
+		const version_changes	= to_version===null
+			|| to_version!==from_version
+			|| (running_digest!==null && point_digest!==null && running_digest!==point_digest)
 
 	// header. TEXT only: the directory name is disk data
 		const header = ui.create_dom_element({
@@ -2367,6 +2440,40 @@ export const render_restore_modal = function( self, point, body_response, runnin
 			footer.insertBefore(confirm_row, button_restore)
 		}
 
+	// waive_backup row — a restore is a destructive door (core/update/door_class.ts):
+	// it refuses without a recent DATABASE backup, exactly as an update does. The
+	// same predicate as the update modal (backup_waiver_check): offered only when
+	// the backup check is not ok, so the modal never invites disarming a guard
+	// that is not in the way.
+		let restore_waive_input = null
+		if (backup_waiver_check(self.value?.consumer)!==null) {
+			const waive_row = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'waive_backup_row',
+				parent			: footer
+			})
+			const waive_label = ui.create_dom_element({
+				element_type	: 'label',
+				class_name		: 'waive_backup_label',
+				text_content	: get_label.update_code_restore_waive_backup || 'Restore without a recent database backup',
+				parent			: waive_row
+			})
+			restore_waive_input = ui.create_dom_element({
+				element_type	: 'input',
+				type			: 'checkbox',
+				class_name		: 'waive_backup_check',
+				name			: 'update_code_restore_waive_backup'
+			})
+			waive_label.prepend(restore_waive_input)
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dd_note waive_backup_note state_warning',
+				text_content	: get_label.update_code_waive_backup_note || 'The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.',
+				parent			: waive_row
+			})
+			footer.insertBefore(waive_row, button_restore)
+		}
+
 	// click event
 		const click_handler = async (e) => {
 			e.stopPropagation()
@@ -2404,7 +2511,8 @@ export const render_restore_modal = function( self, point, body_response, runnin
 			// immediately with `pid` + `pfile` extension keys.
 			const api_response = await self.restore_code({
 				name				: point.name,
-				confirm_downgrade	: confirm_downgrade
+				confirm_downgrade	: confirm_downgrade,
+				waive_backup		: restore_waive_input?.checked === true
 			})
 
 			button_restore.classList.remove('button_spinner')

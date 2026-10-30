@@ -17,7 +17,9 @@
  * the rest structurally; executing them is an admin decision.
  */
 
+import { createHash } from 'node:crypto';
 import { sectionIdAddressSqlPredicate } from '../concepts/section_id.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import { currentRequestId } from '../security/request_context.ts';
 import definitions from './db_pg_definitions.json';
 import { classifyIndex, type LiveIndex, policyForTable } from './matrix_index_policy.ts';
@@ -1110,4 +1112,250 @@ export async function optimizeTables(
 			? 'Warning. Request done with errors'
 			: `Successfully optimized ${validTables.length} table(s)`;
 	return response;
+}
+
+// ---------------------------------------------------------------------------
+// The DERIVATION STAMP (update audit 2026-10-29, U-30)
+// ---------------------------------------------------------------------------
+//
+// ensureSearchStores heals a MISSING or EMPTY coverage pair; it cannot see a
+// populated store whose rows were derived by an OLDER row filter (a sync
+// function body changed: CREATE OR REPLACE fixes future writes, never the rows
+// already there). So each store carries a stamp of the derivation that filled
+// it, ON the store itself (`COMMENT ON TABLE` — no bookkeeping table; a dump
+// carries it with the rows it describes), and the update's ancillary phase
+// (core/update/run/ancillary.ts) re-derives a populated store whose stamp is not
+// the declared one. A missing stamp on a populated store is a mismatch:
+// re-derived once, then stamped.
+//
+// The declared derivation of a store = its sync function body as declared in
+// db_pg_definitions.json + its backfill INSERT template (the two halves that
+// must stay indistinguishable). SEARCH_STORE_DERIVATION_VERSION is the human
+// acknowledgement of a change to either; engineering/derivation_versions.json
+// banks {version, hash} and release_manifest_completeness_tripwire reds when
+// the hash moves without the version (scripts/derivation_versions.ts
+// re-records). The version is folded into the stamp, so a bump alone forces a
+// re-derive (e.g. a change in a function the body CALLS, like f_unaccent).
+
+/** Bump when a search-store derivation changes (see the block above). */
+export const SEARCH_STORE_DERIVATION_VERSION = 1;
+
+/** The stamp grammar — anything else on the store is "no stamp". */
+const DERIVATION_STAMP_RE = /^dedalo-derivation v\d+ sha256:[0-9a-f]{64}$/;
+
+/** One store's declared derivation. */
+export interface DeclaredStoreDerivation {
+	store: string;
+	/** sha256 of the declared content (function body + backfill template), version-free. */
+	hash: string;
+	/** What the store must carry: version + hash. */
+	stamp: string;
+}
+
+/** The fixed table placeholder the INSERT template is rendered with for hashing. */
+const TEMPLATE_TABLE = '<table>';
+
+/** One store's declared derivation content (an absent trigger entry hashes as no function). */
+function storeDerivationContent(contract: (typeof SEARCH_STORE_BACKFILLS)[number]): string {
+	const entry = (definitions.ar_trigger as AssetEntry[]).filter(
+		(candidate) => candidate.name === contract.triggerEntry,
+	);
+	const bodies = declaredSyncFunctions(entry).map(({ name, body }) => `${name}:${body}`);
+	return JSON.stringify({
+		store: contract.store,
+		functions: bodies,
+		insert: collapseWhitespace(contract.insert(TEMPLATE_TABLE)),
+	});
+}
+
+/** PURE: every store's declared derivation, from the repo source alone. */
+export function declaredSearchStoreDerivations(
+	version: number = SEARCH_STORE_DERIVATION_VERSION,
+): DeclaredStoreDerivation[] {
+	return SEARCH_STORE_BACKFILLS.map((contract) => {
+		const hash = createHash('sha256').update(storeDerivationContent(contract)).digest('hex');
+		return { store: contract.store, hash, stamp: `dedalo-derivation v${version} sha256:${hash}` };
+	});
+}
+
+/** PURE: ONE hash over every store's declared content — what the tripwire banks. */
+export function searchStoreDerivationHash(): string {
+	const parts = declaredSearchStoreDerivations().map(({ store, hash }) => `${store}=${hash}`);
+	return createHash('sha256').update(parts.join('\n')).digest('hex');
+}
+
+/** What the stamp probe observed about ONE store. */
+export interface SearchStoreStampObservation {
+	store: string;
+	exists: boolean;
+	/** The stamp on the store, or null (none, or a comment that is not a stamp). */
+	stamp: string | null;
+	/** The store holds at least one row. */
+	populated: boolean;
+	/** The PRESENT declared source tables of the store. */
+	tables: string[];
+}
+
+/** What to do about ONE store's stamp. */
+export interface SearchStoreStampDecision {
+	store: string;
+	/** absent: no store (ensure reported it) · current: nothing · stamp: write the
+	 * stamp only (empty store) · rederive: refill `refill`, then stamp. */
+	action: 'absent' | 'current' | 'stamp' | 'rederive';
+	declared: string;
+	refill: SearchStoreTable[];
+}
+
+/** PURE: one store's decision. `fresh` pairs were just refilled by ensure — never twice. */
+function decideOneStamp(
+	observation: SearchStoreStampObservation,
+	declared: string,
+	fresh: readonly SearchStoreTable[],
+): SearchStoreStampDecision {
+	const base = { store: observation.store, declared, refill: [] as SearchStoreTable[] };
+	if (!observation.exists) return { ...base, action: 'absent' };
+	if (observation.stamp === declared) return { ...base, action: 'current' };
+	if (!observation.populated) return { ...base, action: 'stamp' };
+	const isFresh = (table: string): boolean =>
+		fresh.some((pair) => pair.store === observation.store && pair.table === table);
+	const refill = observation.tables
+		.filter((table) => !isFresh(table))
+		.map((table) => ({ store: observation.store, table }));
+	return { ...base, action: 'rederive', refill };
+}
+
+/**
+ * PURE fold: per store, the stamp decision. A store whose declared derivation
+ * is unknown (not in `declared`) is a contract fault — refused loudly, never
+ * guessed.
+ */
+export function decideSearchStoreStamps(
+	observations: readonly SearchStoreStampObservation[],
+	declared: readonly DeclaredStoreDerivation[],
+	fresh: readonly SearchStoreTable[] = [],
+): SearchStoreStampDecision[] {
+	return observations.map((observation) => {
+		const stamp = declared.find((entry) => entry.store === observation.store)?.stamp;
+		if (stamp === undefined) {
+			throw new DedaloError('internal.invariant', {
+				message: `db_assets: no declared derivation for store '${observation.store}'`,
+			});
+		}
+		return decideOneStamp(observation, stamp, fresh);
+	});
+}
+
+/** A declared store name, or a loud refusal (the name is interpolated into DDL). */
+function assertDeclaredStore(store: string): string {
+	if (!SEARCH_STORE_BACKFILLS.some((contract) => contract.store === store)) {
+		throw new DedaloError('internal.invariant', {
+			message: `db_assets: '${store}' is not a declared derived search store`,
+		});
+	}
+	return store;
+}
+
+/** The stamp on a store (null: no comment, or one that is not a stamp). */
+export async function readSearchStoreStamp(store: string): Promise<string | null> {
+	const rows = (await sql.unsafe(`SELECT obj_description(to_regclass($1), 'pg_class') AS stamp`, [
+		`public.${assertDeclaredStore(store)}`,
+	])) as { stamp: string | null }[];
+	const stamp = rows[0]?.stamp ?? null;
+	return stamp !== null && DERIVATION_STAMP_RE.test(stamp) ? stamp : null;
+}
+
+/** Write (or, with null, clear) a store's stamp. Only the stamp grammar is ever written. */
+export async function writeSearchStoreStamp(store: string, stamp: string | null): Promise<void> {
+	if (stamp !== null && !DERIVATION_STAMP_RE.test(stamp)) {
+		throw new DedaloError('internal.invariant', {
+			message: 'db_assets: refusing to write a search-store stamp outside the stamp grammar',
+		});
+	}
+	// COMMENT takes no bind parameter; the literal is grammar-checked above
+	// (hex + fixed words, no quote can reach it) and the name is a declared store.
+	const literal = stamp === null ? 'NULL' : `'${stamp}'`;
+	await sql.unsafe(`COMMENT ON TABLE "${assertDeclaredStore(store)}" IS ${literal}`, []);
+}
+
+/** The declared source tables of a store's trigger entry that exist on this install. */
+async function presentStoreTables(triggerEntry: string): Promise<string[]> {
+	const entry = (definitions.ar_trigger as AssetEntry[]).find((c) => c.name === triggerEntry);
+	const tables: string[] = [];
+	for (const table of entry?.tables ?? []) {
+		if (await tableExists(table)) tables.push(table);
+	}
+	return tables;
+}
+
+/** READ-ONLY: one store's stamp observation. */
+async function observeStoreStamp(
+	store: string,
+	triggerEntry: string,
+): Promise<SearchStoreStampObservation> {
+	const tables = await presentStoreTables(triggerEntry);
+	if (!(await tableExists(store))) {
+		return { store, exists: false, stamp: null, populated: false, tables };
+	}
+	const rows = (await sql.unsafe(`SELECT 1 AS one FROM "${store}" LIMIT 1`, [])) as unknown[];
+	const stamp = await readSearchStoreStamp(store);
+	return { store, exists: true, stamp, populated: rows.length > 0, tables };
+}
+
+/** READ-ONLY: every store's stamp observation. */
+export async function observeSearchStoreStamps(): Promise<SearchStoreStampObservation[]> {
+	const observations: SearchStoreStampObservation[] = [];
+	for (const { store, triggerEntry } of SEARCH_STORE_BACKFILLS) {
+		observations.push(await observeStoreStamp(store, triggerEntry));
+	}
+	return observations;
+}
+
+/** What reconcileSearchStoreDerivation did. */
+export interface SearchStoreDerivationResult {
+	decisions: SearchStoreStampDecision[];
+	/** Stores re-derived (refilled, then stamped). */
+	rederived: string[];
+	/** Stores stamped (re-derived or empty). */
+	stamped: string[];
+	/** Count only — the refill's own error texts went to the log. */
+	errors: number;
+}
+
+/** ACT on one decision: refill when asked, stamp only after a clean refill. */
+async function actOnStampDecision(
+	decision: SearchStoreStampDecision,
+	result: SearchStoreDerivationResult,
+): Promise<void> {
+	if (decision.action === 'absent' || decision.action === 'current') return;
+	if (decision.action === 'rederive') {
+		const refill = await backfillSearchStoreTables(decision.refill);
+		if (refill.errors.length > 0) {
+			console.error(`db_assets: ${decision.store} re-derive failed:`, refill.errors);
+			result.errors += refill.errors.length;
+			return; // unstamped: the next run tries again
+		}
+		result.rederived.push(decision.store);
+	}
+	await writeSearchStoreStamp(decision.store, decision.declared);
+	result.stamped.push(decision.store);
+}
+
+/**
+ * Re-derive every populated store whose stamp is not the declared derivation,
+ * then stamp it (compute-then-act: observeSearchStoreStamps +
+ * decideSearchStoreStamps hold the decision). `fresh` = the pairs ensureSearchStores
+ * just refilled with the current derivation. Callers clear the search-store
+ * cache afterwards when something was re-derived.
+ */
+export async function reconcileSearchStoreDerivation(
+	fresh: readonly SearchStoreTable[] = [],
+): Promise<SearchStoreDerivationResult> {
+	const decisions = decideSearchStoreStamps(
+		await observeSearchStoreStamps(),
+		declaredSearchStoreDerivations(),
+		fresh,
+	);
+	const result: SearchStoreDerivationResult = { decisions, rederived: [], stamped: [], errors: 0 };
+	for (const decision of decisions) await actOnStampDecision(decision, result);
+	return result;
 }

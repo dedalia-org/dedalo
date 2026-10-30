@@ -177,28 +177,26 @@ describe('runExportOntologies ordering/abort semantics (PHP :301-409)', () => {
 		expect(calls).toEqual([]);
 	});
 
-	test('happy path runs the five steps in PHP order and counts done', async () => {
+	test('happy path runs the five steps (manifest AFTER the dumps, U-41) and counts done', async () => {
 		const calls: string[] = [];
 		const response = await runExportOntologies(
 			makeContext({ selected_ontologies: ['aa', 'bb'] }),
 			makeIo(calls),
 		);
-		// The per-TLD exports (step 3) now run BOUNDED-PARALLEL, so their
-		// relative order is not guaranteed — assert only that both happen,
-		// AFTER export_ontology_info and BEFORE export_private_lists_to_file.
+		// The per-TLD exports (step 2) run BOUNDED-PARALLEL, so their relative
+		// order is not guaranteed — assert only that both happen BEFORE
+		// export_private_lists_to_file, and that export_ontology_info (which
+		// digests the written files, U-41) comes after every dump.
 		expect(calls).toContain('export_to_file:aa');
 		expect(calls).toContain('export_to_file:bb');
-		const infoIndex = calls.indexOf('export_ontology_info');
 		const privateIndex = calls.indexOf('export_private_lists_to_file');
 		for (const tld of ['aa', 'bb']) {
-			const tldIndex = calls.indexOf(`export_to_file:${tld}`);
-			expect(tldIndex).toBeGreaterThan(infoIndex);
-			expect(tldIndex).toBeLessThan(privateIndex);
+			expect(calls.indexOf(`export_to_file:${tld}`)).toBeLessThan(privateIndex);
 		}
 		// The sequential steps keep their strict order around the parallel block.
 		expect(calls[0]).toBe('update_ontology_info:77');
-		expect(calls[1]).toBe('export_ontology_info');
-		expect(calls[calls.length - 2]).toBe('export_private_lists_to_file');
+		expect(calls[calls.length - 3]).toBe('export_private_lists_to_file');
+		expect(calls[calls.length - 2]).toBe('export_ontology_info');
 		expect(calls[calls.length - 1]).toBe('export_llm_map');
 		expect(response.ok).toBe(true);
 		const report = response.data as { summary: string; ar_msg: string[] };
@@ -271,7 +269,7 @@ describe('runExportOntologies ordering/abort semantics (PHP :301-409)', () => {
 		expect(refusal.extend?.errors).toEqual(['unable to update_ontology_info']);
 	});
 
-	test('exportOntologyInfo failure HARD-aborts before the per-TLD loop', async () => {
+	test('exportOntologyInfo failure HARD-aborts after the dumps, before the LLM map', async () => {
 		const calls: string[] = [];
 		const refusal = await refusalOf(
 			runExportOntologies(
@@ -284,7 +282,12 @@ describe('runExportOntologies ordering/abort semantics (PHP :301-409)', () => {
 				}),
 			),
 		);
-		expect(calls).toEqual(['update_ontology_info:77', 'export_ontology_info']);
+		expect(calls).toEqual([
+			'update_ontology_info:77',
+			'export_to_file:dd',
+			'export_private_lists_to_file',
+			'export_ontology_info',
+		]);
 		expect(refusal.code).toBe('tool.action_failed');
 		expect(refusal.message).toContain('Unable to export the ontology information JSON file');
 		expect(refusal.extend?.errors).toEqual(['unable to export ontology info JSON file']);
@@ -307,11 +310,11 @@ describe('runExportOntologies ordering/abort semantics (PHP :301-409)', () => {
 		);
 		expect(calls).toEqual([
 			'update_ontology_info:77',
-			'export_ontology_info',
 			'export_to_file:aa',
 			'export_to_file:bb',
 			'export_to_file:cc',
 			'export_private_lists_to_file',
+			'export_ontology_info',
 			'export_llm_map',
 		]);
 		expect(refusal.code).toBe('tool.action_failed');
@@ -345,6 +348,8 @@ describe('runExportOntologies ordering/abort semantics (PHP :301-409)', () => {
 		// is re-thrown to the outer catch — so msg/errors carry aa's message alone.
 		expect(calls).toContain('export_to_file:aa');
 		expect(calls).not.toContain('export_private_lists_to_file');
+		// U-41: the manifest is NOT rewritten — the previous one stays served.
+		expect(calls).not.toContain('export_ontology_info');
 		expect(calls).not.toContain('export_llm_map');
 		expect(refusal.code).toBe('tool.action_failed');
 		expect(refusal.message).toContain('File /io/aa.copy.gz not created!');
@@ -372,9 +377,9 @@ describe('runExportOntologies ordering/abort semantics (PHP :301-409)', () => {
 		);
 		expect(calls).toEqual([
 			'update_ontology_info:77',
-			'export_ontology_info',
 			'export_to_file:aa',
 			'export_private_lists_to_file',
+			'export_ontology_info',
 			'export_llm_map',
 		]);
 		expect(refusal.code).toBe('tool.action_failed');

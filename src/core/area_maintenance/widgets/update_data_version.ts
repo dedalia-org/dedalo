@@ -116,7 +116,12 @@ async function updateDataVersionRunOwned(
 				// rolls the whole run back (OPS-6). The job is DETACHED, so it
 				// inherits no unbounded scope from this request: the engine
 				// declares its own (withMaintenanceTransaction).
-				return await updateVersion(updatesChecked, {}, { signal });
+				// A destructive door's job holds the UPDATE_RUN lock for its life
+				// (core/update/door_class.ts): no code update starts mid-rung.
+				const { holdUpdateRunLock } = await import('../../update/door_class.ts');
+				return await holdUpdateRunLock('update_data_version', () =>
+					updateVersion(updatesChecked, {}, { signal }),
+				);
 			},
 			// Operator work, not media: it must not queue behind an ingest (PERF-11).
 			// NO DEADLINE (deadlineMs 0, overriding the lane's): the run is one

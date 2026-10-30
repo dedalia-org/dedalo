@@ -317,6 +317,78 @@ export function readServerList(
 }
 
 /**
+ * THE UPDATE-SOURCE TRANSPORT RULE (update audit 2026-10-29, U-24): a code or
+ * ontology master is `https://`, or plain http on THIS machine (loopback — the
+ * two-server dev flow, as tool_error_report allows), or plain http anywhere
+ * when the development seam DEDALO_UPDATE_HTTP_SOURCES_DEV is on. The shared
+ * `code` and the archives must never cross a network in clear. Pure; the
+ * downloaders re-check every URL with it (src/core/update/code_download.ts,
+ * src/core/ontology/data_io_import.ts).
+ */
+export function isSecureUpdateSource(url: string, allowHttp: boolean): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	if (parsed.protocol === 'https:') return true;
+	if (parsed.protocol !== 'http:') return false;
+	return allowHttp || ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+}
+
+/** A server list with every entry breaking the transport rule DROPPED, loudly. */
+export function secureServerList<T extends { readonly url: string }>(
+	key: string,
+	servers: readonly T[],
+	allowHttp: boolean,
+): readonly T[] {
+	const kept = servers.filter((entry) => isSecureUpdateSource(entry.url, allowHttp));
+	// The development seam is a test_seam key, but nothing stops it on a production
+	// install: every boot that ADMITS a plain-http master says so, by key and url.
+	for (const entry of kept.filter((candidate) => !isSecureUpdateSource(candidate.url, false))) {
+		console.error(
+			`[config] ${key}: plain-http update master ${entry.url} ADMITTED by DEDALO_UPDATE_HTTP_SOURCES_DEV — the shared access code and the update bytes cross the network in clear. A development seam: never set it on a production install.`,
+		);
+	}
+	for (const entry of servers.filter((candidate) => !kept.includes(candidate))) {
+		console.error(
+			`[config] ${key}: the entry for ${entry.url} was DROPPED — an update master must be https:// (plain http is allowed only on localhost).`,
+		);
+	}
+	return kept.length === servers.length ? servers : Object.freeze(kept);
+}
+
+/**
+ * ONTOLOGY_SERVERS: the server list, each entry keeping an optional `tlds`
+ * (the shared TLDs this install takes from that master — update design D-8:
+ * every shared TLD comes from exactly ONE source). A `tlds` that is not an
+ * array of strings drops the entry, loudly, like any other malformed field.
+ */
+export function readOntologyServerList(
+	key: string,
+): readonly { name: string; url: string; code: string; tlds?: readonly string[] }[] {
+	const base = readServerList(key);
+	const configured = raw(key);
+	if (base.length === 0 || configured === undefined) return base;
+	const parsed = JSON.parse(configured) as { url?: unknown; tlds?: unknown }[];
+	const kept: { name: string; url: string; code: string; tlds?: readonly string[] }[] = [];
+	for (const entry of base) {
+		const tlds = parsed.find((candidate) => candidate?.url === entry.url)?.tlds;
+		if (tlds === undefined) {
+			kept.push(entry);
+		} else if (Array.isArray(tlds) && tlds.every((tld) => typeof tld === 'string')) {
+			kept.push({ ...entry, tlds: Object.freeze([...tlds]) });
+		} else {
+			console.error(
+				`[config] ${key}: the entry for ${entry.url} was DROPPED (tlds must be an array of strings).`,
+			);
+		}
+	}
+	return Object.freeze(kept);
+}
+
+/**
  * Additional tool roots (JSON `[{"path":...,"url":...}]`). Entries missing a path/url, or
  * with a non-root-relative (cross-origin) url, are DROPPED — the browser import()s tool JS
  * from these urls, so they MUST be same-origin.

@@ -93,10 +93,28 @@ let user: Session;
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
-	for (const key of ['DEDALO_AGENT_HTTP_ENABLED', 'DEDALO_AGENT_ALLOW_WRITE']) {
+	for (const key of [
+		'DEDALO_AGENT_HTTP_ENABLED',
+		'DEDALO_AGENT_ALLOW_WRITE',
+		'DEDALO_AGENT_MODELS',
+	]) {
 		savedEnv[key] = process.env[key];
 	}
 	process.env.DEDALO_AGENT_HTTP_ENABLED = 'true';
+	// The assistant is only offered (src/ai/capabilities.ts → the tool_assistant
+	// grant) when the catalog resolves to a model: BUILD one instead of borrowing
+	// the host's ANTHROPIC_API_KEY (red in the CI image, green on a developer
+	// machine). These doors never call it; a local endpoint that answers nothing.
+	process.env.DEDALO_AGENT_MODELS = JSON.stringify([
+		{
+			id: 'zzmcp',
+			label: 'zzmcp stub',
+			provider: 'openai_compatible',
+			model: 'zzmcp-native',
+			endpoint: 'http://127.0.0.1:9/v1/chat/completions',
+			egress: 'local',
+		},
+	]);
 	await ensureCanonicalTest3();
 	await installAclIdentityFixture();
 	// THE AGENT DOOR asks the caller's tool grant (closure Step 3, SEC-3): the

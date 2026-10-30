@@ -93,6 +93,7 @@ import {
 	withUnboundedStatements,
 } from '../db/postgres.ts';
 import { DedaloError, isDedaloError } from '../errors/index.ts';
+import { dataVersionState, refreshDataVersionState } from './boot_state.ts';
 import {
 	catalogKeyOf,
 	type DataUpdateDescriptor,
@@ -263,6 +264,18 @@ function logHeader(logPath: string, step: string, index: number, detail: string)
 
 function logLine(logPath: string, line: string, durable = false): void {
 	appendUpdateLog(logPath, `\n${line}`, durable);
+}
+
+/**
+ * After a committed rung, re-classify the installed data version so /health and
+ * the code-update door follow "Update data" without a restart (U-04). Only in a
+ * process whose boot recorded the state (a server) — a test process never did,
+ * and must not start reading the database here.
+ */
+async function refreshServedDataVersion(): Promise<void> {
+	if (dataVersionState() === null) return;
+	const { readInstalledDataVersionStrict } = await import('../area_maintenance/backup.ts');
+	await refreshDataVersionState(readInstalledDataVersionStrict);
 }
 
 async function readCurrentVersion(seams: UpdateEngineSeams): Promise<readonly number[]> {
@@ -643,6 +656,7 @@ export async function updateVersion(
 	if (outcome.failed !== undefined) return outcome.failed;
 
 	const reconcileLine = await reconcileAfterCommit(seams, logPath);
+	await refreshServedDataVersion();
 	return {
 		ok: true,
 		msg: [

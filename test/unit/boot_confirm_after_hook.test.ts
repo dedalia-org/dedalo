@@ -115,26 +115,28 @@ describe('server.ts wiring', () => {
 		const guard = source.lastIndexOf('if (!smokeBoot) {', call);
 		const confirmImport = source.indexOf("import('./core/update/boot_confirm.ts')", guard);
 		expect(guard).toBeGreaterThan(-1);
-		expect(confirmImport).toBeGreaterThan(guard);
-		expect(confirmImport).toBeLessThan(call);
+		expect(confirmImport).toBeGreaterThan(call);
+		// the classic confirm AND the update run's resume both hand over the ONE hook
+		expect(source).toMatch(
+			/confirmBootedCodeUpdate\(\s*undefined,\s*undefined,\s*undefined,\s*afterConfirmed,\s*bootSchemaVerdict\(\)/,
+		);
+		// (the second argument is the shutdown probe: a phase the drain kills stays resumable)
+		expect(source).toMatch(/resumeBootRun\(\s*afterConfirmed\s*[,)]/);
 	});
 
-	test('the publication-host module loads INSIDE the hook, after the flip, its failure caught', () => {
+	test('the publication-host module loads INSIDE the hook, its failure caught — one import only', () => {
 		const source = stripComments(
 			readFileSync(join(import.meta.dir, '..', '..', 'src', 'server.ts'), 'utf8'),
 		);
-		const confirmCall = source.indexOf(
-			'confirmBootedCodeUpdate(undefined, undefined, undefined, () => {',
-		);
+		const hook = source.indexOf('const afterConfirmed = () => {');
 		const lockstepImport = source.search(
 			/import\(\s*'\.\/core\/publication_host\/api_reconcile\.ts'\s*\)/,
 		);
 		const call = source.indexOf('triggerPublicationApiPush({ smokeBoot })');
-		expect(confirmCall).toBeGreaterThan(-1);
-		// a load failure before the call would skip the flip → supervisor rollback of a healthy update
-		expect(lockstepImport).toBeGreaterThan(confirmCall);
+		expect(hook).toBeGreaterThan(-1);
+		// a load at module scope would run before the flip; inside the hook it runs after it
+		expect(lockstepImport).toBeGreaterThan(hook);
 		expect(call).toBeGreaterThan(lockstepImport);
-		// exactly one import of the module in server.ts, and it is caught (never escapes the hook)
 		expect(source.match(/publication_host\/api_reconcile\.ts/g)?.length).toBe(1);
 		const tail = source.slice(call, call + 400);
 		expect(tail).toMatch(/\.catch\(/);

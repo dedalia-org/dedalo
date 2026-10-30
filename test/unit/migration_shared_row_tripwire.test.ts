@@ -88,6 +88,31 @@ const FORBIDDEN_DML = new RegExp(
 	String.raw`\b(INSERT\s+INTO|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|ALTER\s+TABLE|DROP\s+TABLE|CREATE\s+TABLE|MERGE\s+INTO|COPY)${TABLE_INFIX}\s+"?${SHARED_TABLE}"?\b`,
 	'gi',
 );
+/**
+ * INDEX DDL ON A SHARED TABLE (update audit 2026-10-29, U-23). A full-heap index
+ * build on a shared table belongs to the ONLINE class (`-- ONLINE MIGRATION:`,
+ * install/db/online_migration.ts — `CREATE INDEX CONCURRENTLY`, post-listen);
+ * in a boot file it holds the socket closed past the systemd watchdog, which
+ * migrate.ts's header said this gate prevented while no matcher looked.
+ */
+const SHARED_INDEX_DDL = new RegExp(
+	String.raw`\b(CREATE\s+(?:UNIQUE\s+)?INDEX\b[^;]*?\bON(?:\s+ONLY)?\s+"?(?:public"?\."?)?${SHARED_TABLE}"?\b|REINDEX\s+(?:TABLE|INDEX)\b)`,
+	'gi',
+);
+
+/** The tag of an ONLINE file (install/db/online_migration.ts) — the one home of shared index DDL. */
+const ONLINE_TAG = '-- ONLINE MIGRATION:';
+
+/**
+ * Boot files that built shared indexes BEFORE the online class existed. Frozen
+ * history (an applied file is never edited — migrations.lock.json pins it), so
+ * the exemption is named, never a pattern; the list only shrinks.
+ */
+const BOOT_INDEX_GRANDFATHERED: Readonly<Record<string, string>> = {
+	'0006_declared_indexes.sql':
+		'applied on every install before the ONLINE class (2026-09-27); its IF NOT EXISTS indexes are no-ops after the first boot',
+};
+
 /** The one admissible shape: an UPDATE, whose statement text is then inspected. */
 const SHARED_UPDATE = new RegExp(String.raw`\bUPDATE${TABLE_INFIX}\s+"?${SHARED_TABLE}"?\b`, 'gi');
 
@@ -154,6 +179,13 @@ function judgeMigration(file: string, raw: string): FileVerdict {
 		violations.push(
 			`${file}: '${hit[0].trim()}' — only an UPDATE may correct a shared row, and only a tagged, lock-bounded ADD COLUMN IF NOT EXISTS (nullable, no default) or ADD CONSTRAINT … NOT VALID may extend a shared table`,
 		);
+	}
+	if (!raw.includes(ONLINE_TAG) && BOOT_INDEX_GRANDFATHERED[file] === undefined) {
+		for (const hit of body.matchAll(SHARED_INDEX_DDL)) {
+			violations.push(
+				`${file}: '${hit[0].replace(/\s+/g, ' ').slice(0, 80)}' — index DDL on a shared table belongs in an ONLINE file ('${ONLINE_TAG}'), never a boot migration`,
+			);
+		}
 	}
 	const updates = [...body.matchAll(SHARED_UPDATE)];
 	if (updates.length > 0 && !raw.includes(SHARED_ROW_CORRECTION_TAG)) {
@@ -237,6 +269,35 @@ describe('migration shared-row tripwire — install/db/migrations/*.sql', () => 
 		expect(untagged.violations.length, 'an untagged additive file').toBeGreaterThan(0);
 		const unbounded = judgeMigration('9999_probe.sql', `${ADDITIVE_COLUMN_TAG} probe\n${clean}`);
 		expect(unbounded.violations.length, 'a file with no lock_timeout').toBeGreaterThan(0);
+	});
+
+	test('anti-vacuity: shared index DDL is red in a boot file, admitted in an ONLINE one, named exemptions only', () => {
+		for (const offender of [
+			'CREATE INDEX IF NOT EXISTS probe_idx ON matrix_time_machine (section_id);',
+			'CREATE UNIQUE INDEX probe_idx ON public."dd_ontology" (tipo);',
+			'CREATE INDEX probe_idx ON ONLY matrix (id);',
+			'REINDEX TABLE matrix_activity;',
+		]) {
+			expect(judgeMigration('9999_probe.sql', offender).violations.length, offender).toBe(1);
+		}
+		const ownTable = judgeMigration(
+			'9999_probe.sql',
+			'CREATE INDEX probe_idx ON dedalo_ts_probe (id);',
+		);
+		expect(ownTable.violations).toEqual([]);
+		const online = judgeMigration(
+			'9999_probe.sql',
+			`${ONLINE_TAG} probe
+CREATE INDEX CONCURRENTLY IF NOT EXISTS probe_idx ON matrix_time_machine (section_id);`,
+		);
+		expect(online.violations).toEqual([]);
+		for (const file of Object.keys(BOOT_INDEX_GRANDFATHERED)) {
+			const raw = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
+			expect(
+				judgeMigration('9999_probe.sql', raw).violations.length,
+				`${file} still builds a shared index`,
+			).toBeGreaterThan(0);
+		}
 	});
 
 	test('anti-vacuity: each matcher fires on a synthetic offender', () => {

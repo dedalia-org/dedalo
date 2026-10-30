@@ -134,6 +134,18 @@ update_dev_rc=0
 bun run test:update:dev || update_dev_rc=$?
 [ "$update_dev_rc" -eq 0 ] || { echo "== instance_tier: RED in the dev-channel update drill (exit $update_dev_rc)"; tier_status=1; }
 
+# ── STAGE 3b — THE WHOLE UPDATE RUN ACROSS RELEASES ──────────────────────────
+#
+# scripts/update_full_drill.ts drives the update RUN (src/core/update/run/) with its
+# real effects on scratch surfaces of the suite database: ontology-min refusal → code
+# phase → ontology → schema → data rung → a SIGKILLed child mid-rung resumed by the
+# next process → a planted failing migration → NEEDS_DB_RESTORE. The code swap is a
+# seam there; stages 2-3 prove the real swap.
+echo "== instance_tier: update run drill across releases (bun run test:update:full)"
+update_full_rc=0
+bun run test:update:full || update_full_rc=$?
+[ "$update_full_rc" -eq 0 ] || { echo "== instance_tier: RED in the full update-run drill (exit $update_full_rc)"; tier_status=1; }
+
 # ── STAGE 4 — THE PUBLICATION-HOST MEDIA RULES ON LIVE SERVERS ───────────────
 #
 # scripts/media_publication_host_drill.ts renders the publication-host include with the

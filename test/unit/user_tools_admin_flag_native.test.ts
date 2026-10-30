@@ -25,8 +25,20 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { aiCapabilities, toolOfferedByCapabilities } from '../../src/ai/capabilities.ts';
 import { SUPERUSER_ID } from '../../src/core/security/permissions.ts';
 import { getSuperuserUserTools, getUserTools } from '../../src/core/tools/registry.ts';
+
+/**
+ * The superuser's list AS getUserTools offers it: the raw registry minus the AI
+ * tools hidden on this deployment (src/ai/capabilities.ts). The raw
+ * getSuperuserUserTools() is unchanged; the hiding is applied once in getUserTools.
+ */
+async function offeredSuperuserTools() {
+	const capabilities = aiCapabilities();
+	const all = await getSuperuserUserTools();
+	return all.filter((tool) => toolOfferedByCapabilities(tool.name, capabilities));
+}
 
 /** The standing non-superuser fixture user (profile-granted a real subset). */
 const NON_ADMIN_USER = 16;
@@ -46,7 +58,7 @@ describe('user_tools: the admin flag cannot widen the list', () => {
 	});
 
 	test('the SUPERUSER ID alone grants the unfiltered list — no flag required', async () => {
-		const superuser = await getSuperuserUserTools();
+		const superuser = await offeredSuperuserTools();
 		// `false` is what a caller reading a session with no admin flag passes;
 		// the identity is what decides.
 		expect(await getUserTools(SUPERUSER_ID, false)).toEqual(superuser);
@@ -57,6 +69,6 @@ describe('user_tools: the admin flag cannot widen the list', () => {
 		// The handoff deletes the second argument at the six call sites that pass
 		// `principal.isGlobalAdmin`. This pins that the deletion changes nothing.
 		expect(await getUserTools(NON_ADMIN_USER)).toEqual(await getUserTools(NON_ADMIN_USER, false));
-		expect(await getUserTools(SUPERUSER_ID)).toEqual(await getSuperuserUserTools());
+		expect(await getUserTools(SUPERUSER_ID)).toEqual(await offeredSuperuserTools());
 	});
 });

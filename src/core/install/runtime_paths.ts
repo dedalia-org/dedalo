@@ -369,6 +369,8 @@ export const RUNTIME_PATH_SCAN_EXEMPTIONS: Readonly<Record<string, string>> = Ob
 		'CLIENT_ROOT is the SHIPPED client tree (release content, replaced WITH the tree): it is served from there and copied OUT of it; the publisher writes only under DEDALO_CLIENT_PUBLISH_DIR (census entry client_publish_dir), never into the tree',
 	'src/core/update/code_manifest.ts':
 		"RELEASE_NOTES_DIR is the master's shipped changes/ tree (changes/<version>/release.json, frozen at the release cut — release content, read-only); the manifest writes nothing",
+	'src/core/update/catalog_file.ts':
+		"UPDATE_CATALOG_DIR is the SHIPPED install/update/ tree (catalog.json + each release's data-rung SQL files — release content, replaced WITH the tree); the loader only reads it",
 	'src/core/update/status.ts':
 		'the readiness PANEL: read-only introspection of the live tree (the shipped .bun-version pin, the unaccounted root entries) — it writes nothing and asks this census itself for the swap blockers',
 	'src/core/area_maintenance/widgets/system_info.ts':

@@ -20,8 +20,9 @@
  *     are held to: every ascending pair both ways, each dev identity strictly below its stable, every
  *     non-identity refused (status 2). dedalo_version_cmp orders image tags as
  *     their identities.
- *  D. deploy/deploy.sh (design map, deploy.sh:83-84) refuses a release ref the
- *     tree cannot call itself (a lightweight tag) before restarting anything.
+
+ * (A former leg D drove deploy/deploy.sh; that channel was retired 2026-10-30 —
+ * update audit 2026-10-29 U-34: every code update is an update run.)
  *
  * DB-free; spawns bash + git + tar: hermetic tier.
  */
@@ -521,106 +522,5 @@ describe('C. semver order: dedalo_identity_cmp is held to ordering.json', () => 
 		expect(bashOrders('dedalo_version_cmp', [['7.0.0.dev', '7.0.0']])).toEqual([
 			{ order: 'none', status: 2 },
 		]);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// D. deploy/deploy.sh: a release ref must BE that release
-// ---------------------------------------------------------------------------
-
-describe('D. deploy.sh refuses a release ref the tree cannot call itself, before restarting anything', () => {
-	/**
-	 * A checkout deploy over a stub `ssh` that runs the remote script HERE (bash -s,
-	 * the assignments as its environment), stub `sudo`/`curl` and a stub pinned bun.
-	 */
-	function deployFixture(): { repo: string; bin: string; log: string; bun: string } {
-		const root = trees.scratch('deploy');
-		const bin = join(root, 'bin');
-		const log = join(root, 'calls.log');
-		mkdirSync(bin);
-		const repo = trees.repoWith('deploy_repo', [], [7, 0, 1]);
-		mkdirSync(join(repo, 'deploy'));
-		writeFileSync(join(repo, 'deploy', 'dedalo-image-lib.sh'), readFileSync(LIB));
-		writeFileSync(join(repo, '.bun-version'), '1.0.0\n');
-		trees.git(repo, 'add', '-A');
-		trees.git(repo, 'commit', '-q', '-m', 'deployable');
-		const stubs: Record<string, string> = {
-			ssh: '#!/bin/bash\nshift 3\nlast=$#\nset -- "${@:1:$((last - 1))}"\nexec env "$@" bash -s\n',
-			sudo: `#!/bin/sh\necho "sudo $*" >> ${JSON.stringify(log)}\n`,
-			curl: '#!/bin/sh\nexit 0\n',
-			bun: '#!/bin/sh\n[ "$1" = --version ] && echo 1.0.0\nexit 0\n',
-		};
-		for (const [name, body] of Object.entries(stubs)) {
-			writeFileSync(join(bin, name), body);
-			chmodSync(join(bin, name), 0o755);
-		}
-		return { repo, bin, log, bun: join(bin, 'bun') };
-	}
-
-	function deploy(fixture: ReturnType<typeof deployFixture>, ref: string) {
-		const run = Bun.spawnSync(
-			[
-				BASH,
-				join(REPO_ROOT, 'deploy', 'deploy.sh'),
-				'--host',
-				'gate@localhost',
-				'--ref',
-				ref,
-				'--app-dir',
-				fixture.repo,
-				'--bun',
-				fixture.bun,
-			],
-			{
-				env: {
-					PATH: `${fixture.bin}:${PATH_WITH_GIT}`,
-					HOME: SCRATCH,
-					GIT_CONFIG_NOSYSTEM: '1',
-				},
-			},
-		);
-		let restarted = '';
-		try {
-			restarted = readFileSync(fixture.log, 'utf8');
-		} catch {
-			// never restarted
-		}
-		return {
-			code: run.exitCode,
-			out: `${run.stdout.toString()}${run.stderr.toString()}`,
-			restarted,
-			head: trees.git(fixture.repo, 'rev-parse', 'HEAD'),
-		};
-	}
-
-	test('an ANNOTATED release tag is deployed, and named', () => {
-		const fixture = deployFixture();
-		trees.git(fixture.repo, 'tag', '-a', 'v7.0.1', '-m', 'v7.0.1');
-		const result = deploy(fixture, 'v7.0.1');
-		expect(result.code, result.out).toBe(0);
-		expect(result.out).toContain('v7.0.1 is release identity 7.0.1');
-		expect(result.out).toMatch(/GREEN at [0-9a-f]{40} \(7\.0\.1\)/);
-		expect(result.restarted).toContain('systemctl restart');
-	});
-
-	test('a LIGHTWEIGHT release tag (the engine would run as 7.0.1-dev) is refused: nothing restarted, the checkout returned', () => {
-		const fixture = deployFixture();
-		const before = trees.git(fixture.repo, 'rev-parse', 'HEAD');
-		trees.git(fixture.repo, 'commit', '-q', '--allow-empty', '-m', 'later');
-		trees.git(fixture.repo, 'tag', 'v7.0.1');
-		trees.git(fixture.repo, 'checkout', '-q', '--detach', before);
-		const result = deploy(fixture, 'v7.0.1');
-		expect(result.code).toBe(1);
-		expect(result.out).toContain('it says 7.0.1-dev');
-		expect(result.restarted).toBe('');
-		expect(result.head).toBe(before);
-	});
-
-	test('a branch is not a release ref: deployed, named by its -dev identity', () => {
-		const fixture = deployFixture();
-		trees.git(fixture.repo, 'branch', 'feature-x');
-		const result = deploy(fixture, 'feature-x');
-		expect(result.code, result.out).toBe(0);
-		expect(result.out).toContain('feature-x is release identity 7.0.1-dev');
 	});
 });

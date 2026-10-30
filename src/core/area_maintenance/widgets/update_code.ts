@@ -136,18 +136,24 @@ async function updateCodeOwned(
 	options: Record<string, unknown>,
 	principal: Principal,
 ): Promise<WidgetResponse> {
-	const { updateCode } = await import('../../update/code_update.ts');
+	const { codeRunAnswer, startCodeUpdateRun } = await import('../../update/run/start.ts');
 	const { mediaJobs } = await import('../../media/jobs.ts');
 	const record = mediaJobs.submit(
 		'update_code',
 		async ({ onData, signal }) => {
-			// core/update/** REFUSES BY THROWING (update.refused / update.failed);
-			// phase frames stream through the job's data channel as it advances. The
-			// job's signal lets a STOP end the run before the swap (refuseIfStopped).
-			return await updateCode(options, principal, {
+			// THE UPDATE RUN (update audit 2026-10-29, Phase 2.6): the swap is one
+			// phase of a journaled run — ontology preconditions before it, schema /
+			// data / ancillary after the restart, confirm only on VERIFIED
+			// (core/update/run/). core/update/** REFUSES BY THROWING (update.refused /
+			// update.failed); the swap's phase frames stream through the job's data
+			// channel. The job's signal lets a STOP end the run before the swap.
+			const outcome = await startCodeUpdateRun(options, principal, {
 				onPhase: (frame) => onData(frame),
 				signal,
 			});
+			// The swap's own envelope (the panel hands over to the /health poll on
+			// its version), the run's id and state beside it.
+			return codeRunAnswer(outcome.journal);
 		},
 		// THE lane starvation this class exists to end: an operator's code update
 		// must never queue behind a transcode backlog (PERF-11).
@@ -204,14 +210,18 @@ async function restoreCodeOwned(
 	principal: Principal,
 ): Promise<WidgetResponse> {
 	const { restoreCode } = await import('../../update/code_restore.ts');
+	const { holdUpdateRunLock } = await import('../../update/door_class.ts');
 	const { mediaJobs } = await import('../../media/jobs.ts');
 	const record = mediaJobs.submit(
 		'restore_code',
-		async ({ onData }) => {
+		async ({ onData }) =>
 			// core/update/** REFUSES BY THROWING (update.refused / update.failed);
 			// phase frames stream through the job's data channel as it advances.
-			return await restoreCode(options, principal, { onPhase: (frame) => onData(frame) });
-		},
+			// A destructive door's job holds the UPDATE_RUN lock for its life
+			// (core/update/door_class.ts) — the restart ends it with the session.
+			holdUpdateRunLock('restore_code', () =>
+				restoreCode(options, principal, { onPhase: (frame) => onData(frame) }),
+			),
 		// Same lane as the update it rolls back (PERF-11).
 		{ lane: 'maintenance', userId: principal.userId },
 	);

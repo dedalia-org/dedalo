@@ -57,7 +57,7 @@ Add translated keys to `catalog/lg-<code>.json` (sorted, tab-indented), review t
 - **Rename → English key:** update every reference across `client/`, `src/`, `tools/` and `install/`; merging into an existing English key keeps the target's translations and adopts the source's for missing langs.
 - **Never rename a RUNTIME-BUILT key.** Some keys are concatenated at render time from a server id — `update_code_check_<id>`, `update_code_note_<id>`, `update_code_restore_reason_<id>`… (`get_label['prefix_' + id]`). A grep for the literal key finds only the catalogs, so a rename looks safe and silently drops the string (serve_code split 2026-09-28: `update_code_note_release_ref_current`). Before renaming, grep for `get_label\[` in the consumers; `client_serve_code_render.test.ts` gates the update_code check-id family.
 - **Remove:** only if proven unused — no static reference anywhere, not reachable from any dynamic `get_label[expr]` site, no DB hit (data-driven state/calculation widgets + `search_operators.ts` operator→key map read the live dictionary; degrade via `get_label[x] || x`).
-- **Tool-local migration:** a key used by exactly ONE tool and tool-specific in meaning moves into that tool's `register.json` `misc.dd1372` labels; the tool JS switches `get_label.x` → `self.get_tool_label('x')`, keeping its `|| 'literal'` fallback. Lands in the DB `matrix_tools` rows only via the *Register tools* maintenance widget, which WRITES only when `TOOLS_ENABLE_REGISTRY_IMPORT=true` (`config.tools.enableRegistryImport`, default false → dry run). Genuinely generic vocabulary used by one tool (`error`, `print`, `upload`, …) STAYS global.
+- **Tool-local migration:** a key used by exactly ONE tool and tool-specific in meaning moves into that tool's `register.json` `misc.dd1372` labels; the tool JS switches `get_label.x` → `self.get_tool_label('x')`, keeping its `|| 'literal'` fallback. Lands in the DB `matrix_tools` rows via the *Register tools* maintenance widget or the next code update (the run's ancillary phase) — both write. Genuinely generic vocabulary used by one tool (`error`, `print`, `upload`, …) STAYS global.
 
 ## The OTHER label store: tool-local labels (`get_tool_label`)
 
@@ -68,10 +68,9 @@ Add translated keys to `catalog/lg-<code>.json` (sorted, tab-indented), review t
 § "Tool labels". The parts that bite:
 
 - **`register.json` is a SEED.** Runtime reads `matrix_tools`; an edit does
-  nothing until the *Register tools* maintenance widget re-imports it — and that
-  widget only dry-runs unless `TOOLS_ENABLE_REGISTRY_IMPORT=true`
-  (`src/core/tools/register.ts`, `dryRun` defaults to
-  `!config.tools.enableRegistryImport`).
+  nothing until the *Register tools* maintenance widget re-imports it (or a code
+  update's ancillary phase does) — both write; `TOOLS_ENABLE_REGISTRY_IMPORT` is
+  retired (WC-2026-10-30-tools-registry-import-switch-retired).
 - **SINGLE-LANG SERVING CONTRACT.** `buildToolElementContext`
   (`src/core/tools/registry.ts`) emits ONLY the requested application lang, and
   `[]` when the tool has no label in it; a key missing in that lang is omitted,

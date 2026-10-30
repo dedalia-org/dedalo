@@ -20,7 +20,7 @@ A tool is `tools/tool_<name>/` — `register.json`, `server/index.ts`, `js/`, `c
 ## Registration: the record is the truth
 
 - Metadata (labels, `open_as`, affected models/tipos, flags, config) is authored in **Tools development** (`dd1340`), exported with *Download register file* into `register.json`, and served from **Registered tools** (`dd1324`) after *Register tools* runs. Editing `register.json` alone changes nothing users see.
-- *Register tools* only **reports** unless `TOOLS_ENABLE_REGISTRY_IMPORT=true` (`src/config/catalog/tools.ts`) — "I re-registered and nothing changed" is usually this.
+- *Register tools* WRITES dd1324 (`importTools({dryRun:false})`), and so does every code update (the run's ancillary phase, keeping each tool's stored Active value). `TOOLS_ENABLE_REGISTRY_IMPORT` is retired (WC-2026-10-30-tools-registry-import-switch-retired): a bare `importTools()` is a dry run, so "I re-registered and nothing changed" means a caller forgot `dryRun:false`, or the tool's register.json is invalid (see the report's `errors`).
 - A dev/suite database may have **no `dd1340` rows at all**; the registered records live in `dd1324` (`matrix_tools`). Check before assuming the authoring flow is available.
 - Tool UI strings are **tool-local** (`dd1372` labels, read with `self.get_tool_label('key')`), never `src/core/labels/master.json`. Edit them with `tool_dd_label`; with no `dd1340` record, use the authoring format's `labels` field (`docs/development/tools/register_json.md`).
 - Bump the version (`dd1327` / `version`) on every registration change: the *Register tools* panel shows file-vs-registry drift by version.

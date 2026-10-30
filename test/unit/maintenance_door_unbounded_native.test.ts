@@ -119,6 +119,7 @@ const DRIVER = `
 import { getPoolStats, sql, withTransaction, withUnboundedStatements } from ${repoModule('src/core/db/postgres.ts')};
 import { dispatchWidgetRequest } from ${repoModule('src/core/area_maintenance/widgets/registry.ts')};
 import { mediaJobs } from ${repoModule('src/core/media/jobs.ts')};
+import { getServerState, setServerState } from ${repoModule('src/core/resolve/server_state.ts')};
 import { updateVersion } from ${repoModule('src/core/update/engine.ts')};
 import { assertTestDatabase } from ${repoModule('src/core/test_data/test_database_marker.ts')};
 await assertTestDatabase('maintenance_door_unbounded_native');
@@ -161,7 +162,17 @@ async function holdLock(statement, table) {
  * failed run ends (the job's status 'error' with a typed maintenance.action_failed).
  */
 async function runExecute(source, options) {
-	const response = await dispatchWidgetRequest(ROOT, source, options);
+	// A move_* execute is a destructive_shared door (core/update/door_class.ts):
+	// maintenance mode, and the backup waived (its leg is gated in
+	// update_door_precondition_class_tripwire — this law is about the pool).
+	const maintenanceBefore = getServerState().maintenance_mode === true;
+	setServerState({ maintenance_mode: true });
+	let response;
+	try {
+		response = await dispatchWidgetRequest(ROOT, source, { ...options, waive_backup: true });
+	} finally {
+		setServerState({ maintenance_mode: maintenanceBefore });
+	}
 	const id = String(response.extend?.pfile ?? '').slice(0, -'.json'.length);
 	const deadline = Date.now() + 60000;
 	let status = mediaJobs.status(id);

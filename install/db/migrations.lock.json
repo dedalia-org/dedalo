@@ -1,0 +1,75 @@
+{
+	"format": 1,
+	"migrations": {
+		"0001_baseline.sql": {
+			"sha256": "79dd5dd2f60672514befb7a713e2f96727b79febb3a75b772b5a5f93df64c11b",
+			"class": "incompatible",
+			"release": "7.0.0"
+		},
+		"0002_error_reports.sql": {
+			"sha256": "e64ce1506cd9f27c918da3698d3655a9801b6785eb74b03e3d7c8bf119e2c455",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0003_temporal_scratch.sql": {
+			"sha256": "a7a40add5ae8304d1382f444d1f168323423c694e063b4d4a129849e05780ddb",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0004_dd560_drop_view_tree.sql": {
+			"sha256": "ba3b384365e8bb38964bd30b5d46d4d02bc4eb10a3e5c81922798a2ca20650ac",
+			"class": "incompatible",
+			"release": "7.0.0"
+		},
+		"0005_record_generation.sql": {
+			"sha256": "0ea83e6cfd27619c6ac7756ed7f7bbf4179823d456966e524d56c7b7da1aabf0",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0006_declared_indexes.sql": {
+			"sha256": "e6e8452ccf4e4fce238a3cf346b77ef763d671be5dbe9f5c72cc306f9bb40aee",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0007_drop_retired_relation_gin.sql": {
+			"sha256": "86de0afba344397ae19f03c9bfe706c2ef94f5252cd40a0923f17e0f7b9df6b6",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0008_diffusion_element_type.sql": {
+			"sha256": "f4098fd93098f8c6cd64f2b26d96a7d765efcf5e60c7ef18d0b35affd8f39303",
+			"class": "incompatible",
+			"release": "7.0.0"
+		},
+		"0009_search_literal_escape.sql": {
+			"sha256": "b84b94ae0f89c3f2ae0b16fcc2277de3c537b6f263e3f053b0d04b64cb0f2df5",
+			"class": "incompatible",
+			"release": "7.0.0"
+		},
+		"0010_tm_role.sql": {
+			"sha256": "e08cc90ed39020044fdd0ccef0ddd8c080330e69acb4a3231ac2b4fd483ed476",
+			"class": "incompatible",
+			"release": "7.0.0"
+		},
+		"0011_tm_role_hidden_index.sql": {
+			"sha256": "1a5f161e9179f45a6edee44dc8aac57e4536af7a77b43acbd619983298a15f00",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0012_tm_history_visible_index.sql": {
+			"sha256": "ab17d41ded9cc933f261b0e66d52d62f236d7c44a465b70b355fc4a64520510b",
+			"class": "compatible",
+			"release": "7.0.0"
+		},
+		"0013_dd_ontology_identifier_grammar.sql": {
+			"sha256": "ad59ab164eec61101dea095138b8b77083817a91d6adc7a9d7222c054d6c64d7",
+			"class": "incompatible",
+			"release": "7.0.0"
+		},
+		"0014_diffusion_activity_dead_indexes.sql": {
+			"sha256": "70fb006444c2bbe27b95ea3001abf891cdfe613e72eab209bec377b2e4297dde",
+			"class": "compatible",
+			"release": "7.0.0"
+		}
+	}
+}

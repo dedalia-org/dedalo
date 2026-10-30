@@ -63,7 +63,7 @@ Every field maps to a fixed ontology tipo (`TOOL_NAME`, `TOOL_VERSION`, `CONFIG`
 
 ## Where the data lands
 
-At registration the file is reconciled into a record of the "Registered Tools" section (dd1324, `matrix_tools`). `importTools()` defaults to **dry-run** (`config.tools.enableRegistryImport = false`, see [Server contract](server_contract.md)): it reports, per tool, whether the registry already reflects the file's declared identity, without writing. The area_maintenance *Register tools* widget is the exception — its own action always performs a real import, so the button an administrator presses does write.
+At registration the file is reconciled into a record of the "Registered Tools" section (dd1324, `matrix_tools`). `importTools()` defaults to **dry-run** (see [Server contract](server_contract.md)): it reports, per tool, whether the registry already reflects the file's declared identity, without writing. The area_maintenance *Register tools* widget is the exception — its own action always performs a real import, so the button an administrator presses does write. A code update also re-registers every tool, keeping each one's Active value as the administrator left it.
 
 !!! warning "The registry is what runs, not the file"
 

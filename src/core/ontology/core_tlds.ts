@@ -36,3 +36,18 @@ const CORE_SET: ReadonlySet<string> = new Set(CORE_ONTOLOGY_TLDS);
 export function isCoreOntologyTld(tld: string): boolean {
 	return CORE_SET.has(tld.trim().toLowerCase());
 }
+
+/**
+ * The suite's generic TEST TLD (`test`) — repo-owned fixture definitions the
+ * suite builds into its marked database (src/core/test_data/). Project law: an
+ * installation receives no test fixture. A master that has `test` registered
+ * exports it with everything else, so every door that offers an installation
+ * an ontology drops it (install/ontology_catalog.ts, ontology_update.ts
+ * admissibleUpdateTlds), and the vendored release
+ * must not carry it (install_seed_drift_tripwire). The `zz*` scratch TLDs are
+ * NOT matched: gates build them through these very doors and tear them down,
+ * and they never reach a master (the tripwire holds the release to that too).
+ */
+export function isTestFixtureTld(tld: string): boolean {
+	return tld.trim().toLowerCase() === 'test';
+}

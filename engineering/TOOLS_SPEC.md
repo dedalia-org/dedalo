@@ -536,9 +536,10 @@ converted; column-keyed → pass-through), validates it (zod for authoring +
 
 **Two callers, two postures — know which one you are reading.**
 
-`importTools({dryRun})` still defaults to **dry-run** whenever the caller passes
-no `dryRun`, because `config.tools.enableRegistryImport` defaults to `false`
-(`TOOLS_ENABLE_REGISTRY_IMPORT` unset). A dry run validates every tool and
+`importTools({dryRun})` defaults to **dry-run** whenever the caller passes no
+`dryRun` (the `TOOLS_ENABLE_REGISTRY_IMPORT` switch that once flipped that default
+was retired on 2026-10-30 — update audit U-39; every writer passes
+`dryRun:false` explicitly). A dry run validates every tool and
 reports, per tool, whether the registry already reflects its declared identity
 (empty diff = no-op) — writing nothing. That is the posture the parity gate and
 every incidental caller get.
@@ -546,14 +547,17 @@ every incidental caller get.
 The area_maintenance **"Register tools" widget does NOT take that path any more.**
 Its action is `gated()`, and `engineOwnsInstall()` has been unconditionally `true`
 since the 2026-07-11 cutover, so the OPEN branch always runs and it calls
-`importTools({dryRun:false, activeOverrides})` explicitly — a REAL write,
-independent of `enableRegistryImport`. That is deliberate: WC-057's Active column
+`importTools({dryRun:false, activeOverrides})` explicitly — a REAL write. That is deliberate: WC-057's Active column
 is a write control and would be meaningless against a dry run. The frozen
 dry-run/diff branch survives as `whenClosed` and is reachable only by forcing the
-gate shut (`test/unit/register_tools_widget.test.ts` exercises both). The
-`enableRegistryImport` flag now governs only the callers that do NOT pass
-`dryRun` — it is no longer the switch that decides whether the admin's button
-writes.
+gate shut (`test/unit/register_tools_widget.test.ts` exercises both).
+
+The **update run's ancillary phase** (`src/core/update/run/ancillary.ts`) is the
+third writer: `importTools({dryRun:false, keepStoredActive:true})` — each
+registered tool keeps the dd1354 ACTIVE value STORED on its row, read under the
+row lock inside the write's own transaction (`writeRegistryRecord`), so an update
+never re-enables a tool an admin turned off nor reverts a toggle committed while
+it runs.
 
 **Per-tool activation (WC-057).** `importTools({activeOverrides})` takes a
 `name → boolean` map that forces each tool's dd1354 ACTIVE radio

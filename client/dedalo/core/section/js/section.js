@@ -1817,6 +1817,18 @@ section.prototype.delete_section = async function (options) {
 		const deleted = response_data(api_response)
 		if (deleted && deleted.length>0) {
 
+			// section_deleted. Global, page-wide fact for views that DERIVE state
+			// from other records' relations and cannot know which record pointed
+			// where (tool_cataloging's "used" marker re-reads its cards when a
+			// catalog term is deleted). Payload: the section, the deleted ids and
+			// the delete_mode ('delete_data' keeps the record: subscribers that
+			// care about existence must check it).
+				event_manager.publish('section_deleted', {
+					section_tipo	: self.section_tipo,
+					deleted			: deleted,
+					delete_mode		: delete_mode
+				})
+
 			// all is OK
 			return true
 		}
