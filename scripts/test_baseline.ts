@@ -76,15 +76,28 @@
  *  - JUnit per-case time is bun's measurement, not wall truth; it is the right
  *    yardstick for cap adjacency because the timeout is enforced against the
  *    same clock.
+ *
+ * COMPARE MODE (`--compare <junit file|dir>`, repeatable): applies the four
+ * acceptance assertions to a candidate's JUnit output — e.g. the per-bin XML of
+ * `bun run test:shard --junit-dir=<dir>` — against a COMPLETE full-suite
+ * campaign recorded at the SAME commit (`--out-dir` names it; default the
+ * committed home). Exit 1 on any violation. A fail → pass is red too: the
+ * README's assertion 4 needs a human ledger line, which a tool cannot verify.
+ * `--expect-fixed` is the STRICT form for a candidate that keeps each file's
+ * test order (the shard runner does): the expectation is the FIXED-order runs
+ * alone and only FLAPPING keys are quarantined — an ORDER_SENSITIVE key moved
+ * by `--randomize` is still a key the candidate must reproduce.
  */
 
 import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -185,7 +198,9 @@ export function parseJunitCases(xml: string): JunitCase[] {
 				continue;
 			}
 			const name = attr(raw, 'name') ?? '';
-			if (suites.length === 0) currentFile = attr(raw, 'file') ?? name;
+			// A run given EXPLICIT paths (the shard runner passes `./test/…`) must
+			// key exactly like a discovery run, or every key would read as absent.
+			if (suites.length === 0) currentFile = (attr(raw, 'file') ?? name).replace(/^\.\//, '');
 			suites.push(name);
 			continue;
 		}
@@ -674,6 +689,95 @@ export function capAdjacentEntries(
 	return entries;
 }
 
+// ── candidate comparison: the four acceptance assertions ─────────────────────
+// A candidate (a sharded run, a new Bun, a re-ordered suite) EQUALS the
+// baseline iff no non-quarantined key moved. The quarantine is the
+// FLAPPING + ORDER_SENSITIVE set by name; every other baseline key is constant
+// across ALL K+J runs, so its one recorded state is the expectation.
+
+/** Which of the README's four assertions a moved key breaks ('other': fail ↔ skip). */
+export type CompareAssertion = 'key_set' | 'pass_skip' | 'pass_fail' | 'fail_pass' | 'other';
+
+export interface CompareViolation {
+	key: string;
+	assertion: CompareAssertion;
+	/** 'a' when the candidate registered a key the baseline never saw. */
+	baseline: StatusChar;
+	/** 'a' when the candidate did not register a baseline key. */
+	candidate: StatusChar;
+}
+
+export interface CompareResult {
+	/** Baseline keys checked against the candidate (quarantine excluded). */
+	compared: number;
+	quarantined: number;
+	violations: CompareViolation[];
+}
+
+function transition(baseline: StatusChar, candidate: StatusChar): CompareAssertion {
+	if (baseline === 'a' || candidate === 'a') return 'key_set';
+	const pair = new Set([baseline, candidate]);
+	if (pair.has('p') && pair.has('s')) return 'pass_skip';
+	if (baseline === 'p' && candidate === 'f') return 'pass_fail';
+	if (baseline === 'f' && candidate === 'p') return 'fail_pass';
+	return 'other';
+}
+
+/**
+ * Compare a candidate's cases against a recorded campaign. Throws when the
+ * candidate measured nothing, or when a baseline key is NOT constant across the
+ * runs yet missing from the quarantine — the two artifacts disagree, and an
+ * expectation picked from an unstable key would be a coin flip.
+ */
+export function compareCandidate(
+	artifact: Pick<RunsArtifact, 'keys' | 'runs'>,
+	quarantine: ReadonlySet<string>,
+	cases: JunitCase[],
+): CompareResult {
+	if (cases.length === 0) {
+		throw new Error('the candidate reported ZERO test cases — nothing to compare (anti-vacuity)');
+	}
+	const candidate = new Map<string, StatusChar>();
+	for (const c of cases) {
+		candidate.set(
+			makeKey(c.file, c.name),
+			c.status === 'pass' ? 'p' : c.status === 'fail' ? 'f' : 's',
+		);
+	}
+	const result: CompareResult = { compared: 0, quarantined: 0, violations: [] };
+	for (const [i, key] of artifact.keys.entries()) {
+		if (quarantine.has(key)) {
+			result.quarantined += 1;
+			continue;
+		}
+		const seen = new Set(artifact.runs.map((r) => r.statuses[i] as StatusChar));
+		if (seen.size !== 1) {
+			throw new Error(
+				`baseline key is not constant across the recorded runs (${[...seen].join('/')}) but is not quarantined: ${key} — runs.json and order_sensitive.json disagree; re-run the campaign.`,
+			);
+		}
+		const expected = [...seen][0] as StatusChar;
+		const actual = candidate.get(key) ?? 'a';
+		result.compared += 1;
+		if (expected !== actual) {
+			result.violations.push({
+				key,
+				assertion: transition(expected, actual),
+				baseline: expected,
+				candidate: actual,
+			});
+		}
+	}
+	const known = new Set(artifact.keys);
+	for (const [key, actual] of candidate) {
+		if (!known.has(key)) {
+			result.violations.push({ key, assertion: 'key_set', baseline: 'a', candidate: actual });
+		}
+	}
+	result.violations.sort((a, b) => a.key.localeCompare(b.key));
+	return result;
+}
+
 // ── the campaign runner (only under `bun run`, never on import) ──────────────
 
 // Child runs strip the per-run env seams through the census's own childEnv()
@@ -789,6 +893,8 @@ interface CliOptions {
 	outDir: string | null;
 	resume: boolean;
 	acceptGrowth: string | null;
+	compare: string[];
+	expectFixed: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -800,6 +906,8 @@ function parseArgs(argv: string[]): CliOptions {
 		outDir: null,
 		resume: false,
 		acceptGrowth: null,
+		compare: [],
+		expectFixed: false,
 	};
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i] as string;
@@ -815,6 +923,8 @@ function parseArgs(argv: string[]): CliOptions {
 		else if (arg === '--out-dir') options.outDir = next();
 		else if (arg === '--resume') options.resume = true;
 		else if (arg === '--accept-growth') options.acceptGrowth = next();
+		else if (arg === '--compare') options.compare.push(next());
+		else if (arg === '--expect-fixed') options.expectFixed = true;
 		else throw new Error(`unknown argument: ${arg}`);
 	}
 	if (!Number.isInteger(options.runs) || options.runs < 1) throw new Error('--runs must be >= 1');
@@ -1042,10 +1152,78 @@ function runCampaign(options: CliOptions): void {
 		console.log(`  CAP-ADJACENT (${entry.worst_ms} ms): ${entry.key}`);
 }
 
+/** Every `*.xml` a --compare argument names: the file itself, or a directory's. */
+function candidateReports(paths: string[]): string[] {
+	const reports: string[] = [];
+	for (const raw of paths) {
+		const path = resolve(process.cwd(), raw);
+		if (!statSync(path).isDirectory()) {
+			reports.push(path);
+			continue;
+		}
+		const inDir = readdirSync(path)
+			.filter((name) => name.endsWith('.xml'))
+			.sort()
+			.map((name) => join(path, name));
+		if (inDir.length === 0)
+			throw new Error(`--compare ${raw}: the directory holds no *.xml report`);
+		reports.push(...inDir);
+	}
+	return reports;
+}
+
+function runCompare(options: CliOptions): number {
+	const outDir = resolveOutDir(options);
+	const runsRaw = readJsonIfExists(join(outDir, 'runs.json'));
+	if (runsRaw === undefined)
+		throw new Error(`--compare: no runs.json in ${outDir} — record a campaign first`);
+	const artifact = assertRunsArtifact(runsRaw);
+	if (!artifact.complete)
+		throw new Error('--compare: the recorded campaign is INCOMPLETE — finish it with --resume');
+	if (artifact.files !== null)
+		throw new Error('--compare: the recorded campaign is file-scoped, not the full suite');
+	const commit = gitHead();
+	if (artifact.commit !== commit) {
+		throw new Error(
+			`--compare: the campaign is at ${artifact.commit.slice(0, 12)} but HEAD is ${commit.slice(0, 12)} — a candidate compares against a baseline of the SAME commit.`,
+		);
+	}
+	const orderRaw = readJsonIfExists(join(outDir, 'order_sensitive.json'));
+	if (orderRaw === undefined) throw new Error(`--compare: no order_sensitive.json in ${outDir}`);
+	const quarantine = new Set(
+		assertOrderSensitiveArtifact(orderRaw)
+			.entries.filter((e) => !options.expectFixed || e.classification === 'FLAPPING')
+			.map((e) => e.key),
+	);
+	const expected = options.expectFixed
+		? { keys: artifact.keys, runs: artifact.runs.filter((r) => r.kind === 'fixed') }
+		: artifact;
+
+	const reports = candidateReports(options.compare);
+	const cases = reports.flatMap((path) => parseJunitCases(readFileSync(path, 'utf8')));
+	const result = compareCandidate(expected, quarantine, cases);
+
+	console.log(
+		`compare: ${reports.length} report(s), ${cases.length} candidate cases vs ${artifact.keys.length} baseline keys at ${commit.slice(0, 12)}${options.expectFixed ? ' (expect-fixed)' : ''} — compared ${result.compared}, quarantined ${result.quarantined}, violations ${result.violations.length}`,
+	);
+	for (const v of result.violations) {
+		console.log(`  ${v.assertion} ${v.baseline}→${v.candidate} ${v.key}`);
+	}
+	if (result.violations.length > 0) {
+		const files = [...new Set(result.violations.map((v) => keyFile(v.key)))].sort();
+		console.log(`\nNOT EQUAL — ${files.length} file(s) moved:`);
+		for (const file of files) console.log(`  ${file}`);
+		return 1;
+	}
+	console.log('EQUAL — the candidate matches the baseline on every non-quarantined key.');
+	return 0;
+}
+
 if (import.meta.main) {
 	try {
 		const options = parseArgs(process.argv.slice(2));
 		if (options.timings) runTimingsMode(options);
+		else if (options.compare.length > 0) process.exit(runCompare(options));
 		else runCampaign(options);
 	} catch (error) {
 		console.error(`test_baseline: ${error instanceof Error ? error.message : String(error)}`);

@@ -52,6 +52,7 @@ import {
 	CAP_ADJACENT_SCHEMA,
 	capAdjacentEntries,
 	classify,
+	compareCandidate,
 	DEFAULT_ARTIFACT_DIR,
 	makeKey,
 	ORDER_SENSITIVE_SCHEMA,
@@ -386,6 +387,72 @@ describe('test baseline artifacts — schema, provenance, shrink-only ratchet', 
 		const cap = capAdjacentEntries(runs, 30000, 0.3);
 		expect(cap.map((e) => e.key)).toEqual([makeKey(SELF, 'c')]);
 		expect(cap[0]?.worst_ms).toBe(9100);
+	});
+
+	test('ANTI-VACUITY: the comparator names every assertion a moved key breaks', () => {
+		const key = (name: string): string => makeKey(SELF, name);
+		const fixed = (index: number, statuses: string) => ({
+			kind: 'fixed' as const,
+			index,
+			seed: null,
+			started: NOW,
+			wall_ms: 1,
+			exit_code: 0,
+			statuses,
+			durations_ms: statuses.split('').map(() => 1),
+		});
+		// keys: same, gone, p→s, p→f, f→p, f→s, quarantined-and-moved
+		const names = ['same', 'gone', 'p_s', 'p_f', 'f_p', 'f_s', 'noisy'];
+		const baseline = {
+			keys: names.map(key),
+			runs: [fixed(0, 'ppppffp'), fixed(1, 'ppppfff')],
+		} as Parameters<typeof compareCandidate>[0];
+		const candidate = (name: string, status: 'pass' | 'fail' | 'skip') => ({
+			file: SELF,
+			name,
+			status,
+			durationMs: 1,
+		});
+		const result = compareCandidate(baseline, new Set([key('noisy')]), [
+			candidate('same', 'pass'),
+			candidate('p_s', 'skip'),
+			candidate('p_f', 'fail'),
+			candidate('f_p', 'pass'),
+			candidate('f_s', 'skip'),
+			candidate('noisy', 'fail'),
+			candidate('new', 'pass'),
+		]);
+		expect(result.compared).toBe(6);
+		expect(result.quarantined).toBe(1);
+		expect(Object.fromEntries(result.violations.map((v) => [v.key, v.assertion]))).toEqual({
+			[key('gone')]: 'key_set',
+			[key('new')]: 'key_set',
+			[key('p_s')]: 'pass_skip',
+			[key('p_f')]: 'pass_fail',
+			[key('f_p')]: 'fail_pass',
+			[key('f_s')]: 'other',
+		});
+		// An unchanged candidate is EQUAL — else every violation above is vacuous.
+		const equal = compareCandidate(baseline, new Set([key('noisy')]), [
+			candidate('same', 'pass'),
+			candidate('gone', 'pass'),
+			candidate('p_s', 'pass'),
+			candidate('p_f', 'pass'),
+			candidate('f_p', 'fail'),
+			candidate('f_s', 'fail'),
+		]);
+		expect(equal.violations).toEqual([]);
+		// A candidate that measured nothing, and an unstable key nobody
+		// quarantined, both REFUSE instead of comparing.
+		expect(() => compareCandidate(baseline, new Set([key('noisy')]), [])).toThrow(/ZERO/);
+		expect(() => compareCandidate(baseline, new Set(), [candidate('same', 'pass')])).toThrow(
+			/not quarantined/,
+		);
+	});
+
+	test('the JUnit parser keys an explicit ./ path like a discovery run', () => {
+		const xml = `<testsuites><testsuite name="./${SELF}" file="./${SELF}"><testcase name="t" time="0" /></testsuite></testsuites>`;
+		expect(parseJunitCases(xml)[0]?.file).toBe(SELF);
 	});
 
 	test('the artifact home is engineering/, never rewrite/ (absent on a clone)', () => {
