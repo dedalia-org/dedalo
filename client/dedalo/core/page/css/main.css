@@ -9373,17 +9373,10 @@ body:has(.component_av.view_viewer) {
   white-space: nowrap;
 }
 @media screen and (min-width: 1025px) {
-  .wrapper_search > .search_global_container:has( > .search_container_selector:not(.display_none)),
-  .wrapper_search > .search_global_container:has( > .wrapper_sections_selector:not(.display_none)),
-  .wrapper_search > .search_global_container:has( > .search_container_selection_presets:not(.display_none)) {
-    min-height: 50vh;
-  }
   .wrapper_search > .search_global_container > .search_container_selector {
     align-self: stretch;
   }
   .wrapper_search > .search_global_container > .search_container_selector > ul {
-    max-height: none;
-    height: 0;
     min-height: 100%;
   }
   .wrapper_search > .search_global_container > .wrapper_sections_selector {
@@ -9391,7 +9384,7 @@ body:has(.component_av.view_viewer) {
     max-height: none;
   }
   .wrapper_search > .search_global_container > .wrapper_sections_selector > .wrapper_sections_selector_ul {
-    height: 0;
+    max-height: 50vh;
     flex-grow: 1;
   }
   .wrapper_search > .search_global_container > .search_container_selection_presets {
@@ -9404,7 +9397,7 @@ body:has(.component_av.view_viewer) {
   }
   .wrapper_search > .search_global_container > .search_container_selection_presets > .wrapper_section {
     display: block;
-    height: 0;
+    max-height: 50vh;
     flex-grow: 1;
     overflow-y: auto;
   }

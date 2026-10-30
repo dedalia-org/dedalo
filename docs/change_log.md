@@ -83,6 +83,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Search panel no longer forced tall by the fields list**
+
+    The Fields, Type and Preset columns of the search panel now take the height of their content (up to half the screen, scrolling past that) instead of always reserving half the screen.
+
 - **Indexation — the text pane's header now matches the selected field.**
 
     In the Indexation tool, selecting the transcription left the header row above it grey, and the editor toolbar and its buttons sat slightly too low: a grey strip showed above them and they overlapped the first line of text. The header now takes the field's highlight colour while it is selected, as in the Transcription tool, and the toolbar covers the header row exactly. The pane also has the same space above it as in the Transcription tool.
@@ -299,6 +303,10 @@ Merged since the last release; these ship with the next one.
     When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
 
 #### Fixed
+
+- **Older development builds are offered the nightly again**
+
+    A development build made before 26 October 2026 reports its version as `7.0.0.dev`. The code server could not read that form, treated the installation as the stable release, and so listed no nightly in its update panel. The code server now reads the older form as `7.0.0-dev`, so these installations can update through the panel again.
 
 - **After login, users open on the default section set in their user record.**
 

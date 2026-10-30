@@ -1055,29 +1055,19 @@
 				}
 			}//end .search_container_selection_presets
 
-			// One height for the whole row (desktop): the SELECTION sets it, the side
-			// columns (TYPE, FIELDS, PRESET) only FILL it and scroll inside. Each
-			// side list is `height: 0` so it never adds to the row, and grows once
-			// its column is stretched (a stretched flex item is definite for its
-			// children). Capping the side lists alone (50vh) let a tall selection
-			// outgrow them: bottoms misaligned, the old sticky center drifted.
+			// One height for the whole row (desktop): a side column (TYPE, FIELDS,
+			// PRESET) is as tall as its own content up to 50vh, scrolling inside
+			// past that; stretched by a taller SELECTION, its list fills the column
+			// (min-height: 100% / flex-grow), so bottoms stay aligned. No fixed 50vh
+			// floor: a short field list no longer forces the whole row tall.
 			// Below the breakpoint the panels stack, see the compact tier.
 			@media screen and (min-width: (@width_break_point_0 + 1)) {
-				// an open side list keeps its old 50vh room even under one card
-				&:has(> .search_container_selector:not(.display_none)),
-				&:has(> .wrapper_sections_selector:not(.display_none)),
-				&:has(> .search_container_selection_presets:not(.display_none)) {
-					min-height: 50vh;
-				}
-
 				// FIELDS: both drill columns (list + target) are direct <ul>s
 				>.search_container_selector {
 					align-self: stretch;
 
 					>ul {
-						max-height: none; // layout.less 50vh, shared with tool_export
-						height: 0;
-						min-height: 100%;
+						min-height: 100%; // layout.less max-height 50vh still caps the content
 					}
 				}
 
@@ -1087,7 +1077,7 @@
 					max-height: none;
 
 					>.wrapper_sections_selector_ul {
-						height: 0;
+						max-height: 50vh;
 						flex-grow: 1;
 					}
 				}
@@ -1105,7 +1095,7 @@
 					// and stretched its .list_body grid, spreading the rows apart
 					>.wrapper_section {
 						display: block;
-						height: 0;
+						max-height: 50vh;
 						flex-grow: 1;
 						overflow-y: auto;
 					}
