@@ -20,23 +20,23 @@
 * localStorage keys (cleaned up), no widget get_value round-trip.
 */
 
-import {ui} from '../../../core/common/js/ui.js'
-import {event_manager} from '../../../core/common/js/event_manager.js'
-import {render_servers_list, build_import_files, render_update_ontology} from '../../../core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js'
 import {area_maintenance} from '../../../core/area_maintenance/js/area_maintenance.js'
-import {update_code} from '../../../core/area_maintenance/widgets/update_code/js/update_code.js'
 import {render_info_modal, render_restore_modal} from '../../../core/area_maintenance/widgets/update_code/js/render_update_code.js'
 import {
-	render_consumer_status,
-	refresh_readiness,
 	backup_waiver_check,
-	image_update_command
+	image_update_command,
+	refresh_readiness,
+	render_consumer_status
 } from '../../../core/area_maintenance/widgets/update_code/js/render_update_status.js'
+import {update_code} from '../../../core/area_maintenance/widgets/update_code/js/update_code.js'
 import {
-	UPDATE_PHASES,
+	apply_phase_frame,
 	init_phase_state,
-	apply_phase_frame
+	UPDATE_PHASES
 } from '../../../core/area_maintenance/widgets/update_code/js/update_code_phases.js'
+import {build_import_files, render_servers_list, render_update_ontology} from '../../../core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js'
+import {event_manager} from '../../../core/common/js/event_manager.js'
+import {ui} from '../../../core/common/js/ui.js'
 
 
 
@@ -1210,7 +1210,7 @@ describe('UPDATE_ONTOLOGY waive-backup control', function() {
 		} finally {
 			window.fetch	= original_fetch
 			window.confirm	= original_confirm
-			self.events_tokens.forEach((token) => event_manager.unsubscribe(token))
+			for (const token of self.events_tokens) event_manager.unsubscribe(token)
 		}
 	})
 })

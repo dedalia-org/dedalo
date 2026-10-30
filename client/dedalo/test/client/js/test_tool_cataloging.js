@@ -26,19 +26,19 @@
  * section.delete_section, a save of the link component, window focus) triggers it.
  */
 
+import {ApiError} from '../../../core/common/js/api_error.js'
+import {data_manager} from '../../../core/common/js/data_manager.js'
+import {event_manager} from '../../../core/common/js/event_manager.js'
+import {section} from '../../../core/section/js/section.js'
 import {tool_cataloging} from '../../../tools/tool_cataloging/js/tool_cataloging.js'
 import {
 	get_catalog_target_tipos,
 	is_used,
 	refresh_used_state,
 	subscribe_used_triggers,
-	unsubscribe_used_triggers,
-	USED_FOCUS_DEBOUNCE_MS
+	USED_FOCUS_DEBOUNCE_MS,
+	unsubscribe_used_triggers
 } from '../../../tools/tool_cataloging/js/used_state.js'
-import {section} from '../../../core/section/js/section.js'
-import {data_manager} from '../../../core/common/js/data_manager.js'
-import {event_manager} from '../../../core/common/js/event_manager.js'
-import {ApiError} from '../../../core/common/js/api_error.js'
 
 
 
@@ -305,7 +305,7 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 			await new Promise(resolve => setTimeout(resolve, USED_FOCUS_DEBOUNCE_MS + 50))
 			assert.equal(refreshes, document.visibilityState==='visible' ? 4 : 3, 'one refresh for the pair')
 		} finally {
-			tool.events_tokens.forEach(token => event_manager.unsubscribe(token))
+			for (const token of tool.events_tokens) event_manager.unsubscribe(token)
 			unsubscribe_used_triggers(tool)
 		}
 		const before = refreshes

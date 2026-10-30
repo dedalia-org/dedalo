@@ -5,9 +5,9 @@
 
 
 // imports
-	import {event_manager} from '../../../core/common/js/event_manager.js'
-	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {request_failed, response_data} from '../../../core/common/js/api_error.js'
+	import {data_manager} from '../../../core/common/js/data_manager.js'
+	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {clone} from '../../../core/common/js/utils/index.js'
 
 
