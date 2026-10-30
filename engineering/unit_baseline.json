@@ -1019,6 +1019,11 @@
 			"skipped": 0,
 			"assertions": 33
 		},
+		"test/unit/covered_slot_consumers_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 23
+		},
 		"test/unit/crap_complexity_ratchet.test.ts": {
 			"tests": 15,
 			"skipped": 0,
@@ -1834,6 +1839,21 @@
 			"skipped": 0,
 			"assertions": 18
 		},
+		"test/unit/external_law_classify.test.ts": {
+			"tests": 31,
+			"skipped": 0,
+			"assertions": 86
+		},
+		"test/unit/external_law_registry_tripwire.test.ts": {
+			"tests": 16,
+			"skipped": 0,
+			"assertions": 54
+		},
+		"test/unit/external_merge_mirror.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 29
+		},
 		"test/unit/external_multi_source_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -1858,6 +1878,11 @@
 			"tests": 8,
 			"skipped": 0,
 			"assertions": 22
+		},
+		"test/unit/external_refresh_native.test.ts": {
+			"tests": 17,
+			"skipped": 0,
+			"assertions": 81
 		},
 		"test/unit/external_registry_totality_tripwire.test.ts": {
 			"tests": 18,
@@ -1893,6 +1918,11 @@
 			"tests": 15,
 			"skipped": 0,
 			"assertions": 75
+		},
+		"test/unit/external_tag_locators.test.ts": {
+			"tests": 15,
+			"skipped": 0,
+			"assertions": 20
 		},
 		"test/unit/external_transport_deadline_native.test.ts": {
 			"tests": 3,
@@ -3389,6 +3419,11 @@
 			"skipped": 0,
 			"assertions": 27
 		},
+		"test/unit/observer_observed_data_native.test.ts": {
+			"tests": 8,
+			"skipped": 0,
+			"assertions": 41
+		},
 		"test/unit/observer_reconcile_discovery_native.test.ts": {
 			"tests": 44,
 			"skipped": 0,
@@ -3408,6 +3443,11 @@
 			"tests": 21,
 			"skipped": 0,
 			"assertions": 68
+		},
+		"test/unit/observer_source_overwrite_native.test.ts": {
+			"tests": 17,
+			"skipped": 0,
+			"assertions": 104
 		},
 		"test/unit/observer_subscriptions_native.test.ts": {
 			"tests": 32,
