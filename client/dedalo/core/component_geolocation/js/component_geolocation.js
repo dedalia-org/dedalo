@@ -13,7 +13,7 @@
 * serialised inside the component's `dato` under `entries[key].lib_data`.
 *
 * Key responsibilities:
-* - Lazy-loading Leaflet, leaflet-geoman, turf.js, and iro.js via `load_libs`.
+* - Lazy-loading Leaflet and leaflet-geoman via `load_libs` (iro.js on first colour-picker open).
 * - Creating the Leaflet map instance for every `data.entries` entry in `get_map`.
 * - Keeping `current_value` in sync with the map view and geometry edits so the
 *   save button always commits the most recent state.
@@ -93,7 +93,6 @@
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {render_edit_component_geolocation, render_popup_text, render_color_picker} from '../../component_geolocation/js/render_edit_component_geolocation.js'
 	import {render_list_component_geolocation} from '../../component_geolocation/js/render_list_component_geolocation.js'
-	import {render_search_component_geolocation} from '../../component_geolocation/js/render_search_component_geolocation.js'
 
 
 
@@ -420,7 +419,11 @@ export const component_geolocation = function(){
 	component_geolocation.prototype.list				= render_list_component_geolocation.prototype.list
 	// (!) tm mode reuses the list render — no separate time-machine view for geolocation.
 	component_geolocation.prototype.edit				= render_edit_component_geolocation.prototype.edit
-	component_geolocation.prototype.search				= render_search_component_geolocation.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_geolocation.prototype.search				= async function(options) {
+		const {render_search_component_geolocation} = await import('../../component_geolocation/js/render_search_component_geolocation.js')
+		return render_search_component_geolocation.prototype.search.call(this, options)
+	}
 
 	component_geolocation.prototype.change_mode			= component_common.prototype.change_mode
 
@@ -732,14 +735,14 @@ component_geolocation.prototype.fit_camera_to_geometry = function(key) {
 *  2. leaflet-geoman CSS + JS — drawing toolbar, geometry editing, and pm.* API.
 *  3. json_langs — user-language lookup table used to set geoman's UI language.
 *  4. turf.js — geometry calculations used by `get_popup_content` (area, distance).
-*  5. iro.js — color-picker library used by `render_color_picker` in popups.
+*
+* iro.js (colour picker) is NOT loaded here: render_color_picker loads it on first open.
 *
 * CSS files are injected without awaiting because they do not block JS execution.
-* Each JS `load_script` call is awaited so the dependent library is never reached
-* before its dependency.
+* Leaflet is awaited before geoman (dependency); turf and json_langs load in parallel.
 *
 * (!) Leaflet exposes itself as the global `L` (listed in the `globals` pragma).
-*     turf.js exposes `turf`; iro.js exposes `iro` — both used in this file.
+*     turf.js exposes `turf` (used in this file).
 *
 * @returns {Promise<boolean>} Resolves true when all scripts have loaded.
 */
@@ -779,38 +782,41 @@ component_geolocation.prototype.load_libs = async function () {
 			//  */
 			//  `
 
-	// leaflet. (!) It's necessary to be fully loaded before 'geoman'
-		load_style(
-			DEDALO_ROOT_WEB + '/lib/leaflet/dist/leaflet.css'
-		)
-		await load_script(
-			DEDALO_ROOT_WEB + '/lib/leaflet/dist/leaflet.js',
-			license
-		)
+	// JSON langs are independent of the scripts: fetch in parallel
+		const json_langs_promise = self.json_langs
+			? Promise.resolve(self.json_langs)
+			: get_json_langs()
 
-	// geoman
-		load_style(
-			DEDALO_ROOT_WEB + '/lib/geoman/dist/leaflet-geoman.css'
-		)
-		await load_script(
-			DEDALO_ROOT_WEB + '/lib/geoman/dist/leaflet-geoman.min.js',
-			license
-		)
-
-	// load and set JSON langs file
-		self.json_langs = self.json_langs || await get_json_langs()
-
-	// turf
-		await load_script(
+	// turf (popup area/distance) does not depend on leaflet: fetch in parallel
+		const turf_promise = load_script(
 			DEDALO_ROOT_WEB + '/lib/turf/turf.min.js',
 			license
 		)
 
-	// iro
-		await load_script(
-			DEDALO_ROOT_WEB + '/lib/iro/dist/iro.min.js',
-			license
-		)
+	// leaflet. (!) It's necessary to be fully loaded before 'geoman'
+		const leaflet_chain = (async () => {
+			load_style(
+				DEDALO_ROOT_WEB + '/lib/leaflet/dist/leaflet.css'
+			)
+			await load_script(
+				DEDALO_ROOT_WEB + '/lib/leaflet/dist/leaflet.js',
+				license
+			)
+			// geoman
+			load_style(
+				DEDALO_ROOT_WEB + '/lib/geoman/dist/leaflet-geoman.css'
+			)
+			await load_script(
+				DEDALO_ROOT_WEB + '/lib/geoman/dist/leaflet-geoman.min.js',
+				license
+			)
+		})()
+
+	// awaited together so no branch's rejection is left unhandled
+		const [json_langs] = await Promise.all([json_langs_promise, turf_promise, leaflet_chain])
+
+	// set JSON langs file
+		self.json_langs = json_langs
 
 
 	return true

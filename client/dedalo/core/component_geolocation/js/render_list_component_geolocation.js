@@ -6,8 +6,6 @@
 
 // imports
 	import {view_default_list_geolocation} from './view_default_list_geolocation.js'
-	import {view_mini_geolocation} from './view_mini_geolocation.js'
-	import {view_text_list_geolocation} from './view_text_list_geolocation.js'
 
 
 
@@ -73,11 +71,16 @@ render_list_component_geolocation.prototype.list = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		// rare views are lazy (S3-37 #3)
+		case 'mini': {
+			const {view_mini_geolocation} = await import('./view_mini_geolocation.js')
 			return view_mini_geolocation.render(self, options)
+		}
 
-		case 'text':
+		case 'text': {
+			const {view_text_list_geolocation} = await import('./view_text_list_geolocation.js')
 			return view_text_list_geolocation.render(self, options)
+		}
 
 		case 'default':
 		default:

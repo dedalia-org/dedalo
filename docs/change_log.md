@@ -19,6 +19,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Geolocation maps load faster**
+
+    The map component fetches fewer files before showing a map: the colour picker library loads only when a layer's colour swatch is first opened, turf and the language table load in parallel with Leaflet, and the search and mini/text views load only when used.
+
 - **Audiovisual records load faster and reuse cached media.**
 
     The audiovisual field no longer downloads its poster image and video again every time a record is shown. Media links now change only when the file itself changes (a new upload, a new transcode or a new poster image), so the browser reuses what it already has. Poster images below the visible part of the page load only when they scroll into view, the quality selector appears only when there is more than one quality to choose, and the player, viewer and search displays load only when they are used.
