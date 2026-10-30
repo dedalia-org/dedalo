@@ -316,10 +316,15 @@ function uniqueByUrl(items: CodeReleaseItem[]): CodeReleaseItem[] {
  * Nothing a claim reaches is offered unless it outranks it
  * ({@link outranksAsker}), so an accepted claim can only narrow the offer,
  * never widen it: the swap door re-judges with the tree's OWN identity.
+ * A legacy `X.Y.Z.dev` claim reads as `X.Y.Z-dev`: unparsed it falls back to
+ * stable `X.Y.Z`, above which its own nightly ranks as a downgrade — so
+ * every pre-grammar dev install could never be offered a nightly.
  */
 function askerIdentity(options: CodeUpdateInfoOptions): string {
 	const dataTriple = normalizedClientTriple(options.clientVersion);
-	const claimed = typeof options.clientRelease === 'string' ? options.clientRelease : '';
+	const raw = typeof options.clientRelease === 'string' ? options.clientRelease : '';
+	// builds before d803117865 (2026-10-26) spell a dev identity 'X.Y.Z.dev'
+	const claimed = raw.replace(/^(\d+\.\d+\.\d+)\.dev$/, '$1-dev');
 	const parsed = parseReleaseVersion(claimed);
 	if (parsed === null) return dataTriple.join('.');
 	const atOrAboveData = compareVersionArrays(parsed.triple, dataTriple) >= 0;

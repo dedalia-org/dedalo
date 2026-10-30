@@ -698,6 +698,22 @@ describe('the asker floor: no offered item ranks at or below the asker identity'
 		expect(info.files[0]?.channel).toBe('dev');
 	});
 
+	test('a legacy X.Y.Z.dev claim (pre-d803117865 builds) reads as X.Y.Z-dev on the dev channel', () => {
+		// anti-vacuity: unparsed it would be stable 7.0.1, and its nightly a downgrade
+		expect(
+			urls(manifest(FLOOR_FILES, { ...OPTED_IN, channel: 'dev', clientRelease: '7.0.1' })),
+		).not.toContain('http://m/7.0.1/7.0.1-dev.zip');
+		const legacy = manifest(FLOOR_FILES, {
+			...OPTED_IN,
+			channel: 'dev',
+			clientRelease: '7.0.1.dev',
+		});
+		expect(urls(legacy)).toEqual(
+			urls(manifest(FLOOR_FILES, { ...OPTED_IN, channel: 'dev', clientRelease: '7.0.1-dev' })),
+		);
+		expect(urls(legacy)).toContain('http://m/7.0.1/7.0.1-dev.zip');
+	});
+
 	test('a DEV claim BELOW the data triple is the bare data triple: 7.0.0-dev over data 7.0.1 is not offered 7.0.0', () => {
 		// data 7.0.1 holds 7.0.0 (a downgrade for this asker): anti-vacuity, a
 		// 7.0.0-dev asker over data 7.0.0 IS offered the stable 7.0.0 above it
