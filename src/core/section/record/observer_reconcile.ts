@@ -68,10 +68,10 @@ export interface ReconcileTuple extends ReconcileTupleSeed {
 	/**
 	 * Does `hostSection` DECLARE the observer (isObserverHostSection — the one
 	 * census the kernel's host precondition reads)? A non-host tuple (an index
-	 * fan-out face that does not declare the observer) visits only the records
-	 * that already STORE the observer key: the kernel converges such a slot and
-	 * answers every other record of that section with a counted no-op, so
-	 * visiting them would only be noise.
+	 * fan-out face that does not declare the observer) is NEVER swept: the
+	 * kernel's host precondition is strict (owner ruling 2026-10-30), so every
+	 * record there — stored slot or not — is a counted no-op. The sweep only
+	 * COUNTS the slots already stored there (`notHostSlots`) and says so.
 	 */
 	host: boolean;
 }
@@ -140,6 +140,13 @@ export interface ReconcileSummary {
 	 * (recomputeExternalRelation indexDrift).
 	 */
 	reindexed: number;
+	/**
+	 * Observer slots STORED on records of a non-host face (a section that does
+	 * not declare the observer), left untouched — the kernel's strict host
+	 * precondition never computes there. Reported, never swept: not in
+	 * `candidates` nor `drifted`.
+	 */
+	notHostSlots: number;
 }
 
 /**
@@ -450,7 +457,7 @@ function kernelPrecomputeRefusalLine(
 		return `${at}: REFUSED — external value law refused (${outcome.refusedLaw.reason}); not computed`;
 	}
 	if (outcome.targetNotHost === true) {
-		return `${at}: SKIP — the section does not declare the observer and the record stores no slot (kernel no-op)`;
+		return `${at}: SKIP — the section does not declare the observer (kernel no-op; a host verdict raced the sweep)`;
 	}
 	return null;
 }
@@ -625,7 +632,8 @@ async function coveredObserverSources(
  * One tuple's candidate records. A host tuple asks its LAW
  * (ExternalValueLaw.candidateIds — law (c): referenced targets ∪ holders; the
  * copy laws: records carrying their pointer/ddo ∪ holders). A non-host tuple
- * visits the stored holders only (see ReconcileTuple.host). Never called for
+ * answers the stored holders — COUNTED by the sweep, never recomputed (see
+ * ReconcileTuple.host). Never called for
  * a refused tuple.
  */
 async function candidateIds(
@@ -701,6 +709,7 @@ export async function reconcileObserverMirrors(
 		droppedLocators: 0,
 		degradedSeedRecords: 0,
 		reindexed: 0,
+		notHostSlots: 0,
 	};
 	const tuples = await discoverTuples(
 		options.onlyObserver ?? null,
@@ -727,6 +736,18 @@ export async function reconcileObserverMirrors(
 			continue;
 		}
 		const ids = await io.candidateIds(tuple, hostTable, options.onlyId ?? null);
+		if (!tuple.host) {
+			// STRICT host precondition: the kernel never computes on a face that
+			// does not declare the observer, stored slot or not. Count the stored
+			// slots (candidateIds' non-host branch answers the holders) and say
+			// they stay as they are — never a recompute per holder only to print
+			// one kernel no-op each.
+			summary.notHostSlots += ids.length;
+			log(
+				`- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}) [not a host]: ${ids.length} stored slot(s) left untouched (the section does not declare the observer; never computed)`,
+			);
+			continue;
+		}
 		summary.candidates += ids.length;
 		let drifted = 0;
 		let shrinksSkipped = 0;
@@ -776,7 +797,7 @@ function tupleLine(
 	shrinksSkipped: number,
 	apply: boolean,
 ): string {
-	return `- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo})${tuple.host ? '' : ' [not a host — stored slots only]'}: ${candidates} candidate(s), ${drifted} drifted${shrinksSkipped > 0 ? ` (${shrinksSkipped} shrink(s) skipped)` : ''}${apply ? ', repaired' : ''}`;
+	return `- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}): ${candidates} candidate(s), ${drifted} drifted${shrinksSkipped > 0 ? ` (${shrinksSkipped} shrink(s) skipped)` : ''}${apply ? ', repaired' : ''}`;
 }
 
 /**
@@ -816,6 +837,7 @@ export const OBSERVER_MIRRORS_RECONCILE: ReconcileDefinition = {
 			droppedLocators: 0,
 			degradedSeedRecords: 0,
 			reindexed: 0,
+			notHostSlots: 0,
 		};
 		const records: ReconcileRecord[] = [];
 		// One sweep per scoped section (the kernel narrows by ONE section), or one

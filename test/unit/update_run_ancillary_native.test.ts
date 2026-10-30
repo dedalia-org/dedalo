@@ -79,6 +79,7 @@ function recordingDeps(over: Partial<AncillaryDeps> = {}): {
 				droppedLocators: 0,
 				degradedSeedRecords: 0,
 				reindexed: 0,
+				notHostSlots: 0,
 			};
 		},
 		ensureSearchStores: async () => {

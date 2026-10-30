@@ -22,8 +22,9 @@
  * at sections from spec ∪ index truth; the copy laws (source_overwrite,
  * set_observed_data) visit records carrying their pointer / ddo ∪ holders, at
  * every section that DECLARES the observer. A section that does not declare
- * the observer (an index face) visits stored holders only — tagged
- * `[not a host — stored slots only]` in the report.
+ * the observer (an index face) is never swept — the kernel's host
+ * precondition is strict; its stored slots are counted and reported
+ * `[not a host]: N stored slot(s) left untouched`.
  *
  * USAGE (dry-run is the default and prints every drifted record):
  *

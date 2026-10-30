@@ -88,7 +88,8 @@
  *       reconcile re-indexes the value as stored; a dry run writes nothing.
  *   16a the component restore of a covered slot on a VIRTUAL section that has a
  *       component of its own is recomputed; 16c one on a section that does not
- *       declare the slot at all is too (the entry queues exactly what it wrote);
+ *       declare the slot at all is NOT — stored as restored (the kernel's strict
+ *       host precondition, owner ruling 2026-10-30);
  *   16b the whole-section recompute on that virtual section lists the real
  *       section's mirror, and the wipe empties the same slot (ONE census —
  *       section/record/declared_components.ts); 16d likewise a mirror declared
@@ -123,6 +124,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
+import { getCounters } from '../../src/core/api/counters.ts';
 import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { isInTransaction, sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
@@ -2496,7 +2498,7 @@ describe('one section census: what the wipe empties is what the restore recomput
 		).toEqual([link]);
 	}, 60_000);
 
-	test('16c: the COMPONENT-RESTORE of a covered slot a record’s section does not declare at all — still recomputed: the entry queues exactly the slots it wrote', async () => {
+	test('16c: the COMPONENT-RESTORE of a covered slot a record’s section does not declare at all — STORED AS RESTORED, never recomputed (strict host precondition)', async () => {
 		// A DEF_SECTION record carrying HUB_MIRROR (declared by HUB_SECTION only —
 		// e.g. a key left by an ontology move): no census of DEF_SECTION lists it,
 		// and the write proved it covered (isCoveredObserverTipo) already.
@@ -2507,6 +2509,7 @@ describe('one section census: what the wipe empties is what the restore recomput
 			{ sectionTipo: LINK_SECTION, sectionId: link, componentTipo: LINK },
 			{ sectionTipo: DEF_SECTION, sectionId: record },
 		);
+		const notHostBefore = getCounters().observers_target_not_host ?? 0;
 		await persistRestoredKeys(
 			{ table: TABLE, sectionTipo: DEF_SECTION, sectionId: record },
 			[
@@ -2527,10 +2530,21 @@ describe('one section census: what the wipe empties is what the restore recomput
 			false,
 			{ actor: USER_ID },
 		);
+		// STRICT host precondition (owner ruling 2026-10-30): DEF_SECTION does not
+		// declare HUB_MIRROR, so the slot is not this record's value — the kernel
+		// neither heals it toward `link` nor strips the phantom: the restore's
+		// bytes stand.
 		expect(
 			await listedIn(DEF_SECTION, record, HUB_MIRROR, LINK_SECTION),
-			'the restored slot was dropped from its own recompute by the section census (the `only` list narrowed instead of queued exactly)',
-		).toEqual([link]);
+			'the kernel recomputed a slot the record’s section does not declare (the strict host precondition let a non-host holder through)',
+		).toEqual([phantom]);
+		// …and the restore DID queue the slot: the kernel was reached and refused
+		// it as not-hosted (a restore that never queued it would also leave the
+		// bytes, vacuously).
+		expect(
+			(getCounters().observers_target_not_host ?? 0) - notHostBefore,
+			'the restore never queued the non-host slot to the kernel',
+		).toBeGreaterThanOrEqual(1);
 	}, 60_000);
 
 	test('16b: the whole-section covered-slot recompute on that virtual section lists the REAL section’s mirror, and the wipe empties the same slot', async () => {

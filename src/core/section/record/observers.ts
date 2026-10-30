@@ -664,7 +664,11 @@ export async function recomputeMirrorAndHop(
 	const key = `${observerTipo}|${sectionTipo}|${sectionId}`;
 	const always = hop === 'always';
 	if (guard.recomputed.has(key)) {
-		if (always) await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
+		// The earlier recompute of this slot may have been the strict host no-op:
+		// the same "not this section's value" rule holds for the hop (below).
+		if (always && (await hostsObserver(observerTipo, sectionTipo))) {
+			await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
+		}
 		return undefined;
 	}
 	guard.recomputed.add(key);
@@ -696,8 +700,21 @@ export async function recomputeMirrorAndHop(
 		);
 		return outcome;
 	}
-	if (always) await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
+	// STRICT host precondition: a slot stored on a record whose section does not
+	// declare the observer is not that record's value — the kernel neither
+	// computed nor healed it, so it is not a value with observers either. Hopping
+	// would propagate its stored bytes (a restored past value, a phantom
+	// referencer) as a current-state `saved` (obligation_ledger_native 16c).
+	if (always && outcome.targetNotHost !== true) {
+		await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
+	}
 	return outcome;
+}
+
+/** The kernel's host predicate (external_laws/resolvers.ts isObserverHostSection — cached ontology reads). */
+async function hostsObserver(observerTipo: string, sectionTipo: string): Promise<boolean> {
+	const { isObserverHostSection } = await import('./external_laws/resolvers.ts');
+	return isObserverHostSection(observerTipo, sectionTipo);
 }
 
 /**
@@ -1251,45 +1268,34 @@ export async function recomputeExternalRelation(
 	const table = await getMatrixTableFromTipo(targetSection);
 	if (table === null) return unchanged;
 
-	// THE HOST PRECONDITION (2026-10-30): a mirror is BORN only on records of a
-	// section that DECLARES the observer — the one section census the record
-	// wipe and the covered-slot birth share (declaredSectionComponents: own ∪
-	// real subtree, so a term stored under a VIRTUAL catalog section is hosted
-	// through its real section). Before the copy laws ran this was harmless by
-	// accident; it is not: a use_observable_dato edge's saved value names
-	// records of every section it links to (the type a catalog term points at),
-	// and a copy law computed there writes a mirror onto a record that never
-	// declared it. Law (c) already did, measured 2026-10-30: hierarchy93 ←
-	// rsc387 onto numisdata6/tchi1/numisdata3 records, numisdata321 ←
-	// numisdata282 onto tchi1 — slots no edit form renders. PHP instantiates
-	// the observer on any target (a WC-ledgered divergence,
-	// `WC-2026-10-30-observer-target-not-host`).
+	// THE HOST PRECONDITION (2026-10-30, STRICT — owner ruling): the kernel
+	// computes a mirror ONLY on records of a section that DECLARES the observer —
+	// the one section census the record wipe and the covered-slot birth share
+	// (declaredSectionComponents: own ∪ real subtree, so a term stored under a
+	// VIRTUAL catalog section is hosted through its real section). Before the
+	// copy laws ran this was harmless by accident; it is not: a
+	// use_observable_dato edge's saved value names records of every section it
+	// links to (the type a catalog term points at), and a copy law computed there
+	// writes a mirror onto a record that never declared it. Law (c) already did,
+	// measured 2026-10-30: hierarchy93 ← rsc387 onto numisdata6/tchi1/numisdata3
+	// records, numisdata321 ← numisdata282 onto tchi1 — slots no edit form
+	// renders. PHP instantiates the observer on any target (a WC-ledgered
+	// divergence, `WC-2026-10-30-observer-target-not-host`).
 	//
-	// BORN, not maintained: a slot that ALREADY EXISTS on such a record (a
-	// PHP-era orphan, a key left by an ontology move, a Time Machine restore of
-	// one — obligation_ledger_native 16c) still converges on truth like any
-	// covered slot. Freezing it would leave a restored past derivation — a
-	// phantom referencer — stored forever, which is exactly what a covered
-	// slot's recompute exists to prevent; and no data is repaired either way
-	// (owner ruling). The existence probe is unlocked and cheap: only this
-	// kernel creates a mirror key, and it never does so here. A counted no-op
-	// otherwise, NOT logged per record: every such edge reaches it by design.
+	// STRICT: a slot ALREADY STORED on such a record (a PHP-era orphan, a key
+	// left by an ontology move, a Time Machine restore of one) is skipped too —
+	// neither grown, shrunk nor healed. The section does not declare the
+	// component, so it is not this section's value: nothing renders it, and a
+	// recompute there is a write the record's own definition never asked for
+	// (the 2026-10-30 corpus dry run wanted 742 drops on 3 such records). No
+	// data is repaired either (owner ruling). A counted no-op, no lock, no read,
+	// NOT logged per record: every such edge reaches it by design.
 	const { externalValueLawOf, isObserverHostSection } = await import(
 		'./external_laws/resolvers.ts'
 	);
 	if (!(await isObserverHostSection(observerTipo, targetSection))) {
-		const holdsSlot =
-			(
-				(await sql.unsafe(
-					`SELECT 1 FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 AND relation ? $3`,
-					[targetSection, targetId, observerTipo],
-				)) as unknown[]
-			).length > 0;
-		if (!holdsSlot) {
-			incrementCounter('observers_target_not_host');
-			return { ...unchanged, targetNotHost: true };
-		}
-		incrementCounter('observers_target_not_host_slot_converged');
+		incrementCounter('observers_target_not_host');
+		return { ...unchanged, targetNotHost: true };
 	}
 
 	const { mergeMirror } = await import('./external_laws/merge.ts');

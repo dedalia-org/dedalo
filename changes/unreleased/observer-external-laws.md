@@ -12,4 +12,4 @@ The **update** button of a calculated portal works again. It recomputes that por
 
 Existing stored values are not rewritten by the update: they are corrected the next time their source is saved, when the button is pressed, or by an administrator running the observer reconcile (dry run first — on large catalogues review the proposed removals before applying them).
 
-For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created on records whose section declares the field.
+For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created and maintained on records whose section declares the field; a value stored on any other record is left exactly as it is, and the observer reconcile reports such values as left untouched instead of correcting them.

@@ -76,3 +76,27 @@ that for every law and fixes the two latent law (c) cases above.
 ### Gate reconciliation
 
 No fixture re-harvest (write-path target guard; no served byte shape changes).
+
+## Addendum 2026-10-30 — strict host precondition (owner ruling): stored slots are skipped too
+
+The guard no longer distinguishes birth from maintenance. Every record of a non-host
+section is the counted no-op `observers_target_not_host` (outcome `targetNotHost: true`,
+no read, no lock), **whether or not it already holds the observer key**: a slot stored
+there is not that section's value, so it is neither grown, shrunk nor healed.
+
+- The counter `observers_target_not_host_slot_converged` is retired.
+- The obligation ledger's `'always'` hop (a restore / undelete wrote the slot) does not
+  fire for such a slot either: its stored bytes are never propagated as a current-state
+  `saved` (`recomputeMirrorAndHop`; gate `observer_cascade_native` 8b, with a host
+  positive control).
+- `obligation_ledger_native` 16c is re-specced: the component restore of a slot the
+  record's section does not declare is STORED AS RESTORED, and the kernel was reached
+  (counter delta).
+- The reconciler never sweeps a non-host tuple: it counts its stored slots
+  (`ReconcileSummary.notHostSlots`, new; not in `candidates` / `drifted`) and reports
+  `[not a host]: N stored slot(s) left untouched`, apply included (gate:
+  `observer_reconcile_sweep_native`, the non-host case — no write, no TM row). The
+  reconcile detail numbers change accordingly.
+- Known open, both closed: the strict guard is the decision above (the 742 dry-run drops
+  on 3 `numisdata321@tchi1` records are legacy test data of an old definition moved
+  numisdata → tch, per the owner); `numisdata321` needs no ontology change.

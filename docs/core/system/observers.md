@@ -740,8 +740,9 @@ mirror written there is never shown and never cleaned up with the record.
 
 A record that **already** holds the observer's value outside a declaring
 section — left by an earlier engine, an ontology move, or a Time Machine
-restore — is still recomputed, so it converges on truth instead of keeping a
-stale value forever (counted `observers_target_not_host_slot_converged`).
+restore — is skipped too: the value is not that section's, so it is never
+grown, shrunk or healed, and a restored one stays as restored. The observer
+reconcile counts such values per section and reports them as left untouched.
 Measured on this install: `hierarchy93` on 45 `numisdata6` and 6 `tchi1`
 records, `numisdata321` on 11 `tchi1` records. They were not repaired.
 

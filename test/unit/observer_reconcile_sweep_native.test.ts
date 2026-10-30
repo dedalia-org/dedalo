@@ -30,7 +30,8 @@
  * observed_data (test6380 on the legend) — host-section discovery, the law's
  * candidate query (pointer holders ∪ slot holders / ddo holders ∪ slot
  * holders), the apply repair with ONE TM row, convergence and --id membership;
- * and a NON-HOST tuple (zzot4 @ zzot7) visiting its stored holders only. The
+ * and a NON-HOST tuple (zzot4 @ zzot7) never swept — its stored slots counted
+ * and left untouched even on apply (the strict host precondition). The
  * IO is the production one, only SPIED (candidateIds/recompute wrapped).
  *
  * Environment: suite DB. The anchor term comes from the shared fixture helper
@@ -178,7 +179,7 @@ async function seedScratchOntology(): Promise<void> {
 	// measured degraded-seed shape (`peer_node_missing:…`).
 	await sql.unsafe(
 		`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1400 FROM dd_ontology), $1, 'test3', 'component_autocomplete_hi', 'test', $2::text::jsonb)`,
+		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1400 FROM dd_ontology), $1, $3, 'component_autocomplete_hi', 'test', $2::text::jsonb)`,
 		[
 			DEGRADED_OBSERVER,
 			JSON.stringify({
@@ -198,6 +199,9 @@ async function seedScratchOntology(): Promise<void> {
 					component_to_search: [INDEXER],
 				},
 			}),
+			// Parented under its host (the strict host precondition: the kernel
+			// computes only where the section DECLARES the observer).
+			SCRATCH_HOST,
 		],
 	);
 	// Same covered shape, but its source carries a MALFORMED sub-law (a
@@ -1078,47 +1082,67 @@ describe('reconcileObserverMirrors — the COPY LAWS and the NON-HOST branch, re
 		expect(await copyTmRows(LEGEND_SECTION, legend, TAG_SLOT)).toBe(tmBefore + 1);
 	}, 120_000);
 
-	test('a NON-HOST tuple (zzot4 @ zzot7) visits its stored holders ONLY and is tagged so', async () => {
-		const spy = spiedIO();
-		const lines: string[] = [];
-		await reconcileObserverMirrors(
-			{
-				onlyObserver: MIRROR,
-				onlySection: TERM_SECTION_B,
-				apply: false,
-				log: (line) => lines.push(line),
-			},
-			spy.io,
-		);
-		expect(spy.tuples.map((tuple) => [tuple.hostSection, tuple.host])).toEqual([
-			[TERM_SECTION_B, false],
-		]);
+	test('a NON-HOST tuple (zzot4 @ zzot7) is NEVER swept: its stored slots are COUNTED, left untouched even on apply, and tagged so', async () => {
 		const holders = (await sql.unsafe(
 			`SELECT section_id AS id FROM "${await copyTableOf(TERM_SECTION_B)}" WHERE section_tipo = $1 AND relation ? $2 ORDER BY section_id`,
 			[TERM_SECTION_B, MIRROR],
 		)) as { id: number }[];
 		const stored = holders.map((row) => Number(row.id));
-		expect(stored).toContain(nonHostHolder);
-		expect(spy.tuples[0]?.ids, 'a non-host tuple visited beyond its stored holders').toEqual(
-			stored,
-		);
-		expect(spy.visited).toEqual(stored.map((id) => `${TERM_SECTION_B}/${id}`));
-		// The referenced non-holder is NOT visited (the host law would list it).
-		expect(spy.visited).not.toContain(`${TERM_SECTION_B}/${nonHostTarget}`);
+		expect(stored, 'FLOOR: the non-host holder carries the planted slot').toContain(nonHostHolder);
+		const slotBefore = await storedKey(TERM_SECTION_B, nonHostHolder, MIRROR);
+		expect(slotBefore, 'FLOOR: the planted slot is stored').not.toBeNull();
+		const tmBefore = await copyTmRows(TERM_SECTION_B, nonHostHolder, MIRROR);
+		// STRICT host precondition (owner ruling 2026-10-30): the slot is NOT the
+		// section's value (zzot7 does not declare zzot4), so even an APPLY must
+		// neither recompute nor rewrite it — and must say how many stay.
+		for (const apply of [false, true]) {
+			const spy = spiedIO();
+			const lines: string[] = [];
+			const summary = await reconcileObserverMirrors(
+				{
+					onlyObserver: MIRROR,
+					onlySection: TERM_SECTION_B,
+					apply,
+					log: (line) => lines.push(line),
+				},
+				spy.io,
+			);
+			expect(spy.tuples.map((tuple) => [tuple.hostSection, tuple.host])).toEqual([
+				[TERM_SECTION_B, false],
+			]);
+			expect(spy.visited, `a non-host tuple was recomputed (apply=${apply})`).toEqual([]);
+			expect(summary.notHostSlots, 'the stored non-host slots were not counted').toBe(
+				stored.length,
+			);
+			expect(summary.candidates).toBe(0);
+			expect(summary.drifted).toBe(0);
+			expect(summary.repaired).toBe(0);
+			expect(
+				lines.some(
+					(line) =>
+						line.startsWith(`- ${MIRROR} @ ${TERM_SECTION_B}`) &&
+						line.includes('[not a host]') &&
+						line.includes(`${stored.length} stored slot(s) left untouched`),
+				),
+				'the report does not say the non-host slots stay as stored',
+			).toBe(true);
+		}
 		expect(
-			lines.some(
-				(line) =>
-					line.startsWith(`- ${MIRROR} @ ${TERM_SECTION_B}`) &&
-					line.includes('[not a host — stored slots only]'),
-			),
-		).toBe(true);
-		// --id narrowing on the non-host branch: the referenced non-holder is no candidate.
+			await storedKey(TERM_SECTION_B, nonHostHolder, MIRROR),
+			'an apply rewrote a slot its section does not declare',
+		).toEqual(slotBefore);
+		expect(
+			await copyTmRows(TERM_SECTION_B, nonHostHolder, MIRROR),
+			'an apply wrote a TM row on a non-host record',
+		).toBe(tmBefore);
+		// --id narrowing on the non-host branch: the referenced non-holder is no slot.
 		const narrowed = spiedIO();
-		await reconcileObserverMirrors(
+		const narrowedSummary = await reconcileObserverMirrors(
 			{ onlyObserver: MIRROR, onlySection: TERM_SECTION_B, onlyId: nonHostTarget },
 			narrowed.io,
 		);
 		expect(narrowed.tuples[0]?.ids).toEqual([]);
 		expect(narrowed.visited).toEqual([]);
+		expect(narrowedSummary.notHostSlots).toBe(0);
 	}, 60_000);
 });

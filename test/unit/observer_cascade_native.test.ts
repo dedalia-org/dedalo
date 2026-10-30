@@ -81,6 +81,7 @@ import {
 	emitCascadeHop,
 	MAX_CASCADE_DEPTH,
 	propagateToObservers,
+	recomputeMirrorAndHop,
 	runObserverCascadeHop,
 } from '../../src/core/section/record/observers.ts';
 import { persistRecordKeys } from '../../src/core/section_record/index.ts';
@@ -131,6 +132,7 @@ const W11_RECORD = 999999940; // REF_SECTION — the concurrent-delete record
 const DIAMOND_TERM = 999999943; // TERM_SECTION — the diamond record (P and Q bags both point here)
 const TERM_TRANSITIVE = 999999944; // TERM_SECTION — reachable ONLY through the dd621 closure (TERM_EQUIV's bag)
 const REF_TRANSITIVE = 999999945; // REF_SECTION — references TERM_TRANSITIVE through OBSERVED
+const REF_NONHOST = 999999946; // REF_SECTION — holds a MIRROR slot REF_SECTION does not declare (8b)
 
 function observedReferencer(targetId: number): string {
 	return JSON.stringify({
@@ -361,7 +363,10 @@ async function sweepScratch(): Promise<void> {
 	await sql.unsafe(`DELETE FROM dd_ontology WHERE tipo LIKE 'test9992%' AND tld = 'test'`);
 	await sql.unsafe(
 		`DELETE FROM ${SCRATCH_TABLE} WHERE section_tipo = $1 AND section_id = ANY(string_to_array($2, ',')::int[])`,
-		[REF_SECTION, [REF_A, REF_EQUIV, REF_TX, REF_ON, W11_RECORD, REF_TRANSITIVE].join(',')],
+		[
+			REF_SECTION,
+			[REF_A, REF_EQUIV, REF_TX, REF_ON, W11_RECORD, REF_TRANSITIVE, REF_NONHOST].join(','),
+		],
 	);
 	await sql.unsafe(
 		`DELETE FROM ${SCRATCH_TABLE} WHERE section_tipo = $1 AND section_id = ANY(string_to_array($2, ',')::int[])`,
@@ -425,7 +430,10 @@ beforeAll(async () => {
 	);
 	// The DETERMINISTIC-SQL-ERROR section (gate 11): a section node whose
 	// matrix_table term names a table that does not exist — any recompute
-	// targeting it fails with 42P01 inside whatever transaction it runs in.
+	// targeting it fails with 42P01 inside whatever transaction it runs in. It
+	// is a VIRTUAL face of TERM_SECTION (its own matrix_table relation still
+	// wins the table lookup), so it HOSTS MIRROR: the kernel's strict host
+	// precondition would otherwise answer it with a no-op before any SQL ran.
 	await sql.unsafe(
 		`INSERT INTO dd_ontology (id, tipo, parent, model, tld, term)
 		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, 'test3', 'matrix_table', 'test', $2::text::jsonb)`,
@@ -434,7 +442,7 @@ beforeAll(async () => {
 	await sql.unsafe(
 		`INSERT INTO dd_ontology (id, tipo, parent, model, tld, relations)
 		 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, 'test3', 'section', 'test', $2::text::jsonb)`,
-		[BROKEN_SECTION, JSON.stringify([{ tipo: BROKEN_TABLE_NODE }])],
+		[BROKEN_SECTION, JSON.stringify([{ tipo: TERM_SECTION }, { tipo: BROKEN_TABLE_NODE }])],
 	);
 	// Records: the relay target (B's bag names the equivalent term), the
 	// equivalent, the ring record (self-pointing bags), the commit-lane target
@@ -722,6 +730,74 @@ describe('recompute hops are gated on wrote:true', () => {
 		);
 		expect(await bagOf(MIRROR, TERM_ON)).toEqual([mirrorEntry(1, REF_ON)]);
 		expect((getCounters().observers_component_to_search_missing ?? 0) - missingBefore).toBe(0);
+	}, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// 8b. The 'always' hop (the obligation ledger's covered-slot recompute — a
+//     restore / undelete wrote the slot) and the STRICT host precondition
+//     (owner ruling 2026-10-30): on a host record a no-drift 'always'
+//     recompute still hops (positive control: FOURTH is reached); on a record
+//     whose section does NOT declare the observer the kernel is a no-op, and
+//     the stored slot is not that record's value — so no hop may carry its
+//     bytes (a restored phantom) to the observers as a current-state `saved`.
+// ---------------------------------------------------------------------------
+
+describe("the 'always' hop skips a slot the record's section does not declare", () => {
+	const freshGuard = (root: string): CascadeGuard => ({
+		depth: 0,
+		maxDepth: MAX_CASCADE_DEPTH,
+		visited: new Set(),
+		recomputed: new Set(),
+		chain: [root],
+	});
+
+	test("POSITIVE CONTROL: a no-drift 'always' recompute on a HOST record hops (FOURTH is reached)", async () => {
+		expect(await bagOf(MIRROR, TERM_ON), 'FLOOR: gate 8 left TERM_ON converged').toEqual([
+			mirrorEntry(1, REF_ON),
+		]);
+		const missingBefore = getCounters().observers_component_to_search_missing ?? 0;
+		const outcome = await recomputeMirrorAndHop(
+			MIRROR,
+			TERM_SECTION,
+			TERM_ON,
+			-1,
+			new Date(),
+			freshGuard(`${MIRROR}@${TERM_SECTION}/${TERM_ON}`),
+			'always',
+		);
+		expect(outcome?.wrote).not.toBe(true);
+		expect((getCounters().observers_component_to_search_missing ?? 0) - missingBefore).toBe(1);
+	}, 30000);
+
+	test("a NON-HOST holder: the kernel is a no-op, the slot stands, and the 'always' hop does NOT fire", async () => {
+		const phantom = mirrorEntry(1, REF_ON);
+		await sql.unsafe(
+			`INSERT INTO ${SCRATCH_TABLE} (section_id, section_tipo, relation) VALUES ($1, $2, $3::text::jsonb)`,
+			[REF_NONHOST, REF_SECTION, JSON.stringify({ [MIRROR]: [phantom] })],
+		);
+		const notHostBefore = getCounters().observers_target_not_host ?? 0;
+		const missingBefore = getCounters().observers_component_to_search_missing ?? 0;
+		const guard = freshGuard(`${MIRROR}@${REF_SECTION}/${REF_NONHOST}`);
+		const outcome = await recomputeMirrorAndHop(
+			MIRROR,
+			REF_SECTION,
+			REF_NONHOST,
+			-1,
+			new Date(),
+			guard,
+			'always',
+		);
+		expect(outcome?.targetNotHost, 'REF_SECTION hosts MIRROR — re-read this fixture').toBe(true);
+		expect((getCounters().observers_target_not_host ?? 0) - notHostBefore).toBe(1);
+		expect(
+			(getCounters().observers_component_to_search_missing ?? 0) - missingBefore,
+			"the 'always' hop propagated a slot its section does not declare (the restored phantom reached FOURTH)",
+		).toBe(0);
+		// The dedup branch (a second call on the same guard) holds the same rule.
+		await recomputeMirrorAndHop(MIRROR, REF_SECTION, REF_NONHOST, -1, new Date(), guard, 'always');
+		expect((getCounters().observers_component_to_search_missing ?? 0) - missingBefore).toBe(0);
+		expect(await bagOf(MIRROR, REF_NONHOST, REF_SECTION)).toEqual([phantom]);
 	}, 30000);
 });
 

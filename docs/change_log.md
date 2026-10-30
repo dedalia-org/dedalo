@@ -99,7 +99,7 @@ Merged since the last release; these ship with the next one.
 
     Existing stored values are not rewritten by the update: they are corrected the next time their source is saved, when the button is pressed, or by an administrator running the observer reconcile (dry run first — on large catalogues review the proposed removals before applying them).
 
-    For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created on records whose section declares the field.
+    For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created and maintained on records whose section declares the field; a value stored on any other record is left exactly as it is, and the observer reconcile reports such values as left untouched instead of correcting them.
 
     Wire contract: `WC-2026-10-30-observer-external-value-laws`, `WC-2026-10-30-observer-target-resolvers`, `WC-2026-10-30-observer-target-not-host`, `WC-2026-10-30-observer-law-derived-edges`, `WC-2026-10-30-portal-get-data-external-refresh`.
 
