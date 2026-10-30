@@ -6475,6 +6475,14 @@ dd-modal.dd_presets::part(content) {
   text-align: center;
   text-wrap: unset;
 }
+.list_body > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:first-child {
+  border-bottom-left-radius: 0.7rem;
+  overflow: clip;
+}
+.list_body > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:last-child {
+  border-bottom-right-radius: 0.7rem;
+  overflow: clip;
+}
 .list_body .list_body .column {
   display: flex;
   height: 100%;

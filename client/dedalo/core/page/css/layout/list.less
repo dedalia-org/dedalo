@@ -43,6 +43,13 @@
 				text-align: center;
 				text-wrap: unset;
 			}
+
+			// a painted first/last cell (e.g. section_id context.color in dd542/dd15) would square the list corners
+			// row_window.js appends a bottom spacer, `hidden` once the window reaches the end
+			>.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) {
+				>.column:first-child { border-bottom-left-radius: .7rem; overflow: clip; }
+				>.column:last-child { border-bottom-right-radius: .7rem; overflow: clip; }
+			}
 		}
 
 		// list_body columns inside list_body are always flex (!)
