@@ -3,6 +3,7 @@ title: Update ontology says whether a database backup is in place before you pre
 type: changed
 audience: admin
 date: 2026-10-30
+wc: WC-2026-10-30-update-ontology-backup-gate
 ---
 An ontology update is refused without a recent, verified database backup. Before, the **Update ontology** panel showed only a checkbox labelled "Update without a recent database backup", out of line with its text, and you learnt about the rule only when the update was refused.
 

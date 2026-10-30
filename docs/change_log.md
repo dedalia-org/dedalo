@@ -293,6 +293,8 @@ Merged since the last release; these ship with the next one.
     - With a recent, verified backup, it shows the backup's age and no checkbox.
     - Without one, it says the update will be refused and how to fix it: make a backup in **Backups** and reload the panel. The checkbox to update without a backup sits below that, with what it costs: if the update goes wrong, the database cannot be restored, and the waiver is recorded with your user. **Replace selected ontologies** stays disabled until you make a backup or tick the box.
 
+    Wire contract: `WC-2026-10-30-update-ontology-backup-gate`.
+
 - **An ontology update only touches the shared ontologies.**
 
     "Update ontology" now refuses any TLD that is not one of the installation's active shared ontologies (`ACTIVE_ONTOLOGY_TLDS`), the core TLDs or the shared value lists. Local TLDs and `localontology` overrides can no longer be overwritten by an update. On a master, the ontology export files are now written atomically: a failed export keeps the previous file instead of serving a truncated one.
