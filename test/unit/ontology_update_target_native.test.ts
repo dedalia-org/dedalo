@@ -443,6 +443,8 @@ describe('updateOntology is rewired to the extraction', () => {
 		expect(source).not.toContain('options.server.url');
 		// Staged from the SERVER-resolved list (ontology_update_source.ts, U-41), never options.files.
 		expect(source).toContain('stageOntologyFiles(files, target, { ioPath, stagingDir })');
-		expect(source).toContain('const files = await resolveOntologySource(options.files, target, catalog, deps)');
+		expect(source).toContain(
+			'const files = await resolveOntologySource(options.files, target, catalog, deps)',
+		);
 	});
 });

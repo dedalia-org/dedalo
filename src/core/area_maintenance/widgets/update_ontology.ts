@@ -19,12 +19,7 @@
 import { config } from '../../../config/config.ts';
 import { publicOrigin } from '../../resolve/public_origin.ts';
 import type { Principal } from '../../security/permissions.ts';
-import {
-	engineDenied,
-	gated,
-	type WidgetModule,
-	type WidgetResponse,
-} from './support.ts';
+import { engineDenied, gated, type WidgetModule, type WidgetResponse } from './support.ts';
 
 /**
  * PHP parity: the 'Local files' pseudo-server is THIS install, so it is forced
