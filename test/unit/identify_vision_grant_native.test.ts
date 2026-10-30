@@ -94,13 +94,25 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 		await removeAuthzDoorFixture();
 	});
 
-	test.skip('the contrast is live: the SAME grants, tool_identify is the only difference — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
+	const offersVisionTool = async (principal: Principal) =>
+		(await getUserTools(principal.userId)).some((tool) => tool.name === VISION_SPEND_TOOL);
+
+	// WC-2026-10-29-ai-capabilities-page-globals (addendum, PROVISIONAL): tool_identify
+	// is withdrawn from every tool list until its redesign, so NO identity is offered
+	// it — the grant included. This leg reds on purpose when the redesign lands; it is
+	// then replaced by the skipped contrast below.
+	test('withdrawn: neither identity is offered tool_identify, the grant included', async () => {
 		await assertAuthzDoorContrast(ids);
-		const toolsOf = async (principal: Principal) =>
-			(await getUserTools(principal.userId)).some((tool) => tool.name === VISION_SPEND_TOOL);
 		expect({
-			control: await toolsOf(ids.control),
-			granted: await toolsOf(ids.toolGranted),
+			control: await offersVisionTool(ids.control),
+			granted: await offersVisionTool(ids.toolGranted),
+		}).toEqual({ control: false, granted: false });
+	});
+
+	test.skip('the contrast is live: the SAME grants, tool_identify is the only difference — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
+		expect({
+			control: await offersVisionTool(ids.control),
+			granted: await offersVisionTool(ids.toolGranted),
 		}).toEqual({ control: false, granted: true });
 	});
 
@@ -111,61 +123,76 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 			options: { section_tipo: AUTHZ_SECTION, section_id: seedId, source },
 		}) as unknown as Rqo;
 
-	test.skip('get_proposals (the registered door): vision ungranted → tool.not_authorized; granted and vote-only pass the grant — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
+	test('get_proposals (the registered door): vision and all ungranted → tool.not_authorized; vote-only passes the grant', async () => {
 		const door = identifyApiActions.get_proposals;
 		if (door === undefined) throw new Error('dd_identify_api.get_proposals is not registered');
 		const answers = {
 			visionUngranted: await codeOf(door(proposals('vision'), ctx(ids.control))),
 			allUngranted: await codeOf(door(proposals('all'), ctx(ids.control))),
-			visionGranted: await codeOf(door(proposals('vision'), ctx(ids.toolGranted))),
 			voteUngranted: await codeOf(door(proposals('neighbour_vote'), ctx(ids.control))),
 		};
 		expect({
 			visionUngranted: answers.visionUngranted,
 			allUngranted: answers.allUngranted,
-			visionGrantedPasses: answers.visionGranted !== 'tool.not_authorized',
 			voteUngrantedPasses: answers.voteUngranted !== 'tool.not_authorized',
 		}).toEqual({
 			visionUngranted: 'tool.not_authorized',
 			allUngranted: 'tool.not_authorized',
-			visionGrantedPasses: true,
 			voteUngrantedPasses: true,
 		});
 	});
+
+	test.skip('get_proposals (the registered door): vision granted passes the grant — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
+		const door = identifyApiActions.get_proposals;
+		if (door === undefined) throw new Error('dd_identify_api.get_proposals is not registered');
+		const visionGranted = await codeOf(door(proposals('vision'), ctx(ids.toolGranted)));
+		expect(visionGranted).not.toBe('tool.not_authorized');
+	});
+
+	/** Proposal deps that COUNT the profile loads and the vision-model calls. */
+	function countingProposalsDeps(calls: {
+		profile: number;
+		vision: number;
+	}): IdentifyProposalsDeps {
+		return {
+			...defaultIdentifyProposalsDeps(),
+			loadProfile: async () => {
+				calls.profile++;
+				return {
+					id: 'zzvision',
+					label: 'zzvision',
+					criteria: [],
+					previewComponent: null,
+				} as never;
+			},
+			runVision: async () => {
+				calls.vision++;
+				return { declined: { reason: 'no_model' }, proposals: [], model: null } as never;
+			},
+			runNeighbourVote: async () => ({ proposals: [], skipped: [] }) as never,
+		};
+	}
 
 	// THE ORDER IS PART OF THE PROMISE: refused BEFORE the profile is loaded, so
 	// an ungranted caller cannot learn which sections carry an identification
 	// profile (identify.no_profile vs tool.not_authorized). Both the model calls
 	// and the PROFILE LOADS are counted.
 	for (const source of ['vision', 'all'] as const) {
-		test.skip(`get_proposals (${source}): a refused vision request loads NO profile and calls NO model; the granted twin does both — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)`, async () => {
+		test(`get_proposals (${source}): a refused vision request loads NO profile and calls NO model`, async () => {
 			const calls = { profile: 0, vision: 0 };
-			const deps: IdentifyProposalsDeps = {
-				...defaultIdentifyProposalsDeps(),
-				loadProfile: async () => {
-					calls.profile++;
-					return {
-						id: 'zzvision',
-						label: 'zzvision',
-						criteria: [],
-						previewComponent: null,
-					} as never;
-				},
-				runVision: async () => {
-					calls.vision++;
-					return { declined: { reason: 'no_model' }, proposals: [], model: null } as never;
-				},
-				runNeighbourVote: async () => ({ proposals: [], skipped: [] }) as never,
-			};
-			const handler = buildGetProposals(deps);
+			const handler = buildGetProposals(countingProposalsDeps(calls));
 			const refusedCode = await codeOf(handler(proposals(source), ctx(ids.control)));
-			const refused = { ...calls };
-			await codeOf(handler(proposals(source), ctx(ids.toolGranted)));
-			expect({ refusedCode, refused, granted: calls }).toEqual({
+			expect({ refusedCode, calls }).toEqual({
 				refusedCode: 'tool.not_authorized',
-				refused: { profile: 0, vision: 0 },
-				granted: { profile: 1, vision: 1 },
+				calls: { profile: 0, vision: 0 },
 			});
+		});
+
+		test.skip(`get_proposals (${source}): the granted twin loads the profile and calls the model — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)`, async () => {
+			const calls = { profile: 0, vision: 0 };
+			const handler = buildGetProposals(countingProposalsDeps(calls));
+			await codeOf(handler(proposals(source), ctx(ids.toolGranted)));
+			expect(calls).toEqual({ profile: 1, vision: 1 });
 		});
 	}
 
@@ -193,18 +220,24 @@ describe.if(DB_READY)('TOOLS-4 grant half — the vision spend needs tool_identi
 	}
 	const image = { action: 'identify_by_image', options: { image: PNG } } as unknown as Rqo;
 
-	test.skip('identify_by_image, EXTERNAL encoder: ungranted → tool.not_authorized with ZERO embeds; the granted twin embeds — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
+	test('identify_by_image, EXTERNAL encoder: ungranted → tool.not_authorized with ZERO embeds', async () => {
 		const calls = { embed: 0 };
 		const handler = buildIdentifyByImage(imageDeps(true, calls));
 		const refused = await codeOf(handler(image, ctx(ids.control)));
-		const refusedEmbeds = calls.embed;
-		const granted = await codeOf(handler(image, ctx(ids.toolGranted)));
-		expect({ refused, refusedEmbeds, grantedPasses: granted !== 'tool.not_authorized' }).toEqual({
+		expect({ refused, embeds: calls.embed }).toEqual({
 			refused: 'tool.not_authorized',
-			refusedEmbeds: 0,
-			grantedPasses: true,
+			embeds: 0,
 		});
-		expect(calls.embed).toBe(1);
+	});
+
+	test.skip('identify_by_image, EXTERNAL encoder: the granted twin embeds — SKIPPED: tool_identify is withdrawn from the tool registry (WC-2026-10-29, provisional until its redesign)', async () => {
+		const calls = { embed: 0 };
+		const handler = buildIdentifyByImage(imageDeps(true, calls));
+		const granted = await codeOf(handler(image, ctx(ids.toolGranted)));
+		expect({ grantedPasses: granted !== 'tool.not_authorized', embeds: calls.embed }).toEqual({
+			grantedPasses: true,
+			embeds: 1,
+		});
 	});
 
 	test('identify_by_image, LOCAL encoder: no spend, no grant asked — the ungranted caller is served', async () => {

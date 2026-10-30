@@ -27,17 +27,28 @@
 ## Addendum 2026-10-29 — `tool_identify` withdrawn from the TS tool lists (PROVISIONAL)
 
 - **Status:** provisional. The withdrawal holds only until `tool_identify` is redesigned; the tool is
-  to be redesigned, not removed. When its redesign lands, this addendum and the two gate assertions
-  that encode absence (below) are reversed in the same change.
+  to be redesigned, not removed. When its redesign lands, this addendum, the gate assertions that
+  encode absence and the skipped granted twins (below) are reversed in the same change.
 - **Shape:** `tool_identify` is no longer offered on the TS side by any door: `getUserTools`,
   `getElementTools` and the section toolbar (`getSectionTools`) filter it through
   `toolOfferedByCapabilities` (`src/ai/capabilities.ts`, identify always `false`). The
   `tools/tool_identify/register.json` registration is kept; it is hidden, not deleted.
+- **Server side, not only the UI:** `getUserTools` is also the grant check behind
+  `requireToolGrant` (`assertToolGranted`), so the vision-spend doors (`get_proposals` with
+  `source` `vision`/`all`, `identify_by_image` with an EXTERNAL encoder) refuse EVERY caller with
+  `tool.not_authorized`, root and a profile granting `tool_identify` included. Vote-only proposals
+  and a LOCAL encoder ask no grant and are unaffected.
 - **Oracle:** PHP never had the tool, so the frozen side is unchanged and carries no `tool_identify`.
   The divergence is the TS side only, deliberate and documented here.
 - **Gates:** `test/parity/section_tools_differential.test.ts` asserts `tool_identify` absent on both
   sides (was: present on TS as a one-sided declaration). `test/parity/get_element_context_differential.test.ts`
   drops it from `TS_ONLY_TOOLS` and asserts it absent on both sides in every case. No re-harvest
   (the gates transform the TS side before diffing).
-- **Recording:** the parity baseline is not banked by this addendum. Its `tier_pass` drop is an
-  intended regression recorded with `--allow-regression --reason` in the CI image.
+- **TOOLS-4 unit gates:** the refusal halves stay live (`test/unit/identify_vision_grant_native.test.ts`:
+  ungranted → `tool.not_authorized` with zero profile loads, model calls and embeds), plus a live
+  leg asserting no identity is offered `tool_identify`. Only the legs that need a GRANTED caller
+  to reach the spend are `test.skip` with the reason in the name: 5 granted twins there, and the 2
+  vision-budget legs of `test/unit/ai_spend_budget_native.test.ts`.
+- **Recording:** parity has no `tier_pass` drop (both gates pass with the absence assertions). The
+  cost is in the unit per-file floor: the 7 new skips are recorded with
+  `--allow-regression --reason` in the CI image.

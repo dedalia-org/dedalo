@@ -56,7 +56,9 @@ describe('resolveLocatorLabels — thesaurus term label', () => {
 		// behaviour this change removes for thesaurus targets.
 		// The English locator in the same read is the positive control: it proves
 		// the lookup actually ran, so the empty verdict below is not a blind census.
-		expect(await labelsOf('lg-eng', [LOCATOR_ENGLISH_ONLY, LOCATOR_SPANISH_ONLY])).toHaveLength(1);
+		expect(await labelsOf('lg-eng', [LOCATOR_ENGLISH_ONLY, LOCATOR_SPANISH_ONLY])).toEqual([
+			'input text content of one',
+		]);
 		expect(await labelsOf('lg-eng', [LOCATOR_SPANISH_ONLY])).toEqual([]);
 	});
 });

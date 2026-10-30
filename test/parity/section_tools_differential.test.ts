@@ -78,13 +78,11 @@ type ToolDdo = Record<string, unknown> & { name: string };
  * tool_error_report — registered in dd1324 with no PHP package on disk; PHP's
  *   get_all_registered_tools skips such a row ("bad config" continue,
  *   tool_common.php:788-796), so its lists never carry it.
- * tool_identify — the object-identification tool did not exist on 2026-07-11,
- *   the day the store was harvested (built 2026-07-28, TS-only, no PHP package
- *   in the frozen tree). The oracle cannot be asked about a tool that postdates
- *   it; a re-harvest is impossible by definition.
+ *
+ * tool_identify is NOT here: it is WITHDRAWN from the TS toolbars until its
+ * redesign (WC-2026-10-29-ai-capabilities-page-globals, provisional addendum)
+ * and asserted absent on both sides below.
  */
-// tool_identify is no longer here: WITHDRAWN from the TS toolbars 2026-10-29
-// (WC-2026-10-29-ai-capabilities-page-globals) and asserted absent below.
 const TS_ONLY_TOOLS = ['tool_error_report'] as const;
 
 /**
