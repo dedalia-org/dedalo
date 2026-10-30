@@ -104,9 +104,13 @@ async function readInstalledOntologyMetadata(): Promise<Record<string, unknown>>
  * end through `dispatchGetWidgetValue` by test/unit/active_ontology_tlds.test.ts,
  * so a second direct gate would assert the same fold twice.
  */
-async function updateOntologyGetValue(): Promise<WidgetResponse> {
+async function updateOntologyGetValue(
+	_options: Record<string, unknown>,
+	principal: Principal,
+): Promise<WidgetResponse> {
 	const { getLabels } = await import('../../labels/catalog.ts');
 	const { currentApplicationLang } = await import('../../resolve/request_lang.ts');
+	const { backupFreshnessCheck } = await import('../../update/status.ts');
 
 	const servers = await probeOntologyServers();
 	const currentOntology = await readInstalledOntologyMetadata();
@@ -131,6 +135,10 @@ async function updateOntologyGetValue(): Promise<WidgetResponse> {
 			current_ontology: currentOntology,
 			active_ontology_tlds: activeOntologyTlds,
 			active_ontology_tlds_configured: config.ontologyIo.activeOntologyTldsConfigured,
+			// The run's backup gate, as the code panel reads it (`backup_fresh`):
+			// the update is REFUSED unless this is `ok` or the operator waives it,
+			// so the panel states it before the click instead of after the refusal.
+			backup: await backupFreshnessCheck(principal),
 			body: `${labels.update_ontology ?? 'Update ontology'} is disabled for ${config.entity}`,
 			// Localized confirmation copy (WARNING label), served in the request's
 			// application language; the English literal is a fallback only.

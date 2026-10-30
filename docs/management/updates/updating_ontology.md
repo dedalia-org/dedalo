@@ -177,6 +177,16 @@ To update the shared ontology on its own, enter into the Maintenance panel in th
 
 The control panel shows the ontology configuration and the tlds to be updated. The server decides the set itself: every tld of `ACTIVE_ONTOLOGY_TLDS` plus the core pair below, never the installation's own local ontology (`localontology`), that the source's manifest lists — and, with several masters, that the source's `tlds` list names — plus `matrix_dd` (the shared value lists). The tlds in the input field can only **narrow** that set; a tld outside it is never added, and `matrix_dd` is never narrowed away.
 
+### Database backup
+
+An ontology update is refused without a recent, verified database backup (newer than `DEDALO_BACKUP_TIME_RANGE` hours, and proven restorable). The **Database backup** block above **Replace selected ontologies** tells you where you stand before you press it:
+
+* **A recent backup exists.** The block shows its age in hours. There is nothing to decide.
+* **No recent, verified backup.** The block says the update will be refused, and **Replace selected ontologies** stays disabled. Either make a backup in **Backups** and reload the panel, or tick **Update without a recent database backup**. With the box ticked the update runs without a restore point: if it goes wrong, the database cannot be restored from a backup. The waiver is recorded in the run's journal with your user.
+* **The newest backup is still being verified.** Reading a large backup to prove it restorable takes time. Reload the panel in a moment.
+
+Only the superuser's panel checks the backup. Only the superuser can run an update, so for any other administrator the block always reads as having no verified backup.
+
 ### Which tlds are updated
 
 The prefilled list is `ACTIVE_ONTOLOGY_TLDS` unioned with the core pair `ontology` / `ontologytype` (always imported, whatever the configuration says). When the key is not set in `../private/.env`, it falls back to the core ontologies every installation carries — exactly what the install database ships:
