@@ -19,6 +19,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **JSON fields are lighter and faster**
+
+    The JSON component loads its search and mini/text/collapse views only when used, list cells preview a large value without serializing all of it, typing in the editor no longer re-parses the whole value on every keystroke, closing a record releases its JSON editors, and the JSON download no longer builds a percent-encoded copy of the value.
+
 - **Geolocation maps load faster**
 
     The map component fetches fewer files before showing a map: the colour picker library loads only when a layer's colour swatch is first opened, turf and the language table load in parallel with Leaflet, and the search and mini/text views load only when used.

@@ -9,7 +9,6 @@
 	import {component_common} from '../../component_common/js/component_common.js'
 	import {render_edit_component_json} from '../../component_json/js/render_edit_component_json.js'
 	import {render_list_component_json} from '../../component_json/js/render_list_component_json.js'
-	import {render_search_component_json} from '../../component_json/js/render_search_component_json.js'
 
 
 
@@ -66,6 +65,7 @@ export const component_json = function(){
 	this.tools				= null
 
 	this.editors			= []
+	this.change_timers		= {} // pending debounced onChange per editor key
 
 	// save_on_deactivate. Prevent to auto-save value when component is deactivated
 	this.save_on_deactivate	= false
@@ -86,7 +86,19 @@ export const component_json = function(){
 	component_json.prototype.build				= component_common.prototype.build
 	component_json.prototype.render				= common.prototype.render
 	component_json.prototype.refresh			= common.prototype.refresh
-	component_json.prototype.destroy			= common.prototype.destroy
+	// the generic teardown knows nothing about self.editors: each JSONEditor
+	// (a CodeMirror instance) would outlive its record
+	component_json.prototype.destroy			= async function(delete_self=true, delete_dependencies=false, remove_dom=false) {
+		const self = this
+		for (const editor of self.editors) {
+			if (editor && typeof editor.destroy==='function') {
+				try { editor.destroy() } catch (error) { console.error('[component_json] editor teardown failed:', error) }
+			}
+		}
+		self.editors = []
+		self.cancel_pending_changes()
+		return common.prototype.destroy.call(self, delete_self, delete_dependencies, remove_dom)
+	}
 
 	// change data
 	component_json.prototype.save				= component_common.prototype.save
@@ -99,7 +111,11 @@ export const component_json = function(){
 	// render
 	component_json.prototype.list				= render_list_component_json.prototype.list
 	component_json.prototype.edit				= render_edit_component_json.prototype.edit
-	component_json.prototype.search				= render_search_component_json.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_json.prototype.search				= async function(options) {
+		const {render_search_component_json} = await import('../../component_json/js/render_search_component_json.js')
+		return render_search_component_json.prototype.search.call(this, options)
+	}
 	component_json.prototype.change_mode		= component_common.prototype.change_mode
 
 
@@ -204,8 +220,11 @@ export const handle_json_change = function(self, content, key=0) {
 	// parse editor content to JSON value
 		const json_value = parse_editor_content(content)
 
-	// deep clone to make immutable
-		const immutable_value = structuredClone(json_value)
+	// deep clone to make immutable: only a {json} value aliases the editor's
+	// state; a {text} value is a fresh JSON.parse result
+		const immutable_value = content.json !== undefined
+			? structuredClone(json_value)
+			: json_value
 
 	// resolve id dynamically from self.data
 		const id = self.data.entries?.[key]?.id || null
@@ -275,6 +294,13 @@ component_json.prototype.set_value = async function(value, key=0) {
 *          a save was performed, or false when validation fails or no change
 *          was detected
 */
+component_json.prototype.cancel_pending_changes = function() {
+	for (const key in this.change_timers) clearTimeout(this.change_timers[key])
+	this.change_timers = {}
+}//end cancel_pending_changes
+
+
+
 component_json.prototype.save_sequence = async function(editor) {
 
 	const self = this
@@ -282,6 +308,9 @@ component_json.prototype.save_sequence = async function(editor) {
 	// short vars
 		const data		= self.data || {}
 		const entries	= data.entries || []
+
+	// a pending debounced onChange must not re-dirty the value after this save
+		self.cancel_pending_changes()
 
 	// check if the editor validate the current value
 		const validate = editor.validate()

@@ -165,6 +165,9 @@ const get_content_data = function(self) {
 
 
 
+// editor onChange → changed_data debounce (ms)
+const CHANGE_DEBOUNCE_MS = 250
+
 // Module-level cache for JSONEditor to avoid repeated dynamic import overhead
 let editor_module_cache = null;
 let editor_module_loading = false;
@@ -347,8 +350,10 @@ const get_content_value = (key, current_value, self) => {
 							content		: content,
 							mode		: 'text',
 							onChange	: (updatedContent, previousContent, { contentErrors, patchResult }) => {
+								// debounced: parsing + cloning a large value on every keystroke lags typing
+								clearTimeout(self.change_timers[key])
 								if (typeof contentErrors === 'undefined') {
-									handle_json_change(self, updatedContent, key)
+									self.change_timers[key] = setTimeout(() => handle_json_change(self, updatedContent, key), CHANGE_DEBOUNCE_MS)
 								}
 							}
 						}
@@ -571,7 +576,7 @@ const get_buttons = (self) => {
 * Programmatically trigger a browser file download of the given object
 * serialised as pretty-printed JSON (2-space indentation).
 *
-* Technique: creates a `data:text/json` URI, attaches it to a temporary
+* Technique: creates a Blob object URL, attaches it to a temporary
 * `<a>` element, appends the element to `document.body` (required for
 * Firefox compatibility), fires `.click()`, then immediately removes the node.
 *
@@ -587,16 +592,19 @@ const get_buttons = (self) => {
 */
 const download_object_as_json = function(export_obj, export_name) {
 
-    const data_str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(export_obj,undefined,2));
+    // Blob URL: no percent-encoded copy of the whole value in memory, no URL-length limit
+    const blob_url = URL.createObjectURL(new Blob([JSON.stringify(export_obj,undefined,2)], {type: 'application/json'}));
 
     const download_anchor_node = document.createElement('a');
-    	  download_anchor_node.setAttribute("href",     data_str);
+    	  download_anchor_node.setAttribute("href",     blob_url);
     	  download_anchor_node.setAttribute("download", export_name + ".json");
 
     document.body.appendChild(download_anchor_node); // required for firefox
 
     download_anchor_node.click();
     download_anchor_node.remove();
+    // revoke after the click has handed the URL to the download
+    setTimeout(() => URL.revokeObjectURL(blob_url), 0);
 }//end download_object_as_json
 
 
