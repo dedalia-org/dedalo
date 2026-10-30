@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 809,
-		"functions": 13593,
+		"files": 810,
+		"functions": 13599,
 		"functionsOverCap": 669,
 		"filesOverCap": 258
 	},
@@ -263,7 +263,7 @@
 		"src/core/mailer/mailer.ts": 18,
 		"src/core/media/alternate_preflight.ts": 7,
 		"src/core/media/av_versions.ts": 7,
-		"src/core/media/component_emit.ts": 17,
+		"src/core/media/component_emit.ts": 15,
 		"src/core/media/engine/ffmpeg.ts": 8,
 		"src/core/media/engine/imagemagick.ts": 10,
 		"src/core/media/engine/mime.ts": 41,

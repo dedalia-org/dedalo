@@ -34,6 +34,7 @@ import {
 	requireMediaRoot,
 } from './path.ts';
 import { ENVELOPE_REFUSALS } from './svg_safety.ts';
+import { fileVersionToken } from './url_version.ts';
 
 /** A resolved SVG-envelope location (relative URL/path + absolute FS path). */
 export interface SvgLocation {
@@ -378,13 +379,16 @@ export function baseSvgUrl(
 ): string | null {
 	if (spec.model !== 'component_image') return null;
 	const location = svgOverlayLocation(spec, identity, pathOpts);
-	if (!existsSync(location.absolutePath)) return null;
+	// Versioned by the FILE (url_version.ts): layer saves rewrite the envelope without
+	// touching files_info, so the stat is the only honest version.
+	const version = fileVersionToken(location.absolutePath);
+	if (version === null) return null;
 	// Media web base (NOT the relative literal): the envelope is fetched by the
 	// BROWSER, so it must point at wherever media is actually served. The href
 	// EMBEDDED in the envelope file (defaultRasterUrl) stays relative on purpose
 	// — it resolves against the envelope's own fetch origin, keeping the
 	// persisted file host-portable.
-	return `${config.media.webBase}${location.relativePath}`;
+	return `${config.media.webBase}${location.relativePath}?v=${version}`;
 }
 
 /**

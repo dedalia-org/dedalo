@@ -13,6 +13,13 @@
 		top: 0px;
 		width: auto;
 		padding-right: 0.5rem;
+
+		// fit the label row: the base 0.5em block padding pushed the text
+		// under the content_data border, clipping its bottom
+		>.wrapper_paginator >.content_data {
+			padding-top: 0.25em;
+			padding-bottom: 0.25em;
+		}
 	}
 
 	// content_data

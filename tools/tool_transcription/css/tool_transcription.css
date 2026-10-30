@@ -94,10 +94,61 @@
 }
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component {
   height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: 2.2rem minmax(0, 1fr);
+}
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .label,
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component.active > .label {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  height: 2.2rem;
+  justify-self: stretch;
+  box-sizing: border-box;
+  max-width: none;
+  margin: 0px -1rem;
+  padding: 0px 1rem 0px 2rem;
+  transform: none;
+  background-color: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border_default);
+  font-size: inherit;
+  font-weight: normal;
+  color: inherit;
 }
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .buttons_container {
-  visibility: hidden;
+  top: 0;
+  right: 0;
+  z-index: 6;
+  border-radius: 0;
+  height: 2.2rem;
+  max-height: 2.2rem;
+}
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .buttons_container > .buttons_fold {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .buttons_container span {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component .toolbar_container {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2.2rem;
+  box-sizing: border-box;
+  align-items: center;
+  flex-wrap: nowrap;
+  padding: 0px 7rem 0px 0.5rem;
+  background-color: var(--bg_surface);
+  box-shadow: none;
+  border-bottom: 1px solid var(--border_default);
+  overflow: hidden;
+  z-index: 5;
+}
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component.modified:after {
+  z-index: 7;
 }
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .content_data {
   height: unset;

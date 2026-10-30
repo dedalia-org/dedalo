@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -69,8 +70,8 @@ export const view_tag_list_svg = function() {
 *      takes precedence; falls back to `page_globals.dedalo_quality_thumb`.
 *   2. Searches `data.entries` for the first entry that matches the selected
 *      quality AND has `file_exist === true`.
-*   3. If a matching entry is found, constructs the image URL with a cache-bust
-*      timestamp and creates an <img> element whose dataset carries the
+*   3. If a matching entry is found, constructs the image URL (get_media_url,
+*      versioned by its file) and creates an <img> element whose dataset carries the
 *      service_autocomplete pick payload (see dataset schema below).
 *   4. If no matching entry is found, no <img> is appended — the wrapper is
 *      returned empty. `page_globals.fallback_image` is stored in `url` but only
@@ -126,7 +127,7 @@ view_tag_list_svg.render = function(self, options) {
 	// media url from files_info based on selected context quality
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		const url		= file_info
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: page_globals.fallback_image
 
 	// svg elements
@@ -150,13 +151,15 @@ view_tag_list_svg.render = function(self, options) {
 				}
 
 			// image node
-				ui.create_dom_element({
+				const image = ui.create_dom_element({
 					element_type	: 'img',
 					src				: url,
 					class_name		: 'svg',
 					dataset			: dataset,
 					parent			: wrapper
 				})
+				image.loading	= 'lazy'
+				image.decoding	= 'async'
 		}
 
 

@@ -6,8 +6,6 @@
 
 // imports
 	import {view_default_edit_json} from './view_default_edit_json.js'
-	import {view_mini_json} from './view_mini_json.js'
-	import {view_text_json} from './view_text_json.js'
 
 
 
@@ -85,10 +83,18 @@ render_edit_component_json.prototype.edit = async function(options) {
 	switch(view) {
 
 		case 'mini':
+			{
+			// rare view: lazy-imported (S3-37 #3)
+			const {view_mini_json} = await import('./view_mini_json.js')
 			return view_mini_json.render(self, options)
+		}
 
 		case 'text':
+			{
+			// rare view: lazy-imported (S3-37 #3)
+			const {view_text_json} = await import('./view_text_json.js')
 			return view_text_json.render(self, options)
+		}
 
 		case 'print':
 			// view print use the same view as default, except it will use read only to render content_value

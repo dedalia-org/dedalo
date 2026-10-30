@@ -5,6 +5,7 @@
 
 
 // imports
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -22,9 +23,6 @@
 * required by the view dispatch convention in render_list_component_svg.prototype.list.
 *
 * Globals consumed (declared in the file header /*global*\/ line):
-*   DEDALO_MEDIA_URL  {string} - base URL prefix for all media assets
-*                                (! not listed in the /*global*\/ directive — ESLint will
-*                                   flag it as no-undef; see flags in the round report)
 *   page_globals      {Object} - application-wide runtime settings, including
 *                                page_globals.fallback_image for broken-image recovery
 */
@@ -41,9 +39,8 @@ export const view_text_list_svg = function() {
 *
 * Resolves the best matching file_info entry from data.entries by comparing the
 * active quality level to each entry's 'quality' field. If a match is found the
-* asset URL is constructed as DEDALO_MEDIA_URL + file_path with a cache-busting
-* '?t=<timestamp>' query parameter appended (the timestamp prevents stale browser
-* cache hits after an SVG file is replaced without changing its path). If no
+* asset URL is get_media_url(file_info), versioned by its file (a replaced SVG
+* gets a new URL). If no
 * matching entry is found, page_globals.fallback_image is used instead.
 *
 * The <img> element registers an 'error' event listener before its src is assigned
@@ -80,11 +77,13 @@ view_text_list_svg.render = function(self, options) {
 		const quality	= self.quality || self.context.features.quality
 		const file_info	= files_info.find(item => item.quality===quality)
 		const url		= file_info
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: page_globals.fallback_image
 
 	// image
 		const image	= document.createElement('img')
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.className	= 'component_svg media view_' + self.view
 		image.addEventListener('error', function(e) {
 			if (image.src!==page_globals.fallback_image) {

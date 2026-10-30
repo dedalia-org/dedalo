@@ -7,6 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -105,10 +106,9 @@ view_default_list_svg.render = function(self, options) {
 *
 * Image URL selection (priority order):
 *   1. Thumb quality JPG (`quality === 'thumb'`, `file_exist === true`) — used as
-*      the displayed preview image; no cache-busting param is appended because
-*      thumbnails are static renditions that rarely change.
-*   2. SVG file matching the active quality — appends `?t=<timestamp>` to bypass
-*      browser caching after an upload or re-process cycle.
+*      the displayed preview image.
+*   2. SVG file matching the active quality.
+*   Both are versioned by their file (get_media_url, ?v=<file_time>-<size>).
 *   3. `page_globals.fallback_image` — shown when no file exists at all.
 *
 *   If `data.external_source` is set, it overrides the locally resolved URL
@@ -144,12 +144,12 @@ export const get_content_data = function(self) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 		// Prefer the thumb (JPG rendition) for display — smaller payload, no re-encode
-		// artifacts. Fall back to the full SVG at the active quality with a cache-busting
-		// timestamp, then to the global fallback image when no file is present.
+		// artifacts. Fall back to the full SVG at the active quality, then to the
+		// global fallback image when no file is present.
 		const file = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: svg_file
-				? DEDALO_MEDIA_URL + svg_file.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(svg_file)
 				: page_globals.fallback_image
 
 		// file_url
@@ -167,6 +167,8 @@ export const get_content_data = function(self) {
 				src				: file_url,
 				parent			: content_data
 			})
+			image.loading	= 'lazy'
+			image.decoding	= 'async'
 
 	// open viewer — THE SHARED HANDLER (component_media_common.handler_open_viewer),
 	// the one the other four media list views use.

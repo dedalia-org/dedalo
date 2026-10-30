@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -105,9 +106,8 @@ view_mini_list_svg.render = function(self, options) {
 *   prioritises compactness over guarding against missing files. If no match is found
 *   the global `page_globals.fallback_image` URL is used instead.
 *
-* Cache-busting:
-*   A `?t=<epoch-ms>` query parameter is appended to every non-fallback URL so that
-*   a freshly uploaded SVG is never hidden by the browser's HTTP cache.
+* Caching:
+*   Every non-fallback URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
 *
 * (!) The loop iterates from 0 to `value_length` (= entries.length || 1) but the
 *     inner body performs a fixed `files_info.find(...)` that is independent of the
@@ -161,7 +161,7 @@ export const get_value_fragment = function(self) {
 					|| files_info.find(el => el.quality===quality && el.file_exist===true)
 					|| files_info.find(el => el.quality===quality)
 				const url		= file_info?.file_path
-					? DEDALO_MEDIA_URL + file_info.file_path + (thumb ? '' : '?t=' + (new Date()).getTime())
+					? get_media_url(file_info)
 					: page_globals.fallback_image
 
 			const image	= ui.create_dom_element({
@@ -169,6 +169,8 @@ export const get_value_fragment = function(self) {
 				src				: url,
 				parent			: fragment
 			})
+			image.loading	= 'lazy'
+			image.decoding	= 'async'
 		}
 
 

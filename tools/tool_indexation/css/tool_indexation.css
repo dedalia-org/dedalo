@@ -136,6 +136,7 @@
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container {
   width: 55%;
+  padding-top: 0.75rem;
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container > .top {
   flex: 0 0 2.2rem;
@@ -144,6 +145,9 @@
   padding-top: 0px;
   padding-bottom: 0px;
   overflow: hidden;
+}
+.wrapper_tool.tool_indexation > .content_data > .right_container:has(>.transcription_component_container >.wrapper_component.active) > .top {
+  background: linear-gradient(var(--color_hilite), var(--color_hilite)) center / calc(100% - 2rem) 100% no-repeat;
 }
 @media screen and (max-width: 1024px) {
   .wrapper_tool.tool_indexation > .content_data > .right_container {
@@ -177,7 +181,7 @@
   display: none;
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container > .transcription_component_container > .wrapper_component > .buttons_container {
-  top: -1.7rem;
+  top: -2.2rem;
   right: 0;
   z-index: 6;
   border-radius: 0;
@@ -202,7 +206,7 @@
   position: relative;
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container > .transcription_component_container > .wrapper_component .toolbar_container {
-  top: -1.7rem;
+  top: -2.2rem;
   left: 0;
   width: 100%;
   height: 2.2rem;
@@ -215,6 +219,10 @@
   border-bottom: 1px solid var(--border_default);
   overflow: hidden;
   z-index: 5;
+}
+.wrapper_tool.tool_indexation > .content_data > .right_container > .transcription_component_container > .wrapper_component.modified:after {
+  top: -2.2rem;
+  z-index: 7;
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container > .info_container {
   flex: 0 0 auto;
@@ -396,6 +404,9 @@
   overflow: hidden;
   z-index: 5;
 }
+.wrapper_tool.tool_indexation > .content_data > .right_container > .indexation_container > .indexation_note > .wrapper_component.component_text_area.modified:after {
+  z-index: 7;
+}
 .wrapper_tool.tool_indexation > .content_data > .right_container > .indexation_container > .indexation_note > .empty_note {
   height: 100%;
   padding: 1.5rem;
@@ -417,7 +428,6 @@
   border-top-left-radius: var(--radius-md);
   border-top-right-radius: var(--radius-md);
   box-shadow: inset 0 0 0 0 transparent;
-  transition: color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .wrapper_tool.tool_indexation > .content_data > .right_container .tab_label:before {
   margin-right: 10px;

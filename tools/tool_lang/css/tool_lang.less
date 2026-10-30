@@ -6,6 +6,7 @@
 
 // imports
 @import (once) '../../../client/dedalo/core/page/css/layout/vars';
+@import (once, reference) '../../../client/dedalo/core/tools_common/css/tool_mixins';
 
 // local vars
 //
@@ -108,6 +109,12 @@
 			flex: 1;
 			min-height: 0;
 			z-index: 0;
+
+			// z-index on a flex item is a stacking context: it trapped a fullscreen
+			// pane (position:fixed, z 10) under the tool header and the action row
+			&:has(.wrapper_component.fullscreen) {
+				z-index: auto;
+			}
 
 			@media screen and (max-width: @width_break_point_0) {
 				flex-wrap: wrap;
@@ -215,6 +222,16 @@
 			.source_component_container {
 				flex: 1;
 				min-height: 0;
+			}
+
+			// a text_area pane draws as tool_transcription/tool_indexation do: label as
+			// header row, ck toolbar + pill swapping over it (tool_mixins.less). Under
+			// the lang `.top`, so the selects stay reachable while editing.
+			.source_component_container,
+			.target_component_container {
+				>.wrapper_component.component_text_area {
+					.text_area_pane_header();
+				}
 			}
 			.target_component_container {
 				flex: 1;

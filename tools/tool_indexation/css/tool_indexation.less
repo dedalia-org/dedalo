@@ -41,7 +41,9 @@
 // the label's own height (--component_label_height rounded up to the toolbar's
 // button row), so the swap is invisible except for what it puts there.
 @note_chrome_height: 1.7rem;
-@transcription_chrome_top: 1.7rem;
+// how far the toolbar/pill/unsaved bar rise over the pane header: exactly its
+// height. 1.7rem left a grey strip above them and dropped them over the text.
+@transcription_chrome_top: @transcription_chrome_height;
 
 // column_id (section_tool list)
 .column_section_id > .button_edit.list_tool_indexation {
@@ -286,6 +288,8 @@
 		// on short windows. The proportions are the same, expressed as flex.
 		>.right_container {
 			width: 55%;
+			// the same air above the transcription as tool_transcription's pane (0.75rem)
+			padding-top: 0.75rem;
 
 			// the row the editor toolbar borrows while editing: pinned to the
 			// toolbar's own height so the swap covers it exactly, with no band of
@@ -301,6 +305,13 @@
 				padding-top: 0px;
 				padding-bottom: 0px;
 				overflow: hidden;
+			}
+
+			// the active field's tint reaches its header row, as in tool_transcription
+			// (where the header IS the field's label row). Clipped to the field's width:
+			// the bar bleeds 1rem over the pane padding on each side.
+			&:has(>.transcription_component_container >.wrapper_component.active) >.top {
+				background: linear-gradient(var(--color_hilite), var(--color_hilite)) center / calc(100% - 2rem) 100% no-repeat;
 			}
 
 			@media screen and (max-width: @width_break_point_0) {
@@ -427,6 +438,14 @@
 						overflow: hidden;
 						// over the sticky `.top` it covers (that one is z-index 3)
 						z-index: 5;
+					}
+
+					// the unsaved bar (layout.less `.modified:after`) is drawn at the
+					// wrapper's top, which the raised toolbar sits ABOVE — so it was
+					// hidden. Raise it with the toolbar, on top of toolbar and pill.
+					&.modified:after {
+						top: -@transcription_chrome_top;
+						z-index: 7;
 					}
 				}
 			}
@@ -740,6 +759,12 @@
 							overflow: hidden;
 							z-index: 5;
 						}
+
+						// the unsaved bar (layout.less `.modified:after`) already sits
+						// on this row's top; only the toolbar and pill hid it
+						&.modified:after {
+							z-index: 7;
+						}
 					}
 
 					>.empty_note {
@@ -777,10 +802,8 @@
 				// the underline is drawn as an inset shadow, not a border: a border
 				// would change the box height between states and shift the labels.
 				box-shadow: inset 0 0 0 0 transparent;
-				transition:
-					color var(--transition-fast),
-					background-color var(--transition-fast),
-					box-shadow var(--transition-fast);
+				// (!) no transition: the panel swaps instantly, a fading selection
+				// mark trails it and the tab reads as slow to respond.
 
 				&:before {
 					margin-right: 10px;

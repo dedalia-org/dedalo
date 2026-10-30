@@ -65,7 +65,7 @@
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {ui} from '../../common/js/ui.js'
-	import {when_in_viewport, dd_request_idle_callback} from '../../common/js/events.js'
+	import {dd_request_idle_callback} from '../../common/js/events.js'
 	import {render_preset_modal, select_preset} from '../../section/js/view_search_user_presets.js'
 	import {
 		create_new_search_preset,
@@ -216,7 +216,7 @@ render_search.prototype.list = async function() {
 *     [thesaurus_options_node]            — only for area_thesaurus / area_ontology
 *     .toggle_container_selector          — "Fields" accordion button
 *     .search_container_selector          — left fields list (initially hidden)
-*     .search_container_selection         — centre filter canvas (sticky)
+*     .search_container_selection         — centre filter canvas (sets the row height)
 *       .search_group_container           — root of all $and/$or groups
 *     .search_container_selection_presets — right presets panel (initially hidden)
 *       .component_presets_label
@@ -229,8 +229,6 @@ render_search.prototype.list = async function() {
 *   `.search_group_container`, `.search_container_selection_presets`,
 *   `.wrapper_sections_selector` (thesaurus only), `.button_save_preset`,
 *   and `.wrapper` are all set here for use by later render methods.
-* - The sticky `top` of `.search_container_selection` is computed once the
-*   node enters the viewport, dynamically reading the menu bar height.
 *
 * @returns {HTMLElement} The outer `.wrapper_search` div
 */
@@ -285,18 +283,6 @@ render_search.prototype.render_base = function() {
 			parent			: search_global_container
 		})
 
-		// fix top based on menu(sticky)
-		when_in_viewport(
-			search_container_selection,
-			() => {
-				// get menu height to optimize sticky position top
-				const menu_wrapper = document.querySelector('.menu_wrapper')
-				if (menu_wrapper) {
-					const menu_height = menu_wrapper.offsetHeight
-					search_container_selection.style.top = (menu_height + 1) + 'px'
-				}
-			}
-		)
 		// semantic (RAG): the ONE semantic input is the quick input in the list
 		// toolbar (render_semantic.js build_semantic_quick_input) — the panel
 		// deliberately mounts no duplicate block; the shared instance state

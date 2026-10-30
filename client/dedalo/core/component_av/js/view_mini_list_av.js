@@ -22,7 +22,7 @@
 *      (the file-info array returned by the server) — the first entry where
 *      quality === 'thumb' AND file_exist === true.
 *   2. If no valid thumb exists, the component falls back to data.posterframe_url
-*      (a static frame extracted from the video) with a cache-busting timestamp appended.
+*      (a static frame extracted from the video), versioned by the server (?v=<mtime ms>-<size>).
 *   3. If neither thumb nor posterframe is available, page_globals.fallback_image
 *      (a system-wide placeholder defined at page bootstrap) is used.
 *   4. An 'error' listener on the <img> element implements a second-chance fallback:
@@ -44,6 +44,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -65,7 +66,7 @@ export const view_mini_list_av = function() {
 *
 * Selects an image source using a three-tier priority chain:
 *   thumb entry (quality='thumb', file_exist=true)
-*     → data.posterframe_url (with cache-busting ?t=<timestamp>)
+*     → data.posterframe_url (versioned by the server, ?v=<mtime ms>-<size>)
 *       → page_globals.fallback_image
 *
 * The returned wrapper is a <span> element (see ui.component.build_wrapper_mini).
@@ -103,10 +104,9 @@ view_mini_list_av.render = async function(self) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe_url
-	// The posterframe is a static video frame stored server-side; append a timestamp
-	// to defeat browser and CDN caches so edits to the posterframe are visible immediately.
+	// The server versions the URL by file mtime+size (?v=), so a regenerated posterframe gets a new URL.
 		const posterframe_url	= data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// URL
@@ -114,7 +114,7 @@ view_mini_list_av.render = async function(self) {
 	// (!) DEDALO_MEDIA_URL is a page-bootstrap global that is not declared in /*global*/
 	//     above; see the flag at the top of this file.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 	// image
@@ -125,6 +125,8 @@ view_mini_list_av.render = async function(self) {
 			element_type	: 'img',
 			parent			: wrapper
 		})
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {
 			// Prevent an infinite error loop: only replace src when it is not
 			// already pointing at the fallback image.

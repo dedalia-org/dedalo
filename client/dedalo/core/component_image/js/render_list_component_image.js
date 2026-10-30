@@ -7,9 +7,8 @@
 // imports
 	import {view_default_list_image} from './view_default_list_image.js'
 	import {view_mini_image} from './view_mini_image.js'
-	import {view_text_list_image} from './view_text_list_image.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
 	import {view_mosaic_list_image} from './view_mosaic_list_image.js'
-	import {view_viewer_image} from './view_viewer_image.js'
 
 
 
@@ -47,10 +46,10 @@ export const render_list_component_image = function() {
 * @param {Object} options - Render options forwarded verbatim to the view module.
 *   Relevant keys depend on the selected view; the mosaic view uses
 *   `options.render_level` ('full'|'content') to support partial re-renders.
-* @returns {HTMLElement} The assembled wrapper (or content_data) node ready to
+* @returns {Promise<HTMLElement>} The assembled wrapper (or content_data) node ready to
 *   be inserted into the page by the caller (common.prototype.render).
 */
-render_list_component_image.prototype.list = function(options) {
+render_list_component_image.prototype.list = async function(options) {
 
 	const self = this
 
@@ -59,14 +58,18 @@ render_list_component_image.prototype.list = function(options) {
 
 	switch(view) {
 
-		case 'viewer':
+		case 'viewer': {
+			const {view_viewer_image} = await import('./view_viewer_image.js')
 			return view_viewer_image.render(self, options)
+		}
 
 		case 'mini':
 			return view_mini_image.render(self, options)
 
-		case 'text':
+		case 'text': {
+			const {view_text_list_image} = await import('./view_text_list_image.js')
 			return view_text_list_image.render(self, options)
+		}
 
 		case 'mosaic':
 			return view_mosaic_list_image.render(self, options)

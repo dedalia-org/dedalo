@@ -7,6 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -80,8 +81,7 @@ export const view_mosaic_list_image = function() {
 *   2. entries entry matching page_globals.dedalo_quality_thumb — Dédalo-hosted thumbnail.
 *   3. page_globals.fallback_image — placeholder when no suitable entry exists.
 *
-* A cache-busting ?t=<timestamp> is appended to Dédalo-hosted URLs to prevent browsers
-* from serving stale images after a file has been replaced.
+* Dédalo-hosted URLs are versioned by its file (get_media_url, ?v=<file_time>-<size>).
 *
 * Side effects:
 *   - Attaches two event listeners on the <img>: 'load' and 'error'.
@@ -165,11 +165,10 @@ const get_content_data = function(self) {
 		const quality	= page_globals.dedalo_quality_thumb // '1.5MB'
 		const file_info	= files_info.find(item => item.quality===quality)
 		// Resolution cascade: external URI → Dédalo media server path → fallback placeholder.
-		// The ?t= timestamp prevents browsers from serving stale images after an upload.
 		const url		= external_source
 			? external_source
 			: file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: page_globals.fallback_image
 
 	// image
@@ -182,6 +181,7 @@ const get_content_data = function(self) {
 		})
 		image.draggable = false
 		image.loading = 'lazy'
+		image.decoding = 'async'
 
 		// tells handler_open_viewer window dimensions
 		// handler_open_viewer reads e.srcElement.open_window_features to size the popup.

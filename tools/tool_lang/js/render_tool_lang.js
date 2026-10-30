@@ -309,7 +309,8 @@ const get_content_data_edit = async function(self) {
 			if (self.target_component) {
 				// show_interface
 				self.target_component.show_interface.read_only = (self.target_component.lang===self.source_lang)
-				self.target_component.show_interface.tools = false
+				// only the time machine (honoured by component_text_area; other models render no tools)
+				self.target_component.show_interface.tools = ['tool_time_machine']
 				const target_component_node = await self.target_component.render()
 				const target_component_container = ui.create_dom_element({
 					element_type	: 'div',

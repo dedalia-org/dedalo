@@ -49,7 +49,6 @@
 	import {component_common} from '../../component_common/js/component_common.js'
 	import {render_edit_component_svg} from './render_edit_component_svg.js'
 	import {render_list_component_svg} from './render_list_component_svg.js'
-	import {render_search_component_svg} from './render_search_component_svg.js'
 
 
 
@@ -113,7 +112,11 @@ export const component_svg = function(){
 	// (!) tm reuses the list renderer — SVG components have no dedicated TM view.
 	component_svg.prototype.list				= render_list_component_svg.prototype.list
 	component_svg.prototype.edit				= render_edit_component_svg.prototype.edit
-	component_svg.prototype.search				= render_search_component_svg.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_svg.prototype.search				= async function(options) {
+		const {render_search_component_svg} = await import('./render_search_component_svg.js')
+		return render_search_component_svg.prototype.search.call(this, options)
+	}
 
 
 

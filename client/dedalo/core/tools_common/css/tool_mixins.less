@@ -29,3 +29,80 @@
 		border-color: var(--tool_fill_hover);
 	}
 }
+
+// .text_area_pane_header()
+// A component_text_area that fills a tool pane, drawn as tool_indexation's
+// transcription pane (the reference): the label is a full-width header row, and
+// while editing the ck toolbar takes that row over with the pill at its right
+// end, so the text never moves. Also cancels the active label tab of
+// component_text_area.less: here the row IS the label. Apply on the
+// `.wrapper_component` (grid); @h = the header row (tool_indexation's 2.2rem).
+// The `margin: 0 -1rem` bleed assumes the pane's 1rem side padding.
+.text_area_pane_header(@h: 2.2rem) {
+	// FIXED label track: the toolbar swaps in over exactly it
+	grid-template-rows: @h minmax(0, 1fr);
+
+	>.label,
+	&.active >.label {
+		display: flex;
+		align-items: center;
+		gap: 0.3em; // flex drops the space before the lang note
+		height: @h;
+		justify-self: stretch; // the active tab rule shrinks it to its text
+		box-sizing: border-box;
+		max-width: none;
+		margin: 0px -1rem;
+		padding: 0px 1rem 0px 2rem;
+		transform: none;
+		background-color: transparent;
+		border-radius: 0;
+		border-bottom: 1px solid var(--border_default);
+		font-size: inherit;
+		font-weight: normal;
+		color: inherit;
+	}
+
+	// the orange tool pill — right end of the header row, height-matched
+	>.buttons_container {
+		top: 0;
+		right: 0;
+		z-index: 6; // above the toolbar strip it sits on
+		border-radius: 0;
+		height: @h;
+		max-height: @h;
+
+		>.buttons_fold {
+			display: flex;
+			align-items: center;
+			height: 100%;
+		}
+
+		span {
+			margin-top: 0;
+			margin-bottom: 0;
+		}
+	}
+
+	// the ck toolbar, ON the header row: full width and opaque while focused
+	.toolbar_container {
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: @h;
+		box-sizing: border-box;
+		align-items: center;
+		flex-wrap: nowrap;
+		padding: 0px 7rem 0px 0.5rem; // right pad = room for the pill
+		background-color: var(--bg_surface);
+		box-shadow: none;
+		border-bottom: 1px solid var(--border_default);
+		overflow: hidden;
+		z-index: 5;
+	}
+
+	// the unsaved bar (layout.less `.modified:after`) sits on the header row
+	// the toolbar covers: keep it on top, as tool_indexation does
+	&.modified:after {
+		z-index: 7;
+	}
+}

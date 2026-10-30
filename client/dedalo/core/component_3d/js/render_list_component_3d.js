@@ -6,8 +6,7 @@
 
 // imports
 	import {view_default_list_3d} from './view_default_list_3d.js'
-	import {view_mini_list_3d} from './view_mini_list_3d.js'
-	import {view_text_list_3d} from './view_text_list_3d.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
 
 
 
@@ -61,11 +60,15 @@ render_list_component_3d.prototype.list = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		case 'mini': {
+			const {view_mini_list_3d} = await import('./view_mini_list_3d.js')
 			return view_mini_list_3d.render(self, options)
+		}
 
-		case 'text':
+		case 'text': {
+			const {view_text_list_3d} = await import('./view_text_list_3d.js')
 			return view_text_list_3d.render(self, options)
+		}
 
 		case 'column':
 		// (!) 'column' is an ontology alias for the default grid-column layout;

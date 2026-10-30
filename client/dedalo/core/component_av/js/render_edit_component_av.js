@@ -6,8 +6,8 @@
 
 // imports
 	import {view_default_edit_av} from './view_default_edit_av.js'
-	import {view_player_edit_av} from './view_player_edit_av.js'
-	import {view_viewer_edit_av} from './view_viewer_edit_av.js'
+	// player/viewer views are lazy (CONVENTIONS S3-37 #3, tool-scale: transcription/indexation/viewer): the common edit
+	// render only needs the default view
 
 
 
@@ -66,11 +66,15 @@ render_edit_component_av.prototype.edit = async function(options) {
 
 	switch(view) {
 
-		case 'player':
+		case 'player': {
+			const {view_player_edit_av} = await import('./view_player_edit_av.js')
 			return view_player_edit_av.render(self, options)
+		}
 
-		case 'viewer':
+		case 'viewer': {
+			const {view_viewer_edit_av} = await import('./view_viewer_edit_av.js')
 			return view_viewer_edit_av.render(self, options)
+		}
 
 		case 'print':
 			// for print we need to use read of the content_value and it's necessary force permissions to use read only element render

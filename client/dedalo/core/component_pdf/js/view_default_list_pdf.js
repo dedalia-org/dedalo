@@ -41,6 +41,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -128,7 +129,7 @@ view_default_list_pdf.render = async function(self, options) {
 		// Uses DEDALO_MEDIA_URL (! not declared in /*global*/ — see module header flag).
 		// Falls back to the bundled PDF icon SVG when no thumb entry exists or has no path.
 		const thumb_file = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: DEDALO_CORE_URL + '/themes/default/icons/file-pdf-o.svg'
 
 		// If a matching quality/extension entry exists, show the thumbnail;
@@ -148,6 +149,8 @@ view_default_list_pdf.render = async function(self, options) {
 			src				: url,
 			parent			: wrapper
 		})
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.classList.add('link')
 		// tells handler_open_viewer window dimensions
 		image.open_window_features = {

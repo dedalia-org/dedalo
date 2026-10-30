@@ -536,8 +536,6 @@ const CLIENT_DOWNLOAD_SHAPE =
  * A stale entry (the file no longer builds one) is red.
  */
 const CLIENT_DOWNLOAD_EXEMPT: Readonly<Record<string, string>> = {
-	'client/dedalo/core/component_json/js/view_default_edit_json.js':
-		'Saves ONE component_json value the user is editing (not a record export, not the registry): the payload is JSON.stringify output passed through encodeURIComponent, so a `#` cannot truncate it and there is no formula or markup surface.',
 };
 
 /**

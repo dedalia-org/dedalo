@@ -9,7 +9,8 @@
 	import {ui} from '../../common/js/ui.js'
 	import {view_default_edit_image} from './view_default_edit_image.js'
 	import {view_mini_image} from './view_mini_image.js'
-	import {view_viewer_image} from './view_viewer_image.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -63,8 +64,10 @@ render_edit_component_image.prototype.edit = async function(options) {
 
 	switch(view) {
 
-		case 'viewer':
+		case 'viewer': {
+			const {view_viewer_image} = await import('./view_viewer_image.js')
 			return view_viewer_image.render(self, options)
+		}
 
 		case 'mini':
 			return view_mini_image.render(self, options)
@@ -108,11 +111,13 @@ render_edit_component_image.prototype.edit = async function(options) {
 * Duplicate qualities (same quality string, different file) are deduplicated via
 * ar_resolved; the first occurrence wins.
 *
-* Cache-busting: each option's value URL carries a `?t=<timestamp>` suffix so
-* the browser does not serve a stale cached version when the user switches quality.
+* Each option's value URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
 *
 * @param {Object} self - component_image instance
-* @returns {HTMLElement} the <select> quality selector element (appended to a DocumentFragment internally)
+* Returns null when fewer than two distinct qualities exist: a one-option select
+* offers no choice, so it is not built (same rule as component_av).
+*
+* @returns {HTMLElement|null} the <select> quality selector element, or null
 */
 export const get_quality_selector = (self) => {
 
@@ -126,13 +131,18 @@ export const get_quality_selector = (self) => {
 		const quality		= self.quality || self.context.features.quality
 		const extension		= self.context.features.extension
 
-	const fragment = new DocumentFragment()
+	// retain only existing files of the currently active extension
+		const quality_list	= files_info.filter(el => el.file_exist===true && el.extension===extension)
+
+	// nothing to choose (a single rendition): no selector, as in component_av
+		if (new Set(quality_list.map(el => el.quality)).size < 2) {
+			return null
+		}
 
 	// create the quality selector
 		const quality_selector = ui.create_dom_element({
 			element_type	: 'select',
-			class_name		: 'quality_selector',
-			parent			: fragment
+			class_name		: 'quality_selector'
 		})
 		// stop click/mousedown from bubbling to the image container and triggering
 		// unintended tool-open handlers attached to ancestor nodes
@@ -148,9 +158,6 @@ export const get_quality_selector = (self) => {
 			const img_src = e.target.value
 			event_manager.publish('image_quality_change_'+self.id, img_src)
 		})
-
-		// retain only existing files of the currently active extension
-		const quality_list	= files_info.filter(el => el.file_exist===true && el.extension===extension)
 
 		// ar_resolved tracks quality strings already added to avoid duplicate <option> entries
 		const ar_resolved = []
@@ -170,7 +177,7 @@ export const get_quality_selector = (self) => {
 			// (!) file_info is always truthy here because quality_list only contains
 			//     real entries, but the ternary is kept as a defensive guard
 			const url = file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: null
 
 			const select_option = ui.create_dom_element({

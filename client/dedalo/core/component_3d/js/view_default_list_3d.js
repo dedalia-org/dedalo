@@ -7,6 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -108,7 +109,7 @@ view_default_list_3d.render = async function(self, options) {
 *   1. 'thumb' entry in `data.entries` where `file_exist === true`
 *      → prepend DEDALO_MEDIA_URL to `file_path`
 *   2. `data.posterframe_url` (server-rendered still)
-*      → append `?t=<timestamp>` to bust the browser cache
+*      → versioned by the server (?v=<mtime ms>-<size>)
 *   3. `page_globals.fallback_image` (global placeholder path)
 *
 * The resolved `quality` from `self.quality` or `self.context.features.quality`
@@ -145,7 +146,7 @@ export const get_content_data = function(self) {
 
 	// posterframe (used as fallback)
 		const posterframe_url = data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// thumb, if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.
@@ -154,7 +155,7 @@ export const get_content_data = function(self) {
 	// URL
 	// if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 		const file_info	= files_info.find(item => item.quality===quality)
@@ -166,6 +167,7 @@ export const get_content_data = function(self) {
 			parent			: content_data
 		})
 		image.loading = 'lazy'
+		image.decoding = 'async'
 		// tells handler_open_viewer window dimensions
 		image.open_window_features = {
 			width	: 1024,

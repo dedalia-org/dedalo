@@ -6475,6 +6475,14 @@ dd-modal.dd_presets::part(content) {
   text-align: center;
   text-wrap: unset;
 }
+.list_body > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:first-child {
+  border-bottom-left-radius: 0.7rem;
+  overflow: clip;
+}
+.list_body > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:last-child {
+  border-bottom-right-radius: 0.7rem;
+  overflow: clip;
+}
 .list_body .list_body .column {
   display: flex;
   height: 100%;
@@ -8953,18 +8961,12 @@ body:has(.component_av.view_viewer) {
 }
 .wrapper_search > .search_global_container > .search_container_selection {
   flex-grow: 1;
-  align-self: flex-start;
   background-color: var(--bg_app);
   padding-top: 0px;
-  position: sticky;
-  top: 0.25rem;
 }
 .wrapper_search > .search_global_container > .search_container_selection .search_group_container {
   display: flex;
   justify-content: flex-end;
-  position: -webkit-sticky;
-  position: -moz-sticky;
-  position: sticky;
   padding-left: 0.18rem;
 }
 @media screen and (max-width: 1024px) {
@@ -9316,6 +9318,9 @@ body:has(.component_av.view_viewer) {
 .wrapper_search > .search_global_container .search_container_selection_presets > .wrapper_section > .paginator_container {
   height: unset;
 }
+.wrapper_search > .search_global_container .search_container_selection_presets > .wrapper_section > .list_body {
+  height: auto;
+}
 .wrapper_search > .search_global_container .search_container_selection_presets > .wrapper_section > .list_body .section_record {
   display: grid;
   grid-template-columns: 1.5rem 1.1rem 1fr 1.5rem;
@@ -9366,6 +9371,36 @@ body:has(.component_av.view_viewer) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+@media screen and (min-width: 1025px) {
+  .wrapper_search > .search_global_container > .search_container_selector {
+    align-self: stretch;
+  }
+  .wrapper_search > .search_global_container > .search_container_selector > ul {
+    min-height: 100%;
+  }
+  .wrapper_search > .search_global_container > .wrapper_sections_selector {
+    align-self: stretch;
+    max-height: none;
+  }
+  .wrapper_search > .search_global_container > .wrapper_sections_selector > .wrapper_sections_selector_ul {
+    max-height: 50vh;
+    flex-grow: 1;
+  }
+  .wrapper_search > .search_global_container > .search_container_selection_presets {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+  .wrapper_search > .search_global_container > .search_container_selection_presets > .component_presets_label {
+    flex: none;
+  }
+  .wrapper_search > .search_global_container > .search_container_selection_presets > .wrapper_section {
+    display: block;
+    max-height: 50vh;
+    flex-grow: 1;
+    overflow-y: auto;
+  }
 }
 .toggle_container_selector,
 .toggle_container_selection_presets {
@@ -9655,7 +9690,6 @@ body:has(.component_av.view_viewer) {
     min-height: 0;
   }
   .wrapper_search > .search_global_container > .search_container_selection_presets > .wrapper_section > .list_body {
-    height: auto;
     width: 100%;
   }
   .wrapper_search > .search_global_container > .search_container_selection_presets > .wrapper_section > .list_body .section_record {
@@ -9694,8 +9728,6 @@ body:has(.component_av.view_viewer) {
     mask-position: center;
   }
   .wrapper_search > .search_global_container > .search_container_selection {
-    position: static;
-    top: auto;
     order: 3;
     flex: 1 1 100%;
     width: 100%;
@@ -25202,6 +25234,11 @@ body.inspector_resizing {
   width: auto;
   padding-right: 0.5rem;
 }
+.component_portal > .paginator_container > .wrapper_paginator > .content_data,
+.portal > .paginator_container > .wrapper_paginator > .content_data {
+  padding-top: 0.25em;
+  padding-bottom: 0.25em;
+}
 .component_portal > .content_data,
 .portal > .content_data {
   min-height: var(--content_data_min_height);
@@ -27441,6 +27478,19 @@ body.inspector_resizing {
 */
 .component_text_area.edit {
   align-content: unset;
+}
+.component_text_area.edit.active > .label {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  align-self: start;
+  max-width: 40%;
+  height: auto;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+  background-color: var(--color_hilite);
+  border-radius: 4px 4px 0 0;
+  transform: translateY(-100%);
 }
 .component_text_area.edit.fullscreen .ck-content {
   width: calc(100vw - 3rem);

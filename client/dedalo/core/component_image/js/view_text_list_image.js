@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -72,8 +73,7 @@ export const view_text_list_image = function() {
 *   2. entries entry matching page_globals.dedalo_quality_thumb — Dédalo-hosted thumbnail
 *   3. page_globals.fallback_image — placeholder shown when no suitable entry exists
 *
-* A cache-busting query parameter (?t=<timestamp>) is appended to Dédalo-hosted URLs
-* so that recently replaced images are not served from the browser cache.
+* Dédalo-hosted URLs are versioned by its file (get_media_url, ?v=<file_time>-<size>).
 *
 * The <img> element is created with document.createElement directly (rather than via
 * ui.create_dom_element) so that the src assignment and the error listener can be set
@@ -111,11 +111,10 @@ view_text_list_image.render = function(self, options) {
 		const file_info	= files_info.find(item => item.quality===quality)
 		// Resolution cascade: prefer an explicit external URI over a Dédalo-hosted
 		// file, falling back to the global placeholder when neither is available.
-		// The ?t= timestamp prevents browsers from caching a stale file after upload.
 		const url		= external_source
 			? external_source
 			: file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: page_globals.fallback_image
 
 	// wrapper
@@ -130,6 +129,8 @@ view_text_list_image.render = function(self, options) {
 
 	// image
 		const image	= document.createElement('img')
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		// error event
 		// Guard against infinite retry: only swap src to the fallback once.
 		// If the fallback itself fails to load, the broken-image icon will show

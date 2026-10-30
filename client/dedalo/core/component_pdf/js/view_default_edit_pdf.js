@@ -12,6 +12,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {lazy_load_media} from '../../component_media_common/js/component_media_common.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -182,7 +183,7 @@ export const get_content_data_edit = function(self) {
 *      c) 'webviewerloaded' event fires (dispatched by PDF.js on top.document when
 *         its own app is ready) → configures PDFViewerApplicationOptions (locale,
 *         defaultUrl cleared, enablePermissions) → calls PDFViewerApplication.open()
-*         with the pdf_url including a cache-busting timestamp query string.
+*         with the pdf_url, versioned by its file (get_media_url).
 *
 *    (!) The 'webviewerloaded' listener is registered on top.document, not on
 *        iframe.contentDocument — PDF.js dispatches the event to the top frame.
@@ -242,10 +243,10 @@ const get_content_value = function(i, current_value, self) {
 		// Select the file_info entry that matches the configured quality and extension
 		// and is confirmed to exist on disk (file_exist===true).
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true && el.extension===extension)
-		// Append a cache-busting timestamp so the browser always fetches the latest
-		// version after an upload replaces the file at the same path.
+		// Versioned by its file (get_media_url): an upload replacing the file at the
+		// same path gets a new URL.
 		const pdf_url	= file_info
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: null
 		// no PDF file url available case
 		if (!pdf_url) {

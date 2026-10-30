@@ -38,6 +38,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {json_preview} from './json_preview.js'
 
 
 
@@ -203,7 +204,7 @@ export const get_value_string = function(self) {
 		const value_string = value[0] && (typeof value[0][list_show_key]!=='undefined')
 			? value[0][list_show_key]
 			: value[0]
-				? JSON.stringify(value).substring(0,100)+' ...'
+				? json_preview(value, 100)+' ...'
 				: ''
 
 

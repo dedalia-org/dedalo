@@ -23,6 +23,20 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **JSON fields are lighter and faster**
+
+    The JSON component loads its search and mini/text/collapse views only when used, list cells preview a large value without serializing all of it, typing in the editor no longer re-parses the whole value on every keystroke, closing a record releases its JSON editors, and the JSON download no longer builds a percent-encoded copy of the value.
+
+- **Geolocation maps load faster**
+
+    The map component fetches fewer files before showing a map: the colour picker library loads only when a layer's colour swatch is first opened, turf and the language table load in parallel with Leaflet, and the search and mini/text views load only when used.
+
+- **Audiovisual records load faster and reuse cached media.**
+
+    The audiovisual field no longer downloads its poster image and video again every time a record is shown. Media links now change only when the file itself changes (a new upload, a new transcode or a new poster image), so the browser reuses what it already has. Poster images below the visible part of the page load only when they scroll into view, the quality selector appears only when there is more than one quality to choose, and the player, viewer and search displays load only when they are used.
+
+    Wire contract: `WC-2026-10-29-posterframe-url-version`.
+
 - **Pages open noticeably faster for returning users on slow connections.**
 
     On HTTPS installations the browser keeps Dédalo's program files in a local cache after login, but three files were still fetched from the server on every page load, one after another, before the page could show anything: the page's entry file and two small helper libraries (tooltips, and a decompressor only used when opening a tag link). Now the entry file comes from the local cache and the two libraries load only when needed. Measured on a simulated slow mobile connection (Slow 4G), a section list appears in 2.8 s instead of 3.9 s and an edit form in 4.5 s instead of 5.7 s; on Fast 4G a list appears in 0.9 s instead of 1.3 s. First visits and installations without HTTPS are unchanged.
@@ -35,6 +49,12 @@ Merged since the last release; these ship with the next one.
 
     An empty link (IRI) field in the edit form no longer shows its "Label", "Title" and "http://" hints all the time. Like the date field, it stays blank until the pointer is over it or the field is selected, so empty fields no longer look filled in.
 
+- **Images, PDFs, SVGs and 3D models load faster and reuse cached files.**
+
+    Every media field now behaves like the audiovisual one: images, PDFs, SVGs and 3D models are no longer downloaded again each time a record is shown. A file's link changes only when the file itself changes (a new upload, a rotation, a regenerated version or a saved drawing layer), so the browser reuses what it already has. Thumbnails in lists and small previews load only when they scroll into view, the image quality selector appears only when there is more than one quality to choose, and the viewer, search and other rarely used displays load only when they are used.
+
+    Wire contract: `WC-2026-10-29-posterframe-url-version`.
+
 - **The search panel opens in one smooth step instead of stuttering in.**
 
     Opening the search panel used to show a loading line, then the empty panel, then each saved filter row popping in one by one, pushing the list down each time — most noticeable on slow connections. Now the panel's data loads in parallel, starts loading as soon as the pointer rests on the Search button, and the panel fades in once, complete (a row slower than 1.5 s fills in afterwards). Nothing extra loads with the page, so lists and counters are unaffected.
@@ -42,6 +62,10 @@ Merged since the last release; these ship with the next one.
 - **Tools that open in a dialog appear about half a second sooner on slow connections.**
 
     The first time a tool opened in a dialog on a page, its stylesheet only started loading after its code had finished, adding one extra network round trip to the wait. Both now load at the same time, which saves about 0.6 s per first open on a slow connection (measured on Slow 4G: for example 2.96 s → 2.40 s for the posterframe tool). Tools that open in their own window are unchanged.
+
+- **The Transcription and Translation tools' text panes now look like the Indexation tool's.**
+
+    In the Transcription and Translation tools, the field name is now a header row across the top of the text pane, as in the Indexation tool. While you edit, the editor toolbar takes over that row, with the full-screen and save buttons at its right end. The text no longer moves or gets covered when the editor is selected, and in the Translation tool the language selectors stay visible above it.
 
 - **Tree-picker portals show their linked records like Parent and Children.**
 
@@ -59,15 +83,37 @@ Merged since the last release; these ship with the next one.
 
     Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
 
+#### Added
+
+- **Indexation, transcription and translation tools — time machine button on the text**
+
+    The text being edited in the indexation, transcription and translation (target language) tools now shows the time machine button next to full screen and save, so earlier versions of the text can be opened without leaving the tool. In the transcription tool it replaces the header's separate time machine button.
+
 #### Fixed
+
+- **Search panel no longer forced tall by the fields list**
+
+    The Fields, Type and Preset columns of the search panel now take the height of their content (up to half the screen, scrolling past that) instead of always reserving half the screen.
 
 - **The export now writes the data language you select in the tool, not always the main one.**
 
     Before, the tool export always wrote values in the main language of the install, whatever data language the menu showed. Now the tool has a **Data language** selector, starting on the menu's data language, and the export is written in the language you pick. Thesaurus terms (toponymy included) show the term in the data language when it exists, and otherwise in the thesaurus's own language, never translated. To get every language in one file, choose **Dédalo (Raw)**; the selector is disabled for that format.
 
+- **Indexation — the text pane's header now matches the selected field.**
+
+    In the Indexation tool, selecting the transcription left the header row above it grey, and the editor toolbar and its buttons sat slightly too low: a grey strip showed above them and they overlapped the first line of text. The header now takes the field's highlight colour while it is selected, as in the Transcription tool, and the toolbar covers the header row exactly. The pane also has the same space above it as in the Transcription tool.
+
+- **Indexation shows the orange unsaved-changes bar on its text boxes.**
+
+    In the Indexation tool, the orange bar that marks unsaved changes was hidden behind the editor toolbar on both the transcription text and the tag note's description. It now shows across the top of the toolbar, as it does in the Transcription tool.
+
 - **The side panel of a record that does not exist no longer offers record actions.**
 
     Opening a link to a record that does not exist (or was deleted) showed an empty edit page whose side panel still offered "Latest changes", the component history, and the duplicate and delete buttons, all acting on no record. Those parts of the panel now appear only when a record is open.
+
+- **The search panel's side lists now always end level with the search fields.**
+
+    With many fields added to a search, the centre area grew taller than the Fields, Type and Preset lists, so their bottoms no longer lined up. Now the centre area sets the panel's height and the side lists fill it, scrolling on their own. An open side list still gets at least half the screen height.
 
 - **A list could show the previous search's record total.**
 
@@ -80,6 +126,10 @@ Merged since the last release; these ship with the next one.
 - **Clicking inside a tall field no longer scrolls the page.**
 
     The first click in a field taller than the window, such as the permissions tree of a user profile, scrolled the page to the top of the field, so the pointer was no longer over the option just chosen. The page now stays where it is; it only scrolls when the activated field is entirely off screen.
+
+- **An active text field keeps its label visible above the editor toolbar.**
+
+    When a text field (such as Description / transcription) was selected, the editor toolbar covered its label, so it was no longer clear which field and language were being edited. The label now sits as a small tab on the field's top edge, in the field's highlight colour. The text does not move when the field is selected.
 
 - **A Time Machine note can be written again on every change in Component history.**
 
@@ -103,6 +153,10 @@ Merged since the last release; these ship with the next one.
     - **Thumbnails in the tool's record list are whole** — no longer clipped or overlapping.
 
     Wire contract: `WC-2026-10-29-area-declared-hierarchy-types`.
+
+- **Translation tool — full screen works again, and the read-only source has no save button.**
+
+    In the Translation tool, the full-screen button on either text showed a blank page, because the tool's header and action bar were drawn on top of the editor. It now fills the screen as expected. The source text is read-only there, so its button bar no longer offers a save button. This applies to any read-only text editor.
 
 - **Tool save notices are readable again and no longer cover the close button.**
 
@@ -363,6 +417,10 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-30-health-boot-facts`.
 
+- **Older development builds are offered the nightly again**
+
+    A development build made before 26 October 2026 reports its version as `7.0.0.dev`. The code server could not read that form, treated the installation as the stable release, and so listed no nightly in its update panel. The code server now reads the older form as `7.0.0-dev`, so these installations can update through the panel again.
+
 - **Patch releases are offered when the data version did not change.**
 
     The list of available code updates is now worked out from the installed release (for example 7.0.2), not only from its data version. A patch release that did not change the data version was not offered before.
@@ -538,7 +596,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 27 entries"
+??? note "Wire contract — 28 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -557,6 +615,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-28-tool-open-defects`
     - `WC-2026-10-29-ai-capabilities-page-globals`
     - `WC-2026-10-29-area-declared-hierarchy-types`
+    - `WC-2026-10-29-posterframe-url-version`
     - `WC-2026-10-29-start-user-default-section`
     - `WC-2026-10-30-health-boot-facts`
     - `WC-2026-10-30-maintenance-door-classes`

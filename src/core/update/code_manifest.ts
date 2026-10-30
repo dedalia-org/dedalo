@@ -349,10 +349,15 @@ function uniqueByUrl(items: CodeReleaseItem[]): CodeReleaseItem[] {
  * public, the ask is authenticated by its code): the swap door re-judges every
  * move with the tree's OWN identity, so an offer the claim alone justified is
  * refused there.
+ * A legacy `X.Y.Z.dev` claim reads as `X.Y.Z-dev`: unparsed it falls back to
+ * stable `X.Y.Z`, above which its own nightly ranks as a downgrade — so
+ * every pre-grammar dev install could never be offered a nightly.
  */
 function askerIdentity(options: CodeUpdateInfoOptions): string {
 	const dataTriple = normalizedClientTriple(options.clientVersion);
-	const claimed = typeof options.clientRelease === 'string' ? options.clientRelease : '';
+	const raw = typeof options.clientRelease === 'string' ? options.clientRelease : '';
+	// builds before d803117865 (2026-10-26) spell a dev identity 'X.Y.Z.dev'
+	const claimed = raw.replace(/^(\d+\.\d+\.\d+)\.dev$/, '$1-dev');
 	const parsed = parseReleaseVersion(claimed);
 	if (parsed === null) return dataTriple.join('.');
 	const atOrAboveData = compareVersionArrays(parsed.triple, dataTriple) >= 0;

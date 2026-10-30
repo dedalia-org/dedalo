@@ -556,6 +556,10 @@ HERMETIC_TRIPWIRES=(
 	#     are seams. SERIAL LANE (below): it flips the server_state maintenance flag.
 	test/unit/update_door_precondition_class_tripwire.test.ts
 	test/unit/update_docs_claims_tripwire.test.ts
+	# --- 2026-10-29 (media URL versioning). DB-free: a text scan of the five media
+	#     component client trees + src/; imports no src/ module (verified with
+	#     DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/media_url_version_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

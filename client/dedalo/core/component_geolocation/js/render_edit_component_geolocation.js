@@ -23,14 +23,14 @@
 * (self.permissions = 1), which causes the view to suppress all editing controls.
 *
 * External dependencies (globals injected at runtime, not imported):
-* - `iro`  — colour-picker library (iro.js), loaded on demand by component_geolocation.load_libs()
+* - `iro`  — colour-picker library (iro.js), loaded on demand by render_color_picker (first swatch click)
 */
 
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
+	import {load_script} from '../../common/js/utils/index.js'
 	import {view_default_edit_geolocation} from './view_default_edit_geolocation.js'
-	import {view_mini_geolocation} from './view_mini_geolocation.js'
 
 
 
@@ -72,8 +72,10 @@ render_edit_component_geolocation.prototype.edit = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		case 'mini': {
+			const {view_mini_geolocation} = await import('./view_mini_geolocation.js')
 			return view_mini_geolocation.render(self, options)
+		}
 
 		// case 'text':
 		// 		return view_text_geolocation.render(self, options)
@@ -167,9 +169,7 @@ export const render_popup_text = function(ar_text_obj) {
 * updates the layer style via `layer.setStyle({color})`, syncs the swatch and text input,
 * and calls self.update_draw_data(layer_id) to keep the in-memory GeoJSON up to date.
 *
-* (!) `iro` is a runtime global loaded by component_geolocation.load_libs() — it is NOT
-* available before that async call resolves.  Calling this function before Leaflet and iro
-* are loaded will throw a ReferenceError.
+* (!) `iro` is a runtime global loaded on the first swatch click (not by load_libs).
 *
 * (!) The layer colour change is NOT automatically saved to the database.  The user must
 * click the explicit Save button to persist draw data.
@@ -214,41 +214,73 @@ export const render_color_picker = function(self, layer, layer_id) {
 		parent			: color_container
 	})
 
-	const color_picker = new iro.ColorPicker(
-		color_wheel_contaniner,
-		{
-			// Set the size of the color picker
-			width: 160,
-			// Set the initial color
-			color: layer_color,
-			// color wheel will not fade to black when the lightness decreases.
-			wheelLightness: true,
-			// transparency: true,
-			layout: [
-				{
-					component: iro.ui.Wheel, //can be iro.ui.Box
-					options: {
-						sliderShape: 'circle'
-					}
-				},
-				{
-					component: iro.ui.Slider,
-					options: {
-						sliderType: 'value' // can also be 'saturation', 'value', 'alpha' or 'kelvin'
-					}
-				},
-				// {
-				// 	component: iro.ui.Slider,
-				// 	options: {
-				// 		sliderType: 'alpha'
-				// 	}
-				// },
-			]
-		}
-	)//end new iro.ColorPicker
-	button_color_picker.addEventListener('mouseup', (e) =>{
+	// iro is loaded and the wheel built on first open (most popups never open it);
+	// one shared promise so a click during the load cannot build a second wheel
+	let picker_promise = null
+	let picker_loading = false
+	button_color_picker.addEventListener('mouseup', async (e) =>{
 		e.stopPropagation()
+		if (picker_loading) {
+			return
+		}
+		if (!picker_promise) {
+			picker_loading = true
+			picker_promise = load_script(DEDALO_ROOT_WEB + '/lib/iro/dist/iro.min.js')
+			.then(()=>{
+				const color_picker = new iro.ColorPicker(
+					color_wheel_contaniner,
+					{
+						// Set the size of the color picker
+						width: 160,
+						// Set the initial color
+						color: layer_color,
+						// color wheel will not fade to black when the lightness decreases.
+						wheelLightness: true,
+						// transparency: true,
+						layout: [
+							{
+								component: iro.ui.Wheel, //can be iro.ui.Box
+								options: {
+									sliderShape: 'circle'
+								}
+							},
+							{
+								component: iro.ui.Slider,
+								options: {
+									sliderType: 'value' // can also be 'saturation', 'value', 'alpha' or 'kelvin'
+								}
+							},
+							// {
+							// 	component: iro.ui.Slider,
+							// 	options: {
+							// 		sliderType: 'alpha'
+							// 	}
+							// },
+						]
+					}
+				)//end new iro.ColorPicker
+				color_picker.on(['color:change'], color_selected)
+				return color_picker
+			})
+			try {
+				await picker_promise
+			} catch (error) {
+				// reset so the next click retries (load_script drops the failed tag)
+				picker_promise = null
+				console.error('render_color_picker: iro load failed', error)
+				return
+			} finally {
+				picker_loading = false
+			}
+		}
 		color_wheel_contaniner.classList.toggle('hide')
+		// the popup grew upward: re-layout + auto-pan so the wheel is not clipped by the
+		// map edge nor hidden under the top toolbar (~70px)
+		const popup = layer.getPopup?.()
+		if (popup) {
+			popup.options.autoPanPaddingTopLeft = [5, 80]
+			popup.update()
+		}
 	})
 	// color:change event callback
 	// color:change callbacks receive the current color and a changes object
@@ -264,9 +296,6 @@ export const render_color_picker = function(self, layer, layer_id) {
 		self.update_draw_data(layer_id)
 		// event_manager.publish('color_change_'+this.active_layer.data.layer_id, color.hex8String)
 	}
-
-	// listen to a color picker's color:change event
-	color_picker.on(['color:change'], color_selected);
 
 
 	return color_container

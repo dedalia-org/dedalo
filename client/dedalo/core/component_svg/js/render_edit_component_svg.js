@@ -6,7 +6,7 @@
 
 // imports
 	import {view_default_edit_svg} from './view_default_edit_svg.js'
-	import {view_line_edit_svg} from './view_line_edit_svg.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
 
 
 
@@ -76,8 +76,10 @@ render_edit_component_svg.prototype.edit = async function(options) {
 
 	switch(view) {
 
-		case 'line':
+		case 'line': {
+			const {view_line_edit_svg} = await import('./view_line_edit_svg.js')
 			return view_line_edit_svg.render(self, options)
+		}
 
 		case 'print':
 			// view print use the same view as default, except it will use read only to render content_value

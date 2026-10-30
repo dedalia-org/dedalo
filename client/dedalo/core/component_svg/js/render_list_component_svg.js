@@ -5,10 +5,8 @@
 
 
 // imports
-	import {view_mini_list_svg} from './view_mini_list_svg.js'
+	// rare views are lazy (CONVENTIONS S3-37 #3): the common render only needs the default view
 	import {view_default_list_svg} from './view_default_list_svg.js'
-	import {view_tag_list_svg} from './view_tag_list_svg.js'
-	import {view_text_list_svg} from './view_text_list_svg.js'
 
 
 
@@ -61,14 +59,20 @@ render_list_component_svg.prototype.list = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		case 'mini': {
+			const {view_mini_list_svg} = await import('./view_mini_list_svg.js')
 			return view_mini_list_svg.render(self, options)
+		}
 
-		case 'text':
+		case 'text': {
+			const {view_text_list_svg} = await import('./view_text_list_svg.js')
 			return view_text_list_svg.render(self, options)
+		}
 
-		case 'tag':
+		case 'tag': {
+			const {view_tag_list_svg} = await import('./view_tag_list_svg.js')
 			return view_tag_list_svg.render(self, options)
+		}
 
 		case 'default':
 		default:

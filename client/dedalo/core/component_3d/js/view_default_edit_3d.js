@@ -47,6 +47,7 @@
 	import {when_in_viewport,dd_request_idle_callback} from '../../common/js/events.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {get_quality_selector} from './render_edit_component_3d.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -210,8 +211,8 @@ const get_content_data_edit = function(self) {
 * The `external_source` field in `self.data` overrides `files_info` entirely; it is used
 * when the 3-D model is hosted on an external URL rather than the Dédalo media server.
 *
-* `?t=<timestamp>` cache-busting query parameters are appended to all media URLs so that
-* re-uploaded files are not served stale from browser caches.
+* Media URLs are versioned by their file (get_media_url, ?v=<file_time>-<size>), so
+* renders reuse the HTTP cache and re-uploaded files get a new URL.
 *
 * @param {number} i - zero-based entry index (always 0 in the current single-entry model)
 * @param {Object|undefined} current_value - the raw entry object from `self.data.entries[i]`;
@@ -247,9 +248,9 @@ export const get_content_value = (i, current_value, self) => {
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		if(file_info) {
 			// posterframe image
-			// Cache-bust the posterframe URL so a freshly re-uploaded image is always shown.
+			// The server versions the URL by file mtime+size (?v=), so a re-uploaded image gets a new URL.
 			const posterframe_url = data.posterframe_url
-				? data.posterframe_url + '?t=' + (new Date()).getTime()
+				? data.posterframe_url
 				: page_globals.fallback_image
 			content_value.posterframe = ui.create_dom_element({
 				element_type	: 'img',
@@ -294,7 +295,7 @@ export const get_content_value = (i, current_value, self) => {
 		const file_url = external_source
 			? external_source
 			: file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: null
 
 		if(file_url) {
@@ -336,7 +337,7 @@ export const get_content_value = (i, current_value, self) => {
 			}
 
 			viewer_3d.load(
-				file_url  // + '?t=' + (new Date()).getTime()
+				file_url
 			) // rootPath, fileMap
 			.catch((e) => {
 				console.error('Error loading 3D model:', e)
@@ -501,9 +502,9 @@ export const get_content_value_read = (i, current_value, self) => {
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		if(file_info) {
 			// posterframe image
-			// Cache-bust the posterframe URL so a freshly re-uploaded image is always shown.
+			// The server versions the URL by file mtime+size (?v=), so a re-uploaded image gets a new URL.
 			const posterframe_url = data.posterframe_url
-				? data.posterframe_url + '?t=' + (new Date()).getTime()
+				? data.posterframe_url
 				: page_globals.fallback_image
 			content_value.posterframe = ui.create_dom_element({
 				element_type	: 'img',

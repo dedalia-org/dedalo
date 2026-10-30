@@ -9,7 +9,6 @@
 	import {component_common} from '../../component_common/js/component_common.js'
 	import {render_edit_component_pdf} from '../../component_pdf/js/render_edit_component_pdf.js'
 	import {render_list_component_pdf} from '../../component_pdf/js/render_list_component_pdf.js'
-	import {render_search_component_pdf} from '../../component_pdf/js/render_search_component_pdf.js'
 
 
 
@@ -100,7 +99,11 @@ export const component_pdf = function(){
 	// render
 	component_pdf.prototype.list				= render_list_component_pdf.prototype.list
 	component_pdf.prototype.edit				= render_edit_component_pdf.prototype.edit
-	component_pdf.prototype.search				= render_search_component_pdf.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_pdf.prototype.search				= async function(options) {
+		const {render_search_component_pdf} = await import('../../component_pdf/js/render_search_component_pdf.js')
+		return render_search_component_pdf.prototype.search.call(this, options)
+	}
 
 
 

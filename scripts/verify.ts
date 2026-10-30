@@ -440,6 +440,7 @@ const TRIPWIRES = [
 	'test/unit/release_manifest_completeness_tripwire.test.ts',
 	'test/unit/update_door_precondition_class_tripwire.test.ts',
 	'test/unit/update_docs_claims_tripwire.test.ts',
+	'test/unit/media_url_version_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

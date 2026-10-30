@@ -8,6 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {when_in_viewport} from '../../common/js/events.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -197,9 +198,10 @@ const get_content_data_edit = function(self) {
 *   0 = NETWORK_EMPTY, 1 = NETWORK_IDLE, 2 = NETWORK_LOADING, 3 = NETWORK_NO_SOURCE
 *   Values > 2 indicate that the browser cannot load the resource.
 *
-* Cache busting: all media URLs receive a `?t=<timestamp>` query string so that
-* browsers do not serve a stale cached file after a re-transcode or posterframe
-* regeneration.
+* Cache versioning: media URLs carry the FILE's version, not the render's —
+* video/quality URLs `?v=<file_time.time>-<file_size>` (see get_media_url),
+* posterframe_url `?v=<mtime ms>-<size>` from the server — so renders reuse the HTTP cache and a
+* re-transcode or regenerated posterframe still gets a new URL.
 *
 * (!) The permissions===1 branch currently calls the same get_content_value path
 *     as the edit branch. The conditional is a documented no-op placeholder for
@@ -223,7 +225,7 @@ const get_content_value = (i, current_value, self) => {
 			: []
 		const file_info			= files_info.find(el => el.quality===quality)
 		const posterframe_url	= data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// content_value
@@ -239,6 +241,10 @@ const get_content_value = (i, current_value, self) => {
 			parent			: content_value
 		})
 		posterframe_img.setAttribute('height', 392)
+		// off-screen records don't fetch the still until shown (print: eager, some
+		// browsers print lazy images blank)
+		posterframe_img.loading		= self.view==='print' ? 'eager' : 'lazy'
+		posterframe_img.decoding	= 'async'
 		posterframe_img.addEventListener('error', function(e) {
 			if (posterframe_img.src!==page_globals.fallback_image) {
 				posterframe_img.src = page_globals.fallback_image
@@ -261,14 +267,12 @@ const get_content_value = (i, current_value, self) => {
 
 	// video
 		const video_url	= file_info && file_info.file_exist===true
-			? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			? get_media_url(file_info)
 			: null
 		if (video_url) {
 
 			// render the video node
-			const video = build_video_node(
-				posterframe_url
-			)
+			const video = build_video_node()
 			// fix pointer
 			content_value.video = video
 			// append node to content_value
@@ -304,6 +308,8 @@ const get_content_value = (i, current_value, self) => {
 								}
 						}, true)
 
+					// poster set here, not at build: an off-screen video must not fetch it
+					video.poster = posterframe_url
 					video.preload = 'metadata' // load only metadata (duration, dimensions) not full video
 					video.src = video_url
 					video.classList.remove('hide')
@@ -328,7 +334,9 @@ const get_content_value = (i, current_value, self) => {
 
 	// quality_selector
 		const quality_selector = get_quality_selector(content_value, self)
-		content_value.appendChild(quality_selector)
+		if (quality_selector) {
+			content_value.appendChild(quality_selector)
+		}
 
 
 	return content_value
@@ -380,23 +388,18 @@ const get_content_value = (i, current_value, self) => {
 *  - preload='none' prevents the browser from downloading any video data before
 *    the element enters the viewport. The observer upgrades this to 'metadata'
 *    once visible.
-*  - The `poster` attribute is set to posterframe_url so that a frame is shown
-*    before the first video frame is decoded.
+*  - No `poster` here: the viewport callback sets it, so an off-screen video
+*    fetches nothing (the lazy <img class="posterframe"> covers it meanwhile).
 *  - tabindex=0 makes the player keyboard-accessible.
 *  - height=392 matches the fixed design grid height for AV components.
 *
-* @param {string|null} posterframe_url - Absolute URL for the poster image, or null
-*   when no posterframe exists (the video will have no poster attribute).
 * @returns {HTMLElement} A configured <video> element in the hidden state.
 */
-const build_video_node = (posterframe_url) => {
+const build_video_node = () => {
 
 	// video tag
 		const video	= document.createElement('video')
 		video.classList.add('hide')
-		if (posterframe_url) {
-			video.poster = posterframe_url
-		}
 		video.preload	= 'none' // prevent video data loading until user interaction
 		video.controls	= true
 		video.classList.add('posterframe')
@@ -423,8 +426,11 @@ const build_video_node = (posterframe_url) => {
 * (self.quality ?? self.context.features.quality) so the control reflects the
 * rendering state on first paint.
 *
-* Cache busting: each option value URL carries a `?t=<timestamp>` so that
-* switching quality always fetches the latest transcoded file.
+* Each option value URL is versioned by its file (get_media_url), so switching
+* quality reuses the HTTP cache until that rendition is transcoded again.
+*
+* Returns null when fewer than two qualities exist: a one-option select offers
+* no choice, so it is not built.
 *
 * The change event sets video.src directly. The video element is accessed via
 * `content_value.video` (a pointer set by get_content_value before this function
@@ -434,8 +440,8 @@ const build_video_node = (posterframe_url) => {
 * @param {HTMLElement} content_value - The parent .content_value node that must
 *   already carry a `video` property pointing to the sibling <video> element.
 * @param {Object} self - Component instance.
-* @returns {HTMLElement} The configured <select class="quality_selector"> element,
-*   wrapped inside a DocumentFragment during construction then returned directly.
+* @returns {HTMLElement|null} The configured <select class="quality_selector">
+*   element, or null when there is nothing to choose.
 */
 const get_quality_selector = (content_value, self) => {
 
@@ -449,13 +455,16 @@ const get_quality_selector = (content_value, self) => {
 		const extension		= self.context?.features?.extension
 		const video			= content_value.video
 
-	const fragment = new DocumentFragment()
+	// nothing to choose (no video, or a single rendition)
+		const quality_list = files_info.filter(el => el.file_exist===true && el.extension===extension)
+		if (!video || quality_list.length < 2) {
+			return null
+		}
 
 	// create the quality selector
 		const quality_selector = ui.create_dom_element({
 			element_type	: 'select',
-			class_name		: 'quality_selector',
-			parent			: fragment
+			class_name		: 'quality_selector'
 		})
 		quality_selector.tabIndex = -1;
 		quality_selector.addEventListener('change', (e) =>{
@@ -466,14 +475,13 @@ const get_quality_selector = (content_value, self) => {
 			}
 		})
 
-		const quality_list		= files_info.filter(el => el.file_exist===true && el.extension===extension)
 		const quality_list_len	= quality_list.length
 		for (let i = 0; i < quality_list_len; i++) {
 
 			const file_info = quality_list[i]
 
 			// create the node with the all qualities sent by server
-			const url = DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+			const url = get_media_url(file_info)
 
 			const select_option = ui.create_dom_element({
 				element_type	: 'option',

@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -16,7 +17,7 @@
 * 'mini' mode is used wherever a compact, single-image preview is required
 * without interactive controls — typically inside autocomplete suggestion
 * rows, relation chips, or any embedded list cell that only needs a small
-* visual reference. It does NOT include viewer, editor, or lazy-loading
+* visual reference. It does NOT include viewer or editor
 * logic; those concerns belong to the list/mosaic/edit views.
 *
 * Exported members:
@@ -54,9 +55,8 @@ export const view_mini_image = function() {
 *      Dédalo media store entirely.
 *   2. entries entry whose 'quality' matches page_globals.dedalo_quality_thumb —
 *      a Dédalo-hosted thumbnail; URL is constructed as:
-*        DEDALO_MEDIA_URL + file_info.file_path + '?t=<timestamp>'
-*      The timestamp cache-buster ensures browsers re-fetch after server-side
-*      re-processing without explicit cache invalidation.
+*        get_media_url(file_info) — versioned by its file, so re-processing
+*      gets a new URL.
 *   3. page_globals.fallback_image — shown when neither of the above resolves,
 *      keeping the layout stable even for records with no uploaded file.
 *
@@ -64,9 +64,8 @@ export const view_mini_image = function() {
 * the guard 'image.src !== page_globals.fallback_image' prevents infinite retry
 * loops if the fallback URL itself is broken or the error event re-fires.
 *
-* Note: unlike the list/mosaic views, this renderer does NOT set 'loading=lazy'
-* or attach a viewer handler; mini nodes are expected to be lightweight and
-* immediately visible.
+* Like every media still, the <img> is lazy (off-screen grid cells fetch nothing
+* until shown). No viewer handler is attached.
 *
 * @param {Object} self    - The component_image instance. Must expose:
 *                             self.data    {Object}  — server response data layer
@@ -94,7 +93,7 @@ view_mini_image.render = function(self, options) {
 		const url		= external_source
 			? external_source
 			: file_info
-				? DEDALO_MEDIA_URL + file_info.file_path + '?t=' + (new Date()).getTime()
+				? get_media_url(file_info)
 				: page_globals.fallback_image
 
 	// image
@@ -104,6 +103,8 @@ view_mini_image.render = function(self, options) {
 			class_name		: 'view_' + self.view,
 			parent			: wrapper
 		})
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		// Fall back to the global placeholder on load failure.
 		// Guard prevents an infinite retry loop if the fallback itself returns an error.
 		image.addEventListener('error', function(e) {

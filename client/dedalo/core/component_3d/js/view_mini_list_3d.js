@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -32,7 +33,7 @@ export const view_mini_list_3d = function() {
 * Resolution order for the displayed image (most-specific wins):
 *   1. 'thumb' quality entry from data.entries, when file_exist === true.
 *   2. data.posterframe_url (a server-generated static snapshot of the model),
-*      with a cache-busting timestamp query parameter appended.
+*      versioned by the server (?v=<mtime ms>-<size>).
 *   3. page_globals.fallback_image — the site-wide placeholder image URL.
 *
 * A runtime 'error' listener on the <img> element replaces a broken src with
@@ -64,16 +65,15 @@ view_mini_list_3d.render = async function(self, options) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe (used as fallback)
-	// Cache-bust the posterframe URL with a timestamp so stale browser caches
-	// don't serve the old snapshot after a new posterframe has been generated.
+	// The server versions the URL by file mtime+size (?v=), so a regenerated posterframe gets a new URL.
 		const posterframe_url = data.posterframe_url
-			? data.posterframe_url + '?t=' + (new Date()).getTime()
+			? data.posterframe_url
 			: page_globals.fallback_image
 
 	// URL
 	// if thumb doesn't exist get the posterframe then if the posterframe doesn't exist get the default image.
 		const url = thumb?.file_path
-			? DEDALO_MEDIA_URL + thumb.file_path
+			? get_media_url(thumb)
 			: posterframe_url
 
 	// image
@@ -84,6 +84,8 @@ view_mini_list_3d.render = async function(self, options) {
 			element_type	: 'img',
 			parent			: wrapper
 		})
+		image.loading	= 'lazy'
+		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {
 			if (image.src!==page_globals.fallback_image) {
 				image.src = page_globals.fallback_image

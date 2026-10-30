@@ -6,8 +6,7 @@
 
 // imports
 	import {view_default_list_av} from './view_default_list_av.js'
-	import {view_mini_list_av} from './view_mini_list_av.js'
-	import {view_text_list_av} from './view_text_list_av.js'
+	// mini/text views are lazy (CONVENTIONS S3-37 #3, rarely hit)
 
 
 
@@ -67,11 +66,15 @@ render_list_component_av.prototype.list = async function(options) {
 
 	switch(view) {
 
-		case 'mini':
+		case 'mini': {
+			const {view_mini_list_av} = await import('./view_mini_list_av.js')
 			return view_mini_list_av.render(self, options)
+		}
 
-		case 'text':
-			return view_text_list_av.render(self, options);
+		case 'text': {
+			const {view_text_list_av} = await import('./view_text_list_av.js')
+			return view_text_list_av.render(self, options)
+		}
 
 		case 'column':
 		case 'default':

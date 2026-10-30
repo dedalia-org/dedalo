@@ -46,7 +46,6 @@
 	import {component_common} from '../../component_common/js/component_common.js'
 	import {render_edit_component_av} from '../../component_av/js/render_edit_component_av.js'
 	import {render_list_component_av} from '../../component_av/js/render_list_component_av.js'
-	import {render_search_component_av} from '../../component_av/js/render_search_component_av.js'
 	import {request_failed, response_data} from '../../common/js/api_error.js'
 	import {handle_api_error} from '../../common/js/error_dispatch.js'
 	import {error_text} from '../../common/js/render_api_error.js'
@@ -140,7 +139,11 @@ export const component_av = function(){
 	// render — delegates to mode-specific render modules
 	component_av.prototype.list					= render_list_component_av.prototype.list
 	component_av.prototype.edit					= render_edit_component_av.prototype.edit
-	component_av.prototype.search				= render_search_component_av.prototype.search
+	// search renderer is lazy (CONVENTIONS S3-37 #3, rarely hit): edit/list never need it
+	component_av.prototype.search				= async function(options) {
+		const {render_search_component_av} = await import('../../component_av/js/render_search_component_av.js')
+		return render_search_component_av.prototype.search.call(this, options)
+	}
 
 	component_av.prototype.change_mode			= component_common.prototype.change_mode
 
