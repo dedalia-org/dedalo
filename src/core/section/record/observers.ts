@@ -728,7 +728,8 @@ export async function recomputeMirrorAndHop(
  * `lockTimeout`): past it the recompute throws SQLSTATE 55P03 having written
  * nothing — the door turns that into a retryable withheld `busy`. It bounds
  * THIS recompute's transaction only; the hop a write owes runs after COMMIT
- * under the cascade's own (unbounded) posture.
+ * under the cascade's own (unbounded) posture — owner ruling 2026-10-30: a
+ * timed-out hop would leave downstream mirrors stale.
  */
 export async function refreshExternalMirror(
 	observerTipo: string,

@@ -75,7 +75,10 @@ written and the read is served with withheld `busy` (`details.retryable: true`, 
 only retryable reason; counter `observers_external_refresh_busy`) — the target row is
 held by another write; retrying later succeeds. The bound covers the refresh's own
 transaction only: when it wrote, the post-COMMIT cascade hop keeps the cascade's
-lock posture. The client sends one refresh at a time (the button ignores clicks while
+lock posture, by owner ruling (2026-10-30): a timed-out hop would leave downstream
+mirrors stale, and every save's cascade accepts the same wait. If a downstream chain ever
+makes the wait matter, the fix is to stop the read awaiting the hop, not a timeout. The
+client sends one refresh at a time (the button ignores clicks while
 one is in flight).
 
 **The read is always served.** Notices ride envelope v2: `observers.refresh_refused`
@@ -99,9 +102,10 @@ the update-external button; otherwise none. Every edit view that gated its toolb
 
 ### Known open
 
-- The owner asked for an origin tag `external_refresh` on the TM rows. The TM write API
-  and `matrix_time_machine` carry no origin field, so it is not implemented; the
-  requester as actor is the only provenance today. Needs a schema/TM-API decision.
+- None for TM provenance. Owner ruling 2026-10-30: NO `external_refresh` origin tag. The
+  mirror is a calculation; the real change was made in its source ("real") components,
+  whose TM rows already record it. The requester is the TM actor, exactly as an observer
+  cascade records the saving user.
 
 ### Gate reconciliation
 

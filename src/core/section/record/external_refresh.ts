@@ -62,9 +62,9 @@
  * no record memo, so the read that follows sees the committed row.
  *
  * AUDIT: the requester is the Time Machine actor (grant.userId — the actor the
- * read grant was minted for). The `external_refresh` ORIGIN tag the owner
- * ruling names has no column on the TM write API today (HistoryStamp =
- * {userId, timestamp}); it is a ledger item, not invented here.
+ * read grant was minted for), as an observer cascade records the saving user.
+ * No origin tag (owner ruling 2026-10-30): the mirror is a calculation; the real
+ * change lives in the source components' own TM rows.
  *
  * Errors: this door never fails the read. An unexpected failure is logged,
  * counted (`observers_external_refresh_failed`) and becomes the withheld
