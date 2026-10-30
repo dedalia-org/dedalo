@@ -8,14 +8,15 @@
  * (component_inverse::get_data → section_record::get_inverse_references →
  * search_related::get_referenced_locators) computes it live: one entry per
  * referencing LOCATOR, the stored locator stamped with `from_section_tipo` and
- * `from_section_id` (a string). `render_column_drag` reads exactly that shape
+ * `from_section_id` (PHP: a string; TS: an INT, WC-2026-08-10-section-id-int-canonical).
+ * `render_column_drag` reads exactly that shape
  * (`entries[].from_section_tipo`).
  *
  * The contract pinned here, over a situation this file BUILDS on the generic
  * `test` TLD (no install TLD, AGENTS.md 2026-08-19):
  *   - a referenced target emits ONE entry per referencing locator (an owner
  *     pointing from two components contributes two), each carrying
- *     from_section_tipo / from_section_id (string) / from_component_tipo and
+ *     from_section_tipo / from_section_id (int) / from_component_tipo and
  *     the target's own coordinates;
  *   - an unreferenced target still emits its item, with `entries: []`
  *     (WC-001 — never null, never missing).
@@ -29,8 +30,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { resolveInverseEntries } from '../../src/core/components/component_inverse/emit.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { readSectionRows } from '../../src/core/section/read.ts';
+import type { Principal } from '../../src/core/security/permissions.ts';
+import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -48,6 +52,8 @@ const UNREFERENCED_ID = 900902;
 /** Owner 1 points from PORTAL_A only; owner 2 from both portals. */
 const OWNER_ONE_ID = 900911;
 const OWNER_TWO_ID = 900912;
+/** A user id no matrix_users record holds: no profile, so no section read grant. */
+const NO_PROFILE_USER_ID = 900999;
 
 function locator(sectionId: number, fromTipo: string): Record<string, unknown> {
 	return {
@@ -153,7 +159,8 @@ describe('component_inverse — a list read emits the computed backlinks per row
 		expect(Array.isArray(entries)).toBe(true);
 
 		// The shape render_column_drag reads (and PHP's get_referenced_locators):
-		// the stored locator + the owner's coordinates, from_section_id a string.
+		// the stored locator + the owner's coordinates, from_section_id an INT (the int-canonical
+		// law: every record address on the app API; PHP carried a string).
 		const triples = entries
 			.map(
 				(entry) =>
@@ -168,7 +175,7 @@ describe('component_inverse — a list read emits the computed backlinks per row
 			].sort(),
 		);
 		for (const entry of entries) {
-			expect(typeof entry.from_section_id).toBe('string');
+			expect(Number.isSafeInteger(entry.from_section_id)).toBe(true);
 			expect(entry.section_tipo).toBe(TARGET);
 			expect(Number(entry.section_id)).toBe(REFERENCED_ID);
 		}
@@ -184,5 +191,23 @@ describe('component_inverse — a list read emits the computed backlinks per row
 		);
 		expect(unreferenced).toBeDefined();
 		expect(unreferenced?.entries).toEqual([]);
+	});
+
+	// AUTHZ-05: the backlinks go back to the requester, so an owner the requester
+	// may not read is NOT named. Both identities ask about the SAME referenced
+	// record; only the read grant differs (a global admin vs a user with no profile).
+	test('backlinks are scoped to the requester: owners the caller cannot read are not named', async () => {
+		const asPrincipal = (principal: Principal) =>
+			runWithRequestContext(
+				{ principal, session: null, requestId: 'zzinv-scope', clientIp: '127.0.0.1' },
+				() => resolveInverseEntries(TARGET, REFERENCED_ID),
+			);
+		const admin = await asPrincipal({ userId: -1, isGlobalAdmin: true, isDeveloper: false });
+		const stranger = await asPrincipal({
+			userId: NO_PROFILE_USER_ID,
+			isGlobalAdmin: false,
+			isDeveloper: false,
+		});
+		expect({ admin: admin.length, stranger: stranger.length }).toEqual({ admin: 3, stranger: 0 });
 	});
 });

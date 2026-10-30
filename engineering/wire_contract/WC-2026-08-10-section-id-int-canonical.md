@@ -302,3 +302,23 @@ residue / owner / virtual-of-owner), mutation-verified — the api_config-only
 rule swapped back into the classifier, or into the restore set, reddens two
 cases each. `section_id_concept` and `section_id_intify_apply` stay green
 (`test3` owns `test215`).
+
+## Addendum 2026-10-30 — component_inverse backlinks emit `from_section_id` as INT
+
+- **Surface:** the component_inverse emit hook (`src/core/components/component_inverse/emit.ts`,
+  added 2026-10-29 with the tool_cataloging "used" marker) stamps each backlink with its owner's
+  `from_section_tipo` / `from_section_id`. It shipped minting `String(hit.section_id)`, copying the
+  PHP row (`samples/api_data.json`) — a new string writer site (`section_id_int_tripwire` red).
+- **Shape after:** `from_section_id` is the owner's record address as an INT, like every record
+  address on the app API (§ Shape after). Divergence from PHP: `"1"` → `1`.
+- **Consumers:** the component_inverse client views only render it (`render_value(…, 'text')`, a
+  text node), and tool_cataloging's `is_used` reads `from_section_tipo` only — no consumer compares
+  the id's type.
+- **Gates:** `test/unit/component_inverse_emit_native.test.ts` asserts a safe integer (was:
+  `typeof 'string'`). No parity fixture carries this emission; no re-harvest.
+- **Scope (AUTHZ-05, same change):** the hook ran the UNSCOPED inverse scan and returned every
+  owner to the requester — the list read named records the caller cannot open. It now passes the
+  hits through `scopeInverseReferenceHits` (section read grant + projects boundary) for the
+  request's principal; a global admin sees all, a principal without the grant sees none of those
+  owners. Registered as a `door` in `security_audit_2026_07_23_tripwire`; behaviour leg in
+  `component_inverse_emit_native` (mutation-verified).
