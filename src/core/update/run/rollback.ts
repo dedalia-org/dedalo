@@ -124,7 +124,7 @@ export function dbRestoreReport(
 				? 'This run took no backup (waived): pick the newest verified dump taken BEFORE the run; everything written after it is lost.'
 				: `Restore the database from ${backup}; every write after the dump is lost.`,
 			`Restore the code restore point of ${previous} (Maintenance → Update code → Restore, or the rollback script).`,
-			`Close the run: bun run update abort <what was restored> (until then no new update run starts), then leave maintenance mode.`,
+			`Close the run ${journal.run_id}: bun run update abort <what was restored> (until then no new update run starts), then leave maintenance mode.`,
 		],
 	};
 }
