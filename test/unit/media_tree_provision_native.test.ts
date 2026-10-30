@@ -974,6 +974,12 @@ const DIR_MODE_REGISTER: Readonly<Record<string, DirModeRow>> = Object.freeze({
 		kind: 'not_media',
 		reason: 'session SQLite dir — session ids are bearer credentials; owner-only by design',
 	},
+	'src/core/update/run/journal.ts': {
+		modes: ['0o700'],
+		kind: 'not_media',
+		reason:
+			'the update-run journal dir under the private dir (update/runs): run state, the backup it names and the restore report; engine-only, owner-only by design',
+	},
 	'src/diffusion/targets/mediastore/media_copy.ts': {
 		modes: ['0o700'],
 		kind: 'not_media',

@@ -172,6 +172,10 @@ const MIXED: ReadonlyMap<string, string> = new Map([
 		'consumerStatus: engine_version = identity (display site), version = data; the code-server half is a data consumer (above)',
 	],
 	[
+		'src/core/update/code_manifest_pin.ts',
+		"fetchManifestText asks the master the panel's own question (U-41): options.version = data (the master's plans are rungs above it), options.release = identity (the asker's build, never ordered or compared here)",
+	],
+	[
 		'src/core/install/installer_identity.ts',
 		'the installer identity, validated against the data version its seam may name',
 	],

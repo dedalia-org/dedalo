@@ -68,6 +68,7 @@ import {
 	stackPlanCtx,
 	variantName,
 } from '../helpers/install_host_scratch.ts';
+import { PINNED_IDENTITY, withInstallerIdentity } from '../helpers/installer_identity.ts';
 
 // ---------------------------------------------------------------------------
 // The recorded budget. SHRINK-ONLY: lower a number here when the client boots
@@ -332,7 +333,7 @@ describe('page load budget — the escape the installer offers', () => {
 	const docker = (tls: Record<string, unknown>) =>
 		stackPlanCtx({ route: 'docker', entity: 'museo', server_name: 'dedalo.example.org', ...tls });
 
-	test("the docker route's three TLS modes render an h2 site; only trial takes the plain conf", () => {
+	test("the docker route's three TLS modes render an h2 site; only trial takes the plain conf", async () => {
 		const modes = [
 			{ letsencrypt_email: 'ops@example.org' },
 			{ tls_mode: 'local_ca' },
@@ -342,13 +343,19 @@ describe('page load budget — the escape the installer offers', () => {
 				tls_key_path: '/etc/ssl/m/privkey.pem',
 			},
 		];
-		for (const tls of modes) {
-			const site = renderStackNginx(docker(tls));
-			expect(terminatesTls(site), JSON.stringify(tls)).toBe(true);
-			expect(declaresHttp2(site), JSON.stringify(tls)).toBe(true);
-		}
-		const trial = stackPlanCtx({ route: 'trial', entity: 'trial_museum' });
-		expect(nginxConfOf(trial.answers)).toBe('nginx.simple.conf');
+		// Docker and trial install IMAGES, and an image install runs TAGGED releases
+		// only (no nightly image): pin the installer identity to this data version's
+		// stable release, or both plans are refused whenever the checkout is a
+		// development build.
+		await withInstallerIdentity(PINNED_IDENTITY.stable, () => {
+			for (const tls of modes) {
+				const site = renderStackNginx(docker(tls));
+				expect(terminatesTls(site), JSON.stringify(tls)).toBe(true);
+				expect(declaresHttp2(site), JSON.stringify(tls)).toBe(true);
+			}
+			const trial = stackPlanCtx({ route: 'trial', entity: 'trial_museum' });
+			expect(nginxConfOf(trial.answers)).toBe('nginx.simple.conf');
+		});
 		expect(terminatesTls(read(SIMPLE_CONF))).toBe(false);
 	});
 

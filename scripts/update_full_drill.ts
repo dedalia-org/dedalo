@@ -102,7 +102,39 @@ import { fileURLToPath } from 'node:url';
 import type { ReleasePlan } from '../src/core/update/catalog_file.ts';
 import type { PhaseResult, RunEffects } from '../src/core/update/run/executor.ts';
 import type { RunJournal } from '../src/core/update/run/journal.ts';
+import { DEDALO_DATA_VERSION, formatVersion } from '../src/core/update/version.ts';
 import { removeScratchDir, scratchDir } from '../test/helpers/scratch_dir.ts';
+
+/**
+ * THE DRILL'S VERSION WORLD, DERIVED from this tree's data version (the version
+ * single-source law: update_ownership_tripwire). The header and comments name
+ * the rungs as they read on the 7.0.0 line (data 7.0.0, booted 7.0.1,
+ * compatible 7.0.2, next 7.1.0, incompatible 7.2.0); a version bump moves the
+ * whole world with it instead of leaving a hardcoded one behind.
+ */
+const [MAJOR, MINOR, PATCH] = DEDALO_DATA_VERSION;
+const VA = {
+	/** The data version the scratch install starts on. */
+	data: [MAJOR, MINOR, PATCH],
+	/** The release the first process boots as (same data model). */
+	booted: [MAJOR, MINOR, PATCH + 1],
+	/** A compatible release on the same line (data unchanged). */
+	compat: [MAJOR, MINOR, PATCH + 2],
+	/** The next minor: its own data model, ontology precondition, a data rung. */
+	next: [MAJOR, MINOR + 1, 0],
+	/** An incompatible release two minors up (its schema migration fails). */
+	incompat: [MAJOR, MINOR + 2, 0],
+};
+const V = {
+	data: formatVersion(VA.data),
+	booted: formatVersion(VA.booted),
+	compat: formatVersion(VA.compat),
+	next: formatVersion(VA.next),
+	incompat: formatVersion(VA.incompat),
+	/** major.minor of the starting line and of the next one (export dirs, data models). */
+	dataLine: `${MAJOR}.${MINOR}`,
+	nextLine: `${MAJOR}.${MINOR + 1}`,
+} as const;
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const TOTAL_DEADLINE_MS = 5 * 60_000;
@@ -140,7 +172,7 @@ const MIGRATIONS: readonly {
 }[] = [
 	{
 		file: '0001_updfull_s1.sql',
-		release: '7.0.2',
+		release: V.compat,
 		class: 'compatible',
 		sql: [
 			'CREATE TABLE IF NOT EXISTS dedalo_ts_test_updfull_s1 (id text PRIMARY KEY, note text);',
@@ -149,28 +181,28 @@ const MIGRATIONS: readonly {
 	},
 	{
 		file: '0002_updfull_s2.sql',
-		release: '7.1.0',
+		release: V.next,
 		class: 'incompatible',
 		sql: [
 			'CREATE TABLE dedalo_ts_test_updfull_s2 (id text PRIMARY KEY);',
-			"INSERT INTO dedalo_ts_test_updfull_s2 (id) VALUES ('schema 7.1.0');",
+			`INSERT INTO dedalo_ts_test_updfull_s2 (id) VALUES ('schema ${V.next}');`,
 			'CREATE TABLE dedalo_ts_test_updfull_rung (id text PRIMARY KEY, note text);',
 		].join('\n'),
 	},
 	{
 		file: '0003_updfull_s3.sql',
-		release: '7.2.0',
+		release: V.incompat,
 		class: 'incompatible',
 		sql: [
 			'CREATE TABLE dedalo_ts_test_updfull_s3 (id text PRIMARY KEY);',
-			"INSERT INTO dedalo_ts_test_updfull_s3 (id) VALUES ('schema 7.2.0');",
+			`INSERT INTO dedalo_ts_test_updfull_s3 (id) VALUES ('schema ${V.incompat}');`,
 		].join('\n'),
 	},
 	{
 		// THE PLANTED FAILURE: a table and a row, then a statement that fails —
 		// the file's own transaction must leave neither behind.
 		file: '0004_updfull_planted_failure.sql',
-		release: '7.2.0',
+		release: V.incompat,
 		class: 'incompatible',
 		sql: [
 			'CREATE TABLE dedalo_ts_test_updfull_s4 (id text PRIMARY KEY);',
@@ -182,10 +214,8 @@ const MIGRATIONS: readonly {
 
 /** The data rungs' SQL files (install/update/<release>/<name>.sql). */
 const RUNG_SQL: Readonly<Record<string, string>> = {
-	'7.1.0/01_rung.sql':
-		"INSERT INTO dedalo_ts_test_updfull_rung (id, note) VALUES ('rung 7.1.0', 'data rung')",
-	'7.2.0/01_rung.sql':
-		"INSERT INTO dedalo_ts_test_updfull_rung (id, note) VALUES ('rung 7.2.0', 'data rung')",
+	[`${V.next}/01_rung.sql`]: `INSERT INTO dedalo_ts_test_updfull_rung (id, note) VALUES ('rung ${V.next}', 'data rung')`,
+	[`${V.incompat}/01_rung.sql`]: `INSERT INTO dedalo_ts_test_updfull_rung (id, note) VALUES ('rung ${V.incompat}', 'data rung')`,
 };
 
 const CHECKPOINT_SCRIPT = {
@@ -199,24 +229,28 @@ function fullCatalog(): unknown {
 	return {
 		format: 1,
 		releases: {
-			'7.0.1': {},
-			'7.0.2': {
+			[V.booted]: {},
+			[V.compat]: {
 				compat: 'compatible',
 				steps: [{ kind: 'code' }, { kind: 'ontology' }, { kind: 'schema' }],
 			},
-			'7.1.0': {
+			[V.next]: {
 				compat: 'incompatible',
 				steps: [
-					{ kind: 'ontology', min: '7.0.2' },
+					{ kind: 'ontology', min: V.compat },
 					{ kind: 'code' },
 					{ kind: 'ontology' },
 					{ kind: 'schema' },
-					{ kind: 'data', sql: ['7.1.0/01_rung.sql'], scripts: [CHECKPOINT_SCRIPT] },
+					{ kind: 'data', sql: [`${V.next}/01_rung.sql`], scripts: [CHECKPOINT_SCRIPT] },
 				],
 			},
-			'7.2.0': {
+			[V.incompat]: {
 				compat: 'incompatible',
-				steps: [{ kind: 'code' }, { kind: 'schema' }, { kind: 'data', sql: ['7.2.0/01_rung.sql'] }],
+				steps: [
+					{ kind: 'code' },
+					{ kind: 'schema' },
+					{ kind: 'data', sql: [`${V.incompat}/01_rung.sql`] },
+				],
 			},
 		},
 	};
@@ -257,7 +291,7 @@ function buildWorld(scratch: string): World {
 		journalRoot: join(scratch, 'update', 'runs'),
 		sentinelPath: join(scratch, 'code_backups', 'last_code_update.json'),
 		stateFile: join(scratch, 'ts_state.json'),
-		exportDir: join(scratch, 'ontology_export', '7.0'),
+		exportDir: join(scratch, 'ontology_export', V.dataLine),
 		catalogDir: join(scratch, 'catalog'),
 		markerDir: join(scratch, 'markers'),
 		logPath: join(scratch, 'update.log'),
@@ -278,7 +312,7 @@ function buildWorld(scratch: string): World {
 		mkdirSync(join(world.catalogDir, path.split('/')[0] as string), { recursive: true });
 		writeFileSync(join(world.catalogDir, path), `${text}\n`);
 	}
-	for (const release of ['7.1.0', '7.2.0']) {
+	for (const release of [V.next, V.incompat]) {
 		const dir = join(scratch, `tree_${release}`, 'migrations');
 		mkdirSync(dir, { recursive: true });
 		const carried = MIGRATIONS.filter((entry) => compareTriples(entry.release, release) <= 0);
@@ -295,7 +329,7 @@ function buildWorld(scratch: string): World {
 		writeJson(ledger, { format: 1, migrations });
 		world.trees[release] = { dir, ledger };
 	}
-	plantOntologyExport(world, '7.0.1');
+	plantOntologyExport(world, V.booted);
 	return world;
 }
 
@@ -499,7 +533,7 @@ async function seedTables(e: Engine): Promise<void> {
 		e,
 		'CREATE TABLE dedalo_ts_test_updfull_ontology (id serial PRIMARY KEY, tld text NOT NULL, version text)',
 	);
-	await writeDrillDataVersion(e, '7.0.0');
+	await writeDrillDataVersion(e, V.data);
 }
 
 // ---------------------------------------------------------------------------
@@ -934,13 +968,13 @@ interface Context {
 }
 
 const PRE_EXPECTED_PLAN_710 = [
-	'7.1.0 ontology',
-	'7.1.0 code',
-	'7.0.2 ontology',
-	'7.0.2 schema',
-	'7.1.0 ontology',
-	'7.1.0 schema',
-	'7.1.0 data',
+	`${V.next} ontology`,
+	`${V.next} code`,
+	`${V.compat} ontology`,
+	`${V.compat} schema`,
+	`${V.next} ontology`,
+	`${V.next} schema`,
+	`${V.next} data`,
 ];
 
 function planFor(c: Context, installedRelease: string, installedData: number[], target: string) {
@@ -962,7 +996,7 @@ async function legCatalog(c: Context): Promise<void> {
 	equal(loaded.violations, [], 'the scratch catalog (ontology steps included) loads clean');
 	// THE MASTER SIDE: its manifest's `plans` for an asker on 7.0.1, through the wire (JSON).
 	const wire = JSON.parse(
-		JSON.stringify(e.wire.wirePlansAbove([7, 0, 1], loaded.plans, loaded.descriptors)),
+		JSON.stringify(e.wire.wirePlansAbove(VA.booted, loaded.plans, loaded.descriptors)),
 	) as {
 		version: string;
 		data: string;
@@ -971,33 +1005,33 @@ async function legCatalog(c: Context): Promise<void> {
 	equal(
 		wire.map((plan) => [plan.version, plan.data]),
 		[
-			['7.0.2', '7.0.0'],
-			['7.1.0', '7.1.0'],
-			['7.2.0', '7.2.0'],
+			[V.compat, V.data],
+			[V.next, V.next],
+			[V.incompat, V.incompat],
 		],
 		"the master's plans: each release's data version (dataVersionOf over the catalog)",
 	);
 	equal(
 		wire[1]?.steps[0],
-		{ kind: 'ontology', min: '7.0.2' },
-		'the 7.1.0 ontology precondition travels on the wire',
+		{ kind: 'ontology', min: V.compat },
+		`the ${V.next} ontology precondition travels on the wire`,
 	);
 	const read = e.wire.readWirePlans(wire);
 	check(read !== null, "the consumer parser (readWirePlans) accepts the master's plans", wire);
 	const parsed = read as NonNullable<typeof read>;
 	c.plans = { ...e.catalog.RELEASE_PLANS, ...parsed.plans };
 	c.targetData = parsed.data;
-	const planned = planFor(c, '7.0.1', [7, 0, 0], '7.1.0');
+	const planned = planFor(c, V.booted, VA.data, V.next);
 	if (!planned.ok) return;
 	equal(
 		planned.plan.map((entry) => `${entry.release} ${entry.step.kind}`),
 		PRE_EXPECTED_PLAN_710,
-		'the 7.0.1 → 7.1.0 walk: ontology precondition, ONE code swap, then each release in order',
+		`the ${V.booted} → ${V.next} walk: ontology precondition, ONE code swap, then each release in order`,
 	);
 	equal(
 		[planned.from.model, planned.to.model],
-		['7.0.0', '7.1.0'],
-		'the walk crosses the 7.0 → 7.1 data model (journaled up front)',
+		[V.data, V.next],
+		`the walk crosses the ${V.dataLine} → ${V.nextLine} data model (journaled up front)`,
 	);
 	say('LEG 0 PASS — catalog: loader + master wire plans + planner');
 }
@@ -1005,14 +1039,14 @@ async function legCatalog(c: Context): Promise<void> {
 /** RUN 1: the ontology precondition refuses before the swap. */
 async function legOntologyMinRefusal(c: Context): Promise<void> {
 	const { e, world } = c;
-	const planned = planFor(c, '7.0.1', [7, 0, 0], '7.1.0');
-	const effects = drillEffects(e, world, { booted: '7.0.1', starting: true, role: 'run1' });
+	const planned = planFor(c, V.booted, VA.data, V.next);
+	const effects = drillEffects(e, world, { booted: V.booted, starting: true, role: 'run1' });
 	const outcome = await e.executor.startPlannedRun(planned, { ...effects, plans: c.plans });
 	const journal = await onlyJournal(e, world, outcome.journal.run_id);
 	equal([outcome.state, journal.state], ['ended', 'FAILED_PRE_SWAP'], 'RUN 1 ends FAILED_PRE_SWAP');
 	equal(
 		phaseLine(journal),
-		['7.1.0 ontology failed'],
+		[`${V.next} ontology failed`],
 		'RUN 1: only the ontology precondition ran; the code phase never started',
 	);
 	check(
@@ -1028,7 +1062,7 @@ async function legOntologyMinRefusal(c: Context): Promise<void> {
 	check(!maintenanceFlag(world), "RUN 1: maintenance restored to the operator's (off)");
 	equal(await ontologyImports(e), [], 'RUN 1: no ontology file was imported');
 	check(!(await tableExists(e, T.migrations)), 'RUN 1: no migration ran (no version table)');
-	equal(await readDrillDataVersion(e), [7, 0, 0], 'RUN 1: data version unchanged');
+	equal(await readDrillDataVersion(e), VA.data, 'RUN 1: data version unchanged');
 	equal(sentinelStatus(world), null, 'RUN 1: no code sentinel (nothing swapped)');
 	equal(await runLockHolders(e), 0, 'RUN 1: the UPDATE_RUN lock is released');
 	assertHealth(
@@ -1045,7 +1079,7 @@ async function killMidRung(c: Context, runId: string): Promise<void> {
 	const { e, world } = c;
 	let journal: RunJournal;
 	// CHILD A — the new tree's boot; parks inside the data rung's transaction.
-	const a = spawnChild(world, 'a', '7.1.0', true);
+	const a = spawnChild(world, 'a', V.next, true);
 	const marker = join(world.markerDir, 'paused_in_data');
 	await waitFor(
 		async () =>
@@ -1063,19 +1097,19 @@ async function killMidRung(c: Context, runId: string): Promise<void> {
 	equal(
 		phaseLine(journal),
 		[
-			'7.1.0 ontology ok',
-			'7.1.0 code ok',
-			'7.0.2 ontology ok',
-			'7.0.2 schema ok',
-			'7.1.0 ontology ok',
-			'7.1.0 schema ok',
-			'7.1.0 data running',
+			`${V.next} ontology ok`,
+			`${V.next} code ok`,
+			`${V.compat} ontology ok`,
+			`${V.compat} schema ok`,
+			`${V.next} ontology ok`,
+			`${V.next} schema ok`,
+			`${V.next} data running`,
 		],
 		'RUN 2 (child A, parked): every phase before the rung ok, the rung RUNNING',
 	);
 	equal(
 		journal.phases[1]?.evidence,
-		{ booted: '7.1.0' },
+		{ booted: V.next },
 		'RUN 2: the code phase settled on the booted tree',
 	);
 	equal(journal.state, 'SCHEMA_APPLIED', 'RUN 2 (child A, parked): state');
@@ -1107,7 +1141,7 @@ async function killMidRung(c: Context, runId: string): Promise<void> {
 		[],
 		"RUN 2 (killed): the rung's statements rolled back with the session",
 	);
-	equal(await readDrillDataVersion(e), [7, 0, 0], 'RUN 2 (killed): data version not stamped');
+	equal(await readDrillDataVersion(e), VA.data, 'RUN 2 (killed): data version not stamped');
 	check(maintenanceFlag(world), 'RUN 2 (killed): maintenance still ON');
 	journal = await onlyJournal(e, world, runId);
 	equal(
@@ -1120,15 +1154,15 @@ async function killMidRung(c: Context, runId: string): Promise<void> {
 /** RUN 2: the walk across 7.0.2 to 7.1.0, the code restart, the kill mid-rung, the resume. */
 async function legWalkKillResume(c: Context): Promise<RunJournal> {
 	const { e, world } = c;
-	plantOntologyExport(world, '7.0.2');
-	const planned = planFor(c, '7.0.1', [7, 0, 0], '7.1.0');
-	const effects = drillEffects(e, world, { booted: '7.0.1', starting: true, role: 'run2_start' });
+	plantOntologyExport(world, V.compat);
+	const planned = planFor(c, V.booted, VA.data, V.next);
+	const effects = drillEffects(e, world, { booted: V.booted, starting: true, role: 'run2_start' });
 	const started = await e.executor.startPlannedRun(planned, { ...effects, plans: c.plans });
 	let journal = await onlyJournal(e, world, started.journal.run_id);
 	equal(started.state, 'restarting', 'RUN 2: the code phase hands over to the next boot');
 	equal(
 		phaseLine(journal),
-		['7.1.0 ontology ok', '7.1.0 code running'],
+		[`${V.next} ontology ok`, `${V.next} code running`],
 		'RUN 2: precondition ok, code phase left RUNNING across the restart',
 	);
 	equal(journal.state, 'ONTOLOGY_APPLIED', 'RUN 2: state before the restart');
@@ -1160,12 +1194,12 @@ async function legWalkKillResume(c: Context): Promise<RunJournal> {
 	);
 
 	// The master moved on: the new tree's ontology source offers 7.1.0.
-	plantOntologyExport(world, '7.1.0');
+	plantOntologyExport(world, V.next);
 
 	if (c.children) await killMidRung(c, journal.run_id);
 
 	// CHILD B — the next boot resumes from the journal alone.
-	const b = await nextBoot(c, 'b', '7.1.0');
+	const b = await nextBoot(c, 'b', V.next);
 	journal = await onlyJournal(e, world, journal.run_id);
 	equal(
 		[b.outcome, b.state, journal.state],
@@ -1175,14 +1209,14 @@ async function legWalkKillResume(c: Context): Promise<RunJournal> {
 	equal(
 		phaseLine(journal),
 		[
-			'7.1.0 ontology ok',
-			'7.1.0 code ok',
-			'7.0.2 ontology ok',
-			'7.0.2 schema ok',
-			'7.1.0 ontology ok',
-			'7.1.0 schema ok',
-			...(c.children ? ['7.1.0 data failed'] : []),
-			'7.1.0 data ok',
+			`${V.next} ontology ok`,
+			`${V.next} code ok`,
+			`${V.compat} ontology ok`,
+			`${V.compat} schema ok`,
+			`${V.next} ontology ok`,
+			`${V.next} schema ok`,
+			...(c.children ? [`${V.next} data failed`] : []),
+			`${V.next} data ok`,
 		],
 		c.children
 			? 'RUN 2: the interrupted rung is closed failed and runs again'
@@ -1199,15 +1233,15 @@ async function legWalkKillResume(c: Context): Promise<RunJournal> {
 		'RUN 2: every post-verify predicate ok',
 		journal.verify,
 	);
-	equal(await idsOf(e, T.rung), ['rung 7.1.0'], 'RUN 2: the rung wrote its row exactly once');
-	equal(await idsOf(e, T.s2), ['schema 7.1.0'], "RUN 2: the 7.1.0 migration's row");
-	check(await tableExists(e, T.s1), "RUN 2: the 7.0.2 migration's table");
+	equal(await idsOf(e, T.rung), [`rung ${V.next}`], 'RUN 2: the rung wrote its row exactly once');
+	equal(await idsOf(e, T.s2), [`schema ${V.next}`], `RUN 2: the ${V.next} migration's row`);
+	check(await tableExists(e, T.s1), `RUN 2: the ${V.compat} migration's table`);
 	const recorded = await recordedMigrations(e);
 	equal(
 		recorded.map((row) => [row.version, row.release]),
 		[
-			['0001_updfull_s1.sql', '7.0.2'],
-			['0002_updfull_s2.sql', '7.1.0'],
+			['0001_updfull_s1.sql', V.compat],
+			['0002_updfull_s2.sql', V.next],
 		],
 		'RUN 2: both files recorded with the release that shipped them',
 	);
@@ -1218,16 +1252,16 @@ async function legWalkKillResume(c: Context): Promise<RunJournal> {
 		'RUN 2: recorded hashes = the files',
 		recorded,
 	);
-	equal(await readDrillDataVersion(e), [7, 1, 0], 'RUN 2: data version 7.1.0');
+	equal(await readDrillDataVersion(e), VA.next, `RUN 2: data version ${V.next}`);
 	equal(
 		(await ontologyImports(e)).map((row) => `${row.tld}@${row.version}`),
 		[
-			`${DRILL_TLD}@7.0.2`,
-			'matrix_dd@7.0.2',
-			`${DRILL_TLD}@7.1.0`,
-			'matrix_dd@7.1.0',
-			`${DRILL_TLD}@7.1.0`,
-			'matrix_dd@7.1.0',
+			`${DRILL_TLD}@${V.compat}`,
+			`matrix_dd@${V.compat}`,
+			`${DRILL_TLD}@${V.next}`,
+			`matrix_dd@${V.next}`,
+			`${DRILL_TLD}@${V.next}`,
+			`matrix_dd@${V.next}`,
 		],
 		'RUN 2: three ontology phases, each the shared TLD + matrix_dd from the source',
 	);
@@ -1240,10 +1274,14 @@ async function legWalkKillResume(c: Context): Promise<RunJournal> {
 	// 7.1.0's incompatible file runs in '7.1.0 schema', after the 7.1.0 ontology step.
 	const applied = (index: number) =>
 		(journal.phases[index]?.evidence as { applied?: string[] } | undefined)?.applied;
-	equal(applied(3), ['0001_updfull_s1.sql'], "RUN 2: '7.0.2 schema' applied 7.0.2's file only");
-	equal(applied(5), ['0002_updfull_s2.sql'], "RUN 2: '7.1.0 schema' applied 7.1.0's file");
+	equal(
+		applied(3),
+		['0001_updfull_s1.sql'],
+		`RUN 2: '${V.compat} schema' applied ${V.compat}'s file only`,
+	);
+	equal(applied(5), ['0002_updfull_s2.sql'], `RUN 2: '${V.next} schema' applied ${V.next}'s file`);
 	say(
-		`RUN 2 PASS — walk 7.0.1 → 7.0.2 → 7.1.0, code restart${c.children ? ', SIGKILL mid-rung' : ''}, resume: ${journal.run_id} CONFIRMED`,
+		`RUN 2 PASS — walk ${V.booted} → ${V.compat} → ${V.next}, code restart${c.children ? ', SIGKILL mid-rung' : ''}, resume: ${journal.run_id} CONFIRMED`,
 	);
 	return journal;
 }
@@ -1255,16 +1293,16 @@ async function legNeedsDbRestore(c: Context): Promise<void> {
 	mkdirSync(join(world.scratch, 'db_backups'), { recursive: true });
 	writeFileSync(backupPath, 'drill stand-in: the run backup the restore report names\n');
 	const taken = new Date().toISOString();
-	const planned = planFor(c, '7.1.0', [7, 1, 0], '7.2.0');
+	const planned = planFor(c, V.next, VA.next, V.incompat);
 	if (planned.ok) {
 		equal(
 			planned.plan.map((entry) => `${entry.release} ${entry.step.kind}`),
-			['7.2.0 code', '7.2.0 schema', '7.2.0 data'],
+			[`${V.incompat} code`, `${V.incompat} schema`, `${V.incompat} data`],
 			'RUN 3 plan',
 		);
 	}
 	const effects = drillEffects(e, world, {
-		booted: '7.1.0',
+		booted: V.next,
 		starting: true,
 		role: 'run3_start',
 		backup: async () => ({ path: backupPath, taken, waivedBy: null }),
@@ -1273,7 +1311,7 @@ async function legNeedsDbRestore(c: Context): Promise<void> {
 	equal(started.state, 'restarting', 'RUN 3: the code phase hands over');
 	equal(sentinelStatus(world), 'pending', 'RUN 3: a new pending sentinel');
 
-	const result = await nextBoot(c, 'c', '7.2.0');
+	const result = await nextBoot(c, 'c', V.incompat);
 	const journal = await onlyJournal(e, world, started.journal.run_id);
 	equal(
 		[result.outcome, result.state, journal.state],
@@ -1282,13 +1320,13 @@ async function legNeedsDbRestore(c: Context): Promise<void> {
 	);
 	equal(
 		phaseLine(journal),
-		['7.2.0 code ok', '7.2.0 schema failed'],
+		[`${V.incompat} code ok`, `${V.incompat} schema failed`],
 		'RUN 3: the schema phase failed; the data rung never ran',
 	);
 	equal(
 		await idsOf(e, T.s3),
-		['schema 7.2.0'],
-		'RUN 3: the good 7.2.0 file committed (the model moved)',
+		[`schema ${V.incompat}`],
+		`RUN 3: the good ${V.incompat} file committed (the model moved)`,
 	);
 	check(
 		!(await tableExists(e, T.s4)),
@@ -1299,16 +1337,16 @@ async function legNeedsDbRestore(c: Context): Promise<void> {
 		['0001_updfull_s1.sql', '0002_updfull_s2.sql', '0003_updfull_s3.sql'],
 		'RUN 3: the planted file is NOT recorded (the next attempt retries it)',
 	);
-	equal(await idsOf(e, T.rung), ['rung 7.1.0'], 'RUN 3: the 7.2.0 rung did not run');
-	equal(await readDrillDataVersion(e), [7, 1, 0], 'RUN 3: data version not stamped');
+	equal(await idsOf(e, T.rung), [`rung ${V.next}`], `RUN 3: the ${V.incompat} rung did not run`);
+	equal(await readDrillDataVersion(e), VA.next, 'RUN 3: data version not stamped');
 	equal(
 		journal.restore,
 		{
 			run_id: journal.run_id,
-			crossedBy: '7.2.0 schema',
+			crossedBy: `${V.incompat} schema`,
 			backup: backupPath,
 			lossWindowFrom: taken,
-			previousRelease: '7.1.0',
+			previousRelease: V.next,
 			actions: journal.restore?.actions,
 		},
 		'RUN 3: the restore report names the crossing phase, the run backup, the loss window, the previous release',
@@ -1327,13 +1365,13 @@ async function legNeedsDbRestore(c: Context): Promise<void> {
 	// human closes the run with the report's own step 4 (`bun run update abort`).
 	const probeOf = async (role: string) => {
 		const probeEffects = drillEffects(e, world, {
-			booted: '7.2.0',
+			booted: V.incompat,
 			starting: true,
 			role,
 			preflight: async () => 'drill probe: stopped at preflight',
 		});
 		return e.executor
-			.startPlannedRun(planFor(c, '7.1.0', [7, 1, 0], '7.2.0'), { ...probeEffects, plans: c.plans })
+			.startPlannedRun(planFor(c, V.next, VA.next, V.incompat), { ...probeEffects, plans: c.plans })
 			.then((outcome) => outcome.journal.state)
 			.catch((error: unknown) => `refused: ${String(error)}`);
 	};

@@ -80,7 +80,7 @@ const ROOT_INFO = { tipo: 'dd1', properties: { version: '7.0.0' } };
 const SOURCE = {
 	source: 'https://m.example/dedalo/core/api/v1/json/',
 	succeeded: true,
-	msg: 'imported zza',
+	msg: 'imported zzuow',
 	problems: [] as string[],
 	root_info: ROOT_INFO,
 };
@@ -121,7 +121,7 @@ describe('update_ontology: the response the client reads', () => {
 		}
 		expect(response).toEqual({
 			data: true,
-			msg: 'imported zza',
+			msg: 'imported zzuow',
 			extend: { run_id: journal.run_id, root_info: ROOT_INFO },
 		});
 		expect('census' in ((response as { extend: object }).extend ?? {})).toBe(false);
@@ -136,7 +136,7 @@ describe('update_ontology: the response the client reads', () => {
 		} finally {
 			mock.module('../../src/core/update/run/start.ts', () => REAL_START);
 		}
-		expect(response).toMatchObject({ data: true, msg: 'imported zza', errors: ['zzb: missing'] });
+		expect(response).toMatchObject({ data: true, msg: 'imported zzuow', errors: ['zzb: missing'] });
 	});
 
 	// Planted where ontology_phase.ts writes it: on the source line of the phase
@@ -144,7 +144,7 @@ describe('update_ontology: the response the client reads', () => {
 	// WC-2026-10-30-ontology-import-census-restore).
 	test('a census in the ontology phase evidence passes through as extend.census', async () => {
 		const census = [
-			{ tld: 'zza', removed: [{ tipo: 'zza7', model: 'section', records: 3 }], remodelled: [] },
+			{ tld: 'zzuow', removed: [{ tipo: 'zzuow7', model: 'section', records: 3 }], remodelled: [] },
 		];
 		const journal = journalWith({ sources: [{ ...SOURCE, census }] });
 		interceptRun(journal);

@@ -30,11 +30,11 @@
  *     configChildRenderFields (relations/config_ddo_map.ts).
  *
  * Situations built here (one TLD, dropped in afterAll with residue asserted 0):
- *   zzpn1  section (relations test24)            host record §900801
- *     zzpn2  component_portal → zzpn3 (rows)     own config: zzpn5 child, limit 4
- *   zzpn3  section (relations test24)            rows §900811, §900812
- *     zzpn5  component_portal → zzpn6 (coins)    the nested portal
- *   zzpn6  section (relations test24)            coins §900821-900826
+ *   zzpnl1  section (relations test24)            host record §900801
+ *     zzpnl2  component_portal → zzpnl3 (rows)     own config: zzpnl5 child, limit 4
+ *   zzpnl3  section (relations test24)            rows §900811, §900812
+ *     zzpnl5  component_portal → zzpnl6 (coins)    the nested portal
+ *   zzpnl6  section (relations test24)            coins §900821-900826
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -46,11 +46,11 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 
-const HOST = 'zzpn1';
-const ROW_PORTAL = 'zzpn2';
-const ROW = 'zzpn3';
-const NESTED_PORTAL = 'zzpn5';
-const COIN = 'zzpn6';
+const HOST = 'zzpnl1';
+const ROW_PORTAL = 'zzpnl2';
+const ROW = 'zzpnl3';
+const NESTED_PORTAL = 'zzpnl5';
+const COIN = 'zzpnl6';
 
 const HOST_ID = 900801;
 const ROW_IDS = [900811, 900812];
@@ -73,7 +73,7 @@ function locator(
 
 const S = situation({
 	name: 'nested portal ddo limit',
-	tld: 'zzpn',
+	tld: 'zzpnl',
 	nodes: [
 		{
 			tipo: HOST,

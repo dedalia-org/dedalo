@@ -27,7 +27,7 @@
  *                                                     version that went backwards
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { config } from '../src/config/config.ts';
@@ -168,15 +168,26 @@ function writeBank(current: Derivations): void {
 function main(): void {
 	const current = currentDerivations();
 	let banked: Partial<Derivations> = {};
+	let unreadable: string | null = null;
 	try {
 		banked = readBank();
-	} catch {
+	} catch (error) {
 		banked = {};
+		unreadable = error instanceof Error ? error.message : String(error);
 	}
 	if (process.argv.includes('--update')) {
+		// An unreadable bank (merge-conflicted, truncated) is NOT an empty one: read as
+		// empty, every surface would look unbanked and the write would launder a moved
+		// hash under an unchanged version. Restore the file first, then re-record.
+		if (unreadable !== null && existsSync(BANK_PATH)) {
+			console.error(
+				`REFUSED: ${BANK_PATH} exists but cannot be read (${unreadable}) — restore it (git checkout) before --update`,
+			);
+			process.exit(1);
+		}
 		const refusals = updateRefusals(current, banked);
 		if (refusals.length > 0) {
-			console.error(`refused:\n  ${refusals.join('\n  ')}`);
+			console.error(`REFUSED:\n  ${refusals.join('\n  ')}`);
 			process.exit(1);
 		}
 		writeBank(current);

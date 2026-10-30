@@ -347,6 +347,13 @@ export const REGISTRY: readonly RatchetEntry[] = [
 			'a SOURCE, not a measure: the official image registry list (addresses, signing identity) is a hand decision; the generated copies (deploy/image_registries.sh, the docs/install/docker.md table) derive FROM it via `bun run registries:gen` and are gated by `registries:check` (test/unit/image_registries_tripwire.test.ts) — nothing derives the list itself',
 	},
 	{
+		id: 'derivation_versions',
+		artifacts: ['engineering/derivation_versions.json'],
+		tier: 'manual',
+		reason:
+			'an EQUALITY bank of hand-bumped derivation versions (update audit U-38/U-30: media rules TEMPLATE_VERSION, SEARCH_STORE_DERIVATION_VERSION) and the hash of what each surface produces; release_manifest_completeness_tripwire demands equality. The decision is the BUMP in code, so the bank cannot raise it on its own: `bun run scripts/derivation_versions.ts --update` re-records after a bump and refuses a hash that moved under an unchanged version or a version that went backwards',
+	},
+	{
 		id: 'install_seed_contract',
 		artifacts: ['engineering/install_seed_contract.json'],
 		tier: 'manual',

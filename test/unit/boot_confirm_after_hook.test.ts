@@ -120,7 +120,8 @@ describe('server.ts wiring', () => {
 		expect(source).toMatch(
 			/confirmBootedCodeUpdate\(\s*undefined,\s*undefined,\s*undefined,\s*afterConfirmed,\s*bootSchemaVerdict\(\)/,
 		);
-		expect(source).toContain('resumeBootRun(afterConfirmed)');
+		// (the second argument is the shutdown probe: a phase the drain kills stays resumable)
+		expect(source).toMatch(/resumeBootRun\(\s*afterConfirmed\s*[,)]/);
 	});
 
 	test('the publication-host module loads INSIDE the hook, its failure caught — one import only', () => {
