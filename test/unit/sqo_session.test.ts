@@ -18,10 +18,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import { mergeSessionSqo } from '../../src/core/concepts/sqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession, setSessionSqo } from '../../src/core/security/session_store.ts';
 import { dropTestCorpus, ensureTestCorpus } from '../../src/core/test_data/test_corpus/ensure.ts';
+import { DB_READY } from '../helpers/db_ready.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
 /** Seed-shipped ontology, spelled out of the install-TLD census's token grammar. */
@@ -240,6 +242,69 @@ describe('sqo_session store + context stamp', () => {
 		// The impossible-id filter was NOT merged: the read returns rows.
 		expect(entries.length).toBeGreaterThan(0);
 	});
+
+	// "Open relationships" (WC-2026-10-30-search-referenced-by-leaf): the opener
+	// stores a filter carrying a `referenced_by` leaf instead of an id list. The
+	// leaf lives INSIDE `filter`, so mergeSessionSqo must hand it to the new
+	// window's filter-less first read unchanged, and the read must answer exactly
+	// the referenced rows — not the whole section (a dropped leaf would widen).
+	test.if(DB_READY)(
+		'a stored referenced_by filter is inherited by a filter-less read (opened relations window)',
+		async () => {
+			const fromComponent = 'test6137'; // test6100's own self-relation in the corpus
+			const expectedRows = (await sql.unsafe(
+				`SELECT DISTINCT r.target_section_id::int AS id
+				 FROM matrix_relation_index r
+				 JOIN matrix_test m ON m.section_tipo = r.target_section_tipo AND m.section_id = r.target_section_id
+				 WHERE r.section_tipo = $1 AND r.from_component_tipo = $2 AND r.target_section_tipo = $1`,
+				[SECTION, fromComponent],
+			)) as { id: number }[];
+			const expected = expectedRows.map((row) => String(row.id)).sort();
+			const total = (await sql.unsafe(
+				'SELECT count(*)::int AS n FROM matrix_test WHERE section_tipo = $1',
+				[SECTION],
+			)) as { n: number }[];
+			// Floor + non-degeneracy: some targets, strictly fewer than the section
+			// (else an ignored filter would pass), and within the read's page.
+			expect(expected.length).toBeGreaterThan(0);
+			expect(expected.length).toBeLessThan(total[0]?.n ?? 0);
+			expect(expected.length).toBeLessThanOrEqual(7);
+
+			const filter = {
+				$and: [{ referenced_by: { section_tipo: [SECTION], from_component_tipo: fromComponent } }],
+			};
+			// Unit half: the merge copies the leaf verbatim (a clone, not the stored object).
+			const stored = { section_tipo: [SECTION], filter };
+			const merged = mergeSessionSqo({ section_tipo: [SECTION], limit: 7 }, stored);
+			expect(merged.filter).toEqual(filter);
+			expect(merged.filter).not.toBe(filter);
+
+			// Wire half: seeded exactly as the opener's dummy build stores it.
+			const token = createSession(-1, 'root', true);
+			const session = getSession(token);
+			setSessionSqo(session as NonNullable<typeof session>, SECTION, {
+				section_tipo: [SECTION],
+				limit: 1,
+				offset: 0,
+				filter,
+			});
+			const { dispatched } = await dispatchWith(token, readRqo(undefined));
+			expect(dispatched.status).toBe(200);
+			const body = dispatched.body as {
+				data: { context: Record<string, unknown>[]; data: Record<string, unknown>[] };
+			};
+			const data = body.data.data.find((el) => el.typo === 'sections' && el.tipo === SECTION);
+			const entries = (data?.entries ?? []) as { section_id: unknown }[];
+			expect(entries.map((entry) => String(entry.section_id)).sort()).toEqual(expected);
+			// The response context echoes the merged sqo with the leaf intact.
+			const sectionEntry = body.data.context.find(
+				(entry) => entry.tipo === SECTION && entry.model === 'section',
+			);
+			expect(
+				JSON.stringify((sectionEntry?.sqo_session as { filter?: unknown } | null)?.filter),
+			).toContain('referenced_by');
+		},
+	);
 
 	test('a section context WITHOUT a stored sqo stamps sqo_session: null (PHP shape)', async () => {
 		if (!dbReady) return;

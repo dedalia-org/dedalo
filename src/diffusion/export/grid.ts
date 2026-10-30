@@ -1182,15 +1182,12 @@ async function openExportGridInScope(
 		Number.isInteger(runOptions.selectionPage) && (runOptions.selectionPage as number) > 0
 			? (runOptions.selectionPage as number)
 			: SELECTION_PAGE;
-	const cursor = await openSelectionCursor<SelectedRecord>(
-		{ sql: builtSelection.sql, params: builtSelection.params },
-		{
-			pageRows: Math.max(selectionPage, hydrateBatch),
-			signal,
-			admission: runOptions.selectionAdmission ?? 'refuse',
-			...(runOptions.selectionIdleMs === undefined ? {} : { idleMs: runOptions.selectionIdleMs }),
-		},
-	);
+	const cursor = await openSelectionCursor<SelectedRecord>(builtSelection, {
+		pageRows: Math.max(selectionPage, hydrateBatch),
+		signal,
+		admission: runOptions.selectionAdmission ?? 'refuse',
+		...(runOptions.selectionIdleMs === undefined ? {} : { idleMs: runOptions.selectionIdleMs }),
+	});
 
 	const meta: Record<string, unknown> = {
 		t: 'meta',

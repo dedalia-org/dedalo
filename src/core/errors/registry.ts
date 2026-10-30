@@ -2022,10 +2022,18 @@ export const ERROR_REGISTRY = {
 	// ── db (PERF-11) ────────────────────────────────────────────────────────
 	// The two database ceilings, typed so a fired bound is a 503 the client can
 	// show — not a 500 `internal.unexpected` indistinguishable from an engine
-	// bug. Raised ONLY by core/db/postgres.ts; the numbers (lane, ceiling, pool)
+	// bug. Raised by core/db/postgres.ts; the numbers (lane, ceiling, pool)
 	// ride in operator-only `coordinates`.
 	// A 57014 at or past the lane ceiling (DB_STATEMENT_TIMEOUT_MS, or a recorded SET
 	// LOCAL). An operator cancel, an abort cancel and the reserved lane stay raw.
+	// Also raised by the doors that set their OWN budget via SET LOCAL (re-stated
+	// with `coordinates.door`): search/relation_targets.ts (the census clock, door
+	// `relation_targets`) and search/search_statement.ts (the one search executor:
+	// a statement a referenced_by leaf rendered into, door `referenced_by_search`);
+	// and by diffusion/export/selection_cursor.ts (a 25P04 materializing the export
+	// selection on its reserved connection — re-stated with the search door's
+	// coordinates when the selection carries the leaf). The raiser set is pinned by
+	// test/unit/error_taxonomy_tripwire.test.ts (C3).
 	'db.statement_timeout': {
 		category: 'unavailable',
 		status: 503,

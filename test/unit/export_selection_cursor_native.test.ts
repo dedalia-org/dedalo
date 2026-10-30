@@ -132,6 +132,12 @@ else {
 	const { runWithQueryTap } = await import('../../src/core/db/query_tap.ts');
 	const { DedaloError } = await import('../../src/core/errors/index.ts');
 	const { buildSearchSql } = await import('../../src/core/search/sql_assembler.ts');
+	const { createSearchStatement, searchStatementText } = await import(
+		'../../src/core/search/search_statement.ts'
+	);
+	/** A probe selection (no referenced_by leaf) as the cursor's input type. */
+	const probe = (text: string, params: unknown[] = []) =>
+		createSearchStatement(text, params, false);
 	const { resolvePrincipal } = await import('../../src/core/security/permissions.ts');
 	const { dropSituation, ensureSituation, situation } = await import(
 		'../../src/core/test_data/situations/situation.ts'
@@ -406,10 +412,12 @@ else {
 		const sqo = sanitizeClientSqo(structuredClone(sqoTemplate));
 		sqo.limit = null as unknown as number;
 		sqo.offset = 0;
-		const { sql: text, params } = await buildSearchSql(sqo, {
-			principal: principal.isGlobalAdmin ? undefined : principal,
-			idsOnly: true,
-		});
+		const { sql: text, params } = searchStatementText(
+			await buildSearchSql(sqo, {
+				principal: principal.isGlobalAdmin ? undefined : principal,
+				idsOnly: true,
+			}),
+		);
 		const rows = (await sql.unsafe(text, params as (string | number | null)[])) as {
 			section_id: number;
 			section_tipo: string;
@@ -1228,10 +1236,9 @@ else {
 			let declareError: unknown = null;
 			try {
 				const cursor = await openSelectionCursor(
-					{
-						sql: 'SELECT section_tipo, section_id FROM matrix_test WHERE section_id = $1::int',
-						params: ['not-an-integer'],
-					},
+					probe('SELECT section_tipo, section_id FROM matrix_test WHERE section_id = $1::int', [
+						'not-an-integer',
+					]),
 					{ pageRows: SELECTION_PAGE },
 				);
 				await cursor.close();
@@ -1287,10 +1294,11 @@ else {
 			);
 			const script = `
 				const m = await import(${JSON.stringify(cursorPath)});
+				const st = await import(${JSON.stringify(join(import.meta.dir, '..', '..', 'src/core/search/search_statement.ts'))});
 				const out = { slots: m.EXPORT_SELECTION_SLOTS };
 				for (const admission of ['refuse', 'queue']) {
 					try {
-						const c = await m.openSelectionCursor({ sql: 'SELECT 1 AS section_id', params: [] }, { pageRows: 1, admission });
+						const c = await m.openSelectionCursor(st.createSearchStatement('SELECT 1 AS section_id', [], false), { pageRows: 1, admission });
 						await c.close();
 						out[admission] = 'admitted';
 					} catch (error) {
@@ -1342,12 +1350,13 @@ else {
 			const postgresPath = join(import.meta.dir, '..', '..', 'src/core/db/postgres.ts');
 			const script = `
 				const m = await import(${JSON.stringify(cursorPath)});
+				const st = await import(${JSON.stringify(join(import.meta.dir, '..', '..', 'src/core/search/search_statement.ts'))});
 				const pg = await import(${JSON.stringify(postgresPath)});
 				const out = { slots: m.EXPORT_SELECTION_SLOTS };
 				const sleepy = "SELECT 'zzsc1' AS section_tipo, g AS section_id FROM generate_series(1, 30) AS g WHERE pg_sleep(0.1) IS NOT NULL ORDER BY g";
 				const started = performance.now();
 				try {
-					const c = await m.openSelectionCursor({ sql: sleepy, params: [] }, { pageRows: 5 });
+					const c = await m.openSelectionCursor(st.createSearchStatement(sleepy, [], false), { pageRows: 5 });
 					out.slow = 'admitted ' + c.total;
 					await c.close();
 				} catch (error) {
@@ -1356,7 +1365,7 @@ else {
 				out.slowWithinBound = performance.now() - started < 1500;
 				out.slotsAfterSlow = m.exportSelectionSlots().inUse;
 				const quick = await m.openSelectionCursor(
-					{ sql: "SELECT 'zzsc1' AS section_tipo, g AS section_id FROM generate_series(1, 7) AS g ORDER BY g", params: [] },
+					st.createSearchStatement("SELECT 'zzsc1' AS section_tipo, g AS section_id FROM generate_series(1, 7) AS g ORDER BY g", [], false),
 					{ pageRows: 5 },
 				);
 				let served = 0;
@@ -1364,7 +1373,7 @@ else {
 				out.quick = quick.total + '/' + served;
 				try {
 					const c = await m.openSelectionCursor(
-						{ sql: 'SELECT section_tipo, section_id FROM matrix_test WHERE section_id = $1::int', params: ['not-an-integer'] },
+						st.createSearchStatement('SELECT section_tipo, section_id FROM matrix_test WHERE section_id = $1::int', ['not-an-integer'], false),
 						{ pageRows: 1 },
 					);
 					await c.close();
@@ -1444,14 +1453,15 @@ else {
 			sqo.limit = null as unknown as number;
 			sqo.offset = 0;
 			const built = await buildSearchSql(sqo, { idsOnly: true });
+			const shown = searchStatementText(built);
 			// THE DRIVER FACT (raw, on a reserved connection like the cursor's): a
 			// MOVE answers its command tag as a numeric `count`, equal to the rows.
 			const connection = await sql.reserve();
 			try {
 				const name = 'export_sel_leg8_pin';
 				await connection.unsafe(
-					`DECLARE ${name} SCROLL CURSOR WITH HOLD FOR ${built.sql.replace(/;\s*$/, '')}`,
-					built.params as never,
+					`DECLARE ${name} SCROLL CURSOR WITH HOLD FOR ${shown.sql.replace(/;\s*$/, '')}`,
+					[...shown.params] as never,
 				);
 				try {
 					const moved = (await connection.unsafe(`MOVE FORWARD ALL IN ${name}`)) as {
@@ -1504,7 +1514,7 @@ else {
 		): Promise<{ outcome: string; settledAt: number }> {
 			try {
 				const cursor = await openSelectionCursor<{ section_id: number; section_tipo: string }>(
-					{ sql: SLEEPY_SELECTION, params: [] },
+					probe(SLEEPY_SELECTION),
 					{ pageRows: SELECTION_PAGE, signal },
 				);
 				await cursor.close();

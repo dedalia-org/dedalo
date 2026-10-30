@@ -6,43 +6,40 @@
 
 
 import {data_manager} from '../../../core/common/js/data_manager.js'
+import {is_filter_empty} from '../../../core/search/js/search_utils.js'
 import {
+	build_relation_source,
 	build_scoped_sqo,
-	flatten_read_raw_result,
+	RELATION_TARGETS_TIMEOUT_MS,
 	render_open_list_with_direct_relations
 } from '../../../core/section/js/render_open_list_with_direct_relations.js'
-import {max_page_limit} from '../../../core/common/js/sqo_limit.js'
 
 
 
 /**
 * TEST_OPEN_RELATED_DATA
-* The "open relationships" dialog's SQO scoping — the reason the dialog opened
-* nothing at all.
+* "Open relationships" — the inspector button and the portal's "list from
+* component data" button (WC-2026-10-30-search-referenced-by-leaf).
 *
-* The dialog is handed the caller section's CURRENT view SQO. In edit mode that
-* SQO is not what either scope means: it carries an auto-generated single-record
-* pin (filter_by_locators) AND the record's position inside the found set
-* (limit:1 / offset:N, e.g. offset:1 for the 2nd of 3 records). Sent verbatim,
-* the pin narrowed the search to one row and the offset then skipped it, so
-* read_raw answered with an empty result, no window was opened, and the user was
-* told nothing.
+* THE FLOW PINNED HERE. The dialog builds ONE referenced_by SOURCE per scope
+*   current → a one-locator pin on the open record (never limit/offset)
+*   found   → the caller's found set: the user's filter + result pins, the auto
+*             pin dropped, no limit/offset/order (a source is a set)
+* and uses it twice, verbatim: `dd_core_api.relation_targets` (options.source)
+* answers the target sections with their counts, re-asked on every scope flip;
+* each opened window's filter is `{ $and:[{ referenced_by: source }] }`. No
+* read_raw, no id list: the server compiles the leaf to one semi-join.
 *
-* The two scopes must therefore DERIVE their SQO, on a clone (the portal caller
-* hands over its parent section's live object):
-*   current → keep the pin, limit:1 / offset:0
-*   found   → drop the pin, limit:<server ceiling> / offset:0, keep the user's own sqo.filter
-*
-* The dialog also has to READ the answer, and read_raw replies in a different
-* shape per options.type: 'target_section' gives one flat locator array, while
-* 'component' (the portal caller) gives one entry PER RECORD, each holding that
-* record's whole raw component value — an array of locators. Read as if it were
-* flat, every entry yielded undefined and the portal button opened nothing at
-* all, for any record.
+* SCOPING HISTORY (the build_scoped_sqo cases). The caller's view SQO is not
+* what either scope means: in edit mode it carries an auto single-record pin
+* and/or the record's position in the found set (limit:1 / offset:N). Sent
+* verbatim the pin + offset skipped the only matching row. Both scopes derive
+* their SQO on a clone (the portal caller hands over its parent section's live
+* object).
 *
 * No backend: data_manager.request is a method on a shared singleton, so it is
 * patched in place to capture the outgoing RQO and answer with a canned result;
-* window.open is patched to observe what open_records_in_window ends up doing.
+* window.open is patched to observe what the dialog ends up opening.
 */
 
 
@@ -51,7 +48,9 @@ import {max_page_limit} from '../../../core/common/js/sqo_limit.js'
 	const OPEN_RECORD = { section_tipo:'test3', section_id:2 }
 
 // A fake caller SECTION instance — the identity build_scoped_sqo needs to tell
-// the auto single-record pin apart from a real (semantic) result set.
+// the auto single-record pin apart from a real (semantic) result set, and the
+// 'current' scope's source pin. No get_total: the async found-total patch is
+// skipped.
 	const make_caller_section = () => ({
 		model			: 'section',
 		tipo			: OPEN_RECORD.section_tipo,
@@ -100,53 +99,65 @@ import {max_page_limit} from '../../../core/common/js/sqo_limit.js'
 		parsed				: false
 	})
 
-// make_dialog_options — the inspector's caller shape (target_section mode).
+// make_dialog_options — the inspector's caller shape (section mode).
 	const make_dialog_options = (sqo) => ({
-		target_sections	: [
-			{ tipo:'test4', label:'Fake target A' },
-			{ tipo:'test5', label:'Fake target B' }
-		],
-		sqo				: sqo,
-		caller_tipo		: null,
-		rqo_options		: {
-			type			: 'target_section',
-			section_tipo	: null,
-			tipo			: null,
-			model			: 'section'
-		},
+		sqo			: sqo,
 		label		: 'Fake caller',
 		total		: 1,
-		// no get_total on it, so the dialog's async found-total patch is skipped
 		self_caller	: make_caller_section()
 	})
 
-// make_portal_options — the portal caller's shape ('component' mode). No target
-// sections: the tipo is already fixed, so no radio group is rendered.
+// make_portal_options — the portal caller's shape: from_component_tipo set.
 	const make_portal_options = (sqo) => ({
-		sqo				: sqo,
-		caller_tipo		: 'test111',
-		rqo_options		: {
-			type			: 'component',
-			section_tipo	: 'test3',
-			tipo			: 'test111',
-			model			: 'component_portal'
-		},
-		label		: 'Fake portal',
-		total		: 1,
-		self_caller	: make_caller_section()
+		sqo					: sqo,
+		from_component_tipo	: 'test80',
+		label				: 'Fake portal',
+		total				: 1,
+		self_caller			: make_caller_section()
 	})
 
-// A locator as read_raw stores it.
-	const make_locator = (section_tipo, section_id) => ({
-		id					: section_id,
-		type				: 'dd151',
-		section_id			: String(section_id),
-		section_tipo		: section_tipo,
-		from_component_tipo	: 'test111'
-	})
+// canned relation_targets answers
+	const TWO_TARGETS = [
+		{ tipo:'test4', label:'Fake target A', total:3 },
+		{ tipo:'test5', label:'Fake target B', total:1234 }
+	]
+	const ok_targets = (targets) => ({ ok : true, data : targets })
 
-// with_stubbed_open — open_records_in_window is a module import and cannot be
-// patched, but everything it does bottoms out in window.open.
+// tick — let the dialog's async relation_targets round settle
+	const tick = (ms=60) => new Promise(resolve => setTimeout(resolve, ms))
+
+// with_stubbed_request — patch the shared data_manager, run fn, always restore.
+// relation_targets is answered by `answer(body, signal)` (an envelope, or a
+// promise of one); every other action (the 'read' the dummy section issues while
+// open_filtered_window pins its session filter) gets an inert one. Each
+// relation_targets request's options.signal is recorded, in order, in the
+// `signals` array handed to fn as its second argument, and its options.timeout
+// (what the transport is told to wait) in the `timeouts` array, the third.
+	const with_stubbed_request = async (answer, fn) => {
+		const original	= data_manager.request
+		const captured	= []
+		const signals	= []
+		const timeouts	= []
+		data_manager.request = async (options) => {
+			const body = options?.body
+			captured.push(body)
+			if (body?.action==='relation_targets') {
+				signals.push(options?.signal ?? null)
+				timeouts.push(options?.timeout)
+				return answer(body, options?.signal ?? null)
+			}
+			return { ok : true, data : { context:[], data:[] } }
+		}
+		try {
+			await fn(captured, signals, timeouts)
+		} finally {
+			data_manager.request = original
+		}
+		return captured
+	}
+
+// with_stubbed_open — everything open_filtered_window does bottoms out in
+// window.open.
 	const with_stubbed_open = async (fn) => {
 		const original	= window.open
 		const urls		= []
@@ -162,61 +173,56 @@ import {max_page_limit} from '../../../core/common/js/sqo_limit.js'
 		return urls
 	}
 
-// with_stubbed_request — patch the shared data_manager, run fn, always restore.
-// Only read_raw is answered with the canned response; the 'read' the dummy
-// section issues while open_records_in_window persists its session filter gets
-// an inert one.
-	const with_stubbed_request = async (response, fn) => {
-		const original	= data_manager.request
-		const captured	= []
-		data_manager.request = async (options) => {
-			captured.push(options?.body)
-			return options?.body?.action==='read_raw'
-				? response
-				: { ok : true, data : { context:[], data:[] } }
-		}
-		try {
-			await fn(captured)
-		} finally {
-			data_manager.request = original
-		}
-		return captured
-	}
-
-// with_stubbed_alert — same, for the user-feedback assertions.
-	const with_stubbed_alert = async (fn) => {
-		const original	= window.alert
-		const messages	= []
-		window.alert = (msg) => { messages.push(msg) }
+// with_stubbed_dialogs — alert/confirm must never block the run; recorded.
+	const with_stubbed_dialogs = async (fn) => {
+		const original_alert	= window.alert
+		const original_confirm	= window.confirm
+		const messages			= []
+		window.alert	= (msg) => { messages.push(msg) }
+		window.confirm	= (msg) => { messages.push(msg); return true }
 		try {
 			await fn(messages)
 		} finally {
-			window.alert = original
+			window.alert	= original_alert
+			window.confirm	= original_confirm
 		}
 		return messages
 	}
 
-// drive_dialog — open the dialog, pick a target, confirm. Returns the modal node.
-	const drive_dialog = async (options, target_tipo) => {
+// helpers over the captured bodies
+	const targets_requests	= (captured) => captured.filter(el => el?.action==='relation_targets')
+	const leaf_of			= (body) => body?.sqo?.filter?.$and?.[0]?.referenced_by
+	const window_tipos		= (urls) => urls.map(url => url.split('tipo=')[1].split('&')[0]).sort()
+
+// open_modal — render the dialog and wait for its first answer
+	const open_modal = async (options) => {
 		render_open_list_with_direct_relations(options)
-		const modal = document.querySelector('.open_relations_modal')
-		if (!modal) {
-			return null
-		}
-		const target_radio = modal.querySelector(`input[name=target_section][value=${target_tipo}]`)
-		target_radio.checked = true
-		target_radio.dispatchEvent(new Event('change', {bubbles:true}))
+		await tick()
+		return document.querySelector('.open_relations_modal')
+	}
+
+// flip_scope / pick_target / press_open
+	const flip_scope = (modal, scope) => {
+		const radio = modal.querySelector(`input[name=data_selection][value=${scope}]`)
+		radio.checked = true
+		radio.dispatchEvent(new Event('change', {bubbles:true}))
+	}
+	const pick_target = (modal, tipo) => {
+		const radio = modal.querySelector(`input[name=target_section][value=${tipo}]`)
+		radio.checked = true
+		radio.dispatchEvent(new Event('change', {bubbles:true}))
+	}
+	const press_open = (modal) => {
 		modal.querySelector('button.success').dispatchEvent(new MouseEvent('mouseup', {bubbles:true}))
-		// let the async open_related_data settle
-		await new Promise(resolve => setTimeout(resolve, 300))
-		return modal
 	}
 
 // cleanup_modals — the dialog closes itself, but a failed assertion can leave
 // one behind; a stale node would be picked up by the NEXT test's querySelector
 // and turn one failure into a cascade. Always call it from a finally.
 	const cleanup_modals = () => {
-		document.querySelectorAll('.open_relations_modal').forEach(el => el.remove())
+		for (const el of document.querySelectorAll('.open_relations_modal')) {
+			el.remove()
+		}
 	}
 
 
@@ -263,16 +269,18 @@ describe(`OPEN_RELATED_DATA`, async () => {
 
 	// 'found' must mean the user's search, not the open record: the AUTO pin is
 	// the open record and goes, the real search lives in sqo.filter.
-	it(`scope 'found' drops the caller's OWN record pin and takes every row`, async function() {
+	it(`scope 'found' drops the caller's OWN record pin and is a set, not a page`, async function() {
 
 		const sqo		= make_pinned_sqo()
 		const scoped	= build_scoped_sqo(sqo, 'found', make_caller_section())
 
 		assert.deepEqual(scoped.filter_by_locators, [],
 			'the auto single-record pin would silently reduce "all found" to "current"')
-		assert.strictEqual(scoped.limit, max_page_limit(),
-			'"all found" is the server ceiling — the client never sends 0 (P2-31)')
-		assert.strictEqual(scoped.offset, 0)
+		// a referenced_by source is a SET: it refuses limit/offset/order, and
+		// nothing is fetched row by row any more, so no page ceiling applies
+		assert.strictEqual('limit' in scoped, false, '"all found" is a set, not a page')
+		assert.strictEqual('offset' in scoped, false)
+		assert.strictEqual('order' in scoped, false)
 		assert.deepEqual(scoped.filter, sqo.filter,
 			'the user\'s own search must decide the found set')
 	})
@@ -286,7 +294,9 @@ describe(`OPEN_RELATED_DATA`, async () => {
 
 		assert.strictEqual(scoped.filter_by_locators.length, 3,
 			'a semantic result set is the found set, not an auto pin')
-		assert.strictEqual(scoped.limit, max_page_limit())
+		assert.strictEqual('limit' in scoped, false)
+		assert.strictEqual('order' in scoped, false,
+			'the ranked order is irrelevant to a set (and refused by the source schema)')
 	})
 
 	// The zero-hit sentinel (section_id:-1) means "honestly empty". It is a
@@ -340,203 +350,392 @@ describe(`OPEN_RELATED_DATA`, async () => {
 		assert.deepEqual(scoped.filter, filter_ref)
 	})
 
-	// End to end through the dialog: what actually goes on the wire. Uses the
-	// PINNED shape, so the offset must be reset by the time it leaves.
-	it(`the dialog sends the SCOPED sqo to read_raw`, async function() {
+	// ---------------------------------------------------------------------------
+	// the source object
+	// ---------------------------------------------------------------------------
+
+	// 'current' names the open record BY IDENTITY. The mainstream (navigated)
+	// shape has no pin at all — the offset selected the record — and a source
+	// refuses limit/offset, so the pin comes from the caller instance.
+	it(`build_relation_source 'current' pins the open record, with no page keys`, async function() {
+
+		const source = build_relation_source(make_navigated_sqo(), 'current', OPEN_RECORD)
+
+		assert.deepEqual(source, {
+			section_tipo		: ['test3'],
+			filter_by_locators	: [{ section_tipo:'test3', section_id:2 }]
+		}, 'exactly the open record, nothing else')
+	})
+
+	// Without an open record 'current' cannot be expressed: null, never a guess.
+	it(`build_relation_source 'current' without an open record is null`, async function() {
+
+		assert.strictEqual(build_relation_source(make_pinned_sqo(), 'current', null), null)
+	})
+
+	// 'found' carries the user's filter and drops the auto pin and every page key
+	// (the server refuses limit/offset/order on a source, loudly).
+	it(`build_relation_source 'found' is the found set: filter kept, auto pin and page keys gone`, async function() {
+
+		const sqo		= make_pinned_sqo()
+		const source	= build_relation_source(sqo, 'found', OPEN_RECORD)
+
+		assert.deepEqual(Object.keys(source).sort(), ['filter','section_tipo'],
+			'only allowed source keys; an empty pin set is not sent')
+		assert.deepEqual(source.filter, sqo.filter)
+		assert.notStrictEqual(source.filter, sqo.filter, 'a copy, never the caller\'s live filter')
+	})
+
+	// a semantic result set IS the found set and must survive as pins
+	it(`build_relation_source 'found' keeps a semantic result set as pins`, async function() {
+
+		const source = build_relation_source(make_semantic_sqo(), 'found', OPEN_RECORD)
+
+		assert.strictEqual(source.filter_by_locators.length, 3)
+		assert.strictEqual('order' in source, false)
+		assert.strictEqual('filter' in source, false, 'no filter nodes → no filter key')
+	})
+
+	// A found set EXPANDED to recursive children (the search panel's 'Children'
+	// checkbox) is never narrowed to its matched terms by dropping the flag: it
+	// rides the source, and the server refuses it by name (shown in the modal).
+	it(`build_relation_source 'found' never drops children_recursive`, async function() {
+
+		const sqo		= { ...make_navigated_sqo(), children_recursive : true }
+		const source	= build_relation_source(sqo, 'found', OPEN_RECORD)
+
+		assert.strictEqual(source.children_recursive, true)
+		// 'current' names one record: the flag has no meaning there
+		const current = build_relation_source(sqo, 'current', OPEN_RECORD)
+		assert.strictEqual('children_recursive' in current, false)
+		// and a plain found set does not invent it
+		const plain = build_relation_source(make_navigated_sqo(), 'found', OPEN_RECORD)
+		assert.strictEqual('children_recursive' in plain, false)
+	})
+
+	// portal mode narrows to the component's own locators
+	it(`build_relation_source carries from_component_tipo in portal mode`, async function() {
+
+		const source = build_relation_source(make_pinned_sqo(), 'current', OPEN_RECORD, 'test80')
+
+		assert.strictEqual(source.from_component_tipo, 'test80')
+	})
+
+	// A referenced_by leaf has no q. Read as a group, the old recursion walked the
+	// source object and then its strings char by char, forever. It is an ACTIVE
+	// leaf: it always narrows the set.
+	it(`is_filter_empty treats a referenced_by leaf as an active clause`, async function() {
+
+		const leaf_filter = { '$and' : [{ referenced_by : { section_tipo:['test3'], filter:null } }] }
+		assert.strictEqual(is_filter_empty(leaf_filter), false)
+
+		// nested inside an otherwise empty group too
+		const nested = { '$and' : [{ q:'', path:[] }, { '$or' : [{ referenced_by : { section_tipo:['test3'] } }] }] }
+		assert.strictEqual(is_filter_empty(nested), false)
+
+		// and an empty filter stays empty
+		assert.strictEqual(is_filter_empty({ '$and' : [{ q:'', path:[] }] }), true)
+	})
+
+	// ---------------------------------------------------------------------------
+	// the dialog
+	// ---------------------------------------------------------------------------
+
+	// On open, the default scope ('current') is asked; flipping re-asks with the
+	// found-set source. read_raw is gone from this flow.
+	it(`the dialog asks relation_targets per scope and never read_raw`, async function() {
 
 		this.timeout(5000)
 
-		const options = make_dialog_options(make_pinned_sqo())
-
-		let captured = []
+		let captured		= []
+		let labels_current	= null
+		let labels_found	= null
 		try {
 			captured = await with_stubbed_request(
-				{ ok : true, data : [], table : 'matrix' },
+				(body) => ok_targets(body.options.source.filter_by_locators?.length===1 && !body.options.source.filter
+					? [TWO_TARGETS[0]]
+					: TWO_TARGETS),
 				async () => {
-					await with_stubbed_alert(async () => {
-						await drive_dialog(options, 'test4')
-					})
+					const modal = await open_modal(make_dialog_options(make_pinned_sqo()))
+					labels_current = [...modal.querySelectorAll('.target_section_label')].map(el => el.textContent)
+					flip_scope(modal, 'found')
+					await tick()
+					labels_found = [...modal.querySelectorAll('.target_section_label')].map(el => el.textContent)
 				}
 			)
 		} finally {
 			cleanup_modals()
 		}
 
-		assert.strictEqual(captured.length, 1, 'read_raw must be called exactly once')
-		const rqo = captured[0]
-		assert.strictEqual(rqo.action, 'read_raw')
-		assert.strictEqual(rqo.options.section_tipo, 'test4',
-			'the picked target must reach the request')
-		assert.strictEqual(rqo.sqo.offset, 0,
-			'the un-scoped sqo (offset:1) is what made read_raw return nothing')
-		assert.strictEqual(rqo.sqo.limit, 1)
-	})
+		assert.strictEqual(captured.some(el => el?.action==='read_raw'), false, 'no read_raw in this flow')
 
-	// The same path with the MAINSTREAM (pin-less) shape: the offset must arrive
-	// untouched, or the request describes a different record than the open one.
-	it(`the dialog sends the un-reset offset when the caller has no pin`, async function() {
+		const requests = targets_requests(captured)
+		assert.strictEqual(requests.length, 2, 'one request per scope shown')
+		assert.strictEqual(requests[0].dd_api, 'dd_core_api')
+		assert.strictEqual(requests[0].sqo, undefined, 'the source rides in options, not rqo.sqo')
+		assert.deepEqual(requests[0].options.source, {
+			section_tipo		: ['test3'],
+			filter_by_locators	: [OPEN_RECORD]
+		}, 'current = the open record')
 
-		this.timeout(5000)
-
-		const options = make_dialog_options(make_navigated_sqo())
-
-		let captured = []
-		try {
-			captured = await with_stubbed_request(
-				{ ok : true, data : [], table : 'matrix' },
-				async () => {
-					await with_stubbed_alert(async () => {
-						await drive_dialog(options, 'test4')
-					})
-				}
-			)
-		} finally {
-			cleanup_modals()
+		const found_source = requests[1].options.source
+		assert.deepEqual(found_source.filter, make_pinned_sqo().filter, 'found = the user\'s search')
+		for (const key of ['limit','offset','order','filter_by_locators']) {
+			assert.strictEqual(key in found_source, false, `found source must not carry ${key}`)
 		}
 
-		assert.strictEqual(captured.length, 1)
-		assert.strictEqual(captured[0].sqo.offset, 1,
-			'resetting this offset asks the server for the FIRST found record')
+		assert.deepEqual(labels_current, ['Fake target A (3)'], 'targets render with their counts')
+		assert.deepEqual(labels_found, ['Fake target A (3)', 'Fake target B (1234)'],
+			'the flip re-renders with the new answer')
 	})
 
-	// An empty result used to be indistinguishable from a broken dialog: the
-	// modal closed and nothing else happened.
-	it(`an empty result tells the user instead of failing silently`, async function() {
+	// The census request's transport timeout is the exported constant the server
+	// gate (relation_targets_native) orders after the server's budget + margin —
+	// asserted on what data_manager.request actually RECEIVES, per request, so a
+	// constant nothing passes cannot satisfy the ordering on its own.
+	it(`every relation_targets request hands data_manager RELATION_TARGETS_TIMEOUT_MS`, async function() {
 
 		this.timeout(5000)
 
-		const options = make_dialog_options(make_pinned_sqo())
-
-		let messages = []
+		let seen = []
 		try {
 			await with_stubbed_request(
-				{ ok : true, data : [], table : 'matrix' },
-				async () => {
-					messages = await with_stubbed_alert(async () => {
-						await drive_dialog(options, 'test4')
-					})
+				() => ok_targets(TWO_TARGETS),
+				async (_captured, _signals, timeouts) => {
+					const modal = await open_modal(make_dialog_options(make_pinned_sqo()))
+					flip_scope(modal, 'found')
+					await tick()
+					seen = timeouts
 				}
 			)
 		} finally {
 			cleanup_modals()
 		}
 
-		assert.strictEqual(messages.length, 1,
-			'an empty read_raw result must be reported, not swallowed')
+		assert.strictEqual(seen.length, 2, 'one census request per scope shown')
+		assert.ok(Number.isFinite(RELATION_TARGETS_TIMEOUT_MS) && RELATION_TARGETS_TIMEOUT_MS > 0,
+			'the exported constant is a positive number of ms')
+		for (const timeout of seen) {
+			assert.strictEqual(timeout, RELATION_TARGETS_TIMEOUT_MS,
+				'the census transport waits exactly RELATION_TARGETS_TIMEOUT_MS')
+		}
 	})
 
-	// Reachable whenever the caller has no target sections at all (a section
-	// with no portals): the Open button stays enabled, section_tipo stays null.
-	// The guard used to return BEFORE modal.close(), stranding the dialog.
-	it(`no selectable target closes the dialog and says why`, async function() {
+	// a slow answer for the scope the user already left must not overwrite the
+	// newer one
+	it(`a stale answer from the previous scope is discarded`, async function() {
 
 		this.timeout(5000)
 
-		const options = make_dialog_options(make_pinned_sqo())
-		options.target_sections = []
-
-		let messages	= []
-		let captured	= []
-		let stranded	= null
+		let labels = null
 		try {
-			captured = await with_stubbed_request(
-				{ ok : true, data : [], table : 'matrix' },
+			await with_stubbed_request(
+				(body) => body.options.source.filter
+					? ok_targets(TWO_TARGETS)
+					// the 'current' answer arrives AFTER the flip's
+					: new Promise(resolve => setTimeout(() => resolve(ok_targets([{ tipo:'test9', label:'Stale', total:1 }])), 200)),
 				async () => {
-					messages = await with_stubbed_alert(async () => {
-						render_open_list_with_direct_relations(options)
-						const modal = document.querySelector('.open_relations_modal')
-						modal.querySelector('button.success').dispatchEvent(new MouseEvent('mouseup', {bubbles:true}))
-						await new Promise(resolve => setTimeout(resolve, 300))
-					})
+					render_open_list_with_direct_relations(make_dialog_options(make_pinned_sqo()))
+					const modal = document.querySelector('.open_relations_modal')
+					flip_scope(modal, 'found')
+					await tick(400)
+					labels = [...modal.querySelectorAll('.target_section_label')].map(el => el.textContent)
 				}
 			)
-			stranded = document.querySelector('.open_relations_modal')
 		} finally {
 			cleanup_modals()
 		}
 
-		assert.strictEqual(captured.length, 0, 'no target means no request')
-		assert.strictEqual(messages.length, 1, 'the user must be told there is nothing to open')
-		assert.strictEqual(stranded, null, 'the dialog must not be left open with no way forward')
+		assert.deepEqual(labels, ['Fake target A (3)', 'Fake target B (1234)'])
 	})
 
-	// THE PORTAL REGRESSION. read_raw type:'component' answers one entry PER
-	// RECORD, each entry being that record's whole raw component value — an
-	// array of locators. Read as if it were the flat 'target_section' shape,
-	// section_tipo came back undefined for every entry.
-	it(`the per-record 'component' result shape is flattened to locators`, async function() {
-
-		const one_record_holding_two_locators = [[
-			make_locator('test4', 11),
-			make_locator('test5', 12)
-		]]
-
-		const flat = flatten_read_raw_result(one_record_holding_two_locators)
-
-		assert.strictEqual(flat.length, 2,
-			'a nested per-record entry must not be read as a single locator')
-		assert.deepEqual(flat.map(el => el.section_tipo), ['test4','test5'])
+	// held_answer — a census that only settles when its request is aborted (the
+	// real data_manager then resolves client.aborted), or after a long fallback
+	// so a broken abort cannot leave a promise pending past the test.
+	const held_answer = (signal) => new Promise(resolve => {
+		const settle = () => resolve({ ok : false, error : { is_api_error:true, code:'client.aborted', message:'aborted' } })
+		signal?.addEventListener('abort', settle, { once:true })
+		setTimeout(settle, 1000)
 	})
 
-	// The flat shape must survive the same normalisation untouched.
-	it(`the flat 'target_section' result shape passes through unchanged`, async function() {
+	// Discarding a stale answer is not enough: the superseded request itself must
+	// be aborted, or every flip leaves a census running.
+	it(`a scope flip aborts the superseded census request`, async function() {
 
-		const flat_result = [ make_locator('test4', 11), make_locator('test4', 12) ]
+		this.timeout(5000)
 
-		const flat = flatten_read_raw_result(flat_result)
+		let first_aborted_after_flip	= null
+		let second_aborted_after_flip	= null
+		let signal_count				= null
+		try {
+			await with_stubbed_request(
+				(body, signal) => body.options.source.filter
+					? ok_targets(TWO_TARGETS)
+					: held_answer(signal),
+				async (captured, signals) => {
+					render_open_list_with_direct_relations(make_dialog_options(make_pinned_sqo()))
+					const modal = document.querySelector('.open_relations_modal')
+					flip_scope(modal, 'found')
+					await tick()
+					signal_count				= signals.length
+					first_aborted_after_flip	= signals[0]?.aborted ?? null
+					second_aborted_after_flip	= signals[1]?.aborted ?? null
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
 
-		assert.strictEqual(flat.length, 2)
-		assert.deepEqual(flat.map(el => el.section_id), ['11','12'])
+		assert.strictEqual(signal_count, 2, 'one signalled request per scope')
+		assert.strictEqual(first_aborted_after_flip, true, 'the superseded \'current\' request is aborted')
+		assert.strictEqual(second_aborted_after_flip, false, 'the live \'found\' request is not')
 	})
 
-	// Records that do not hold the component come back as null, and a
-	// non-relation value has no locator pair at all: neither may become a hole
-	// that the window-opening loop then trips over.
-	it(`entries without a locator pair are dropped`, async function() {
+	// Closing the modal abandons the census in flight: its request is aborted.
+	it(`closing the modal aborts the in-flight census request`, async function() {
 
-		const mixed = [ null, [make_locator('test4', 11)], [], 'a scalar value', [{id:1}] ]
+		this.timeout(5000)
 
-		const flat = flatten_read_raw_result(mixed)
+		let aborted_before_close	= null
+		let aborted_after_close		= null
+		try {
+			await with_stubbed_request(
+				(body, signal) => held_answer(signal),
+				async (captured, signals) => {
+					await with_stubbed_dialogs(async () => {
+						render_open_list_with_direct_relations(make_dialog_options(make_pinned_sqo()))
+						const modal = document.querySelector('.open_relations_modal')
+						await tick()
+						aborted_before_close = signals[0]?.aborted ?? null
+						await modal.close()
+						aborted_after_close = signals[0]?.aborted ?? null
+					})
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
 
-		assert.strictEqual(flat.length, 1)
-		assert.strictEqual(flat[0].section_tipo, 'test4')
-		assert.deepEqual(flatten_read_raw_result(undefined), [])
+		assert.strictEqual(aborted_before_close, false, 'the census is in flight while the modal is open')
+		assert.strictEqual(aborted_after_close, true, 'closing the modal aborts it')
 	})
 
-	// End to end for the portal caller: one window per DISTINCT target tipo.
-	it(`a portal caller opens one window per distinct target section`, async function() {
+	// Zero targets: the empty state, INSIDE the modal — not a blind alert after
+	// it closed — and nothing to open.
+	it(`zero targets show the empty state inside the modal`, async function() {
+
+		this.timeout(5000)
+
+		let messages	= []
+		let empty_node	= null
+		let disabled	= null
+		try {
+			await with_stubbed_request(
+				() => ok_targets([]),
+				async () => {
+					messages = await with_stubbed_dialogs(async () => {
+						const modal = await open_modal(make_dialog_options(make_pinned_sqo()))
+						empty_node	= modal.querySelector('.target_sections_empty.no_targets')
+						disabled	= modal.querySelector('button.success').disabled
+					})
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
+
+		assert.notStrictEqual(empty_node, null, 'the no_target_sections empty state is rendered in the modal')
+		assert.strictEqual(disabled, true, 'nothing to open')
+		assert.strictEqual(messages.length, 0, 'no alert')
+	})
+
+	// a refused census (perm.denied, index_unavailable…) is shown in the modal
+	it(`a failed relation_targets answer is reported inside the modal`, async function() {
+
+		this.timeout(5000)
+
+		let error_node	= null
+		let disabled	= null
+		try {
+			await with_stubbed_request(
+				() => ({ ok : false, error : { is_api_error:true, code:'perm.denied', message:'Fake denial' } }),
+				async () => {
+					const modal = await open_modal(make_dialog_options(make_pinned_sqo()))
+					error_node	= modal.querySelector('.target_sections_empty.error')
+					disabled	= modal.querySelector('button.success').disabled
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
+
+		assert.notStrictEqual(error_node, null)
+		assert.strictEqual(error_node.textContent, 'Fake denial')
+		assert.strictEqual(disabled, true)
+	})
+
+	// SUPERSEDED: the census is single-flight per SESSION, so the modal in another
+	// tab of the same session replaces this one's request (409 resource.conflict)
+	// without this modal having aborted it. Shown as superseded — not as a
+	// failure — with a reload that asks again.
+	it(`a superseded census (resource.conflict) offers a reload that asks again`, async function() {
+
+		this.timeout(5000)
+
+		let superseded_node	= null
+		let error_node		= null
+		let after_reload	= null
+		let requests		= 0
+		try {
+			await with_stubbed_request(
+				() => {
+					requests++
+					return requests===1
+						? { ok : false, error : { is_api_error:true, code:'resource.conflict', message:'Fake superseded' } }
+						: ok_targets(TWO_TARGETS)
+				},
+				async () => {
+					const modal = await open_modal(make_dialog_options(make_pinned_sqo()))
+					superseded_node	= modal.querySelector('.target_sections_empty.superseded')
+					error_node		= modal.querySelector('.target_sections_empty.error')
+					modal.querySelector('button.button_reload_targets')
+						.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}))
+					await tick()
+					after_reload = modal.querySelectorAll('input[name=target_section]').length
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
+
+		assert.notStrictEqual(superseded_node, null, 'the superseded state is rendered')
+		assert.strictEqual(error_node, null, 'not reported as a failure')
+		assert.strictEqual(requests, 2, 'the reload asked relation_targets again')
+		assert.strictEqual(after_reload, TWO_TARGETS.length, 'the new answer is shown')
+	})
+
+	// Section mode end to end: the picked target's window is filtered by the
+	// leaf, and the leaf's source is EXACTLY the one the counts came from.
+	it(`section mode opens the picked target filtered by the referenced_by leaf`, async function() {
 
 		this.timeout(10000)
 
-		const options = make_portal_options(make_pinned_sqo())
-
+		let captured	= []
 		let urls		= []
-		let had_radios	= null
+		let disabled_before_pick = null
 		try {
-			await with_stubbed_request(
-				{
-					ok		: true,
-					// one matched record holding three locators across two sections
-					data	: [[
-						make_locator('test4', 11),
-						make_locator('test5', 12),
-						make_locator('test4', 13)
-					]],
-					table	: 'matrix'
-				},
+			captured = await with_stubbed_request(
+				() => ok_targets(TWO_TARGETS),
 				async () => {
 					urls = await with_stubbed_open(async () => {
-						await with_stubbed_alert(async () => {
-							render_open_list_with_direct_relations(options)
-							const modal = document.querySelector('.open_relations_modal')
-							// no target radios in component mode: the tipo is fixed
-							had_radios = modal.querySelector('input[name=target_section]')
-							modal.querySelector('button.success').dispatchEvent(new MouseEvent('mouseup', {bubbles:true}))
-							// The window chain is fire-and-forget (open_related_data's
-							// promise is never returned), so this wait is the only join
-							// point. Generous: it must outlast two dummy section builds
-							// or the stubs are restored under a still-running chain.
-							await new Promise(resolve => setTimeout(resolve, 3000))
+						await with_stubbed_dialogs(async () => {
+							const modal = await open_modal(make_dialog_options(make_navigated_sqo()))
+							disabled_before_pick = modal.querySelector('button.success').disabled
+							pick_target(modal, 'test5')
+							press_open(modal)
+							// fire-and-forget window chain: this wait is the only join
+							// point; it must outlast the dummy section build
+							await tick(2000)
 						})
 					})
 				}
@@ -545,13 +744,92 @@ describe(`OPEN_RELATED_DATA`, async () => {
 			cleanup_modals()
 		}
 
-		assert.strictEqual(had_radios, null, 'component mode fixes the tipo — no radio group')
+		assert.strictEqual(disabled_before_pick, true, 'Open waits for a target pick')
+		assert.deepEqual(window_tipos(urls), ['test5'])
 
-		assert.strictEqual(urls.length, 2, 'one window per distinct target section_tipo')
-		assert.deepEqual(
-			urls.map(url => url.split('tipo=')[1].split('&')[0]).sort(),
-			['test4','test5']
-		)
+		const census_source	= targets_requests(captured).at(-1).options.source
+		const reads			= captured.filter(el => el?.action!=='relation_targets' && leaf_of(el))
+		assert.ok(reads.length > 0, 'the dummy section request carries the leaf')
+		const read = reads[0]
+		assert.deepEqual(leaf_of(read), census_source, 'the window filter reuses the census source verbatim')
+		assert.deepEqual(read.sqo.filter.$and[0], { referenced_by : census_source },
+			'the leaf holds exactly one key')
+		assert.strictEqual(read.sqo.section_tipo[0], 'test5')
+		for (const key of ['limit','offset','order']) {
+			assert.strictEqual(key in leaf_of(read), false, `the leaf source must not carry ${key}`)
+		}
+		assert.strictEqual(captured.some(el => /"component_tipo":"section_id"/.test(JSON.stringify(el?.sqo?.filter ?? ''))), false,
+			'no section_id list filter travels any more')
+	})
+
+	// Portal mode: no radios, from_component_tipo in the source, one window per
+	// listed target.
+	it(`portal mode opens one window per target, narrowed by from_component_tipo`, async function() {
+
+		this.timeout(10000)
+
+		let captured	= []
+		let urls		= []
+		let had_radios	= null
+		try {
+			captured = await with_stubbed_request(
+				() => ok_targets(TWO_TARGETS),
+				async () => {
+					urls = await with_stubbed_open(async () => {
+						await with_stubbed_dialogs(async () => {
+							const modal = await open_modal(make_portal_options(make_pinned_sqo()))
+							had_radios = modal.querySelector('input[name=target_section]')
+							press_open(modal)
+							await tick(3000)
+						})
+					})
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
+
+		assert.strictEqual(had_radios, null, 'portal mode lists targets, it does not pick one')
+		assert.strictEqual(targets_requests(captured)[0].options.source.from_component_tipo, 'test80')
+		assert.deepEqual(window_tipos(urls), ['test4','test5'], 'one window per listed target')
+
+		const leaves = captured.filter(el => el?.action!=='relation_targets').map(leaf_of).filter(Boolean)
+		assert.ok(leaves.length >= 2)
+		assert.ok(leaves.every(el => el.from_component_tipo==='test80'),
+			'every window keeps the component narrowing')
+	})
+
+	// A source naming a whole section (no pins, no active filter value) asks
+	// first; a filtered one does not.
+	it(`an unfiltered found source asks for confirmation before opening`, async function() {
+
+		this.timeout(10000)
+
+		const sqo = make_navigated_sqo()
+		sqo.filter = { '$and' : [] }
+
+		let messages = []
+		try {
+			await with_stubbed_request(
+				() => ok_targets(TWO_TARGETS),
+				async () => {
+					await with_stubbed_open(async () => {
+						messages = await with_stubbed_dialogs(async () => {
+							const modal = await open_modal(make_dialog_options(sqo))
+							flip_scope(modal, 'found')
+							await tick()
+							pick_target(modal, 'test4')
+							press_open(modal)
+							await tick(2000)
+						})
+					})
+				}
+			)
+		} finally {
+			cleanup_modals()
+		}
+
+		assert.strictEqual(messages.length, 1, 'one confirm for the whole-section source')
 	})
 })
 

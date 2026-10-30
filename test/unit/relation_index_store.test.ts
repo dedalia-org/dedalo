@@ -35,12 +35,12 @@ import {
 	findInverseReferenceLocators,
 	findInverseReferences,
 } from '../../src/core/search/search_related.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import {
 	dropSituation,
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const SCRATCH_ID = 999903; // matrix_test scratch surface
 

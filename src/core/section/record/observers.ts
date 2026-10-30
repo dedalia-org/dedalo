@@ -936,6 +936,7 @@ async function recomputeInfoObserver(
 		const searchSection = hostSectionTipo;
 		const { sanitizeClientSqo } = await import('../../concepts/sqo.ts');
 		const { buildSearchSql } = await import('../../search/sql_assembler.ts');
+		const { runSearch } = await import('../../search/search_statement.ts');
 		const sqo = sanitizeClientSqo({
 			section_tipo: [searchSection],
 			filter: mutated,
@@ -943,7 +944,7 @@ async function recomputeInfoObserver(
 		});
 		sqo.limit = 'all'; // PHP set_limit(0) = every referencing record
 		const query = await buildSearchSql(sqo);
-		const rows = (await sql.unsafe(query.sql, query.params as (string | number | null)[])) as ({
+		const rows = (await runSearch(query)) as ({
 			section_tipo: string;
 			section_id: number;
 		} & Record<string, unknown>)[];

@@ -71,6 +71,7 @@ import {
 	resolveBuilderResult,
 	substituteUsed,
 } from './params.ts';
+import { createSearchStatement, runSearch, type SearchStatement } from './search_statement.ts';
 
 const DEFAULT_DATA_LANG = readString('DATA_LANG');
 
@@ -104,9 +105,11 @@ export interface BuiltQuery {
 }
 
 /**
- * PUBLIC: render one conformed filter tree to a WHERE fragment, registering
- * its values on the given collector. Consumers with their OWN query shells
- * (the TM read) reuse the exact leaf/boolean rendering of the main pipeline.
+ * Render one conformed filter tree to a WHERE fragment, registering its values
+ * on the given collector. Exported for gates only: the text may carry a
+ * `referenced_by` expansion outside any SearchStatement, so its production
+ * importer set is pinned (EMPTY) by search_statement_chokepoint_tripwire, as
+ * are buildScopedRowSetSql's and conform.ts conformFilter's.
  */
 export function renderConformedFilter(node: ConformedFilter, params: ParamsCollector): string {
 	return parseConformedFilter(node, params);
@@ -1276,11 +1279,11 @@ async function searchChildrenRecursiveRoots(
 		offset: 0,
 		full_count: false,
 	} as unknown as Sqo;
-	const query = await buildSearchSql(rootsSqo, { ...options, idsOnly: true });
-	return (await sql.unsafe(query.sql, query.params as (string | number | null)[])) as {
-		section_id: number;
-		section_tipo: string;
-	}[];
+	// The roots pass runs the caller's WHOLE filter (leaf included), so it goes
+	// through the one executor like every other search statement.
+	return await runSearch<{ section_id: number; section_tipo: string }>(
+		await buildSearchSql(rootsSqo, { ...options, idsOnly: true }),
+	);
 }
 
 /**
@@ -1337,7 +1340,10 @@ function childrenRecursiveFilter(
 		: { $and: [fixedChildrenFilter, { $or: idFilter }] };
 }
 
-async function buildChildrenRecursiveSql(sqo: Sqo, options: SearchOptions): Promise<BuiltQuery> {
+async function buildChildrenRecursiveSql(
+	sqo: Sqo,
+	options: SearchOptions,
+): Promise<SearchStatement> {
 	const base = sqo as unknown as Record<string, unknown>;
 	const roots = await searchChildrenRecursiveRoots(base, options);
 	const byLocator = await collectRecursiveDescendants(roots);
@@ -1362,7 +1368,16 @@ async function buildChildrenRecursiveSql(sqo: Sqo, options: SearchOptions): Prom
 	return await buildSearchSql(combinedSqo, options);
 }
 
-export async function buildSearchSql(sqo: Sqo, options: SearchOptions = {}): Promise<BuiltQuery> {
+/**
+ * Build the search statement of `sqo` — an opaque {@link SearchStatement}: it
+ * runs only through search/search_statement.ts (runSearch / wrapSearch /
+ * searchCursorSource), which bounds it when a `referenced_by` leaf rendered
+ * into it (the chokepoint; test/unit/search_statement_chokepoint_tripwire.test.ts).
+ */
+export async function buildSearchSql(
+	sqo: Sqo,
+	options: SearchOptions = {},
+): Promise<SearchStatement> {
 	// WHICH search, separately from HOW it is assembled (PHP search::search's
 	// dedicated children_recursive path, taken before parse_sql_query): the
 	// descendant-expanding search is a PRE-PASS that re-enters this same door
@@ -1510,19 +1525,50 @@ function assertSectionRecordTable(sectionTipo: string, table: string): void {
 	assertMatrixTable(table);
 }
 
-/** The SQO→SQL assembler proper: one section (or a UNION of them), no pre-pass. */
-async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<BuiltQuery> {
+/**
+ * WHERE a search reads — its sections, their tables and its main alias —
+ * resolved ONCE for both consumers of the WHERE composition (the plain search
+ * and the scoped row set).
+ */
+interface SearchTarget {
+	sectionTipos: string[];
+	multiSection: boolean;
+	mainSectionTipo: string;
+	alias: string;
+	/** Resolvable tables, first = main; all of them are UNION branches. */
+	tables: string[];
+	matrixTable: string;
+}
+
+/**
+ * Resolve the target of an SQO: gated section tipos, the main alias (`mix`
+ * for several sections, the trimmed tipo for one — or the caller's own alias,
+ * which the scoped row set passes so an embedded subquery never reuses the
+ * outer statement's alias), and the matrix tables (first resolvable = main).
+ * Each ontology-resolved table name is interpolated into FROM/JOIN, so it is
+ * re-asserted against the same allowlist the write layer uses (L2 —
+ * defense-in-depth: identical discipline across read and write paths).
+ */
+async function resolveSearchTarget(sqo: Sqo, aliasOverride?: string): Promise<SearchTarget> {
 	const sectionTipos = getSectionTipos(sqo).map((tipo) =>
 		assertValidTipo(tipo, 'sqo.section_tipo'),
 	);
 	const multiSection = sectionTipos.length > 1;
 	const mainSectionTipo = sectionTipos[0] as string;
-	const alias = multiSection ? 'mix' : (trimTipo(mainSectionTipo) ?? mainSectionTipo);
+	const alias =
+		aliasOverride ?? (multiSection ? 'mix' : (trimTipo(mainSectionTipo) ?? mainSectionTipo));
+	const tables = await resolveSectionTables(sectionTipos);
+	const matrixTable = tables[0];
+	if (matrixTable === undefined) {
+		throw new DedaloError('request.invalid_tipo', {
+			message: 'search assembler: no resolvable matrix table for the SQO section_tipo',
+		});
+	}
+	return { sectionTipos, multiSection, mainSectionTipo, alias, tables, matrixTable };
+}
 
-	// Resolve matrix tables (first resolvable = main; all needed for UNION).
-	// Each ontology-resolved table name is interpolated into FROM/JOIN below, so
-	// re-assert it against the same allowlist the write layer uses (L2 —
-	// defense-in-depth: identical discipline across read and write paths).
+/** The distinct record tables of the sections, in first-seen order (each asserted). */
+async function resolveSectionTables(sectionTipos: readonly string[]): Promise<string[]> {
 	const tables: string[] = [];
 	for (const tipo of sectionTipos) {
 		const table = await getMatrixTableFromTipo(tipo);
@@ -1531,17 +1577,78 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 			tables.push(table);
 		}
 	}
-	const matrixTable = tables[0];
-	if (matrixTable === undefined) {
-		throw new DedaloError('request.invalid_tipo', {
-			message: 'search assembler: no resolvable matrix table for the SQO section_tipo',
-		});
-	}
-	const params = new ParamsCollector();
+	return tables;
+}
 
+/** Who asks, and how deep inside `referenced_by` row sets the WHERE sits. */
+interface WhereOptions {
+	principal?: Principal;
+	readFloor?: ReadonlySet<string>;
+	/** Enclosing `referenced_by` leaves (0 = a main search). */
+	depth: number;
+}
+
+/**
+ * THE ONE WHERE COMPOSITION of a search (shared by buildPlainSearchSql and
+ * buildScopedRowSetSql, so the row set a `referenced_by` leaf embeds can never
+ * answer differently from the list of the same SQO):
+ *   mainWhere  — the section pin, the Users root exclusion;
+ *   whereParts — in a FIXED order: [the client filter tree], [the per-record
+ *                ACL], [the dd478 allow-list], [filter_by_locators].
+ * `nonAclWhereParts` counts the parts that are NOT the caller's ACL (PERF-10).
+ * Every value binds through `params` — positional for a statement, NAMED
+ * (NamedTokenCollector) for an embeddable fragment.
+ */
+async function composeSearchWhere(
+	sqo: Sqo,
+	target: SearchTarget,
+	options: WhereOptions,
+	params: ParamsCollector,
+): Promise<{
+	mainWhere: string[];
+	whereParts: string[];
+	nonAclWhereParts: number;
+	projectsFilterActive: boolean;
+}> {
+	const mainWhere = composeMainWhere(target, params);
+	const whereParts: string[] = [];
+	const filterSql = await composeFilterWhere(sqo, target, options, params);
+	pushFragment(whereParts, filterSql);
+	const projectsFilter = await composeRecordAclWhere(sqo, target, options.principal, params);
+	pushFragment(whereParts, projectsFilter);
+	// --- filter_records (row-level ACL by id, PHP build_filter_by_user_records)
+	// The caller's own component_filter_records datum (dd478), ANDed on top of
+	// everything above: the projects filter says which records the user's
+	// projects reach, this one names the individual records inside a section.
+	// Applies to global admins too — PHP's clause has no admin arm, and an
+	// admin with no allow-list (the normal case) is unaffected either way.
+	// Skipped for internal searches (no principal), like the projects filter.
+	pushFragment(
+		whereParts,
+		await buildUserRecordsFilter(
+			target.sectionTipos,
+			target.alias,
+			options.principal,
+			params,
+			target.multiSection,
+		),
+	);
+	const locatorSql = composeLocatorWhere(sqo, target.alias, params);
+	pushFragment(whereParts, locatorSql);
+	return {
+		mainWhere,
+		whereParts,
+		nonAclWhereParts: (filterSql === '' ? 0 : 1) + (locatorSql === '' ? 0 : 1),
+		projectsFilterActive: projectsFilter !== '',
+	};
+}
+
+/** The section pin + the Users root exclusion. */
+function composeMainWhere(target: SearchTarget, params: ParamsCollector): string[] {
+	const { alias, sectionTipos, mainSectionTipo } = target;
 	// --- WHERE: main (section_tipo) ---------------------------------------
 	const mainWhere: string[] = [];
-	if (multiSection) {
+	if (target.multiSection) {
 		const placeholders = sectionTipos.map((tipo) => params.getPlaceholder(tipo));
 		mainWhere.push(`(${alias}.section_tipo IN (${placeholders.join(',')}))`);
 	} else {
@@ -1558,24 +1665,235 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 	if (mainSectionTipo === config.usersSectionTipo) {
 		mainWhere.push(`${alias}.section_id > 0`);
 	}
+	return mainWhere;
+}
 
-	// --- THE PATH ACL (SEC-02) ---------------------------------------------
-	// Every JOIN alias a multi-hop filter or ORDER path opens is a read of
-	// another section's records, and until 2026-08-28 the ACL below was emitted
-	// against the MAIN alias only — so a listing the caller IS allowed to run
-	// could carry a predicate over a record they are NOT allowed to see, and the
-	// row's presence answered a question about it (a prefix oracle: begins-with,
-	// ends-with, contains and `==` are all reachable). This object hands the
-	// conform stage the SAME builders the main alias uses, so the hop predicate
-	// and the main predicate can never drift apart.
-	//
-	// Its exemptions are the main alias's, arm for arm: an absent principal is an
-	// internal search, a global admin bypasses the projects filter, the
-	// server-only `skip_projects_filter` flag bypasses it, and the shared
-	// vocabulary/infrastructure tables are never project-gated (gating them
-	// would blank the thesaurus for every non-admin — see
-	// PROJECTS_FILTER_EXEMPT_TABLES). The dd478 allow-list applies to admins too.
+/**
+ * The client filter tree → one WHERE fragment ('' when it renders nothing).
+ *
+ * THE PATH ACL (SEC-02): every JOIN alias a multi-hop filter path opens is a
+ * read of another section's records, and until 2026-08-28 the ACL was emitted
+ * against the MAIN alias only — so a listing the caller IS allowed to run could
+ * carry a predicate over a record they are NOT allowed to see, and the row's
+ * presence answered a question about it (a prefix oracle). The path scope hands
+ * the conform stage the SAME builders the main alias uses. Its exemptions are
+ * the main alias's, arm for arm (absent principal, global admin, the
+ * server-only `skip_projects_filter`, PROJECTS_FILTER_EXEMPT_TABLES); the dd478
+ * allow-list applies to admins too.
+ *
+ * Deep paths → semi-joins over the related records (deep_path.ts): the filter
+ * never adds a join to the main FROM. The hop ACL of a FILTER chain binds
+ * through named tokens: a leaf that renders nothing (refused, inert) must leave
+ * no orphan `$N` behind.
+ */
+async function composeFilterWhere(
+	sqo: Sqo,
+	target: SearchTarget,
+	options: WhereOptions,
+	params: ParamsCollector,
+): Promise<string> {
+	if (sqo.filter === undefined || sqo.filter === null) return '';
+	const filterAcl = new NamedTokenCollector(
+		`${HOP_ACL_TOKEN_PREFIX}${hopAclDepthTag(options.depth)}`,
+	);
+	const filterScope = buildPathScope(
+		options.principal,
+		sqo.skip_projects_filter === true,
+		filterAcl,
+		target.sectionTipos,
+		options.readFloor,
+	);
+	const conformed = await planDeepFilters(
+		await conformFilter(
+			sqo.filter as Record<string, unknown>,
+			target.alias,
+			target.matrixTable,
+			filterScope,
+			options.depth,
+		),
+		target.tables,
+		filterAcl.tokenValues,
+	);
+	return parseConformedFilter(conformed, params);
+}
+
+/**
+ * The hop-ACL token tag of a WHERE nested `depth` row sets deep: '' for a main
+ * search (byte-identical `_ACL1_` tokens), `r<depth>n` inside a row set, so a
+ * nested chain's tokens can never collide with an enclosing one's.
+ */
+function hopAclDepthTag(depth: number): string {
+	return depth === 0 ? '' : `r${depth}n`;
+}
+
+/**
+ * The per-record ACL (projects filter, §7.4 / the owner rule) — non-admins
+ * only; '' when nothing gates. Skipped for global admins and internal searches
+ * (no principal), and when server-only flag skip_projects_filter is set
+ * (already stripped from client SQOs by sanitizeClientSqo, so only trusted
+ * code can set it). Multi-section (covered 2026-07-09, replacing the Phase 5c
+ * fail-closed throw): per-section predicates — see
+ * buildMultiSectionProjectsFilter.
+ */
+async function composeRecordAclWhere(
+	sqo: Sqo,
+	target: SearchTarget,
+	principal: Principal | undefined,
+	params: ParamsCollector,
+): Promise<string> {
+	if (principal === undefined || principal.isGlobalAdmin || sqo.skip_projects_filter === true) {
+		return '';
+	}
+	const gateableSections = await gateableSectionsOf(target.sectionTipos);
+	if (gateableSections.length === 0) return '';
+	return target.multiSection
+		? await buildMultiSectionProjectsFilter(
+				target.sectionTipos,
+				gateableSections,
+				target.alias,
+				principal,
+				params,
+			)
+		: await buildRecordAclFilter(target.mainSectionTipo, target.alias, principal, params);
+}
+
+/**
+ * The sections the per-record ACL gates. PHP auto-exemption
+ * (search::$ar_tables_skip_projects): shared vocabulary/infrastructure tables
+ * never carry project locators. Applies per SECTION so a mixed UNION only gates
+ * the gateable branches — and an OWNER-BOUND section (dd655) is gated whatever
+ * table it lives in.
+ */
+async function gateableSectionsOf(sectionTipos: readonly string[]): Promise<string[]> {
+	const gateableSections: string[] = [];
+	for (const sectionTipo of sectionTipos) {
+		if (await sectionNeedsRecordAcl(sectionTipo)) gateableSections.push(sectionTipo);
+	}
+	return gateableSections;
+}
+
+/** filter_by_locators (dedicated shape, PHP :1382) → one OR'd clause ('' when none). */
+function composeLocatorWhere(sqo: Sqo, alias: string, params: ParamsCollector): string {
+	if (!Array.isArray(sqo.filter_by_locators) || sqo.filter_by_locators.length === 0) return '';
+	const locatorClauses = sqo.filter_by_locators.map((locator) => {
+		const fields: string[] = [];
+		fields.push(`${alias}.section_id=${params.getPlaceholder(Number(locator.section_id))}`);
+		fields.push(
+			`${alias}.section_tipo=${params.getPlaceholder(assertValidTipo(locator.section_tipo, 'filter_by_locators'))}`,
+		);
+		return `( ${fields.join(' AND ')} )`;
+	});
+	return `(${locatorClauses.join(' OR ')})`;
+}
+
+/**
+ * Every WHERE part as ONE conjunct: parenthesized here, the single place all
+ * WHERE parts meet, so no part's own OR can bind across its neighbours. A bare
+ * root `$or` filter used to render `pin AND A OR B AND acl` = `(pin AND A) OR
+ * (B AND acl)` — branch A escaped the record ACL, branch B the section pin
+ * (WC-2026-09-29-search-where-parts-parenthesized).
+ */
+function conjunctsOf(mainWhere: readonly string[], whereParts: readonly string[]): string[] {
+	return [...mainWhere, ...whereParts].filter((part) => part !== '').map((part) => `(${part})`);
+}
+
+/** A scoped row set, ready to embed: its SQL and the named tokens it references. */
+export interface ScopedRowSet {
+	/** `SELECT <alias>.section_tipo, <alias>.section_id FROM … WHERE …` (UNION ALL per table). */
+	sql: string;
+	/** The named tokens `sql` references → their values (never `$N`). */
+	tokenValues: Record<string, unknown>;
+}
+
+/**
+ * THE SCOPED ROW SET of an SQO (WC-2026-10-30-search-referenced-by-leaf): the
+ * identities `(section_tipo, section_id)` of EVERY record the SQO matches for
+ * this principal — the same WHERE as its list ({@link composeSearchWhere}: the
+ * section pin, the root exclusion, the conformed + deep-planned filter, the
+ * projects/owner ACL, the dd478 allow-list, filter_by_locators), with NO
+ * ORDER, LIMIT, OFFSET, `;` and none of the window / late-lookup / CTE
+ * wrappers: the found set by definition. Values ride as NAMED tokens
+ * (`tokens`, a NamedTokenCollector the caller owns), so the fragment embeds in
+ * any outer statement without renumbering `$n`; the outer resolver binds them.
+ *
+ * `alias` must differ from the enclosing statement's aliases (the caller owns
+ * that namespace: the referenced_by builder uses `rs<depth>`); `depth` is the
+ * number of enclosing `referenced_by` leaves, threaded into conform so a
+ * nested leaf is bounded (MAX_REFERENCED_BY_DEPTH).
+ *
+ * `withRelation` also projects each row's OWN stored `relation` column (the
+ * referenced_by builder expands the source rows' locators from it — the
+ * original data, never the derived matrix_relation_index). Every record table
+ * of the allowlist carries it; the column is read off the row the WHERE
+ * already selected, so no second lookup by identity is needed.
+ */
+export async function buildScopedRowSetSql(
+	sqo: Sqo,
+	options: {
+		principal?: Principal;
+		tokens: NamedTokenCollector;
+		alias: string;
+		depth: number;
+		withRelation?: boolean;
+	},
+): Promise<ScopedRowSet> {
+	const target = await resolveSearchTarget(sqo, options.alias);
+	const { mainWhere, whereParts } = await composeSearchWhere(
+		sqo,
+		target,
+		{
+			...(options.principal === undefined ? {} : { principal: options.principal }),
+			depth: options.depth,
+		},
+		options.tokens,
+	);
+	const whereAll = conjunctsOf(mainWhere, whereParts);
+	const alias = target.alias;
+	const columns =
+		options.withRelation === true
+			? `${alias}.section_tipo, ${alias}.section_id, ${alias}.relation`
+			: `${alias}.section_tipo, ${alias}.section_id`;
+	const branch = (table: string) =>
+		`SELECT ${columns} FROM ${table} AS ${alias} WHERE ${whereAll.join(' AND ')}`;
+	return {
+		sql: target.tables.map(branch).join(' UNION ALL '),
+		tokenValues: options.tokens.tokenValues,
+	};
+}
+
+/**
+ * The SQO→SQL assembler proper: one section (or a UNION of them), no pre-pass.
+ * The statement's `carriesReferencedBy` is what its collector recorded while
+ * rendering (ParamsCollector.carriesReferencedBy).
+ */
+async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<SearchStatement> {
+	const params = new ParamsCollector();
+	const built = await assemblePlainSearch(sqo, options, params);
+	return createSearchStatement(built.sql, built.params, params.carriesReferencedBy);
+}
+
+/** The body of {@link buildPlainSearchSql}, rendering into `params`. */
+async function assemblePlainSearch(
+	sqo: Sqo,
+	options: SearchOptions,
+	params: ParamsCollector,
+): Promise<BuiltQuery> {
+	const target = await resolveSearchTarget(sqo);
+	const { sectionTipos, multiSection, mainSectionTipo, alias, tables, matrixTable } = target;
 	const principal = options.principal;
+	const { mainWhere, whereParts, nonAclWhereParts, projectsFilterActive } =
+		await composeSearchWhere(
+			sqo,
+			target,
+			{
+				...(principal === undefined ? {} : { principal }),
+				...(options.readFloor === undefined ? {} : { readFloor: options.readFloor }),
+				depth: 0,
+			},
+			params,
+		);
+	// The ORDER paths' ACL scope (SEC-02): the same builders as the filter's,
+	// bound positionally (an order path that renders always binds).
 	const pathScope = buildPathScope(
 		principal,
 		sqo.skip_projects_filter === true,
@@ -1583,104 +1901,7 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 		sectionTipos,
 		options.readFloor,
 	);
-
-	// --- WHERE: user filter tree -------------------------------------------
-	const whereParts: string[] = [];
-	/**
-	 * How many of `whereParts` are NOT the caller's ACL (PERF-10).
-	 *
-	 * `whereParts` is pushed in a FIXED order — [0] the client filter tree,
-	 * then the projects predicate, then filter_records, then
-	 * filter_by_locators. The ACL span is the middle two; this counts the OTHER
-	 * two, so `nonAclWhereParts === 0` means "whereParts hold ONLY the ACL".
-	 * Counted at the push, never sniffed out of the rendered SQL: a string test
-	 * would be a spelling gate, and the spelling is not the invariant.
-	 */
-	let nonAclWhereParts = 0;
 	const joinFragments = new Map<string, string>();
-	if (sqo.filter !== undefined && sqo.filter !== null) {
-		// Deep paths → semi-joins over the related records (deep_path.ts): the
-		// filter never adds a join to the main FROM.
-		// The hop ACL of a FILTER chain binds through named tokens: a leaf that
-		// renders nothing (refused, inert) must leave no orphan `$N` behind.
-		const filterAcl = new NamedTokenCollector(HOP_ACL_TOKEN_PREFIX);
-		const filterScope = buildPathScope(
-			principal,
-			sqo.skip_projects_filter === true,
-			filterAcl,
-			sectionTipos,
-			options.readFloor,
-		);
-		const conformed = await planDeepFilters(
-			await conformFilter(sqo.filter as Record<string, unknown>, alias, matrixTable, filterScope),
-			tables,
-			filterAcl.tokenValues,
-		);
-		const filterSql = parseConformedFilter(conformed, params);
-		if (filterSql !== '') {
-			whereParts.push(filterSql);
-			nonAclWhereParts += 1;
-		}
-	}
-
-	// --- projects filter (per-record ACL, §7.4) — non-admins only -----------
-	// Skipped for global admins and internal searches (no principal), and when
-	// server-only flag skip_projects_filter is set (already stripped from
-	// client SQOs by sanitizeClientSqo, so only trusted code can set it).
-	// Multi-section (covered 2026-07-09, replacing the Phase 5c fail-closed
-	// throw): per-section predicates — see buildMultiSectionProjectsFilter.
-	let projectsFilterActive = false;
-	if (principal !== undefined && !principal.isGlobalAdmin && sqo.skip_projects_filter !== true) {
-		// PHP auto-exemption (search::$ar_tables_skip_projects): shared
-		// vocabulary/infrastructure tables never carry project locators. Applies
-		// per SECTION so a mixed UNION only gates the gateable branches — and an
-		// OWNER-BOUND section (dd655) is gated whatever table it lives in.
-		const gateableSections: string[] = [];
-		for (const sectionTipo of sectionTipos) {
-			if (await sectionNeedsRecordAcl(sectionTipo)) gateableSections.push(sectionTipo);
-		}
-		if (gateableSections.length > 0) {
-			const projectsFilter = multiSection
-				? await buildMultiSectionProjectsFilter(
-						sectionTipos,
-						gateableSections,
-						alias,
-						principal,
-						params,
-					)
-				: await buildRecordAclFilter(mainSectionTipo, alias, principal, params);
-			if (projectsFilter !== '') {
-				whereParts.push(projectsFilter);
-				projectsFilterActive = true;
-			}
-		}
-	}
-
-	// --- filter_records (row-level ACL by id, PHP build_filter_by_user_records)
-	// The caller's own component_filter_records datum (dd478), ANDed on top of
-	// everything above: the projects filter says which records the user's
-	// projects reach, this one names the individual records inside a section.
-	// Applies to global admins too — PHP's clause has no admin arm, and an
-	// admin with no allow-list (the normal case) is unaffected either way.
-	// Skipped for internal searches (no principal), like the projects filter.
-	pushFragment(
-		whereParts,
-		await buildUserRecordsFilter(sectionTipos, alias, principal, params, multiSection),
-	);
-
-	// --- filter_by_locators (dedicated shape, PHP :1382) --------------------
-	if (Array.isArray(sqo.filter_by_locators) && sqo.filter_by_locators.length > 0) {
-		const locatorClauses = sqo.filter_by_locators.map((locator) => {
-			const fields: string[] = [];
-			fields.push(`${alias}.section_id=${params.getPlaceholder(Number(locator.section_id))}`);
-			fields.push(
-				`${alias}.section_tipo=${params.getPlaceholder(assertValidTipo(locator.section_tipo, 'filter_by_locators'))}`,
-			);
-			return `( ${fields.join(' AND ')} )`;
-		});
-		whereParts.push(`(${locatorClauses.join(' OR ')})`);
-		nonAclWhereParts += 1;
-	}
 
 	// --- ORDER ---------------------------------------------------------------
 	const selectExtra: string[] = [];
@@ -1748,14 +1969,8 @@ async function buildPlainSearchSql(sqo: Sqo, options: SearchOptions): Promise<Bu
 	// repeated path in another clause reuses the same joined rows, PHP rule).
 	const joinsSql = joinFragments.size > 0 ? `\n${[...joinFragments.values()].join('\n')}` : '';
 	const fromClause = `${matrixTable} AS ${alias}${joinsSql}`;
-	// Every part is ONE conjunct: parenthesized here, the single place all WHERE
-	// parts meet, so no part's own OR can bind across its neighbours. A bare
-	// root `$or` filter used to render `pin AND A OR B AND acl` = `(pin AND A)
-	// OR (B AND acl)` — branch A escaped the record ACL, branch B the section
-	// pin (WC-2026-09-29-search-where-parts-parenthesized).
-	const whereAll = [...mainWhere, ...whereParts]
-		.filter((part) => part !== '')
-		.map((part) => `(${part})`);
+	// Every part is ONE conjunct (conjunctsOf).
+	const whereAll = conjunctsOf(mainWhere, whereParts);
 	const whereSql = whereAll.length > 0 ? `\nWHERE ${whereAll.join('\n AND ')}` : '';
 	let queryInside = `SELECT ${select.join(',\n')}\nFROM ${fromClause}${whereSql}`;
 	const countScope: BrowseCountScope = {

@@ -26,7 +26,8 @@
 // which keeps it out of the install-TLD census's `<tld><digits>` token grammar.
 
 import { describe, expect, test } from 'bun:test';
-import { buildSearchSql, trimTipo } from '../../src/core/search/sql_assembler.ts';
+import { trimTipo } from '../../src/core/search/sql_assembler.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const ID_ORDER = { direction: 'DESC', path: [{ component_tipo: 'id' }] };
 /** An ordinary section (no timestamp-order rewrite) — the convention carrier. */

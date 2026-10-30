@@ -290,6 +290,7 @@ const TRIPWIRES = [
 	'test/unit/zzscale_corpus_native.test.ts',
 	'test/unit/read_path_record_reuse_tripwire.test.ts',
 	'test/unit/search_pattern_escape_tripwire.test.ts',
+	'test/unit/search_statement_chokepoint_tripwire.test.ts',
 	'test/unit/closure_openquestions_tripwire.test.ts',
 	'test/unit/client_dashboard_sink_tripwire.test.ts',
 	'test/unit/client_event_manager_dispatch_tripwire.test.ts',

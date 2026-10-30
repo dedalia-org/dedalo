@@ -417,6 +417,8 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	// hop), so it leaves the same end state and answers the same thing.
 	['dd_core_api:read', 'idempotent'],
 	['dd_core_api:read_raw', 'idempotent'],
+	// A grouped COUNT over the sources' stored relation column + per-target counts; writes nothing.
+	['dd_core_api:relation_targets', 'idempotent'],
 	['dd_core_api:count', 'idempotent'],
 	['dd_core_api:start', 'idempotent'],
 	['dd_core_api:get_element_context', 'idempotent'],

@@ -105,7 +105,8 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	}
 	const { sanitizeClientSqo } = await import('../../../src/core/concepts/sqo.ts');
 	const { buildSearchSql } = await import('../../../src/core/search/sql_assembler.ts');
-	const { sql, withTransaction } = await import('../../../src/core/db/postgres.ts');
+	const { runSearch } = await import('../../../src/core/search/search_statement.ts');
+	const { withTransaction } = await import('../../../src/core/db/postgres.ts');
 	const { readMatrixRecord } = await import('../../../src/core/db/matrix.ts');
 	const { readComponentItems } = await import('../../../src/core/resolve/component_data.ts');
 	const { getMatrixTableFromTipo } = await import('../../../src/core/ontology/resolver.ts');
@@ -173,7 +174,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	(sqo as { limit?: unknown; offset?: unknown }).limit = null;
 	(sqo as { limit?: unknown; offset?: unknown }).offset = 0;
 	const built = await buildSearchSql(sqo, { principal: ctx.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_tipo: string;
 		section_id: number;
 	}[];

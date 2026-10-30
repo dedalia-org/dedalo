@@ -14,8 +14,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { CLIENT_MAX_LOCATOR_PINS, sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
 
 const SECTION = 'test2';

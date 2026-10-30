@@ -14,7 +14,8 @@
 * and the section modules that import them.
 *
 * Exports:
-*   is_filter_empty     — tests whether an SQO filter object has any non-empty `q` leaf
+*   is_filter_empty     — tests whether an SQO filter object has any active leaf
+*                         (a non-empty `q`, or a `referenced_by` leaf)
 *   is_own_record_pin   — tests whether filter_by_locators is ONLY this record
 */
 
@@ -43,10 +44,12 @@
 * it, crashing on `.length` of a null scalar prop — dd15 search-panel open.)
 * A group is "not empty" when at least one descendant leaf is not empty.
 * An empty operator array (`[].length < 1`) contributes nothing and is skipped.
+* A `referenced_by` leaf (no `q`; see render_open_list_with_direct_relations.js)
+* is a NON-empty leaf: it always narrows the set.
 *
 * Called in two places:
-*   - render_open_list_with_direct_relations.js before opening records in a new
-*     window, to warn the user when no filter is active (which would open every record).
+*   - render_open_list_with_direct_relations.js before opening related records,
+*     to warn the user when the source names a whole section.
 *   - search.js re-exports the symbol so other section modules can import it
 *     from a single entry point.
 *
@@ -85,10 +88,20 @@ export const is_filter_empty = function(filter_obj) {
 				// off the leaf's own scalar props (lang:null) and crashed.
 				// (!) is_empty_q === null signals a nested group — trigger recursion rather
 				// than treating the group itself as a leaf with an empty value.
-				const has_q = filter && typeof filter === 'object' && 'q' in filter
-				const is_empty_q = has_q
-					? (!filter.q || filter.q.length<1)
-					: null
+				//
+				// A `referenced_by` leaf ({referenced_by: <source>}, the relational
+				// "records referenced by a source set" leaf) carries no `q` either,
+				// yet it is a LEAF that always narrows: it counts as an active
+				// clause. Recursing into it would walk its source object as if it
+				// were a group (and its string values char by char, forever).
+				const is_object_item = !!filter && typeof filter === 'object' && !Array.isArray(filter)
+				const is_referenced_by = is_object_item && 'referenced_by' in filter
+				const has_q = is_object_item && 'q' in filter
+				const is_empty_q = is_referenced_by
+					? false
+					: has_q
+						? (!filter.q || filter.q.length<1)
+						: null
 
 				// if the filter has an operator, recursion to get next level
 				if(is_empty_q === null){

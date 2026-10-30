@@ -26,8 +26,6 @@
  * `ddoSchema` change. No PHP oracle; opt-in, so read-path parity is unchanged.
  */
 
-import { sql } from '../db/postgres.ts';
-
 /** One ORDER BY step: an order PATH (single-step for literals/dates, multi-step
  * for relations — the join chain from the target section to the sortable leaf,
  * built by `buildOrderPath`), plus the direction. */
@@ -147,7 +145,8 @@ export async function rankLocatorsByColumns(
 
 	const ids = [...new Set(locatorItems.map((item) => Number(item?.section_id ?? 0)))];
 	const { buildSearchSql } = await import('../search/sql_assembler.ts');
-	const { sql: rankSql, params } = await buildSearchSql({
+	const { runSearch } = await import('../search/search_statement.ts');
+	const rankSearch = await buildSearchSql({
 		section_tipo: targets,
 		// 'all', NOT 0: the assembler renders `limit: 0` as a literal `LIMIT 0`
 		// (zero rows) — only 'all'/null means unbounded. Every linked record must
@@ -172,10 +171,7 @@ export async function rankLocatorsByColumns(
 		},
 		order,
 	} as never);
-	const rows = (await sql.unsafe(rankSql, params as (string | number | null)[])) as {
-		section_tipo: string;
-		section_id: number;
-	}[];
+	const rows = await runSearch<{ section_tipo: string; section_id: number }>(rankSearch);
 	const rank = new Map<string, number>();
 	rows.forEach((row, index) => {
 		rank.set(`${row.section_tipo}_${row.section_id}`, index);

@@ -45,6 +45,7 @@ import {
 	requirePrincipal,
 } from '../handler_context.ts';
 import type { ApiResult } from '../response.ts';
+import { relationTargetsAction } from './relation_targets.ts';
 import { normalizeTermLocators } from './section_terms.ts';
 
 /** PHP safe_tipo grammar (shared/core_functions.php:2296). */
@@ -804,6 +805,10 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			}),
 		};
 	},
+	// The "Open relationships" census (TS-only, WC-2026-10-30-search-referenced-by-leaf):
+	// target sections of a source set + exact totals. Read-only; the strict
+	// envelope, the source read gate and the labels live in handlers/relation_targets.ts.
+	relation_targets: (rqo, context) => relationTargetsAction(rqo, context),
 	create: async (rqo, context) => {
 		// Create a new section record (PHP dd_core_api::create → create_record).
 		// State-changing: CSRF enforced by the dispatch gate; permission gate
@@ -1024,13 +1029,11 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			}
 			const { sanitizeClientSqo } = await import('../../concepts/sqo.ts');
 			const { buildSearchSql } = await import('../../search/sql_assembler.ts');
-			const { sql: db } = await import('../../db/postgres.ts');
+			const { runSearch } = await import('../../search/search_statement.ts');
 			const sqo = sanitizeClientSqo(structuredClone(rqo.sqo) as Record<string, unknown>);
-			const { sql: builtSql, params } = await buildSearchSql(sqo, {});
-			const matched = (await db.unsafe(builtSql, params as (string | number | null)[])) as {
-				section_tipo: string;
-				section_id: number;
-			}[];
+			const matched = await runSearch<{ section_tipo: string; section_id: number }>(
+				await buildSearchSql(sqo, {}),
+			);
 			// The SQO must stay within the gated section (no cross-section leaks).
 			targets = matched
 				.filter((row) => row.section_tipo === sectionTipo)

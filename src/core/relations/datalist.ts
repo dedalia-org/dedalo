@@ -431,6 +431,7 @@ export async function probeDatalistSize(
 			// refuse lists that are perfectly small.
 			const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
 			const { buildSearchSql } = await import('../search/sql_assembler.ts');
+			const { runSearch } = await import('../search/search_statement.ts');
 			const sqo = sanitizeClientSqo({
 				section_tipo: [targetSection],
 				filter: filterGroup,
@@ -442,10 +443,7 @@ export async function probeDatalistSize(
 			// would silently under-count and turn every refusal into a pass).
 			sqo.limit = remaining;
 			const query = await buildSearchSql(sqo);
-			const rows = (await sql.unsafe(
-				query.sql,
-				query.params as (string | number | null)[],
-			)) as unknown[];
+			const rows = (await runSearch(query)) as unknown[];
 			found += rows.length;
 			continue;
 		}
@@ -645,6 +643,7 @@ async function getTargetSectionDatalist(
 			// resolver's standing posture).
 			const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
 			const { buildSearchSql } = await import('../search/sql_assembler.ts');
+			const { runSearch } = await import('../search/search_statement.ts');
 			const sqo = sanitizeClientSqo({
 				section_tipo: [targetSection],
 				filter: filterGroup,
@@ -652,7 +651,7 @@ async function getTargetSectionDatalist(
 			});
 			sqo.limit = 'all';
 			const query = await buildSearchSql(sqo);
-			const found = (await sql.unsafe(query.sql, query.params as (string | number | null)[])) as ({
+			const found = (await runSearch(query)) as ({
 				section_id: number;
 			} & Record<string, unknown>)[];
 			rows = found

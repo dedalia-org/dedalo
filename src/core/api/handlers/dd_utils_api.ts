@@ -6,7 +6,7 @@
 import { config } from '../../../config/config.ts';
 import { readString } from '../../../config/readers.ts';
 import { isValidTipo } from '../../concepts/ontology.ts';
-import { DedaloError, ok } from '../../errors/index.ts';
+import { DedaloError, isDedaloError, ok } from '../../errors/index.ts';
 import { publicOrigin, publicOriginIsLocal } from '../../resolve/public_origin.ts';
 import { login } from '../../security/auth.ts';
 import { getPermissions } from '../../security/permissions.ts';
@@ -854,14 +854,14 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		try {
 			const { sanitizeClientSqo } = await import('../../concepts/sqo.ts');
 			const { buildSearchSql } = await import('../../search/sql_assembler.ts');
-			const { sql } = await import('../../db/postgres.ts');
+			const { runSearch, searchStatementText } = await import('../../search/search_statement.ts');
 			const sqo = sanitizeClientSqo(untrusted);
 			const built = await buildSearchSql(sqo, { principal });
-			const resolved = resolveSqlForDisplay(built.sql, built.params);
-			const rows = (await sql.unsafe(built.sql, built.params as (string | number)[])) as Record<
-				string,
-				unknown
-			>[];
+			// The text is SHOWN (the console's answer); the statement RUNS through
+			// the one search executor (bounded when a referenced_by leaf rendered).
+			const shown = searchStatementText(built);
+			const resolved = resolveSqlForDisplay(shown.sql, shown.params);
+			const rows = await runSearch<Record<string, unknown>>(built);
 			const arSectionId = [
 				...new Set(
 					rows.map((row) => row.section_id).filter((id) => id !== undefined && id !== null),
@@ -876,7 +876,7 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 				body: ok(
 					{
 						sql_resolved: resolved,
-						sql: built.sql,
+						sql: shown.sql,
 						ar_section_id: arSectionId,
 						db_data: rows,
 					},
@@ -884,6 +884,10 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 				),
 			};
 		} catch (error) {
+			// A TYPED refusal keeps its code (the leaf bound's 503 db.statement_timeout,
+			// a request.invalid_options / search.invalid_sqo, a perm.denied): re-wrapped
+			// it would read as a 500 search.failed. Only an untyped throw is wrapped.
+			if (isDedaloError(error)) throw error;
 			throw new DedaloError('search.failed', {
 				cause: error,
 				message: 'convert_search_object_to_sql_query: build/execute failed',

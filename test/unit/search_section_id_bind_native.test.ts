@@ -23,7 +23,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import '../../src/core/components/registry.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** test3 playground: a literal and a section_id component in the same section. */
 const SECTION = 'test3';

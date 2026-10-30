@@ -95,7 +95,7 @@ import {
 import { EmissionContext } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
 import type { StructureContextEntry } from './structure_context.ts';
-import { conformTmFilter, type ParamSink } from './tm_filter.ts';
+import { assertNoTmReferencedBy, conformTmFilter, type ParamSink } from './tm_filter.ts';
 
 /**
  * The section-record TM list filters by a `tipo` COLUMN filter whose value is the
@@ -302,6 +302,9 @@ function buildTmWhere(sqo: Record<string, unknown>): {
 	 * produce one; locator and tipo scopes are pure equality. */
 	rangeFilter: boolean;
 } {
+	// Before ANY surface: the locator/tipo surfaces never conform sqo.filter, so a
+	// referenced_by leaf would be dropped there too (WC-2026-10-30).
+	assertNoTmReferencedBy(sqo.filter);
 	const params: unknown[] = [];
 	const locators = Array.isArray(sqo.filter_by_locators)
 		? (sqo.filter_by_locators as Record<string, unknown>[])

@@ -25,11 +25,11 @@ import type { Rqo } from '../concepts/rqo.ts';
 import type { Sqo } from '../concepts/sqo.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
 import { readMatrixRecordBatch } from '../db/matrix.ts';
-import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord, seedRecordMemo } from '../db/record_memo.ts';
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import type { EmissionContext } from '../resolve/component_data.ts';
 import type { StructureContextEntry } from '../resolve/structure_context.ts';
+import { runSearch, type SearchStatementOptions } from '../search/search_statement.ts';
 import { buildSearchSql } from '../search/sql_assembler.ts';
 import type { Principal } from '../security/permissions.ts';
 
@@ -92,9 +92,21 @@ export interface SectionReadSource {
 	 * (security/read_floor.ts subdatumReadFloor, computed by the caller from the
 	 * VERIFIED rqo.source): the (section, component) pairs the search may filter
 	 * and sort on although the profile holds 0 on them (closure Step 3, SEC-1).
+	 * `statement` — INTERNAL, never from the wire: the referenced_by search
+	 * bound's gate override (search/search_statement.ts).
 	 */
-	getRows(sqo: Sqo, principal?: Principal, readFloor?: ReadonlySet<string>): Promise<SectionRow[]>;
-	count(sqo: Sqo, principal?: Principal, readFloor?: ReadonlySet<string>): Promise<number>;
+	getRows(
+		sqo: Sqo,
+		principal?: Principal,
+		readFloor?: ReadonlySet<string>,
+		statement?: SearchStatementOptions,
+	): Promise<SectionRow[]>;
+	count(
+		sqo: Sqo,
+		principal?: Principal,
+		readFloor?: ReadonlySet<string>,
+		statement?: SearchStatementOptions,
+	): Promise<number>;
 	emitRow(context: EmitRowContext): Promise<void>;
 	/**
 	 * When present, OWNS the read's structure-context (readSection skips its
@@ -139,16 +151,18 @@ function emittedItemHasValue(item: object): boolean {
  * Behavior-identical to the pre-seam readSectionRows / count code.
  */
 export const matrixReadSource: SectionReadSource = {
-	async getRows(sqo, principal, readFloor) {
+	async getRows(sqo, principal, readFloor, statement) {
 		// idsOnly: the page's records are batch-hydrated below with the FULL
 		// projection (::text twins included, which the search SELECT lacks), so
 		// fetching the ten wide jsonb columns here would be paid twice.
-		const { sql: builtSql, params } = await buildSearchSql(sqo, {
+		const built = await buildSearchSql(sqo, {
 			principal,
 			idsOnly: true,
 			...(readFloor === undefined ? {} : { readFloor }),
 		});
-		const rows = (await sql.unsafe(builtSql, params as (string | number | null)[])) as SectionRow[];
+		// The one search executor: a statement a referenced_by leaf rendered into
+		// runs under its bound (search/search_statement.ts); any other as before.
+		const rows = await runSearch<SectionRow>(built, statement);
 
 		// ONE record read per page per section instead of one per row (the old
 		// per-emitRow readMatrixRecord N+1): batch-load and ride each record on
@@ -175,15 +189,13 @@ export const matrixReadSource: SectionReadSource = {
 		return rows;
 	},
 
-	async count(sqo, principal, readFloor) {
+	async count(sqo, principal, readFloor, statement) {
 		const countSqo = { ...(sqo as Record<string, unknown>), full_count: true } as Sqo;
-		const { sql: builtSql, params } = await buildSearchSql(countSqo, {
+		const built = await buildSearchSql(countSqo, {
 			principal,
 			...(readFloor === undefined ? {} : { readFloor }),
 		});
-		const rows = (await sql.unsafe(builtSql, params as (string | number | null)[])) as {
-			full_count: number | string;
-		}[];
+		const rows = await runSearch<{ full_count: number | string }>(built, statement);
 		// Multi-section UNION yields one count row per branch — sum them (PHP trait.count).
 		return rows.reduce((sum, row) => sum + Number(row.full_count), 0);
 	},

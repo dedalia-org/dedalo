@@ -19,7 +19,7 @@ import {get_instance} from '../../js/instances.js'
 * - Logging (dd_console) and safe JSON parsing (JSON_parse_safely)
 * - DOM asset loading with deduplication (load_style, load_script)
 * - URL encoding/decoding (object_to_url_vars, url_vars_to_object)
-* - Window/navigation helpers (open_window, open_records_in_window, open_window_with_post)
+* - Window/navigation helpers (open_window, open_filtered_window, open_records_in_window, open_window_with_post)
 * - File download (download_file)
 * - DOM traversal (find_up_node, find_up_tag)
 * - Text/number formatting (bytes_format, printf, strip_tags, get_font_fit_size, time_unit_auto)
@@ -869,7 +869,7 @@ export function open_window(options) {
 			// (blocker, window-count limit, an about:blank refusal). Dereferencing
 			// it threw a TypeError that escaped open_window and aborted the caller
 			// mid-operation — and callers get here with work already done and not
-			// undoable (open_records_in_window has already pinned a server-session
+			// undoable (open_filtered_window has already pinned a server-session
 			// filter by this point). So: tell the user, and hand the caller a null
 			// it can branch on instead of an exception it cannot.
 				if (!new_window) {
@@ -946,27 +946,30 @@ export function prevent_open_new_window() {
 
 
 /**
-* OPEN_RECORDS_IN_WINDOW
-* Opens a new window pre-filtered to show only the given section_id records.
+* OPEN_FILTERED_WINDOW
+* Opens a new window on a section, pre-filtered by an arbitrary SQO filter.
 *
-* The filter cannot be passed via URL because large id arrays (thousands of
-* person relationships, for example) would exceed URL length limits. Instead,
-* a temporary ("dummy") section instance is built client-side with the desired
-* SQO filter; building it causes the server to store the filter in the PHP
-* session keyed to section_tipo. The new window then loads the section
-* normally and picks up the session filter automatically.
+* The filter cannot be passed via URL (a large filter — an id list, a nested
+* referenced_by source — would exceed URL length limits). Instead, a temporary
+* ("dummy") section instance is built client-side with the desired SQO filter;
+* building it makes the server store that filter in the user's server session,
+* keyed by section_tipo. The new window then loads the section normally and
+* picks up the session filter (mergeSessionSqo), so it paginates and counts it
+* like any other search.
 *
 * The dummy section is destroyed immediately after building to avoid leaking
-* client-side state. Inter-window event messaging is intentionally avoided
+* client-side state. The opened window is an independent page: it does not
+* track the caller. Inter-window event messaging is intentionally avoided
 * because its reliability varies when the target window may be new or recycled.
 *
-* (!) The session-filter approach means only one filter per section_tipo can
-* be active in a given browser session at a time. Concurrent calls for the
-* same section_tipo will overwrite each other's session filter.
+* (!) The session-filter approach means one stored filter per section_tipo in a
+* given session: a later call for the same section_tipo replaces the filter the
+* earlier one stored (calls for different section_tipos are independent).
 * @param {Object} options - Open options
-* @param {Object} options.caller - The calling Dédalo instance (used in request_config)
+* @param {Object} options.caller - The calling Dédalo instance (caller of the
+*   dummy section only)
 * @param {string} options.section_tipo - Ontology tipo of the target section
-* @param {Array} options.ar_section_id - Array of section_id values to show
+* @param {Object} options.filter - The SQO filter ({$and:[…]} / {$or:[…]})
 * @param {string} [options.target_window] - window.open target name for reuse
 * @param {number} [options.width=1280] - Window width in pixels
 * @param {number} [options.height=900] - Window height in pixels
@@ -976,17 +979,11 @@ export function prevent_open_new_window() {
 *   false when the browser refused it (the session filter stays pinned — see the
 *   note at the open_window call)
 */
-export const open_records_in_window = async function( options ) {
-
-	// create a dummy section with calculated section_id array as filter
-
-	// ! NOTE: This session server solution is adopted because passing the whole list of section_id
-	// using the URL is not feasible for large arrays (e.g., for person relationships),
-	// and events between windows is very unstable depending on whether the window is new or recycled, etc.
+export const open_filtered_window = async function( options ) {
 
 	const caller		= options.caller
 	const section_tipo	= options.section_tipo
-	const ar_section_id	= options.ar_section_id
+	const filter		= options.filter
 	const target_window	= options.target_window
 	const width			= options.width 	|| 1280
 	const height		= options.height 	|| 900
@@ -1002,19 +999,7 @@ export const open_records_in_window = async function( options ) {
 				section_tipo	: [section_tipo],
 				limit			: 10,
 				offset			: 0,
-				filter			: {
-					'$and' : [
-						{
-							q : [ ar_section_id.join(',') ],
-							path : [{
-								section_tipo	:  section_tipo,
-								component_tipo	: 'section_id',
-								model			: 'component_section_id',
-								name			: 'Id'
-							}]
-						}
-					]
-				}
+				filter			: filter
 			}
 		}]
 
@@ -1031,7 +1016,7 @@ export const open_records_in_window = async function( options ) {
 			add_show		: true, // force to use request_config 'show' value
 			caller			: caller,
 			request_config	: request_config,
-			id_variant		: 'relation_list_' + (new Date()).getTime()
+			id_variant		: 'filtered_window_' + (new Date()).getTime()
 		}
 
 	// dummy section init and build
@@ -1060,12 +1045,46 @@ export const open_records_in_window = async function( options ) {
 		// already told the user why; this is the machine-readable half of the same
 		// report.
 		if (!new_window) {
-			console.warn('open_records_in_window: window refused; the session filter stays pinned for section_tipo:', section_tipo);
+			console.warn('open_filtered_window: window refused; the session filter stays pinned for section_tipo:', section_tipo);
 			return false
 		}
 
 
 	return true
+}//end open_filtered_window
+
+
+
+/**
+* OPEN_RECORDS_IN_WINDOW
+* Opens a new window pre-filtered to show only the given section_id records:
+* a thin wrapper over open_filtered_window with a section_id csv filter.
+* (relation_list.open_related_records uses it.)
+* @param {Object} options - Open options (see open_filtered_window), plus:
+* @param {Array} options.ar_section_id - Array of section_id values to show
+* @returns {Promise<boolean>} See open_filtered_window.
+*/
+export const open_records_in_window = function( options ) {
+
+	const section_tipo	= options.section_tipo
+	const ar_section_id	= options.ar_section_id
+
+	return open_filtered_window({
+		...options,
+		filter : {
+			'$and' : [
+				{
+					q : [ ar_section_id.join(',') ],
+					path : [{
+						section_tipo	: section_tipo,
+						component_tipo	: 'section_id',
+						model			: 'component_section_id',
+						name			: 'Id'
+					}]
+				}
+			]
+		}
+	})
 }//end open_records_in_window
 
 

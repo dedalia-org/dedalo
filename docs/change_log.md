@@ -103,9 +103,23 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-30-observer-external-value-laws`, `WC-2026-10-30-observer-target-resolvers`, `WC-2026-10-30-observer-target-not-host`, `WC-2026-10-30-observer-law-derived-edges`, `WC-2026-10-30-portal-get-data-external-refresh`.
 
+- **Open relationships now follows every found record, with exact counts per related section.**
+
+    Before, **Open relationships** (the inspector button, and a portal's *List from component data*) used only the first 1000 found records, without saying so, and sent the list of related ids back and forth on every page of the opened window. Now the dialog lists every related section with its exact number of records — the number the opened window shows, with your permissions applied — and says so when nothing is related. The opened window is an ordinary filtered list: it counts and paginates normally however many records are related, and opening relationships again from it follows the chain further. The related records are read from what the found records themselves store, so the answer no longer depends on the relation index being up to date, and the activity log can be a starting point too. Counting has a 30-second limit, and so does each page and count of the opened window; past it a timeout error is shown instead of the server working on indefinitely. One count runs per session: opening the dialog in another tab or window replaces the count still running in the first, which then offers **Reload**. A found set that includes recursive children (the search's *Children* option) is refused with a message instead of being counted without its children. See [inspector — Open relationships](./core/ui/inspector.md#open-relationships).
+
+    For developers: the window's search carries a new `referenced_by` filter leaf, and the counts come from a new read-only `relation_targets` action (one deadline for the whole census, `db.statement_timeout` past it). Every search statement carrying the leaf has the 30-second limit wherever it runs (`read_raw`, the MCP search, tools acting on a search selection, diffusion and export selections), not only the opened window's — see [SQO — relationship filter leaves](./core/sqo.md#relationship-filter-leaves-referenced_by) and [rqo — relation_targets](./core/rqo.md#relation-targets-of-a-search-relation_targets).
+
+    Wire contract: `WC-2026-10-30-search-referenced-by-leaf`.
+
 - **Search panel no longer forced tall by the fields list**
 
     The Fields, Type and Preset columns of the search panel now take the height of their content (up to half the screen, scrolling past that) instead of always reserving half the screen.
+
+- **Reordering a related record to an invalid position no longer removes it.**
+
+    Moving a record inside a portal to a position outside the list (for example a drag on the second page, or a malformed request) used to drop the moved record from the field and still report the save as successful. The server now refuses such a move with an error and leaves the field exactly as it was; moves to a valid position behave as before.
+
+    Wire contract: `WC-2026-10-30-sort-data-key-range`.
 
 - **The export now writes the data language you select in the tool, not always the main one.**
 
@@ -619,7 +633,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 34 entries"
+??? note "Wire contract — 36 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -650,6 +664,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-30-ontology-import-census-restore`
     - `WC-2026-10-30-portal-get-data-external-refresh`
     - `WC-2026-10-30-restore-point-release-identity`
+    - `WC-2026-10-30-search-referenced-by-leaf`
+    - `WC-2026-10-30-sort-data-key-range`
     - `WC-2026-10-30-tools-registry-import-switch-retired`
     - `WC-2026-10-30-update-door-refusals`
     - `WC-2026-10-30-update-ontology-backup-gate`

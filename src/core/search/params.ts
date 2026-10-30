@@ -15,10 +15,11 @@
  */
 
 import { DedaloError } from '../errors/dedalo_error.ts';
-import type { BuilderResult } from './builders/types.ts';
+import type { BuilderResult, Fragment } from './builders/types.ts';
 
 export class ParamsCollector {
 	private readonly values: unknown[] = [];
+	private referencedBy = false;
 
 	/**
 	 * @param firstPlaceholder — the number of this collector's FIRST placeholder
@@ -59,6 +60,22 @@ export class ParamsCollector {
 	/** The bound values, in placeholder order ($1 first). */
 	toArray(): unknown[] {
 		return [...this.values];
+	}
+
+	/**
+	 * Did a `referenced_by` expansion render INTO this collector's statement?
+	 * Set by {@link resolveBuilderResult} when it substitutes a fragment marked
+	 * `expandsReferencedBy` (builder_referenced_by.ts) — what the build DID, read
+	 * by the assembler into its SearchStatement (search/search_statement.ts), so
+	 * the executor's bound never re-walks an SQO a caller could swap.
+	 */
+	get carriesReferencedBy(): boolean {
+		return this.referencedBy;
+	}
+
+	/** Record that a `referenced_by` expansion rendered into this statement. */
+	noteReferencedBy(): void {
+		this.referencedBy = true;
 	}
 }
 
@@ -110,12 +127,16 @@ export function substituteUsed(
 	return params.substitute(sentence, used);
 }
 
+/** Substitute one leaf fragment, noting a referenced_by expansion when it is marked as one. */
+function resolveFragment(fragment: Fragment, params: ParamsCollector): string {
+	if (fragment.expandsReferencedBy === true) params.noteReferencedBy();
+	return params.substitute(fragment.sentence, fragment.tokenValues);
+}
+
 /** Resolve a BuilderResult into an SQL fragment string (or '' when empty). */
 export function resolveBuilderResult(result: BuilderResult, params: ParamsCollector): string {
 	if (result === false) return '';
-	if (result.kind === 'fragment') {
-		return params.substitute(result.sentence, result.tokenValues);
-	}
+	if (result.kind === 'fragment') return resolveFragment(result, params);
 	// compound: recurse and join
 	const parts = result.items
 		.map((item) => resolveBuilderResult(item, params))

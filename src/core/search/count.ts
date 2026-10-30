@@ -8,9 +8,9 @@
 
 import { sanitizeClientSqo } from '../concepts/sqo.ts';
 import { isMatrixTable } from '../db/matrix.ts';
-import { sql } from '../db/postgres.ts';
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import { getPermissions, type Principal } from '../security/permissions.ts';
+import { runSearch } from './search_statement.ts';
 import { buildSearchSql } from './sql_assembler.ts';
 
 export async function countSectionRecords(
@@ -28,10 +28,9 @@ export async function countSectionRecords(
 
 	const sqo = sanitizeClientSqo({ section_tipo: [sectionTipo] });
 	sqo.full_count = true;
-	const { sql: builtSql, params } = await buildSearchSql(sqo, { principal });
-	const rows = (await sql.unsafe(builtSql, params as (string | number | null)[])) as {
-		full_count: number | string;
-	}[];
+	const rows = await runSearch<{ full_count: number | string }>(
+		await buildSearchSql(sqo, { principal }),
+	);
 	// Multi-section UNION would yield one count row per branch; a single section
 	// yields one — sum for safety (PHP trait.count).
 	return rows.reduce((total, row) => total + Number(row.full_count), 0);

@@ -166,11 +166,49 @@ describe('convert_search_object_to_sql_query — authorization door', () => {
 	});
 });
 
+describe('convert_search_object_to_sql_query — a TYPED refusal keeps its code', () => {
+	// The catch wraps only UNTYPED throws into search.failed (500). A typed one —
+	// the referenced_by bound's 503 db.statement_timeout (DB leg: the console door
+	// in referenced_by_filter_native's every-door test), a request.invalid_options,
+	// this search.invalid_sqo — passes through with its own code and status.
+	const handler = utilsApiActions.convert_search_object_to_sql_query as ActionHandler;
+	const admin = contextFor({ userId: -1, isGlobalAdmin: true, isDeveloper: true });
+	const rqoWith = (options: Record<string, unknown>) => ({ ...RQO, options }) as unknown as Rqo;
+
+	test('a typed sanitizer refusal (search.invalid_sqo, 400-class) is NOT re-wrapped into search.failed', async () => {
+		let filter: unknown = [];
+		for (let level = 0; level < 100; level++) filter = [filter];
+		const thrown = await handler(rqoWith({ section_tipo: 'test3', filter }), admin).catch(
+			(error: unknown) => error,
+		);
+		expect(thrown).toBeInstanceOf(DedaloError);
+		expect((thrown as DedaloError).code).toBe('search.invalid_sqo');
+	});
+
+	test('control: an UNTYPED throw is still wrapped as search.failed (the cause kept)', async () => {
+		const options = { section_tipo: 'test3' } as Record<string, unknown>;
+		Object.defineProperty(options, 'zz_untyped', {
+			enumerable: true,
+			get() {
+				throw new Error('zz untyped sanitizer failure');
+			},
+		});
+		const thrown = await handler(rqoWith(options), admin).catch((error: unknown) => error);
+		expect(thrown).toBeInstanceOf(DedaloError);
+		expect((thrown as DedaloError).code).toBe('search.failed');
+		expect(String(((thrown as DedaloError).cause as Error | undefined)?.message)).toContain(
+			'zz untyped',
+		);
+	});
+});
+
 describe('the call site is REWIRED (extraction-without-rewire guard)', () => {
 	const source = readFileSync(HANDLER_PATH, 'utf8');
 
 	test('the handler calls the extracted function', () => {
-		expect(source).toContain('resolveSqlForDisplay(built.sql, built.params)');
+		// The text comes through the inspection door (search_statement.ts
+		// searchStatementText); the statement itself runs through runSearch.
+		expect(source).toContain('resolveSqlForDisplay(shown.sql, shown.params)');
 	});
 
 	test('the inline substitution loop is GONE from the handler body', () => {

@@ -2724,51 +2724,6 @@ function validate_mode(mode) {
 
 
 /**
-* GET_ALL_TARGET_SECTIONS
-* Collects all unique section tipos that are reachable from this section through
-* its portal components.
-*
-* Walks `self.datum.context` to find every component_portal whose `section_tipo`
-* matches `self.tipo`, then flattens all `sqo.section_tipo` arrays from their
-* request_config entries and reduces to unique objects by `tipo` key.
-*
-* The result is used (for example) by delete confirmation dialogs that need to
-* know which related sections should also be cleaned up.
-*
-* @returns {Array<Object>} Array of unique section-tipo descriptor objects, each
-*   containing at minimum a `tipo` property corresponding to a reachable section tipo.
-*/
-section.prototype.get_all_target_sections = function() {
-
-	const self = this
-
-	const section_portals = self.datum.context.filter( el =>
-		el.model ==='component_portal'
-		&& el.section_tipo === self.tipo
-	)
-
-	const target_sections = Object.values(
-		section_portals
-			.flatMap(el =>
-				el.request_config.flatMap(rqo =>
-				rqo.sqo.section_tipo // get all objects inside the sqo `section_tipo` as target section_tipo
-			)
-		)
-			// reduce to unique target section tipo as some components can call to the same section
-			.reduce((acc, obj) => {
-				if (!acc[obj.tipo]) {  // Use `tipo` as the unique key
-					acc[obj.tipo] = obj;
-				}
-				return acc;
-			}, {})
-	);
-
-	return target_sections
-}//end get_all_target_sections
-
-
-
-/**
 * DELETE_CACHE
 * Removes all section-level data cached in the client-side local DB (IndexedDB).
 * Targets only entries whose key begins with 'section_cache_' in the 'data' table,

@@ -57,7 +57,6 @@ import {
 } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getSecurityAccessDatalist } from '../../src/core/resolve/security_access_datalist.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { login } from '../../src/core/security/auth.ts';
 import {
 	clearPermissionsCache,
@@ -74,6 +73,7 @@ import {
 	principalCanAccessRecord,
 } from '../../src/core/security/record_scope.ts';
 import { getSession, resetSessionStoreForTests } from '../../src/core/security/session_store.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const USERS_TABLE = 'matrix_users';
 const USERS_SECTION_TIPO = 'dd128';

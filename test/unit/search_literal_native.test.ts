@@ -36,7 +36,6 @@ import { buildStringFragment } from '../../src/core/search/builders/builder_stri
 import type { BuilderContext, Fragment } from '../../src/core/search/builders/types.ts';
 import { REGEX_META } from '../../src/core/search/builders/types.ts';
 import { asSqlTipo } from '../../src/core/search/identifier_gate.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import {
 	ZZSCALE_CONTAINS_TERM,
 	ZZSCALE_EXACT_TERM,
@@ -48,6 +47,7 @@ import {
 	dropZzScaleCorpus,
 	ensureZzScaleCorpus,
 } from '../../src/core/test_data/situations/zzscale_corpus.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** The metacharacter class, as characters, derived from the engine's regex. */
 const META_CHARS: string[] = (() => {

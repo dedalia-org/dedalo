@@ -43,7 +43,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Sqo } from '../../src/core/concepts/sqo.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const ACTIVITY_TIPO = 'dd542';
 /** An ordinary section (its own matrix table) — the control. */

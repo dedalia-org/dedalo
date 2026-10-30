@@ -11,8 +11,10 @@
 // rename carries the whole migration and the asserted SQL is unchanged.
 
 import { describe, expect, test } from 'bun:test';
-import { conformTmFilter } from '../../src/core/resolve/tm_filter.ts';
-import { refusalOfSync } from '../helpers/refusal.ts';
+import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import { countTimeMachineData } from '../../src/core/resolve/read_tm.ts';
+import { assertNoTmReferencedBy, conformTmFilter } from '../../src/core/resolve/tm_filter.ts';
+import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
 
 /** Run one leaf (unwrapped) through the conformer; returns {sql, params}. */
 function one(componentTipo: string, q: unknown, qOperator: string) {
@@ -121,5 +123,63 @@ describe('conformTmFilter — structure', () => {
 		expect(() => one('dd9999', ['x'], '=')).toThrow(/no matrix_time_machine column/);
 		// …and it is the TYPED refusal, not a bare Error (ERRORS_SPEC §7).
 		expect(refusalOfSync(() => one('dd9999', ['x'], '=')).code).toBe('engine.uncovered_scope');
+	});
+});
+
+// WC-2026-10-30-search-referenced-by-leaf: a pathless `referenced_by` leaf has no
+// matrix_time_machine form. Before the refusal it fell into the pathless-leaf
+// drop and the TM list WIDENED to every row; it must refuse, typed, on EVERY
+// TM surface (the conformed bare list AND the locator/tipo surfaces that never
+// conform sqo.filter).
+describe('conformTmFilter — referenced_by leaf refused, never widened', () => {
+	const leaf = { referenced_by: { section_tipo: ['test3'] } };
+
+	test('conformer: bare, nested under $and/$or, beside a mapped clause', () => {
+		for (const filter of [
+			leaf,
+			{ $and: [leaf] },
+			{ $or: [{ $and: [leaf] }] },
+			{ $and: [{ path: [{ section_tipo: 'dd15', component_tipo: 'dd1212' }], q: ['2'] }, leaf] },
+		]) {
+			expect(refusalOfSync(() => conformTmFilter(filter, { params: [] })).code).toBe(
+				'engine.uncovered_scope',
+			);
+		}
+	});
+
+	test('tree assertion reaches the leaf; a leaf-free tree passes', () => {
+		expect(refusalOfSync(() => assertNoTmReferencedBy({ $not: [{ $or: [leaf] }] })).code).toBe(
+			'engine.uncovered_scope',
+		);
+		expect(() =>
+			assertNoTmReferencedBy({ $and: [{ column_name: 'tipo', q: 'test3' }] }),
+		).not.toThrow();
+	});
+
+	// Native: the dd15 / mode tm read door itself (refused before any SQL runs).
+	const tmRqo = (sqo: Record<string, unknown>) =>
+		({ action: 'count', sqo: { section_tipo: ['dd15'], mode: 'tm', ...sqo } }) as unknown as Rqo;
+
+	test('dd15 bare list read carrying the leaf is refused', async () => {
+		const refusal = await refusalOf(countTimeMachineData(tmRqo({ filter: { $and: [leaf] } })));
+		expect(refusal.code).toBe('engine.uncovered_scope');
+	});
+
+	test('tipo-column record list and locator history surfaces refuse too', async () => {
+		const tipoSurface = await refusalOf(
+			countTimeMachineData(
+				tmRqo({ filter: { $and: [{ column_name: 'tipo', q: 'test3' }, leaf] } }),
+			),
+		);
+		expect(tipoSurface.code).toBe('engine.uncovered_scope');
+		const locatorSurface = await refusalOf(
+			countTimeMachineData(
+				tmRqo({
+					filter_by_locators: [{ section_tipo: 'test3', section_id: 1 }],
+					filter: { $and: [leaf] },
+				}),
+			),
+		);
+		expect(locatorSurface.code).toBe('engine.uncovered_scope');
 	});
 });

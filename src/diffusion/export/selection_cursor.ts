@@ -35,6 +35,13 @@
  * killed backend — leaves the GUC on a pooled connection; a failed open ROLLs
  * BACK before the connection goes back (close()).
  *
+ * A SELECTION CARRYING A `referenced_by` LEAF arms the SEARCH budget instead
+ * (core/search/search_statement.ts searchCursorSource: REFERENCED_BY_SEARCH_BUDGET_MS,
+ * never above the connection's own ceiling): the same transaction_timeout,
+ * because the expensive part is the materializing COMMIT, not a FETCH (the
+ * FETCHes read the materialized rows). Past it: `db.statement_timeout` with the
+ * search door's coordinates `{ door: 'referenced_by_search', ceiling_ms }`.
+ *
  * A STOP CUTS THE SELECTION WHILE IT IS BUILT. The caller's signal firing
  * DURING the open (the user's Stop, the lane deadline, a shutdown) cancels the
  * statement the cursor's transaction is running at that moment — the
@@ -128,6 +135,11 @@ import {
 	sqlStateOf,
 } from '../../core/db/postgres.ts';
 import { DedaloError } from '../../core/errors/index.ts';
+import {
+	referencedBySearchTimeout,
+	type SearchStatement,
+	searchCursorSource,
+} from '../../core/search/search_statement.ts';
 
 /** Selection cursors open at once in this process (see module doc). */
 export const EXPORT_SELECTION_SLOTS =
@@ -261,9 +273,26 @@ const CURSOR_TX = { begin: 'BEGIN', commit: 'COMMIT', rollback: 'ROLLBACK' } as 
 /** SQLSTATE transaction_timeout — the materialization's ceiling (see the module doc). */
 const TRANSACTION_TIMEOUT = '25P04';
 
-/** A 25P04 out of the open IS the connection's statement ceiling → the typed 503; else raw. */
-function ceilingFailure(error: unknown, ceiling: string): unknown {
+/**
+ * The leaf selection's transaction_timeout: the search budget, never above the
+ * connection's own statement ceiling (0 = none). pg_settings reports it in ms.
+ * Answers the applied value as `<n>ms`.
+ */
+const LEAF_TRANSACTION_TIMEOUT =
+	"SELECT set_config('transaction_timeout', (SELECT CASE WHEN setting::bigint = 0 THEN $1::bigint " +
+	"ELSE least(setting::bigint, $1::bigint) END FROM pg_settings WHERE name = 'statement_timeout')::text || 'ms', true) AS ceiling";
+
+/**
+ * A 25P04 out of the open IS the ceiling → the typed 503; else raw. For a
+ * selection carrying a referenced_by leaf the ceiling is the search budget,
+ * stated with the search door's coordinates.
+ */
+function ceilingFailure(error: unknown, ceiling: string, leafBudgetMs: number | null): unknown {
 	if (sqlStateOf(error) !== TRANSACTION_TIMEOUT) return error;
+	if (leafBudgetMs !== null) {
+		const appliedMs = Number.parseInt(ceiling, 10);
+		return referencedBySearchTimeout(Number.isFinite(appliedMs) ? appliedMs : leafBudgetMs, error);
+	}
 	return new DedaloError('db.statement_timeout', {
 		message: `export selection cursor: materializing the selection ran past the connection's ${ceiling} statement ceiling`,
 		cause: error,
@@ -287,12 +316,13 @@ function exportBusy(reason: string): DedaloError {
 }
 
 /**
- * Open a selection cursor over `built` (an idsOnly buildSearchSql result, no
- * LIMIT). With no slot free: refused with `export.busy` before reserving
- * (admission 'refuse'), or queued for the next slot (admission 'queue').
+ * Open a selection cursor over `statement` (an idsOnly buildSearchSql
+ * statement, no LIMIT). With no slot free: refused with `export.busy` before
+ * reserving (admission 'refuse'), or queued for the next slot (admission
+ * 'queue').
  */
 export async function openSelectionCursor<Row>(
-	built: { sql: string; params: readonly unknown[] },
+	statement: SearchStatement,
 	options: SelectionCursorOptions,
 ): Promise<SelectionCursor<Row>> {
 	if (
@@ -304,12 +334,17 @@ export async function openSelectionCursor<Row>(
 			message: `openSelectionCursor: pageRows must be an integer in [1, ${SELECTION_PAGE_ROWS_MAX}] (got ${options.pageRows})`,
 		});
 	}
+	// THE REFERENCED_BY BOUND (module doc): a selection a referenced_by leaf
+	// rendered into arms the search budget as its transaction_timeout. Read
+	// BEFORE a slot is taken: a budget refusal must not hold one.
+	const source = searchCursorSource(statement);
+	const selection = source.selection;
+	const params = [...source.params] as never;
+	const leafBudgetMs = source.budgetMs;
 	// A Stop of THIS open is a signal that fires after it began (module doc).
 	const abortedAtEntry = options.signal?.aborted === true;
 	await acquireSlot(options.admission ?? 'refuse', options.signal);
 	const name = `export_sel_${randomUUID().replaceAll('-', '')}`;
-	const selection = built.sql.replace(/;\s*$/, '');
-	const params = built.params as never;
 	let connection: Awaited<ReturnType<typeof sql.reserve>> | null = null;
 	let declared = false;
 	/** BEGIN sent, COMMIT not yet answered (close() rolls back). */
@@ -393,7 +428,10 @@ export async function openSelectionCursor<Row>(
 		inTransaction = true;
 		cancelTarget = await readCancelTarget(held);
 		const bound = (await step(
-			"SELECT set_config('transaction_timeout', current_setting('statement_timeout'), true) AS ceiling",
+			leafBudgetMs === null
+				? "SELECT set_config('transaction_timeout', current_setting('statement_timeout'), true) AS ceiling"
+				: LEAF_TRANSACTION_TIMEOUT,
+			(leafBudgetMs === null ? [] : [leafBudgetMs]) as never,
 		)) as { ceiling: string }[];
 		ceiling = String(bound[0]?.ceiling ?? '');
 		await step(`DECLARE ${name} SCROLL CURSOR WITH HOLD FOR ${selection}`, params);
@@ -418,7 +456,7 @@ export async function openSelectionCursor<Row>(
 				? error
 				: openStopped(error);
 		}
-		throw ceilingFailure(error, ceiling);
+		throw ceilingFailure(error, ceiling, leafBudgetMs);
 	} finally {
 		signal?.removeEventListener('abort', cancelOpenStatement);
 	}

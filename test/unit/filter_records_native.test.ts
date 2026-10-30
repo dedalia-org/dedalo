@@ -27,12 +27,12 @@ import type { EmitHookContext } from '../../src/core/components/emit_hooks.ts';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import type { DataItem } from '../../src/core/resolve/component_data.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import {
 	clearUserFilterRecordsCache,
 	getUserFilterRecords,
 } from '../../src/core/security/filter_records.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** Seed-shipped tipo, spelled so the census sees a reference, not a binding. */
 const seed = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;

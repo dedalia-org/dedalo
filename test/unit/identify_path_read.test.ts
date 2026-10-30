@@ -33,8 +33,8 @@ import type {
 	CriterionPathStep,
 	CriterionValue,
 } from '../../src/core/identify/types.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /**
  * The harness's OWN declared scope: an INTERNAL read (no principal, nothing

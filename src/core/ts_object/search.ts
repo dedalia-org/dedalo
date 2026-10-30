@@ -27,6 +27,7 @@ import {
 	type ParentLocator,
 	type RecursionError,
 } from '../relations/parent.ts';
+import { runSearch } from '../search/search_statement.ts';
 import { buildSearchSql } from '../search/sql_assembler.ts';
 import type { Principal } from '../security/permissions.ts';
 import { fetchNodeInfo, type NodeLocator } from './node_repository.ts';
@@ -141,7 +142,7 @@ export async function searchThesaurus(
 ): Promise<SearchThesaurusResult> {
 	const sanitized = sanitizeClientSqo(structuredClone(sqo));
 	const built = await buildSearchSql(sanitized, { principal });
-	const hits = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const hits = (await runSearch(built)) as {
 		section_tipo: string;
 		// The int PK column of the matrix table — never a stored jsonb value.
 		section_id: number;

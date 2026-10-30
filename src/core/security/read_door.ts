@@ -323,6 +323,14 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 				"every arm gated per LANDED row section: 'component' throws on the primary section, per-row null elsewhere; 'section' projects each jsonb column's keys; 'target_section' skips the relation keys of denied components.",
 		},
 	],
+	[
+		'dd_core_api:relation_targets',
+		{
+			posture: 'record_identity',
+			reason:
+				'target section tipos + EXACT record counts of a referenced_by source set (WC-2026-10-30-search-referenced-by-leaf); no component value is read. The owner side carries the SEC-1 component key (builder_referenced_by.ts buildOwnerRelationScope: a hidden relation component contributes no locator, perm.out_of_scope noticed), each total is the target search’s own full_count (its records ACL), unreadable targets are dropped.',
+		},
+	],
 	['dd_core_api:save', { posture: 'mutating', reason: 'the component save door.' }],
 	['dd_core_api:create', { posture: 'mutating', reason: 'record lifecycle.' }],
 	['dd_core_api:duplicate', { posture: 'mutating', reason: 'record lifecycle.' }],

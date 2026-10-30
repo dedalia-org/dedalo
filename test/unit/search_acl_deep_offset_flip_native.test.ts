@@ -32,10 +32,10 @@ import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { runWithQueryTap } from '../../src/core/db/query_tap.ts';
 import { getComponentFilterTipo } from '../../src/core/ontology/resolver.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { fireSaveEvent } from '../../src/core/section_record/save_event.ts';
 import { clearUserProjectsCache, type Principal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const SECTION = 'testmint1';
 const FILTER_TIPO = 'testmint1013';

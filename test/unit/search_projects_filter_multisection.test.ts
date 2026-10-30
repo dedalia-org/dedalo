@@ -41,7 +41,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql as db } from '../../src/core/db/postgres.ts';
 import { getComponentFilterTipo } from '../../src/core/ontology/resolver.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import {
 	ACL_NON_ADMIN_USER_ID,
@@ -49,6 +48,7 @@ import {
 	installAclIdentityFixture,
 	removeAclIdentityFixture,
 } from '../helpers/acl_identity_fixture.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** Seed-shipped ontology, spelled out of the install-TLD census's token grammar. */
 const seed = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;

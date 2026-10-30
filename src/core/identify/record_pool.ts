@@ -27,7 +27,7 @@
  */
 
 import { type Sqo, sanitizeClientSqo } from '../concepts/sqo.ts';
-import { sql } from '../db/postgres.ts';
+import { runSearch } from '../search/search_statement.ts';
 import { buildSearchSql } from '../search/sql_assembler.ts';
 import type { Principal } from '../security/permissions.ts';
 import type { CandidateRecord } from './match.ts';
@@ -79,7 +79,7 @@ export async function listRecordPool(request: RecordPoolRequest): Promise<Record
 	shaped.offset = 0;
 
 	const built = await buildSearchSql(sqo, { principal, idsOnly: true });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as Array<{
+	const rows = (await runSearch(built)) as Array<{
 		section_tipo: string;
 		section_id: number;
 	}>;

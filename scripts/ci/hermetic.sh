@@ -374,6 +374,10 @@ HERMETIC_TRIPWIRES=(
 	test/unit/query_tap_tripwire.test.ts
 	test/unit/read_path_record_reuse_tripwire.test.ts
 	test/unit/search_pattern_escape_tripwire.test.ts
+	# --- 2026-10-30 (WC-2026-10-30-search-referenced-by-leaf): the search-statement chokepoint.
+	#     DB-free: reads src/ tools/ publication/ scripts/ sources, builds one statement in memory
+	#     (no query); verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 41 pass / 0 fail).
+	test/unit/search_statement_chokepoint_tripwire.test.ts
 	test/unit/closure_openquestions_tripwire.test.ts
 	test/unit/client_dashboard_sink_tripwire.test.ts
 	test/unit/client_event_manager_dispatch_tripwire.test.ts

@@ -54,7 +54,6 @@ import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { deleteMatrixRecord } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { clearUserFilterRecordsCache } from '../../src/core/security/filter_records.ts';
 import {
 	clearPermissionsCache,
@@ -71,6 +70,7 @@ import { buildVirtualDiffusionTree } from '../../src/diffusion/plan/virtual_tree
 import { resolvePublication } from '../../src/diffusion/resolve/resolver.ts';
 import { toolExportGetExportGrid } from '../../tools/tool_export/server/tool_export.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 import {
 	dropZzdifDomain,
 	ensureZzdifDomain,

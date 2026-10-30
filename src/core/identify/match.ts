@@ -45,8 +45,8 @@
  */
 
 import { buildLocatorLookupKey, type Locator } from '../concepts/locator.ts';
-import { sql } from '../db/postgres.ts';
 import { runWithRecordMemo } from '../db/record_memo.ts';
+import { runSearch } from '../search/search_statement.ts';
 import { buildSearchSql } from '../search/sql_assembler.ts';
 import type { Principal } from '../security/permissions.ts';
 import { scopeRecordHits } from '../security/record_scope.ts';
@@ -400,7 +400,7 @@ async function findPool(
 	const filter =
 		requiredFilter === null ? { $or: anyOf } : { $and: [requiredFilter, { $or: anyOf }] };
 
-	const { sql: querySql, params } = await buildSearchSql(
+	const pool = await buildSearchSql(
 		{
 			section_tipo: profile.sectionTipos,
 			limit: poolCap,
@@ -413,10 +413,7 @@ async function findPool(
 		{ principal },
 	);
 
-	const rows = (await sql.unsafe(querySql, params as (string | number | null)[])) as Array<{
-		section_tipo: string;
-		section_id: number;
-	}>;
+	const rows = await runSearch<{ section_tipo: string; section_id: number }>(pool);
 	return rows.map((row) => ({ sectionTipo: row.section_tipo, sectionId: Number(row.section_id) }));
 }
 

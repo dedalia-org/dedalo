@@ -11,7 +11,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import { NO_LANG } from '../../../src/config/data_langs.ts';
 import { sanitizeClientSqo } from '../../../src/core/concepts/sqo.ts';
-import { sql, withTransaction } from '../../../src/core/db/postgres.ts';
+import { withTransaction } from '../../../src/core/db/postgres.ts';
 import { DedaloError } from '../../../src/core/errors/dedalo_error.ts';
 import {
 	type ApiErrorBody,
@@ -37,6 +37,7 @@ import { labelByTipo } from '../../../src/core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../../src/core/ontology/tld.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { runSearch } from '../../../src/core/search/search_statement.ts';
 import { buildSearchSql } from '../../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../../src/core/section/record/create_record.ts';
 import { deleteSectionRecord } from '../../../src/core/section/record/delete_record.ts';
@@ -759,7 +760,7 @@ async function findEntityByExactName(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows[0]?.section_id ?? null;
@@ -881,7 +882,7 @@ async function findExistingAuction(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows[0]?.section_id ?? null;
@@ -926,7 +927,7 @@ async function findExistingLot(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows[0]?.section_id ?? null;
@@ -957,7 +958,7 @@ async function findExistingLotByUrl(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows[0]?.section_id ?? null;
@@ -1078,7 +1079,7 @@ async function loadCatalogueIndex(context: ToolActionContext): Promise<Catalogue
 	// the index must see every Catalogue name the caller can read, not just a page of them.
 	sqo.limit = 'all';
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as ({
+	const rows = (await runSearch(built)) as ({
 		section_id: number;
 	} & Record<string, unknown>)[];
 
@@ -1167,7 +1168,7 @@ async function findExistingType(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows[0]?.section_id ?? null;

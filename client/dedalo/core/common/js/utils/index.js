@@ -18,7 +18,8 @@
 *                  find_up_tag, load_style, load_script, observe_changes),
 *                  URL helpers (object_to_url_vars, url_vars_to_object),
 *                  window management (open_window, open_window_with_post,
-*                  open_records_in_window, prevent_open_new_window,
+*                  open_filtered_window, open_records_in_window,
+*                  prevent_open_new_window,
 *                  download_file), formatting (bytes_format, printf,
 *                  time_unit_auto, get_font_fit_size), ontology helpers
 *                  (get_tld_from_tipo, get_section_id_from_tipo,

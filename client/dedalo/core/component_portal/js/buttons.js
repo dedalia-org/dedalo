@@ -568,8 +568,9 @@ buttons.render_button_list = (self) => {
 *     caller_section.rqo.sqo), which the dialog scopes per the user's choice.
 *     Cloned here because that object is the parent section's live pagination
 *     state — it must not move behind the user's back.
-*   - caller_tipo / rqo_options: locator information so the dialog can build
-*     the correct raw-read API request for this specific portal component.
+*   - from_component_tipo: this portal's tipo — the dialog narrows the
+*     relation (relation_targets + the opened windows' referenced_by leaf) to
+*     the locators this component owns, and opens every listed target.
 *   - label / total: display strings shown in the dialog body.
 *   - self_caller: the parent section — opener of the spawned windows and the
 *     source of the found-records total.
@@ -596,14 +597,9 @@ buttons.render_list_from_component_data_button = (self) => {
 		}
 
 		const options = {
-			sqo	: clone(caller_section.rqo?.sqo || {}),
-			caller_tipo		: self.tipo,
-			rqo_options		: {
-				type			: 'component',
-				section_tipo	: self.section_tipo,
-				tipo			: self.tipo,
-				model			: self.model
-			},
+			sqo					: clone(caller_section.rqo?.sqo || {}),
+			// only the locators THIS portal owns define the relation
+			from_component_tipo	: self.tipo,
 			label		: self.label,
 			total		: caller_section.total ?? 0,
 			// the parent section: opener of the spawned windows and the source

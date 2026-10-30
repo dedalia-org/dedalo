@@ -49,7 +49,7 @@ import { BULK_PROCESS_TIPOS } from '../../../src/core/concepts/section.ts';
 import { sanitizeClientSqo } from '../../../src/core/concepts/sqo.ts';
 import { type MatrixJsonbColumn, readMatrixRecord } from '../../../src/core/db/matrix.ts';
 import { readMatrixKeyForUpdate } from '../../../src/core/db/matrix_write.ts';
-import { sql, withTransaction } from '../../../src/core/db/postgres.ts';
+import { withTransaction } from '../../../src/core/db/postgres.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { resolveDataTipo } from '../../../src/core/ontology/alias.ts';
 import { termByTipo } from '../../../src/core/ontology/labels.ts';
@@ -60,6 +60,7 @@ import {
 	getModelByTipo,
 } from '../../../src/core/ontology/resolver.ts';
 import { readComponentItems } from '../../../src/core/resolve/component_data.ts';
+import { runSearch } from '../../../src/core/search/search_statement.ts';
 import { buildSearchSql } from '../../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../../src/core/section/record/create_record.ts';
 import {
@@ -275,7 +276,7 @@ async function propagateComponentData(ctx: ToolActionContext): Promise<ToolRespo
 	(sqo as { limit?: unknown; offset?: unknown }).limit = null;
 	(sqo as { limit?: unknown; offset?: unknown }).offset = 0;
 	const built = await buildSearchSql(sqo, { principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_tipo: string;
 		section_id: number;
 	}[];

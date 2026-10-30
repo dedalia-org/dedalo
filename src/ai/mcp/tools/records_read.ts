@@ -14,9 +14,9 @@
 import { z } from 'zod';
 import type { Rqo } from '../../../core/concepts/rqo.ts';
 import type { SqoFilterNode } from '../../../core/concepts/sqo.ts';
-import { sql } from '../../../core/db/postgres.ts';
 import { getModelByTipo } from '../../../core/ontology/resolver.ts';
 import { assertValidTipo } from '../../../core/search/identifier_gate.ts';
+import { runSearch } from '../../../core/search/search_statement.ts';
 import { buildSearchSql } from '../../../core/search/sql_assembler.ts';
 import { readSection } from '../../../core/section/read.ts';
 import type { Principal } from '../../../core/security/permissions.ts';
@@ -107,10 +107,7 @@ export async function searchSectionRecords(
 		{ section_tipo: [sectionTipo], full_count: true, filter },
 		{ principal },
 	);
-	const countRows = (await sql.unsafe(
-		countQuery.sql,
-		countQuery.params as (string | number | null)[],
-	)) as { full_count: number | string }[];
+	const countRows = (await runSearch(countQuery)) as { full_count: number | string }[];
 	const total = countRows.reduce((sum, row) => sum + Number(row.full_count), 0);
 
 	// Page of locators.
@@ -121,10 +118,7 @@ export async function searchSectionRecords(
 	// matrix.section_id is an INT column, so the row carries the address typed
 	// (WC-2026-08-10-section-id-int-canonical). `full_count` above stays
 	// union-typed: count(*) is bigint and the driver hands it back as text.
-	const rows = (await sql.unsafe(
-		pageQuery.sql,
-		pageQuery.params as (string | number | null)[],
-	)) as { section_id: number; section_tipo: string }[];
+	const rows = (await runSearch(pageQuery)) as { section_id: number; section_tipo: string }[];
 
 	return {
 		section_tipo: sectionTipo,

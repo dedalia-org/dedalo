@@ -1834,6 +1834,74 @@ export async function withSavepoint<T>(work: () => Promise<T>): Promise<T> {
 	}
 }
 
+/**
+ * The `SET LOCAL statement_timeout` value that puts `handle`'s recorded ceiling
+ * (`previousMs`) back. DEFAULT restores the lane's own ceiling without
+ * recording an explicit lift.
+ */
+function statementCeilingRestore(handle: TransactionHandle, previousMs: number): string {
+	return previousMs === handle.laneCeilingMs && !handle.liftedLocally
+		? 'DEFAULT'
+		: String(previousMs);
+}
+
+/**
+ * Run `work` under a STATEMENT BUDGET of `budgetMs` (a whole number of ms ≥ 1),
+ * never above the ceiling already in force (0 = unbounded, so the budget
+ * applies). `work` receives the ceiling actually applied.
+ *
+ *  - Outside a transaction: its own transaction, `SET LOCAL statement_timeout`.
+ *  - Inside a caller's transaction (any lane — a maintenance transaction's 0 is
+ *    tightened too): under a SAVEPOINT, `SET LOCAL` to the tighter value, then
+ *    back to the recorded ceiling before the savepoint is released (a `SET
+ *    LOCAL` survives RELEASE). On a throw the savepoint rollback restores the
+ *    GUC and the recorder's ceiling, and the caller's transaction goes on.
+ *    An UNKNOWN recorded ceiling (null) is refused — there is nothing exact to
+ *    restore.
+ *
+ * Every SET LOCAL goes through the recorder, so a 57014 at the budget is typed
+ * `db.statement_timeout` like any other ceiling. Gates:
+ * statement_ceiling_scope_native (no ambient transaction: the request lane, an
+ * unbounded scope's maintenance lane, the non-transactional lane refused under
+ * it) and referenced_by_filter_native (inside a caller's transaction, via the
+ * search executor).
+ */
+export async function withStatementBudget<T>(
+	budgetMs: number,
+	work: (appliedMs: number) => Promise<T>,
+): Promise<T> {
+	if (!Number.isInteger(budgetMs) || budgetMs < 1) {
+		throw new DedaloError('internal.invariant', {
+			message: `withStatementBudget: budgetMs must be a whole number of ms >= 1 (got ${budgetMs})`,
+		});
+	}
+	const tighter = (ceilingMs: number) => (ceilingMs > 0 ? Math.min(ceilingMs, budgetMs) : budgetMs);
+	const ambient = activeTransaction();
+	if (ambient === undefined) {
+		return withTransaction(async () => {
+			const own = activeTransaction();
+			const appliedMs = tighter(own?.ceilingMs ?? 0);
+			await sql.unsafe(`SET LOCAL statement_timeout = ${appliedMs}`, []);
+			return work(appliedMs);
+		});
+	}
+	const previousMs = ambient.ceilingMs;
+	if (previousMs === null) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				'withStatementBudget: the transaction’s statement ceiling is unknown (an unparsed change) — nothing exact to restore',
+		});
+	}
+	const appliedMs = tighter(previousMs);
+	const restore = statementCeilingRestore(ambient, previousMs);
+	return withSavepoint(async () => {
+		await sql.unsafe(`SET LOCAL statement_timeout = ${appliedMs}`, []);
+		const result = await work(appliedMs);
+		await sql.unsafe(`SET LOCAL statement_timeout = ${restore}`, []);
+		return result;
+	});
+}
+
 /** Undo to `name` and drop it (the work's own error is the one the caller sees). */
 async function undoToSavepoint(name: string): Promise<void> {
 	await sql.unsafe(`ROLLBACK TO SAVEPOINT ${name}`, []);

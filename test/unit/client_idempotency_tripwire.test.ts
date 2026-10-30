@@ -144,6 +144,8 @@ const IDEMPOTENT_CEILING: ReadonlySet<string> = new Set([
 	// identical refresh call writes no row and no Time Machine entry.
 	'dd_core_api:read',
 	'dd_core_api:read_raw',
+	// The "Open relationships" census: grouped + per-target COUNTs, no write.
+	'dd_core_api:relation_targets',
 	'dd_core_api:count',
 	'dd_core_api:start',
 	'dd_core_api:get_element_context',

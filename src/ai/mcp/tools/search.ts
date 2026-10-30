@@ -23,7 +23,6 @@
 import { z } from 'zod';
 import type { Sqo, SqoFilterLeaf, SqoFilterNode } from '../../../core/concepts/sqo.ts';
 import { sanitizeClientSqo } from '../../../core/concepts/sqo.ts';
-import { sql } from '../../../core/db/postgres.ts';
 import { DedaloError } from '../../../core/errors/dedalo_error.ts';
 import { getOrderedSubtree, type OntologySubtreeNode } from '../../../core/ontology/resolver.ts';
 import {
@@ -31,6 +30,7 @@ import {
 	assertValidTipo,
 	assertValidTipoOrColumn,
 } from '../../../core/search/identifier_gate.ts';
+import { runSearch } from '../../../core/search/search_statement.ts';
 import { buildSearchSql } from '../../../core/search/sql_assembler.ts';
 import type { Principal } from '../../../core/security/permissions.ts';
 import { authorizeComponentRead } from '../../../core/security/read_door.ts';
@@ -329,10 +329,7 @@ export async function runLocatorPage(
 	// matrix.section_id is an INT column, so the row carries the address typed
 	// (WC-2026-08-10-section-id-int-canonical); `full_count` below stays
 	// union-typed because count(*) is bigint and arrives as text.
-	const rows = (await sql.unsafe(
-		pageQuery.sql,
-		pageQuery.params as (string | number | null)[],
-	)) as { section_id: number; section_tipo: string }[];
+	const rows = (await runSearch(pageQuery)) as { section_id: number; section_tipo: string }[];
 	return rows.map((row) => ({
 		section_tipo: row.section_tipo,
 		section_id: Number(row.section_id),
@@ -344,10 +341,7 @@ export async function runGatedCount(principal: Principal, sqo: GatedSqo): Promis
 		{ ...sqo, full_count: true, limit: undefined, offset: undefined },
 		{ principal },
 	);
-	const rows = (await sql.unsafe(
-		countQuery.sql,
-		countQuery.params as (string | number | null)[],
-	)) as { full_count: number | string }[];
+	const rows = (await runSearch(countQuery)) as { full_count: number | string }[];
 	return rows.reduce((sum, row) => sum + Number(row.full_count), 0);
 }
 

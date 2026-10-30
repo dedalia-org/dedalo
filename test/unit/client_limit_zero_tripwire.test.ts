@@ -172,7 +172,10 @@ describe('client_limit_zero_tripwire', () => {
 		// the senders route through it: every former limit:0 site imports the module
 		for (const file of [
 			'client/dedalo/core/component_portal/js/component_portal.js',
-			'client/dedalo/core/section/js/render_open_list_with_direct_relations.js',
+			// render_open_list_with_direct_relations.js left this list 2026-10-30: it no
+			// longer pages anything (open relationships sends a `referenced_by` source,
+			// which refuses limit/offset, and the server answers the whole set) — the
+			// limit:0 scan above still covers it like every client file
 			'client/dedalo/core/ts_object/js/render_ts_line.js',
 			'client/dedalo/core/ts_object/js/render_ts_id_column.js',
 			'client/dedalo/core/ts_object/js/ts_object.js',

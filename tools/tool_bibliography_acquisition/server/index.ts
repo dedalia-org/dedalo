@@ -30,6 +30,7 @@ import {
 import { getColumnNameByModel, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import { getAlpha2FromCode } from '../../../src/core/resolve/lang_names.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { runSearch } from '../../../src/core/search/search_statement.ts';
 import { buildSearchSql } from '../../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../../src/core/section/record/create_record.ts';
 import {
@@ -387,7 +388,7 @@ async function findExistingPublication(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows[0]?.section_id ?? null;
@@ -415,7 +416,7 @@ async function findExistingSeries(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as ({
+	const rows = (await runSearch(built)) as ({
 		section_id: number;
 	} & Record<string, unknown>)[];
 
@@ -625,7 +626,7 @@ async function findExistingPerson(
 		},
 	});
 	const built = await buildSearchSql(sqo, { principal: context.principal });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as ({
+	const rows = (await runSearch(built)) as ({
 		section_id: number;
 	} & Record<string, unknown>)[];
 
