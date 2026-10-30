@@ -8,6 +8,8 @@
  */
 
 import { createWriteStream, rmSync } from 'node:fs';
+import { config } from '../../config/config.ts';
+import { isSecureUpdateSource } from '../../config/readers.ts';
 import { assertTlsVerificationOn } from '../ontology/data_io_import.ts';
 import { refuseUpdate, rethrowOrRefuseUpdate } from './refuse.ts';
 
@@ -26,7 +28,11 @@ export interface CodeDownloadResponse {
  * Origin equality is the whole point: a manifest is remote input, so the only
  * host this engine will download code from is the one its own config names.
  */
-function releaseUrlOrRefuse(url: string, configuredOrigin: string): URL {
+function releaseUrlOrRefuse(
+	url: string,
+	configuredOrigin: string,
+	allowHttp: boolean = config.update.httpSourcesDev,
+): URL {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
@@ -38,6 +44,11 @@ function releaseUrlOrRefuse(url: string, configuredOrigin: string): URL {
 			'request.invalid_options',
 			'Error. Release URL is not on the configured code server',
 		);
+	}
+	// U-24: the bytes' own door re-checks the transport rule (config already
+	// dropped an http master; this holds for any URL that reaches the fetch).
+	if (!isSecureUpdateSource(parsed.href, allowHttp)) {
+		refuseUpdate('update.refused', 'Error. A code master must be reached over https');
 	}
 	return parsed;
 }
@@ -96,10 +107,12 @@ export async function downloadReleaseArchive(options: {
 	url: string;
 	configuredOrigin: string;
 	targetPath: string;
+	/** The U-24 development seam (default: config.update.httpSourcesDev). */
+	allowHttp?: boolean;
 }): Promise<CodeDownloadResponse> {
 	assertTlsVerificationOn();
 
-	const parsed = releaseUrlOrRefuse(options.url, options.configuredOrigin);
+	const parsed = releaseUrlOrRefuse(options.url, options.configuredOrigin, options.allowHttp);
 
 	try {
 		const remote = await fetch(parsed, {

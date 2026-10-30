@@ -1137,10 +1137,12 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 			const row = fact_row(restore, point.name, format_stamp(point.stamp), true)
 			row.classList.add('restore_row')
 			const value = row.querySelector('.dd_v')
-			// THE VERSION THE POINT DECLARES, read from its own install stamp.
-			// Without it the row is a directory name and a date: two points cut by
-			// consecutive updates are indistinguishable at exactly the moment the
-			// operator has to choose which code to make live again.
+			// THE RELEASE IDENTITY THE POINT CALLS ITSELF ('7.0.0-beta.5'), read
+			// from its own tree (U-07). Without it the row is a directory name and
+			// a date: two points cut by consecutive updates are indistinguishable
+			// at exactly the moment the operator has to choose which code to make
+			// live again. (The point's data triple, `point.data_version`, is not
+			// shown: every beta of one triple shares it, so it names no point.)
 			if (point.version) {
 				ui.create_dom_element({
 					element_type	: 'span',

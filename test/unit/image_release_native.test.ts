@@ -93,6 +93,7 @@ import {
 	resolveReleaseIdentity,
 } from '../../src/core/update/release_identity.ts';
 import { DEDALO_NEXT_RELEASE } from '../../src/core/update/version.ts';
+import { releaseCommitFiles } from '../helpers/release_commit_files.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 /** The real git, behind the plan's `git --version` stub. */
@@ -1361,6 +1362,10 @@ describe('plan — which release a run publishes', () => {
 	const commitVersion = (triple: string) => {
 		mkdirSync(join(repo, 'src', 'core', 'update'), { recursive: true });
 		writeFileSync(join(repo, 'src', 'core', 'update', 'version.ts'), VERSION_TS(triple));
+		for (const [path, text] of Object.entries(releaseCommitFiles(triple, [triple]))) {
+			mkdirSync(join(repo, path, '..'), { recursive: true });
+			writeFileSync(join(repo, path), text);
+		}
 		git('add', '.');
 		git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', triple);
 		return git('rev-parse', 'HEAD');

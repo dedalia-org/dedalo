@@ -25,7 +25,13 @@ import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
 /** What the CLI's import closure reads besides its own sources. */
-const ENGINE_FILES = ['src', join('scripts', 'ops'), join('engineering', 'image_registries.json')];
+const ENGINE_FILES = [
+	'src',
+	join('scripts', 'ops'),
+	join('engineering', 'image_registries.json'),
+	// the release catalog the engine imports (src/core/update/catalog_file.ts)
+	join('install', 'update'),
+];
 
 /**
  * Build the tree under `scratchDir` and return the path of ITS check-target CLI.

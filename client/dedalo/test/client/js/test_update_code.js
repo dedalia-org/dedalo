@@ -22,7 +22,8 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
-import {render_servers_list, build_import_files} from '../../../core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js'
+import {render_servers_list, build_import_files, render_update_ontology} from '../../../core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js'
+import {area_maintenance} from '../../../core/area_maintenance/js/area_maintenance.js'
 import {update_code} from '../../../core/area_maintenance/widgets/update_code/js/update_code.js'
 import {render_info_modal, render_restore_modal} from '../../../core/area_maintenance/widgets/update_code/js/render_update_code.js'
 import {
@@ -461,21 +462,26 @@ describe('UPDATE_CODE WIDGET', function() {
 		// The DECISION the source-shape gate cannot see (test/unit/
 		// client_update_code_render.test.ts says so): the submit unlocks only
 		// when the checkbox is ticked, and the checkbox is asked for only when
-		// the versions actually differ — measured against the SERVER's bare
-		// version triple, never the page global's '.dev'-tagged string.
-		const point_of = (version) => {
+		// the code actually changes — the SERVER's rule (code_restore.ts
+		// restoreChangesCode, U-07): another RELEASE IDENTITY, or two known
+		// archive digests that differ. Never the shared data triple.
+		const point_of = (version, digest='a'.repeat(64)) => {
 			return {
 				name				: 'dedalo_' + version + '_abc1234_2026-08-25T10-00-00',
 				stamp				: Date.now(),
 				bootable			: true,
 				version				: version,
+				data_version		: '7.0.0',
 				bun_pin				: null,
-				digest				: 'a'.repeat(64),
+				digest				: digest,
 				restorable			: true,
 				restorable_reason	: null
 			}
 		}
-		const open_restore = (point, running_version) => {
+		const engine_of = (engine_version, install_digest='a'.repeat(64)) => {
+			return { version : '7.0.0', engine_version : engine_version, install_digest : install_digest }
+		}
+		const open_restore = (point, engine) => {
 			const self = new update_code()
 			self.id				= 'test_update_code_restore_modal'
 			self.value			= {}
@@ -483,7 +489,7 @@ describe('UPDATE_CODE WIDGET', function() {
 			self.events_tokens	= []
 			const body_response = ui.create_dom_element({ element_type : 'div', parent : container })
 			return {
-				modal			: render_restore_modal(self, point, body_response, running_version),
+				modal			: render_restore_modal(self, point, body_response, engine),
 				body_response	: body_response
 			}
 		}
@@ -494,14 +500,9 @@ describe('UPDATE_CODE WIDGET', function() {
 			opened.body_response.remove()
 		}
 
-		it('the SAME version asks for no waiver and the submit is live', function() {
+		it('the SAME identity and digest asks for no waiver and the submit is live', function() {
 
-			// The developer-channel case: a branch build installed over its own
-			// release. page_globals.dedalo_version reads '…​.dev' here and the
-			// point declares the bare triple, so a page-global comparison would
-			// draw a waiver for a version change that is not one.
-			const running = String(page_globals.dedalo_version || '7.0.0').replace('.dev', '')
-			const opened = open_restore(point_of(running), running)
+			const opened = open_restore(point_of('7.0.0-beta.7'), engine_of('7.0.0-beta.7'))
 			try {
 				assert.strictEqual(opened.modal.querySelector('.confirm_downgrade_row'), null, 'no waiver where nothing changes')
 				const button = opened.modal.querySelector('button.button_restore_submit')
@@ -512,10 +513,40 @@ describe('UPDATE_CODE WIDGET', function() {
 			}
 		})
 
+		it('another identity of the SAME data triple asks for the waiver (U-07)', function() {
+
+			// beta.5 over beta.7: both declare data triple 7.0.0
+			const opened = open_restore(point_of('7.0.0-beta.5'), engine_of('7.0.0-beta.7'))
+			try {
+				assert.ok(opened.modal.querySelector('.confirm_downgrade_row'), 'a release-identity change asks')
+			} finally {
+				close(opened)
+			}
+		})
+
+		it('the same identity from another known digest asks for the waiver', function() {
+
+			const opened = open_restore(point_of('7.0.0-dev', 'b'.repeat(64)), engine_of('7.0.0-dev'))
+			try {
+				assert.ok(opened.modal.querySelector('.confirm_downgrade_row'), 'two builds of one identity differ')
+			} finally {
+				close(opened)
+			}
+		})
+
+		it('an unknown digest is no evidence: the same identity asks for no waiver', function() {
+
+			const opened = open_restore(point_of('7.0.0-dev', null), engine_of('7.0.0-dev'))
+			try {
+				assert.strictEqual(opened.modal.querySelector('.confirm_downgrade_row'), null, 'the identity decides')
+			} finally {
+				close(opened)
+			}
+		})
+
 		it('a DIFFERENT version locks the submit until the waiver is ticked', function() {
 
-			const running = String(page_globals.dedalo_version || '7.0.0').replace('.dev', '')
-			const opened = open_restore(point_of('6.9.9'), running)
+			const opened = open_restore(point_of('6.9.9'), engine_of('7.0.0'))
 			try {
 				const row = opened.modal.querySelector('.confirm_downgrade_row')
 				assert.ok(row, 'a version change renders the waiver row')
@@ -543,7 +574,7 @@ describe('UPDATE_CODE WIDGET', function() {
 
 			// version:null means the compare cannot be made; the hazard is then
 			// assumed, never waived away by silence.
-			const opened = open_restore(point_of(null), '7.0.0')
+			const opened = open_restore(point_of(null), engine_of('7.0.0'))
 			try {
 				assert.ok(opened.modal.querySelector('.confirm_downgrade_row'), 'an unreadable version still asks')
 			} finally {
@@ -553,6 +584,80 @@ describe('UPDATE_CODE WIDGET', function() {
 	})
 
 
+
+	describe('restore modal — the database-backup waiver (a destructive door)', function() {
+
+		// A restore goes through core/update/door_class.ts (destructive_shared): it
+		// refuses without a recent DATABASE backup. The modal offers the waiver on
+		// the SAME predicate as the update modal (backup_waiver_check), and the
+		// box's state travels as `waive_backup` — false when untouched, never absent.
+		const point = {
+			name : 'dedalo_7.0.0_abc1234_2026-08-25T10-00-00', stamp : Date.now(), bootable : true,
+			version : '7.0.0', data_version : '7.0.0', bun_pin : null, digest : 'a'.repeat(64),
+			restorable : true, restorable_reason : null
+		}
+		const engine = { version : '7.0.0', engine_version : '7.0.0', install_digest : 'a'.repeat(64) }
+		const open_with = (backup_state) => {
+			const self = new update_code()
+			self.id				= 'test_update_code_restore_waive'
+			self.value			= { consumer : { checks : [{ id : 'backup_fresh', state : backup_state, detail : '73' }] } }
+			self.caller			= null
+			self.events_tokens	= []
+			self.sent			= []
+			self.restore_code	= async (options) => {
+				self.sent.push(options)
+				return { ok : false, error : { code : 'update.refused', message : 'stub: stop here' } }
+			}
+			const body_response = ui.create_dom_element({ element_type : 'div', parent : container })
+			return { self, modal : render_restore_modal(self, point, body_response, engine), body_response }
+		}
+		const close = (opened) => {
+			if (opened.modal && typeof opened.modal.close==='function') {
+				opened.modal.close()
+			}
+			opened.body_response.remove()
+		}
+		const submit = async (opened) => {
+			const before = opened.self.sent.length
+			opened.modal.querySelector('button.button_restore_submit').click()
+			const until = Date.now() + 5000
+			while (opened.self.sent.length===before && Date.now() < until) {
+				await new Promise((resolve) => setTimeout(resolve, 20))
+			}
+			assert.strictEqual(opened.self.sent.length, before + 1, 'the submit reached restore_code')
+			return opened.self.sent.at(-1)
+		}
+
+		it('a fresh backup offers no waiver', function() {
+			const opened = open_with('ok')
+			try {
+				assert.strictEqual(opened.modal.querySelector('.waive_backup_row'), null, 'no guard to disarm')
+			} finally {
+				close(opened)
+			}
+		})
+
+		it('a stale backup offers it, and its state travels as waive_backup', async function() {
+			const original_confirm = ui.confirm
+			ui.confirm = async () => true
+			const opened = open_with('warn')
+			try {
+				const check = opened.modal.querySelector('.waive_backup_row input[type="checkbox"].waive_backup_check')
+				assert.ok(check, 'the waiver row carries a checkbox')
+				assert.strictEqual(check.checked, false, 'never pre-armed')
+				const untouched = await submit(opened)
+				assert.strictEqual(untouched.waive_backup, false, 'untouched travels as false, never absent')
+				opened.modal.querySelector('button.button_restore_submit').disabled = false
+				check.checked = true
+				const ticked = await submit(opened)
+				assert.strictEqual(ticked.waive_backup, true, 'a ticked box travels as true')
+				assert.strictEqual(ticked.name, point.name, 'with the point it restores')
+			} finally {
+				ui.confirm = original_confirm
+				close(opened)
+			}
+		})
+	})
 
 	describe('refresh_readiness (the panel re-stated in place)', function() {
 
@@ -1019,6 +1124,94 @@ describe('UPDATE_ONTOLOGY import file list (build_import_files)', function() {
 		const given = manifest()
 		build_import_files(given, ['zza', 'zzb', 'zzc'])
 		assert.deepEqual(given, manifest())
+	})
+})
+
+// The ontology update is an UPDATE RUN that refuses without a recent backup;
+// the panel's waive-backup checkbox is the operator's journaled escape hatch.
+// A box the server never hears about is decoration: this drives the REAL
+// rendered form (area_maintenance init_form) through a real submit and reads
+// the options bag the widget's update_ontology receives. Backend-free: the
+// manifest fetch is answered at the transport, the import itself is stubbed.
+describe('UPDATE_ONTOLOGY waive-backup control', function() {
+
+	const build_self = () => {
+		const self = {
+			id				: 'update_ontology',
+			events_tokens	: [],
+			value			: {
+				current_ontology		: {},
+				active_ontology_tlds	: ['zza'],
+				servers					: [{
+					name			: 'master',
+					url				: 'https://m.example/dedalo/core/api/v1/json/',
+					code			: 'c',
+					response_code	: 200,
+					result			: { ok : true, data : true }
+				}]
+			},
+			sent			: [],
+			form			: null
+		}
+		self.caller = {
+			init_form : (widget_object) => {
+				self.form = area_maintenance.prototype.init_form(widget_object)
+				return self.form
+			}
+		}
+		self.update_ontology = async (options) => {
+			self.sent.push(options)
+			self.answered?.()
+			return { ok : true, data : true, msg : 'OK' }
+		}
+		return self
+	}
+
+	const submit_once = async (self) => {
+		const answered = new Promise((resolve) => { self.answered = resolve })
+		self.form.dispatchEvent(new Event('submit', { cancelable : true }))
+		await Promise.race([
+			answered,
+			new Promise((_, reject) => setTimeout(() => reject(new Error('update_ontology was never called')), 5000))
+		])
+	}
+
+	it('the checkbox state travels as waive_backup (ticked → true, untouched → false)', async function() {
+		const self = build_self()
+		const original_fetch	= window.fetch
+		const original_confirm	= window.confirm
+		window.fetch = async () => new Response(JSON.stringify({
+			ok		: true,
+			data	: {
+				files	: [{ tld : 'matrix_dd', url : 'matrix_dd.copy.gz' }, { tld : 'zza', url : 'zza.copy.gz' }],
+				info	: { version : '7.0.0', active_ontologies : [] }
+			}
+		}), { headers : { 'Content-Type' : 'application/json' } })
+		window.confirm = () => true
+		try {
+			await render_update_ontology.prototype.list.call(self, { render_level : 'content' })
+			assert.ok(self.form, 'the real form rendered')
+			const check = self.form.querySelector('input[type="checkbox"].waive_backup_check')
+			assert.ok(check, 'the waive-backup checkbox is in the form')
+			assert.strictEqual(check.checked, false, 'unticked by default')
+			const tlds_input = self.form.querySelector('input[name="active_ontology_tlds"]')
+			tlds_input.value = 'zza'
+			self.value.servers[0].active = true
+
+			check.checked = true
+			await submit_once(self)
+			check.checked = false
+			await submit_once(self)
+
+			assert.strictEqual(self.sent.length, 2, 'both submits reached update_ontology')
+			assert.strictEqual(self.sent[0].waive_backup, true, 'a ticked box travels as true')
+			assert.strictEqual(self.sent[1].waive_backup, false, 'an untouched box travels as false, never absent')
+			assert.deepEqual(self.sent[0].files.map((file) => file.tld), ['matrix_dd', 'zza'], 'the selection travels with it')
+		} finally {
+			window.fetch	= original_fetch
+			window.confirm	= original_confirm
+			self.events_tokens.forEach((token) => event_manager.unsubscribe(token))
+		}
 	})
 })
 

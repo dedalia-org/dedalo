@@ -62,7 +62,9 @@ const EXEMPT: Readonly<Record<string, string>> = {
 	'src/core/media/tools/files_info_persist.ts':
 		'reconcileStoredFilesInfo: the PER-RECORD kernel the media tools call on one component (create-vs-refresh rule); the cross-corpus sweep over the same kernel is the registered `files_info` definition (files_info_reconcile.ts)',
 	'src/core/db/db_assets.ts':
-		'inspectSearchStores: a SCHEMA-PROVISIONING probe (declared triggers/tables vs the catalog), converged by ensureSearchStores at boot (DEC-19) — provisioning, not a data-store pair',
+		'inspectSearchStores: a SCHEMA-PROVISIONING probe (declared triggers/tables vs the catalog), converged by ensureSearchStores at boot (DEC-19) — provisioning, not a data-store pair. reconcileSearchStoreDerivation: a store re-derived when its derivation STAMP is older than the code constant (a version check, not a second data store), run only by the update run (run/ancillary.ts)',
+	'src/core/update/run/ancillary.ts':
+		"the update run's ancillary SEQUENCER (reconcileTools / reconcileSearchStores / reconcileMediaRules): each step only calls an existing door — importTools, the registered observer_mirrors reconcile, db_assets.ts ensureSearchStores + reconcileSearchStoreDerivation, writeRuleFiles — in a fixed order after an update; it compares no two stores of its own",
 	'scripts/repair_tm_timestamps.ts':
 		'ONE-STORE data repair (matrix_time_machine timestamps rewritten in place under DEC-03), no second store is compared',
 	'scripts/repair_geolocation_studio_default.ts':

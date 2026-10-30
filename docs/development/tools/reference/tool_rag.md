@@ -21,7 +21,7 @@ None: a grant-only tool has no `apiActions`. The action it guards is `dd_rag_api
 
 ## Gotchas
 
-- An installation updated from a release without `tool_rag` has no registry row until *Register tools* runs with `TOOLS_ENABLE_REGISTRY_IMPORT=true`; until then `ask` refuses everyone.
+- An installation updated from a release without `tool_rag` has no registry row until a code update's ancillary phase (or *Register tools*) registers it; until then `ask` refuses everyone.
 - No profile is granted `tool_rag` by an update: grant it deliberately.
 
 ## Related

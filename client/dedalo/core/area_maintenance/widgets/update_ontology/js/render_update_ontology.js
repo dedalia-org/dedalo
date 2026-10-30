@@ -784,7 +784,7 @@ const get_content_data_edit = async function(self) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'dd_note state_danger overwrite_note',
-			inner_html		: (get_label.update_ontology_overwrite_note || '<b>Replaces the ontologies of the selected TLDs.</b> Imports them from the master over the live ontologies and re-processes them. Custom TLDs and localontology overrides are not part of them and are kept — unless you add <em>localontology</em> to the list.'),
+			inner_html		: (get_label.update_ontology_overwrite_note || '<b>Replaces the ontologies of the selected TLDs.</b> Imports them from the master over the live ontologies and re-processes them. Local TLDs and localontology overrides are never part of an update and are kept.'),
 			parent			: content_data
 		})
 
@@ -818,6 +818,12 @@ const get_content_data_edit = async function(self) {
 		})
 
 	// d. update form
+		// THE BACKUP WAIVER. The update runs as an ontology-only UPDATE RUN
+		// (core/update/run/start.ts): like a code update it REFUSES without a
+		// recent, proven-restorable database backup, and this checkbox is the
+		// operator's journaled escape hatch (the run records who waived it).
+		// It waives the DATABASE backup only.
+		let waive_backup_input = null
 		if (self.caller?.init_form) {
 			self.caller.init_form({
 				submit_label	: (get_label.update_ontology_submit || 'Replace selected ontologies'),
@@ -834,6 +840,24 @@ const get_content_data_edit = async function(self) {
 				on_render : (nodes) => {
 					const input_nodes = nodes.input_nodes || []
 					const tlds_input = input_nodes.find(el => el.name === 'active_ontology_tlds')
+
+					const waive_backup_label = ui.create_dom_element({
+						element_type	: 'label',
+						class_name		: 'waive_backup_label',
+						text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup'
+					})
+					// above the submit button: the caution is read before the click
+					nodes.form_container.insertBefore(
+						waive_backup_label,
+						nodes.form_container.button_submit || null
+					)
+					waive_backup_input = ui.create_dom_element({
+						element_type	: 'input',
+						type			: 'checkbox',
+						class_name		: 'waive_backup_check',
+						name			: 'update_ontology_waive_backup'
+					})
+					waive_backup_label.prepend(waive_backup_input)
 
 					// the operator's line wins over the configured default, and
 					// survives a reload
@@ -939,9 +963,10 @@ const get_content_data_edit = async function(self) {
 
 					// Phase 2: import
 						const api_response = await self.update_ontology({
-							server	: server,
-							files	: selected_files,
-							info	: result.info
+							server		: server,
+							files		: selected_files,
+							info		: result.info,
+							waive_backup: waive_backup_input?.checked === true
 						})
 
 					// fail case

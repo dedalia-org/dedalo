@@ -203,8 +203,11 @@ update_code.prototype.get_code_update_info = async function ( server, channel ) 
 		// '7.0.0-beta.6' as an invalid version. The server publishes the triple
 		// beside the identity (page_globals.dedalo_data_version); deriving it is
 		// the fallback for a page_globals without the key.
-		// `release` carries the identity itself, optional and informational
-		// (WC-2026-10-15-release-identity-from-tag).
+		// `release` carries the identity itself (WC-2026-10-15-release-identity-from-tag)
+		// and is what the master WALKS the code ladder from (audit U-06): a
+		// code-only patch never moves the data version, so a 7.0.1 install on
+		// data 7.0.0 is offered 7.0.2 only because it says it is 7.0.1. An ask
+		// without it is walked from `version` (the bare data triple).
 		const data_version		= page_globals.dedalo_data_version || data_version_of(page_globals.dedalo_version)
 		const release			= page_globals.dedalo_version || null
 
@@ -340,6 +343,7 @@ update_code.prototype.restore_code = async function ( options ) {
 	// options
 	const name					= options.name
 	const confirm_downgrade		= options.confirm_downgrade === true
+	const waive_backup			= options.waive_backup === true
 
 	const api_response = await data_manager.request({
 		body		: {
@@ -353,7 +357,9 @@ update_code.prototype.restore_code = async function ( options ) {
 			},
 			options	: {
 				name				: name,
-				confirm_downgrade	: confirm_downgrade
+				confirm_downgrade	: confirm_downgrade,
+				// the destructive door's backup waiver (core/update/door_class.ts)
+				waive_backup		: waive_backup
 			}
 		},
 		retries : 1, // one try only

@@ -555,6 +555,7 @@ It exits `0` only when the new version is up and healthy.
 - **The client follows the image.** Reload open pages after an update.
 - **Host-side files come from your checkout, not from the image**: `deploy/`, the compose files. When a release's notes say they changed, update the checkout as well.
 - **One update at a time**: a second run while one is in progress refuses.
+- **An interrupted update rolls back.** Stopping the script (Ctrl-C, `kill`, a closed terminal) after it re-pinned `DEDALO_VERSION` and before the health check answered puts the previous version back, as a failed health check would, and reports *interrupted*. If the script could not run that rollback (killed with `kill -9`, a power cut), it leaves a `.dedalo-image-update.pin` file in the checkout, and every later run refuses until you run `./deploy/dedalo-image-update.sh --recover`. That rolls back to the version the file names. If `DEDALO_VERSION` was changed by hand since then, `--recover` refuses and keeps the file: check the pin, then delete the file yourself. The host updater runs `--recover` on its own.
 
 ### Rolling back by hand
 

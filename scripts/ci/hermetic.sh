@@ -186,6 +186,8 @@ HERMETIC_TRIPWIRES=(
 	# Data version derivation (VERSIONING_SPEC §4, 2026-10-28): pure catalog function + the
 	# build stamp, no DB. Verified DB-less (DB_PORT=59999).
 	test/unit/data_version_tripwire.test.ts
+	test/unit/update_catalog_json_tripwire.test.ts
+	test/unit/migration_content_hash_tripwire.test.ts
 	test/unit/nightly_no_data_tripwire.test.ts
 	test/unit/install_restart_supervisor_tripwire.test.ts
 	test/unit/ci_workflow_tripwire.test.ts
@@ -545,6 +547,15 @@ HERMETIC_TRIPWIRES=(
 	#     area_maintenance widget tree + planted controls; imports no src/ module
 	#     (verified with DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/maintenance_widget_kit_tripwire.test.ts
+	# --- 2026-10-30 (update audit 2026-10-29, U-38/U-30: release derivations +
+	#     the ancillary reconcilers). Verified DB-less (DB_PORT=59999): 7 pass / 0 fail.
+	test/unit/release_manifest_completeness_tripwire.test.ts
+	# --- 2026-10-30 (update audit 2026-10-29, Phase 2.8: door precondition
+	#     classes). Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999): 16 pass /
+	#     0 fail — every refusal precedes the database; the lock/backup/run legs
+	#     are seams. SERIAL LANE (below): it flips the server_state maintenance flag.
+	test/unit/update_door_precondition_class_tripwire.test.ts
+	test/unit/update_docs_claims_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run
@@ -558,6 +569,10 @@ HERMETIC_SERIAL_LANE=(
 	# the excludes (measured 2026-10-21), so the probe must exist on disk. A tree-walking
 	# gate in a sibling worker read it mid-delete (ENOENT, the first --parallel run).
 	test/unit/lint_scope_tripwire.test.ts
+	# Flips the server_state maintenance flag (one file under the private dir that
+	# every worker's maintenance gate reads) to prove the destructive doors refuse
+	# outside maintenance: a sibling worker would see the install closed mid-run.
+	test/unit/update_door_precondition_class_tripwire.test.ts
 )
 
 echo "== hermetic: bun install (frozen lockfile)"

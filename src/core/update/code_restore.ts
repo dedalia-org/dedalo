@@ -70,10 +70,13 @@
  * version) the run says so out loud: see `warnOnIndistinguishableSentinel`.
  *
  * THE DATABASE IS NOT RESTORED, and cannot be: migrations already applied stay
- * applied. That hazard is not silently allowed — a restore point declaring a
- * version other than the running one refuses unless the request carries an
- * explicit `confirm_downgrade`, and the waiver is logged loudly (the
- * `waive_backup` idiom).
+ * applied. That hazard is not silently allowed — a restore point holding other
+ * code than the running one (another RELEASE IDENTITY, or the same identity
+ * from another archive digest: `restoreChangesCode`) refuses unless the request
+ * carries an explicit `confirm_downgrade`, and the waiver is logged loudly (the
+ * `waive_backup` idiom). Keyed on the identity since 2026-10-30 (U-07): the
+ * data triple it used is shared by every beta of one triple, so restoring
+ * beta.5 over beta.7 needed no confirmation.
  *
  * ONE RESTORABILITY PREDICATE. `restorabilityOf` is exported and imported by
  * status.ts: the panel must never compute a verdict the pipeline computes
@@ -93,6 +96,7 @@ import { ok } from '../errors/index.ts';
 import type { ApiEnvelope } from '../errors/schema.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentRequestContext } from '../security/request_context.ts';
+import { RELEASE_IDENTITY } from './build_stamp.ts';
 import { parseDeclaredDataTriple, VERSION_TS_PATH } from './code_build_plan.ts';
 import {
 	acquireRunLockOrRefuse,
@@ -111,35 +115,62 @@ import {
 	swapPreconditionsWithFrame,
 	type UpdateSentinel,
 } from './code_update.ts';
+import { INSTALLED_DIGEST } from './install_stamp.ts';
 import { engineOwnsInstall } from './ownership.ts';
 import { checkUpdatePreconditions } from './preconditions.ts';
 import { refuseUpdate, rethrowOrRefuseUpdate } from './refuse.ts';
 import { removeRestorePointDir, resolveRestorePointOrRefuse } from './restore_points.ts';
 import { smokeBootQuarantine } from './smoke_boot.ts';
-import { DEDALO_DATA_VERSION } from './version.ts';
 
 /**
  * The restore seams are a SUBSET of the update's, not a parallel type: every
  * helper below is the update's own and takes `CodeUpdateSeams`. A second seam
  * shape would drift from the machinery it drives.
  */
-export type CodeRestoreSeams = Pick<
-	CodeUpdateSeams,
-	// `backupRoot` joined 2026-08-28 with deleteRestorePoint: its gate is the
-	// only one that ends in an irreversible rm, so it has to be exercisable
-	// against a scratch root. resolveBackupRootOrRefuse already reads it.
-	| 'backupRoot'
-	| 'targetRoot'
-	| 'backupRoot'
-	| 'restart'
-	| 'supervised'
-	| 'channel'
-	| 'smokeBoot'
-	| 'renameToBackup'
-	| 'renameIntoPlace'
-	| 'renameRestore'
-	| 'onPhase'
->;
+export type CodeRestoreSeams = RunningTreeSeams &
+	Pick<
+		CodeUpdateSeams,
+		// `backupRoot` joined 2026-08-28 with deleteRestorePoint: its gate is the
+		// only one that ends in an irreversible rm, so it has to be exercisable
+		// against a scratch root. resolveBackupRootOrRefuse already reads it.
+		| 'backupRoot'
+		| 'targetRoot'
+		| 'backupRoot'
+		| 'restart'
+		| 'supervised'
+		| 'channel'
+		| 'smokeBoot'
+		| 'renameToBackup'
+		| 'renameIntoPlace'
+		| 'renameRestore'
+		| 'onPhase'
+	>;
+
+/**
+ * WHO IS RUNNING, as the downgrade check sees it (U-07). Defaults: this
+ * process's RELEASE_IDENTITY.version and INSTALLED_DIGEST. A gate plants both:
+ * the checkout a suite runs in is `X.Y.Z-dev` on a branch, unstamped, and a
+ * verdict must not change with that.
+ */
+export interface RunningTreeSeams {
+	/** The running RELEASE IDENTITY (`7.0.0-beta.7`). */
+	runningIdentity?: string;
+	/** The running tree's install digest — null on an unstamped tree. */
+	runningDigest?: string | null;
+}
+
+/** The running tree as the restore compares it. */
+interface RunningTree {
+	identity: string;
+	digest: string | null;
+}
+
+function runningTreeOf(seams: RunningTreeSeams): RunningTree {
+	return {
+		identity: seams.runningIdentity ?? RELEASE_IDENTITY.version,
+		digest: seams.runningDigest === undefined ? INSTALLED_DIGEST : seams.runningDigest,
+	};
+}
 
 /** The pipeline's answer IS the wire body (envelope v2), as in code_update.ts. */
 export type CodeRestoreResponse = ApiEnvelope;
@@ -151,7 +182,8 @@ export type RestoreBlockReason = 'not_bootable' | 'unknown_version' | 'bun_pin_m
 export interface RestorePointFacts {
 	/** Carries package.json + node_modules (the rollback-BOOTABILITY contract). */
 	bootable: boolean;
-	/** The version the tree DECLARES (its own version.ts), null when unreadable. */
+	/** The RELEASE IDENTITY the tree calls itself (tree_identity.ts), null when
+	 * its version.ts is unreadable. */
 	version: string | null;
 	/** The Bun the tree PINS (its own `.bun-version`), null when it pins none. */
 	bun_pin: string | null;
@@ -182,7 +214,8 @@ export function restorabilityOf(facts: RestorePointFacts): {
 	return { restorable: true, reason: null };
 }
 
-/** The version a tree DECLARES, from its own version.ts. Null when unreadable. */
+/** The DATA triple a tree DECLARES, from its own version.ts. Null when unreadable.
+ * NOT the tree's name — that is its release identity (tree_identity.ts, U-07). */
 export function declaredVersionOf(treeRoot: string): string | null {
 	try {
 		return parseDeclaredDataTriple(readFileSync(join(treeRoot, VERSION_TS_PATH), 'utf8'));
@@ -257,10 +290,13 @@ function parseRestoreRequest(rawOptions: unknown): RestoreRequest {
 }
 
 /** The selected point, resolved BY NAME against the listing — never from the request. */
-interface SelectedRestorePoint {
+export interface SelectedRestorePoint {
 	name: string;
 	dir: string;
+	/** Its RELEASE IDENTITY (status.ts readRestorePoints). */
 	version: string;
+	/** The data triple its version.ts declares (status.ts readRestorePoints `data_version`). */
+	dataVersion: string | null;
 	digest: string | null;
 }
 
@@ -299,7 +335,7 @@ async function selectRestorePointOrRefuse(
 	backupRoot: string,
 ): Promise<SelectedRestorePoint> {
 	const { readRestorePoints } = await import('./status.ts');
-	const listed = readRestorePoints(backupRoot).find((point) => point.name === name);
+	const listed = (await readRestorePoints(backupRoot)).find((point) => point.name === name);
 	if (listed === undefined) {
 		refuseUpdate(
 			'update.refused',
@@ -314,31 +350,56 @@ async function selectRestorePointOrRefuse(
 		name,
 		dir: join(backupRoot, name),
 		version: listed.version as string,
+		dataVersion: listed.data_version,
 		digest: listed.digest,
 	};
 }
 
 /**
+ * Is restoring `point` a CHANGE of the running code? The release identity
+ * differs, or both trees are stamped and their digests differ (two builds of one
+ * identity — the developer channel). Keyed on the identity, never the data
+ * triple (U-07): every beta of one triple declares the same triple, so beta.5
+ * over beta.7 read as "no change". An unknown digest on either side is not
+ * evidence of a change — the identity alone decides then. The client mirrors
+ * this rule (render_update_code.js render_restore_modal).
+ */
+export function restoreChangesCode(
+	point: { version: string; digest: string | null },
+	running: RunningTree,
+): boolean {
+	if (point.version !== running.identity) return true;
+	return point.digest !== null && running.digest !== null && point.digest !== running.digest;
+}
+
+/** `point` as the operator reads it: its identity, plus the short digest when there is one. */
+function pointLabel(identity: string, digest: string | null): string {
+	return digest === null ? identity : `${identity} (${digest.slice(0, 7)})`;
+}
+
+/**
  * THE DATABASE HAZARD, made explicit. Restoring code does NOT revert applied
- * migrations, so a point declaring another version than the running engine is
- * refused unless the operator waives it — and the waiver is logged as loudly as
+ * migrations, so a point holding other code than the running engine is refused
+ * unless the operator waives it — and the waiver is logged as loudly as
  * `waive_backup`, because it is the line an incident report will look for.
  */
 function assertVersionChangeConfirmed(
 	point: SelectedRestorePoint,
-	runningVersion: string,
+	running: RunningTree,
 	confirmDowngrade: boolean,
 	principal: Principal,
 ): void {
-	if (point.version === runningVersion) return;
+	if (!restoreChangesCode(point, running)) return;
+	const from = pointLabel(running.identity, running.digest);
+	const to = pointLabel(point.version, point.digest);
 	if (!confirmDowngrade) {
 		refuseUpdate(
 			'update.refused',
-			`Error. That restore point holds Dédalo ${point.version} but this installation runs ${runningVersion}, and restoring code does NOT revert database migrations already applied — tick the confirmation (confirm_downgrade) to proceed anyway.`,
+			`Error. That restore point holds Dédalo ${to} but this installation runs ${from}, and restoring code does NOT revert database migrations already applied — tick the confirmation (confirm_downgrade) to proceed anyway.`,
 		);
 	}
 	console.warn(
-		`[code restore] VERSION CHANGE CONFIRMED by request (confirm_downgrade: true, user ${principal.userId}) — restoring ${point.name} moves this installation from ${runningVersion} to ${point.version} WITHOUT reverting applied database migrations`,
+		`[code restore] VERSION CHANGE CONFIRMED by request (confirm_downgrade: true, user ${principal.userId}) — restoring ${point.name} moves this installation from ${from} to ${to} WITHOUT reverting applied database migrations`,
 	);
 }
 
@@ -395,6 +456,13 @@ async function preflightRestorePoint(
  * POINT's own, and is OMITTED (never empty) when the point carries no install
  * stamp, so boot_confirm.ts falls back to its version compare instead of
  * comparing a digest that can never match.
+ *
+ * `version` is what THE RESTORED TREE's boot_confirm compares — the confirm
+ * runs in that tree, not in this one. A tree from before U-07 (it ships no
+ * `src/core/update/tree_identity.ts`) compares the bare data triple, so its
+ * sentinel carries the triple; a release identity there would never match and
+ * leave the sentinel pending for the watchdog to "roll back" the operator's
+ * deliberate restore.
  */
 function restoreSentinel(
 	point: SelectedRestorePoint,
@@ -403,7 +471,7 @@ function restoreSentinel(
 	backupDir: string,
 ): UpdateSentinel {
 	return {
-		version: point.version,
+		version: sentinelVersionFor(point),
 		previousVersion: runningVersion,
 		updateMode: 'clean',
 		stamp,
@@ -412,6 +480,12 @@ function restoreSentinel(
 		status: 'pending',
 		rollback_attempted: false,
 	};
+}
+
+/** The version the restored tree's own boot_confirm compares (see restoreSentinel). */
+export function sentinelVersionFor(point: SelectedRestorePoint): string {
+	const comparesIdentity = existsSync(join(point.dir, 'src', 'core', 'update', 'tree_identity.ts'));
+	return comparesIdentity || point.dataVersion === null ? point.version : point.dataVersion;
 }
 
 /** The current RQO's id (the widget dispatcher opens the scope), or '' outside a request. */
@@ -447,12 +521,13 @@ export async function restoreCode(
 	checkUpdatePreconditions(principal);
 
 	const targetRoot = seams.targetRoot ?? projectRoot;
-	const runningVersion = DEDALO_DATA_VERSION.join('.');
+	const running = runningTreeOf(seams);
+	const runningVersion = running.identity;
 	const point = await selectRestorePointOrRefuse(
 		request.name,
 		resolveBackupRootOrRefuse(targetRoot, seams),
 	);
-	assertVersionChangeConfirmed(point, runningVersion, request.confirmDowngrade, principal);
+	assertVersionChangeConfirmed(point, running, request.confirmDowngrade, principal);
 
 	const phases = createPhaseTracker(point.version, seams.onPhase);
 	phases.skip('download');
@@ -556,7 +631,7 @@ export async function deleteRestorePoint(
 	// BY NAME, against the SAME listing the panel rendered (status.ts) — a
 	// client never names a path, and the two must be looking at one set.
 	const { readRestorePoints } = await import('./status.ts');
-	const points = readRestorePoints(backupRoot);
+	const points = await readRestorePoints(backupRoot);
 	const listed = points.find((point) => point.name === request.name);
 	if (listed === undefined) {
 		refuseUpdate(

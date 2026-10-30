@@ -18,6 +18,13 @@
  * master's export applies too): a bad item is a WARNING, never a refused
  * manifest.
  *
+ * `info.files_sha256` — `{"<name>.copy.gz": "<hex sha256>"}`, every served
+ * file's digest (U-41, WC-2026-10-30-ontology-file-digests) — rides out on
+ * each ontology as `sha256` (matrix_dd: `matrixDdSha256`), and the stager
+ * verifies the fetched bytes against it before extract. ABSENT (an older
+ * master, the vendored install manifest) = unverified, accepted with a warning
+ * by the update; a MALFORMED map refuses the manifest.
+ *
  * TWO SOURCES, ONE PARSER:
  *   - a local directory in the server export layout (`ontology.json` +
  *     `<tld>.copy.gz` [+ `matrix_dd.copy.gz`]): readLocalOntologyManifest reuses
@@ -70,6 +77,7 @@ export const ontologyManifestSchema = z.object({
 		.object({
 			version: z.string().optional(),
 			active_ontologies: z.array(activeOntologySchema).optional(),
+			files_sha256: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)).optional(),
 		})
 		.passthrough()
 		.nullable(),
@@ -87,6 +95,8 @@ export interface ManifestOntology {
 	dependencies: OntologyDependency[] | null;
 	/** The file's URL (`file://` for a local source). */
 	url: string;
+	/** The file's sha256 from `info.files_sha256`; absent = the master publishes none. */
+	sha256?: string;
 }
 
 export type ManifestResult =
@@ -96,6 +106,8 @@ export type ManifestResult =
 			ontologies: ManifestOntology[];
 			/** The private-lists file (matrix_dd.copy.gz), when the source ships one. */
 			matrixDdUrl: string | null;
+			/** matrix_dd.copy.gz's sha256 from `info.files_sha256`; absent = none published. */
+			matrixDdSha256?: string;
 			warnings: string[];
 	  }
 	| { ok: false; reason: string };
@@ -146,6 +158,15 @@ function bareOntology(tld: string): Omit<ManifestOntology, 'url'> {
 	};
 }
 
+/** `{sha256}` when `digests` names `<tld>.copy.gz`, else nothing (absent ≠ empty). */
+function digestField(
+	digests: Record<string, string> | undefined,
+	tld: string,
+): { sha256?: string } {
+	const sha256 = digests?.[`${tld}.copy.gz`];
+	return sha256 === undefined ? {} : { sha256 };
+}
+
 /** The first schema issue, as a path + message (never the payload itself). */
 function shapeReason(error: z.ZodError): string {
 	const issue = error.issues[0];
@@ -165,14 +186,20 @@ export function parseOntologyManifest(raw: unknown): ManifestResult {
 	const { info, files } = parsed.data;
 	const metadata = infoByTld(info);
 	const warnings: string[] = [];
+	const digests = info?.files_sha256;
 	const ontologies = files
 		.filter((file) => TLD_RE.test(file.tld))
-		.map((file) => manifestOntology(file, metadata.get(file.tld), warnings));
+		.map((file) => ({
+			...manifestOntology(file, metadata.get(file.tld), warnings),
+			...digestField(digests, file.tld),
+		}));
+	const matrixDd = digestField(digests, 'matrix_dd').sha256;
 	return {
 		ok: true,
 		version: info?.version ?? null,
 		ontologies,
 		matrixDdUrl: files.find((file) => file.tld === 'matrix_dd')?.url ?? null,
+		...(matrixDd === undefined ? {} : { matrixDdSha256: matrixDd }),
 		warnings,
 	};
 }

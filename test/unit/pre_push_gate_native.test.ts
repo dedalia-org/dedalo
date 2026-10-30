@@ -76,6 +76,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { releaseCommitFiles } from '../helpers/release_commit_files.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const HOOK_PATH = join(REPO_ROOT, 'scripts/hooks/pre-push');
@@ -1149,6 +1150,10 @@ describe('pre-push gate: every v* tag is checked as a CUT release first (gate 11
 			'changes/7.0.1-beta.1/release.json',
 			`${JSON.stringify({ version: '7.0.1-beta.1', to: 'v7.0.1-beta.1' })}\n`,
 		);
+		// A release commit also carries its catalog entry + its seed (release_tag rules 3–4).
+		for (const [path, text] of Object.entries(releaseCommitFiles('7.0.1', ['7.0.1']))) {
+			write(repo, path, text);
+		}
 		commitAll(repo, 'cut 7.0.1-beta.1');
 		resetLog();
 		return repo;

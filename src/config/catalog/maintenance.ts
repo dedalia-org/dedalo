@@ -97,6 +97,8 @@ export const MAINTENANCE_KEYS = {
 
 The installer (\`sh install.sh\`, or \`bun run dedalo:install\`) WRITES the official Dédalo code server entry below, unless the install is declared air-gapped (\`--no-update-servers\`, or answering no to its update-server question), which writes \`[]\`. Unset or \`[]\` means no masters: the panel offers no code updates. When the installer writes \`.env\` over an existing one in the same private directory (an unfinished install, or a fresh install into a reused private directory) and is not air-gapped, it leaves a NON-EMPTY list already in the file untouched (mirrors you added survive); a \`[]\`, or a value that is not a valid JSON list, is replaced by the official entry. The list is read at boot, and so is the browser's \`connect-src\` that lets the update panel reach a master: restart the server after changing it.
 
+\`url\` must be \`https://\`: an \`http://\` entry is ignored at startup (one log line), because the access \`code\` and the release archives would cross the network in clear. Plain http is accepted only for a master on this same machine (\`localhost\`, \`127.0.0.1\`, \`::1\`).
+
 \`url\` is the master's JSON API endpoint — it MUST end in \`/dedalo/core/api/v1/json/\` (or \`/api/v1/json\`); any other path answers 404 and the panel reports the server as unreachable. \`code\` is the shared secret: the master only answers a release manifest to a caller presenting a code listed in its OWN \`CODE_SERVERS\`.
 
 \`\`\`bash
@@ -289,6 +291,18 @@ ONTOLOGY_SERVER_CODE="x3a0B4Y020Eg9w"
 
 This parameter needs to be included as \`code\` in [ONTOLOGY_SERVERS](#ontology-servers) defintion in every authorized client.`,
 	},
+	DEDALO_UPDATE_HTTP_SOURCES_DEV: {
+		type: 'boolean',
+		scope: 'test_seam',
+		default: false,
+		heading: 'Allowing a plain-http update master on a development network',
+		typeLabel: 'boolean',
+		doc: `Development seam, not a setting. Code and ontology masters (\`CODE_SERVERS\`, \`ONTOLOGY_SERVERS\`) must be \`https://\` — a plain \`http://\` entry is dropped at startup with a log line, and every download re-checks it — because the shared \`code\` and the release archive would otherwise cross the network in clear. The only http address allowed is this machine itself (\`localhost\`, \`127.0.0.1\`, \`::1\`). When this key is \`true\`, http masters on other addresses are allowed too: \`bun run probe:update\` sets it in the docker museum it drives, whose master is the developer's machine on the LAN. Never set it on an installation.
+
+\`\`\`bash
+DEDALO_UPDATE_HTTP_SOURCES_DEV=true
+\`\`\``,
+	},
 	ONTOLOGY_SERVERS: {
 		type: 'server_list',
 		scope: 'operator',
@@ -315,9 +329,21 @@ ONTOLOGY_SERVERS=[{"name":"Official Dédalo Ontology server","url":"https://v7.m
 
 It gets the tld from the [ACTIVE_ONTOLOGY_TLDS](#defining-active-ontology-tlds) definition.
 
+Every \`url\` must be \`https://\` (plain http only for a master on this same machine); an \`http://\` entry is ignored at startup with one log line.
+
 A master is identified by its \`url\`, not by its \`code\`: several masters may share one access
 code, and the update downloads only from the address of the master picked in the panel. List
 each master once.
+
+**Several masters: one source per TLD.** With two or more masters, each entry also lists the
+shared TLDs this installation takes from it, in \`tlds\` (include \`matrix_dd\`, the shared value
+lists, in exactly one of them). The update refuses a TLD that no master lists, that two masters
+list, or that the picked master does not list. One master needs no \`tlds\`: everything comes
+from it.
+
+\`\`\`bash
+ONTOLOGY_SERVERS=[{"name":"Dédalo","url":"https://v7.master.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w","tlds":["dd","rsc","ontology","ontologytype","hierarchy","lg","oh","matrix_dd"]},{"name":"Museum master","url":"https://ontology.museum.example/dedalo/core/api/v1/json/","code":"…","tlds":["mus"]}]
+\`\`\`
 
 The update panel interrogates each master **from the browser**, so the engine adds every origin
 named here to its own \`connect-src\` Content-Security-Policy automatically — there is no second

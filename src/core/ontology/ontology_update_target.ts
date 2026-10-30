@@ -23,6 +23,7 @@ import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
 import {
 	confinedPath,
 	copySanityCheck,
+	digestRefusal,
 	downloadRemoteOntologyFile,
 	gunzipWithCaps,
 } from './data_io_import.ts';
@@ -43,6 +44,12 @@ export interface OntologyUpdateFile {
 	 * normalizeOntologyDependencies — WC-2026-10-10-ontology-dependencies-hierarchy60).
 	 */
 	dependencies?: unknown;
+	/**
+	 * The master manifest's sha256 of this file (`info.files_sha256`, U-41) —
+	 * set ONLY by resolveOntologySource from the manifest, never by the client;
+	 * the stager refuses bytes that do not hash to it. Absent = unverified.
+	 */
+	sha256?: string | undefined;
 }
 
 export interface StagedFile {
@@ -62,7 +69,12 @@ export interface StagedFile {
 
 /** The config catalog slice resolveUpdateTarget adjudicates against. */
 export interface OntologyUpdateCatalog {
-	readonly servers: readonly { readonly code: string; readonly url: string }[];
+	readonly servers: readonly {
+		readonly code: string;
+		readonly url: string;
+		/** The shared TLDs taken from this master (D-8); absent = undeclared. */
+		readonly tlds?: readonly string[];
+	}[];
 	readonly isOntologyServer: boolean;
 }
 
@@ -141,22 +153,15 @@ export async function stageOntologyFiles(
 			return { errors: [`unconfined staging name: ${expectedBasename}`] };
 		}
 		if (isLocal) {
-			// Local-package source: the files already sit in the IO dir —
-			// no self-HTTP round trip (wire-invisible shortcut).
-			const source = confinedPath(ioPath, expectedBasename);
-			if (source === null || !statSafe(source)) {
-				return {
-					errors: [`local ontology file missing: ${expectedBasename}`],
-					msg: `Error. Local ontology file missing: ${expectedBasename}`,
-				};
-			}
-			cpSync(source, gzPath);
+			const failure = await stageLocalFile(file, ioPath, gzPath);
+			if (failure !== null) return failure;
 		} else {
 			const downloaded = await downloadRemoteOntologyFile({
 				url: file.url,
 				configuredOrigin: configuredOrigin as string,
 				expectedBasename,
 				targetDir: stagingDir,
+				expectedSha256: file.sha256,
 			});
 			messages.push(downloaded.msg);
 			if (downloaded.ok !== true) {
@@ -185,6 +190,29 @@ export async function stageOntologyFiles(
 		});
 	}
 	return { staged, messages };
+}
+
+/**
+ * Local-package source: the file already sits in the IO dir — copied by name,
+ * no self-HTTP round trip (wire-invisible shortcut) — and, when the manifest
+ * names its sha256, verified like a download (U-41). Null = staged.
+ */
+async function stageLocalFile(
+	file: OntologyUpdateFile,
+	ioPath: string,
+	gzPath: string,
+): Promise<{ errors: string[]; msg: string } | null> {
+	const expectedBasename = `${file.tld}.copy.gz`;
+	const source = confinedPath(ioPath, expectedBasename);
+	if (source === null || !statSafe(source)) {
+		return {
+			errors: [`local ontology file missing: ${expectedBasename}`],
+			msg: `Error. Local ontology file missing: ${expectedBasename}`,
+		};
+	}
+	cpSync(source, gzPath);
+	const mismatch = await digestRefusal(gzPath, file.sha256);
+	return mismatch === null ? null : { errors: [mismatch.error], msg: mismatch.msg };
 }
 
 /** A file's declared dependencies, normalized (notes into `messages`); matrix_dd declares none. */

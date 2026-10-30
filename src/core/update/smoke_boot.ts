@@ -12,7 +12,7 @@
  * dir under the staging dir, so even an import-time writer (session_store.ts)
  * or a future unguarded boot writer cannot touch live state (the one DB touch
  * is /health's SELECT 1 ping against the shared database). The parent polls
- * `/health` over the socket (the `deploy/deploy.sh health_wait` shape), then
+ * `/health` over the socket (the host health_wait shape), then
  * SIGTERMs and requires a clean exit.
  *
  * HONEST LIMITS — what a green smoke boot does NOT prove:
@@ -111,7 +111,7 @@ export async function smokeBootQuarantine(codeRoot: string, stagingDir: string):
 }
 
 /**
- * health_wait (deploy/deploy.sh idiom): poll /health over the unix socket
+ * health_wait (the host scripts' idiom): poll /health over the unix socket
  * until the child answers, exits, or the timeout lapses; null = healthy.
  */
 /**

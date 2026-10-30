@@ -8,8 +8,10 @@
  *    anything is joined or moved;
  *  - a point that cannot boot (no package.json / no node_modules) is refused,
  *    because restoring it would leave the installation unable to start;
- *  - the DATABASE HAZARD is confirmed, not assumed: a point declaring another
- *    version refuses without `confirm_downgrade` and proceeds with it;
+ *  - the DATABASE HAZARD is confirmed, not assumed: a point holding another
+ *    RELEASE IDENTITY — even one of the SAME data triple (beta.5 over beta.7,
+ *    U-07) — or the same identity from another archive digest refuses without
+ *    `confirm_downgrade` and proceeds with it;
  *  - a failed SECOND rename leaves the live tree BYTE-IDENTICAL (the two
  *    renames are individually atomic, the pair is not);
  *  - the pending sentinel is on disk BEFORE the first rename and carries the
@@ -44,6 +46,7 @@ import { join } from 'node:path';
 import { readEnv } from '../../src/config/env.ts';
 import { setServerState } from '../../src/core/resolve/server_state.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
+import { BUILD_INFO_PATH } from '../../src/core/update/build_stamp.ts';
 import {
 	bunPinOf,
 	type CodeRestoreSeams,
@@ -52,6 +55,7 @@ import {
 	restorabilityOf,
 	restoreCode,
 	restorePointIsBootable,
+	sentinelVersionFor,
 } from '../../src/core/update/code_restore.ts';
 import {
 	acquireRunLockOrRefuse,
@@ -75,6 +79,13 @@ if (STATE_PATH === undefined) {
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as Principal;
 const RUNNING = DEDALO_DATA_VERSION.join('.');
+/**
+ * What a tree built by `writeTree` calls itself: no build_info.txt stamp, no
+ * `.git`, so no tag evidence — the dev identity of its own triple
+ * (build_stamp.ts readReleaseIdentityOf). The default running identity the
+ * seams plant, so the plain cases compare like with like (U-07).
+ */
+const RUNNING_IDENTITY = `${RUNNING}-dev`;
 
 const ROOT = scratchDir('code_restore');
 
@@ -87,13 +98,20 @@ afterAll(() => {
 	rmSync(ROOT, { recursive: true, force: true });
 });
 
-/** Default seams: a temp tree, no restart, the swap-blessed channel. */
+/**
+ * Default seams: a temp tree, no restart, the swap-blessed channel — and the
+ * RUNNING TREE planted (U-07): the identity a `writeTree` tree resolves to and
+ * an UNKNOWN digest, so the identity alone decides unless a case says otherwise
+ * (the suite's own checkout is not what these cases compare against).
+ */
 function restoreSeams(overrides: Partial<CodeRestoreSeams> = {}): CodeRestoreSeams {
 	return {
 		restart: () => {},
 		supervised: true,
 		smokeBoot: async () => {},
 		channel: 'tree_swap',
+		runningIdentity: RUNNING_IDENTITY,
+		runningDigest: null,
 		...overrides,
 	};
 }
@@ -114,10 +132,10 @@ function buildRestorePoint(
 	name: string,
 	version: string,
 	digest: string | null,
-	options: { bootable?: boolean } = {},
+	options: { bootable?: boolean; tag?: string } = {},
 ): string {
 	const dir = join(backupRoot, name);
-	writeTree(dir, version, digest);
+	writeTree(dir, version, digest, options.tag);
 	if (options.bootable === false) rmSync(join(dir, 'node_modules'), { recursive: true });
 	return dir;
 }
@@ -130,13 +148,15 @@ function buildRestorePoint(
  * DEDALO_SMOKE_BOOT, and a pin other than the running Bun blocks the point
  * outright, so a tree built here has to look like one cut by a current engine.
  */
-function writeTree(dir: string, version: string, digest: string | null): void {
+function writeTree(dir: string, version: string, digest: string | null, tag?: string): void {
 	const [major, minor, patch] = version.split('.');
 	mkdirSync(join(dir, 'src', 'core', 'update'), { recursive: true });
 	mkdirSync(join(dir, 'node_modules', 'dep'), { recursive: true });
 	writeFileSync(join(dir, 'package.json'), `{"name":"dedalo","version":"${version}"}`);
 	writeFileSync(join(dir, 'node_modules', 'dep', 'index.js'), '// dep');
 	writeFileSync(join(dir, '.bun-version'), `${Bun.version}\n`);
+	// A current tree (U-07): its boot_confirm compares the release identity.
+	writeFileSync(join(dir, 'src', 'core', 'update', 'tree_identity.ts'), '// identity\n');
 	writeFileSync(
 		join(dir, 'src', 'server.ts'),
 		"const smokeBoot = readEnv('DEDALO_SMOKE_BOOT') === 'true';\n",
@@ -145,6 +165,14 @@ function writeTree(dir: string, version: string, digest: string | null): void {
 		join(dir, 'src', 'core', 'update', 'version.ts'),
 		`export const DEDALO_DATA_VERSION = Object.freeze([${major}, ${minor}, ${patch}]);\n`,
 	);
+	if (tag !== undefined) {
+		// An expanded release stamp, as `git archive` writes it at an exact tag:
+		// the tree then calls itself by that tag (`v7.0.0-beta.5` → 7.0.0-beta.5).
+		writeFileSync(
+			join(dir, BUILD_INFO_PATH),
+			`${'c'.repeat(40)} 2026-10-01T00:00:00+00:00 ${tag}\n`,
+		);
+	}
 	if (digest !== null) {
 		writeFileSync(
 			join(dir, INSTALL_STAMP_PATH),
@@ -240,10 +268,13 @@ describe('the listing the panel renders IS the listing the pipeline resolves aga
 		writeFileSync(join(foreign, '.bun-version'), '0.0.1\n');
 		const { readRestorePoints } = await import('../../src/core/update/status.ts');
 
-		const points = readRestorePoints(backupRoot);
+		const points = await readRestorePoints(backupRoot);
 		expect(points).toHaveLength(2);
 		for (const point of points) {
-			expect(point.version).toBe(RUNNING);
+			// `version` is the RELEASE IDENTITY the held tree calls itself, the data
+			// triple rides `data_version` (U-07).
+			expect(point.version).toBe(RUNNING_IDENTITY);
+			expect(point.data_version).toBe(RUNNING);
 			expect(typeof point.bootable).toBe('boolean');
 			expect(restorabilityOf(point)).toEqual({
 				restorable: point.restorable,
@@ -423,8 +454,109 @@ describe('the database hazard is CONFIRMED, never assumed', () => {
 			restoreSeams({ targetRoot, backupRoot }),
 		);
 		expect(out.ok).toBe(true);
-		expect(out.data).toEqual({ version: '6.9.9' });
+		expect(out.data).toEqual({ version: '6.9.9-dev' });
 		expect(declaredVersionOf(targetRoot)).toBe('6.9.9');
+	});
+});
+
+describe('a CHANGE is the release identity or the archive digest, never the data triple (U-07)', () => {
+	test('beta.5 over a running beta.7 of the SAME data triple refuses without confirm_downgrade', async () => {
+		// THE FINDING: both trees declare data triple 7.0.0, so the old
+		// triple-keyed check saw "no change" and restored silently.
+		const { targetRoot, backupRoot } = caseDirs('same_triple_beta');
+		buildLiveTree(targetRoot, DIGEST_A);
+		const name = `dedalo_${RUNNING}-beta.5_bbbbbbb_s`;
+		buildRestorePoint(backupRoot, name, RUNNING, DIGEST_B, { tag: `v${RUNNING}-beta.5` });
+		const before = treeDigest(targetRoot);
+		const seams = restoreSeams({
+			targetRoot,
+			backupRoot,
+			runningIdentity: `${RUNNING}-beta.7`,
+			runningDigest: DIGEST_A,
+		});
+
+		const refusal = await refusalOf(restoreCode({ name }, SUPERUSER, seams));
+		expect(refusal.code).toBe('update.refused');
+		// the sentence names both IDENTITIES, never the shared triple alone
+		expect(refusal.message).toContain(`${RUNNING}-beta.5`);
+		expect(refusal.message).toContain(`${RUNNING}-beta.7`);
+		expect(refusal.message).toContain('confirm_downgrade');
+		expect(treeDigest(targetRoot)).toBe(before);
+
+		const out = await restoreCode({ name, confirm_downgrade: true }, SUPERUSER, seams);
+		expect(out.ok).toBe(true);
+		expect(out.data).toEqual({ version: `${RUNNING}-beta.5` });
+	});
+
+	test('the same identity from ANOTHER archive digest refuses without confirmation', async () => {
+		// Two developer builds of one identity: only the digest tells them apart.
+		const { targetRoot, backupRoot } = caseDirs('same_identity_other_digest');
+		buildLiveTree(targetRoot, DIGEST_A);
+		const name = `dedalo_${RUNNING_IDENTITY}_bbbbbbb_s`;
+		buildRestorePoint(backupRoot, name, RUNNING, DIGEST_B);
+		const before = treeDigest(targetRoot);
+
+		const refusal = await refusalOf(
+			restoreCode(
+				{ name },
+				SUPERUSER,
+				restoreSeams({ targetRoot, backupRoot, runningDigest: DIGEST_A }),
+			),
+		);
+		expect(refusal.code).toBe('update.refused');
+		expect(refusal.message).toContain(DIGEST_B.slice(0, 7));
+		expect(refusal.message).toContain(DIGEST_A.slice(0, 7));
+		expect(treeDigest(targetRoot)).toBe(before);
+	});
+
+	test('the same identity AND the same digest needs no waiver', async () => {
+		const { targetRoot, backupRoot } = caseDirs('same_identity_same_digest');
+		buildLiveTree(targetRoot, DIGEST_A);
+		const name = `dedalo_${RUNNING_IDENTITY}_bbbbbbb_s`;
+		buildRestorePoint(backupRoot, name, RUNNING, DIGEST_B);
+
+		const out = await restoreCode(
+			{ name },
+			SUPERUSER,
+			restoreSeams({ targetRoot, backupRoot, runningDigest: DIGEST_B }),
+		);
+		expect(out.ok).toBe(true);
+	});
+
+	test('the outgoing tree is named after the RUNNING identity, and the sentinel says both identities', async () => {
+		const { targetRoot, backupRoot } = caseDirs('identity_named_backup');
+		buildLiveTree(targetRoot, DIGEST_A);
+		const name = `dedalo_${RUNNING}-beta.5_bbbbbbb_s`;
+		buildRestorePoint(backupRoot, name, RUNNING, DIGEST_B, { tag: `v${RUNNING}-beta.5` });
+
+		const out = await restoreCode(
+			{ name, confirm_downgrade: true },
+			SUPERUSER,
+			restoreSeams({ targetRoot, backupRoot, runningIdentity: `${RUNNING}-beta.7` }),
+		);
+		expect(out.ok).toBe(true);
+		const parked = readdirSync(backupRoot).filter((entry) => entry.startsWith('dedalo_'));
+		expect(parked).toHaveLength(1);
+		expect(parked[0]).toStartWith(`dedalo_${RUNNING}-beta.7_${DIGEST_A.slice(0, 7)}_`);
+		const sentinel = JSON.parse(
+			readFileSync(join(backupRoot, 'last_code_update.json'), 'utf8'),
+		) as Record<string, unknown>;
+		expect(sentinel.version).toBe(`${RUNNING}-beta.5`);
+		expect(sentinel.previousVersion).toBe(`${RUNNING}-beta.7`);
+	});
+});
+
+describe('the sentinel speaks the RESTORED tree’s language (its boot_confirm runs the compare)', () => {
+	test('a pre-U-07 tree compares the data triple; a U-07 tree the release identity', () => {
+		const dir = scratchDir('restore_sentinel_language');
+		const point = { name: 'p', dir, version: '7.0.0-beta.7', dataVersion: '7.0.0', digest: null };
+		expect(sentinelVersionFor(point)).toBe('7.0.0');
+		mkdirSync(join(dir, 'src', 'core', 'update'), { recursive: true });
+		writeFileSync(join(dir, 'src', 'core', 'update', 'tree_identity.ts'), '');
+		expect(sentinelVersionFor(point)).toBe('7.0.0-beta.7');
+		expect(sentinelVersionFor({ ...point, dir: join(dir, 'gone'), dataVersion: null })).toBe(
+			'7.0.0-beta.7',
+		);
 	});
 });
 
@@ -459,8 +591,8 @@ describe('the full restore swap against a temp tree', () => {
 		);
 
 		expect(out.ok).toBe(true);
-		expect(out.data).toEqual({ version: RUNNING });
-		expect(String(out.msg)).toContain(`Restored Dédalo ${RUNNING} from ${name}`);
+		expect(out.data).toEqual({ version: RUNNING_IDENTITY });
+		expect(String(out.msg)).toContain(`Restored Dédalo ${RUNNING_IDENTITY} from ${name}`);
 		expect(restarted).toContain(name);
 		// THE NEW STEP: the backup was proven to boot BEFORE the live tree moved.
 		expect(smokeBooted).toBe(join(backupRoot, name));
@@ -474,8 +606,8 @@ describe('the full restore swap against a temp tree', () => {
 		const points = readdirSync(backupRoot).filter((entry) => entry.startsWith('dedalo_'));
 		expect(points).toHaveLength(1);
 		const newPoint = join(backupRoot, points[0] as string);
-		// named after the tree it HOLDS: the running version + that tree's digest
-		expect(points[0]).toContain(RUNNING);
+		// named after the tree it HOLDS: the running RELEASE IDENTITY + that tree's digest
+		expect(points[0]).toStartWith(`dedalo_${RUNNING_IDENTITY}_${DIGEST_A.slice(0, 7)}_`);
 		expect(points[0]).toContain(DIGEST_A.slice(0, 7));
 		expect(existsSync(join(newPoint, 'src', 'live_only.ts'))).toBe(true);
 		expect(existsSync(join(newPoint, 'node_modules', 'dep', 'index.js'))).toBe(true);
@@ -485,8 +617,8 @@ describe('the full restore swap against a temp tree', () => {
 			readFileSync(join(backupRoot, 'last_code_update.json'), 'utf8'),
 		) as Record<string, unknown>;
 		expect(sentinel).toEqual({
-			version: RUNNING,
-			previousVersion: RUNNING,
+			version: RUNNING_IDENTITY,
+			previousVersion: RUNNING_IDENTITY,
 			updateMode: 'clean',
 			stamp: sentinel.stamp,
 			backupDir: newPoint,
@@ -502,7 +634,7 @@ describe('the full restore swap against a temp tree', () => {
 			first.phases.filter((phase) => phase.status === 'skipped').map((phase) => phase.id),
 		).toEqual(['download', 'verify', 'extract', 'deps']);
 		const last = frames.at(-1) as UpdatePhaseFrame;
-		expect(last.expected_version).toBe(RUNNING);
+		expect(last.expected_version).toBe(RUNNING_IDENTITY);
 		// staging swept, lock released
 		expect(existsSync(join(backupRoot, '.code_staging'))).toBe(false);
 		expect(existsSync(codeRunLockPath(backupRoot))).toBe(false);

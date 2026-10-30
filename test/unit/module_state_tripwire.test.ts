@@ -668,6 +668,10 @@ const ALLOWLISTED_MODULE_CONST = new Set<string>([
 	// Process-poison latch (first-load TDZ race detector): process-lifecycle
 	// health state flipped once on a fatal init race — never request identity.
 	'core/api/process_health.ts:poisonState',
+	// Boot facts (update audit 2026-10-29, U-01/U-04): this boot's migration
+	// verdict and the installed-vs-code data version — process-lifecycle state
+	// read by /health and the code-update confirmation, never request identity.
+	'core/update/boot_state.ts:bootState',
 	// DB reachability memo for /health: a timestamped ok/checkedAt pair on the
 	// probe cadence — ops state, same class as the pool slot gate.
 	'server.ts:dbHealth',

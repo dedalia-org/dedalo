@@ -184,11 +184,17 @@ async function submitTransformJob(
 		const record = mediaJobs.submit(
 			widget,
 			async ({ signal, onData }) => {
-				const report = await withUnboundedStatements(() =>
-					runTransform(widget, options, executor, { signal }),
-				).catch((error: unknown) => {
-					throw typedMaintenanceLockWait(error);
-				});
+				// An EXECUTE holds the UPDATE_RUN lock for the job's life
+				// (core/update/door_class.ts): no update run starts mid-transform. A dry
+				// run writes nothing and takes no lock.
+				const transform = () =>
+					withUnboundedStatements(() => runTransform(widget, options, executor, { signal }));
+				const { holdUpdateRunLock } = await import('../../update/door_class.ts');
+				const report = await (dryRun ? transform() : holdUpdateRunLock(widget, transform)).catch(
+					(error: unknown) => {
+						throw typedMaintenanceLockWait(error);
+					},
+				);
 				const data = reportData(report);
 				if (report.ok || signal.aborted) return data;
 				onData(data);

@@ -89,7 +89,7 @@ import { parseReleaseVersion } from '../src/core/update/release_identity.ts';
  * The cycle is REPEATABLE: the versions are derived from the museum's own
  * /health (present since the first update) — CURRENT = what it reports,
  * RELEASE = the next patch rung. The master's catalog must already carry that
- * rung (src/core/update/catalog.ts; --watch reloads it).
+ * rung (install/update/catalog.json; --watch reloads it).
  */
 const CONSUMER_CONTAINER = 'dedalo-dedalo-1';
 const COMPOSE_BASE = 'docker-compose.simple.yml';
@@ -444,7 +444,7 @@ async function main(): Promise<void> {
 		const rungKey = RELEASE_VERSION;
 		must(
 			UPDATE_CATALOG[rungKey] !== undefined,
-			`UPDATE_CATALOG has no '${rungKey}' descriptor, so the master can never ADVERTISE ${RELEASE_VERSION} (buildCodeUpdateInfo walks the catalog) — the museum's panel would just show nothing. Add the descriptor to src/core/update/catalog.ts, or reset the museum tree to a version whose next rung IS catalogued.`,
+			`UPDATE_CATALOG has no '${rungKey}' descriptor, so the master can never ADVERTISE ${RELEASE_VERSION} (buildCodeUpdateInfo walks the catalog) — the museum's panel would just show nothing. Add the release to install/update/catalog.json, or reset the museum tree to a version whose next rung IS catalogued.`,
 		);
 	}
 
@@ -800,6 +800,9 @@ services:
       DEDALO_BACKUP_PATH: /opt/dedalo/backups/code
       ONTOLOGY_DATA_IO_DIR: /private/import/ontology
       DEDALO_TRANSFORM_DEFINITIONS_DIR: /private/transform_definition_files
+      # The master is this developer machine on the LAN over plain http: the
+      # development seam admits it (update masters are https-only, U-24).
+      DEDALO_UPDATE_HTTP_SOURCES_DEV: 'true'
       CODE_SERVERS: '${JSON.stringify([
 				{ name: 'Local dev master', url: `${origin}/dedalo/core/api/v1/json/`, code: sharedCode },
 			])}'
@@ -1082,9 +1085,13 @@ Or let the probe drive it: bun run probe:update${devChannel ? ' --dev' : ''} --d
 		await Bun.sleep(800);
 	}
 	must(sentinel.status === 'confirmed', `sentinel not confirmed: ${JSON.stringify(sentinel)}`);
+	// RELEASE IDENTITIES since U-07: `version` is what /health answered for the
+	// new tree; `previousVersion` the museum's identity before the swap, whose
+	// data triple is the cycle's FROM end (its exact identity is not tracked here).
 	must(
-		sentinel.version === RELEASE_VERSION && sentinel.previousVersion === CURRENT_VERSION,
-		'sentinel names the wrong versions',
+		sentinel.version === expectedHealthVersion &&
+			parseReleaseVersion(String(sentinel.previousVersion))?.triple.join('.') === CURRENT_VERSION,
+		`sentinel names the wrong identities: ${JSON.stringify(sentinel)}`,
 	);
 	must(
 		sentinel.installDigest === digest,

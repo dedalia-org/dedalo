@@ -209,6 +209,8 @@ const ADDRESS_POLICY: Record<string, string> = {
 		'isSafeLocalAsrUrl: http(s) only, private hosts ONLY behind DEDALO_TRANSCRIBER_ALLOW_PRIVATE_HOSTS',
 	'src/core/ontology/ontology_manifest.ts':
 		'assertConfiguredMasterUrl: the URL must be EXACTLY (normalized) a configured ontology-master API URL (ONTOLOGY_SERVERS / the install plan official constant) — operator configuration, never client text; a LAN master is legitimate, so the public-address policy does not apply',
+	'src/core/update/code_manifest_pin.ts':
+		'assertConfiguredMasterUrl: the URL must be EXACTLY (normalized) a configured CODE_SERVERS entry (already https-filtered, U-24) — the master the requested archive came from, resolved from configuration, never client text (U-41)',
 	// Not a fetchBoundedText caller: a private-destination DOOR with its own call, held to
 	// the same rule — its one URL is its policy's output (asserted below).
 	'src/core/publication_host/transport.ts':

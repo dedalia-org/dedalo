@@ -441,6 +441,8 @@ describe('updateOntology is rewired to the extraction', () => {
 		expect(source).toContain('resolveUpdateTarget(options.server, catalog)');
 		expect(source).toContain('catalog: deps.catalog ?? config.ontologyIo');
 		expect(source).not.toContain('options.server.url');
-		expect(source).toContain('stageOntologyFiles(options.files, target, { ioPath, stagingDir })');
+		// Staged from the SERVER-resolved list (ontology_update_source.ts, U-41), never options.files.
+		expect(source).toContain('stageOntologyFiles(files, target, { ioPath, stagingDir })');
+		expect(source).toContain('const files = await resolveOntologySource(options.files, target, catalog, deps)');
 	});
 });

@@ -256,16 +256,21 @@ const EXPORT_CONCURRENCY = 6;
 
 /**
  * PHP export_ontologies (:301-409) — the ordered pipeline with PHP's
- * abort/continue semantics:
+ * abort/continue semantics, ONE deliberate reorder (U-41):
  *   1. updateOntologyInfo    — HARD ABORT on failure (nothing written);
- *   2. exportOntologyInfo    — HARD ABORT on failure;
- *   3. per-TLD exportToFile  — BOUNDED-PARALLEL (≤ EXPORT_CONCURRENCY in
+ *   2. per-TLD exportToFile  — BOUNDED-PARALLEL (≤ EXPORT_CONCURRENCY in
  *      flight): soft-fail per TLD (errors recorded, the others continue);
  *      a THROWN error (file-not-created) aborts everything via the outer
- *      catch — PHP parity. Steps 1,2,4,5 stay strictly sequential; only
+ *      catch — PHP parity. Steps 1,3,4,5 stay strictly sequential; only
  *      this one parallelizes (the per-TLD dumps are independent — each
  *      forks its own psql writing its own <tld>.copy.gz, no shared state);
- *   4. exportPrivateListsToFile — always runs regardless of per-TLD errors;
+ *   3. exportPrivateListsToFile — always runs regardless of per-TLD errors;
+ *   4. exportOntologyInfo    — HARD ABORT on failure. AFTER the dumps (PHP
+ *      wrote it before them): ontology.json carries the sha256 of every
+ *      served file, so it must be written once their final bytes are on
+ *      disk. Until it lands the previous manifest's digests no longer match
+ *      the new files — a consumer fetching mid-export is REFUSED, never fed
+ *      an unverified mix;
  *   5. exportLlmMap          — always runs; errors merged.
  * result=true only when the errors array is still empty after the full run.
  */
@@ -305,21 +310,11 @@ export async function runExportOntologies(
 			);
 		}
 
-		// 2. Shared metadata file — must exist before any per-TLD file.
-		const infoResponse = await io.exportOntologyInfo();
-		if (!infoResponse.ok) {
-			throw batchFailed(
-				'Unable to export the ontology information JSON file',
-				['unable to export ontology info JSON file'],
-				report.ar_msg,
-			);
-		}
-
-		// 3. Per-TLD exports — BOUNDED-PARALLEL. Each exportToFile forks an
+		// 2. Per-TLD exports — BOUNDED-PARALLEL. Each exportToFile forks an
 		// independent psql writing its own <tld>.copy.gz with no shared state,
 		// so the exports are safe to overlap; we run at most EXPORT_CONCURRENCY
 		// at a time (chunked allSettled) instead of the old strict sequence.
-		// Steps 1,2,4,5 above/below stay sequential — only this step parallelizes.
+		// Steps 1,3,4,5 above/below stay sequential — only this step parallelizes.
 		let done = 0;
 		const arMsg: string[] = [];
 		const settled: PromiseSettledResult<OntologyIoResponse>[] = [];
@@ -354,11 +349,22 @@ export async function runExportOntologies(
 			done++;
 		}
 
-		// 4. Private lists — always runs regardless of per-TLD errors.
+		// 3. Private lists — always runs regardless of per-TLD errors.
 		const privateListResponse = await io.exportPrivateListsToFile();
 		arMsg.push(privateListResponse.msg);
 		if (privateListResponse.ok === false) {
 			report.errors.push(...(privateListResponse.errors ?? []));
+		}
+
+		// 4. Shared metadata file — AFTER every dump: it carries their sha256
+		// (U-41), so it is written once their final bytes are on disk.
+		const infoResponse = await io.exportOntologyInfo();
+		if (!infoResponse.ok) {
+			throw batchFailed(
+				'Unable to export the ontology information JSON file',
+				['unable to export ontology info JSON file'],
+				arMsg,
+			);
 		}
 
 		// 5. LLM map — regenerated so it stays in sync with the new files.

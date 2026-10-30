@@ -701,7 +701,11 @@ describe('the asker floor: no offered item ranks at or below the asker identity'
 	test('a DEV claim BELOW the data triple is the bare data triple: 7.0.0-dev over data 7.0.1 is not offered 7.0.0', () => {
 		// data 7.0.1 holds 7.0.0 (a downgrade for this asker): anti-vacuity, a
 		// 7.0.0-dev asker over data 7.0.0 IS offered the stable 7.0.0 above it
-		const build = (clientVersion: number[], clientRelease: string) =>
+		// `clientRelease` undefined = an ask that carries no release (an older
+		// consumer): the bare data triple, which is exactly what the fallback
+		// claims to be. NOT a `7.0.1` claim over data 7.0.1 — under a code-only
+		// 7.0.2 catalog no real install holds data == release == 7.0.1 (U-06).
+		const build = (clientVersion: number[], clientRelease: string | undefined) =>
 			buildCodeUpdateInfo({
 				clientVersion,
 				serverVersion: clientVersion,
@@ -715,8 +719,8 @@ describe('the asker floor: no offered item ranks at or below the asker identity'
 			});
 		expect(urls(build([7, 0, 0], '7.0.0-dev'))).toContain('http://m/7.0.0/7.0.0.zip');
 		const devClaim = build([7, 0, 1], '7.0.0-dev');
-		// the bare-triple fallback: the same answer as a 7.0.1 stable claim over 7.0.1
-		expect(urls(devClaim)).toEqual(urls(build([7, 0, 1], '7.0.1')));
+		// the bare-triple fallback: the same answer as an ask without a release over data 7.0.1
+		expect(urls(devClaim)).toEqual(urls(build([7, 0, 1], undefined)));
 		expect(urls(devClaim).some((url) => url.includes('/7.0.0/'))).toBe(false);
 		expect(devClaim.files).toEqual([]);
 	});

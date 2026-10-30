@@ -51,7 +51,6 @@ by a hosted one (`tier_wiring_tripwire` leg B).
 | *— PRIVATE MIRROR ONLY (inert on the public repo) —* | | | |
 | `.github/workflows-selfhosted/selfhosted.yml` | dispatch (restore PR/push triggers on the mirror) | self-hosted mac | `verify` + `full` (`bun test test/unit test/parity`) — both twinned hosted |
 | `.github/workflows-selfhosted/nightly.yml` | cron 01:00 UTC + manual | self-hosted mac | full `bun test` (incl. `test/integration/**`, whose MariaDB legs the hosted `db` tier's blocking MariaDB stage also runs, on the suite's own server — PUB-05) + client gate |
-| `.github/workflows-selfhosted/deploy.yml` | manual dispatch | self-hosted mac | **PARKED** — loud failure until DEPLOY_HOST/DEPLOY_SSH_KEY exist, then `deploy/deploy.sh` |
 
 **Every gate has an EXECUTING hosted home.** `tier_wiring_tripwire` holds the whole
 wiring: every `scripts/ci/*.sh` is reached from an executing workflow chain or carries
@@ -501,6 +500,18 @@ remote's level from its URL.
   the release commit is cut with `git checkout -B` (a PR checkout is a detached HEAD).
   Drill config comes from `scripts/lib/operator_config.ts` (catalog keys of the process
   env; `update_drill_config_tripwire`).
+  Then `bun run test:update:full` (`scripts/update_full_drill.ts`, update audit U-50): the
+  update RUN (`src/core/update/run/`) end to end across scratch releases with real effects
+  on scratch surfaces of the suite database — ontology-min refusal → code phase (a seam:
+  pending sentinel + `restarting`; the real swap is `test:update`'s) → ontology → schema →
+  data rung → a child process SIGKILLed inside the rung's transaction and resumed by the
+  next one from the journal → CONFIRMED → a planted failing migration → NEEDS_DB_RESTORE.
+  Asserts journal states/phases, migration and rung rows, the maintenance flag, the
+  sentinel, the UPDATE_RUN lock in `pg_locks` and the `/health` `update_run` facts. Known
+  engine bugs are pinned in the drill and must still reproduce (a stale pin is red).
+  ~1-2 s; tables `dedalo_ts_test_updfull_*` swept both ends. Its in-process subset (no
+  child, no kill) runs in the db tier's unit stage as
+  `test/unit/update_full_drill_native.test.ts`.
   Then `bun run test:media:pubhost` (`scripts/media_publication_host_drill.ts`, no
   database): the publication-host include rendered by the engine's builders, driven
   through the MEDIA_PROTECTION §9 curl matrix on a REAL Apache and a REAL nginx bound to
@@ -1172,16 +1183,15 @@ prefix is schema-enforced (rule 14 extracts the engine's own guard regex).
 are devDependencies — a `--production` install cannot serve the client harness. Index:
 `src/core/client_libs/registry.ts`; gate: `client_libs_tripwire`.
 
-## Deploy (PARKED)
+## Deploy
 
-No staging/production server exists yet. `deploy/deploy.sh` is written and reviewed but
-has NEVER run against a real host: git-based deploy, pinned-bun `install
---frozen-lockfile --production`, `systemctl restart dedalo-ts`, `/health` wait over the
-unix socket, automatic rollback on red health. Boot migrations run inside the server
-(`engineering/PRODUCTION.md`). Unparking: provision per `PRODUCTION.md` + `deploy/`
-units and run `STAGING_VALIDATION.md` once; set `DEPLOY_HOST` + `DEPLOY_SSH_KEY` and the
-`staging`/`production` environments (manual approval on production); the first dispatch
-against staging IS the deploy.sh test.
+There is no CI deploy. The parked `deploy/deploy.sh` (a git-checkout deploy over SSH) and
+its `deploy.yml` dispatch were retired on 2026-10-30 (update audit 2026-10-29, U-34): a
+second code-delivery channel with its own rollback, outside the update run, is exactly
+what the audit found unsafe. An installation receives code through the update run
+(maintenance panel → Update code, `bun run update`; `docs/management/updates/updating_code.md`),
+installs through the terminal installer, and the image deployment through its host
+updater. The real-scenario proofs are `bun run test:update` / `test:update:dev`.
 
 ## Security posture (THE hard constraint — tripwired)
 
@@ -1294,4 +1304,3 @@ naming them: the gate is what keeps every reference inside the environment-bound
    its `.path` (env_guard catches drift). A sleeping Mac queues jobs.
 4. GitHub pauses cron schedules after ~60 days of inactivity — re-enable from the
    Actions tab (applies to `nightly.yml` and `ci-image.yml` on the public repo too).
-5. Dispatch `deploy.yml` → the loud PARKED failure is the passing test.

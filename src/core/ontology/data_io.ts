@@ -7,7 +7,9 @@
  *   2. updateOntologyInfo     — persist the installation metadata (version,
  *                               date, entity, host, active_ontologies) into
  *                               component ontology18 of dd0/1 (lg-nolan)
- *   3. exportOntologyInfo     — write that same value to <io>/ontology.json
+ *   3. exportOntologyInfo     — write that same value to <io>/ontology.json,
+ *                               plus `files_sha256` (U-41: the digest of every
+ *                               served <name>.copy.gz — so it runs AFTER 4)
  *   4. exportToFile /         — psql client-side `\copy … TO PROGRAM 'gzip…'`
  *      exportPrivateListsToFile  dumps of matrix_ontology (per TLD) and
  *                               matrix_dd (private lists) into <io>/*.copy.gz
@@ -15,8 +17,16 @@
  *                               src/ai/mcp/tools/llm_map.ts, lazy import)
  *
  * Error semantics mirror PHP: soft failures return {ok:false, errors:[…]}
- * responses; a COPY export whose output file never appears THROWS (PHP throws
- * an Exception there by design — the tool-level caller catches and aborts).
+ * responses; a COPY export that FAILS THROWS (PHP throws an Exception when the
+ * output file never appears — the tool-level caller catches and aborts).
+ *
+ * U-21 — every served file is published ATOMICALLY: written to a temp sibling
+ * in the same directory, verified (the COPY's psql exit code, then a full
+ * streaming gunzip of the result), fsynced, renamed over the served path, and
+ * the directory fsynced. A failed or truncated export therefore leaves the
+ * PREVIOUS served file untouched and reports failure — before this, `gzip -c >`
+ * wrote straight onto the served path and a psql failure left a valid-looking
+ * truncated slice that a consumer would import (DELETE + partial COPY).
  *
  * COMP-06 hardening (ported): tld validated /^[a-z]{2,}$/ (safeTld), the
  * derived section_tipo re-validated /^[a-zA-Z0-9_]+$/, and the output file
@@ -31,14 +41,21 @@
  * pipeline orchestrator is ontology_update.ts, WC-023).
  */
 
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync, mkdirSync, statSync } from 'node:fs';
+import { readdir, rm, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
+import { Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGunzip } from 'node:zlib';
 import { config } from '../../config/config.ts';
 import { readString } from '../../config/readers.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
 import { sql } from '../db/postgres.ts';
+import { publishTempAsync, writeTextFileDurablyAsync } from '../files/durable_async.ts';
+import { tempPathFor } from '../files/temp_path.ts';
 import { connFromConfig, runPsqlScript } from '../install/pg_exec.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
 import {
@@ -477,11 +494,59 @@ export async function updateOntologyInfo(userId: number): Promise<boolean> {
 // 3. exportOntologyInfo
 // ---------------------------------------------------------------------------
 
+/** The served `<name>.copy.gz` basenames — buildOntologyUpdateInfo's listing rule (data_io_import.ts). */
+const SERVED_COPY_RE = /^[a-z_]{2,}\.copy\.gz$/;
+
+/** Hex sha256 of a file's exact bytes, streamed (bounded memory). */
+export async function fileSha256(path: string): Promise<string> {
+	const hash = createHash('sha256');
+	for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+	return hash.digest('hex');
+}
+
+/**
+ * U-41 — the sha256 of EVERY file the manifest serves (each `<name>.copy.gz`
+ * in the IO dir, matrix_dd included), keyed by basename. Read from the bytes ON
+ * DISK, so it describes exactly what the files route serves; an in-flight
+ * export's temp sibling (`.tmp-…`) is not a served name and is skipped.
+ */
+export async function exportedFileDigests(ioPath: string): Promise<Record<string, string>> {
+	const digests: Record<string, string> = {};
+	for (const name of (await readdir(ioPath)).sort()) {
+		if (SERVED_COPY_RE.test(name)) digests[name] = await fileSha256(join(ioPath, name));
+	}
+	return digests;
+}
+
+/**
+ * The ontology.json value with its `files_sha256` map (PURE). A non-object
+ * value (no metadata record — PHP writes `null`) is written as it is.
+ */
+export function withFileDigests(data: unknown, digests: Record<string, string>): unknown {
+	if (data === null || typeof data !== 'object' || Array.isArray(data)) return data;
+	return { ...(data as Record<string, unknown>), files_sha256: digests };
+}
+
+/** The pretty ontology.json text of `data` + the digests of the files under `ioPath`. */
+async function manifestText(
+	data: unknown,
+	ioPath: string,
+): Promise<{ value: unknown; text: string }> {
+	const value = withFileDigests(data, await exportedFileDigests(ioPath));
+	return { value, text: JSON.stringify(value, null, 4) };
+}
+
 /**
  * Read the ontology metadata component (ontology18, dd0/1) and write its value
  * as pretty JSON to <io>/ontology.json (PHP export_ontology_info; PHP's
  * JSON_PRETTY_PRINT|UNESCAPED_UNICODE|UNESCAPED_SLASHES ≈ JSON.stringify with
  * 4-space indent — JS never escapes unicode or slashes).
+ *
+ * U-41 — the written value also carries `files_sha256` (exportedFileDigests):
+ * the consumer verifies every downloaded file against it BEFORE extract. The
+ * digests are of the bytes on disk NOW, so the export runs this step AFTER the
+ * COPY dumps (tool_ontology_parser runExportOntologies). The ontology18 record
+ * itself stays digest-free — the digests describe files, not the ontology.
  */
 export async function exportOntologyInfo(): Promise<OntologyIoResponse> {
 	const response: OntologyIoResponse = {
@@ -507,7 +572,6 @@ export async function exportOntologyInfo(): Promise<OntologyIoResponse> {
 	const data = Array.isArray(rawItems)
 		? ((rawItems[0] as { value?: unknown } | undefined)?.value ?? null)
 		: null;
-	const dataString = JSON.stringify(data, null, 4);
 
 	const ioPath = setOntologyIoPath();
 	if (typeof ioPath !== 'string') {
@@ -518,8 +582,10 @@ export async function exportOntologyInfo(): Promise<OntologyIoResponse> {
 	const pathFile = join(ioPath, 'ontology.json');
 
 	let saved: number;
+	let manifest: { value: unknown; text: string };
 	try {
-		saved = await Bun.write(pathFile, dataString);
+		manifest = await manifestText(data, ioPath);
+		saved = await writeTextFileDurablyAsync(pathFile, manifest.text);
 	} catch (error) {
 		response.msg = 'Error. Impossible to save data in ontology.json file';
 		response.errors.push(
@@ -534,7 +600,7 @@ export async function exportOntologyInfo(): Promise<OntologyIoResponse> {
 	response.path = written.path;
 	response.size = written.bytes;
 	// debug (PHP parity fields)
-	response.data = data;
+	response.data = manifest.value;
 	response.path_file = pathFile;
 	response.saved = saved;
 	return response;
@@ -555,21 +621,82 @@ export function isSafeSectionTipo(sectionTipo: string): boolean {
 }
 
 /**
- * Run one client-side `\copy … TO PROGRAM 'gzip -c > <file> && sync'` through
- * psql — THE stdin door (pg_exec runPsqlScript: the command rides `-f -`, never
- * argv; the configured connection, PGPASSWORD in the child env). psql itself shells
- * out for TO PROGRAM, which is why every interpolated identifier/path is validated
- * first.
+ * The psql runner of a COPY export: takes the `\copy` script, answers psql's
+ * exit code + stderr. The default is THE stdin door (pg_exec runPsqlScript: the
+ * command rides `-f -`, never argv; the configured connection, PGPASSWORD in
+ * the child env); a gate injects a failing one.
+ */
+export type CopyExportRunner = (script: string) => Promise<{ exitCode: number; stderr: string }>;
+
+/** Injectable edges of the COPY exports (defaults = the production values). */
+export interface CopyExportDeps {
+	/** psql runner seam (default: runPsqlScript on the configured connection). */
+	runCopy?: CopyExportRunner;
+	/** Base dir the versioned IO dir is created under (default ONTOLOGY_DATA_IO_DIR). */
+	ioBaseDir?: string;
+}
+
+const defaultCopyRunner: CopyExportRunner = async (script) => {
+	const { exitCode, stderr } = await runPsqlScript(connFromConfig(), script, { flags: ['-q'] });
+	return { exitCode, stderr };
+};
+
+/**
+ * Read `path` through a full streaming gunzip (bounded memory): a truncated or
+ * corrupt gzip — or an empty file — rejects. Returns null when valid, else the
+ * reason.
+ */
+async function invalidGzipReason(path: string): Promise<string | null> {
+	const { size } = await stat(path);
+	if (size === 0) return 'the output file is empty';
+	const sink = new Writable({
+		write(_chunk, _encoding, done) {
+			done();
+		},
+	});
+	try {
+		await pipeline(createReadStream(path), createGunzip(), sink);
+		return null;
+	} catch (error) {
+		return `the output is not a complete gzip stream (${(error as Error).message})`;
+	}
+}
+
+/**
+ * Run one client-side `\copy … TO PROGRAM 'gzip -c > <temp>'` and publish the
+ * result ATOMICALLY over `filePath` (U-21): the gzip lands in a temp sibling
+ * (same dir — `tempPathFor` appends `.tmp-[a-z0-9]+`, so the shell-safety of
+ * the already-confined path is preserved), psql's exit code and the gzip
+ * stream are verified, then fsync → rename → dir fsync. psql itself shells out
+ * for TO PROGRAM, which is why every interpolated identifier/path is validated
+ * first. THROWS on any failure; the previous served file is left untouched and
+ * the temp removed.
  */
 async function runCopyExport(
 	copySelect: string,
 	filePath: string,
-): Promise<{ exitCode: number; stderr: string }> {
-	const copyCommand = `\\copy (${copySelect}) TO PROGRAM 'gzip -c > ${filePath} && sync';`;
-	const { exitCode, stderr } = await runPsqlScript(connFromConfig(), copyCommand, {
-		flags: ['-q'],
-	});
-	return { exitCode, stderr };
+	runCopy: CopyExportRunner,
+): Promise<{ stderr: string }> {
+	const temp = tempPathFor(filePath);
+	try {
+		const copyCommand = `\\copy (${copySelect}) TO PROGRAM 'gzip -c > ${temp}';`;
+		const { exitCode, stderr } = await runCopy(copyCommand);
+		const failure =
+			exitCode !== 0
+				? `psql exited ${exitCode}${stderr !== '' ? `: ${stderr.trim()}` : ''}`
+				: !existsSync(temp)
+					? 'the output file was not created'
+					: await invalidGzipReason(temp);
+		if (failure !== null) {
+			throw new Error(
+				`Error Processing Request. Export of ${filePath} failed (${failure}); the previous file is kept`,
+			);
+		}
+		await publishTempAsync(temp, filePath);
+		return { stderr };
+	} finally {
+		await rm(temp, { force: true });
+	}
 }
 
 /**
@@ -588,10 +715,14 @@ function confinedCopyPath(ioPath: string, fileName: string): string | null {
 /**
  * Dump all matrix_ontology rows of one TLD into <io>/<tld>.copy.gz
  * (PHP export_to_file). Soft-fails on validation/dir errors; THROWS when the
- * output file was not created after the command ran (PHP throws there — the
- * tool caller's try/catch turns it into a full abort).
+ * export failed — psql non-zero, no output, or a truncated gzip (PHP throws
+ * there — the tool caller's try/catch turns it into a full abort). Published
+ * atomically: on failure the previous file is untouched (U-21).
  */
-export async function exportToFile(tld: string): Promise<OntologyIoResponse> {
+export async function exportToFile(
+	tld: string,
+	deps: CopyExportDeps = {},
+): Promise<OntologyIoResponse> {
 	const response: OntologyIoResponse = {
 		ok: false,
 		msg: 'Error. Request failed',
@@ -605,7 +736,7 @@ export async function exportToFile(tld: string): Promise<OntologyIoResponse> {
 		return response;
 	}
 
-	const ioPath = setOntologyIoPath();
+	const ioPath = setOntologyIoPath(deps.ioBaseDir);
 	if (typeof ioPath !== 'string') {
 		response.msg = 'Error. Invalid IO directory';
 		response.errors.push(ioPath.error);
@@ -628,14 +759,9 @@ export async function exportToFile(tld: string): Promise<OntologyIoResponse> {
 	}
 
 	const copySelect = `SELECT ${MATRIX_COPY_COLUMNS.join(', ')} FROM "matrix_ontology" WHERE section_tipo = '${sectionTipo}'`;
-	const { exitCode, stderr } = await runCopyExport(copySelect, filePath);
-
-	// (!) PHP parity: a missing output file THROWS (callers wrap in try/catch).
-	if (!existsSync(filePath)) {
-		throw new Error(
-			`Error Processing Request. File ${filePath} not created!${stderr !== '' ? ` (psql exited ${exitCode}: ${stderr})` : ''}`,
-		);
-	}
+	// (!) A failed export THROWS (PHP parity — callers wrap in try/catch); the
+	// previous served file is untouched (U-21, atomic publish).
+	const { stderr } = await runCopyExport(copySelect, filePath, deps.runCopy ?? defaultCopyRunner);
 
 	const written = describeWrittenFile(filePath);
 	response.ok = true;
@@ -650,16 +776,18 @@ export async function exportToFile(tld: string): Promise<OntologyIoResponse> {
 /**
  * Dump the ENTIRE matrix_dd table (Dédalo private lists — no section_tipo
  * filter by design) into <io>/matrix_dd.copy.gz (PHP
- * export_private_lists_to_file). Same throw-on-missing-file semantics.
+ * export_private_lists_to_file). Same throw-on-failure, atomic-publish semantics.
  */
-export async function exportPrivateListsToFile(): Promise<OntologyIoResponse> {
+export async function exportPrivateListsToFile(
+	deps: CopyExportDeps = {},
+): Promise<OntologyIoResponse> {
 	const response: OntologyIoResponse = {
 		ok: false,
 		msg: 'Error. Request failed',
 		errors: [],
 	};
 
-	const ioPath = setOntologyIoPath();
+	const ioPath = setOntologyIoPath(deps.ioBaseDir);
 	if (typeof ioPath !== 'string') {
 		response.msg = 'Error. Invalid IO directory';
 		response.errors.push(ioPath.error);
@@ -673,13 +801,7 @@ export async function exportPrivateListsToFile(): Promise<OntologyIoResponse> {
 	}
 
 	const copySelect = `SELECT ${MATRIX_COPY_COLUMNS.join(', ')} FROM "matrix_dd"`;
-	const { exitCode, stderr } = await runCopyExport(copySelect, filePath);
-
-	if (!existsSync(filePath)) {
-		throw new Error(
-			`Error Processing Request. File ${filePath} not created!${stderr !== '' ? ` (psql exited ${exitCode}: ${stderr})` : ''}`,
-		);
-	}
+	const { stderr } = await runCopyExport(copySelect, filePath, deps.runCopy ?? defaultCopyRunner);
 
 	const written = describeWrittenFile(filePath);
 	response.ok = true;
@@ -733,7 +855,7 @@ export async function exportLlmMap(): Promise<OntologyIoResponse> {
 
 	let saved: number;
 	try {
-		saved = await Bun.write(pathFile, JSON.stringify(map, null, 4));
+		saved = await writeTextFileDurablyAsync(pathFile, JSON.stringify(map, null, 4));
 	} catch (error) {
 		response.msg = 'Error. Unable to save ontology_llm_map.json';
 		response.errors.push(`file_write_failed: ${(error as Error).message}`);

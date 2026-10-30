@@ -559,6 +559,32 @@ async function getRegisteredTools(): Promise<RegisteredTool[]> {
  * the element's effective translatable, and is_available() must pass.
  * Availability-ledgered tools are reported, not guessed.
  */
+/**
+ * The declaration match (see getElementTools' doc): affected_models, the tipo
+ * in affected_tipos, 'all_components' for a component, or the element's own
+ * tool_config — then a non-empty affected_tipos must also name the tipo.
+ */
+function toolApplies(
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	target: ElementToolsTarget,
+	inPropertyTools: ReadonlySet<string>,
+): boolean {
+	if (!toolDeclared(tool, target, inPropertyTools)) return false;
+	// affected_tipos[0] restriction: when set, the tipo must match.
+	return tool.affectedTipos.length === 0 || tipoInArray(target.tipo, tool.affectedTipos);
+}
+
+/** The element is named by the tool's declaration, or names the tool in its tool_config. */
+function toolDeclared(
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	target: ElementToolsTarget,
+	inPropertyTools: ReadonlySet<string>,
+): boolean {
+	if (inPropertyTools.has(tool.name) || tool.affectedModels.includes(target.model)) return true;
+	if (target.isComponent && tool.affectedModels.includes('all_components')) return true;
+	return tipoInArray(target.tipo, tool.affectedTipos);
+}
+
 export async function getElementTools(target: ElementToolsTarget): Promise<ElementToolsResult> {
 	// Models that hard-override get_tools() to [] never show a toolbar.
 	if (NO_TOOLS_MODELS.has(target.model)) return { tools: [], ledgered: [] };
@@ -590,17 +616,7 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 		// The user_tools membership gate, BEFORE the applies/availability work.
 		if (actorTools !== null && !actorTools.has(tool.name)) continue;
 		if (!toolOfferedByCapabilities(tool.name, capabilities)) continue;
-		const applies =
-			tool.affectedModels.includes(target.model) ||
-			tipoInArray(target.tipo, tool.affectedTipos) ||
-			(target.isComponent && tool.affectedModels.includes('all_components')) ||
-			inPropertyTools.has(tool.name);
-		if (!applies) continue;
-
-		// affected_tipos[0] restriction: when set, the tipo must match.
-		if (tool.affectedTipos.length > 0 && !tipoInArray(target.tipo, tool.affectedTipos)) {
-			continue;
-		}
+		if (!toolApplies(tool, target, inPropertyTools)) continue;
 		// requirement_translatable: a tool requiring translatability is shown only
 		// when the element is (effectively) translatable (PHP requirement === translatable).
 		if (tool.requirementTranslatable && !effectiveTranslatable) continue;

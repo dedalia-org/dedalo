@@ -15,7 +15,7 @@
  * PHP-parity step semantics and message bytes, and the widget's job shape.
  */
 
-import { afterAll, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test';
 import {
 	chmodSync,
 	mkdirSync,
@@ -43,6 +43,11 @@ import { jobAbortInfo, mediaJobs } from '../../src/core/media/jobs.ts';
 import { setServerState } from '../../src/core/resolve/server_state.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import {
+	dataVersionState,
+	refreshDataVersionState,
+	resetBootStateForTest,
+} from '../../src/core/update/boot_state.ts';
 import {
 	catalogKeyOf,
 	type DataUpdateDescriptor,
@@ -109,7 +114,9 @@ async function inlineRefusal(principal: Principal): Promise<DedaloError> {
 		await dispatchWidgetRequest(
 			principal,
 			{ model: 'update_data_version', action: 'update_data_version' },
-			{ updates_checked: {} },
+			// the door's backup leg is gated in update_door_precondition_class_tripwire;
+			// these cases are about the engine behind it
+			{ updates_checked: {}, waive_backup: true },
 		);
 	} catch (error) {
 		expect(error).toBeInstanceOf(DedaloError);
@@ -458,7 +465,7 @@ describe('widget open mode (mocked gate; engine short-circuits on the empty cata
 			const response = (await dispatchWidgetRequest(
 				SUPERUSER,
 				{ model: 'update_data_version', action: 'update_data_version' },
-				{ updates_checked: {}, background_running: true },
+				{ updates_checked: {}, background_running: true, waive_backup: true },
 			)) as { extend?: { pfile?: string } };
 			const jobId = (response.extend?.pfile ?? '').replace(/\.json$/, '');
 			const record = mediaJobs.status(jobId);
@@ -516,7 +523,7 @@ describe('widget open mode (mocked gate; engine short-circuits on the empty cata
 			const response = (await dispatchWidgetRequest(
 				SUPERUSER,
 				{ model: 'update_data_version', action: 'update_data_version' },
-				{ updates_checked: {}, background_running: true },
+				{ updates_checked: {}, background_running: true, waive_backup: true },
 			)) as { extend?: { pfile?: string } };
 			const jobId = (response.extend?.pfile ?? '').replace(/\.json$/, '');
 			await Promise.race([started, Bun.sleep(5000)]);
@@ -532,5 +539,48 @@ describe('widget open mode (mocked gate; engine short-circuits on the empty cata
 			setServerState({ maintenance_mode: false });
 			mock.module('../../src/core/update/engine.ts', () => REAL_ENGINE);
 		}
+	});
+});
+
+describe('a committed rung re-reads the served data version (U-04)', () => {
+	// The engine re-classifies with the REAL strict reader (no seam): a read-only
+	// matrix_updates SELECT on the suite database. The rung itself writes nothing
+	// (injected version writer + reconcile stub, as in the step-semantics cases).
+	afterEach(() => {
+		resetBootStateForTest();
+	});
+
+	function committedRung() {
+		return updateVersion(
+			{ SQL_update_0: true },
+			{
+				catalog: { [catalogKeyOf(FIXTURE)]: { ...FIXTURE, runScripts: undefined } },
+				scripts: {},
+				currentVersion: [7, 0, 0],
+				readVersionInTx: async () => [7, 0, 0],
+				logPath: LOG_PATH,
+				writeVersionRow: async () => {},
+				reconcileMirrors: async () => ({ repaired: 0, shrinksSkipped: 0 }),
+			},
+		);
+	}
+
+	test('a recorded state (a served process) is RE-READ after the commit — it moves off the seeded value', async () => {
+		// Seed with a version no database holds: only a re-read after the rung can
+		// replace it. Delete refreshServedDataVersion() in updateVersion → stays 0.0.1.
+		await refreshDataVersionState(async () => [0, 0, 1]);
+		expect(dataVersionState()?.installed).toBe('0.0.1');
+		const out = await committedRung();
+		expect(out.ok).toBe(true);
+		const reread = await readInstalledDataVersionStrict();
+		expect(reread.length).toBeGreaterThan(0);
+		expect(dataVersionState()?.installed).toBe(reread.join('.'));
+		expect(dataVersionState()?.installed).not.toBe('0.0.1');
+	});
+
+	test('no recorded state (a test / CLI process) → the engine starts no read of its own', async () => {
+		const out = await committedRung();
+		expect(out.ok).toBe(true);
+		expect(dataVersionState()).toBeNull();
 	});
 });

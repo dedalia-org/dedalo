@@ -31,7 +31,7 @@
  * Refusals are returned as machine ids; the widget turns them into
  * `maintenance.action_refused` with `coordinates.reason`, the client words them.
  *
- * Gate: test/unit/update_code_widget_native.test.ts.
+ * Gate: test/unit/image_update_request_native.test.ts.
  */
 
 import { randomUUID } from 'node:crypto';

@@ -18,6 +18,7 @@
 #       [--no-backup] [--health-timeout SECONDS (default 900)]
 #       [--skip-version-check] [--ref <git ref> (build mode, a prerelease version)]
 #       [--check]
+#   ./deploy/dedalo-image-update.sh --recover [--env-file .dedalo.env] [--outcome-file FILE]
 #
 # --check is a DRY RUN: it runs only the read-only steps below (2-4 and the image
 # check of 7), so it reports whether a real run would be accepted. It takes no lock
@@ -75,7 +76,9 @@
 #       is its exact annotated tag v<version>, a -dev build any commit of that
 #       data version), or it is refused before anything is built; a tree without
 #       git is refused (nothing to check out or snapshot);
-#    8. DEDALO_VERSION is re-pinned (the ONE key this script writes);
+#    8. DEDALO_VERSION is re-pinned (the ONE key this script writes) — first the
+#       PIN MARKER is written (.dedalo-image-update.pin: from, to, the rollback
+#       tag, the request id, the checkout to restore) and TERM/INT/HUP are trapped;
 #    9. `up -d dedalo backup` — postgres and nginx are never touched;
 #   10. the compose healthcheck: `healthy` is green; `starting` AND `unhealthy` keep
 #       waiting until --health-timeout (boot migrations run BEFORE the socket binds,
@@ -87,13 +90,26 @@
 #       brings it back and waits again;
 #   12. --outcome-file receives ONE JSON object; exit 0 only on green.
 #
+# INTERRUPTED AFTER THE RE-PIN (U-20). From step 8 until the health check answers,
+# DEDALO_VERSION names a target nobody has seen healthy. A TERM, INT or HUP in that
+# window runs step 11's rollback ONCE (a signal during the rollback does not start
+# another) with the detail `interrupted`, and exits non-zero. A KILL (or a power
+# cut) runs nothing: the pin marker stays. While it is there every run is refused
+# (refused / interrupted) — the pinned version is no baseline — until --recover
+# reconciles it: when DEDALO_VERSION still names the marker's target or source,
+# the rollback runs (rolled_back | rollback_failed / interrupted, addressed to the
+# marker's request); a pin someone changed by hand is refused and the marker kept.
+# The host updater (deploy/dedalo-image-updater.sh) runs --recover on its next
+# pass. The marker goes with any final outcome, except a rollback that could not
+# put the pin back.
+#
 # THE OUTCOME (one object, every value from a closed set or a checked grammar —
 # no quote or backslash can reach it; read by scripts/ops/image_update_channel.ts):
 #   {"schema":1,"request_id":uuid|null,"from":"<tag>","to":"<tag>","mode":"pull"|"build"|null,
 #    "image":"<repository>","status":"green"|"rolled_back"|"rollback_failed"|"refused"|"failed",
 #    "detail":"healthy"|"health_timeout"|"unhealthy"|"pull_failed"|"verify_failed"|
 #             "build_failed"|"backup_failed"|"version_refused"|"same_version"|
-#             "downgrade_refused"|"not_running"|"env_incomplete"|"locked",
+#             "downgrade_refused"|"not_running"|"env_incomplete"|"locked"|"interrupted",
 #    "backup":"/backups/db/…"|null,"digest":"sha256:…"|null,"started_at":ISO,"finished_at":ISO}
 # `refused` changed nothing; `failed` tried and left the running stack as it was.
 # A usage error (exit 2) writes no outcome.
@@ -114,13 +130,14 @@ say() { printf '== image-update: %s\n' "$*" >&2; }
 usage() {
 	printf 'Usage: %s --version <X.Y.Z|X.Y.Z-(alpha|beta|rc).N> [--env-file F] [--outcome-file F] [--request-id UUID]\n' "$0" >&2
 	printf '         [--no-backup] [--health-timeout SECONDS] [--skip-version-check] [--ref <git ref>] [--check]\n' >&2
+	printf '       %s --recover [--env-file F] [--outcome-file F]\n' "$0" >&2
 	exit 2
 }
 
 # --- arguments ----------------------------------------------------------------
 
 TARGET='' ENV_FILE='.dedalo.env' OUTCOME_FILE='' REQUEST_ID='' NO_BACKUP='false'
-HEALTH_TIMEOUT='900' SKIP_VERSION_CHECK='false' GIT_REF='' CHECK_ONLY='false'
+HEALTH_TIMEOUT='900' SKIP_VERSION_CHECK='false' GIT_REF='' CHECK_ONLY='false' RECOVER='false'
 UUID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 GIT_REF_RE='^[A-Za-z0-9._/][A-Za-z0-9._/-]{0,199}$'
 
@@ -135,6 +152,7 @@ parse_args() {
 			--no-backup) NO_BACKUP='true'; shift ;;
 			--skip-version-check) SKIP_VERSION_CHECK='true'; shift ;;
 			--check) CHECK_ONLY='true'; shift ;;
+			--recover) RECOVER='true'; shift ;;
 			*) say "unknown argument: $1"; usage ;;
 		esac
 	done
@@ -153,10 +171,21 @@ parse_value() {
 }
 
 check_args() {
+	if [ "$RECOVER" = 'true' ]; then check_recover_args; return 0; fi
 	[ -n "$TARGET" ] || usage
 	if [ -n "$REQUEST_ID" ] && ! [[ "$REQUEST_ID" =~ $UUID_RE ]]; then say 'the request id is not a UUID'; usage; fi
 	if ! [[ "$HEALTH_TIMEOUT" =~ ^[1-9][0-9]{0,5}$ ]]; then say 'the health timeout is a number of seconds'; usage; fi
 	if [ -n "$GIT_REF" ] && ! [[ "$GIT_REF" =~ $GIT_REF_RE ]]; then say 'that is not a git ref'; usage; fi
+	ENV_FILE="$(absolute_path "$ENV_FILE")"
+	if [ -n "$OUTCOME_FILE" ]; then OUTCOME_FILE="$(absolute_path "$OUTCOME_FILE")"; fi
+}
+
+# --recover takes its version, request and checkout from the pin marker: nothing else.
+check_recover_args() {
+	if [ -n "$TARGET$REQUEST_ID$GIT_REF" ] || [ "$CHECK_ONLY" = 'true' ] || [ "$NO_BACKUP" = 'true' ] || [ "$SKIP_VERSION_CHECK" = 'true' ]; then
+		say '--recover takes only --env-file and --outcome-file'
+		usage
+	fi
 	ENV_FILE="$(absolute_path "$ENV_FILE")"
 	if [ -n "$OUTCOME_FILE" ]; then OUTCOME_FILE="$(absolute_path "$OUTCOME_FILE")"; fi
 }
@@ -219,10 +248,137 @@ finish() {
 	if [ -n "${3-}" ]; then say "$3"; fi
 	# A dry run writes no outcome: nothing was run, so there is no outcome to report.
 	if [ "$CHECK_ONLY" != 'true' ]; then write_outcome "$status" "$detail"; fi
+	settle_pin_marker "$status"
 	verdict="$(printf '%s' "$status" | tr '[:lower:]_' '[:upper:] ')"
 	say "$verdict ($detail): ${FROM:-?} -> $TARGET${IMAGE:+ ($IMAGE)}"
 	if [ "$status" = 'green' ]; then exit 0; fi
 	exit 1
+}
+
+# --- the pin marker (U-20) --------------------------------------------------------
+
+# Written before DEDALO_VERSION moves, gone with the final outcome: while it is
+# there, the pin may name a target that was never seen healthy. In the stack
+# directory, next to the lock; never in the image (git archive snapshots).
+PIN_MARKER='.dedalo-image-update.pin'
+# MARKER_OWNED: this run wrote (or --recover adopted) the marker, so its final
+# outcome settles it. PIN_RESTORED: the rollback put DEDALO_VERSION back.
+MARKER_OWNED='false' PIN_RESTORED='false' ROLLING_BACK='false'
+
+write_pin_marker() {
+	local tmp=''
+	tmp="$(mktemp "./.dedalo-image-update-pin.XXXXXX")" &&
+		printf 'from=%s\nto=%s\nrollback=%s\nrequest=%s\nprev_head=%s\nprev_branch=%s\n' \
+			"$FROM" "$TARGET" "$ROLLBACK_REF" "$REQUEST_ID" "$PREV_HEAD" "$PREV_BRANCH" >"$tmp" &&
+		mv -f "$tmp" "$PIN_MARKER" || { rm -f "$tmp"; return 1; }
+	# Owned the moment it exists: a TERM during the sync below runs on_signal, and
+	# its rollback must settle (remove) the marker it wrote — never leave one that
+	# refuses every later run as 'interrupted' (review 2026-10-30 #8).
+	MARKER_OWNED='true'
+	# DURABLE before the re-pin may be: a power cut must never persist the new
+	# DEDALO_VERSION without the marker that names it unverified. `sync FILE DIR`
+	# (GNU coreutils) fsyncs the file and the directory entry; a sync without
+	# path arguments flushes everything (review 2026-10-30 #13).
+	sync "$PIN_MARKER" . 2>/dev/null || sync
+}
+
+# mark_pin_healthy — the health check went green: from here the marker no longer
+# names an unverified pin. Rewritten atomically (and durably) with `healthy=1`
+# BEFORE the cleanup (prune, outcome), so a SIGKILL / power cut in that window
+# leaves a marker --recover reads as green, never one it rolls back: the boot
+# migrations of the target already ran (review 2026-10-30 #2). A marker that
+# cannot be rewritten is removed — the pin is confirmed either way.
+mark_pin_healthy() {
+	local tmp=''
+	[ "$MARKER_OWNED" = 'true' ] || return 0
+	if tmp="$(mktemp "./.dedalo-image-update-pin.XXXXXX")" &&
+		{ grep -v '^healthy=' "$PIN_MARKER" && printf 'healthy=1\n'; } >"$tmp" &&
+		mv -f "$tmp" "$PIN_MARKER"; then
+		sync "$PIN_MARKER" . 2>/dev/null || sync
+		return 0
+	fi
+	rm -f "$tmp"
+	say "could not mark $(pwd)/$PIN_MARKER healthy — removing it (the pin is confirmed)"
+	rm -f "$PIN_MARKER"
+	sync . 2>/dev/null || sync
+}
+
+# settle_pin_marker STATUS — the final outcome settles the marker this run owns,
+# unless the rollback failed before the pin was back (then the pin may still name
+# the unverified target, and --recover must see it).
+settle_pin_marker() {
+	[ "$MARKER_OWNED" = 'true' ] || return 0
+	if [ "$1" = 'rollback_failed' ] && [ "$PIN_RESTORED" != 'true' ]; then
+		say "the pin marker stays ($(pwd)/$PIN_MARKER): run --recover once the cause is fixed"
+		return 0
+	fi
+	rm -f "$PIN_MARKER"
+}
+
+# marker_field KEY — one value of the marker ('' when absent).
+marker_field() { sed -n "s/^$1=//p" "$PIN_MARKER" | head -n 1; }
+
+# read_pin_marker — the marker into FROM / TARGET / ROLLBACK_REF / REQUEST_ID /
+# PREV_HEAD / PREV_BRANCH; status 1 when a value is outside its grammar.
+read_pin_marker() {
+	FROM="$(marker_field from)" TARGET="$(marker_field to)" ROLLBACK_REF="$(marker_field rollback)"
+	REQUEST_ID="$(marker_field request)" PREV_HEAD="$(marker_field prev_head)" PREV_BRANCH="$(marker_field prev_branch)"
+	# a branch name outside the ref grammar is dropped: the restore detaches at PREV_HEAD
+	[[ "$PREV_BRANCH" =~ $GIT_REF_RE ]] || PREV_BRANCH=''
+	dedalo_version_grammar "$FROM" && dedalo_version_grammar "$TARGET" &&
+		[[ "$ROLLBACK_REF" =~ ^.+:rollback-[0-9]{8}T[0-9]{6}Z$ ]] && [ "${ROLLBACK_REF%:*}" = "$IMAGE" ] &&
+		{ [ -z "$REQUEST_ID" ] || uuid_grammar "$REQUEST_ID"; } &&
+		{ [ -z "$PREV_HEAD" ] || [[ "$PREV_HEAD" =~ $GIT_REF_RE ]]; }
+}
+
+# refuse_if_interrupted — an earlier run moved the pin and never settled it: the
+# pinned version is no baseline until --recover has run.
+refuse_if_interrupted() {
+	[ -f "$PIN_MARKER" ] || return 0
+	finish refused interrupted "an earlier update moved DEDALO_VERSION and was interrupted before its health check ($(pwd)/$PIN_MARKER) — run ./deploy/dedalo-image-update.sh --recover first (the host updater does it on its next pass)"
+}
+
+# recover — reconcile the marker: roll back when DEDALO_VERSION still names its
+# target (or its source: a rollback cut short after the re-pin); refuse a pin
+# someone changed by hand, keeping the marker. A `healthy=1` marker is a GREEN
+# update cut short in its cleanup: settled as green, never rolled back.
+recover() {
+	local pinned="$FROM"
+	if ! [ -f "$PIN_MARKER" ]; then
+		say 'no interrupted update to recover'
+		exit 0
+	fi
+	read_pin_marker ||
+		finish rollback_failed interrupted "the pin marker $(pwd)/$PIN_MARKER is unreadable — check DEDALO_VERSION in $ENV_FILE by hand, then delete it"
+	if [ "$(marker_field healthy)" = '1' ]; then
+		if [ "$pinned" = "$TARGET" ]; then
+			MARKER_OWNED='true'
+			finish green healthy "the update to $TARGET had come up healthy before it was cut short in its cleanup — nothing rolled back"
+		fi
+		finish rollback_failed interrupted "DEDALO_VERSION is $pinned, but the update $FROM -> $TARGET came up healthy at $TARGET — someone changed it: check it by hand, then delete $(pwd)/$PIN_MARKER"
+	fi
+	if [ "$pinned" != "$TARGET" ] && [ "$pinned" != "$FROM" ]; then
+		finish rollback_failed interrupted "DEDALO_VERSION is $pinned, but the interrupted update moved it $FROM -> $TARGET — someone changed it: check it by hand, then delete $(pwd)/$PIN_MARKER"
+	fi
+	MARKER_OWNED='true'
+	roll_back interrupted
+}
+
+# on_signal NAME — TERM/INT/HUP once the pin may have moved: roll back ONCE (a
+# signal during the rollback lets it finish), then exit non-zero (finish).
+on_signal() {
+	if [ "$ROLLING_BACK" = 'true' ]; then
+		say "SIG$1 during the rollback — letting it finish"
+		return 0
+	fi
+	say "interrupted by SIG$1 before the health check of $TARGET"
+	roll_back interrupted
+}
+
+trap_interrupts() {
+	trap 'on_signal TERM' TERM
+	trap 'on_signal INT' INT
+	trap 'on_signal HUP' HUP
 }
 
 # --- compose --------------------------------------------------------------------
@@ -614,9 +770,11 @@ prune_rollback_tags() {
 
 roll_back() {
 	local failure="$1"
+	ROLLING_BACK='true'
 	say "the new version did not come up healthy ($failure) — ROLLING BACK to $FROM"
 	docker tag "$ROLLBACK_REF" "$IMAGE:$FROM" || finish rollback_failed "$failure" "could not re-tag $ROLLBACK_REF"
 	dedalo_env_set "$ENV_FILE" DEDALO_VERSION "$FROM" || finish rollback_failed "$failure" "could not re-pin DEDALO_VERSION=$FROM"
+	PIN_RESTORED='true'
 	if [ "$MODE" = 'build' ]; then restore_checkout || say 'could not restore the previous checkout'; fi
 	if dc up -d --no-build dedalo backup && health_wait; then
 		finish rolled_back "$failure" "back on $FROM, healthy — the update FAILED; the database backup is ${BACKUP_PATH:-not taken}"
@@ -642,6 +800,8 @@ main() {
 		trap 'dedalo_lock_release "$(pwd)" dedalo-image-update' EXIT
 	fi
 	check_env
+	if [ "$RECOVER" = 'true' ]; then recover; fi
+	refuse_if_interrupted
 	check_version
 	check_with_engine
 	if [ "$CHECK_ONLY" = 'true' ]; then
@@ -652,9 +812,14 @@ main() {
 	take_backup
 	anchor_rollback
 	if [ "$MODE" = 'pull' ]; then pull_image; else build_image; fi
+	trap_interrupts
+	write_pin_marker || finish failed pull_failed "could not write the pin marker $(pwd)/$PIN_MARKER — nothing re-pinned"
 	dedalo_env_set "$ENV_FILE" DEDALO_VERSION "$TARGET" || finish failed pull_failed "could not re-pin DEDALO_VERSION in $ENV_FILE"
 	say "pinned DEDALO_VERSION=$TARGET; recreating dedalo and backup…"
 	if dc up -d dedalo backup && health_wait; then
+		# confirmed: from here a signal can only cut the cleanup short
+		trap '' TERM INT HUP
+		mark_pin_healthy
 		prune_rollback_tags
 		finish green healthy "healthy at $IMAGE:$TARGET (previous image kept as $ROLLBACK_REF)"
 	fi

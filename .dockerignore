@@ -142,6 +142,8 @@ probe_*.ts
 **/*/.env
 .dedalo.env
 **/*/.dedalo.env
+.dedalo-image-update.pin
+**/*/.dedalo-image-update.pin
 .dedalo-install
 deploy/certs
 deploy/nginx.simple.generated.conf

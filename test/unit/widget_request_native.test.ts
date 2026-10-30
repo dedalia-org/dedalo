@@ -78,6 +78,7 @@ import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { virtualDateSeconds } from '../../src/core/area_maintenance/user_stats.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { termByTipo } from '../../src/core/ontology/labels.ts';
+import { getServerState, setServerState } from '../../src/core/resolve/server_state.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
@@ -820,11 +821,26 @@ describe('add_hierarchy (panel value + import/reset routing)', () => {
 	});
 
 	test('reset_hierarchies routes (replace verb) and is a no-op for an empty selection', async () => {
-		const body = await tsCall({
+		// A destructive_shared door (core/update/door_class.ts): refused outside
+		// maintenance; inside it, with the backup waived, it routes.
+		const reset = {
 			...WIDGET_RQO,
 			options: { hierarchies: [] },
 			source: { typo: 'source', model: 'add_hierarchy', action: 'reset_hierarchies' },
-		});
+		};
+		const before = getServerState().maintenance_mode === true;
+		setServerState({ maintenance_mode: false });
+		const refused = await tsCall(reset);
+		expect((refused.error as { code?: string } | undefined)?.code).toBe(
+			'maintenance.mode_required',
+		);
+		setServerState({ maintenance_mode: true });
+		let body: Record<string, unknown>;
+		try {
+			body = await tsCall({ ...reset, options: { hierarchies: [], waive_backup: true } });
+		} finally {
+			setServerState({ maintenance_mode: before });
+		}
 		expect(body.data).toBe(true);
 		// an empty selection imports nothing: lg is core, activated by the install (98424957ee)
 		expect(String(body.msg)).toBe(

@@ -98,9 +98,11 @@ resolve_backup_root() {
 resolve_backup_root
 SENTINEL="$BACKUP_ROOT/last_code_update.json"
 
-# --fail: non-2xx is red. --max-time bounds a hung server.
-if curl --fail --silent --show-error --max-time 10 \
-	--unix-socket "$SOCKET" http://localhost/health >/dev/null; then
+# --fail-with-body: non-2xx is red (exit 22) and the BODY is still kept — a
+# red /health may carry a boot fact (below) that no restart can fix (curl
+# >= 7.76). --max-time bounds a hung server.
+if HEALTH_BODY="$(curl --fail-with-body --silent --show-error --max-time 10 \
+	--unix-socket "$SOCKET" http://localhost/health)"; then
 	exit 0
 fi
 
@@ -152,14 +154,30 @@ if refused_not_installed; then
 fi
 
 # Red. A pending, unconfirmed update means the freshly swapped tree is the
-# suspect — restarting it would only re-run the same broken code.
+# suspect — restarting it would only re-run the same broken code. (A boot whose
+# migration failed WITHOUT moving the schema leaves the sentinel pending, so it
+# is rolled back here; one that moved the schema wrote needs_restore before it
+# listened — src/core/update/boot_confirm.ts — and is not pending.)
 if [ -f "$SENTINEL" ] \
 	&& grep -q '"status"[[:space:]]*:[[:space:]]*"pending"' "$SENTINEL" \
 	&& grep -q '"rollback_attempted"[[:space:]]*:[[:space:]]*false' "$SENTINEL"; then
 	echo "== watchdog: /health RED with a pending unconfirmed code update — starting rollback" >&2
 	systemctl start "$ROLLBACK_UNIT"
-else
-	echo "== watchdog: /health RED — restarting the server" >&2
-	systemctl start "$RESTART_UNIT"
+	exit 1
 fi
+
+# Red because of a BOOT FACT (update audit 2026-10-29, U-01/U-04; owner rule
+# D-2): this boot's schema migration failed, or the database's data version is
+# AHEAD of the code (older code over a newer database). The server answers;
+# a restart re-reads the same database and a rollback (old code on a moved
+# schema) makes it worse. A human restores a compatible backup or fixes
+# forward — the watchdog only says so, every tick, and never loops a restart.
+if printf '%s' "$HEALTH_BODY" | grep -q '"boot_schema"[[:space:]]*:[[:space:]]*"failed"' \
+	|| printf '%s' "$HEALTH_BODY" | grep -q '"data_version"[[:space:]]*:[[:space:]]*{[^}]*"state"[[:space:]]*:[[:space:]]*"ahead"'; then
+	echo "== watchdog: /health RED on a boot fact (failed boot migration or data version ahead of code) — the server NEEDS A HUMAN: no rollback, no restart; see its journal and $SENTINEL" >&2
+	exit 1
+fi
+
+echo "== watchdog: /health RED — restarting the server" >&2
+systemctl start "$RESTART_UNIT"
 exit 1

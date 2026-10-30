@@ -30,7 +30,8 @@
  *   - NO dd197/dd201 modified stamps (a mechanical sweep is not an edit) and
  *     NO per-row Time Machine rows (a semantic no-op over millions of rows
  *     would bury the real curation history — D13; recovery = the mandatory
- *     fresh backup + the matrix_updates marker + the WC entry).
+ *     fresh backup + the matrix_updates marker + the WC entry). The backup is
+ *     CHECKED before an apply (withApplyPreconditions; --waive-backup logs).
  *   - matrix_time_machine.data IS swept (D6 — a TM restore must not re-inject
  *     strings); --skip-tm exists ONLY for partial reruns and is refused
  *     together with --all.
@@ -45,7 +46,7 @@
  * USAGE:
  *     bun scripts/migrate_section_id_locators.ts --all --user 1               # dry-run
  *     bun scripts/migrate_section_id_locators.ts --table matrix --user 1      # dry-run, one table
- *     bun scripts/migrate_section_id_locators.ts --all --user 1 --apply
+ *     bun scripts/migrate_section_id_locators.ts --all --user 1 --apply   # needs a fresh backup
  *     bun scripts/migrate_section_id_locators.ts --all --user 1 --apply --purge-class=empty,null-literal
  */
 
@@ -80,6 +81,8 @@ const EXTRA_SURFACES: readonly { table: string; columns: readonly string[]; pk: 
 
 interface Args {
 	apply: boolean;
+	/** --waive-backup: proceed without a fresh verified backup (logged with the user). */
+	waiveBackup: boolean;
 	userId: number;
 	tables: string[] | 'all';
 	purgeClasses: Set<string>;
@@ -92,13 +95,14 @@ const PURGEABLE_CLASSES = new Set(['empty', 'null-literal']);
 function usage(message: string): never {
 	console.error(`migrate_section_id_locators: ${message}`);
 	console.error(
-		'usage: bun scripts/migrate_section_id_locators.ts (--all | --table <name>) --user <id> [--apply] [--purge-class=empty,null-literal] [--skip-tm]',
+		'usage: bun scripts/migrate_section_id_locators.ts (--all | --table <name>) --user <id> [--apply [--waive-backup]] [--purge-class=empty,null-literal] [--skip-tm]',
 	);
 	process.exit(1);
 }
 
 export function parseArgs(argv: string[]): Args {
 	let apply = false;
+	let waiveBackup = false;
 	let userId: number | null = null;
 	let all = false;
 	const tables: string[] = [];
@@ -107,6 +111,7 @@ export function parseArgs(argv: string[]): Args {
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index] as string;
 		if (arg === '--apply') apply = true;
+		else if (arg === '--waive-backup') waiveBackup = true;
 		else if (arg === '--all') all = true;
 		else if (arg === '--skip-tm') skipTm = true;
 		else if (arg === '--user') {
@@ -140,7 +145,7 @@ export function parseArgs(argv: string[]): Args {
 				'--skip-tm exists only for partial --table reruns',
 		);
 	}
-	return { apply, userId, tables: all ? 'all' : tables, purgeClasses, skipTm };
+	return { apply, waiveBackup, userId, tables: all ? 'all' : tables, purgeClasses, skipTm };
 }
 
 /**
@@ -284,9 +289,53 @@ export async function sweepSurface(
 	}
 }
 
-async function main(): Promise<number> {
-	const args = parseArgs(process.argv.slice(2));
+/**
+ * THE APPLY PRECONDITIONS (update audit 2026-10-29, U-49): the recovery model
+ * above IS the backup, so an apply proves one — the shared freshness verdict
+ * (core/update/preconditions.ts), or `--waive-backup`, logged with the user —
+ * and runs holding the UPDATE_RUN lock (core/update/door_class.ts), so no update
+ * run or destructive maintenance door starts beside it. A dry run needs neither.
+ */
+export async function withApplyPreconditions<T>(
+	args: Pick<Args, 'apply' | 'waiveBackup' | 'userId'>,
+	body: () => Promise<T>,
+	deps: {
+		requireBackup?: () => Promise<void>;
+		acquire?: () => Promise<{ release: () => Promise<void> } | null>;
+		/** The update-run journals (default: the install's) — an in-flight run refuses (#9). */
+		runsRoot?: string;
+	} = {},
+): Promise<T> {
+	if (!args.apply) return body();
+	if (args.waiveBackup) {
+		console.warn(`(!) database backup WAIVED by user ${args.userId} (--waive-backup)`);
+	} else {
+		const { requireFreshBackup } = await import('../src/core/update/preconditions.ts');
+		await (deps.requireBackup ?? (() => requireFreshBackup()))();
+	}
+	const { holdUpdateRunLock } = await import('../src/core/update/door_class.ts');
+	return holdUpdateRunLock('migrate_section_id_locators', body, deps.acquire, deps.runsRoot);
+}
 
+/**
+ * THE CLI ENTRY (review 2026-10-30 #5): parse, then route the run body THROUGH
+ * withApplyPreconditions — the ONE wiring the import.meta.main path uses, so a
+ * gate drives this function (not the helper) and a `return run(args)` regression
+ * reds. `deps.run` replaces the body (a seam for the gate); the precondition
+ * seams pass straight through.
+ */
+export async function cliMain(
+	argv: string[],
+	deps: Parameters<typeof withApplyPreconditions>[2] & {
+		run?: (args: Args) => Promise<number>;
+	} = {},
+): Promise<number> {
+	const { run: body = run, ...preconditionDeps } = deps;
+	const args = parseArgs(argv);
+	return withApplyPreconditions(args, () => body(args), preconditionDeps);
+}
+
+async function run(args: Args): Promise<number> {
 	console.log(
 		`migrate_section_id_locators — mode ${args.apply ? 'APPLY' : 'DRY-RUN'}, user ${args.userId}` +
 			`${args.purgeClasses.size > 0 ? `, purge=[${[...args.purgeClasses].join(',')}]` : ''}`,
@@ -434,5 +483,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-	process.exit(await main());
+	process.exit(await cliMain(process.argv.slice(2)));
 }

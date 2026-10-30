@@ -48,22 +48,10 @@ Unset, Dédalo reads them from \`transform_definition_files\` inside the private
 DEDALO_TRANSFORM_DEFINITIONS_DIR="/srv/dedalo_transforms"
 \`\`\``,
 	},
-	TOOLS_ENABLE_REGISTRY_IMPORT: {
-		type: 'boolean',
-		scope: 'operator',
-		default: false,
-		heading: 'Enabling writes from the tools registration',
-		typeLabel: 'bool',
-		doc: `This parameter defines whether the "Register tools" maintenance widget may WRITE to the tools registry, or only report what it would write.
-
-The widget walks every tool directory, validates its declaration and compares it with the tool records stored in the ontology. With this parameter at its default \`false\`, that is all it does: it reports, per tool, whether it is valid and whether the registry already matches — and changes nothing. Set it to \`true\` and the same run reconciles the registry, creating or updating the record of each tool.
-
-Leave it off in normal operation and turn it on for the moment you register a newly added tool. An installation that never adds tools of its own never needs it.
-
-\`\`\`bash
-TOOLS_ENABLE_REGISTRY_IMPORT=false
-\`\`\``,
-	},
+	// TOOLS_ENABLE_REGISTRY_IMPORT retired 2026-10-30 (update audit 2026-10-29,
+	// U-39): a PHP-coexistence write switch no caller consulted any more — the
+	// installer, the Register tools widget and the update run write explicitly. A
+	// leftover line in .env configures nothing.
 	TOOLS_REGISTRY_CACHE_TTL_MS: {
 		type: 'number',
 		scope: 'operator',

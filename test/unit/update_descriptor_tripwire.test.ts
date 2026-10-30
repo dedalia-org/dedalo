@@ -37,7 +37,9 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as postgresModule from '../../src/core/db/postgres.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { runWithQueryTap } from '../../src/core/db/query_tap.ts';
@@ -715,34 +717,52 @@ describe('update descriptor tripwire: non-vacuity', () => {
 // 6. the module-load check is called (a child: catalog.ts must load fresh)
 // ---------------------------------------------------------------------------
 
-/** One data entry the atomic contract refuses (transaction control), as source text. */
-const BAD_ENTRY =
-	"'7.9.0': { versionMajor: 7, versionMedium: 9, versionMinor: 0, updateFromMajor: 7, updateFromMedium: 9, updateFromMinor: 8, updateData: true, sqlUpdate: ['COMMIT'] },";
-const FREEZE_OPEN = 'Object.freeze({';
+/**
+ * A scratch catalog DIRECTORY whose 7.1.0 release carries one SQL file the
+ * atomic contract refuses (transaction control). The file itself is valid —
+ * the walk, compat and path rules pass — so the refusal can only come from
+ * validateCatalog(UPDATE_CATALOG) at module load.
+ */
+function badCatalogDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), 'dd-update-catalog-'));
+	mkdirSync(join(dir, '7.1.0'));
+	writeFileSync(join(dir, '7.1.0', '01_commit.sql'), 'COMMIT\n');
+	writeFileSync(
+		join(dir, 'catalog.json'),
+		JSON.stringify({
+			format: 1,
+			releases: {
+				'7.0.1': {},
+				'7.1.0': {
+					compat: 'incompatible',
+					steps: [{ kind: 'code' }, { kind: 'data', sql: ['7.1.0/01_commit.sql'] }],
+				},
+			},
+		}),
+	);
+	return dir;
+}
+const LOAD_ANCHOR = 'loadCatalogFile()';
 
 /**
- * Load catalog.ts through a runtime plugin that (when `inject`) splices
- * BAD_ENTRY into the UPDATE_CATALOG literal. The splice reports whether its
- * anchor was found, so a reshaped catalog fails this leg loudly instead of
- * leaving it vacuous.
+ * Load catalog.ts through a runtime plugin that (when `dir` is given) points
+ * its module-load read at that catalog directory. The splice reports whether
+ * its anchor was found, so a reshaped catalog.ts fails this leg loudly instead
+ * of leaving it vacuous.
  */
-function moduleLoadDriver(inject: boolean): string {
+function moduleLoadDriver(dir: string | null): string {
 	return `
 import { readFileSync } from 'node:fs';
 let injected = false;
 Bun.plugin({
-	name: 'zz-bad-update-catalog-entry',
+	name: 'zz-bad-update-catalog-dir',
 	setup(build) {
 		build.onLoad({ filter: /src[\\/]core[\\/]update[\\/]catalog\\.ts$/ }, (args) => {
 			let source = readFileSync(args.path, 'utf8');
-			if (${inject}) {
-				const declared = source.indexOf('export const UPDATE_CATALOG');
-				const open = declared === -1 ? -1 : source.indexOf(${JSON.stringify(FREEZE_OPEN)}, declared);
-				if (open !== -1) {
-					const at = open + ${FREEZE_OPEN.length};
-					source = source.slice(0, at) + ${JSON.stringify(BAD_ENTRY)} + source.slice(at);
-					injected = true;
-				}
+			const dir = ${JSON.stringify(dir)};
+			if (dir !== null && source.includes(${JSON.stringify(LOAD_ANCHOR)})) {
+				source = source.replace(${JSON.stringify(LOAD_ANCHOR)}, 'loadCatalogFile(' + JSON.stringify(dir) + ')');
+				injected = true;
 			}
 			return { contents: source, loader: 'ts' };
 		});
@@ -769,19 +789,22 @@ describe('update descriptor tripwire: the module-load check runs', () => {
 	const loader = childDriver('dedalo-update-catalog-load');
 	afterAll(() => loader.dispose());
 
-	test('catalog.ts refuses to LOAD with a bad UPDATE_CATALOG entry (update.refused); the untouched catalog loads', async () => {
-		const control = await loader.run('catalog_load_control.ts', moduleLoadDriver(false), {});
+	test('catalog.ts refuses to LOAD a catalog file whose SQL breaks the atomic contract (update.refused); the shipped file loads', async () => {
+		const control = await loader.run('catalog_load_control.ts', moduleLoadDriver(null), {});
 		expect(control.exitCode, control.stderr).toBe(0);
 		const clean = driverResult<ModuleLoadResult>(control.stdout, control.stderr);
 		expect(clean.outcome.imported, JSON.stringify(clean.outcome)).toBe(true);
-		expect(clean.outcome.keys ?? []).not.toContain('7.9.9');
+		expect(clean.outcome.keys ?? []).toContain('7.0.1');
+		expect(clean.outcome.keys ?? []).not.toContain('7.1.0');
 
-		const bad = await loader.run('catalog_load_bad.ts', moduleLoadDriver(true), {});
+		const dir = badCatalogDir();
+		const bad = await loader.run('catalog_load_bad.ts', moduleLoadDriver(dir), {});
+		rmSync(dir, { recursive: true, force: true });
 		expect(bad.exitCode, bad.stderr).toBe(0);
 		const refused = driverResult<ModuleLoadResult>(bad.stdout, bad.stderr);
 		expect(
 			refused.injected,
-			'the UPDATE_CATALOG literal moved: the splice anchor was not found',
+			'catalog.ts no longer calls loadCatalogFile(): the splice anchor was not found',
 		).toBe(true);
 		expect(
 			refused.outcome.imported,

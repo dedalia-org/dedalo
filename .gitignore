@@ -25,6 +25,8 @@ probe_*.ts
 # Deliberately NOT named .env: the engine's own loader reads a repo-root .env
 # from the container's working directory, which would collide with compose's.
 .dedalo.env
+# The image updater's interrupted-update marker (deploy/dedalo-image-update.sh, U-20).
+.dedalo-image-update.pin
 # The docker/trial host steps' run record (plan + state, the terminal installer —
 # src/core/install/host/host_executor.ts). Install metadata of THIS host.
 /.dedalo-install/

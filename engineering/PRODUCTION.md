@@ -1211,6 +1211,15 @@ is an operator's decision, with the dry report in view.
   `install/db/migrations/NNNN_name.sql`, applied at boot by
   `install/db/migrate.ts` into the `dedalo_ts_schema_migrations` version
   table (one transaction per file; idempotent; never edit an applied file).
+  Each file is FROZEN in `install/db/migrations.lock.json` (sha256, class
+  `compatible`/`incompatible`, release — `install/db/migration_ledger.ts`): the
+  version table records the sha256 each file ran with, and the runner REFUSES
+  (boot schema verdict `failed`, names the file) when an applied file's bytes
+  changed or a file disagrees with the ledger; rows recorded before the hash
+  column are backfilled once. A `compatible` class must be lexer-proven additive;
+  an `incompatible` migration ships only in an `incompatible` (minor) release
+  (`migration_content_hash_tripwire`). A boot file never builds an index on a
+  shared table — that is the ONLINE lane (`migration_shared_row_tripwire`).
   Subsystem lazy `CREATE TABLE IF NOT EXISTS` bootstraps remain as fallback.
   Every file's lock WAIT is bounded (`SET LOCAL lock_timeout`, default 5s) and
   a lock timeout (SQLSTATE 55P03) is retried with backoff before the run gives
@@ -1453,6 +1462,29 @@ Publishing side (the master's runbook): `engineering/RELEASE.md`. This section
 is the CONSUMER side — what an install does with a release, and what catches
 it when the release is bad. Engine: `src/core/update/code_update.ts`.
 
+**The swap is ONE PHASE of an update run (update audit 2026-10-29, design §3;
+`src/core/update/run/`, WC-2026-10-30-update-run).** The panel's Update code
+starts a journaled run (`<private>/update/runs/<run_id>.json`): preflight
+(superuser) → maintenance ON (held to the end; restored to the operator's
+prior value on CONFIRMED / FAILED_PRE_SWAP / ROLLED_BACK_CODE, left ON on
+NEEDS_DB_RESTORE) → the run's
+backup (newest PROVEN dump inside `DEDALO_BACKUP_TIME_RANGE`, or a journaled
+waiver) → the release's `steps` from `install/update/catalog.json` (default
+`code → ontology → schema → ancillary`; ontology preconditions before the
+swap) → post-verify (`schema_clean`, `data_version`, `data_model`) →
+VERIFIED → confirm → CONFIRMED. After the swap the new tree's boot RESUMES the
+run (`run/boot.ts`): a run whose code phase started owns the boot, so the boot
+runner does not apply migrations — the run's `schema` phase does. Failure
+exits (`run/rollback.ts`, the ONE predicate `canAutoRollback`): before the swap
+FAILED_PRE_SWAP; after it ROLLED_BACK_CODE only while no database phase
+(`ontology`/`schema`/`data`) of a release whose `compat` is not `compatible`
+started, else NEEDS_DB_RESTORE (sentinel `needs_restore`, a human restores the
+run's backup with the previous code — D-2). CLI: `bun run update
+status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
+precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).
+Operator manual: `docs/management/updates/index.md`, held to the code by
+`test/unit/update_docs_claims_tripwire.test.ts`.
+
 **Release channels (what an install is offered; 2026-10-18).** The update ask
 (`get_code_update_info` `options.channel`) is one rung of a LADDER,
 `master ⊂ prerelease ⊂ dev`: published releases `<X.Y.Z>.zip`; also the
@@ -1469,8 +1501,12 @@ ONE rule from what the engine CALLS ITSELF (`version_walk.ts`
 triples the linear data walk, to the rung's newest identity on the asker's
 channel. A tree that runs a developer build its own stamp says the dev channel
 installed (`.dev` identity + `channel: 'dev'`) is judged on the dev channel
-whatever item it installs (`code_update.ts` `walkChannelOf`), so it may move
-to any tag of its own triple — the beta.6 bootstrap. Wire:
+whatever item it installs (`code_update.ts` `walkChannelOf`) — which buys it
+ONE thing: the same `-dev` identity reinstalled over itself. It never moves
+backwards: `X.Y.Z-dev` sorts above every prerelease of `X.Y.Z`, so from it only
+the stable `X.Y.Z` or a later identity is newer (`version_walk.ts`
+`sameTripleRefusal`; `code_manifest.ts` `sameTripleItemsFor` offers nothing
+else — the beta.6 bootstrap reaches `7.0.0`, not `7.0.0-beta.7`). Wire:
 `WC-2026-10-15-release-identity-from-tag`.
 
 **The swap pipeline.** Download (TLS-on, origin-pinned, capped) → sha256
@@ -1503,10 +1539,32 @@ stays `unknown` — a second, cheaper rule there would disagree with this one.
 `<install>/../backups/code`, `DEDALO_BACKUP_PATH` overrides) is the rollback
 contract: written `status:"pending"` BEFORE the swap's first rename, so a
 crash at ANY point of the swap leaves a sentinel the supervisor can read; the
-NEW tree flips it to `"confirmed"` once it listens and reaches the database.
+NEW tree flips it to `"confirmed"` once it listens, reaches the database AND
+its boot migration run succeeded (update audit 2026-10-29, U-01) — or, when an
+update run owns the boot, only when the run reaches VERIFIED (the run flips it
+to `"needs_restore"` BEFORE the first database phase of a release that is not
+`compatible`). A boot whose
+migrations FAILED is never confirmed, and `/health` answers 503 with
+`boot_schema: "failed"`: when nothing was applied (the schema is where the old
+tree left it) the sentinel stays `pending` and the watchdog rolls back as
+below; when some migration already COMMITTED (the schema moved) the new tree
+flips it to `"needs_restore"` — the old code cannot be trusted on that schema,
+so the watchdog does NOT roll back or restart, logs "needs a human", and the
+operator restores the pre-update database backup together with the tree
+(automatic rollback stays within one data model, owner decision D-2).
+`/health` also reports `data_version` (`ok|pending|ahead|unknown` against the
+code's declared data version): `pending` is reported, not red (run "Update
+data"); `ahead` — old code over a newer database — is red.
 A pending, unconfirmed sentinel is the machine-readable fact "the last update
 never proved itself". Because it is written pre-swap, the `backupDir` it names
 may not exist yet — the rollback script handles that state explicitly (below).
+Its `version` / `previousVersion` are RELEASE IDENTITIES (`7.0.0-beta.7`), and so
+is the version in a restore point's directory name and in `restore_points[].version`
+(update audit 2026-10-29, U-07 — they were the data triple, which every beta of
+one triple shares, so a restore of beta.5 over beta.7 asked for no confirmation).
+The tree is confirmed by `installDigest`; only when the sentinel carries none
+(an unstamped restore point) does `boot_confirm.ts` compare `version` with the
+running DEDALO_ENGINE_VERSION. The rollback script only logs the two fields.
 
 **The supervisor scripts live OUT OF TREE — and out of the instance dir.**
 The swap renames the whole app tree; in the crash window between its two
@@ -1568,7 +1626,12 @@ states of the sentinel and logs which one it saw:
    sentinel attempted and exit 0.
 3. **pending, both present** — the normal post-swap rollback: park the failed
    tree, restore the backup.
-4. **confirmed / absent / already attempted** — exit 0, touch nothing.
+4. **confirmed / needs_restore / absent / already attempted** — exit 0, touch
+   nothing. A sentinel with no `status` at all is torn or foreign: RED, exit 1.
+
+The script rewrites ONLY `status` and `rollback_attempted`, in place, and keeps
+every other key (`installDigest`, `backup_waived`, …) byte-for-byte; the write
+is temp + fsync + rename + directory fsync, read back before it counts.
 
 For a restore (states 1 and 3) it: flips `rollback_attempted` FIRST (a
 rollback that itself fails must never loop), parks any failed tree at
@@ -1635,7 +1698,7 @@ the TLS keys `install.sh` writes:
 |---|---|
 | `DEDALO_COMPOSE_FILE` | `docker-compose.simple.yml` or `docker-compose.yml` |
 | `DEDALO_IMAGE` | the repository, no tag (`localhost/dedalo` for a local build) |
-| `DEDALO_VERSION` | the PINNED tag: `X.Y.Z`, `X.Y.Z-alpha.N` / `-beta.N` / `-rc.N` for a prerelease image, or `X.Y.Z-dev` for a developer image |
+| `DEDALO_VERSION` | the PINNED tag: `X.Y.Z`, or `X.Y.Z-alpha.N` / `-beta.N` / `-rc.N` for a prerelease image. There is no developer image: every host tool refuses a `-dev` tag (`dedalo_is_dev_tag`) |
 | `DEDALO_IMAGE_MODE` | `pull` \| `build` |
 | `DEDALO_IMAGE_VERIFY` | `cosign` \| `none` |
 
@@ -1661,9 +1724,10 @@ mirror or custom.
 **The updater** (`deploy/dedalo-image-update.sh --version <tag>`, from the stack
 dir; gate `image_update_script_native`), each step refusing before the next
 changes anything: mkdir lock → `.dedalo.env` complete (else the exact lines to
-add are printed — the adoption path of a pre-pin install) → grammar + release-order
-downgrade floor (`dedalo_version_cmp`: a prerelease before its release; equal only
-for `-dev`) → the RUNNING engine's walk verdict
+add are printed — the adoption path of a pre-pin install) → grammar, and a `-dev`
+target REFUSED in every mode (`version_refused`: Docker has no nightly images —
+VERSIONING_SPEC S3) → release-order downgrade floor (`dedalo_version_cmp`: a
+prerelease before its release) → the RUNNING engine's walk verdict
 (`scripts/ops/image_update_channel.ts check-target`: exit 0 ok, 3 refused + reason
 id, anything else = unavailable, refused unless `--skip-version-check`) → a
 verified `pg_dump` through the `backup` service (`--label pre-image-update`;
@@ -1674,11 +1738,11 @@ signed image's `org.opencontainers.image.version` label equal to the tag pulled 
 `dedalo_verify_release`; a signature alone proves only that SOME official run built
 the bytes, so a mirror re-pointing `:<newer>` at an older signed release would
 otherwise walk the install backwards past the version floor)
-or build (not a git checkout → refused; checkout `v<tag>` — `v7.0.0-beta.7` for a prerelease —, or the
-single remote's master / `--ref` for `-dev`; the checked-out commit's RELEASE IDENTITY
-(`dedalo_release_identity`) must build the target — a release or prerelease only from its exact
-annotated tag, a `-dev` image from any commit of its data triple; then `dedalo_image_build`
-of that HEAD — the installer's builder, sourced before the checkout) → re-pin → `up -d
+or build (not a git checkout → refused; checkout `v<tag>` — `v7.0.0-beta.7` for a prerelease —, or
+`--ref` for a prerelease built under another name, build mode only; the checked-out commit's RELEASE
+IDENTITY (`dedalo_release_identity`) must build the target — a release or prerelease only from its exact
+annotated tag; then `dedalo_image_build` of that HEAD — the installer's builder, sourced before
+the checkout, which itself refuses a `-dev` tag, status 3) → re-pin → `up -d
 dedalo backup` (never postgres or nginx) → the compose healthcheck: green on the
 first `healthy`; `starting` AND `unhealthy` wait up to `--health-timeout`, default
 900 s (boot migrations run BEFORE the socket binds, so `/health` is red through
@@ -1736,20 +1800,19 @@ without systemd run the same pass from cron. No unit file ships in `deploy/`: a
 generated unit carries the right path with nothing to hand-edit. One pass: lock →
 `.dedalo.env` complete → engine running → heartbeat (an image without the CLI is
 a logged no-op) → an orphaned `inflight.json` recorded as `failed/interrupted` →
-claim → the HOST's own floors (UUID, tag grammar, no downgrade against the pinned
-`DEDALO_VERSION`, equal only for `-dev`, and NO `-dev` tag while the pinned version
-is a release — `version_refused`; the engine mirrors it as `dev_channel_not_enabled`
-from the heartbeat's `pinned`) → `./deploy/dedalo-image-update.sh
+claim → the HOST's own floors (UUID, tag grammar, NO `-dev` tag at all —
+`version_refused`, whatever `DEDALO_VERSION` pins; the engine's
+`request_image_update` refuses a `-dev` tag the same way — and no downgrade or
+same version against the pinned `DEDALO_VERSION`, `downgrade_refused`) → `./deploy/dedalo-image-update.sh
 --version <tag> --request-id <id> --outcome-file <tmp>` — never `--no-backup`,
 `--skip-version-check` or `--ref` → the outcome recorded through `run`, then
 `exec`, then the journal. A pass that reached a decision exits 0.
 
-**Threat model.** A compromised engine or superuser CAN ask for a newer tag (or, on
-an installation ALREADY on developer images, the same `-dev` tag) of the repository
-the OPERATOR configured. It can never move a release installation onto developer
-images: in build mode a `-dev` target builds the remote's master tip, and the host
-updater then runs host scripts from that unreleased tree with docker access — the
-move onto the developer channel is the operator's own manual run. That request still
+**Threat model.** A compromised engine or superuser CAN ask for a newer release or
+prerelease tag of the repository the OPERATOR configured. It can never move an
+installation onto unreleased code: no host tool installs, pulls or builds a `-dev`
+tag, so the host updater never runs host scripts from an unreleased tree with
+docker access. That request still
 walks the engine's linear rule, the host's floors, a mandatory backup and an
 automatic rollback; with `DEDALO_IMAGE_VERIFY=cosign` only a Dédalo-signed image
 installs. It CANNOT choose the repository, the mode, a flag, a ref, or anything

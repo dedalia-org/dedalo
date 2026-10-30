@@ -57,7 +57,7 @@ import { widget as serve_code, servesCode } from './serve_code.ts';
 import { widget as serve_ontology } from './serve_ontology.ts';
 import { widget as site_builder_status } from './site_builder_status.ts';
 import { widget as sqo_test_environment } from './sqo_test_environment.ts';
-import type { LabelRule, WidgetModule, WidgetResponse } from './support.ts';
+import type { LabelRule, WidgetHandler, WidgetModule, WidgetResponse } from './support.ts';
 import { widget as system_info } from './system_info.ts';
 import { widget as unit_test } from './unit_test.ts';
 import { widget as update_code } from './update_code.ts';
@@ -319,7 +319,8 @@ export async function dispatchGetWidgetValue(
  *  1. ADMIN-ONLY — the maintenance area is a global-admin surface;
  *  2. options must be an object (PHP type guard);
  *  3. the widget id must be in the maintenance catalog;
- *  4. the method must be registered (`tool.method_not_allowed` otherwise).
+ *  4. the method must be registered (`tool.method_not_allowed` otherwise);
+ *  5. the door's precondition class (core/update/door_class.ts).
  *
  * A handler the widget declares maintenance then runs inside
  * `withUnboundedStatements` (see below); every other one stays bounded.
@@ -380,11 +381,36 @@ export async function dispatchWidgetRequest(
 	// born with a lock_timeout (postgres.ts MAINTENANCE_LOCK_TIMEOUT), so an
 	// action queued for ACCESS EXCLUSIVE behind a long reader gives up instead of
 	// stalling every reader queued behind it; escaping, it is the typed 503.
-	const run = () => handler((options ?? {}) as Record<string, unknown>, principal);
-	if (!isUnboundedAction(module, method)) return run();
-	return withUnboundedStatements(run).catch((error: unknown) => {
-		throw typedMaintenanceLockWait(error);
-	});
+	return runAtDoor(module, `${widgetId}.${method}`, method, handler, principal, options);
+}
+
+/**
+ * Gate 5 and the run: THE DOOR'S PRECONDITION CLASS (update audit 2026-10-29,
+ * Phase 2.8; core/update/door_class.ts) — a destructive_shared door needs the
+ * superuser, maintenance, a fresh backup (or a logged waiver), no update run in
+ * flight, and holds the UPDATE_RUN lock while it runs; an unclassified door is
+ * refused — then the handler, bounded or not (see the caller).
+ */
+async function runAtDoor(
+	module: WidgetModule,
+	what: string,
+	method: string,
+	handler: WidgetHandler,
+	principal: Principal,
+	options: unknown,
+): Promise<WidgetResponse> {
+	const request = (options ?? {}) as Record<string, unknown>;
+	const { enterDoor } = await import('../../update/door_class.ts');
+	const release = await enterDoor(what, principal, request);
+	const run = () => handler(request, principal);
+	try {
+		if (!isUnboundedAction(module, method)) return await run();
+		return await withUnboundedStatements(run).catch((error: unknown) => {
+			throw typedMaintenanceLockWait(error);
+		});
+	} finally {
+		await release();
+	}
 }
 
 /** Whether `method` is one of the actions `module` declares maintenance (see WidgetModule). */

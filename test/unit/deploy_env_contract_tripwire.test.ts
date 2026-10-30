@@ -138,10 +138,6 @@ const DEPLOY = join(ROOT, 'deploy');
  */
 const EXTERNAL_VARIABLES: ReadonlyMap<string, string> = new Map([
 	[
-		'HOME',
-		'deploy.sh sends `\\$HOME/.bun/bin/bun` to the far side of an ssh command — escaped, so it is expanded by the REMOTE login shell as the deploy user, not by this host and not from ../private/.env',
-	],
-	[
 		'TMPDIR',
 		'POSIX environment, read by dedalo-tls-rotate.sh as `${TMPDIR:-/tmp}` for a mktemp -d staging directory that lives for one run',
 	],

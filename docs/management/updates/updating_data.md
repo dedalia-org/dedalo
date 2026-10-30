@@ -1,27 +1,34 @@
 # Updating data
 
-> See also: [Updating ontology](updating_ontology.md) · [Updating code](updating_code.md) · [Backup and restore](../backup.md)
+> See also: [The update run](index.md#the-update-run) · [Updating code](updating_code.md) · [Updating ontology](updating_ontology.md) · [Backup and restore](../backup.md)
 
 Data is the most important part of a Dédalo project. In Dédalo, data has an abstraction layer and depends on the ontology definition. Sometimes the abstraction layer changes, or the global definitions need to add or change data structures; in those cases the data must be updated. The database schema may also need updating, or the indexes adjusting. All these changes happen in the same update-data process.
+
+A release that changes data declares a `data` step in `install/update/catalog.json`, and the
+[update run](index.md#the-update-run) of that release executes it as its `data` phase, after the
+code swap, with every SQL file and script of the step. A code update therefore needs no separate
+data update.
 
 The "Update data" panel (`update_data_version` widget,
 `src/core/update/engine.ts`) reports the real state: `current_version_in_db`
 comes straight from the shared `matrix_updates` table, and the pending
-`updates` list comes from this engine's own migration catalog
-(`src/core/update/catalog.ts`) — currently empty for the 7.x line, so the
-panel shows no pending migration today. When a release does ship a 7.x
+`updates` list comes from the release catalog shipped with the code
+(`install/update/catalog.json`) — no 7.x release carries a data step yet, so
+the panel shows no pending migration today. When a release does ship a 7.x
 migration, pressing "Update data" runs it for real against this server's own
-database.
+database. The panel is for an installation whose database is behind its code outside a run —
+after a [manual update](updating_code.md#updating-manually), for example. A code update is refused
+while the database is behind: the data update comes first.
 
-Updating data is the most delicate update process, and it is mandatory to back up your database before running it.
+Updating data is the most delicate update process. "Update data" is a destructive maintenance action: it refuses without the superuser, maintenance mode and a fresh, proven restorable database backup, and while an update run is in flight ([precondition classes](index.md#which-maintenance-actions-need-the-superuser-maintenance-mode-and-a-backup)).
 
-Not every code update implies a data update — the two processes are independent — but data depends on the ontology and code version, so some code updates do require a data update.
+A data change crosses the data model: in a run, a failure after the `data` phase has started ends in `NEEDS_DB_RESTORE`, and a human restores the database backup together with the previous code. Not every release changes data — a code-only release has no `data` step.
 
 ## When the data version moves
 
 The data version is the version of the **last release that changed data**. It is not always the version of the code that is running:
 
-- A data change (moving a tipo, changing a flat portal, anything that touches existing records) ships only in a **minor** or **major** release. A **patch** release never changes data.
+- A data change (moving a tipo, changing a flat portal, anything that touches existing records) ships only in a **minor** or **major** release: a `data` step is always `incompatible`, and the catalog refuses an `incompatible` patch. A **patch** release never changes data.
 - Between data changes, the code runs on the data of the last data-changing release. Every release in between is data-compatible with it, so a patch or a minor without data changes needs no data update.
 - Some minors and majors have no data change at all. They write **no row** to `matrix_updates`, and pressing "Update data" does nothing for them.
 - The "Update data" panel shows `current_version_in_db` as that last data-changing version. It can lag the installed code version; that gap is expected and is not an error.
@@ -48,17 +55,14 @@ Ontology changes that do not alter existing data (a label, a list of components 
 
 3. Make a backup of the database.
 
-    It is mandatory to create a backup before updating Dédalo data. Follow [this guide](../backup.md#backup-the-work-system) to create a backup of the database.
+    The update refuses without a fresh backup that is proven restorable. Follow [this guide](../backup.md#backup-the-work-system) to create a backup of the database.
 
     !!! danger "Corruption"
         The update process will change the database; any problem with the database, server, memory or disk can corrupt the database during the process. A backup is mandatory to prevent data loss.
 
-4. Update ontology and code.
+4. Read what is pending.
 
-    Before updating data, update the ontology and code to their latest versions:
-
-    Follow [this guide](updating_ontology.md) to update the ontology.
-    Follow [this guide](updating_code.md) to update the code.
+    The panel lists the data step that the installed code's catalog declares for the version the database stands on. Do not install newer code first: the code update refuses while the database is behind, and a newer release runs its own data phase inside its run.
 
 5. Locate the "Update data" control panel.
 

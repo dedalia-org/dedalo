@@ -262,6 +262,8 @@ describe('who may skip the maintenance gate', () => {
 	const ALLOWED: Readonly<Record<string, string>> = Object.freeze({
 		'src/core/update/code_restore.ts':
 			'deleteRestorePoint — removes a BACKUP directory; touches no live tree, serves no request differently',
+		'src/core/update/run/production.ts':
+			'the update run PREFLIGHT — the run switches maintenance ON itself right after it (PREFLIGHT_OK → maintenance held to CONFIRMED, executor.ts); demanding it beforehand would make the operator close the install for a run that may still be REFUSED',
 	});
 
 	test('only the registered callers pass `maintenance: false`', async () => {

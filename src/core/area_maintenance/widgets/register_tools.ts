@@ -169,8 +169,7 @@ async function registerToolsGetValue(): Promise<WidgetResponse> {
 /**
  * register_tools.register_tools — reconcile the TS-owned tools/ tree with the
  * dd1324 registry (PHP tools_register::import_tools). Because dd1324 is SHARED
- * with the live PHP install, this is DRY-RUN unless config.tools.
- * enableRegistryImport is on: it validates every tool package and reports which
+ * with the live PHP install, this is DRY-RUN: it validates every tool package and reports which
  * would change, writing nothing. The report lists per-tool validity, whether the
  * registry already matches (empty diff = no-op), and any warnings.
  */
@@ -266,8 +265,7 @@ export const widget: WidgetModule = {
 	},
 	apiActions: {
 		// Ownership-gated (UPDATE_PROCESS Phase 1). Closed (coexisting): reconcile
-		// the TS-owned tools/ tree with the dd1324 registry DRY-RUN by default
-		// (config.tools.enableRegistryImport=false) — validates every tool and
+		// the TS-owned tools/ tree with the dd1324 registry DRY-RUN — validates every tool and
 		// reports the diff WITHOUT writing (engineering/TOOLS_SPEC.md write-parity
 		// gate before enabling writes). Open (engine owns the install): real
 		// import, PHP response bytes.

@@ -29,17 +29,22 @@
 # the update pipeline (src/core/update/code_update.ts) with status "pending"
 # BEFORE the swap's first rename — it names the backupDir the pipeline INTENDS
 # to create, so a crash at any point leaves a sentinel this script can read:
-#   { "version", "previousVersion", "updateMode", "stamp",
+#   { "version", "previousVersion": <RELEASE IDENTITIES of the new / the old
+#       tree, e.g. 7.0.0-beta.7 / 7.0.0-beta.5 (data triples before 2026-10-30);
+#       this script only LOGS them, never compares them>,
+#     "updateMode", "stamp",
 #     "backupDir": <absolute path of the backed-up old tree>,
 #     "installDigest": <sha256 of the installed archive, absent pre-2026-08-24>,
-#     "status": "pending" | "confirmed" | "rolled_back",
+#     "status": "pending" | "confirmed" | "rolled_back" | "needs_restore",
 #     "rollback_attempted": false | true }
 # installDigest is REWRITTEN VERBATIM below and must never be dropped: on the
-# dev channel the version is identical on both sides of the swap, so it is the
-# only field that tells the new tree from the restored old one. A rewrite that
+# dev channel the release identity is identical on both sides of the swap, so it
+# is the only field that tells the new tree from the restored old one. A rewrite that
 # lost it would leave a `pending` sentinel that the OLD tree happily confirms.
 # The NEW tree flips status to "confirmed" once it listens and reaches the
-# database. This script acts ONLY on status=="pending" && rollback_attempted==
+# database and its boot migrations succeeded; a failed boot migration that
+# already moved the schema flips it to "needs_restore" instead (a database
+# backup restore by a human — this script never acts on it, U-01/D-2). This script acts ONLY on status=="pending" && rollback_attempted==
 # false, and flips rollback_attempted to true BEFORE touching the filesystem —
 # a rollback that itself fails must never loop.
 #
@@ -154,24 +159,43 @@ json_raw() { # json_raw <key> — first bare (non-string) value, or ''
 }
 
 write_sentinel() { # write_sentinel <status> <rollback_attempted>
-	# The digest line is emitted only when the sentinel carried one, so a
-	# pre-2026-08-24 sentinel is rewritten in its original shape.
-	digest_line=""
-	if [ -n "$INSTALL_DIGEST" ]; then
-		digest_line="	\"installDigest\": \"$INSTALL_DIGEST\","
+	# Rewrites ONLY the two keys this script owns (U-37, audit 2026-10-29): every
+	# other key — installDigest, backup_waived (the durable waiver trace), and any
+	# key a later engine adds — survives verbatim. The two keys are matched as
+	# quoted JSON keys, and the rewrite is read back before it replaces the file.
+	# ATOMIC + DURABLE (U-19): a temp file in the same directory, synced, renamed
+	# over the sentinel, then the directory synced — a crash or a full disk leaves
+	# the previous bytes or these, never a torn file read as "nothing to do".
+	local tmp
+	tmp="$SENTINEL.rollback.$$.tmp"
+	sed -e 's/\("status"[[:space:]]*:[[:space:]]*\)"[^"]*"/\1"'"$1"'"/' \
+		-e 's/\("rollback_attempted"[[:space:]]*:[[:space:]]*\)[a-z]*/\1'"$2"'/' \
+		"$SENTINEL" > "$tmp" || { rm -f "$tmp"; return 1; }
+	if [ "$(json_str_of "$tmp" status)" != "$1" ] || [ "$(json_raw_of "$tmp" rollback_attempted)" != "$2" ]; then
+		rm -f "$tmp"
+		echo "== rollback: RED — could not rewrite $SENTINEL (status/rollback_attempted not found); manual intervention required" >&2
+		return 1
 	fi
-	cat > "$SENTINEL" <<EOF
-{
-	"version": "$VERSION",
-	"previousVersion": "$PREVIOUS_VERSION",
-	"updateMode": "$UPDATE_MODE",
-	"stamp": "$STAMP",
-	"backupDir": "$BACKUP_DIR",
-$digest_line
-	"status": "$1",
-	"rollback_attempted": $2
+	sync_path "$tmp"
+	mv -f "$tmp" "$SENTINEL"
+	sync_path "$(dirname "$SENTINEL")"
 }
-EOF
+json_str_of() { sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -n1; }
+json_raw_of() { sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*\([a-z]*\).*/\1/p' "$1" | head -n1; }
+sync_path() { # flush one file/dir: GNU sync takes paths (the production
+	# hosts); BSD/macOS sync takes none, so fsync the path itself where python3
+	# exists, and only then fall back to a global sync (correct, but slow on a
+	# busy disk)
+	if [ "$(uname -s)" = Linux ]; then # GNU coreutils sync flushes just the path; BSD sync ignores any argument (even --version) and flushes EVERYTHING
+		sync "$1" && return 0
+	fi
+	if command -v python3 >/dev/null 2>&1 \
+		&& python3 -c 'import os, sys
+fd = os.open(sys.argv[1], os.O_RDONLY)
+os.fsync(fd)' "$1" 2>/dev/null; then
+		return 0
+	fi
+	sync
 }
 
 health_wait() { # up to 30s for /health over the unix socket (deploy.sh idiom)
@@ -198,6 +222,12 @@ if [ ! -f "$SENTINEL" ]; then
 fi
 STATUS="$(json_str status)"
 ATTEMPTED="$(json_raw rollback_attempted)"
+# A sentinel that exists but carries no status is TORN or foreign (U-19): it is
+# never "nothing to do" — a crash mid-update is exactly when it gets torn.
+if [ -z "$STATUS" ]; then
+	echo "== rollback: RED — $SENTINEL exists but has no readable status (torn or foreign); manual intervention required" >&2
+	exit 1
+fi
 if [ "$STATUS" != "pending" ]; then
 	$CHECK_ONLY && exit 1
 	log "state 4 — sentinel status is '$STATUS' (not pending) — nothing to do"

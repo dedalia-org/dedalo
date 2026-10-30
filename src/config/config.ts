@@ -43,6 +43,7 @@ import {
 	readMediaAccessMode,
 	readNameList,
 	readNumber,
+	readOntologyServerList,
 	readOptionalList,
 	readOptionalString,
 	readPublicationApiUsers,
@@ -52,6 +53,7 @@ import {
 	requireList,
 	requireMap,
 	requireString,
+	secureServerList,
 } from './readers.ts';
 
 /** PostgreSQL connection settings (system of record — same DB the PHP server uses). */
@@ -143,12 +145,8 @@ export interface ToolsConfig {
 	 * in-repo `tools/` root is always index 0 and wins name collisions.
 	 */
 	readonly additionalRoots: readonly ToolRootConfig[];
-	/**
-	 * When false (default), importTools runs DRY-RUN only and never writes the
-	 * dd1324 registry that the live PHP install shares. Flip to true only after
-	 * the registration parity gate is green (see engineering/TOOLS_SPEC.md).
-	 */
-	readonly enableRegistryImport: boolean;
+	// enableRegistryImport (TOOLS_ENABLE_REGISTRY_IMPORT) retired 2026-10-30
+	// (update audit U-39): every writer passes dryRun:false; nothing read it.
 }
 
 /**
@@ -222,6 +220,11 @@ export interface UpdateConfig {
 	/** Remote code masters the code-update panel offers (PHP CODE_SERVERS). */
 	readonly codeServers: readonly CodeServerEntry[];
 	/**
+	 * DEDALO_UPDATE_HTTP_SOURCES_DEV (development seam, U-24): plain-http
+	 * masters off loopback are admitted. The rule is readers.ts isSecureUpdateSource.
+	 */
+	readonly httpSourcesDev: boolean;
+	/**
 	 * This instance serves code releases to other installations (PHP
 	 * IS_A_CODE_SERVER): enables the code-manifest API action + the build twin.
 	 * Default false (fail-closed).
@@ -258,6 +261,8 @@ export interface OntologyServerEntry {
 	readonly name: string;
 	readonly url: string;
 	readonly code: string;
+	/** The shared TLDs this install takes from this master (D-8: one source per TLD). */
+	readonly tlds?: readonly string[];
 }
 
 /** Ontology update/exchange settings (PHP ONTOLOGY_* constants). */
@@ -1260,7 +1265,6 @@ export const config: DedaloConfig = Object.freeze({
 	}),
 	tools: Object.freeze({
 		additionalRoots: Object.freeze(readToolRoots('DEDALO_ADDITIONAL_TOOLS')),
-		enableRegistryImport: readString('TOOLS_ENABLE_REGISTRY_IMPORT') === 'true',
 	}),
 	siteBuilder: Object.freeze({
 		url: readOptionalString('DEDALO_SITE_BUILDER_URL'),
@@ -1291,7 +1295,12 @@ export const config: DedaloConfig = Object.freeze({
 		maxEntries: readNumber('DEDALO_EXTERNAL_MAX_ENTRIES'),
 	}),
 	update: Object.freeze({
-		codeServers: readServerList('CODE_SERVERS'),
+		codeServers: secureServerList(
+			'CODE_SERVERS',
+			readServerList('CODE_SERVERS'),
+			readBool('DEDALO_UPDATE_HTTP_SOURCES_DEV'),
+		),
+		httpSourcesDev: readBool('DEDALO_UPDATE_HTTP_SOURCES_DEV'),
 		isCodeServer: readString('IS_A_CODE_SERVER') === 'true',
 		codeFilesDir: readEnv('DEDALO_CODE_FILES_DIR'),
 		codeServerGitDir: readEnv('DEDALO_CODE_SERVER_GIT_DIR'),
@@ -1300,7 +1309,11 @@ export const config: DedaloConfig = Object.freeze({
 		restorePointsKeep: readNumber('DEDALO_CODE_RESTORE_POINTS_KEEP'),
 	}),
 	ontologyIo: Object.freeze({
-		servers: readServerList('ONTOLOGY_SERVERS'),
+		servers: secureServerList(
+			'ONTOLOGY_SERVERS',
+			readOntologyServerList('ONTOLOGY_SERVERS'),
+			readBool('DEDALO_UPDATE_HTTP_SOURCES_DEV'),
+		),
 		isOntologyServer: readString('IS_AN_ONTOLOGY_SERVER') === 'true',
 		serverCode: readEnv('ONTOLOGY_SERVER_CODE'),
 		activeOntologyTlds: readList('ACTIVE_ONTOLOGY_TLDS'),

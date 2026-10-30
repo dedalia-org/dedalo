@@ -211,24 +211,11 @@ export async function readAreaHierarchyData(
 		// target at all: no constraint, hence no narrowing (the same declared
 		// exemption the write chokepoint carries).
 		if (targetSections !== null && !(await isTargetAllowed(targetSections, target))) continue;
-		const typologyId = row.typology_locators?.[0]?.section_id;
-		if (typologyId === undefined || typologyId === null || typologyId === '') continue;
-		// Typology narrowing (ddo properties.hierarchy_types; see the doc above).
-		// Checked BEFORE the row is projected, so a hierarchy of another typology
-		// is never loaded further (no children_tipo lookup, no typology read). The
-		// stored locator's section_id is string- or int-form
-		// (WC-2026-08-10-section-id-int-canonical): compared as a number, the
-		// loose `in_array` PHP used.
-		if (hierarchyTypeIds !== null && !hierarchyTypeIds.includes(Number(typologyId))) continue;
+		const typologyId = admittedTypologyId(row.typology_locators, hierarchyTypeIds);
+		if (typologyId === null) continue;
 		const activeInThesaurus = String(row.active_locators?.[0]?.section_id ?? '') === '1';
 		if (!isOntology && !activeInThesaurus) continue;
-		const rootTerms = (row.root_term_locators ?? []).filter(
-			(term) =>
-				typeof term === 'object' &&
-				term !== null &&
-				term.section_tipo !== undefined &&
-				term.section_id !== undefined,
-		);
+		const rootTerms = rootTermLocators(row.root_term_locators);
 		if (!isOntology && rootTerms.length === 0) continue;
 		const childrenTipo = isOntology
 			? ONTOLOGY_CHILDREN_TIPO
@@ -264,6 +251,36 @@ export async function readAreaHierarchyData(
 	const typologies = await readTypologies(typologyOrder, typologySources, lang);
 
 	return { tipo: areaTipo, value, typologies };
+}
+
+/**
+ * The hierarchy's own typology id, or null when it has none or the typology
+ * narrowing (ddo properties.hierarchy_types; see readAreaHierarchyData's doc)
+ * does not admit it. Checked BEFORE the row is projected, so a hierarchy of
+ * another typology is never loaded further (no children_tipo lookup, no
+ * typology read). The stored locator's section_id is string- or int-form
+ * (WC-2026-08-10-section-id-int-canonical): compared as a number, the loose
+ * `in_array` PHP used.
+ */
+function admittedTypologyId(
+	locators: { section_id?: unknown }[] | null,
+	hierarchyTypeIds: readonly number[] | null,
+): unknown {
+	const typologyId = locators?.[0]?.section_id;
+	if (typologyId === undefined || typologyId === null || typologyId === '') return null;
+	if (hierarchyTypeIds !== null && !hierarchyTypeIds.includes(Number(typologyId))) return null;
+	return typologyId;
+}
+
+/** The root-term locators that name a record (section_tipo + section_id). */
+function rootTermLocators(locators: Record<string, unknown>[] | null): Record<string, unknown>[] {
+	return (locators ?? []).filter(
+		(term) =>
+			typeof term === 'object' &&
+			term !== null &&
+			term.section_tipo !== undefined &&
+			term.section_id !== undefined,
+	);
 }
 
 /**

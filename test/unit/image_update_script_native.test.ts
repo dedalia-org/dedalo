@@ -55,6 +55,11 @@ import { join } from 'node:path';
 import { BUILD_CONTEXT } from '../../src/core/install/host/stack/image.ts';
 import { BUILD_INFO_PATH, readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
+import {
+	OUTCOME_DETAILS,
+	OUTCOME_STATUSES,
+	validOutcome,
+} from '../../src/core/update/image_update_channel.ts';
 import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 import { engineCliAt } from '../helpers/engine_cli_tree.ts';
 import { escapeRegExp } from '../helpers/regex_escape.ts';
@@ -160,7 +165,17 @@ if [ "$1" = compose ]; then
 		up)
 			n=$(( $(cat "$S/up_count" 2>/dev/null || echo 0) + 1 ))
 			echo "$n" > "$S/up_count"
+			# signal_on_up_<n>: a signal name sent to the update script (the lock holder)
+			# during the n-th recreation — a host shutdown or an operator's Ctrl-C there
+			if [ -e "$S/signal_on_up_$n" ]; then
+				kill -"$(cat "$S/signal_on_up_$n")" "$(cat .dedalo-image-update.lock/pid)"
+			fi
 			[ -e "$S/up_fail" ] && exit 1
+			;;
+		run)
+			# a one-off container of the channel CLI (the host updater's record_outcome):
+			# what it was handed on stdin, kept per verb
+			cat > "$S/recorded_$(last_arg "$@")"
 			;;
 		build)
 			log "build-env DEDALO_VERSION=\${DEDALO_VERSION-unset}"
@@ -171,6 +186,11 @@ if [ "$1" = compose ]; then
 fi
 log "docker $*"
 case "$1" in
+	tag)
+		# retag_fails: the rollback's re-tag (source = a rollback-* anchor) fails —
+		# the anchor itself (source = the running image id) still succeeds
+		case "$2" in *:rollback-*) [ -e "$S/retag_fails" ] && exit 1 ;; esac
+		;;
 	buildx)
 		# the registry read of the dry run: the manifest digest and the image config's label
 		case "$*" in
@@ -205,7 +225,13 @@ case "$1" in
 					*Labels*) cat "$S/label" 2>/dev/null || printf '%s\\n' "\${ref##*:}" ;;
 					*) printf '%s@%s\\n' "\${ref%:*}" "${REPO_DIGEST}" ;;
 				esac ;;
-			ls) cat "$S/tags" 2>/dev/null || true ;;
+			ls)
+				# signal_on_image_ls: a signal sent to the update script during the
+				# post-green prune (a power cut / SIGKILL in the cleanup window)
+				if [ -e "$S/signal_on_image_ls" ]; then
+					kill -"$(cat "$S/signal_on_image_ls")" "$(cat .dedalo-image-update.lock/pid)"
+				fi
+				cat "$S/tags" 2>/dev/null || true ;;
 		esac
 		;;
 esac
@@ -270,6 +296,21 @@ exit "$(cat "$STUB_STATE/cosign_code" 2>/dev/null || echo 0)"
 `;
 
 const SLEEP_STUB = '#!/bin/sh\nexit 0\n';
+
+/**
+ * sync: a no-op, except `signal_on_marker_sync` — a signal name sent ONCE to the
+ * update script (the lock holder) while it syncs the freshly written pin marker
+ * (`sync .dedalo-image-update.pin .`): the window between the marker's mv and the
+ * re-pin.
+ */
+const SYNC_STUB = `#!/bin/bash
+S="$STUB_STATE"
+if [ "$1" = .dedalo-image-update.pin ] && [ -e "$S/signal_on_marker_sync" ]; then
+	sig="$(cat "$S/signal_on_marker_sync")"; rm -f "$S/signal_on_marker_sync"
+	kill -"$sig" "$(cat .dedalo-image-update.lock/pid)"
+fi
+exit 0
+`;
 
 // ---------------------------------------------------------------------------
 // The scratch stack.
@@ -347,7 +388,12 @@ function makeStack(situation: Situation = {}): Stack {
 		].join('\n');
 	const envFile = join(dir, '.dedalo.env');
 	writeFileSync(envFile, envText, { mode: 0o600 });
-	const stubs: Record<string, string> = { docker: DOCKER_STUB, git: GIT_STUB, sleep: SLEEP_STUB };
+	const stubs: Record<string, string> = {
+		docker: DOCKER_STUB,
+		git: GIT_STUB,
+		sleep: SLEEP_STUB,
+		sync: SYNC_STUB,
+	};
 	if (situation.cosign !== false) stubs.cosign = COSIGN_STUB;
 	for (const [name, body] of Object.entries(stubs)) {
 		writeFileSync(join(bin, name), body);
@@ -479,24 +525,11 @@ const OUTCOME_KEYS = [
 	'started_at',
 	'finished_at',
 ].sort();
-const STATUSES = ['green', 'rolled_back', 'rollback_failed', 'refused', 'failed'];
-const DETAILS = [
-	'healthy',
-	'health_timeout',
-	'unhealthy',
-	'pull_failed',
-	'verify_failed',
-	'build_failed',
-	'backup_failed',
-	'version_refused',
-	'same_version',
-	'downgrade_refused',
-	'not_running',
-	'env_incomplete',
-	'locked',
-	'interrupted',
-	'malformed_request',
-];
+// The engine's closed enums — imported, never copied: a local copy once kept
+// `same_version` while the engine lacked it, so the script's own outcome read
+// as malformed to the channel and its request as interrupted (U-35).
+const STATUSES: readonly string[] = OUTCOME_STATUSES;
+const DETAILS: readonly string[] = OUTCOME_DETAILS;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const VERSION = /^\d+\.\d+\.\d+(-dev|-(alpha|beta|rc)\.\d+)?$/;
 
@@ -537,6 +570,8 @@ function expectStackHygiene(stack: Stack, result: Result): void {
 		expect(line).toContain('docker-compose.simple.yml');
 	}
 	expect(outcomeViolations(result.outcome)).toEqual([]);
+	// …and the ENGINE's validator (the channel's `outcome` verb) takes it as written.
+	expect(validOutcome(result.outcome), 'the channel would reject this outcome').toBe(true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1175,8 @@ describe('red → rollback', () => {
 		expect(result.code).toBe(1);
 		expect(result.outcome).toMatchObject({ status: 'rollback_failed', detail: 'unhealthy' });
 		expect(result.env).toBe(stack.envBefore);
+		// the pin WAS restored before the failing recreation: the marker is settled
+		expect(existsSync(join(stack.dir, '.dedalo-image-update.pin'))).toBe(false);
 	});
 
 	test('`starting` until the timeout: health_timeout, rolled back', () => {
@@ -1165,6 +1202,272 @@ describe('red → rollback', () => {
 			at(result.calls, / up -d --no-build /),
 		);
 		expect(at(result.calls, /^git checkout -q master$/)).toBeGreaterThan(-1);
+	});
+});
+
+/**
+ * INTERRUPTED AFTER THE RE-PIN (update audit 2026-10-29, U-20). DEDALO_VERSION
+ * names the target from the re-pin until the health check answers; the stub's
+ * `signal_on_up_<n>` signals the script (the lock holder) during the n-th
+ * recreation — inside exactly that window.
+ *
+ * RED BEFORE THE FIX (verified 2026-10-30 against the unfixed script, whose only
+ * trap was EXIT): a TERM/INT/HUP there killed the script with the env naming the
+ * unverified 7.0.1, no rollback and no outcome; and after a KILL nothing recorded
+ * that the pin had moved, so the next run read 7.0.1 as its baseline. Now a
+ * catchable signal rolls back once and exits non-zero; an uncatchable one leaves
+ * the pin marker, which refuses further runs and is reconciled by `--recover`
+ * (the host updater runs it on its next pass).
+ */
+describe('interrupted after the re-pin (U-20)', () => {
+	const MARKER = '.dedalo-image-update.pin';
+	const killedAfterRepin = (signal: string, extra: Record<string, string> = {}): Stack =>
+		makeStack({ state: { signal_on_up_1: signal, ...extra } });
+
+	for (const signal of ['TERM', 'INT', 'HUP']) {
+		test(`SIG${signal} between the re-pin and green: rolled back ONCE, exit non-zero, the pin restored`, () => {
+			const stack = killedAfterRepin(signal);
+			const result = runUpdate(stack, ['--version', '7.0.1', '--request-id', REQUEST_ID]);
+			expect(result.code, result.stderr).toBe(1);
+			expect(result.env).toBe(stack.envBefore);
+			expect(result.outcome).toMatchObject({
+				request_id: REQUEST_ID,
+				from: '7.0.0',
+				to: '7.0.1',
+				status: 'rolled_back',
+				detail: 'interrupted',
+			});
+			// the target recreation happened, then exactly one rollback recreation on 7.0.0
+			expect(at(result.calls, /\[DEDALO_VERSION=7\.0\.1\] up -d dedalo backup$/)).toBeGreaterThan(
+				-1,
+			);
+			expect(result.calls.filter((line) => / up -d --no-build dedalo backup$/.test(line))).toEqual([
+				expect.stringMatching(/\[DEDALO_VERSION=7\.0\.0\] up -d --no-build dedalo backup$/),
+			]);
+			expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+			expect(existsSync(join(stack.dir, '.dedalo-image-update.lock'))).toBe(false);
+			expectStackHygiene(stack, result);
+		});
+	}
+
+	test('a signal DURING the rollback does not re-enter it: one rollback, finished', () => {
+		const stack = makeStack({ state: { health_1: 'unhealthy', signal_on_up_2: 'TERM' } });
+		const result = runUpdate(stack, ['--version', '7.0.1', '--health-timeout', '10']);
+		expect(result.code).toBe(1);
+		expect(result.outcome).toMatchObject({ status: 'rolled_back', detail: 'unhealthy' });
+		expect(result.calls.filter((line) => / up -d --no-build /.test(line)).length).toBe(1);
+		expect(result.env).toBe(stack.envBefore);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+	});
+
+	/**
+	 * Review 2026-10-30 #8: the traps are armed before the marker is written, and
+	 * MARKER_OWNED used to be set only after its sync — a TERM there rolled back
+	 * but left the marker, so every later run was refused as interrupted.
+	 */
+	test('SIGTERM during the pin marker sync: rolled back, the marker settled, the next run is not refused', () => {
+		const stack = makeStack({ state: { signal_on_marker_sync: 'TERM' } });
+		const result = runUpdate(stack, ['--version', '7.0.1', '--request-id', REQUEST_ID]);
+		expect(result.code, result.stderr).toBe(1);
+		expect(existsSync(join(stack.state, 'signal_on_marker_sync'))).toBe(false); // it fired
+		expect(result.outcome).toMatchObject({ status: 'rolled_back', detail: 'interrupted' });
+		expect(result.env).toBe(stack.envBefore);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+		const next = runUpdate(stack, ['--version', '7.0.1']);
+		expect(next.code, next.stderr).toBe(0);
+		expect(next.outcome).toMatchObject({ from: '7.0.0', to: '7.0.1', status: 'green' });
+	});
+
+	/**
+	 * settle_pin_marker's keep branch (review 2026-10-30 #9): the rollback failed
+	 * BEFORE the pin was back (its re-tag failed), so DEDALO_VERSION still names the
+	 * unverified target — the marker must stay for --recover.
+	 */
+	test('the rollback re-tag fails: rollback_failed, the marker stays, a new run is refused, --recover reconciles', () => {
+		const stack = makeStack({ state: { health_1: 'unhealthy', retag_fails: '' } });
+		const failed = runUpdate(stack, ['--version', '7.0.1', '--health-timeout', '10']);
+		expect(failed.code).toBe(1);
+		expect(failed.outcome).toMatchObject({ status: 'rollback_failed', detail: 'unhealthy' });
+		expect(failed.env).toBe(repinned(stack, '7.0.1'));
+		expect(existsSync(join(stack.dir, MARKER))).toBe(true);
+		expect(failed.stderr).toContain('the pin marker stays');
+		const again = runUpdate(stack, ['--version', '7.0.2']);
+		expect(again.code).toBe(1);
+		expect(again.outcome).toMatchObject({ status: 'refused', detail: 'interrupted' });
+		expect(again.env).toBe(repinned(stack, '7.0.1'));
+		rmSync(join(stack.state, 'retag_fails'));
+		const recovered = runUpdate(stack, ['--recover']);
+		expect(recovered.code).toBe(1);
+		expect(recovered.outcome).toMatchObject({
+			from: '7.0.0',
+			to: '7.0.1',
+			status: 'rolled_back',
+			detail: 'interrupted',
+		});
+		expect(recovered.env).toBe(stack.envBefore);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+		expectStackHygiene(stack, recovered);
+	});
+
+	test('green clears the marker; a signal-free run never leaves one', () => {
+		const stack = makeStack();
+		const result = runUpdate(stack, ['--version', '7.0.1']);
+		expect(result.code, result.stderr).toBe(0);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+	});
+
+	test('SIGKILL (no trap can run): the marker stays; a new run is refused; --recover restores the pin', () => {
+		const stack = killedAfterRepin('KILL');
+		const killed = runUpdate(stack, ['--version', '7.0.1', '--request-id', REQUEST_ID]);
+		expect(killed.outcome).toBeNull();
+		expect(killed.env).toBe(repinned(stack, '7.0.1'));
+		const marker = readFileSync(join(stack.dir, MARKER), 'utf8');
+		expect(marker).toContain('from=7.0.0\n');
+		expect(marker).toContain('to=7.0.1\n');
+		expect(marker).toContain(`request=${REQUEST_ID}\n`);
+		// the unverified pin is no baseline: a new run refuses and changes nothing
+		const again = runUpdate(stack, ['--version', '7.0.2']);
+		expect(again.code).toBe(1);
+		expect(again.outcome).toMatchObject({ status: 'refused', detail: 'interrupted' });
+		expect(again.env).toBe(repinned(stack, '7.0.1'));
+		expect(again.stderr).toContain('--recover');
+		// the reconcile: the rollback image back as 7.0.0, re-pinned, recreated
+		const recovered = runUpdate(stack, ['--recover']);
+		expect(recovered.code).toBe(1);
+		expect(recovered.outcome).toMatchObject({
+			request_id: REQUEST_ID,
+			from: '7.0.0',
+			to: '7.0.1',
+			status: 'rolled_back',
+			detail: 'interrupted',
+		});
+		expect(recovered.env).toBe(stack.envBefore);
+		expect(
+			at(
+				recovered.calls,
+				/^docker tag ghcr\.io\/dedalia-org\/dedalo:rollback-\d{8}T\d{6}Z ghcr\.io\/dedalia-org\/dedalo:7\.0\.0$/,
+			),
+		).toBeGreaterThan(-1);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+		expectStackHygiene(stack, recovered);
+		// nothing left to recover: exit 0, no outcome change
+		rmSync(join(stack.state, 'outcome.json'));
+		const idle = runUpdate(stack, ['--recover']);
+		expect(idle.code, idle.stderr).toBe(0);
+		expect(idle.outcome).toBeNull();
+	});
+
+	/**
+	 * Review 2026-10-30 #2: the marker used to be removed only by finish(), AFTER
+	 * the prune and the outcome — a SIGKILL there left it while DEDALO_VERSION named
+	 * the target, and --recover rolled back a HEALTHY, already-migrated update.
+	 * Now the green health check marks it `healthy=1` first; --recover settles that
+	 * as green and touches nothing.
+	 */
+	test('SIGKILL after green, during the cleanup: the marker says healthy; --recover settles green and rolls NOTHING back', () => {
+		const stack = makeStack({ state: { signal_on_image_ls: 'KILL' } });
+		const killed = runUpdate(stack, ['--version', '7.0.1', '--request-id', REQUEST_ID]);
+		expect(killed.outcome).toBeNull();
+		expect(killed.env).toBe(repinned(stack, '7.0.1'));
+		const marker = readFileSync(join(stack.dir, MARKER), 'utf8');
+		expect(marker).toContain('to=7.0.1\n');
+		expect(marker).toContain('healthy=1\n');
+		rmSync(join(stack.state, 'signal_on_image_ls'));
+		const before = killed.calls.length;
+		const recovered = runUpdate(stack, ['--recover']);
+		expect(recovered.code, recovered.stderr).toBe(0);
+		expect(recovered.outcome).toMatchObject({
+			request_id: REQUEST_ID,
+			from: '7.0.0',
+			to: '7.0.1',
+			status: 'green',
+			detail: 'healthy',
+		});
+		expect(validOutcome(recovered.outcome)).toBe(true);
+		// the healthy target stays pinned: no re-tag, no re-pin, no recreation
+		expect(recovered.env).toBe(repinned(stack, '7.0.1'));
+		expect(
+			recovered.calls.slice(before).filter((line) => / up -d |^docker tag /.test(line)),
+		).toEqual([]);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+		expectStackHygiene(stack, recovered);
+		// the confirmed pin is the baseline again: the next update runs from 7.0.1
+		const next = runUpdate(stack, ['--version', '7.0.2']);
+		expect(next.code, next.stderr).toBe(0);
+		expect(next.outcome).toMatchObject({ from: '7.0.1', to: '7.0.2', status: 'green' });
+	});
+
+	test('a healthy marker whose pin someone changed by hand: refused, nothing rolled back, the marker stays', () => {
+		const stack = makeStack({ state: { signal_on_image_ls: 'KILL' } });
+		const before = runUpdate(stack, ['--version', '7.0.1']).calls.length;
+		writeFileSync(stack.envFile, repinned(stack, '7.0.0'));
+		const result = runUpdate(stack, ['--recover']);
+		expect(result.code).toBe(1);
+		expect(result.outcome).toMatchObject({ status: 'rollback_failed', detail: 'interrupted' });
+		expect(result.env).toBe(repinned(stack, '7.0.0'));
+		expect(existsSync(join(stack.dir, MARKER))).toBe(true);
+		expect(result.calls.slice(before).some((line) => / up -d |^docker tag /.test(line))).toBe(
+			false,
+		);
+	});
+
+	test('--recover refuses a pin someone changed by hand (neither side of the marker): the marker stays', () => {
+		const stack = killedAfterRepin('KILL');
+		const before = runUpdate(stack, ['--version', '7.0.1']).calls.length;
+		writeFileSync(stack.envFile, repinned(stack, '7.0.5'));
+		const result = runUpdate(stack, ['--recover']);
+		expect(result.code).toBe(1);
+		expect(result.outcome).toMatchObject({ status: 'rollback_failed', detail: 'interrupted' });
+		expect(result.env).toBe(repinned(stack, '7.0.5'));
+		expect(existsSync(join(stack.dir, MARKER))).toBe(true);
+		// the calls log is the stack's: only this run's calls
+		expect(result.calls.slice(before).some((line) => / up -d |^docker tag /.test(line))).toBe(
+			false,
+		);
+	});
+
+	test('--recover takes no version', () => {
+		const stack = makeStack();
+		expect(runUpdate(stack, ['--recover', '--version', '7.0.1']).code).toBe(2);
+	});
+
+	test('the HOST UPDATER reconciles on its next pass: --recover runs, the outcome is recorded, the pin restored', () => {
+		const stack = killedAfterRepin('KILL');
+		runUpdate(stack, ['--version', '7.0.1', '--request-id', REQUEST_ID]);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(true);
+		copyFileSync(
+			join(REPO_ROOT, 'deploy', 'dedalo-image-updater.sh'),
+			join(stack.dir, 'deploy', 'dedalo-image-updater.sh'),
+		);
+		const pass = Bun.spawnSync(
+			[
+				'bash',
+				join(stack.dir, 'deploy', 'dedalo-image-updater.sh'),
+				'run',
+				'--stack-dir',
+				stack.dir,
+			],
+			{
+				cwd: stack.dir,
+				env: {
+					PATH: `${join(stack.state, '..', 'bin')}:/usr/bin:/bin`,
+					STUB_STATE: stack.state,
+					ENGINE_BUN: process.execPath,
+					TMPDIR: stack.state,
+				},
+			},
+		);
+		const stderr = pass.stderr.toString();
+		expect(pass.exitCode, stderr).toBe(0);
+		expect(readFileSync(stack.envFile, 'utf8')).toBe(stack.envBefore);
+		expect(existsSync(join(stack.dir, MARKER))).toBe(false);
+		const recorded = JSON.parse(readFileSync(join(stack.state, 'recorded_outcome'), 'utf8'));
+		expect(recorded).toMatchObject({
+			request_id: REQUEST_ID,
+			status: 'rolled_back',
+			detail: 'interrupted',
+		});
+		expect(validOutcome(recorded)).toBe(true);
 	});
 });
 
@@ -1533,6 +1836,42 @@ describe('the dry run (--check): the real checks, no change', () => {
 });
 
 describe('the script itself', () => {
+	/**
+	 * Every outcome the host scripts can write names a status and a detail the
+	 * ENGINE accepts (U-35: `finish refused same_version` was rejected by the
+	 * channel's closed enum, so the request read as failed/interrupted). Derived
+	 * from the script TEXT, so a new literal cannot slip past: `finish S D`,
+	 * the updater's `record_own S D`, the health details and the host floors'
+	 * `echo <detail>`. A detail passed as a variable resolves to one of these.
+	 */
+	test('every literal status/detail in the host scripts is in the engine enum (derived from the text)', () => {
+		const pairs: [string, string][] = [];
+		const details: string[] = [];
+		for (const file of ['dedalo-image-update.sh', 'dedalo-image-updater.sh']) {
+			const code = readFileSync(join(REPO_ROOT, 'deploy', file), 'utf8')
+				.split('\n')
+				.filter((line) => !/^\s*#/.test(line))
+				.join('\n');
+			for (const match of code.matchAll(
+				/\b(?:finish|record_own)\s+([a-z_]+)\s+("?\$?[a-z_{}A-Z]+"?)/g,
+			)) {
+				const [, status, detail] = match as unknown as [string, string, string];
+				pairs.push([status, detail]);
+				if (/^[a-z_]+$/.test(detail)) details.push(detail);
+			}
+			for (const match of code.matchAll(/\bHEALTH_DETAIL='([a-z_]+)'/g))
+				details.push(match[1] as string);
+			for (const match of code.matchAll(/\becho\s+([a-z]+_refused)\b/g))
+				details.push(match[1] as string);
+		}
+		// the scan reads the scripts (vacuity guard): both files contribute
+		expect(pairs.length).toBeGreaterThan(30);
+		expect(details).toContain('same_version');
+		expect(details).toContain('downgrade_refused');
+		for (const [status] of pairs) expect(STATUSES, `status ${status}`).toContain(status);
+		for (const detail of details) expect(DETAILS, `detail ${detail}`).toContain(detail);
+	});
+
 	test('bash -n, set -euo pipefail, and no retired interface', () => {
 		const path = join(REPO_ROOT, 'deploy', 'dedalo-image-update.sh');
 		expect(Bun.spawnSync(['bash', '-n', path]).exitCode).toBe(0);

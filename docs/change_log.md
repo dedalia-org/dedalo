@@ -15,6 +15,10 @@ shape by the id under which the source tree records each one
 
 Merged since the last release; these ship with the next one.
 
+!!! warning "Action needed when you update"
+
+    - Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup.
+
 ### For users
 
 #### Changed
@@ -180,6 +184,12 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **Ontology updates now check every downloaded file against the master's digest before importing it.**
+
+    An ontology master now records the sha256 of every file it exports in its `ontology.json`, and an installation updating from it refuses any file whose bytes do not match, before anything is decompressed or imported. A master that has not re-exported since this release publishes no digests: its files are still accepted, and the server log says once per update that they were not verified. Re-export the ontologies on the master to publish digests. See [Updating the ontology](./management/updates/updating_ontology.md).
+
+    Wire contract: `WC-2026-10-30-ontology-file-digests`.
+
 - **The relations of a record are only shown to users who can open that record.**
 
     A user with access to a section could ask which records point at any record of that section, including records outside their projects. The same was true of the thesaurus "show indexations" list for a term. Dédalo now refuses that request unless the user can open the record itself, and answers the same way when the record does not exist. Nothing changes for records you can open.
@@ -193,6 +203,66 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
 
 #### Changed
+
+- **/health shows only the state of an update run and of the data version, not their identifiers.**
+
+    `/health` answers without a session, so its `update_run` and `data_version` entries now carry only `state`. The run id, target release and version pair are shown by `bun run update status` and the maintenance panel. The health verdict is unchanged.
+
+- **Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup.** *(action needed)*
+
+    The maintenance actions that change stored data with no undo (the move tools when not in dry-run mode, resetting hierarchies, the data update, restoring a previous code version, and restoring the ontology from a recovery file) now run only for the superuser, only in maintenance mode, and only when a recent verified database backup exists. They also cannot run while an update is in progress, or while another of these actions is running. Before, any global administrator could run them at any time. Dry runs of the move tools are unchanged. On a code server, building a release archive for other installations is now reserved to the superuser. Make a backup in **Make backup** before using them.
+
+    Wire contract: `WC-2026-10-30-maintenance-door-classes`.
+
+- **The ontology update lists the nodes it will remove or re-model, and a failed update says exactly what it restored.**
+
+    **Update ontology** now reports, for each ontology it imports, the nodes the new version removes and the nodes whose model changes. When an affected node is a section, it counts the records stored under it. The report does not stop the update. If an update fails and its automatic restore runs, an ontology that was empty before the update is emptied again; before, the imported rows stayed. The message now says whether the restore was complete, partial or incomplete. See [Updating the ontology](./management/updates/updating_ontology.md).
+
+    Wire contract: `WC-2026-10-30-ontology-import-census-restore`.
+
+- **The section-id repair script now checks for a recent backup before it writes.**
+
+    `scripts/migrate_section_id_locators.ts --apply` rewrites stored records without Time Machine history, so a recent database backup is the only way back. It now refuses to apply unless a recent verified backup exists; `--waive-backup` proceeds anyway and records who waived it in the log. It also cannot run while an update or another irreversible maintenance action is running. Dry runs are unchanged.
+
+- **The TOOLS_ENABLE_REGISTRY_IMPORT setting is retired; a code update now always re-registers tools and keeps each one's Active choice.**
+
+    `TOOLS_ENABLE_REGISTRY_IMPORT` no longer exists; a line left in `.env` is ignored. A code update now always reconciles the tools registry from the release's tool packages, so a tool added by the release appears without pressing *Register tools*. Each tool keeps the Active value an administrator set, even one changed while the update runs.
+
+    Wire contract: `WC-2026-10-30-tools-registry-import-switch-retired`.
+
+- **An ontology update only touches the shared ontologies.**
+
+    "Update ontology" now refuses any TLD that is not one of the installation's active shared ontologies (`ACTIVE_ONTOLOGY_TLDS`), the core TLDs or the shared value lists. Local TLDs and `localontology` overrides can no longer be overwritten by an update. On a master, the ontology export files are now written atomically: a failed export keeps the previous file instead of serving a truncated one.
+
+    Wire contract: `WC-2026-10-30-update-door-refusals`.
+
+- **A code update is now one journaled update run that also applies the ontology, schema, data and tool steps, and confirms only after verifying them.**
+
+    **Update code** in the maintenance panel now starts an update run. The server reads the code server's release list itself, plans every step of every release between the installed version and the chosen one, and records the run in a journal under the private directory. Maintenance mode stays on from the start of the run until it is confirmed. After the new code starts, the run applies the ontology, the database migrations, the data update and the tools in release order. It then verifies the result, and only then confirms the update. A run that is interrupted resumes from its journal on the next start. If a step fails within one data model, the previous code is restored automatically. If the run has already moved the database to a new data model, it stops and names the backup to restore. `bun run update status`, `check`, `plan <release>` and `abort` show and manage runs from the command line. See [Updating code](./management/updates/updating_code.md).
+
+    Wire contract: `WC-2026-10-30-update-run`.
+
+- **Update runs refuse ontology sources without file digests and resume more safely.**
+
+    An update run (*Update ontology*, or a code update's ontology phase) refuses an ontology source that publishes no file digests; re-export on the master. A data change that is resumed after it already committed is not run again. If the server loses its database connection during a run, the run stops before its next phase and the next start resumes it; at start the server waits up to two hours for a lock still held by a dead session. A run that has no schema phase after the code swap now ends with one, so a development build's migrations are applied. Maintenance jobs that need the update lock are refused while an update run is in flight.
+
+    Wire contract: `WC-2026-10-30-update-run`.
+
+- **After an update that needs a database restore, no new update starts until the run is closed.**
+
+    When an update run ends asking for a database restore, every new update run is refused until you have restored the database and closed the run with `bun run update abort <note>`. Each release's migrations now run in that release's own phase, after its ontology step. A code update on an installation with no ontology source no longer fails on the ontology phase: the step is skipped and the skip is recorded. *Restore* in the code update panel now offers to proceed without a recent database backup when the backup is stale.
+
+- **Updates check what the master offers, and masters must use https.**
+
+    "Update ontology" now reads the master's ontology list itself. It refuses an ontology exported for another data model, and a database that still needs "Update data" first. Each file is taken from the master's own list, not from the browser. With several ontology masters, each entry in `ONTOLOGY_SERVERS` lists the ontologies it provides in `tlds`, and every ontology must come from exactly one master. "Update code" now checks that the selected master really offers the chosen release with that checksum before downloading it. Code and ontology masters must use `https://`: an `http://` entry is ignored, with a message in the server log. Plain http works only for a master on the same machine.
+
+    Wire contract: `WC-2026-10-30-update-sources-server-held`.
+
+- **AI tools are hidden when no AI model is configured.**
+
+    The assistant appears only when the agent HTTP endpoint is enabled and at least one model is configured. Semantic search appears only when a real embedding model (the sidecar endpoint) is configured. Object identification is hidden until it is redesigned. On an installation without a working model, these entry points no longer show buttons that fail when clicked.
+
+    Wire contract: `WC-2026-10-29-ai-capabilities-page-globals`.
 
 - **The Update code panel shows its options only once loaded, and maintenance mode is switched on from the update dialog only.**
 
@@ -276,6 +346,30 @@ Merged since the last release; these ship with the next one.
     When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
 
 #### Fixed
+
+- **An interrupted Docker image update now rolls back instead of leaving the stack pinned to an unverified version.**
+
+    Stopping `deploy/dedalo-image-update.sh` after it re-pinned `DEDALO_VERSION` now puts the previous version back and reports *interrupted*. If it was killed outright, a `.dedalo-image-update.pin` file blocks later runs until `--recover` (which the host updater runs on its own) rolls back. A request for the version already installed is reported as *same version*, and a cancel can no longer race the host updater's claim.
+
+- **Restoring a code copy asks for confirmation whenever the code changes, also between betas.**
+
+    "Update code" used to compare a restore point with the running code by data version only. Every beta of a version shares it, so restoring `7.0.0-beta.5` over `7.0.0-beta.7` asked for no confirmation. Restore points are now listed, named (`dedalo_<release>[_<digest>]_<timestamp>`) and compared by their release name (`7.0.0-beta.5`, `7.0.0`, `7.0.1-dev`), and the restore asks for the confirmation when the release differs, or when the same release comes from another archive. The rollback sentinel names releases too. The status payload adds `data_version` to each restore point.
+
+    Wire contract: `WC-2026-10-30-restore-point-release-identity`.
+
+- **A code update whose database migration fails is no longer confirmed.**
+
+    When the new code started but one of its boot database migrations failed, the update was still marked as confirmed and `/health` stayed green, so the automatic rollback never ran. Now `/health` answers 503 with `boot_schema: "failed"` and the update is not confirmed. If nothing had been applied yet, the watchdog rolls the code back as before. If a migration had already changed the database, the update is marked `needs_restore` and nothing is rolled back automatically: restore the pre-update database backup together with the previous code. `/health` also reports `data_version`, and a code update is refused while a data update is still pending.
+
+    Wire contract: `WC-2026-10-30-health-boot-facts`.
+
+- **Patch releases are offered when the data version did not change.**
+
+    The list of available code updates is now worked out from the installed release (for example 7.0.2), not only from its data version. A patch release that did not change the data version was not offered before.
+
+- **The test ontology is no longer shipped or offered to installations.**
+
+    The ontology files shipped with the code no longer include the `test` TLD, which belongs to the test suite. The installer also stops offering it when an ontology source contains it.
 
 - **After login, users open on the default section set in their user record.**
 
@@ -388,6 +482,14 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Database migrations are frozen by content hash.**
+
+    Each schema migration is now recorded together with the hash of the exact file that ran. If an applied migration file is changed later, the server refuses to migrate and says which file differs. The fix is to restore the file and ship the change as a new migration. Every migration file is listed in `install/db/migrations.lock.json` with its hash, its class and its release. The class is `compatible` (the previous code still runs on the new schema) or `incompatible`. A migration is `compatible` only when it is provably additive, such as an index, a new table or a nullable column. An `incompatible` migration can only ship in a minor release.
+
+- **A release tag needs its catalog entry and its seed.**
+
+    Pushing a release tag is refused unless the tagged commit lists the release in `install/update/catalog.json` and carries an install seed compiled for the commit's data version. Without the catalog entry, no master would ever offer the release.
+
 - **Four read-path comparison tests now expect the current ontology definitions.**
 
     After the ontology refresh, four tests that compare the engine with frozen answers saw definition changes made on the master ontology: a section tool's "coins" role points at the portal again instead of an alias, the mint section is called "Ceca", and two more components are now cloned into the test ontology. Each test keeps the old frozen value and checks the new one explicitly.
@@ -436,7 +538,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 18 entries"
+??? note "Wire contract — 27 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -456,6 +558,15 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-29-ai-capabilities-page-globals`
     - `WC-2026-10-29-area-declared-hierarchy-types`
     - `WC-2026-10-29-start-user-default-section`
+    - `WC-2026-10-30-health-boot-facts`
+    - `WC-2026-10-30-maintenance-door-classes`
+    - `WC-2026-10-30-ontology-file-digests`
+    - `WC-2026-10-30-ontology-import-census-restore`
+    - `WC-2026-10-30-restore-point-release-identity`
+    - `WC-2026-10-30-tools-registry-import-switch-retired`
+    - `WC-2026-10-30-update-door-refusals`
+    - `WC-2026-10-30-update-run`
+    - `WC-2026-10-30-update-sources-server-held`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

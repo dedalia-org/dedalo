@@ -72,9 +72,13 @@
  * A full-heap index build on a shared table belongs there — pre-listen it kept
  * the socket closed past the systemd watchdog (migration_shared_row_tripwire).
  *
- * Evolving a TS-owned table = append a new numbered .sql here. Never edit an
- * applied file (the version table records names, not hashes — editing history
- * silently diverges installs).
+ * Evolving a TS-owned table = append a new numbered .sql here AND ledger it in
+ * install/db/migrations.lock.json (sha256, class, release — migration_ledger.ts).
+ * Never edit an applied file: the version table records each file's sha256 (U-23,
+ * 2026-10-30), so an edited file REFUSES the run on every install that ran the
+ * old bytes, and the in-repo ledger refuses it before it is ever applied
+ * (migration_content_hash_tripwire). Rows recorded before the hash column are
+ * backfilled with the file's hash once, then verified like any other.
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -84,6 +88,13 @@ import {
 	ensureRecordGenerationTable,
 	ensureTmRoleColumn,
 } from '../../src/core/db/record_generation.ts';
+import { compareVersionArrays, parseVersionString } from '../../src/core/update/version.ts';
+import {
+	ledgerMismatch,
+	type MigrationLedger,
+	migrationSha256,
+	readMigrationLedger,
+} from './migration_ledger.ts';
 import {
 	isOnlineMigration,
 	type OnlineStatement,
@@ -120,6 +131,15 @@ export interface MigrationRunResult {
 	skipped: number;
 	/** Pending ONLINE files left for runOnlineMigrations (boot run only). */
 	deferred?: string[];
+}
+
+/**
+ * The SHIPPED migration files, as the runner sees them (MIGRATION_FILE_PATTERN,
+ * filename order) — the one enumeration a gate reads (migration_content_hash),
+ * so the ledger is checked against exactly what boot applies, never a copy.
+ */
+export function shippedMigrationFiles(): string[] {
+	return migrationFiles(MIGRATIONS_DIR);
 }
 
 /** The migration files of `dir`, in filename order. */
@@ -159,8 +179,12 @@ export async function pendingMigrations(
 	};
 }
 
-/** Create the version table if needed; return the recorded filenames. */
-async function recordedVersions(versionTable: string): Promise<Set<string>> {
+/**
+ * Create the version table if needed (with the U-23 `sha256` + `release`
+ * columns, added in place on an older table); return the recorded filenames
+ * with the hash each ran (null for a row recorded before the column existed).
+ */
+async function recordedVersions(versionTable: string): Promise<Map<string, string | null>> {
 	if (!TABLE_NAME_PATTERN.test(versionTable)) {
 		throw new Error(`runMigrations: invalid version table name '${versionTable}'`);
 	}
@@ -171,10 +195,87 @@ async function recordedVersions(versionTable: string): Promise<Set<string>> {
 		)`,
 		[],
 	);
-	const rows = (await sql.unsafe(`SELECT version FROM "${versionTable}"`, [])) as {
+	await addLedgerColumns(versionTable);
+	const rows = (await sql.unsafe(`SELECT version, sha256 FROM "${versionTable}"`, [])) as {
 		version: string;
+		sha256: string | null;
 	}[];
-	return new Set(rows.map((row) => row.version));
+	return new Map(rows.map((row) => [row.version, row.sha256]));
+}
+
+/**
+ * Add the U-23 columns to an older version table — ONLY when one is missing.
+ * (!) `ADD COLUMN IF NOT EXISTS` takes ACCESS EXCLUSIVE BEFORE it checks, so
+ * running it on every boot queued the boot behind any reader of the table (a
+ * detached pg_dump holds ACCESS SHARE for its whole run) until the statement
+ * timeout failed the boot. The catalog read takes no table lock; the one-time
+ * ALTER that remains waits at most `lock_timeout`, then fails loudly.
+ */
+async function addLedgerColumns(versionTable: string): Promise<void> {
+	const present = (await sql.unsafe(
+		`SELECT column_name FROM information_schema.columns
+		  WHERE table_schema = current_schema() AND table_name = $1 AND column_name IN ('sha256', 'release')`,
+		[versionTable],
+	)) as { column_name: string }[];
+	if (present.length === 2) return;
+	await withTransaction(async () => {
+		await sql.unsafe(`SET LOCAL lock_timeout = '${MIGRATION_LOCK_TIMEOUT}'`, []);
+		await sql.unsafe(
+			`ALTER TABLE "${versionTable}" ADD COLUMN IF NOT EXISTS sha256 text, ADD COLUMN IF NOT EXISTS release text`,
+			[],
+		);
+	});
+}
+
+/**
+ * The ledger a run verifies against: the shipped one for the shipped directory,
+ * none for a test's scratch directory unless it passes its own.
+ */
+async function ledgerFor(
+	dir: string,
+	ledger: MigrationLedger | null | undefined,
+): Promise<MigrationLedger | null> {
+	if (ledger !== undefined) return ledger;
+	return dir === MIGRATIONS_DIR ? readMigrationLedger() : null;
+}
+
+/**
+ * Read one migration file and prove it is the file the ledger froze AND the
+ * file this database ran (when it ran one). Throws naming the file — a
+ * divergent history is never applied over, nor silently skipped.
+ */
+async function verifiedMigration(
+	dir: string,
+	file: string,
+	recorded: Map<string, string | null>,
+	ledger: MigrationLedger | null,
+	versionTable: string,
+): Promise<{ content: string; sha256: string }> {
+	const content = await Bun.file(join(dir, file)).text();
+	const mismatch = ledger === null ? null : ledgerMismatch(file, content, ledger);
+	if (mismatch !== null) throw new Error(`[migrations] REFUSED: ${mismatch}`);
+	const sha256 = migrationSha256(content);
+	const ran = recorded.get(file);
+	if (ran !== undefined && ran !== null && ran !== sha256) {
+		throw new Error(
+			`[migrations] REFUSED: ${file} was applied here as ${ran.slice(0, 12)}… but the file is now ${sha256.slice(0, 12)}… — an applied migration was edited; restore the file and ship the change as a new migration`,
+		);
+	}
+	if (ran === null) await backfillHash(versionTable, file, sha256, ledger);
+	return { content, sha256 };
+}
+
+/** A row recorded before the hash column: stamp the hash it is verified by from now on. */
+async function backfillHash(
+	versionTable: string,
+	file: string,
+	sha256: string,
+	ledger: MigrationLedger | null,
+): Promise<void> {
+	await sql.unsafe(
+		`UPDATE "${versionTable}" SET sha256 = $2, release = COALESCE(release, $3) WHERE version = $1 AND sha256 IS NULL`,
+		[file, sha256, ledger?.migrations[file]?.release ?? null],
+	);
 }
 
 /**
@@ -187,6 +288,16 @@ export async function runMigrations(options?: {
 	versionTable?: string;
 	/** Override MIGRATION_LOCK_RETRY_DELAYS_MS (tests: short delays). */
 	lockRetryDelaysMs?: readonly number[];
+	/** The frozen ledger to verify against (default: the shipped one for the shipped dir). */
+	ledger?: MigrationLedger | null;
+	/**
+	 * An update run's schema phase (run/production.ts): apply only the files the
+	 * ledger assigns to this release or an earlier one, STOPPING at the first file
+	 * of a later release — that file belongs to its own release's phase, which may
+	 * come after an ontology step, and rollback.ts judges a phase by its own
+	 * release's compat (drill 2026-10-30, B2). Absent (the boot): every pending file.
+	 */
+	throughRelease?: string;
 }): Promise<MigrationRunResult> {
 	const dir = options?.dir ?? MIGRATIONS_DIR;
 	const versionTable = options?.versionTable ?? MIGRATIONS_VERSION_TABLE;
@@ -196,30 +307,43 @@ export async function runMigrations(options?: {
 	const files = migrationFiles(dir);
 	if (files.length === 0) return { applied: [], skipped: 0, deferred: [] };
 	const alreadyApplied = await recordedVersions(versionTable);
+	const ledger = await ledgerFor(dir, options?.ledger);
 
 	const applied: string[] = [];
 	const deferred: string[] = [];
 	let skipped = 0;
 	for (const file of files) {
+		if (beyondRelease(ledger?.migrations[file]?.release ?? null, options?.throughRelease)) break;
+		const verified = await verifiedMigration(dir, file, alreadyApplied, ledger, versionTable);
 		if (alreadyApplied.has(file)) {
 			skipped += 1;
 			continue;
 		}
-		const content = await Bun.file(join(dir, file)).text();
-		if (isOnlineMigration(content)) {
+		if (isOnlineMigration(verified.content)) {
 			// Post-listen (runOnlineMigrations) — never a pre-listen heap scan.
 			deferred.push(file);
 			continue;
 		}
+		const record: MigrationRecord = {
+			file,
+			sha256: verified.sha256,
+			release: ledger?.migrations[file]?.release ?? null,
+		};
 		await applyWithLockRetry(
 			file,
-			() => applyMigration(content, file, versionTable),
+			() => applyMigration(verified.content, record, versionTable),
 			options?.lockRetryDelaysMs ?? MIGRATION_LOCK_RETRY_DELAYS_MS,
 		);
 		applied.push(file);
 		console.log(`[migrations] applied ${file}`);
 	}
 	return { applied, skipped, deferred };
+}
+
+/** Whether a file shipped by `release` lies past the phase's bound (a file the ledger does not date never does). */
+function beyondRelease(release: string | null, bound: string | undefined): boolean {
+	if (bound === undefined || release === null) return false;
+	return compareVersionArrays(parseVersionString(release), parseVersionString(bound)) > 0;
 }
 
 /**
@@ -235,13 +359,27 @@ export async function runMigrations(options?: {
  * index build is NOT such a statement: it runs post-listen as an ONLINE file —
  * unbounded here, it held the socket closed past the systemd watchdog.) LOCAL: the pooled connection keeps its request ceiling after COMMIT.
  */
-async function applyMigration(content: string, file: string, versionTable: string): Promise<void> {
+async function applyMigration(
+	content: string,
+	record: MigrationRecord,
+	versionTable: string,
+): Promise<void> {
 	await withTransaction(async () => {
 		await sql.unsafe(`SET LOCAL lock_timeout = '${MIGRATION_LOCK_TIMEOUT}'`, []);
 		await sql.unsafe('SET LOCAL statement_timeout = 0', []);
 		await sql.unsafe(content, []);
-		await sql.unsafe(`INSERT INTO "${versionTable}" (version) VALUES ($1)`, [file]);
+		await sql.unsafe(
+			`INSERT INTO "${versionTable}" (version, sha256, release) VALUES ($1, $2, $3)`,
+			[record.file, record.sha256, record.release],
+		);
 	});
+}
+
+/** What a version row records: the file, the bytes it ran, the release that shipped it. */
+interface MigrationRecord {
+	file: string;
+	sha256: string;
+	release: string | null;
 }
 
 /**
@@ -296,6 +434,7 @@ const ONLINE_MIGRATION_LOCK_KEY = 7_020_926_001;
 export function runOnlineMigrations(options?: {
 	dir?: string;
 	versionTable?: string;
+	ledger?: MigrationLedger | null;
 }): Promise<MigrationRunResult> {
 	const run: OnlineRun = { pid: null, stopping: false, done: Promise.resolve() };
 	const result = runOnlineMigrationsAs(run, options);
@@ -357,17 +496,22 @@ export async function stopOnlineMigrations(timeoutMs = 5_000): Promise<void> {
 
 async function runOnlineMigrationsAs(
 	run: OnlineRun,
-	options?: { dir?: string; versionTable?: string },
+	options?: { dir?: string; versionTable?: string; ledger?: MigrationLedger | null },
 ): Promise<MigrationRunResult> {
 	const dir = options?.dir ?? MIGRATIONS_DIR;
 	const versionTable = options?.versionTable ?? MIGRATIONS_VERSION_TABLE;
 	const recorded = await recordedVersions(versionTable);
-	const pending: { file: string; statements: OnlineStatement[] }[] = [];
+	const ledger = await ledgerFor(dir, options?.ledger);
+	const pending: { record: MigrationRecord; statements: OnlineStatement[] }[] = [];
 	for (const file of migrationFiles(dir)) {
 		if (recorded.has(file)) continue;
-		const content = await Bun.file(join(dir, file)).text();
+		const { content, sha256 } = await verifiedMigration(dir, file, recorded, ledger, versionTable);
 		if (isOnlineMigration(content)) {
-			pending.push({ file, statements: parseOnlineMigration(file, content) });
+			const release = ledger?.migrations[file]?.release ?? null;
+			pending.push({
+				record: { file, sha256, release },
+				statements: parseOnlineMigration(file, content),
+			});
 		}
 	}
 	if (pending.length === 0) return { applied: [], skipped: recorded.size };
@@ -388,15 +532,16 @@ async function runOnlineMigrationsAs(
 		try {
 			await reserved.unsafe('SET statement_timeout = 0', []);
 			await reserved.unsafe('SET lock_timeout = 0', []);
-			for (const { file, statements } of pending) {
+			for (const { record, statements } of pending) {
+				const { file } = record;
 				for (const statement of statements) {
 					if (run.stopping) throw new OnlineRunStopped(`online run stopped before ${file}`);
 					await runOnlineStatement(reserved, file, statement);
 				}
 				if (run.stopping) throw new OnlineRunStopped(`online run stopped before recording ${file}`);
 				await reserved.unsafe(
-					`INSERT INTO "${versionTable}" (version) VALUES ($1) ON CONFLICT (version) DO NOTHING`,
-					[file],
+					`INSERT INTO "${versionTable}" (version, sha256, release) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING`,
+					[file, record.sha256, record.release],
 				);
 				applied.push(file);
 				console.log(`[migrations] applied ${file} (online)`);
@@ -496,19 +641,53 @@ export function runBootMigrations(): Promise<MigrationRunResult> {
  * a data wipe, an observer mirror write), failed until then. Now the
  * in-transaction fail-closed path covers only a heal that ALSO failed at boot.
  *
- * `migrate` / `tmTable` are injectable for the gate (a scratch table, a run
- * that fails); production passes neither.
+ * THE VERDICT (update audit 2026-10-29, U-01). The server still serves after a
+ * failed run, but the failure is no longer only a log line: the verdict is
+ * returned, /health goes red on it, and a pending code update is never
+ * confirmed by a tree whose schema did not land (src/core/update/boot_state.ts,
+ * boot_confirm.ts). `schemaMoved` says whether this run changed the schema at
+ * all before it failed — the line between "the old tree can take over" and "a
+ * human must restore" (owner rule D-2). `null` = it could not be determined.
+ *
+ * `migrate` / `tmTable` / `pending` are injectable for the gate (a scratch
+ * table, a run that fails, the pending census); production passes none.
  */
 export async function runBootSchema(
-	options: { migrate?: () => Promise<unknown>; tmTable?: string } = {},
-): Promise<void> {
+	options: {
+		migrate?: () => Promise<unknown>;
+		tmTable?: string;
+		pending?: () => Promise<{ pending: string[] }>;
+	} = {},
+): Promise<BootSchemaVerdict> {
+	const pendingOf = options.pending ?? (() => pendingMigrations());
+	const before = await pendingFilesOrNull(pendingOf);
+	let verdict: BootSchemaVerdict;
 	try {
-		await (options.migrate ?? runBootMigrations)();
+		const result = await (options.migrate ?? runBootMigrations)();
+		const run = isMigrationRunResult(result) ? result : null;
+		const applied = run?.applied ?? [];
+		verdict = {
+			state: 'ok',
+			applied,
+			deferred: run?.deferred ?? [],
+			schemaMoved: run === null ? null : applied.length > 0,
+			error: null,
+		};
 	} catch (error) {
 		console.error(
-			'[migrations] boot migration run failed (continuing with lazy bootstraps):',
+			'[migrations] boot migration run FAILED — /health reports it and a pending code update stays unconfirmed:',
 			error,
 		);
+		const after = await pendingFilesOrNull(pendingOf);
+		const applied =
+			before === null || after === null ? [] : before.filter((file) => !after.includes(file));
+		verdict = {
+			state: 'failed',
+			applied,
+			deferred: [],
+			schemaMoved: before === null || after === null ? null : applied.length > 0,
+			error: error instanceof Error ? error.message : String(error),
+		};
 	}
 	try {
 		await ensureRecordGenerationTable();
@@ -516,4 +695,38 @@ export async function runBootSchema(
 	} catch (error) {
 		console.error('[migrations] tm_role heal failed at boot (history doors fail closed):', error);
 	}
+	return verdict;
+}
+
+/** The outcome of one boot migration run (runBootSchema). */
+export interface BootSchemaVerdict {
+	state: 'ok' | 'failed';
+	/** Files this run applied (on failure: the ones that landed before it). */
+	applied: string[];
+	/** ONLINE files left for the post-listen lane. */
+	deferred: string[];
+	/** Whether this run changed the schema; null = unknown. */
+	schemaMoved: boolean | null;
+	/** The failure message, null on success. */
+	error: string | null;
+}
+
+/** The pending files, or null when the census itself cannot be read. */
+async function pendingFilesOrNull(
+	pendingOf: () => Promise<{ pending: string[] }>,
+): Promise<string[] | null> {
+	try {
+		return (await pendingOf()).pending;
+	} catch {
+		return null;
+	}
+}
+
+/** A migrate seam may return anything; only a real run result carries `applied`. */
+function isMigrationRunResult(value: unknown): value is MigrationRunResult {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		Array.isArray((value as { applied?: unknown }).applied)
+	);
 }

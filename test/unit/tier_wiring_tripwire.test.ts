@@ -245,12 +245,9 @@ const SELF_HOSTED_ONLY: ReadonlyMap<string, string> = new Map([
  * SHRINK-ONLY. A parked workflow whose steps are not GATES and so have no hosted twin
  * to demand.
  */
-const EXEMPT_SELFHOSTED_WORKFLOWS: ReadonlyMap<string, string> = new Map([
-	[
-		'.github/workflows-selfhosted/deploy.yml',
-		'A DEPLOY, not a gate: it is PARKED until a target host exists (engineering/CI.md §Deploy), its only run: payloads are the loud PARKED guard and deploy/deploy.sh over SSH with a repository secret, and neither proves anything about the code. A hosted twin would be a deploy from a fork PR.',
-	],
-]);
+// The parked deploy.yml (deploy/deploy.sh over SSH) was its only row; retired
+// 2026-10-30 with that channel (update audit 2026-10-29 U-34).
+const EXEMPT_SELFHOSTED_WORKFLOWS: ReadonlyMap<string, string> = new Map([]);
 
 /** The `run:` payloads of a workflow: single-line `run: cmd` and `run: |` blocks. */
 function runPayloads(text: string): string[] {

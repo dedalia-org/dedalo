@@ -788,7 +788,7 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_GEOIP_DB_URL',
 	// tools
 	'DEDALO_ADDITIONAL_TOOLS',
-	'TOOLS_ENABLE_REGISTRY_IMPORT',
+	// TOOLS_ENABLE_REGISTRY_IMPORT retired 2026-10-30 (U-39): no v7 consumer.
 	'TOOLS_REGISTRY_CACHE_TTL_MS',
 	// site builder (the standalone publication/site_builder daemon)
 	'DEDALO_SITE_BUILDER_URL',
@@ -829,6 +829,8 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_INSTALL_RELEASE_IDENTITY',
 	// The developer route's trust-store seam (2026-10-17): v6 installed no certificate authority. New in v7.
 	'DEDALO_TEST_TRUST_STORE_OFF',
+	// The update probe's plain-http LAN master seam (2026-10-30, U-24 https-only masters). New in v7.
+	'DEDALO_UPDATE_HTTP_SOURCES_DEV',
 	// diffusion (the native engine)
 	'DEDALO_DIFFUSION_NATIVE',
 	'DEDALO_DIFFUSION_NATIVE_ELEMENTS',

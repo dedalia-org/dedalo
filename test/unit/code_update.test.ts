@@ -42,6 +42,7 @@ import { resolvePgRestore } from '../../src/core/area_maintenance/backup.ts';
 import { setServerState } from '../../src/core/resolve/server_state.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { confirmBootedCodeUpdate } from '../../src/core/update/boot_confirm.ts';
+import { DEDALO_ENGINE_VERSION } from '../../src/core/update/build_stamp.ts';
 import { UPDATE_CATALOG } from '../../src/core/update/catalog.ts';
 import { buildCodeUpdateInfo, linearUpgradeTargets } from '../../src/core/update/code_manifest.ts';
 import { restoreCode } from '../../src/core/update/code_restore.ts';
@@ -92,6 +93,9 @@ const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: tru
 
 const ROOT = scratchDir('code_update');
 let zipAvailable = false;
+/** The same probe, synchronous, for test.skipIf (which reads it when the test is defined). */
+const ZIP_AT_DEFINITION =
+	Bun.spawnSync(['zip', '--version'], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
 
 beforeAll(async () => {
 	mkdirSync(ROOT, { recursive: true });
@@ -213,6 +217,14 @@ function pipelineSeams(overrides: Partial<CodeUpdateSeams> = {}): CodeUpdateSeam
 		smokeBoot: async () => {},
 		channel: 'tree_swap',
 		databaseBackupDir: SCRATCH_DB_BACKUP_DIR,
+		// PINNED (U-04): the data-version gate reads matrix_updates by default —
+		// no verdict here may move with whatever version the ambient suite DB holds.
+		installedDataVersion: async () => [...DEDALO_DATA_VERSION],
+		// U-41: the master's own manifest offers exactly the requested archive —
+		// these cases test the swap; the pin has its own (code_manifest_pin_native).
+		readCodeManifest: async (_master, _channel, requested) => [
+			{ version: '', date: '', url: requested.url, sha256: requested.declaredSha },
+		],
 		...overrides,
 	};
 }
@@ -611,6 +623,64 @@ describe('full swap chain against a synthetic release (mocked gate, temp tree)',
 			unmockUpdateEnv();
 		}
 	}, 60000);
+
+	// Probed at definition time so a zip-less machine SKIPS by name, never a silent pass.
+	test.skipIf(!ZIP_AT_DEFINITION)(
+		'a PENDING data version refuses before anything is fetched: no swap, no sentinel, no restart (U-04) [skipped without a zip binary]',
+		async () => {
+			// A VALID release (real zip, its true sha): the data-version gate is the
+			// only thing between this request and a completed swap — delete the
+			// requireDataVersionCurrent call in parseUpdateRequest and this case reds
+			// (the run fetches, swaps, writes the sentinel and restarts).
+			const base = join(ROOT, 'data_version_pending');
+			const zipPath = await buildReleaseZip(base);
+			const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
+			let fetched = 0;
+			const server = Bun.serve({
+				port: 0,
+				fetch: () => {
+					fetched += 1;
+					return new Response(readFileSync(zipPath));
+				},
+			});
+			const origin = `http://localhost:${server.port}`;
+			const targetRoot = join(base, 'live');
+			buildLiveTree(targetRoot);
+			const before = treeDigest(targetRoot);
+			const backupRoot = join(base, 'backups');
+			let restarted = false;
+			try {
+				mockUpdateEnv(origin);
+				const refusal = await refusalOf(
+					updateCode(
+						{
+							file: { version: '7.0.1', url: `${origin}/7.0.1.zip`, sha256: sha },
+							waive_backup: true,
+						},
+						SUPERUSER,
+						pipelineSeams({
+							targetRoot,
+							backupRoot,
+							installedDataVersion: async () => [6, 9, 0],
+							restart: () => {
+								restarted = true;
+							},
+						}),
+					),
+				);
+				expect(refusal.code).toBe('update.refused');
+				expect(refusal.coordinates?.rule).toBe('data_version_pending');
+				expect(fetched).toBe(0);
+				expect(restarted).toBe(false);
+				expect(treeDigest(targetRoot)).toBe(before);
+				expect(existsSync(join(backupRoot, 'last_code_update.json'))).toBe(false);
+			} finally {
+				server.stop(true);
+				unmockUpdateEnv();
+			}
+		},
+		60000,
+	);
 
 	test('a FULL DISK refuses before anything is fetched (the space gate precedes the download)', async () => {
 		// 2026-08-25: a remote install downloaded, verified and extracted a
@@ -1261,6 +1331,53 @@ describe('boot_confirm (the sentinel second half)', () => {
 	});
 });
 
+describe('boot_confirm with no digest compares RELEASE IDENTITIES (U-07)', () => {
+	function identitySentinel(dir: string, version: string): Record<string, unknown> {
+		return {
+			version,
+			previousVersion: '7.0.0-beta.7',
+			updateMode: 'clean',
+			stamp: '2026-10-30T10-00-00',
+			backupDir: dir,
+			status: 'pending',
+			rollback_attempted: false,
+		};
+	}
+
+	test('a matching identity confirms; another identity of the SAME data triple is a mismatch', async () => {
+		const dir = join(ROOT, 'confirm_identity');
+		mkdirSync(dir, { recursive: true });
+		const sentinelPath = join(dir, 'last_code_update.json');
+
+		// the restored beta.5 booted: confirmed
+		writeFileSync(sentinelPath, JSON.stringify(identitySentinel(dir, '7.0.0-beta.5')));
+		await confirmBootedCodeUpdate(sentinelPath, '7.0.0-beta.5', null);
+		expect(JSON.parse(readFileSync(sentinelPath, 'utf8')).status).toBe('confirmed');
+
+		// the OUTGOING beta.7 booted again (rollback / half-applied swap): both
+		// declare data triple 7.0.0, which the old compare confirmed — now loud.
+		writeFileSync(sentinelPath, JSON.stringify(identitySentinel(dir, '7.0.0-beta.5')));
+		await confirmBootedCodeUpdate(sentinelPath, '7.0.0-beta.7', null);
+		expect(JSON.parse(readFileSync(sentinelPath, 'utf8')).status).toBe('pending');
+	});
+
+	test('the DEFAULT running version is this tree’s release identity, not its data triple', async () => {
+		const dir = join(ROOT, 'confirm_identity_default');
+		mkdirSync(dir, { recursive: true });
+		const sentinelPath = join(dir, 'last_code_update.json');
+		writeFileSync(sentinelPath, JSON.stringify(identitySentinel(dir, DEDALO_ENGINE_VERSION)));
+		await confirmBootedCodeUpdate(sentinelPath);
+		expect(JSON.parse(readFileSync(sentinelPath, 'utf8')).status).toBe('confirmed');
+
+		// Where the two differ (a prerelease or dev checkout), the data triple is NOT this tree's name.
+		const triple = DEDALO_DATA_VERSION.join('.');
+		if (triple === DEDALO_ENGINE_VERSION) return;
+		writeFileSync(sentinelPath, JSON.stringify(identitySentinel(dir, triple)));
+		await confirmBootedCodeUpdate(sentinelPath);
+		expect(JSON.parse(readFileSync(sentinelPath, 'utf8')).status).toBe('pending');
+	});
+});
+
 // ---------------------------------------------------------------------------
 // The EXCLUSIVE RUN LOCK — the pipeline's single-flight invariant.
 // Before it, two concurrent updates shared one `<backupRoot>/.code_staging`
@@ -1538,15 +1655,18 @@ describe('full swap chain on the DEV CHANNEL (same version)', () => {
 				readFileSync(join(backupRoot, 'last_code_update.json'), 'utf8'),
 			) as Record<string, unknown>;
 			expect(sentinel.installDigest).toBe(sha);
-			expect(sentinel.version).toBe(version);
-			// the previous tree's DATA version (code_update.ts previousVersion)
-			expect(sentinel.previousVersion).toBe(DEDALO_DATA_VERSION.join('.'));
+			// Both ends are RELEASE IDENTITIES (U-07): what the new tree calls itself
+			// (refuseForeignQuarantine proved it) and what the replaced tree ran —
+			// never the data triple every build of 7.0.0 shares.
+			expect(sentinel.version).toBe(`${version}-dev`);
+			expect(sentinel.previousVersion).toBe(`${version}-dev`);
 
-			// THE RESTORE POINT is identifiable: same version every iteration, so
-			// the name carries the digest of the tree it holds.
+			// THE RESTORE POINT is identifiable: named after the running IDENTITY
+			// and, the identity being the same every dev iteration, the digest of
+			// the tree it holds.
 			const backups = readdirSync(backupRoot).filter((n) => n.startsWith('dedalo_'));
 			expect(backups.length).toBe(1);
-			expect(backups[0]).toContain(`_${previousDigest.slice(0, 7)}_`);
+			expect(backups[0]).toStartWith(`dedalo_${version}-dev_${previousDigest.slice(0, 7)}_`);
 		} finally {
 			server.stop(true);
 			unmockUpdateEnv();

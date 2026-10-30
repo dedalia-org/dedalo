@@ -61,14 +61,16 @@ import { DEFAULTS_KEYS } from '../../src/config/catalog/defaults.ts';
 import { copyBlockRecords, copyBlocks, splitCopyRow } from '../../src/core/db/copy_text.ts';
 import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
 import { CORE_HIERARCHIES } from '../../src/core/install/hierarchy_meta.ts';
+import { manifestCatalog } from '../../src/core/install/ontology_catalog.ts';
 import { SEED_DUMP_PATH } from '../../src/core/install/paths.ts';
+import { releaseDataFiles } from '../../src/core/install/release_files.ts';
 import { type ReleaseOntology, releaseDependencies } from '../../src/core/install/seed_build.ts';
 import {
 	ONTOLOGY_RELEASE_DIR,
 	SEED_ONTOLOGY_TLDS,
 	SEED_REGISTRY_PATH,
 } from '../../src/core/install/seed_sources.ts';
-import { CORE_ONTOLOGY_TLDS } from '../../src/core/ontology/core_tlds.ts';
+import { CORE_ONTOLOGY_TLDS, isTestFixtureTld } from '../../src/core/ontology/core_tlds.ts';
 import {
 	HIERARCHY_MANIFEST_FILE,
 	hierarchyDataFileNames,
@@ -331,5 +333,57 @@ describe('install seed dump — core registry rows carry the release declaration
 			const expected = releaseDependencies(entry as ReleaseOntology);
 			expect(declared.get(tld) ?? null, `${tld} hierarchy60`).toEqual(expected);
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The vendored ontology release carries no SUITE fixture (update audit
+// 2026-10-29, Phase 0.7). Project law: an installation receives no test fixture
+// (no `test` TLD, no zz* scratch TLD). The release is a hand copy of a master's
+// export, and a master that has `test` registered exports it — so the release
+// is held here, and the installer catalog drops a fixture any source offers.
+// ---------------------------------------------------------------------------
+
+/** The suite's TLDs: the `test` fixture and the zz* scratch TLDs (never in a release). */
+const isSuiteTld = (tld: string) => isTestFixtureTld(tld) || /^zz[a-z]*$/.test(tld);
+
+describe('the vendored ontology release carries no suite fixture', () => {
+	const releaseFiles = releaseDataFiles();
+
+	test('the census reads a real release (a zero-length pass is not a pass)', () => {
+		expect(releaseFiles.length).toBeGreaterThan(100);
+		expect(releaseEntries.length).toBeGreaterThan(100);
+	});
+
+	test('no test / zz* data file, and no such entry in ontology.json', () => {
+		const fixtureFiles = releaseFiles.filter((name) => isSuiteTld(name.replace(/\.copy\.gz$/, '')));
+		const fixtureEntries = releaseEntries.map((entry) => entry.tld).filter(isSuiteTld);
+		expect(fixtureFiles, 'remove the file and re-run bun run seed:build').toEqual([]);
+		expect(fixtureEntries, 'remove the entry and re-run bun run seed:build').toEqual([]);
+	});
+
+	test('the installer catalog drops the test TLD a source offers, and says so (planted)', () => {
+		const ontology = (tld: string) => ({
+			tld,
+			name: tld,
+			name_data: null,
+			typology_id: 5,
+			typology_name: null,
+			dependencies: null,
+			url: `file:///release/${tld}.copy.gz`,
+		});
+		const catalog = manifestCatalog(
+			{
+				ok: true,
+				version: '7.0.0',
+				ontologies: [ontology('oh'), ontology('test'), ontology('mdcat')],
+				matrixDdUrl: null,
+				warnings: [],
+			},
+			{ kind: 'local', path: '/release' },
+			'local',
+		);
+		expect(catalog.entries.map((entry) => entry.tld)).toEqual(['oh', 'mdcat']);
+		expect(catalog.warnings.join(' ')).toContain('never installed): test');
 	});
 });
