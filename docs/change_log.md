@@ -95,6 +95,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Portals without a configured page size show their paginator again.**
+
+    A portal in an edit form whose ontology declares no page size showed only its first 10 records, with no paginator to reach the rest. It now pages at the installation's default rows per page (`DEDALO_MAX_ROWS_PER_PAGE`, 10 unless changed) and shows the paginator when there are more records.
+
+    Wire contract: `WC-2026-10-30-request-config-default-page-size`.
+
 - **Search panel no longer forced tall by the fields list**
 
     The Fields, Type and Preset columns of the search panel now take the height of their content (up to half the screen, scrolling past that) instead of always reserving half the screen.
@@ -600,7 +606,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 28 entries"
+??? note "Wire contract — 29 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -625,6 +631,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-30-maintenance-door-classes`
     - `WC-2026-10-30-ontology-file-digests`
     - `WC-2026-10-30-ontology-import-census-restore`
+    - `WC-2026-10-30-request-config-default-page-size`
     - `WC-2026-10-30-restore-point-release-identity`
     - `WC-2026-10-30-tools-registry-import-switch-retired`
     - `WC-2026-10-30-update-door-refusals`

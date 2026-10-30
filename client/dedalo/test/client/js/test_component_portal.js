@@ -303,6 +303,39 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 
 			await instance.destroy(true, true, true)
 		})
+
+		// The server reports the page size it used in data.pagination.limit; a
+		// section ddo_map limit can differ from the context request_config one.
+		// The paginator divides by rqo.sqo.limit, so it must follow the server.
+		it(`${portal_model} rqo.sqo.limit follows data.pagination.limit`, async function() {
+
+			const source = await get_portal_instance('edit', 'default')
+			// a page size the context request_config does not declare
+			const server_limit = (source.rqo.sqo.limit || 0) + 3
+
+			const data = clone(source.data)
+			data.pagination = { total: server_limit * 2, limit: server_limit, offset: 0 }
+			const instance = await get_instance({
+				model			: portal_model,
+				tipo			: portal_tipo,
+				section_tipo	: portal_section,
+				section_id		: portal_section_id,
+				mode			: 'edit',
+				view			: 'default',
+				lang			: portal_lang,
+				id_variant		: 'pagination_limit_' + Math.random(),
+				context			: clone(source.context),
+				data			: data,
+				datum			: clone(source.datum)
+			})
+			await instance.build(false)
+
+			assert.equal(instance.rqo.sqo.limit, server_limit, 'rqo.sqo.limit must be the server page size')
+			assert.equal(instance.paginator.get_limit(), server_limit, 'the paginator must divide by it')
+
+			await instance.destroy(true, true, true)
+			await source.destroy(true, true, true)
+		})
 	})//end describe BUILD
 
 

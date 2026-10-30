@@ -17,6 +17,7 @@
  * ./implicit.ts. PHP oracle nomenclature: explicit ≡ v6, implicit ≡ v5.
  */
 
+import { config as dedaloConfig } from '../../../config/config.ts';
 import { selectRequestConfigStrategy } from '../../concepts/request_config.ts';
 import { isInTransaction, sql } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
@@ -141,7 +142,19 @@ export async function buildRequestConfigForElement(
 	// fall through to a rule it was introduced to replace (see the null-vs-[]
 	// contract on resolveTargetSourceFor).
 	const buildContext = await withModelDefaultTargets(context);
-	return buildStrategyRequestConfig(ownProperties, buildContext);
+	const config = await buildStrategyRequestConfig(ownProperties, buildContext);
+	// Default page size (PHP calculate_default_limit, component+edit): the client
+	// paginator reads sqo.limit ?? show.sqo_config.limit; with neither it pages by
+	// 0 → one page → no paginator. Fills silence only; a declared limit wins.
+	if (context.mode === 'edit' && !context.ownerIsSection) {
+		for (const item of config) {
+			const declared =
+				item.sqo.limit ??
+				(item.show as { sqo_config?: { limit?: unknown } } | null)?.sqo_config?.limit;
+			if (typeof declared !== 'number') item.sqo.limit = dedaloConfig.features.maxRowsPerPage;
+		}
+	}
+	return config;
 }
 
 /**

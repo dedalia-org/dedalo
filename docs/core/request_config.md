@@ -302,8 +302,12 @@ Both are resolved inside `buildExplicitRequestConfig()` (`explicit.ts`) whenever
 |--------|------|---------------|--------------|
 | section | edit | 1 | `section/read.ts` |
 | section | other (list, ...) | 10 | `section/read.ts` |
-| component | edit | 10 | `relations/relation_core.ts` `ownEditLimit() ?? 10` |
+| component | edit | `DEDALO_MAX_ROWS_PER_PAGE` (10) | `relations/request_config/build.ts` + `relations/relation_core.ts` `ownEditLimit() ?? maxRowsPerPage` |
 | component | other (list, ...) | 1 | `relations/relation_core.ts` `PORTAL_LIST_LIMIT` |
+
+### The component edit default is on the wire
+
+A component's edit-mode request_config that declares neither `sqo.limit` nor `show.sqo_config.limit` (every implicit config, and explicit ones without a limit) gets `sqo.limit = DEDALO_MAX_ROWS_PER_PAGE` stamped by `buildRequestConfigForElement()` (`relations/request_config/build.ts`). The client paginator divides by `rqo.sqo.limit`: without that stamp it computed one page and hid itself while the server paged the data. A component portal then takes the page size the server actually used from `data.pagination.limit` (`component_portal.js`), so a section ddo_map `limit` that differs from the config still pages correctly. Wire entry: `engineering/wire_contract/WC-2026-10-30-request-config-default-page-size.md`.
 
 ### Session override
 

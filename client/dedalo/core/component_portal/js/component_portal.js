@@ -923,6 +923,11 @@ component_portal.prototype.build = async function(autoload=false) {
 					self.total			= self.data.pagination.total
 					self.rqo.sqo.offset	= self.data.pagination.offset
 					self.rqo.sqo.total	= self.data.pagination.total
+					// The page size the server actually used (a section ddo_map limit can
+					// differ from the context request_config): the paginator divides by it.
+					if (typeof self.data.pagination.limit==='number') {
+						self.rqo.sqo.limit = self.data.pagination.limit
+					}
 				}
 
 			// paginator

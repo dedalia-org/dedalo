@@ -21,6 +21,7 @@
 // which keeps it out of the install-TLD census's `<tld><digits>` token grammar.
 
 import { describe, expect, test } from 'bun:test';
+import { config as dedaloConfig } from '../../src/config/config.ts';
 import { selectRequestConfigStrategy } from '../../src/core/concepts/request_config.ts';
 import { getNode } from '../../src/core/ontology/resolver.ts';
 import { buildRequestConfigForElement } from '../../src/core/relations/request_config/build.ts';
@@ -189,5 +190,28 @@ describe('buildImplicitSectionEditConfig — dead legacy models are not emitted'
 			.map((ddo) => ddo.model)
 			.filter((model) => model.startsWith('component_') && getComponentModel(model) === undefined);
 		expect(unimplemented).toEqual([]);
+	});
+});
+
+describe('default page size (buildRequestConfigForElement, PHP calculate_default_limit)', () => {
+	const pageSize = dedaloConfig.features.maxRowsPerPage;
+	const build = async (tipo: string, mode: string) =>
+		buildRequestConfigForElement((await getNode(tipo))?.properties ?? null, {
+			...editContext(tipo, 'test3'),
+			mode,
+		});
+
+	test('implicit (test6480) and limit-less explicit (test80) get it in edit only', async () => {
+		for (const tipo of ['test6480', 'test80']) {
+			expect((await build(tipo, 'edit'))[0]?.sqo.limit).toBe(pageSize);
+			expect((await build(tipo, 'list'))[0]?.sqo.limit).toBeUndefined();
+		}
+	});
+
+	test('a declared limit wins (test37 → 5)', async () => {
+		const [item] = await build('test37', 'edit');
+		expect(
+			item?.sqo.limit ?? (item?.show as { sqo_config?: { limit?: number } })?.sqo_config?.limit,
+		).toBe(5);
 	});
 });
