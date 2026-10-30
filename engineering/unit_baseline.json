@@ -599,6 +599,11 @@
 			"skipped": 0,
 			"assertions": 21
 		},
+		"test/unit/client_json_preview.test.ts": {
+			"tests": 1,
+			"skipped": 0,
+			"assertions": 30
+		},
 		"test/unit/client_keyboard_activation_tripwire.test.ts": {
 			"tests": 6,
 			"skipped": 0,
