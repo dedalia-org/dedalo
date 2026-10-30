@@ -8,7 +8,7 @@ import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { join } from 'node:path';
 import { encodeEnvValue, V6_MIGRATION } from '../../src/config/migration_map.ts';
 import { extractDefines } from '../../src/config/php_defines.ts';
-import { readPublicationApiUsers } from '../../src/config/readers.ts';
+import { readPublicationApiUsers, readPublicationApiV2Url } from '../../src/config/readers.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 
@@ -158,4 +158,40 @@ process.exit(0);`;
 			{ db_name: 'web_b', code: 'c2', api_ui: null },
 		]);
 	}, 60_000);
+});
+
+describe('readPublicationApiV2Url', () => {
+	const V2 = 'DEDALO_PUBLICATION_API_V2_URL';
+	const savedV2 = process.env[V2];
+	afterEach(() => {
+		if (savedV2 === undefined) delete process.env[V2];
+		else process.env[V2] = savedV2;
+	});
+	const readV2 = (value: string) => {
+		process.env[V2] = value;
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			return { url: readPublicationApiV2Url(V2), logged: errors.mock.calls.length };
+		} finally {
+			errors.mockRestore();
+		}
+	};
+
+	test('http(s) and root-relative pass, trailing slash dropped', () => {
+		expect(readV2('https://pub.example.org/publication/server_api/v2/')).toEqual({
+			url: 'https://pub.example.org/publication/server_api/v2',
+			logged: 0,
+		});
+		expect(readV2('/publication/server_api/v2')).toEqual({
+			url: '/publication/server_api/v2',
+			logged: 0,
+		});
+	});
+
+	test('unset/empty → null silently; unsafe → null loudly', () => {
+		expect(readV2('')).toEqual({ url: null, logged: 0 });
+		for (const bad of ['javascript:alert(1)', 'data:text/html,x', '//evil.example/', '/', '///']) {
+			expect(readV2(bad)).toEqual({ url: null, logged: 1 });
+		}
+	});
 });

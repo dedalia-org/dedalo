@@ -33,8 +33,8 @@ reported at boot. The v6 configuration migrator carries the v6 value across, lea
 out the empty entry a stock v6 configuration ships.
 
 Empty by default: no buttons are shown. The codes are only sent to global administrators,
-the only users who can open the maintenance area. The publication server API v2 is configured in its own \`.env\`,
-not here.
+the only users who can open the maintenance area. The publication server API v2 is configured in its own \`.env\`;
+its documentation button comes from \`DEDALO_PUBLICATION_API_V2_URL\`.
 
 \`\`\`bash
 API_WEB_USER_CODE_MULTIPLE=[{"db_name":"web_my_entity","code":"my_api_code"}]
@@ -306,6 +306,28 @@ the removal of a deleted record from the published tables, keeps working.
 
 \`\`\`bash
 DEDALO_DIFFUSION_SCHEDULER_ENABLED=false
+\`\`\``,
+	},
+	DEDALO_PUBLICATION_API_V2_URL: {
+		type: 'string',
+		scope: 'operator',
+		default: undefined,
+		heading: 'Publication server API v2 address',
+		typeLabel: 'string',
+		typeSuffix: '*optional*',
+		doc: `The address of the publication server API v2 (\`publication/server_api/v2\`), its
+\`BASE_PATH\` included — the same address a client of the API uses, e.g.
+\`https://pub.example.org/publication/server_api/v2\`. The maintenance dashboard
+(Publication → Publication server API) shows one "Open API v2 docs" button opening
+\`<address>/docs\`, the API's own interactive documentation (Swagger UI and Scalar).
+
+The v2 API is a separate application with its own \`.env\`; Dédalo does not serve it and
+does not probe it, so the button works only when that address answers. Only an
+\`http(s)://\` or a root-relative address is accepted; anything else is ignored and reported
+at boot. A trailing \`/\` is dropped. Unset by default: no v2 button is shown.
+
+\`\`\`bash
+DEDALO_PUBLICATION_API_V2_URL=https://pub.example.org/publication/server_api/v2
 \`\`\``,
 	},
 	DIFFUSION_ACTIVITY_TABLE: {

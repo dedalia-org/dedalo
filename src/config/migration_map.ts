@@ -839,6 +839,8 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_DIFFUSION_SCHEDULER_ENABLED',
 	'DEDALO_DIFFUSION_BATCH_ROWS',
 	'DEDALO_DIFFUSION_BATCH_RECORDS',
+	// the publication server API v2 docs launcher (2026-10-30): v6 had no v2 API. New in v7.
+	'DEDALO_PUBLICATION_API_V2_URL',
 	// reconcile registry scheduler (audit 2026-08-26 S-10)
 	'DEDALO_RECONCILE_SCHEDULER_ENABLED',
 	// retention registry + scheduler (audit 2026-08-26 P2-9)

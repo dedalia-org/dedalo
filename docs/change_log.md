@@ -382,6 +382,15 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The Publication server API panel can open the v2 API documentation.**
+
+    The "Open Swagger UI" buttons of Maintenance → Publication → Publication server API open the
+    legacy v1 documentation, a separate application Dédalo does not serve: on an installation whose web server
+    does not route `/dedalo/publication/` to it they answered "not found". A new optional setting,
+    `DEDALO_PUBLICATION_API_V2_URL` (the v2 API address, `BASE_PATH` included), adds an
+    "Open API v2 docs" button that opens the v2 API's own documentation page (`<address>/docs`).
+    The v1 buttons are unchanged.
+
 - **Profile permissions can be discarded before saving.**
 
     The permissions tree of a user profile now shows a Cancel button next to Save once a value changes. It asks for confirmation, then reloads the stored permissions, so a value changed by accident can be undone without saving it. Setting a value back to its saved level hides both buttons and the "Unsaved changes!" warning again.
