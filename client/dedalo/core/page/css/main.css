@@ -9829,6 +9829,20 @@ body:has(.component_av.view_viewer) {
 *
 * Included from main.less file
 */
+:root {
+  --menu_offset: 0px;
+}
+:root:has(.menu) {
+  --menu_offset: var(--menu_heigth);
+}
+:root:has(.menu.with_debug_info) {
+  --menu_offset: calc(var(--menu_heigth) * 2);
+}
+@media screen and (max-width: 1024px) {
+  :root:has(.menu.with_debug_info) {
+    --menu_offset: calc(var(--menu_heigth) + 1.7rem);
+  }
+}
 .menu {
   contain: layout;
   margin: 0px;
@@ -27529,6 +27543,28 @@ body.inspector_resizing {
   background-color: var(--color_hilite);
   border-radius: 4px 4px 0 0;
   transform: translateY(-100%);
+}
+.component_text_area.edit:not(.view_line) > .content_data {
+  overflow: visible;
+}
+.component_text_area.edit:not(.view_line) > .content_data > .content_value {
+  display: grid;
+}
+.component_text_area.edit:not(.view_line) > .content_data > .content_value > .toolbar_container,
+.component_text_area.edit:not(.view_line) > .content_data > .content_value > .editor_container {
+  grid-area: 1 / 1;
+}
+.component_text_area.edit:not(.view_line) > .content_data > .content_value > .toolbar_container {
+  position: sticky;
+  top: var(--menu_offset);
+  align-self: start;
+  margin-top: var(--text_area_toolbar_lift, calc(6px - var(--component_label_height)));
+}
+.component_text_area.edit.fullscreen:not(.view_line) > .content_data > .content_value > .toolbar_container {
+  top: 0;
+}
+.component_text_area.edit.active:not(.view_line) > .content_data > .content_value > .toolbar_container.hide:not(:empty) {
+  display: flex !important;
 }
 .component_text_area.edit.fullscreen .ck-content {
   width: calc(100vw - 3rem);

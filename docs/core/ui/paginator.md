@@ -83,7 +83,12 @@ The pagination model is the classic **limit / offset / total** triple. The
 source of truth for `limit` and `offset` is the **caller's SQO**
 (`caller.rqo.sqo`), not the paginator — the paginator only mirrors them onto its
 own `self.limit` / `self.offset` during `_update_pagination_props()`. `total`
-comes from the server `count` action.
+comes from the server `count` action. A component portal aligns its SQO with the
+server's page on build: it copies `total`, `offset` and `limit` from
+`data.pagination`, so the paginator divides by the page size the server used.
+Edit-mode component configs always carry a page size (the
+[request_config default](../request_config.md#the-component-edit-default-is-on-the-wire));
+a missing `limit` would collapse the paginator to a single, hidden page.
 
 | property | meaning | source |
 | --- | --- | --- |

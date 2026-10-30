@@ -9,6 +9,16 @@
 
 @menu_box_shadow: var(--shadow-3);
 
+// --menu_offset: the sticky menu's real height, for things that stick below it
+:root { --menu_offset: 0px; } // no menu (tool windows): stick to the top
+:root:has(.menu) { --menu_offset: var(--menu_heigth); }
+:root:has(.menu.with_debug_info) {
+	--menu_offset: calc(var(--menu_heigth) * 2);
+	@media screen and (max-width: @width_break_point_0) {
+		--menu_offset: calc(var(--menu_heigth) + 1.7rem);
+	}
+}
+
 .menu {
 	// --menu_heigth is declared at :root (vars_tokens.less) so the loading
 	// placeholder can reserve the same height before the menu exists.

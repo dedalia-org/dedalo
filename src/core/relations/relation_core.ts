@@ -20,6 +20,7 @@
  * path) handed in by the caller, so this module never imports read_rows.
  */
 
+import { config as dedaloConfig } from '../../config/config.ts';
 import type { Ddo } from '../concepts/ddo.ts';
 import { configOwnerOf, type EmitRow } from '../concepts/emit_row.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
@@ -436,7 +437,8 @@ export async function expandPortal(
 	const effectiveProperties = await getEffectivePropertiesByTipo(portalDdo.tipo);
 	// EDIT limit chain (PHP calculate_default_limit + sync_pagination_from_config):
 	// ddo/rqo limit → own request_config sqo.limit ?? show.sqo_config.limit
-	// (LAST config item wins) → the component+edit heuristic default 10.
+	// (LAST config item wins) → the component+edit default (maxRowsPerPage, the
+	// same value request_config/build.ts stamps for the client paginator).
 	const ownEditLimit = (): number | undefined => {
 		const rawConfig = (
 			effectiveProperties as {
@@ -461,7 +463,7 @@ export async function expandPortal(
 			? (portalDdo.limit ??
 				options.cellLimit ??
 				(storedModel === 'component_autocomplete_hi' ? locators.length : PORTAL_LIST_LIMIT))
-			: (portalDdo.limit ?? ownEditLimit() ?? 10);
+			: (portalDdo.limit ?? ownEditLimit() ?? dedaloConfig.features.maxRowsPerPage);
 	// READ-time column order (TS feature, no PHP oracle): when a portal column
 	// ddo declares `order: asc|desc`, order the FULL locator list by those
 	// columns FOR DISPLAY before paginating (the stored array is never written).

@@ -31,6 +31,10 @@ Merged since the last release; these ship with the next one.
 
     The map component fetches fewer files before showing a map: the colour picker library loads only when a layer's colour swatch is first opened, turf and the language table load in parallel with Leaflet, and the search and mini/text views load only when used.
 
+- **The text editor toolbar stays in view while you scroll a long text.**
+
+    In both plain and rich text fields, the editing toolbar now stays visible just below the top menu while you scroll through a long text, so the formatting tools no longer disappear off the top of the page. When you first click into a field, the toolbar appears over the field's label without moving the text, and the page no longer jumps: clicking inside a long rich text used to scroll the page to the top. The toolbar also always appears when the field is selected, including when you select it by clicking its label or button bar.
+
 - **Audiovisual records load faster and reuse cached media.**
 
     The audiovisual field no longer downloads its poster image and video again every time a record is shown. Media links now change only when the file itself changes (a new upload, a new transcode or a new poster image), so the browser reuses what it already has. Poster images below the visible part of the page load only when they scroll into view, the quality selector appears only when there is more than one quality to choose, and the player, viewer and search displays load only when they are used.
@@ -102,6 +106,12 @@ Merged since the last release; these ship with the next one.
     For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created and maintained on records whose section declares the field; a value stored on any other record is left exactly as it is, and the observer reconcile reports such values as left untouched instead of correcting them.
 
     Wire contract: `WC-2026-10-30-observer-external-value-laws`, `WC-2026-10-30-observer-target-resolvers`, `WC-2026-10-30-observer-target-not-host`, `WC-2026-10-30-observer-law-derived-edges`, `WC-2026-10-30-portal-get-data-external-refresh`.
+
+- **Portals without a configured page size show their paginator again.**
+
+    A portal in an edit form whose ontology declares no page size showed only its first 10 records, with no paginator to reach the rest. It now pages at the installation's default rows per page (`DEDALO_MAX_ROWS_PER_PAGE`, 10 unless changed) and shows the paginator when there are more records.
+
+    Wire contract: `WC-2026-10-30-request-config-default-page-size`.
 
 - **Open relationships now follows every found record, with exact counts per related section.**
 
@@ -633,7 +643,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 36 entries"
+??? note "Wire contract — 37 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -663,6 +673,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-30-ontology-file-digests`
     - `WC-2026-10-30-ontology-import-census-restore`
     - `WC-2026-10-30-portal-get-data-external-refresh`
+    - `WC-2026-10-30-request-config-default-page-size`
     - `WC-2026-10-30-restore-point-release-identity`
     - `WC-2026-10-30-search-referenced-by-leaf`
     - `WC-2026-10-30-sort-data-key-range`

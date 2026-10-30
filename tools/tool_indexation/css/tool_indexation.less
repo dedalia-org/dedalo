@@ -422,8 +422,16 @@
 					// opaque: it replaces the caption + lang select for as long as the
 					// editor is focused (the service adds `.hide` on blur), and gives
 					// every pixel of the reading surface back to the text.
+					// content_data stays the toolbar's containing block (text_area makes it a grid)
+					.content_value {
+						display: contents;
+					}
+
 					.toolbar_container {
 						top: -@transcription_chrome_top;
+						// own raised placement, not the text_area sticky one
+						position: absolute;
+						margin-top: 0;
 						left: 0;
 						width: 100%;
 						height: @transcription_chrome_height;
@@ -744,8 +752,16 @@
 							position: relative;
 						}
 
+						// content_data stays the toolbar's containing block (text_area makes it a grid)
+						.content_value {
+							display: contents;
+						}
+
 						.toolbar_container {
 							top: -@note_chrome_height;
+							// own raised placement, not the text_area sticky one
+							position: absolute;
+							margin-top: 0;
 							left: 0;
 							width: 100%;
 							height: @note_chrome_height;
