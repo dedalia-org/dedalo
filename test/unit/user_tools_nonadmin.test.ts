@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { aiCapabilities, toolOfferedByCapabilities } from '../../src/ai/capabilities.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getSuperuserUserTools, getUserTools } from '../../src/core/tools/registry.ts';
 
@@ -64,9 +65,17 @@ describe('non-admin user_tools filter (Phase 6 gate)', () => {
 		);
 	});
 
-	test('the admin path is unchanged (every active tool)', async () => {
+	test('the admin path is every active tool the AI capabilities offer', async () => {
 		const viaFilter = await getUserTools(-1, true);
 		const superuser = await getSuperuserUserTools();
-		expect(viaFilter).toEqual(superuser);
+		// The capability filter (src/ai/capabilities.ts) applies to root too: a hidden
+		// AI tool is neither offered nor granted to anyone. tool_identify is withdrawn
+		// until its redesign (WC-2026-10-29-ai-capabilities-page-globals, addendum).
+		const capabilities = aiCapabilities();
+		expect(viaFilter).toEqual(
+			superuser.filter((tool) => toolOfferedByCapabilities(tool.name, capabilities)),
+		);
+		expect(superuser.some((tool) => tool.name === 'tool_identify')).toBe(true);
+		expect(viaFilter.some((tool) => tool.name === 'tool_identify')).toBe(false);
 	});
 });

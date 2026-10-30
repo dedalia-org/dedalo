@@ -121,6 +121,22 @@ const ENV_KEYS = [
 ];
 
 /**
+ * The catalog this gate BUILDS instead of borrowing the host's: the assistant is
+ * only offered (src/ai/capabilities.ts → tool_assistant's grant) when the catalog
+ * resolves to a model, and without this pin that depended on an ANTHROPIC_API_KEY
+ * in the ambient env (red in the CI image, green on a developer machine). The
+ * entry is never called: resolveProvider is mocked above.
+ */
+const PINNED_AGENT_MODELS = JSON.stringify([
+	{
+		id: SCRIPTED_MODEL.id,
+		label: SCRIPTED_MODEL.label,
+		provider: 'anthropic',
+		model: SCRIPTED_MODEL.model,
+	},
+]);
+
+/**
  * agent_chat(_stream) is METERED (ai_spend.ts) and an unset limit is 0, so root
  * gets ample user-level AI limits here, restored after with its ledger swept —
  * the budget is ai_spend_budget_native's subject, not this gate's.
@@ -130,6 +146,7 @@ let rootLimits: AiSpendLimitSnapshot | null = null;
 beforeAll(async () => {
 	for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
 	process.env.DEDALO_AGENT_HTTP_ENABLED = 'true';
+	process.env.DEDALO_AGENT_MODELS = PINNED_AGENT_MODELS;
 	adminToken = createSession(-1, 'debug_superuser', true);
 	admin = getSession(adminToken) as Session;
 	rootLimits = await setAiSpendLimits({ userId: -1 }, AMPLE_AI_SPEND_LIMITS);
@@ -370,8 +387,8 @@ describe('agent_models — gated, secret-free', () => {
 			expect(serialized).not.toContain('SECRET_LOCAL_API_KEY');
 			expect(serialized).not.toContain('native-secret-model');
 		} finally {
-			// assigning undefined coerces to the STRING 'undefined' — only delete truly unsets the key
-			delete process.env.DEDALO_AGENT_MODELS;
+			// back to this gate's own catalog, never the host's (see PINNED_AGENT_MODELS)
+			process.env.DEDALO_AGENT_MODELS = PINNED_AGENT_MODELS;
 		}
 	});
 });
