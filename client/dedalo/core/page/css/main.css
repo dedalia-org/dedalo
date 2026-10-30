@@ -25241,6 +25241,11 @@ body.inspector_resizing {
   width: auto;
   padding-right: 0.5rem;
 }
+.component_portal > .paginator_container > .wrapper_paginator > .content_data,
+.portal > .paginator_container > .wrapper_paginator > .content_data {
+  padding-top: 0.25em;
+  padding-bottom: 0.25em;
+}
 .component_portal > .content_data,
 .portal > .content_data {
   min-height: var(--content_data_min_height);
