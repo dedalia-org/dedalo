@@ -155,6 +155,28 @@ export async function resolveComponentValue(
 	};
 }
 
+/**
+ * Effective filter lang = the INSTANCE lang: ontology-non-translatable
+ * string-family components are nolan-forced at instantiation (PHP
+ * get_element_lang); component_iri honors the requested lang as-is
+ * (empirically verified against live PHP, 2026-07-02); a TRANSLITERABLE
+ * component (`with_lang_versions`) honors it only when the caller asked
+ * for it explicitly (the tool_lang target) — the one rule, elementLang —
+ * and shows its lg-nolan base otherwise. An empty explicit version falls
+ * through to the fallback chain, whose nolan rung is that base (PHP
+ * get_component_data_fallback).
+ */
+async function readFilterLang(
+	componentTipo: string,
+	model: string,
+	lang: string,
+	options: ComponentValueReadOptions,
+): Promise<string> {
+	if (model === 'component_iri' || (await getTranslatableByTipo(componentTipo))) return lang;
+	if (options.explicitLang !== true) return NOLAN;
+	return elementLang(componentTipo, model, { requested: lang, ambient: lang });
+}
+
 async function resolveStoredComponentValue(
 	record: MatrixRecord,
 	componentTipo: string,
@@ -174,22 +196,7 @@ async function resolveStoredComponentValue(
 		return { value: items, fallbackValue: null };
 	}
 
-	// Effective filter lang = the INSTANCE lang: ontology-non-translatable
-	// string-family components are nolan-forced at instantiation (PHP
-	// get_element_lang); component_iri honors the requested lang as-is
-	// (empirically verified against live PHP, 2026-07-02); a TRANSLITERABLE
-	// component (`with_lang_versions`) honors it only when the caller asked
-	// for it explicitly (the tool_lang target) — the one rule, elementLang —
-	// and shows its lg-nolan base otherwise. An empty explicit version falls
-	// through to the fallback chain below, whose nolan rung is that base (PHP
-	// get_component_data_fallback).
-	const translatable = await getTranslatableByTipo(componentTipo);
-	const effectiveLang =
-		translatable || model === 'component_iri'
-			? lang
-			: options.explicitLang === true
-				? await elementLang(componentTipo, model, { requested: lang, ambient: lang })
-				: NOLAN;
+	const effectiveLang = await readFilterLang(componentTipo, model, lang, options);
 	const slice = filterItemsByLang(items, effectiveLang);
 	if (slice.length > 0) {
 		return { value: slice, fallbackValue: null };

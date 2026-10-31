@@ -1114,6 +1114,21 @@ async function leafDateMode(model: string, componentTipo: string): Promise<strin
 		: undefined;
 }
 
+/**
+ * A lang-less leaf's scope: 'all' for a translatable component, and for a
+ * TRANSLITERABLE one (with_lang_versions / component_iri: an lg-nolan base
+ * beside per-language versions), whose lg-ell version must match too, as PHP's
+ * 'all' did. Plain non-translatable data is all lg-nolan, where the nolan
+ * scope is observably identical.
+ */
+async function defaultLeafLang(
+	componentTipo: string,
+	model: string,
+	translatable: boolean,
+): Promise<string> {
+	return translatable || (await savesInRequestLang(componentTipo, model)) ? 'all' : 'lg-nolan';
+}
+
 /** The leaf body: (hop chain) → relation / function leaves → model builders / deep clauses. */
 async function conformLeafBody(
 	leaf: SqoFilterLeaf,
@@ -1237,13 +1252,8 @@ async function conformLeafBody(
 	// the clause carries none. The autocomplete picker relies on it: its free
 	// clauses are lang-less and must match any translation (probed 2026-07-09:
 	// 'roma' matches a mint whose only 'roma' value is lg-eng). Plain
-	// non-translatable data is all lg-nolan, where the nolan scope is
-	// observably identical — but NOT a TRANSLITERABLE component's
-	// (with_lang_versions / component_iri: an lg-nolan base beside per-language
-	// versions), whose lg-ell version must match too, as PHP's 'all' did.
-	const lang =
-		leaf.lang ??
-		(translatable || (await savesInRequestLang(componentTipo, model)) ? 'all' : 'lg-nolan');
+	// non-translatable data is all lg-nolan (defaultLeafLang).
+	const lang = leaf.lang ?? (await defaultLeafLang(componentTipo, model, translatable));
 
 	const dateMode = await leafDateMode(model, componentTipo); // date leaves only
 	const context: BuilderContext = {
