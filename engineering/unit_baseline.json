@@ -1444,6 +1444,11 @@
 			"skipped": 0,
 			"assertions": 77
 		},
+		"test/unit/diffusion_lang_versions.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 22
+		},
 		"test/unit/diffusion_map_cache_invalidation.test.ts": {
 			"tests": 2,
 			"skipped": 0,
@@ -2748,6 +2753,11 @@
 			"tests": 16,
 			"skipped": 0,
 			"assertions": 44
+		},
+		"test/unit/lang_versions_emit_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 58
 		},
 		"test/unit/legacy_password_migration.test.ts": {
 			"tests": 6,
@@ -6588,6 +6598,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 14
+		},
+		"test/unit/with_lang_versions_native.test.ts": {
+			"tests": 21,
+			"skipped": 0,
+			"assertions": 119
 		},
 		"test/unit/with_transaction.test.ts": {
 			"tests": 9,
