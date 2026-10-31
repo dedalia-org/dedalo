@@ -89,6 +89,10 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Press ⌘K (Ctrl+K) to jump to any section or open a tool.**
+
+    A search box opens anywhere in the application with ⌘K on a Mac or Ctrl+K elsewhere. Type part of a name (accents and case are ignored) and press Enter. It lists the tools of the section you are in, your recently visited sections, and every section in your menu, so moving between sections such as Image and Audiovisual to open the same tool no longer means browsing the menu each time. Arrow keys move through the list; Esc closes it. On the Maintenance page the maintenance tools are listed first.
+
 - **Indexation, transcription and translation tools — time machine button on the text**
 
     The text being edited in the indexation, transcription and translation (target language) tools now shows the time machine button next to full screen and save, so earlier versions of the text can be opened without leaving the tool. In the transcription tool it replaces the header's separate time machine button.

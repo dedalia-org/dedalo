@@ -60,6 +60,7 @@
 	import {init_session_expiry} from '../../common/js/session_expiry.js'
 	import {prune_orphan_rules,get_inserted_rules} from '../../page/js/css.js'
 	import {render_page, render_notification_msg} from './render_page.js'
+	import {init_command_palette, open_command_palette} from '../../common/js/command_palette.js'
 
 
 
@@ -1206,6 +1207,8 @@ export const send_lock_release_beacon = function(options) {
 *                              Shift+Left  → paginator previous page
 *                              Shift+Right → paginator next page
 *                              Ctrl+I      → toggle inspector panel
+*                              ⌘K / Ctrl+K → command palette (sections + current
+*                                            section tools; common/js/command_palette.js)
 *                              Enter       → execute section search or open search panel
 *                                            (blocked inside modals and paginator inputs)
 *   document 'mousedown'   — Calls `deactivate_components()` to blur the active component
@@ -1216,6 +1219,9 @@ export const send_lock_release_beacon = function(options) {
 page.prototype.add_events = function() {
 
 	const self = this
+
+	// command palette (⌘K): binds this page for menu + section lookup
+		init_command_palette(self)
 
 	// window onpopstate. Triggered when user clicks on the browser navigation buttons
 		// note that navigation calls generate a history of event state, and when user click's on back button,
@@ -1398,6 +1404,16 @@ page.prototype.add_events = function() {
 						const section_next = self.ar_instances.find(el => el.model==='section')
 						if (section_next && section_next.paginator) {
 							section_next.paginator.navigate_to_next_page()
+						}
+					}
+					break;
+				}
+
+				case 'k':
+				case 'K': {
+					if (evt.metaKey || evt.ctrlKey) {
+						if (open_command_palette()) {
+							evt.preventDefault()
 						}
 					}
 					break;

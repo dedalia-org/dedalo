@@ -8,7 +8,8 @@
 
 > See also: [Architecture overview](../architecture_overview.md) ·
 > [area](../areas/area.md) · [Ontology](../ontology/index.md) ·
-> [Tools](../../development/tools/creating_tools.md) · [dd_object](../dd_object.md)
+> [Tools](../../development/tools/creating_tools.md) · [dd_object](../dd_object.md) ·
+> [command palette](command_palette.md)
 
 This page is the developer reference for the **menu** subsystem: on the
 server it is a small, dependency-free resolver module

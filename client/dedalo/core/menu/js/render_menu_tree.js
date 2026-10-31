@@ -28,6 +28,7 @@
  *
  * Exports:
  *  - render_tree  — main entry point, called by view_default_edit_menu
+ *  - navigate_to_menu_item — menu-click navigation, shared with the command palette
  *
  * Internal helpers (not exported):
  *  - render_level_hierarchy  — renders one UL level of the tree
@@ -522,45 +523,7 @@ const render_item_hierarchy = (options) => {
 						return false
 					}
 
-				// safe_item. Clone menu item before use it
-				// (!) Clone item to prevent the swap_tipo mutation below from
-				// permanently altering the shared datalist entry across navigations.
-					const safe_item = clone(item)
-
-				// swap_tipo
-				// Some menu items are proxies: they appear under one tipo but
-				// should navigate to a different section defined by swap_tipo.
-					if (safe_item.config && safe_item.config.swap_tipo) {
-						safe_item.tipo = safe_item.config.swap_tipo
-					}
-
-				// page error case. On an existing page-level failure, force a reload
-				// to refresh the page instance: a hard reload is safer than SPA
-				// navigation over a broken page state.
-					if (page_globals.page_error) {
-						window.location.href = url
-						return
-					}
-
-				if (e.altKey===true) {
-					// open in new tab
-					const win = window.open(url, '_blank');
-						  win.focus();
-				}else{
-
-					// navigate
-					// Publish 'user_navigation' so that the page instance (and any
-					// other subscribers) can load the target section without a full reload.
-					event_manager.publish('user_navigation', {
-						source : {
-							tipo	: safe_item.tipo,
-							model	: safe_item.model,
-							mode	: 'list',
-							// this config comes from properties (used by section_tool to define the config of the section that its called)
-							config	: safe_item.config || null
-						}
-					})
-				}
+				navigate_to_menu_item(item, url, e.altKey===true)
 			}
 			link.addEventListener('click', click_handler)
 
@@ -577,6 +540,61 @@ const render_item_hierarchy = (options) => {
 
 	return li
 }//end render_item_hierarchy
+
+
+
+/**
+ * NAVIGATE_TO_MENU_ITEM
+ * Goes to a menu datalist item exactly as a menu click does. Shared by the menu
+ * tree and the command palette (core/common/js/command_palette.js).
+ *
+ * @param {Object}  item - tree_datalist entry ({tipo, model, config?})
+ * @param {string}  url - canonical href (used for new tab / page_error reload)
+ * @param {boolean} [new_tab=false]
+ * @returns {void}
+ */
+export const navigate_to_menu_item = (item, url, new_tab=false) => {
+
+	// safe_item. Clone menu item before use it
+	// (!) Clone item to prevent the swap_tipo mutation below from
+	// permanently altering the shared datalist entry across navigations.
+		const safe_item = clone(item)
+
+	// swap_tipo
+	// Some menu items are proxies: they appear under one tipo but
+	// should navigate to a different section defined by swap_tipo.
+		if (safe_item.config && safe_item.config.swap_tipo) {
+			safe_item.tipo = safe_item.config.swap_tipo
+		}
+
+	// page error case. On an existing page-level failure, force a reload
+	// to refresh the page instance: a hard reload is safer than SPA
+	// navigation over a broken page state.
+		if (page_globals.page_error) {
+			window.location.href = url
+			return
+		}
+
+	if (new_tab) {
+		// open in new tab
+		const win = window.open(url, '_blank');
+			  win.focus();
+	}else{
+
+		// navigate
+		// Publish 'user_navigation' so that the page instance (and any
+		// other subscribers) can load the target section without a full reload.
+		event_manager.publish('user_navigation', {
+			source : {
+				tipo	: safe_item.tipo,
+				model	: safe_item.model,
+				mode	: 'list',
+				// this config comes from properties (used by section_tool to define the config of the section that its called)
+				config	: safe_item.config || null
+			}
+		})
+	}
+}//end navigate_to_menu_item
 
 
 

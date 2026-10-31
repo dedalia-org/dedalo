@@ -7525,6 +7525,98 @@ body:has(.component_av.view_viewer) {
   }
 }
 /**
+* command_palette
+*
+* The application-wide ⌘K / Ctrl+K palette (common/js/command_palette.js):
+* jump to a section or open the current section's tools. Built once, appended
+* to body, shown with .open.
+*
+* Included from main.less file
+*/
+.command_palette_backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 0;
+  background-color: color-mix(in srgb, #000 45%, transparent);
+}
+.command_palette_backdrop.open {
+  display: flex;
+}
+.command_palette_backdrop .command_palette {
+  width: min(620px, 100%);
+  background-color: var(--bg_elevated);
+  border: 1px solid var(--border_default);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.command_palette_backdrop .command_palette_input {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  color: var(--fg_default);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border_default);
+  border-radius: 0;
+  outline: 0;
+}
+.command_palette_backdrop .command_palette_list {
+  max-height: 52vh;
+  overflow: auto;
+  padding: 0.4rem;
+}
+.command_palette_backdrop .command_palette_list .p_group {
+  padding: 0.6rem 0.7rem 0.25rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--fg_muted);
+}
+.command_palette_backdrop .command_palette_list .p_item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.9em;
+  color: var(--fg_default);
+  cursor: pointer;
+}
+.command_palette_backdrop .command_palette_list .p_item .p_zone {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--fg_muted);
+  white-space: nowrap;
+}
+.command_palette_backdrop .command_palette_list .p_item.mark .p_name {
+  font-style: italic;
+}
+.command_palette_backdrop .command_palette_list .p_item.danger .p_name {
+  color: var(--color_danger);
+}
+.command_palette_backdrop .command_palette_list .p_item.sel,
+.command_palette_backdrop .command_palette_list .p_item:hover {
+  background-color: color-mix(in srgb, var(--color_orange_dedalo) 14%, transparent);
+}
+.command_palette_backdrop .command_palette_list .p_empty {
+  padding: 0.8rem 0.7rem;
+  color: var(--fg_muted);
+}
+/**
 * inspector
 *
 * Included from main.less file
@@ -15825,74 +15917,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   contain: none;
   flex-grow: 0;
   width: 100%;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: none;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  background-color: color-mix(in srgb, #000 45%, transparent);
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop.open {
-  display: flex;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette {
-  width: min(620px, 92vw);
-  background-color: var(--bg_elevated);
-  border: 1px solid var(--border_default);
-  border-radius: 14px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_in {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--border_default);
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_in input {
-  flex: 1 1 auto;
-  width: auto;
-  height: auto;
-  margin: 0;
-  padding: 0;
-  font-size: 1rem;
-  color: var(--fg_default);
-  background: transparent;
-  border: 0;
-  outline: 0;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_list {
-  max-height: 46vh;
-  overflow: auto;
-  padding: 0.4rem;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_list .p_item {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.7rem;
-  border-radius: 8px;
-  font-size: 0.9em;
-  cursor: pointer;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_list .p_item .p_zone {
-  margin-left: auto;
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--fg_muted);
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_list .p_item.hide {
-  display: none;
-}
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_list .p_item.sel,
-.area_maintenance > .content_data.maintenance_v2 .map_palette_backdrop .map_palette_list .p_item:hover {
-  background-color: color-mix(in srgb, var(--color_orange_dedalo) 14%, transparent);
 }
 @keyframes map_march {
   to {

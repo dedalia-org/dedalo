@@ -64,6 +64,7 @@
 	import {request_failed, response_data, response_extension} from '../../common/js/api_error.js'
 	import {error_text} from '../../common/js/render_api_error.js'
 	import {OPEN_WIDGET_EVENT} from './maintenance_events.js'
+	import {add_palette_provider, open_command_palette} from '../../common/js/command_palette.js'
 
 
 
@@ -354,7 +355,7 @@ const get_content_data = async function(self) {
 		}
 		btn_map.addEventListener('click', (e) => { e.preventDefault(); set_view('map', true) })
 		btn_list.addEventListener('click', (e) => { e.preventDefault(); set_view('list', true) })
-		kbar.addEventListener('click', (e) => { e.preventDefault(); map_ctl.open_palette() })
+		kbar.addEventListener('click', (e) => { e.preventDefault(); open_command_palette() })
 		set_view(active_view, false)
 
 
@@ -731,7 +732,7 @@ const build_list_view = async function(self, widgets) {
 *
 * @param {Object} self - The area_maintenance instance
 * @param {Array}  widgets - The engine-served widget descriptors (already filtered)
-* @returns {{node:HTMLElement, on_show:Function, open_palette:Function, open_tool:Function, destroy:Function}}
+* @returns {{node:HTMLElement, on_show:Function, open_tool:Function, destroy:Function}}
 */
 export const build_map_view = function(self, widgets, opts={}) {
 
@@ -1327,56 +1328,13 @@ export const build_map_view = function(self, widgets, opts={}) {
 		}
 
 	// ---- command palette (⌘K) ----
-		const palette_backdrop = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'map_palette_backdrop',
-			parent			: root
-		})
-		palette_backdrop.innerHTML =
-			'<div class="map_palette">' +
-				'<div class="map_palette_in"><input type="text" autocomplete="off" placeholder="Type a tool name…"></div>' +
-				'<div class="map_palette_list"></div>' +
-			'</div>'
-		const palette_input = palette_backdrop.querySelector('input')
-		const palette_list = palette_backdrop.querySelector('.map_palette_list')
+	// The widgets ride the application-wide palette (common/js/command_palette.js)
+	// as a provider group; removed in destroy().
 		// node title for each served id (first node that lists it), for the palette hint column
 		const node_of = (id) => {
 			const n = MAP_NODES.find(x => x.tools.includes(id))
 			return n ? n.title : '—'
 		}
-		widgets.forEach(w => {
-			const item = ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'p_item',
-				parent			: palette_list
-			})
-			item.dataset.id		= w.id
-			item.dataset.search	= strip(w.label).toLowerCase() + ' ' + w.id
-			item.innerHTML =
-				'<span class="map_dot ' + (MAP_DANGER_IDS.has(w.id) ? 'bad' : '') + '"></span>' +
-				'<span class="p_name"></span><span class="p_zone"></span>'
-			item.querySelector('.p_name').textContent = tool_label(w.id)
-			item.querySelector('.p_zone').textContent = node_of(w.id)
-			item.addEventListener('click', () => open_tool(w.id))
-		})
-		const filter_palette = () => {
-			const q = palette_input.value.trim().toLowerCase()
-			let first = null
-			palette_list.querySelectorAll('.p_item').forEach(it => {
-				const show = !q || it.dataset.search.includes(q)
-				it.classList.toggle('hide', !show)
-				it.classList.remove('sel')
-				if (show && !first) { first = it }
-			})
-			if (first) { first.classList.add('sel') }
-		}
-		const open_palette = () => {
-			palette_backdrop.classList.add('open')
-			palette_input.value = ''
-			filter_palette()
-			palette_input.focus()
-		}
-		const close_palette = () => palette_backdrop.classList.remove('open')
 		const open_tool = (id) => {
 			const n = MAP_NODES.find(x => x.tools.includes(id))
 			if (n) {
@@ -1384,30 +1342,23 @@ export const build_map_view = function(self, widgets, opts={}) {
 				select_tool(n.id, id)
 				context.scrollIntoView({ behavior:'smooth', block:'center' })
 			}
-			close_palette()
 		}
-		palette_input.addEventListener('input', filter_palette)
-		palette_backdrop.addEventListener('click', (e) => { if (e.target===palette_backdrop) { close_palette() } })
-		// global ⌘K / Esc — guarded so it only acts while this map is in the live DOM
-		const on_keydown = (e) => {
-			if (!document.body.contains(root)) { return }
-			if ((e.metaKey || e.ctrlKey) && (e.key==='k' || e.key==='K')) {
-				e.preventDefault()
-				palette_backdrop.classList.contains('open') ? close_palette() : open_palette()
-			} else if (e.key==='Escape' && palette_backdrop.classList.contains('open')) {
-				close_palette()
-			} else if (palette_backdrop.classList.contains('open') && e.key==='Enter') {
-				const sel = palette_list.querySelector('.p_item.sel:not(.hide)')
-				if (sel) { open_tool(sel.dataset.id) }
-			}
-		}
-		// The `contains(root)` guard above stops a STALE map from acting, but a
-		// guarded listener is still a listener: document keeps it, and it keeps
-		// the map. Guarding is not removing.
-		document.addEventListener('keydown', on_keydown)
+		const remove_palette_provider = add_palette_provider(() => {
+			if (!document.body.contains(root)) { return [] }
+			return widgets.map(w => ({
+				group	: strip(self.label) || 'Maintenance',
+				label	: tool_label(w.id),
+				hint	: node_of(w.id),
+				css		: MAP_DANGER_IDS.has(w.id) ? 'danger' : '',
+				action	: () => {
+					if (opts && typeof opts.show_map==='function') { opts.show_map() }
+					open_tool(w.id)
+				}
+			}))
+		})
 
 	// OPEN_WIDGET_EVENT (maintenance_events.js): another widget asks to show this
-	// one (media_control's publication-hosts line). Guarded like on_keydown, so a
+	// one (media_control's publication-hosts line). Guarded like the palette provider, so a
 	// stale map never acts; removed in destroy().
 		const on_open_widget = (e) => {
 			if (!document.body.contains(root)) { return }
@@ -1442,11 +1393,11 @@ export const build_map_view = function(self, widgets, opts={}) {
 				stage_resize_observer = null
 			}
 			window.removeEventListener('resize', draw_edges)
-			document.removeEventListener('keydown', on_keydown)
+			remove_palette_provider()
 			document.removeEventListener(OPEN_WIDGET_EVENT, on_open_widget)
 		}
 
-	return { node: root, on_show, open_palette, open_tool, destroy }
+	return { node: root, on_show, open_tool, destroy }
 }//end build_map_view
 
 
