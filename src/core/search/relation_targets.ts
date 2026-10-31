@@ -13,20 +13,25 @@
  * from_component_tipo), so the census and the window it opens cannot disagree
  * about which locators exist.
  *
- * TWO STATEMENTS, whatever the number of targets — the source row set (an
- * unbounded found set) is evaluated ONCE per statement, never once per target:
+ * THE SOURCE ROW SET IS EXPANDED ONCE, whatever the number of targets or
+ * statements — it is an unbounded found set, and reading its stored locators is
+ * a full read of its wide rows (measured 2026-10-31 on a 184k-record source:
+ * ~1.4 s per expansion; the former two-expansion census took ~6 s, this ~2 s):
  *
+ *   0. the expansion, into a transaction-scoped temp table (ON COMMIT DROP):
+ *        CREATE TEMP TABLE pg_temp.dedalo_census_targets ON COMMIT DROP AS
+ *        SELECT DISTINCT l.target_section_tipo AS tipo, l.target_section_id AS id
+ *        FROM (<owner locators>) l WHERE l.target_section_tipo IS NOT NULL
  *   1. the grouped census — the candidate target sections and their UPPER BOUND:
- *        SELECT l.target_section_tipo, count(DISTINCT l.target_section_id)
- *        FROM (<owner locators>) l GROUP BY 1
- *      Each candidate is kept only when it is openable (a matrix record table)
- *      and the principal may READ it (read >= 1).
+ *        SELECT tipo, count(id) FROM pg_temp.dedalo_census_targets GROUP BY 1
+ *      (a hash aggregate; `count(DISTINCT …)` over the raw locators sorted on
+ *      disk). Each candidate is kept only when it is openable (a matrix record
+ *      table) and the principal may READ it (read >= 1).
  *   2. (`exact`, the default) every kept target's EXACT total in ONE statement:
- *        WITH census_targets AS MATERIALIZED (
- *          SELECT DISTINCT l.target_section_tipo, l.target_section_id
- *          FROM (<owner locators>) l WHERE l.target_section_tipo IN (<kept>))
  *        SELECT 'T1', (SELECT count(*) FROM (<T1 scoped row set>) …
- *                      WHERE (tipo, id) IN (census_targets of T1))
+ *                      WHERE (tipo, id) IN (the pairs of T1))
+ *      a plain semi-join over the ANALYZEd table (exactBranch says why not
+ *      the leaf's `IS TRUE` hashed-SubPlan shape).
  *        UNION ALL …
  *      `<T scoped row set>` is sql_assembler buildScopedRowSetSql of `{section_tipo:[T]}`
  *      — the ONE WHERE composition the opened window's own search uses (section
@@ -290,19 +295,59 @@ function withFromComponent(
 	return { ...source, from_component_tipo: fromComponentTipo };
 }
 
-/** Statement 1, the grouped census: [tipo, upper-bound total] per target section. */
-async function groupedTargets(
+/**
+ * The census's distinct (target_section_tipo, target_section_id) pairs, a
+ * transaction-scoped temp table (ON COMMIT DROP — it never outlives the unit,
+ * so it never reaches the next user of the pooled connection). Schema-qualified
+ * `pg_temp.` so no statement can ever name a real table.
+ */
+const CENSUS_TARGETS = 'pg_temp.dedalo_census_targets';
+
+/**
+ * Statement 0, THE ONE EXPANSION: the source rows' stored locators, read once,
+ * reduced to their distinct target pairs. Both later statements read this
+ * table, so the source row set (the unbounded found set, a full read of its
+ * wide rows) is never evaluated twice. A NULL id (a locator the index cannot
+ * address) is kept as its tipo's one NULL row: statement 1 counts `count(id)`
+ * (NULLs skipped, as before) and a NULL never matches statement 2's IN.
+ * `DROP … IF EXISTS` first: inside a caller's transaction a second census
+ * would otherwise find the first one's table. ONE NAME PER CONNECTION: two
+ * censuses run CONCURRENTLY on one transaction (Promise.all inside one unit)
+ * would replace each other's table between statements — callers run them in
+ * sequence (the API door never runs inside a transaction). Then ANALYZE: a temp
+ * table has no statistics (autovacuum never sees it), and statement 2 is a plain
+ * semi-join whose plan rests on them (see exactBranch).
+ */
+async function materializeTargets(
 	owner: OwnerRelationScope,
 	clock: CensusClock | null,
-): Promise<RelationTargetCount[]> {
+): Promise<void> {
+	await sql.unsafe(`DROP TABLE IF EXISTS ${CENSUS_TARGETS}`, []);
 	const params = new ParamsCollector();
 	const locators = params.substitute(owner.locatorsSql, owner.tokenValues);
 	await clock?.arm();
-	const rows = (await sql.unsafe(
-		'SELECT l.target_section_tipo AS tipo, count(DISTINCT l.target_section_id)::int AS total ' +
-			`FROM (${locators}) AS l WHERE l.target_section_tipo IS NOT NULL ` +
-			'GROUP BY l.target_section_tipo ORDER BY l.target_section_tipo',
+	await sql.unsafe(
+		`CREATE TEMP TABLE ${CENSUS_TARGETS} ON COMMIT DROP AS ` +
+			'SELECT DISTINCT l.target_section_tipo AS tipo, l.target_section_id AS id ' +
+			`FROM (${locators}) AS l WHERE l.target_section_tipo IS NOT NULL`,
 		params.toArray() as (string | number | null)[],
+	);
+	await clock?.arm();
+	await sql.unsafe(`ANALYZE ${CENSUS_TARGETS}`, []);
+}
+
+/**
+ * Statement 1, the grouped census: [tipo, upper-bound total] per target section.
+ * Over the already-distinct pairs a plain grouped count is a hash aggregate — a
+ * `count(DISTINCT …)` over the raw locators always sorted (measured 2026-10-31:
+ * a 126 MB on-disk merge for a 184k-record source, half the census time).
+ */
+async function groupedTargets(clock: CensusClock | null): Promise<RelationTargetCount[]> {
+	await clock?.arm();
+	const rows = (await sql.unsafe(
+		`SELECT t.tipo, count(t.id)::int AS total FROM ${CENSUS_TARGETS} AS t ` +
+			'GROUP BY t.tipo ORDER BY t.tipo',
+		[],
 	)) as { tipo: string; total: number | string }[];
 	return rows.map((row) => ({ tipo: row.tipo, total: Number(row.total) }));
 }
@@ -327,10 +372,13 @@ async function targetIsOpenable(tipo: string, principal: Principal | undefined):
 /**
  * One target's branch of statement 2: T's scoped row set (the window's own
  * WHERE, no filter) counted where its identity is one of the census targets.
- * `(…) IN (…) IS TRUE` = one hashed SubPlan over the materialized targets (the
- * leaf's plan shape, builder_referenced_by.ts conformReferencedBy): as a
- * pulled-up semi-join, stale statistics made it a nested loop rescanning the
- * CTE once per T row.
+ * A PLAIN semi-join over the ANALYZEd temp table — NOT the leaf's
+ * `(…) IN (…) IS TRUE` hashed-SubPlan shape (builder_referenced_by.ts), which
+ * exists for an expansion the planner cannot estimate. Over real statistics
+ * that shape is a trap: a SubPlan is hashed only while its ESTIMATED size fits
+ * hash_mem, so a large, accurately estimated target set (428k pairs) turns it
+ * into a SubPlan re-scanned once per T row — measured 2026-10-31: past 60 s,
+ * against 0.26 s for the planner's own Hash Semi Join over the same table.
  */
 async function exactBranch(
 	tipo: string,
@@ -348,35 +396,27 @@ async function exactBranch(
 	const tipoParam = params.getPlaceholder(tipo);
 	return (
 		`SELECT ${tipoParam}::text AS tipo, (SELECT count(*) FROM (${rows}) AS rtw${index} ` +
-		`WHERE ((rtw${index}.section_tipo, rtw${index}.section_id) IN ` +
-		`(SELECT ct.tipo, ct.id FROM census_targets ct WHERE ct.tipo = ${tipoParam}::text)) IS TRUE)::int AS total`
+		`WHERE (rtw${index}.section_tipo, rtw${index}.section_id) IN ` +
+		`(SELECT ct.tipo, ct.id FROM ${CENSUS_TARGETS} ct WHERE ct.tipo = ${tipoParam}::text))::int AS total`
 	);
 }
 
-/** Statement 2: every target's exact total, the owner scope evaluated once. */
+/** Statement 2: every kept target's exact total, over the materialized pairs. */
 async function exactTargetTotals(
 	tipos: readonly string[],
-	owner: OwnerRelationScope,
 	principal: Principal | undefined,
 	clock: CensusClock | null,
 ): Promise<Map<string, number>> {
 	const totals = new Map<string, number>();
 	if (tipos.length === 0) return totals;
 	const params = new ParamsCollector();
-	const locators = params.substitute(owner.locatorsSql, owner.tokenValues);
-	// Only the kept targets' locators are materialized: the unopenable and
-	// unreadable ones statement 1 already dropped are never aggregated.
-	const kept = tipos.map((tipo) => `${params.getPlaceholder(tipo)}::text`).join(', ');
 	const branches: string[] = [];
 	for (const [index, tipo] of tipos.entries()) {
 		branches.push(await exactBranch(tipo, index + 1, principal, params));
 	}
 	await clock?.arm();
 	const rows = (await sql.unsafe(
-		'WITH census_targets AS MATERIALIZED (' +
-			'SELECT DISTINCT l.target_section_tipo AS tipo, l.target_section_id AS id ' +
-			`FROM (${locators}) AS l WHERE l.target_section_tipo IN (${kept})) ` +
-			branches.join(' UNION ALL '),
+		branches.join(' UNION ALL '),
 		params.toArray() as (string | number | null)[],
 	)) as { tipo: string; total: number | string }[];
 	for (const row of rows) totals.set(row.tipo, Number(row.total));
@@ -385,12 +425,11 @@ async function exactTargetTotals(
 
 /** Statement 1 plus the openable filter: the grouped targets the principal may open. */
 async function openableTargets(
-	owner: OwnerRelationScope,
 	principal: Principal | undefined,
 	clock: CensusClock | null,
 ): Promise<RelationTargetCount[]> {
 	const candidates: RelationTargetCount[] = [];
-	for (const candidate of await groupedTargets(owner, clock)) {
+	for (const candidate of await groupedTargets(clock)) {
 		if (await targetIsOpenable(candidate.tipo, principal)) candidates.push(candidate);
 	}
 	return candidates;
@@ -399,13 +438,11 @@ async function openableTargets(
 /** Statement 2 over the openable candidates: each one's exact total, zero totals dropped. */
 async function exactCounts(
 	candidates: readonly RelationTargetCount[],
-	owner: OwnerRelationScope,
 	principal: Principal | undefined,
 	clock: CensusClock | null,
 ): Promise<RelationTargetCount[]> {
 	const totals = await exactTargetTotals(
 		candidates.map((candidate) => candidate.tipo),
-		owner,
 		principal,
 		clock,
 	);
@@ -417,7 +454,7 @@ async function exactCounts(
 	return counts;
 }
 
-/** The census proper: statement 1, the openable filter, statement 2. */
+/** The census proper: the one expansion (statement 0), statement 1 + the openable filter, statement 2. */
 async function runCensus(
 	source: ReferencedBySource,
 	principal: Principal | undefined,
@@ -429,9 +466,14 @@ async function runCensus(
 		depth: 1,
 	});
 	if (owner === null) return [];
-	const candidates = await openableTargets(owner, principal, clock);
-	if (!exact) return candidates.filter((candidate) => candidate.total > 0);
-	return exactCounts(candidates, owner, principal, clock);
+	await materializeTargets(owner, clock);
+	const candidates = await openableTargets(principal, clock);
+	const counts = exact
+		? await exactCounts(candidates, principal, clock)
+		: candidates.filter((candidate) => candidate.total > 0);
+	// Inside a caller's transaction ON COMMIT DROP would keep it until that unit ends.
+	await sql.unsafe(`DROP TABLE IF EXISTS ${CENSUS_TARGETS}`, []);
+	return counts;
 }
 
 /** The budget actually applied: the census's own (or the gate override), never above the pool ceiling. */

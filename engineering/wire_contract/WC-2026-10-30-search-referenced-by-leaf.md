@@ -98,20 +98,28 @@
     `[]` = no targets (the modal shows `no_target_sections`). The client builds ONE source
     object and reuses it verbatim, here and as `{referenced_by: source}` in the opened
     window's filter; portal mode puts `from_component_tipo` inside the source.
-  - **Census = TWO statements, whatever the number of targets** (`countRelationTargets`,
-    search/relation_targets.ts), both over the SAME stored-locator SQL as the leaf
-    (`OwnerRelationScope.locatorsSql`), so census and window cannot disagree about which
-    locators exist:
-    1. grouped: `SELECT l.target_section_tipo, count(DISTINCT l.target_section_id) FROM
-       (<owner locators>) l GROUP BY 1` — the candidates and their UPPER BOUND; a candidate
-       is kept only when openable (valid tipo, matrix record table) and readable (read ≥ 1).
-    2. exact totals in ONE statement: `WITH census_targets AS MATERIALIZED (SELECT DISTINCT
-       tipo, id FROM (<owner locators>) l WHERE tipo IN (<kept>))` then one branch per kept
-       T, `UNION ALL`: `count(*)` over T's scoped row set (`buildScopedRowSetSql
-       {section_tipo:[T]}` — the window's own WHERE: pin, root exclusion, T's records ACL,
-       dd478) `WHERE ((tipo, id) IN (census_targets of T)) IS TRUE` — the leaf's hashed
-       shape. The identical row predicate as the window's `full_count`, so `total` is EXACT
-       and equals what the opened window paginates; total 0 → omitted.
+  - **Census = ONE expansion of the source, whatever the number of targets**
+    (`countRelationTargets`, search/relation_targets.ts), over the SAME stored-locator SQL
+    as the leaf (`OwnerRelationScope.locatorsSql`), so census and window cannot disagree
+    about which locators exist (amended 2026-10-31 — wire unchanged; measured on a 184k-record
+    source: ~6 s → ~2 s, the former shape expanded the source twice and its
+    `count(DISTINCT …)` sorted on disk):
+    0. the expansion, once: `CREATE TEMP TABLE pg_temp.dedalo_census_targets ON COMMIT DROP
+       AS SELECT DISTINCT tipo, id FROM (<owner locators>) l WHERE tipo IS NOT NULL` —
+       transaction-scoped, never outlives the unit (on success also dropped explicitly, for a
+       census that joined a caller's transaction), then `ANALYZE`d (a temp table has no
+       statistics).
+    1. grouped: `SELECT tipo, count(id) FROM pg_temp.dedalo_census_targets GROUP BY 1` — the
+       candidates and their UPPER BOUND; a candidate is kept only when openable (valid tipo,
+       matrix record table) and readable (read ≥ 1).
+    2. exact totals in ONE statement, one branch per kept T, `UNION ALL`: `count(*)` over
+       T's scoped row set (`buildScopedRowSetSql {section_tipo:[T]}` — the window's own
+       WHERE: pin, root exclusion, T's records ACL, dd478) `WHERE (tipo, id) IN (the pairs
+       of T)` — a plain semi-join over the analyzed table, NOT the leaf's `IS TRUE` hashed
+       shape (over real statistics a large target set exceeds hash_mem, the SubPlan is no
+       longer hashed and is re-scanned per T row: measured >60 s vs 0.26 s). The same row
+       predicate as the window's `full_count`, so `total` is EXACT and equals what the opened window
+       paginates; total 0 → omitted.
     Why exact, not the grouped bound: the grouped count overstates targets through dangling
     locators (measured on the suite DB, pre-switch: es2 17 vs 1 exact; dd1706 18 vs 0; dd128
     4 vs 0).
