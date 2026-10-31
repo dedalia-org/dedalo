@@ -528,6 +528,11 @@ function keyOf(row: { key?: string; descriptor: UpdateDescriptor }): string {
 	return row.key ?? catalogModule.catalogKeyOf(row.descriptor);
 }
 
+/** A descriptor's target triple — the code data version a row's rung simulates (engine `codeDataVersion`). */
+function targetOf(descriptor: UpdateDescriptor): number[] {
+	return [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
+}
+
 describe('update descriptor tripwire: the shipped catalog', () => {
 	test('every UPDATE_CATALOG descriptor validates clean', () => {
 		const validate = exported<ValidateDescriptor>(catalogModule, 'validateUpdateDescriptor');
@@ -569,6 +574,8 @@ describe('update descriptor tripwire: one refusal per rule', () => {
 							catalog: { [keyOf(row)]: row.descriptor },
 							scripts: SCRIPTS,
 							currentVersion: [7, 0, 0],
+							// the row's own rung is the code it simulates (no rung-above-code refusal)
+							codeDataVersion: targetOf(row.descriptor),
 							logPath: LOG_PATH,
 							writeVersionRow: async () => {},
 							reconcileMirrors: async () => ({ repaired: 0, shrinksSkipped: 0 }),
@@ -600,6 +607,8 @@ describe('update descriptor tripwire: lexical look-alikes are not refused', () =
 				catalog: { [catalogModule.catalogKeyOf(row.descriptor)]: row.descriptor },
 				scripts: SCRIPTS,
 				currentVersion: [7, 0, 0],
+				// the row's own rung is the code it simulates (no rung-above-code refusal)
+				codeDataVersion: targetOf(row.descriptor),
 				// The in-transaction re-read is BUILT, not read from the suite DB's
 				// matrix_updates (whose stamped version is ambient state).
 				readVersionInTx: async () => [7, 0, 0],

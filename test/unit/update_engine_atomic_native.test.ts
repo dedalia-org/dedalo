@@ -295,6 +295,8 @@ function seamsFor(descriptor: UpdateDescriptor, extra: AtomicSeams = {}): Atomic
 		catalog: catalogOf(descriptor),
 		scripts: SCRIPTS,
 		currentVersion: [7, 0, 0],
+		// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+		codeDataVersion: [7, 1, 0],
 		logPath: LOG_PATH,
 		writeVersionRow: async (version) => {
 			await sql.unsafe(`INSERT INTO "${VER}" (version) VALUES ($1)`, [version]);
@@ -399,6 +401,8 @@ try {
 	out = await updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
 		catalog: { '7.1.0': descriptor },
 		currentVersion: [7, 0, 0],
+		// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+		codeDataVersion: [7, 1, 0],
 		logPath: ${JSON.stringify(`${LOG_PATH}.crash`)},
 		writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${VER}" (version) VALUES ($1)', [v]); },
 		readVersionInTx: async () => [7, 0, 0],
@@ -475,6 +479,8 @@ try {
 			},
 		},
 		currentVersion: [7, 0, 0],
+		// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+		codeDataVersion: [7, 1, 0],
 		logPath: ${JSON.stringify(`${LOG_PATH}.ceiling`)},
 		writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${VER}" (version) VALUES ($1)', [v]); },
 		readVersionInTx: async () => [7, 0, 0],
@@ -558,6 +564,8 @@ const seams = {
 	catalog: { '7.1.0': descriptor },
 	scripts: {},
 	currentVersion: [7, 0, 0],
+	// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+	codeDataVersion: [7, 1, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.single_flight`)},
 	writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${VER}" (version) VALUES ($1)', [v]); },
 	readVersionInTx: async () => {
@@ -692,6 +700,8 @@ const controller = new AbortController();
 const running = updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
 	catalog: { '7.1.0': descriptor },
 	currentVersion: [7, 0, 0],
+	// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+	codeDataVersion: [7, 1, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.saturated`)},
 	writeVersionRow: async () => {},
 	readVersionInTx: async () => [7, 0, 0],
@@ -1126,6 +1136,8 @@ const controller = new AbortController();
 const running = updateVersion({ SQL_update_0: true, SQL_update_1: true }, {
 	catalog: { '7.1.0': descriptor },
 	currentVersion: [7, 0, 0],
+	// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+	codeDataVersion: [7, 1, 0],
 	logPath: ${JSON.stringify(`${LOG_PATH}.verdict`)},
 	writeVersionRow: async () => {},
 	readVersionInTx: async () => [7, 0, 0],

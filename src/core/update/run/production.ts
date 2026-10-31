@@ -87,7 +87,13 @@ export interface DataPhaseDeps {
 	runRung: () => Promise<{ ok: boolean; msg?: unknown; errors?: unknown }>;
 }
 
-const DATA_PHASE_DEPS: DataPhaseDeps = {
+/**
+ * The production data-phase seams. Exported for the door gate only
+ * (update_engine.test.ts "no shipped door lifts the rung-above-code ceiling",
+ * engineering/wire_contract/WC-2026-10-31-update-rung-above-code.md): `runRung`
+ * is a door into the engine, and the gate drives it with a rung above the code.
+ */
+export const DATA_PHASE_DEPS: DataPhaseDeps = {
 	currentDataVersion: getCurrentDataVersion,
 	catalog: UPDATE_CATALOG,
 	runRung: async () => updateVersion(await allStepsChecked()),

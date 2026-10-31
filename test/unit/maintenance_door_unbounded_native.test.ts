@@ -228,6 +228,8 @@ const results = {};
 		{
 			catalog: { '7.1.0': descriptor },
 			currentVersion: [7, 0, 0],
+			// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+			codeDataVersion: [7, 1, 0],
 			logPath: ${JSON.stringify(BG_LOG_PATH)},
 			writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${BG_VER}" (version) VALUES ($1)', [v]); },
 			readVersionInTx: async () => {
