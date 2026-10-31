@@ -40,16 +40,19 @@
  *    ~38.7 GiB free (measured 2026-08-25), and each FILE_COPY clone of the
  *    7.6 GB suite database is real bytes. Free space is re-checked AFTER EACH
  *    clone and the remainder aborted rather than filling the volume.
- *  - CONNECTIONS: max_connections=100 on this cluster. Every child in a
- *    multi-bin run gets a small request pool (DB_POOL_MAX=3 — a shard runs one
- *    file at a time), a one-connection MAINTENANCE pool (DB_MAINTENANCE_POOL_MAX=1
- *    — the separate unbounded pool withUnboundedStatements routes to, PERF-11)
- *    and an EXPLICIT non-zero acquire timeout (PINNED because the catalog
- *    default of DB_POOL_ACQUIRE_TIMEOUT_MS is still 0 — wait forever — until the
- *    PERF-11 default flip lands, and an operator .env may say 0 after it too:
- *    cluster exhaustion must never become a silent HANG in an unrelated file).
- *    The budget counts BOTH pools per process and is asserted before anything
- *    is cloned.
+ *  - CONNECTIONS: every child runs with the SAME pool configuration a serial
+ *    `bun test` resolves (DB_POOL_MAX, DB_MAINTENANCE_POOL_MAX,
+ *    DB_POOL_ACQUIRE_TIMEOUT_MS — read through the config catalog, so
+ *    ../private/.env and the catalog defaults apply exactly as they do serially)
+ *    and pinned explicitly into its env. A sharded run that shrinks the pool is
+ *    not the suite it claims to equal: MEASURED 2026-10-30, the old cap of 3
+ *    (premise "a shard runs one file at a time") exhausted the pool in the
+ *    lock/race gates — one FILE holds several connections at once by design
+ *    (matrix_row_lock_native, tm_save_order_native, tree_cycle_race_native) —
+ *    and every later file in the bin died on db.pool_exhausted: 1558 moved keys
+ *    vs the serial campaign. The cluster must be sized for the suite, never the
+ *    suite for the cluster: the budget counts BOTH pools per process and
+ *    REFUSES (raise max_connections) before anything is cloned.
  *
  * COST comes from engineering/test_baseline/timings.json WHEN PRESENT; when
  * absent the pack falls back to file count and the manifest SAYS SO — never
@@ -68,6 +71,7 @@
 
 import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
+import { readNumber } from '../src/config/readers.ts';
 import { connectionsPerProcess } from '../src/core/db/connection_budget.ts';
 import { testDatabaseName } from '../test/helpers/test_database.ts';
 import { bandOf, classifyTestFile, type TestFootprint } from '../test/helpers/test_footprint.ts';
@@ -90,10 +94,10 @@ const TIMINGS_PATH = join(REPO_ROOT, 'engineering', 'test_baseline', 'timings.js
 
 /** Keep this many bytes free on the PG volume AFTER all clones (the volume is at 96%). */
 export const DISK_HEADROOM_BYTES = 8 * 1024 ** 3;
-/** Per-child pool — a shard runs one file at a time; 3 covers pool + a stray cursor. */
-export const SHARD_POOL_MAX = 3;
-/** Per-child MAINTENANCE pool (PERF-11): the unbounded lane a maintenance leg opens lazily. */
-export const SHARD_MAINTENANCE_POOL_MAX = 1;
+/** Per-child request pool — what a serial run resolves (catalog + ../private/.env), never smaller. */
+export const SHARD_POOL_MAX = Math.max(1, readNumber('DB_POOL_MAX'));
+/** Per-child MAINTENANCE pool (PERF-11) — likewise the serial value. */
+export const SHARD_MAINTENANCE_POOL_MAX = Math.max(1, readNumber('DB_MAINTENANCE_POOL_MAX'));
 /**
  * The PHYSICAL backends one child process may hold — the request pool, BOTH
  * maintenance pools (the gate bounds slots in use; each Bun pool keeps its idle
@@ -105,12 +109,12 @@ export const SHARD_CONNECTIONS_PER_PROCESS = connectionsPerProcess(
 	SHARD_MAINTENANCE_POOL_MAX,
 );
 /**
- * Non-zero ON PURPOSE, and PINNED explicitly: the catalog default
- * (src/config/catalog/db.ts) is still 0 — wait forever — until the PERF-11
- * default flip, and after it an operator's .env may still say 0. A child never
- * inherits either.
+ * The serial value too, 0 (wait forever) included: a hung acquire is still
+ * bounded — loudly, by name — by the per-test timeout every child runs under
+ * (TEST_TIMEOUT_FLAG), exactly as in a serial run. Cluster exhaustion is not
+ * an acquire wait at all (Postgres refuses the connection outright).
  */
-export const SHARD_POOL_ACQUIRE_TIMEOUT_MS = 30000;
+export const SHARD_POOL_ACQUIRE_TIMEOUT_MS = Math.max(0, readNumber('DB_POOL_ACQUIRE_TIMEOUT_MS'));
 /** A pinned test may spawn ONE concurrent subprocess with its own pool. */
 export const EXPECTED_CONCURRENT_GRANDCHILDREN = 1;
 
@@ -432,7 +436,7 @@ async function probeConnections(): Promise<{
  * no-op: the untouched parent env, exactly what `bun test` gets today. In a
  * multi-bin run every child starts from `childEnv()` — the SAME per-run-seam
  * strip parity_census and test_baseline use, so an inherited seam can never
- * double-derive — plus the bounded pool; a shard-assigned child then moves the
+ * double-derive — plus the serial pool configuration, pinned; a shard-assigned child then moves the
  * discriminator surfaces TOGETHER (header: total or absent, never partial).
  */
 export function composeChildEnv(
@@ -764,7 +768,7 @@ async function main(): Promise<number> {
 		console.log(`[shard] ${connVerdict.arithmetic}`);
 		if (!connVerdict.ok) {
 			console.error(
-				'[shard] REFUSING: the cluster cannot seat every shard pool. Lower --bins — an over-committed cluster fails unrelated files on the acquire timeout instead of running them.',
+				'[shard] REFUSING: the cluster cannot seat every shard pool at the serial pool size. Raise max_connections (ALTER SYSTEM SET max_connections = …; restart) or lower --bins — never shrink the child pool: a smaller pool is not the suite the serial baseline measured.',
 			);
 			return 1;
 		}

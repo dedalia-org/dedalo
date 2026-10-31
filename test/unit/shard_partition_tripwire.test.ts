@@ -25,12 +25,13 @@
  *  - A re-derivation over an already-sharded env yields `<t>__shard2__shard2`
  *    — a database no sweep enumerates and no budget counted.
  *  - A budget that CLAMPS instead of refusing fills a volume measured at 96%
- *    capacity, or exhausts max_connections=100 — where an inherited
- *    DB_POOL_ACQUIRE_TIMEOUT_MS of 0 (the catalog default until the PERF-11
- *    flip lands, or an operator .env after it) would turn exhaustion into a
- *    silent HANG in an unrelated file, so the child pins its own. A process opens BOTH its
+ *    capacity, or exhausts max_connections. And a child pool SMALLER than the
+ *    serial one is a different suite: the lock/race gates hold several
+ *    connections from ONE file, so a cap of 3 exhausted the pool and failed
+ *    every later file in the bin (MEASURED 2026-10-30, 1558 moved keys). The
+ *    child pins the SERIAL pool configuration; a process opens BOTH its
  *    request pool and its maintenance pool (DB_MAINTENANCE_POOL_MAX): the
- *    budget counts both.
+ *    budget counts both, and refuses rather than shrink.
  *
  * ── ANTI-VACUITY ─────────────────────────────────────────────────────────────
  * Every derived set has a floor (discovery > 700 files; the census still holds
@@ -81,6 +82,7 @@ import {
 	SHARD_MAINTENANCE_POOL_MAX,
 	SHARD_POOL_MAX,
 } from '../../scripts/test_shard.ts';
+import { readNumber } from '../../src/config/readers.ts';
 import { connectionsPerProcess } from '../../src/core/db/connection_budget.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 import { testDatabaseName } from '../helpers/test_database.ts';
@@ -266,12 +268,17 @@ describe('shard env — the discriminator is total or absent, never partial', ()
 		expect(basename(testMediaRootPath(env.DEDALO_TEST_DATABASE as string))).toBe(
 			`${TEMPLATE}__shard2`,
 		);
-		// Both pools are bounded and the acquire timeout NON-ZERO (pinned, never
-		// inherited: an operator .env may say 0 = wait forever, turning cluster
-		// exhaustion into a silent hang).
-		expect(Number(env.DB_POOL_MAX)).toBeGreaterThan(0);
-		expect(Number(env.DB_MAINTENANCE_POOL_MAX)).toBeGreaterThan(0);
-		expect(Number(env.DB_POOL_ACQUIRE_TIMEOUT_MS)).toBeGreaterThan(0);
+		// The pools are the SERIAL configuration, pinned by value — what a plain
+		// `bun test` resolves through the catalog — never a shard-only shrink.
+		expect(Number(env.DB_POOL_MAX)).toBe(Math.max(1, readNumber('DB_POOL_MAX')));
+		expect(Number(env.DB_MAINTENANCE_POOL_MAX)).toBe(
+			Math.max(1, readNumber('DB_MAINTENANCE_POOL_MAX')),
+		);
+		expect(Number(env.DB_POOL_ACQUIRE_TIMEOUT_MS)).toBe(
+			Math.max(0, readNumber('DB_POOL_ACQUIRE_TIMEOUT_MS')),
+		);
+		// The catalog default (10) is the floor a lock/race gate was written for.
+		expect(Number(env.DB_POOL_MAX)).toBeGreaterThanOrEqual(10);
 	});
 
 	test('no shard assignment moves NONE of the four', () => {
@@ -497,7 +504,7 @@ describe('shard budgets — refusal driven by synthetic inputs, both directions'
 		expect(verdict.arithmetic).toContain('max_connections 100');
 	});
 
-	test('connections: the shipped shard shape PASSES — counting every PHYSICAL backend per process', () => {
+	test('connections: the shipped shard shape is counted PHYSICALLY, and REFUSES rather than shrink', () => {
 		// A child may hold its request pool, BOTH maintenance pools (the
 		// non-transactional lane is a second Bun pool: the gate bounds slots in
 		// use, not idle sockets) and the dedicated cancel/verdict connections —
@@ -506,14 +513,16 @@ describe('shard budgets — refusal driven by synthetic inputs, both directions'
 		expect(SHARD_CONNECTIONS_PER_PROCESS).toBe(
 			connectionsPerProcess(SHARD_POOL_MAX, SHARD_MAINTENANCE_POOL_MAX),
 		);
-		const verdict = assessConnectionBudget({
-			maxConnections: 100,
+		const shape = {
 			superuserReserved: 3,
-			liveBackends: 19,
+			liveBackends: 29,
 			children: 4,
 			poolMaxPerChild: SHARD_CONNECTIONS_PER_PROCESS,
 			expectedConcurrentGrandchildren: EXPECTED_CONCURRENT_GRANDCHILDREN,
-		});
-		expect(verdict.ok).toBe(true);
+		};
+		// The stock cluster (100) cannot seat four serial-size children: REFUSED…
+		expect(assessConnectionBudget({ ...shape, maxConnections: 100 }).ok).toBe(false);
+		// …a cluster sized for the suite can.
+		expect(assessConnectionBudget({ ...shape, maxConnections: 300 }).ok).toBe(true);
 	});
 });
