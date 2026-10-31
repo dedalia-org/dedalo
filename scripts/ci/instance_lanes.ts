@@ -3,8 +3,10 @@
  * INSTANCE-TIER LANES — the suite-database clones the instance tier's concurrent lanes
  * run on (scripts/ci/instance_tier.sh, `DEDALO_CI_INSTANCE_LANES=3`).
  *
- *   bun run scripts/ci/instance_lanes.ts provision   # sweep leftovers, clone ×3, seal; prints the names
+ *   bun run scripts/ci/instance_lanes.ts provision <names-file>   # sweep leftovers, clone ×3,
+ *                                                    # seal; the clone names → <names-file>, one a line
  *   bun run scripts/ci/instance_lanes.ts sweep       # unseal the template, drop every clone + twin
+ *   bun run scripts/ci/instance_lanes.ts print <log> # a lane's log to stdout, whole
  *
  * WHY CLONES. The crawl, the phone check, the client suite, the update drills and the
  * publication-host engine drill each install fixtures, set the suite login, reseed
@@ -21,7 +23,15 @@
  * LOUDLY on connect instead of writing a fixture its peers read. `sweep` unseals it —
  * run from the tier's EXIT trap, and on entry by `provision`, so a killed run cannot
  * leave the next one facing a sealed template or a stale clone.
+ *
+ * `print` EXISTS BECAUSE `cat` CANNOT DO IT. A Bun process leaves the tier's shared stdout
+ * pipe NON-BLOCKING (O_NONBLOCK lives on the open file description every child inherits);
+ * a lane's whole log written at once then fills the pipe and `cat` dies mid-file on
+ * EAGAIN ("write error: Resource temporarily unavailable" — measured 2026-10-31: two lane
+ * logs cut short, and under `set -e` the tier's shell gone with the rest). `print` writes
+ * the file and waits out EAGAIN.
  */
+import { readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { testDatabaseName } from '../../test/helpers/test_database.ts';
 import {
 	cloneShardMedia,
@@ -43,12 +53,36 @@ async function sweep(template: string): Promise<void> {
 	if (report.refused.length > 0) process.exitCode = 1;
 }
 
+/** Write all of `bytes` to fd 1, waiting out EAGAIN on a non-blocking pipe. */
+export function writeAllToStdout(bytes: Uint8Array, write = writeSync): void {
+	let offset = 0;
+	while (offset < bytes.length) {
+		try {
+			offset += write(1, bytes, offset, bytes.length - offset);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EAGAIN') throw error;
+			Bun.sleepSync(5);
+		}
+	}
+}
+
 async function main(): Promise<void> {
 	const command = process.argv[2];
+	if (command === 'print') {
+		const path = process.argv[3];
+		if (path === undefined) {
+			console.error('usage: bun run scripts/ci/instance_lanes.ts print <log>');
+			process.exit(2);
+		}
+		return writeAllToStdout(readFileSync(path));
+	}
 	const template = testDatabaseName();
 	if (command === 'sweep') return sweep(template);
-	if (command !== 'provision') {
-		console.error('usage: bun run scripts/ci/instance_lanes.ts provision|sweep');
+	const namesFile = process.argv[3];
+	if (command !== 'provision' || namesFile === undefined) {
+		console.error(
+			'usage: bun run scripts/ci/instance_lanes.ts provision <names-file> | sweep | print <log>',
+		);
 		process.exit(2);
 	}
 	await sweep(template);
@@ -59,8 +93,14 @@ async function main(): Promise<void> {
 	}
 	for (const line of await sealTemplate(template)) console.error(`[lanes] ${line}`);
 	console.error(`[lanes] template ${template} sealed; lanes: ${names.join(', ')}`);
-	// stdout carries ONLY the names, one per line: the tier reads them.
-	for (const name of names) console.log(name);
+	// The names go to a FILE, never stdout: the shard helpers log there (a terminated
+	// template backend — measured 2026-10-31, that line became lane 1's "database").
+	for (const name of names)
+		if (!/^[a-z0-9_]+__shard\d+$/.test(name))
+			throw new Error(
+				`[lanes] provisioned an unexpected name '${name}' — refusing to hand it to a lane`,
+			);
+	writeFileSync(namesFile, `${names.join('\n')}\n`);
 }
 
 if (import.meta.main) await main();

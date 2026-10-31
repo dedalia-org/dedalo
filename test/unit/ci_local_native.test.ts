@@ -708,20 +708,18 @@ describe('stage durations — each stage is timed from its marker to the next', 
 	});
 });
 
-describe('instance lanes — --docker runs the instance tier in its lanes, host mode serial', () => {
+describe('instance lanes — opt-in (--instance-lanes 3), serial by default', () => {
 	const args = (flags: string[], values: Record<string, string> = {}) => ({
 		flags: new Set(flags),
 		values: new Map(Object.entries(values)),
 	});
 
-	test('docker default: the tier plans INSTANCE_LANES; host default 1; the flag wins', () => {
-		expect(instanceLanesEnv(args(['--docker']))).toEqual({
-			DEDALO_CI_INSTANCE_LANES: String(INSTANCE_LANES),
-		});
+	test('serial by DEFAULT everywhere (lanes beside the db tier overran a 7.6 GiB VM); the flag opts in', () => {
+		expect(instanceLanesEnv(args(['--docker']))).toEqual({ DEDALO_CI_INSTANCE_LANES: '1' });
 		expect(instanceLanesEnv(args([]))).toEqual({ DEDALO_CI_INSTANCE_LANES: '1' });
-		expect(instanceLanesEnv(args(['--docker'], { '--instance-lanes': '1' }))).toEqual({
-			DEDALO_CI_INSTANCE_LANES: '1',
-		});
+		expect(
+			instanceLanesEnv(args(['--docker'], { '--instance-lanes': String(INSTANCE_LANES) })),
+		).toEqual({ DEDALO_CI_INSTANCE_LANES: String(INSTANCE_LANES) });
 	});
 
 	test('--instance-lanes takes 1 or the planned lane count, nothing else', () => {
@@ -748,6 +746,43 @@ describe('instance lanes — --docker runs the instance tier in its lanes, host 
 		expect(readFileSync(join(REPO_ROOT, 'ci/compose.yml'), 'utf8')).toContain(
 			'DEDALO_CI_INSTANCE_LANES: ${DEDALO_CI_INSTANCE_LANES:-1}',
 		);
+	});
+});
+
+describe('instance lanes — a lane log reaches stdout WHOLE through a non-blocking pipe', () => {
+	test('writeAllToStdout resumes after partial writes and waits out EAGAIN; any other error throws', async () => {
+		const { writeAllToStdout } = await import('../../scripts/ci/instance_lanes.ts');
+		const bytes = new TextEncoder().encode('0123456789');
+		const got: number[] = [];
+		let calls = 0;
+		const flaky = ((_fd: number, buf: Uint8Array, offset: number, length: number) => {
+			calls++;
+			if (calls % 2 === 0) throw Object.assign(new Error('EAGAIN'), { code: 'EAGAIN' });
+			const n = Math.min(3, length); // a full pipe takes a few bytes at a time
+			got.push(...buf.subarray(offset, offset + n));
+			return n;
+		}) as unknown as typeof import('node:fs').writeSync;
+		writeAllToStdout(bytes, flaky);
+		expect(new TextDecoder().decode(new Uint8Array(got))).toBe('0123456789');
+		expect(calls).toBeGreaterThan(4);
+		const broken = (() => {
+			throw Object.assign(new Error('EPIPE'), { code: 'EPIPE' });
+		}) as unknown as typeof import('node:fs').writeSync;
+		expect(() => writeAllToStdout(bytes, broken)).toThrow('EPIPE');
+	});
+
+	test('the tier prints lane logs through it, never cat (cat dies on EAGAIN mid-file)', () => {
+		const tier = readFileSync(join(REPO_ROOT, 'scripts/ci/instance_tier.sh'), 'utf8');
+		expect(tier).toContain(
+			'bun run scripts/ci/instance_lanes.ts print "$lane_logs/$lane.log" || print_rc=$?',
+		);
+		expect(tier).not.toMatch(/^\s*cat "\$lane_logs/m);
+		// the clone names travel in a FILE: the shard helpers log on stdout, and a
+		// captured stdout once handed lane 1 a log line as its database
+		expect(tier).toContain(
+			'bun run scripts/ci/instance_lanes.ts provision "$lane_logs/databases" || lanes_rc=$?',
+		);
+		expect(tier).not.toMatch(/instance_lanes\.ts provision[^\n]*>/);
 	});
 });
 

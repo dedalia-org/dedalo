@@ -88,7 +88,8 @@ tier_status=0
 #   pubhost — the publication-host drills, the probe, the Bun pin (the agent and engine
 #             drills share ONE exec seam and ONE MariaDB lane: in order, never apart)
 # DEDALO_CI_INSTANCE_LANES=1 (the default; GitHub's db.yml) runs them one after another
-# in the main shell on the suite database, client lane first. =3 (ci:local --docker)
+# in the main shell on the suite database, client lane first. =3 (opt-in: ci:local
+# --instance-lanes 3 — beside the db tier on a 7.6 GiB Docker VM it overran memory, 2026-10-31)
 # runs them CONCURRENTLY, each on its own clone of the suite database
 # (scripts/ci/instance_lanes.ts: FILE_COPY clone, marker rewritten, media twin, the
 # template SEALED meanwhile); every process of a lane reaches its clone through
@@ -319,11 +320,23 @@ if [ "$instance_lanes" -eq 1 ]; then
 	lane_crawl || tier_status=1
 	lane_pubhost || tier_status=1
 else
+	t0=$SECONDS
 	echo "== instance_tier: lane databases, ${instance_lanes} clones of the suite database (bun run scripts/ci/instance_lanes.ts provision)"
 	lanes_rc=0
-	lane_logs="$(mktemp -d)"
-	bun run scripts/ci/instance_lanes.ts provision >"$lane_logs/databases" || lanes_rc=$?
+	# Kept where ci:local keeps the tier logs (DEDALO_CI_LOG_DIR → <repo>/ci-logs/<run>/):
+	# a lane that dies must leave its log behind, not take it with the tier.
+	if [ -n "${DEDALO_CI_LOG_DIR:-}" ]; then
+		lane_logs="$DEDALO_CI_LOG_DIR/instance_lanes"
+		mkdir -p "$lane_logs"
+	else
+		lane_logs="$(mktemp -d)"
+	fi
+	# Created here, filled by `provision` only after it checked every name (it exits 0
+	# only then); never its stdout, which the shard helpers log on.
+	: >"$lane_logs/databases"
+	bun run scripts/ci/instance_lanes.ts provision "$lane_logs/databases" || lanes_rc=$?
 	[ "$lanes_rc" -eq 0 ] || { echo "== instance_tier: RED in the lane databases (exit $lanes_rc)"; tier_status=1; }
+	took
 	if [ "$lanes_rc" -eq 0 ]; then
 		client_db="$(sed -n 1p "$lane_logs/databases")"
 		crawl_db="$(sed -n 2p "$lane_logs/databases")"
@@ -339,12 +352,19 @@ else
 			pid_var="${lane}_pid"
 			lane_rc=0
 			wait "${!pid_var}" || lane_rc=$?
-			cat "$lane_logs/$lane.log"
+			# Never `cat`: the shared stdout is non-blocking (instance_lanes.ts `print` says why).
+			print_rc=0
+			bun run scripts/ci/instance_lanes.ts print "$lane_logs/$lane.log" || print_rc=$?
+			[ "$print_rc" -eq 0 ] || { echo "== instance_tier: RED in printing lane $lane's log (exit $print_rc; kept: $lane_logs/$lane.log)"; tier_status=1; }
 			echo "-- instance_tier: lane $lane ended (exit $lane_rc)"
+			# A lane returns 0 or 1 (its accumulator); anything else means it was KILLED and
+			# the stages after its last marker never ran — red on the stage it died in, never
+			# a summary that silently lacks them.
+			[ "$lane_rc" -le 1 ] || echo "== instance_tier: RED in lane $lane — killed (exit $lane_rc); its later stages never ran (log: $lane_logs/$lane.log)"
 			[ "$lane_rc" -eq 0 ] || tier_status=1
 		done
 	fi
-	rm -rf "$lane_logs"
+	[ -n "${DEDALO_CI_LOG_DIR:-}" ] || rm -rf "$lane_logs"
 fi
 
 [ "$tier_status" -eq 0 ] || { echo "== instance_tier: RED"; exit 1; }

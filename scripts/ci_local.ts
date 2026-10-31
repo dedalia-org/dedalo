@@ -88,9 +88,9 @@
  *   bun run ci:local --docker --unit-bins 1   # the unit tier serial (--docker default 4 sharded
  *                                 # bins, host default 1 — unit_baseline.ts --check --bins,
  *                                 # sealed template, merged JUnit)
- *   bun run ci:local --docker --instance-lanes 1   # the instance tier serial (--docker
- *                                 # default 3 concurrent lanes, each on a suite-DB clone;
- *                                 # host default 1 — scripts/ci/instance_tier.sh)
+ *   bun run ci:local --docker --instance --instance-lanes 3   # the instance tier in 3
+ *                                 # concurrent lanes, each on a suite-DB clone (opt-in;
+ *                                 # default 1 = serial — scripts/ci/instance_tier.sh)
  *
  * RECORDING THE UNIT BASELINE (`--record-unit-baseline`, --docker only). The unit tier's
  * per-file floors and red set are a fact about the IMAGE (its toolchain, its uid, the
@@ -561,11 +561,12 @@ export function unitBinsEnv(args: Pick<Args, 'flags'> & { values?: ReadonlyMap<s
 }
 
 /**
- * `DEDALO_CI_INSTANCE_LANES` for the instance tier (scripts/ci/instance_tier.sh): its stages
- * in {@link INSTANCE_LANES} concurrent lanes, each on its own clone of the suite database,
- * under --docker (measured 2026-10-31: the tier ≈ its crawl lane); 1 = the serial order,
- * which host mode keeps (the clones would land on your Postgres) and GitHub's db.yml runs
- * (the key unset). `--instance-lanes 1` asks for it under --docker.
+ * `DEDALO_CI_INSTANCE_LANES` for the instance tier (scripts/ci/instance_tier.sh): 1 = the
+ * serial order, the DEFAULT everywhere (GitHub's db.yml leaves the key unset); `--instance-lanes
+ * {@link INSTANCE_LANES}` runs its stages in concurrent lanes, each on its own clone of the
+ * suite database — OPT-IN, never a default: measured 2026-10-31 under --docker beside the db
+ * tier's 4 unit bins on a 7.6 GiB Docker VM, the three lanes took the run from 40 to 66 min
+ * (memory peak 6.99 GiB: the db tier's unit stage 19 → 45 min) and the client lane stalled.
  */
 export const INSTANCE_LANES = 3;
 export function instanceLanesEnv(
@@ -574,8 +575,7 @@ export function instanceLanesEnv(
 	DEDALO_CI_INSTANCE_LANES: string;
 } {
 	const value = args.values?.get('--instance-lanes');
-	const fallback = args.flags.has('--docker') ? INSTANCE_LANES : 1;
-	return { DEDALO_CI_INSTANCE_LANES: String(value === undefined ? fallback : Number(value)) };
+	return { DEDALO_CI_INSTANCE_LANES: value === undefined ? '1' : String(Number(value)) };
 }
 
 /** `--instance-lanes N`: 1 (serial) or {@link INSTANCE_LANES} — the tier plans exactly that many. */
