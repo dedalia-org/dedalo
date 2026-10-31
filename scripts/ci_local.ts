@@ -88,6 +88,9 @@
  *   bun run ci:local --docker --unit-bins 1   # the unit tier serial (--docker default 4 sharded
  *                                 # bins, host default 1 — unit_baseline.ts --check --bins,
  *                                 # sealed template, merged JUnit)
+ *   bun run ci:local --docker --instance-lanes 1   # the instance tier serial (--docker
+ *                                 # default 3 concurrent lanes, each on a suite-DB clone;
+ *                                 # host default 1 — scripts/ci/instance_tier.sh)
  *
  * RECORDING THE UNIT BASELINE (`--record-unit-baseline`, --docker only). The unit tier's
  * per-file floors and red set are a fact about the IMAGE (its toolchain, its uid, the
@@ -218,6 +221,7 @@ const VALUE_FLAGS = new Set([
 	'--reason',
 	'--new',
 	'--unit-bins',
+	'--instance-lanes',
 ]);
 
 /**
@@ -494,6 +498,7 @@ export function dockerComposeEnv(facts: DockerRunFacts): Record<string, string |
 		DEDALO_CI_LOG_DIR: CONTAINER_LOG_DIR,
 		...recordEnv(args, CONTAINER_OUT),
 		...unitBinsEnv(args),
+		...instanceLanesEnv(args),
 		// compose.yml REQUIRES this (`:?`) for every command it parses, `down` included —
 		// without it the teardown fails to interpolate and leaks the project's network.
 		DEDALO_CI_TIER_SCRIPT: 'none',
@@ -553,6 +558,33 @@ export function unitBinsEnv(args: Pick<Args, 'flags'> & { values?: ReadonlyMap<s
 	const value = args.values?.get('--unit-bins');
 	const fallback = args.flags.has('--docker') ? DEFAULT_UNIT_BINS : 1;
 	return { DEDALO_CI_UNIT_BINS: String(value === undefined ? fallback : Number(value)) };
+}
+
+/**
+ * `DEDALO_CI_INSTANCE_LANES` for the instance tier (scripts/ci/instance_tier.sh): its stages
+ * in {@link INSTANCE_LANES} concurrent lanes, each on its own clone of the suite database,
+ * under --docker (measured 2026-10-31: the tier ≈ its crawl lane); 1 = the serial order,
+ * which host mode keeps (the clones would land on your Postgres) and GitHub's db.yml runs
+ * (the key unset). `--instance-lanes 1` asks for it under --docker.
+ */
+export const INSTANCE_LANES = 3;
+export function instanceLanesEnv(
+	args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> },
+): {
+	DEDALO_CI_INSTANCE_LANES: string;
+} {
+	const value = args.values?.get('--instance-lanes');
+	const fallback = args.flags.has('--docker') ? INSTANCE_LANES : 1;
+	return { DEDALO_CI_INSTANCE_LANES: String(value === undefined ? fallback : Number(value)) };
+}
+
+/** `--instance-lanes N`: 1 (serial) or {@link INSTANCE_LANES} — the tier plans exactly that many. */
+export function instanceLanesFault(args: Args): string | null {
+	const value = args.values.get('--instance-lanes');
+	if (value === undefined) return null;
+	if (value !== '1' && value !== String(INSTANCE_LANES))
+		return `--instance-lanes takes 1 (serial) or ${INSTANCE_LANES} (the tier's lanes), got '${value}'`;
+	return null;
 }
 
 /** `--unit-bins N`: an integer 1..MAX_UNIT_BINS, never beside a recording (which is serial). */
@@ -670,8 +702,18 @@ export interface Stage {
 	 * SUMMARY, PER-FILE FLOORS (stale, re-freeze) are improvements waiting to be banked.
 	 */
 	drift: string[];
+	/**
+	 * Wall seconds from this stage's opening marker to the next one (the last: to the
+	 * tier's final line), as the lines ARRIVED at ci:local. Present when the run was
+	 * timed — the measure a split of a tier is planned from.
+	 */
+	duration_s?: number;
 	/** The stage's own output — for classifying the fix, never serialized. */
 	lines: string[];
+	/** Arrival time (ms) of the opening marker — internal, never serialized. */
+	started_ms?: number;
+	/** The tier's own `TOOK <n>s` for this stage — internal; becomes duration_s. */
+	took_s?: number;
 }
 
 export interface TierResult {
@@ -696,6 +738,8 @@ const REGRESSION_BLOCKS = new Set(['REGRESSIONS', 'PER-FILE FLOORS (regressions)
 const FAIL_RECAP = /^\s*\d+ tests? failed:?\s*$/;
 /** The marker this script's own container driver prints to open a workflow `run:` step. */
 const WORKFLOW_STEP = 'workflow_step';
+/** `== <tier>: TOOK <n>s` — a stage's wall time, as the tier itself measured it. */
+const TOOK = /^TOOK (\d+)s$/;
 const TEST_FILE_HEADER = /^(?:::group::|##\[group\])?(\S+\.test\.[cm]?[jt]sx?):$/;
 
 /**
@@ -713,7 +757,8 @@ export function parseStages(
 	prefix: string,
 	output: string,
 	exitCode: number,
-): Omit<Stage, 'lines'>[] {
+	lineTimes?: readonly number[],
+): Omit<Stage, 'lines' | 'started_ms' | 'took_s'>[] {
 	const stages: Stage[] = [];
 	const current = (): Stage | undefined => stages[stages.length - 1];
 	// bun prints each file as a header line before its tests (`::group::<file>:` under
@@ -721,7 +766,13 @@ export function parseStages(
 	// failure in its end-of-run recap — so a failure is keyed to its file and deduplicated.
 	let file: string | undefined;
 	let driftBlock: string | undefined;
-	for (const raw of output.split('\n')) {
+	const rawLines = output.split('\n');
+	const open = (name: string, index: number) => {
+		const stage = newStage(name);
+		if (lineTimes?.[index] !== undefined) stage.started_ms = lineTimes[index];
+		stages.push(stage);
+	};
+	for (const [index, raw] of rawLines.entries()) {
 		const line = raw.replace(ANSI, '').replace(/\r$/, '');
 		const marker = MARKER.exec(line);
 		if (marker === null) {
@@ -763,7 +814,7 @@ export function parseStages(
 		const [, who, text] = marker as unknown as [string, string, string];
 		const stage = current();
 		if (who === WORKFLOW_STEP) {
-			stages.push(newStage(text));
+			open(text, index);
 			continue;
 		}
 		if (who !== prefix) {
@@ -786,13 +837,18 @@ export function parseStages(
 				stage.verdict = 'skipped';
 				stage.notes.push(text);
 			}
+		} else if (TOOK.test(text)) {
+			// the stage's own wall time (instance_tier.sh lanes: their logs print whole when
+			// the lane ends, so the arrival time measures nothing) — wins over arrival
+			const took = TOOK.exec(text)?.[1];
+			if (stage !== undefined && took !== undefined) stage.took_s = Number(took);
 		} else if (/^(RED|GREEN|OK)\b/.test(text)) {
 			// the tier's final verdict line
 		} else if (/^(bun \d|installing )/.test(text)) {
 			// a version banner / a toolchain note, not a stage
 			stage?.lines.push(line);
 		} else {
-			stages.push(newStage(text));
+			open(text, index);
 		}
 	}
 	if (exitCode !== 0 && !stages.some((stage) => stage.verdict === 'red')) {
@@ -807,11 +863,19 @@ export function parseStages(
 			last.notes.push(`the tier ABORTED here (exit ${exitCode}) — every later stage never ran`);
 		}
 	}
-	return stages.map((stage) => {
-		const { lines, ...rest } = stage;
+	const endMs = lineTimes?.[lineTimes.length - 1];
+	return stages.map((stage, index) => {
+		const { lines, started_ms, took_s, ...rest } = stage;
+		const nextMs = stages[index + 1]?.started_ms ?? endMs;
+		const arrived =
+			started_ms !== undefined && nextMs !== undefined
+				? Math.round((nextMs - started_ms) / 1000)
+				: undefined;
+		const duration = took_s ?? arrived;
 		return {
 			...rest,
 			fix_hint: stage.verdict === 'red' ? fixHint(stage) : null,
+			...(duration !== undefined ? { duration_s: duration } : {}),
 		};
 	});
 }
@@ -911,6 +975,14 @@ export async function runStreaming(
 	// `== <tier>: RED in …` marker from the parser. Each stream keeps its own partial
 	// line and only complete lines reach `captured`; the tail is flushed at EOF.
 	const captured: string[] = [];
+	// One arrival time per captured line (aligned with `captured.join('').split('\n')`):
+	// what parseStages times each stage by.
+	const lineTimes: number[] = [];
+	const stamp = (lines: string) => {
+		const now = performance.now();
+		for (let at = lines.indexOf('\n'); at !== -1; at = lines.indexOf('\n', at + 1))
+			lineTimes.push(now);
+	};
 	const pump = async (stream: ReadableStream<Uint8Array>, sink: NodeJS.WriteStream) => {
 		const decoder = new TextDecoder();
 		let partial = '';
@@ -925,6 +997,7 @@ export async function runStreaming(
 			const end = partial.lastIndexOf('\n');
 			if (end !== -1) {
 				captured.push(partial.slice(0, end + 1));
+				stamp(partial.slice(0, end + 1));
 				echo(partial.slice(0, end + 1));
 				partial = partial.slice(end + 1);
 			}
@@ -932,12 +1005,13 @@ export async function runStreaming(
 		partial += decoder.decode();
 		if (partial !== '') {
 			captured.push(`${partial}\n`);
+			stamp(`${partial}\n`);
 			echo(`${partial}\n`);
 		}
 	};
 	await Promise.all([pump(proc.stdout, process.stdout), pump(proc.stderr, process.stderr)]);
 	const code = await proc.exited;
-	return { code, output: captured.join('') };
+	return { code, output: captured.join(''), lineTimes };
 }
 
 /** `a\nb\n` → `[p] a\n[p] b\n` — complete lines only (the caller holds back the partial). */
@@ -951,8 +1025,8 @@ async function runTier(
 	options: { cwd: string; env: Record<string, string | undefined>; prefix?: string },
 ): Promise<TierResult> {
 	const started = performance.now();
-	const { code, output } = await runStreaming(cmd, options);
-	const stages = parseStages(tier.prefix, output, code);
+	const { code, output, lineTimes } = await runStreaming(cmd, options);
+	const stages = parseStages(tier.prefix, output, code, lineTimes);
 	return {
 		tier: tier.id,
 		verdict: code === 0 ? 'green' : 'red',
@@ -1094,6 +1168,7 @@ async function runOnHost(args: Args, tiers: readonly Tier[]): Promise<TierResult
 		// Never records on the host (recordArgsFault refuses the flag): both keys pinned off.
 		...recordEnv({ flags: new Set() }, ''),
 		...unitBinsEnv(args),
+		...instanceLanesEnv(args),
 		...(binPath === undefined ? {} : { DEDALO_PG_BIN_PATH: binPath }),
 	};
 
@@ -1738,7 +1813,7 @@ function printSummary(results: TierResult[]): void {
 		);
 		for (const stage of result.stages) {
 			console.log(
-				`      ${GLYPH[stage.verdict]} ${stage.name}${stage.verdict === 'green' ? '' : `  [${stage.verdict}]`}`,
+				`      ${GLYPH[stage.verdict]} ${stage.name}${stage.duration_s === undefined ? '' : ` (${stage.duration_s}s)`}${stage.verdict === 'green' ? '' : `  [${stage.verdict}]`}`,
 			);
 			if (stage.verdict === 'red') {
 				for (const note of stage.notes) console.log(`          ${note}`);
@@ -1758,8 +1833,8 @@ async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.flags.has('--help') || args.flags.has('-h')) {
 		console.log(
-			'bun run ci:local [--hermetic] [--db] [--instance] [--keep] [--fail-fast] [--unit-bins <n>] [--summary <file>]\n' +
-				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--serial-tiers] [--unit-bins <n>] [--summary <file>]\n' +
+			'bun run ci:local [--hermetic] [--db] [--instance] [--keep] [--fail-fast] [--unit-bins <n>] [--instance-lanes 1|3] [--summary <file>]\n' +
+				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--serial-tiers] [--unit-bins <n>] [--instance-lanes 1|3] [--summary <file>]\n' +
 				'bun run ci:local --docker --record-unit-baseline [--ref HEAD] [--allow-regression --reason "<why>" | --new <file>[,<file>…]]\n' +
 				'bun run ci:local --docker --record-parity-baseline [--record-unit-baseline --new <file>] [--allow-regression --reason "<why>"]\n\n' +
 				'Runs the CI tiers with the environment a RUNNER has: no ../private/.env, every\n' +
@@ -1779,6 +1854,8 @@ async function main(): Promise<void> {
 	if (recordFault !== null) fail(recordFault);
 	const binsFault = unitBinsFault(args);
 	if (binsFault !== null) fail(binsFault);
+	const lanesFault = instanceLanesFault(args);
+	if (lanesFault !== null) fail(lanesFault);
 	if (!args.flags.has('--docker')) {
 		for (const flag of ['--ref', '--base', '--audit-base'])
 			if (args.values.has(flag))

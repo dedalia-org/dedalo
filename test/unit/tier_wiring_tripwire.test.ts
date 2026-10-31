@@ -851,7 +851,12 @@ exit 0
  * invocation, once; `failOn` (likewise) makes every such invocation exit 1 (leg L). The
  * script runs from the repo root, as CI runs it.
  */
-function drillScript(script: string, killOn?: string, failOn?: string): DrillRun {
+function drillScript(
+	script: string,
+	killOn?: string,
+	failOn?: string,
+	extraEnv: Readonly<Record<string, string>> = {},
+): DrillRun {
 	const dir = mkdtempSync(join(tmpdir(), 'tier_wiring_trap_'));
 	try {
 		const bin = join(dir, 'bin');
@@ -886,6 +891,7 @@ function drillScript(script: string, killOn?: string, failOn?: string): DrillRun
 					DEDALO_CI_UNIT_BINS: undefined,
 					...(killOn === undefined ? {} : { DRILL_KILL_ON: killOn }),
 					...(failOn === undefined ? {} : { DRILL_FAIL_ON: failOn }),
+					...extraEnv,
 				},
 				stdout: 'ignore',
 				stderr: 'ignore',
@@ -957,6 +963,7 @@ function exitTrapFaults(
 	rel: string,
 	script: string,
 	ctx: StarterContext,
+	extraEnv: Readonly<Record<string, string>> = {},
 ): { starters: string[]; faults: string[] } {
 	const root = realpathSync(ROOT);
 	const starts = (inv: DrillInvocation) =>
@@ -970,7 +977,7 @@ function exitTrapFaults(
 		})() &&
 		argvStartsSuiteServer(inv.argv, ctx);
 	const faults: string[] = [];
-	const normal = drillScript(script);
+	const normal = drillScript(script, undefined, undefined, extraEnv);
 	if (normal.code !== 0)
 		faults.push(
 			`${rel}: the stubbed run exited ${normal.code} — the drill could not walk its stages, so nothing it starts is proven stopped`,
@@ -984,7 +991,7 @@ function exitTrapFaults(
 			`${rel}: starts the suite MariaDB (\`bun ${shown(starters[0] as string)}\`) but its run does not END with \`bun run scripts/ci/suite_mariadb.ts stop\` (the last call is \`${last?.command} ${shown(last?.argv.join(' ') ?? '')}\`) — no EXIT trap stops the server, or a later \`trap … EXIT\` REPLACED that stop; chain it instead`,
 		);
 	const killOn = starters[0] as string;
-	const killed = drillScript(script, killOn);
+	const killed = drillScript(script, killOn, undefined, extraEnv);
 	const at = killed.invocations.findIndex(
 		(inv) => inv.command === 'bun' && inv.argv.join(' ') === killOn,
 	);
@@ -1675,6 +1682,19 @@ describe('tier wiring — every gate is reached by a workflow that executes', ()
 		).toEqual([]);
 		// The floor: the DB tier starts it (its MariaDB stage and unit tier run acquirers).
 		expect(starting).toContain('scripts/ci/db_tier.sh');
+
+		// THE INSTANCE TIER'S CONCURRENT LANES (DEDALO_CI_INSTANCE_LANES=3, ci:local
+		// --docker): the publication-host lane starts the server in a BACKGROUND subshell
+		// while the tier's own shell waits — the SIGTERM reaches that waiting shell, whose
+		// EXIT trap must still kill the lanes and end on the stop.
+		const lanes = exitTrapFaults(
+			'scripts/ci/instance_tier.sh (3 lanes)',
+			join(ROOT, 'scripts/ci/instance_tier.sh'),
+			ctx,
+			{ DEDALO_CI_INSTANCE_LANES: '3' },
+		);
+		expect(lanes.faults).toEqual([]);
+		expect(lanes.starters).toContain('run scripts/ci/suite_mariadb.ts start');
 	}, 60_000);
 
 	test('K. the MariaDB stage runs LAST in every root that runs it — after the unit and parity baseline checks (executed, stubbed)', () => {

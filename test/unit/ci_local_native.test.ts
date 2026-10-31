@@ -90,6 +90,9 @@ import {
 	failFastSkip,
 	finishDockerRun,
 	gitScrubbedEnv,
+	INSTANCE_LANES,
+	instanceLanesEnv,
+	instanceLanesFault,
 	keepRunLogs,
 	MAX_UNIT_BINS,
 	orphanCiVolumes,
@@ -644,6 +647,107 @@ describe('tier schedule — --docker runs the tiers CONCURRENTLY, serial only wh
 		expect(output).toContain('== db_tier: stage\n');
 		expect(output).toContain('(fail) x\n');
 		expect(output).toContain('tail\n');
+	});
+});
+
+describe('stage durations — each stage is timed from its marker to the next', () => {
+	test('lineTimes give every stage its wall seconds; the last runs to the final line', () => {
+		const output = [
+			'== instance_tier: build',
+			'x',
+			'== instance_tier: client suite',
+			'== instance_tier: RED in the client suite (exit 1)',
+			'== instance_tier: crawl',
+			'y',
+			'',
+		].join('\n');
+		const times = [0, 1_000, 5_000, 65_000, 66_000, 186_000];
+		const stages = parseStages('instance_tier', output, 1, times);
+		expect(stages.map((stage) => [stage.name, stage.duration_s])).toEqual([
+			['build', 5],
+			['client suite', 61],
+			['crawl', 120],
+		]);
+		expect(stages[1]?.verdict).toBe('red');
+		expect(JSON.stringify(stages)).not.toContain('started_ms');
+	});
+
+	test("a stage's own TOOK line wins over arrival time (lane logs print whole at the lane's end)", () => {
+		const output = [
+			'== instance_tier: crawl',
+			'x',
+			'== instance_tier: TOOK 1170s',
+			'== instance_tier: phone',
+			'== instance_tier: RED in the phone contract (exit 1)',
+			'== instance_tier: TOOK 549s',
+			'',
+		].join('\n');
+		const stages = parseStages('instance_tier', output, 1, [0, 1, 2, 3, 4, 5]);
+		expect(stages.map((stage) => [stage.name, stage.duration_s, stage.verdict])).toEqual([
+			['crawl', 1170, 'green'],
+			['phone', 549, 'red'],
+		]);
+		expect(JSON.stringify(stages)).not.toContain('took_s');
+	});
+
+	test('untimed (no lineTimes): no duration_s key at all', () => {
+		const stages = parseStages('db_tier', '== db_tier: a\n== db_tier: b\n', 0);
+		expect(stages.every((stage) => !('duration_s' in stage))).toBe(true);
+	});
+
+	test('runStreaming returns one arrival time per captured line', async () => {
+		const { output, lineTimes } = await runStreaming(
+			['bash', '-c', 'echo a; echo b >&2; printf c'],
+			{
+				cwd: REPO_ROOT,
+				env: process.env,
+			},
+		);
+		expect(lineTimes.length).toBe(output.split('\n').length - 1);
+		expect(lineTimes.length).toBe(3);
+	});
+});
+
+describe('instance lanes — --docker runs the instance tier in its lanes, host mode serial', () => {
+	const args = (flags: string[], values: Record<string, string> = {}) => ({
+		flags: new Set(flags),
+		values: new Map(Object.entries(values)),
+	});
+
+	test('docker default: the tier plans INSTANCE_LANES; host default 1; the flag wins', () => {
+		expect(instanceLanesEnv(args(['--docker']))).toEqual({
+			DEDALO_CI_INSTANCE_LANES: String(INSTANCE_LANES),
+		});
+		expect(instanceLanesEnv(args([]))).toEqual({ DEDALO_CI_INSTANCE_LANES: '1' });
+		expect(instanceLanesEnv(args(['--docker'], { '--instance-lanes': '1' }))).toEqual({
+			DEDALO_CI_INSTANCE_LANES: '1',
+		});
+	});
+
+	test('--instance-lanes takes 1 or the planned lane count, nothing else', () => {
+		expect(instanceLanesFault(args([]) as never)).toBeNull();
+		expect(instanceLanesFault(args([], { '--instance-lanes': '1' }) as never)).toBeNull();
+		expect(
+			instanceLanesFault(args([], { '--instance-lanes': String(INSTANCE_LANES) }) as never),
+		).toBeNull();
+		for (const bad of ['2', '4', '0', 'x'])
+			expect(instanceLanesFault(args([], { '--instance-lanes': bad }) as never)).toMatch(
+				/takes 1 \(serial\) or/,
+			);
+	});
+
+	test('the planned lane count is the one the provisioner clones and the tier reads', () => {
+		const tier = readFileSync(join(REPO_ROOT, 'scripts/ci/instance_tier.sh'), 'utf8');
+		const lanes = readFileSync(join(REPO_ROOT, 'scripts/ci/instance_lanes.ts'), 'utf8');
+		expect(lanes).toContain(`export const INSTANCE_LANES = ${INSTANCE_LANES};`);
+		// one clone name read per lane, and one background lane per clone
+		expect([...tier.matchAll(/sed -n (\d)p "\$lane_logs\/databases"/g)].map((m) => m[1])).toEqual(
+			Array.from({ length: INSTANCE_LANES }, (_, i) => String(i + 1)),
+		);
+		expect([...tier.matchAll(/\(in_lane "\$\w+" && lane_\w+\) >/g)]).toHaveLength(INSTANCE_LANES);
+		expect(readFileSync(join(REPO_ROOT, 'ci/compose.yml'), 'utf8')).toContain(
+			'DEDALO_CI_INSTANCE_LANES: ${DEDALO_CI_INSTANCE_LANES:-1}',
+		);
 	});
 });
 
