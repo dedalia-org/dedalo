@@ -79,7 +79,7 @@
  *    vector index — a collision this module can report but not fix.
  */
 
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEnv } from '../../src/config/env.ts';
 // DB-free ON PURPOSE (see that module's header): the marker is named through
@@ -326,6 +326,73 @@ export async function provisionShardDatabase(template: string, shard: number): P
 		);
 	}
 	return name;
+}
+
+// ── the sealed template ──────────────────────────────────────────────────────
+
+/**
+ * SEAL the template for the length of a multi-bin run: every bin runs on its
+ * OWN clone (the base bin included), so nothing has a legitimate reason to
+ * touch the template — and with `ALLOW_CONNECTIONS false` nothing CAN. A
+ * process that escapes its shard (a spawned grandchild handed a rebuilt env, a
+ * helper that re-derives the suite database) then fails LOUDLY on connect
+ * instead of silently writing a surface its peers read. This is what replaces
+ * pinning spawners to a base bin by source scan: the scan guessed; the seal
+ * enforces. Live template sessions are terminated first (named, as in
+ * provisioning) so the seal is total from the first file on.
+ *
+ * Reversible by design: `unsealTemplate` runs in the runner's finally, on the
+ * entry sweep and under `--sweep`, so a SIGKILLed run cannot leave a serial
+ * `bun test` facing a template that refuses it.
+ */
+export async function sealTemplate(template: string): Promise<string[]> {
+	assertShardableTemplate(template);
+	await psql('postgres', ['-c', `ALTER DATABASE "${template}" WITH ALLOW_CONNECTIONS false`]);
+	return terminateTemplateBackends(template);
+}
+
+/** Lift the seal. Answers whether the template WAS sealed (a dead run's leftover is said out loud). */
+export async function unsealTemplate(template: string): Promise<boolean> {
+	assertShardableTemplate(template);
+	const was = (
+		await psql(
+			'postgres',
+			['-t', '-A', '-v', `db=${template}`, '-f', '-'],
+			"SELECT (NOT datallowconn)::text FROM pg_database WHERE datname = :'db'\n",
+		)
+	).trim();
+	if (was !== 'true') return false;
+	await psql('postgres', ['-c', `ALTER DATABASE "${template}" WITH ALLOW_CONNECTIONS true`]);
+	return true;
+}
+
+/**
+ * The template's media tree as one comparable string — every path with its
+ * size and mtime. The database seal cannot cover the filesystem (a process
+ * that resolves the TEMPLATE's media root writes there without a connection),
+ * so the runner takes this before and after the run and names any difference
+ * as contact. `null` = no tree (a contact would CREATE one — also a difference).
+ */
+export function templateMediaFingerprint(template: string): string | null {
+	return treeFingerprint(testMediaRootPath(template));
+}
+
+/** The fingerprint itself, over any root (pure fs; the tripwire drives it on a scratch tree). */
+export function treeFingerprint(root: string): string | null {
+	if (!existsSync(root)) return null;
+	const lines: string[] = [];
+	const walk = (dir: string): void => {
+		for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+			a.name.localeCompare(b.name),
+		)) {
+			const path = join(dir, entry.name);
+			const stats = statSync(path);
+			lines.push(`${path}\t${entry.isDirectory() ? 'd' : stats.size}\t${stats.mtimeMs}`);
+			if (entry.isDirectory()) walk(path);
+		}
+	};
+	walk(root);
+	return lines.join('\n');
 }
 
 /** DROP one clone — call ONLY after `probeProvenance` answered 'marked'. */

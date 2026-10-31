@@ -275,7 +275,12 @@ describe('the shard sweep owns the suite MariaDB surface', () => {
 			]);
 			const line = `${stdout}\n${stderr}`
 				.split('\n')
-				.find((candidate) => candidate.includes(`'${template}__shard1'`));
+				// The VERDICT line: since every bin of a multi-bin run is a clone, the
+				// manifest also names `<template>__shard1` (bin 1's database).
+				.find(
+					(candidate) =>
+						candidate.includes(`'${template}__shard1'`) && /REFUS|FAILED/.test(candidate),
+				);
 			return { code, line: line ?? '', output: `${stdout}\n${stderr}` };
 		};
 

@@ -39,7 +39,7 @@
  * and the classifier is pinned BY NAME at three files whose classifications
  * were measured 2026-08-25: locator_law (pure A), json_codec_roundtrip
  * (whole-corpus caller, welded to test_corpus_fixture), diffusion_dispatch_gate
- * (spawner, pinned to the base bin). A classifier that answers one value for
+ * (spawner, pinned to the base bin of an unsealed plan). A classifier that answers one value for
  * everything, or an emptied scan, is RED on those names, not quietly green.
  * The pure matchers (bandOf, the budget assessors, the fixed-path scans) are
  * additionally fed SYNTHETIC inputs that MUST fail them.
@@ -65,10 +65,15 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildTestComponentCensus } from '../../scripts/lib/test_components.ts';
-import { assertShardableTemplate, shardDatabaseName } from '../../scripts/lib/test_shard_db.ts';
+import {
+	assertShardableTemplate,
+	shardDatabaseName,
+	treeFingerprint,
+} from '../../scripts/lib/test_shard_db.ts';
 import {
 	assessConnectionBudget,
 	assessDiskBudget,
@@ -78,6 +83,7 @@ import {
 	EXPECTED_CONCURRENT_GRANDCHILDREN,
 	loadCostModel,
 	partition,
+	planBins,
 	SHARD_CONNECTIONS_PER_PROCESS,
 	SHARD_MAINTENANCE_POOL_MAX,
 	SHARD_POOL_MAX,
@@ -191,16 +197,78 @@ describe('shard partition — the classifier is pinned by name (positive control
 		expect(fp.dbTouching).toBe(false);
 	});
 
-	test('a spawner classifies pinned and runs in the BASE bin', () => {
-		// A spawned child reaches Postgres with inherited env and evades every
-		// in-process guard — it may run ONLY where the env is byte-identical to
-		// the serial run (bin 1, shard null).
+	test('a spawner classifies pinned and runs in the BASE bin of an UNSEALED (--shard=M/N) plan', () => {
+		// --shard=M/N runs one bin per machine on that machine's own base
+		// surfaces: the pin keeps spawners where the env is serial-identical.
 		const fp = FOOTPRINTS.get(SPAWNER_CONTROL) as TestFootprint;
 		expect(fp.spawnsProcesses, `${SPAWNER_CONTROL} must classify as a spawner`).toBe(true);
 		expect(fp.pinned).toBe(true);
 		const bin = BINS.find((b) => b.files.includes(SPAWNER_CONTROL)) as Bin;
 		expect(bin.index).toBe(1);
 		expect(bin.shard).toBeNull();
+	});
+
+	test('a SEALED (multi-bin) plan puts EVERY bin on a clone and pins nothing to a base bin', () => {
+		// The template is closed to connections for a multi-bin run, so no bin
+		// may be scheduled on it (shard null) — and with nothing on the template
+		// the spawner pin has nothing left to protect: the pinned files must be
+		// cost-balanced across bins, not stacked into bin 1.
+		const sealed = partition(FILES, 4, FOOTPRINTS, COSTS, true);
+		expect(sealed.map((b) => b.shard)).toEqual([1, 2, 3, 4]);
+		const pinnedFiles = FILES.filter((f) => FOOTPRINTS.get(f)?.pinned ?? true);
+		expect(pinnedFiles.length).toBeGreaterThan(0);
+		const binsHoldingPinned = sealed.filter((b) => b.files.some((f) => pinnedFiles.includes(f)));
+		expect(binsHoldingPinned.length).toBeGreaterThan(1);
+		// …and the partition stays TOTAL and DISJOINT under the seal.
+		const placed = sealed.flatMap((b) => b.files);
+		expect(new Set(placed).size).toBe(placed.length);
+		expect([...placed].sort()).toEqual([...FILES].sort());
+	});
+
+	test('a plan that collapses to ONE bin is never sealed — it would run on the sealed template', () => {
+		// partition() drops empty bins: two files welded into one census component
+		// fill one bin of a --bins=2 request. A sealed one-bin plan would give that
+		// bin a clone name the runner never applies (runBins repoints only
+		// multi-bin runs) and run it on the template it just sealed. MEASURED by the
+		// 2026-10-31 review of the seal; the plan must fall back to serial.
+		const welded = CENSUS.components.find((c) => c.files.length >= 2);
+		expect(welded, 'the census holds a multi-file component').toBeDefined();
+		const pair = (welded as { files: string[] }).files.slice(0, 2);
+		const plan = planBins(pair, 2, FOOTPRINTS, COSTS);
+		expect(plan.bins.length).toBe(1);
+		expect(plan.sealed).toBe(false);
+		expect(plan.bins[0]?.shard).toBeNull();
+		// …and a real multi-bin plan IS sealed, every bin on a clone.
+		const full = planBins(FILES, 4, FOOTPRINTS, COSTS);
+		expect(full.sealed).toBe(true);
+		expect(full.bins.every((b) => b.shard !== null)).toBe(true);
+	});
+
+	test('the template media fingerprint sees a write, a create-then-delete, and a created root', () => {
+		// The DB seal cannot cover the filesystem; this fingerprint is the run's
+		// only witness of a process writing the TEMPLATE's media tree. Driven on a
+		// scratch tree (pure fs, no media door), every contact shape must differ.
+		const scratch = mkdtempSync(join(tmpdir(), 'shard_fp_'));
+		try {
+			const root = join(scratch, 'media');
+			expect(treeFingerprint(root), 'absent root').toBeNull();
+			Bun.spawnSync(['mkdir', '-p', join(root, 'sub')]);
+			writeFileSync(join(root, 'sub', 'a.jpg'), 'one');
+			const before = treeFingerprint(root);
+			expect(before).not.toBeNull();
+			expect(treeFingerprint(root), 'untouched = equal').toBe(before);
+			// a size change
+			writeFileSync(join(root, 'sub', 'a.jpg'), 'one-more');
+			const afterWrite = treeFingerprint(root);
+			expect(afterWrite).not.toBe(before);
+			// a file created then deleted leaves only the directory mtime behind
+			Bun.sleepSync(20);
+			writeFileSync(join(root, 'sub', 'tmp.bin'), 'x');
+			rmSync(join(root, 'sub', 'tmp.bin'));
+			expect(treeFingerprint(root)).not.toBe(afterWrite);
+		} finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
 	});
 
 	test('the classifier is not degenerate: all three bands are populated', () => {

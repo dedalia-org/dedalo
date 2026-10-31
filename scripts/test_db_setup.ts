@@ -345,6 +345,23 @@ async function inspectDropTarget(): Promise<TargetProvenance> {
 	).trim();
 	if (exists === '') return { state: 'absent' };
 
+	// A SEALED template (ALLOW_CONNECTIONS false — scripts/test_shard.ts) refuses
+	// the probes below. This process holds the suite run lock, so no live shard
+	// run owns that seal: it is a dead run's leftover. Lift it, said out loud.
+	const sealed = (
+		await psql(
+			'postgres',
+			['-t', '-A', '-v', `db=${testDb}`, '-f', '-'],
+			"SELECT (NOT datallowconn)::text FROM pg_database WHERE datname = :'db'\n",
+		)
+	).trim();
+	if (sealed === 'true') {
+		await psql('postgres', ['-c', `ALTER DATABASE "${testDb}" WITH ALLOW_CONNECTIONS true`]);
+		console.log(
+			`lifted a leftover test:shard seal on '${testDb}' (no live run holds the suite lock)`,
+		);
+	}
+
 	// It exists: ask the DATABASE ITSELF whether it is the disposable one.
 	const tablePresent = (
 		await psql(testDb, [

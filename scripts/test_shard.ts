@@ -19,11 +19,22 @@
  * would put an UNSCOPED `dropTestCorpus()` caller in a different bin from a
  * scoped one, deleting the peer bin's fixture mid-run and flipping
  * `expect(…).toBe(0)` red non-deterministically. So: every connected component
- * is pinned ENTIRELY into one bin BEFORE the remainder is cost-balanced, and
- * every file whose footprint spawns subprocesses (test/helpers/
- * test_footprint.ts — a spawned child reaches Postgres with inherited env and
- * evades every in-process role guard) is pinned into the BASE bin, whose
- * environment is byte-identical to the serial run.
+ * is pinned ENTIRELY into one bin BEFORE the remainder is cost-balanced.
+ *
+ * THE TEMPLATE IS SEALED. In a multi-bin run EVERY bin — the first one too —
+ * runs on its own clone, and the template database is closed to connections
+ * (`ALLOW_CONNECTIONS false`) from the first file to the last, its media tree
+ * fingerprinted before and after. Nothing has a legitimate reason to touch the
+ * template, so a process that escapes its shard (a spawned grandchild handed a
+ * rebuilt env) fails LOUDLY instead of writing a surface a peer reads. This
+ * REPLACED pinning every spawning file (test/helpers/test_footprint.ts) into a
+ * base bin that ran on the template: a source scan that guessed — 290 files,
+ * 89 of them only because a test embeds source text the import walk could not
+ * resolve — put 1288 s of the suite in one bin. MEASURED 2026-10-31 at
+ * a706ac8b01, 4 bins sealed with no pin: equal to the serial K=5/J=8 campaign
+ * on every key but the run's own artefacts, zero template contact, 9.6 min
+ * wall vs 34 min serial. The footprint `pinned` flag still steers `--shard=M/N`
+ * (each invocation on its own machine, base surfaces, nothing to seal).
  *
  * THE DISCRIMINATOR IS TOTAL OR ABSENT, NEVER PARTIAL. A shard assignment
  * moves ALL FOUR surfaces at once: `DEDALO_TEST_DATABASE`, the resolved media
@@ -73,6 +84,7 @@ import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readNumber } from '../src/config/readers.ts';
 import { connectionsPerProcess } from '../src/core/db/connection_budget.ts';
+import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import { testDatabaseName } from '../test/helpers/test_database.ts';
 import { bandOf, classifyTestFile, type TestFootprint } from '../test/helpers/test_footprint.ts';
 import { childEnv } from './lib/parity_census.ts';
@@ -85,8 +97,11 @@ import {
 	provisionShardDatabase,
 	psql,
 	type SweepReport,
+	sealTemplate,
 	shardDatabaseName,
 	sweepShardClones,
+	templateMediaFingerprint,
+	unsealTemplate,
 } from './lib/test_shard_db.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..');
@@ -253,14 +268,19 @@ export function partition(
 	binCount: number,
 	footprints: ReadonlyMap<string, TestFootprint>,
 	costs: CostModel,
+	sealed = false,
 ): Bin[] {
 	const atoms = buildAtoms(files, footprints);
+	// SEALED: every bin is a clone and the template refuses connections, so a
+	// spawner cannot reach a peer's surface — the base-bin pin has nothing left
+	// to protect and every atom is cost-balanced (census components still whole).
+	if (sealed) for (const atom of atoms) atom.pinnedToBase = false;
 	for (const atom of atoms) {
 		atom.cost = atom.files.reduce((sum, f) => sum + costs.cost(f), 0);
 	}
 	const bins: Bin[] = Array.from({ length: binCount }, (_, i) => ({
 		index: i + 1,
-		shard: i === 0 ? null : i + 1,
+		shard: sealed ? i + 1 : i === 0 ? null : i + 1,
 		files: [],
 		cost: 0,
 	}));
@@ -279,6 +299,24 @@ export function partition(
 	}
 	for (const bin of bins) bin.files.sort();
 	return bins.filter((bin) => bin.files.length > 0);
+}
+
+/**
+ * The multi-bin plan. A multi-bin run is ALWAYS sealed (header: THE TEMPLATE IS
+ * SEALED) — decided on the PARTITIONED bins, not the requested count:
+ * partition() drops empty bins, so a sealed plan over fewer atoms than bins can
+ * come back as ONE bin, which runBins runs unrepointed — on the very template
+ * the run would have sealed. One bin is re-planned unsealed (serial semantics).
+ */
+export function planBins(
+	files: readonly string[],
+	binCount: number,
+	footprints: ReadonlyMap<string, TestFootprint>,
+	costs: CostModel,
+): { bins: Bin[]; sealed: boolean } {
+	const bins = partition(files, binCount, footprints, costs, binCount > 1);
+	if (bins.length > 1) return { bins, sealed: true };
+	return { bins: partition(files, binCount, footprints, costs, false), sealed: false };
 }
 
 // ── budgets (pure — the arithmetic is testable with synthetic inputs) ────────
@@ -669,11 +707,25 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 	return options;
 }
 
+/**
+ * Take the TEMPLATE's suite run lock, then lift any seal a dead run left. The
+ * lock comes first: the seal belongs to a live peer only while that peer holds
+ * this lock, so once we hold it any seal is a SIGKILLed run's leftover — and a
+ * second `test:shard`, `--sweep`, `bun test` or `test:db:setup` on the same
+ * template is refused by name instead of unsealing (or sweeping) a live run.
+ */
+async function claimTemplate(template: string, holder: string): Promise<void> {
+	acquireSuiteRunLock(template, holder);
+	if (await unsealTemplate(template))
+		console.log(`[shard] lifted a leftover seal on template ${template} (a dead sealed run)`);
+}
+
 async function main(): Promise<number> {
 	const options = parseArgs(Bun.argv.slice(2));
 	const template = assertShardableTemplate(testDatabaseName());
 
 	if (options.sweep) {
+		await claimTemplate(template, 'test:shard --sweep');
 		const report = await sweepShardClones(template);
 		for (const name of report.dropped) console.log(`[sweep] dropped clone database ${name}`);
 		for (const dir of report.mediaSwept) console.log(`[sweep] removed media twin ${dir}`);
@@ -716,6 +768,10 @@ async function main(): Promise<number> {
 		}
 		printManifest(template, [mine], costs, footprints);
 		if (options.print) return 0;
+		// Unsealed, on the base surfaces: only lift a dead run's leftover seal. The
+		// lock is NOT held here — the child `bun test` takes it itself (preload).
+		if (await unsealTemplate(template))
+			console.log(`[shard] lifted a leftover seal on template ${template} (a dead sealed run)`);
 		return runBins(template, [mine], options.junitDir);
 	}
 
@@ -723,9 +779,13 @@ async function main(): Promise<number> {
 	if (binCount !== options.bins) {
 		console.log(`[shard] --bins=${options.bins} clamped to ${binCount} (${files.length} files).`);
 	}
-	const bins = partition(files, binCount, footprints, costs);
+	const { bins, sealed } = planBins(files, binCount, footprints, costs);
 	printManifest(template, bins, costs, footprints);
 	if (options.print) return 0;
+
+	if (sealed) await claimTemplate(template, 'test:shard');
+	else if (await unsealTemplate(template))
+		console.log(`[shard] lifted a leftover seal on template ${template} (a dead sealed run)`);
 
 	// ── entry sweep: a stale clone of an old schema is worse than no clone. ──
 	const entry = await sweepShardClones(template);
@@ -793,8 +853,27 @@ async function main(): Promise<number> {
 	}
 
 	try {
-		return await runBins(template, bins, options.junitDir);
+		// INSIDE the try: a throw from the fingerprint or from either half of the
+		// seal (the ALTER, then the backend termination) must still reach the
+		// unseal and the exit sweep below.
+		let mediaBefore: string | null = null;
+		if (sealed) {
+			mediaBefore = templateMediaFingerprint(template);
+			for (const line of await sealTemplate(template))
+				console.log(`[shard] terminated template backend: ${line}`);
+			console.log(`[shard] template ${template} SEALED (ALLOW_CONNECTIONS false) for the run`);
+		}
+		const code = await runBins(template, bins, options.junitDir);
+		if (sealed && templateMediaFingerprint(template) !== mediaBefore) {
+			console.error(
+				`[shard] TEMPLATE CONTACT: the media tree of ${template} changed during a sealed run — a process escaped its shard. The run is NOT valid.`,
+			);
+			return 1;
+		}
+		return code;
 	} finally {
+		// Unconditional and idempotent: a seal half-applied before a throw is lifted too.
+		if (await unsealTemplate(template)) console.log(`[shard] template ${template} unsealed`);
 		// Exit sweep — SIGKILL defeats this (and the signal handlers), which is
 		// why the ENTRY sweep above and the named `--sweep` command exist too.
 		const exit = await sweepShardClones(template);
