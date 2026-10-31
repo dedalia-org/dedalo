@@ -6475,11 +6475,11 @@ dd-modal.dd_presets::part(content) {
   text-align: center;
   text-wrap: unset;
 }
-.list_body > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:first-child {
+.list_body:not(.layout_table) > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:first-child {
   border-bottom-left-radius: 0.7rem;
   overflow: clip;
 }
-.list_body > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:last-child {
+.list_body:not(.layout_table) > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:last-child {
   border-bottom-right-radius: 0.7rem;
   overflow: clip;
 }
@@ -7022,6 +7022,88 @@ dd-modal.dd_presets::part(content) {
 }
 .column.column_remove > button.button_remove:hover > .icon {
   background-color: var(--color_white);
+}
+@media not screen, screen and (min-width: 1025px) {
+  .list_body.layout_table {
+    align-content: start;
+  }
+  .list_body.layout_table > .header_wrapper_list,
+  .list_body.layout_table > .content_data,
+  .list_body.layout_table > .content_data > .section_record {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+  }
+  .list_body.layout_table > .content_data {
+    align-content: start;
+  }
+  .list_body.layout_table > .content_data > .section_record {
+    position: relative;
+    border-block-end: 1px solid var(--color_grey_13);
+  }
+  .list_body.layout_table > .content_data > .section_record > .column {
+    box-shadow: none;
+  }
+  .list_body.layout_table > .content_data > .section_record > .column:first-child::after,
+  .list_body.layout_table > .content_data > .section_record > .column:last-child::after {
+    content: none;
+  }
+  .list_body.layout_table > .content_data > .section_record:not(.placeholder, .dragover, .dragging):hover::after,
+  .list_body.layout_table > .content_data > .section_record.dragover::after,
+  .list_body.layout_table > .content_data > .section_record.dragging::after {
+    content: '';
+    position: absolute;
+    inset: 0px;
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 3px;
+    box-shadow: 0px 0px 5px 0px var(--color_grey_7);
+  }
+  .list_body.layout_table > .content_data > .section_record.dragover::after {
+    box-shadow: inset 0px 0px 0px 2px var(--color_orange_dedalo);
+  }
+  .list_body.layout_table > .content_data > .section_record.dragging::after {
+    box-shadow: none;
+    border: 2px dashed var(--color_orange_dedalo);
+  }
+  .list_body.layout_table > .content_data > .section_record:last-child > .column:first-child {
+    border-bottom-left-radius: 0.7rem;
+    overflow: visible;
+  }
+  .list_body.layout_table > .content_data > .section_record:last-child > .column:last-child {
+    border-bottom-right-radius: 0.7rem;
+    overflow: visible;
+  }
+  .column:has(.list_body) .list_body.layout_table > .content_data > .section_record {
+    border-block-end: 0px;
+  }
+  .wrapper_component > .list_body.layout_table > .header_wrapper_list,
+  .wrapper_component > .list_body.layout_table > .content_data {
+    border-inline: 1px solid var(--color_grey_14);
+  }
+  .wrapper_component > .list_body.layout_table > .header_wrapper_list > .head_column:first-child {
+    border-left: 0px;
+  }
+  .wrapper_component > .list_body.layout_table > .header_wrapper_list > .head_column:last-child {
+    border-right: 0px;
+  }
+}
+.content_data > .section_record.placeholder {
+  block-size: var(--row_size, var(--placeholder_size, 2.5rem));
+}
+.content_data > .section_record.placeholder[data-failed] {
+  box-shadow: inset 4px 0px 0px 0px var(--color_danger);
+}
+.list_after > .print_notice {
+  display: none;
+}
+@media print {
+  .content_data > .section_record.placeholder {
+    display: none !important;
+  }
+  .list_after > .print_notice {
+    display: block;
+  }
 }
 /**
 * ontology_server
@@ -20909,7 +20991,7 @@ body.inspector_resizing {
 *
 * Included from section.less file
 */
-.section.view_base.list > .list_body > .content_data {
+.section.view_base.list > .list_body:not(.layout_table) > .content_data {
   display: contents;
 }
 .assistant_container.standalone {
@@ -26630,6 +26712,10 @@ body.inspector_resizing {
   min-height: var(--content_data_min_height);
   position: relative;
   padding: unset;
+}
+.component_portal.view_content.edit > .list_body.layout_table,
+.portal.view_content.edit > .list_body.layout_table {
+  grid-template-rows: auto auto;
 }
 /**
 * view_text_portal

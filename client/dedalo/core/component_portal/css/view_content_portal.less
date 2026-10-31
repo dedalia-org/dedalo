@@ -13,7 +13,17 @@
 			min-height: var(--content_data_min_height);
 			position: relative;
 			padding: unset;
-		}//end >.list_bod
+
+			// row-box table (`list.less` 'layout_table'): the header is a real
+			// subgrid row sized by its cells, like the default view's `auto auto`
+			// (view_default_portal.less). The fixed 1.8rem first track above is
+			// the legacy `display: contents` header's; it stays for unmarked
+			// list bodies until the row-box CSS removals land
+			// (engineering/wire_contract/WC-2026-10-30-section-record-row-box.md).
+			&.layout_table {
+				grid-template-rows: auto auto;
+			}
+		}//end >.list_body
 	}
 
 	&.list {

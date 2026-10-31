@@ -43,13 +43,16 @@
 				text-align: center;
 				text-wrap: unset;
 			}
+		}
 
-			// a painted first/last cell (e.g. section_id context.color in dd542/dd15) would square the list corners
-			// row_window.js appends a bottom spacer, `hidden` once the window reaches the end
-			>.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) {
-				>.column:first-child { border-bottom-left-radius: .7rem; overflow: clip; }
-				>.column:last-child { border-bottom-right-radius: .7rem; overflow: clip; }
-			}
+		// a painted first/last cell (e.g. section_id context.color in dd542/dd15) would square the list corners
+		// row_window.js appends a bottom spacer, `hidden` once the window reaches the end.
+		// LEGACY shape only: the row-box table (`.layout_table`) rounds its last row
+		// WITHOUT a clip (see 'layout_table' below), and scoping this rule out of it
+		// means the two shapes never compete on specificity or source order
+		&:not(.layout_table) >.content_data >.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) {
+			>.column:first-child { border-bottom-left-radius: .7rem; overflow: clip; }
+			>.column:last-child { border-bottom-right-radius: .7rem; overflow: clip; }
 		}
 
 		// list_body columns inside list_body are always flex (!)
@@ -218,16 +221,28 @@
 			// border-right: 1px solid @color_grey_13;
 			box-shadow: 0px 1px 0px 0px @color_grey_13;
 			// (!) THE VERTICAL AXIS MUST STAY VISIBLE — WebKit trap.
-			// `.header_wrapper_list` is `display: contents`, so these cells are
-			// direct grid items of `.list_body` (a grid). With `overflow: hidden`
-			// WebKit keeps a WRONG intrinsic height for row 1 after pagination
-			// replaces `content_data` (`common.render` render_level 'content'):
-			// the header row collapses to a sliver and every cell clips its
-			// title to ~2px. Measured in WebKit on oh1: 48.1px → 22.1px on
-			// page 1 and 35.1px on page 2, persisting across every swap;
-			// Chrome/Gecko are unaffected. `overflow-x: clip` keeps the
-			// horizontal clip (the label ellipsis itself lives on `.name` —
-			// see truncate_text below) while leaving the height intrinsic.
+			// Two shapes reach these cells, and the law holds for both:
+			//   - legacy list (no `.layout_table`): `.header_wrapper_list` is
+			//     `display: contents`, so the cells are direct grid items of
+			//     `.list_body` and size row 1 of that grid themselves;
+			//   - `.list_body.layout_table` (the row box, see 'layout_table'
+			//     below): `.header_wrapper_list` is a column SUBGRID spanning
+			//     `1 / -1`, so the cells are items of the header subgrid, whose
+			//     intrinsic block size IS row 1 of `.list_body`.
+			// Either way the header cells' content height decides row 1. With
+			// `overflow: hidden` WebKit keeps a WRONG intrinsic height for row 1
+			// after pagination replaces `content_data` (`common.render`
+			// render_level 'content'): the header row collapses to a sliver and
+			// every cell clips its title to ~2px. Measured in WebKit on oh1
+			// (legacy shape): 48.1px → 22.1px on page 1 and 35.1px on page 2,
+			// persisting across every swap; Chrome/Gecko are unaffected. The
+			// subgrid shape keeps the same declarations until a fresh WebKit
+			// probe after pagination proves it safe — PENDING, run with the
+			// row-box CSS removals; its result is appended to
+			// engineering/wire_contract/WC-2026-10-30-section-record-row-box.md.
+			// `overflow-x: clip` keeps the horizontal clip (the label
+			// ellipsis itself lives on `.name` — see truncate_text below) while
+			// leaving the height intrinsic.
 			overflow-x: clip;
 			overflow-y: visible;
 			color: @color_grey_5;
@@ -765,3 +780,182 @@
 			}
 		}
 	}//end .column_remove
+
+// layout_table — the ROW BOX (contract: engineering/wire_contract/
+// WC-2026-10-30-section-record-row-box.md — row invariant, placeholders, print)
+//
+// A table view marks its `list_body` with `.layout_table`. WHICH views carry the
+// marker is not stated here: it is the WC entry's stage plan (none yet), gated
+// by the browser suite that adopts it with the views. Under that marker the DOM
+// is a real table:
+//
+//   .list_body.layout_table            the grid (inline grid-template-columns)
+//     ├─ .header_wrapper_list           row 1: column SUBGRID, 1 / -1 (optional)
+//     └─ .content_data                  column SUBGRID, 1 / -1, its own rows
+//          └─ .section_record[data-index=i]   one row box: column SUBGRID, 1 / -1
+//               └─ .column …                  the cells, on the shared tracks
+//   .list_after                         sibling AFTER list_body (never inside)
+//
+// so every row is ONE box (hover ring, drop target, placeholder) while every
+// cell still sits on the list's shared column tracks. The legacy shape — the
+// `display: contents` wrappers above (`>.header_wrapper_list`, `>.content_data`,
+// `section_record.less` `.section_record.list`) — STAYS for every list
+// without the marker: the selectors below beat it only where the marker is
+// present. Child combinators
+// only: a nested list never inherits a row rule from an outer one.
+//
+// The block applies to desktop AND print (`not screen`), so print renders the
+// table, not the `display: contents` fallback. Below the desktop breakpoint the
+// phone card rules apply instead (the two ranges partition screen).
+//
+// THE RING LAW. Rows and `content_data` keep `z-index: auto` and carry NO
+// stacking-context property — no background, contain, transform, opacity,
+// filter, will-change, content-visibility, overflow clip — or the autocomplete
+// panel (z-index 6 inside a z-index 3 wrapper, see `.list_body` above), the
+// hover buttons and the field tint would be trapped beneath the next row. The
+// hover/drag ring is a `::after` at `z-index: 1` on the `position: relative`
+// row: above the `position: relative` cells (z-index auto), below the wrapper
+// stacking (3+). Outline/background rings were rejected: both paint beneath
+// positioned cells.
+	@media not screen, screen and (min-width: (@width_break_point_0 + 1)) {
+
+		.list_body.layout_table {
+			// the list_body is `height: 100%`: start-aligned tracks never stretch
+			align-content: start;
+
+			>.header_wrapper_list,
+			>.content_data,
+			>.content_data >.section_record { // built rows AND placeholders
+				grid-column: 1 / -1;
+				display: grid;
+				grid-template-columns: subgrid;
+			}
+
+			// a min-height on content_data must never stretch its row tracks
+			>.content_data {
+				align-content: start;
+
+				>.section_record {
+					// the ring's containing block. z-index stays auto: NO stacking context
+					position: relative;
+					// the row's own bottom rule replaces the per-cell box-shadow
+					// (a zero-width cell punched a gap in the per-cell line)
+					border-block-end: 1px solid @color_grey_13;
+
+					>.column {
+						box-shadow: none;
+
+						// the per-cell edge (portal frame) and the section-record
+						// hilite pseudo both lived here; under the marker the frame
+						// is drawn by header + content_data and the ring by the row
+						&:first-child::after,
+						&:last-child::after {
+							content: none;
+						}
+					}
+
+					// ring: hover (built rows only) and drop target (placeholders too).
+					// The hover arm EXCLUDES the drag states instead of being
+					// out-ranked by them: `:not(…)` + `:hover` would outrank the
+					// `.dragover` / `.dragging` overrides below (0,6,1 vs 0,5,1), and
+					// Chrome keeps `:hover` frozen on the drag source, so the source
+					// would paint the grey glow under its dashed ring
+					&:not(.placeholder, .dragover, .dragging):hover::after,
+					&.dragover::after,
+					&.dragging::after {
+						content: '';
+						position: absolute;
+						inset: 0px;
+						pointer-events: none;
+						z-index: 1;
+						border-radius: 3px;
+						box-shadow: 0px 0px 5px 0px @color_grey_7;
+					}
+					// drop target: a distinct colour, never opacity
+					&.dragover::after {
+						box-shadow: inset 0px 0px 0px 2px @color_orange_dedalo;
+					}
+					// drag source: a dashed ring (no opacity: it would make a stacking context)
+					&.dragging::after {
+						box-shadow: none;
+						border: 2px dashed @color_orange_dedalo;
+					}
+
+					// the last row rounds the table's bottom corners. NO overflow clip:
+					// the default-view drag handle hangs in the left gutter
+					// (left:-2.2rem) and autocomplete panels open out of these cells.
+					// The legacy rounded-AND-clipped rule at the top of this file is
+					// scoped `:not(.layout_table)`, so it never reaches these cells
+					// (whatever the order); `overflow: visible` restates the law.
+					// A placeholder is childless: no `.column` to round.
+					&:last-child {
+						>.column:first-child { border-bottom-left-radius: .7rem; overflow: visible; }
+						>.column:last-child { border-bottom-right-radius: .7rem; overflow: visible; }
+					}
+				}
+			}
+		}//end .list_body.layout_table
+
+		// a list nested in a cell draws no row rules of its own (the twin of the
+		// legacy `.column:has(.list_body) .column { box-shadow: none }`)
+		.column:has(.list_body) .list_body.layout_table >.content_data >.section_record {
+			border-block-end: 0px;
+		}
+
+		// the table frame of a portal: ONE left and ONE right rule running the
+		// whole height, drawn by the header and content_data subgrids (both carry
+		// the same inline border, so their cells stay on the same tracks). The
+		// legacy per-cell side borders / edge pseudos are neutralised under the
+		// marker so a rule is never drawn twice.
+		.wrapper_component >.list_body.layout_table {
+			>.header_wrapper_list,
+			>.content_data {
+				border-inline: 1px solid @color_grey_14;
+			}
+			>.header_wrapper_list >.head_column {
+				&:first-child { border-left: 0px; }
+				&:last-child { border-right: 0px; }
+			}
+		}
+	}//end @media layout_table (desktop + print)
+
+// placeholder (row-box WC entry) — an unbuilt row of a window above 200 rows:
+// `<div class="section_record placeholder" data-index="i" aria-hidden="true">`,
+// childless, listener-free. It holds the row's block size so scrolling is
+// shift-free (WebKit has no scroll anchoring): `--row_size` is the measured size
+// of the row it replaced (inline, on release), `--placeholder_size` the running
+// mean of built rows (written by the window on content_data once connected).
+// In the table layout it also takes the row rule above (a full-span subgrid
+// row); in a list layout it is a plain block.
+	.content_data >.section_record.placeholder {
+		block-size: var(--row_size, var(--placeholder_size, 2.5rem));
+
+		// a build that failed keeps its slot (indexes never shift) and shows a
+		// stripe; `reveal(i)` retries it. A box-shadow, not a background: rows
+		// carry no background (ring law above).
+		&[data-failed] {
+			box-shadow: inset 4px 0px 0px 0px @color_danger;
+		}
+	}
+
+// print (row-box WC entry): unbuilt rows are not printed and not findable, and
+// a real notice in `.list_after` says so. Nothing is built on `beforeprint` (it
+// is synchronous and cannot await the builds). The notice exists only while
+// placeholders exist and is visible only in print.
+	.list_after >.print_notice {
+		display: none;
+	}
+	@media print {
+		// (!) `!important`: the hide is a layout-independent print law. Every row
+		// rule that gives a placeholder a box outranks a plain 0,3,0 here — the
+		// table block above (`not screen` = print) sets `display: grid` at 0,4,0
+		// on `.list_body.layout_table >.content_data >.section_record`, and a
+		// placeholder is such a row — so without it every unbuilt row would
+		// print as an empty ruled box while the notice says it was left out.
+		.content_data >.section_record.placeholder {
+			display: none !important;
+		}
+		.list_after >.print_notice {
+			display: block;
+		}
+	}
