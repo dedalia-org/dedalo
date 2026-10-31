@@ -19,20 +19,28 @@
 * or diameter (numisdata135) before dragging, or designate originals vs. copies
 * via `set_original_copy`.
 *
-* Drag-and-drop contract:
-*   The left mosaic fires a native HTML5 'dragstart' event (via
-*   view_coins_mosaic_portal → drag_and_drop.js → on_dragstart_mosaic).
-*   The JSON payload transferred is  { locator: {section_id, section_tipo} }.
-*   Drop targets are `.column_numisdata9` cells inside ordered_coins.  On drop,
-*   `assign_element` inserts the locator into that cell's component, then
+* Drag-and-drop contract (WC-2026-10-30-section-record-row-box):
+*   The left mosaic is a tool row source (view_coins_mosaic_portal →
+*   drag_and_drop.js bind_tool_row_drag): its 'text/plain' JSON payload carries
+*   the dragged row's entry as `locator` ({section_id, section_tipo, …}).
+*   Drop targets are the `.column_numisdata9` cells of the ordered_coins rows,
+*   handled by ONE delegated listener set on the ordered_coins wrapper
+*   (bind_ordered_coins_drop): the row is resolved with record_window `row_of`,
+*   its record with the row window's `record_at` — never a node pointer. On
+*   drop, `assign_element` inserts the locator into that cell's component, then
 *   `get_ordered_coins` rebuilds the right panel.
 *
-* Exports: render_tool_numisdata_order_coins (constructor, used as prototype source)
+* Exports: render_tool_numisdata_order_coins (constructor, used as prototype source);
+* ORDERED_COINS_SLOT, drop_target_of, mark_coin_used, bind_ordered_coins_drop
+* (the delegated drop target, exported for its hermetic gate
+* tool_numisdata_order_coins_drop_native).
 */
 // imports
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import * as touch_pick from '../../../core/common/js/touch_pick.js'
 	import {ui} from '../../../core/common/js/ui.js'
+	import {row_of} from '../../../core/section_record/js/record_window.js'
+	import {lock_rows} from '../../../core/common/js/common.js'
 	import {prepend_bubble, render_node_info} from '../../../core/common/js/utils/notifications.js'
 
 
@@ -294,48 +302,64 @@ const render_header_options = async function(self, content_data) {
 		const button_node	= options.button_node
 		const tipo			= options.tipo
 
-		// toggle 'active' class: ON = sort by component value, OFF = reset to section_id order
-		button_node.classList.toggle('active')
-
-		const data = self.coins.data
-		const order_data_value = []
-
-		// if the button is active order by the component
-		// else order by id (reorder the original data)
-		if(button_node.classList.contains('active')){
-			// Collect datum items for the chosen measurement tipo, sort them ascending.
-			// Null/missing values are pushed to the end (sort trick: (null===null)-(b===null) === 0-1 === -1).
-			const weight_data	= self.coins.datum.data.filter(el => el.tipo === tipo)
-			const order_weight	= weight_data.sort(function(a, b) {
-				//check if the values are valid if not set null
-				const a_value = a.value && a.value[0] ? a.value[0] : null
-				const b_value = b.value && b.value[0] ? b.value[0] : null
-				// order null values to end and lower data first ---> 0.1, 0.5, 1, 8, null
-				return (a_value === null) - (b_value === null) || a_value - b_value;
-			});
-			// use the component order (diameter or weight) and apply to data of the coins portal data
-			// Walk the sorted weight/diameter items and find the matching coin locator in data.value.
-			const weight_data_len = weight_data.length
-			for (let i = 0; i < weight_data_len; i++) {
-				const section_id	= weight_data[i].section_id
-				const value_order	= data.value.find(el=>el.section_id === section_id)
-				if (value_order) {
-					order_data_value.push(value_order)
-				}
-			}
-		}else{
-			// order by original section_id
-			// Restore the canonical (database insertion) order when the sort is toggled off.
-			const order_data = data.value.sort(function(a, b) {
-				return a.section_id - b.section_id;
-			});
-
-			order_data_value.push(...order_data)
+		// row lock: a re-order is a row-set operation on the coins mosaic. Its
+		// rows are committed and frozen BEFORE anything changes; a refusal (a
+		// pending edit the user keeps) changes nothing, the button included
+		// (common.lock_rows, WC-2026-10-30-section-record-row-box)
+		const release = await lock_rows(self.coins)
+		if (!release) {
+			return false
 		}
-		// set the order data to the component build and render it and append to the left container
-		self.coins.data.value = order_data_value
-		await self.coins.build(false)
-		self.coins.render('content')
+		try {
+
+			// toggle 'active' class: ON = sort by component value, OFF = reset to section_id order
+			button_node.classList.toggle('active')
+
+			const data = self.coins.data
+			const order_data_value = []
+
+			// if the button is active order by the component
+			// else order by id (reorder the original data)
+			if(button_node.classList.contains('active')){
+				// Collect datum items for the chosen measurement tipo, sort them ascending.
+				// Null/missing values are pushed to the end (sort trick: (null===null)-(b===null) === 0-1 === -1).
+				const weight_data	= self.coins.datum.data.filter(el => el.tipo === tipo)
+				const order_weight	= weight_data.sort(function(a, b) {
+					//check if the values are valid if not set null
+					const a_value = a.value && a.value[0] ? a.value[0] : null
+					const b_value = b.value && b.value[0] ? b.value[0] : null
+					// order null values to end and lower data first ---> 0.1, 0.5, 1, 8, null
+					return (a_value === null) - (b_value === null) || a_value - b_value;
+				});
+				// use the component order (diameter or weight) and apply to data of the coins portal data
+				// Walk the sorted weight/diameter items and find the matching coin locator in data.value.
+				const weight_data_len = weight_data.length
+				for (let i = 0; i < weight_data_len; i++) {
+					const section_id	= weight_data[i].section_id
+					const value_order	= data.value.find(el=>el.section_id === section_id)
+					if (value_order) {
+						order_data_value.push(value_order)
+					}
+				}
+			}else{
+				// order by original section_id
+				// Restore the canonical (database insertion) order when the sort is toggled off.
+				const order_data = data.value.sort(function(a, b) {
+					return a.section_id - b.section_id;
+				});
+
+				order_data_value.push(...order_data)
+			}
+			// set the order data to the component build and render it and append to the left container
+			self.coins.data.value = order_data_value
+			await self.coins.build(false)
+			await self.coins.render('content')
+
+		} finally {
+			release()
+		}
+
+		return true
 	}
 
 	// set_original_button
@@ -424,6 +448,8 @@ const render_activity_info = function(self) {
 * targets after every refresh.
 *
 * Steps:
+*   0. Takes the ordered_coins row lock (common.lock_rows): a pending edit the
+*      user keeps refuses the rebuild and nothing changes.
 *   1. Clears the right_container DOM (removes previous render).
 *   2. Destroys the existing ordered_coins component instance tree
 *      (instance=false so the JS instance is kept, delete_dependencies=true,
@@ -431,181 +457,270 @@ const render_activity_info = function(self) {
 *   3. Rebuilds ordered_coins from data (autoload=true).
 *   4. Configures show_interface: add button visible, autocomplete hidden.
 *   5. Renders and appends the new portal node.
-*   6. Calls prototype.drop() to attach dragover/dragleave/drop listeners to every
-*      `.column_numisdata9` cell in the refreshed portal.
+*   6. Binds the delegated drop handler (bind_ordered_coins_drop) on the new
+*      portal wrapper: its `.column_numisdata9` cells become drop targets.
 *
 * This function is called once on initial render and again after each successful
 * coin drop (inside drop's promise handler) to reflect the updated ordered list.
 *
-* Note: The commented-out event subscriptions below the destroy call were an
-* earlier approach that delegated drop re-wiring to event callbacks; they have been
-* replaced by the direct prototype.drop() call at the bottom of this function.
+* The drop handler sits on the portal WRAPPER and resolves the current
+* content_data at each event, so it survives the portal's own content renders
+* (page change, add) — only this full rebuild needs a new binding.
 *
 * @param {Object} self - tool_numisdata_order_coins instance.
-* @returns {Promise<void>}
+* @returns {Promise<boolean>} false when the row lock was refused (nothing changed)
 */
 const get_ordered_coins = async function(self){
 
 	const right_container = self.node.content_data.right_container
 
-	// clean the coins container
+	// row lock: the rebuild is a row-set operation on ordered_coins. Its rows
+	// are committed and frozen before the destroy; a refusal (a pending edit
+	// the user keeps) leaves the panel as it is
+	// (common.lock_rows, WC-2026-10-30-section-record-row-box)
+	const release = await lock_rows(self.ordered_coins)
+	if (!release) {
+		return false
+	}
+	let ordered_coins_node
+	try {
+		// clean the coins container
 		while (right_container.firstChild) {
 			right_container.removeChild(right_container.firstChild);
 		}
 
+		await self.ordered_coins.destroy(false, true, true) // instance=false, delete_dependencies=true, remove_dom=true
+		await self.ordered_coins.build(true)
+		self.ordered_coins.show_interface.button_add		= true
+		self.ordered_coins.show_interface.show_autocomplete	= false
+
+		ordered_coins_node = await self.ordered_coins.render()
+	} finally {
+		release()
+	}
+
 	// Coins
-		const coins_container = ui.create_dom_element({
-			element_type	: 'div',
-			class_name 		: 'coins_container',
-			parent 			: right_container
-		})
-
-	await self.ordered_coins.destroy(false, true, true) // instance=false, delete_dependencies=true, remove_dom=true
-	await self.ordered_coins.build(true)
-	self.ordered_coins.show_interface.button_add		= true
-	self.ordered_coins.show_interface.show_autocomplete	= false
-
-
-	const ordered_coins_node = await self.ordered_coins.render()
+	const coins_container = ui.create_dom_element({
+		element_type	: 'div',
+		class_name 		: 'coins_container',
+		parent 			: right_container
+	})
 	coins_container.appendChild(ordered_coins_node)
 
-	// listen the portal refreshed in other window and assign the drop events to refreshed nodes
-	// self.ordered_coins.events_tokens.push(
-	// 	event_manager.subscribe('window_bur_'+ self.ordered_coins.id, assing_drop)
-	// )
-	// self.ordered_coins.events_tokens.push(
-	// 	event_manager.subscribe('add_row_'+ self.ordered_coins.id, assing_drop)
-	// )
+	bind_ordered_coins_drop(self, ordered_coins_node)
 
-	// function assing_drop(options) {
 
-	// 	drop({
-	// 		self : self
-	// 	})
-	// }
-
-	render_tool_numisdata_order_coins.prototype.drop({
-		self : self
-	})
+	return true
 }//end get_ordered_coins
 
 
 
 /**
-* DROP
-* Attaches HTML5 drag-and-drop event listeners to every `.column_numisdata9` cell
-* in the ordered-coins portal, turning them into active drop targets.
-*
-* Event flow per target cell:
-*   dragover  — prevents default (enables drop), sets dropEffect='move', adds
-*               CSS class 'dragover', removes 'drop'.
-*   dragleave — prevents default, removes CSS class 'dragover'.
-*   drop      — prevents default; reads the JSON payload transferred by
-*               on_dragstart_mosaic ({locator: {section_id, section_tipo}});
-*               calls self.assign_element({caller, locator}) which performs a
-*               change_value insert on the target cell's component_instance;
-*               on resolution, rebuilds the right panel via get_ordered_coins and
-*               marks the dragged coin's mosaic icon as 'used'.
-*
-* The iteration runs in reverse (drop_zones_len-1 → 0) because attaching listeners
-* in reverse order is the Dédalo convention for live NodeLists — it has no
-* functional impact here since ar_drop_nodes is a static snapshot (querySelectorAll).
-*
-* The 'used' class is applied to '#col_original .drag' of the source coin record.
-* The source record is found by matching section_id, section_tipo, and excluding the
-* 'hover' id_variant so only the visible mosaic tile is updated.
-*
-* (!) This method is called as render_tool_numisdata_order_coins.prototype.drop({self})
-* rather than self.drop({self}), so `this` inside the function body is the prototype
-* object, not the tool instance.  All instance access must go via the passed `self`.
-*
-* @param {{self: Object}} options
-*   self: tool_numisdata_order_coins instance. Must have .ordered_coins.node and
-*         .coins.ar_instances populated before this call.
+* ORDERED_COINS_SLOT
+* The column (component tipo) of an ordered_coins row that receives a coin: its
+* `.column_<tipo>` cell is the drop slot and the row record's instance with that
+* `column_id` is the component the coin is assigned to. ONE spelling for both reads.
+* @type {string}
+*/
+export const ORDERED_COINS_SLOT = 'numisdata9'
+
+
+
+/**
+* DROP_TARGET_OF
+* Resolve the ordered-coins drop slot an event is over: the row through
+* record_window `row_of` (exact through nested records), then its OWN
+* `.column_numisdata9` cell (a direct child of the row), and the slot's
+* component from the row's built record (`record_at`) — never a node pointer.
+* Read at event time (the wrapper's content_data pointer is the one the
+* portal's content renders keep current), so a page change or an add never
+* leaves a stale target.
+* @param {Object} self - tool_numisdata_order_coins instance
+* @param {HTMLElement} wrapper - The ordered_coins wrapper the listener sits on
+* @param {Event} event
+* @returns {{cell: HTMLElement, index: number, component: Object|null}|null}
+*/
+export const drop_target_of = function(self, wrapper, event) {
+
+	const content_data	= wrapper.content_data || null
+	const record_window	= self.ordered_coins?.record_windows?.rows || null
+	if (!content_data || !record_window || !event.target) {
+		return null
+	}
+
+	const hit = row_of(content_data, event.target)
+	if (!hit || hit.node.classList.contains('placeholder')) {
+		return null
+	}
+	const element	= event.target.nodeType===3 ? event.target.parentElement : event.target
+	const cell		= element ? element.closest('.column_' + ORDERED_COINS_SLOT) : null
+	if (!cell || cell.parentElement!==hit.node) {
+		return null
+	}
+
+	const section_record	= record_window.record_at(hit.index)
+	const component			= (section_record?.ar_instances || []).find(instance => instance.column_id===ORDERED_COINS_SLOT) || null
+
+
+	return {
+		cell		: cell,
+		index		: hit.index,
+		component	: component
+	}
+}//end drop_target_of
+
+
+
+/**
+* MARK_COIN_USED
+* Mark the dragged coin's tile in the left mosaic as used. The tile is found
+* through the mosaic's row window: its frozen entries give the row index, the
+* row is `content_data.children[index]` (placeholders hold nothing to mark; a
+* tile built later reads the refreshed ordered_coins datum at render).
+* @param {Object} self - tool_numisdata_order_coins instance
+* @param {Object} locator - {section_tipo, section_id} of the dragged coin
 * @returns {void}
 */
-render_tool_numisdata_order_coins.prototype.drop = function (options) {
+export const mark_coin_used = function(self, locator) {
 
-	const self			= options.self
-	// querySelectorAll returns a static NodeList; column_numisdata9 is the
-	// ontology tipo for the "ordered item" column inside ordered_coins portal rows.
-	const ar_drop_nodes = self.ordered_coins.node.querySelectorAll('.column_numisdata9')
+	const coins			= self.coins
+	const record_window	= coins?.record_windows?.rows || null
+	const content_data	= coins?.node?.content_data || null
+	if (!record_window || !content_data || !locator) {
+		return
+	}
 
-	const drop_zones_len = ar_drop_nodes.length
-	for (let i = drop_zones_len - 1; i >= 0; i--) {
+	for (let i = 0; i < record_window.size; i++) {
+		const entry = record_window.entry_of(i)
+		if (!entry || entry.section_tipo!==locator.section_tipo || String(entry.section_id)!==String(locator.section_id)) {
+			continue
+		}
+		const row	= content_data.children[i]
+		const drag	= row ? row.querySelector(':scope > .column_original .drag') : null
+		if (drag) {
+			drag.classList.add('used')
+		}
+	}
+}//end mark_coin_used
 
-		const current_node = ar_drop_nodes[i]
 
-		// dragover event
-			current_node.addEventListener('dragover',function(e){
-				e.preventDefault()
-				e.stopPropagation()
-				e.dataTransfer.dropEffect = 'move'
-				// css
-					current_node.classList.add('dragover')
-					current_node.classList.remove('drop')
-			},false)
 
-			// dragleave event
-				current_node.addEventListener('dragleave',function(e){
-					e.preventDefault()
-					e.stopPropagation()
-					e.dataTransfer.dropEffect = 'move'
-					// css
-						current_node.classList.remove('dragover')
-				},false)
+/**
+* BIND_ORDERED_COINS_DROP
+* Turns the `.column_numisdata9` cells of the ordered-coins portal into drop
+* targets with ONE delegated listener set on the portal wrapper (the wrapper
+* lives as long as this full render; get_ordered_coins rebuilds it, and binds
+* again, after every drop). The slot is resolved per event (drop_target_of).
+*
+* Event flow:
+*   dragover  — over a slot: prevents default (enables drop), sets
+*               dropEffect='move', marks the slot 'dragover'.
+*   dragleave — leaving a slot: removes its 'dragover' mark.
+*   drop      — on a slot: reads the 'text/plain' JSON payload of the mosaic
+*               (bind_tool_row_drag: {locator, …}); `assign_element` performs a
+*               change_value insert on the slot's component; on resolution the
+*               right panel is rebuilt (get_ordered_coins) and the coin's mosaic
+*               tile is marked used.
+*   click     — the touch placement: a coin picked by a tap (touch_pick.js — a
+*               finger cannot drag) is placed by a tap on a slot.
+* Anywhere that is not a slot, every handler returns WITHOUT preventDefault /
+* stopPropagation, so the portal's own handlers and its ancestors decide.
+*
+* @param {Object} self - tool_numisdata_order_coins instance.
+* @param {HTMLElement} wrapper - The ordered_coins wrapper node.
+* @returns {boolean} true when bound
+*/
+export const bind_ordered_coins_drop = function(self, wrapper) {
 
-			// place: the drop's body, shared by the mouse drop and the touch
-			// placement below (one implementation, two gestures)
-				const place = function(data) {
+	if (!wrapper) {
+		return false
+	}
 
-					// css
-						current_node.classList.remove('dragover')
-						current_node.classList.add('drop_ordered_coins')
+	// place: the drop's body, shared by the mouse drop and the touch placement
+	// (one implementation, two gestures)
+		const place = function(target, data) {
 
-					// the drag element will sent the data of the original position, the source_key
-						const data_parse = JSON.parse(data)
+			// css
+				target.cell.classList.remove('dragover')
+				target.cell.classList.add('drop_ordered_coins')
 
-					// assign element to target portal
-						self.assign_element({
-							caller 	: current_node.component_instance,
-							locator : data_parse.locator
-						}).then( response =>{
-							// Rebuild the right panel to reflect the newly inserted coin.
-							get_ordered_coins(self)
-
-							// change the drag icon to show as used
-							const draged_section_record = self.coins.ar_instances.find(el =>
-								el.section_id === data_parse.locator.section_id
-								&& el.section_tipo === data_parse.locator.section_tipo
-								&& el.id_variant !== 'hover'
-							)
-							// select the drag node and add the class used
-							if(draged_section_record){
-								draged_section_record.node.querySelector('#col_original .drag').classList.add('used')
-							}
-						})
+			// the payload of the mosaic row (bind_tool_row_drag)
+				let data_parse = null
+				try {
+					data_parse = JSON.parse(data)
+				} catch (error) {
+					console.error('[tool_numisdata_order_coins] invalid drop payload:', error);
+					return
+				}
+				const locator = data_parse?.locator
+				if (!locator || !target.component) {
+					console.error('[tool_numisdata_order_coins] drop without locator or slot component', {locator, index: target.index});
+					return
 				}
 
-			// drop event
-				current_node.addEventListener('drop', function(e){
-					e.preventDefault()
-					e.stopPropagation()
-					place(e.dataTransfer.getData('text/plain'))
-				},false)
+			// assign element to target portal
+				self.assign_element({
+					caller	: target.component,
+					locator	: locator
+				}).then(() => {
+					// Rebuild the right panel to reflect the newly inserted coin.
+					get_ordered_coins(self)
+					// change the drag icon to show as used
+					mark_coin_used(self, locator)
+				})
+		}
 
-			// touch placement: a coin picked by a tap (touch_pick.js — a finger
-			// cannot drag) is placed by a tap on this slot
-				current_node.addEventListener('click', function(e){
-					if (!touch_pick.active()) {
-						return
-					}
-					e.preventDefault()
-					e.stopPropagation()
-					place(touch_pick.as_drop_event().dataTransfer.getData('text/plain'))
-				},false)
-	}// end for (let i = drop_zones_len - 1; i >= 0; i--)
-}//end drop
+	// dragover event
+		wrapper.addEventListener('dragover', function(e) {
+			const target = drop_target_of(self, wrapper, e)
+			if (!target) {
+				return
+			}
+			e.preventDefault()
+			e.stopPropagation()
+			e.dataTransfer.dropEffect = 'move'
+			// css
+				target.cell.classList.add('dragover')
+				target.cell.classList.remove('drop')
+		})
+
+	// dragleave event
+		wrapper.addEventListener('dragleave', function(e) {
+			const target = drop_target_of(self, wrapper, e)
+			if (!target || (e.relatedTarget && target.cell.contains(e.relatedTarget))) {
+				return
+			}
+			target.cell.classList.remove('dragover')
+		})
+
+	// drop event
+		wrapper.addEventListener('drop', function(e) {
+			const target = drop_target_of(self, wrapper, e)
+			if (!target) {
+				return
+			}
+			e.preventDefault()
+			e.stopPropagation()
+			place(target, e.dataTransfer.getData('text/plain'))
+		})
+
+	// touch placement: a coin picked by a tap is placed by a tap on a slot
+		wrapper.addEventListener('click', function(e) {
+			if (!touch_pick.active()) {
+				return
+			}
+			const target = drop_target_of(self, wrapper, e)
+			if (!target) {
+				return
+			}
+			e.preventDefault()
+			e.stopPropagation()
+			place(target, touch_pick.as_drop_event().dataTransfer.getData('text/plain'))
+		})
+
+
+	return true
+}//end bind_ordered_coins_drop
 
 
 

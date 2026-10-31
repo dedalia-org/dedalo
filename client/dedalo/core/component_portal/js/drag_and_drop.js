@@ -32,13 +32,12 @@
 * bind on the same content_data under the same live window is refused loudly
 * (`claim_row_binding`), so one gesture is never handled twice:
 *   bind_row_drag(self, content_data, {source})  — portal-owned rows ('handle' | 'row')
-*   bind_tool_row_drag(self, content_data)       — the tool mosaics (text/plain payload)
+*   bind_tool_row_drag(self, content_data, {caller_name}) — the tool mosaics (text/plain payload)
 *   bind_portal_drop(self, wrapper)              — the wrapper MOVE zone (no row needed)
 * Every decision goes through ONE pure function, `decide_drop`, which answers
 *   {kind:'reorder', value, source_key, target_key} | {kind:'move', locator}
 *   | {kind:'stale'} | null
-* and the ONE executor `perform_drop`. `on_drop` is the adapter both the touch path
-* and the legacy per-node listeners call.
+* and the ONE executor `perform_drop`. `on_drop` is the adapter the touch path calls.
 *
 * KEY LAW: write keys are ABSOLUTE. `source_key` is the payload's `paginated_key`
 * (= the dragged entry's `paginated_key`, stamped absolute by the server,
@@ -53,7 +52,7 @@
 * stopPropagation), so it bubbles on to whoever owns it (a thesaurus ts_object term,
 * a file drop zone, an outer portal). Only an accepted decision is consumed.
 * One split on DROP: a payload this module RECOGNISES as its own (the portal MIME
-* type, or a parse that passes is_portal_payload / legacy_portal_payload) but whose
+* type, or a parse that passes is_portal_payload) but whose
 * decision is null (same row, declared order, view_order, unwritable target, no
 * row under the pointer) still gets `preventDefault` — without it the browser runs
 * the default text drop and inserts the payload JSON into whatever editable control
@@ -65,13 +64,12 @@
 * The `tmp` module-level object is an out-of-band channel for the payload, because
 * `event.dataTransfer.getData()` is blocked by browsers during dragover.
 *
-* LEGACY (kept until the views move onto the window — stage 5 of the row-box WC,
-* which deletes them together with the legacy payload upgrade in `on_drop`): the
-* per-node on_dragstart / on_dragstart_mosaic / on_dragover / on_dragleave /
-* on_dragend and get_mosaic_transfer_data, plus legacy_portal_payload /
-* legacy_target_index. The set is pinned shrink-only by
-* test/unit/client_relation_move_native.test.ts (LEGACY_DRAG_SYMBOLS): growth is
-* red, and each removal must shrink that list in the same change.
+* The pre-window per-node listeners (on_dragstart / on_dragstart_mosaic /
+* on_dragover / on_dragleave / on_dragend, get_mosaic_transfer_data) and the
+* kind-less legacy payload upgrade are gone (stage 5 of
+* engineering/wire_contract/WC-2026-10-30-section-record-row-box.md); the legacy
+* set stays pinned shrink-only — and now empty — by
+* test/unit/client_relation_move_native.test.ts (LEGACY_DRAG_SYMBOLS).
 */
 
 
@@ -303,8 +301,8 @@ const row_window_of = function(self) {
 /**
 * TARGET_ENTRY
 * The target row's entry, read from the window's frozen entry array when the owner
-* has one. LEGACY owners (views not yet on the window, until stage 5 of the row-box WC) read the
-* page entries of `self.data.entries`, whose index is the same page position.
+* has one. An owner without a window (a direct `on_drop` call before any render)
+* reads the page entries of `self.data.entries`, whose index is the same page position.
 * @param {Object} self
 * @param {number|undefined} target_index - page position 0..N-1
 * @returns {Object|null} the target locator entry
@@ -326,7 +324,7 @@ const target_entry = function(self, target_index) {
 
 /**
 * DECIDE_DROP
-* THE pure decision of every drop path (mouse, touch, legacy). Reads no DOM.
+* THE pure decision of every drop path (mouse, touch). Reads no DOM.
 *
 * REORDER iff the payload came from THIS instance (`source_id === self.id` — never
 * `tipo`: two instances of one portal tipo are two lists), `can_reorder(self)`,
@@ -420,7 +418,10 @@ const build_row_payload = function(self, record_window, index) {
 * the tools' own drop targets read (the ts_object term, the coins slot). It is
 * deliberately NOT a portal payload (no `kind`, never the portal MIME type), so
 * every portal drop handler treats it as foreign and lets it bubble.
-* @param {Object} options - {caller, index}
+* `caller_name` (optional) is emitted as the payload's `caller`: the ts_object term
+* drop publishes `ts_add_child_<caller>` ONLY when it is set, so without it a
+* cataloging drop creates the term but never links the record.
+* @param {Object} options - {caller, index, caller_name?}
 * @returns {Object|null}
 */
 export const get_row_transfer_data = function(options) {
@@ -430,13 +431,17 @@ export const get_row_transfer_data = function(options) {
 	if (!locator) {
 		return null
 	}
-	return {
+	const transfer_data = {
 		locator			: locator,
 		paginated_key	: locator.paginated_key,
 		source_tipo		: self.tipo || null,
 		source_id		: self.id || null,
 		draggable_to	: draggable_to_of(self)
 	}
+	if (typeof options.caller_name==='string' && options.caller_name.length > 0) {
+		transfer_data.caller = options.caller_name
+	}
+	return transfer_data
 }//end get_row_transfer_data
 
 
@@ -1030,10 +1035,16 @@ export const bind_row_drag = function(self, content_data, options={}) {
 * as foreign. Gate: `can_tool_source(self)`, re-checked at the event.
 * @param {Object} self - instance rendering the tool mosaic
 * @param {HTMLElement} content_data
+* @param {Object} [options]
+* @param {string} [options.caller_name] - the payload's `caller` (get_row_transfer_data):
+*   the tool whose `ts_add_child_<caller_name>` subscription links the dropped record
+*   (tool_cataloging). Omitted when the tool's own target reads the locator alone.
 * @returns {boolean} false when nothing was bound (no row window, or already bound
 *   under this window)
 */
-export const bind_tool_row_drag = function(self, content_data) {
+export const bind_tool_row_drag = function(self, content_data, options={}) {
+
+	const caller_name = options.caller_name || null
 
 	const record_window = row_window_of(self)
 	if (!record_window || !content_data) {
@@ -1053,7 +1064,7 @@ export const bind_tool_row_drag = function(self, content_data) {
 		}
 		event.stopPropagation()
 		const transfer_data = can_tool_source(self)
-			? get_row_transfer_data({caller: self, index: hit.index})
+			? get_row_transfer_data({caller: self, index: hit.index, caller_name})
 			: null
 		if (!transfer_data) {
 			event.preventDefault()
@@ -1083,7 +1094,7 @@ export const bind_tool_row_drag = function(self, content_data) {
 		if (!hit || is_tap_on_control(element) || !can_tool_source(self)) {
 			return
 		}
-		const transfer_data = get_row_transfer_data({caller: self, index: hit.index})
+		const transfer_data = get_row_transfer_data({caller: self, index: hit.index, caller_name})
 		if (!transfer_data) {
 			return
 		}
@@ -1188,284 +1199,20 @@ export const move_to_position_decision = function(self, entry, position) {
 }//end move_to_position_decision
 
 /**
-* ON_DRAGSTART
-* Initialises a drag operation from the list view of a component_portal.
-* Serialises the record's locator and position into `event.dataTransfer` as JSON
-* text (readable on drop), and also stores it in the `tmp` module object so that
-* `on_dragover` can inspect the source tipo without triggering browser security
-* restrictions on getData().
-*
-* Also resizes and reveals all `.drop` overlay nodes so they span their parent
-* section-record row, providing visible drop targets across the full grid width.
-*
-* @param {HTMLElement} node - the drag-handle icon node that received the dragstart event
-* @param {DragEvent} event - native browser DragEvent
-* @param {Object} options - context injected by the render layer
-*   @param {Object} options.locator - full locator object for the dragged record
-*   @param {number} options.paginated_key - zero-based position of the record in the current page
-*   @param {Object} options.caller - the component_portal instance owning this list
-* @returns {boolean} always true
-*/
-export const on_dragstart = function(node, event, options) {
-	event.stopPropagation();
-
-	// transfer_data. Will be necessary the original locator of the section_record and
-	// the paginated_key (the position in the array of data)
-		const draggable_to = options.caller.properties.draggable_to || []
-		const transfer_data = {
-			locator			: options.locator,
-			paginated_key	: options.paginated_key,
-			source_tipo		: options.caller.tipo || null,
-			source_id		: options.caller.id || null,
-			draggable_to 	: draggable_to
-		}
-		// console.log('>> on_dragstart transfer_data:', transfer_data);
-
-	// set tmp data to be used by the `dragover`
-		tmp.data = transfer_data
-
-	// data. The data will be transfer to drop in text format
-		const data = JSON.stringify(transfer_data)
-
-		event.dataTransfer.effectAllowed = 'move';
-		event.dataTransfer.setData('text/plain', data);
-
-
-	// style the drag element to be showed in drag mode
-		node.classList.add('dragging')
-		// node.firstChild.classList.remove('hide')
-
-	// get the content_data of the component_portal, it has the all section records nodes
-		const content_data		= options.caller.node.content_data
-		const ar_section_record	= content_data.childNodes
-
-	// it's necessary set every drop node with the view boundaries of the grid
-	// drop nodes will resize to cover the section_record
-		for (let i = ar_section_record.length - 1; i >= 0; i--) {
-
-			const section_record_node	= ar_section_record[i]
-			const current_drop			= section_record_node.querySelector('.drop')
-
-			// first node . Get the boundaries of the last node of the section_record
-			// drop nodes will be resize with the height of this last_node
-				const first_node		= section_record_node.firstChild // usually column 'id'
-				const rect_first_node	= first_node.getBoundingClientRect();
-
-			// last_node. Get the boundaries of the last node of the section_record
-			// drop nodes will be resize with the height of this last_node
-				const last_node			= section_record_node.lastChild // usually column 'remove'
-				const rect_last_node	= last_node.getBoundingClientRect();
-
-			// set height and width, width remove the padding of the grid
-				const height = Math.round( rect_last_node.height )
-				const width	 = Math.round( (rect_last_node.x + rect_last_node.width) - rect_first_node.x )
-
-				current_drop.style.height	= height + 'px'
-				current_drop.style.width	= width + 'px'
-
-			// show the drop in DOM
-				current_drop.classList.remove('hide')
-		}
-
-
-	return true
-}//end on_dragstart
-
-
-
-/**
-* GET_MOSAIC_TRANSFER_DATA
-* The drop payload of a mosaic tile — one builder for both gestures that carry
-* it: the mouse drag (on_dragstart_mosaic) and the touch pick (touch_pick.js).
-* @param {Object} options - {locator, paginated_key, caller}
-* @returns {Object}
-*/
-export const get_mosaic_transfer_data = function(options) {
-	return {
-		locator			: options.locator,
-		paginated_key	: options.paginated_key,
-		source_tipo		: options.caller.tipo || null,
-		source_id		: options.caller.id || null,
-		draggable_to 	: options.caller.properties.draggable_to || []
-	}
-}//end get_mosaic_transfer_data
-
-
-
-/**
-* ON_DRAGSTART_MOSAIC
-* Initialises a drag operation from the mosaic view of a component_portal.
-* Functionally equivalent to `on_dragstart` but operates on the section-record
-* node directly (the draggable tile), rather than a dedicated drag-icon handle.
-* Does NOT resize drop overlays — mosaic view manages drop targets differently.
-*
-* @param {HTMLElement} node - the mosaic tile (section_record node) being dragged
-* @param {DragEvent} event - native browser DragEvent
-* @param {Object} options - context injected by the render layer
-*   @param {Object} options.locator - full locator object for the dragged record
-*   @param {number} options.paginated_key - zero-based position of the record in the current page
-*   @param {Object} options.caller - the component_portal instance owning this mosaic
-* @returns {boolean} always true
-*/
-export const on_dragstart_mosaic = function(node, event, options) {
-	// event.preventDefault();
-	event.stopPropagation();
-
-	// will be necessary the original locator of the section_record and the paginated_key (the position in the array of data)
-	const transfer_data = get_mosaic_transfer_data(options)
-
-	// set tmp data to be used by the `dragover`
-		tmp.data = transfer_data
-
-	// the data will be transfer to drop in text format
-		const data = JSON.stringify(transfer_data)
-
-		event.dataTransfer.effectAllowed = 'move';
-		event.dataTransfer.setData('text/plain', data);
-
-
-	// style the drag element to be showed in drag mode
-	node.classList.add('dragging')
-
-	return true
-}//end on_dragstart_mosaic
-
-
-
-/**
-* ON_DRAGOVER
-* Fires repeatedly while a dragged element passes over a `.drop` target node.
-* Validates that the drag source is compatible with this portal (same portal, or
-* the target's tipo appears in the source's `draggable_to` list), then adds the
-* visual `dragover` highlight to the node.
-*
-* Uses `tmp.data` rather than `event.dataTransfer.getData()` because browsers
-* block getData() calls during dragover for cross-origin security reasons.
-*
-* (!) Must call `event.preventDefault()` to signal that this is a valid drop
-* target; omitting it causes the browser to reject the subsequent `drop` event.
-*
-* @param {HTMLElement} node - the `.drop` overlay node currently under the pointer
-* @param {DragEvent} event - native browser DragEvent
-* @param {Object} options - context injected by the render layer
-*   @param {Object} options.caller - the component_portal instance that owns this drop node
-* @returns {boolean} true when the drop is permitted; false when rejected
-*/
-export const on_dragover = function(node, event, options) {
-
-	const self = options?.caller ?? null
-
-	// foreign guard: a drag this module did not start (a thesaurus node, a file,
-	// text) leaves `tmp.data` unset. It is not ours — it used to throw a TypeError
-	// here AFTER preventDefault had already swallowed it. Nothing is touched before
-	// the decision: a refused dragover bubbles on, ancestors still decide.
-	// THE SAME DECISION AS THE DROP (drop_decision_of → decide_drop): a target the
-	// drop would refuse (declared order, view_order, another instance of the same
-	// tipo, no target row) is never highlighted as accepting it.
-	const {decision} = drop_decision_of(self, tmp.data, options)
-	if (!decision) {
-		return false
-	}
-
-	event.preventDefault();
-	event.stopPropagation();
-
-	node.classList.add('dragover')
-
-	return true
-}//end on_dragover
-
-
-
-/**
-* ON_DRAGLEAVE
-* Removes the `dragover` visual highlight when the dragged element leaves a
-* `.drop` target node. Paired with `on_dragover`.
-*
-* @param {HTMLElement} node - the `.drop` overlay node the pointer left
-* @param {DragEvent} event - native browser DragEvent
-* @returns {void}
-*/
-export const on_dragleave = function(node, event) {
-	event.preventDefault()
-	event.stopPropagation();
-
-	node.classList.remove('dragover')
-}//end on_dragleave
-
-
-
-/**
-* ON_DRAGEND
-* Cleans up after a drag operation finishes (whether or not a successful drop
-* occurred). Removes the `dragging` CSS class from the drag source, resets all
-* `.drop` overlay nodes back to zero size, hides them, and clears `tmp.data`.
-*
-* Called on the original drag source node, NOT on the drop target.
-*
-* @param {HTMLElement} node - the drag-handle node (same node passed to on_dragstart)
-* @param {DragEvent} event - native browser DragEvent
-* @param {Object} options - context injected by the render layer
-*   @param {Object} options.caller - the component_portal instance that owns this list
-* @returns {void}
-*/
-export const on_dragend = function(node, event, options) {
-	event.preventDefault();
-	event.stopPropagation();
-
-	// style the drag element to be showed in drag mode
-		node.classList.remove('dragging')
-
-	// get content data, it has the section_records nodes with the drop nodes.
-	// const content_data		= node.parentNode.parentNode.parentNode
-	const content_data		= options.caller.node.content_data
-	const ar_section_record	= content_data.childNodes
-
-	for (let i = ar_section_record.length - 1; i >= 0; i--) {
-
-		const section_record_node	= ar_section_record[i]
-		const current_drop			= section_record_node.querySelector('.drop')
-		// set the drop nodes to the original size and hide it.
-		current_drop.style.height	= 0
-		current_drop.style.width	= 0
-		current_drop.classList.add('hide')
-	}
-
-	// clear tmp data
-	delete tmp.data
-}//end on_dragend
-
-
-
-/**
 * ON_DROP
 * The drop ADAPTER: reads the payload from the event, decides with `decide_drop`
 * and executes with `perform_drop`. Called by the delegated touch path (with the
-* consumed `touch_pick.as_drop_event()`, after a peek was accepted) and by the
-* legacy per-node listeners still wired by the views (until stage 5 of the row-box WC).
+* consumed `touch_pick.as_drop_event()`, after a peek was accepted).
 *
 * (!) A drop that is not ours (unparseable, foreign shape, `decide_drop` null)
 * returns false WITHOUT preventDefault/stopPropagation, so it reaches whoever owns
 * it. Only an accepted decision is consumed.
-*
-* LEGACY (deleted in stage 5 together with on_dragstart / on_dragstart_mosaic):
-*   - the legacy payload shape {locator, paginated_key, source_tipo, source_id,
-*     draggable_to} (no `kind`) is upgraded to a portal payload whose
-*     `paginated_key` is the LOCATOR's (absolute, server-stamped) key — never the
-*     view's own `options.paginated_key`, which the mosaic/line views set to the
-*     page index;
-*   - `options.paginated_key` (no `options.index`) names the target row: the
-*     page entry carrying that ABSOLUTE key when there is one (default view),
-*     else the page position (mosaic/line pass the page index; on page 1 both
-*     coincide and on page 2+ absolute keys are ≥ the page length, so the two
-*     readings never collide outside a declared/view order, where REORDER is off).
 *
 * @param {HTMLElement} node - the node that received the drop (its `dragover` mark is cleared)
 * @param {DragEvent|Object} event - native DragEvent, or the touch_pick drop-event shape
 * @param {Object} options
 *   @param {Object} options.caller - the TARGET component_portal instance
 *   @param {number} [options.index] - page position of the target row
-*   @param {number} [options.paginated_key] - LEGACY: see above
 * @returns {Promise<boolean>} true when the drop was applied
 */
 export const on_drop = async function(node, event, options) {
@@ -1502,77 +1249,20 @@ export const on_drop = async function(node, event, options) {
 
 /**
 * DROP_DECISION_OF
-* The adapters' ONE path to decide_drop (on_drop AND the legacy on_dragover, so a
-* highlighted target is exactly a target the drop accepts): the payload upgraded
-* when kind-less, the target row from `options.index` or the legacy
-* `options.paginated_key`.
+* The adapter's ONE path to decide_drop: a portal payload (anything else is not
+* ours) and the target row from `options.index`.
 * @param {Object|null} self - TARGET component_portal instance
-* @param {*} parsed - a parsed payload (or `tmp.data`)
-* @param {Object} [options] - {index?, paginated_key?}
+* @param {*} parsed - a parsed payload
+* @param {Object} [options] - {index?}
 * @returns {{payload: Object|null, decision: Object|null}}
 */
 const drop_decision_of = function(self, parsed, options) {
-	const payload = is_portal_payload(parsed)
-		? parsed
-		: legacy_portal_payload(parsed)
+	const payload = is_portal_payload(parsed) ? parsed : null
 	if (!self || !payload) {
 		return {payload, decision: null}
 	}
-	const index = Number.isInteger(options?.index)
-		? options.index
-		: legacy_target_index(self, options?.paginated_key)
-	return {payload, decision: decide_drop(self, payload, index)}
+	return {payload, decision: decide_drop(self, payload, options?.index)}
 }//end drop_decision_of
-
-
-
-/**
-* LEGACY_PORTAL_PAYLOAD
-* Upgrades the pre-window payload (on_dragstart / on_dragstart_mosaic) to the
-* portal payload shape, or null when it is not even that. Deleted in stage 5.
-* @param {*} parsed
-* @returns {Object|null}
-*/
-const legacy_portal_payload = function(parsed) {
-	if (!parsed || typeof parsed!=='object' || Array.isArray(parsed) || 'kind' in parsed) {
-		return null
-	}
-	const locator = parsed.locator
-	if (!locator || typeof locator!=='object') {
-		return null
-	}
-	const upgraded = {
-		kind			: PORTAL_ROW_KIND,
-		locator			: locator,
-		paginated_key	: Number.isInteger(locator.paginated_key) ? locator.paginated_key : undefined,
-		source_id		: parsed.source_id,
-		source_tipo		: parsed.source_tipo,
-		draggable_to	: parsed.draggable_to
-	}
-	return is_portal_payload(upgraded) ? upgraded : null
-}//end legacy_portal_payload
-
-
-
-/**
-* LEGACY_TARGET_INDEX
-* `options.paginated_key` of a legacy listener → the target page position.
-* Deleted in stage 5.
-* @param {Object} self
-* @param {number|undefined} key
-* @returns {number|undefined}
-*/
-const legacy_target_index = function(self, key) {
-	if (!Number.isInteger(key) || key < 0) {
-		return undefined
-	}
-	const entries = Array.isArray(self?.data?.entries) ? self.data.entries : []
-	const by_key = entries.findIndex(entry => entry?.paginated_key===key)
-	if (by_key !== -1) {
-		return by_key
-	}
-	return key < entries.length ? key : undefined
-}//end legacy_target_index
 
 
 

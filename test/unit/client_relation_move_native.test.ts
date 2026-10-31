@@ -57,14 +57,12 @@
  *     the pure `decide_drop` (page-2 keys ABSOLUTE, `source_id` not `tipo` decides
  *     REORDER, declared order / view_order → null, foreign → null, a superseded window
  *     generation → stale), the one-function gates, the `on_drop` adapter (absolute keys
- *     with `index`, on the default-view legacy listener AND on the line/mosaic legacy
- *     listener on page 2, whose page-index key differs from the locator's absolute
- *     one; a foreign drop returns false without preventDefault; a reorder whose
+ *     with `index`; a kind-less pre-window payload is foreign and `options.paginated_key`
+ *     names no target since stage 5; a foreign drop returns false without preventDefault; a reorder whose
  *     sort_data throws is reported UNCONFIRMED, never "not saved"), every drag notice
  *     asserted in the text the page RENDERS — the served label table loaded, English
  *     and Spanish, so a borrowed code whose derived label overrides the sentence is
- *     red — the LEGACY per-node `on_dragover` (a foreign drag untouched and no throw;
- *     accepted EXACTLY when the drop's own decision accepts), and the binders on a
+ *     red — and the binders on a
  *     counting fake DOM: one listener set on content_data (none on rows) removed by
  *     the window signal, a window retired mid-drag releasing tmp + its hold (and only
  *     its own), the portal payload under its MIME type, foreign dragover/drop
@@ -256,6 +254,7 @@ else {
 		get_row_transfer_data: (options: {
 			caller: unknown;
 			index: number;
+			caller_name?: string;
 		}) => Record<string, unknown> | null;
 		move_to_position_decision: (
 			self: unknown,
@@ -267,15 +266,13 @@ else {
 			content_data: unknown,
 			options?: Record<string, unknown>,
 		) => boolean;
-		bind_tool_row_drag: (self: unknown, content_data: unknown) => boolean;
+		bind_tool_row_drag: (
+			self: unknown,
+			content_data: unknown,
+			options?: { caller_name?: string },
+		) => boolean;
 		bind_portal_drop: (self: unknown, wrapper: unknown) => boolean;
 		release_drag_source: (self?: unknown) => boolean;
-		on_dragover: (node: unknown, event: unknown, options: Record<string, unknown>) => boolean;
-		get_mosaic_transfer_data: (options: {
-			locator: unknown;
-			paginated_key: number;
-			caller: unknown;
-		}) => Record<string, unknown>;
 	};
 	// the toast channel handle_api_error publishes on (render_api_error.js
 	// render_error_toast → event_manager 'notification'): the notices are observed
@@ -514,6 +511,7 @@ else {
 		}
 		function drop_payload(locator: Locator) {
 			return {
+				kind: dnd.PORTAL_ROW_KIND,
 				source_tipo: 'zzrelmv_source',
 				source_id: 'source_instance',
 				draggable_to: ['zzrelmv_target'],
@@ -1124,10 +1122,11 @@ else {
 			]);
 		});
 
-		test('LEGACY listener (options.paginated_key, kind-less payload) on page 2: absolute too', async () => {
-			// the default view passes the target's ABSOLUTE key; the pre-stage-3 code sent
-			// paginated_key + offset = 18 for this drop (out of range for 12 locators)
-			const { self, sort_calls } = page2_portal({ record_windows: null });
+		test('a kind-less pre-window payload is FOREIGN (no upgrade): false, left wholly alone', async () => {
+			// the stage-5 removal: the per-node listeners emitted {locator, paginated_key,
+			// source_tipo, source_id, draggable_to} without `kind`, upgraded here until no
+			// view emitted it. It is now a payload this module does not own.
+			const { self, sort_calls } = page2_portal();
 			const legacy = {
 				locator: { ...(PAGE2_ENTRIES[1] as Locator) },
 				paginated_key: 10,
@@ -1135,57 +1134,26 @@ else {
 				source_id: self.id,
 				draggable_to: [],
 			};
-			const result = await on_drop(drop_node, drag_event(legacy), {
-				caller: self as unknown as PortalInstance,
-				paginated_key: 9,
-			});
-			expect(result).toBe(true);
-			expect(sort_calls).toEqual([{ value: legacy.locator, source_key: 10, target_key: 9 }]);
-		});
-
-		test('LEGACY line/mosaic listener on page 2: page-index keys, source key from the LOCATOR', async () => {
-			// view_line_edit_portal / view_mosaic_edit_portal pass `paginated_key: i` (the
-			// PAGE INDEX) both to on_dragstart_mosaic and to on_drop. On page 2 the
-			// payload's top-level paginated_key (2) is NOT the absolute key (11): the source
-			// key must come from the locator, and the target page index must fall back to
-			// the page position (no page entry carries absolute key 0).
-			const { self, sort_calls } = page2_portal({ record_windows: null });
-			const legacy = dnd.get_mosaic_transfer_data({
-				locator: { ...(PAGE2_ENTRIES[2] as Locator) },
-				paginated_key: 2,
-				caller: self,
-			});
-			expect(legacy.paginated_key).toBe(2); // the view's page index, not 11
 			const { seen, event } = spy_event(JSON.stringify(legacy));
 			const result = await on_drop(drop_node, event, {
 				caller: self as unknown as PortalInstance,
-				paginated_key: 0,
-			});
-			expect(result).toBe(true);
-			expect(seen).toEqual({ prevented: true, stopped: true });
-			expect(sort_calls).toEqual([
-				{ value: { ...(PAGE2_ENTRIES[2] as Locator) }, source_key: 11, target_key: 9 },
-			]);
+				index: 0,
+			} as never);
+			expect(result).toBe(false);
+			expect(seen).toEqual({ prevented: false, stopped: false });
+			expect(sort_calls).toEqual([]);
 		});
 
-		test('LEGACY line/mosaic: a page index out of the page is not a target (default blocked, NOT stopped)', async () => {
-			const { self, sort_calls } = page2_portal({ record_windows: null });
-			const legacy = dnd.get_mosaic_transfer_data({
-				locator: { ...(PAGE2_ENTRIES[2] as Locator) },
-				paginated_key: 2,
-				caller: self,
-			});
-			for (const paginated_key of [3, 5, -1]) {
-				const { seen, event } = spy_event(JSON.stringify(legacy));
-				const result = await on_drop(drop_node, event, {
-					caller: self as unknown as PortalInstance,
-					paginated_key,
-				});
-				expect(result).toBe(false);
-				// own (legacy-upgraded) payload refused: the browser's default text drop
-				// is blocked, the event is NOT stopped (ancestors still decide)
-				expect(seen).toEqual({ prevented: true, stopped: false });
-			}
+		test('options.paginated_key no longer names a target (only options.index does)', async () => {
+			const { self, sort_calls } = page2_portal();
+			const { seen, event } = spy_event(JSON.stringify(row_payload(self, 2, 5)));
+			const result = await on_drop(drop_node, event, {
+				caller: self as unknown as PortalInstance,
+				paginated_key: 9,
+			} as never);
+			expect(result).toBe(false);
+			// own payload, no target row: the default text drop is blocked, NOT stopped
+			expect(seen).toEqual({ prevented: true, stopped: false });
 			expect(sort_calls).toEqual([]);
 		});
 
@@ -1686,6 +1654,106 @@ else {
 			expect(ancestor_seen).toEqual([]);
 		});
 
+		test('every target the drop refuses is refused at dragover too (never highlighted)', async () => {
+			// twin of the retired legacy on_dragover leg, over the delegated binder: the
+			// same refusal list, judged by the ONE decide_drop at dragover AND at drop
+			type Built = {
+				self: Record<string, unknown>;
+				content_data: FakeEl;
+				target: FakeEl;
+				dt: FakeDataTransfer;
+			};
+			const own_drag = (index: number) => {
+				const page = page2_portal();
+				const list = fake_list(page.self);
+				dnd.bind_row_drag(page.self, list.content_data, { source: 'handle' });
+				const dt = new FakeDataTransfer();
+				dispatch(new FakeEvent('dragstart', list.handles[index] as FakeEl, dt));
+				expect(dt.types.length, 'the drag started').toBeGreaterThan(0);
+				return { ...page, ...list, dt };
+			};
+			const foreign_drag = (source_overrides: Record<string, unknown>) => {
+				const { self: source } = page2_portal(source_overrides);
+				const source_list = fake_list(source);
+				dnd.bind_row_drag(source, source_list.content_data, { source: 'handle' });
+				const page = page2_portal();
+				const list = fake_list(page.self);
+				dnd.bind_row_drag(page.self, list.content_data, { source: 'handle' });
+				const dt = new FakeDataTransfer();
+				dispatch(new FakeEvent('dragstart', source_list.handles[0] as FakeEl, dt));
+				expect(dt.types.length, 'the drag started').toBeGreaterThan(0);
+				return { ...page, ...list, dt };
+			};
+			const refused: Array<[string, () => Built & { sort_calls: unknown[] }]> = [
+				[
+					'declared order',
+					() => {
+						const built = own_drag(2);
+						(built.self.context as Record<string, unknown>).declared_order = [
+							{ tipo: 'zzrelmv_date', direction: 'ASC' },
+						];
+						return { ...built, target: built.rows[0] as FakeEl };
+					},
+				],
+				[
+					'active view_order',
+					() => {
+						const built = own_drag(2);
+						built.self.view_order = { tipo: 'zzrelmv_date', direction: 'ASC' };
+						return { ...built, target: built.rows[0] as FakeEl };
+					},
+				],
+				[
+					'own row onto itself',
+					() => {
+						const built = own_drag(2);
+						return { ...built, target: built.rows[2] as FakeEl };
+					},
+				],
+				[
+					'own reorder over the list (no target row)',
+					() => {
+						const built = own_drag(2);
+						return { ...built, target: built.content_data };
+					},
+				],
+				[
+					'another instance of the SAME tipo not naming it',
+					() => {
+						const built = foreign_drag({ id: 'portal_p2_twin' });
+						return { ...built, target: built.rows[0] as FakeEl };
+					},
+				],
+				[
+					'another portal whose draggable_to does not name this tipo',
+					() => {
+						const built = foreign_drag({
+							id: 'other_instance',
+							tipo: 'zzrelmv_other',
+							properties: { draggable_to: ['zzrelmv_elsewhere'] },
+						});
+						return { ...built, target: built.rows[0] as FakeEl };
+					},
+				],
+			];
+			for (const [label, build] of refused) {
+				const { content_data, target, dt, sort_calls } = build();
+				const over = dispatch(new FakeEvent('dragover', target, dt));
+				const highlighted = content_data.children.some((n) => n.classList.contains('dragover'));
+				expect([label, over.prevented, over.stopped, highlighted]).toEqual([
+					label,
+					false,
+					false,
+					false,
+				]);
+				// …and the drop it would have invited is refused by the same decision
+				const drop = dispatch(new FakeEvent('drop', target, dt));
+				await Promise.resolve();
+				expect([label, drop.stopped, sort_calls]).toEqual([label, false, []]);
+				dnd.release_drag_source();
+			}
+		});
+
 		test('a stale drop (window superseded mid-drag) is consumed, never sent, and said once', async () => {
 			const { self, sort_calls, record_window } = page2_portal();
 			const { content_data, rows, handles, ancestor_seen } = fake_list(self);
@@ -1835,162 +1903,6 @@ else {
 		});
 	});
 
-	// ── LEGACY on_dragover: the per-node listener the live views still wire ─────────────
-	// (render_edit_component_portal.js .drop overlays, the wrapper, the line/mosaic
-	// tiles). It must (1) leave a drag this module did not start wholly alone — no
-	// preventDefault, no stopPropagation, no throw — and (2) accept EXACTLY what the
-	// drop accepts: a target highlighted as droppable that on_drop then refuses is a
-	// drop that silently does nothing.
-	describe("LEGACY on_dragover — foreign guard, and the drop's own decision", () => {
-		afterEach(() => {
-			dnd.release_drag_source();
-		});
-
-		/** Starts a delegated drag on `source`'s row `index` (sets the module's tmp). */
-		function start_drag(source: Record<string, unknown>, index: number) {
-			const { content_data, handles } = fake_list(source);
-			dnd.bind_row_drag(source, content_data, { source: 'handle' });
-			const dt = new FakeDataTransfer();
-			dispatch(new FakeEvent('dragstart', handles[index] as FakeEl, dt));
-			return dt;
-		}
-
-		/** One legacy dragover on a fresh `.drop` node: return value, event spy, highlight. */
-		function legacy_over(self: Record<string, unknown>, options: Record<string, unknown>) {
-			const node = new FakeEl('div', ['drop']);
-			const { seen, event } = spy_event('', ['Files']);
-			let accepted: unknown;
-			expect(() => {
-				accepted = dnd.on_dragover(node as never, event as never, { caller: self, ...options });
-			}).not.toThrow();
-			return { accepted, seen, highlighted: node.classList.contains('dragover') };
-		}
-
-		test('a foreign drag (tmp unset: file, thesaurus node, text) is not touched and does not throw', () => {
-			const { self } = page2_portal();
-			dnd.release_drag_source();
-			expect(legacy_over(self, { paginated_key: 9 })).toEqual({
-				accepted: false,
-				seen: { prevented: false, stopped: false },
-				highlighted: false,
-			});
-		});
-
-		test('an own reorder the drop accepts is accepted (prevented, stopped, highlighted)', () => {
-			const { self } = page2_portal();
-			start_drag(self, 2);
-			expect(legacy_over(self, { paginated_key: 9 })).toEqual({
-				accepted: true,
-				seen: { prevented: true, stopped: true },
-				highlighted: true,
-			});
-		});
-
-		test('every target the drop refuses is refused at dragover too (never highlighted)', async () => {
-			type Built = {
-				self: Record<string, unknown>;
-				dt: FakeDataTransfer;
-				options: Record<string, unknown>;
-			};
-			const refused: Array<[string, () => Built]> = [
-				[
-					'declared order',
-					() => {
-						const { self } = page2_portal();
-						const dt = start_drag(self, 2);
-						(self.context as Record<string, unknown>).declared_order = [
-							{ tipo: 'zzrelmv_date', direction: 'ASC' },
-						];
-						return { self, dt, options: { paginated_key: 9 } };
-					},
-				],
-				[
-					'active view_order',
-					() => {
-						const { self } = page2_portal();
-						const dt = start_drag(self, 2);
-						self.view_order = { tipo: 'zzrelmv_date', direction: 'ASC' };
-						return { self, dt, options: { paginated_key: 9 } };
-					},
-				],
-				[
-					'own row onto itself',
-					() => {
-						const { self } = page2_portal();
-						const dt = start_drag(self, 2);
-						return { self, dt, options: { paginated_key: 11 } };
-					},
-				],
-				[
-					'own reorder over the wrapper (no target row)',
-					() => {
-						const { self } = page2_portal();
-						const dt = start_drag(self, 2);
-						return { self, dt, options: {} };
-					},
-				],
-				[
-					'another instance of the SAME tipo not naming it',
-					() => {
-						const { self } = page2_portal();
-						const { self: twin } = page2_portal({ id: 'portal_p2_twin' });
-						const dt = start_drag(twin, 2);
-						return { self, dt, options: { paginated_key: 9 } };
-					},
-				],
-				[
-					'another portal whose draggable_to does not name this tipo',
-					() => {
-						const { self } = page2_portal();
-						const { self: other } = page2_portal({
-							id: 'other_instance',
-							tipo: 'zzrelmv_other',
-							properties: { draggable_to: ['zzrelmv_elsewhere'] },
-						});
-						const dt = start_drag(other, 0);
-						return { self, dt, options: { paginated_key: 9 } };
-					},
-				],
-			];
-			for (const [label, build] of refused) {
-				const { self, dt, options } = build();
-				expect([label, legacy_over(self, options)]).toEqual([
-					label,
-					{ accepted: false, seen: { prevented: false, stopped: false }, highlighted: false },
-				]);
-				// …and the drop it would have invited is refused by the same decision
-				const dropped = await on_drop(
-					new FakeEl('div') as never,
-					{
-						preventDefault: () => undefined,
-						stopPropagation: () => undefined,
-						dataTransfer: dt,
-					} as never,
-					{ caller: self as unknown as PortalInstance, ...options } as never,
-				);
-				expect([label, dropped]).toEqual([label, false]);
-				dnd.release_drag_source();
-			}
-		});
-
-		test('a MOVE from a portal naming this tipo is accepted, row or wrapper alike', () => {
-			const { self } = page2_portal();
-			const { self: other } = page2_portal({
-				id: 'other_instance',
-				tipo: 'zzrelmv_other',
-				properties: { draggable_to: ['zzrelmv_portal'] },
-			});
-			start_drag(other, 0);
-			for (const options of [{ paginated_key: 9 }, {}]) {
-				expect(legacy_over(self, options)).toEqual({
-					accepted: true,
-					seen: { prevented: true, stopped: true },
-					highlighted: true,
-				});
-			}
-		});
-	});
-
 	// ── a window retired MID-DRAG releases the drag (tmp + hold) ───────────────────────
 	// Retire aborts record_window.signal, which removes the dragend listener: the abort
 	// itself must release, or tmp outlives the window (payload, owner, a dead window).
@@ -2007,13 +1919,7 @@ else {
 			expect(record_window.holds).toEqual(['hold:1:drag']);
 			record_window.controller.abort();
 			expect(record_window.holds).toEqual(['hold:1:drag', 'unhold:1:drag']);
-			expect(dnd.release_drag_source()).toBe(false); // nothing left held
-			// tmp.data is gone too: a later foreign dragover is not mistaken for ours
-			const { seen, event } = spy_event('', ['Files']);
-			expect(dnd.on_dragover(new FakeEl('div') as never, event as never, { caller: self })).toBe(
-				false,
-			);
-			expect(seen).toEqual({ prevented: false, stopped: false });
+			expect(dnd.release_drag_source()).toBe(false); // nothing left held (tmp cleared with it)
 
 			// the successor window of the SAME owner: the old window's abort is spent,
 			// and retiring ANOTHER window never releases this one's drag
@@ -2153,12 +2059,32 @@ else {
 			expect(record_window.holds).toEqual(['hold:1:drag']);
 			dispatch(new FakeEvent('dragend', rows[1] as FakeEl, dt));
 			expect(record_window.holds).toEqual(['hold:1:drag', 'unhold:1:drag']);
+			// no caller_name: the payload names no caller (ts_object publishes nothing)
+			expect('caller' in payload).toBe(false);
 
 			self.view = 'mosaic'; // not a tool source any more
 			const refused = dispatch(
 				new FakeEvent('dragstart', rows[1] as FakeEl, new FakeDataTransfer()),
 			);
 			expect(refused.prevented).toBe(true);
+		});
+
+		test('tool mosaic caller_name: the payload names its caller (ts_add_child_<caller> links the record)', () => {
+			const { self } = page2_portal({ view: 'tool_cataloging_mosaic' });
+			const { content_data, rows } = fake_list(self);
+			expect(dnd.bind_tool_row_drag(self, content_data, { caller_name: 'tool_cataloging' })).toBe(
+				true,
+			);
+			const dt = new FakeDataTransfer();
+			dispatch(new FakeEvent('dragstart', rows[1] as FakeEl, dt));
+			const payload = JSON.parse(dt.getData('text/plain'));
+			expect(payload.caller).toBe('tool_cataloging');
+			expect(dnd.is_portal_payload(payload)).toBe(false);
+			expect(
+				dnd.get_row_transfer_data({ caller: self, index: 0, caller_name: 'tool_cataloging' })
+					?.caller,
+			).toBe('tool_cataloging');
+			expect('caller' in (dnd.get_row_transfer_data({ caller: self, index: 0 }) ?? {})).toBe(false);
 		});
 
 		test('wrapper zone: MOVE only; a reorder or a foreign drag bubbles on', () => {
@@ -2311,7 +2237,7 @@ else {
 		});
 	});
 
-	// ── LEGACY drag symbols: SHRINK-ONLY until stage 5 of the row-box WC deletes them ──
+	// ── LEGACY drag symbols: SHRINK-ONLY (empty since stage 5 of the row-box WC) ──
 	// (engineering/wire_contract/WC-2026-10-30-section-record-row-box.md, stage-3
 	// addendum). The kind-less payload upgrade accepts a weaker shape than the
 	// delegated core; if stage 5 slips, this list is where it shows.
@@ -2325,22 +2251,9 @@ else {
 	//    once as DELEGATED_CORE_EXPORTS, CORE_INTERNALS or LEGACY_DRAG_SYMBOLS. An
 	//    unclassified binding is red, so a new legacy helper cannot hide under an
 	//    off-convention name or shape.
-	const LEGACY_DRAG_SYMBOLS: ReadonlyMap<string, string> = new Map([
-		['on_dragstart', 'default-view handle dragstart (per node), until the views bind_row_drag'],
-		['on_dragstart_mosaic', 'line/mosaic tile dragstart (per node), until the views bind_row_drag'],
-		['on_dragover', 'per-node .drop overlay dragover, until the views bind_row_drag'],
-		['on_dragleave', 'per-node .drop overlay dragleave, until the views bind_row_drag'],
-		['on_dragend', 'per-node dragend, until the views bind_row_drag'],
-		[
-			'get_mosaic_transfer_data',
-			'kind-less mosaic payload (mouse + touch_pick), until bind_row_drag',
-		],
-		['legacy_portal_payload', 'upgrades the kind-less payload in on_drop, until no view emits it'],
-		[
-			'legacy_target_index',
-			'options.paginated_key → page position in on_drop, until no view passes it',
-		],
-	]);
+	// Empty since stage 5: every legacy symbol left with its last caller. Shrink-only —
+	// a new entry is a WC edit first.
+	const LEGACY_DRAG_SYMBOLS: ReadonlyMap<string, string> = new Map([]);
 	/**
 	 * The delegated (stage-3) export surface of drag_and_drop.js — NOT legacy. A new
 	 * export must be added here (core) or to LEGACY_DRAG_SYMBOLS (legacy): the census
@@ -2363,7 +2276,7 @@ else {
 		'bind_tool_row_drag',
 		'bind_portal_drop',
 		'move_to_position_decision',
-		'on_drop', // the ONE drop adapter (native + touch_pick); its legacy half is the two legacy_* helpers
+		'on_drop', // the ONE drop adapter (touch_pick)
 	]);
 	/** The non-exported core helpers of drag_and_drop.js (the rest of the total classification). */
 	const CORE_INTERNALS: ReadonlySet<string> = new Set([
@@ -2566,15 +2479,52 @@ else {
 			});
 		}
 
+		/**
+		 * The ONE named writer outside the module: the browser suite BUILDS the declared-order
+		 * situation by injecting the server field on a live instance's context (no ontology node
+		 * may be created for it — engineering/wire_contract/WC-2026-10-30-section-record-row-box.md,
+		 * stage 5). It never reads the field: has_declared_order still decides. Shrink-only; a
+		 * listed file that no longer mentions the field is red.
+		 */
+		const DECLARED_ORDER_SITUATION_WRITERS = new Map([
+			[
+				'client/dedalo/test/client/js/test_portal_row_drag.js',
+				'injects context.declared_order to build the no-source-under-declared-order situation',
+			],
+		]);
+
 		test('no client/tools file outside drag_and_drop.js reads declared_order', () => {
 			const dnd_path = join(CLIENT_ROOT, 'dedalo/core/component_portal/js/drag_and_drop.js');
 			const offenders: string[] = [];
+			const writers_seen = new Set<string>();
 			for (const file of census_files()) {
 				if (file === dnd_path) continue;
 				const reads = declared_order_reads(readFileSync(file, 'utf8'));
-				if (reads.length > 0) offenders.push(`${relative(REPO_ROOT, file)}: ${reads[0]?.trim()}`);
+				const repo_path = relative(REPO_ROOT, file);
+				if (DECLARED_ORDER_SITUATION_WRITERS.has(repo_path)) {
+					if (reads.length > 0) writers_seen.add(repo_path);
+					// a writer may only ASSIGN the field, never read it: the line is an
+					// assignment AND nothing right of its `=` mentions the field
+					const non_assignments = reads.filter((line) => {
+						const match = /\.declared_order\s*=(?!=)/.exec(line);
+						if (!match) return true;
+						const rhs = line.slice(match.index + match[0].length);
+						return declared_order_reads(rhs).length > 0;
+					});
+					if (non_assignments.length > 0)
+						offenders.push(`${repo_path}: ${non_assignments[0]?.trim()}`);
+					continue;
+				}
+				if (reads.length > 0) offenders.push(`${repo_path}: ${reads[0]?.trim()}`);
 			}
 			expect(offenders).toEqual([]);
+			expect([...writers_seen].sort()).toEqual([...DECLARED_ORDER_SITUATION_WRITERS.keys()].sort());
+		});
+
+		test('the situation-writer list is shrink-only and every entry is reasoned', () => {
+			expect(DECLARED_ORDER_SITUATION_WRITERS.size, 'shrink-only').toBeLessThanOrEqual(1);
+			for (const reason of DECLARED_ORDER_SITUATION_WRITERS.values())
+				expect(reason.length).toBeGreaterThan(20);
 		});
 
 		test('inside drag_and_drop.js, only the has_declared_order body reads it', () => {

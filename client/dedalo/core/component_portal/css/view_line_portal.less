@@ -14,8 +14,9 @@
 		}
 	}//end .column
 
-	// content_data
-	>.content_data {
+	// list_after. The non-row sibling of the rows (WC-2026-10-30-section-record-row-box):
+	// the empty-iri placeholder, references, error
+	>.list_after {
 
 		>.component_placeholder {
 			padding-left: 0.5rem;
@@ -29,6 +30,10 @@
 			font-style: italic;
 			margin-top: -0.55rem;
 		}
+	}//end >.list_after
+
+	// content_data
+	>.content_data {
 
 		// section_record list
 		.section_record {
@@ -329,13 +334,21 @@
 					}
 				}
 
-			}//end >.section_record
-
-			// ul references
-			.references {
-				>li {
-					padding-left: 0rem;
+				// delegated drag (drag_and_drop.js bind_row_drag, source 'row')
+				&.dragover {
+					outline: 2px dotted @color_orange_dedalo;
 				}
+				&.dragging {
+					outline: 1px dashed @color_orange_dedalo;
+				}
+
+			}//end >.section_record
+		}
+
+		// ul references
+		>.list_after .references {
+			>li {
+				padding-left: 0rem;
 			}
 		}
 	}//end &.edit

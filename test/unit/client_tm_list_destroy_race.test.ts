@@ -65,9 +65,47 @@ else {
 		tag: string;
 		classes: string[] = [];
 		children: FakeNode[] = [];
+		attributes = new Map<string, string>();
+		text = '';
 		id = '';
 		constructor(tag: string) {
 			this.tag = tag;
+		}
+		// the row window stamps data-index / role on the row node it is handed
+		// (WC-2026-10-30-section-record-row-box)
+		setAttribute(name: string, value: string) {
+			this.attributes.set(name, String(value));
+		}
+		getAttribute(name: string): string | null {
+			return this.attributes.get(name) ?? null;
+		}
+		get dataset(): Record<string, string> {
+			const out: Record<string, string> = {};
+			for (const [name, value] of this.attributes) {
+				if (name.startsWith('data-')) out[name.slice(5)] = value;
+			}
+			return out;
+		}
+		get textContent(): string {
+			return this.text + this.children.map((c) => c.textContent).join('');
+		}
+		/** The two shapes mark_empty_columns uses: `:scope > .x` and a tag list. */
+		querySelectorAll(selector: string): FakeNode[] {
+			const scoped = /^:scope\s*>\s*\.([\w-]+)$/.exec(selector);
+			if (scoped) return this.children.filter((c) => c.classes.includes(scoped[1] ?? ''));
+			const tags = selector.split(',').map((t) => t.trim().toLowerCase());
+			const out: FakeNode[] = [];
+			const walk = (node: FakeNode) => {
+				for (const child of node.children) {
+					if (tags.includes(child.tag.toLowerCase())) out.push(child);
+					walk(child);
+				}
+			};
+			walk(this);
+			return out;
+		}
+		querySelector(selector: string): FakeNode | null {
+			return this.querySelectorAll(selector)[0] ?? null;
 		}
 		classList = {
 			add: (...names: string[]) => {
@@ -123,7 +161,10 @@ else {
 	 * the concurrent reload lands while `get_ar_columns_instances_list()` is awaited,
 	 * so `caller` is already null when the column loop resumes.
 	 */
-	const make_section_record = (options: { destroy_on_columns: boolean }) => {
+	const make_section_record = (options: {
+		destroy_on_columns: boolean;
+		filled_column?: boolean;
+	}) => {
 		const self = {
 			id: 'sr_test',
 			model: 'section_record',
@@ -132,7 +173,23 @@ else {
 			context: { view: 'line' },
 			caller: { model: 'section', permissions: 3 } as { model: string } | null,
 			// a zero-instance column: the exact path through render_empty_column_node
-			columns_map: [{ id: 'dd1574', label: 'Value' }],
+			// (plus, when asked, a callback column that renders a value)
+			columns_map: [
+				{ id: 'dd1574', label: 'Value' },
+				...(options.filled_column
+					? [
+							{
+								id: 'dd1573',
+								label: 'Who',
+								callback: () => {
+									const node = new FakeNode('span');
+									node.text = 'Admin';
+									return node;
+								},
+							},
+						]
+					: []),
+			],
 			get_ar_columns_instances_list: async () => {
 				await Promise.resolve();
 				if (options.destroy_on_columns) {
@@ -146,7 +203,7 @@ else {
 	};
 
 	beforeAll(async () => {
-		for (const key of ['document', 'SHOW_DEBUG', 'window', 'DocumentFragment'])
+		for (const key of ['document', 'SHOW_DEBUG', 'window', 'DocumentFragment', 'Node'])
 			saved[key] = globals[key];
 
 		const fake_document = new FakeNode('#document');
@@ -156,6 +213,8 @@ else {
 		globals.SHOW_DEBUG = false;
 		globals.window = globalThis;
 		globals.DocumentFragment = FakeFragment;
+		// the callback-column guard checks `instanceof Node`
+		globals.Node = FakeNode;
 
 		// (!) The real ui.js imports core/tools_common/js/tool_common.js, a SERVING
 		// seam with no relative path on disk — mocking it is the only way to import
@@ -220,6 +279,52 @@ else {
 			// the node is orphaned — the WINNING render owns the DOM, so this one
 			// deliberately carries no columns
 			expect(node.children.length).toBe(0);
+		});
+	});
+
+	// The TM tool list marks its value-less cells per ROW (render option), so a row
+	// the row window builds later (a placeholder swap) is marked too
+	// (WC-2026-10-30-section-record-row-box). The destroy path must stay inert.
+	describe('section_record row render — mark_empty_columns', () => {
+		test('a healthy row marks ONLY its value-less cells', async () => {
+			const self = make_section_record({ destroy_on_columns: false, filled_column: true });
+
+			const node = (await view_module.view_default_list_section_record.render(self, {
+				add_hilite_row: false,
+				mark_empty_columns: true,
+			})) as FakeNode;
+
+			expect(node.children.length).toBe(2);
+			const [empty, filled] = node.children;
+			expect(empty?.classes).toContain('empty_column');
+			expect(filled?.textContent).toBe('Admin');
+			expect(filled?.classes).not.toContain('empty_column');
+		});
+
+		test('without the option nothing is marked (the option is the only switch)', async () => {
+			const self = make_section_record({ destroy_on_columns: false, filled_column: true });
+
+			const node = (await view_module.view_default_list_section_record.render(self, {
+				add_hilite_row: false,
+			})) as FakeNode;
+
+			expect(node.children.length).toBe(2);
+			for (const column of node.children) expect(column.classes).not.toContain('empty_column');
+		});
+
+		test('a row destroyed across the await resolves and marks nothing', async () => {
+			const self = make_section_record({ destroy_on_columns: true, filled_column: true });
+
+			const node = (await view_module.view_default_list_section_record.render(self, {
+				add_hilite_row: false,
+				mark_empty_columns: true,
+			})) as FakeNode;
+
+			expect(node).toBeInstanceOf(FakeNode);
+			expect(self.caller).toBeNull();
+			// the orphaned node carries no columns, so there is nothing to mark
+			expect(node.children.length).toBe(0);
+			expect(node.querySelectorAll(':scope > .column').length).toBe(0);
 		});
 	});
 

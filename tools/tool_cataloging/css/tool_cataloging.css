@@ -117,6 +117,9 @@
 .wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .hover_body {
   position: relative;
 }
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record:not(:hover, :focus-within) > .sr_mosaic_hover {
+  display: none;
+}
 .wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data .sr_mosaic_hover {
   position: absolute;
   width: 100%;
@@ -246,7 +249,7 @@
 .wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record .column > .wrapper_component {
   height: inherit;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record.mosaic_over {
+.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record:hover {
   outline: 1px solid var(--color_orange_dedalo);
   z-index: 2;
 }

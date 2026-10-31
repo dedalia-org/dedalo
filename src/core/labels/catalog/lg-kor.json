@@ -484,6 +484,7 @@
 	"reuse_tag": "태그 재사용",
 	"reverse_relations": "역방향 관계",
 	"rotate": "회전",
+	"rows_not_rendered_print": "${total}개 행 중 ${count}개 행은 인쇄되지 않습니다. 화면에 표시된 행만 인쇄됩니다. 전체 목록은 인쇄 또는 내보내기 도구를 사용하세요.",
 	"runtime_info": "엔진 런타임",
 	"save": "저장",
 	"saved": "저장됨",

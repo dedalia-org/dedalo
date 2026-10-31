@@ -484,6 +484,7 @@
 	"reuse_tag": "Label wiederverwenden",
 	"reverse_relations": "Umgekehrte Beziehungen",
 	"rotate": "Drehen",
+	"rows_not_rendered_print": "${count} von ${total} Zeilen werden nicht gedruckt: Gedruckt werden nur die auf dem Bildschirm dargestellten Zeilen. Verwenden Sie das Druck- oder Export-Werkzeug für die vollständige Liste.",
 	"runtime_info": "Engine-Laufzeit",
 	"save": "Speichern",
 	"saved": "gespeichert",

@@ -31,9 +31,14 @@
 * whole tool was reloaded. Every mutation signal now re-reads dd1596 for the
 * affected cards and toggles the class from that answer (refresh_used_state).
 *
-* The drag column registers each rendered handle in the section's `drag_nodes`
-* Map (row_key → {locator, node}); the row window's release deletes the entry, so
-* the registry holds exactly the materialized rows.
+* ONE TRUTH, NO NODE REGISTRY (WC-2026-10-30-section-record-row-box). The
+* section keeps `used_keys`, the Set of the page's used records
+* (compute_used_keys over the window's entries). The mosaic's row window applies
+* it to every tile it builds — the fill AND a later placeholder swap — through
+* its `decorate` (mark_used_row), and refresh_used_state updates the Set and
+* toggles the tiles currently built, found as the content_data's own rows and
+* mapped to their records through the window's frozen entries (`entry_of`), never
+* through a stored node.
 */
 
 
@@ -89,11 +94,65 @@ export const locator_key = function(locator) {
 
 
 /**
+* COMPUTE_USED_KEYS
+* The Set of used records of the section's page: for every entry, its dd1596
+* item in the section datum (the read that rendered the page) answered by
+* is_used. One index of the datum first, so a 1000-row page is one pass.
+* @param {Object} section - The cataloging section (data.entries, datum.data)
+* @param {Array<string>} target_tipos - get_catalog_target_tipos() result.
+* @returns {Set<string>} locator_key of every used record
+*/
+export const compute_used_keys = function(section, target_tipos) {
+
+	const used			= new Set()
+	const inverse_tipo	= DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS
+	const entries		= section?.data?.entries || []
+	const datum_data	= section?.datum?.data || []
+
+	const inverse_items = new Map()
+	for (const item of datum_data) {
+		if (item.tipo===inverse_tipo) {
+			inverse_items.set(locator_key(item), item)
+		}
+	}
+	for (const entry of entries) {
+		const key = locator_key(entry)
+		if (is_used(inverse_items.get(key)?.entries, target_tipos)) {
+			used.add(key)
+		}
+	}
+
+
+	return used
+}//end compute_used_keys
+
+
+
+/**
+* MARK_USED_ROW
+* Toggle `used` on the drag indicator of ONE tile (its own drag column; the
+* hover overlay, nested in the tile, has none).
+* @param {HTMLElement} row_node - The tile (`.section_record`, a direct child of
+*   the content_data)
+* @param {boolean} used
+* @returns {void}
+*/
+export const mark_used_row = function(row_node, used) {
+
+	const dragger = row_node ? row_node.querySelector(':scope > .column_drag .dragger') : null
+	if (dragger) {
+		dragger.classList.toggle('used', used===true)
+	}
+}//end mark_used_row
+
+
+
+/**
 * SUBSCRIBE_USED_TRIGGERS
 * Wires every signal after which a card's marker may have changed. The marker is
 * derived from OTHER records (the catalog terms that link a card), and the client
 * does not know which card a removed term pointed at, so (a)-(c) refresh every
-* materialized card (one bounded read):
+* card of the page (one read, bounded by the page size):
 *   (a) `section_deleted` of a catalog section (ts_object.delete_term →
 *       section.delete_section publishes it): a term deleted from the tree.
 *   (b) `save` of the link component (tool_config.set_new_thesaurus_value.tipo) in a
@@ -184,17 +243,18 @@ export const unsubscribe_used_triggers = function(tool) {
 
 /**
 * REFRESH_USED_STATE
-* Re-reads dd1596 for the given cards (or every materialized card) in ONE section
-* read, splices the fresh items into the section datum (so a row re-materialized
-* later renders the new truth) and toggles `used` on each registered handle.
+* Re-reads dd1596 for the given cards (or every card of the page) in ONE section
+* read, splices the fresh items into the section datum, updates the section's
+* `used_keys` (so a tile the window builds later is marked from the new truth)
+* and toggles `used` on the tiles currently built.
 *
 * Calls are SERIALIZED on the tool: a later call is sent only after the previous
 * one applied, so an older answer can never overwrite a newer one. A refresh-all
 * already queued (not started) absorbs further refresh-all calls (focus storms).
 *
 * @param {Object} tool - tool_cataloging instance.
-* @param {Array<Object>|null} [locators=null] - Records to refresh; null = all
-*   materialized cards.
+* @param {Array<Object>|null} [locators=null] - Records to refresh; null = every
+*   card of the page.
 * @returns {Promise<boolean>} true when the state was applied.
 */
 export const refresh_used_state = function(tool, locators=null) {
@@ -239,22 +299,27 @@ export const refresh_used_state = function(tool, locators=null) {
 const apply_used_state = async function(tool, locators) {
 
 	const section		= tool.section_to_cataloging
-	const drag_nodes	= section?.drag_nodes
-	if (!section || tool.status==='destroyed' || !(drag_nodes instanceof Map) || drag_nodes.size===0) {
+	const record_window	= section?.record_windows?.rows || null
+	if (!section || tool.status==='destroyed' || !record_window || record_window.size===0) {
 		return false
 	}
 
-	// records to refresh: the requested ones that are materialized, or all of them
+	// records to refresh: the requested ones on this page, or all of them (the
+	// window's frozen entries — never a node registry)
 		const wanted = Array.isArray(locators)
 			? new Set(locators.map(locator_key))
 			: null
 		const requested = new Map()
-		for (const row of drag_nodes.values()) {
-			const key = locator_key(row.locator)
+		for (let i = 0; i < record_window.size; i++) {
+			const entry = record_window.entry_of(i)
+			if (!entry) {
+				continue
+			}
+			const key = locator_key(entry)
 			if (wanted===null || wanted.has(key)) {
 				requested.set(key, {
-					section_tipo	: row.locator.section_tipo,
-					section_id		: row.locator.section_id
+					section_tipo	: entry.section_tipo,
+					section_id		: entry.section_id
 				})
 			}
 		}
@@ -298,8 +363,9 @@ const apply_used_state = async function(tool, locators) {
 			console.error('[tool_cataloging] used state read failed:', api_response.error)
 			return false
 		}
-		// the tool or the page may be gone while the read was in flight
-		if (tool.status==='destroyed' || section.drag_nodes!==drag_nodes) {
+		// the tool or the page may be gone while the read was in flight (a page
+		// change supersedes the window: its rows are not these records any more)
+		if (tool.status==='destroyed' || section.record_windows?.rows!==record_window) {
 			return false
 		}
 
@@ -325,12 +391,32 @@ const apply_used_state = async function(tool, locators) {
 			datum_data.push(...fresh.values())
 		}
 
-	// handles
-		const target_tipos = get_catalog_target_tipos(tool.area_thesaurus)
-		for (const row of drag_nodes.values()) {
-			const key = locator_key(row.locator)
+	// used_keys: the truth decorate reads for every tile built from now on
+		const target_tipos	= get_catalog_target_tipos(tool.area_thesaurus)
+		const used_keys		= (section.used_keys instanceof Set)
+			? section.used_keys
+			: (section.used_keys = new Set())
+		for (const key of requested.keys()) {
+			if (is_used(fresh.get(key)?.entries, target_tipos)) {
+				used_keys.add(key)
+			}else{
+				used_keys.delete(key)
+			}
+		}
+
+	// tiles built now: the content_data's own rows (placeholders hold nothing)
+		const content_data	= section.node?.content_data || null
+		const rows			= content_data
+			? content_data.querySelectorAll(':scope > .section_record:not(.placeholder)')
+			: []
+		for (const row of rows) {
+			const entry = record_window.entry_of(Number(row.dataset.index))
+			if (!entry) {
+				continue
+			}
+			const key = locator_key(entry)
 			if (requested.has(key)) {
-				row.node.classList.toggle('used', is_used(fresh.get(key)?.entries, target_tipos))
+				mark_used_row(row, used_keys.has(key))
 			}
 		}
 

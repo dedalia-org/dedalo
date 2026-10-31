@@ -91,6 +91,10 @@ export const view_default_list_section_record = function() {
 * @param {boolean} [options.add_hilite_row=true] - Whether to attach the
 *   mouse-enter/leave row-highlight handler.  Pass false to suppress highlighting
 *   (e.g. inside print views or when the outer layout manages hover styling itself).
+* @param {boolean} [options.mark_empty_columns=false] - Stamp `empty_column` on
+*   this row's value-less cells (the Time Machine tool list). A row option, not a
+*   pass over the list: a row window builds rows later (placeholder swaps,
+*   WC-2026-10-30-section-record-row-box) and those must be marked too.
 * @returns {Promise<HTMLElement>} The populated wrapper <div> for this row.
 */
 view_default_list_section_record.render = async function(self, options) {
@@ -133,6 +137,11 @@ view_default_list_section_record.render = async function(self, options) {
 		}
 		wrapper.appendChild(fragment)
 
+	// mark_empty_columns. Per row (see options.mark_empty_columns)
+		if (options.mark_empty_columns===true) {
+			mark_empty_columns(wrapper)
+		}
+
 	// debug
 		if(SHOW_DEBUG===true) {
 			wrapper.addEventListener('click', function(e){
@@ -147,6 +156,34 @@ view_default_list_section_record.render = async function(self, options) {
 
 	return wrapper
 }//end render
+
+
+
+/**
+* MARK_EMPTY_COLUMNS
+* Stamps `empty_column` on every value-less cell of one row.
+*
+* WHY: on small screens the Time Machine tool list stacks ALL columns of a
+* snapshot vertically under its Id header, and a section carries ~15 fields
+* while a snapshot touches a handful — the empty cells drown the data. The
+* class is only a MARKER: the hiding is CSS, scoped to the phone breakpoint
+* (tool_time_machine.less), so the desktop table keeps every column aligned.
+*
+* A column counts as empty when it has no text AND no media/control inside —
+* image-only values (thumbnails) must survive. Idempotent.
+* @param {HTMLElement} row - The section_record row node
+* @returns {void}
+*/
+const mark_empty_columns = function(row) {
+
+	const columns = row.querySelectorAll(':scope > .column')
+	for (const column of columns) {
+		const has_content = column.querySelector('img, svg, iframe, video, canvas, button, input, textarea')
+		if (!has_content && column.textContent.trim()==='') {
+			column.classList.add('empty_column')
+		}
+	}
+}//end mark_empty_columns
 
 
 

@@ -484,6 +484,7 @@
 	"reuse_tag": "Riutilizza etichetta",
 	"reverse_relations": "Relazioni inverse",
 	"rotate": "Ruotare",
+	"rows_not_rendered_print": "${count} righe su ${total} non vengono stampate: si stampano solo le righe visualizzate sullo schermo. Usa lo strumento di stampa o di esportazione per ottenere l'elenco completo.",
 	"runtime_info": "Runtime del motore",
 	"save": "Salvare",
 	"saved": "Salvato",

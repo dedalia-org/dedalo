@@ -59,6 +59,8 @@
 
 // imports
 	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
+	import {row_of} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {event_manager} from '../../common/js/event_manager.js'
@@ -68,7 +70,7 @@
 	import {render_relation_list} from '../../section/js/render_common_section.js'
 	import {
 		render_column_component_info,
-		render_references,
+		render_list_after,
 		get_buttons
 	} from './render_edit_component_portal.js'
 
@@ -187,6 +189,9 @@ view_indexation_edit_portal.render = async function(self, options) {
 		// set pointers
 		wrapper.content_data = content_data
 
+	// list_after. The non-row sibling, right after content_data
+		place_list_after(wrapper, content_data)
+
 
 	return wrapper
 }//end render
@@ -195,18 +200,20 @@ view_indexation_edit_portal.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Build the `content_data` container and hand the (sorted, de-duplicated) rows
-* to a ROW WINDOW (section.js window_section_rows → common/js/row_window.js): a
-* `section_record` is built and rendered only for the rows the viewport can
-* reach — at most ROW_WINDOW_MAX_ROWS at once — and released past the far edge
-* (audit P2-31 / CLI-29). The first window is filled before this resolves.
+* Build the (empty) `content_data` container and hand the (sorted, de-duplicated)
+* rows to the ROW DOOR (section.js window_section_rows →
+* section_record/js/record_window.js) on EVERY content render, N=0 included — a
+* tag filter that matches nothing retires the previous window like any other
+* transition. The window keeps the row invariant and builds at most
+* ROW_WINDOW_MAX_ROWS rows at once (audit P2-31 / CLI-29). The fill is done before
+* this resolves. The indexation view has no drag source.
 *
-* Steps performed:
-* 1. Windows the rows (view `text`, the indexation columns_map).
-* 2. If `self.data.references` is non-empty, appends a read-only back-reference list
-*    via `render_references` (used by relation-related indexation portals).
-* 3. When a tag filter is active (`self.active_tag` is set), appends a footer bar with a
-*    "Remove filter" button that calls `self.reset_filter_data()` to restore the full list.
+* Non-row content goes to the `.list_after` slot (expando `content_data.list_after`,
+* never inside content_data, WC-2026-10-30-section-record-row-box):
+* 1. `self.data.references` back-references (relation-related indexation portals);
+* 2. when a tag filter is active (`self.active_tag`), the footer bar with the
+*    "Remove filter" button that calls `self.reset_filter_data()`;
+* 3. the print notice.
 *
 * @param {Object} self       - The `component_portal` instance.
 * @param {Array}  rows       - The unique, sorted locator entries. May be empty when
@@ -220,38 +227,30 @@ const get_content_data = async function(self, rows, id_variant) {
 	// content_data
 		const content_data = ui.component.build_content_data(self)
 
-	// row window
-		if (rows.length > 0) {
-			await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				records_options	: {
-					mode		: 'list',
-					columns_map	: self.columns_map,
-					id_variant	: id_variant,
-					view		: 'text'
-				}
-			})
-		}
-
-	// build references
-	// Render back-references when `self.data.references` is populated.
-	// This applies to portals configured as relation-related (inverse relation) views.
-		if(self.data.references && self.data.references.length > 0){
-			const references_node = render_references(self.data.references)
-			content_data.appendChild(references_node)
-		}
+	// rows. The door, always (N=0 included)
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			records_options	: {
+				mode		: 'list',
+				columns_map	: self.columns_map,
+				id_variant	: id_variant,
+				view		: 'text'
+			},
+			layout			: 'list'
+		})
 
 	// active_tag
 	// When a tag filter is active, add a footer button that lets the cataloguer
 	// clear the filter and return to the full unfiltered entry list.
-		if (self.active_tag) {
-			const list_footer =  ui.create_dom_element({
+		const list_footer = self.active_tag
+			? ui.create_dom_element({
 				element_type	: 'div',
-				class_name		: 'list_footer',
-				parent			: content_data
-			})
+				class_name		: 'list_footer'
+			  })
+			: null
+		if (list_footer) {
 			const button_remove_filter = ui.create_dom_element({
 				element_type	: 'button',
 				class_name		: 'primary button_remove_filter icon eye',
@@ -265,6 +264,13 @@ const get_content_data = async function(self, rows, id_variant) {
 			}
 			button_remove_filter.addEventListener('click', fn_click)
 		}
+
+	// list_after. References, list footer, print notice
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window,
+			list_footer		: list_footer
+		})
 
 
 	return content_data
@@ -833,7 +839,9 @@ const render_column_remove_indexation = function(options, section_label) {
 			// term_label. What the user reads in this very row, so the dialog names the
 			// term the way the list does. Falls back to the raw locator when the row node
 			// cannot be resolved (defensive: the button always lives inside its row).
-				const row_node		= button_remove.closest('.section_record')
+			// row_of, never closest(): a nested record would stop the walk too early.
+				const row_hit		= row_of(self.node?.content_data, button_remove)
+				const row_node		= row_hit ? row_hit.node : null
 				const label_node	= row_node
 					? row_node.querySelector(':scope >.wrapper_component')
 					: null

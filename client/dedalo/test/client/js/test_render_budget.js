@@ -3,6 +3,7 @@
 /*eslint no-undef: "error"*/
 
 import { data_manager } from '../../../core/common/js/data_manager.js';
+import { event_manager } from '../../../core/common/js/event_manager.js';
 import { get_instance } from '../../../core/common/js/instances.js';
 import { create_row_window, ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
 import {
@@ -10,7 +11,9 @@ import {
 	ENGINE_DEFAULT_MAX_LIMIT,
 	max_page_limit,
 } from '../../../core/common/js/sqo_limit.js';
+import * as touch_pick from '../../../core/common/js/touch_pick.js';
 import { ui } from '../../../core/common/js/ui.js';
+import { PORTAL_ROW_MIME } from '../../../core/component_portal/js/drag_and_drop.js';
 import { ts_object } from '../../../core/ts_object/js/ts_object.js';
 
 /**
@@ -18,12 +21,16 @@ import { ts_object } from '../../../core/ts_object/js/ts_object.js';
  * The browser must not build without bound (audit P2-31 / CLI-29 / CLI-30).
  *
  * The behavioural half of test/unit/client_render_budget_native.test.ts: a list
- * handed RENDER_BUDGET_ENTRIES (5,000) locator entries paints at most
- * ROW_WINDOW_MAX_ROWS section_record rows and registers at most that many row
- * instances; each portal EDIT view (the show-all door) does the same; a
+ * handed RENDER_BUDGET_ENTRIES (5,000) locator entries keeps ONE section_record
+ * per entry in content_data (the record window's row invariant,
+ * engineering/wire_contract/WC-2026-10-30-section-record-row-box.md), builds
+ * at most ROW_WINDOW_MAX_ROWS of them (the rest are childless placeholders) and
+ * registers exactly the built rows; each portal EDIT view (the show-all door)
+ * and both tool mosaics do the same, and the tool mosaics stay drag sources; a
  * thesaurus node handed 5,000 children materializes at most
- * ROW_WINDOW_MAX_ROWS of them; revealing the LAST row still respects the bound;
- * destroying the owner disconnects the window. The entries are synthetic on
+ * ROW_WINDOW_MAX_ROWS of them (its own row_window); revealing the LAST row
+ * still respects the bound and a released row takes its record out of
+ * ar_instances; destroying the owner destroys the window. The entries are synthetic on
  * purpose: a real server page is capped at DEDALO_SEARCH_CLIENT_MAX_LIMIT
  * (DEC-07, 1000), so the renderer's own bound is proved with in-browser
  * entries — the server's bound is the sqo/children-door gates' business.
@@ -173,12 +180,223 @@ describe('RENDER BUDGET — row_window (pure)', () => {
 	});
 });
 
+/**
+ * RECORD WINDOW HELPERS
+ * The section, portal and tool-mosaic blocks below measure the RECORD window
+ * (section_record/js/record_window.js, stored by the section.js door as
+ * `owner.record_windows.rows`), whose row invariant is the contract of
+ * engineering/wire_contract/WC-2026-10-30-section-record-row-box.md:
+ * `content_data.children` is exactly one `.section_record` per entry, child i
+ * carrying `data-index="i"`; at most ROW_WINDOW_MAX_ROWS of them are BUILT rows,
+ * the rest are childless `.placeholder` rows. There is no spacer any more
+ * (`.row_window_spacer` is the thesaurus tree's own row_window, below).
+ */
+
+/**
+ * SYNTHETIC_ENTRIES
+ * 5,000 locators of the generic test section. The datum holds no data for
+ * them: every cell renders empty, which is exactly the cost this measures
+ * (instances + DOM per row, not values).
+ * @returns {Object[]}
+ */
+const synthetic_entries = () =>
+	Array.from({ length: RENDER_BUDGET_ENTRIES }, (_, i) => ({
+		section_tipo: 'test3',
+		section_id: i + 1,
+		paginated_key: i,
+	}));
+
+/**
+ * WAIT_UNTIL
+ * Polls `predicate` every 50ms; resolves true once it holds, false after `ms`.
+ * @param {Function} predicate
+ * @param {number} [ms=5000]
+ * @returns {Promise<boolean>}
+ */
+const wait_until = async (predicate, ms = 5000) => {
+	const started = performance.now();
+	while (!predicate()) {
+		if (performance.now() - started > ms) {
+			return false;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	return true;
+};
+
+/**
+ * ROW_INSTANCES
+ * The owner's registered row records. The door pushes every built row into
+ * `owner.ar_instances` and a released row's destroy takes it out again.
+ * @param {Object} owner
+ * @returns {Object[]}
+ */
+const row_instances = (owner) => (owner.ar_instances || []).filter((el) => el.model === 'section_record');
+
+/**
+ * ASSERT_RECORD_WINDOW
+ * The invariant of one owner's `rows` window over the 5,000-entry page.
+ * @param {Object} owner - section / component_portal instance
+ * @param {HTMLElement} content_data
+ * @returns {{record_window: Object, built: number[]}} the window and its built indexes
+ */
+const assert_record_window = (owner, content_data) => {
+	const record_window = owner.record_windows?.rows;
+	assert.equal(Boolean(record_window), true, 'the view did not open a record window (record_windows.rows)');
+	assert.equal(record_window.size, RENDER_BUDGET_ENTRIES, 'the window holds every entry');
+
+	const children = Array.from(content_data.children);
+	assert.equal(
+		children.length,
+		RENDER_BUDGET_ENTRIES,
+		`content_data has ${children.length} children for ${RENDER_BUDGET_ENTRIES} entries: one row per entry, nothing else`,
+	);
+
+	const built = [];
+	for (let i = 0; i < children.length; i++) {
+		const child = children[i];
+		if (!child.classList.contains('section_record') || child.dataset.index !== String(i)) {
+			assert.fail(`child ${i} is not the section_record of index ${i} (${child.className} / ${child.dataset.index})`);
+		}
+		if (child.classList.contains('placeholder')) {
+			if (child.childNodes.length !== 0) {
+				assert.fail(`placeholder ${i} is not a leaf (${child.childNodes.length} child nodes)`);
+			}
+		} else {
+			built.push(i);
+		}
+	}
+	assert.equal(built.length > 0, true, 'the first window must be built when render resolves');
+	assert.equal(
+		built.length <= ROW_WINDOW_MAX_ROWS,
+		true,
+		`built ${built.length} rows for a ${RENDER_BUDGET_ENTRIES}-entry page; the bound is ${ROW_WINDOW_MAX_ROWS}`,
+	);
+	for (const i of built) {
+		if (!record_window.is_built(i)) {
+			assert.fail(`row ${i} is in the DOM as a built row but the window says it is not built`);
+		}
+	}
+
+	// the registered rows ARE the built rows: no released row's record lingers
+	const instances = row_instances(owner);
+	assert.equal(
+		instances.length,
+		built.length,
+		`ar_instances holds ${instances.length} section_records for ${built.length} built rows`,
+	);
+	for (const i of built) {
+		if (!instances.includes(record_window.record_at(i))) {
+			assert.fail(`the record of built row ${i} is not in ar_instances`);
+		}
+	}
+
+	assert.equal(
+		(owner.node || content_data).querySelector('.row_window_spacer'),
+		null,
+		'no .row_window_spacer: the record window keeps one placeholder per unbuilt row',
+	);
+
+	return { record_window, built };
+};
+
+/**
+ * ASSERT_REVEAL
+ * reveal(n) builds children[n] in place (the neighbours keep their indexes),
+ * keeps the bound, and the rows it releases to get back under it take their
+ * records out of ar_instances.
+ * @param {Object} owner
+ * @param {HTMLElement} content_data
+ * @param {number} index
+ * @returns {Promise<number[]>} the built indexes after the reveal
+ */
+const assert_reveal = async (owner, content_data, index) => {
+	const record_window = owner.record_windows.rows;
+	const before = new Map();
+	for (let i = 0; i < record_window.size; i++) {
+		const instance = record_window.record_at(i);
+		if (instance) {
+			before.set(i, instance);
+		}
+	}
+	const was_built = record_window.is_built(index);
+
+	await record_window.reveal(index);
+	await record_window.idle();
+
+	const node = content_data.children[index];
+	assert.equal(record_window.is_built(index), true, `row ${index} must be built after reveal`);
+	assert.equal(node.classList.contains('placeholder'), false, `children[${index}] is still a placeholder`);
+	assert.equal(node.dataset.index, String(index));
+	if (index > 0) {
+		assert.equal(content_data.children[index - 1].dataset.index, String(index - 1), 'the previous neighbour moved');
+	}
+	if (index < RENDER_BUDGET_ENTRIES - 1) {
+		assert.equal(content_data.children[index + 1].dataset.index, String(index + 1), 'the next neighbour moved');
+	}
+
+	const { built } = assert_record_window(owner, content_data);
+
+	// a reveal past a full window builds one row over the bound: the window
+	// releases back under it, and every released record leaves ar_instances
+	const released = [...before.keys()].filter((i) => !record_window.is_built(i));
+	if (!was_built && before.size === ROW_WINDOW_MAX_ROWS) {
+		assert.equal(released.length > 0, true, 'a reveal over a full window must release rows');
+	}
+	const instances = row_instances(owner);
+	for (const i of released) {
+		assert.equal(content_data.children[i].classList.contains('placeholder'), true, `released row ${i} is not a placeholder`);
+		assert.equal(instances.includes(before.get(i)), false, `the released record of row ${i} is still in ar_instances`);
+	}
+	assert.equal(built.includes(index), true);
+	return built;
+};
+
+/**
+ * ASSERT_FAR_SCROLL
+ * Scrolling far placeholders into view builds them through the window's
+ * IntersectionObserver; once the built rows pass the bound the far-away rows
+ * are released and their records leave ar_instances.
+ * @param {Object} owner
+ * @param {HTMLElement} content_data
+ * @returns {Promise<number>} how many of the rows built before the scroll were released
+ */
+const assert_far_scroll = async (owner, content_data) => {
+	const record_window = owner.record_windows.rows;
+	const before = new Map();
+	for (let i = 0; i < record_window.size; i++) {
+		const instance = record_window.record_at(i);
+		if (instance) {
+			before.set(i, instance);
+		}
+	}
+
+	const targets = [1000, 1800, 2600, 3400, 4200];
+	for (const target of targets) {
+		content_data.children[target].scrollIntoView({ block: 'center' });
+		const reached = await wait_until(() => record_window.is_built(target));
+		assert.equal(reached, true, `scrolling row ${target} into view did not build it`);
+		await record_window.idle();
+	}
+
+	const released = [...before.keys()].filter((i) => !record_window.is_built(i));
+	assert.equal(released.length > 0, true, 'a far scroll past the bound must release rows');
+	const instances = row_instances(owner);
+	for (const i of released) {
+		assert.equal(instances.includes(before.get(i)), false, `the released record of row ${i} is still in ar_instances`);
+	}
+	assert_record_window(owner, content_data);
+	window.scrollTo(0, 0);
+	return released.length;
+};
+
 describe('RENDER BUDGET — section list view', function () {
 	this.timeout(60000);
 
 	let section;
+	let content_data;
 
-	it(`a ${RENDER_BUDGET_ENTRIES}-row page paints at most ROW_WINDOW_MAX_ROWS section_record rows`, async () => {
+	it(`a ${RENDER_BUDGET_ENTRIES}-row page keeps one row per entry and builds at most ROW_WINDOW_MAX_ROWS`, async () => {
 		section = await get_instance({
 			model: 'section',
 			tipo: 'test3',
@@ -188,57 +406,34 @@ describe('RENDER BUDGET — section list view', function () {
 		});
 		await section.build(true);
 
-		// the synthetic page: 5,000 locators of the generic test section. The
-		// datum holds no data for them — every cell renders empty, which is
-		// exactly the cost this measures (instances + DOM per row, not values)
 		section.data = section.data || {};
-		section.data.entries = Array.from({ length: RENDER_BUDGET_ENTRIES }, (_, i) => ({
-			section_tipo: 'test3',
-			section_id: i + 1,
-			paginated_key: i,
-		}));
+		section.data.entries = synthetic_entries();
 
 		const node = await section.render();
 		test_container.appendChild(node);
 
-		const content_data = node.content_data || node.querySelector('.content_data');
+		content_data = node.content_data || node.querySelector('.content_data');
 		assert.equal(content_data instanceof Element, true, 'content_data expected');
-
-		const rows = content_data.querySelectorAll(':scope > .section_record');
-		assert.equal(rows.length > 0, true, 'the first window must be painted when render resolves');
-		assert.equal(
-			rows.length <= ROW_WINDOW_MAX_ROWS,
-			true,
-			`painted ${rows.length} rows for a ${RENDER_BUDGET_ENTRIES}-entry page; the bound is ${ROW_WINDOW_MAX_ROWS}`,
-		);
-
-		const row_instances = section.ar_instances.filter((el) => el.model === 'section_record');
-		assert.equal(
-			row_instances.length <= ROW_WINDOW_MAX_ROWS,
-			true,
-			`ar_instances holds ${row_instances.length} section_records; only the MATERIALIZED rows may live`,
-		);
-
-		assert.equal(section.row_window?.range().total, RENDER_BUDGET_ENTRIES);
-		assert.equal(content_data.querySelector('.row_window_spacer.bottom').hidden, false);
+		assert_record_window(section, content_data);
 	});
 
-	it('revealing the last row keeps the bound and materializes that row', async () => {
-		const node = await section.row_window.reveal(RENDER_BUDGET_ENTRIES - 1);
-		assert.equal(node instanceof Element, true, 'the last row must materialize on reveal');
-		const content_data = section.node.content_data || section.node.querySelector('.content_data');
-		const rows = content_data.querySelectorAll(':scope > .section_record');
-		assert.equal(rows.length <= ROW_WINDOW_MAX_ROWS, true);
-		assert.equal(
-			section.ar_instances.filter((el) => el.model === 'section_record').length <=
-				ROW_WINDOW_MAX_ROWS,
-			true,
-		);
+	it('reveal(n) builds children[n] in place, keeps the bound and releases into ar_instances', async () => {
+		const last = await assert_reveal(section, content_data, RENDER_BUDGET_ENTRIES - 1);
+		assert.equal(last.includes(RENDER_BUDGET_ENTRIES - 1), true);
+		const middle = Math.floor(RENDER_BUDGET_ENTRIES / 2);
+		const built = await assert_reveal(section, content_data, middle);
+		assert.equal(built.includes(middle) && built.length <= ROW_WINDOW_MAX_ROWS, true);
 	});
 
-	it('destroying the section stops the window', async () => {
+	it('a far scroll builds through the observer and releases far rows', async () => {
+		const released = await assert_far_scroll(section, content_data);
+		assert.equal(released > 0, true, 'the far scroll released no row');
+	});
+
+	it('destroying the section destroys the window', async () => {
 		await section.destroy(true, true, true);
-		assert.equal(section.row_window, null);
+		assert.equal(section.record_windows, null);
+		assert.equal(row_instances(section).length, 0);
 	});
 });
 
@@ -247,96 +442,56 @@ describe('RENDER BUDGET — section list view', function () {
  * The paginator — hence "show all", the ceiling page — exists only in portal
  * EDIT mode (component_portal.js build), so the edit views are the door CLI-29
  * reproduced through. Each one is built for real on the suite database (test3
- * record 2, portal test80) and then handed the synthetic page: at most
- * ROW_WINDOW_MAX_ROWS section_record rows painted and materialized.
- * The mosaic view builds THREE records per row (tile, hover, alt) through a
- * custom materialize; its instance bound is 3 × ROW_WINDOW_MAX_ROWS.
+ * record 2, portal test80) and then handed the synthetic page. The mosaic's
+ * hover and alt records are built ON DEMAND (row_hover.js / the 'alt' slot),
+ * so every view registers exactly one record per built row.
  */
-const PORTAL_EDIT_VIEWS = [
-	{ view: 'default', instances_per_row: 1 },
-	{ view: 'content', instances_per_row: 1 },
-	{ view: 'line', instances_per_row: 1 },
-	{ view: 'tree', instances_per_row: 1 },
-	{ view: 'indexation', instances_per_row: 1 },
-	{ view: 'mosaic', instances_per_row: 3 },
-];
+const PORTAL_EDIT_VIEWS = ['default', 'content', 'line', 'tree', 'indexation', 'mosaic'];
 
 for (const portal_view of PORTAL_EDIT_VIEWS) {
-	describe(`RENDER BUDGET — portal edit view ${portal_view.view}`, function () {
+	describe(`RENDER BUDGET — portal edit view ${portal_view}`, function () {
 		this.timeout(60000);
 
 		let component;
+		let content_data;
 
-		it(`a ${RENDER_BUDGET_ENTRIES}-row page paints at most ROW_WINDOW_MAX_ROWS rows`, async () => {
+		it(`a ${RENDER_BUDGET_ENTRIES}-row page keeps one row per entry and builds at most ROW_WINDOW_MAX_ROWS`, async () => {
 			component = await get_instance({
 				model: 'component_portal',
 				tipo: 'test80',
 				section_tipo: 'test3',
 				section_id: 2,
 				mode: 'edit',
-				view: portal_view.view,
-				id_variant: `render_budget_${portal_view.view}`,
+				view: portal_view,
+				id_variant: `render_budget_${portal_view}`,
 			});
 			await component.build(true);
 			// the dispatcher reads self.view || self.context.view
-			component.view = portal_view.view;
+			component.view = portal_view;
 			if (component.context) {
-				component.context.view = portal_view.view;
+				component.context.view = portal_view;
 			}
 
-			// the synthetic page: 5,000 locators of the generic test section
 			component.data = component.data || {};
-			component.data.entries = Array.from({ length: RENDER_BUDGET_ENTRIES }, (_, i) => ({
-				section_tipo: 'test3',
-				section_id: i + 1,
-				paginated_key: i,
-			}));
+			component.data.entries = synthetic_entries();
 
 			const node = await component.render();
 			test_container.appendChild(node);
 
-			const content_data = node.content_data || node.querySelector('.content_data');
+			content_data = node.content_data || node.querySelector('.content_data');
 			assert.equal(content_data instanceof Element, true, 'content_data expected');
-
-			const rows = content_data.querySelectorAll(':scope > .section_record');
-			assert.equal(rows.length > 0, true, 'the first window must be painted when render resolves');
-			assert.equal(
-				rows.length <= ROW_WINDOW_MAX_ROWS,
-				true,
-				`painted ${rows.length} rows for a ${RENDER_BUDGET_ENTRIES}-entry page; the bound is ${ROW_WINDOW_MAX_ROWS}`,
-			);
-
-			const row_instances = component.ar_instances.filter((el) => el.model === 'section_record');
-			const instance_bound = ROW_WINDOW_MAX_ROWS * portal_view.instances_per_row;
-			assert.equal(
-				row_instances.length > 0 && row_instances.length <= instance_bound,
-				true,
-				`ar_instances holds ${row_instances.length} section_records; only the MATERIALIZED rows may live (bound ${instance_bound})`,
-			);
-
-			assert.equal(component.row_window?.range().total, RENDER_BUDGET_ENTRIES);
-			assert.equal(content_data.querySelector('.row_window_spacer.bottom').hidden, false);
+			assert_record_window(component, content_data);
 		});
 
-		it('revealing the last row keeps the bound', async () => {
-			const node = await component.row_window.reveal(RENDER_BUDGET_ENTRIES - 1);
-			assert.equal(node instanceof Element, true, 'the last row must materialize on reveal');
-			const content_data =
-				component.node.content_data || component.node.querySelector('.content_data');
-			assert.equal(
-				content_data.querySelectorAll(':scope > .section_record').length <= ROW_WINDOW_MAX_ROWS,
-				true,
-			);
-			assert.equal(
-				component.ar_instances.filter((el) => el.model === 'section_record').length <=
-					ROW_WINDOW_MAX_ROWS * portal_view.instances_per_row,
-				true,
-			);
+		it('reveal(n) builds children[n] in place, keeps the bound and releases into ar_instances', async () => {
+			const built = await assert_reveal(component, content_data, RENDER_BUDGET_ENTRIES - 1);
+			assert.equal(built.includes(RENDER_BUDGET_ENTRIES - 1) && built.length <= ROW_WINDOW_MAX_ROWS, true);
 		});
 
-		it('destroying the portal stops the window', async () => {
+		it('destroying the portal destroys the window', async () => {
 			await component.destroy(true, true, true);
-			assert.equal(component.row_window, null);
+			assert.equal(component.record_windows, null);
+			assert.equal(row_instances(component).length, 0);
 		});
 	});
 }
@@ -344,16 +499,16 @@ for (const portal_view of PORTAL_EDIT_VIEWS) {
 /**
  * TOOL MOSAIC VIEWS
  * The two mosaics a TOOL injects through `render_views` — outside the core
- * view files, on the same 1000-row page (audit P2-31 residue). They are the
- * same measurement as PORTAL_EDIT_VIEWS above with one difference that is the
- * whole point of measuring them: each materialized row builds TWO
- * section_records, the tile and its hover overlay, so the instance bound is
- * 2 x ROW_WINDOW_MAX_ROWS. The bun half (client_render_budget_native.test.ts)
- * can only SCAN them for window_section_rows; this block runs them.
+ * view files, on the same 1000-row page (audit P2-31 residue). Same
+ * measurement as PORTAL_EDIT_VIEWS above (the hover overlay is built on demand
+ * by row_hover.js, so one record per built row), plus the drag source they
+ * exist for: outside edit mode, without paginator or `draggable_to`, the tile
+ * IS the source (drag_and_drop.js bind_tool_row_drag, TOOL_ROW_SOURCES).
  *
  * Two hosts, because that is what the two tools are:
  *   - tool_cataloging's mosaic is a SECTION view in list mode (it reads the
- *     ordinary list's saved pagination key);
+ *     ordinary list's saved pagination key); its card is dropped on a
+ *     thesaurus ts_object term (payload `caller: 'tool_cataloging'`);
  *   - the coins mosaic is a component_portal EDIT view (behind "show all").
  * Each is registered on the instance exactly as its tool registers it — a
  * render_views entry with the module path — and then handed the synthetic page.
@@ -362,9 +517,9 @@ for (const portal_view of PORTAL_EDIT_VIEWS) {
  * original/copy control) are callback columns bound to their tool's caller,
  * which this generic test3 situation does not provide. section_record's
  * render_callback CATCHES a throwing callback and renders the column empty, so
- * the row still materializes and the count this block measures — instances and
- * rows per window — is unaffected. Building a tool caller here would mean
- * naming an install's tipos, which a generic gate never does.
+ * the row still builds and the count this block measures is unaffected.
+ * Building a tool caller here would mean naming an install's tipos, which a
+ * generic gate never does.
  */
 const TOOL_MOSAIC_VIEWS = [
 	{
@@ -373,7 +528,7 @@ const TOOL_MOSAIC_VIEWS = [
 		view: 'tool_cataloging_mosaic',
 		render: 'view_tool_cataloging_mosaic',
 		path: '../../../tools/tool_cataloging/js/view_tool_cataloging_mosaic.js',
-		instances_per_row: 2,
+		caller_name: 'tool_cataloging',
 	},
 	{
 		host: 'portal',
@@ -381,17 +536,31 @@ const TOOL_MOSAIC_VIEWS = [
 		view: 'coins_mosaic',
 		render: 'view_coins_mosaic_portal',
 		path: '../../../tools/tool_numisdata_order_coins/js/view_coins_mosaic_portal.js',
-		instances_per_row: 2,
+		caller_name: null,
 	},
 ];
+
+/**
+ * DRAGSTART_ON
+ * A real DragEvent with a real DataTransfer, dispatched on the row node.
+ * @param {HTMLElement} node
+ * @returns {{event: DragEvent, data_transfer: DataTransfer}}
+ */
+const dragstart_on = (node) => {
+	const data_transfer = new DataTransfer();
+	const event = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data_transfer });
+	node.dispatchEvent(event);
+	return { event, data_transfer };
+};
 
 for (const mosaic_view of TOOL_MOSAIC_VIEWS) {
 	describe(`RENDER BUDGET — tool mosaic view ${mosaic_view.view}`, function () {
 		this.timeout(60000);
 
 		let instance;
+		let content_data;
 
-		it(`a ${RENDER_BUDGET_ENTRIES}-row page paints at most ROW_WINDOW_MAX_ROWS rows, 2 records each`, async () => {
+		it(`a ${RENDER_BUDGET_ENTRIES}-row page keeps one row per entry and builds at most ROW_WINDOW_MAX_ROWS`, async () => {
 			instance =
 				mosaic_view.host === 'section'
 					? await get_instance({
@@ -428,88 +597,165 @@ for (const mosaic_view of TOOL_MOSAIC_VIEWS) {
 			}
 
 			// the columns the mosaic slices: both views filter the columns_map by
-			// `in_mosaic` (tile) and `hover` (overlay), and build ONE record per set
-			const columns_map = instance.columns_map || [];
-			for (const column of columns_map) {
+			// `in_mosaic` (tile) and `hover` (overlay)
+			for (const column of instance.columns_map || []) {
 				column.in_mosaic = true;
 				column.hover = true;
 			}
 
-			// the synthetic page: 5,000 locators of the generic test section
 			instance.data = instance.data || {};
-			instance.data.entries = Array.from({ length: RENDER_BUDGET_ENTRIES }, (_, i) => ({
-				section_tipo: 'test3',
-				section_id: i + 1,
-				paginated_key: i,
-			}));
+			instance.data.entries = synthetic_entries();
 
 			const node = await instance.render();
 			test_container.appendChild(node);
 
-			const content_data = node.content_data || node.querySelector('.content_data');
+			content_data = node.content_data || node.querySelector('.content_data');
 			assert.equal(content_data instanceof Element, true, 'content_data expected');
-
-			// the painted rows, read from the WINDOW rather than counted as direct
-			// DOM children: a mosaic tile is the row, and the hover record lives
-			// INSIDE it, so a `:scope >` count would measure the nesting, not the bound
-			assert.equal(Boolean(instance.row_window), true, 'the view did not open a row window');
-			const range = instance.row_window.range();
-			const painted = range.end - range.start;
-			assert.equal(painted > 0, true, 'the first window must be painted when render resolves');
-			assert.equal(
-				painted <= ROW_WINDOW_MAX_ROWS,
-				true,
-				`painted ${painted} rows for a ${RENDER_BUDGET_ENTRIES}-entry page; the bound is ${ROW_WINDOW_MAX_ROWS}`,
-			);
-			assert.equal(range.total, RENDER_BUDGET_ENTRIES);
-
-			const instance_bound = ROW_WINDOW_MAX_ROWS * mosaic_view.instances_per_row;
-			const row_instances = instance.ar_instances.filter((el) => el.model === 'section_record');
-			assert.equal(
-				row_instances.length > 0 && row_instances.length <= instance_bound,
-				true,
-				`ar_instances holds ${row_instances.length} section_records; only the MATERIALIZED rows may live (bound ${instance_bound})`,
-			);
-			// the pair itself: a mosaic row is TWO records (tile + hover overlay), so
-			// more records than rows is the shape, and 2 x the bound is the ceiling —
-			// this is what makes the ceiling a measurement instead of a scan
-			assert.equal(
-				row_instances.length > painted,
-				true,
-				`a mosaic row builds ${mosaic_view.instances_per_row} records; ${row_instances.length} for ${painted} rows is not the pair`,
-			);
-
-			// and the same in the DOM: the hover record is prepended INTO its tile
-			const dom_records = content_data.querySelectorAll('.section_record');
-			assert.equal(
-				dom_records.length <= instance_bound,
-				true,
-				`${dom_records.length} section_record nodes; the bound is ${instance_bound}`,
-			);
-
-			assert.equal(content_data.querySelector('.row_window_spacer.bottom').hidden, false);
+			assert_record_window(instance, content_data);
 		});
 
-		it('revealing the last row keeps the bound', async () => {
-			const node = await instance.row_window.reveal(RENDER_BUDGET_ENTRIES - 1);
-			assert.equal(node instanceof Element, true, 'the last row must materialize on reveal');
-			const range = instance.row_window.range();
-			assert.equal(
-				range.end - range.start <= ROW_WINDOW_MAX_ROWS,
-				true,
-				'reveal must not grow the window past the bound',
-			);
-			assert.equal(
-				instance.ar_instances.filter((el) => el.model === 'section_record').length <=
-					ROW_WINDOW_MAX_ROWS * mosaic_view.instances_per_row,
-				true,
-				'the released rows must have taken their record pairs with them',
-			);
+		it('reveal(n) builds children[n] in place, keeps the bound and releases into ar_instances', async () => {
+			const built = await assert_reveal(instance, content_data, RENDER_BUDGET_ENTRIES - 1);
+			assert.equal(built.includes(RENDER_BUDGET_ENTRIES - 1) && built.length <= ROW_WINDOW_MAX_ROWS, true);
 		});
 
-		it('destroying the owner stops the window', async () => {
+		it('a built tile is a drag source: draggable, dragstart not refused, text/plain row payload, no portal MIME', async () => {
+			const tile = content_data.children[0];
+			assert.equal(tile.classList.contains('placeholder'), false, 'row 0 is built after the fill');
+			assert.equal(tile.getAttribute('draggable'), 'true', 'a tool-mosaic tile carries draggable=true');
+
+			const { event, data_transfer } = dragstart_on(tile);
+			try {
+				assert.equal(event.defaultPrevented, false, 'the tool row dragstart must not be refused');
+				assert.equal(
+					Array.from(data_transfer.types).includes(PORTAL_ROW_MIME),
+					false,
+					'a tool payload never carries the portal MIME type (no portal may take it)',
+				);
+				const payload = JSON.parse(data_transfer.getData('text/plain'));
+				assert.deepEqual(payload.locator, instance.record_windows.rows.entry_of(0));
+				assert.equal(payload.paginated_key, 0);
+				assert.equal(payload.caller, mosaic_view.caller_name ?? undefined);
+			} finally {
+				tile.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+			}
+		});
+
+		it('on touch, a tap on a built tile picks its payload (touch_pick)', () => {
+			const original_match_media = window.matchMedia;
+			window.matchMedia = (query) => ({
+				matches: query === '(pointer: coarse)',
+				media: query,
+				addEventListener() {},
+				removeEventListener() {},
+			});
+			try {
+				touch_pick.cancel();
+				const tile = content_data.children[0];
+				tile.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+				assert.equal(touch_pick.active(), true, 'the tap did not pick the tile');
+				const payload = JSON.parse(touch_pick.peek());
+				assert.deepEqual(payload.locator, instance.record_windows.rows.entry_of(0));
+			} finally {
+				touch_pick.cancel();
+				window.matchMedia = original_match_media;
+			}
+		});
+
+		if (mosaic_view.caller_name === 'tool_cataloging') {
+			it('a cataloging card dropped on a thesaurus ts_object term reaches the term drop handler', async () => {
+				// the term: a descriptor ts_object node, served by a mocked
+				// data_manager.request the way the tree block below does (no server)
+				const original_request = data_manager.request;
+				const requests = [];
+				data_manager.request = async (options) => {
+					const body = options.body;
+					requests.push(body?.action);
+					if (body?.action === 'get_node_data') {
+						return {
+							ok: true,
+							data: {
+								ts_id: 'test3_1',
+								ts_parent: null,
+								section_tipo: 'test3',
+								section_id: '1',
+								order: 1,
+								is_descriptor: true,
+								is_indexable: true,
+								has_descriptor_children: false,
+								children_tipo: 'test71',
+								permissions_button_new: 3,
+								permissions_button_delete: 3,
+								permissions_indexation: 3,
+								ar_elements: [
+									{ type: 'term', tipo: 'test71_term', value: 'Term 1', model: 'component_input_text' },
+								],
+							},
+						};
+					}
+					if (body?.action === 'add_child') {
+						return { ok: true, data: 900001 };
+					}
+					return { ok: true, data: true };
+				};
+
+				const published = [];
+				const token = event_manager.subscribe('ts_add_child_tool_cataloging', (data) => {
+					published.push(data);
+				});
+
+				let term;
+				try {
+					term = await ts_object.get_instance({
+						area_model: 'area_thesaurus',
+						caller: {
+							filter: {},
+							build_options: {},
+							id: 'render_budget_cataloging_caller',
+							id_base: 'test3__test3',
+							model: 'area_thesaurus',
+						},
+						children_tipo: 'test71',
+						is_ontology: false,
+						is_root_node: false,
+						linker: undefined,
+						section_id: '1',
+						section_tipo: 'test3',
+						thesaurus_mode: 'default',
+						thesaurus_view_mode: null,
+					});
+					await term.build(true);
+					const term_node = await term.render();
+					test_container.appendChild(term_node);
+					assert.equal(term_node.classList.contains('wrap_ts_object'), true, 'the term node is a wrap_ts_object');
+
+					// the card's own dragstart payload, then a real drop on the term
+					const tile = content_data.children[0];
+					const { data_transfer } = dragstart_on(tile);
+					tile.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+					const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data_transfer });
+					term_node.dispatchEvent(drop);
+
+					assert.equal(drop.defaultPrevented, true, 'the term drop handler did not take the card');
+					const reached = await wait_until(() => published.length > 0);
+					assert.equal(reached, true, 'the term did not publish ts_add_child_tool_cataloging');
+					assert.equal(requests.includes('add_child'), true, 'the term did not create the child');
+					assert.deepEqual(published[0].locator, instance.record_windows.rows.entry_of(0));
+					assert.equal(published[0].new_ts_section.section_id, 900001);
+				} finally {
+					event_manager.unsubscribe(token);
+					data_manager.request = original_request;
+					if (term) {
+						await term.destroy(true, true, true);
+					}
+				}
+			});
+		}
+
+		it('destroying the owner destroys the window', async () => {
 			await instance.destroy(true, true, true);
-			assert.equal(instance.row_window, null);
+			assert.equal(instance.record_windows, null);
+			assert.equal(row_instances(instance).length, 0);
 		});
 	});
 }

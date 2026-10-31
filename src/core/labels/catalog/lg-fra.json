@@ -484,6 +484,7 @@
 	"reuse_tag": "Réutiliser le libellé",
 	"reverse_relations": "Relations inverses",
 	"rotate": "Rotation",
+	"rows_not_rendered_print": "${count} lignes sur ${total} ne sont pas imprimées : seules les lignes affichées à l'écran le sont. Utilisez l'outil d'impression ou d'exportation pour obtenir la liste complète.",
 	"runtime_info": "Exécution du moteur",
 	"save": "Sauver",
 	"saved": "sauvegardé",

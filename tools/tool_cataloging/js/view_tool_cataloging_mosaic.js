@@ -1,16 +1,24 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global DD_TIPOS, get_label */
+/*global get_label */
 /*eslint no-undef: "error"*/
 
 
 
 // imports
 	import {event_manager} from '../../../core/common/js/event_manager.js'
-	import * as touch_pick from '../../../core/common/js/touch_pick.js'
-	import {window_section_rows} from '../../../core/section/js/section.js'
+	import {place_list_after} from '../../../core/common/js/common.js'
+	import {window_section_rows, build_section_record_for} from '../../../core/section/js/section.js'
+	import {delegate_row_hover} from '../../../core/section_record/js/row_hover.js'
+	import {bind_tool_row_drag} from '../../../core/component_portal/js/drag_and_drop.js'
+	import {render_list_after} from '../../../core/section/js/render_common_section.js'
 	import {ui} from '../../../core/common/js/ui.js'
 	import {set_element_css} from '../../../core/page/js/css.js'
-	import {get_catalog_target_tipos, is_used} from './used_state.js'
+	import {
+		get_catalog_target_tipos,
+		compute_used_keys,
+		locator_key,
+		mark_used_row
+	} from './used_state.js'
 	import {
 		render_column_id
 	} from '../../../core/section/js/render_list_section.js'
@@ -35,36 +43,42 @@
 *   - `in_mosaic: true`  — include this column in the main mosaic grid
 *   - `hover: true`      — include this column in the hover overlay
 * Both sets of columns are filtered from the full columns_map and merged with
-* the control columns added by `rebuild_columns_map`; the ROW WINDOW then builds
-* ONE section_record per set for each row it materializes.
+* the control columns added by `rebuild_columns_map`: the ROW WINDOW builds the
+* tile of each row, the hover controller builds ONE overlay record on demand.
 *
-* DRAG-AND-DROP FLOW
-* 1. `get_content_data` hands the page's entries to the row window, which builds
-*    the two section_records (tile + hover) of a row when the viewport reaches it.
-* 2. The window's materialize renders the tile node and calls `set_drag_and_drop`.
-* 3. `set_drag_and_drop` marks the node draggable and attaches a dragstart handler.
-* 4. `on_dragstart_mosaic` serialises locator + paginated_key as JSON in
-*    dataTransfer so the drop target (thesaurus) can read them.
-* 5. On drop the thesaurus fires `ts_add_child_tool_cataloging`; the tool inserts
-*    the locator and then re-reads the card's dd1596 (used_state.refresh_used_state),
-*    which sets or clears the CSS class `used` on the drag indicator. A removed term
-*    (delete, emptied link) clears it the same way — see used_state.js.
-*
-* HOVER OVERLAY
-* Each row's hover record (hover columns, `id_variant: 'hover'`) is built by the
-* same window step as its tile and prepended into it, hidden (`display_none`)
-* until `mouseenter`. It is the row's own node — no shared park container and no
-* pub/sub bridge: a windowed row must own everything it built, or a released row
-* would leave a subscriber behind (this is the shape core's
-* view_mosaic_edit_portal already uses).
-*
-* ROW WINDOW (audit P2-31 / CLI-29 / CLI-30)
+* ROWS (WC-2026-10-30-section-record-row-box)
 * This view is an ordinary section in list mode: it renders the same search
 * filter and paginator as the default list and reads the same saved pagination
 * key (`<tipo>_list`), so a page size set in the normal list — up to the DEC-07
-* ceiling of 1000 — lands here whole. Its rows are therefore windowed exactly
-* like the default list's: at most ROW_WINDOW_MAX_ROWS rows (tile + hover each)
-* exist at once, and rows past the far edge are released.
+* ceiling of 1000 — lands here whole. `get_content_data` hands the page's entries
+* to the row window door (section.js window_section_rows → record_window): the
+* tile is the row (`content_data.children[i]` is row i), at most
+* ROW_WINDOW_MAX_ROWS tiles are built at once (placeholders beyond), and it is
+* called on every content render, N=0 included.
+*
+* DRAG-AND-DROP FLOW
+* 1. The window stamps every built tile `draggable`; drag_and_drop.js
+*    `bind_tool_row_drag` puts ONE delegated dragstart (+ the touch_pick tap) on
+*    the content_data, riding the window's signal. Its payload is the row's
+*    frozen entry (`get_row_transfer_data`), `text/plain` only, so the thesaurus
+*    term (the drop target) reads it and every portal treats it as foreign.
+* 2. On drop the thesaurus fires `ts_add_child_tool_cataloging`; the tool inserts
+*    the locator and then re-reads the card's dd1596 (used_state.refresh_used_state),
+*    which sets or clears the CSS class `used` on the card's drag indicator. A
+*    removed term (delete, emptied link) clears it the same way — see used_state.js.
+*
+* USED MARKER
+* `self.used_keys` (used_state.compute_used_keys) is the Set of the page's used
+* records; the window's `decorate` marks every tile it builds from it (the fill
+* AND a later placeholder swap), refresh_used_state keeps it current.
+*
+* HOVER OVERLAY
+* Built LAZILY by core's row_hover.js `delegate_row_hover`: one delegated
+* pointer listener set on the content_data; on hover the overlay record (hover
+* columns, `id_variant: 'hover'`) is built through section.js
+* `build_section_record_for` and prepended into the tile; it leaves again with
+* the pointer (flushed first: an edit in the overlay is never dropped). At most
+* one overlay exists per content_data.
 *
 * Exports:
 *   view_tool_cataloging_mosaic           — constructor (no-op; required by module system)
@@ -81,7 +95,7 @@ export const view_tool_cataloging_mosaic = function() {
 * RENDER
 * Main entry point for the mosaic view. Called by the section's render dispatcher
 * when `self.view === 'tool_cataloging_mosaic'`. Builds the full DOM structure:
-* search toggle button, paginator, mosaic list body, optional hover overlay, and
+* search toggle button, paginator, mosaic list body, the `.list_after` slot and
 * the section wrapper. Also injects scoped CSS rules derived from `self.context.css`.
 *
 * When `options.render_level === 'content'`, only the inner `content_data` node is
@@ -89,8 +103,8 @@ export const view_tool_cataloging_mosaic = function() {
 * rebuilding the outer chrome).
 *
 * Side effects:
-* - Pushes all built section_record instances into `self.ar_instances` so that
-*   `common.destroy()` can clean them up on navigation.
+* - The row window pushes every built tile into `self.ar_instances` (the live
+*   rows only), so `common.destroy()` can clean them up on navigation.
 * - Overwrites `self.columns_map` with the mosaic-filtered + augmented version so
 *   subsequent renders use the same column set.
 * - Sets `self.node_body` to the `list_body` div (used by pagination selection).
@@ -217,6 +231,9 @@ view_tool_cataloging_mosaic.render = async function(self, options) {
 		wrapper.content_data	= content_data
 		wrapper.list_body		= list_body
 
+	// list_after. The non-row sibling (no_records, print notice), after list_body
+		place_list_after(wrapper, content_data)
+
 
 	return wrapper
 }//end render
@@ -225,26 +242,21 @@ view_tool_cataloging_mosaic.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Builds the `content_data` div and hands the page's rows to a ROW WINDOW
-* (section.js window_section_rows → common/js/row_window.js): the TWO
-* section_records of a row (the mosaic tile and its hover overlay) are built and
-* rendered only for the rows the viewport can reach — at most ROW_WINDOW_MAX_ROWS
-* at once — and released again past the far edge (audit P2-31 / CLI-29 / CLI-30:
-* this view reads the same saved pagination key as the ordinary list, so its page
-* is the same 1000-row page, and it used to build 2 instances for every row of it).
+* Builds the `content_data` div and hands the page's entries to the row window
+* door (section.js window_section_rows; WC-2026-10-30-section-record-row-box):
+* the tile of row i is `content_data.children[i]`, built through the door (one
+* section_record per row, registered in `self.ar_instances`) — at most
+* ROW_WINDOW_MAX_ROWS at once (audit P2-31 / CLI-29 / CLI-30: this view reads the
+* same saved pagination key as the ordinary list, so its page is the same
+* 1000-row page). Called on every content render, N=0 included.
 *
-* Per materialized row:
-*   1. Builds the tile and hover records through the window's `build_row` (each
-*      registered in `self.ar_instances`, with the row's page-wide row_key).
-*   2. Renders both, prepends the hover overlay into the tile (hidden until hover).
-*   3. Attaches drag-and-drop (`set_drag_and_drop`, `paginated_key` = row index).
-*   4. Attaches the `mouseenter` / `mouseleave` listeners that toggle the overlay
-*      and the `mosaic_over` class.
-* Per released row: destroys both records and drops the row's drag handle from
-* the section's `drag_nodes` registry (see render_column_drag).
-*
-* CSS from `self.context.css['.content_data'].style.height` is applied inline if
-* present (legacy selector support for per-section overrides stored in the ontology).
+* On the window it installs, once per content_data:
+*   - the tool drag source (drag_and_drop.js bind_tool_row_drag): delegated
+*     dragstart + touch_pick tap;
+*   - the lazy hover overlay (row_hover.js delegate_row_hover).
+* The used marker is the window's `decorate` (see used_state.js).
+* Nothing but rows goes into content_data: no_records and the print notice
+* travel in `content_data.list_after` (render_list_after).
 *
 * @param {Object} self - Section instance.
 * @param {Array}  rows - The page's locator entries (`self.data.entries`).
@@ -258,108 +270,48 @@ const get_content_data = async function(self, rows, maps) {
 	// content_data
 		const content_data = ui.tool.build_content_data(self)
 
-	// drag handle registry (render_column_drag / used_state.js): a new page
-	// starts a new registry, so handles of the previous page are not refreshed.
-	// The release below closes over THIS map: a late release of a previous
-	// page's row cannot delete the same index of the new page.
-		const drag_nodes = new Map()
-		self.drag_nodes = drag_nodes
+	// used marker. The Set of this page's used records (server truth, dd1596),
+	// read by decorate for every tile the window builds and kept current by
+	// the tool's refresh_used_state
+		self.used_keys = compute_used_keys(self, get_catalog_target_tipos(self.caller?.area_thesaurus))
 
 	// row window
-		if (rows.length > 0) {
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			records_options	: {
+				mode		: 'list',
+				columns_map	: maps.columns_map
+			},
+			layout			: 'list',
+			// tool source: today's unconditional stamping (drag_and_drop.js
+			// TOOL_ROW_SOURCES; the thesaurus term validates the payload)
+			draggable_rows	: true,
+			decorate		: (node, index) => {
+				const entry = rows[index]
+				mark_used_row(node, entry ? self.used_keys.has(locator_key(entry)) : false)
+			}
+		})
 
-			// index → the row's two instances
-			const companions = new Map()
-
-			await window_section_rows({
+	// delegated drag source + lazy hover overlay (both ride the window's signal)
+		if (record_window) {
+			// caller_name: the thesaurus term publishes ts_add_child_tool_cataloging
+			// (the record link) only when the payload names its caller
+			bind_tool_row_drag(self, content_data, { caller_name : 'tool_cataloging' })
+			delegate_row_hover({
 				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				records_options	: {
-					mode : 'list'
-				},
-				materialize		: async (row, i, build_row) => {
-
-					// the two records of the row, built together
-					const [section_record, hover_section_record] = await Promise.all([
-						build_row({ columns_map: maps.columns_map }),
-						build_row({ columns_map: maps.hover_columns_map, id_variant: 'hover' })
-					])
-					if (!section_record || !hover_section_record) {
-						for (const built of [section_record, hover_section_record]) {
-							if (built && built.status!=='destroyed') {
-								await built.destroy(true, true, true)
-							}
-						}
-						return null
-					}
-
-					// tile + hover overlay
-					const [section_record_node, hover_view] = await Promise.all([
-						section_record.render(),
-						render_hover_view(hover_section_record)
-					])
-					section_record_node.prepend(hover_view)
-
-					// drag and drop
-					set_drag_and_drop({
-						section_record_node	: section_record_node,
-						total_records		: self.total,
-						locator				: section_record.locator,
-						paginated_key		: i,
-						caller				: self
-					})
-
-					// mouseenter event
-					section_record_node.addEventListener('mouseenter', function(e){
-						e.stopPropagation()
-						hover_view.classList.remove('display_none')
-						section_record_node.classList.add('mosaic_over')
-					})
-
-					// mouseleave event
-					section_record_node.addEventListener('mouseleave', function(e){
-						e.stopPropagation()
-						hover_view.classList.add('display_none')
-						section_record_node.classList.remove('mosaic_over')
-					})
-
-					companions.set(i, {
-						section_record			: section_record,
-						hover_section_record	: hover_section_record
-					})
-
-					return section_record_node
-				},
-				release			: async (row, i) => {
-					// the drag column registers one handle per rendered card
-					drag_nodes.delete(i)
-					const companion = companions.get(i)
-					companions.delete(i)
-					if (!companion) {
-						return
-					}
-					for (const built of [companion.section_record, companion.hover_section_record]) {
-						if (built && built.status!=='destroyed') {
-							await built.destroy(true, true, true)
-						}
-					}
-				}
+				content_data	: content_data,
+				signal			: record_window.signal,
+				render_hover	: (index) => render_hover_view(self, record_window, index, maps.hover_columns_map)
 			})
-		}//end if (rows.length > 0)
-
-	// css
-		const element_css	= self.context.css || {}
-		const legacy_selector_content_data = '.content_data'
-		if (element_css[legacy_selector_content_data]) {
-			// style
-				if (element_css[legacy_selector_content_data].style) {
-					// height from style
-					if (element_css[legacy_selector_content_data].style.height) {
-						content_data.style.setProperty('height', element_css[legacy_selector_content_data].style.height);
-					}
-				}
 		}
+
+	// list_after. no_records / print notice (never inside content_data)
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window
+		})
 
 
 	return content_data
@@ -368,153 +320,49 @@ const get_content_data = async function(self, rows, maps) {
 
 
 /**
-* SET_DRAG_AND_DROP
-* Marks a rendered section_record node as draggable and wires the dragstart handler.
-* Called once per record node during `get_content_data`; `options` is forwarded
-* verbatim to `on_dragstart_mosaic` which serialises the transfer payload.
-*
-* @param {Object} options
-* @param {HTMLElement} options.section_record_node - The rendered section_record DOM node to make draggable.
-* @param {number|null} options.total_records - Total number of records in the paginated result (self.total).
-* @param {Object} options.locator - Locator object for the dragged record ({ section_id, section_tipo }).
-* @param {number} options.paginated_key - Zero-based index of this record in the current page's ar_section_record.
-* @param {Object} options.caller - The section instance (self) that owns this mosaic.
-* @returns {boolean} Always true.
-*/
-const set_drag_and_drop = function(options) {
-
-	// options
-		const drag_node = options.section_record_node
-
-	// drag_node
-		drag_node.draggable = true
-		drag_node.classList.add('draggable')
-		drag_node.addEventListener('dragstart', function(e){
-			on_dragstart_mosaic(this, e, options)
-		})
-
-	// touch: a finger cannot drag (HTML5 dragstart never fires), so a TAP picks
-	// the same payload and a tap on a thesaurus term places it (touch_pick.js;
-	// the term side is wired in view_default_edit_ts_object.render_wrapper)
-		if (touch_pick.is_touch()) {
-			drag_node.addEventListener('click', function(e){
-				e.stopPropagation()
-				touch_pick.pick(
-					get_transfer_data(options),
-					String(options.locator?.section_id ?? '')
-				)
-			})
-		}
-
-
-	return true
-}//end set_drag_and_drop
-
-
-
-/**
-* GET_TRANSFER_DATA
-* The drop payload, as the 'text/plain' JSON string both gestures carry (the
-* mouse drag and the touch pick). One builder, so the two cannot drift.
-* @param {Object} options - {locator, paginated_key}
-* @returns {string}
-*/
-const get_transfer_data = function(options) {
-	return JSON.stringify({
-		locator			: options.locator,
-		paginated_key	: options.paginated_key,
-		caller			: 'tool_cataloging'
-	})
-}//end get_transfer_data
-
-
-
-/**
-* ON_DRAGSTART_MOSAIC
-* Serialises the drag payload and stores it in `event.dataTransfer` as
-* `text/plain` JSON. The payload carries enough information for the thesaurus
-* drop handler to identify the record, retrieve it, and fire the
-* `ts_add_child_tool_cataloging` event with the correct locator.
-*
-* Payload shape:
-* ```json
-* {
-*   "locator"       : { "section_id": "42", "section_tipo": "dd100" },
-*   "paginated_key" : 3,
-*   "caller"        : "tool_cataloging"
-* }
-* ```
-* `caller` is a fixed string tag so the thesaurus drop handler can distinguish
-* drops originating from this tool versus other drag sources.
-*
-* The commented-out `node.classList.add('dragging')` line was left for future
-* visual feedback during drag; do not remove it.
-*
-* @param {HTMLElement} node - The section_record node being dragged (same as `this` in the dragstart listener).
-* @param {DragEvent} event - The native dragstart event; stopPropagation is called to avoid
-*   outer containers capturing the drag.
-* @param {Object} options
-* @param {Object} options.locator - Locator of the dragged section_record.
-* @param {number} options.paginated_key - Zero-based position of the record in the current page.
-* @returns {boolean} Always true.
-*/
-const on_dragstart_mosaic = function(node, event, options) {
-	event.stopPropagation();
-
-	// options
-		const locator		= options.locator
-		const paginated_key	= options.paginated_key
-
-	// will be necessary the original locator of the section_record and the paginated_key (the position in the array of data)
-		const data = get_transfer_data({locator, paginated_key})
-
-	event.dataTransfer.effectAllowed = 'move';
-	event.dataTransfer.setData('text/plain', data);
-
-	// style the drag element to be showed in drag mode
-	// node.classList.add('dragging')
-
-	return true
-}//end on_dragstart_mosaic
-
-
-
-/**
 * RENDER_HOVER_VIEW
-* Renders ONE row's hover overlay node.
-*
-* The overlay is the row's own hover section_record (built by the window in the
-* same step as the tile), rendered with the classes `sr_mosaic_hover display_none`
-* and prepended into the tile by `get_content_data`; the tile's
-* `mouseenter` / `mouseleave` listeners toggle `display_none`.
-*
-* (Before the row window this was a page-wide parallel set parked in a hidden
-* `hover_body` and teleported into the hovered card through the event_manager
-* channels `mosaic_hover_*` / `mosaic_mouseleave_*`. A windowed row owns what it
-* built — a released row cannot leave a subscriber behind — so the bridge is gone
-* and the overlay is simply the tile's hidden first child, the shape core's
-* view_mosaic_edit_portal uses.)
-*
-* @param {Object} hover_section_record - The row's hover-columns section_record
-*   instance (`id_variant: 'hover'`).
-* @returns {Promise<HTMLElement>} The rendered overlay node (initially hidden).
+* The hover controller's `render_hover` (row_hover.js): builds and renders ONE
+* row's overlay record (hover columns, `id_variant: 'hover'`) through section.js
+* `build_section_record_for` — never get_section_records. The controller
+* prepends the returned node into the tile (marking it `.sr_mosaic_hover`) and
+* registers the instance; it also owns its teardown.
+* @param {Object} self - Section instance.
+* @param {Object} record_window - The tile window (entries come from it).
+* @param {number} index - The hovered row.
+* @param {Array} hover_columns_map - The `hover` columns.
+* @returns {Promise<{instance: Object, node: HTMLElement}|null>}
 */
-const render_hover_view = async function(hover_section_record) {
+const render_hover_view = async function(self, record_window, index, hover_columns_map) {
 
-	// section_record
-		const section_record_node = await hover_section_record.render()
-			  section_record_node.classList.add('sr_mosaic_hover', 'display_none')
+	const entry = record_window.entry_of(index)
+	if (!entry) {
+		return null
+	}
+
+	const instance = await build_section_record_for(self, entry, {
+		mode			: 'list',
+		columns_map		: hover_columns_map,
+		id_variant		: 'hover',
+		row_key_base	: index
+	})
+	if (!instance) {
+		return null
+	}
+	const node = await instance.render()
 
 
-	return section_record_node
+	return {
+		instance	: instance,
+		node		: node || null
+	}
 }//end render_hover_view
 
 
 
 /**
 * REBUILD_COLUMNS_MAP
-* Builds the final columns_map array handed to the row window (one section_record
-* per row and slice) by prepending
+* Builds the final columns_map of one record slice — the tile (row window) or
+* the hover overlay (hover controller) — by prepending
 * or appending control columns around the caller-supplied data columns:
 *
 *   Hover mode  (view_mosaic=false):  section_id column prepended, no drag column.
@@ -569,76 +417,29 @@ const rebuild_columns_map = async function(base_columns_map, self, view_mosaic) 
 
 /**
 * RENDER_COLUMN_DRAG
-* Column cell renderer that produces the drag handle for each mosaic card. The
-* handle doubles as a visual "used" indicator: it carries the CSS class `used`
-* while the record is referenced by a term of a catalog hierarchy loaded in the
+* Column cell renderer that produces the drag indicator of each mosaic card. It
+* doubles as the visual "used" indicator: it carries the CSS class `used` while
+* the record is referenced by a term of a catalog hierarchy loaded in the
 * thesaurus panel.
 *
-* USED DETECTION LOGIC (used_state.js)
-* 1. `get_catalog_target_tipos` reads the dd100 datum of `area_thesaurus` and
-*    keeps the target_section_tipo of its `type === 'hierarchy'` nodes.
-* 2. The record's `DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS` (dd1596) datum
-*    carries its incoming relations in `entries` (the v7 wire key, WC-001 — v6
-*    used `value`), computed live by the server (component_inverse emit hook).
-* 3. `is_used` is true when any entry's `from_section_tipo` is one of those tipos.
+* The cell only renders the node. The `used` class is the row window's
+* `decorate` (get_content_data), from `self.used_keys` (used_state.js) — one
+* truth for the fill, a later placeholder swap and refresh_used_state. The drag
+* itself is the whole tile (bind_tool_row_drag), not this node.
 *
-* RECALCULATION
-* The handle is registered in the section's `drag_nodes` Map (row_key →
-* {locator, node}); the row window's release deletes it. The tool's
-* refresh_used_state re-reads dd1596 for the registered cards after a drop, a
-* term delete, a save of the term link component and a return to the window, and
-* toggles `used` from that answer — a removed term clears the marker.
-*
-* @param {Object} options
-* @param {Object} options.caller - The tool_cataloging-owned SECTION instance (a
-*   column callback receives the record's `caller`, not the record itself).
-* @param {Object} options.caller.caller - The tool_cataloging instance, giving
-*   access to `area_thesaurus`.
-* @param {number} options.row_key - The row's page index; keys the registry entry
-*   deleted when the row window releases the row.
-* @param {Object} options.locator - Locator of the record being rendered
-*   ({ section_id, section_tipo }).
-* @returns {DocumentFragment} Fragment containing the dragger div (and the used indicator).
+* @param {Object} options - Column-render options (unused: the cell is static).
+* @returns {DocumentFragment} Fragment containing the dragger div.
 */
 const render_column_drag = function(options) {
-
-	// options
-	// (!) a column callback is handed `self.caller` — for a mosaic card that is
-	// the tool_cataloging-owned SECTION, not the section_record
-	// (view_default_list_section_record.render_callback)
-		const caller			= options.caller
-		const tool_caller		= caller.caller
-		const locator			= options.locator
-
-	// catalog hierarchies loaded in the thesaurus panel
-		const target_tipos = get_catalog_target_tipos(tool_caller.area_thesaurus)
-
-	// get inverse_relations data
-		const inverse_relations_tipo = DD_TIPOS.DEDALO_SECTION_INFO_INVERSE_RELATIONS
-		const relation_data = caller.datum.data.find(el => el.tipo === inverse_relations_tipo
-			&& el.section_tipo === locator.section_tipo
-			&& String(el.section_id) === String(locator.section_id))
-
-	// used: the record has an incoming relation from a catalog hierarchy term
-		const used = is_used(relation_data?.entries, target_tipos)
 
 	// DocumentFragment
 		const fragment = new DocumentFragment()
 
 	// drag_item
-		const draged_node = ui.create_dom_element({
+		ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'dragger' + (used ? ' used' : ''),
+			class_name		: 'dragger',
 			parent			: fragment
-		})
-
-	// registry. The tool's refresh_used_state toggles `used` on this node
-		caller.drag_nodes = (caller.drag_nodes instanceof Map)
-			? caller.drag_nodes
-			: new Map()
-		caller.drag_nodes.set(options.row_key, {
-			locator	: locator,
-			node	: draged_node
 		})
 
 

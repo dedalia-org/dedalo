@@ -38,9 +38,16 @@
 				align-items: center;
 			}
 		}
+	}//end content_data
+
+	// list_after. The ONE non-row sibling of the rows (references, list footer,
+	// error, print notice): never inside content_data, which holds only rows
+	// (WC-2026-10-30-section-record-row-box)
+	>.list_after {
 
 		// ul
 		.references {
+			flex: 0 0 100%;
 			margin-top: 0.75em;
 			margin-left: 1rem;
 
@@ -54,11 +61,13 @@
 			}
 
 			>li {
+				display: flex;
+				align-items: center;
 				padding-left: 2em;
 				line-height: 1.25rem;
 			}
 		}
-	}//end content_data
+	}//end list_after
 
 	// service autocomplete
 	// hide when component it's not active
@@ -69,6 +78,11 @@
 	}
 
 	// drag selectors
+		// The handle (default view, render_column_id) is rendered only when the row
+		// may be dragged, WITHOUT the `hide` class: its visibility is CSS-only.
+		// Base state, every width: opacity 0 — never display:none / visibility:hidden,
+		// which would also take it out of the Tab order and kill Enter
+		// (move-to-position). Revealed below (desktop / print) on row hover / focus.
 		.drag.icon {
 			// @see list.less for generic style
 			margin: 0px;
@@ -80,7 +94,6 @@
 			height: auto;
 			min-height: 2rem;
 			min-width: 2rem;
-			opacity: 0.1;
 			cursor: move;
 			z-index: 2;
 
@@ -89,7 +102,8 @@
 			left: -2.2rem;
 			width: 2.2rem;
 			height: 2.5rem;
-			opacity: 1;
+			opacity: 0;
+			transition: opacity 0.15s ease;
 			background-color: @color_grey_15;
 			display: block;
 			z-index: 2;
@@ -99,49 +113,37 @@
 			&:hover {
 				background-color: @color_orange_dedalo;
 			}
+		}
 
-			&.dragging {
-				background-color: @color_hilite_yellow;
-				cursor: move;
-				border-radius: 0.33rem;
+		// handle reveal (desktop and print). Hovering the gutter handle hovers its
+		// row too (it is a descendant), so the handle stays visible while reached
+		@media not screen, screen and (min-width: (@width_break_point_0 + 1px)) {
+			.section_record:is(:hover, :focus-within) > .column_section_id .drag.icon,
+			.drag.icon:focus-visible {
+				opacity: 1;
 			}
 		}
 
-		&.dragover {
+		// wrapper MOVE zone (drag_and_drop.js bind_portal_drop): a record dragged
+		// from another portal is over this portal
+		&.drop_target {
 			background-color: @color_white;
 			outline: 4px dotted @color_orange_dedalo;
 			z-index: 3;
 			opacity: 0.5;
 		}
 
-		.drop {
-			z-index: 1;
-			display: block;
-			position: absolute;
-			left: 0px;
-
-			&.dragover {
-				background-color: rgb(204 204 204 / 30%);
-				outline: 3px dotted @color_orange_dedalo;
-				z-index: 3;
-				width: 100%;
+		// row marks of the delegated binders (drag_and_drop.js bind_row_drag): the
+		// source row is `dragging`, the row under the pointer that the drop would
+		// accept is `dragover`. The line / mosaic views refine them in their own files.
+		.section_record {
+			&.dragging > .column_section_id .drag.icon {
+				opacity: 1;
+				background-color: @color_hilite_yellow;
 			}
-		}
-
-		.drag_section_id {
-			width: 100%;
-			text-align: left;
-			color: @color_black;
-			font-size: 1.3em;
-			padding-left: 2px;
-		}
-
-		.draggable {
 			&.dragover {
-				background-color: @color_white;
-				outline: 4px dotted @color_orange_dedalo !important;
-				z-index: 3;
-				opacity: 0.5;
+				outline: 3px dotted @color_orange_dedalo;
+				outline-offset: -3px;
 			}
 		}
 

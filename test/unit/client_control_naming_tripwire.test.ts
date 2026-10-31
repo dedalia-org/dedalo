@@ -50,6 +50,11 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+// the REAL static table semantics of the row box (a pure module: only constants imported)
+import {
+	apply_table_semantics,
+	create_record_window,
+} from '../../client/dedalo/core/section_record/js/record_window.js';
 import { browserSources } from '../helpers/browser_corpus.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -77,11 +82,35 @@ class FakeElement {
 	parentElement: FakeElement | null = null;
 	children: FakeElement[] = [];
 	private attrs = new Map<string, string>();
+	/** What the REAL record window reads to build and stamp its rows. */
+	readonly ownerDocument = FAKE_DOCUMENT;
+	readonly isConnected = false;
+	readonly classList = {
+		contains: (name: string) => this.classes().includes(name),
+		add: (name: string) => {
+			if (!this.classes().includes(name))
+				this.attrs.set('class', [...this.classes(), name].join(' '));
+		},
+		remove: (name: string) => {
+			this.attrs.set(
+				'class',
+				this.classes()
+					.filter((c) => c !== name)
+					.join(' '),
+			);
+		},
+	};
 
 	constructor(tagName: string, attrs: Record<string, string> = {}) {
 		this.tagName = tagName.toUpperCase();
 		for (const [k, v] of Object.entries(attrs)) this.attrs.set(k, v);
 		this.type = attrs.type;
+	}
+	private classes(): string[] {
+		return (this.attrs.get('class') ?? '').split(/\s+/).filter(Boolean);
+	}
+	set className(value: string) {
+		this.attrs.set('class', value);
 	}
 	get id(): string {
 		return this.attrs.get('id') ?? '';
@@ -95,6 +124,9 @@ class FakeElement {
 	setAttribute(name: string, value: string): void {
 		this.attrs.set(name, String(value));
 	}
+	removeAttribute(name: string): void {
+		this.attrs.delete(name);
+	}
 	hasAttribute(name: string): boolean {
 		return this.attrs.has(name);
 	}
@@ -103,6 +135,15 @@ class FakeElement {
 		this.children.push(child);
 		return child;
 	}
+	/** A fragment appends its children (the window assembles its fill in one). */
+	appendChild(child: FakeElement): FakeElement {
+		if (child.tagName === '#FRAGMENT') {
+			for (const c of child.children.splice(0)) this.append(c);
+			return child;
+		}
+		return this.append(child);
+	}
+	addEventListener(): void {}
 	/** Supports the two selector shapes the module uses: a tag list and `[attr]`. */
 	matches(selector: string): boolean {
 		return selector.split(',').some((part) => {
@@ -132,20 +173,80 @@ class FakeElement {
 	}
 }
 
+/** The document the record window builds through; never connected, so it never arms. */
+const FAKE_DOCUMENT = {
+	createElement: (tag: string) => new FakeElement(tag),
+	createDocumentFragment: () => new FakeElement('#fragment'),
+	defaultView: { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} },
+};
+
+/** Every edit-safety binding the window requires, inert (nothing is released here). */
+const INERT_EDIT_SAFETY = Object.fromEntries(
+	[
+		'deactivate',
+		'settle',
+		'orphan',
+		'unsaved_instances',
+		'uncommitted_nodes',
+		'register_uncommitted',
+		'commit_seq',
+		'instance_of_node',
+		'owned_elsewhere',
+		'component_active',
+		'service_autocomplete',
+	].map((key) => [key, () => (key.endsWith('s') ? [] : null)]),
+);
+
+/**
+ * The ROW BOX chain every table row view renders (WC-2026-10-30-section-record-row-box):
+ * `list_body[role=table] > content_data[role=rowgroup] > section_record[role=row]
+ * > .column[role=cell] > wrapper[role=group]`. The table is labelled by the
+ * portal's own label, so a control resolving its name from the nearest labelled
+ * ancestor would hear the PORTAL. EVERY role on the chain is stamped by the REAL
+ * code: `apply_table_semantics` (table + label) and the REAL `create_record_window`
+ * filling one row (rowgroup, row, cells) — this fixture stamps none.
+ * Returns the row's cells (the component wrappers go inside them).
+ */
+async function buildRowBox(portal: FakeElement, portal_label_id: string | null, cells = 2) {
+	const list_body = portal.append(new FakeElement('div', { class: 'list_body layout_table' }));
+	apply_table_semantics(list_body as unknown as HTMLElement, null, portal_label_id ?? undefined);
+	const content_data = list_body.append(new FakeElement('div', { class: 'content_data' }));
+	const row = new FakeElement('div', { class: 'section_record' });
+	const columns = Array.from({ length: cells }, () =>
+		row.append(new FakeElement('div', { class: 'column' })),
+	);
+	await create_record_window({
+		owner: { id: 'portal_owner' },
+		slot: 'rows',
+		generation: 1,
+		container: content_data,
+		rows: [{ section_tipo: 'test3', section_id: '1' }],
+		layout: 'table',
+		edit_safety: INERT_EDIT_SAFETY,
+		build: async () => ({ instance: { status: 'built', ar_instances: [] }, node: row }),
+	});
+	let next = 0;
+	const cell = () => {
+		const c = columns[next++];
+		if (!c) throw new Error('buildRowBox: more cells asked than built');
+		return c;
+	};
+	return { list_body, content_data, row, cell };
+}
+
 /**
  * The portal row, in the shape `build_wrapper_edit` produces it: an outer group
  * with its own label, two sibling column groups each with their own, one input
- * per column.
+ * per column — inside the row box chain.
  */
-function buildPortalRow() {
+async function buildPortalRow() {
 	const portal = new FakeElement('div');
-	const portal_label = new FakeElement('div', { class: 'label' });
+	const portal_label = new FakeElement('div', { class: 'label', id: 'portal_label' });
 	portal.append(portal_label);
-	const list_body = portal.append(new FakeElement('div', { class: 'list_body' }));
-	const row = list_body.append(new FakeElement('div', { class: 'section_record' }));
+	const { cell } = await buildRowBox(portal, portal_label.id);
 
 	const column = (labelText: string) => {
-		const wrapper = row.append(new FakeElement('div'));
+		const wrapper = cell().append(new FakeElement('div'));
 		const label = wrapper.append(new FakeElement('div', { class: 'label', 'data-x': labelText }));
 		const content = wrapper.append(new FakeElement('div', { class: 'content_data' }));
 		// the control is NOT created here: the two orders (present at build time,
@@ -275,7 +376,7 @@ const LOGIN_AREA = 'client/dedalo/core/login/';
 describe('client_control_naming_tripwire', () => {
 	test('NESTED groups: each control is named by its OWN group, executed through the chokepoint', async () => {
 		const { label_group, name_controls } = await loadA11y();
-		const { portal, portal_label, title, date } = buildPortalRow();
+		const { portal, portal_label, title, date } = await buildPortalRow();
 
 		// the shipped order: each group is named while it is still EMPTY …
 		label_group(title.wrapper, title.label);
@@ -298,9 +399,35 @@ describe('client_control_naming_tripwire', () => {
 		expect(portal_label.id).not.toBe(title.label.id);
 	});
 
+	test('the ROW BOX chain: the table label never names a column control', async () => {
+		const { label_group, name_controls } = await loadA11y();
+		const { portal, portal_label, title, date } = await buildPortalRow();
+		label_group(title.wrapper, title.label);
+		label_group(date.wrapper, date.label);
+		label_group(portal, portal_label);
+		const title_input = title.addInput();
+		const date_input = date.addInput();
+		name_controls(portal);
+
+		// the chain is the shipped one: table > rowgroup > row > cell > group
+		const list_body = portal.children.find((c) => c.getAttribute('class')?.includes('list_body'));
+		expect(list_body?.getAttribute('role')).toBe('table');
+		expect(list_body?.getAttribute('aria-labelledby')).toBe(portal_label.id);
+		const cell = title.wrapper.parentElement;
+		expect(cell?.getAttribute('role')).toBe('cell');
+		expect(cell?.parentElement?.getAttribute('role')).toBe('row');
+		expect(cell?.parentElement?.parentElement?.getAttribute('role')).toBe('rowgroup');
+		expect(title.wrapper.getAttribute('role')).toBe('group');
+
+		// each control hears its OWN column, never the table's (= the portal's) label
+		expect(title_input.getAttribute('aria-labelledby')).toBe(title.label.id);
+		expect(date_input.getAttribute('aria-labelledby')).toBe(date.label.id);
+		expect(title_input.getAttribute('aria-labelledby')).not.toBe(portal_label.id);
+	});
+
 	test('NESTED groups: the control PRESENT at build time is named by its own group too', async () => {
 		const { label_group } = await loadA11y();
-		const { portal, portal_label, title, date } = buildPortalRow();
+		const { portal, portal_label, title, date } = await buildPortalRow();
 		// the other order: the columns are filled BEFORE anything is named, which is
 		// what a component whose data resolved first produces.
 		const title_input = title.addInput();
@@ -342,12 +469,13 @@ describe('client_control_naming_tripwire', () => {
 		// the shipped portal row: the PORTAL has a label node; its columns are line
 		// views, which render none.
 		const portal = new FakeElement('div');
-		const portal_label = portal.append(new FakeElement('div', { class: 'label' }));
-		const list_body = portal.append(new FakeElement('div', { class: 'list_body' }));
-		const row = list_body.append(new FakeElement('div', { class: 'section_record' }));
+		const portal_label = portal.append(
+			new FakeElement('div', { class: 'label', id: 'portal_label' }),
+		);
+		const { cell } = await buildRowBox(portal, portal_label.id);
 
 		const column = (labelText: string) => {
-			const wrapper = row.append(new FakeElement('div'));
+			const wrapper = cell().append(new FakeElement('div'));
 			const content = wrapper.append(new FakeElement('div', { class: 'content_data' }));
 			declare_group(wrapper, labelText); // ← what build_wrapper_edit does, label node absent
 			return { wrapper, content };

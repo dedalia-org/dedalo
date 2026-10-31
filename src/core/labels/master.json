@@ -734,6 +734,7 @@
 	"reuse_tag": "Reuse tag",
 	"reverse_relations": "Reverse relations",
 	"rotate": "Rotate",
+	"rows_not_rendered_print": "${count} of ${total} rows are not printed: only the rows rendered on screen are. Use the print or export tool to get the complete list.",
 	"runtime_info": "Engine runtime",
 	"save": "Save",
 	"saved": "saved",

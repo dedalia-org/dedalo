@@ -349,7 +349,7 @@ tool_cataloging.prototype.build = async function(autoload=false) {
 
 /**
 * REFRESH_USED_STATE
-* Re-reads the "used" marker of the given cards (or every materialized card)
+* Re-reads the "used" marker of the given cards (or every card of the page)
 * from the server — see used_state.js.
 * @param {Array<Object>|null} [locators=null] - {section_tipo, section_id} records.
 * @returns {Promise<boolean>}

@@ -89,7 +89,9 @@
  *                          row (retries a failed placeholder)
  *     ensure_built(from,to)→ Promise<void>
  *     rebuild(i)           → Promise<boolean>: the ONE legal re-render of a
- *                          windowed row (flush, placeholder, destroy, build, swap)
+ *                          windowed row (flush, placeholder, destroy, build, swap);
+ *                          refused while an in-row active component's node lives
+ *                          outside the row (an edit / frame modal)
  *     hold(i,reason) / unhold(i,reason)   explicit pin (drag source, modal anchor)
  *     commit_uncommitted(indexes?) → {pending}: commit typed-not-committed editor
  *                          nodes of those rows (see EDIT SAFETY)
@@ -513,7 +515,12 @@ export const create_record_window = async function(options) {
 				: null
 		}
 
-		/** 1 when the table has a header row (`.header_wrapper_list` sibling), else 0. */
+		/**
+		 * 1 when the table has a VISIBLE header row (`.header_wrapper_list`
+		 * sibling), else 0. A header carrying `.hide` (display:none) or `hidden`
+		 * is out of the accessibility tree: it neither keeps a row-less table
+		 * valid nor counts in aria-rowcount / aria-rowindex.
+		 */
 		const header_rows = () => {
 			const list_body = list_body_of()
 			if (!list_body) {
@@ -521,7 +528,8 @@ export const create_record_window = async function(options) {
 			}
 			for (const child of Array.from(list_body.children)) {
 				if (child.classList.contains('header_wrapper_list')) {
-					return 1
+					const hidden = child.classList.contains('hide') || child.hasAttribute('hidden')
+					return hidden ? 0 : 1
 				}
 			}
 			return 0
@@ -532,7 +540,9 @@ export const create_record_window = async function(options) {
 		 * The dynamic a11y semantics, owned by the window: container role, row
 		 * roles and positions, and — once attached — the list_body's
 		 * aria-rowcount (or the removal of a header-less table's role at N=0:
-		 * a table owning no row fails aria-required-children).
+		 * a table owning no row fails aria-required-children). At N>0 a table
+		 * layout's list_body gets `role=table` back: an earlier zero-row window
+		 * in the same list_body (a content render) may have dropped it.
 		 */
 		const sync_semantics = () => {
 			if (size===0) {
@@ -553,6 +563,7 @@ export const create_record_window = async function(options) {
 			if (layout==='table') {
 				const list_body = list_body_of()
 				if (list_body) {
+					list_body.setAttribute('role', 'table')
 					if (has_placeholders()) {
 						list_body.setAttribute('aria-rowcount', String(size + header_rows()))
 					}else{
@@ -1231,6 +1242,16 @@ export const create_record_window = async function(options) {
 		rebuild : (index) => run(async () => {
 			if (dead || state[index]!=='built') {
 				return false
+			}
+			// an in-row active component whose node lives OUTSIDE the row (the
+			// edit modal, a dataframe's frame modal): the flush would deactivate
+			// it and the rebuild destroy its caller chain under the open surface
+			const active = edit_safety.component_active()
+			if (active && active.node && in_row(active, instances.get(index))) {
+				const row_node = container.children[index]
+				if (row_node && !row_node.contains(active.node)) {
+					return false
+				}
 			}
 			let flushed
 			try {

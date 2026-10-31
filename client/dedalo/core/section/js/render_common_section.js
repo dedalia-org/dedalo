@@ -9,6 +9,8 @@
 	import {ui} from '../../common/js/ui.js'
 	import {get_instance} from '../../common/js/instances.js'
 	import {error_text} from '../../common/js/render_api_error.js'
+	import {format_label} from '../../common/js/common.js'
+	import {ROW_WINDOW_MAX_ROWS} from '../../common/js/row_window.js'
 
 
 
@@ -28,6 +30,10 @@
 *   - render_relation_list           – standalone helper that builds the collapsed relation-
 *       list panel; also used by the inspector panel outside of delete dialogs.
 *   - no_records_node                – creates the "No records found" placeholder element.
+*   - render_list_after              – builds the `.list_after` sibling of a section list
+*       (no_records + print notice; WC-2026-10-30-section-record-row-box).
+*   - render_print_notice            – the print-only "rows not printed" notice of a row
+*       window above ROW_WINDOW_MAX_ROWS (shared with the portal row views).
 *   - NON_EDITABLE_SECTION_TIPOS     – the read-only section tipos whose list toolbar
 *       carries only the search controls (no other-buttons drawer/toggle).
 *
@@ -577,6 +583,116 @@ export const no_records_node = () => {
 
 	return node
 }//end no_records_node
+
+
+
+/**
+* RENDER_LIST_AFTER
+* Builds the `.list_after` node of a section list view: the ONE non-row sibling
+* placed right after the `list_body` (WC-2026-10-30-section-record-row-box).
+* The row invariant keeps `content_data` free of anything but its N
+* `.section_record` rows, so what used to be appended into it lives here:
+*   - the "No records found" node when the page has no rows;
+*   - the print notice while the window holds placeholders (render_print_notice).
+* The view hands the result to its content_data as the expando
+* `content_data.list_after`; the full render and the common.render 'content'
+* swap place it (common.place_list_after).
+* @param {Object} self - The section instance
+* @param {Object} options
+* @param {HTMLElement} options.content_data - The (filled) content_data node
+* @param {Object|null} options.record_window - The window handle the door returned
+* @returns {HTMLElement|null} The `.list_after` node, or null when it has no content
+*/
+export const render_list_after = function(self, options) {
+
+	const content_data	= options.content_data
+	const record_window	= options.record_window || null
+	const size			= record_window ? record_window.size : (self.data?.entries?.length || 0)
+
+	const nodes = []
+
+	// no records found case
+		if (size===0) {
+			nodes.push(no_records_node())
+		}
+
+	// print notice. Only while unbuilt rows (placeholders) exist
+		const print_notice = render_print_notice(content_data, record_window)
+		if (print_notice) {
+			nodes.push(print_notice)
+		}
+
+	if (nodes.length===0) {
+		return null
+	}
+
+	const list_after = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'list_after'
+	})
+	list_after.append(...nodes)
+
+
+	return list_after
+}//end render_list_after
+
+
+
+/**
+* RENDER_PRINT_NOTICE
+* The print policy of a row window (WC-2026-10-30-section-record-row-box):
+* unbuilt rows (placeholders) are not printed and not findable, and a visible
+* notice says so instead of narrowing the printout silently. Nothing is built
+* on `beforeprint` (synchronous, it cannot await hundreds of row builds); the
+* notice only refreshes its count there, from the placeholders the container
+* holds at that moment. The listener rides the window's AbortSignal, so it
+* dies with the window (retire / destroy).
+* Placeholders exist above ROW_WINDOW_MAX_ROWS, and below it only as a FAILED
+* row slot (data-failed, retried on reveal): the count is always read from the
+* container, never derived from the bound, so a failed row is not dropped from
+* the printout silently either. No placeholder (and no chance of one) → no
+* notice. CSS shows it in print only (list.less `.list_after >.print_notice`).
+* The text belongs here, not in record_window.js: the window is pure (no
+* labels); the view owns the notice through this one builder.
+* @param {HTMLElement} content_data - The window's container (already filled)
+* @param {Object|null} record_window - The window handle
+* @returns {HTMLElement|null} span.print_notice, or null
+*/
+export const render_print_notice = function(content_data, record_window) {
+
+	if (!content_data || !record_window) {
+		return null
+	}
+
+	const total = record_window.size
+	const count_placeholders = () => content_data.querySelectorAll(':scope > .section_record.placeholder').length
+	if (total <= ROW_WINDOW_MAX_ROWS && count_placeholders()===0) {
+		return null
+	}
+
+	const print_notice = ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'print_notice'
+	})
+
+	const set_text = (count) => {
+		// every row built by now (a failed slot retried): nothing to say
+		print_notice.textContent = count > 0
+			? format_label(
+				get_label.rows_not_rendered_print || '${count} of ${total} rows are not printed: only the rows rendered on screen are. Use the print or export tool to get the complete list.',
+				{ count, total }
+			)
+			: ''
+	}
+	set_text(count_placeholders())
+
+	window.addEventListener('beforeprint', () => {
+		set_text(count_placeholders())
+	}, { signal : record_window.signal })
+
+
+	return print_notice
+}//end render_print_notice
 
 
 

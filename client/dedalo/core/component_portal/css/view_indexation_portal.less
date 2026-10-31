@@ -211,18 +211,20 @@
 				}
 			}//end &.view_text
 		}
-
-		.list_footer {
-			width: 100%;
-			padding: 0.5rem;
-			padding-right: 0px;
-			padding-top: 0.75rem;
-
-			>.button_remove_filter {
-				float: right;
-			}
-		}
 	}//end >.content_data
+
+	// list_after. The non-row sibling of the rows (WC-2026-10-30-section-record-row-box)
+	>.list_after >.list_footer {
+		display: flow-root; // contains the floated button (it was a flex item before)
+		width: 100%;
+		padding: 0.5rem;
+		padding-right: 0px;
+		padding-top: 0.75rem;
+
+		>.button_remove_filter {
+			float: right;
+		}
+	}
 
 
 	&.list {

@@ -484,6 +484,7 @@
 	"reuse_tag": "タグを再利用",
 	"reverse_relations": "逆関係",
 	"rotate": "回転",
+	"rows_not_rendered_print": "${total} 行のうち ${count} 行は印刷されません。印刷されるのは画面に表示された行のみです。完全な一覧を得るには印刷ツールまたはエクスポートツールを使用してください。",
 	"runtime_info": "エンジンのランタイム",
 	"save": "保存",
 	"saved": "保存済み",

@@ -22,7 +22,12 @@
 
 import { a11y } from '../../../core/common/js/a11y.js';
 import { get_instance } from '../../../core/common/js/instances.js';
+import { ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
 import { ui } from '../../../core/common/js/ui.js';
+import {
+	apply_table_semantics,
+	create_record_window,
+} from '../../../core/section_record/js/record_window.js';
 import '../../../core/common/js/dd-modal.js';
 
 /**
@@ -129,6 +134,52 @@ const component_instance = function (options) {
 }; //end component_instance
 
 /**
+ * BUILD_ROW_BOX
+ * One built row in the ROW-BOX table shape every section / portal list renders
+ * (engineering/wire_contract/WC-2026-10-30-section-record-row-box.md):
+ * `list_body.layout_table[table] > content_data[rowgroup] >
+ * section_record[row] > .column[cell] > wrapper[group]`. The static half comes
+ * from the views' own helper (apply_table_semantics); the dynamic half
+ * (rowgroup / row / cell) is what record_window.js stamps on a filled table
+ * window of N ≤ ROW_WINDOW_MAX_ROWS — stamped here so the two CLI-10 surfaces
+ * stay synchronous (test_a11y_keyboard.js reads them on the same tick). The
+ * row surfaces below build the same chain through the REAL window.
+ * @param {HTMLElement[]} wrappers - the column components, in order
+ * @return {Object} {list_body, content_data, row}
+ */
+const build_row_box = function (wrappers) {
+	const list_body = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'list_body layout_table',
+	});
+	const content_data = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'content_data',
+		parent: list_body,
+	});
+	const row = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'section_record',
+		dataset: { index: '0' },
+		parent: content_data,
+	});
+	for (const wrapper of wrappers) {
+		const column = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'column',
+			parent: row,
+		});
+		column.appendChild(wrapper);
+		column.setAttribute('role', 'cell');
+	}
+	apply_table_semantics(list_body, null);
+	content_data.setAttribute('role', 'rowgroup');
+	row.setAttribute('role', 'row');
+
+	return { list_body, content_data, row };
+}; //end build_row_box
+
+/**
  * BUILD_COMPONENT_GROUP_NESTED
  * NESTED component groups — the portal row, which is the relational core of the
  * record-edit surface and the shape the flat `component_edit` surface could not
@@ -165,18 +216,8 @@ export const build_component_group_nested = function () {
 	const date_content = ui.component.build_content_data(date);
 	const date_wrapper = ui.component.build_wrapper_edit(date, { content_data: date_content });
 
-	const row = ui.create_dom_element({
-		element_type: 'div',
-		class_name: 'section_record',
-	});
-	row.appendChild(title_wrapper);
-	row.appendChild(date_wrapper);
-
-	const list_body = ui.create_dom_element({
-		element_type: 'div',
-		class_name: 'list_body',
-	});
-	list_body.appendChild(row);
+	// the row box: each column component in its own cell of a table row
+	const { list_body } = build_row_box([title_wrapper, date_wrapper]);
 
 	// the portal component that CONTAINS them — a labelled group of its own
 	const portal = component_instance({
@@ -260,18 +301,8 @@ export const build_component_line_row = function () {
 		label: null,
 	});
 
-	const row = ui.create_dom_element({
-		element_type: 'div',
-		class_name: 'section_record',
-	});
-	row.appendChild(title_wrapper);
-	row.appendChild(date_wrapper);
-
-	const list_body = ui.create_dom_element({
-		element_type: 'div',
-		class_name: 'list_body',
-	});
-	list_body.appendChild(row);
+	// the row box: each column component in its own cell of a table row
+	const { list_body } = build_row_box([title_wrapper, date_wrapper]);
 
 	// the portal that CONTAINS them — the ancestor that used to steal their names
 	const portal = component_instance({
@@ -570,6 +601,216 @@ export const build_modal_non_blocking = function () {
 }; //end build_modal_non_blocking
 
 /**
+ * ROW_EDIT_SAFETY
+ * The record window's injected edit-safety bindings for the row surfaces: no
+ * component is ever edited or released here (N ≤ the bound builds every row;
+ * the placeholder surface is never scrolled), so every binding is inert.
+ */
+const ROW_EDIT_SAFETY = Object.freeze({
+	deactivate: async () => {},
+	settle: async () => true,
+	orphan: () => {},
+	unsaved_instances: () => [],
+	uncommitted_nodes: () => [],
+	register_uncommitted: () => {},
+	commit_seq: () => 0,
+	instance_of_node: () => null,
+	owned_elsewhere: () => false,
+	component_active: () => null,
+	service_autocomplete: () => null,
+});
+
+/**
+ * ROW_COLUMNS
+ * The two column headings of the row surfaces (the list header draws them once;
+ * the cells carry the component, label-less, exactly as view_line_edit_* does).
+ */
+const ROW_COLUMNS = [
+	{ model: 'component_input_text', tipo: 'test10', label: 'Title' },
+	{ model: 'component_input_text', tipo: 'test11', label: 'Inventory number' },
+];
+
+/**
+ * BUILD_ROW_NODE
+ * One `.section_record` row node with a `.column` per ROW_COLUMNS entry, each
+ * holding the shipped label-less component wrapper and its input — or, with
+ * `text_only`, a plain text cell (the placeholder surface builds 200 rows).
+ * @param {number} index
+ * @param {boolean} [text_only=false]
+ * @return {HTMLElement}
+ */
+const build_row_node = function (index, text_only = false) {
+	const row = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'section_record list',
+	});
+	for (const column_def of ROW_COLUMNS) {
+		const column = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'column',
+			parent: row,
+		});
+		if (text_only) {
+			ui.create_dom_element({
+				element_type: 'span',
+				text_content: `${column_def.label} ${index + 1}`,
+				parent: column,
+			});
+			continue;
+		}
+		const instance = component_instance(column_def);
+		const content_data = ui.component.build_content_data(instance);
+		const wrapper = ui.component.build_wrapper_edit(instance, {
+			content_data: content_data,
+			label: null,
+		});
+		column.appendChild(wrapper);
+		ui.create_dom_element({
+			element_type: 'input',
+			type: 'text',
+			class_name: 'input_text',
+			value: `${column_def.label} ${index + 1}`,
+			parent: content_data,
+		});
+	}
+	return row;
+}; //end build_row_node
+
+/**
+ * BUILD_ROW_SURFACE
+ * A section / portal row list filled by the REAL record window
+ * (section_record/js/record_window.js), so axe judges the roles the window
+ * writes — rowgroup / row / cell (table) or list / listitem (list), the
+ * header-less N=0 table losing its role, the aria-hidden placeholders — never a
+ * hand-written copy. Contract: the row-box WC entry.
+ * @param {Object} options - {name, layout, header, size, text_only}
+ * @return {Promise<Object>} {host, list_body, content_data, record_window}
+ */
+const build_row_surface = async function (options) {
+	const host = mount_host(options.name);
+
+	const content_data = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'content_data list section',
+	});
+
+	let list_body = null;
+	if (options.layout === 'table') {
+		list_body = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'list_body layout_table',
+			parent: host,
+		});
+		let header = null;
+		if (options.header) {
+			header = ui.create_dom_element({
+				element_type: 'div',
+				class_name: 'header_wrapper_list',
+				parent: list_body,
+			});
+			for (const column_def of ROW_COLUMNS) {
+				const head_column = ui.create_dom_element({
+					element_type: 'div',
+					class_name: 'head_column',
+					parent: header,
+				});
+				ui.create_dom_element({
+					element_type: 'div',
+					class_name: 'name',
+					text_content: column_def.label,
+					parent: head_column,
+				});
+			}
+		}
+		list_body.appendChild(content_data);
+		apply_table_semantics(list_body, header);
+	} else {
+		host.appendChild(content_data);
+	}
+
+	const record_window = await create_record_window({
+		owner: null,
+		slot: 'rows',
+		generation: 1,
+		container: content_data,
+		rows: Array.from({ length: options.size }, (_, i) => ({
+			section_tipo: 'test2',
+			section_id: i + 1,
+			paginated_key: i,
+		})),
+		build: async (entry, index) => ({
+			instance: { status: 'built', destroy: async () => {} },
+			node: build_row_node(index, options.text_only === true),
+		}),
+		layout: options.layout,
+		edit_safety: ROW_EDIT_SAFETY,
+	});
+
+	return { host, list_body, content_data, record_window };
+}; //end build_row_surface
+
+/**
+ * BUILD_ROW_TABLE
+ * A table row list WITH its header row: list_body[table] > header[row] +
+ * content_data[rowgroup] > section_record[row] > .column[cell].
+ * @return {Promise<Object>}
+ */
+export const build_row_table = function () {
+	return build_row_surface({ name: 'row_table', layout: 'table', header: true, size: 2 });
+}; //end build_row_table
+
+/**
+ * BUILD_ROW_LIST
+ * A list-layout row list (line / tree / indexation / mosaic views):
+ * content_data[list] > section_record[listitem].
+ * @return {Promise<Object>}
+ */
+export const build_row_list = function () {
+	return build_row_surface({ name: 'row_list', layout: 'list', header: false, size: 2 });
+}; //end build_row_list
+
+/**
+ * BUILD_ROW_TABLE_PLACEHOLDERS
+ * A table over the window bound: built rows plus aria-hidden placeholder rows
+ * in the same rowgroup, aria-rowcount on the table, aria-rowindex on the rows.
+ * @return {Promise<Object>}
+ */
+export const build_row_table_placeholders = function () {
+	return build_row_surface({
+		name: 'row_table_placeholders',
+		layout: 'table',
+		header: true,
+		size: ROW_WINDOW_MAX_ROWS + 2,
+		text_only: true,
+	});
+}; //end build_row_table_placeholders
+
+/**
+ * BUILD_ROW_TABLE_EMPTY
+ * The N=0 table WITH a visible header: the table keeps its role (the header row
+ * is the row it owns) and the empty content_data carries none.
+ * @return {Promise<Object>}
+ */
+export const build_row_table_empty = function () {
+	return build_row_surface({ name: 'row_table_empty', layout: 'table', header: true, size: 0 });
+}; //end build_row_table_empty
+
+/**
+ * BUILD_ROW_TABLE_EMPTY_NO_HEADER
+ * The N=0 table WITHOUT a header: a table owning no row fails
+ * aria-required-children, so the window drops the list_body's role.
+ * @return {Promise<Object>}
+ */
+export const build_row_table_empty_no_header = function () {
+	return build_row_surface({
+		name: 'row_table_empty_no_header',
+		layout: 'table',
+		header: false,
+		size: 0,
+	});
+}; //end build_row_table_empty_no_header
+
+/**
  * SURFACE_BUILDERS
  * The named set. The axe phase iterates it; adding a surface here adds it to the
  * gate — which is the point of naming them in one place.
@@ -585,6 +826,11 @@ export const SURFACE_BUILDERS = {
 	modal: build_modal,
 	modal_minimized: build_modal_minimized,
 	modal_non_blocking: build_modal_non_blocking,
+	row_table: build_row_table,
+	row_list: build_row_list,
+	row_table_placeholders: build_row_table_placeholders,
+	row_table_empty: build_row_table_empty,
+	row_table_empty_no_header: build_row_table_empty_no_header,
 };
 
 /**

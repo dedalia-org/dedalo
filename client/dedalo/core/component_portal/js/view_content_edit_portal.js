@@ -64,12 +64,14 @@
 
 // imports
 	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
+	import {apply_table_semantics} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
 	import {set_element_css} from '../../page/js/css.js'
 	import {
 		add_wrapper_events,
 		build_header,
-		render_references
+		render_list_after
 	} from './render_edit_component_portal.js'
 
 
@@ -112,8 +114,8 @@ export const view_content_edit_portal = function() {
 *     swap it in-place.  Used by pagination, tag-filter, and record-link flows.
 *
 * Side effects:
-*   - The row window pushes the materialized section_record instances into
-*     `self.ar_instances` so the portal's `destroy()` can clean them up.
+*   - The row door (window_section_rows) pushes the built section_record instances
+*     into `self.ar_instances` so the portal's `destroy()` can clean them up.
 *   - Sets `self.columns_map` to the (possibly cached) resolved column map.
 *   - Injects a scoped CSS `grid-template-columns` rule via `set_element_css`.
 *   - Sets `wrapper.list_body` and `wrapper.content_data` pointers for subsequent
@@ -179,6 +181,10 @@ view_content_edit_portal.render = async function(self, options) {
 		list_body.appendChild(list_header_node)
 		list_body.appendChild(content_data)
 
+	// table semantics (static half; the window owns rowgroup / rows / cells)
+		list_body.classList.add('layout_table')
+		apply_table_semantics(list_body, list_header_node)
+
 	// wrapper. ui build_edit returns component wrapper
 		const wrapper = ui.component.build_wrapper_edit(self, {
 			list_body	: list_body,
@@ -190,7 +196,10 @@ view_content_edit_portal.render = async function(self, options) {
 		wrapper.list_body		= list_body
 		wrapper.content_data	= content_data
 
-	// service autocomplete
+	// list_after. The non-row sibling, right after list_body (never inside role=table)
+		place_list_after(wrapper, content_data)
+
+	// service autocomplete + the wrapper MOVE zone
 		add_wrapper_events(self, wrapper)
 
 
@@ -201,18 +210,16 @@ view_content_edit_portal.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Build the `content_data` container and hand the page's rows to a ROW WINDOW
-* (section.js window_section_rows → common/js/row_window.js): a `section_record`
-* is built and rendered only for the rows the viewport can reach — at most
-* ROW_WINDOW_MAX_ROWS at once — and released past the far edge (audit P2-31 /
-* CLI-29). The first window is filled before this resolves.
+* Build the (empty) `content_data` container and hand the page's rows to the ROW
+* DOOR (section.js window_section_rows → section_record/js/record_window.js) on
+* EVERY content render, N=0 included. The window keeps the row invariant (exactly
+* one `.section_record` per entry, in index order) and builds at most
+* ROW_WINDOW_MAX_ROWS rows at once (audit P2-31 / CLI-29). The fill is done before
+* this resolves. The content view has no drag source.
 *
-* `content_data[0]` keeps pointing at the first materialized row (ui.js reads it
-* to auto-focus the first input of an activated component).
-*
-* Additionally, if the portal's server response includes back-references
-* (`self.data.references`), a read-only reference list node is appended below the
-* records using `render_references`.
+* The server's back-references (`self.data.references`) and the print notice go
+* to the `.list_after` slot (expando `content_data.list_after`), never into
+* content_data (WC-2026-10-30-section-record-row-box).
 *
 * @param {Object} self - The `component_portal` instance.
 * @param {Array} rows - The page's locator entries (`self.data.entries`).
@@ -224,24 +231,22 @@ const get_content_data = async function(self, rows) {
 	// content_data node
 		const content_data = ui.component.build_content_data(self)
 
-	// row window
-		if (rows.length > 0) {
-			const row_window = await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				records_options	: {
-					mode : 'list'
-				}
-			})
-			content_data[0] = row_window ? row_window.node_of(0) : null
-		}
+	// rows. The door, always (N=0 included)
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			records_options	: {
+				mode : 'list'
+			},
+			layout			: 'table'
+		})
 
-	// references. Build references if exists
-		if(self.data.references && self.data.references.length > 0){
-			const references_node = render_references(self.data.references)
-			content_data.appendChild(references_node)
-		}
+	// list_after. References + print notice (never inside content_data)
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window
+		})
 
 
 	return content_data

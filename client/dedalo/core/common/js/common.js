@@ -9,7 +9,8 @@
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {delete_instance} from '../../common/js/instances.js'
-	import {dd_request_idle_callback, deregister_unsaved_instance} from '../../common/js/events.js'
+	import {dd_request_idle_callback, deregister_unsaved_instance, deregister_uncommitted_input} from '../../common/js/events.js'
+	import {carry_row_attributes} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
 	import {get_inserted_rules} from '../../page/js/css.js'
 	import {render_stream} from '../../common/js/render_common.js'
@@ -40,13 +41,16 @@
 *                → 'rendering' → 'rendered' → 'destroyed'
 *
 * Exported prototype methods (mixed into every Dédalo element class):
-*   init, build, render, refresh, destroy, build_rqo_show, build_rqo_search,
+*   init, build, render, refresh, destroy, lock_rows, build_rqo_show, build_rqo_search,
 *   load_data_from_datum, get_section_elements_context, calculate_component_path
 *
 * Exported stand-alone helpers:
 *   set_context_vars, create_source, get_columns_map, get_ar_inverted_paths,
 *   load_data_debug, render_tree_data, validate_tipo, get_fallback_value,
 *   push_browser_history, build_autoload, set_environment, update_process_status
+*   row windows (WC-2026-10-30-section-record-row-box): lock_rows,
+*   resolve_pending_rows, log_pending_rows, destroy_row_windows,
+*   destroy_unwindowed_dependencies, place_list_after
 */
 export const common = function(){
 
@@ -635,6 +639,10 @@ common.prototype.render = async function (options={}) {
 						// set pointers. Update the wrapper pointer to the new content_data node
 						self.node.content_data = new_content_data_node
 
+					// list_after. The one non-row sibling slot travels with its
+					// content_data (strict no-op when neither pointer exists)
+						place_list_after(wrapper, new_content_data_node)
+
 					// return created node (content_data)
 					return self.node
 				}
@@ -666,6 +674,11 @@ common.prototype.render = async function (options={}) {
 								// console.log('node:', node);
 								console.warn('Ignored node replacement for: non ELEMENT_NODE', self.node, 'nodeType:', self.node.nodeType);
 							}else{
+								// a windowed row (record_window) keeps its index, role and
+								// draggable stamp across an event-driven full re-render
+								if (self.node.hasAttribute('data-index')) {
+									carry_row_attributes(self.node, node)
+								}
 								self.node.replaceWith(node);
 							}
 						}
@@ -732,6 +745,10 @@ common.prototype.render = async function (options={}) {
 *  7. Optionally publish 'sync_data_<id_base_lang>' so sibling components sharing
 *     the same base language binding (e.g. TM rows) are notified.
 *
+* The owner row lock (lock_rows) is acquired after the status check and before
+* step 2: a pending editor node in a section / portal's rows refuses the
+* refresh (returns false) with nothing destroyed or rebuilt.
+*
 * (!) Events subscribed inside build() may duplicate on repeated refresh() calls
 * if the concrete build() implementation does not guard against re-subscription.
 * Each override should use event tokens and unsubscribe before re-subscribing.
@@ -743,6 +760,7 @@ common.prototype.render = async function (options={}) {
 * @param {boolean} [options.refresh_id_base_lang=false] - Publish sync event for TM siblings
 * @param {Object|null} [options.tmp_api_response=null] - Pre-fetched API response to inject
 * @returns {Promise<boolean>} true when rebuild+render succeeded; false on status mismatch
+*   or when the row lock was refused
 */
 common.prototype.refresh = async function(options={}) {
 	// const t0 = performance.now()
@@ -767,6 +785,47 @@ common.prototype.refresh = async function(options={}) {
 			console.warn("/// destroyed fail (expected status 'rendered') with actual status:", self.model, self.status);
 			return false
 		}
+
+	// owner row lock. Before the first mutation (destroy / build): a pending
+	// editor node in this owner's rows refuses the refresh here, with nothing
+	// touched (see lock_rows). Re-entrant: an operation that already holds the
+	// lock (navigate, link…) passes straight through.
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await refresh_locked(self, {
+				build_autoload,
+				render_level,
+				destroy,
+				refresh_id_base_lang,
+				tmp_api_response
+			})
+		} finally {
+			release_rows()
+		}
+}//end refresh
+
+
+
+/**
+* REFRESH_LOCKED
+* The body of refresh, run under the owner row lock.
+* @param {Object} self - The instance being refreshed (status 'rendered')
+* @param {Object} options - The resolved refresh options
+* @returns {Promise<boolean>}
+*/
+const refresh_locked = async function(self, options) {
+
+	const {
+		build_autoload,
+		render_level,
+		destroy,
+		refresh_id_base_lang,
+		tmp_api_response
+	} = options
+
 		// Note: this action takes a insignificant amount of time (0 to 3 ms),
 		// it is worth waiting until it is finished to make sure to destroy events safely
 		if (destroy===true) {
@@ -853,7 +912,423 @@ common.prototype.refresh = async function(options={}) {
 
 
 	return result
-}//end refresh
+}//end refresh_locked
+
+
+
+/**
+* LOCK_ROWS
+* THE owner row lock (WC-2026-10-30-section-record-row-box): acquired by every
+* row-set operation of a section / portal — refresh, both navigates, tag
+* filter / reset, link, unlink, add, sort_data, sort_by_column — BEFORE its
+* first mutation, and released in a `finally`. It guarantees that no editor
+* value that lives only in its DOM node (typed, not yet committed) dies with
+* the old rows when the operation replaces them.
+*
+* On the FIRST acquire of an owner (row_lock_depth 0 → 1):
+*  1. `flush()` on every `owner.row_hovers` slot (the mosaic / tool hover
+*     overlays: their nodes are judged against the live hover instance, never
+*     against the rows);
+*  2. `commit_uncommitted()` on every `owner.record_windows` slot (synthetic
+*     change + blur, judged by the editor's commit_seq outcome);
+*  3. any PENDING node (hover or row) → the user-facing refusal
+*     (resolve_pending_rows): the lock's OWN confirm — never check_unsaved_data,
+*     whose OK runs the page-wide reset_unsaved_data. Cancel → null (nothing
+*     frozen, nothing mutated, focus back on the pending node). OK → scoped
+*     discard of exactly those nodes / instances, then step 4 like the clean
+*     path (OK never skips the freeze);
+*  4. `freeze()` every window slot: the old content is `inert` from here to the
+*     content swap, so no node can become uncommitted while the request is in
+*     flight.
+* A NESTED acquire (depth > 0: the refresh inside a navigate) only counts.
+* `release()` (idempotent) decrements; at 0 it thaws every slot frozen by this
+* lock that is still connected — a no-op after a successful swap (the old
+* container is gone), the restore after a refused or failed operation. The
+* frozen set belongs to the OWNER's lock (`owner.row_lock_frozen`), never to the
+* first acquire's release: whichever holder releases LAST thaws it, so a nested
+* holder that outlives the first one cannot leave the rows inert.
+*
+* An owner without windows or hovers (most components) gets a release that
+* only keeps the depth count. `common.render` never refuses and is not part of
+* the lock: a refused operation leaves status 'rendered', data, rqo, paginator
+* and DOM exactly as they were.
+*
+* @param {Object} owner - The section / portal (any common instance)
+* @returns {Promise<Function|null>} release function, or null when the user
+*   refused (Cancel): the operation must then return false without mutating
+*/
+export const lock_rows = async function(owner) {
+
+	if (!owner) {
+		return () => {}
+	}
+
+	// a concurrent first acquire is still flushing: wait for its verdict
+		while (owner.row_lock_acquiring) {
+			await owner.row_lock_acquiring
+		}
+
+	// nested acquire: count only
+		if (owner.row_lock_depth > 0) {
+			owner.row_lock_depth++
+			return make_row_lock_release(owner)
+		}
+
+	// first acquire
+		let resolve_acquiring
+		owner.row_lock_acquiring = new Promise(resolve => { resolve_acquiring = resolve })
+		try {
+			const windows	= Object.values(owner.record_windows || {}).filter(Boolean)
+			const hovers	= Object.values(owner.row_hovers || {}).filter(Boolean)
+
+			// 1. hover overlays first, 2. then the rows
+			const pending = []
+			for (const hover of hovers) {
+				const flushed = await hover.flush()
+				pending.push(...(flushed?.pending || []))
+			}
+			for (const record_window of windows) {
+				const committed = record_window.commit_uncommitted()
+				pending.push(...(committed?.pending || []))
+			}
+
+			// 3. refusal: own confirm; OK = scoped discard
+			if (pending.length > 0) {
+				const accepted = resolve_pending_rows(pending)
+				if (!accepted) {
+					return null
+				}
+			}
+
+			// 4. freeze (clean path and after OK alike). The frozen set is the
+			// lock's, read by whichever release brings the depth back to 0
+			for (const record_window of windows) {
+				record_window.freeze()
+			}
+			owner.row_lock_frozen	= windows
+			owner.row_lock_depth	= 1
+
+			return make_row_lock_release(owner)
+		} finally {
+			owner.row_lock_acquiring = null
+			resolve_acquiring()
+		}
+}//end lock_rows
+
+
+
+/**
+* LOCK_ROWS (prototype)
+* `owner.lock_rows()` spelling of the exported lock_rows, for classes that
+* copy the common prototype methods.
+* @returns {Promise<Function|null>}
+*/
+common.prototype.lock_rows = function() {
+
+	return lock_rows(this)
+}//end lock_rows
+
+
+
+/**
+* MAKE_ROW_LOCK_RELEASE
+* The release function of one lock_rows acquire. Idempotent: a second call is
+* a no-op, so a `finally` and an early release cannot decrement twice. The
+* release that brings the depth to 0 — first acquire or nested, in ANY order —
+* thaws the windows the first acquire froze (`owner.row_lock_frozen`).
+* @param {Object} owner
+* @returns {Function}
+*/
+const make_row_lock_release = function(owner) {
+
+	let released = false
+
+	return () => {
+		if (released) {
+			return
+		}
+		released = true
+		owner.row_lock_depth = Math.max(0, (owner.row_lock_depth || 0) - 1)
+		if (owner.row_lock_depth===0) {
+			// the lock's frozen set, whoever releases last.
+			// A no-op on a window whose container left the document (swapped)
+			const frozen = owner.row_lock_frozen || []
+			owner.row_lock_frozen = null
+			for (const record_window of frozen) {
+				record_window.thaw()
+			}
+		}
+	}
+}//end make_row_lock_release
+
+
+
+/**
+* RESOLVE_PENDING_ROWS
+* The user-facing half of the pending-node rule: a node whose value lives only
+* in the DOM (the editor ignored the synthetic change) is about to be removed
+* by a row-set operation. The user decides, with the SAME label as
+* check_unsaved_data but never through it (its OK wipes the whole page
+* registry):
+*  - Cancel → false; focus returns to the first pending node, nothing changes
+*    (the nodes are still registered: the windows re-registered them).
+*  - OK → scoped discard: each pending node leaves the uncommitted registry
+*    (deregister_uncommitted_input) and each instance those nodes resolved to
+*    leaves the unsaved registry (deregister_unsaved_instance). Everything else
+*    registered — other portals, failed saves, orphans — stays.
+* @param {Array<{node: HTMLElement, instance: Object|null, index: number}>} pending
+* @returns {boolean} true when the operation may proceed
+*/
+export const resolve_pending_rows = function(pending) {
+
+	if (!Array.isArray(pending) || pending.length===0) {
+		return true
+	}
+
+	const confirm_msg = get_label.discard_changes || 'Discard unsaved changes?'
+	if (!confirm(confirm_msg)) {
+		const first = pending.find(item => item?.node && typeof item.node.focus==='function')
+		if (first) {
+			first.node.focus()
+		}
+		return false
+	}
+
+	// scoped discard: only these nodes and the instances they resolved to
+	const instances = new Set()
+	for (const item of pending) {
+		if (item?.node) {
+			deregister_uncommitted_input(item.node)
+		}
+		if (item?.instance) {
+			instances.add(item.instance)
+		}
+	}
+	for (const instance of instances) {
+		deregister_unsaved_instance(instance)
+	}
+
+	return true
+}//end resolve_pending_rows
+
+
+
+/**
+* LOG_PENDING_ROWS
+* The one logged branch of the pending-node rule: an owner destroy (not
+* refusable — callers ignore its result, dd-modal on_close runs after hide) or
+* an unlocked door removes rows that still hold a pending node. Each pending
+* component is reported (model, tipo, section_id); never silent.
+* @param {Object} owner - The section / portal
+* @param {Array<{node, instance, index}>} pending
+* @param {string} where - The path that drops the nodes
+* @returns {void}
+*/
+export const log_pending_rows = function(owner, pending, where) {
+
+	if (!Array.isArray(pending) || pending.length===0) {
+		return
+	}
+
+	for (const item of pending) {
+		const instance = item?.instance || null
+		console.error(`[${where}] a pending editor value is dropped with its row`, {
+			owner_model	: owner?.model,
+			owner_tipo	: owner?.tipo,
+			index		: item?.index,
+			model		: instance?.model,
+			tipo		: instance?.tipo,
+			section_id	: instance?.section_id
+		});
+	}
+}//end log_pending_rows
+
+
+
+/**
+* DESTROY_ROW_WINDOWS
+* Owner-destroy half of the row windows: called by the section / portal
+* destroy override BEFORE common.prototype.destroy cascades into the rows.
+*  1. `flush()` then `destroy()` on every `owner.row_hovers` slot (the hover
+*     overlay commits / settles first; a dirty overlay instance is orphaned,
+*     never destroyed);
+*  2. `destroy()` on every `owner.record_windows` slot = flush (incl. the
+*     uncommitted-node commit) → stop → generation++; failed instances are
+*     orphaned by the window, the rest is destroyed by the owner's cascade;
+*  3. both maps set to null. `owner.record_window_generation` is NEVER reset.
+* Every returned pending node is logged (log_pending_rows): the user-facing
+* guard is upstream (check_unsaved_data before page-level destroys, the row
+* lock before every row-set operation).
+* @param {Object} owner - The section / portal
+* @returns {Promise<void>}
+*/
+export const destroy_row_windows = async function(owner) {
+
+	if (!owner) {
+		return
+	}
+
+	const hovers	= owner.row_hovers ? Object.values(owner.row_hovers).filter(Boolean) : []
+	const windows	= owner.record_windows ? Object.values(owner.record_windows).filter(Boolean) : []
+	owner.row_hovers		= null
+	owner.record_windows	= null
+
+	for (const hover of hovers) {
+		try {
+			const flushed = await hover.flush()
+			log_pending_rows(owner, flushed?.pending, 'destroy_row_windows (hover flush)')
+			const destroyed = await hover.destroy()
+			log_pending_rows(owner, destroyed?.pending, 'destroy_row_windows (hover)')
+		} catch (error) {
+			console.error('[destroy_row_windows] hover teardown failed:', error);
+		}
+	}
+
+	for (const record_window of windows) {
+		try {
+			const destroyed = await record_window.destroy()
+			log_pending_rows(owner, destroyed?.pending, 'destroy_row_windows')
+		} catch (error) {
+			console.error('[destroy_row_windows] window destroy failed:', error);
+		}
+	}
+}//end destroy_row_windows
+
+
+
+/**
+* DESTROY_UNWINDOWED_DEPENDENCIES
+* The dependencies destroy of a section / portal `build(true)`: every instance
+* in `owner.ar_instances` EXCEPT the rows a live record window holds.
+* Those rows belong to their window: the next content render's door retires it,
+* and retire adopts the ones the new window takes from the instance cache
+* (`refresh({destroy:false})`) and flushes before destroying the rest. Destroying
+* them here would bypass that flush (a dirty row instance would die unsettled)
+* and break the adoption. A `refresh({destroy:true})` has already destroyed them
+* before its build, so it is unaffected.
+* The live hover overlays go FIRST, through their own controller: a hover
+* instance sits in `owner.ar_instances` but in no window, so the cascade below
+* would destroy it directly and a still-dirty overlay editor (a failed save)
+* would leave the unsaved registry unorphaned. `hover.destroy()` flushes, then
+* orphans what stayed dirty and destroys the rest (row_hover.js teardown);
+* its pending nodes are logged (the user-facing guard was the row lock).
+* @param {Object} owner - The section / portal
+* @returns {Promise<void>}
+*/
+export const destroy_unwindowed_dependencies = async function(owner) {
+
+	// 1. hover overlays: torn down by their controller (orphans failed), never by the cascade
+	const hover_instances = new Set()
+	for (const hover of Object.values(owner.row_hovers || {})) {
+		if (!hover) {
+			continue
+		}
+		if (hover.instance) {
+			hover_instances.add(hover.instance)
+		}
+		try {
+			const destroyed = await hover.destroy()
+			log_pending_rows(owner, destroyed?.pending, 'destroy_unwindowed_dependencies (hover)')
+		} catch (error) {
+			console.error('[destroy_unwindowed_dependencies] hover teardown failed:', error);
+		}
+	}
+	if (hover_instances.size > 0 && Array.isArray(owner.ar_instances)) {
+		owner.ar_instances = owner.ar_instances.filter(el => !hover_instances.has(el))
+	}
+
+	const held = new Set()
+	for (const record_window of Object.values(owner.record_windows || {})) {
+		if (!record_window) {
+			continue
+		}
+		for (let i = 0; i < record_window.size; i++) {
+			const row = record_window.record_at(i)
+			if (row) {
+				held.add(row)
+			}
+		}
+	}
+
+	if (held.size===0 || !Array.isArray(owner.ar_instances)) {
+		await owner.destroy(
+			false, // bool delete_self
+			true, // bool delete_dependencies
+			false // bool remove_dom
+		)
+		return
+	}
+
+	// windowed: NOT owner.destroy — the section / portal override releases the
+	// windows themselves (destroy_row_windows) on a dependencies destroy, and the
+	// rows they hold would then outlive them unretired. Only the other
+	// dependencies go, the same way do_delete_dependencies takes them.
+	const others = owner.ar_instances.filter(el => !held.has(el))
+	owner.ar_instances = owner.ar_instances.filter(el => held.has(el))
+	await Promise.all(others.map(async (current_instance) => {
+		if (!current_instance || current_instance.destroyable===false) {
+			return
+		}
+		if (typeof current_instance.destroy!=='function') {
+			console.error('Ignored instance without \'destroy\' method:', owner, current_instance)
+			return
+		}
+		try {
+			await current_instance.destroy(
+				true, // delete_self
+				true, // delete_dependencies
+				false // remove_dom
+			)
+		} catch (err) {
+			console.error('Error destroying instance:', err, current_instance)
+		}
+	}))
+}//end destroy_unwindowed_dependencies
+
+
+
+/**
+* PLACE_LIST_AFTER
+* The `.list_after` slot (WC-2026-10-30-section-record-row-box): the ONE
+* non-row sibling of a row view — references, list footer, no_records, error,
+* print notice. It is never inside `content_data` (row invariant) nor inside a
+* `role=table` list_body. A view's get_content_data hands it as the expando
+* `content_data.list_after` (node or null).
+*
+* Used by the view's FULL render (after content_data / list_body are in the
+* wrapper) and by common.render's 'content' swap: replace, remove or insert the
+* new node right after `wrapper.list_body || content_data`, then point
+* `wrapper.list_after` at it. A strict no-op when neither the wrapper nor the
+* content_data carries a pointer (most components).
+* @param {HTMLElement} wrapper - The instance wrapper (self.node)
+* @param {HTMLElement} content_data - The (new) content_data node
+* @returns {void}
+*/
+export const place_list_after = function(wrapper, content_data) {
+
+	if (!wrapper || !content_data) {
+		return
+	}
+
+	const old_node	= wrapper.list_after || null
+	const next_node	= content_data.list_after || null
+	if (!old_node && !next_node) {
+		return
+	}
+
+	if (!next_node) {
+		old_node.remove()
+	}else if (old_node && old_node.parentNode) {
+		if (old_node!==next_node) {
+			old_node.replaceWith(next_node)
+		}
+	}else{
+		const anchor = wrapper.list_body || content_data
+		anchor.after(next_node)
+	}
+
+	wrapper.list_after = next_node
+}//end place_list_after
 
 
 

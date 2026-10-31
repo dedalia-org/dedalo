@@ -13,11 +13,12 @@
 * (or absent/unrecognised).  It is also the fallback used by the `'print'` view after
 * forcing permissions to read-only.
 *
-* Layout produced:
+* Layout produced (WC-2026-10-30-section-record-row-box):
 *   wrapper
-*     └── list_body  (CSS grid; column widths come from columns_map → set_element_css)
-*           ├── header_wrapper_list  (built by build_header; hidden when list is empty)
-*           └── content_data         (one row per section_record + optional references)
+*     └── list_body.layout_table [role=table]  (CSS grid; column widths from columns_map)
+*           ├── header_wrapper_list [role=row]  (built by build_header; hidden when list is empty)
+*           └── content_data [role=rowgroup]    (EXACTLY one .section_record row per entry)
+*     └── list_after   (references; never inside the role=table list_body)
 *     └── buttons  (add / link / tree / fullscreen — only rendered when permissions > 1)
 *
 * The number of grid columns is driven by `columns_map`, which is assembled in
@@ -38,6 +39,8 @@
 
 // imports
 	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
+	import {apply_table_semantics} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
 	import {set_element_css} from '../../page/js/css.js'
 	import {
@@ -47,8 +50,10 @@
 		get_buttons_by_permissions,
 		add_wrapper_events,
 		build_header,
-		render_references
+		render_list_after,
+		open_move_to_position
 	} from './render_edit_component_portal.js'
+	import {bind_row_drag} from './drag_and_drop.js'
 
 
 
@@ -77,9 +82,10 @@ export const view_default_edit_portal = function() {
 * Two execution paths are controlled by `options.render_level`:
 *
 * - `'full'` (default): constructs the full DOM tree including the `list_body` grid
-*   wrapper, the column header row, all section_record rows, the button toolbar, and
-*   the outer component wrapper.  Drag-and-drop and autocomplete click handlers are
-*   attached to the wrapper via `add_wrapper_events`.
+*   wrapper (`layout_table`, table semantics), the column header row, the rows, the
+*   `.list_after` slot, the button toolbar, and the outer component wrapper. The
+*   autocomplete click handler and the wrapper MOVE zone are attached via
+*   `add_wrapper_events`.
 *
 * - `'content'`: only rebuilds the inner `content_data` node (the rows) and updates
 *   the visibility of the existing `header_wrapper_list` to match whether the list
@@ -90,7 +96,7 @@ export const view_default_edit_portal = function() {
 * - Calls `rebuild_columns_map(self)`, which sets `self.columns_map` and
 *   `self.fixed_columns_map = true` after the first build so subsequent partial
 *   refreshes reuse the cached result.
-* - The row window pushes the MATERIALIZED section_record instances onto
+* - The row door (window_section_rows) pushes the BUILT section_record instances onto
 *   `self.ar_instances` (never the whole page) so that `self.destroy()` can clean them up.
 * - Injects a dynamic `<style>` rule via `set_element_css` to set the CSS Grid
 *   `grid-template-columns` value for the `.list_body` element.  The selector is
@@ -163,6 +169,9 @@ view_default_edit_portal.render = async function(self, options) {
 		list_body.appendChild(list_header_node)
 		list_body.appendChild(content_data)
 
+	// table marker
+		list_body.classList.add('layout_table')
+
 	// buttons
 		const buttons = get_buttons_by_permissions(self) // full toolbar >1; update-external only at 1
 
@@ -174,15 +183,20 @@ view_default_edit_portal.render = async function(self, options) {
 		}
 		const wrapper = ui.component.build_wrapper_edit(self, wrapper_options)
 
+	// table semantics (static half; the window owns rowgroup / rows / cells).
+	// After the wrapper: its label node (id set by a11y.label_group) names the table
+		apply_table_semantics(list_body, list_header_node, wrapper.label?.id || null)
+
 	// set pointers
 	// Attach child nodes as named properties on the wrapper for O(1) access during refresh.
 		wrapper.list_body		= list_body
 		wrapper.content_data	= content_data
 
-	// service autocomplete + drag/drop
-	// Attaches: click → activate_autocomplete; dragover/dragleave/drop on the wrapper
-	// so that rows dropped outside a per-row drop zone are still handled correctly.
-		add_wrapper_events(self, wrapper, {drag_drop: true})
+	// list_after. The non-row sibling, right after list_body (never inside role=table)
+		place_list_after(wrapper, content_data)
+
+	// service autocomplete + the wrapper MOVE zone (a record dragged from another portal)
+		add_wrapper_events(self, wrapper)
 
 
 	return wrapper
@@ -192,19 +206,23 @@ view_default_edit_portal.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Build the `content_data` container and hand the page's rows to a ROW WINDOW
-* (section.js window_section_rows → common/js/row_window.js): a `section_record`
-* is built and rendered only for the rows the viewport can reach — at most
-* ROW_WINDOW_MAX_ROWS at once — and released past the far edge (audit P2-31 /
-* CLI-29: "show all" is the server ceiling, up to 1000 rows, and every one of
-* them used to be built at once on the main thread). The first window is
-* filled before this resolves.
+* Build the (empty) `content_data` container and hand the page's rows to the ROW
+* DOOR (section.js window_section_rows → section_record/js/record_window.js) on
+* EVERY content render, N=0 included (a zero-row window supersedes and retires the
+* previous one). The window keeps the row invariant: `content_data.children` is
+* exactly one `.section_record` per entry, in index order, `data-index` = page
+* position; at most ROW_WINDOW_MAX_ROWS rows are built at once (placeholders
+* beyond, audit P2-31 / CLI-29). The fill is done before this resolves.
 *
-* `content_data[0]` keeps pointing at the first materialized row: ui.js reads it
-* to auto-focus the first input of an activated component.
+* Drag/drop is DELEGATED on this content_data (drag_and_drop.js bind_row_drag,
+* `source:'handle'`: rows stay non-draggable so their inputs keep text selection;
+* the `.drag` handle of render_column_id is the source, dblclick / Enter on it
+* opens move-to-position). Registered with the window's signal: retire / destroy
+* removes it.
 *
-* If `self.data.references` is populated (used by `component_relation_related` to
-* expose back-reference links), a references block is appended after the rows.
+* Non-row content (`self.data.references`, the print notice) never goes into
+* content_data: it travels as the expando `content_data.list_after`, placed after
+* list_body by the full render and swapped by `common.render('content')`.
 *
 * @param {Object} self - The `component_portal` instance.
 * @param {Array} rows - The page's locator entries (`self.data.entries`).
@@ -216,27 +234,30 @@ const get_content_data = async function(self, rows) {
 	// content_data node
 		const content_data = ui.component.build_content_data(self)
 
-	// row window
-		if (rows.length > 0) {
-			const row_window = await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				records_options	: {
-					mode : 'list'
-				}
+	// rows. The door, always (N=0 included)
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			records_options	: {
+				mode : 'list'
+			},
+			layout			: 'table'
+		})
+
+	// drag and drop. Delegated: the row's own .drag handle is the source
+		if (record_window) {
+			bind_row_drag(self, content_data, {
+				source			: 'handle',
+				open_position	: (index, options) => open_move_to_position(self, index, options)
 			})
-			// first row pointer (auto-focus)
-			content_data[0] = row_window ? row_window.node_of(0) : null
 		}
 
-	// references. Build references if exists
-	// `self.data.references` is populated only on component_relation_related portals
-	// that expose computed back-references; regular portals omit the property.
-		if(self.data.references && self.data.references.length > 0){
-			const references_node = render_references(self.data.references)
-			content_data.appendChild(references_node)
-		}
+	// list_after. References + print notice (never inside content_data)
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window
+		})
 
 
 	return content_data

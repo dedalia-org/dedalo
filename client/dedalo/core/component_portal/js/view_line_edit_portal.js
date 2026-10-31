@@ -23,16 +23,16 @@
 *
 * Private helpers (module-local, not exported):
 *   - `get_content_data(self, rows, children_view, id_variant)` — hands the page's rows
-*       to a row window inside a `content_data` container, appending references and
-*       server-side error nodes.
+*       to the row door inside a `content_data` container; references, server-side
+*       errors and the empty-iri placeholder go to the `.list_after` slot.
 *   - `rebuild_columns_map(self)` — prepends the `section_id` column and appends the
 *       `remove` column around the ontology-provided base columns; memoised via
 *       `self.fixed_columns_map`.
 *
 * Differences from `view_default_edit_portal`:
 *   - No column header row is built; the list is purely rows.
-*   - The `render_column_id` implementation is simpler: no drag handle or drop-zone;
-*       drag-and-drop is managed at section-record level via `add_section_record_drag_and_drop`.
+*   - The `render_column_id` implementation is simpler: no drag handle; the ROW is the
+*       drag source (delegated, drag_and_drop.js bind_row_drag `source:'row'`).
 *   - The `render_column_remove` implementation uses `window.confirm()` directly instead
 *       of the multi-button modal. (!) This means there is no "delete resource" option here.
 *   - Double-clicking the wrapper triggers `self.change_mode()` only when the portal is
@@ -55,7 +55,7 @@
 *   - `self.total`                 {number}  — total matched records (pagination denominator).
 *   - `self.permissions`           {number}  — `1` read-only, `≥2` full edit.
 *   - `self.ar_instances`          {Array}   — accumulator for child instances; the row
-*       window pushes the MATERIALIZED rows so they can be destroyed on teardown.
+*       door pushes the BUILT rows so they can be destroyed on teardown.
 *   - `self.caller`                {Object|null} — parent instance; checked for `model` when
 *       rendering a placeholder in the empty-and-inside-IRI case.
 *   - `self.section_tipo`          {string}  — used to detect whether `self` lives in the
@@ -78,13 +78,14 @@
 	import {render_error} from '../../common/js/render_common.js'
 	import {dd_request_idle_callback} from '../../common/js/events.js'
 	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
 	import {
 		render_column_component_info,
 		add_wrapper_events,
-		add_section_record_drag_and_drop,
 		get_buttons_by_permissions,
-		render_references,
+		render_list_after
 	} from './render_edit_component_portal.js'
+	import {bind_row_drag, can_reorder, can_drag_out} from './drag_and_drop.js'
 
 
 
@@ -115,8 +116,9 @@ export const view_line_edit_portal = function() {
 *
 * Execution order:
 *   1. Rebuild `self.columns_map` (adds `section_id` and `remove` sentinel columns).
-*   2. Hand the page rows to a row window (`window_section_rows`) that builds them on demand.
-*   3. Build the `content_data` container (rows + references + errors).
+*   2. Hand the page rows to the row door (`window_section_rows`), N=0 included.
+*   3. Build the `content_data` container (rows only; references, errors and the
+*      empty-iri placeholder travel as `content_data.list_after`).
 *   4. If `render_level === 'content'`, return only the inner container (used during
 *      partial refresh — e.g. after an add/remove — without rebuilding the full wrapper).
 *   5. Build the toolbar buttons if permissions allow.
@@ -170,7 +172,10 @@ view_line_edit_portal.render = async function(self, options) {
 		// set pointers
 		wrapper.content_data = content_data
 
-	// service autocomplete
+	// list_after. The non-row sibling, right after content_data
+		place_list_after(wrapper, content_data)
+
+	// service autocomplete + the wrapper MOVE zone
 		add_wrapper_events(self, wrapper)
 
 	// change_mode
@@ -211,26 +216,25 @@ view_line_edit_portal.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Build the `content_data` container and hand the page's rows to a ROW WINDOW
-* (section.js window_section_rows → common/js/row_window.js): a `section_record`
-* is built and rendered only for the rows the viewport can reach — at most
-* ROW_WINDOW_MAX_ROWS at once — and released past the far edge (audit P2-31 /
-* CLI-29). The first window is filled before this resolves.
+* Build the (empty) `content_data` container and hand the page's rows to the ROW
+* DOOR (section.js window_section_rows → section_record/js/record_window.js) on
+* EVERY content render, N=0 included. Each row uses the default build (one
+* section_record, `children_view`); the window keeps the row invariant and builds
+* at most ROW_WINDOW_MAX_ROWS rows at once (audit P2-31 / CLI-29). The fill is done
+* before this resolves.
 *
-* The view materializes its rows itself (custom materialize/release) because
-* every row node is decorated after render: drag-to-reorder
-* (`add_section_record_drag_and_drop`, keyed by the row's page index) and the
-* `mosaic_over` hover highlight, both only when `self.permissions >= 2`.
+* Drag/drop is DELEGATED on this content_data (drag_and_drop.js bind_row_drag,
+* `source:'row'`): the window stamps `draggable` on the rows only while the portal
+* source rule holds (`can_reorder || can_drag_out`), and every row is a drop
+* target. The hover highlight is CSS `:hover` (no per-row listener).
 *
-* Special cases handled:
-* - **Empty list + IRI caller:** When there are no records AND `self.caller` is a
-*   `component_iri`, a placeholder `<span>` showing `self.label` is injected instead of
-*   an empty container.  This lets the IRI component display a meaningful fallback text
-*   in its inline widget.
-* - **References:** `self.data.references` is appended at the bottom when non-empty
-*   (used by `component_relation_related` to show back-references).
-* - **Server errors:** `self.data.errors` is appended when present (e.g. infinite-loop
-*   detection reported by the server).
+* The `.list_after` slot (expando `content_data.list_after`, never inside
+* content_data) carries, when present:
+* - **Empty list + IRI caller:** the `span.component_placeholder` with `self.label`,
+*   so the IRI component displays a meaningful fallback text in its inline widget.
+* - **References:** `self.data.references` (component_relation_related back-references).
+* - **Server errors:** `self.data.errors` (e.g. infinite-loop detection).
+* - the print notice (more rows than the window builds at once).
 *
 * @param {Object} self - The `component_portal` instance.
 * @param {Array} rows - The page's locator entries (`self.data.entries`).
@@ -243,91 +247,48 @@ const get_content_data = async function(self, rows, children_view, id_variant) {
 	// content_data
 		const content_data = ui.component.build_content_data(self)
 
-	// rows
-		if (rows.length===0) {
+	// rows. The door, always (N=0 included)
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			records_options	: {
+				mode		: 'list',
+				view		: children_view,
+				id_variant	: id_variant
+			},
+			layout			: 'list',
+			draggable_rows	: can_reorder(self) || can_drag_out(self)
+		})
 
-			// no records found case
-			if (self.caller?.model==='component_iri') {
-				ui.create_dom_element({
-					element_type	: 'span',
-					class_name		: 'component_placeholder',
-					inner_html		: render_value(self.label, 'text'),
-					parent			: content_data
-				})
-			}
-		}else{
-			// index → the row's instance, for release
-			const instances = new Map()
-
-			await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				records_options	: {
-					mode		: 'list',
-					view		: children_view,
-					id_variant	: id_variant
-				},
-				materialize		: async (row, i, build_row) => {
-
-					const section_record = await build_row()
-					if (!section_record) {
-						return null
-					}
-					instances.set(i, section_record)
-
-					const section_record_node = await section_record.render()
-
-					// drag and drop
-						// permissions control
-						// with read only permissions, remove drag and drop
-						if(self.permissions >= 2){
-							add_section_record_drag_and_drop({
-								section_record_node	: section_record_node,
-								paginated_key		: i,
-								total_records		: self.total,
-								locator 			: section_record.locator,
-								caller 				: self
-							})
-
-							// mouseenter event
-							const mouseenter_handler = (e) => {
-								e.stopPropagation()
-								section_record_node.classList.add('mosaic_over')
-							}
-							section_record_node.addEventListener('mouseenter', mouseenter_handler)
-
-							// mouseleave event
-							const mouseleave_handler = (e) => {
-								e.stopPropagation()
-								section_record_node.classList.remove('mosaic_over')
-							}
-							section_record_node.addEventListener('mouseleave', mouseleave_handler)
-						}
-
-					return section_record_node
-				},
-				release			: async (row, i) => {
-					const section_record = instances.get(i)
-					instances.delete(i)
-					if (section_record && section_record.status!=='destroyed') {
-						await section_record.destroy(true, true, true)
-					}
-				}
+	// drag and drop. Delegated: the row itself is the source
+		if (record_window) {
+			bind_row_drag(self, content_data, {
+				source : 'row'
 			})
-		}//end if (rows.length===0)
-
-	// build references
-		if(self.data.references && self.data.references.length > 0){
-			const references_node = render_references(self.data.references)
-			content_data.appendChild(references_node)
 		}
+
+	// placeholder. No records found inside a component_iri
+		const placeholder = (rows.length===0 && self.caller?.model==='component_iri')
+			? ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'component_placeholder',
+				inner_html		: render_value(self.label, 'text')
+			  })
+			: null
 
 	// errors (server side detected errors like infinite loops, etc.)
-		if (self.data.errors?.length ) {
-			const error_node = render_error(self.data.errors)
-			content_data.appendChild(error_node)
-		}
+		const error = self.data.errors?.length
+			? render_error(self.data.errors)
+			: null
+
+	// list_after. References, error, placeholder, print notice
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window,
+			error		: error,
+			placeholder	: placeholder
+		})
 
 
 	return content_data
@@ -424,10 +385,10 @@ const rebuild_columns_map = async function(self) {
 *   window centred on the linked term.  This is used by thesaurus portals so cataloguers
 *   can quickly jump to the ontology tree from the record.
 *
-* (!) This line-view implementation does NOT include a drag handle or drop-zone node
-* (those are added to the *row* node itself by `add_section_record_drag_and_drop` in
-* `get_content_data`).  The `render_column_id` exported by `render_edit_component_portal.js`
-* (used by the default table view) is the richer version with drag-handle and drop-zone.
+* (!) This line-view implementation does NOT include a drag handle: the ROW is the
+* drag source (delegated on content_data in `get_content_data`). The `render_column_id`
+* exported by `render_edit_component_portal.js` (used by the default table view) is the
+* richer version with the drag handle.
 *
 * (!) `SHOW_DEBUG` is a global injected by the page bootstrap; its absence would cause a
 * reference error when the debug build is not loaded.  It is declared in the component's

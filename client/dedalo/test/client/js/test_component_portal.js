@@ -111,6 +111,23 @@ function make_index_locator(id, section_id, tag_id) {
 
 
 /**
+* BUILT_ROWS
+* The built rows of a portal row view (WC-2026-10-30-section-record-row-box): the
+* row window keeps EXACTLY the rows as direct `.section_record` children of
+* content_data (placeholders beyond the build bound). A descendant query would
+* also catch nested records (hover overlays, nested portals).
+* @param {HTMLElement} node - The wrapper (render('content') returns it) or the content_data
+* @return {NodeList}
+*/
+function built_rows(node) {
+
+	const content_data = node.content_data || node
+	return content_data.querySelectorAll(':scope > .section_record:not(.placeholder)')
+}//end built_rows
+
+
+
+/**
 * CAPTURE_ROW_UNLINK
 * Drives the indexation row's unlink to the point of the save and captures the
 * payload WITHOUT letting it reach the server: `change_value` is stubbed to record
@@ -128,7 +145,7 @@ function make_index_locator(id, section_id, tag_id) {
 async function capture_row_unlink(instance, content, chip_text) {
 
 	// locate the row by one of its chips
-	const row = [...content.querySelectorAll('.section_record')].find(el =>
+	const row = [...built_rows(content)].find(el =>
 		[...el.querySelectorAll('.tags.index')].some(chip => chip.textContent===chip_text)
 	)
 	assert.notEqual(row, undefined, `a row carrying tag ${chip_text} must be rendered`)
@@ -1007,7 +1024,7 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 
 	describe(`FILTER_DATA_BY_TAG_ID`, function() {
 
-		it(`${portal_model} filter_data_by_tag_id resets status to built`, async function() {
+		it(`${portal_model} filter_data_by_tag_id re-renders the filtered content`, async function() {
 
 			const instance = await get_portal_instance('edit', 'default', portal_section_id)
 			await instance.render()
@@ -1024,20 +1041,17 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 				}
 			}
 
-			// This may not find matching data but should not crash
-			// the re-render promise: settled before destroy, or it renders a destroyed instance
-			let rendered
-			try {
-				rendered = instance.filter_data_by_tag_id(tag_options)
-				// status should be reset to 'built' for re-render
-				assert.equal(instance.status, 'built', 'status must be built after filter_data_by_tag_id')
-			} catch(e) {
-				// filter_data_by_tag_id may fail if no datum data exists
-				// This is acceptable in test context
-				assert.ok(true, 'filter_data_by_tag_id handled gracefully')
-			}
+			// No matching tag locator only empties the filtered entries (a missing
+			// datum entry falls back to {} in the method): nothing here may throw, so
+			// the row-lock / re-render contract is asserted unconditionally.
+			// filter_data_by_tag_id is async (it takes the owner row lock BEFORE it
+			// replaces self.data): awaited, it has re-rendered the content
+			assert.ok(instance.datum, 'the rendered portal holds its datum')
+			const rendered = await instance.filter_data_by_tag_id(tag_options)
+			assert.notEqual(rendered, false, 'nothing pending in the rows: the row lock is granted')
+			assert.equal(instance.active_tag, tag_options, 'active_tag must be the filter options')
+			assert.equal(instance.status, 'rendered', 'status must be rendered after the content re-render')
 
-			await rendered
 			await instance.destroy(true, true, true)
 		})
 	})//end describe FILTER_DATA_BY_TAG_ID
@@ -1056,18 +1070,15 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 			// set an active_tag first
 			instance.active_tag = { tag: { tag_id: '1' } }
 
-			// the re-render promise: settled before destroy, or it renders a destroyed instance
-			let rendered
-			try {
-				rendered = instance.reset_filter_data()
-				assert.equal(instance.active_tag, null, 'active_tag must be null after reset')
-				assert.equal(instance.status, 'built', 'status must be built after reset')
-			} catch(e) {
-				// reset_filter_data may fail if no datum data exists
-				assert.ok(true, 'reset_filter_data handled gracefully')
-			}
+			// reset_filter_data is async (it takes the owner row lock BEFORE it
+			// replaces self.data): awaited, it has re-rendered the content
+			// unconditional, as above (a missing datum entry falls back to {})
+			assert.ok(instance.datum, 'the rendered portal holds its datum')
+			const rendered = await instance.reset_filter_data()
+			assert.notEqual(rendered, false, 'nothing pending in the rows: the row lock is granted')
+			assert.equal(instance.active_tag, null, 'active_tag must be null after reset')
+			assert.equal(instance.status, 'rendered', 'status must be rendered after the content re-render')
 
-			await rendered
 			await instance.destroy(true, true, true)
 		})
 	})//end describe RESET_FILTER_DATA
@@ -1194,7 +1205,7 @@ describe(`COMPONENT_PORTAL INDEXATION VIEW`, async function() {
 
 	/** [['11','12','13'], ['21']] — the chip texts of every rendered row, row-sorted. */
 	function rows_chips(content) {
-		return [...content.querySelectorAll('.section_record')]
+		return [...built_rows(content)]
 			.map(row => [...row.querySelectorAll('.tags.index')].map(chip => chip.textContent).sort())
 			.sort((a,b) => a.length - b.length)
 	}
@@ -1204,7 +1215,7 @@ describe(`COMPONENT_PORTAL INDEXATION VIEW`, async function() {
 
 		const {instance, content} = await get_indexation_instance(index_entries)
 
-		const rows = content.querySelectorAll('.section_record')
+		const rows = built_rows(content)
 
 		// 4 locators, 2 distinct target records
 		assert.equal(rows.length, 2, 'one row per TARGET RECORD, not one per tag locator')
@@ -1247,7 +1258,7 @@ describe(`COMPONENT_PORTAL INDEXATION VIEW`, async function() {
 		const content = await instance.filter_data_by_tag_id({tag:{tag_id:'12'}})
 
 		assert.equal(
-			content.querySelectorAll('.section_record').length,
+			built_rows(content).length,
 			1,
 			'the filtered list must show only the record carrying the selected tag'
 		)

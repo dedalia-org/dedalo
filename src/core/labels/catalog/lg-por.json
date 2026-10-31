@@ -484,6 +484,7 @@
 	"reuse_tag": "Reutilizar etiqueta",
 	"reverse_relations": "Relações inversas",
 	"rotate": "Girar",
+	"rows_not_rendered_print": "${count} de ${total} linhas não são impressas: só se imprimem as linhas apresentadas no ecrã. Utilize a ferramenta de impressão ou de exportação para obter a lista completa.",
 	"runtime_info": "Tempo de execução do motor",
 	"save": "Salvar",
 	"saved": "Salvo",

@@ -19,6 +19,11 @@
 * over the value, the note icon pinned right — is the look this subsystem has
 * always had, and preserving it is the requirement.
 *
+* ROW BOX (WC-2026-10-30-section-record-row-box): 'mini' is a TABLE layout — its
+* list_body carries `.layout_table`, so content_data and every row are column
+* subgrids of the mini grid (list.less 'layout_table'), never `display: contents`.
+* 'history' is a LIST layout and keeps its own per-row grid.
+*
 * The full-width tool list needs none of this: it renders through the ordinary
 * section list and inherits the ordinary list styling.
 */
@@ -59,8 +64,12 @@
 
 			>.content_data {
 
+				// the rows are TABLE rows: the list_body carries `.layout_table`
+				// (view_tm_list_section.compact_render), so content_data and every
+				// row are column subgrids of this grid (list.less 'layout_table',
+				// WC-2026-10-30-section-record-row-box). Each row box places its own
+				// cells on the shared tracks below (date line over who/what/value).
 				>.section_record {
-					display: contents;
 
 					.column_section {
 						font-size: 0.82rem;
@@ -139,11 +148,18 @@
 
 	&.tm_view_history {
 
-		.list_body {
+		// a LIST layout (no `.layout_table`): the list_body and content_data are
+		// no boxes of their own, each row is its own grid (below). Scoped to
+		// .list_body: an unscoped `.content_data` also hits the PAGINATOR's own
+		// content_data and collapses its layout.
+		.list_body,
+		.list_body > .content_data {
 			display: contents;
 		}
 
-		.no_records {
+		// no_records lives in the `.list_after` sibling of the list_body, never
+		// inside content_data (row invariant, WC-2026-10-30-section-record-row-box)
+		> .list_after > .no_records {
 			position: relative;
 			top: 0px;
 		}
@@ -250,14 +266,6 @@
 		display: block;
 		padding: 0;
 		width: 100%;
-
-		// the ROWS are the grid; the list's content_data must not be a box of its
-		// own. Scoped to .list_body: an unscoped `.content_data` also hits the
-		// PAGINATOR's own content_data and collapses its layout.
-		> .list_body > .content_data,
-		.list_body > .content_data {
-			display: contents;
-		}
 
 		// The generic list body is `height: 100%` — right for a full page that
 		// should fill the viewport, wrong in a panel: combined with the mini

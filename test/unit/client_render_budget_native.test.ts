@@ -6,8 +6,10 @@
  * 1000-row page DEC-07 permits was ~11,000 instances built synchronously), and
  * a thesaurus node expansion built every child the same way. ONE engine now
  * bounds what is materialized: `client/dedalo/core/common/js/row_window.js`
- * (`ROW_WINDOW_MAX_ROWS`), reached by the list views through
- * `section.js window_section_rows` and by the tree through `render_children`.
+ * (`ROW_WINDOW_MAX_ROWS`), reached by the list views through the record window
+ * (`section_record/js/record_window.js`, behind the ONE door
+ * `section.js window_section_rows`; WC-2026-10-30-section-record-row-box) and
+ * by the tree through `render_children` (`create_row_window`).
  *
  * This is the bun half — an invariant scan (hermetic), despite the `_native`
  * suffix the lead named it by: the BEHAVIOURAL half (5,000 entries → ≤ N rows,
@@ -15,15 +17,19 @@
  * `test_render_budget` inside `bun run test:client`, on the suite database.
  *
  * Legs:
- *   1. ROW_WINDOW_MAX_ROWS is pinned, SHRINK-ONLY (N recorded here).
+ *   1. ROW_WINDOW_MAX_ROWS is pinned, SHRINK-ONLY (N recorded here). Twin:
+ *      record_window.js IMPORTS it from row_window.js, declares no bound
+ *      literal of its own, clamps its fill to it and disconnects its observer
+ *      in destroy.
  *   2. TOTAL census of the row loops, derived from the tree: every file that
  *      turns page entries into section_record rows — a caller of
- *      `get_section_records(` or `window_section_rows(` — either routes through
- *      the window (calls window_section_rows and never get_section_records
- *      directly) or is ENUMERATED with the reason its page is bounded another
- *      way. The tree's render_children routes its children through
- *      create_row_window. Positive control: an offender source is classified
- *      as one.
+ *      `get_section_records(` or of the door — either routes through the
+ *      window or is ENUMERATED with the reason its page is bounded another
+ *      way. "Routes through the window" is an IMPORT BINDING of
+ *      `window_section_rows` that resolves to section.js, called — never a
+ *      spelling (a local function of that name is not the door). The tree's
+ *      render_children routes its children through create_row_window.
+ *      Positive control: an offender source is classified as one.
  *   3. The show-all door: the views the portal EDIT dispatcher imports (the
  *      paginator, hence "show all", exists only in edit mode) are windowed or
  *      ENUMERATED, and the one show-all subscriber sends the bound.
@@ -34,7 +40,13 @@
  *      `path:` of every render_views entry in the tree, and windowed or
  *      ENUMERATED like the rest.
  *   4. Every owner class of a window releases it in its destroy
- *      (component_teardown_tripwire's rule: an observer stored and disconnected).
+ *      (component_teardown_tripwire's rule: an observer stored and disconnected):
+ *      section.js and component_portal.js through common.js
+ *      `destroy_row_windows(self)` BEFORE the common cascade (it destroys every
+ *      `record_windows` slot, hover controllers first); ts_object through
+ *      `row_window.destroy()` in its destroy AND in view_default_edit_ts_object
+ *      render_children's teardown; the `create_row_window` importer set is the
+ *      ts_object files plus client tests.
  *   5. The browser suite is registered and drives ≥ 5,000 entries — for the
  *      section list, the portal edit views and the tree.
  *   6. tool_export's preview is ONE PAGE, bounded by the same N (the tool used
@@ -69,6 +81,10 @@ import { stripComments } from '../helpers/strip_comments.ts';
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const ROW_WINDOW = 'client/dedalo/core/common/js/row_window.js';
 const SECTION = 'client/dedalo/core/section/js/section.js';
+const RECORD_WINDOW = 'client/dedalo/core/section_record/js/record_window.js';
+const COMMON = 'client/dedalo/core/common/js/common.js';
+const PORTAL = 'client/dedalo/core/component_portal/js/component_portal.js';
+const TS_OBJECT = 'client/dedalo/core/ts_object/js/ts_object.js';
 const TREE_VIEW = 'client/dedalo/core/ts_object/js/view_default_edit_ts_object.js';
 const SUITE = 'client/dedalo/test/client/js/test_render_budget.js';
 const REGISTRY = 'client/dedalo/test/client/js/test_registry.js';
@@ -114,17 +130,51 @@ const functionBody = (source: string, opening: string): string => {
 };
 
 /**
+ * The path a repo file is SERVED at (what a relative import resolves against):
+ * `client/dedalo/<x>` is served as `<x>`, `tools/<x>` as `tools/<x>`.
+ */
+const servedPath = (file: string): string =>
+	file.startsWith('client/dedalo/') ? file.slice('client/dedalo/'.length) : file;
+
+/**
+ * The local binding a file gives the `name` export of `target` (a repo path) —
+ * resolved through its static `import {…} from '…'` statements (aliases
+ * included), never a spelling — or null when it does not import it.
+ */
+const importBinding = (
+	source: string,
+	file: string,
+	name: string,
+	target: string,
+): string | null => {
+	const served_target = servedPath(target);
+	for (const m of source.matchAll(/\bimport\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+		const specifier = m[2] ?? '';
+		if (!specifier.startsWith('.')) continue;
+		if (join(dirname(servedPath(file)), specifier) !== served_target) continue;
+		for (const spec of (m[1] ?? '').split(',')) {
+			const [imported, local] = spec.trim().split(/\s+as\s+/);
+			if (imported === name) return (local ?? imported).trim();
+		}
+	}
+	return null;
+};
+
+/**
  * How a row-loop file materializes its rows.
- *   'window'  — routes through window_section_rows and never calls
+ *   'window'  — calls the door: an import binding of `window_section_rows`
+ *               that resolves to section.js — and never calls
  *               get_section_records directly.
  *   'eager'   — calls get_section_records directly (builds the whole page).
  *   'none'    — neither (not a row loop).
+ * `file` is the repo path the import specifiers resolve against.
  */
-const classify = (source: string): 'window' | 'eager' | 'none' => {
+const classify = (source: string, file: string): 'window' | 'eager' | 'none' => {
 	const eager = /\bget_section_records\s*\(/.test(source);
-	const windowed = /\bwindow_section_rows\s*\(/.test(source);
 	if (eager) return 'eager';
-	if (windowed) return 'window';
+	const binding = importBinding(source, file, 'window_section_rows', SECTION);
+	const escaped = binding?.replace(/[$]/g, '\\$');
+	if (escaped && new RegExp(`(?<![\\w$.])${escaped}\\s*\\(`).test(source)) return 'window';
 	return 'none';
 };
 
@@ -141,11 +191,6 @@ const EAGER_EXEMPT: ReadonlyArray<{ file: string; reason: string }> = [
 	{
 		file: 'client/dedalo/core/section/js/view_default_edit_section.js',
 		reason: 'edit mode: one record per page (the edit read is limit 1)',
-	},
-	{
-		file: 'client/dedalo/core/section/js/view_tm_list_section.js',
-		reason:
-			'the TM inspector panels (mini/history) pre-build LINE rows for a compact panel; the tool shape delegates to view_default_list_section (windowed)',
 	},
 	{
 		file: 'client/dedalo/core/section/js/view_graph_list_section.js',
@@ -174,10 +219,6 @@ const EAGER_EXEMPT: ReadonlyArray<{ file: string; reason: string }> = [
 		reason: 'mini: a compact summary of the first entries, its own small limit',
 	},
 	{
-		file: 'client/dedalo/core/component_portal/js/view_line_list_portal.js',
-		reason: 'line list (inside a list row): paged by the portal request_config limit',
-	},
-	{
 		file: 'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js',
 		reason: 'autocomplete: the dropdown reads its own bounded page (the datalist limit)',
 	},
@@ -203,6 +244,23 @@ describe('client_render_budget', () => {
 		expect(create).toMatch(/observer\.disconnect\(\)/);
 	});
 
+	test('record_window.js shares the bound: imported, no literal of its own, fill clamped, observer disconnected', () => {
+		const source = code(RECORD_WINDOW);
+		expect(
+			importBinding(source, RECORD_WINDOW, 'ROW_WINDOW_MAX_ROWS', ROW_WINDOW),
+			'record_window.js must IMPORT ROW_WINDOW_MAX_ROWS from row_window.js',
+		).toBe('ROW_WINDOW_MAX_ROWS');
+		// no bound of its own: no ROW_WINDOW_* declaration, no 200 literal
+		expect(source).not.toMatch(/\b(?:const|let|var)\s+ROW_WINDOW_\w+\s*=/);
+		expect(source).not.toMatch(new RegExp(`(?<![\\w.])${RECORDED_MAX_ROWS}(?![\\w.])`));
+		// the CLAMP itself is measured, not spelled: client_record_window_native
+		// executes record_window.js for N ∈ {201, 1000, 5000} and asserts
+		// built ≤ ROW_WINDOW_MAX_ROWS ("the real bound: 5000 entries …")
+		const create = functionBody(source, 'export const create_record_window = async function');
+		expect(create).toMatch(/new view\.IntersectionObserver\(|new IntersectionObserver\(/);
+		expect(create).toMatch(/observer\.disconnect\(\)/);
+	});
+
 	test('TOTAL census: every row loop routes through the window or is ENUMERATED with a reason (shrink-only)', () => {
 		// First-party client code only: a client TEST that calls get_section_records
 		// to test it (test_section_record.js) is not a render surface, and counting
@@ -211,7 +269,7 @@ describe('client_render_budget', () => {
 		expect(files.length, 'the client census found almost no files').toBeGreaterThan(300);
 
 		const loops = files
-			.map((file) => ({ file, kind: classify(code(file)) }))
+			.map((file) => ({ file, kind: classify(code(file), file) }))
 			.filter((entry) => entry.kind !== 'none');
 		// the floor: the row-loop census is not almost empty
 		expect(loops.length, 'the row-loop census found almost none').toBeGreaterThanOrEqual(20);
@@ -231,6 +289,8 @@ describe('client_render_budget', () => {
 			'client/dedalo/core/component_portal/js/view_content_edit_portal.js',
 			'client/dedalo/core/component_portal/js/view_indexation_edit_portal.js',
 			'client/dedalo/core/component_portal/js/view_tree_edit_portal.js',
+			// adopted the record window with the row-box redesign (left EAGER_EXEMPT)
+			'client/dedalo/core/component_portal/js/view_line_list_portal.js',
 			// the TOOL mosaics: injected views, same page as the views above
 			// (measured 2026-09-04: the cataloging mosaic built 2 instances per
 			// row for a 1000-row page, the coins mosaic the same behind show-all)
@@ -239,6 +299,20 @@ describe('client_render_budget', () => {
 		]) {
 			expect(loops.find((l) => l.file === file)?.kind, `${file} left the window`).toBe('window');
 		}
+		// the TM panels left EAGER_EXEMPT by delegating every shape to the windowed
+		// section list, not by a door of their own: not eager + the import binding
+		// here; the rendered row box is the OUTCOME leg in client_row_dom_tripwire
+		// (view_tm_list_section is one of its VIEW_CASES)
+		const tm = 'client/dedalo/core/section/js/view_tm_list_section.js';
+		expect(classify(code(tm), tm), `${tm} builds its rows eagerly again`).not.toBe('eager');
+		expect(
+			importBinding(
+				code(tm),
+				tm,
+				'view_default_list_section',
+				'client/dedalo/core/section/js/view_default_list_section.js',
+			),
+		).not.toBeNull();
 
 		const offenders = loops
 			.filter((l) => l.kind === 'eager' && !EAGER_EXEMPT.some((e) => e.file === l.file))
@@ -249,7 +323,7 @@ describe('client_render_budget', () => {
 		).toEqual([]);
 
 		// every exemption is live: a file that adopted the window (or vanished) leaves the list
-		expect(EAGER_EXEMPT.length, 'this list is shrink-only').toBeLessThanOrEqual(11);
+		expect(EAGER_EXEMPT.length, 'this list is shrink-only').toBeLessThanOrEqual(9);
 		for (const exempt of EAGER_EXEMPT) {
 			expect(
 				loops.find((l) => l.file === exempt.file)?.kind,
@@ -279,7 +353,8 @@ describe('client_render_budget', () => {
 			6,
 		);
 		const eagerDoors = imported.filter(
-			(file) => classify(code(file)) === 'eager' && !EAGER_EXEMPT.some((e) => e.file === file),
+			(file) =>
+				classify(code(file), file) === 'eager' && !EAGER_EXEMPT.some((e) => e.file === file),
 		);
 		expect(
 			eagerDoors,
@@ -287,7 +362,7 @@ describe('client_render_budget', () => {
 		).toEqual([]);
 		// the windowed ones are the majority of the door, not one
 		expect(
-			imported.filter((file) => classify(code(file)) === 'window').length,
+			imported.filter((file) => classify(code(file), file) === 'window').length,
 		).toBeGreaterThanOrEqual(6);
 
 		// the ONLY subscriber of the paginator's show-all sends the bound, never 0
@@ -333,7 +408,8 @@ describe('client_render_budget', () => {
 			'tools/tool_numisdata_order_coins/js/view_coins_mosaic_portal.js',
 		]);
 		const eagerDoors = [...injected].filter(
-			(file) => classify(code(file)) === 'eager' && !EAGER_EXEMPT.some((e) => e.file === file),
+			(file) =>
+				classify(code(file), file) === 'eager' && !EAGER_EXEMPT.some((e) => e.file === file),
 		);
 		expect(
 			eagerDoors,
@@ -341,39 +417,107 @@ describe('client_render_budget', () => {
 		).toEqual([]);
 	});
 
-	test('positive control: the classifier tells an eager loop from a windowed one', () => {
-		expect(classify('const rows = await get_section_records({caller: self})')).toBe('eager');
-		expect(classify('await window_section_rows({caller: self, container, rows})')).toBe('window');
+	test('positive control: the classifier tells an eager loop from a windowed one — by import binding', () => {
+		const view = 'client/dedalo/core/component_portal/js/view_x_portal.js';
+		const tool = 'tools/tool_x/js/view_x.js';
+		const door = "import {window_section_rows} from '../../section/js/section.js'\n";
+		expect(classify('const rows = await get_section_records({caller: self})', view)).toBe('eager');
+		expect(
+			classify(`${door}await window_section_rows({caller: self, container, rows})`, view),
+		).toBe('window');
+		// a tool resolves through the served tree (tools/ beside core/)
+		expect(
+			classify(
+				"import {window_section_rows as door} from '../../../core/section/js/section.js'\nawait door({})",
+				tool,
+			),
+		).toBe('window');
 		// a file that does both still builds eagerly somewhere
-		expect(classify('await window_section_rows({})\nawait get_section_records({})')).toBe('eager');
-		expect(classify('const x = 1')).toBe('none');
+		expect(
+			classify(`${door}await window_section_rows({})\nawait get_section_records({})`, view),
+		).toBe('eager');
+		// the SPELLING is not the door: no import, a foreign module, an import never called
+		expect(classify('await window_section_rows({caller: self})', view)).toBe('none');
+		expect(
+			classify(
+				"import {window_section_rows} from './my_rows.js'\nawait window_section_rows({})",
+				view,
+			),
+		).toBe('none');
+		expect(classify(door, view)).toBe('none');
+		expect(classify('const x = 1', view)).toBe('none');
 	});
 
 	test('every window owner releases it in destroy', () => {
+		// the record-window owners: destroy_row_windows(self) BEFORE the common cascade
 		const owners: Array<{ file: string; opening: string }> = [
 			{ file: SECTION, opening: 'section.prototype.destroy = async function' },
-			{
-				file: 'client/dedalo/core/component_portal/js/component_portal.js',
-				opening: 'component_portal.prototype.destroy = async function',
-			},
-			{
-				file: 'client/dedalo/core/ts_object/js/ts_object.js',
-				opening: 'ts_object.prototype.destroy\t= async function',
-			},
+			{ file: PORTAL, opening: 'component_portal.prototype.destroy = async function' },
 		];
 		for (const owner of owners) {
-			const body = functionBody(code(owner.file), owner.opening);
-			expect(body, `${owner.file}: destroy does not stop the row window`).toMatch(
-				/row_window\.destroy\(\)/,
+			const source = code(owner.file);
+			const local = importBinding(source, owner.file, 'destroy_row_windows', COMMON);
+			expect(
+				local,
+				`${owner.file}: destroy_row_windows is not imported from common.js`,
+			).not.toBeNull();
+			const body = functionBody(source, owner.opening);
+			const release = body.search(new RegExp(`\\b${local}\\(self\\)`));
+			const cascade = body.search(/common\.prototype\.destroy\.(?:call|apply)\(/);
+			expect(release, `${owner.file}: destroy does not release its record windows`).toBeGreaterThan(
+				-1,
 			);
+			expect(cascade, `${owner.file}: destroy no longer cascades`).toBeGreaterThan(-1);
+			expect(release < cascade, `${owner.file}: windows released AFTER the cascade`).toBe(true);
 		}
-		// window_section_rows hands the window to its caller as `row_window` — the
-		// property those destroys release
-		const windowRows = functionBody(
-			code(SECTION),
-			'export const window_section_rows = async function',
+		// destroy_row_windows destroys EVERY record_windows slot (hover controllers first)
+		const release = functionBody(code(COMMON), 'export const destroy_row_windows = async function');
+		expect(release).toMatch(/Object\.values\(owner\.record_windows\)/);
+		expect(release).toMatch(/Object\.values\(owner\.row_hovers\)/);
+		expect(release).toMatch(/record_window\.destroy\(\)/);
+		// PRESENCE and ORDER: a bare indexOf comparison passed with the flush
+		// deleted (-1 < any index)
+		const flush_at = release.search(/\bhover\.flush\(\)/);
+		const hover_destroy_at = release.search(/\bhover\.destroy\(\)/);
+		const window_destroy_at = release.search(/\brecord_window\.destroy\(\)/);
+		expect(flush_at, 'destroy_row_windows no longer flushes the hover controllers').toBeGreaterThan(
+			-1,
 		);
-		expect(windowRows).toMatch(/owner\s*:\s*self/);
+		expect(
+			hover_destroy_at,
+			'destroy_row_windows no longer destroys the hover controllers',
+		).toBeGreaterThan(-1);
+		expect(window_destroy_at, 'destroy_row_windows no longer destroys the windows').toBeGreaterThan(
+			-1,
+		);
+		expect(flush_at, 'the hover flush runs AFTER a window destroy').toBeLessThan(window_destroy_at);
+		expect(hover_destroy_at, 'a hover controller outlives its window').toBeLessThan(
+			window_destroy_at,
+		);
+		expect(release).toMatch(/owner\.record_windows\s*=\s*null/);
+		// the door stores the handle on the owner, per slot
+		const door = functionBody(code(SECTION), 'export const window_section_rows = async function');
+		expect(door).toMatch(/owner\s*:\s*self/);
+		expect(door).toMatch(/self\.record_windows\[slot\]\s*=/);
+
+		// the tree (row_window.js): ts_object's destroy AND render_children's teardown
+		expect(functionBody(code(TS_OBJECT), 'ts_object.prototype.destroy\t= async function')).toMatch(
+			/row_window\.destroy\(\)/,
+		);
+		const tree = code(TREE_VIEW);
+		const render_children = functionBody(tree, 'export const render_children = async function');
+		expect(render_children).toMatch(/self\.row_window\.destroy\(\)/);
+		expect(render_children).toMatch(/create_row_window\(/);
+		// create_row_window is imported only by the ts_object files and client tests
+		const importers = browserSources()
+			.filter((file) => file !== ROW_WINDOW)
+			.filter((file) => importBinding(code(file), file, 'create_row_window', ROW_WINDOW) !== null);
+		const production = importers.filter((file) => !file.startsWith('client/dedalo/test/'));
+		expect(production).toEqual([TREE_VIEW]);
+		expect(
+			importers.length,
+			'the browser half imports create_row_window (test_render_budget)',
+		).toBeGreaterThan(production.length);
 	});
 
 	test('the browser half is registered and drives at least 5,000 entries', () => {

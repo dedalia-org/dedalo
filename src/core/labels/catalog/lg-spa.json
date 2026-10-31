@@ -494,6 +494,7 @@
 	"reuse_tag": "Reutilizar etiqueta",
 	"reverse_relations": "Relaciones inversas",
 	"rotate": "Rotar",
+	"rows_not_rendered_print": "No se imprimen ${count} de ${total} filas: solo se imprimen las filas mostradas en pantalla. Use la herramienta de impresión o de exportación para obtener la lista completa.",
 	"runtime_info": "Entorno de ejecución del motor",
 	"save": "Salvar",
 	"saved": "guardado",

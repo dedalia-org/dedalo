@@ -70,7 +70,9 @@
  *      destroyed, the map is cleared, the window torn down, logged once; a
  *      non-empty container throws;
  *  15. semantics sync: table with / without header, list, N=0 (header-less
- *      table drops role=table), N > bound rowcount/rowindex offsets.
+ *      table drops role=table; a hidden header counts as absent; a later N>0
+ *      window in the same list_body restores it), N > bound rowcount/rowindex
+ *      offsets.
  *  Plus the pure helpers row_of / carry_row_attributes / apply_table_semantics
  *  and the keyboard focusin door.
  *
@@ -2475,6 +2477,60 @@ describe('15. semantics sync', () => {
 		expect(list_body.hasAttribute('role')).toBe(false);
 		expect(content_data.hasAttribute('role')).toBe(false);
 		await handle.destroy();
+	});
+
+	test('HIDDEN header (.hide / [hidden]), N=0: role=table dropped — a display:none header is no row', async () => {
+		for (const hide of ['class', 'attribute'] as const) {
+			const h = make_harness();
+			const { list_body, content_data } = make_container(h, { header: true });
+			const header_node = list_body.children[0] as FakeElement;
+			rw.apply_table_semantics(list_body, header_node);
+			if (hide === 'class') header_node.className = 'header_wrapper_list hide';
+			else header_node.setAttribute('hidden', '');
+			const { handle } = await open(h, content_data, { n: 0 });
+			h.doc.frame();
+			expect([hide, list_body.hasAttribute('role')]).toEqual([hide, false]);
+			expect(content_data.hasAttribute('role')).toBe(false);
+			await handle.destroy();
+		}
+	});
+
+	test('HIDDEN header, N=201: not counted (rowcount N, rowindex i+1)', async () => {
+		const h = make_harness();
+		const { list_body, content_data } = make_container(h, { header: true });
+		const header_node = list_body.children[0] as FakeElement;
+		rw.apply_table_semantics(list_body, header_node);
+		header_node.className = 'header_wrapper_list hide';
+		const { handle } = await open(h, content_data, { n: 201 });
+		h.doc.frame();
+		expect(list_body.getAttribute('aria-rowcount')).toBe('201');
+		expect((content_data.children[0] as FakeElement).getAttribute('aria-rowindex')).toBe('1');
+		await handle.destroy();
+	});
+
+	test('N=0 then N>0 in the SAME list_body (a content render): role=table comes back', async () => {
+		for (const header of [false, true]) {
+			const h = make_harness();
+			const { list_body, content_data } = make_container(h, { header });
+			const header_node = header ? (list_body.children[0] as FakeElement) : null;
+			rw.apply_table_semantics(list_body, header_node);
+			// the portal views hide their header at N=0
+			if (header_node) header_node.className = 'header_wrapper_list hide';
+			const { handle: empty } = await open(h, content_data, { n: 0 });
+			h.doc.frame();
+			expect([header, list_body.hasAttribute('role')]).toEqual([header, false]);
+			// the content swap: a new content_data replaces the old one, header shown again
+			const next = h.doc.createElement('div');
+			next.className = 'content_data';
+			content_data.replaceWith(next);
+			if (header_node) header_node.className = 'header_wrapper_list';
+			const { handle: filled } = await open(h, next, { n: 2 });
+			h.doc.frame();
+			expect([header, list_body.getAttribute('role')]).toEqual([header, 'table']);
+			expect(next.getAttribute('role')).toBe('rowgroup');
+			await empty.destroy();
+			await filled.destroy();
+		}
 	});
 
 	test('header-less table, N=201: rowcount N, rowindex i+1 (no header offset); placeholders row+hidden', async () => {

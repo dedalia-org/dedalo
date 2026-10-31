@@ -484,6 +484,7 @@
 	"reuse_tag": "Berrerabili etiketa",
 	"reverse_relations": "Alderantzizko erlazioak",
 	"rotate": "Biratu",
+	"rows_not_rendered_print": "${total} errenkadatik ${count} ez dira inprimatzen: pantailan erakutsitako errenkadak bakarrik inprimatzen dira. Erabili inprimatzeko edo esportatzeko tresna zerrenda osoa lortzeko.",
 	"runtime_info": "Motorraren exekuzio-ingurunea",
 	"save": "Gorde",
 	"saved": "gordeta",

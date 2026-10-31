@@ -5,6 +5,14 @@
 * Shared by section and portal.
 */
 
+// list_after. The one non-row sibling AFTER the list_body (never inside
+// `content_data`: row invariant, WC-2026-10-30-section-record-row-box). Its
+// no_records node is a plain block, so it needs no grid-column span
+	.list_after >.no_records {
+		text-align: center;
+		text-wrap: unset;
+	}
+
 // list_body. Used in sections and portals in list mode
 	.list_body {
 		// 'style' (NOT 'layout') — the same rule already applied to
@@ -35,14 +43,11 @@
 		>.header_wrapper_list {
 			display: contents;
 		}
+		// (!) `display: contents` stays for the non-table row views (mosaic,
+		// presets, autocomplete, graph, TM): the `.layout_table` block below gives
+		// table views their own grid/subgrid
 		>.content_data {
 			display: contents;
-
-			.no_records {
-				grid-column: 1/-1; // expand across all empty columns
-				text-align: center;
-				text-wrap: unset;
-			}
 		}
 
 		// a painted first/last cell (e.g. section_id context.color in dd542/dd15) would square the list corners
@@ -855,20 +860,26 @@
 					}
 
 					// ring: hover (built rows only) and drop target (placeholders too).
-					// The hover arm EXCLUDES the drag states instead of being
-					// out-ranked by them: `:not(…)` + `:hover` would outrank the
-					// `.dragover` / `.dragging` overrides below (0,6,1 vs 0,5,1), and
-					// Chrome keeps `:hover` frozen on the drag source, so the source
-					// would paint the grey glow under its dashed ring
-					&:not(.placeholder, .dragover, .dragging):hover::after,
-					&.dragover::after,
-					&.dragging::after {
+					// The ring box is generated in EVERY state and the states change
+					// paint only: a generated box appearing inside a subgrid row on
+					// `:hover` makes WebKit re-size that row's tracks alone, so its
+					// cells leave the table's columns (row-box WC entry, WebKit probe).
+					&::after {
 						content: '';
 						position: absolute;
 						inset: 0px;
 						pointer-events: none;
 						z-index: 1;
 						border-radius: 3px;
+						border: 2px dashed transparent;
+						box-shadow: none;
+					}
+					// The hover arm EXCLUDES the drag states instead of being
+					// out-ranked by them: `:not(…)` + `:hover` would outrank the
+					// `.dragover` / `.dragging` overrides below (0,6,1 vs 0,5,1), and
+					// Chrome keeps `:hover` frozen on the drag source, so the source
+					// would paint the grey glow under its dashed ring
+					&:not(.placeholder, .dragover, .dragging):hover::after {
 						box-shadow: 0px 0px 5px 0px @color_grey_7;
 					}
 					// drop target: a distinct colour, never opacity
@@ -877,8 +888,7 @@
 					}
 					// drag source: a dashed ring (no opacity: it would make a stacking context)
 					&.dragging::after {
-						box-shadow: none;
-						border: 2px dashed @color_orange_dedalo;
+						border-color: @color_orange_dedalo;
 					}
 
 					// the last row rounds the table's bottom corners. NO overflow clip:

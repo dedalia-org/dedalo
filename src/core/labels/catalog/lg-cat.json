@@ -493,6 +493,7 @@
 	"reuse_tag": "Reutilitzar etiqueta",
 	"reverse_relations": "Relacions inverses",
 	"rotate": "Girar",
+	"rows_not_rendered_print": "No s'imprimeixen ${count} de ${total} files: només s'imprimeixen les files mostrades a la pantalla. Feu servir l'eina d'impressió o d'exportació per obtenir la llista completa.",
 	"runtime_info": "Entorn d'execució del motor",
 	"save": "Salvar",
 	"saved": "guardat",

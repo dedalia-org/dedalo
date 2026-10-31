@@ -484,6 +484,7 @@
 	"reuse_tag": "重用标签",
 	"reverse_relations": "反向关系",
 	"rotate": "旋转",
+	"rows_not_rendered_print": "共 ${total} 行中有 ${count} 行未打印：仅打印屏幕上已呈现的行。请使用打印或导出工具获取完整列表。",
 	"runtime_info": "引擎运行时",
 	"save": "保存",
 	"saved": "已保存",

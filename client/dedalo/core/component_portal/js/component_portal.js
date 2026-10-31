@@ -57,9 +57,12 @@
 		set_context_vars,
 		get_columns_map,
 		build_autoload,
-		create_source
+		create_source,
+		lock_rows,
+		destroy_row_windows,
+		destroy_unwindowed_dependencies
 	} from '../../common/js/common.js'
-	import {component_common, init_events_subscription} from '../../component_common/js/component_common.js'
+	import {component_common, init_events_subscription, check_unsaved_data} from '../../component_common/js/component_common.js'
 	import {DATAFRAME_TYPE} from '../../component_common/js/dataframe.js'
 	import {paginator} from '../../paginator/js/paginator.js'
 	import {render_edit_component_portal} from '../../component_portal/js/render_edit_component_portal.js'
@@ -197,10 +200,17 @@ export const component_portal = function() {
 	component_portal.prototype.refresh				= common.prototype.refresh
 	/**
 	* DESTROY
-	* The generic destroy, plus the two things this component owns OUTSIDE its own
-	* DOM: the thesaurus pane node (on document.body — it must never be inside
-	* self.node) and the pane's area (deliberately not in ar_instances, or refresh
-	* would destroy it on every pick). Nothing generic reaches either; this does.
+	* The generic destroy, plus the things this component owns OUTSIDE the generic
+	* cascade: its row windows + hover controllers (window_section_rows /
+	* row_hover.js), and the thesaurus pane node (on document.body — it must never be
+	* inside self.node) and the pane's area (deliberately not in ar_instances, or
+	* refresh would destroy it on every pick). Nothing generic reaches them; this does.
+	*
+	* The row windows are flushed and stopped (common.js destroy_row_windows: hover
+	* overlays first, then every window slot; a still-dirty instance is orphaned,
+	* never destroyed; a pending editor node is logged) BEFORE the common cascade
+	* destroys the rows they hold — on any teardown that reaches the rows (a full
+	* destroy, or a dependencies destroy such as refresh({destroy:true})).
 	*
 	* @param {...*} args - forwarded verbatim to common.prototype.destroy.
 	* @returns {Promise<*>} whatever the generic destroy returns.
@@ -215,10 +225,12 @@ export const component_portal = function() {
 		// closes on the click that just linked a term. The pane's lifetime is the
 		// COMPONENT's, not its refresh cycle.
 		const delete_self = args[0]===true
-		// the list view's row window (section.js window_section_rows) holds the
-		// viewport observer over rows that are dependencies of this portal
-		if (self.row_window && (delete_self || args[1]===true)) {
-			self.row_window.destroy()
+		// row windows + hover controllers: flushed and stopped BEFORE the cascade
+		// destroys the rows they hold. common.destroy defaults delete_self to true,
+		// so a destroy() without arguments reaches the rows too.
+		const delete_dependencies = args[1]===true
+		if (args[0]!==false || delete_dependencies) {
+			await destroy_row_windows(self)
 		}
 		if (delete_self) {
 			if (self.thesaurus_pane_resize_observer) {
@@ -814,13 +826,10 @@ component_portal.prototype.build = async function(autoload=false) {
 
 			// destroy dependencies
 			// Tear down child instances before re-building so stale nodes are removed.
-			// delete_self=false keeps the portal itself alive; remove_dom=false avoids
-			// a flash because the DOM will be repopulated during the upcoming render.
-				await self.destroy(
-					false, // bool delete_self
-					true, // bool delete_dependencies
-					false // bool remove_dom
-				)
+			// The portal itself stays alive and its DOM is kept (no flash: the upcoming
+			// render repopulates it). The rows a record window holds are NOT torn down
+			// here: its next content render retires them, adopting or flushing first.
+				await destroy_unwindowed_dependencies(self)
 
 			// set Context
 				// Context is preserved when it was already set before this build cycle.
@@ -1307,7 +1316,8 @@ component_portal.prototype.link_record = async function(value) {
 *        (`replace_entry_without_id`) and nothing is written: a remove with a null id
 *        clears the whole component in every language.
 * @returns {Promise<Object>} `{linked:[locator], refused:[{locator, reason}], total}`.
-*        `reason` is one of `data_limit`, `duplicate`, `api_error`, `not_stored`,
+*        `reason` is one of `cancelled` (the owner row lock was refused: the user kept a
+*        pending edit in the rows), `data_limit`, `duplicate`, `api_error`, `not_stored`,
 *        `refused_by_server`, `replace_entry_without_id`, or `replace_failed — …` (the
 *        replace removed the stored value and the server refused the new one; the note
 *        says whether the previous value could be restored).
@@ -1315,6 +1325,30 @@ component_portal.prototype.link_record = async function(value) {
 component_portal.prototype.link_records = async function(values, options={}) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return {linked: [], refused: (Array.isArray(values) ? values : []).map(value => ({locator: value, reason: 'cancelled'})), total: self.total ?? null}
+		}
+		try {
+			return await link_records_locked(self, values, options)
+		} finally {
+			release_rows()
+		}
+}//end link_records
+
+
+
+/**
+* LINK_RECORDS_LOCKED
+* The body of `link_records`, run under the owner row lock.
+* `self.link_records` (the restore re-entry) passes the held lock through.
+* @param {Object} self - The `component_portal` instance
+*/
+const link_records_locked = async function(self, values, options={}) {
 
 	// refused. Every locator that does not land is named here
 		const refused = []
@@ -1656,7 +1690,7 @@ component_portal.prototype.link_records = async function(values, options={}) {
 
 
 	return {linked: linked, refused: refused, total: total}
-}//end link_records
+}//end link_records_locked
 
 
 
@@ -1692,6 +1726,29 @@ component_portal.prototype.link_records = async function(values, options={}) {
 component_portal.prototype.add_new_element = async function(target_section_tipo) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await add_new_element_locked(self, target_section_tipo)
+		} finally {
+			release_rows()
+		}
+}//end add_new_element
+
+
+
+/**
+* ADD_NEW_ELEMENT_LOCKED
+* The body of `add_new_element`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const add_new_element_locked = async function(self, target_section_tipo) {
 
 	// created_section_id. Reset before the call so a failed add never leaves the
 	// previous creation's address behind for the button to open.
@@ -1756,7 +1813,7 @@ component_portal.prototype.add_new_element = async function(target_section_tipo)
 
 
 	return true
-}//end add_new_element
+}//end add_new_element_locked
 
 
 
@@ -1949,11 +2006,24 @@ component_portal.prototype.update_pagination_values = function(action) {
 * @param {string} options.tag.state     - Tag state (e.g. 'd' for default).
 * @param {string} options.tag.label     - Display label of the tag.
 * @param {string} options.tag.data      - Additional tag data payload.
-* @returns {Promise<HTMLElement|null>} The result of `self.render({render_level:'content'})`.
+* The owner row lock (common.js lock_rows) is acquired BEFORE `self.data` is
+* replaced: a pending editor value in the current rows refuses the filter (false)
+* with nothing changed (WC-2026-10-30-section-record-row-box).
+*
+* @returns {Promise<HTMLElement|null|false>} The result of
+*   `self.render({render_level:'content'})`, or false when the row lock was refused.
 */
-component_portal.prototype.filter_data_by_tag_id = function(options) {
+component_portal.prototype.filter_data_by_tag_id = async function(options) {
 
 	const self = this
+
+	// owner row lock, before the first mutation
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+
+	try {
 
 	// options
 		const tag = options.tag // object
@@ -1985,9 +2055,13 @@ component_portal.prototype.filter_data_by_tag_id = function(options) {
 		self.status = 'built'
 
 	// re-render always the content
-		return self.render({
+		return await self.render({
 			render_level : 'content'
 		})
+
+	} finally {
+		release_rows()
+	}
 }//end filter_data_by_tag_id
 
 
@@ -2003,11 +2077,24 @@ component_portal.prototype.filter_data_by_tag_id = function(options) {
 * Directly assigns from `self.datum.data` (no clone needed here because there is no
 * partial mutation of the datum — self.data simply points at the matching entry).
 *
-* @returns {Promise<HTMLElement|null>} The result of `self.render({render_level:'content'})`.
+* The owner row lock (common.js lock_rows) is acquired BEFORE `self.data` is
+* replaced: a pending editor value in the current rows refuses the reset (false)
+* with nothing changed (WC-2026-10-30-section-record-row-box).
+*
+* @returns {Promise<HTMLElement|null|false>} The result of
+*   `self.render({render_level:'content'})`, or false when the row lock was refused.
 */
-component_portal.prototype.reset_filter_data = function() {
+component_portal.prototype.reset_filter_data = async function() {
 
 	const self = this
+
+	// owner row lock, before the first mutation
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+
+	try {
 
 	// reset self.active_tag (important)
 	// Clearing self.active_tag tells link_record / unlink_record not to re-apply
@@ -2027,9 +2114,13 @@ component_portal.prototype.reset_filter_data = function() {
 		// }
 
 	// re-render content
-		return self.render({
+		return await self.render({
 			render_level : 'content'
 		})
+
+	} finally {
+		release_rows()
+	}
 }//end reset_filter_data
 
 
@@ -2086,19 +2177,55 @@ component_portal.prototype.get_search_value = function() {
 * indicator.  `destroy:false` is passed to `refresh` to preserve the portal node and
 * allow recovery from login-expiry scenarios without a full re-mount.
 *
+* Order (WC-2026-10-30-section-record-row-box): the owner row lock FIRST (it commits
+* typed-not-committed editor nodes of the current rows, and refuses — returning
+* false with nothing mutated — on a node it cannot commit), THEN the in-page
+* `check_unsaved_data({flush_only:true})` (flush auto-saveable edits; never a prompt,
+* never a page-wide reset: a page turn is an in-page operation), THEN the callback
+* and the refresh. A prompting check before the lock would ask "discard?" for a
+* value the lock commits cleanly.
+*
 * @param {Object} options              - Navigation options.
 * @param {Function} [options.callback] - Async function that updates `self.rqo.sqo`
 *                                        before the refresh.  Called and awaited before
 *                                        fetching new data.
-* @returns {Promise<boolean>} `false` if the container node is not found in the DOM;
-*                             `true` after a successful refresh.
+* @returns {Promise<boolean>} `false` if the row lock was refused or the container node
+*                             is not found in the DOM; `true` after a successful refresh.
 */
 component_portal.prototype.navigate = async function(options) {
 
 	const self = this
 
+	// owner row lock, before the first mutation (the callback)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await navigate_locked(self, options)
+		} finally {
+			release_rows()
+		}
+}//end navigate
+
+
+
+/**
+* NAVIGATE_LOCKED
+* The body of `navigate`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+* @param {Object} options - See navigate
+* @returns {Promise<boolean>}
+*/
+const navigate_locked = async function(self, options) {
+
 	// options
 		const callback = options.callback
+
+	// in-page flush (never prompts, never resets the page registry)
+		await check_unsaved_data({
+			flush_only : true
+		})
 
 	// callback execute
 	// The callback mutates self.rqo.sqo (offset, limit, etc.) before the refresh
@@ -2131,7 +2258,7 @@ component_portal.prototype.navigate = async function(options) {
 
 
 	return true
-}//end navigate
+}//end navigate_locked
 
 
 
@@ -2192,8 +2319,9 @@ component_portal.prototype.delete_locator = function(locator, ar_properties) {
 * SORT_DATA
 * Persists a manual drag-and-drop reorder of portal entries.
 *
-* Called by `on_drop` in `drag_and_drop.js` after the user drops a row at a new
-* position.  Sends a `sort_data` changed_data action to the server, which reorders
+* Called with ABSOLUTE keys by `perform_drop` in `drag_and_drop.js` (a delegated
+* row drop) and by the move-to-position modal (render_edit_component_portal.js
+* `open_move_to_position`).  Sends a `sort_data` changed_data action to the server, which reorders
 * the locator array in storage and returns the updated data.
 *
 * Clears `self.column_order_state` (FEJS-02) because a manual reorder supersedes any
@@ -2203,7 +2331,7 @@ component_portal.prototype.delete_locator = function(locator, ar_properties) {
 * Uses `refresh:false` in `change_value` then manually calls `self.refresh` with the
 * API response to avoid an extra round-trip.
 *
-* @see on_drop (drag_and_drop.js)
+* @see perform_drop / move_to_position_decision (drag_and_drop.js)
 * @verified 07-09-2023 Paco
 * @param {Object} options              - Reorder parameters.
 * @param {Object} options.value        - The locator object that was dragged.
@@ -2216,6 +2344,29 @@ component_portal.prototype.delete_locator = function(locator, ar_properties) {
 component_portal.prototype.sort_data = async function(options) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await sort_data_locked(self, options)
+		} finally {
+			release_rows()
+		}
+}//end sort_data
+
+
+
+/**
+* SORT_DATA_LOCKED
+* The body of `sort_data`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const sort_data_locked = async function(self, options) {
 
 	// FEJS-02: a manual drag-and-drop reorder diverges from the last column sort,
 	// so clear the (advisory) column-order indicator state.
@@ -2249,7 +2400,7 @@ component_portal.prototype.sort_data = async function(options) {
 
 
 	return api_response
-}//end sort_data
+}//end sort_data_locked
 
 
 
@@ -2283,6 +2434,29 @@ component_portal.prototype.sort_data = async function(options) {
 component_portal.prototype.sort_by_column = async function(column, direction) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await sort_by_column_locked(self, column, direction)
+		} finally {
+			release_rows()
+		}
+}//end sort_by_column
+
+
+
+/**
+* SORT_BY_COLUMN_LOCKED
+* The body of `sort_by_column`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const sort_by_column_locked = async function(self, column, direction) {
 
 	// sort_by_column changed_data
 	// (!) value must stay null: with null value and no id, the client
@@ -2318,7 +2492,7 @@ component_portal.prototype.sort_by_column = async function(column, direction) {
 
 
 	return api_response
-}//end sort_by_column
+}//end sort_by_column_locked
 
 
 
@@ -2402,6 +2576,29 @@ component_portal.prototype.unlink_record = async function(locator) {
 
 	const self = this
 
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await unlink_record_locked(self, locator)
+		} finally {
+			release_rows()
+		}
+}//end unlink_record
+
+
+
+/**
+* UNLINK_RECORD_LOCKED
+* The body of `unlink_record`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const unlink_record_locked = async function(self, locator) {
+
 	// ar_locators. Normalise to an array so single and multi removal share one path
 		const ar_locators = Array.isArray(locator)
 			? locator
@@ -2462,7 +2659,7 @@ component_portal.prototype.unlink_record = async function(locator) {
 
 
 	return true
-}//end unlink_record
+}//end unlink_record_locked
 
 
 

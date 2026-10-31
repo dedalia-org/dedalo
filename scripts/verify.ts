@@ -270,6 +270,7 @@ const TRIPWIRES = [
 	'test/unit/site_builder_csp_tripwire.test.ts',
 	'test/unit/client_limit_zero_tripwire.test.ts',
 	'test/unit/client_render_budget_native.test.ts',
+	'test/unit/client_row_dom_tripwire.test.ts',
 	'test/unit/client_prototype_contract_tripwire.test.ts',
 	'test/unit/client_dead_reference_tripwire.test.ts',
 	'test/unit/client_control_naming_tripwire.test.ts',

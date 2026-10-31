@@ -6451,6 +6451,10 @@ dd-modal.dd_presets::part(content) {
 * Included from component_portal.less file
 * Shared by section and portal.
 */
+.list_after > .no_records {
+  text-align: center;
+  text-wrap: unset;
+}
 .list_body {
   contain: style;
   display: grid;
@@ -6469,11 +6473,6 @@ dd-modal.dd_presets::part(content) {
 }
 .list_body > .content_data {
   display: contents;
-}
-.list_body > .content_data .no_records {
-  grid-column: 1/-1;
-  text-align: center;
-  text-wrap: unset;
 }
 .list_body:not(.layout_table) > .content_data > .section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) > .column:first-child {
   border-bottom-left-radius: 0.7rem;
@@ -7048,23 +7047,24 @@ dd-modal.dd_presets::part(content) {
   .list_body.layout_table > .content_data > .section_record > .column:last-child::after {
     content: none;
   }
-  .list_body.layout_table > .content_data > .section_record:not(.placeholder, .dragover, .dragging):hover::after,
-  .list_body.layout_table > .content_data > .section_record.dragover::after,
-  .list_body.layout_table > .content_data > .section_record.dragging::after {
+  .list_body.layout_table > .content_data > .section_record::after {
     content: '';
     position: absolute;
     inset: 0px;
     pointer-events: none;
     z-index: 1;
     border-radius: 3px;
+    border: 2px dashed transparent;
+    box-shadow: none;
+  }
+  .list_body.layout_table > .content_data > .section_record:not(.placeholder, .dragover, .dragging):hover::after {
     box-shadow: 0px 0px 5px 0px var(--color_grey_7);
   }
   .list_body.layout_table > .content_data > .section_record.dragover::after {
     box-shadow: inset 0px 0px 0px 2px var(--color_orange_dedalo);
   }
   .list_body.layout_table > .content_data > .section_record.dragging::after {
-    box-shadow: none;
-    border: 2px dashed var(--color_orange_dedalo);
+    border-color: var(--color_orange_dedalo);
   }
   .list_body.layout_table > .content_data > .section_record:last-child > .column:first-child {
     border-bottom-left-radius: 0.7rem;
@@ -21031,6 +21031,11 @@ body.inspector_resizing {
 * over the value, the note icon pinned right — is the look this subsystem has
 * always had, and preserving it is the requirement.
 *
+* ROW BOX (WC-2026-10-30-section-record-row-box): 'mini' is a TABLE layout — its
+* list_body carries `.layout_table`, so content_data and every row are column
+* subgrids of the mini grid (list.less 'layout_table'), never `display: contents`.
+* 'history' is a LIST layout and keeps its own per-row grid.
+*
 * The full-width tool list needs none of this: it renders through the ordinary
 * section list and inherits the ordinary list styling.
 */
@@ -21051,9 +21056,6 @@ body.inspector_resizing {
 }
 .tm_list.tm_view_mini .list_body > .header_wrapper_list .head_column .name {
   margin-left: 0.1rem;
-}
-.tm_list.tm_view_mini .list_body > .content_data > .section_record {
-  display: contents;
 }
 .tm_list.tm_view_mini .list_body > .content_data > .section_record .column_section {
   font-size: 0.82rem;
@@ -21140,10 +21142,11 @@ body.inspector_resizing {
 .tm_list.tm_view_mini .list_body > .content_data > .section_record .column:nth-child(4) img.draw {
   max-height: 1.2rem;
 }
-.tm_list.tm_view_history .list_body {
+.tm_list.tm_view_history .list_body,
+.tm_list.tm_view_history .list_body > .content_data {
   display: contents;
 }
-.tm_list.tm_view_history .no_records {
+.tm_list.tm_view_history > .list_after > .no_records {
   position: relative;
   top: 0px;
 }
@@ -21207,12 +21210,6 @@ body.inspector_resizing {
   display: block;
   padding: 0;
   width: 100%;
-}
-.tm_list.tm_view_mini > .list_body > .content_data,
-.tm_list.tm_view_history > .list_body > .content_data,
-.tm_list.tm_view_mini .list_body > .content_data,
-.tm_list.tm_view_history .list_body > .content_data {
-  display: contents;
 }
 .tm_list.tm_view_mini > .list_body,
 .tm_list.tm_view_history > .list_body {
@@ -25390,22 +25387,25 @@ body.inspector_resizing {
   display: flex;
   align-items: center;
 }
-.component_portal > .content_data .references,
-.portal > .content_data .references {
+.component_portal > .list_after .references,
+.portal > .list_after .references {
+  flex: 0 0 100%;
   margin-top: 0.75em;
   margin-left: 1rem;
 }
-.component_portal > .content_data .references > *,
-.portal > .content_data .references > * {
+.component_portal > .list_after .references > *,
+.portal > .list_after .references > * {
   width: 100%;
 }
-.component_portal > .content_data .references > div,
-.portal > .content_data .references > div {
+.component_portal > .list_after .references > div,
+.portal > .list_after .references > div {
   margin-bottom: 0.5em;
   opacity: 0.55;
 }
-.component_portal > .content_data .references > li,
-.portal > .content_data .references > li {
+.component_portal > .list_after .references > li,
+.portal > .list_after .references > li {
+  display: flex;
+  align-items: center;
   padding-left: 2em;
   line-height: 1.25rem;
 }
@@ -25424,14 +25424,14 @@ body.inspector_resizing {
   height: auto;
   min-height: 2rem;
   min-width: 2rem;
-  opacity: 0.1;
   cursor: move;
   position: absolute;
   top: 0;
   left: -2.2rem;
   width: 2.2rem;
   height: 2.5rem;
-  opacity: 1;
+  opacity: 0;
+  transition: opacity 0.15s ease;
   background-color: var(--color_grey_15);
   display: block;
   z-index: 2;
@@ -25442,47 +25442,30 @@ body.inspector_resizing {
 .portal .drag.icon:hover {
   background-color: var(--color_orange_dedalo);
 }
-.component_portal .drag.icon.dragging,
-.portal .drag.icon.dragging {
-  background-color: var(--color_hilite_yellow);
-  cursor: move;
-  border-radius: 0.33rem;
+@media not screen, screen and (min-width: 1025px) {
+  .component_portal .section_record:is(:hover, :focus-within) > .column_section_id .drag.icon,
+  .portal .section_record:is(:hover, :focus-within) > .column_section_id .drag.icon,
+  .component_portal .drag.icon:focus-visible,
+  .portal .drag.icon:focus-visible {
+    opacity: 1;
+  }
 }
-.component_portal.dragover,
-.portal.dragover {
+.component_portal.drop_target,
+.portal.drop_target {
   background-color: var(--color_white);
   outline: 4px dotted var(--color_orange_dedalo);
   z-index: 3;
   opacity: 0.5;
 }
-.component_portal .drop,
-.portal .drop {
-  z-index: 1;
-  display: block;
-  position: absolute;
-  left: 0px;
+.component_portal .section_record.dragging > .column_section_id .drag.icon,
+.portal .section_record.dragging > .column_section_id .drag.icon {
+  opacity: 1;
+  background-color: var(--color_hilite_yellow);
 }
-.component_portal .drop.dragover,
-.portal .drop.dragover {
-  background-color: rgba(204, 204, 204, 0.3);
+.component_portal .section_record.dragover,
+.portal .section_record.dragover {
   outline: 3px dotted var(--color_orange_dedalo);
-  z-index: 3;
-  width: 100%;
-}
-.component_portal .drag_section_id,
-.portal .drag_section_id {
-  width: 100%;
-  text-align: left;
-  color: var(--color_black);
-  font-size: 1.3em;
-  padding-left: 2px;
-}
-.component_portal .draggable.dragover,
-.portal .draggable.dragover {
-  background-color: var(--color_white);
-  outline: 4px dotted var(--color_orange_dedalo) !important;
-  z-index: 3;
-  opacity: 0.5;
+  outline-offset: -3px;
 }
 .component_portal.search .content_data,
 .portal.search .content_data {
@@ -25613,7 +25596,7 @@ body.inspector_resizing {
   position: absolute;
   width: 100%;
   height: 100%;
-  display: grid;
+  display: none;
   grid-template-columns: 73px auto 73px;
   grid-template-rows: minmax(3rem, auto) 2fr minmax(3rem, auto);
   overflow: hidden;
@@ -25716,6 +25699,10 @@ body.inspector_resizing {
 .portal.view_mosaic > .list_body > .content_data .sr_mosaic_hover > .button_alt_container > .button.info {
   pointer-events: none;
 }
+.component_portal.view_mosaic > .list_body > .content_data > .section_record:is(:hover, :focus-within) > .sr_mosaic_hover,
+.portal.view_mosaic > .list_body > .content_data > .section_record:is(:hover, :focus-within) > .sr_mosaic_hover {
+  display: grid;
+}
 .component_portal.view_mosaic > .list_body > .content_data > .section_record,
 .portal.view_mosaic > .list_body > .content_data > .section_record {
   position: relative;
@@ -25786,9 +25773,14 @@ body.inspector_resizing {
 .portal.view_mosaic.edit > .list_body > .content_data > .section_record .column > .wrapper_component {
   height: inherit;
 }
-.component_portal.view_mosaic.edit > .list_body > .content_data > .section_record.mosaic_over,
-.portal.view_mosaic.edit > .list_body > .content_data > .section_record.mosaic_over {
+.component_portal.view_mosaic.edit > .list_body > .content_data > .section_record:hover,
+.portal.view_mosaic.edit > .list_body > .content_data > .section_record:hover {
   outline: 1px solid var(--color_orange_dedalo);
+  z-index: 2;
+}
+.component_portal.view_mosaic.edit > .list_body > .content_data > .section_record.dragover,
+.portal.view_mosaic.edit > .list_body > .content_data > .section_record.dragover {
+  outline: 3px dotted var(--color_orange_dedalo);
   z-index: 2;
 }
 .component_portal.view_mosaic.list > .list_body > .content_data > .component_image,
@@ -25822,8 +25814,8 @@ body.inspector_resizing {
 .column .portal.view_line .label {
   display: none;
 }
-.component_portal.view_line > .content_data > .component_placeholder,
-.portal.view_line > .content_data > .component_placeholder {
+.component_portal.view_line > .list_after > .component_placeholder,
+.portal.view_line > .list_after > .component_placeholder {
   padding-left: 0.5rem;
   color: var(--fg_muted);
   font-style: italic;
@@ -26142,8 +26134,16 @@ body.inspector_resizing {
 .portal.view_line.edit > .content_data > .section_record.view_mini > .column:first-of-type {
   margin-right: 0.33rem;
 }
-.component_portal.view_line.edit > .content_data .references > li,
-.portal.view_line.edit > .content_data .references > li {
+.component_portal.view_line.edit > .content_data > .section_record.dragover,
+.portal.view_line.edit > .content_data > .section_record.dragover {
+  outline: 2px dotted var(--color_orange_dedalo);
+}
+.component_portal.view_line.edit > .content_data > .section_record.dragging,
+.portal.view_line.edit > .content_data > .section_record.dragging {
+  outline: 1px dashed var(--color_orange_dedalo);
+}
+.component_portal.view_line.edit > .list_after .references > li,
+.portal.view_line.edit > .list_after .references > li {
   padding-left: 0rem;
 }
 .component_portal.view_line.search > .content_data,
@@ -26546,15 +26546,16 @@ body.inspector_resizing {
 .portal.view_indexation > .content_data .section_record.list.view_text > .no_tag:active {
   opacity: 0.5;
 }
-.component_portal.view_indexation > .content_data .list_footer,
-.portal.view_indexation > .content_data .list_footer {
+.component_portal.view_indexation > .list_after > .list_footer,
+.portal.view_indexation > .list_after > .list_footer {
+  display: flow-root;
   width: 100%;
   padding: 0.5rem;
   padding-right: 0px;
   padding-top: 0.75rem;
 }
-.component_portal.view_indexation > .content_data .list_footer > .button_remove_filter,
-.portal.view_indexation > .content_data .list_footer > .button_remove_filter {
+.component_portal.view_indexation > .list_after > .list_footer > .button_remove_filter,
+.portal.view_indexation > .list_after > .list_footer > .button_remove_filter {
   float: right;
 }
 .component_portal.view_indexation.list,

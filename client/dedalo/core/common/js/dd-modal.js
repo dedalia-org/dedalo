@@ -31,6 +31,9 @@
  *     de-registration and modal_stack removal always happen (never delegated to
  *     a caller-supplied on_close, which callers routinely overwrite).
  *   - Unsaved-data guard: _closeModal() awaits check_unsaved_data() before hiding.
+ *     A caller that owns editors inside the modal may set `before_close`: it is
+ *     awaited FIRST, so the modal's own rows commit their typed values before the
+ *     page-wide guard judges (and, on OK, resets) the unsaved registry.
  *     Concurrent closes are serialised — the guard returns the in-flight promise.
  *   - Modal stack: window.modal_stack[] tracks all mounted dd-modal elements;
  *     Escape always targets the topmost (last) entry.
@@ -44,6 +47,10 @@
  *   remove_miniModal()  — removes the '_' minimize button from the shadow DOM
  *
  * Properties set externally (typically by attach_to_modal callers):
+ *   before_close  {Function|null} — awaited with (this) BEFORE the unsaved-data guard,
+ *                                   while the modal is still shown; resolving to false
+ *                                   keeps the modal open (nothing else runs). Unset →
+ *                                   the close sequence is exactly the guard-first one.
  *   on_close      {Function|null} — called with (this) after modal visibility is removed;
  *                                   also triggers service_autocomplete.destroy if present
  *   publish_close {Function|null} — called with (this) to fire the 'modal_close' event
@@ -121,6 +128,7 @@ class DDModal extends HTMLElement {
 		this._modalVisible = false;
 		this.mini = false;
 		this.on_close = null;
+		this.before_close = null;
 		this.publish_close = null;
 		this._closing = null; // in-flight close promise; see _closeModal()
 		this.attachShadow({ mode: 'open' });
@@ -940,6 +948,12 @@ class DDModal extends HTMLElement {
 	 *
 	 *   1. Guard: if the modal is minimized (this.mini === true), return true
 	 *      immediately — minimized modals cannot be closed without restoring first.
+	 *   1b. before_close: if set, awaited with (this) while the modal is still shown;
+	 *      false keeps it open. It lets the modal's own editors commit BEFORE step 2:
+	 *      check_unsaved_data is page-wide and its OK runs reset_unsaved_data, so a
+	 *      typed-not-blurred value of an editor inside the modal would otherwise be
+	 *      judged unsaved and discarded by the very close that should commit it
+	 *      (the mosaic alt table, view_mosaic_edit_portal).
 	 *   2. Unsaved-data check: unless this.transient===true, awaits check_unsaved_data(),
 	 *      which shows a browser confirm dialog if any component in the page has pending
 	 *      changes. Returns false without closing if the user cancels. A transient modal
@@ -991,6 +1005,23 @@ class DDModal extends HTMLElement {
 		// A minimized modal is not closed — the user must restore it first.
 		if (this.mini) {
 			return true;
+		}
+
+		// The modal's own editors commit first (before_close), so the page-wide
+		// guard below sees only what they could not commit. Awaited while the
+		// modal is still shown; false keeps it open.
+		// A throwing hook is logged and the close falls through to the guard,
+		// which still sees whatever the hook did not commit.
+		if (typeof this.before_close === 'function') {
+			let proceed = true;
+			try {
+				proceed = await this.before_close(this);
+			} catch (error) {
+				console.error('dd-modal: before_close failed:', error);
+			}
+			if (proceed === false) {
+				return false;
+			}
 		}
 
 		// Prompt the user if there are unsaved changes anywhere on the page.

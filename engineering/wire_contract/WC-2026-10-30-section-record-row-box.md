@@ -257,10 +257,12 @@ stay bounded in the DOM without ever dropping an edit the user typed.
   signal, which also removes the binders' `dragend`; both binders register an
   abort listener that releases `tmp` and the `'drag'` hold when — and only
   when — that window holds the drag in progress.
-- **Legacy, removed at stage 5:** `on_dragstart`, `on_dragstart_mosaic`,
-  `on_dragover`, `on_dragleave`, `on_dragend`, `get_mosaic_transfer_data`,
-  `legacy_portal_payload`, `legacy_target_index` — pinned shrink-only by the
-  gate below. THIS LIST IS THE BANK: the gate's legacy set must equal it, and
+- **Legacy, removed at stage 5:** none remain. Stage 5 (2026-10-31) deleted
+  the per-node dragstart/dragstart-mosaic/dragover/dragleave/dragend listeners,
+  the kind-less mosaic payload builder, and the kind-less payload upgrade and
+  page-key target reading of the drop adapter; every portal view binds through
+  the delegated binders — pinned shrink-only by the
+  gate below (now at zero). THIS LIST IS THE BANK: the gate's legacy set must equal it, and
   every top-level binding of `drag_and_drop.js` is classified (core export,
   core internal, legacy), so adding a legacy path means editing this entry.
 - **Gate:** `test/unit/client_relation_move_native.test.ts` §I (hermetic,
@@ -339,3 +341,108 @@ suites named above.
 - An orphan leaves only through its own successful save, a supersession, the
   sweep finding nothing left to send (never a password orphan), or
   `reset_unsaved_data` (the user's discard); it is destroyed then.
+
+## Addendum 2026-10-31 — stage 5 (atomic integration): the gates
+
+- **`test/unit/client_row_dom_tripwire.test.ts`** (new, hermetic, isolated
+  gate; registered in `engineering/TRIPWIRES.md`, `scripts/verify.ts` and
+  `scripts/ci/hermetic.sh` `HERMETIC_TRIPWIRES`). Its scope is DERIVED: every
+  browser source that imports the row engine (`window_section_rows` of
+  `section.js` bound through the served tree, or `record_window.js`) plus the
+  two named drag modules (`drag_and_drop.js`, the coins tool render). Legs:
+  - every banned spelling of the old row DOM is gone from the scope
+    (`content_data.childNodes`, `content_data[0] =`, `node_of(`, `materialize:`,
+    `drag_nodes`, `get_section_records(`, `add_section_record_drag_and_drop`,
+    `closest('.section_record')`, a per-row listener without the window
+    `signal`, a row node's `paginated_key` / `row_key` / `locator` read in drag
+    code, `paginator.offset` outside the navigation owners, a render / refresh
+    of a `record_at(` row) — each with a planted positive control;
+  - `record_window.js` imports only the `row_window.js` constants;
+  - the ROW DOM INVARIANT, run: every door-importing `view_*.js` (a coverage
+    leg fails on a view with neither a case nor a named exemption; the
+    exemption list — `view_text_list_portal`, `view_mini_portal`,
+    `view_indexation_list_portal`, `render_search_component_portal`, inline /
+    search shapes — is shrink-only) rendered over a counting fake DOM with the
+    REAL `record_window.js`, `common.js`, `row_hover.js` and `drag_and_drop.js`
+    at N ∈ {0, 3, 201}, full and content render: `children === N`, every child
+    a `.section_record` of its index, `N − 200` childless placeholders, no row
+    listener, roles by layout after the connected frames, `.list_after` the
+    single sibling after `list_body` / `content_data` and never inside
+    `role=table`, references and no_records inside it; `place_list_after` a
+    strict no-op without pointers and the `common.render` content branch
+    calling it;
+  - LESS: no `--box_width`, no `.row_window_spacer` outside ts_object, no
+    `display: contents` on the base section's content_data, no subgrid without
+    the `.layout_table` chain, no `overflow` clip and no list-body `z-index`
+    on the row chain. Six live rules are banked by EXACT spelling in
+    `LESS_PENDING` (reason: the stage-6 removals of this entry — four
+    `.row_window_spacer` rules of `list.less`, two `--box_width` rules of
+    `section_record.less`); a banked rule that is gone is red, so the bank
+    only shrinks.
+- **`client_render_budget_native`** rewritten for the record window (import
+  binding of `window_section_rows`, the destroy order through
+  `destroy_row_windows`); **`client_tm_list_destroy_race`** asserts
+  `mark_empty_columns` on the row render and its destroyed-row path;
+  **`client_control_naming_tripwire`** builds the row-box chain
+  (`list_body[table] > content_data[rowgroup] > section_record[row] >
+  .column[cell] > wrapper[group]`) through the real `apply_table_semantics`
+  and asserts the table label never names a column control.
+- **Browser suites** (`bun run test:client`, registered in `test_registry.js`):
+  `test_render_budget` (section / portal edit / tool-mosaic blocks rewritten
+  to `record_windows.rows`: `children === entries`, built ≤ 200, leaf
+  placeholders, `ar_instances` = built, `reveal(n)` in place, a far scroll
+  releasing rows, `record_windows === null` after destroy, tool-mosaic drag
+  source + touch pick + the cataloging card reaching a `ts_object` term drop;
+  the pure `row_window` and tree blocks byte-identical), `test_row_invariant`
+  (new), `test_portal_row_drag` (new; the 360px handle hit-test is stage 6),
+  and `a11y_surfaces.js`: the two CLI-10 row surfaces take the row-box chain,
+  and five row surfaces filled by the REAL window — `row_table`, `row_list`,
+  `row_table_placeholders`, `row_table_empty`, `row_table_empty_no_header` —
+  join `engineering/client_a11y_budget.json` `required_surfaces`.
+- **Floors to bank before this addendum's commit** (measured, never
+  hand-written; both are outside a hermetic run):
+  - unit per-file floors, in the locked image: `bun run ci:local --docker
+    --record-unit-baseline --new
+    test/unit/client_row_dom_tripwire.test.ts,test/unit/client_modal_before_close_native.test.ts,test/unit/client_row_lock_hover_native.test.ts,test/unit/tool_numisdata_order_coins_drop_native.test.ts,test/unit/client_record_window_native.test.ts`,
+    plus a re-record of the reshaped `client_relation_move_native`,
+    `client_render_budget_native`, `client_tm_list_destroy_race`.
+    Until then `tier_wiring_tripwire` (leg B) and the db tier's
+    `unit_baseline.ts --check` are RED by design, naming exactly these files;
+    `engineering/unit_baseline.json` lands in the same commit as the gates;
+  - client inventory: a green `bun run test:client` (reseed on), then
+    `--update`, so `engineering/client_gate_inventory.json` `suite_floor` /
+    `mocha_test_floor` include `test_row_invariant` and `test_portal_row_drag`.
+
+## Addendum 2026-10-31 — stage 5: the WebKit hover/drag probe (owner ruling 9)
+
+- **Measured** (the one-off manual WebKit probe, owner ruling 9 of
+  2026-10-31): Playwright WebKit 2370 against the REAL compiled `main.css`, a
+  `.layout_table` list. When the ring `::after` was generated only by the
+  state rules (`:hover` / `.dragover` / `.dragging` set `content`,
+  `position`, `inset`), WebKit re-sized the hovered subgrid row's tracks
+  alone: **165 cells left the table's columns during 5 hovers**. Chromium:
+  **0**. Fix (`list.less`, the ring block): the `::after` is generated by a
+  STATELESS rule in every state (`border: 2px dashed transparent`), and the
+  states change paint only (`box-shadow`, `border-color`). After the fix
+  WebKit: **0** cells off their column over the same hovers, and **0** across
+  the `.dragover` / `.dragging` toggles. This is the probe's evidence for
+  hover and drag; the **post-pagination header-subgrid probe** (stage-4
+  addendum above) stays manual and PENDING.
+- **Gate:** `test/unit/client_row_dom_tripwire.test.ts` — CSS STATE leg,
+  reading the COMPILED `client/dedalo/core/page/css/main.css` (at-rule
+  context kept): a selector carrying `.layout_table` positively whose subject
+  is a row or a row's direct child, with `:hover` / `:focus-within` /
+  `.dragover` / `.dragging` / `.selected` on either, sets no `content`,
+  `display`, `position`, `inset` (nor its longhands); every pseudo-element it
+  styles is generated (`content` not `none`/`normal`) by a stateless rule of
+  the same at-rule context matching a superset of its elements. Planted
+  controls: the pre-fix ring shape is red (9 box + 4 ungenerated findings),
+  the fixed shape green; the pre-fix `list.less` compiled through the real
+  `css:build` reds the live leg (restored after). Honest limit: unmarked
+  generic row rules are outside the leg (measured: none sets a box property
+  on a state today).
+- **Browser half:** `test_section_list_header` (ring test) holds the same law
+  in the resolved cascade: at rest the ring `::after` is generated
+  (`content: ""`, absolute) and paints nothing; a hover arm on a pseudo counts
+  as a ring when it paints it (`box-shadow` / `outline` / `border-color`), not
+  only when it sets `content`.
