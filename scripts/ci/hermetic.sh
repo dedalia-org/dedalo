@@ -217,6 +217,7 @@ HERMETIC_TRIPWIRES=(
 	# --- security tier, added 2026-08-03 (see the coverage-hole note above) ---
 	test/unit/xss_csp_tripwire.test.ts
 	test/unit/error_report_xss_tripwire.test.ts
+	test/unit/orphaned_unsaved_writers_tripwire.test.ts
 	test/unit/security_audit_2026_07_23_tripwire.test.ts
 	test/unit/external_law_registry_tripwire.test.ts
 	test/unit/no_remote_code_tripwire.test.ts

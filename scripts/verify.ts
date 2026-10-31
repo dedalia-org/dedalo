@@ -174,6 +174,7 @@ const TRIPWIRES = [
 	'test/unit/no_install_surface_tripwire.test.ts',
 	'test/unit/xss_csp_tripwire.test.ts',
 	'test/unit/error_report_xss_tripwire.test.ts',
+	'test/unit/orphaned_unsaved_writers_tripwire.test.ts',
 	'test/unit/security_audit_2026_07_23_tripwire.test.ts',
 	'test/unit/human_write_scope_tripwire.test.ts',
 	'test/unit/tool_permission_census_tripwire.test.ts',

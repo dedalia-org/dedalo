@@ -22,10 +22,21 @@
 * - Attach keyboard shortcuts and other global event bindings defined in tool
 *   configuration objects via set_tool_event().
 *
+* - Expose read-only SNAPSHOTS of both registries (get_unsaved_instances,
+*   uncommitted_nodes_snapshot) and a read-only VIEW of the ORPHANED-UNSAVED
+*   set (orphaned_unsaved) for the row window's edit-safety pass
+*   (engineering/wire_contract/WC-2026-10-30-section-record-row-box.md,
+*   addendum "edit-safety primitives"): a row may only be released/retired once
+*   nothing in it is pending, and a dirty instance that outlives its row is
+*   kept here until it is saved, superseded or the user discards it.
+*
 * Exports: events_init, set_before_unload, register_unsaved_instance,
 *          deregister_unsaved_instance, register_uncommitted_input,
-*          deregister_uncommitted_input, reset_unsaved_data, when_in_dom,
-*          when_in_viewport, dd_request_idle_callback, set_tool_event.
+*          deregister_uncommitted_input, reset_unsaved_data,
+*          get_unsaved_instances, uncommitted_nodes_snapshot, orphaned_unsaved,
+*          claim_orphaned_unsaved_writers (a once-only capability),
+*          when_in_dom, when_in_viewport, dd_request_idle_callback,
+*          set_tool_event.
 *          yield_to_main is a module-private helper (not exported).
 */
 
@@ -90,6 +101,40 @@ if (typeof window!=='undefined' && typeof window.unsaved_data==='undefined') {
 // listener in events_init and retired on 'change'/'focusout' (by then the
 // component either registered itself as dirty or the value was back at db_data).
 	const uncommitted_nodes = new Set()
+
+// orphaned_unsaved_set. Component instances that still hold an unsaved change
+// but whose ROW was torn down (released, retired or destroyed by the row
+// window — engineering/wire_contract/WC-2026-10-30-section-record-row-box.md,
+// addendum "edit-safety primitives"). component_common.orphan_unsaved_instance
+// is the one door that adds to it (the writer capability): the orphan is spliced
+// out of its caller's ar_instances (so no destroy cascade can deregister it)
+// and removed from the instance cache (so a rebuilt row gets a FRESH instance
+// from the server value and can never re-adopt the orphan with its stale
+// caller). Because the orphan is no longer in the instance cache,
+// save_unsaved_components sweeps THIS set as well as get_all_instances(). An
+// orphan leaves it (the writer capability, component_common only) in exactly
+// three ways — a successful save of its own, SUPERSESSION (a live instance of
+// the same field sent a newer save, or the orphan has nothing left to send),
+// or the user's explicit discard (reset_unsaved_data below) — and is destroyed
+// then.
+// (!) MODULE-PRIVATE. Other modules get the read-only view `orphaned_unsaved`
+// (no add/delete/clear exists on it). The two writers are module-private too:
+// they leave this module only as a capability handed out ONCE
+// (claim_orphaned_unsaved_writers), which component_common.js claims at load —
+// a second claimant throws (test/unit/component_settle_native.test.ts, W-legs).
+	const orphaned_unsaved_set = new Set()
+
+/**
+* ORPHANED_UNSAVED
+* Read-only view of orphaned_unsaved_set: membership, size and iteration only.
+* A frozen object, so no caller can mutate the set through it.
+*/
+export const orphaned_unsaved = Object.freeze({
+	has		: (instance) => orphaned_unsaved_set.has(instance),
+	get size() { return orphaned_unsaved_set.size },
+	values	: () => orphaned_unsaved_set.values(),
+	[Symbol.iterator] : () => orphaned_unsaved_set.values()
+})
 
 /**
 * PRUNE_UNCOMMITTED_NODES
@@ -163,7 +208,15 @@ const update_unsaved_data = function() {
 
 	prune_uncommitted_nodes()
 
-	window.unsaved_data = (unsaved_instances.size > 0 || uncommitted_nodes.size > 0 || unsaved_asserted===true)
+	// (!) orphans count on their own: an orphan normally stays registered in
+	// unsaved_instances too, but the guard must not depend on that coincidence —
+	// an orphan IS an unsaved edit with no row left on screen.
+	window.unsaved_data = (
+		unsaved_instances.size > 0 ||
+		uncommitted_nodes.size > 0 ||
+		orphaned_unsaved_set.size > 0 ||
+		unsaved_asserted===true
+	)
 
 	return window.unsaved_data
 }//end update_unsaved_data
@@ -219,16 +272,142 @@ export const deregister_unsaved_instance = function(instance) {
 * retires its own entry, and what remains was not flushed.) Nothing else may
 * clear state it does not own.
 *
+* ORPHANS (orphaned_unsaved) are part of "the remaining changes": they are
+* dropped from the set and DESTROYED here — nothing else holds them (they left
+* their caller's ar_instances and the instance cache when they were orphaned),
+* so without this sweep a discarded orphan would leak for the page's lifetime.
+* The destroy is asynchronous and not awaited (this reset is synchronous for
+* all its callers); a failing destroy is reported, never thrown.
+*
 * @returns {boolean} The recomputed window.unsaved_data value (false here)
 */
 export const reset_unsaved_data = function() {
 
+	const orphans = [...orphaned_unsaved_set]
+
 	unsaved_instances.clear()
 	uncommitted_nodes.clear()
+	orphaned_unsaved_set.clear()
 	unsaved_asserted = false
+
+	// destroy the discarded orphans (their edit is the one the user accepted to lose)
+	for (const orphan of orphans) {
+		if (orphan && typeof orphan.destroy==='function' && orphan.status!=='destroyed') {
+			Promise.resolve()
+				.then(() => orphan.destroy(true, true, false))
+				.catch((error) => {
+					console.error('[events] reset_unsaved_data: could not destroy a discarded orphan', orphan?.id, error)
+				})
+		}
+	}
 
 	return update_unsaved_data()
 }//end reset_unsaved_data
+
+
+
+/**
+* GET_UNSAVED_INSTANCES
+* Snapshot of the component instances currently registered as holding a
+* genuine unsaved change. An ARRAY COPY: callers (the row window's pinning and
+* flush passes, component_common.settle) iterate it while saves retire
+* entries, and must never be able to mutate the registry through it.
+*
+* @returns {Array<Object>} The registered instances (copy)
+*/
+export const get_unsaved_instances = function() {
+
+	return [...unsaved_instances]
+}//end get_unsaved_instances
+
+
+
+/**
+* ADD_ORPHANED_UNSAVED (module-private)
+* Writer door of orphaned_unsaved_set. Reached only through the capability
+* claim_orphaned_unsaved_writers hands out (component_common.js holds it).
+* Re-derives window.unsaved_data: an orphan is an unsaved edit on its own.
+*
+* @param {Object} instance - The orphaned component instance
+* @returns {boolean} The recomputed window.unsaved_data value (true here)
+*/
+const add_orphaned_unsaved = function(instance) {
+
+	orphaned_unsaved_set.add(instance)
+
+	return update_unsaved_data()
+}//end add_orphaned_unsaved
+
+
+
+/**
+* DELETE_ORPHANED_UNSAVED (module-private)
+* Writer door of orphaned_unsaved_set: an orphan was released (its save
+* succeeded) or superseded. Reached only through the capability (see
+* claim_orphaned_unsaved_writers); the caller destroys the instance.
+* Re-derives window.unsaved_data.
+*
+* @param {Object} instance - The orphan to drop
+* @returns {boolean} true when the instance was an orphan
+*/
+const delete_orphaned_unsaved = function(instance) {
+
+	const was_orphan = orphaned_unsaved_set.delete(instance)
+	update_unsaved_data()
+
+	return was_orphan
+}//end delete_orphaned_unsaved
+
+
+
+// orphaned_unsaved_writers_claimed. The writer capability is handed out ONCE.
+	let orphaned_unsaved_writers_claimed = false
+
+/**
+* CLAIM_ORPHANED_UNSAVED_WRITERS
+* THE one way to obtain the orphaned_unsaved_set writers: a frozen
+* {add, delete} capability, handed out exactly ONCE per page (per module
+* instance). component_common.js claims it while it is evaluated, so any later
+* claim — from a tool, a view, anything — THROWS; and a module that claimed it
+* first makes component_common.js throw at load. Either way a second writer is
+* loud, whatever spelling (alias, namespace, bracket access) it reaches the
+* export through. Gate: test/unit/component_settle_native.test.ts (W-legs).
+*
+* @returns {{add: function(Object): boolean, delete: function(Object): boolean}}
+* @throws {Error} when the capability was already claimed
+*/
+export const claim_orphaned_unsaved_writers = function() {
+
+	if (orphaned_unsaved_writers_claimed===true) {
+		throw new Error('[events] the orphaned_unsaved writers were already claimed (component_common.js owns them)')
+	}
+	orphaned_unsaved_writers_claimed = true
+
+	return Object.freeze({
+		add		: add_orphaned_unsaved,
+		delete	: delete_orphaned_unsaved
+	})
+}//end claim_orphaned_unsaved_writers
+
+
+
+/**
+* UNCOMMITTED_NODES_SNAPSHOT
+* Snapshot of the form fields being typed into whose value has not reached
+* its component instance yet (see uncommitted_nodes above). Pruned first, so
+* only nodes still in the document are listed. An ARRAY COPY, taken by the row
+* window BEFORE it dispatches a synthetic 'change' — the document-level capture
+* listener (events_init commit_handler) removes a node from the live Set on
+* EVERY 'change', so the live Set cannot be iterated across a dispatch.
+*
+* @returns {Array<HTMLElement>} The uncommitted nodes (copy)
+*/
+export const uncommitted_nodes_snapshot = function() {
+
+	prune_uncommitted_nodes()
+
+	return [...uncommitted_nodes]
+}//end uncommitted_nodes_snapshot
 
 
 
