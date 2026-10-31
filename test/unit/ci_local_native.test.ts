@@ -93,6 +93,8 @@ import {
 	INSTANCE_LANES,
 	instanceLanesEnv,
 	instanceLanesFault,
+	LANES_ALONE_MIN_BYTES,
+	LANES_BESIDE_DB_MIN_BYTES,
 	keepRunLogs,
 	MAX_UNIT_BINS,
 	orphanCiVolumes,
@@ -708,18 +710,42 @@ describe('stage durations — each stage is timed from its marker to the next', 
 	});
 });
 
-describe('instance lanes — opt-in (--instance-lanes 3), serial by default', () => {
+describe('instance lanes — the default follows the Docker VM; the flag decides', () => {
 	const args = (flags: string[], values: Record<string, string> = {}) => ({
 		flags: new Set(flags),
 		values: new Map(Object.entries(values)),
 	});
 
-	test('serial by DEFAULT everywhere (lanes beside the db tier overran a 7.6 GiB VM); the flag opts in', () => {
-		expect(instanceLanesEnv(args(['--docker']))).toEqual({ DEDALO_CI_INSTANCE_LANES: '1' });
-		expect(instanceLanesEnv(args([]))).toEqual({ DEDALO_CI_INSTANCE_LANES: '1' });
+	test('default by the Docker VM: lanes beside the db tier only with >= 14 GiB, alone with >= 6 GiB', () => {
+		const GiB = 1024 ** 3;
+		const lanes = (
+			flags: string[],
+			vm?: { memBytes: number; besideDbTier: boolean },
+			values = {},
+		) => instanceLanesEnv(args(flags, values), vm).DEDALO_CI_INSTANCE_LANES;
+		const L = String(INSTANCE_LANES);
+		// measured: 7.6 GiB beside the db tier overran (40 → 66 min); 15.6 GiB held it (peak 11.3)
+		expect(lanes(['--docker'], { memBytes: 7.6 * GiB, besideDbTier: true })).toBe('1');
+		expect(lanes(['--docker'], { memBytes: 15.6 * GiB, besideDbTier: true })).toBe(L);
 		expect(
-			instanceLanesEnv(args(['--docker'], { '--instance-lanes': String(INSTANCE_LANES) })),
-		).toEqual({ DEDALO_CI_INSTANCE_LANES: String(INSTANCE_LANES) });
+			lanes(['--docker'], { memBytes: LANES_BESIDE_DB_MIN_BYTES - 1, besideDbTier: true }),
+		).toBe('1');
+		// alone (no db tier beside it): 7.6 GiB held it (peak 3.6 GiB, 40 → 20 min)
+		expect(lanes(['--docker'], { memBytes: 7.6 * GiB, besideDbTier: false })).toBe(L);
+		expect(lanes(['--docker'], { memBytes: LANES_ALONE_MIN_BYTES - 1, besideDbTier: false })).toBe(
+			'1',
+		);
+		// unknown VM (docker info said nothing), host mode: serial
+		expect(lanes(['--docker'])).toBe('1');
+		expect(lanes([], { memBytes: 64 * GiB, besideDbTier: false })).toBe('1');
+		// the flag decides whatever the VM
+		expect(
+			lanes(['--docker'], { memBytes: 7.6 * GiB, besideDbTier: true }, { '--instance-lanes': L }),
+		).toBe(L);
+		expect(
+			lanes(['--docker'], { memBytes: 64 * GiB, besideDbTier: false }, { '--instance-lanes': '1' }),
+		).toBe('1');
+		expect(LANES_BESIDE_DB_MIN_BYTES).toBeGreaterThan(11.3 * GiB);
 	});
 
 	test('--instance-lanes takes 1 or the planned lane count, nothing else', () => {
@@ -783,6 +809,9 @@ describe('instance lanes — a lane log reaches stdout WHOLE through a non-block
 			'bun run scripts/ci/instance_lanes.ts provision "$lane_logs/databases" || lanes_rc=$?',
 		);
 		expect(tier).not.toMatch(/instance_lanes\.ts provision[^\n]*>/);
+		// a fresh lane-log directory per run: the log mount is shared by concurrent tiers
+		expect(tier).toContain('lane_logs="$(mktemp -d "$DEDALO_CI_LOG_DIR/instance_lanes.XXXXXX")"');
+		expect(tier).not.toMatch(/lane_logs="\$DEDALO_CI_LOG_DIR\/instance_lanes"/);
 	});
 });
 

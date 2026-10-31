@@ -889,6 +889,11 @@ function drillScript(
 					// …and as GitHub's db.yml runs it (bins unset = serial): inside ci:local's
 					// image the key is exported (4), which must not move this gate's expectation.
 					DEDALO_CI_UNIT_BINS: undefined,
+					// …and never into the run's log mount: under ci:local --docker the tiers run AT
+					// ONCE and share /ci-out/logs, so a drilled root writing there (instance lanes,
+					// hermetic's daemon logs) truncated the REAL tier's live logs — measured
+					// 2026-10-31: a 112 KB lane log left sparse, the lane-name file emptied.
+					DEDALO_CI_LOG_DIR: undefined,
 					...(killOn === undefined ? {} : { DRILL_KILL_ON: killOn }),
 					...(failOn === undefined ? {} : { DRILL_FAIL_ON: failOn }),
 					...extraEnv,

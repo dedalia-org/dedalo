@@ -324,10 +324,13 @@ else
 	echo "== instance_tier: lane databases, ${instance_lanes} clones of the suite database (bun run scripts/ci/instance_lanes.ts provision)"
 	lanes_rc=0
 	# Kept where ci:local keeps the tier logs (DEDALO_CI_LOG_DIR → <repo>/ci-logs/<run>/):
-	# a lane that dies must leave its log behind, not take it with the tier.
+	# a lane that dies must leave its log behind, not take it with the tier. A FRESH
+	# directory, never a fixed name: under ci:local --docker every tier shares that mount
+	# at once, and anything else that ran this script there (a stubbed drill of it)
+	# truncated these logs mid-write when they had one fixed path.
 	if [ -n "${DEDALO_CI_LOG_DIR:-}" ]; then
-		lane_logs="$DEDALO_CI_LOG_DIR/instance_lanes"
-		mkdir -p "$lane_logs"
+		mkdir -p "$DEDALO_CI_LOG_DIR"
+		lane_logs="$(mktemp -d "$DEDALO_CI_LOG_DIR/instance_lanes.XXXXXX")"
 	else
 		lane_logs="$(mktemp -d)"
 	fi

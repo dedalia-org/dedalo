@@ -88,9 +88,9 @@
  *   bun run ci:local --docker --unit-bins 1   # the unit tier serial (--docker default 4 sharded
  *                                 # bins, host default 1 — unit_baseline.ts --check --bins,
  *                                 # sealed template, merged JUnit)
- *   bun run ci:local --docker --instance --instance-lanes 3   # the instance tier in 3
- *                                 # concurrent lanes, each on a suite-DB clone (opt-in;
- *                                 # default 1 = serial — scripts/ci/instance_tier.sh)
+ *   bun run ci:local --docker --instance-lanes 1|3   # the instance tier serial / in 3
+ *                                 # concurrent lanes on suite-DB clones (default: by the
+ *                                 # Docker VM's memory — instanceLanesEnv; host: 1)
  *
  * RECORDING THE UNIT BASELINE (`--record-unit-baseline`, --docker only). The unit tier's
  * per-file floors and red set are a fact about the IMAGE (its toolchain, its uid, the
@@ -468,6 +468,8 @@ export interface DockerRunFacts {
 	readonly args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> };
 	/** The source mounts ({@link containerMounts} — resolved by the caller: it inspects the repo). */
 	readonly mounts: readonly { host: string; container: string }[];
+	/** The Docker VM's memory and whether the db tier runs beside the instance tier. */
+	readonly vm?: { memBytes: number; besideDbTier: boolean };
 }
 
 /**
@@ -476,7 +478,7 @@ export interface DockerRunFacts {
  * tier log dir, the record mode), not a spelling.
  */
 export function dockerComposeEnv(facts: DockerRunFacts): Record<string, string | undefined> {
-	const { image, inputs, outputs, sha, branch, base, auditBase, overlay, args, mounts } = facts;
+	const { image, inputs, outputs, sha, branch, base, auditBase, overlay, args, mounts, vm } = facts;
 	return {
 		...gitScrubbedEnv(),
 		DEDALO_CI_IMAGE_REF: image,
@@ -498,7 +500,7 @@ export function dockerComposeEnv(facts: DockerRunFacts): Record<string, string |
 		DEDALO_CI_LOG_DIR: CONTAINER_LOG_DIR,
 		...recordEnv(args, CONTAINER_OUT),
 		...unitBinsEnv(args),
-		...instanceLanesEnv(args),
+		...instanceLanesEnv(args, vm),
 		// compose.yml REQUIRES this (`:?`) for every command it parses, `down` included —
 		// without it the teardown fails to interpolate and leaks the project's network.
 		DEDALO_CI_TIER_SCRIPT: 'none',
@@ -562,20 +564,30 @@ export function unitBinsEnv(args: Pick<Args, 'flags'> & { values?: ReadonlyMap<s
 
 /**
  * `DEDALO_CI_INSTANCE_LANES` for the instance tier (scripts/ci/instance_tier.sh): 1 = the
- * serial order, the DEFAULT everywhere (GitHub's db.yml leaves the key unset); `--instance-lanes
- * {@link INSTANCE_LANES}` runs its stages in concurrent lanes, each on its own clone of the
- * suite database — OPT-IN, never a default: measured 2026-10-31 under --docker beside the db
- * tier's 4 unit bins on a 7.6 GiB Docker VM, the three lanes took the run from 40 to 66 min
- * (memory peak 6.99 GiB: the db tier's unit stage 19 → 45 min) and the client lane stalled.
+ * serial order; {@link INSTANCE_LANES} = its stages in concurrent lanes, each on its own
+ * clone of the suite database. `--instance-lanes` decides when given. Otherwise the DEFAULT
+ * is decided by what the Docker VM can hold, measured 2026-10-31:
+ * - beside the db tier (tiers concurrent, db selected): lanes only with
+ *   ≥ {@link LANES_BESIDE_DB_MIN_BYTES}. On a 7.6 GiB VM the lanes took the gate 40 → 66
+ *   min (peak 6.99 GiB, the db tier's unit stage 19 → 45 min); on 15.6 GiB, 36.6 min with
+ *   a peak of 11.3 GiB.
+ * - the instance tier without the db tier beside it: lanes with ≥ {@link LANES_ALONE_MIN_BYTES}
+ *   (alone on 7.6 GiB: 40 → 20 min, peak 3.6 GiB).
+ * Host mode and GitHub's db.yml (the key unset) stay serial: the clones would land on your
+ * Postgres / on a runner nobody sized for them.
  */
 export const INSTANCE_LANES = 3;
+export const LANES_BESIDE_DB_MIN_BYTES = 14 * 1024 ** 3;
+export const LANES_ALONE_MIN_BYTES = 6 * 1024 ** 3;
 export function instanceLanesEnv(
 	args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> },
-): {
-	DEDALO_CI_INSTANCE_LANES: string;
-} {
+	vm?: { memBytes: number; besideDbTier: boolean },
+): { DEDALO_CI_INSTANCE_LANES: string } {
 	const value = args.values?.get('--instance-lanes');
-	return { DEDALO_CI_INSTANCE_LANES: value === undefined ? '1' : String(Number(value)) };
+	if (value !== undefined) return { DEDALO_CI_INSTANCE_LANES: String(Number(value)) };
+	if (!args.flags.has('--docker') || vm === undefined) return { DEDALO_CI_INSTANCE_LANES: '1' };
+	const floor = vm.besideDbTier ? LANES_BESIDE_DB_MIN_BYTES : LANES_ALONE_MIN_BYTES;
+	return { DEDALO_CI_INSTANCE_LANES: vm.memBytes >= floor ? String(INSTANCE_LANES) : '1' };
 }
 
 /** `--instance-lanes N`: 1 (serial) or {@link INSTANCE_LANES} — the tier plans exactly that many. */
@@ -1633,7 +1645,13 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 		`== ci:local: tiers ${schedule.concurrent ? 'CONCURRENT' : 'serial'} (${schedule.reason})`,
 	);
 	const activeProjects = new Set<string>();
+	const memBytes = Number(docker(['info', '--format', '{{.MemTotal}}']).stdout) || 0;
+	const vm = {
+		memBytes,
+		besideDbTier: schedule.concurrent && tiers.some((tier) => tier.id === 'db'),
+	};
 	const composeEnvBase = dockerComposeEnv({
+		vm,
 		image,
 		inputs,
 		outputs,
@@ -1645,6 +1663,10 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 		args,
 		mounts: containerMounts(),
 	});
+	if (tiers.some((tier) => tier.id === 'instance'))
+		console.log(
+			`== ci:local: instance lanes ${composeEnvBase.DEDALO_CI_INSTANCE_LANES} (Docker VM ${(memBytes / 1024 ** 3).toFixed(1)} GiB${vm.besideDbTier ? ', beside the db tier' : ''}${args.values.has('--instance-lanes') ? ', --instance-lanes' : ''})`,
+		);
 	const teardown = (project: string) => {
 		const down = docker(
 			[
