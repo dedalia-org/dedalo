@@ -76,14 +76,38 @@
  * and a mirror is only BORN on a record whose section declares the observer.
  * refreshExternalMirror is the on-demand door (the portal's update-external
  * button, through section/record/external_refresh.ts).
+ *
+ * THE DEFAULT BRANCH, GENERALIZED (portal order model, 2026-10-31 — dated
+ * addendum on WC-2026-08-02-observer-relay-writes-nothing): no `perform`,
+ * `filter` absent, a config naming `use_observable_dato` OR
+ * `use_inverse_relations`. Per target it RE-SAVES the observer through its OWN
+ * save rules (resaveObserverThroughSaveRules → record_write.ts
+ * applyKeySaveRules; written through the cascade-owned door
+ * persistObserverResaveKeys ONLY when the rules change the stored value —
+ * today a declared-order portal re-sorted, TM-audited), then relays the hop as
+ * before. Identity rules write nothing, so every shipped relay edge is
+ * unchanged. The inverse targets are the records referencing the saved one
+ * through the edge's `via` (external_laws/resolvers.ts inverseHostTargets) —
+ * the order-derived edges observer_subscriptions.ts pass 4 builds from each
+ * portal's `order` declaration, so editing a linked record's ordering column
+ * re-sorts every host with no host save. Dedup on the guard's own `resaved`
+ * namespace, never `recomputed`.
  */
 
 import { incrementCounter } from '../../api/counters.ts';
-import { isInTransaction, registerCommitAction, sql } from '../../db/postgres.ts';
+import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
+import { readMatrixKeyForUpdate } from '../../db/matrix_write.ts';
+import { isInTransaction, registerCommitAction, sql, withTransaction } from '../../db/postgres.ts';
 import { ensureTmHistoryReady, withTmHistory } from '../../db/record_generation.ts';
 import { recordTimeMachine } from '../../db/time_machine.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
-import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../../ontology/resolver.ts';
+import {
+	getColumnNameByModel,
+	getMatrixTableFromTipo,
+	getModelByTipo,
+	getNode,
+} from '../../ontology/resolver.ts';
+import { mayDeclareOrder } from '../../relations/order_locators.ts';
 import { dbTimestamp } from './create_record.ts';
 // type-only: the law registry (external_laws/) is reached by DYNAMIC import on
 // the compute path; these erase at build.
@@ -150,6 +174,21 @@ export interface CascadeGuard {
 	 * WC-2026-08-02-observer-cascade-bounded-flag).
 	 */
 	recomputed: Set<string>;
+	/**
+	 * Re-saves already performed in this logical operation (the DEFAULT
+	 * branch's resaveObserverThroughSaveRules — portal order model), keyed
+	 * `resave|observerTipo|section_tipo|section_id`. Its OWN namespace, never
+	 * `recomputed`: a re-save and an external-mirror recompute of the SAME
+	 * observer slot are different work (a declared-order portal that is also a
+	 * set_dato_external mirror needs both), and sharing the identical
+	 * `observerTipo|section_tipo|section_id` key would let whichever ran first
+	 * silently skip the other — a stale mirror or an unsorted array. SHARED like
+	 * `visited`. Optional: a guard built without it (the obligation ledger's
+	 * per-transaction root, hand-built test guards) gets one on first use
+	 * (resavedSetOf), planted on that guard object, so every hop below it shares
+	 * it.
+	 */
+	resaved?: Set<string>;
 	/**
 	 * Records born VERBATIM in this logical operation (`section_tipo|section_id`,
 	 * obligation_ledger.ts verbatimAddress): a bulk revert's undelete keeps the
@@ -240,6 +279,8 @@ export async function emitCascadeHop(
 		maxDepth: guard.maxDepth,
 		visited: guard.visited,
 		recomputed: guard.recomputed,
+		// planted on the parent first, so siblings and descendants share ONE set
+		resaved: resavedSetOf(guard),
 		verbatim: guard.verbatim,
 		depth: nextDepth,
 		chain: [...guard.chain, chainLabel],
@@ -410,6 +451,7 @@ export async function propagateToObservers(
 			maxDepth: MAX_CASCADE_DEPTH,
 			visited: new Set(),
 			recomputed: new Set(),
+			resaved: new Set(),
 			chain: [`${observedTipo}@${sectionTipo}/${sectionId}`],
 		};
 
@@ -450,6 +492,7 @@ export async function propagateToObservers(
 
 			const performFunction = server.perform?.function;
 			const useObservable = server.config?.use_observable_dato === true;
+			const useInverse = server.config?.use_inverse_relations === true;
 
 			// component_info observers (incl. the state/calculation aliases):
 			// recompute the widgets per target + TM row; same-record targets
@@ -516,20 +559,66 @@ export async function propagateToObservers(
 			// dd201 bump, NO live write (deliberate divergence from PHP's
 			// re-save side effects: WC-2026-08-02-observer-relay-writes-nothing)
 			// — re-entering through the D2 bounded dispatch.
-			if (performFunction === undefined && server.filter === undefined && useObservable) {
-				// Removed targets relay too: the hop re-reads the target's CURRENT
-				// value with references and re-enters propagation there, which is
-				// how the split-off half of an equivalence class gets reached.
-				// Writes nothing itself (WC-2026-08-02-observer-relay-writes-nothing).
-				const relayTargets = [...targets, ...removedTargets];
-				if (server.config?.use_self_section === true) {
-					relayTargets.push({ section_tipo: sectionTipo, section_id: sectionId });
+			//
+			// GENERALIZED 2026-10-31 (portal order model — dated addendum on
+			// WC-2026-08-02-observer-relay-writes-nothing): PHP's branch is a
+			// RE-SAVE, and a re-save runs the observer's own save rules. TS now
+			// honours that half too: per target, BEFORE the hop, the observer's
+			// stored value passes through the record-write chokepoint's key save
+			// rules (resaveObserverThroughSaveRules) and is written back ONLY when
+			// they change it — today one rule, a declared-order portal re-sorted.
+			// Identity rules (every key without `order`: numisdata161→numisdata36
+			// and every other shipped relay edge) still write NOTHING. And the
+			// branch accepts the INVERSE resolver (`use_inverse_relations`): the
+			// targets are the records that REFERENCE the saved one through the
+			// edge's `via` (its hosts) — the shape of the order-derived edges
+			// (observer_subscriptions.ts pass 4), whose observer re-sorts when a
+			// linked record's ordering column changes. `use_observable_dato` wins
+			// over `use_inverse_relations` when both are set (the resolver table's
+			// precedence, external_laws/resolvers.ts resolverOfConfig).
+			if (
+				performFunction === undefined &&
+				server.filter === undefined &&
+				(useObservable || useInverse)
+			) {
+				const relayTargets: { section_tipo?: unknown; section_id?: unknown }[] = [];
+				if (useObservable) {
+					// Removed targets relay too: the hop re-reads the target's CURRENT
+					// value with references and re-enters propagation there, which is
+					// how the split-off half of an equivalence class gets reached.
+					relayTargets.push(...targets, ...removedTargets);
+					if (server.config?.use_self_section === true) {
+						relayTargets.push({ section_tipo: sectionTipo, section_id: sectionId });
+					}
+				} else {
+					// The inverse lookup through the edge's `via` (exact) — unfiltered
+					// when the edge names none (PHP get_inverse_references). The hosts of
+					// the SAVED record: the removed half names records the saved one
+					// stopped pointing at, which says nothing about who points at it.
+					const { inverseHostTargets } = await import('./external_laws/resolvers.ts');
+					relayTargets.push(
+						...(await inverseHostTargets(
+							observerTipo,
+							{ section_tipo: sectionTipo, section_id: sectionId },
+							sub.via,
+						)),
+					);
 				}
 				const relayDone = new Set<string>(); // in-loop duplicate targets are not "revisits"
 				for (const target of relayTargets) {
 					const relayKey = `${target.section_tipo}|${target.section_id}`;
 					if (relayDone.has(relayKey)) continue;
 					relayDone.add(relayKey);
+					// The re-save lives HERE, not in the hop: emitCascadeHop's leaf
+					// pre-gate drops a hop into an observer nothing observes — the
+					// common case for a declared-order portal — so a re-save inside the
+					// hop would never run for exactly the observers that need it.
+					// ISOLATED per target: the re-sort is ONE derived side effect of
+					// this edge; its failure (a rank search refusing a legacy array, a
+					// lock timeout on the target row) must never cancel the relay hop,
+					// the remaining targets, or the save's later subscriptions —
+					// logged, counted (`observers_resave_failed`), the hop still owed.
+					await resaveIsolated(observerTipo, target, userId, now, guard);
 					await emitCascadeHop(
 						guard,
 						observerTipo,
@@ -717,6 +806,216 @@ async function hostsObserver(observerTipo: string, sectionTipo: string): Promise
 	return isObserverHostSection(observerTipo, sectionTipo);
 }
 
+/** The guard's re-save set — planted on first use (CascadeGuard.resaved). */
+function resavedSetOf(guard: CascadeGuard): Set<string> {
+	guard.resaved ??= new Set();
+	return guard.resaved;
+}
+
+/**
+ * The dispatch loop's re-save of ONE relay target, ISOLATED: a throw is logged
+ * with the edge and the target, counted (`observers_resave_failed` —
+ * engineering/PRODUCTION.md), and swallowed, so the caller still emits the
+ * target's hop and goes on to the next target and subscription. The stale
+ * order it leaves is drift the `portal_declared_order` reconcile lists.
+ */
+async function resaveIsolated(
+	observerTipo: string,
+	target: { section_tipo?: unknown; section_id?: unknown },
+	userId: number,
+	now: Date,
+	guard: CascadeGuard,
+): Promise<void> {
+	const address = {
+		section_tipo: String(target.section_tipo),
+		section_id: Number(target.section_id),
+	};
+	try {
+		await resaveObserverThroughSaveRules(observerTipo, address, userId, now, guard);
+	} catch (error) {
+		console.error(
+			`observer re-save failed (isolated) — '${observerTipo}' @ ${address.section_tipo}/${address.section_id}; the hop still runs, the order is drift for the portal_declared_order reconcile:`,
+			error,
+		);
+		incrementCounter('observers_resave_failed');
+	}
+}
+
+/** What one re-save did (resaveObserverThroughSaveRules) — the gates read it. */
+export type ObserverResaveOutcome =
+	/** This operation already re-saved the slot (CascadeGuard.resaved). */
+	| 'deduped'
+	/** The target's section does not declare the observer — not its value. */
+	| 'not_host'
+	/** No record, no table, or a model with no matrix column: nothing stored. */
+	| 'absent'
+	/**
+	 * No save rule can change this key (its data tipo declares no `order` —
+	 * order_locators.ts mayDeclareOrder): no transaction, no row lock, no read.
+	 */
+	| 'no_rule'
+	/** The save rules leave the stored value as it is: nothing written. */
+	| 'unchanged'
+	/** The save rules changed it: written back (stamps + TM row). */
+	| 'written';
+
+/**
+ * THE DEFAULT BRANCH'S RE-SAVE (portal order model, 2026-10-31 — the dated
+ * addendum on WC-2026-08-02-observer-relay-writes-nothing): pass the
+ * observer's STORED value on one target record through the record-write
+ * chokepoint's key save rules (section_record/record_write.ts
+ * applyKeySaveRules — the ONE function every key write applies) and write it
+ * back ONLY when they change it. Today one rule: a declared-order portal is
+ * re-sorted by its declared columns, so a change of a LINKED record's
+ * ordering column (an order-derived edge, observer_subscriptions.ts pass 4)
+ * re-sorts every host with no host save. Every other key: identity — no
+ * write, no TM row, no stamp (the relay still writes nothing).
+ *
+ * Order of checks, cheapest first: the guard's own dedup (`resaved` — its
+ * OWN namespace, see CascadeGuard.resaved), the host precondition (the
+ * kernel's: a slot on a record whose section does not declare the observer is
+ * not that record's value — never re-written), the save-rule pre-gate (a key
+ * whose data tipo declares no `order` has no rule that could change it:
+ * `no_rule`, no lock), then ONE transaction with the
+ * target row FOR UPDATE (the mirror recompute's shape): read, rule, compare
+ * (`JSON.stringify`, as the mirror's no-drift test), and on a difference the
+ * write through the cascade-owned door persistObserverResaveKeys — modified
+ * stamps (unless the record was born verbatim in this operation) and the
+ * observer's TM pair, exactly the mirror write tail. No ledger entry: the
+ * relay's own hop (the caller's next statement) re-enters propagation.
+ *
+ * Never inside an ambient transaction: it is reached from the dispatch loop,
+ * which refuses one (B6), and opens its own.
+ */
+export async function resaveObserverThroughSaveRules(
+	observerTipo: string,
+	target: { section_tipo: string; section_id: number },
+	userId: number,
+	now: Date,
+	guard: CascadeGuard,
+): Promise<ObserverResaveOutcome> {
+	const sectionTipo = target.section_tipo;
+	const sectionId = target.section_id;
+	const resaved = resavedSetOf(guard);
+	const key = `resave|${observerTipo}|${sectionTipo}|${sectionId}`;
+	if (resaved.has(key)) return 'deduped';
+	resaved.add(key);
+	if (!(await hostsObserver(observerTipo, sectionTipo))) return 'not_host';
+	// The cheap pre-gate BEFORE the row lock: an identity-rule key (every relay
+	// edge whose observer declares no order) takes no FOR UPDATE transaction and
+	// does no rank work — the relay of such an edge still writes and locks nothing.
+	if (!(await mayDeclareOrder(observerTipo))) return 'no_rule';
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	const model = await getModelByTipo(observerTipo);
+	const column = model === null ? null : getColumnNameByModel(model);
+	if (
+		table === null ||
+		column === null ||
+		!(MATRIX_JSONB_COLUMNS as readonly string[]).includes(column)
+	) {
+		return 'absent';
+	}
+	const jsonbColumn = column as MatrixJsonbColumn;
+	// CONVENTIONS §2 rationale 1 (cycle-breaking at the chokepoint seam):
+	// section_record/ → obligation_ledger → this module, like every other
+	// door this file reaches there.
+	const { applyKeySaveRules, persistObserverResaveKeys } = await import(
+		'../../section_record/index.ts'
+	);
+	const writeTarget = { table, sectionTipo, sectionId };
+	return withTransaction(async (): Promise<ObserverResaveOutcome> => {
+		const stored = await readMatrixKeyForUpdate(
+			table,
+			sectionTipo,
+			sectionId,
+			jsonbColumn,
+			observerTipo,
+		);
+		// null = no row; [] = the key is absent (nothing a rule could reorder).
+		if (stored === null || stored.length === 0) return 'absent';
+		const ruled = await applyKeySaveRules(writeTarget, observerTipo, stored);
+		if (JSON.stringify(ruled) === JSON.stringify(stored)) return 'unchanged';
+		const stamp = verbatimStampOptions(guard, sectionTipo, sectionId);
+		await auditedObserverWrite(writeTarget, observerTipo, stored, userId, now, () =>
+			persistObserverResaveKeys(
+				writeTarget,
+				[{ column: jsonbColumn, key: observerTipo, value: ruled }],
+				'stamp' in stamp ? false : { userId, now },
+				{ actor: userId, now },
+			),
+		);
+		return 'written';
+	});
+}
+
+/**
+ * THE OBSERVER WRITE TAIL (shared by the mirror recompute and the default
+ * branch's re-save — one audit shape for every cascade-owned write): the
+ * observer's state BEFORE (value + its dataframe slots), a baseline TM row when
+ * the record has no visible history yet (60s earlier, the dd15 pair), the
+ * write itself (`write` — the caller's chokepoint door, plus whatever must
+ * happen with it), then the save rows: the value written + the slots AFTER.
+ * Runs inside the caller's transaction (the target row already FOR UPDATE).
+ */
+async function auditedObserverWrite(
+	target: { table: string; sectionTipo: string; sectionId: number },
+	observerTipo: string,
+	existing: readonly unknown[],
+	userId: number,
+	now: Date,
+	write: () => Promise<void>,
+): Promise<void> {
+	const { mainIdentity, readMainSlots, readMainState, recordMainBackfill, recordMainHistory } =
+		await import('../../relations/dataframe_slots.ts');
+	const identity = await mainIdentity(observerTipo, 'lg-nolan');
+	const stamp = dbTimestamp(now);
+	await ensureTmHistoryReady();
+	// The observer's state BEFORE this write (read now, under the lock): its
+	// value and its slots — an observer may carry a dataframe slot like any
+	// component, and its history is two-lane like every main's
+	// (relations/dataframe_slots.ts recordMainHistory).
+	const before = {
+		// an empty value is recorded as nothing (null), the PHP baseline shape
+		value: existing.length > 0 ? [...existing] : undefined,
+		slots: await readMainSlots(target, observerTipo),
+	};
+	// P0-14: the probe asks whether THIS record already has a backfill row.
+	// Without the epoch narrowing, a DEAD generation's rows at the same
+	// address answer yes and the reborn record's own history is never
+	// written — the defect inverted: not inherited history, but suppressed.
+	// VISIBLE rows only (withTmHistory): a bulk run's hidden undo-log row
+	// (a BEFORE image, a birth marker) is not the visible baseline and must
+	// not suppress the pair dd15 needs.
+	// `anyTag`: an unsliced main's one lane is every row whatever its tag (LaneHistoryProbe).
+	const hasHistory = async (lane: string, anyTag: boolean): Promise<boolean> =>
+		(
+			(await sql.unsafe(
+				`SELECT 1 FROM matrix_time_machine
+				 WHERE ${withTmHistory(`section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}`)}
+				 LIMIT 1`,
+				anyTag
+					? [target.sectionTipo, target.sectionId, observerTipo]
+					: [target.sectionTipo, target.sectionId, observerTipo, lane],
+			)) as unknown[]
+		).length > 0;
+	await recordMainBackfill(
+		target,
+		identity,
+		before,
+		{ userId, timestamp: dbTimestamp(new Date(now.getTime() - 60_000)) },
+		hasHistory,
+		{ emptyDoorLane: true },
+	);
+	await write();
+	// The save rows: the value written + the slots AFTER the write.
+	await recordMainHistory(
+		target,
+		identity,
+		{ before, after: await readMainState(target, identity, before.slots.slots) },
+		{ userId, timestamp: stamp, bulkId: null },
+	);
+}
+
 /**
  * THE ON-DEMAND REFRESH (the portal's "update external" button — the read
  * door's external_refresh.ts maybeRefreshExternal is its one caller): recompute
@@ -767,6 +1066,7 @@ export async function refreshExternalMirror(
 		maxDepth: MAX_CASCADE_DEPTH,
 		visited: new Set(),
 		recomputed: new Set(),
+		resaved: new Set(),
 		chain: [`${observerTipo}@${sectionTipo}/${sectionId}(refresh)`],
 	};
 	const outcome = await recomputeMirrorAndHop(
@@ -1308,20 +1608,34 @@ export async function recomputeExternalRelation(
 	// stored entries still wanted, `additions` = new ones with the next item ids
 	// (the mirror owns its ids), `merged` = the full law, in the law's order.
 	// Degraded-value merge = existing+additions.
+	//
+	// AS IT WILL BE STORED. Every no-drift compare below measures `merged`
+	// against the STORED value, and the chokepoint stores a key through its own
+	// save rules (record_write.ts applyKeySaveRules — today: a declared-order
+	// portal comes back sorted). A copy law ('desired' order) builds `merged` in
+	// the LAW's order, so a mirror slot that also declares an `order` would never
+	// compare equal to what it stored: a TM row, a stamp and a cascade hop on
+	// every recompute, a value that never converges, and a reconcile that reports
+	// it drifted forever. So `merged` passes the same rules first — the compare
+	// then measures what a write would actually store
+	// (WC-2026-08-02-observer-relay-writes-nothing, addendum 2026-10-31).
+	const { applyKeySaveRules } = await import('../../section_record/index.ts');
+	const ruleTarget = { table, sectionTipo: targetSection, sectionId: targetId };
+	const asStored = async (value: unknown[]): Promise<unknown[]> =>
+		(await applyKeySaveRules(ruleTarget, observerTipo, value)) as unknown[];
 	const compute = async (lock: boolean) => {
 		const result = await valueLaw.compute(law, { targetSection, targetId, table, lock });
-		const { merged, kept, additions } = mergeMirror(
-			result.existing,
-			result.desired,
-			observerTipo,
-			result.order,
-			{
-				fallbackType: result.fallbackType,
-				...(result.dropSelf
-					? { dropSelf: { section_tipo: targetSection, section_id: targetId } }
-					: {}),
-			},
-		);
+		const {
+			merged: lawMerged,
+			kept,
+			additions,
+		} = mergeMirror(result.existing, result.desired, observerTipo, result.order, {
+			fallbackType: result.fallbackType,
+			...(result.dropSelf
+				? { dropSelf: { section_tipo: targetSection, section_id: targetId } }
+				: {}),
+		});
+		const merged = (await asStored(lawMerged)) as typeof lawMerged;
 		return { ...result, merged, kept, additions };
 	};
 
@@ -1375,7 +1689,6 @@ export async function recomputeExternalRelation(
 		};
 	}
 
-	const { withTransaction } = await import('../../db/postgres.ts');
 	return withTransaction(async () => {
 		// THE LOCK-WAIT BOUND (the refresh door's only): the FIRST statement, so
 		// every lock this transaction waits for is bounded (validated above).
@@ -1513,7 +1826,8 @@ export async function recomputeExternalRelation(
 		// What persists: the full law, unless this record's seed was degraded —
 		// then the grow-only merge (every existing entry kept in place + the
 		// additions appended).
-		const finalData = withheld ? [...existing, ...additions] : replaced;
+		// The withheld merge passes the save rules too (AS IT WILL BE STORED, above).
+		const finalData = withheld ? await asStored([...existing, ...additions]) : replaced;
 		if (JSON.stringify(finalData) === JSON.stringify(existing)) {
 			// Pure withheld shrink: nothing to persist. `after` = the law's
 			// target count (what an undegraded seed would write), like the dry run.
@@ -1530,75 +1844,32 @@ export async function recomputeExternalRelation(
 		}
 
 		const { persistObserverMirrorKeys } = await import('../../section_record/index.ts');
-		const { mainIdentity, readMainSlots, readMainState, recordMainBackfill, recordMainHistory } =
-			await import('../../relations/dataframe_slots.ts');
 		const { removeDataframeDataById } = await import('../../relations/save.ts');
 		const target = { table, sectionTipo: targetSection, sectionId: targetId };
-		const identity = await mainIdentity(observerTipo, 'lg-nolan');
-		const stamp = dbTimestamp(now);
-		await ensureTmHistoryReady();
-		// The observer's state BEFORE this write (read now, under the lock): its
-		// value and its slots — an observer may carry a dataframe slot like any
-		// component, and its history is two-lane like every main's
-		// (relations/dataframe_slots.ts recordMainHistory).
-		const before = {
-			// an empty mirror is recorded as nothing (null), the PHP baseline shape
-			value: existing.length > 0 ? existing : undefined,
-			slots: await readMainSlots(target, observerTipo),
-		};
-		// P0-14: the probe asks whether THIS record already has a backfill row.
-		// Without the epoch narrowing, a DEAD generation's rows at the same
-		// address answer yes and the reborn record's own history is never
-		// written — the defect inverted: not inherited history, but suppressed.
-		// VISIBLE rows only (withTmHistory): a bulk run's hidden undo-log row
-		// (a BEFORE image, a birth marker) is not the visible baseline and must
-		// not suppress the pair dd15 needs.
-		// `anyTag`: an unsliced main's one lane is every row whatever its tag (LaneHistoryProbe).
-		const hasHistory = async (lane: string, anyTag: boolean): Promise<boolean> =>
-			(
-				(await sql.unsafe(
-					`SELECT 1 FROM matrix_time_machine
-					 WHERE ${withTmHistory(`section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}`)}
-					 LIMIT 1`,
-					anyTag
-						? [targetSection, targetId, observerTipo]
-						: [targetSection, targetId, observerTipo, lane],
-				)) as unknown[]
-			).length > 0;
-		await recordMainBackfill(
-			target,
-			identity,
-			before,
-			{ userId, timestamp: dbTimestamp(new Date(now.getTime() - 60_000)) },
-			hasHistory,
-			{ emptyDoorLane: true },
-		);
-		// Chokepoint write — its CASCADE-OWNED entry: observer value + the
-		// owner's modified stamps (dd197/dd201) + the derived `relation_search`
-		// of an `_hi` mirror, in ONE update, like every PHP component save. The
-		// index is derived from `finalData` — what is actually STORED, a withheld
-		// shrink included (CORE-2: this write used to leave an `_hi` mirror with
-		// no ancestor index, so a broader-term search missed it). No ledger
-		// entry: the caller's recomputeMirrorAndHop hops the written observer.
-		await persistObserverMirrorKeys(
-			target,
-			[{ column: 'relation', key: observerTipo, value: finalData.length > 0 ? finalData : [] }],
-			options.stamp === false ? false : { userId, now },
-			{ actor: userId, now },
-		);
-		// A dropped locator takes its paired frames with it (the component save's
-		// remove cascade, PHP remove_dataframe_data_by_id) — else they stay in the
-		// slot as orphans every later frame-lane row would record as live.
-		for (const id of droppedItemIds(existing, finalData)) {
-			await removeDataframeDataById(table, targetSection, targetId, observerTipo, id, userId);
-		}
-		// The save rows: the value written + the slots AFTER the cascade.
-		await recordMainHistory(
-			target,
-			identity,
-			{ before, after: await readMainState(target, identity, before.slots.slots) },
-			{ userId, timestamp: stamp, bulkId: null },
-		);
+		// The observer write tail (auditedObserverWrite — shared with the default
+		// branch's re-save): BEFORE state, baseline TM row when none, the write,
+		// the save rows.
+		await auditedObserverWrite(target, observerTipo, existing, userId, now, async () => {
+			// Chokepoint write — its CASCADE-OWNED entry: observer value + the
+			// owner's modified stamps (dd197/dd201) + the derived `relation_search`
+			// of an `_hi` mirror, in ONE update, like every PHP component save. The
+			// index is derived from `finalData` — what is actually STORED, a withheld
+			// shrink included (CORE-2: this write used to leave an `_hi` mirror with
+			// no ancestor index, so a broader-term search missed it). No ledger
+			// entry: the caller's recomputeMirrorAndHop hops the written observer.
+			await persistObserverMirrorKeys(
+				target,
+				[{ column: 'relation', key: observerTipo, value: finalData.length > 0 ? finalData : [] }],
+				options.stamp === false ? false : { userId, now },
+				{ actor: userId, now },
+			);
+			// A dropped locator takes its paired frames with it (the component save's
+			// remove cascade, PHP remove_dataframe_data_by_id) — else they stay in the
+			// slot as orphans every later frame-lane row would record as live.
+			for (const id of droppedItemIds(existing, finalData)) {
+				await removeDataframeDataById(table, targetSection, targetId, observerTipo, id, userId);
+			}
+		});
 		// `after` = the full-law target (see the return contract). When drops
 		// were withheld the record actually holds existing+additions entries.
 		const { removedLocators } = await import('../../section_record/index.ts');

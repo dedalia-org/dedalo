@@ -115,6 +115,39 @@
  *     real runtime cycle).
  * Read-only over existing properties: no ontology node is created.
  *
+ * ORDER-DERIVED EDGES (pass 4, portal order model 2026-10-31 —
+ * WC-2026-10-31-portal-order-model): a portal whose `show.ddo_map[]` declares
+ * `order` stores its locator array SORTED by its LINKED records' ordering
+ * column (the record-write chokepoint, record_write.ts applyKeySaveRules). The
+ * rank lives in the TARGET records, so a host write alone cannot keep it: the
+ * linked record's ordering column changes and no host is saved. Pass 4 turns
+ * every declared ordering column into the edges that keep it — following the
+ * column's FULL order path (search/order_path.ts buildOrderPath, the joins the
+ * ranking itself follows), because a RELATION column ranks by the linked
+ * record's leaf two records away: for a path s0…sn, edge s0 → portal (`via`
+ * portal) and, per consecutive pair, s(i+1) → s(i) (`via` s(i), the relation
+ * linking the hop), stopping at a step with no component (a `section_id`
+ * column — immutable). Every edge is a no-`perform`, no-`filter`
+ * `use_inverse_relations` entry: the generalized DEFAULT branch
+ * (observers.ts) finds the referencing records through `via`, re-saves the
+ * observer there through its own save rules (identity unless it declares an
+ * `order` itself — then that re-sort is right too) and relays, which walks the
+ * path back to the hosts on its own (depth = path length + 1, under the cascade
+ * budget). Bounds, each deliberate:
+ *   - a DECLARED or law-derived edge on the same key wins (`orderShadowed`) —
+ *     the kill switch stays an ontology edit;
+ *   - shared keys (two portals ordering through one relation) are ONE edge;
+ *   - a column whose path resolves EMPTY derives nothing and is RED
+ *     (`orderUnresolved`): no edge, and no search, can keep that order;
+ *   - derived edges are listed (`orderDerived`), take part in the cycle scan,
+ *     and are exempt from the observe-entry contract checks (no authored
+ *     entry); the reconciler never sweeps them (no `perform` — its
+ *     isCoveredReconcileEdge is false), the `portal_declared_order` reconcile
+ *     is their backstop.
+ * The facts come from computeOrderDerivedContext (async — the config build and
+ * the order paths), passed to the PURE builder as its third argument (default
+ * empty: pure callers derive nothing). Read-only: no ontology node is created.
+ *
  * CONSUMERS: ./observers.ts (dispatch + the cascade leaf pre-gate) and
  * ./observer_reconcile.ts (tuple discovery — previously its own third copy of
  * forward-only discovery). The contract validator below is shared between the
@@ -126,6 +159,7 @@ import { config } from '../../../config/config.ts';
 import { incrementCounter } from '../../api/counters.ts';
 import { getTransactionMemo, isInTransaction, registerCommitAction } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
+import { getEffectivePropertiesByTipo } from '../../ontology/alias.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
 import {
@@ -133,6 +167,12 @@ import {
 	getNodesWithProperty,
 	type NodeWithProperties,
 } from '../../ontology/resolver.ts';
+import {
+	hasDeclaredColumnOrder,
+	isAliasNode,
+	orderedColumnsFromDdoMap,
+} from '../../relations/order_locators.ts';
+import { registerSectionDataListener } from '../../section_record/save_event.ts';
 import { isSuiteDatabaseName } from '../../test_data/test_database_marker_constants.ts';
 import { resolveExternalLaw } from './external_laws/classify.ts';
 import {
@@ -174,15 +214,19 @@ export interface ObserverSubscription {
 	 * 'reverse-only' — observe entry with server, no forward spec (the
 	 *                  single-declaration model — dispatches like any other);
 	 * 'law-derived'  — synthesized from the observer's external-value law
-	 *                  (pass 3 — header LAW-DERIVED EDGES); `origin:'law'`.
+	 *                  (pass 3 — header LAW-DERIVED EDGES); `origin:'law'`;
+	 * 'order-derived' — synthesized from a portal's declared column `order`
+	 *                  (pass 4 — header ORDER-DERIVED EDGES); `origin:'order'`.
 	 */
-	declaration: 'mirrored' | 'forward-only' | 'reverse-only' | 'law-derived';
+	declaration: 'mirrored' | 'forward-only' | 'reverse-only' | 'law-derived' | 'order-derived';
 	/** 'declared' = authored in the ontology (passes 1-2); 'law' = derived from
-	 * the observer's law (pass 3). Absent reads as 'declared' (hand-built
-	 * fixtures predate the field); the builder always sets it. */
-	origin?: 'declared' | 'law';
-	/** Law-derived edges only: the pointer component the inverse lookup goes
-	 * through (the law dependency's `via`). */
+	 * the observer's law (pass 3); 'order' = derived from a portal's declared
+	 * order (pass 4). Absent reads as 'declared' (hand-built fixtures predate
+	 * the field); the builder always sets it. */
+	origin?: 'declared' | 'law' | 'order';
+	/** Derived edges only: the pointer component the inverse lookup goes
+	 * through (the law dependency's `via`; an order-derived edge's relation
+	 * that links the hop — always the observer itself). */
 	via?: string;
 	/** Matched through the observer's 'all' wildcard entry (compiled at build). */
 	viaWildcard: boolean;
@@ -229,6 +273,15 @@ export interface SubscriptionDiagnostics {
 	lawDerived?: readonly string[];
 	/** Law dependencies a DECLARED edge already covers (declared wins). */
 	lawShadowed?: readonly string[];
+	/** Order-derived edges (pass 4) — listed, not validated as observe entries.
+	 * The builder always sets the three order lists; optional for the same
+	 * fixture reason as lawDerived. */
+	orderDerived?: readonly string[];
+	/** Order dependencies a DECLARED (or law-derived) edge already covers. */
+	orderShadowed?: readonly string[];
+	/** Declared ordering columns whose order path resolved EMPTY (as
+	 * `portal:column@target_section`) — no edge can keep that order; RED. */
+	orderUnresolved?: readonly string[];
 }
 
 export interface SubscriptionIndex {
@@ -258,6 +311,39 @@ const EMPTY_HOST_CONTEXT: HostSectionContext = {
 	ownSectionByTipo: new Map(),
 	realSectionByTipo: new Map(),
 };
+
+/** One step of a resolved order path (the structural subset of search/order_path.ts OrderPathStep pass 4 reads). */
+export interface OrderDerivedStep {
+	component_tipo: string;
+	/** A literal matrix column override (`section_id`): no component — the chain ends. */
+	column?: string;
+}
+
+/** One declared ordering column of one declared-order portal, resolved for one target section. */
+export interface OrderDerivedColumn {
+	/** The portal declaring `order` (the observer every chain ends at). */
+	portalTipo: string;
+	/** The `show.ddo_map[]` column carrying `order`. */
+	columnTipo: string;
+	/** The section the portal's linked records live in ('' = none resolved). */
+	targetSection: string;
+	/** buildOrderPath(column, targetSection) — s0 (in the target section) … sn
+	 * (the sortable leaf). EMPTY = unresolved (diagnostics.orderUnresolved). */
+	path: readonly OrderDerivedStep[];
+}
+
+/**
+ * Pre-resolved order facts the PURE builder consumes for pass 4 (header
+ * ORDER-DERIVED EDGES) — the registry computes them from the live ontology
+ * (computeOrderDerivedContext: the same buildOrderPath call the read path's
+ * ranking makes); the gates pass fixtures. Default empty: a pure caller that
+ * passes none derives nothing.
+ */
+export interface OrderDerivedContext {
+	columns: readonly OrderDerivedColumn[];
+}
+
+const EMPTY_ORDER_CONTEXT: OrderDerivedContext = { columns: [] };
 
 /** Canonical `observed->observer` key used across the registry and the gates. */
 export function observerEdgeKey(edge: { observed: string; observer: string }): string {
@@ -477,6 +563,90 @@ function addLawDerivedEdge(
 	if (!scratch) diagnostics.lawDerived.push(key);
 }
 
+/** Can a path step carry an edge? A component step only: a `column` override
+ * (component_section_id's `section_id`) or the activity When shortcut
+ * (`component_tipo: 'section_id'`) is the record's own immutable id. */
+function isEdgeStep(step: OrderDerivedStep | undefined): step is OrderDerivedStep {
+	return (
+		step !== undefined &&
+		step.column === undefined &&
+		typeof step.component_tipo === 'string' &&
+		step.component_tipo !== '' &&
+		step.component_tipo !== 'section_id'
+	);
+}
+
+/**
+ * PASS 4 of buildSubscriptionIndex (header ORDER-DERIVED EDGES): per resolved
+ * ordering column, the edge chain that walks the column's FULL order path back
+ * to the portal — s0 → portal (`via` portal), then s(i+1) → s(i) (`via` s(i),
+ * the relation linking the hop) while the next step is a component. Runs after
+ * pass 3, so `declaredKeys` holds every declared AND law-derived key: either
+ * wins (listed as shadowed). Shared keys (two portals ordering through one
+ * relation) dedup per key on `orderKeys`, silently — the same edge, derived
+ * twice. Scratch namespaces stay out of the diagnostics.
+ */
+function addOrderDerivedEdges(
+	context: OrderDerivedContext,
+	declaredKeys: ReadonlySet<string>,
+	hostContext: HostSectionContext,
+	push: (sub: ObserverSubscription) => void,
+	diagnostics: { orderDerived: string[]; orderShadowed: string[]; orderUnresolved: string[] },
+): void {
+	const orderKeys = new Set<string>();
+	const addEdge = (observed: string, observer: string): void => {
+		const key = observerEdgeKey({ observed, observer });
+		if (orderKeys.has(key)) return; // the same derived edge, reached again
+		orderKeys.add(key);
+		const scratch = touchesScratchObserverNamespace(observed, observer);
+		if (declaredKeys.has(key)) {
+			if (!scratch && !diagnostics.orderShadowed.includes(key)) diagnostics.orderShadowed.push(key);
+			return;
+		}
+		// No `perform`, no `filter`: the generalized DEFAULT branch
+		// (observers.ts) — inverse hosts through `via`, re-saved through the
+		// observer's own save rules, then the relay hop.
+		const entry: ObserveEntry = {
+			component_tipo: observed,
+			server: { config: { use_inverse_relations: true } },
+		};
+		push({
+			observedTipo: observed,
+			observerTipo: observer,
+			declaration: 'order-derived',
+			origin: 'order',
+			// the relation linking the hop IS the observer: its hosts reference
+			// the saved record through it
+			via: observer,
+			viaWildcard: false,
+			entry,
+			hostSection: resolveHostSection(observer, entry, undefined, hostContext),
+		});
+		if (!scratch) diagnostics.orderDerived.push(key);
+	};
+	for (const column of context.columns) {
+		if (column.path.length === 0) {
+			const unresolved = `${column.portalTipo}:${column.columnTipo}@${column.targetSection}`;
+			if (
+				!touchesScratchObserverNamespace(column.columnTipo, column.portalTipo) &&
+				!diagnostics.orderUnresolved.includes(unresolved)
+			) {
+				diagnostics.orderUnresolved.push(unresolved);
+			}
+			continue;
+		}
+		const first = column.path[0];
+		if (!isEdgeStep(first)) continue; // ordered by the record's own id — immutable
+		addEdge(first.component_tipo, column.portalTipo);
+		for (let index = 0; index + 1 < column.path.length; index++) {
+			const linking = column.path[index];
+			const next = column.path[index + 1];
+			if (!isEdgeStep(linking) || !isEdgeStep(next)) break; // the chain ends
+			addEdge(next.component_tipo, linking.component_tipo);
+		}
+	}
+}
+
 /**
  * Build the subscription index from ontology nodes — PURE (nodes + section
  * facts in, frozen index out) so every law is hermetically gateable.
@@ -484,6 +654,7 @@ function addLawDerivedEdge(
 export function buildSubscriptionIndex(
 	nodes: readonly NodeWithProperties[],
 	hostContext: HostSectionContext = EMPTY_HOST_CONTEXT,
+	orderContext: OrderDerivedContext = EMPTY_ORDER_CONTEXT,
 ): SubscriptionIndex {
 	const byTipo = new Map<string, NodeWithProperties>();
 	for (const node of nodes) byTipo.set(node.tipo, node);
@@ -500,6 +671,9 @@ export function buildSubscriptionIndex(
 	const malformedServerEntries: { observerTipo: string; componentTipo: string }[] = [];
 	const lawDerived: string[] = [];
 	const lawShadowed: string[] = [];
+	const orderDerived: string[] = [];
+	const orderShadowed: string[] = [];
+	const orderUnresolved: string[] = [];
 	// Every key an author DECLARED (forward spec or observe entry, server or
 	// client-only) — the set a law-derived edge may never override (pass 3).
 	const declaredKeys = new Set<string>();
@@ -661,7 +835,16 @@ export function buildSubscriptionIndex(
 		lawShadowed,
 	});
 
-	// Cycle scan over the DECLARED (and law-derived) server-edge graph (scratch excluded — those
+	// PASS 4 — order-derived edges (header ORDER-DERIVED EDGES). After pass 3:
+	// `declaredKeys` now also holds the law-derived keys, so a declared or a
+	// law edge on the same key wins.
+	addOrderDerivedEdges(orderContext, declaredKeys, hostContext, push, {
+		orderDerived,
+		orderShadowed,
+		orderUnresolved,
+	});
+
+	// Cycle scan over the DECLARED (and law/order-derived) server-edge graph (scratch excluded — those
 	// suites plant cycles ON PURPOSE to exercise the D2 guard). The runtime is
 	// bounded either way (CascadeGuard); a real-ontology cycle is an authoring
 	// error the gate turns red.
@@ -704,6 +887,9 @@ export function buildSubscriptionIndex(
 			malformedServerEntries,
 			lawDerived,
 			lawShadowed,
+			orderDerived,
+			orderShadowed,
+			orderUnresolved,
 		},
 	};
 	// Deep-freeze everything reachable AND runtime-harden the two Maps (see
@@ -725,6 +911,9 @@ export function buildSubscriptionIndex(
 	deepFreeze(index.diagnostics.malformedServerEntries);
 	deepFreeze(index.diagnostics.lawDerived);
 	deepFreeze(index.diagnostics.lawShadowed);
+	deepFreeze(index.diagnostics.orderDerived);
+	deepFreeze(index.diagnostics.orderShadowed);
+	deepFreeze(index.diagnostics.orderUnresolved);
 	Object.freeze(index.diagnostics);
 	Object.freeze(index);
 	return index;
@@ -772,6 +961,15 @@ export function validateSubscriptionContract(index: SubscriptionIndex): string[]
 			`malformed declaration: observer '${malformed.observerTipo}' observe entry for '${malformed.componentTipo}' carries a non-object \`server\` value — not dispatchable; make it an object server block, or remove the key for a client-only observer`,
 		);
 	}
+	// A declared column `order` whose order path resolves to nothing can be
+	// kept by no edge (and ranked by no search): the portal's declared order is
+	// silently inert for that column. Fix the ontology (the column, or the
+	// portal's target section).
+	for (const unresolved of d.orderUnresolved ?? []) {
+		errors.push(
+			`unresolved declared order: '${unresolved}' (portal:column@target_section) resolves no order path — the declared order cannot be applied nor kept; fix the column or the portal's target section`,
+		);
+	}
 	// ACYCLICITY (measured today: depth 2, zero cycles — a cycle is an
 	// authoring error; the runtime D2 guard bounds it, the gate reds it).
 	for (const cycle of d.cycles) {
@@ -782,7 +980,12 @@ export function validateSubscriptionContract(index: SubscriptionIndex): string[]
 }
 
 /** Registry cache — ontology-derived; the invalidation hub clears it after
- * every dd_ontology write (createOntologyCache = registered by construction). */
+ * every dd_ontology write (createOntologyCache = registered by construction).
+ * DATA-derived too, for pass 4 only: a declared-order portal whose
+ * `sqo.section_tipo` names a data-driven source resolves its target sections
+ * from RECORDS (relations/request_config/explicit.ts resolveSqoSectionTipos) —
+ * so a write to one of those sections clears it as well (ORDER DATA SOURCES,
+ * below). */
 const registryCache = createOntologyCache<string, SubscriptionIndex>();
 const REGISTRY_KEY = 'index';
 
@@ -804,6 +1007,79 @@ export function clearObserverSubscriptionRegistry(): void {
 	buildTokenCache.clear();
 }
 registerOntologyCacheClearer(clearObserverSubscriptionRegistry);
+
+/**
+ * ORDER DATA SOURCES — the sections whose RECORDS the order-derived context
+ * (computeOrderDerivedContext) resolved target sections from: a data-driven
+ * `sqo.section_tipo` source on a declared-order portal —
+ *   - `hierarchy_types`  → the hierarchy registry (hierarchy1: active flag, typology);
+ *   - `section_model`    → both registries (hierarchy1, ontology35: the model twin);
+ *   - `ontology_sections`→ the ontology registry (ontology35);
+ *   - `field_value`      → the caller (host) section's own active records.
+ * A write there can add, drop or retarget a declared portal's target sections,
+ * which changes the edges pass 4 derives and the `orderUnresolved` verdict. The
+ * registry is ontology-cached, so without this a curator activating a hierarchy
+ * kept the old (missing) edges until an unrelated ontology write or a restart.
+ * The set is planted BEFORE the configs are built (computeOrderDerivedContext),
+ * so a data write landing during a build clears the seed-race token too and
+ * the stale build is never seeded. Itself ontology-derived (which portals
+ * declare which sources): hub-cleared — the ONLY thing that ever shrinks it.
+ * Every plant UNIONS (plantOrderDataSources): a build that read the ontology
+ * BEFORE a hub clear and plants AFTER it (its token wiped, so its registry is
+ * never seeded) must not REPLACE the set a valid concurrent build planted, or
+ * the seeded registry would watch a stale set and a write to a new data source
+ * would clear nothing. Over-inclusion costs one extra registry clear.
+ */
+const orderDataSourcesCache = createOntologyCache<string, ReadonlySet<string>>();
+const ORDER_DATA_SOURCES_KEY = 'sections';
+
+/** The record sections each data-driven sqo source reads (ORDER DATA SOURCES). */
+const DATA_SOURCE_SECTIONS: Readonly<Record<string, readonly string[]>> = {
+	hierarchy_types: ['hierarchy1'],
+	section_model: ['hierarchy1', 'ontology35'],
+	ontology_sections: ['ontology35'],
+};
+
+/**
+ * PURE: the record sections a portal's raw request_config reads to resolve its
+ * target sections (every item's `sqo.section_tipo` object entries;
+ * `field_value` reads the host section). Exported for the gate.
+ */
+export function orderDataSourceSections(properties: unknown, hostSection: string): string[] {
+	const requestConfig = (properties as { source?: { request_config?: unknown } } | null)?.source
+		?.request_config;
+	if (!Array.isArray(requestConfig)) return [];
+	const sections = new Set<string>();
+	for (const item of requestConfig) {
+		const raw = (item as { sqo?: { section_tipo?: unknown } } | null)?.sqo?.section_tipo;
+		for (const entry of Array.isArray(raw) ? raw : [raw]) {
+			const source = (entry as { source?: unknown } | null)?.source;
+			if (typeof source !== 'string') continue;
+			for (const section of DATA_SOURCE_SECTIONS[source] ?? []) sections.add(section);
+			if (source === 'field_value' && hostSection !== '') sections.add(hostSection);
+		}
+	}
+	return [...sections].sort();
+}
+
+/**
+ * Plant one build's data-source sections — always a UNION with the current set
+ * (ORDER DATA SOURCES: only the hub clear resets it). Exported for the gate.
+ */
+export function plantOrderDataSources(sections: Iterable<string>): void {
+	const union = new Set(orderDataSourcesCache.get(ORDER_DATA_SOURCES_KEY) ?? []);
+	for (const section of sections) union.add(section);
+	orderDataSourcesCache.set(ORDER_DATA_SOURCES_KEY, union);
+}
+
+/** Whether a write to `sectionTipo` must clear the registry (ORDER DATA SOURCES). Exported for the gate. */
+export function isOrderDataSource(sectionTipo: string): boolean {
+	return orderDataSourcesCache.get(ORDER_DATA_SOURCES_KEY)?.has(sectionTipo) === true;
+}
+
+registerSectionDataListener((sectionTipo) => {
+	if (isOrderDataSource(sectionTipo)) clearObserverSubscriptionRegistry();
+});
 
 /** Transaction-memo key (postgres.ts getTransactionMemo): one registry build
  * per transaction span instead of one per in-tx call (S1-14-safe — the memo
@@ -858,6 +1134,88 @@ async function computeHostSectionContext(
 }
 
 /**
+ * The order facts pass 4 consumes (header ORDER-DERIVED EDGES), computed from
+ * the live ontology: every NON-alias node carrying `source` whose raw properties
+ * declare a per-ddo `order` (relations/order_locators.ts hasDeclaredColumnOrder —
+ * the cheap raw gate, no config build for any other portal), then, per declared
+ * portal, its effective EDIT config (the config the chokepoint's sort reads —
+ * order_locators.ts resolveDeclaredColumns: config[0]), its target sections
+ * (that config's sqo.section_tipo) and buildOrderPath per ordering column per
+ * target section — the SAME call the ranking makes (order_locators.ts
+ * buildOrderEntries), so the edges follow exactly the joins the sort follows.
+ * A declared portal with no target section yields one empty-path column per
+ * ordering column (unresolved, never silently dropped). Every ontology accessor
+ * is cached + hub-cleared; a target section resolved from RECORDS (a data-driven
+ * sqo source) is planted in ORDER DATA SOURCES first, so a write there clears
+ * the registry.
+ */
+async function computeOrderDerivedContext(): Promise<OrderDerivedContext> {
+	const declared: NodeWithProperties[] = [];
+	for (const node of await getNodesWithProperty('source')) {
+		if (!hasDeclaredColumnOrder(node.properties)) continue;
+		// A component_alias is never a declared-order portal: a declared order is
+		// keyed on the DATA tipo (order_locators.ts orderKeyOf) — no record holds
+		// an alias key, so an edge INTO one would re-save nothing.
+		if (await isAliasNode(node.tipo)) continue;
+		declared.push(node);
+	}
+	const hostSections = new Map<string, string>();
+	const dataSources = new Set<string>();
+	for (const node of declared) {
+		const hostSection = (await getAncestorSectionTipo(node.tipo)) ?? '';
+		hostSections.set(node.tipo, hostSection);
+		const properties = await getEffectivePropertiesByTipo(node.tipo);
+		for (const section of orderDataSourceSections(properties, hostSection)) {
+			dataSources.add(section);
+		}
+	}
+	// Planted before any record is read (ORDER DATA SOURCES: the seed race), and
+	// only ever WIDENING the set — in or out of a transaction: an in-tx build may
+	// read uncommitted nodes and roll back, an out-of-tx build may have read the
+	// ontology before a hub clear (an extra clear is free; a missing one is the defect).
+	plantOrderDataSources(dataSources);
+	if (declared.length === 0) return EMPTY_ORDER_CONTEXT;
+	// CONVENTIONS §2 rationale 3 (rarely hit): only an ontology that declares a
+	// column `order` loads the config builder and the order-path module here —
+	// the same lazy edge order_locators.ts takes for them.
+	const { buildRequestConfigForElement } = await import('../../relations/request_config/build.ts');
+	const { extractSqoSectionTipos } = await import('../../relations/request_config/explicit.ts');
+	const { buildOrderPath } = await import('../../search/order_path.ts');
+	const columns: OrderDerivedColumn[] = [];
+	for (const node of declared) {
+		const hostSection = hostSections.get(node.tipo) ?? '';
+		const config = await buildRequestConfigForElement(
+			(await getEffectivePropertiesByTipo(node.tipo)) ?? null,
+			{ ownerTipo: node.tipo, ownerSectionTipo: hostSection, mode: 'edit', ownerIsSection: false },
+		);
+		const ordered = orderedColumnsFromDdoMap(
+			(config[0]?.show?.ddo_map ?? []) as Parameters<typeof orderedColumnsFromDdoMap>[0],
+		);
+		const targets = extractSqoSectionTipos(config[0]);
+		for (const column of ordered) {
+			if (targets.length === 0) {
+				columns.push({
+					portalTipo: node.tipo,
+					columnTipo: column.componentTipo,
+					targetSection: '',
+					path: [],
+				});
+				continue;
+			}
+			for (const targetSection of targets) {
+				columns.push({
+					portalTipo: node.tipo,
+					columnTipo: column.componentTipo,
+					targetSection,
+					path: await buildOrderPath(column.componentTipo, targetSection),
+				});
+			}
+		}
+	}
+	return { columns };
+}
+
+/**
  * The process-wide subscription registry: cached build over the live ontology.
  * Contract violations are LOUD (log + counter) but never throw — dispatch runs
  * post-commit on user ontologies; the gates are where violations are RED.
@@ -889,7 +1247,8 @@ export async function getSubscriptionRegistry(): Promise<SubscriptionIndex> {
 	for (const node of [...observedNodes, ...observerNodes]) byTipo.set(node.tipo, node);
 	const nodes = [...byTipo.values()];
 	const hostContext = await computeHostSectionContext(nodes);
-	const index = buildSubscriptionIndex(nodes, hostContext);
+	const orderContext = await computeOrderDerivedContext();
+	const index = buildSubscriptionIndex(nodes, hostContext, orderContext);
 	if (inTx) {
 		// S1-14: never seed the shared cache from inside an ambient transaction
 		// (the build could have read uncommitted dd_ontology rows). Memoize on

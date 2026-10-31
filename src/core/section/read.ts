@@ -1793,6 +1793,10 @@ async function readComponentDataUnflagged(
 		// without a reload; byte-diffed vs the oracle, 2026-07-09).
 		{
 			offset: sqoOffset,
+			// The TEMPORARY header-click order (sqo.view_order, wire-validated by
+			// sqoSchema — WC-2026-10-31-portal-order-model): the full list ordered
+			// before this page is cut; paginated_key stays the stored index.
+			viewOrder: rqo.sqo?.view_order,
 			childRowFromTarget: true,
 			ownConfig: true,
 			ddinfoBare: true,

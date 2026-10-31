@@ -30,6 +30,7 @@ export {
 	type WriteReceipt,
 } from './obligation_ledger.ts';
 export {
+	applyKeySaveRules,
 	type AuditStamp,
 	afterRecordWrite,
 	buildModifiedAuditWrites,
@@ -39,6 +40,7 @@ export {
 	persistAppendedKeyItems,
 	persistModifiedStamp,
 	persistObserverMirrorKeys,
+	persistObserverResaveKeys,
 	persistRecordBirth,
 	persistRecordColumns,
 	persistRecordKeys,

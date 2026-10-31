@@ -52,6 +52,15 @@ export interface ReconcileRunOptions {
 	apply: boolean;
 	/** Narrow the run (definition-specific; `scopeLabel` says what a value is). */
 	scope?: ReconcileScope;
+	/**
+	 * The CALLER's abort (e.g. the running job's stop / deadline — media/job_scope.ts
+	 * currentJobSignal). `runReconcile` composes it with the registry's own
+	 * shutdown abort ({@link abortInFlightReconciles}) and hands the definition
+	 * the composed signal; a long-running definition checks it between units
+	 * and throws a typed error, which `runReconcile` records like any failure.
+	 * A definition that walks nothing large may ignore it.
+	 */
+	signal?: AbortSignal;
 }
 
 export interface ReconcileReport {
@@ -142,6 +151,7 @@ export const REGISTERED_NAMES: readonly string[] = [
 	'publication_probe',
 	'rich_text_images',
 	'web_image_exposure',
+	'portal_declared_order',
 ];
 
 // Process-lifetime registry state (module_state_tripwire allowlisted): the
@@ -149,6 +159,12 @@ export const REGISTERED_NAMES: readonly string[] = [
 // same lifecycle as core/api/counters.ts gaugeProviders.
 const definitions = new Map<string, ReconcileDefinition>();
 const lastRuns = new Map<string, ReconcileRunRecord>();
+// One controller per run IN FLIGHT through runReconcile, added before `run` and
+// removed when it settles — so the SIGTERM drain (scheduler.ts
+// stopReconcileScheduler → abortInFlightReconciles) can stop a long sweep a
+// request or a job is awaiting, without poisoning a later run (each run gets a
+// fresh controller). Holds controllers only, no request identity.
+const inFlightAborts = new Set<AbortController>();
 
 /** Register one definition. Idempotent per name (same object re-registered = no-op). */
 export function registerReconcile(definition: ReconcileDefinition): void {
@@ -298,8 +314,14 @@ export async function runReconcile(
 		scope: options.scope ?? null,
 		ranAt: new Date(startedAt).toISOString(),
 	};
+	const controller = new AbortController();
+	inFlightAborts.add(controller);
+	const signal =
+		options.signal === undefined
+			? controller.signal
+			: AbortSignal.any([controller.signal, options.signal]);
 	try {
-		const report = await definition.run(options);
+		const report = await definition.run({ ...options, signal });
 		const record: ReconcileRunRecord = {
 			...base,
 			durationMs: Date.now() - startedAt,
@@ -322,7 +344,21 @@ export async function runReconcile(
 			error: error instanceof DedaloError ? error.code : 'internal.unexpected',
 		});
 		throw error;
+	} finally {
+		inFlightAborts.delete(controller);
 	}
+}
+
+/**
+ * Abort every run IN FLIGHT through runReconcile (the SIGTERM drain:
+ * scheduler.ts stopReconcileScheduler). A definition honouring its signal stops
+ * at its next unit and its run is recorded failed (typed); one that ignores it
+ * runs on. Returns how many runs were signalled. Later runs are unaffected.
+ */
+export function abortInFlightReconciles(reason: string): number {
+	const count = inFlightAborts.size;
+	for (const controller of inFlightAborts) controller.abort(reason);
+	return count;
 }
 
 /** The gauge payload: per registered name, its schedule and last run. */

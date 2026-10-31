@@ -88,6 +88,7 @@ import {
 	type OntologyWriteResult,
 	rebuildFailure,
 	rebuildOntology,
+	withOrderReconcileBatch,
 } from './ontology_state.ts';
 import { STRUCTURE_LANG } from './ontology_tipos.ts';
 import { type OntologySourceDeps, resolveOntologySource } from './ontology_update_source.ts';
@@ -248,10 +249,14 @@ export async function deriveOntologyPackages(
 ): Promise<{ messages: string[]; errors: string[] }> {
 	const regrouped = await ensureStagedGrouperRecords(staged, userId);
 	const outcomes = new Map<string, OntologyWriteResult>();
-	for (const file of staged.filter(derivesNodes)) {
-		outcomes.set(file.tld, await rebuildOntology(file.tld, userId, { mainNode: 'existing' }));
-	}
-	if (outcomes.size > 1) await rederiveStaleModels(outcomes, userId);
+	// ONE portal-order backfill after every tld and the model pass, never one per
+	// tld against a half-applied ontology (ontology_state.ts withOrderReconcileBatch).
+	await withOrderReconcileBatch(async () => {
+		for (const file of staged.filter(derivesNodes)) {
+			outcomes.set(file.tld, await rebuildOntology(file.tld, userId, { mainNode: 'existing' }));
+		}
+		if (outcomes.size > 1) await rederiveStaleModels(outcomes, userId);
+	});
 	const report = deriveReport(outcomes);
 	report.messages.unshift(...regrouped);
 	return report;

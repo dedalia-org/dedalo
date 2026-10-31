@@ -509,6 +509,11 @@ const ALLOWLISTED_MODULE_MAPSET = new Set<string>([
 	// lifecycle (process restart; resetReconcileRunsForTests for gates).
 	'core/reconcile/registry.ts:definitions',
 	'core/reconcile/registry.ts:lastRuns',
+	// One AbortController per runReconcile run IN FLIGHT (added before `run`,
+	// deleted in its finally), so the SIGTERM drain can stop a long sweep
+	// (abortInFlightReconciles). Controllers only — no request identity, and a
+	// fresh one per run, so an abort never reaches a later run.
+	'core/reconcile/registry.ts:inFlightAborts',
 	// Reconcile scheduler in-flight names (D5: one run per name at a time, across
 	// a stop → start). Reconcile NAMES, set and cleared around each run — not data.
 	'core/reconcile/scheduler.ts:inFlight',

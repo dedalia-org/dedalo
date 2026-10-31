@@ -156,6 +156,25 @@ export const sqoSchema = z
 		breakdown: z.boolean().nullish(),
 		/** Lifecycle flag: whether the conform pipeline has run. Forced false at the gate. */
 		parsed: z.boolean().nullish(),
+		/**
+		 * A portal get_data's TEMPORARY display order (portal order model,
+		 * WC-2026-10-31-portal-order-model): the column header click on a
+		 * `sort_by_column` column. The server orders the portal's FULL locator
+		 * list by this one column before paginating (relations/order_locators.ts
+		 * assertViewOrder — the column gate: offered, and readable by the request
+		 * principal, checked whatever the record holds); never written,
+		 * `paginated_key` stays the stored index. Shape-validated HERE, at the
+		 * wire, so a malformed one is refused before any door sees it; ignored by
+		 * every non-portal read.
+		 */
+		view_order: z
+			.object({
+				tipo: boundedIdentifier(),
+				// one wire spelling, the sqo `order` clause's (absent or null view_order = none)
+				direction: z.enum(['ASC', 'DESC']),
+			})
+			.strict()
+			.nullish(),
 	})
 	.passthrough();
 

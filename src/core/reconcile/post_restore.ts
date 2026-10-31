@@ -116,6 +116,11 @@ export const POST_RESTORE_PLAN: readonly PostRestoreStep[] = [
 		apply: false,
 		why: 'a restore can bring back a web-folder file a published record does not embed; the dry run names it, and making it private stays a root decision',
 	},
+	{
+		name: 'portal_declared_order',
+		apply: false,
+		why: 'a restore can bring back portal arrays stored before their declared order (or an archive written raw); apply re-sorts every drifted record through the save door with a Time Machine row each, at install scale, so the dry list names the portals and the operator applies it from Maintenance',
+	},
 ];
 
 export interface PostRestoreStepResult {

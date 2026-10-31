@@ -75,11 +75,13 @@ import {
 	dataframeDeletePolicyOf,
 	dataframeTargetsOf,
 } from '../../relations/dataframe.ts';
+import { componentDeclaresOrder } from '../../relations/order_locators.ts';
 import {
 	adoptStoredLocatorIds,
 	applyAddNewElement,
 	applySortByColumn,
 	applySortData,
+	assertNoDeclaredOrder,
 	assertSortDataKeys,
 	type RelationInsertContext,
 	removeDataframeDataById,
@@ -1542,6 +1544,76 @@ async function lockComponentKey(
 	};
 }
 
+/**
+ * Portal order model (WC-2026-10-31-portal-order-model): a portal whose columns
+ * declare `order` stores THAT order — the record-write chokepoint re-sorts it
+ * on this very write, so a user reorder (`sort_data`, `sort_by_column`) would
+ * answer ok and change nothing. Refused typed, before anything moves; every
+ * other action passes.
+ */
+async function refuseReorderOfDeclaredOrder(
+	action: string,
+	componentTipo: string,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<void> {
+	if (action !== 'sort_data' && action !== 'sort_by_column') return;
+	await assertNoDeclaredOrder(componentTipo, action, {
+		tipo: componentTipo,
+		section_tipo: sectionTipo,
+		section_id: sectionId,
+	});
+}
+
+/**
+ * A DECLARED-ORDER key never takes the atomic append (record_write.ts §3f: a
+ * concatenation cannot sort, and the append entry refuses it): its inserts —
+ * link_record, autocomplete — already sit in `items` under the save's FOR
+ * UPDATE lock, so they persist as the full array, which the chokepoint sorts.
+ */
+async function declaredOrderInserts(
+	atomicInserts: readonly unknown[],
+	column: string,
+	componentTipo: string,
+	sectionTipo: string,
+): Promise<boolean> {
+	if (atomicInserts.length === 0 || column !== 'relation') return false;
+	return componentDeclaresOrder(componentTipo, sectionTipo);
+}
+
+/**
+ * Whether the save persists the component's FULL array (the per-key write)
+ * rather than an atomic append: an `update` action, a removal / reorder /
+ * replacing insert (`rewrites`), or inserts into a declared-order key
+ * (asked last, only when nothing else already decided it).
+ */
+async function needsFullArrayWrite(
+	changedData: readonly { action: string }[],
+	rewrites: boolean,
+	declaredOrder: () => Promise<boolean>,
+): Promise<boolean> {
+	if (rewrites || changedData.some((change) => change.action === 'update')) return true;
+	return declaredOrder();
+}
+
+/**
+ * The per-key write's echo: the value AS STORED (persistRecordKeys onWritten —
+ * the chokepoint's key save rules may have re-sorted it, a declared-order
+ * portal, record_write.ts §3f), or the given items when the write reported none.
+ */
+function writtenKeyEcho(key: string): {
+	capture: (written: readonly { key: string; value: unknown }[]) => void;
+	valueOr: (given: unknown[]) => unknown[];
+} {
+	let value: unknown;
+	return {
+		capture: (written) => {
+			value = written.find((item) => item.key === key)?.value;
+		},
+		valueOr: (given) => (Array.isArray(value) ? value : given),
+	};
+}
+
 async function applySaveComponentData(
 	request: SaveRequest,
 	receipt: WriteReceipt,
@@ -1726,6 +1798,7 @@ async function applySaveComponentData(
 			});
 		}
 
+		await refuseReorderOfDeclaredOrder(change.action, componentTipo, sectionTipo, sectionId);
 		if (change.action === 'sort_data') {
 			// PHP update_data_value 'sort_data': move one locator from its
 			// absolute position (source_key = paginated_key) to target_key.
@@ -2038,11 +2111,11 @@ async function applySaveComponentData(
 		for (const item of items) addTimeToDateItem(item);
 	}
 
-	const hasUpdates =
-		changedData.some((change) => change.action === 'update') ||
-		hasRemovals ||
-		hasReorders ||
-		hasReplacingInserts;
+	const hasUpdates = await needsFullArrayWrite(
+		changedData,
+		hasRemovals || hasReorders || hasReplacingInserts,
+		() => declaredOrderInserts(atomicInserts, column, componentTipo, sectionTipo),
+	);
 	// The write chokepoint (section_record/record_write.ts) merges the record's
 	// modified-audit stamps (dd197/dd201) into the SAME update as the value —
 	// the PHP save_component_data contract — and prunes empty columns.
@@ -2105,13 +2178,17 @@ async function applySaveComponentData(
 		items = merged ?? [];
 	} else if (hasUpdates) {
 		// Per-KEY write (PHP update_by_key / jsonb_set): only this component's
-		// tipo key changes — sibling components untouched.
+		// tipo key changes — sibling components untouched. The echo is the value
+		// AS STORED: the chokepoint's key save rules may have re-sorted it (a
+		// declared-order portal, record_write.ts §3f).
+		const echo = writtenKeyEcho(componentTipo);
 		await persistRecordKeys(
 			writeTarget,
 			[{ column, key: componentTipo, value: items }],
 			auditStamp,
-			{ actor: userId, receipt },
+			{ actor: userId, receipt, onWritten: echo.capture },
 		);
+		items = echo.valueOr(items);
 	} else if (atomicInserts.length > 0) {
 		// Pure inserts: atomic concatenation — concurrent inserts both survive.
 		// (Deliberate divergence from the read-modify-write chokepoint shape.) The

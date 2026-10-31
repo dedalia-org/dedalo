@@ -53,6 +53,19 @@
  *  11. propagation REFUSES to run inside a transaction (B6 — the ledger drains
  *      post-commit, so an in-transaction call is a caller bug, thrown before
  *      anything runs); a level-0 failure outside one is swallowed and counted.
+ *  12. THE DEFAULT BRANCH, GENERALIZED (portal order model, 2026-10-31 — dated
+ *      addendum on WC-2026-08-02-observer-relay-writes-nothing): the relay
+ *      re-saves its observer through the observer's OWN save rules and writes
+ *      only on a difference — gate 1 is the identity case (still nothing
+ *      written); a declared-order portal observer holding an unsorted array is
+ *      re-written sorted with exactly one TM row, then the relay hops on; a
+ *      no-`perform` `use_inverse_relations` edge reaches the branch (no
+ *      observers_server_shape_not_covered) and relays to the inverse hosts; the
+ *      re-save is bounded by maxDepth and the visited set (a planted ring with a
+ *      declared-order portal terminates, counted, the host written once); a
+ *      target section that does not host the observer is skipped; and the
+ *      re-save's dedup namespace (`resaved`) is not the mirror recompute's
+ *      (`recomputed`) — a declared-order mirror gets BOTH, in either order.
  *
  * Scratch hygiene: ontology nodes in the test9992x band (tld 'test' — swept
  * BEFORE seeding, residue-tolerant); matrix_test rows in the
@@ -76,15 +89,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCounters } from '../../src/core/api/counters.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { recordTimeMachine } from '../../src/core/db/time_machine.ts';
+import { dbTimestamp } from '../../src/core/section/record/create_record.ts';
 import {
 	type CascadeGuard,
 	emitCascadeHop,
 	MAX_CASCADE_DEPTH,
 	propagateToObservers,
 	recomputeMirrorAndHop,
+	resaveObserverThroughSaveRules,
 	runObserverCascadeHop,
 } from '../../src/core/section/record/observers.ts';
 import { persistRecordKeys } from '../../src/core/section_record/index.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
@@ -133,6 +150,92 @@ const DIAMOND_TERM = 999999943; // TERM_SECTION — the diamond record (P and Q 
 const TERM_TRANSITIVE = 999999944; // TERM_SECTION — reachable ONLY through the dd621 closure (TERM_EQUIV's bag)
 const REF_TRANSITIVE = 999999945; // REF_SECTION — references TERM_TRANSITIVE through OBSERVED
 const REF_NONHOST = 999999946; // REF_SECTION — holds a MIRROR slot REF_SECTION does not declare (8b)
+
+// ---------------------------------------------------------------------------
+// Gate 12 — the generalized DEFAULT branch (portal order model). Its own nodes
+// (test99927x/test999280, inside the swept test9992% band) and records.
+// ---------------------------------------------------------------------------
+const REF_LIT = 'test999270'; // component_input_text on REF_SECTION — the ordering column
+const ORD_SRC = 'test999271'; // the saved component whose relay reaches ORD_PORTAL
+const ORD_PORTAL = 'test999272'; // declared-order portal (TERM_SECTION) — a RELAY observer of ORD_SRC
+const ORD_DETECT = 'test999273'; // observes ORD_PORTAL, no component_to_search: its counted skip = the hop detector
+const INV_SRC = 'test999274'; // saved on a TERM record; INV_OBS observes it through the inverse resolver
+const INV_OBS = 'test999275'; // no-perform use_inverse_relations observer (REF_SECTION)
+const INV_DETECT = 'test999276'; // observes INV_OBS — the inverse relay's hop detector
+const RING_A = 'test999277'; // declared-order portal in a relay RING with RING_B
+const RING_B = 'test999278';
+const ORD_MIRROR = 'test999279'; // a set_dato_external MIRROR that ALSO declares an order
+const ORD_MIRROR_SRC = 'test999280'; // what ORD_MIRROR observes (never saved: the mirror is driven directly)
+
+// The three ids run AGAINST their value order (Bravo < Charlie < Alpha): a
+// declared-order array in VALUE order is never also in section_id order (either
+// direction), so a ranking that fell back to id order reds the gate-12 legs.
+const REF_L_ALPHA = 999999952; // REF_SECTION — REF_LIT 'Alpha'
+const REF_L_BRAVO = 999999950; // REF_SECTION — REF_LIT 'Bravo'
+const REF_L_CHARLIE = 999999951; // REF_SECTION — REF_LIT 'Charlie'
+const TERM_ORD = 999999953; // TERM_SECTION — ORD_PORTAL holds an UNSORTED array (12b)
+const TERM_ORD_DEEP = 999999954; // TERM_SECTION — the same, for the maxDepth leg (12d)
+const RING_TERM = 999999955; // TERM_SECTION — the ring record (12e)
+const TERM_BOTH = 999999956; // TERM_SECTION — ORD_MIRROR's record (12g): referenced by the three REF_L_*
+const TERM_INV = 999999957; // TERM_SECTION — the inverse leg's saved record (12c)
+const REF_INV = 999999958; // REF_SECTION — references TERM_INV through OBSERVED (its one inverse host)
+const REF_ORD_NONHOST = 999999959; // REF_SECTION — holds an ORD_PORTAL slot its section does not declare (12f)
+const TERM_BOTH_2 = 999999960; // TERM_SECTION — ORD_MIRROR's record for the other drain order (12g)
+
+/** A locator of ORD-family portal `portal` to a REF_SECTION record. */
+function refLocator(portal: string, refId: number, itemId: number): Record<string, unknown> {
+	return {
+		id: itemId,
+		type: 'dd151',
+		section_id: refId,
+		section_tipo: REF_SECTION,
+		from_component_tipo: portal,
+	};
+}
+
+/** Stored in the order Charlie, Alpha, Bravo — UNSORTED by REF_LIT. */
+function unsortedRefs(portal: string): Record<string, unknown>[] {
+	return [
+		refLocator(portal, REF_L_CHARLIE, 1),
+		refLocator(portal, REF_L_ALPHA, 2),
+		refLocator(portal, REF_L_BRAVO, 3),
+	];
+}
+
+/** A bag as its target ids, in stored order. */
+const idsOf = (items: unknown): number[] =>
+	(Array.isArray(items) ? items : []).map((item) =>
+		Number((item as { section_id?: unknown }).section_id),
+	);
+
+/** TM rows of one component on one record. */
+async function tmRowsAt(tipo: string, sectionTipo: string, sectionId: number): Promise<number> {
+	const rows = (await sql.unsafe(
+		'SELECT count(*)::int AS c FROM matrix_time_machine WHERE tipo = $1 AND section_tipo = $2 AND section_id = $3',
+		[tipo, sectionTipo, sectionId],
+	)) as { c: number }[];
+	return rows[0]?.c ?? 0;
+}
+
+/** A visible history row, so the write tail adds its SAVE row only (no baseline backfill). */
+async function seedHistory(tipo: string, sectionTipo: string, sectionId: number): Promise<void> {
+	await recordTimeMachine(
+		{ sectionTipo, sectionId, componentTipo: tipo, lang: 'lg-nolan', userId: -1, data: null },
+		dbTimestamp(new Date(Date.now() - 3_600_000)),
+	);
+}
+
+/** The declared order on REF_LIT (asc) — the per-ddo `order` the chokepoint sorts by. */
+const ORDER_SOURCE = {
+	request_config: [
+		{
+			sqo: { section_tipo: [{ value: [REF_SECTION], source: 'section' }] },
+			show: {
+				ddo_map: [{ tipo: REF_LIT, parent: 'self', section_tipo: 'self', order: 'asc' }],
+			},
+		},
+	],
+};
 
 function observedReferencer(targetId: number): string {
 	return JSON.stringify({
@@ -189,7 +292,13 @@ async function tmCount(tipo: string): Promise<number> {
 	return rows[0]?.c ?? 0;
 }
 
-const SCRATCH_NODES: { tipo: string; model: string; properties: Record<string, unknown> }[] = [
+const SCRATCH_NODES: {
+	tipo: string;
+	model: string;
+	/** The declaring section; absent = the original rule (beforeAll). */
+	parent?: string;
+	properties: Record<string, unknown>;
+}[] = [
 	{
 		tipo: OBSERVED,
 		model: 'component_autocomplete',
@@ -347,6 +456,120 @@ const SCRATCH_NODES: { tipo: string; model: string; properties: Record<string, u
 			],
 		},
 	},
+	// --- gate 12 (the generalized default branch) ---------------------------
+	{ tipo: REF_LIT, model: 'component_input_text', parent: REF_SECTION, properties: {} },
+	{ tipo: ORD_SRC, model: 'component_autocomplete', parent: REF_SECTION, properties: {} },
+	{
+		// A DECLARED-ORDER portal that is a plain RELAY observer of ORD_SRC
+		// (no perform, filter absent, use_observable_dato): its re-save through
+		// its own save rules re-sorts the stored array.
+		tipo: ORD_PORTAL,
+		model: 'component_portal',
+		properties: {
+			source: ORDER_SOURCE,
+			observe: [
+				{
+					component_tipo: ORD_SRC,
+					server: { config: { use_self_section: false, use_observable_dato: true } },
+				},
+			],
+		},
+	},
+	{
+		tipo: ORD_DETECT,
+		model: 'component_portal',
+		properties: {
+			observe: [
+				{
+					component_tipo: ORD_PORTAL,
+					server: {
+						config: { use_self_section: true, use_observable_dato: true },
+						perform: { function: 'set_dato_external' },
+					},
+				},
+			],
+			source: {},
+		},
+	},
+	{ tipo: INV_SRC, model: 'component_autocomplete', properties: {} },
+	{
+		// An AUTHORED no-perform, filter-absent use_inverse_relations entry: it
+		// used to be refused (perform_not_covered); now the default branch relays
+		// it to the records referencing the saved one (no `via` → unfiltered).
+		tipo: INV_OBS,
+		model: 'component_relation_related',
+		parent: REF_SECTION,
+		properties: {
+			observe: [{ component_tipo: INV_SRC, server: { config: { use_inverse_relations: true } } }],
+		},
+	},
+	{
+		tipo: INV_DETECT,
+		model: 'component_portal',
+		parent: REF_SECTION,
+		properties: {
+			observe: [
+				{
+					component_tipo: INV_OBS,
+					server: {
+						config: { use_self_section: true, use_observable_dato: true },
+						perform: { function: 'set_dato_external' },
+					},
+				},
+			],
+			source: {},
+		},
+	},
+	{
+		// The RING: RING_A (declared order) ↔ RING_B, each relaying the other
+		// on its own record (use_self_section) — a shape the guard must end.
+		tipo: RING_A,
+		model: 'component_portal',
+		properties: {
+			source: ORDER_SOURCE,
+			observe: [
+				{
+					component_tipo: RING_B,
+					server: { config: { use_self_section: true, use_observable_dato: true } },
+				},
+			],
+		},
+	},
+	{
+		tipo: RING_B,
+		model: 'component_relation_related',
+		properties: {
+			observe: [
+				{
+					component_tipo: RING_A,
+					server: { config: { use_self_section: true, use_observable_dato: true } },
+				},
+			],
+		},
+	},
+	{
+		// A law (c) MIRROR (referencers of the record through OBSERVED) that ALSO
+		// declares an order: the slot both a mirror recompute and a re-save act on.
+		tipo: ORD_MIRROR,
+		model: 'component_portal',
+		properties: {
+			source: {
+				...ORDER_SOURCE,
+				section_to_search: [REF_SECTION],
+				component_to_search: [OBSERVED],
+			},
+			observe: [
+				{
+					component_tipo: ORD_MIRROR_SRC,
+					server: {
+						config: { use_self_section: false, use_observable_dato: true },
+						perform: { function: 'set_dato_external' },
+					},
+				},
+			],
+		},
+	},
+	{ tipo: ORD_MIRROR_SRC, model: 'component_autocomplete', parent: REF_SECTION, properties: {} },
 ];
 
 async function clearResolverCaches(): Promise<void> {
@@ -365,14 +588,41 @@ async function sweepScratch(): Promise<void> {
 		`DELETE FROM ${SCRATCH_TABLE} WHERE section_tipo = $1 AND section_id = ANY(string_to_array($2, ',')::int[])`,
 		[
 			REF_SECTION,
-			[REF_A, REF_EQUIV, REF_TX, REF_ON, W11_RECORD, REF_TRANSITIVE, REF_NONHOST].join(','),
+			[
+				REF_A,
+				REF_EQUIV,
+				REF_TX,
+				REF_ON,
+				W11_RECORD,
+				REF_TRANSITIVE,
+				REF_NONHOST,
+				REF_L_ALPHA,
+				REF_L_BRAVO,
+				REF_L_CHARLIE,
+				REF_INV,
+				REF_ORD_NONHOST,
+			].join(','),
 		],
 	);
 	await sql.unsafe(
 		`DELETE FROM ${SCRATCH_TABLE} WHERE section_tipo = $1 AND section_id = ANY(string_to_array($2, ',')::int[])`,
 		[
 			TERM_SECTION,
-			[TERM_A, TERM_EQUIV, CYCLE_TERM, TERM_TX, TERM_ON, DIAMOND_TERM, TERM_TRANSITIVE].join(','),
+			[
+				TERM_A,
+				TERM_EQUIV,
+				CYCLE_TERM,
+				TERM_TX,
+				TERM_ON,
+				DIAMOND_TERM,
+				TERM_TRANSITIVE,
+				TERM_ORD,
+				TERM_ORD_DEEP,
+				RING_TERM,
+				TERM_BOTH,
+				TERM_INV,
+				TERM_BOTH_2,
+			].join(','),
 		],
 	);
 	await sql.unsafe(`DELETE FROM matrix_time_machine WHERE tipo LIKE 'test9992%'`, []);
@@ -380,6 +630,77 @@ async function sweepScratch(): Promise<void> {
 		REF_SECTION,
 		W11_RECORD,
 	]);
+}
+
+/** Gate 12's records (raw scratch rows — the relation index trigger indexes them). */
+async function seedGate12Records(): Promise<void> {
+	await assertTestDatabase('observer_cascade_native gate 12 seed');
+	const insert = (sectionTipo: string, sectionId: number, relation: unknown, string?: unknown) =>
+		sql.unsafe(
+			`INSERT INTO ${SCRATCH_TABLE} (section_id, section_tipo, relation, string) VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb)`,
+			[
+				sectionId,
+				sectionTipo,
+				JSON.stringify(relation),
+				string === undefined ? null : JSON.stringify(string),
+			],
+		);
+	// The three ranked REF records: an ordering value each, and a reference to
+	// TERM_BOTH through OBSERVED (ORD_MIRROR's law (c) referencers).
+	for (const [refId, value] of [
+		[REF_L_ALPHA, 'Alpha'],
+		[REF_L_BRAVO, 'Bravo'],
+		[REF_L_CHARLIE, 'Charlie'],
+	] as const) {
+		await insert(
+			REF_SECTION,
+			refId,
+			{
+				[OBSERVED]: [
+					{
+						id: 1,
+						type: 'dd151',
+						section_id: TERM_BOTH,
+						section_tipo: TERM_SECTION,
+						from_component_tipo: OBSERVED,
+					},
+					{
+						id: 2,
+						type: 'dd151',
+						section_id: TERM_BOTH_2,
+						section_tipo: TERM_SECTION,
+						from_component_tipo: OBSERVED,
+					},
+				],
+			},
+			// REF_LIT is NOT translatable: its value lives under lg-nolan, the lang the
+			// order expression reads (a translatable lang here ranks every row NULL)
+			{ [REF_LIT]: [{ id: 1, lang: 'lg-nolan', value }] },
+		);
+	}
+	await insert(TERM_SECTION, TERM_ORD, { [ORD_PORTAL]: unsortedRefs(ORD_PORTAL) });
+	await insert(TERM_SECTION, TERM_ORD_DEEP, { [ORD_PORTAL]: unsortedRefs(ORD_PORTAL) });
+	await insert(TERM_SECTION, RING_TERM, { [RING_A]: unsortedRefs(RING_A) });
+	// ORD_MIRROR's stale mirrors: Bravo, Alpha (UNSORTED) — Charlie missing (the recompute adds it)
+	const staleMirror = [
+		refLocator(ORD_MIRROR, REF_L_BRAVO, 1),
+		refLocator(ORD_MIRROR, REF_L_ALPHA, 2),
+	];
+	await insert(TERM_SECTION, TERM_BOTH, { [ORD_MIRROR]: staleMirror });
+	await insert(TERM_SECTION, TERM_BOTH_2, { [ORD_MIRROR]: staleMirror });
+	await insert(TERM_SECTION, TERM_INV, {});
+	await insert(REF_SECTION, REF_INV, JSON.parse(observedReferencer(TERM_INV)));
+	// a REF record holding an ORD_PORTAL slot REF_SECTION does not declare
+	await insert(REF_SECTION, REF_ORD_NONHOST, { [ORD_PORTAL]: unsortedRefs(ORD_PORTAL) });
+	for (const [tipo, sectionId] of [
+		[ORD_PORTAL, TERM_ORD],
+		[ORD_PORTAL, TERM_ORD_DEEP],
+		[RING_A, RING_TERM],
+		[ORD_MIRROR, TERM_BOTH],
+		[ORD_MIRROR, TERM_BOTH_2],
+	] as const) {
+		await seedHistory(tipo, TERM_SECTION, sectionId);
+	}
 }
 
 beforeAll(async () => {
@@ -393,7 +714,9 @@ beforeAll(async () => {
 	// saved components live on the referencer records; every relay/recompute
 	// observer lives on the term records.
 	for (const node of SCRATCH_NODES) {
-		const parent = node.tipo === OBSERVED || node.tipo === DIAMOND_OBS ? REF_SECTION : TERM_SECTION;
+		const parent =
+			node.parent ??
+			(node.tipo === OBSERVED || node.tipo === DIAMOND_OBS ? REF_SECTION : TERM_SECTION);
 		await sql.unsafe(
 			`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
 			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, $2, $3, 'test', $4::text::jsonb)`,
@@ -562,6 +885,7 @@ beforeAll(async () => {
 			[refId, observedReferencer(targetId)],
 		);
 	}
+	await seedGate12Records();
 	await clearResolverCaches();
 	// PROVE the storage table rather than assume it: SCRATCH_TABLE is hard-coded
 	// in every raw statement above, so a section whose `test24` relation failed
@@ -1030,5 +1354,186 @@ describe('W11: deletePortalLocator lock', () => {
 		)) as { bag: unknown[] | null }[];
 		// BOTH removals persisted — the unlocked RMW lost one of them.
 		expect(rows[0]?.bag).toEqual([]);
+	}, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// 12. THE DEFAULT BRANCH, GENERALIZED (portal order model, 2026-10-31 — addendum
+//     on WC-2026-08-02-observer-relay-writes-nothing). Gate 1 above is its
+//     IDENTITY case (RELAY declares no order: still nothing written).
+// ---------------------------------------------------------------------------
+
+describe('the generalized default branch — re-save through the observer’s own save rules', () => {
+	const freshGuard = (root: string, depth = 0, maxDepth = MAX_CASCADE_DEPTH): CascadeGuard => ({
+		depth,
+		maxDepth,
+		visited: new Set(),
+		recomputed: new Set(),
+		resaved: new Set(),
+		chain: [root],
+	});
+
+	test('12b. a declared-order RELAY observer holding an unsorted array is re-written sorted, ONE TM row, then the relay hops on', async () => {
+		expect(idsOf(await bagOf(ORD_PORTAL, TERM_ORD)), 'FLOOR: seeded unsorted').toEqual([
+			REF_L_CHARLIE,
+			REF_L_ALPHA,
+			REF_L_BRAVO,
+		]);
+		const tmBefore = await tmRowsAt(ORD_PORTAL, TERM_SECTION, TERM_ORD);
+		const hopBefore = getCounters().observers_component_to_search_missing ?? 0;
+		await propagateToObservers(
+			ORD_SRC,
+			REF_SECTION,
+			REF_A,
+			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD }], removed: [] },
+			-1,
+		);
+		expect(idsOf(await bagOf(ORD_PORTAL, TERM_ORD))).toEqual([
+			REF_L_ALPHA,
+			REF_L_BRAVO,
+			REF_L_CHARLIE,
+		]);
+		expect(await tmRowsAt(ORD_PORTAL, TERM_SECTION, TERM_ORD)).toBe(tmBefore + 1);
+		// the relay hopped ORD_PORTAL on: its detector's counted skip ticked once
+		expect((getCounters().observers_component_to_search_missing ?? 0) - hopBefore).toBe(1);
+
+		// the SAME propagation again: the array is in order → no write, no TM row
+		await propagateToObservers(
+			ORD_SRC,
+			REF_SECTION,
+			REF_A,
+			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD }], removed: [] },
+			-1,
+		);
+		expect(await tmRowsAt(ORD_PORTAL, TERM_SECTION, TERM_ORD)).toBe(tmBefore + 1);
+	}, 30000);
+
+	test('12c. a no-perform use_inverse_relations edge reaches the default branch and relays to the inverse hosts', async () => {
+		const refusedBefore = getCounters().observers_server_shape_not_covered ?? 0;
+		const hopBefore = getCounters().observers_component_to_search_missing ?? 0;
+		const relayBagBefore = JSON.stringify(await bagOf(INV_OBS, REF_INV, REF_SECTION));
+		await propagateToObservers(INV_SRC, TERM_SECTION, TERM_INV, { saved: [], removed: [] }, -1);
+		// no longer the classifier's perform_not_covered refusal…
+		expect((getCounters().observers_server_shape_not_covered ?? 0) - refusedBefore).toBe(0);
+		// …but a relay to the ONE record referencing TERM_INV (REF_INV), whose hop
+		// reached INV_OBS's own observer
+		expect((getCounters().observers_component_to_search_missing ?? 0) - hopBefore).toBe(1);
+		// identity save rules: the relay wrote nothing
+		expect(JSON.stringify(await bagOf(INV_OBS, REF_INV, REF_SECTION))).toBe(relayBagBefore);
+		expect(await tmCount(INV_OBS)).toBe(0);
+	}, 30000);
+
+	test('12d. a guard at maxDepth: the first-level re-save lands, the hop past the budget is refused LOUDLY', async () => {
+		const depthBefore = getCounters().observers_cascade_depth_exceeded ?? 0;
+		const hopBefore = getCounters().observers_component_to_search_missing ?? 0;
+		await propagateToObservers(
+			ORD_SRC,
+			REF_SECTION,
+			REF_A,
+			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD_DEEP }], removed: [] },
+			-1,
+			new Date(),
+			freshGuard(`${ORD_SRC}@${REF_SECTION}/${REF_A}`, MAX_CASCADE_DEPTH),
+		);
+		expect(idsOf(await bagOf(ORD_PORTAL, TERM_ORD_DEEP))).toEqual([
+			REF_L_ALPHA,
+			REF_L_BRAVO,
+			REF_L_CHARLIE,
+		]);
+		expect((getCounters().observers_cascade_depth_exceeded ?? 0) - depthBefore).toBe(1);
+		expect((getCounters().observers_component_to_search_missing ?? 0) - hopBefore).toBe(0);
+	}, 30000);
+
+	test('12e. a planted RING with a declared-order portal terminates, counted, the host written ONCE', async () => {
+		const tmBefore = await tmRowsAt(RING_A, TERM_SECTION, RING_TERM);
+		const cycleBefore = getCounters().observers_cascade_cycle_refused ?? 0;
+		await propagateToObservers(RING_B, TERM_SECTION, RING_TERM, { saved: [], removed: [] }, -1);
+		expect(idsOf(await bagOf(RING_A, RING_TERM))).toEqual([
+			REF_L_ALPHA,
+			REF_L_BRAVO,
+			REF_L_CHARLIE,
+		]);
+		expect(await tmRowsAt(RING_A, TERM_SECTION, RING_TERM)).toBe(tmBefore + 1);
+		expect((getCounters().observers_cascade_cycle_refused ?? 0) - cycleBefore).toBeGreaterThan(0);
+	}, 30000);
+
+	test('12f. a target whose section does not host the observer is skipped — no read, no write', async () => {
+		const guard = freshGuard(`nonhost@${REF_SECTION}/${REF_ORD_NONHOST}`);
+		const outcome = await resaveObserverThroughSaveRules(
+			ORD_PORTAL,
+			{ section_tipo: REF_SECTION, section_id: REF_ORD_NONHOST },
+			-1,
+			new Date(),
+			guard,
+		);
+		expect(outcome).toBe('not_host');
+		expect(idsOf(await bagOf(ORD_PORTAL, REF_ORD_NONHOST, REF_SECTION))).toEqual([
+			REF_L_CHARLIE,
+			REF_L_ALPHA,
+			REF_L_BRAVO,
+		]);
+		expect(await tmRowsAt(ORD_PORTAL, REF_SECTION, REF_ORD_NONHOST)).toBe(0);
+		// the visited/resaved set: a second call on the same guard is a dedup
+		expect(
+			await resaveObserverThroughSaveRules(
+				ORD_PORTAL,
+				{ section_tipo: REF_SECTION, section_id: REF_ORD_NONHOST },
+				-1,
+				new Date(),
+				guard,
+			),
+		).toBe('deduped');
+	});
+
+	test('12g. resaved ≠ recomputed: a declared-order MIRROR gets BOTH the re-sort and the recompute, in either order', async () => {
+		const sorted = [REF_L_ALPHA, REF_L_BRAVO, REF_L_CHARLIE];
+		// Order 1 — the re-save first, then the mirror recompute, ONE guard.
+		const first = freshGuard(`both@${TERM_SECTION}/${TERM_BOTH}`);
+		expect(
+			await resaveObserverThroughSaveRules(
+				ORD_MIRROR,
+				{ section_tipo: TERM_SECTION, section_id: TERM_BOTH },
+				-1,
+				new Date(),
+				first,
+			),
+		).toBe('written');
+		expect(idsOf(await bagOf(ORD_MIRROR, TERM_BOTH))).toEqual([REF_L_ALPHA, REF_L_BRAVO]);
+		const recomputed = await recomputeMirrorAndHop(
+			ORD_MIRROR,
+			TERM_SECTION,
+			TERM_BOTH,
+			-1,
+			new Date(),
+			first,
+			'on-write',
+		);
+		// a shared key would have answered `undefined` (already done) and left Charlie out
+		expect(recomputed?.wrote).toBe(true);
+		expect(idsOf(await bagOf(ORD_MIRROR, TERM_BOTH))).toEqual(sorted);
+
+		// Order 2 — the mirror recompute first (its chokepoint write sorts),
+		// then the re-save: it RUNS (finds the array in order), never a dedup.
+		const second = freshGuard(`both@${TERM_SECTION}/${TERM_BOTH_2}`);
+		const outcome = await recomputeMirrorAndHop(
+			ORD_MIRROR,
+			TERM_SECTION,
+			TERM_BOTH_2,
+			-1,
+			new Date(),
+			second,
+			'on-write',
+		);
+		expect(outcome?.wrote).toBe(true);
+		expect(idsOf(await bagOf(ORD_MIRROR, TERM_BOTH_2))).toEqual(sorted);
+		expect(
+			await resaveObserverThroughSaveRules(
+				ORD_MIRROR,
+				{ section_tipo: TERM_SECTION, section_id: TERM_BOTH_2 },
+				-1,
+				new Date(),
+				second,
+			),
+		).toBe('unchanged');
 	}, 30000);
 });

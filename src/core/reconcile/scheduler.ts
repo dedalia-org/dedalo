@@ -55,7 +55,12 @@ import { isInTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { runWithRequestLangs } from '../resolve/request_lang.ts';
 import { runWithRequestContext } from '../security/request_context.ts';
-import { listReconciles, type ReconcileDefinition, runReconcile } from './registry.ts';
+import {
+	abortInFlightReconciles,
+	listReconciles,
+	type ReconcileDefinition,
+	runReconcile,
+} from './registry.ts';
 
 /** How soon a DEFERRED run is tried again (capped by the definition's period). */
 export const DEFERRED_RETRY_MS = 60_000;
@@ -213,8 +218,15 @@ function firstDelay(schedule: Schedule, definition: ReconcileDefinition): number
 	return periodOf(schedule, definition);
 }
 
-/** Retire the schedule (SIGTERM drain): nothing new starts, nothing re-arms. */
+/**
+ * Retire the schedule (SIGTERM drain): nothing new starts, nothing re-arms — and
+ * every run IN FLIGHT through the registry (scheduled, operator, or a sweep an
+ * ontology write awaits in its commit lane) is signalled to stop
+ * (registry.ts abortInFlightReconciles), so a long sweep ends before the pool
+ * closes instead of failing record by record after it.
+ */
 export function stopReconcileScheduler(): void {
+	abortInFlightReconciles('server shutdown');
 	if (active === null) return;
 	active.stopped = true;
 	for (const timer of active.timers) clearTimeout(timer);

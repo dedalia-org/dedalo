@@ -1142,6 +1142,8 @@ export const RECORD_WRITE_CHOKEPOINTS: Readonly<Record<string, string>> = {
 		'the covered-slot RECOMPUTE entry: writes nothing itself — it queues the recompute of a record’s set_dato_external mirrors on the ledger, whose drain writes each mirror through persistObserverMirrorKeys (the one sanctioned path past it is the drain’s dataframe SLOT strip of a dropped mirror item, removeDataframeDataById, exactly as for every other entry’s drain). Its callers are enumerated by write_obligations_tripwire leg B4.',
 	[`${RECORD_WRITE}#persistObserverMirrorKeys`]:
 		'the observer-MIRROR key chokepoint (cascade-owned, no ledger entry — the cascade hops itself): only recomputeExternalRelation calls it; relation_search derived from what is stored; ends in afterRecordWrite.',
+	[`${RECORD_WRITE}#persistObserverResaveKeys`]:
+		"the observer-RESAVE key chokepoint (portal order model; cascade-owned, no ledger entry — the relay hops the observer itself): only resaveObserverThroughSaveRules calls it, and only when the observer's own key save rules change its stored value (a declared-order portal re-sorted); stamps + TM pair like the mirror tail; ends in afterRecordWrite.",
 };
 
 /**

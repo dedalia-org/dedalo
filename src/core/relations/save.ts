@@ -62,6 +62,7 @@ import {
 	resolveDataframeSlotTipos,
 } from './dataframe_slots.ts';
 import { resolveProjectsScope } from './filter_projects.ts';
+import { componentDeclaresOrder } from './order_locators.ts';
 import {
 	inCapScope,
 	isTargetAllowed,
@@ -177,6 +178,37 @@ export function applySortData(items: unknown[], change: SortDataChange): unknown
 		rebuilt.push(current);
 	});
 	return rebuilt.length === items.length ? rebuilt : null;
+}
+
+/**
+ * portal order model (WC-2026-10-31-portal-order-model; WC-048 addendum): a portal
+ * whose columns declare `order` stores THAT order — the record-write chokepoint
+ * sorts it on every write (section_record/record_write.ts applyKeySaveRules), so
+ * a user reorder (`sort_data` drag, `sort_by_column` "save current order") would
+ * answer ok and change nothing. Refused typed instead, BEFORE anything moves:
+ * `request.invalid_data`, reason `declared_order`. A TEMPORARY `view_order`
+ * read stays allowed (order_locators.ts orderLocatorsByViewOrder).
+ *
+ * CLIENT HALF NOT SHIPPED YET (OPEN — WC-2026-10-31-portal-order-model, "Client
+ * status"): the client gating is stage O2, landing in the same release before
+ * any push. Until then the shipped client does not read `context.declared_order`
+ * on these paths — the header sort button still sends the persisted
+ * `sort_by_column`, the drag handle's double-click change-order modal still
+ * sends `sort_data`, and nothing sends `sqo.view_order` — so a header-click save
+ * or a drag-handle double-click on a declared-order portal gets THIS
+ * `declared_order` refusal (an error toast on a control the UI offers; nothing
+ * moves, nothing is lost): the contract, not only a backstop.
+ */
+export async function assertNoDeclaredOrder(
+	componentTipo: string,
+	action: string,
+	coordinates: { tipo: string; section_tipo: string; section_id: number },
+): Promise<void> {
+	if (!(await componentDeclaresOrder(componentTipo, coordinates.section_tipo))) return;
+	throw new DedaloError('request.invalid_data', {
+		message: `saveComponentData: ${action} refused for component '${componentTipo}' — it declares a column order (the stored order is the declared one)`,
+		coordinates: { ...coordinates, action, reason: 'declared_order' },
+	});
 }
 
 export interface SortByColumnChange {

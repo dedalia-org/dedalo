@@ -123,6 +123,7 @@ const U = {
 	persistRestoredKeys: `${RECORD_WRITE}#persistRestoredKeys`,
 	requestRestoredSlotRecompute: `${RECORD_WRITE}#requestRestoredSlotRecompute`,
 	persistObserverMirrorKeys: `${RECORD_WRITE}#persistObserverMirrorKeys`,
+	persistObserverResaveKeys: `${RECORD_WRITE}#persistObserverResaveKeys`,
 	reactToSecurityWrite: `${RECORD_WRITE}#reactToSecurityWrite`,
 	fireSaveEvent: `${SAVE_EVENT}#fireSaveEvent`,
 	fireRagRecordEvent: `${SAVE_EVENT}#fireRagRecordEvent`,
@@ -130,6 +131,8 @@ const U = {
 	drainEntry: `${LEDGER}#drainEntry`,
 	propagateToObservers: `${OBSERVERS}#propagateToObservers`,
 	recomputeMirrorAndHop: `${OBSERVERS}#recomputeMirrorAndHop`,
+	resaveObserverThroughSaveRules: `${OBSERVERS}#resaveObserverThroughSaveRules`,
+	resaveIsolated: `${OBSERVERS}#resaveIsolated`,
 	refreshExternalMirror: `${OBSERVERS}#refreshExternalMirror`,
 	maybeRefreshExternal: `${EXTERNAL_REFRESH}#maybeRefreshExternal`,
 	runRefresh: `${EXTERNAL_REFRESH}#runRefresh`,
@@ -548,8 +551,9 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 			U.persistRestoredKeys,
 			U.persistRelationRemovalKeys,
 			U.persistObserverMirrorKeys,
+			U.persistObserverResaveKeys,
 		],
-		why: 'the per-key kernel takes its escape hatches as ARGUMENT VALUES (`ledger:false` = no observer entry, `law:"removal"`, `coveredSlots:"recompute"`), which no edge sees: each hatch is legitimate only through the ONE named entry whose own row above/below holds its callers. A fifth entry (`persistQuietKeys = writeKeys(…, {ledger:false})`) would skip the ledger from any door and pass every other leg.',
+		why: 'the per-key kernel takes its escape hatches as ARGUMENT VALUES (`ledger:false` = no observer entry, `law:"removal"`, `coveredSlots:"recompute"`), which no edge sees: each hatch is legitimate only through the ONE named entry whose own row above/below holds its callers. `ledger:false` has exactly TWO such entries — the mirror recompute (persistObserverMirrorKeys) and the observer default branch\'s re-save through its own save rules (persistObserverResaveKeys, portal order model), each pinned to its one caller below. Any other entry (`persistQuietKeys = writeKeys(…, {ledger:false})`) would skip the ledger from any door and pass every other leg.',
 	},
 	{
 		target: U.propagateToObservers,
@@ -568,6 +572,21 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 		target: U.persistObserverMirrorKeys,
 		allowed: [U.recomputeExternalRelation],
 		why: 'the cascade-owned entry writes WITHOUT a ledger entry (the cascade hops itself); only the recompute may skip the ledger.',
+	},
+	{
+		target: U.persistObserverResaveKeys,
+		allowed: [U.resaveObserverThroughSaveRules],
+		why: 'the SECOND cascade-owned entry (portal order model — WC-2026-08-02-observer-relay-writes-nothing addendum): the default branch re-writes an observer its own save rules change, WITHOUT a ledger entry (the relay hops it itself); only the re-save may skip the ledger this way.',
+	},
+	{
+		target: U.resaveObserverThroughSaveRules,
+		allowed: [U.resaveIsolated],
+		why: "the re-save is the dispatch loop's DEFAULT branch, per relay target, right before its hop, behind its per-target isolation (resaveIsolated) — a door re-saving an observer itself would write cascade-owned (ledger-less) outside the guard's dedup and the bounded cascade.",
+	},
+	{
+		target: U.resaveIsolated,
+		allowed: [U.propagateToObservers],
+		why: 'the per-target isolation of the re-save is the dispatch loop’s alone (a throw is logged + counted and the hop still runs) — any other caller is a second door into the ledger-less re-save.',
 	},
 	{
 		target: U.writeItems,
@@ -837,7 +856,7 @@ describe('B. the obligation ledger, derived from the writer closure', () => {
 		).toEqual([]);
 	});
 
-	test('B5 POSITIVE CONTROL: a fifth entry onto the per-key kernel (a flag-value hatch) is reported', () => {
+	test('B5 POSITIVE CONTROL: an unnamed extra entry onto the per-key kernel (a flag-value hatch) is reported', () => {
 		const files: Record<string, string> = {
 			[RECORD_WRITE]: [
 				'async function writeKeys(_mode: unknown): Promise<void> {}',
@@ -845,6 +864,8 @@ describe('B. the obligation ledger, derived from the writer closure', () => {
 				'export async function persistRestoredKeys(): Promise<void> { await writeKeys({ ledger: true }); }',
 				"export async function persistRelationRemovalKeys(): Promise<void> { await writeKeys({ law: 'removal' }); }",
 				'export async function persistObserverMirrorKeys(): Promise<void> { await writeKeys({ ledger: false }); }',
+				// the second sanctioned ledger-less entry (the default branch's re-save)
+				'export async function persistObserverResaveKeys(): Promise<void> { await writeKeys({ ledger: false }); }',
 				// the hatch re-exposed under a new name — no edge names the flag
 				'export async function persistQuietKeys(): Promise<void> { await writeKeys({ ledger: false }); }',
 			].join('\n'),
@@ -880,7 +901,259 @@ describe('B. the obligation ledger, derived from the writer closure', () => {
 			'PENDING unit(s) changed: decide whether each still writes past the chokepoint (keep it PENDING with its new hash) or now routes through one (strike it)',
 		).toEqual([]);
 	});
+
+	test('B6: every RECORD_WRITE_CHOKEPOINTS unit applies the KEY SAVE RULES (declared order) before it persists, or carries a named exemption', () => {
+		expect(
+			saveRulesOffenders(CLOSURE, Object.keys(RECORD_WRITE_CHOKEPOINTS)),
+			'a chokepoint that persists relation values without the key save rules stores a declared-order portal unsorted (record_write.ts §3f)',
+		).toEqual([]);
+		// the exemption rows are chokepoints (no stale row) and every reason is a reason
+		for (const [key, row] of Object.entries(SAVE_RULES_EXEMPT)) {
+			expect(Object.keys(RECORD_WRITE_CHOKEPOINTS), `stale exemption ${key}`).toContain(key);
+			expect(row.reason.length).toBeGreaterThan(40);
+			expect(
+				row.mustReach !== undefined || row.onlyCalls !== undefined,
+				`exemption ${key} carries no checked property (mustReach / onlyCalls)`,
+			).toBe(true);
+		}
+		// every reason is a reason
+		for (const reason of [
+			...Object.values(SAVE_RULES_OUTSIDE),
+			...Object.values(SAVE_RULES_NO_DECLARED_ORDER),
+		]) {
+			expect(reason.length).toBeGreaterThan(40);
+		}
+	});
+
+	test('B6 OUTSIDE: every raw matrix writer past the chokepoints is DERIVED and classified — writes relation values unsorted (named), or cannot store a declared-order array', () => {
+		const verdict = classifyOutsideWriters(TREE_CALLS);
+		expect(
+			verdict.unclassified,
+			'a raw matrix writer outside the chokepoints that nobody classified: does it store a relation value a declared `order` would sort? Add it to SAVE_RULES_OUTSIDE (the portal_declared_order reconcile is its backstop) or SAVE_RULES_NO_DECLARED_ORDER (why it cannot), with the reason',
+		).toEqual([]);
+		expect(verdict.stale, 'a classification row for a unit that no longer writes raw').toEqual([]);
+		expect(verdict.both, 'a unit classified both ways').toEqual([]);
+	});
+
+	test('B6 OUTSIDE POSITIVE CONTROL: a planted third raw writer is reported unclassified; a vanished row is stale', () => {
+		const rogue = 'src/control/raw_door.ts';
+		const source = [
+			"import { updateMatrixKeyData } from '../core/db/matrix_write.ts';",
+			'export async function rawRelationDoor(table: string): Promise<void> {',
+			"\tawait updateMatrixKeyData(table, 'ctl1', 1, 'relation', 'ctl2', []);",
+			'}',
+		].join('\n');
+		const planted = [...TREE_CALLS, ...rawCallsIn(rogue, source)];
+		expect(classifyOutsideWriters(planted).unclassified).toEqual([`${rogue}#rawRelationDoor`]);
+		const real = TREE_CALLS.filter((call) => call.key !== U.archiveWriteRecordRow);
+		expect(classifyOutsideWriters(real).stale).toEqual([U.archiveWriteRecordRow]);
+	});
+
+	test('B6 POSITIVE CONTROL: a chokepoint that persists past the key save rules is reported; one through either applier is not', () => {
+		const files: Record<string, string> = {
+			[RECORD_WRITE]: [
+				'async function applySaveRulesToPath(): Promise<void> {}',
+				'async function applySaveRulesToBag(): Promise<void> {}',
+				'async function writeKeys(): Promise<void> { await applySaveRulesToPath(); }',
+				'export async function persistRecordKeys(): Promise<void> { await writeKeys(); }',
+				'export async function persistRecordColumns(): Promise<void> { await applySaveRulesToBag(); }',
+				// a new door straight to the primitive — never through an applier
+				'export async function persistRawRelationKeys(): Promise<void> {}',
+			].join('\n'),
+		};
+		const closure = buildWriterClosure({
+			files: Object.keys(files),
+			read: (rel) => files[rel] as string,
+		});
+		expect(
+			saveRulesOffenders(closure, [
+				`${RECORD_WRITE}#persistRecordKeys`,
+				`${RECORD_WRITE}#persistRecordColumns`,
+				`${RECORD_WRITE}#persistRawRelationKeys`,
+			]),
+		).toEqual([`${RECORD_WRITE}#persistRawRelationKeys`]);
+	});
+
+	test('B6 EXEMPTION POSITIVE CONTROL: an onlyCalls-exempt unit that gains a callee is reported; the pinned body is not', () => {
+		const exemptUnit = `${RECORD_WRITE}#persistModifiedStamp`;
+		const build = (body: string): WriterClosure => {
+			const files: Record<string, string> = {
+				[RECORD_WRITE]: [
+					'function buildModifiedAuditWrites(): void {}',
+					'async function assertRecordStillExists(): Promise<void> {}',
+					'async function afterRecordWrite(): Promise<void> {}',
+					'async function writeRelationKey(): Promise<void> {}',
+					`export async function persistModifiedStamp(): Promise<void> { ${body} }`,
+				].join('\n'),
+			};
+			return buildWriterClosure({ files: Object.keys(files), read: (rel) => files[rel] as string });
+		};
+		const pinned =
+			'buildModifiedAuditWrites(); await assertRecordStillExists(); await afterRecordWrite();';
+		expect(saveRulesOffenders(build(pinned), [exemptUnit])).toEqual([]);
+		expect(saveRulesOffenders(build(`${pinned} await writeRelationKey();`), [exemptUnit])).toEqual([
+			exemptUnit,
+		]);
+	});
 });
+
+/** The two appliers of the key save rules (record_write.ts §3f): per key path, per whole bag. */
+const SAVE_RULE_APPLIERS = [
+	`${RECORD_WRITE}#applySaveRulesToPath`,
+	`${RECORD_WRITE}#applySaveRulesToBag`,
+] as const;
+
+/**
+ * B6 — chokepoints that do NOT apply the key save rules, each with its reason
+ * AND a CHECKED property — never a trusted reason alone (every row carries one,
+ * asserted by B6):
+ *  - `mustReach`: the exemption rests on another unit, which it must still reach;
+ *  - `onlyCalls`: the EXHAUSTIVE set of the unit's reference targets (closure
+ *    edgesOf — namespace escapes included, the strict direction): the reason is
+ *    true of exactly that body, so any new callee (a relation writer, a raw
+ *    primitive, a persist door) reds until someone re-judges the exemption.
+ */
+const SAVE_RULES_EXEMPT: Readonly<
+	Record<string, { reason: string; mustReach?: string; onlyCalls?: readonly string[] }>
+> = {
+	[`${RECORD_WRITE}#persistModifiedStamp`]: {
+		reason:
+			'the stamp-only chokepoint writes ONLY the buildModifiedAuditWrites payload: dd201 (a date) and dd197 (ONE modified-by locator — a single item has no order to keep).',
+		onlyCalls: [
+			`${RECORD_WRITE}#buildModifiedAuditWrites`,
+			'src/core/db/matrix_write.ts#updateMatrixKeysData',
+			`${RECORD_WRITE}#assertRecordStillExists`,
+			`${RECORD_WRITE}#afterRecordWrite`,
+		],
+	},
+	[`${RECORD_WRITE}#requestCoveredSlotRecompute`]: {
+		reason:
+			'writes nothing itself: it queues the mirror recompute (the obligation ledger), whose write is persistObserverMirrorKeys (rules applied).',
+		onlyCalls: [
+			`${RECORD_WRITE}#declaredCoveredSlots`,
+			'src/core/section_record/obligation_ledger.ts#enqueueObservedChange',
+		],
+	},
+	[`${RECORD_WRITE}#persistAppendedKeyItems`]: {
+		reason:
+			'the atomic append cannot sort a concatenation, so it REFUSES a declared-order key (assertAppendableKey) — such a key goes through persistRecordKeys.',
+		mustReach: `${RECORD_WRITE}#assertAppendableKey`,
+	},
+};
+
+/**
+ * B6 — the raw matrix writers OUTSIDE the chokepoints are CLASSIFIED, never
+ * listed from memory: the set is DERIVED from the leg-A census (every unit that
+ * calls a raw matrix_write primitive, minus the chokepoint units and the
+ * by-rule prefixes — {@link classifyOutsideWriters}) and must EQUAL the union of
+ * the two maps below, so a new raw writer is red until its author decides
+ * whether it can store a declared-order portal unsorted.
+ *
+ * SAVE_RULES_OUTSIDE — they DO persist relation values without the key save
+ * rules; the `portal_declared_order` reconcile (relations/declared_order_reconcile.ts,
+ * operator + the post-restore plan) is their declared-order backstop.
+ */
+const SAVE_RULES_OUTSIDE: Readonly<Record<string, string>> = {
+	[U.archiveWriteRecordRow]:
+		'archive restore writes the archived row raw (PENDING onto persistRecordColumns / persistRecordBirth); the post-restore plan runs the declared-order reconcile.',
+	'src/core/update/transform/portalize.ts#applyPortalizeRow':
+		'the update-process portalize transform relocates a column verbatim (WC-025); a re-sort is the declared-order reconcile’s to apply.',
+	'src/core/ontology/hierarchy_state.ts#write':
+		'the hierarchy single writer stores engine-composed locators on the hierarchy registry rows; a declared order on one of those components is the reconcile’s to apply.',
+	'src/core/ontology/hierarchy_state.ts#nameRootTerm':
+		'the hierarchy single writer naming a root term record (system state); any relation key it writes is the reconcile’s to re-sort.',
+	'src/core/ontology/hierarchy_provision.ts#provisionVirtualSections':
+		'hierarchy provisioning writes the descriptor / model twin rows’ relation keys raw at fixed ids; the reconcile is their declared-order backstop.',
+	'src/core/ontology/ontology_write.ts#writeOntologyMainKey':
+		'the ontology registry per-key writer (matrix_ontology_main) writes relation keys raw, unstamped as in PHP; the reconcile is their declared-order backstop.',
+	'src/core/ontology/ontology_write.ts#createParentGrouper':
+		'an ontology definition row written raw (relation keys included) — see writeOntologyMainKey; the reconcile is the backstop.',
+	'src/core/install/hierarchy_activate.ts#createRegistryRow':
+		'installer hierarchy activation writes the registry row (relation keys included) from the manifest; the reconcile is its declared-order backstop.',
+	'src/core/tools/register.ts#writeRegistryRecord':
+		'the tools registry import writes dd1324 rows column-keyed (relation included) from register.json; the reconcile is their declared-order backstop.',
+};
+
+/**
+ * SAVE_RULES_NO_DECLARED_ORDER — raw writers that cannot leave a declared-order
+ * array out of order: they write no relation value at all, or only REMOVE items
+ * from a stored array (a subsequence of an ordered array is ordered).
+ */
+const SAVE_RULES_NO_DECLARED_ORDER: Readonly<Record<string, string>> = {
+	'src/core/section/record/record_metadata.ts#setRecordMetadata':
+		'writes the `data`-column metadata twin (created date/user, label, diffusion_info) — never a relation key.',
+	'src/core/media/tools/files_info_persist.ts#writeItems':
+		'writes the `media` column (files_info, the drawing reset) — never a relation key.',
+	'src/core/retention/prune.ts#registerRetentionCatalog':
+		'DELETES aged matrix_activity rows — it writes no value at all.',
+	'scripts/repair_geolocation_studio_default.ts#repairUnit':
+		'writes the `geo` column of component_geolocation keys only — never a relation key.',
+	'src/core/relations/save.ts#removeDataframeDataById':
+		'only REMOVES the frames of a removed main item from the stored dataframe array: what remains keeps its stored order.',
+	'src/core/relations/dataframe.ts#fixDataframeOrphanEntries':
+		'only STRIPS orphaned frame entries from a stored array: what remains keeps its stored order.',
+};
+
+/**
+ * The raw matrix writers OUTSIDE the chokepoints, DERIVED from a raw-call census
+ * (leg A's TREE_CALLS shape): every unit calling a primitive that is not a
+ * chokepoint unit (isTreeChokepoint) and not under a by-rule prefix — then
+ * compared with the two classification maps.
+ */
+function classifyOutsideWriters(calls: readonly RawCall[]): {
+	unclassified: string[];
+	stale: string[];
+	both: string[];
+} {
+	const derived = new Set(
+		calls
+			.filter((call) => !RAW_CALLER_EXEMPT_PREFIXES.some((prefix) => call.file.startsWith(prefix)))
+			.map((call) => call.key)
+			.filter((key) => !isTreeChokepoint(key)),
+	);
+	const outside = Object.keys(SAVE_RULES_OUTSIDE);
+	const safe = Object.keys(SAVE_RULES_NO_DECLARED_ORDER);
+	const classified = new Set([...outside, ...safe]);
+	return {
+		unclassified: [...derived].filter((key) => !classified.has(key)).sort(),
+		stale: [...classified].filter((key) => !derived.has(key)).sort(),
+		both: outside.filter((key) => safe.includes(key)).sort(),
+	};
+}
+
+/**
+ * An exemption whose checked property fails: its `mustReach` unit is not reached,
+ * or the unit calls something outside its `onlyCalls`. A row with neither is
+ * broken by construction (B6 also names it): an unchecked reason is a trusted one.
+ */
+function exemptionBroken(
+	closure: WriterClosure,
+	key: string,
+	exempt: { mustReach?: string; onlyCalls?: readonly string[] },
+): boolean {
+	if (exempt.mustReach === undefined && exempt.onlyCalls === undefined) return true;
+	if (exempt.mustReach !== undefined && !closure.reachesPrecisely(key, exempt.mustReach)) {
+		return true;
+	}
+	const allowed = new Set(exempt.onlyCalls ?? []);
+	return (
+		exempt.onlyCalls !== undefined && [...closure.edgesOf(key).keys()].some((t) => !allowed.has(t))
+	);
+}
+
+/** The chokepoints that reach neither applier nor their exemption's own unit. */
+function saveRulesOffenders(closure: WriterClosure, chokepoints: readonly string[]): string[] {
+	return chokepoints
+		.filter((key) => {
+			const exempt = SAVE_RULES_EXEMPT[key];
+			if (exempt !== undefined) return exemptionBroken(closure, key, exempt);
+			return (
+				!closure.bodies.has(key) ||
+				!SAVE_RULE_APPLIERS.some((applier) => closure.reachesPrecisely(key, applier))
+			);
+		})
+		.sort();
+}
 
 // ---------------------------------------------------------------------------
 // S. SPELLING CHECKS — labelled as such: they read source text, not the closure

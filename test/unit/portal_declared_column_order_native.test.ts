@@ -1,8 +1,14 @@
 /**
- * PORTAL DECLARED-COLUMN ORDER — the CONFIG-RESOLUTION WIRING (WC-048).
+ * PORTAL DECLARED-COLUMN ORDER — the CONFIG-RESOLUTION WIRING (WC-048, 2026-10-31 addendum).
  *
- * `orderLocatorsByDeclaredColumns` is the read-time entry point of the per-ddo
- * `order` feature. The pure helpers it composes (`normalizeDirection`,
+ * `orderLocatorsByDeclaredColumns` is THE declared-order ranking of the per-ddo
+ * `order` feature — since the portal order model (WC-2026-10-31-portal-order-model)
+ * no longer a read-time display order but the ONE function shared by the WRITE
+ * chokepoint (record_write.ts `applyKeySaveRules` → `sortByDeclaredOrder`: the
+ * stored array is kept sorted) and the `portal_declared_order` reconcile; the
+ * read serves the stored array as stored (pinned by `portal_order_native`).
+ * The temporary header sort is a separate read path (`view_order`,
+ * `orderLocatorsByViewOrder`, also pinned there). The pure helpers it composes (`normalizeDirection`,
  * `hasDeclaredColumnOrder`, `orderedColumnsFromDdoMap`, `locatorTargetSections`,
  * `buildOrderEntries`, `rankLocatorsByColumns`) are gated by
  * `portal_order_by_columns_native.test.ts` and are NOT re-tested here.

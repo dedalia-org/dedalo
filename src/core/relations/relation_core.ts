@@ -35,6 +35,12 @@ import {
 } from '../resolve/component_data.ts';
 import { isTimeMachineRead } from '../section/list_definitions/tm_scope_context.ts';
 import { loadRecordCached } from '../section/record_loader.ts';
+import {
+	assertViewOrder,
+	rankByViewColumn,
+	storedIndexOf,
+	type ViewOrder,
+} from './order_locators.ts';
 import type { EmitDdoFn } from './registry.ts';
 
 /** List-cell locator page size (PHP portal list mode paginates the cell to 1). */
@@ -375,6 +381,14 @@ export interface ExpandPortalOptions {
 	/** Page offset (the get_data pagination rqo's sqo.offset). */
 	offset?: number;
 	/**
+	 * The TEMPORARY client view order (the get_data rqo's sqo.view_order — a
+	 * header click on a `sort_by_column` column, WC-2026-10-31-portal-order-model):
+	 * orders the full list before paginating; never written. Top-level portal
+	 * get_data only (read.ts readComponentData); never passed to a nested
+	 * expansion.
+	 */
+	viewOrder?: ViewOrder | null | undefined;
+	/**
 	 * Component get_data / save-echo ddinfo shape (PHP component get_json):
 	 * bare {tipo,section_id,section_tipo,value,parent} — no row stamps, chain
 	 * ends at the root term (no trailing hierarchy label). Byte-diffed vs the
@@ -389,6 +403,64 @@ export interface ExpandPortalOptions {
 	 * (tm_record/frame_as_of.ts). Never passed to a nested expansion.
 	 */
 	targetsAsOf?: TmAsOf;
+}
+
+/** A validated view order: the request's column + its wire direction. */
+interface ValidViewOrder {
+	tipo: string;
+	direction: 'ASC' | 'DESC';
+}
+
+/**
+ * The request's `sqo.view_order`, VALIDATED (order_locators.ts assertViewOrder:
+ * column offered, column readable), or null when none was sent. Asked whatever
+ * the record holds — expandPortal calls it BEFORE its empty short-circuit.
+ */
+async function validatedViewOrder(
+	viewOrder: ViewOrder | null | undefined,
+	locators: readonly unknown[],
+	portalTipo: string,
+	ownerSectionTipo: string,
+	effectivePropertiesOf: (tipo: string) => Promise<unknown>,
+): Promise<ValidViewOrder | null> {
+	if (viewOrder === null || viewOrder === undefined) return null;
+	const direction = await assertViewOrder(
+		viewOrder,
+		locators,
+		await effectivePropertiesOf(portalTipo),
+		portalTipo,
+		ownerSectionTipo,
+	);
+	return { tipo: viewOrder.tipo, direction };
+}
+
+/** The FULL locator list in the view order (the stored array itself when none applies). */
+async function rankedForView<T>(locators: T[], viewOrder: ValidViewOrder | null): Promise<T[]> {
+	if (viewOrder === null || locators.length < 2) return locators;
+	const reordered = await rankByViewColumn(locators, viewOrder.tipo, viewOrder.direction);
+	return reordered === null ? locators : (reordered as T[]);
+}
+
+/**
+ * One page of the (possibly view-ordered) list, each item stamped
+ * `paginated_key` (PHP get_data_paginated: index + offset). Under a READ order
+ * the key is the locator's STORED index (WC-2026-10-31-portal-order-model): it
+ * is what a later persisted reorder (sort_data source_key/target_key)
+ * addresses, and the display position is not. Without one the two coincide.
+ */
+function paginateLocators(
+	locators: readonly Record<string, unknown>[],
+	ordered: readonly Record<string, unknown>[],
+	pageOffset: number,
+	limit: number,
+): Record<string, unknown>[] {
+	const storedIndex = ordered === locators ? null : storedIndexOf(locators);
+	return ordered
+		.slice(pageOffset, limit > 0 ? pageOffset + limit : undefined)
+		.map((locator, index) => ({
+			...locator,
+			paginated_key: storedIndex?.get(locator) ?? index + pageOffset,
+		}));
 }
 
 /**
@@ -423,6 +495,19 @@ export async function expandPortal(
 			string,
 			unknown
 		>[]) ?? [];
+
+	// A present `sqo.view_order` is VALIDATED whatever the record holds —
+	// column offered, column readable (order_locators.ts assertViewOrder) —
+	// BEFORE the empty short-circuit: the same RQO is never refused on a record
+	// with three locators and silently ignored on one with none
+	// (WC-2026-10-31-portal-order-model item 4). Only the RANKING needs two.
+	const viewOrder = await validatedViewOrder(
+		options.viewOrder,
+		locators,
+		portalDdo.tipo,
+		configOwnerOf(row).section_tipo,
+		getEffectivePropertiesByTipo,
+	);
 
 	// EMPTY relation components emit NO data item at all (PHP portal_json:
 	// the item push sits inside the `if data_value non-empty` guard :163).
@@ -464,43 +549,22 @@ export async function expandPortal(
 				options.cellLimit ??
 				(storedModel === 'component_autocomplete_hi' ? locators.length : PORTAL_LIST_LIMIT))
 			: (portalDdo.limit ?? ownEditLimit() ?? dedaloConfig.features.maxRowsPerPage);
-	// READ-time column order (TS feature, no PHP oracle): when a portal column
-	// ddo declares `order: asc|desc`, order the FULL locator list by those
-	// columns FOR DISPLAY before paginating (the stored array is never written).
-	// Opt-in — the cheap raw scan keeps the hot path import-free unless used; no
-	// frozen fixture declares it, so parity is unchanged.
-	let orderedLocators = locators;
-	if (locators.length > 1) {
-		// Cheap inline gate (no import): does any request_config column carry an
-		// `order` directive? Only then load the ordering machinery.
-		const requestConfig = (effectiveProperties as { source?: { request_config?: unknown } } | null)
-			?.source?.request_config;
-		const hasOrder =
-			Array.isArray(requestConfig) &&
-			requestConfig.some((item) => {
-				const ddoMap = (item as { show?: { ddo_map?: unknown } })?.show?.ddo_map;
-				return (
-					Array.isArray(ddoMap) && ddoMap.some((ddo) => (ddo as { order?: unknown })?.order != null)
-				);
-			});
-		if (hasOrder) {
-			const { orderLocatorsByDeclaredColumns } = await import('./order_locators.ts');
-			const reordered = await orderLocatorsByDeclaredColumns(
-				locators,
-				effectiveProperties,
-				portalDdo.tipo,
-				configOwnerOf(row).section_tipo,
-			);
-			if (reordered !== null) orderedLocators = reordered as typeof locators;
-		}
-	}
+	// READ ORDER (WC-2026-10-31-portal-order-model — the stored array is the
+	// only real order; no PHP oracle, no frozen fixture declares either key, so
+	// parity is unchanged). A declared `order` is NOT applied here: the
+	// record-write chokepoint stores a declared-order key sorted, so the read
+	// serves it as stored (an array stored before the order was declared is the
+	// `portal_declared_order` reconcile's to sort). The ONE read-time order is a
+	// TEMPORARY client `view_order` (sqo.view_order, the header click on a
+	// `sort_by_column` column — honoured on a declared-order portal too): over
+	// the FULL locator list before paginating, never written, through the same
+	// ranking function (order_locators.ts) the write uses.
+	// (validated above, before the empty short-circuit; ranked here).
+	const orderedLocators = await rankedForView(locators, viewOrder);
 
-	// PHP get_data_paginated stamps paginated_key = index + offset on each item;
-	// the get_data pagination rqo pages with sqo.offset.
+	// The get_data pagination rqo pages with sqo.offset (paginated_key: paginateLocators).
 	const pageOffset = options.offset ?? 0;
-	const page: Record<string, unknown>[] = orderedLocators
-		.slice(pageOffset, limit > 0 ? pageOffset + limit : undefined)
-		.map((locator, index) => ({ ...locator, paginated_key: index + pageOffset }));
+	const page = paginateLocators(locators, orderedLocators, pageOffset, limit);
 
 	// The portal's own data item: paginated locators + pagination info.
 	// PHP re-stamps portal-descendant items in the OUTER section subdatum

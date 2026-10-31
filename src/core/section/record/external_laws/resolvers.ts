@@ -272,21 +272,29 @@ function sortTargets(targets: ObservableTarget[]): ObservableTarget[] {
 }
 
 /**
- * The inverse resolver: every record referencing the saved one — through the
- * law's pointer when it has one (exact: only a record whose pointer names X
- * can have X as its source), else through any component (PHP
+ * THE INVERSE HOST LOOKUP — the one body behind both inverse consumers: the
+ * set_dato_external `inverse` resolver below (pointer = the law's) and the
+ * observer DEFAULT branch's `use_inverse_relations` relay (observers.ts —
+ * pointer = the edge's `via`; the order-derived edges of the portal order
+ * model, WC-2026-10-31-portal-order-model). Every record referencing `saved` —
+ * through `pointer` when given (exact: only a record whose `pointer` names the
+ * saved one can be its host), else through any component (PHP
  * get_inverse_references) — kept only where its section hosts the observer.
- * Uncapped (a capped target list silently skips mirrors). One target per
- * record (PHP visited once per referencing LOCATOR).
+ * Uncapped (a capped target list silently skips hosts). One target per record
+ * (PHP visited once per referencing LOCATOR). Order = the search's
+ * (section_tipo, section_id) — already the deterministic lock order.
  */
-async function inverseTargets(input: ResolveObserverTargetsInput): Promise<ObservableTarget[]> {
+export async function inverseHostTargets(
+	observerTipo: string,
+	saved: RecordAddress,
+	pointer: string | undefined,
+): Promise<ObservableTarget[]> {
 	const { findInverseReferences } = await import('../../../search/search_related.ts');
-	const pointer = externalLawPointer(input.law);
 	const hits = await findInverseReferences(
 		[
 			{
-				section_tipo: input.saved.section_tipo,
-				section_id: input.saved.section_id,
+				section_tipo: saved.section_tipo,
+				section_id: saved.section_id,
 				...(pointer !== undefined ? { from_component_tipo: pointer } : {}),
 			},
 		],
@@ -298,7 +306,7 @@ async function inverseTargets(input: ResolveObserverTargetsInput): Promise<Obser
 	for (const hit of hits) {
 		let hosted = hostBySection.get(hit.section_tipo);
 		if (hosted === undefined) {
-			hosted = await isObserverHostSection(input.observerTipo, hit.section_tipo);
+			hosted = await isObserverHostSection(observerTipo, hit.section_tipo);
 			hostBySection.set(hit.section_tipo, hosted);
 		}
 		if (!hosted) continue;
@@ -308,6 +316,15 @@ async function inverseTargets(input: ResolveObserverTargetsInput): Promise<Obser
 		targets.push({ section_tipo: hit.section_tipo, section_id: hit.section_id });
 	}
 	return targets;
+}
+
+/**
+ * The inverse resolver: {@link inverseHostTargets} through the law's pointer
+ * (exact: only a record whose pointer names X can have X as its source), else
+ * unfiltered.
+ */
+async function inverseTargets(input: ResolveObserverTargetsInput): Promise<ObservableTarget[]> {
+	return inverseHostTargets(input.observerTipo, input.saved, externalLawPointer(input.law));
 }
 
 /**

@@ -48,6 +48,7 @@ import {
 } from '../ontology/resolver.ts';
 import { requiredOntologyTld } from '../ontology/tld.ts';
 import { type DataframeDeletePolicy, dataframeDeletePolicyOf } from '../relations/dataframe.ts';
+import { declaredOrderOf } from '../relations/order_locators.ts';
 import { stampSectionContext } from '../section/context.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentApplicationLang } from './request_lang.ts';
@@ -83,6 +84,16 @@ export interface StructureContextCore {
 	 * sides cannot disagree on what a spelling means.
 	 */
 	delete_policy?: DataframeDeletePolicy;
+	/**
+	 * The component's DECLARED column order (portal order model,
+	 * WC-2026-10-31-portal-order-model) — ADDITIVE wire key, `[{tipo, direction}]`
+	 * in priority order, present only when a `show.ddo_map` column of its edit
+	 * config declares `order`. The client's ONE authority for "declared-order
+	 * portal" (no client mirror of the predicate): no drag source, no "save
+	 * current order", the permanent-order indicator. Ontology-derived and
+	 * request-invariant, so it lives in the cached core.
+	 */
+	declared_order?: { tipo: string; direction: 'ASC' | 'DESC' }[];
 }
 
 /**
@@ -438,6 +449,15 @@ async function buildCore(
 	// resolver keeps nodes lean — label resolution queries dd_ontology term).
 	const label = await labelByTipo(tipo);
 
+	// DECLARED ORDER: the same columns the record-write chokepoint sorts by
+	// (order_locators.ts — one function), asked by the DATA tipo inside
+	// declaredOrderOf (an alias answers as its target, whatever its own `source`
+	// override says — the chokepoint only ever sees the target). Its own cheap
+	// raw scan gates the config build, so a component without `order` pays nothing.
+	const declaredOrder = model.startsWith('component_')
+		? await declaredOrderOf(tipo, sectionTipo)
+		: null;
+
 	const core = {
 		label,
 		tipo,
@@ -464,6 +484,7 @@ async function buildCore(
 		// value by THIS key, so it is stamped from the descriptor on every
 		// component entry — request-invariant, so it lives in the cached core.
 		...(getComponentModel(model) !== undefined ? { render_class: getRenderClass(model) } : {}),
+		...(declaredOrder !== null ? { declared_order: declaredOrder } : {}),
 		configSourceProperties,
 		ownConfigProperties: effectiveProperties,
 		structuralView,
