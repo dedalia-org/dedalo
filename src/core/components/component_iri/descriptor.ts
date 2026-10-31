@@ -17,4 +17,7 @@ export const component_iri: ComponentModel = {
 	// (hardcoded DEDALO_COMPONENT_IRI_LABEL_DATAFRAME).
 	fixedDataframeTipos: ['dd560'],
 	importConform: 'iri',
+	// ALWAYS transliterable (PHP class.component_iri.php:64): every literal item
+	// carries `transliterate_value`, the other-lang counterpart (lang_versions_emit.ts).
+	emitHook: 'lang_versions',
 };

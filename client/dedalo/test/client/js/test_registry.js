@@ -119,6 +119,7 @@ export const lifecycle_suites_green = [
 	'test_component_input_text',       // green after save-response DataItem-shape fix (dispatch.ts)
 	'test_component_check_box',        // green after select_family search-datalist + entries→[] fix
 	'test_component_filter',           // needs the run's projects fixture (src/core/test_data/projects_fixture.ts): the install seed ships ONE dd153 project and the record selects it, so check/uncheck have nothing to work with. Green after filterResolver search-datalist + entries→[] fix
+	'test_component_input_text_lang_versions', // 2026-10-31 with_lang_versions (test166, own scratch record): base instance in lg-nolan with tool_lang, model-less get_instance stays on the base, the tool_lang target builds + saves the version beside the base, transliterate_value both ways, edit line + list " (…)" suffix
 	'test_component_inverse',          // green after inverse empty-value → [] fix (read.ts)
 	'test_component_radio_button',     // green after save-response datalist fix (dispatch.ts)
 	'test_component_select',            // green after select_family fixes (stable)

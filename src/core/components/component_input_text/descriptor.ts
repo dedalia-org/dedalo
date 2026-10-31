@@ -15,4 +15,8 @@ export const component_input_text: ComponentModel = {
 	flatValue: 'string',
 	importValueProperty: true,
 	importConform: 'input_text',
+	// TRANSLITERABLE when its ontology says `with_lang_versions` (an lg-nolan
+	// base + per-language versions): the hook emits `transliterate_value`, the
+	// other-lang counterpart the views show beside the value (no key otherwise).
+	emitHook: 'lang_versions',
 };

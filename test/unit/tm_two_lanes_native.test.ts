@@ -1023,24 +1023,88 @@ describe('(4) a TRANSLITERABLE main (with_lang_versions: lg-nolan base + lg-ell 
 		}
 	});
 
-	test('every row previews, viewed in lg-ell, the base AS OF it + the frames as of it (the read serves no lg-ell lane of a non-translatable model)', async () => {
-		// FLOOR, ledgered as WC-2026-08-31-client-reads-three-fields-the-engine-never-emits
-		// (`transliterate_value` is never emitted): the LIVE read of a
-		// non-translatable model serves its lg-nolan items only, whatever the view
-		// language. When that read-path gap closes, the preview must show the
-		// transliteration as of the row too: extend `want`.
+	test('the history LIST cell of every lg-ell row, listed in lg-ell, is the VERSION the row records — its own entries, never an empty base slice serving it as a fallback', async () => {
+		// read_tm laneCellLang pins a TRANSLITERABLE's cell to the row's audit
+		// lang: an un-pinned cell would be the instance's lg-nolan base
+		// (elementLang), read off an lg-ell row that holds only lg-ell items —
+		// entries [] and the version shown as a missing-translation fallback.
+		const { data } = await readTimeMachineData(historyRqo(X, id, ELL));
+		const cells = new Map<number, { lang?: string; entries: string[]; fallback: unknown }>();
+		for (const item of data as {
+			tipo?: string;
+			section_id?: number;
+			lang?: string;
+			entries?: Item[];
+			fallback_value?: unknown;
+		}[]) {
+			if (item.tipo !== XMAIN) continue;
+			cells.set(Number(item.section_id), {
+				lang: item.lang,
+				entries: (item.entries ?? []).map((entry) => `${entry.lang}:${entry.value}`),
+				fallback: item.fallback_value ?? null,
+			});
+		}
+		const ellEntries = driven.entries.filter((entry) => entry.lane === ELL);
+		expect(ellEntries).toHaveLength(2); // FLOOR
+		for (const entry of ellEntries) {
+			expect(cells.get(entry.rowId)).toEqual({
+				lang: ELL,
+				entries: entry.state[ELL] ?? ['(no lg-ell state)'],
+				fallback: null,
+			});
+		}
+	});
+
+	test('every row previews, viewed in lg-nolan (the edit form’s BASE instance), the BASE AS OF it + the frames as of it', async () => {
+		// The base instance's preview door: an lg-ell row must not show the
+		// version, and an old row must not show the LIVE base — the base lane
+		// reconstructed as of each row ('Augustus' before step 4, 'Augustus
+		// Caesar' after; the live base is the latter, so the early rows tell).
+		const got: unknown[] = [];
+		const want: unknown[] = [];
+		for (const entry of driven.entries) {
+			const shown = await preview(X, id, entry.rowId, NOLAN);
+			got.push({ step: entry.step, ...shown });
+			want.push({ step: entry.step, values: entry.state[NOLAN] ?? [], frames: entry.state.frames });
+		}
+		expect(
+			new Set(want.map((row) => JSON.stringify((row as { values: unknown }).values))).size,
+		).toBe(2); // FLOOR: two distinct bases as of the rows
+		expect(got).toEqual(want);
+	}, 60_000);
+
+	test('every row previews, viewed in lg-ell, the lg-ell VERSION AS OF it + the frames as of it (an explicit lg-ell read of a transliterable serves its lg-ell lane)', async () => {
+		// An EXPLICIT lang on a component read is the tool_lang target's ask
+		// (resolver.ts elementLang): the LIVE read of a with_lang_versions main
+		// in lg-ell serves its lg-ell version — never the base as its entries.
 		const live = await runWithRequestLangs({ applicationLang: ENG, dataLang: ELL }, () =>
 			readComponentData({
 				source: { tipo: XMAIN, section_tipo: SECTION, section_id: id, lang: ELL, mode: 'edit' },
 			} as never),
 		);
-		expect(JSON.stringify(live)).not.toContain('Αύγουστος');
+		const liveMain = (live as { tipo?: string; lang?: string; entries?: Item[] }[]).find(
+			(item) => item.tipo === XMAIN,
+		);
+		expect(liveMain?.lang).toBe(ELL);
+		expect((liveMain?.entries ?? []).map((entry) => `${entry.lang}:${entry.value}`)).toEqual(
+			driven.entries.at(-1)?.state[ELL] ?? ['(no final state)'],
+		);
+		expect(JSON.stringify(live)).toContain('Αύγουστος');
+		// …and carries its lg-nolan BASE as `transliterate_value` (the version
+		// instance's counterpart — what the translator transliterates from;
+		// WC-2026-10-31-transliterate-value-emitted).
+		const counterpart = (liveMain as { transliterate_value?: Item[] | null } | undefined)
+			?.transliterate_value;
+		expect(Array.isArray(counterpart)).toBe(true);
+		expect((counterpart ?? []).map((entry) => `${entry.lang}:${entry.value}`)).toEqual(
+			driven.entries.at(-1)?.state[NOLAN] ?? ['(no final base)'],
+		);
 		const got: unknown[] = [];
 		const want: unknown[] = [];
 		for (const entry of driven.entries) {
 			const shown = await preview(X, id, entry.rowId, ELL);
 			got.push({ step: entry.step, ...shown });
-			want.push({ step: entry.step, values: entry.state[NOLAN], frames: entry.state.frames });
+			want.push({ step: entry.step, values: entry.state[ELL] ?? [], frames: entry.state.frames });
 		}
 		expect(got).toEqual(want);
 	}, 60_000);

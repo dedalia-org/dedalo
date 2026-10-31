@@ -10,8 +10,10 @@
  *
  * Per-model deviations ported from the PHP overrides:
  * - component_text_area (:2441-2453): html_entity_decode on every value;
- * - component_iri (:406-446): ONE atom whose value is the {iri,title} entry
- *   array with lang stripped (parser_iri::flat consumes exactly that);
+ * - component_iri (:406-446): one atom PER STORED LANG whose value is that
+ *   lang's {iri,title} entry array with lang stripped (parser_iri::flat
+ *   consumes exactly that, per lang) — the projection ladder then applies
+ *   the v6 chain row lang → base → main lang → any;
  * - component_geolocation (:336-358): per-point `id` stripped. THE VIEW
  *   PUBLISHES AS STORED and is never dropped — lat/lon/zoom are the map
  *   framing, for many records the only positional data there is, and consumers
@@ -290,12 +292,37 @@ export function defaultPublicationValue(
 
 	switch (model) {
 		case 'component_iri': {
-			// PHP: one object whose value is the entry array, lang stripped.
-			const entries = items.map((item) => {
-				const { lang: _stripped, ...clone } = item;
-				return clone as Record<string, unknown>;
-			});
-			return [rawToAtom(entries, null, meta)];
+			// ONE atom PER STORED LANG, each holding that lang's entry array with
+			// the per-item lang stripped (the diffused IRI shape is {id,iri,title}).
+			//
+			// component_iri is TRANSLITERABLE (hasLangVersions: always): an
+			// lg-nolan BASE plus optional per-language VERSIONS. v6
+			// component_iri::get_diffusion_value (v6 class.component_iri.php
+			// :652-665) publishes the ROW lang's slice and falls back to the
+			// lg-nolan base when that slice is empty; its caller, the v6
+			// diffusion_sql::build_data_field DEFAULT branch (v6
+			// class.diffusion_sql.php:1803-1825), then falls back to the record's
+			// MAIN lang and, last, to the first non-empty of every lang + lg-nolan.
+			// So the full v6 chain is row lang → lg-nolan → main lang → any, and a
+			// version-only record (no base) publishes that version in every row.
+			// Splitting the atoms by lang hands that decision to the projection
+			// ladder (project/lang_ladder.ts: exact → nolan → main → any) — the
+			// same chain, rung for rung. The frozen v7 PHP
+			// (get_diffusion_data :426-466, get_data() over every lang) merged all
+			// slices into ONE lang-neutral object, so every row published the base
+			// AND every version together — a regression, not the contract.
+			//
+			// A record holding only lg-nolan entries (the common case) yields the
+			// same single lang-null atom as before: identical bytes.
+			const byLang = new Map<string | null, Record<string, unknown>[]>();
+			for (const item of items) {
+				const { lang, ...clone } = item;
+				const key = atomLangOf(lang as string | null | undefined);
+				const group = byLang.get(key);
+				if (group === undefined) byLang.set(key, [clone as Record<string, unknown>]);
+				else group.push(clone as Record<string, unknown>);
+			}
+			return [...byLang].map(([lang, entries]) => rawToAtom(entries, lang, meta));
 		}
 
 		case 'component_geolocation': {

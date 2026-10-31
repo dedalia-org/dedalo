@@ -61,15 +61,11 @@ export const view_mini_input_text = function() {
 * populated by the server when a fallback language is resolved.
 *
 * Transliteration suffix: when `context.properties.with_lang_versions` is true
-* and `data.transliterate_value` is truthy, a parenthesised transliteration
-* string is appended to every item span's inner_html (e.g. "Raspa (ラスパ)").
-* (!) `data.transliterate_value` is coerced to a string directly here rather
-* than reading its `.value` property. In other views (view_default_list_input_text,
-* view_default_edit_input_text) the field is treated as an Array of objects
-* `{id, value, lang}`. The inconsistency means that when with_lang_versions
-* is true, this view may display "[object Object]" in the parentheses instead
-* of the transliterated text. Flag: likely bug — should mirror the access
-* pattern in view_default_list_input_text: `self.data.transliterate_value[0]?.value`.
+* and `data.transliterate_value[0].value` is non-empty, a parenthesised
+* transliteration string is appended to every item span's inner_html (e.g.
+* "Raspa (ラスパ)"). `data.transliterate_value` is an Array of `{id, value, lang}`
+* (the other-lang counterpart; null when the component holds no data), read the
+* same way as view_default_list_input_text.
 *
 * Dataframe: `attach_item_dataframe` is called for every item. It is a no-op
 * when `context.properties.has_dataframe` is false/absent, so calling it

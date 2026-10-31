@@ -54,3 +54,22 @@ The client's own source already carries two `(!) BUG FLAG` comments about
 Those stay accurate and are not this entry's subject: a field nothing emits
 cannot have a shape bug in production, and fixing the shape before deciding
 whether to emit it would be work aimed at code that never runs.
+
+## Closure — `transliterate_value` (2026-10-31)
+
+`transliterate_value` is EMITTED again: the `lang_versions` emit hook
+(`src/core/components/lang_versions_emit.ts`, declared by component_input_text
+and component_iri) puts it on every transliterable literal item — every
+component_iri, and a component_input_text whose ontology says
+`with_lang_versions`. Shape, doors and gates:
+WC-2026-10-31-transliterate-value-emitted. The tripwire moved the field from
+`NOT_EMITTED` to `CLOSED`, which pins the closure the other way (still read,
+still ASSIGNED in `src/`, still ledgered). Two fields remain open: `q_lang`,
+`permissions_indexation`.
+
+The `(!) BUG FLAG` noted above is resolved on the client side: the list and mini
+views now read `transliterate_value[0].value` (the Array shape the engine
+emits). One TS-era client defect surfaced by the emission was fixed with it:
+component_iri's `render_transliterate_value` read `self.context.render_class`
+in a module-level function with no `self` in scope (a TypeError the moment an
+IRI counterpart rendered); the component context is now a parameter.

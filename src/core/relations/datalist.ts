@@ -519,13 +519,16 @@ export async function echoesDatalist(model: string): Promise<boolean> {
  * `value` is what the echo is about to hand the client (the saved / echoed
  * entries). Unused by the filter family branch — filter options are never
  * completed against a record's value.
+ *
+ * No lang parameter: the option labels are ALWAYS in the request data lang
+ * ({@link datalistLabelLang}), never the saved instance's lang — the read
+ * labels the same way, so echo == read whatever lang the save carried.
  */
 export async function getEchoDatalist(
 	model: string,
 	componentTipo: string,
 	componentProperties: unknown,
 	ownerSectionTipo: string,
-	lang: string,
 	value: readonly unknown[],
 ): Promise<ComponentDatalistItem[] | FilterDatalistItem[] | FilterRecordsDatalistItem[]> {
 	// The SET is the routing knowledge — the guard that decides whether an echo
@@ -553,7 +556,30 @@ export async function getEchoDatalist(
 		const { getFilterDatalist } = await import('./filter_projects.ts');
 		return getFilterDatalist();
 	}
-	return getEditDatalist(componentTipo, componentProperties, ownerSectionTipo, lang, value);
+	return getEditDatalist(
+		componentTipo,
+		componentProperties,
+		ownerSectionTipo,
+		await datalistLabelLang(),
+		value,
+	);
+}
+
+/**
+ * THE LABEL LANG of a select-family option list and list value: the request
+ * DATA lang — PHP builds them with DEDALO_DATA_LANG
+ * (class.component_relation_common.php get_list_of_values(DEDALO_DATA_LANG),
+ * component_select_json.php, component_radio_button_json.php), NEVER with the
+ * instance lang. These models are relations, never translatable, so their
+ * instance lang is lg-nolan (ontology/resolver.ts elementLang): labelling with
+ * it would serve the lg-nolan fallback chain (the install's default lang) to a
+ * curator working in another language, whatever lang the caller asked for.
+ * ONE rule for the read (models/select_family.ts) and both save echoes
+ * ({@link getEchoDatalist}), so they cannot disagree.
+ */
+export async function datalistLabelLang(): Promise<string> {
+	const { currentDataLang } = await import('../resolve/request_lang.ts');
+	return currentDataLang();
 }
 
 /**

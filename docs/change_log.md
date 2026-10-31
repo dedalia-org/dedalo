@@ -132,6 +132,40 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-30-section-record-row-box`.
 
+- **Components with language versions show the other version beside the value, and offer the translation tool**
+
+    Some fields are not translated but can keep a version per language beside their
+    base value — a personal name written once and transliterated into Greek or
+    Russian, for example, or any IRI field. These fields are marked with
+    `with_lang_versions` in the ontology.
+
+    Before, such a field behaved like a plain untranslated one. The translation tool
+    was not offered on it, and the version in your working language was not shown
+    next to the value.
+
+    Now:
+
+    - The translation tool appears on these fields and on every IRI field. Inside
+      the tool, the version you edit shows the base value beside it.
+    - In the edit form and in lists, the version in your working data language is
+      shown beside the base value, for example "Augustus (Αύγουστος)".
+    - Opening an IRI field's version in the translation tool no longer fails.
+    - Searching one of these fields also finds the record by any of its language
+      versions, not only by the base value.
+    - The edit form keeps editing the base value even when your working data
+      language is another one; only the translation tool edits a version.
+    - When published, these fields give each language its own version and fall
+      back to the base value when a language has none. IRI fields no longer publish
+      the base and all its versions joined together in every language.
+    - The options of selectors, radio buttons and check boxes are always labelled in
+      your working data language, also right after saving. Before, they could
+      appear in the installation's default language.
+    - In the Time Machine history of one of these fields, a change to a language
+      version shows that version as the row's value, no longer as a greyed
+      missing-translation hint.
+
+    Wire contract: `WC-2026-10-31-transliterate-value-emitted`.
+
 - **Records open when a portal's list layout names a field from an uninstalled ontology.**
 
     A portal's list layout can name fields from optional ontologies (for example `tchi`). On an installation without that ontology, opening the record failed with "The identifier is not a valid ontology tipo". Those fields are now left out of the layout, and the server logs a warning naming each one.
@@ -705,7 +739,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 40 entries"
+??? note "Wire contract — 41 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -746,6 +780,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-30-update-run`
     - `WC-2026-10-30-update-sources-server-held`
     - `WC-2026-10-31-portal-order-model`
+    - `WC-2026-10-31-transliterate-value-emitted`
     - `WC-2026-10-31-update-rung-above-code`
 
 ## 7.0.0-beta.7 — 2026-10-25

@@ -30,7 +30,7 @@ import { configOwnerOf } from '../../concepts/emit_row.ts';
 import { getNode } from '../../ontology/resolver.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
 import { buildDataItem } from '../../resolve/component_data.ts';
-import { getEditDatalist, getRelationListValue } from '../datalist.ts';
+import { datalistLabelLang, getEditDatalist, getRelationListValue } from '../datalist.ts';
 import type { RelationEmitContext, RelationModelResolver } from '../registry.ts';
 
 /** Relation models whose LIST value is label strings (relation_common get_list_value). */
@@ -71,7 +71,7 @@ async function listLabels(
 		context.ddo.tipo,
 		properties,
 		configOwnerOf(context.row).section_tipo,
-		context.ddoLang,
+		await datalistLabelLang(),
 		storedLocators,
 	);
 }
@@ -114,7 +114,7 @@ async function buildOptionsItem(
 			context.ddo.tipo,
 			properties,
 			configOwnerOf(context.row).section_tipo,
-			context.ddoLang,
+			await datalistLabelLang(),
 			storedLocators,
 		));
 	const item = buildDataItem(
@@ -156,12 +156,13 @@ async function ownReadOnlyDatalist(
 	if ((await getRecordComponentPermission(principal, sectionTipo, context.ddo.tipo, sectionId)) > 1)
 		return null;
 	const { runWithRequestContext } = await import('../../security/request_context.ts');
+	const labelLang = await datalistLabelLang();
 	const all = await runWithRequestContext({ ...requestContext, principal: undefined }, () =>
 		getEditDatalist(
 			context.ddo.tipo,
 			properties,
 			configOwnerOf(context.row).section_tipo,
-			context.ddoLang,
+			labelLang,
 			storedLocators,
 		),
 	);

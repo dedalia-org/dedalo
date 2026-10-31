@@ -61,6 +61,7 @@ import {
 	getMatrixTableFromTipo,
 	getModelByTipo,
 	getTranslatableByTipo,
+	hasLangVersions,
 	savesInRequestLang,
 	tipoBelongsToSection,
 } from '../ontology/resolver.ts';
@@ -918,17 +919,38 @@ function holdsNolanItem(data: unknown): boolean {
 }
 
 /**
- * THE CELL LANG OF A LANGUAGE-LANE LITERAL THAT IS NOT TRANSLATABLE: a
- * component_iri keeps its value in the request language's lane whatever its
- * flag (savesInRequestLang; component_data.ts resolveComponentValue honours the
- * requested lang for it), but emitDdoData nolan-forces a non-translatable ddo
- * — and the client echoes the column context's lg-nolan — so its cell would
- * read the (empty) lg-nolan slice of every row. Its cell is pinned to the
- * audit lang. Every other model keeps the ddo's own lang (a non-translatable
- * string is nolan-forced by its reader anyway).
+ * THE CELL LANG OF A LANGUAGE-LANE LITERAL THAT IS NOT TRANSLATABLE — a
+ * TRANSLITERABLE (resolver.ts hasLangVersions: every component_iri, and any
+ * component declaring `properties.with_lang_versions`): its BASE lives in
+ * lg-nolan and its VERSIONS in language lanes (savesInRequestLang), but
+ * emitDdoData gives an un-asked transliterable ddo its lg-nolan base
+ * (elementLang) — and the client echoes the column context's lg-nolan. An
+ * un-pinned cell of an lg-ell row (which holds only lg-ell items) would read
+ * that row's EMPTY lg-nolan slice and show the version only as a
+ * missing-translation fallback. So the cell is pinned to the LANE THE ROW
+ * HOLDS (an explicit ask: elementLang keeps it):
+ * - a language row → its own lang (`cellLang`, the audit lang);
+ * - an lg-nolan row whose value graftFrameRowValue replaced with the viewed
+ *   language's value as of it (a frames-only row: frameRowModel) → `cellLang`,
+ *   the request lang the graft read;
+ * - any other lg-nolan row (it holds the base) → lg-nolan: the base as it was.
+ *   `cellLang` there is the REQUEST lang (snapshotLang never filters by
+ *   lg-nolan), and pinning to it read the row's empty language slice.
+ * - a lang-less (PHP-era) row → `cellLang`, as before.
+ * A translatable keeps the ddo's own lang; a plain non-translatable is lg-nolan
+ * whatever is asked.
  */
-function laneCellLang(model: string, cellLang: string): { lang?: string } {
-	return model === 'component_iri' ? { lang: cellLang } : {};
+async function laneCellLang(
+	row: TmRow,
+	tipo: string,
+	model: string,
+	cellLang: string,
+	viewLang: string,
+): Promise<{ lang?: string }> {
+	if (!(await hasLangVersions(tipo, model))) return {};
+	if (row.lang !== NOLAN) return { lang: cellLang };
+	if (row.tipo === tipo && (await frameRowModel(row, viewLang)) !== null) return { lang: cellLang };
+	return { lang: NOLAN };
 }
 
 /** A per-component (array snapshot) lg-nolan row, read in a language lane. */
@@ -1168,11 +1190,17 @@ async function emitTmRow(
 		// context lang seeds the note modal's editor, so a note must be written in
 		// the same language the read filters by or a saved note never shows again
 		// (grey icon over existing text). Every other column follows the audit-lang
-		// rule. Non-translatable columns are nolan-forced by emitDdoData regardless.
+		// rule. Plain non-translatable columns are nolan-forced by emitDdoData
+		// regardless; a transliterable is pinned to it (laneCellLang).
 		const cellLang = tipo === TIPO_NOTES ? lang : snapshotLang;
 		const clientDdo = (ddoByTipo.get(tipo) ?? { tipo }) as Record<string, unknown>;
 		// LIST mode is the whole point: it is what makes every emit hook fire.
-		const cellDdo = { ...clientDdo, tipo, mode: 'list', ...laneCellLang(model, cellLang) };
+		const cellDdo = {
+			...clientDdo,
+			tipo,
+			mode: 'list',
+			...(await laneCellLang(row, tipo, model, cellLang, lang)),
+		};
 
 		const rowEmission = await cellEmission(tipo);
 		const before = rowEmission.items.length;

@@ -559,7 +559,7 @@ const get_content_value = (i, current_value, self) => {
 
 			// transliterate value object. Add only if has iri value.
 				if(transliterate_value?.iri) {
-					const transliterate_value_container = render_transliterate_value(transliterate_value);
+					const transliterate_value_container = render_transliterate_value(transliterate_value, self.context);
 					content_value.appendChild(transliterate_value_container)
 				}
 		})//end .then
@@ -582,9 +582,15 @@ const get_content_value = (i, current_value, self) => {
 * Elements are separated by a <span class="separator"> ' - ' inserted between
 * each adjacent pair (not after the last).
 * @param {Object} transliterate_value - sibling-language entry { title?, iri?, id? }
+* @param {Object} context - the component's context; its SERVER-stamped
+*   `render_class` renders the IRI exactly as the entry's own value renders. A
+*   PARAMETER, not a closure read: this is a module-level export with no
+*   component `self` in scope (reading `self.context` here resolved to
+*   `window.self` and threw a TypeError the moment the server emitted a
+*   transliterate_value with an iri).
 * @returns {HTMLElement} transliterate_value_container div with child spans
 */
-export const render_transliterate_value = function (transliterate_value) {
+export const render_transliterate_value = function (transliterate_value, context) {
 
 	const transliterate_value_container = ui.create_dom_element({
 		element_type	: 'div',
@@ -609,7 +615,7 @@ export const render_transliterate_value = function (transliterate_value) {
 		const transliterate_iri = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'iri',
-			inner_html		: render_value(transliterate_value.iri, self.context.render_class)
+			inner_html		: render_value(transliterate_value.iri, context.render_class)
 		})
 		transliterate_elements.push(transliterate_iri)
 	}

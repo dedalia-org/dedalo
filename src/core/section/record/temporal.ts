@@ -294,12 +294,11 @@ async function attachTemporalEchoDatalist(
 		model: string;
 		componentTipo: string;
 		sectionTipo: string;
-		lang: string;
 		/** The picked locators the echo hands back (the value; never the record). */
 		picked: readonly unknown[];
 	},
 ): Promise<void> {
-	const { model, componentTipo, sectionTipo, lang, picked } = args;
+	const { model, componentTipo, sectionTipo, picked } = args;
 	const { echoesDatalist, getEchoDatalist } = await import('../../relations/datalist.ts');
 	if (!(await echoesDatalist(model))) return;
 	const { getNode } = await import('../../ontology/resolver.ts');
@@ -313,7 +312,6 @@ async function attachTemporalEchoDatalist(
 			componentTipo,
 			node?.properties ?? null,
 			sectionTipo,
-			lang,
 			picked,
 		);
 	}
@@ -332,11 +330,10 @@ async function attachTemporalLiteralEchoDatalist(
 		model: string;
 		componentTipo: string;
 		sectionTipo: string;
-		lang: string;
 		items: readonly unknown[];
 	},
 ): Promise<void> {
-	const { model, componentTipo, sectionTipo, lang, items } = args;
+	const { model, componentTipo, sectionTipo, items } = args;
 	const { FILTER_FAMILY_MODELS, getEchoDatalist } = await import('../../relations/datalist.ts');
 	if (!FILTER_FAMILY_MODELS.has(model)) return;
 	(dataItem as { datalist?: unknown }).datalist = await getEchoDatalist(
@@ -344,7 +341,6 @@ async function attachTemporalLiteralEchoDatalist(
 		componentTipo,
 		null,
 		sectionTipo,
-		lang,
 		items,
 	);
 }
@@ -511,7 +507,7 @@ export async function resolveTemporalSave(rqo: Rqo, principal: Principal): Promi
 			picked,
 			mode: source.mode ?? 'edit',
 		});
-		await attachTemporalEchoDatalist(echo, { model, componentTipo, sectionTipo, lang, picked });
+		await attachTemporalEchoDatalist(echo, { model, componentTipo, sectionTipo, picked });
 		stampTemporalEchoCreatedSectionId(echo, createdSectionId);
 		return echo;
 	}
@@ -554,7 +550,6 @@ export async function resolveTemporalSave(rqo: Rqo, principal: Principal): Promi
 		model,
 		componentTipo,
 		sectionTipo,
-		lang,
 		items: outcome.items,
 	});
 	return {

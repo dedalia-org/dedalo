@@ -30,6 +30,7 @@ import {
 	getModelByTipo,
 	getNode,
 	getTranslatableByTipo,
+	savesInRequestLang,
 } from '../ontology/resolver.ts';
 import {
 	frontierComponentAllowed,
@@ -1235,9 +1236,14 @@ async function conformLeafBody(
 	// (class.component_common.php:3683-86) sets lang='all' unconditionally when
 	// the clause carries none. The autocomplete picker relies on it: its free
 	// clauses are lang-less and must match any translation (probed 2026-07-09:
-	// 'roma' matches a mint whose only 'roma' value is lg-eng). Non-translatable
-	// data is all lg-nolan, where the nolan scope is observably identical.
-	const lang = leaf.lang ?? (translatable ? 'all' : 'lg-nolan');
+	// 'roma' matches a mint whose only 'roma' value is lg-eng). Plain
+	// non-translatable data is all lg-nolan, where the nolan scope is
+	// observably identical — but NOT a TRANSLITERABLE component's
+	// (with_lang_versions / component_iri: an lg-nolan base beside per-language
+	// versions), whose lg-ell version must match too, as PHP's 'all' did.
+	const lang =
+		leaf.lang ??
+		(translatable || (await savesInRequestLang(componentTipo, model)) ? 'all' : 'lg-nolan');
 
 	const dateMode = await leafDateMode(model, componentTipo); // date leaves only
 	const context: BuilderContext = {

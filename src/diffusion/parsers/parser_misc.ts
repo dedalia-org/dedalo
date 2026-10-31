@@ -28,6 +28,14 @@ interface IriValue {
  * (fields_separator between title and iri), entries joined by
  * records_separator. v6 emits one record PER entry even when empty, so two
  * empty iris diffuse as " | " — empties are included as "".
+ *
+ * ONE RESULT PER LANG. component_iri publishes one atom per stored lang (the
+ * lg-nolan base and any per-language versions — default_value.ts); v6's
+ * get_diffusion_value formats the ROW lang's slice only, falling back to the
+ * base, so the versions must never be joined into the base's string. Each lang
+ * group is formatted on its own and keeps its lang; the projection ladder then
+ * picks exact → nolan per row. Lang-neutral input (every item lang null — the
+ * common case) is one group: the single result it always was.
  */
 export const iriFlat: ItemParserFn = (items, options) => {
 	if (!items || items.length === 0) return null;
@@ -35,41 +43,51 @@ export const iriFlat: ItemParserFn = (items, options) => {
 	const fieldsSeparator = (options.fields_separator as string) ?? ', ';
 	const recordsSeparator = (options.records_separator as string) ?? ' | ';
 
-	const allFormattedEntries: string[] = [];
-
+	// Group by lang in first-seen order ('lg-nolan' and null are the same base).
+	const groups = new Map<string | null, ParserItem[]>();
 	for (const item of items) {
-		const raw = item.value;
-		if (raw === null || raw === undefined) continue;
-
-		const entries: IriValue[] = Array.isArray(raw) ? (raw as IriValue[]) : [raw as IriValue];
-		for (const entry of entries) {
-			if (!entry || typeof entry !== 'object') continue;
-
-			// NO trim: v6's component_iri::get_diffusion_value (:672-692) pushes
-			// resolve_title()'s result and $value->iri VERBATIM, gating each only on
-			// PHP empty(). A stored iri ending in a space is published with it
-			// (bibliographic_references.ref_publications_url: ".../docs/2014-1 ").
-			const iri = entry.iri ?? '';
-			const title = entry.title ?? '';
-
-			const formatted = title && iri ? `${title}${fieldsSeparator}${iri}` : iri || title;
-			allFormattedEntries.push(formatted);
-		}
+		const key = !item.lang || item.lang === 'lg-nolan' ? null : item.lang;
+		const group = groups.get(key);
+		if (group === undefined) groups.set(key, [item]);
+		else group.push(item);
 	}
 
-	if (allFormattedEntries.length === 0) return null;
+	const results: ParserItem[] = [];
+	for (const group of groups.values()) {
+		const allFormattedEntries: string[] = [];
+		for (const item of group) {
+			const raw = item.value;
+			if (raw === null || raw === undefined) continue;
 
-	const firstItem = items[0] as ParserItem;
-	return [
-		{
+			const entries: IriValue[] = Array.isArray(raw) ? (raw as IriValue[]) : [raw as IriValue];
+			for (const entry of entries) {
+				if (!entry || typeof entry !== 'object') continue;
+
+				// NO trim: v6's component_iri::get_diffusion_value (:672-692) pushes
+				// resolve_title()'s result and $value->iri VERBATIM, gating each only on
+				// PHP empty(). A stored iri ending in a space is published with it
+				// (bibliographic_references.ref_publications_url: ".../docs/2014-1 ").
+				const iri = entry.iri ?? '';
+				const title = entry.title ?? '';
+
+				const formatted = title && iri ? `${title}${fieldsSeparator}${iri}` : iri || title;
+				allFormattedEntries.push(formatted);
+			}
+		}
+		if (allFormattedEntries.length === 0) continue;
+
+		const firstItem = group[0] as ParserItem;
+		results.push({
 			id: null,
 			value: allFormattedEntries.join(recordsSeparator),
 			tipo: firstItem.tipo,
 			lang: firstItem.lang,
 			section_id: firstItem.section_id,
 			section_tipo: firstItem.section_tipo,
-		},
-	];
+		});
+	}
+
+	return results.length === 0 ? null : results;
 };
 
 // ---------------------------------------------------------------------------

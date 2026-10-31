@@ -41,6 +41,7 @@ import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts'
 import { labelByTipo } from '../ontology/labels.ts';
 import { ONTOLOGY_TLD } from '../ontology/ontology_tipos.ts';
 import {
+	elementLang,
 	getColumnNameByModel,
 	getModelByTipo,
 	getNode,
@@ -728,6 +729,29 @@ function requestConfigSectionTipo(options: {
 	return options.configSectionTipo ?? options.sectionTipo;
 }
 
+/**
+ * The entry's `lang` when no `langOverride` applies. PHP get_lang():
+ * non-translatable elements resolve to lg-nolan, not the request lang
+ * (sections, relation components, …). AREAS are the exception — their
+ * instances are constructed with the request lang and no nolan forcing applies
+ * (that forcing lives in component instantiation), verified differentially
+ * across every area model. A TRANSLITERABLE component (with_lang_versions /
+ * component_iri) keeps an EXPLICITLY requested lang and is lg-nolan otherwise —
+ * the one instance-lang rule, resolver.ts elementLang (the client copies this
+ * lang into the instance: instances.js / section_record.js).
+ */
+async function entryLang(
+	options: { tipo: string; lang: string; requestedLang?: string | null },
+	core: { translatable: boolean; model: string },
+): Promise<string> {
+	if (core.translatable || isAreaModel(core.model)) return options.lang;
+	if (!core.model.startsWith('component_')) return 'lg-nolan';
+	return elementLang(options.tipo, core.model, {
+		requested: options.requestedLang ?? null,
+		ambient: options.lang,
+	});
+}
+
 export async function buildStructureContext(options: {
 	tipo: string;
 	sectionTipo: string;
@@ -766,6 +790,18 @@ export async function buildStructureContext(options: {
 	 * wrong makes the whole edit form operate in lg-nolan.
 	 */
 	langOverride?: string;
+	/**
+	 * The lang the caller EXPLICITLY asked this element to run in — a
+	 * component read's own `source.lang`, a ddo's declared `lang`, an
+	 * element-context request's `source.lang` — as opposed to `lang`, which may
+	 * be the ambient page data lang a section/portal read carries for its
+	 * children. A TRANSLITERABLE component (with_lang_versions, component_iri)
+	 * keeps only this one and otherwise stamps its lg-nolan base (the one rule,
+	 * ontology/resolver.ts elementLang): the tool_lang target instance must run
+	 * in lg-spa, the normal edit form in lg-nolan. Ignored by translatable
+	 * elements (they take `lang`) and by every other one (nolan-forced).
+	 */
+	requestedLang?: string | null;
 	/**
 	 * The requesting principal. When supplied, the section button context uses
 	 * the real per-button ACL (get_permissions(sectionTipo, buttonTipo)) instead
@@ -872,14 +908,7 @@ export async function buildStructureContext(options: {
 		properties: structuredClone(core.properties),
 		permissions,
 		parent: options.parent ?? options.sectionTipo, // PHP structure fallback (:2186)
-		// PHP get_lang(): non-translatable elements resolve to lg-nolan, not the
-		// request lang (sections, relation components, …). AREAS are the
-		// exception — their instances are constructed with the request lang and
-		// no nolan forcing applies (that forcing lives in component
-		// instantiation), verified differentially across every area model.
-		lang:
-			options.langOverride ??
-			(core.translatable || isAreaModel(core.model) ? options.lang : 'lg-nolan'),
+		lang: options.langOverride ?? (await entryLang(options, core)),
 		// PHP get_view (:4464): ddo_map-injected view → structural view (list-mode
 		// section_list child preference, then the element's OWN properties.view —
 		// NOT the Site-A swapped object's) → model default.

@@ -521,6 +521,12 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// predicate + effective lang as the write engine itself (isLangSlicedModel
 		// / translatable-or-iri, PHP get_element_lang).
 		const savedLang = source.lang ?? 'lg-nolan';
+		// The lang the echo item is STAMPED with: the slice's own lang (the
+		// instance lang a read of this component would carry — a plain
+		// non-translatable is lg-nolan whatever the request said, a
+		// transliterable keeps its version's lang), so the echo and the read
+		// agree on `lang` (a transliterable item keys its other-lang counterpart on it).
+		let echoItemLang = savedLang;
 		let savedItems = Array.isArray(outcome.data) ? outcome.data : [];
 		{
 			const { getModelByTipo, effectiveSaveLang } = await import('../../ontology/resolver.ts');
@@ -528,6 +534,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			if (echoModel !== null && isLangSlicedModel(echoModel)) {
 				const echoLang = await effectiveSaveLang(source.tipo, echoModel, savedLang);
 				savedItems = filterItemsByLang(savedItems, echoLang);
+				echoItemLang = echoLang;
 			}
 			savedItems = await servedRichTextEcho(echoModel, savedItems);
 		}
@@ -538,7 +545,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			source.section_tipo,
 			sectionId,
 			'edit',
-			source.lang ?? 'lg-nolan',
+			echoItemLang,
 			savedItems,
 		);
 		// The full response data payload: [main item] for scalars; for relation
@@ -566,7 +573,6 @@ export const coreApiActions: Record<string, ActionHandler> = {
 					source.tipo,
 					savedNode?.properties ?? null,
 					source.section_tipo,
-					source.lang ?? 'lg-nolan',
 					savedItems,
 				);
 			}
@@ -700,7 +706,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 						const record =
 							table === null ? null : await readMatrixRecord(table, source.section_tipo, sectionId);
 						if (record !== null) {
-							const lang = source.lang ?? 'lg-nolan';
+							const lang = echoItemLang;
 							await hook.decorateItem(savedDataItem as never, {
 								ddo: {
 									tipo: source.tipo,
@@ -1596,6 +1602,13 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			sectionTipo,
 			mode,
 			lang,
+			// An explicit source.lang is kept by a TRANSLITERABLE component
+			// (with_lang_versions / component_iri — resolver.ts elementLang); an
+			// omitted one is NOT an ask, so such a component's context — and the
+			// model-less client instance built from it (instances.js copies
+			// context.lang) — runs in its lg-nolan base, never the ambient
+			// default above. Translatable elements and areas keep `lang` either way.
+			requestedLang: typeof source.lang === 'string' && source.lang !== '' ? source.lang : null,
 			permissions,
 			// P1-3 / SEC-13: WITH the principal, so a section context's buttons pass
 			// the per-button grant (buildSectionButtons) — without it the builder

@@ -605,10 +605,23 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 		tipo: target.tipo,
 		isComponent: target.isComponent,
 	};
-	// PHP effective translatable: a section is never translatable; a component is
-	// translatable unless it is both non-translatable AND has no lang versions.
-	// (with_lang_versions is a rare component flag, deferred — defaults false.)
-	const effectiveTranslatable = target.isComponent ? target.translatable : false;
+	// PHP effective translatable (class.common.php:4128-4135, v6 :4929): a
+	// section is never translatable; a component is translatable unless it is
+	// both non-translatable AND has no lang versions. The lang-versions half is
+	// the ONE ontology rule (resolver.ts hasLangVersions: `with_lang_versions`,
+	// or any component_iri — alias-aware, read from the ontology node, never an
+	// rqo properties override), so a TRANSLITERABLE component offers tool_lang
+	// (its tool to edit the per-language versions beside the lg-nolan base).
+	// Short-circuit: the ontology lookup runs only for a non-translatable component.
+	let effectiveTranslatable = false;
+	if (target.isComponent) {
+		if (target.translatable) {
+			effectiveTranslatable = true;
+		} else {
+			const { hasLangVersions } = await import('../ontology/resolver.ts');
+			effectiveTranslatable = await hasLangVersions(target.tipo, target.model);
+		}
+	}
 
 	const tools: ToolSimpleContext[] = [];
 	const ledgered: string[] = [];

@@ -78,7 +78,8 @@ bottom; the descriptor-facet steps are enforced by
 8. Emit-time particularity? Declare `emitHook` (an `EmitHookId`) and add its
    implementation to `components/emit_hooks.ts` EMIT_HOOKS — in the model's
    own folder (`component_<model>/emit.ts`) or its engine home (the media
-   family shares `core/media/component_emit.ts`). A hook either owns the
+   family shares `core/media/component_emit.ts`; the transliterable models —
+   component_input_text, component_iri — share `components/lang_versions_emit.ts`). A hook either owns the
    whole emission (`emitItem`) or adjusts the generic literal path
    (`transformValue` / `decorateItem`). Models that ALWAYS pair with fixed
    dataframe frames declare `fixedDataframeTipos` (component_iri's dd560).

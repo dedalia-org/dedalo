@@ -18,7 +18,8 @@
  *   builds (info live-compute fallback, text_area list truncation);
  * - `decorateItem`: decorates the built literal item before it is pushed
  *   (filter_records datalist backstop, security_access ACL payload,
- *   text_area's unconditional fallback_value key).
+ *   text_area's unconditional fallback_value key, the transliterable models'
+ *   transliterate_value — lang_versions_emit.ts).
  */
 
 import type { Ddo } from '../concepts/ddo.ts';
@@ -32,6 +33,7 @@ import { inverseEmitHook } from './component_inverse/emit.ts';
 import { sectionIdEmitHook } from './component_section_id/emit.ts';
 import { securityAccessEmitHook } from './component_security_access/emit.ts';
 import { textAreaEmitHook } from './component_text_area/emit.ts';
+import { langVersionsEmitHook } from './lang_versions_emit.ts';
 import { getComponentModel } from './registry.ts';
 import type { EmitHookId } from './types.ts';
 
@@ -47,7 +49,10 @@ export interface EmitHookContext {
 	model: string;
 	/** Effective mode of THIS ddo (ddo.mode ?? the request default). */
 	ddoMode: string;
-	/** Instance lang of THIS ddo (nolan-forced for non-translatables). */
+	/**
+	 * Instance lang of THIS ddo (ontology/resolver.ts elementLang: nolan-forced
+	 * for a plain non-translatable; a transliterable keeps an EXPLICIT ask).
+	 */
 	ddoLang: string;
 	/** The request-level default mode. */
 	defaultMode: string;
@@ -108,6 +113,7 @@ const EMIT_HOOKS: Readonly<Record<EmitHookId, ComponentEmitHook>> = {
 	security_access: securityAccessEmitHook,
 	external: externalEmitHook,
 	inverse: inverseEmitHook,
+	lang_versions: langVersionsEmitHook,
 };
 
 /** The emit hook a model's descriptor declares, or undefined (generic path). */
