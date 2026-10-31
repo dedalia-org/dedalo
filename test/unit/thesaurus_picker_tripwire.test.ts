@@ -233,6 +233,29 @@ const NON_PICKER_WINDOW_OPENER = new Set([
 
 const TOOL_NAME = /tool_(?:indexation|cataloging)/;
 
+/**
+ * Tool-named literals in the picker path that are NOT a picker fork, each with its
+ * reason. Keyed by file; the literal is removed from the code before rule 4 tests
+ * it, and a listed literal that is no longer in its file is red (no stale rows).
+ */
+const TOOL_NAME_EXEMPT: ReadonlyMap<string, { literal: string; reason: string }> = new Map([
+	[
+		'client/dedalo/core/component_portal/js/drag_and_drop.js',
+		{
+			literal: "['tool_cataloging_mosaic',",
+			reason:
+				'a VIEW name, the key of the shrink-only TOOL_ROW_SOURCES drag-source whitelist (can_tool_source asks what view the instance renders, not who opened it) — no picker behaviour reads it',
+		},
+	],
+]);
+
+/** The code rule 4 judges: comments stripped, the file's exempt literal removed. */
+function ruleFourCode(rel: string): string {
+	const exempt = TOOL_NAME_EXEMPT.get(rel);
+	const source = code(rel);
+	return exempt ? source.split(exempt.literal).join('') : source;
+}
+
 // ---------------------------------------------------------------------------
 // Rule 5 — one toolbar writer per view
 // ---------------------------------------------------------------------------
@@ -481,7 +504,14 @@ describe('thesaurus picker tripwire', () => {
 	// -----------------------------------------------------------------
 
 	test('rule 4: no tool NAME in the shared picker path (comments exempt)', () => {
-		const offenders = pickerPath().filter((rel) => TOOL_NAME.test(code(rel)));
+		const offenders = pickerPath().filter((rel) => TOOL_NAME.test(ruleFourCode(rel)));
+		const staleExempt = [...TOOL_NAME_EXEMPT].filter(
+			([rel, { literal }]) => !pickerPath().includes(rel) || !code(rel).includes(literal),
+		);
+		expect(
+			staleExempt.map(([rel]) => rel),
+			'TOOL_NAME_EXEMPT rows whose literal is gone',
+		).toEqual([]);
 		expect(
 			offenders,
 			"A core picker module testing for a tool by NAME is the fork this landing removed: the thesaurus list gated its link button on `initiator.indexOf('tool_indexation_')`, so a picker opened by a portal — whose initiator is the caller component id — could not pick a search result at all. Ask what the instance IS (a picker attached, a linker present), never who it belongs to:",

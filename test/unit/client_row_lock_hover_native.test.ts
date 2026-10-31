@@ -626,10 +626,12 @@ else {
 		test('control: a clean hover editor is not orphaned', async () => {
 			const { owner, editor, other } = await situation(false);
 			await destroy_unwindowed_dependencies(owner);
-			expect(orphaned).toEqual([]);
+			// a unit control over a planted situation, not a census: the clean editor
+			// itself is named, and nothing else was orphaned either
+			expect(orphaned, 'the clean edit is not orphaned').not.toContain(editor);
+			expect(orphaned, 'nothing was orphaned').toHaveLength(0);
 			expect(other.status).toBe('destroyed');
 			expect(owner.row_hovers?.rows).toBeUndefined();
-			void editor;
 		});
 	});
 }

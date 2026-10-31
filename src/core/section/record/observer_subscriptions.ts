@@ -168,6 +168,7 @@ import {
 	type NodeWithProperties,
 } from '../../ontology/resolver.ts';
 import {
+	editConfig,
 	hasDeclaredColumnOrder,
 	isAliasNode,
 	orderedColumnsFromDdoMap,
@@ -1176,22 +1177,20 @@ async function computeOrderDerivedContext(): Promise<OrderDerivedContext> {
 	plantOrderDataSources(dataSources);
 	if (declared.length === 0) return EMPTY_ORDER_CONTEXT;
 	// CONVENTIONS §2 rationale 3 (rarely hit): only an ontology that declares a
-	// column `order` loads the config builder and the order-path module here —
-	// the same lazy edge order_locators.ts takes for them.
-	const { buildRequestConfigForElement } = await import('../../relations/request_config/build.ts');
-	const { extractSqoSectionTipos } = await import('../../relations/request_config/explicit.ts');
+	// column `order` loads the order-path module here — the same lazy edge
+	// order_locators.ts takes for it (and editConfig takes for the config builder).
 	const { buildOrderPath } = await import('../../search/order_path.ts');
 	const columns: OrderDerivedColumn[] = [];
 	for (const node of declared) {
 		const hostSection = hostSections.get(node.tipo) ?? '';
-		const config = await buildRequestConfigForElement(
-			(await getEffectivePropertiesByTipo(node.tipo)) ?? null,
-			{ ownerTipo: node.tipo, ownerSectionTipo: hostSection, mode: 'edit', ownerIsSection: false },
+		// the SAME config[0] the ranking reads (order_locators.ts editConfig)
+		const config = await editConfig(
+			await getEffectivePropertiesByTipo(node.tipo),
+			node.tipo,
+			hostSection,
 		);
-		const ordered = orderedColumnsFromDdoMap(
-			(config[0]?.show?.ddo_map ?? []) as Parameters<typeof orderedColumnsFromDdoMap>[0],
-		);
-		const targets = extractSqoSectionTipos(config[0]);
+		const ordered = orderedColumnsFromDdoMap(config.columns);
+		const targets = config.targets;
 		for (const column of ordered) {
 			if (targets.length === 0) {
 				columns.push({

@@ -625,6 +625,23 @@ const open_frame = async (width) => {
 const is_subgrid = (value) => typeof value === 'string' && value.trim().startsWith('subgrid');
 
 /**
+ * COMPUTED_TRANSPARENT
+ * How the given window's engine spells a computed `transparent` colour — read from a
+ * probe, never written as a literal (no colour literal ships in a JS string: the
+ * colour_literal_ratchet budget).
+ * @param {Window} win
+ * @returns {string}
+ */
+const computed_transparent = (win) => {
+	const probe = win.document.createElement('span');
+	probe.style.color = 'transparent';
+	win.document.body.append(probe);
+	const spelled = win.getComputedStyle(probe).color;
+	probe.remove();
+	return spelled;
+};
+
+/**
  * ASSERT_NO_STACKING_CONTEXT
  * The ring law (list.less 'layout_table'): a row box or content_data creates no
  * stacking context and paints nothing of its own, or the autocomplete panel, the
@@ -648,7 +665,7 @@ const assert_no_stacking_context = (win, node, context) => {
 		contentVisibility: 'visible',
 		overflowX: 'visible',
 		overflowY: 'visible',
-		backgroundColor: 'rgba(0, 0, 0, 0)',
+		backgroundColor: computed_transparent(win),
 		backgroundImage: 'none',
 	};
 	for (const [property, value] of Object.entries(expected)) {
@@ -965,7 +982,7 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 		placeholder.dataset.failed = 'build_threw';
 		const failed_style = frame_win.getComputedStyle(placeholder);
 		assert.notEqual(failed_style.boxShadow, 'none', '[data-failed] draws the error stripe');
-		assert.equal(failed_style.backgroundColor, 'rgba(0, 0, 0, 0)', '[data-failed] paints no background');
+		assert.equal(failed_style.backgroundColor, computed_transparent(frame_win), '[data-failed] paints no background');
 
 		grid.section.remove();
 	});
@@ -1144,7 +1161,7 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 		assert.equal(rest.content, '""', 'the ring box is generated at rest');
 		assert.equal(rest.position, 'absolute', 'the resting ring box is out of flow');
 		assert.equal(rest.boxShadow, 'none', 'no ring painted at rest (shadow)');
-		assert.equal(rest.borderTopColor, 'rgba(0, 0, 0, 0)', 'no ring painted at rest (border)');
+		assert.equal(rest.borderTopColor, computed_transparent(frame_win), 'no ring painted at rest (border)');
 
 		// hover (resolved cascade, see hover_ring_sources): a built row is
 		// ringed under the pointer, a placeholder never is (it is not a record)

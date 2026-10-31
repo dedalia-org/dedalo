@@ -289,8 +289,12 @@ export async function resolveDeclaredColumns(
 	return orderedColumnsFromDdoMap(config);
 }
 
-/** The component's effective EDIT config item (config[0]): its columns and its target sections. */
-async function editConfig(
+/**
+ * The component's effective EDIT config item (config[0]): its columns and its target sections.
+ * The ONE narrowing of the declared-order family (external_config_narrowing_census:
+ * deferred) — the observer subscription build reads it here, never re-narrows.
+ */
+export async function editConfig(
 	properties: unknown,
 	componentTipo: string,
 	sectionTipo: string,
@@ -496,7 +500,7 @@ function wireDirection(direction: unknown): 'ASC' | 'DESC' | null {
  * (WC-2026-10-31-portal-order-model item 4 — the same RQO is never accepted on
  * a record with one locator and refused on one with three). Refused typed
  * (`request.invalid_data`, reason `view_order`) unless:
- *  - the direction is the wire spelling ('ASC' | 'DESC');
+ *  - the direction is the wire spelling ("ASC" | "DESC");
  *  - the column is a `show.ddo_map` column of the component's own edit config
  *    declaring `sort_by_column: true` — the same opt-in the persisted
  *    `sort_by_column` honours (relations/save.ts applySortByColumn);

@@ -10,7 +10,6 @@
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {delete_instance} from '../../common/js/instances.js'
 	import {dd_request_idle_callback, deregister_unsaved_instance, deregister_uncommitted_input} from '../../common/js/events.js'
-	import {carry_row_attributes} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
 	import {get_inserted_rules} from '../../page/js/css.js'
 	import {render_stream} from '../../common/js/render_common.js'
@@ -675,8 +674,11 @@ common.prototype.render = async function (options={}) {
 								console.warn('Ignored node replacement for: non ELEMENT_NODE', self.node, 'nodeType:', self.node.nodeType);
 							}else{
 								// a windowed row (record_window) keeps its index, role and
-								// draggable stamp across an event-driven full re-render
+								// draggable stamp across an event-driven full re-render.
+								// Lazy: record_window is off the boot graph (page_load_budget),
+								// and a windowed row means its module is already loaded
 								if (self.node.hasAttribute('data-index')) {
+									const {carry_row_attributes} = await import('../../section_record/js/record_window.js')
 									carry_row_attributes(self.node, node)
 								}
 								self.node.replaceWith(node);

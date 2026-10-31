@@ -1752,7 +1752,7 @@ else {
 			commit_seq: 0,
 			render: async () => {
 				const node = create_dom_element({ class_name: `section_record ${self.id} list` });
-				const column = create_dom_element({ class_name: 'column column_zz1', parent: node });
+				const column = create_dom_element({ class_name: 'column column_zzrowdom1', parent: node });
 				create_dom_element({
 					class_name: 'wrapper_component component_input_text list',
 					parent: column,
@@ -1911,9 +1911,9 @@ else {
 	/** A locator page of N entries. */
 	const entries = (n: number) =>
 		Array.from({ length: n }, (_v, i) => ({
-			section_tipo: 'zz1',
+			section_tipo: 'zzrowdom1',
 			section_id: String(i + 1),
-			from_component_tipo: 'zz2',
+			from_component_tipo: 'zzrowdom2',
 			paginated_key: i,
 			type: 'dd151',
 		}));
@@ -1924,8 +1924,8 @@ else {
 			id: `${kind}_${view}_${n}`,
 			model: kind === 'section' ? 'section' : 'component_portal',
 			type: kind === 'section' ? 'section' : 'component',
-			tipo: 'zz2',
-			section_tipo: 'zz1',
+			tipo: 'zzrowdom2',
+			section_tipo: 'zzrowdom1',
 			section_id: '1',
 			mode: kind === 'section' ? 'list' : 'edit',
 			view,
@@ -1933,7 +1933,7 @@ else {
 			permissions: 2,
 			status: 'rendered',
 			ar_instances: [],
-			columns_map: [{ id: 'zz3', label: 'Col', tipo: 'zz3', width: 'auto' }],
+			columns_map: [{ id: 'zzrowdom3', label: 'Col', tipo: 'zzrowdom3', width: 'auto' }],
 			fixed_columns_map: true,
 			context: {
 				view,
@@ -1950,7 +1950,7 @@ else {
 				// a portal's inverse references travel in .list_after, never in content_data
 				references:
 					kind === 'portal'
-						? [{ label: 'Ref', value: { section_tipo: 'zz1', section_id: '9' } }]
+						? [{ label: 'Ref', value: { section_tipo: 'zzrowdom1', section_id: '9' } }]
 						: [],
 				pagination: { total: n, limit: n, offset: 0 },
 			},
@@ -1974,7 +1974,7 @@ else {
 			label: 'Label',
 			add_component_info: false,
 		};
-		self.caller = { model: 'section', tipo: 'zz1', section_tipo: 'zz1', id: 'host' };
+		self.caller = { model: 'section', tipo: 'zzrowdom1', section_tipo: 'zzrowdom1', id: 'host' };
 		return self;
 	};
 
@@ -2017,7 +2017,7 @@ else {
 			view: 'tm',
 			extend: (self) => {
 				self.model = 'service_time_machine';
-				self.config = { template_columns: '1fr', id_variant: 'zz' };
+				self.config = { template_columns: '1fr', id_variant: 'probe' };
 				self.context = { ...(self.context as object), view: 'mini' };
 			},
 		},

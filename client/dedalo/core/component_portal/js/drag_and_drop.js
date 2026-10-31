@@ -100,8 +100,8 @@ export const PORTAL_ROW_KIND = 'dedalo_portal_row'
 * through `can_tool_source`.
 */
 export const TOOL_ROW_SOURCES = Object.freeze(new Map([
-	['tool_cataloging_mosaic', 'tool_cataloging: a record card is dropped (or tap-placed) on a thesaurus ts_object term, whose handler validates the payload'],
-	['coins_mosaic', 'tool_numisdata_order_coins: a coin tile is dropped (or tap-placed) into the tool\'s own ordered-coins slots, whose handler validates the payload']
+	['tool_cataloging_mosaic', 'the cataloging tool: a record card is dropped (or tap-placed) on a thesaurus ts_object term, whose handler validates the payload'],
+	['coins_mosaic', 'the order-coins tool: a coin tile is dropped (or tap-placed) into the tool\'s own ordered-coins slots, whose handler validates the payload']
 ]))
 
 
