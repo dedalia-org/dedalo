@@ -23,6 +23,12 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **A portal whose ontology declares an order now stores its records in that order.**
+
+    A portal column can declare a fixed order in the ontology (for example, linked records sorted by name). That order used to be applied only on screen, so exports, publication and the edit view could disagree, and dragging records inside such a portal was refused. Now every save keeps the stored list in the declared order, and editing the value a linked record is ordered by re-sorts every portal that holds it. Because the declared order is fixed, those portals cannot be reordered: for now, dragging records in such a portal, using its change-order dialog or clicking its sortable column headers shows an error and changes nothing, until the edit view is updated to offer an on-screen-only header sort (by a column you are allowed to read) instead. Lists saved before their order was declared keep their old order until they are saved again, or until an administrator runs the `portal_declared_order` reconcile (Maintenance › Reconcile). The reconcile also runs by itself once an ontology update has added or changed an order (once, after the whole update), and in the background after an order is edited in the ontology editor; stopping the update, the background process or the server stops it at the next record, and a later reconcile run finishes the job. A record it cannot save is listed in its report and does not stop the others from being sorted.
+
+    Wire contract: `WC-2026-10-31-portal-order-model`.
+
 - **JSON fields are lighter and faster**
 
     The JSON component loads its search and mini/text/collapse views only when used, list cells preview a large value without serializing all of it, typing in the editor no longer re-parses the whole value on every keystroke, closing a record releases its JSON editors, and the JSON download no longer builds a percent-encoded copy of the value.
@@ -94,6 +100,37 @@ Merged since the last release; these ship with the next one.
     The text being edited in the indexation, transcription and translation (target language) tools now shows the time machine button next to full screen and save, so earlier versions of the text can be opened without leaving the tool. In the transcription tool it replaces the header's separate time machine button.
 
 #### Fixed
+
+- **A field whose save failed is no longer forgotten — it stays marked unsaved and is saved again.**
+
+    Before, when saving a field failed (a network interruption, a server error, a
+    session that changed on re-login), the field showed its orange "modified" bar
+    and nothing else: leaving the page did not warn, the automatic save on
+    navigation did not retry it, and a later successful edit of the same field
+    quietly cleared the warning while the earlier change was still not stored.
+
+    Now a failed save keeps the field marked as unsaved. Leaving the page warns
+    about it, the automatic save on navigation tries it again, and the next save of
+    that field sends the earlier change along with the new one. A field whose row
+    scrolls away or is rebuilt while its change is still unsaved keeps that change
+    until it is saved or you choose to discard it. If you edit the same value of
+    that field again in the rebuilt row, your newer value is the one that is kept;
+    the older, unsaved one is dropped instead of being written over it later.
+    Unsaved changes to OTHER values of the same field (another line of a
+    multi-value field, another linked record) are kept and saved. Typing a value
+    back to what is stored no longer clears the warning while another change of
+    the field is still unsaved. A
+    change refused while an earlier save of the same field was still on its way
+    (the session changed on re-login in the meantime) stays unsaved when that
+    earlier save completes.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
+
+- **Dragging a related record on the second page of a portal now moves it where it is dropped.**
+
+    Reordering the records of a portal by drag and drop counted the page twice from the second page on, so a record dragged on page 2 or later was sent to the wrong position (or refused). It now lands exactly where it is dropped, on every page. A drag that is not a portal record — a file, a thesaurus term, a card from a tool — is no longer swallowed by a portal it passes over and reaches the place it was dropped on. When a reorder cannot be confirmed, the message now says so and asks for a reload instead of claiming the new order was not saved. That message, the one for a reorder that was not saved, and the one for a list that changed during the drag are shown in the user's language. A portal no longer highlights a drop place for a record it would refuse, for example a portal whose order is declared in the ontology, so a drop no longer looks accepted and then does nothing.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
 
 - **Records open when a portal's list layout names a field from an uninstalled ontology.**
 
@@ -461,6 +498,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The data update refuses a step meant for a newer version than the running code.**
+
+    A development or nightly build could already list the data update of the next release and run it. The database then stood at a newer data version than the code serving it, and the health check turned red. "Update data" now refuses such a step before running anything and says which code version it needs. Install a build of that version first.
+
+    Wire contract: `WC-2026-10-31-update-rung-above-code`.
+
 - **An interrupted Docker image update now rolls back instead of leaving the stack pinned to an unverified version.**
 
     Stopping `deploy/dedalo-image-update.sh` after it re-pinned `DEDALO_VERSION` now puts the previous version back and reports *interrupted*. If it was killed outright, a `.dedalo-image-update.pin` file blocks later runs until `--recover` (which the host updater runs on its own) rolls back. A request for the version already installed is reported as *same version*, and a cancel can no longer race the host updater's claim.
@@ -616,6 +659,12 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The client ships the row-box module the section and portal lists will place their rows with.**
+
+    A new client module, `core/section_record/js/record_window.js`, places the rows of a section list or a portal: exactly one row node per entry, in order, so row *i* is always the *i*-th child of its list. Above 200 rows it keeps only the rows near the screen built and stands the rest in for empty, sized placeholders, and it never discards a row that holds an unsaved or uncommitted edit. It is also part of the files the browser pre-caches. Nothing renders differently yet: the list and portal views adopt it in a later change, which will describe what users see.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
+
 - **The parity test baseline can be re-recorded in the CI image.**
 
     `bun run ci:local --docker --record-parity-baseline` re-records `engineering/parity_baseline.json` inside the CI image, the same way `--record-unit-baseline` does for the unit tests. Recording it on a developer machine froze that machine's own configuration into the baseline. It can be combined with `--record-unit-baseline --new <file>` so a single green run records both.
@@ -656,7 +705,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 37 entries"
+??? note "Wire contract — 40 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -689,12 +738,15 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-30-request-config-default-page-size`
     - `WC-2026-10-30-restore-point-release-identity`
     - `WC-2026-10-30-search-referenced-by-leaf`
+    - `WC-2026-10-30-section-record-row-box`
     - `WC-2026-10-30-sort-data-key-range`
     - `WC-2026-10-30-tools-registry-import-switch-retired`
     - `WC-2026-10-30-update-door-refusals`
     - `WC-2026-10-30-update-ontology-backup-gate`
     - `WC-2026-10-30-update-run`
     - `WC-2026-10-30-update-sources-server-held`
+    - `WC-2026-10-31-portal-order-model`
+    - `WC-2026-10-31-update-rung-above-code`
 
 ## 7.0.0-beta.7 — 2026-10-25
 
