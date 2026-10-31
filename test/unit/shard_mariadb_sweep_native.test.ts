@@ -165,6 +165,13 @@ type Report = Awaited<ReturnType<typeof sweepShardClones>> & {
 	mariadbFailed?: { lane: string; error: string }[];
 };
 
+const MEDIA_KINDS = [
+	['', '.dedalo_test_media'],
+	['.processes', '.dedalo_test_processes'],
+	['.export_artifacts', '.dedalo_test_export_artifacts'],
+] as const;
+const UNMARKED_PROCESSES = join(testMediaBaseDir(), `${PROBE}__shard98.processes`);
+
 let report: Report;
 let markedServer: ReturnType<typeof Bun.spawn>;
 let siblingServer: ReturnType<typeof Bun.spawn>;
@@ -180,6 +187,12 @@ beforeAll(async () => {
 	plantLane(SIBLING_LANE, true);
 	plant(SIBLING_MEDIA);
 	writeFileSync(join(SIBLING_MEDIA, '.dedalo_test_media'), plantMarker());
+	// A shard child's media root grows two marked SIBLINGS (job registry, export store).
+	for (const [suffix, marker] of MEDIA_KINDS) {
+		plant(join(testMediaBaseDir(), `${PROBE}__shard97${suffix}`));
+		writeFileSync(join(testMediaBaseDir(), `${PROBE}__shard97${suffix}`, marker), plantMarker());
+	}
+	plant(UNMARKED_PROCESSES);
 	markedServer = fakeServer(MARKED);
 	siblingServer = fakeServer(SIBLING_LANE);
 	await Bun.sleep(200);
@@ -220,6 +233,17 @@ describe('the shard sweep owns the suite MariaDB surface', () => {
 		expect(left).toEqual(
 			[`${PROBE}__notashard97`, `${PROBE}__shard98`, `${PROBE}__shard99`].sort(),
 		);
+	});
+
+	test('a shard media twin AND its .processes/.export_artifacts siblings are swept by their own markers; an unmarked sibling is refused', () => {
+		// MEASURED 2026-10-31: sweeping only the twin leaked both siblings after every run.
+		const swept = MEDIA_KINDS.map(([suffix]) =>
+			join(testMediaBaseDir(), `${PROBE}__shard97${suffix}`),
+		);
+		expect([...report.mediaSwept].sort()).toEqual([...swept].sort());
+		for (const dir of swept) expect(existsSync(dir), dir).toBe(false);
+		expect(report.mediaRefused).toEqual([UNMARKED_PROCESSES]);
+		expect(existsSync(UNMARKED_PROCESSES)).toBe(true);
 	});
 
 	test('a MARKED lane whose sweep fails is reported as a failure with its cause — never as unmarked', () => {

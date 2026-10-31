@@ -94,6 +94,7 @@ import {
 import { suitePsqlConnArgs, suitePsqlEnv } from '../../test/helpers/suite_pg.ts';
 import {
 	TEST_MEDIA_MARKER,
+	TEST_PROCESSES_MARKER,
 	testMediaBaseDir,
 	testMediaRootPath,
 } from '../../test/helpers/test_media_root.ts';
@@ -579,14 +580,27 @@ export async function sweepShardClones(template: string): Promise<SweepReport> {
 		}
 	}
 
-	// Media twins: same grammar over the test-media base; the `.dedalo_test_media`
-	// marker — not the name — is what licenses the rm.
+	// Media twins: same grammar over the test-media base, PLUS the two siblings a shard
+	// child's own media root grows (`<twin>.processes` — the job registry — and
+	// `<twin>.export_artifacts` — the export store; test/helpers/test_media_root.ts).
+	// MEASURED 2026-10-31: sweeping only the twin leaked both after every sharded run.
+	// Each kind's OWN marker — not the name — is what licenses the rm. The export
+	// marker is lazy: its module reads the engine config (same reason as below).
+	const { EXPORT_ARTIFACTS_TEST_MARKER } = await import(
+		'../../tools/tool_export/server/artifact_store.ts'
+	);
+	const markerFor: Record<string, string> = {
+		'': TEST_MEDIA_MARKER,
+		'.processes': TEST_PROCESSES_MARKER,
+		'.export_artifacts': EXPORT_ARTIFACTS_TEST_MARKER,
+	};
 	const base = testMediaBaseDir();
 	if (existsSync(base)) {
 		for (const entry of readdirSync(base)) {
-			if (!grammar.test(entry)) continue;
+			const sibling = /\.(processes|export_artifacts)$/.exec(entry)?.[0] ?? '';
+			if (!grammar.test(entry.slice(0, entry.length - sibling.length))) continue;
 			const dir = join(base, entry);
-			if (existsSync(join(dir, TEST_MEDIA_MARKER))) {
+			if (existsSync(join(dir, markerFor[sibling] as string))) {
 				rmSync(dir, { recursive: true, force: true });
 				report.mediaSwept.push(dir);
 			} else {
