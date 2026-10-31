@@ -91,6 +91,20 @@ export const cancel = function () {
 }; //end cancel
 
 /**
+ * PEEK
+ * Reads the picked payload WITHOUT consuming it. A delegated tap receiver
+ * (component_portal drag_and_drop.js bind_row_drag) must first decide whether
+ * the pick is its own: only then does it call `as_drop_event()`, which
+ * consumes. A receiver that consumed a FOREIGN pick (a cataloging card, a
+ * coin) would cancel it before the tap reached the receiver it was meant for
+ * (the ts_object term, the coins slot), so the decision reads through here.
+ * @return {string|null} the picked data string, or null when nothing is picked
+ */
+export const peek = function () {
+	return picked ? picked.data : null;
+}; //end peek
+
+/**
  * AS_DROP_EVENT
  * Consumes the picked payload as the minimal DragEvent shape a drop handler
  * reads (`preventDefault`, `stopPropagation`, `dataTransfer.getData`).
