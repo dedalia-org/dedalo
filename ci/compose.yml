@@ -90,6 +90,7 @@ x-github-env: &github-env
   DEDALO_CI_UNIT_RECORD_OUT: ${DEDALO_CI_UNIT_RECORD_OUT:-}
   DEDALO_CI_UNIT_RECORD_ALLOW: ${DEDALO_CI_UNIT_RECORD_ALLOW:-0}
   DEDALO_CI_UNIT_RECORD_NEW: ${DEDALO_CI_UNIT_RECORD_NEW:-}
+  DEDALO_CI_UNIT_BINS: ${DEDALO_CI_UNIT_BINS:-1}
   # Record mode of db_tier.sh's parity stage — ci:local --record-parity-baseline only.
   DEDALO_CI_PARITY_RECORD_OUT: ${DEDALO_CI_PARITY_RECORD_OUT:-}
   DEDALO_CI_PARITY_RECORD_ALLOW: ${DEDALO_CI_PARITY_RECORD_ALLOW:-0}
@@ -119,6 +120,14 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    # max_connections sized for the SHARDED unit check (DEDALO_CI_UNIT_BINS, default 4 on
+    # ci:local): every bin runs the SERIAL pool configuration (16 backends per process,
+    # ×2 for a spawned grandchild — scripts/test_shard.ts assessConnectionBudget), and the
+    # runner refuses rather than shrink a pool. The stock 100 seats 2 bins; GitHub's db.yml
+    # service cannot pass server args and runs the check serial (bins unset = 1).
+    command: ['postgres', '-c', 'max_connections=300']
+    # 300 backends × shared_buffers-sized parallel work need more than Docker's 64 MB /dev/shm.
+    shm_size: 1g
     # NAMED, not the image's anonymous VOLUME: compose labels it with the project, so a
     # run killed before its `down -v` leaves a volume ci:local can attribute and sweep
     # (orphanCiVolumes). An anonymous one (~1.8 GB of suite DB) leaked forever.
@@ -134,11 +143,20 @@ services:
     <<: *runner
 
   runner-db:
-    <<: *runner
+    # `extends`, not `<<: *runner`: compose MERGES a service's volume list under
+    # extends (a YAML merge key would replace it), so the runner's mounts are inherited,
+    # never restated, and only the db-tier addition is named here.
+    extends:
+      service: runner
     profiles: ['db']
     environment:
-      <<: *github-env
       DB_HOST: postgres
+    # The postgres volume, READ-ONLY at the SAME path: the shard runner
+    # (scripts/test_shard.ts probeDisk) statfs()es `SHOW data_directory` before cloning
+    # — in another container that path does not exist and the sharded unit check
+    # refuses. Read-only: this container never writes the cluster's files.
+    volumes:
+      - pgdata:/var/lib/postgresql:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -85,6 +85,9 @@
  *                                 # RECORD engineering/unit_baseline.json in the CI image
  *   bun run ci:local --docker --record-unit-baseline --new <file>[,<file>…]
  *                                 # record ONLY new files' floors (unit_baseline --record-new)
+ *   bun run ci:local --docker --unit-bins 1   # the unit tier serial (--docker default 4 sharded
+ *                                 # bins, host default 1 — unit_baseline.ts --check --bins,
+ *                                 # sealed template, merged JUnit)
  *
  * RECORDING THE UNIT BASELINE (`--record-unit-baseline`, --docker only). The unit tier's
  * per-file floors and red set are a fact about the IMAGE (its toolchain, its uid, the
@@ -199,7 +202,15 @@ const BOOLEAN_FLAGS = new Set([
 	'--help',
 	'-h',
 ]);
-const VALUE_FLAGS = new Set(['--summary', '--ref', '--base', '--audit-base', '--reason', '--new']);
+const VALUE_FLAGS = new Set([
+	'--summary',
+	'--ref',
+	'--base',
+	'--audit-base',
+	'--reason',
+	'--new',
+	'--unit-bins',
+]);
 
 /**
  * Flags that EXISTED and were removed, refused with why — never as a generic unknown flag,
@@ -474,6 +485,7 @@ export function dockerComposeEnv(facts: DockerRunFacts): Record<string, string |
 		DEDALO_CI_OVERLAY: overlay ? '1' : '0',
 		DEDALO_CI_LOG_DIR: CONTAINER_LOG_DIR,
 		...recordEnv(args, CONTAINER_OUT),
+		...unitBinsEnv(args),
 		// compose.yml REQUIRES this (`:?`) for every command it parses, `down` included —
 		// without it the teardown fails to interpolate and leaks the project's network.
 		DEDALO_CI_TIER_SCRIPT: 'none',
@@ -510,6 +522,40 @@ export function recordEnv(
 		DEDALO_CI_PARITY_RECORD_OUT: parity ? out : '',
 		DEDALO_CI_PARITY_RECORD_ALLOW: parity && allow ? '1' : '0',
 	};
+}
+
+/**
+ * The unit tier's bin count — db_tier.sh hands it to `unit_baseline.ts --check --bins=N`
+ * (scripts/lib/tier_run.ts runTierSharded: sealed template, one clone per bin, merged
+ * JUnit). Default {@link DEFAULT_UNIT_BINS} under --docker (ci/compose.yml sizes its own
+ * Postgres for it), SERIAL on the host — this machine's cluster is not ours to size, and the
+ * shard runner refuses a budget it cannot seat rather than shrink a pool. ALWAYS set
+ * explicitly so a shell export never changes what the gate measures. A RECORDING is serial
+ * (`'1'`): the baseline is defined by the serial run, and the sharded check is admissible
+ * only as its proven-equal stand-in. GitHub's db.yml sets nothing: the tier's own default is
+ * serial. {@link MAX_UNIT_BINS}: what compose's max_connections=300 seats (32 backends a bin,
+ * scripts/test_shard.ts assessConnectionBudget) — a larger count is refused there anyway.
+ */
+export const DEFAULT_UNIT_BINS = 4;
+export const MAX_UNIT_BINS = 8;
+export function unitBinsEnv(args: Pick<Args, 'flags'> & { values?: ReadonlyMap<string, string> }): {
+	DEDALO_CI_UNIT_BINS: string;
+} {
+	if (isRecording(args as Args)) return { DEDALO_CI_UNIT_BINS: '1' };
+	const value = args.values?.get('--unit-bins');
+	const fallback = args.flags.has('--docker') ? DEFAULT_UNIT_BINS : 1;
+	return { DEDALO_CI_UNIT_BINS: String(value === undefined ? fallback : Number(value)) };
+}
+
+/** `--unit-bins N`: an integer 1..MAX_UNIT_BINS, never beside a recording (which is serial). */
+export function unitBinsFault(args: Args): string | null {
+	const value = args.values.get('--unit-bins');
+	if (value === undefined) return null;
+	if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > MAX_UNIT_BINS)
+		return `--unit-bins takes an integer 1..${MAX_UNIT_BINS} (1 = serial), got '${value}'`;
+	if (isRecording(args))
+		return '--unit-bins does not apply to a baseline recording: the baseline is recorded serially';
+	return null;
 }
 
 /** `--new a,b` → the files a `--record-new` recording names (empty when not given). */
@@ -986,6 +1032,7 @@ async function runOnHost(args: Args, tiers: readonly Tier[]): Promise<TierResult
 		DEDALO_PRIVATE_DIR: privateDir,
 		// Never records on the host (recordArgsFault refuses the flag): both keys pinned off.
 		...recordEnv({ flags: new Set() }, ''),
+		...unitBinsEnv(args),
 		...(binPath === undefined ? {} : { DEDALO_PG_BIN_PATH: binPath }),
 	};
 
@@ -1635,8 +1682,8 @@ async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.flags.has('--help') || args.flags.has('-h')) {
 		console.log(
-			'bun run ci:local [--hermetic] [--db] [--instance] [--keep] [--fail-fast] [--summary <file>]\n' +
-				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--summary <file>]\n' +
+			'bun run ci:local [--hermetic] [--db] [--instance] [--keep] [--fail-fast] [--unit-bins <n>] [--summary <file>]\n' +
+				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--unit-bins <n>] [--summary <file>]\n' +
 				'bun run ci:local --docker --record-unit-baseline [--ref HEAD] [--allow-regression --reason "<why>" | --new <file>[,<file>…]]\n' +
 				'bun run ci:local --docker --record-parity-baseline [--record-unit-baseline --new <file>] [--allow-regression --reason "<why>"]\n\n' +
 				'Runs the CI tiers with the environment a RUNNER has: no ../private/.env, every\n' +
@@ -1652,6 +1699,8 @@ async function main(): Promise<void> {
 	}
 	const recordFault = recordArgsFault(args);
 	if (recordFault !== null) fail(recordFault);
+	const binsFault = unitBinsFault(args);
+	if (binsFault !== null) fail(binsFault);
 	if (!args.flags.has('--docker')) {
 		for (const flag of ['--ref', '--base', '--audit-base'])
 			if (args.values.has(flag))

@@ -273,6 +273,14 @@ bun test --timeout=30000 "${TEST_ORDER_PATHS[@]}" || tw_rc=$?
 # (UNIT_TIER.recordOnlyInCiImage). A refused write is RED; only a written baseline is
 # copied out, and ci:local copies it into the checkout only if this whole tier ends green.
 # No workflow names any of these keys, nor the parity tier's (ci_workflow_tripwire).
+# SHARDED CHECK. `DEDALO_CI_UNIT_BINS=N` (N > 1; set by ci:local, default 4 there, unset =
+# serial on GitHub) measures the check with `unit_baseline.ts --bins=N`: the shard runner,
+# every bin on its own clone of the suite database, the template SEALED for the run, the
+# serial pool configuration, the per-bin JUnit merged into the one run the baseline reads.
+# Admissible because it was MEASURED equal to the serial K=5/J=8 campaign on every key
+# (scripts/lib/tier_run.ts runTierSharded). The recording stays serial: it defines the
+# baseline. The clones are swept on exit, so the suite database the parity and MariaDB
+# stages read afterwards carries no unit-pass residue.
 echo "== db_tier: unit tier (test/unit + test/integration) vs its frozen red baseline"
 unit_rc=0
 if [ -n "${DEDALO_CI_UNIT_RECORD_OUT:-}" ]; then
@@ -286,7 +294,7 @@ if [ -n "${DEDALO_CI_UNIT_RECORD_OUT:-}" ]; then
 	[ "$record_rc" -eq 0 ] || { echo "== db_tier: RED in the unit-baseline recording (exit $record_rc) — nothing copied out"; tier_status=1; }
 	[ "$record_rc" -ne 0 ] || cp engineering/unit_baseline.json "$DEDALO_CI_UNIT_RECORD_OUT/unit_baseline.json"
 else
-	bun run scripts/unit_baseline.ts --check || unit_rc=$?
+	bun run scripts/unit_baseline.ts --check --bins="${DEDALO_CI_UNIT_BINS:-1}" || unit_rc=$?
 fi
 [ "$unit_rc" -eq 0 ] || { echo "== db_tier: RED in the unit tier (exit $unit_rc)"; tier_status=1; }
 

@@ -84,12 +84,14 @@ import {
 	CONTAINER_OUT,
 	CONTAINER_SRC,
 	containerMounts,
+	DEFAULT_UNIT_BINS,
 	DRIVER_SCRIPT,
 	dockerComposeEnv,
 	failFastSkip,
 	finishDockerRun,
 	gitScrubbedEnv,
 	keepRunLogs,
+	MAX_UNIT_BINS,
 	orphanCiVolumes,
 	parseStages,
 	pruneRunLogs,
@@ -102,6 +104,8 @@ import {
 	statRunDir,
 	TIERS,
 	type TierResult,
+	unitBinsEnv,
+	unitBinsFault,
 	workingTreeLists,
 } from '../../scripts/ci_local.ts';
 
@@ -694,7 +698,7 @@ describe('the unit stage is BLOCKING — and the desk skip is retired', () => {
 			'\t[ "$record_rc" -eq 0 ] || { echo "== db_tier: RED in the unit-baseline recording (exit $record_rc) — nothing copied out"; tier_status=1; }',
 			'\t[ "$record_rc" -ne 0 ] || cp engineering/unit_baseline.json "$DEDALO_CI_UNIT_RECORD_OUT/unit_baseline.json"',
 			'else',
-			'\tbun run scripts/unit_baseline.ts --check || unit_rc=$?',
+			'\tbun run scripts/unit_baseline.ts --check --bins="${DEDALO_CI_UNIT_BINS:-1}" || unit_rc=$?',
 			'fi',
 			'[ "$unit_rc" -eq 0 ] || { echo "== db_tier: RED in the unit tier (exit $unit_rc)"; tier_status=1; }',
 		]);
@@ -832,6 +836,45 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 		expect(recordCopyFault(undefined)).toContain('never ran');
 	});
 
+	test('the unit bin count is ALWAYS set — sharded by default in the image, serial on the host and for a recording', () => {
+		// Explicit, so a shell export never changes what the gate measures.
+		expect(unitBinsEnv(args(['--docker']))).toEqual({
+			DEDALO_CI_UNIT_BINS: String(DEFAULT_UNIT_BINS),
+		});
+		expect(DEFAULT_UNIT_BINS).toBeGreaterThan(1);
+		expect(DEFAULT_UNIT_BINS).toBeLessThanOrEqual(MAX_UNIT_BINS);
+		// The host's cluster is not compose's: serial unless asked.
+		expect(unitBinsEnv(args([]))).toEqual({ DEDALO_CI_UNIT_BINS: '1' });
+		expect(unitBinsEnv(args([], { '--unit-bins': '1' }))).toEqual({ DEDALO_CI_UNIT_BINS: '1' });
+		expect(unitBinsEnv(args([], { '--unit-bins': '6' }))).toEqual({ DEDALO_CI_UNIT_BINS: '6' });
+		// The baseline is DEFINED by the serial run: a recording never shards.
+		expect(unitBinsEnv(args(['--docker', '--record-unit-baseline']))).toEqual({
+			DEDALO_CI_UNIT_BINS: '1',
+		});
+		expect(unitBinsFault(args([]))).toBeNull();
+		expect(unitBinsFault(args([], { '--unit-bins': '4' }))).toBeNull();
+		for (const bad of ['0', '-1', '2.5', 'four', '99', String(MAX_UNIT_BINS + 1)])
+			expect(unitBinsFault(args([], { '--unit-bins': bad })), bad).toContain('--unit-bins');
+		expect(
+			unitBinsFault(args(['--docker', '--record-unit-baseline'], { '--unit-bins': '4' })),
+		).toContain('recorded serially');
+		// …and the docker run hands it to the tier.
+		expect(
+			dockerComposeEnv({
+				image: 'img',
+				inputs: '/in',
+				outputs: '/out',
+				sha: 'a'.repeat(40),
+				branch: 'master',
+				base: undefined,
+				auditBase: '',
+				overlay: false,
+				args: args([], { '--unit-bins': '3' }),
+				mounts: [],
+			}).DEDALO_CI_UNIT_BINS,
+		).toBe('3');
+	});
+
 	test('both record keys are ALWAYS set — off is explicit, so a shell export never turns a check into a write', () => {
 		const NEW_OFF = {
 			DEDALO_CI_UNIT_RECORD_NEW: '',
@@ -948,15 +991,36 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 				DEDALO_CI_UNIT_RECORD_ALLOW: '0',
 				DEDALO_CI_UNIT_RECORD_NEW: '',
 			};
-			expect(drive(off)).toEqual(['bun run scripts/unit_baseline.ts --check', 'tier_status=0']);
+			// Unset = serial (GitHub's db.yml sets nothing); ci:local hands its bin count through.
+			expect(drive(off)).toEqual([
+				'bun run scripts/unit_baseline.ts --check --bins=1',
+				'tier_status=0',
+			]);
+			expect(drive({ ...off, DEDALO_CI_UNIT_BINS: '4' })).toEqual([
+				'bun run scripts/unit_baseline.ts --check --bins=4',
+				'tier_status=0',
+			]);
+			// A recording ignores the bin count: the writer is serial by definition.
+			expect(
+				drive({
+					DEDALO_CI_UNIT_RECORD_OUT: '/ci-out',
+					DEDALO_CI_UNIT_RECORD_ALLOW: '0',
+					DEDALO_CI_UNIT_RECORD_NEW: '',
+					DEDALO_CI_UNIT_BINS: '4',
+				}),
+			).toEqual([
+				'bun run scripts/unit_baseline.ts',
+				'cp engineering/unit_baseline.json /ci-out/unit_baseline.json',
+				'tier_status=0',
+			]);
 			// BLOCKING: a check that exits 1 raises the tier (the whole script: tier_wiring leg L).
 			expect(drive({ ...off, BUN_RC: '1' })).toEqual([
-				'bun run scripts/unit_baseline.ts --check',
+				'bun run scripts/unit_baseline.ts --check --bins=1',
 				'tier_status=1',
 			]);
 			// ALLOW alone records nothing.
 			expect(drive({ ...off, DEDALO_CI_UNIT_RECORD_ALLOW: '1' })).toEqual([
-				'bun run scripts/unit_baseline.ts --check',
+				'bun run scripts/unit_baseline.ts --check --bins=1',
 				'tier_status=0',
 			]);
 			const rec = {
@@ -976,7 +1040,7 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 			]);
 			// NEW alone records nothing; with OUT it runs --record-new, one argument per file.
 			expect(drive({ ...off, DEDALO_CI_UNIT_RECORD_NEW: 'test/unit/a.test.ts' })).toEqual([
-				'bun run scripts/unit_baseline.ts --check',
+				'bun run scripts/unit_baseline.ts --check --bins=1',
 				'tier_status=0',
 			]);
 			expect(

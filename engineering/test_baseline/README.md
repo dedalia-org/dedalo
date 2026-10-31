@@ -98,8 +98,8 @@ bun run test:baseline --resume              # continue an interrupted campaign (
 bun run test:baseline --accept-growth "…"   # the only door through the ratchet
 bun run test:timings                        # refresh timings.json + meta
 bun run test:shard --junit-dir=<dir>        # a sharded candidate, one bin<N>.xml per bin
-bun run test:baseline --compare <dir>       # the four assertions vs runs.json (same commit); exit 1 = NOT EQUAL
-bun run test:baseline --compare <dir> --expect-fixed  # strict: fixed-order runs only, quarantine = FLAPPING only
+bun run test:baseline:compare <dir>         # the four assertions vs runs.json (same commit); exit 1 = NOT EQUAL
+bun run test:baseline:compare <dir> --expect-fixed  # strict: fixed-order runs only, quarantine = FLAPPING only
 # tiny end-to-end verification (first-class, never writes this directory):
 bun run test:baseline --files test/unit/locator_law.test.ts --runs 2 --order-runs 1 --out-dir <scratch>
 ```

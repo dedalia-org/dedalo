@@ -87,6 +87,7 @@ import { readEnv } from '../../src/config/env.ts';
 // through the marker module itself (its postgres.ts import connects the pool
 // at module scope — a held session breaks DROP DATABASE).
 import {
+	SHARD_SUFFIX,
 	TEST_MARKER_PURPOSE,
 	TEST_MARKER_TABLE,
 } from '../../src/core/test_data/test_database_marker_constants.ts';
@@ -112,7 +113,7 @@ import {
 export const SHARD_SUFFIX_RE = /__shard\d+$/;
 
 export function shardDatabaseName(template: string, shard: number): string {
-	return `${template}__shard${shard}`;
+	return `${template}${SHARD_SUFFIX}${shard}`;
 }
 
 /**

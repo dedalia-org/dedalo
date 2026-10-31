@@ -90,6 +90,7 @@ import {
 } from '../../scripts/test_shard.ts';
 import { readNumber } from '../../src/config/readers.ts';
 import { connectionsPerProcess } from '../../src/core/db/connection_budget.ts';
+import { isSuiteDatabaseName } from '../../src/core/test_data/test_database_marker_constants.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 import { testDatabaseName } from '../helpers/test_database.ts';
 import { bandOf, classifyTestFile, type TestFootprint } from '../helpers/test_footprint.ts';
@@ -447,6 +448,26 @@ describe('shard env — value idempotence: <base>__shard2__shard2 is unreachable
 			if (saved === undefined) delete process.env.DEDALO_TEST_DATABASE;
 			else process.env.DEDALO_TEST_DATABASE = saved;
 		}
+	});
+});
+
+describe('shard env — a shard clone IS a suite database to every sync name predicate', () => {
+	test('isSuiteDatabaseName accepts the template and every clone, and nothing else', () => {
+		// The predicate the boot-frozen observer carve-out and the observer gates' guards
+		// use. MEASURED 2026-10-31: the bare endsWith('_test') it replaced skipped 3
+		// observer_reconcile cases on every clone (75 → 51 assertions).
+		const template = 'zz_app_test';
+		expect(isSuiteDatabaseName(template)).toBe(true);
+		for (let shard = 1; shard <= 16; shard++)
+			expect(isSuiteDatabaseName(shardDatabaseName(template, shard)), String(shard)).toBe(true);
+		for (const name of [
+			'zz_app',
+			'zz_app_test_rag',
+			'zz_app__shard2',
+			'zz_app_testing',
+			'zz_app_test__shard',
+		])
+			expect(isSuiteDatabaseName(name), name).toBe(false);
 	});
 });
 

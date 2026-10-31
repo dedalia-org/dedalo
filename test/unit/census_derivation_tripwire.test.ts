@@ -743,7 +743,13 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 
 	'scripts/lib/test_shard_db.ts': {
 		roots: [],
-		scope: 'NOT a corpus: `readdirSync` lists the suite media base for marked shard twins to sweep',
+		scope:
+			"NOT a corpus: `readdirSync` lists the suite media base for marked shard twins to sweep, and `treeFingerprint` walks the TEMPLATE's suite media root (outside the repo) to witness contact during a sealed shard run",
+	},
+	'scripts/lib/junit_reports.ts': {
+		roots: [],
+		scope:
+			"NOT a corpus: `junitReportsIn` lists a run's OWN JUnit output directory (runTierSharded's mkdtemp dir, or the caller's --junit-dir handed to test_baseline_compare.ts); never a repo directory",
 	},
 	'scripts/lib/release_clone.ts': {
 		roots: [['.']],

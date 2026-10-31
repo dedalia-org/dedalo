@@ -51,6 +51,7 @@
 		"seed:build": "bun run scripts/seed_build.ts",
 		"test:baseline": "bun run scripts/test_baseline.ts",
 		"test:timings": "bun run scripts/test_baseline.ts --timings",
+		"test:baseline:compare": "bun run scripts/test_baseline_compare.ts",
 		"test:shard": "bun run scripts/test_shard.ts",
 		"test:shard:sweep": "bun run scripts/test_shard.ts --sweep",
 		"test:client": "bun run scripts/client_test_runner.ts",

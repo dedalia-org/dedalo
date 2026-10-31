@@ -133,6 +133,7 @@ import {
 	getNodesWithProperty,
 	type NodeWithProperties,
 } from '../../ontology/resolver.ts';
+import { isSuiteDatabaseName } from '../../test_data/test_database_marker_constants.ts';
 import { resolveExternalLaw } from './external_laws/classify.ts';
 import {
 	externalLawDependencies,
@@ -277,9 +278,9 @@ export function observerEdgeKey(edge: { observed: string; observer: string }): s
  * SUITE-DB-ONLY: `test` is a REAL tld in production ontologies (currently at
  * test217 in the app DB), so "production never carries test999… tipos" is a
  * hope, not a mechanism. The carve-out therefore applies ONLY when the
- * connected database is the dedicated suite database (the `_test`-suffix
- * convention that test/helpers/test_database.ts pins as the ONE derivation
- * rule). Against any other database a test999… declaration surfaces through
+ * connected database is the dedicated suite database or one of its shard
+ * clones (`isSuiteDatabaseName` — the `_test`-suffix convention
+ * test/helpers/test_database.ts pins as the ONE derivation rule). Against any other database a test999… declaration surfaces through
  * the ordinary contract checks. `config.db.database` is frozen at boot, so
  * the predicate is stable for the process lifetime.
  */
@@ -289,7 +290,7 @@ export const SCRATCH_OBSERVER_NAMESPACE_PREFIX = 'test999';
  * form)? False outside the suite DB. */
 export function touchesScratchObserverNamespace(observed: string, observer: string): boolean {
 	return (
-		config.db.database.endsWith('_test') &&
+		isSuiteDatabaseName(config.db.database) &&
 		(observed.startsWith(SCRATCH_OBSERVER_NAMESPACE_PREFIX) ||
 			observer.startsWith(SCRATCH_OBSERVER_NAMESPACE_PREFIX))
 	);

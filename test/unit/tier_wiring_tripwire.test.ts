@@ -686,6 +686,10 @@ const LOCAL_ONLY_SCRIPTS: ReadonlyMap<string, string> = new Map([
 	],
 	['test:timings', 'The same generator in timings mode; a measurement, not a gate.'],
 	[
+		'test:baseline:compare',
+		'Compares a candidate run (a shard --junit-dir) to the recorded campaign — an equivalence PROOF a developer runs when changing the runner, at the campaign commit only; its comparator is gated by test_baseline_tripwire.',
+	],
+	[
 		'test:shard',
 		'Plans a shard partition for a developer running the suite in parallel; the plan itself is gated by test_shard_partition_tripwire on the hermetic tier.',
 	],
@@ -877,6 +881,9 @@ function drillScript(script: string, killOn?: string, failOn?: string): DrillRun
 					DEDALO_CI_UNIT_RECORD_NEW: '',
 					DEDALO_CI_PARITY_RECORD_OUT: '',
 					DEDALO_CI_PARITY_RECORD_ALLOW: '0',
+					// …and as GitHub's db.yml runs it (bins unset = serial): inside ci:local's
+					// image the key is exported (4), which must not move this gate's expectation.
+					DEDALO_CI_UNIT_BINS: undefined,
 					...(killOn === undefined ? {} : { DRILL_KILL_ON: killOn }),
 					...(failOn === undefined ? {} : { DRILL_FAIL_ON: failOn }),
 				},
@@ -1815,8 +1822,9 @@ describe('tier wiring — every gate is reached by a workflow that executes', ()
 			`Tier roots whose red-baseline check cannot fail them:\n  ${faults.join('\n  ')}`,
 		).toEqual([]);
 		// The floor: the DB tier runs BOTH checks (the unit one blocking since 2026-10-02).
+		// (unset DEDALO_CI_UNIT_BINS = serial, `--bins=1`: GitHub's db.yml; ci:local shards.)
 		expect(checked.get('scripts/ci/db_tier.sh')).toEqual([
-			'run scripts/unit_baseline.ts --check',
+			'run scripts/unit_baseline.ts --check --bins=1',
 			'run scripts/parity_baseline.ts --check',
 		]);
 	}, 120_000);

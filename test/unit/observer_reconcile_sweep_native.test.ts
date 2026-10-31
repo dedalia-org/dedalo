@@ -61,6 +61,7 @@ import {
 } from '../../src/core/section/record/observer_reconcile.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { isSuiteDatabaseName } from '../../src/core/test_data/test_database_marker_constants.ts';
 import {
 	ensureObserverTerm,
 	INDEXER,
@@ -93,7 +94,7 @@ let seedHelperRan = false;
 let anchorRows = -1;
 
 /** Suite DB only for the ontology fixture: `test` is a REAL tld in production. */
-const onSuiteDb = config.db.database.endsWith('_test');
+const onSuiteDb = isSuiteDatabaseName(config.db.database);
 
 /**
  * The fixture is ASSERTED, never skipped around. The old `skipUnlessPlanted`

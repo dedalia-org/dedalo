@@ -80,7 +80,7 @@
  *    re-check and the children's own (now loud, bounded) pool errors.
  */
 
-import { existsSync, readFileSync, statfsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readNumber } from '../src/config/readers.ts';
 import { connectionsPerProcess } from '../src/core/db/connection_budget.ts';
@@ -106,6 +106,16 @@ import {
 
 const REPO_ROOT = join(import.meta.dir, '..');
 const TIMINGS_PATH = join(REPO_ROOT, 'engineering', 'test_baseline', 'timings.json');
+
+/** The plan a `--junit-dir` run writes beside its `bin<N>.xml` reports. */
+export const SHARD_PLAN_FILE = 'shard_plan.json';
+/**
+ * The verdict a `--junit-dir` run writes LAST, after its isolation checks:
+ * `{valid, reason}`. A red test exits its bin 1 exactly like an escaped shard, so a
+ * reader (scripts/lib/tier_run.ts collectShardedRun) trusts the reports only when
+ * this file says `valid: true` — absent means the runner died before checking.
+ */
+export const SHARD_VERDICT_FILE = 'shard_verdict.json';
 
 /** Keep this many bytes free on the PG volume AFTER all clones (the volume is at 96%). */
 export const DISK_HEADROOM_BYTES = 8 * 1024 ** 3;
@@ -596,6 +606,20 @@ async function runBins(
 	};
 	process.on('SIGINT', onSignal);
 	process.on('SIGTERM', onSignal);
+	// The PLAN beside the reports: a reader (scripts/lib/tier_run.ts runTierSharded)
+	// must tell a bin that never reported (crashed, killed) from one never planned —
+	// a merge of the survivors would otherwise measure a smaller tier as complete.
+	if (junitDir !== null) {
+		mkdirSync(junitDir, { recursive: true });
+		// A reused directory's old verdict must never vouch for this run. Its old bin
+		// reports cannot stand for it either: readers take only the PLANNED bins
+		// (scripts/lib/tier_run.ts shardedRunReports), and every planned bin rewrites its own.
+		rmSync(join(junitDir, SHARD_VERDICT_FILE), { force: true });
+		writeFileSync(
+			join(junitDir, SHARD_PLAN_FILE),
+			`${JSON.stringify({ bins: bins.map((bin) => ({ index: bin.index, files: bin.files.length })) })}\n`,
+		);
+	}
 	try {
 		await Promise.all(
 			bins.map(async (bin) => {
@@ -640,6 +664,19 @@ async function runBins(
 	}
 	if (interrupted) return 130;
 	return results.every((r) => r.exitCode === 0) ? 0 : 1;
+}
+
+/** Write the run's verdict beside its reports — the LAST file, see SHARD_VERDICT_FILE. */
+export function writeShardVerdict(junitDir: string, code: number, templateContact: boolean): void {
+	const reason = templateContact
+		? 'TEMPLATE CONTACT — the sealed template media tree changed during the run'
+		: code === 130
+			? 'interrupted (SIGINT/SIGTERM) — bins were killed mid-run'
+			: null;
+	writeFileSync(
+		join(junitDir, SHARD_VERDICT_FILE),
+		`${JSON.stringify({ valid: reason === null, reason })}\n`,
+	);
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
@@ -864,7 +901,9 @@ async function main(): Promise<number> {
 			console.log(`[shard] template ${template} SEALED (ALLOW_CONNECTIONS false) for the run`);
 		}
 		const code = await runBins(template, bins, options.junitDir);
-		if (sealed && templateMediaFingerprint(template) !== mediaBefore) {
+		const contact = sealed && templateMediaFingerprint(template) !== mediaBefore;
+		if (options.junitDir !== null) writeShardVerdict(options.junitDir, code, contact);
+		if (contact) {
 			console.error(
 				`[shard] TEMPLATE CONTACT: the media tree of ${template} changed during a sealed run — a process escaped its shard. The run is NOT valid.`,
 			);

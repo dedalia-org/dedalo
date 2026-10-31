@@ -65,6 +65,7 @@ import {
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
+import { isSuiteDatabaseName } from '../../src/core/test_data/test_database_marker_constants.ts';
 
 // --- the situation this file BUILDS (reserved scratch TLD `zzobs`) ---------
 // `situation()` refuses a tld that is not `zz*` (src/core/test_data/situations/
@@ -675,7 +676,7 @@ const SCRATCH_NON_CANDIDATE_ID = 91099;
 /** Suite DB only: this fixture writes dd_ontology, and `test` is a REAL tld in
  * production ontologies (the scratch-namespace carve-out is itself suite-DB
  * gated — observer_subscriptions.ts touchesScratchObserverNamespace). */
-const onSuiteDb = config.db.database.endsWith('_test');
+const onSuiteDb = isSuiteDatabaseName(config.db.database);
 
 function skipUnlessSuiteDb(caseName: string): boolean {
 	if (onSuiteDb) return false;
