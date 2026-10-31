@@ -94,15 +94,19 @@ import {
 	MAX_UNIT_BINS,
 	orphanCiVolumes,
 	parseStages,
+	prefixLines,
 	pruneRunLogs,
 	recordArgsFault,
 	recordCopyFault,
 	recordEnv,
 	recordNewFiles,
 	recordRefFault,
+	runStreaming,
 	type Stage,
 	statRunDir,
+	stepsFileName,
 	TIERS,
+	tierSchedule,
 	type TierResult,
 	unitBinsEnv,
 	unitBinsFault,
@@ -580,6 +584,66 @@ describe('--fail-fast — a red tier ends the run, the rest is REPORTED not_run'
 		const green = [result(hermetic?.id ?? 'hermetic', 'green'), result(db?.id ?? 'db', 'green')];
 		expect(failFastSkip(on, instance as (typeof TIERS)[number], green)).toBeNull();
 		expect(failFastSkip(on, hermetic as (typeof TIERS)[number], [])).toBeNull();
+	});
+});
+
+describe('tier schedule — --docker runs the tiers CONCURRENTLY, serial only where it must be', () => {
+	const flags = (...names: string[]) => ({ flags: new Set(names) });
+
+	test('docker, several tiers: concurrent', () => {
+		expect(tierSchedule(flags('--docker'), 3).concurrent).toBe(true);
+		expect(tierSchedule(flags('--docker', '--db', '--instance'), 2).concurrent).toBe(true);
+	});
+
+	test('serial: host mode, --fail-fast, a recording, --serial-tiers, one tier — each says why', () => {
+		const cases: [ReturnType<typeof flags>, number, RegExp][] = [
+			[flags(), 3, /host mode/],
+			[flags('--docker', '--fail-fast'), 3, /fail-fast/],
+			[flags('--docker', '--record-unit-baseline'), 1, /one tier/],
+			[flags('--docker', '--record-parity-baseline'), 2, /recording/],
+			[flags('--docker', '--serial-tiers'), 3, /serial-tiers/],
+			[flags('--docker'), 1, /one tier/],
+		];
+		for (const [args, count, why] of cases) {
+			const schedule = tierSchedule(args, count);
+			expect(schedule.concurrent).toBe(false);
+			expect(schedule.reason).toMatch(why);
+		}
+	});
+
+	test('each tier reads its OWN steps file — the name the driver derives from DEDALO_CI_TIER_SCRIPT', () => {
+		// Concurrent tiers share one /ci-in: a single steps.lst would hand every tier the
+		// last writer's steps. The driver's derivation is run, not re-spelled.
+		const names = TIERS.map((tier) => stepsFileName(tier));
+		expect(new Set(names).size).toBe(TIERS.length);
+		for (const tier of TIERS) {
+			const derived = Bun.spawnSync(['bash', '-c', 'basename "$DEDALO_CI_TIER_SCRIPT" .sh'], {
+				env: { ...process.env, DEDALO_CI_TIER_SCRIPT: tier.script },
+			});
+			expect(`${derived.stdout.toString().trim()}.lst`).toBe(stepsFileName(tier));
+		}
+		expect(DRIVER_SCRIPT).toContain(
+			'done < "/ci-in/steps/$(basename "$DEDALO_CI_TIER_SCRIPT" .sh).lst"',
+		);
+		expect(DRIVER_SCRIPT).not.toContain('/ci-in/steps.lst');
+	});
+
+	test('prefixLines tags every complete line, blank ones included, and adds no line', () => {
+		expect(prefixLines('a\nb\n', '[db] ')).toBe('[db] a\n[db] b\n');
+		expect(prefixLines('\n\nx\n', '[i] ')).toBe('[i] \n[i] \n[i] x\n');
+		expect(prefixLines('', '[i] ')).toBe('');
+	});
+
+	test('a prefixed run still CAPTURES untagged — the stage parser never sees the prefix', async () => {
+		const { code, output } = await runStreaming(
+			['bash', '-c', 'echo "== db_tier: stage"; echo "(fail) x" >&2; printf "tail"'],
+			{ cwd: REPO_ROOT, env: process.env, prefix: '[db] ' },
+		);
+		expect(code).toBe(0);
+		expect(output).not.toContain('[db] ');
+		expect(output).toContain('== db_tier: stage\n');
+		expect(output).toContain('(fail) x\n');
+		expect(output).toContain('tail\n');
 	});
 });
 

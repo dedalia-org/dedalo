@@ -112,6 +112,13 @@
  * pgvector container per tier, removed with its volume afterwards — as two CI jobs each
  * get a fresh service container.
  *
+ * --docker RUNS THE SELECTED TIERS CONCURRENTLY (each its own compose project, Postgres
+ * container and volume — as the runner's parallel jobs), output line-prefixed `[<tier>] `;
+ * the run takes as long as its longest tier, not the sum. Serial where it must be
+ * ({@link tierSchedule}): host mode (the tiers share one database name, media root and
+ * ports on your machine), --fail-fast (its point is to stop at the first red), a
+ * recording, or --serial-tiers.
+ *
  * THE INSTANCE TIER ON macOS HOST MODE needs a short TMPDIR (`TMPDIR=/tmp/dd bun run
  * ci:local --instance`): the update drills bind unix sockets under it and macOS caps that
  * path at 104 bytes (AGENTS.md, test:update). --docker is Linux and needs nothing. The
@@ -196,6 +203,7 @@ const BOOLEAN_FLAGS = new Set([
 	'--docker',
 	'--build',
 	'--fail-fast',
+	'--serial-tiers',
 	'--record-unit-baseline',
 	'--record-parity-baseline',
 	'--allow-regression',
@@ -888,7 +896,7 @@ function fixHint(stage: Stage): string {
 
 export async function runStreaming(
 	cmd: string[],
-	options: { cwd: string; env: Record<string, string | undefined> },
+	options: { cwd: string; env: Record<string, string | undefined>; prefix?: string },
 ) {
 	const proc = Bun.spawn(cmd, {
 		cwd: options.cwd,
@@ -906,27 +914,41 @@ export async function runStreaming(
 	const pump = async (stream: ReadableStream<Uint8Array>, sink: NodeJS.WriteStream) => {
 		const decoder = new TextDecoder();
 		let partial = '';
+		// Concurrent tiers share the terminal: each writes WHOLE lines, tagged with its
+		// prefix, so two tiers never splice into one line. The capture stays untagged.
+		const echo = (lines: string) => {
+			if (options.prefix !== undefined) sink.write(prefixLines(lines, options.prefix));
+		};
 		for await (const chunk of stream) {
-			sink.write(chunk);
+			if (options.prefix === undefined) sink.write(chunk);
 			partial += decoder.decode(chunk, { stream: true });
 			const end = partial.lastIndexOf('\n');
 			if (end !== -1) {
 				captured.push(partial.slice(0, end + 1));
+				echo(partial.slice(0, end + 1));
 				partial = partial.slice(end + 1);
 			}
 		}
 		partial += decoder.decode();
-		if (partial !== '') captured.push(`${partial}\n`);
+		if (partial !== '') {
+			captured.push(`${partial}\n`);
+			echo(`${partial}\n`);
+		}
 	};
 	await Promise.all([pump(proc.stdout, process.stdout), pump(proc.stderr, process.stderr)]);
 	const code = await proc.exited;
 	return { code, output: captured.join('') };
 }
 
+/** `a\nb\n` → `[p] a\n[p] b\n` — complete lines only (the caller holds back the partial). */
+export function prefixLines(lines: string, prefix: string): string {
+	return lines.replace(/^(?=[\s\S])/gm, prefix);
+}
+
 async function runTier(
 	tier: Tier,
 	cmd: string[],
-	options: { cwd: string; env: Record<string, string | undefined> },
+	options: { cwd: string; env: Record<string, string | undefined>; prefix?: string },
 ): Promise<TierResult> {
 	const started = performance.now();
 	const { code, output } = await runStreaming(cmd, options);
@@ -956,6 +978,45 @@ export function failFastSkip(
 	if (red === undefined) return null;
 	console.log(`\n══════ ${tier.id} — NOT RUN (--fail-fast: ${red.tier} is red) ══════`);
 	return { tier: tier.id, verdict: 'not_run', exit_code: -1, duration_s: 0, stages: [] };
+}
+
+/**
+ * Do the selected tiers run concurrently? Only in --docker, where each tier is its own
+ * compose project with its own Postgres container — the isolation two parallel CI jobs
+ * have. Serial otherwise, with the reason:
+ * - host mode: db and instance both DROP AND REBUILD `dedalo_ci_test` on your one
+ *   Postgres, and share the suite media root, MariaDB lane and listener ports;
+ * - --fail-fast: it exists to stop at the first red, which a concurrent run cannot do;
+ * - a recording: the floors are measured on an uncontended machine (one tier anyway);
+ * - --serial-tiers: asked for (a short-memory Docker VM, a debugging read of one log).
+ * Pure, for the gate.
+ */
+export function tierSchedule(
+	args: Pick<Args, 'flags'>,
+	tierCount: number,
+): { concurrent: boolean; reason: string } {
+	if (tierCount < 2) return { concurrent: false, reason: 'one tier' };
+	if (!args.flags.has('--docker'))
+		return {
+			concurrent: false,
+			reason: 'host mode — the tiers share one database name, media root and ports here',
+		};
+	if (args.flags.has('--fail-fast'))
+		return { concurrent: false, reason: '--fail-fast stops at the first red tier' };
+	if (isRecording(args))
+		return { concurrent: false, reason: 'a recording is measured uncontended' };
+	if (args.flags.has('--serial-tiers')) return { concurrent: false, reason: '--serial-tiers' };
+	return { concurrent: true, reason: 'docker — one compose project per tier' };
+}
+
+/**
+ * The file under /ci-in/steps/ holding a tier's workflow steps, named after its script
+ * (`scripts/ci/db_tier.sh` → `db_tier.lst`): concurrent tiers share the one /ci-in mount,
+ * so each reads its own — the driver derives the same name from DEDALO_CI_TIER_SCRIPT.
+ */
+export function stepsFileName(tier: Pick<Tier, 'script'>): string {
+	const base = tier.script.slice(tier.script.lastIndexOf('/') + 1);
+	return `${base.replace(/\.sh$/, '')}.lst`;
 }
 
 // ── host mode ────────────────────────────────────────────────────────────────
@@ -1123,7 +1184,7 @@ while IFS= read -r step; do
 	[ -n "$step" ] || continue
 	echo "== workflow_step: $step"
 	bash -c "$step"
-done < /ci-in/steps.lst
+done < "/ci-in/steps/$(basename "$DEDALO_CI_TIER_SCRIPT" .sh).lst"
 exec bash "$DEDALO_CI_TIER_SCRIPT"
 `;
 
@@ -1455,6 +1516,14 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	const inputs = mkdtempSync(join(tmpdir(), 'dedalo-ci-docker-'));
 	chmodSync(inputs, 0o755);
 	writeFileSync(join(inputs, 'driver.sh'), IN_CONTAINER_DRIVER, { mode: 0o644 });
+	// Each tier's workflow steps in its own file (stepsFileName): the tiers may run at once.
+	mkdirSync(join(inputs, 'steps'), { mode: 0o755 });
+	for (const tier of tiers)
+		writeFileSync(
+			join(inputs, 'steps', stepsFileName(tier)),
+			tier.workflowSteps.map((step) => `${step}\n`).join(''),
+			{ mode: 0o644 },
+		);
 	// The ONE writable mount (/ci-out): empty, world-writable (the container writes as
 	// uid 1001, not as you), removed after the run. A recording writes its baseline there,
 	// and hermetic.sh its daemon logs (/ci-out/logs, kept by keepRunLogs).
@@ -1484,8 +1553,11 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 			`== ci:local: audit base (push \`before\`) ${auditBase === '' ? '<none — the audit runs>' : auditBase.slice(0, 12)}`,
 		);
 
-	const results: TierResult[] = [];
-	let activeProject: string | undefined;
+	const schedule = tierSchedule(args, tiers.length);
+	console.log(
+		`== ci:local: tiers ${schedule.concurrent ? 'CONCURRENT' : 'serial'} (${schedule.reason})`,
+	);
+	const activeProjects = new Set<string>();
 	const composeEnvBase = dockerComposeEnv({
 		image,
 		inputs,
@@ -1522,9 +1594,9 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 			);
 	};
 	const onSignal = () => {
-		if (activeProject !== undefined) {
-			console.error(`\n== ci:local: interrupted — removing ${activeProject}`);
-			teardown(activeProject);
+		for (const project of activeProjects) {
+			console.error(`\n== ci:local: interrupted — removing ${project}`);
+			teardown(project);
 		}
 		rmSync(inputs, { recursive: true, force: true });
 		rmSync(outputs, { recursive: true, force: true });
@@ -1533,35 +1605,39 @@ async function runInDocker(args: Args, tiers: readonly Tier[]): Promise<TierResu
 	process.on('SIGINT', onSignal);
 	process.on('SIGTERM', onSignal);
 
-	try {
-		for (const tier of tiers) {
-			const skipped = failFastSkip(args, tier, results);
-			if (skipped !== null) {
-				results.push(skipped);
-				continue;
-			}
-			// One compose project per tier: each CI job gets a FRESH service container, and
-			// the instance tier's fixture must not see the db tier's 725-file pollution.
-			const project = `dedalo-ci-${process.pid}-${tier.id}`;
-			activeProject = project;
-			const env = { ...composeEnvBase, DEDALO_CI_TIER_SCRIPT: tier.script };
-			writeFileSync(
-				join(inputs, 'steps.lst'),
-				tier.workflowSteps.map((step) => `${step}\n`).join(''),
-				{ mode: 0o644 },
-			);
-			console.log(`\n══════ ${tier.id} (docker) ══════`);
-			const service = tier.needsDb ? 'runner-db' : 'runner';
-			const cmd = ['docker', 'compose', '-f', COMPOSE_FILE, '-p', project];
-			if (tier.needsDb) cmd.push('--profile', 'db');
-			cmd.push('run', '--rm', '-T', service);
-			try {
-				results.push(await runTier(tier, cmd, { cwd: REPO_ROOT, env }));
-			} finally {
-				teardown(project);
-				activeProject = undefined;
-			}
+	const runOne = async (tier: Tier): Promise<TierResult> => {
+		// One compose project per tier: each CI job gets a FRESH service container, and
+		// the instance tier's fixture must not see the db tier's 725-file pollution.
+		const project = `dedalo-ci-${process.pid}-${tier.id}`;
+		activeProjects.add(project);
+		const env = { ...composeEnvBase, DEDALO_CI_TIER_SCRIPT: tier.script };
+		console.log(`\n══════ ${tier.id} (docker) ══════`);
+		const service = tier.needsDb ? 'runner-db' : 'runner';
+		const cmd = ['docker', 'compose', '-f', COMPOSE_FILE, '-p', project];
+		if (tier.needsDb) cmd.push('--profile', 'db');
+		cmd.push('run', '--rm', '-T', service);
+		try {
+			const prefix = schedule.concurrent ? `[${tier.id}] ` : undefined;
+			const result = await runTier(tier, cmd, { cwd: REPO_ROOT, env, prefix });
+			if (schedule.concurrent)
+				console.log(
+					`\n══════ ${tier.id} (docker) — ${result.verdict.toUpperCase()} in ${result.duration_s}s ══════`,
+				);
+			return result;
+		} finally {
+			teardown(project);
+			activeProjects.delete(project);
 		}
+	};
+
+	let results: TierResult[] = [];
+	try {
+		if (schedule.concurrent) results = await Promise.all(tiers.map(runOne));
+		else
+			for (const tier of tiers) {
+				const skipped = failFastSkip(args, tier, results);
+				results.push(skipped ?? (await runOne(tier)));
+			}
 		const db = results.find((result) => result.tier === 'db');
 		if (args.flags.has('--record-unit-baseline'))
 			copyRecordedBaseline(outputs, args, db, 'unit_baseline.json');
@@ -1683,7 +1759,7 @@ async function main(): Promise<void> {
 	if (args.flags.has('--help') || args.flags.has('-h')) {
 		console.log(
 			'bun run ci:local [--hermetic] [--db] [--instance] [--keep] [--fail-fast] [--unit-bins <n>] [--summary <file>]\n' +
-				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--unit-bins <n>] [--summary <file>]\n' +
+				'bun run ci:local --docker [--hermetic] [--db] [--instance] [--ref <rev>] [--audit-base <sha>] [--build] [--base <branch>] [--fail-fast] [--serial-tiers] [--unit-bins <n>] [--summary <file>]\n' +
 				'bun run ci:local --docker --record-unit-baseline [--ref HEAD] [--allow-regression --reason "<why>" | --new <file>[,<file>…]]\n' +
 				'bun run ci:local --docker --record-parity-baseline [--record-unit-baseline --new <file>] [--allow-regression --reason "<why>"]\n\n' +
 				'Runs the CI tiers with the environment a RUNNER has: no ../private/.env, every\n' +
@@ -1692,8 +1768,10 @@ async function main(): Promise<void> {
 				'(TMPDIR=/tmp/dd). --docker runs them in the CI image (ci/Dockerfile) against the\n' +
 				"pinned pgvector service (ci/compose.yml) — the runner's platform, not just its\n" +
 				'config. Default tree: the working tree as one commit on HEAD; --ref runs a commit\n' +
-				'exactly. --fail-fast stops after the first red tier (the rest are reported\n' +
-				'not_run). Exit 0 green, 1 red, 2 could not run.',
+				'exactly. --docker runs the tiers CONCURRENTLY (output prefixed [<tier>]);\n' +
+				'--serial-tiers runs them one after another. --fail-fast stops after the first\n' +
+				'red tier (serial; the rest are reported not_run). Exit 0 green, 1 red, 2 could\n' +
+				'not run.',
 		);
 		process.exit(0);
 	}
