@@ -9,6 +9,7 @@
 	import {ui} from './ui.js'
 	import {open_tool} from '../../tools_common/js/tool_common.js'
 	import {navigate_to_menu_item} from '../../menu/js/render_menu_tree.js'
+	import {is_non_tools_section} from '../../section/js/render_common_section.js'
 
 
 
@@ -124,9 +125,12 @@ export const build_items = () => {
 			}
 		}
 
-	// tools of the current section (menu also carries tools: skip it)
+	// tools of the current section (menu also carries tools: skip it).
+	// section_tool pages (oh81 …) offer none: same rule as the list toolbar —
+	// the caller carries the tool page's config.tool_context, which a section
+	// tool would inherit as its own tool_config (tool_diffusion crashed on it).
 		const caller = page_ref?.ar_instances?.find(el => el.model!=='menu' && el.tools?.length)
-		if (caller) {
+		if (caller && !is_non_tools_section(caller)) {
 			const identify_enabled = page_globals.ai_capabilities?.identify === true
 			for (const tool_context of caller.tools) {
 				if (tool_context.name==='tool_identify' && !identify_enabled) { continue }
