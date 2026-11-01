@@ -260,6 +260,7 @@ flat_table.prototype._build_cell = function(col, value) {
 				img.src			= resolved
 				img.loading		= 'lazy'
 				img.className	= 'export_media_thumb'
+				img.alt			= '' // a11y: the column header names the media (decorative)
 				td.appendChild(img)
 			}
 			break

@@ -109,6 +109,8 @@ view_text_list_av.render = async function(self, options) {
 	// Uses native createElement rather than ui.create_dom_element so that the error
 	// handler closure captures the `image` reference directly before src is set.
 		const image	= document.createElement('img')
+		// a11y (WCAG 1.1.1): the text view has no label beside the image — name it
+		image.alt		= self.label ?? ''
 		image.loading	= 'lazy'
 		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {

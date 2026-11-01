@@ -14,6 +14,15 @@
  */
 
 import { a11y } from '../../../core/common/js/a11y.js';
+import { tr } from '../../../core/common/js/tr.js';
+import { ui } from '../../../core/common/js/ui.js';
+import { view_text_list_3d } from '../../../core/component_3d/js/view_text_list_3d.js';
+import { view_text_list_av } from '../../../core/component_av/js/view_text_list_av.js';
+import { view_text_list_image } from '../../../core/component_image/js/view_text_list_image.js';
+import { view_text_list_pdf } from '../../../core/component_pdf/js/view_text_list_pdf.js';
+import { view_text_list_svg } from '../../../core/component_svg/js/view_text_list_svg.js';
+import { build_node_tag } from '../../../core/component_text_area/js/view_default_edit_text_area.js';
+import { flat_table } from '../../../tools/tool_export/js/flat_table.js';
 import {
 	build_component_edit,
 	build_component_group_nested,
@@ -217,6 +226,100 @@ describe('a11y: the cataloguing surface is operable without a mouse', function (
 				null,
 				'a button with visible text is named by its text, not by a duplicate aria-label',
 			);
+		});
+	});
+
+	describe('every <img> the DOM factory builds has a text alternative (WCAG 1.1.1, axe image-alt)', function () {
+		it('an <img> with no alt option is DECORATIVE (alt=""), never unnamed', function () {
+			const image = ui.create_dom_element({ element_type: 'img' });
+			assert.strictEqual(image.hasAttribute('alt'), true, 'the attribute is present');
+			assert.strictEqual(image.getAttribute('alt'), '', 'decorative by default');
+		});
+		it('a named <img> keeps its alt; alt never leaks onto a non-img element', function () {
+			const image = ui.create_dom_element({ element_type: 'img', alt: 'Image' });
+			assert.strictEqual(image.getAttribute('alt'), 'Image');
+			const div = ui.create_dom_element({ element_type: 'div', alt: 'Image' });
+			assert.strictEqual(div.hasAttribute('alt'), false);
+		});
+	});
+
+	describe('every <img> built OUTSIDE the factory has a text alternative (WCAG 1.1.1, axe image-alt)', function () {
+		// one token of EACH tag type tr.js turns into a badge <img>, with the alt
+		// it must carry: the tag token the badge draws (its id)
+		const TAG_CASES = [
+			['indexIn', '[index-n-1-zz-data::data]', '[index-n-1-zz]'],
+			['indexOut', '[/index-n-1-zz-data::data]', '[/index-n-1-zz]'],
+			['tc', '[TC_00:00:25.091_TC]', '[TC_00:00:25.091_TC]'],
+			['svg', '[svg-n-2-zz-data:x:data]', '[svg-n-2-zz]'],
+			['draw', '[draw-n-3-zz-data:x:data]', '[draw-n-3-zz]'],
+			['geo', '[geo-n-4-zz-data:x:data]', '[geo-n-4-zz]'],
+			['page', '[page-n-5-zz-data:x:data]', '[page-n-5-zz]'],
+			['person', '[person-n-6-zz-data:x:data]', '[person-n-6-zz]'],
+			['note', '[note-n-7-zz-data:x:data]', '[note-n-7-zz]'],
+			['lang', '[lang-n-8-zz-data:x:data]', '[lang-n-8-zz]'],
+		];
+		for (const [type, token, expected_alt] of TAG_CASES) {
+			it(`tr.add_tag_img_on_the_fly: the ${type} badge <img> is named by its tag token`, function () {
+				const host = document.createElement('div');
+				host.innerHTML = tr.add_tag_img_on_the_fly(`a ${token} b`);
+				const images = host.querySelectorAll('img');
+				assert.strictEqual(images.length, 1, `one badge for ${token}`);
+				assert.strictEqual(images[0].dataset.type, type);
+				assert.strictEqual(images[0].hasAttribute('alt'), true, `${type} badge has an alt`);
+				assert.strictEqual(images[0].getAttribute('alt'), expected_alt);
+			});
+		}
+
+		it('build_node_tag (the editor tag node) is named by its tag token', function () {
+			const node = build_node_tag({
+				src: '',
+				id: '[geo-n-4-zz]',
+				class_name: 'geo',
+				type: 'geo',
+				tag_id: '4',
+				state: 'n',
+				label: 'zz',
+				data: '',
+			});
+			assert.strictEqual(node.tagName, 'IMG');
+			assert.strictEqual(node.getAttribute('alt'), '[geo-n-4-zz]');
+		});
+
+		const TEXT_VIEWS = [
+			['component_image', view_text_list_image],
+			['component_av', view_text_list_av],
+			['component_3d', view_text_list_3d],
+			['component_pdf', view_text_list_pdf],
+			['component_svg', view_text_list_svg],
+		];
+		for (const [model, view] of TEXT_VIEWS) {
+			it(`${model} text view: the lone image is named by the component label`, async function () {
+				const self = {
+					model: model,
+					mode: 'list',
+					view: 'text',
+					label: 'Zz media label',
+					data: { entries: [] },
+					context: { features: { quality: 'zz' } },
+				};
+				const wrapper = await view.render(self, {});
+				const images = wrapper.querySelectorAll('img');
+				assert.strictEqual(images.length, 1, `${model} text view renders one image`);
+				assert.strictEqual(images[0].getAttribute('alt'), 'Zz media label');
+			});
+		}
+
+		it('flat_table media cell: every thumbnail carries an alt (decorative: the header names it)', function () {
+			const table = new flat_table();
+			for (const cell_type of ['img', 'av']) {
+				const td = table._build_cell({ cell_type: cell_type }, '/zz/a.jpg | /zz/b.jpg');
+				const images = td.querySelectorAll('img');
+				assert.strictEqual(images.length, 2, `${cell_type}: one thumbnail per url`);
+				for (const image of images) {
+					assert.strictEqual(image.hasAttribute('alt'), true, `${cell_type} thumbnail has an alt`);
+					assert.strictEqual(image.getAttribute('alt'), '');
+				}
+			}
 		});
 	});
 

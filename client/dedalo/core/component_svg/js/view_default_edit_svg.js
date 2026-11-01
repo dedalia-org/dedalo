@@ -238,6 +238,8 @@ const get_content_value = function(i, value, self) {
 			const image = ui.create_dom_element({
 				element_type	: 'img',
 				class_name		: 'image svg_element',
+				// a11y: a FOCUSABLE image (tabindex 0 below) needs a name of its own
+				alt				: self.label ?? '',
 				parent			: image_container
 			})
 			image.setAttribute('tabindex', 0)

@@ -97,6 +97,8 @@ view_text_list_3d.render = async function(self, options) {
 		// before the browser attempts to load the URL. If the error guard were missing, a
 		// failed src would permanently show a broken-image icon.
 		const image	= document.createElement('img')
+		// a11y (WCAG 1.1.1): the text view has no label beside the image — name it
+		image.alt		= self.label ?? ''
 		image.loading	= 'lazy'
 		image.decoding	= 'async'
 		image.addEventListener('error', function(e) {

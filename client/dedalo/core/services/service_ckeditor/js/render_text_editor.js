@@ -107,6 +107,8 @@ export const render_button = function(button_config) {
 		 	ui.create_dom_element({
 				element_type	: 'img',
 				src				: image,
+				// a11y: icon-only toolbar button — the icon carries its name
+				alt				: tooltip || name || '',
 				parent			: button_node
 			})
 	 	}

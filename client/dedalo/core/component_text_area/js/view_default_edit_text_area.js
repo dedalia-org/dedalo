@@ -1515,7 +1515,9 @@ export const build_node_tag = function(view_data) {
 		src				: src,
 		id				: id,
 		class_name		: class_name,
-		dataset			: dataset
+		dataset			: dataset,
+		// a11y: the tag token the badge draws (same text tr.js gives its badges)
+		alt				: id
 	})
 
 	return node_tag

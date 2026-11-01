@@ -794,6 +794,8 @@ const render_button_column = function(current_data) {
 	// image
 		const button = ui.create_dom_element({
 			element_type	: 'img',
+			// a11y: an icon-only action — its name is the server's button label
+			alt				: value.label ?? '',
 			class_name		: class_list,
 			parent			: td_node
 		})

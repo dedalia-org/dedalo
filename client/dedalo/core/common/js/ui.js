@@ -107,7 +107,10 @@ const CREATE_DOM_ELEMENT_OPTIONS = new Set([
 	// node at the same call that builds it, instead of a setAttribute afterthought
 	// at 200 call sites. Operability (tab stop + activation keys) is NOT one of
 	// these: it needs the callback too, so it goes through a11y.make_activable.
-	'role', 'tabindex', 'aria'
+	'role', 'tabindex', 'aria',
+	// text alternative of an <img> (WCAG 1.1.1). Omitted on an <img> it is ''
+	// (decorative) — see create_dom_element.
+	'alt'
 ])
 
 export const ui = {
@@ -1943,6 +1946,16 @@ export const ui = {
 	*   selected     {boolean}     — element.selected (option)
 	*   checked      {boolean}     — element.checked (checkbox/radio)
 	*   parent       {HTMLElement} — when provided, the new element is appended to this node
+	*   alt          {string}      — <img> only: its text alternative (WCAG 1.1.1)
+	*
+	* <img> TEXT ALTERNATIVE (the one default this factory forces): an <img> built
+	* here ALWAYS carries an `alt`. Without one, a screen reader announces the file
+	* name and axe fails the page (`image-alt`, critical). The default is `alt=""`
+	* — DECORATIVE — because most images built here are icons beside a text label
+	* or thumbnails in a cell whose column/label already names them. A CONTENT
+	* image the user must perceive on its own (a record's media in edit, a tag
+	* badge carrying a value) passes `alt` with the name it has at hand (component
+	* label, tag label). An explicit `role:'presentation'` is equally decorative.
 	*
 	* Text-content priority (mutually exclusive; first match wins):
 	*   inner_html > text_node > text_content
@@ -2014,6 +2027,13 @@ export const ui = {
 				} else {
 					element.src = src
 				}
+			}
+
+		// alt. <img> text alternative; '' (decorative) unless the caller names it
+			if (element_type==='img') {
+				element.alt = (options.alt!==undefined && options.alt!==null)
+					? String(options.alt)
+					: ''
 			}
 
 		// role / tabindex / aria-*. Accessibility attributes (audit P1-18).
