@@ -117,3 +117,9 @@
   owned from its mv (a signal during its sync settles it). Gates: `update_run_resume_native`,
   `update_run_data_rung_native` (the real productionRunEffects: data runner, sentinel read-backs,
   backup refusal/waiver), `image_update_script_native`.
+
+## Addendum 2026-11-01 — `plans[]` entries carry `declared`
+
+Item 1's entry shape gains a required `declared: boolean` (the master's `ReleasePlan.declared`);
+an entry without it fails the whole read. Why, and the backup step's refusal now ending the run
+`REFUSED` (`update.refused`): `WC-2026-11-01-update-plan-declared`.

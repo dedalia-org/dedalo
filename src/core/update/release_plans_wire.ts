@@ -31,6 +31,17 @@ export interface WireReleasePlan {
 	/** The release's data version (`X.Y.Z`). */
 	data: string;
 	steps: { kind: ReleaseStepKind; min?: string }[];
+	/**
+	 * Did the master's catalog DECLARE these steps (false: the D-1 default order,
+	 * expanded)? It travels because it changes what a step MEANS on the consumer:
+	 * a DEFAULT ontology step is skipped, journaled, on an install with no
+	 * ontology source (run/production.ts isDefaultOntologyStep — an air-gapped
+	 * install still takes code updates); a declared one fails without a source.
+	 * Dropped on the wire (the reader once stamped every plan `declared: true`),
+	 * every release that declared nothing failed on such an install AFTER the
+	 * swap, past the data-model flip: NEEDS_DB_RESTORE for a code-only patch.
+	 */
+	declared: boolean;
 }
 
 const STEP_KINDS: ReadonlySet<string> = new Set([
@@ -61,6 +72,7 @@ export function wirePlansAbove(
 			compat: plan.compat,
 			data: formatVersion(dataVersionOf(catalog, triple, true)),
 			steps: plan.steps.map(wireStep),
+			declared: plan.declared,
 		}));
 }
 
@@ -85,15 +97,17 @@ function isStepList(value: unknown): boolean {
 	return Array.isArray(value) && value.every(isWireStep);
 }
 
+/** The plan's identity fields: release, data version, compat. */
+function hasWireIdentity(plan: Record<string, unknown>): boolean {
+	return isReleaseText(plan.version) && isTripleText(plan.data) && COMPATS.includes(plan.compat);
+}
+
 function isWirePlan(value: unknown): value is WireReleasePlan {
 	if (typeof value !== 'object' || value === null) return false;
 	const plan = value as Record<string, unknown>;
-	return (
-		isReleaseText(plan.version) &&
-		isTripleText(plan.data) &&
-		COMPATS.includes(plan.compat) &&
-		isStepList(plan.steps)
-	);
+	// `declared` is REQUIRED, never defaulted: guessing either way changes whether
+	// a missing ontology source fails the run (see WireReleasePlan.declared).
+	return hasWireIdentity(plan) && isStepList(plan.steps) && typeof plan.declared === 'boolean';
 }
 
 /** What the consumer reads from a manifest's `plans`. */
@@ -116,7 +130,12 @@ export function readWirePlans(raw: unknown): ReadWirePlans | null {
 		plans: Object.fromEntries(
 			entries.map((entry) => [
 				entry.version,
-				{ version: entry.version, compat: entry.compat, steps: entry.steps, declared: true },
+				{
+					version: entry.version,
+					compat: entry.compat,
+					steps: entry.steps,
+					declared: entry.declared,
+				},
 			]),
 		),
 		data: Object.fromEntries(

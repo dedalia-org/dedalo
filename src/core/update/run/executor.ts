@@ -29,7 +29,7 @@
  * run/production.ts.
  */
 
-import { DedaloError } from '../../errors/dedalo_error.ts';
+import { DedaloError, isDedaloError } from '../../errors/dedalo_error.ts';
 import type { ReleasePlan, ReleaseStep } from '../catalog_file.ts';
 import {
 	blockingRun,
@@ -260,9 +260,17 @@ async function preflightAndDrive(planned: RunJournal, effects: RunEffects): Prom
 		const backup = await effects.backup(journal);
 		journal = await saved(effects, transition({ ...journal, backup }, 'BACKED_UP'));
 	} catch (error) {
+		// A typed REFUSAL (no fresh, proven backup and no waiver — preconditions.ts
+		// freshBackupRefusal) is REFUSED: nothing ran, and the operator's remedy is a
+		// backup, not a retry. Anything else the step threw is a failure.
+		const refused = isDedaloError(error) && error.code === 'update.refused';
 		return endRun(
 			effects,
-			transition(journal, 'FAILED_PRE_SWAP', failureSentence('the run backup failed', error)),
+			transition(
+				journal,
+				refused ? 'REFUSED' : 'FAILED_PRE_SWAP',
+				failureSentence('the run backup failed', error),
+			),
 		);
 	}
 	return drive(journal, effects);
@@ -359,9 +367,16 @@ async function leftRunning(
 	return { state: 'restarting', journal };
 }
 
-/** The run's note for a failed phase: which, and the phase's own summary when it gave one. */
+/**
+ * The run's note for a failed phase: which, and WHY — the phase's own summary,
+ * else the vetted sentence of the error it threw (runPhase `failure`). Without
+ * the second, a gate's refusal ("Release checksum mismatch") reached the
+ * operator as a bare "<release> code failed" (refuse.ts: never launder the
+ * reason away).
+ */
 function failureNote(entry: RunJournal['plan'][number], result: PhaseResult): string {
-	const said = typeof result.evidence.summary === 'string' ? `: ${result.evidence.summary}` : '';
+	const reason = result.evidence.summary ?? result.evidence.failure;
+	const said = typeof reason === 'string' ? `: ${reason}` : '';
 	return `${entry.release} ${entry.step.kind} failed${said}`;
 }
 
@@ -385,7 +400,11 @@ async function runPhase(
 		return await effects.runners[entry.step.kind](entry, journal);
 	} catch (error) {
 		const where = `phase ${entry.release} ${entry.step.kind} threw`;
-		return { outcome: 'failed', evidence: { failure: failureSentence(where, error) } };
+		// The typed CODE travels beside the sentence (a public registry code, never
+		// the raw text): run/start.ts outcomeOrThrow keeps a pre-swap REFUSAL
+		// `update.refused` instead of laundering it into `update.failed`.
+		const code = isDedaloError(error) ? { code: error.code } : {};
+		return { outcome: 'failed', evidence: { failure: failureSentence(where, error), ...code } };
 	}
 }
 

@@ -111,6 +111,10 @@ describe('states: the happy path is the run’s own steps', () => {
 
 	test('side exits: before the swap a run fails clean; after it, rollback or a human', () => {
 		expect(canTransition([...phases], 0, 'PLANNED', 'REFUSED')).toBe(true);
+		// The backup step's refusal: nothing ran, so REFUSED — never after the backup.
+		expect(canTransition([...phases], 0, 'PREFLIGHT_OK', 'REFUSED')).toBe(true);
+		expect(canTransition([...phases], 0, 'BACKED_UP', 'REFUSED')).toBe(false);
+		expect(canTransition([...phases], 1, 'ONTOLOGY_APPLIED', 'REFUSED')).toBe(false);
 		expect(canTransition([...phases], 1, 'ONTOLOGY_APPLIED', 'FAILED_PRE_SWAP')).toBe(true);
 		expect(canTransition([...phases], 1, 'ONTOLOGY_APPLIED', 'ROLLED_BACK_CODE')).toBe(false);
 		expect(canTransition([...phases], 2, 'CODE_SWAPPED', 'FAILED_PRE_SWAP')).toBe(false);

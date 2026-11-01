@@ -227,6 +227,43 @@ export async function markFailedBootSchema(
 	}
 }
 
+/**
+ * PRE-CROSSING (run/executor.ts stepOnce, through run/production.ts
+ * markNeedsRestore): the update run is about to START a phase that crosses the
+ * data model (`crossing`, e.g. `7.0.1 schema`). From its first statement no
+ * supervisor may put the previous code back, so the pending sentinel says
+ * `needs_restore` NOW — a precaution, not a failure: the run's confirm flips it
+ * to `confirmed` (confirmBootedCodeUpdate accepts a needs_restore sentinel on an
+ * ok verdict). Its own log line says exactly that; it used to borrow
+ * markFailedBootSchema and announce "NOT CONFIRMED — NEEDS A HUMAN … a migration
+ * failed" on every healthy update of a release that crosses the model.
+ * Same guards and contract as markFailedBootSchema: only a PENDING sentinel of
+ * THIS tree is touched, and a failed write is logged, never thrown — the caller
+ * reads the status back (production.ts assertSentinelStatus).
+ */
+export async function markCrossingSentinel(
+	runId: string,
+	crossing: string,
+	sentinelPath: string | null = codeUpdateSentinelPath(),
+	runningVersion: string = DEDALO_ENGINE_VERSION,
+	runningDigest: string | null = INSTALLED_DIGEST,
+): Promise<void> {
+	try {
+		const pending = await readUnconfirmedSentinel(sentinelPath, false);
+		if (pending === null) return;
+		if (!bootedTreeMatches(pending.sentinel, runningVersion, runningDigest)) return;
+		await writeTextFileDurablyAsync(
+			pending.path,
+			JSON.stringify({ ...pending.sentinel, status: 'needs_restore' }, null, '\t'),
+		);
+		console.log(
+			`[code update] update run ${runId} crosses the data model at ${crossing}: the sentinel says needs_restore until the run confirms, so no supervisor rolls this code back. Should the run fail from here, it ends NEEDS_DB_RESTORE and names the database backup to restore with the previous code at ${pending.sentinel.backupDir}.`,
+		);
+	} catch (error) {
+		console.error('[code update] could not mark the model crossing in the sentinel:', error);
+	}
+}
+
 /** The booted tree IS what the sentinel installed. */
 function reportBootConfirmed(runningVersion: string, runningDigest: string | null): void {
 	console.log(

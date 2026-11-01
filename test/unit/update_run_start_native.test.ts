@@ -20,11 +20,12 @@ import {
 } from '../../client/dedalo/core/area_maintenance/widgets/update_code/js/update_code_phases.js';
 import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { RELEASE_PLANS, UPDATE_CATALOG } from '../../src/core/update/catalog.ts';
-import type { ReleasePlan } from '../../src/core/update/catalog_file.ts';
+import { DEFAULT_RELEASE_STEPS, type ReleasePlan } from '../../src/core/update/catalog_file.ts';
 import { buildCodeUpdateInfo, type CodeReleaseItem } from '../../src/core/update/code_manifest.ts';
 import { readWirePlans, wirePlansAbove } from '../../src/core/update/release_plans_wire.ts';
 import { runsTargetTree } from '../../src/core/update/run/executor.ts';
 import { createRunJournal } from '../../src/core/update/run/journal.ts';
+import { isDefaultOntologyStep } from '../../src/core/update/run/production.ts';
 import {
 	codeRunAnswer,
 	type ManifestFetch,
@@ -129,6 +130,39 @@ describe('the walk’s plans on the wire', () => {
 		expect(readWirePlans([{ ...good[0], compat: 'maybe' }])).toBeNull();
 		expect(readWirePlans('not a list')).toBeNull();
 	});
+
+	test('DECLARED travels: a release that declared no steps stays a DEFAULT plan on the consumer', () => {
+		// The regression (2026-11-01, update drill): the reader stamped every wire
+		// plan `declared: true`, so a release with the DEFAULT steps made the
+		// consumer's default ontology step a DECLARED one — an install with no
+		// ontology source failed it after the swap → NEEDS_DB_RESTORE.
+		const plans: Record<string, ReleasePlan> = {
+			...PLANS,
+			'7.0.2': { version: '7.0.2', compat: null, steps: DEFAULT_RELEASE_STEPS, declared: false },
+		};
+		const wire = JSON.parse(JSON.stringify(wirePlansAbove([7, 0, 1], plans, {})));
+		expect(wire.map((entry: { declared: unknown }) => entry.declared)).toEqual([false, true]);
+		const read = readWirePlans(wire);
+		expect(read?.plans['7.0.2']?.declared).toBe(false);
+		expect(read?.plans['7.1.0']?.declared).toBe(true);
+		// The OUTCOME, through the predicate the run asks: the default ontology
+		// step of a code run is optional; a declared one is not.
+		const journal = createRunJournal({
+			from: { release: '7.0.1', data: '7.0.1', model: '7.0.1' },
+			to: { release: '7.0.2', data: '7.0.1', model: '7.0.1' },
+			plan: [
+				{ release: '7.0.2', step: { kind: 'code' } },
+				{ release: '7.0.2', step: { kind: 'ontology' } },
+			],
+			releasePlans: read?.plans ?? {},
+		});
+		expect(isDefaultOntologyStep({ release: '7.0.2' }, journal)).toBe(true);
+		expect(isDefaultOntologyStep({ release: '7.1.0' }, journal)).toBe(false);
+		// REQUIRED, never guessed: a plan without it poisons the whole read.
+		const { declared: _dropped, ...withoutDeclared } = wire[0];
+		expect(readWirePlans([withoutDeclared, wire[1]])).toBeNull();
+		expect(readWirePlans([{ ...wire[0], declared: 'yes' }, wire[1]])).toBeNull();
+	});
 });
 
 describe('plans come only from a manifest the server fetched, offering the chosen item', () => {
@@ -213,6 +247,47 @@ describe('the job’s answer', () => {
 			outcomeOrThrow({ state: 'restarting', journal: journalAt('ROLLED_BACK_CODE') }),
 		);
 		expect(isDedaloError(rolled) && rolled.code).toBe('update.failed');
+	});
+
+	test('a pre-swap phase that REFUSED keeps update.refused; after the swap, or a plain throw, it is update.failed', () => {
+		const withFailedPhase = (state: RunState, kind: 'code' | 'data', code?: string) => ({
+			...journalAt(
+				state,
+				'7.0.2 code failed: Error. Release checksum mismatch — refusing to install',
+			),
+			phases: [
+				{
+					release: '7.0.2',
+					step: { kind },
+					started: '2026-11-01T00:00:00.000Z',
+					finished: '2026-11-01T00:00:01.000Z',
+					outcome: 'failed' as const,
+					evidence: {
+						failure: 'Error. Release checksum mismatch — refusing to install',
+						...(code === undefined ? {} : { code }),
+					},
+				},
+			],
+		});
+		const preSwap = thrown(() =>
+			outcomeOrThrow({
+				state: 'ended',
+				journal: withFailedPhase('FAILED_PRE_SWAP', 'code', 'update.refused'),
+			}),
+		);
+		expect(isDedaloError(preSwap) && preSwap.code).toBe('update.refused');
+		expect(isDedaloError(preSwap) && preSwap.publicMessage).toContain('checksum mismatch');
+		const plain = thrown(() =>
+			outcomeOrThrow({ state: 'ended', journal: withFailedPhase('FAILED_PRE_SWAP', 'code') }),
+		);
+		expect(isDedaloError(plain) && plain.code).toBe('update.failed');
+		const postSwap = thrown(() =>
+			outcomeOrThrow({
+				state: 'ended',
+				journal: withFailedPhase('NEEDS_DB_RESTORE', 'data', 'update.refused'),
+			}),
+		);
+		expect(isDedaloError(postSwap) && postSwap.code).toBe('update.failed');
 	});
 });
 

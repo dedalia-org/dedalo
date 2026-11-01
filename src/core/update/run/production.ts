@@ -32,6 +32,7 @@ import { type Principal, SUPERUSER_ID } from '../../security/permissions.ts';
 import {
 	codeUpdateSentinelPath,
 	confirmBootedCodeUpdate,
+	markCrossingSentinel,
 	markFailedBootSchema,
 } from '../boot_confirm.ts';
 import { recordUpdateRunFacts } from '../boot_state.ts';
@@ -40,7 +41,7 @@ import { getMatchedDescriptor, UPDATE_CATALOG, type UpdateDescriptor } from '../
 import { updateCode } from '../code_update.ts';
 import { updateVersion } from '../engine.ts';
 import { INSTALLED_DIGEST } from '../install_stamp.ts';
-import { backupFreshness, checkUpdatePreconditions } from '../preconditions.ts';
+import { backupFreshness, checkUpdatePreconditions, freshBackupRefusal } from '../preconditions.ts';
 import { runAncillaryPhase } from './ancillary.ts';
 import { rungVerdict } from './data_rung.ts';
 import { type PhaseResult, type RunEffects, runsTargetTree } from './executor.ts';
@@ -144,6 +145,12 @@ export async function assertSentinelConfirmed(path: string | null): Promise<void
 	await assertSentinelStatus(path, 'confirmed');
 }
 
+/** The phase a run is about to start (`<release> <kind>`), for the crossing log line. */
+function crossingPhase(journal: RunJournal): string {
+	const running = journal.phases.find((phase) => phase.outcome === 'running');
+	return running === undefined ? 'its next phase' : `${running.release} ${running.step.kind}`;
+}
+
 /**
  * The sentinel at `path` says `wanted`, or there is none — else throw. The
  * confirm's read-back, and the needs-restore flip's (review 2026-10-30 (4) #4:
@@ -240,12 +247,11 @@ export function productionRunEffects(
 			if (context?.waiveBackup === true)
 				return { path: null, taken: null, waivedBy: principal.userId };
 			const freshness = await freshnessOf();
-			if (freshness.stale || freshness.verdict === null) {
-				throw new DedaloError('update.refused', {
-					message: 'update run: no fresh, proven restorable database backup',
-					publicMessage:
-						'No fresh, proven restorable database backup — take one, or waive it (journaled)',
-				});
+			// The ONE refusal builder (preconditions.ts freshBackupRefusal): it names
+			// the dump that did not verify and why — never a generic sentence.
+			const refusal = freshBackupRefusal(freshness);
+			if (refusal !== null || freshness.verdict === null) {
+				throw refusal ?? new DedaloError('update.refused');
 			}
 			return {
 				path: freshness.verdict.filePath,
@@ -291,6 +297,14 @@ export function productionRunEffects(
 			);
 		},
 		markNeedsRestore: async (journal) => {
+			// TWO callers (executor.ts): BEFORE a model-crossing phase starts — a
+			// precaution on a healthy run, said as such — and when a failed run ends
+			// NEEDS_DB_RESTORE. The sentinel ends `needs_restore` either way.
+			if (journal.state !== 'NEEDS_DB_RESTORE') {
+				await markCrossingSentinel(journal.run_id, crossingPhase(journal), sentinelPath);
+				await assertSentinelStatus(sentinelPath, 'needs_restore');
+				return;
+			}
 			await markFailedBootSchema(
 				{
 					state: 'failed',
