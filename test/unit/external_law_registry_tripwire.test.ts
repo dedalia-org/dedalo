@@ -106,13 +106,15 @@ interface CorpusNode {
 
 /**
  * The release the seed compiles from: install/import/ontology/<major.minor> —
- * exactly ONE release directory is shipped (the shared lister walks them all).
+ * exactly ONE release directory is shipped (the shared lister walks them all);
+ * test A asserts the count. NO expect() at module scope: a load-time
+ * expect() belongs to no test case, so the per-file assertion floor
+ * (engineering/unit_baseline.json) counted it or not depending on the run's
+ * file order — the loaders RECORD, the tests assert.
  */
-function shippedReleasePackages(): VendoredOntologyPackage[] {
+function shippedReleasePackages(): { packages: VendoredOntologyPackage[]; releases: string[] } {
 	const packages = vendoredOntologyPackages();
-	const releases = [...new Set(packages.map((entry) => entry.release))];
-	expect(releases.length, 'exactly one shipped ontology release directory').toBe(1);
-	return packages;
+	return { packages, releases: [...new Set(packages.map((entry) => entry.release))] };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -136,12 +138,14 @@ function loadTestTldCorpus(): CorpusNode[] {
 	}));
 }
 
-function loadPackageCorpus(): { nodes: CorpusNode[]; files: number } {
-	const idColumn = MATRIX_COPY_COLUMNS.indexOf('section_id');
-	const miscColumn = MATRIX_COPY_COLUMNS.indexOf('misc');
-	expect(idColumn).toBe(0);
-	expect(miscColumn).toBeGreaterThan(0);
-	const files = shippedReleasePackages();
+/** The COPY columns the loader reads (test A asserts their positions). */
+const ID_COLUMN = MATRIX_COPY_COLUMNS.indexOf('section_id');
+const MISC_COLUMN = MATRIX_COPY_COLUMNS.indexOf('misc');
+
+function loadPackageCorpus(): { nodes: CorpusNode[]; files: number; releases: string[] } {
+	const idColumn = ID_COLUMN;
+	const miscColumn = MISC_COLUMN;
+	const { packages: files, releases } = shippedReleasePackages();
 	const nodes: CorpusNode[] = [];
 	for (const { tld, path } of files) {
 		const name = `${tld}.copy.gz`;
@@ -163,7 +167,7 @@ function loadPackageCorpus(): { nodes: CorpusNode[]; files: number } {
 			nodes.push({ tipo: `${tld}${sectionId}`, properties, corpus: name });
 		}
 	}
-	return { nodes, files: files.length };
+	return { nodes, files: files.length, releases };
 }
 
 const TEST_TLD = loadTestTldCorpus();
@@ -211,6 +215,9 @@ const LAWLESS_REASONS: ReadonlySet<string> = new Set([
 
 describe('A — the corpora and the census are non-vacuous', () => {
 	test('both corpora are populous, and the release is the one directory the seed compiles', () => {
+		expect(ID_COLUMN, 'COPY column section_id').toBe(0);
+		expect(MISC_COLUMN, 'COPY column misc').toBeGreaterThan(0);
+		expect(PACKAGES.releases.length, 'exactly one shipped ontology release directory').toBe(1);
 		expect(TEST_TLD.length, 'test_tld_ontology.json nodes').toBeGreaterThan(5000);
 		expect(PACKAGES.files, 'shipped ontology packages').toBeGreaterThan(100);
 		expect(PACKAGES.nodes.length, 'shipped ontology nodes').toBeGreaterThan(10000);
