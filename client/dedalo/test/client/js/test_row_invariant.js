@@ -17,14 +17,14 @@ import {
 	uncommitted_nodes_snapshot,
 } from '../../../core/common/js/events.js';
 import { get_all_instances, get_instance } from '../../../core/common/js/instances.js';
+import { ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
+import { max_page_limit } from '../../../core/common/js/sqo_limit.js';
+import { ui } from '../../../core/common/js/ui.js';
 import {
 	orphan_unsaved_instance,
 	save_unsaved_components,
 } from '../../../core/component_common/js/component_common.js';
 import { activate_autocomplete } from '../../../core/component_portal/js/render_edit_component_portal.js';
-import { ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
-import { max_page_limit } from '../../../core/common/js/sqo_limit.js';
-import { ui } from '../../../core/common/js/ui.js';
 import { ts_object } from '../../../core/ts_object/js/ts_object.js';
 
 /**

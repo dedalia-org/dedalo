@@ -352,7 +352,7 @@ const compact_render = async function(self, options, tm_view) {
 			records_options	: {
 				mode		: 'list',
 				view		: 'line',
-				id_variant	: (self.id_variant || self.model) + '_' + tm_view
+				id_variant	: `${self.id_variant || self.model}_${tm_view}`
 			},
 			layout			: layout_table ? 'table' : 'list'
 		})

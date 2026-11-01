@@ -333,7 +333,7 @@ export const create_record_window = async function(options) {
 	}
 	const missing = EDIT_SAFETY_KEYS.filter(key => typeof edit_safety[key]!=='function')
 	if (missing.length > 0) {
-		throw new Error('[record_window] edit_safety bindings missing: ' + missing.join(', '))
+		throw new Error(`[record_window] edit_safety bindings missing: ${missing.join(', ')}`)
 	}
 	if (container.children.length > 0) {
 		// the invariant owns the container: rows and placeholders only. Every
@@ -347,7 +347,7 @@ export const create_record_window = async function(options) {
 	const rows	= Object.freeze(Array.isArray(options.rows) ? options.rows.slice() : [])
 	const size	= rows.length
 	const doc	= container.ownerDocument
-	const view	= (doc && doc.defaultView) || globalThis
+	const view	= doc?.defaultView || globalThis
 	const row_role = layout==='table' ? 'row' : 'listitem'
 
 	// state
@@ -510,7 +510,7 @@ export const create_record_window = async function(options) {
 		/** The list_body of a table layout (the container's parent), or null. */
 		const list_body_of = () => {
 			const parent = container.parentElement
-			return parent && parent.classList && parent.classList.contains('list_body')
+			return parent?.classList?.contains('list_body')
 				? parent
 				: null
 		}
@@ -600,7 +600,7 @@ export const create_record_window = async function(options) {
 			size_sum += height
 			size_count++
 			if (container.isConnected) {
-				container.style.setProperty('--placeholder_size', (size_sum / size_count).toFixed(1) + 'px')
+				container.style.setProperty('--placeholder_size', `${(size_sum / size_count).toFixed(1)}px`)
 			}
 		}
 
@@ -651,8 +651,8 @@ export const create_record_window = async function(options) {
 			} catch (error) {
 				return { failed : 'throw', error : error }
 			}
-			if (!result || !result.instance || !result.node) {
-				if (result && result.instance) {
+			if (!result?.instance || !result.node) {
+				if (result?.instance) {
 					discard_late(result.instance)
 				}
 				return { failed : 'null' }
@@ -687,7 +687,7 @@ export const create_record_window = async function(options) {
 				return
 			}
 			const placeholder = container.children[index]
-			if (!placeholder || !placeholder.classList.contains('placeholder')) {
+			if (!placeholder?.classList.contains('placeholder')) {
 				return
 			}
 			state[index] = 'building'
@@ -798,7 +798,7 @@ export const create_record_window = async function(options) {
 				if (node.matches(':hover')) {
 					return true
 				}
-			} catch (error) {
+			} catch (_error) {
 				// a DOM without :hover support pins nothing here
 			}
 			// a failed / pending last flush is NOT a pin here: release_one
@@ -859,7 +859,7 @@ export const create_record_window = async function(options) {
 			}
 			const placeholder = create_placeholder(index)
 			if (height > 0) {
-				placeholder.style.setProperty('--row_size', height + 'px')
+				placeholder.style.setProperty('--row_size', `${height}px`)
 				record_size(height)
 			}
 			node.replaceWith(placeholder)
@@ -904,7 +904,7 @@ export const create_record_window = async function(options) {
 				return best
 			}
 			const candidates = built
-				.filter(i => !intersecting.has(i) && !(keep && keep.has(i)))
+				.filter(i => !intersecting.has(i) && !keep?.has(i))
 				.sort((a, b) => distance(b) - distance(a))
 			let count = built.length
 			for (const index of candidates) {
@@ -1247,7 +1247,7 @@ export const create_record_window = async function(options) {
 			// edit modal, a dataframe's frame modal): the flush would deactivate
 			// it and the rebuild destroy its caller chain under the open surface
 			const active = edit_safety.component_active()
-			if (active && active.node && in_row(active, instances.get(index))) {
+			if (active?.node && in_row(active, instances.get(index))) {
 				const row_node = container.children[index]
 				if (row_node && !row_node.contains(active.node)) {
 					return false

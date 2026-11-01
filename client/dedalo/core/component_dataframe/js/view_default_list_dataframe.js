@@ -256,7 +256,7 @@ const render_content_value = function(options) {
 
 				// restore class after time interval
 				setTimeout(function(){
-					[button_activate,button_new].map(el => {
+					[button_activate,button_new].forEach(el => {
 						el.classList.toggle('hide')
 					})
 				}, 5000)
@@ -475,7 +475,7 @@ const open_target_section = async function (self) {
 							section_id		: section_id,
 							inspector		: false,
 							session_save	: false,
-							session_key		: 'section_' + section_tipo + '_' + self.tipo,
+							session_key		: `section_${section_tipo}_${self.tipo}`,
 							caller			: self
 						})
 						section.caller = self

@@ -114,7 +114,7 @@ export const delegate_row_hover = function(options) {
 		return null
 	}
 
-	const view = (content_data.ownerDocument && content_data.ownerDocument.defaultView) || globalThis
+	const view = content_data.ownerDocument?.defaultView || globalThis
 
 	// state
 		let current		= null	// {index, instance} of the live hover instance
@@ -313,7 +313,7 @@ export const delegate_row_hover = function(options) {
 			release_wanted(index)
 			return
 		}
-		if (!result || !result.instance) {
+		if (!result?.instance) {
 			release_wanted(index)
 			return
 		}
@@ -375,7 +375,7 @@ export const delegate_row_hover = function(options) {
 				return
 			}
 			const overlay = overlay_of(current.index)
-			if (!overlay || !overlay.contains(e.target) || (e.relatedTarget && overlay.contains(e.relatedTarget))) {
+			if (!overlay?.contains(e.target) || (e.relatedTarget && overlay.contains(e.relatedTarget))) {
 				return
 			}
 			run(() => retry_deferred())

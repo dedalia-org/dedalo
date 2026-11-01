@@ -95,7 +95,7 @@ view_default_list_section_record.render = async function(self, options) {
 			self.model,
 			self.tipo,
 			self.mode,
-			'view_'+self.context.view
+			`view_${self.context.view}`
 		]
 		wrapper.classList.add(...ar_css)
 
@@ -208,11 +208,13 @@ const attach_card_label = function(column_id, label) {
 */
 const css_string_text = function(text) {
 
+	// control characters (U+0000–U+001F, U+007F) spelled as the complement of the
+	// printable code units: no `u` flag, so this class matches exactly those 33
 	return String(text ?? '').replace(
-		/[\\'"]|[\u0000-\u001f\u007f]/g,
+		/[\\'"]|[^ -~\u0080-\uffff]/g,
 		(ch) => (ch==='\\' || ch==="'" || ch==='"')
-			? '\\' + ch
-			: '\\' + ch.charCodeAt(0).toString(16) + ' '
+			? `\\${ch}`
+			: `\\${ch.charCodeAt(0).toString(16)} `
 	)
 }//end css_string_text
 

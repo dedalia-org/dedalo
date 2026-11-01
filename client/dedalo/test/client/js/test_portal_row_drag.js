@@ -691,7 +691,7 @@ describe('PORTAL ROW DRAG', function () {
 		}
 	});
 
-	it('phone card labels: a label is CSS string TEXT (an apostrophe renders; a quote cannot add declarations)', async () => {
+	it('phone card labels: a label is CSS string TEXT (an apostrophe renders; a quote cannot add declarations; a control character survives)', async () => {
 		// the label rides an id-scoped `content:'…'` rule (css.js process_rule
 		// interpolates it between single quotes): unescaped, `Data d'alta` ends
 		// the string and the card loses its label, and a crafted label adds
@@ -701,7 +701,24 @@ describe('PORTAL ROW DRAG', function () {
 			{ id: 'card_label_probe_apostrophe', label: "Data d'alta" },
 			{ id: 'card_label_probe_backslash', label: 'a\\b "c"' },
 			{ id: 'card_label_probe_crafted', label: "x';visibility:hidden;content:'y" },
+			// control characters: escaped as hex + terminating space (css_string_text's
+			// control arm); a raw newline would end the CSS string and drop the rule
+			{ id: 'card_label_probe_newline', label: 'line one\nline two' },
+			{ id: 'card_label_probe_tab', label: 'a\tb' },
+			{ id: 'card_label_probe_unit_separator', label: 'a\u001fb' },
+			{ id: 'card_label_probe_delete', label: 'a\u007fb' },
 		];
+		// CSSOM "serialize a string" (what getPropertyValue answers): control
+		// characters U+0001–U+001F and U+007F come back as `\<hex> `, a quote or
+		// backslash backslash-escaped, all in double quotes. For a label without
+		// control characters this equals JSON.stringify(label).
+		const css_serialized = (text) => `"${[...text].map((ch) => {
+			const code = ch.charCodeAt(0);
+			if ((code >= 0x1 && code <= 0x1f) || code === 0x7f) {
+				return `\\${code.toString(16)} `;
+			}
+			return (ch === '"' || ch === '\\') ? `\\${ch}` : ch;
+		}).join('')}"`;
 		const rule_of = (selector) => {
 			for (const sheet of document.styleSheets) {
 				let rules;
@@ -728,7 +745,7 @@ describe('PORTAL ROW DRAG', function () {
 			for (const { id, label } of cases) {
 				const rule = rule_of(`#col_${id}::before`);
 				assert.equal(rule instanceof CSSStyleRule, true, `${id}: no label rule was attached (the leg would be vacuous)`);
-				assert.equal(rule.style.getPropertyValue('content'), JSON.stringify(label), `${id}: the label is not its own text`);
+				assert.equal(rule.style.getPropertyValue('content'), css_serialized(label), `${id}: the label is not its own text`);
 				assert.equal(rule.style.getPropertyValue('visibility'), '', `${id}: the label added a declaration`);
 				assert.equal(rule.style.length, 1, `${id}: the label rule carries more than its content`);
 			}

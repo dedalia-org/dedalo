@@ -4,6 +4,7 @@
 
 
 
+	import {lock_rows} from '../../../core/common/js/common.js'
 /**
 * RENDER_TOOL_NUMISDATA_ORDER_COINS
 * Client-side render module for the numisdata_order_coins tool.
@@ -39,9 +40,8 @@
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import * as touch_pick from '../../../core/common/js/touch_pick.js'
 	import {ui} from '../../../core/common/js/ui.js'
-	import {row_of} from '../../../core/section_record/js/record_window.js'
-	import {lock_rows} from '../../../core/common/js/common.js'
 	import {prepend_bubble, render_node_info} from '../../../core/common/js/utils/notifications.js'
+	import {row_of} from '../../../core/section_record/js/record_window.js'
 
 
 
@@ -324,10 +324,10 @@ const render_header_options = async function(self, content_data) {
 				// Collect datum items for the chosen measurement tipo, sort them ascending.
 				// Null/missing values are pushed to the end (sort trick: (null===null)-(b===null) === 0-1 === -1).
 				const weight_data	= self.coins.datum.data.filter(el => el.tipo === tipo)
-				const order_weight	= weight_data.sort(function(a, b) {
+				weight_data.sort(function(a, b) {
 					//check if the values are valid if not set null
-					const a_value = a.value && a.value[0] ? a.value[0] : null
-					const b_value = b.value && b.value[0] ? b.value[0] : null
+					const a_value = a.value?.[0] ? a.value[0] : null
+					const b_value = b.value?.[0] ? b.value[0] : null
 					// order null values to end and lower data first ---> 0.1, 0.5, 1, 8, null
 					return (a_value === null) - (b_value === null) || a_value - b_value;
 				});
@@ -553,7 +553,7 @@ export const drop_target_of = function(self, wrapper, event) {
 		return null
 	}
 	const element	= event.target.nodeType===3 ? event.target.parentElement : event.target
-	const cell		= element ? element.closest('.column_' + ORDERED_COINS_SLOT) : null
+	const cell		= element ? element.closest(`.column_${ORDERED_COINS_SLOT}`) : null
 	if (!cell || cell.parentElement!==hit.node) {
 		return null
 	}
@@ -626,15 +626,24 @@ export const mark_coin_used = function(self, locator) {
 * Anywhere that is not a slot, every handler returns WITHOUT preventDefault /
 * stopPropagation, so the portal's own handlers and its ancestors decide.
 *
+* Idempotent per wrapper: the portal's own refreshes (window_blur_, add_row_)
+* call it again with the CURRENT wrapper node; a wrapper already bound is left as
+* is, and a full refresh's new wrapper gets its listener set.
+*
 * @param {Object} self - tool_numisdata_order_coins instance.
 * @param {HTMLElement} wrapper - The ordered_coins wrapper node.
-* @returns {boolean} true when bound
+* @returns {boolean} true when bound (now or before)
 */
+const bound_ordered_coins_wrappers = new WeakSet()
 export const bind_ordered_coins_drop = function(self, wrapper) {
 
 	if (!wrapper) {
 		return false
 	}
+	if (bound_ordered_coins_wrappers.has(wrapper)) {
+		return true
+	}
+	bound_ordered_coins_wrappers.add(wrapper)
 
 	// place: the drop's body, shared by the mouse drop and the touch placement
 	// (one implementation, two gestures)

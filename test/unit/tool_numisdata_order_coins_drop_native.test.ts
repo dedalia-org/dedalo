@@ -20,6 +20,10 @@
  *     rebuilt UNDER THE ROW LOCK (lock_rows on ordered_coins: one commit, the
  *     freeze lifted) and ONLY the matching coin tile of the left mosaic is
  *     marked used. A malformed payload assigns nothing.
+ *  2d. the REAL tool build() subscriptions: `window_blur_<id>` / `add_row_<id>`
+ *     published through the REAL event_manager re-bind the drop on the portal's
+ *     CURRENT wrapper (a refresh replaced it): a drop there assigns once, no
+ *     subscriber throws, neither wrapper is bound twice.
  *  3. resolution is at EVENT time: a page change (new content_data, new row
  *     window) is followed without re-binding.
  *  4. touch placement: a tap on a slot while a coin is picked places THAT pick
@@ -48,6 +52,7 @@ else {
 		'js',
 		'render_tool_numisdata_order_coins.js',
 	);
+	const TOOL_PATH = join(TOOLS_ROOT, 'tool_numisdata_order_coins', 'js', 'tool_numisdata_order_coins.js');
 
 	// The serving alias (/dedalo/tools/* imports back into /dedalo/core/*), for
 	// importers under tools/ only, and only when plain resolution has no file.
@@ -206,6 +211,12 @@ else {
 	let coins: any;
 	// biome-ignore lint/suspicious/noExplicitAny: idem
 	let touch_pick: any;
+	// biome-ignore lint/suspicious/noExplicitAny: idem
+	let tool: any;
+	// biome-ignore lint/suspicious/noExplicitAny: idem
+	let event_manager: any;
+	// biome-ignore lint/suspicious/noExplicitAny: idem
+	let tool_common: any;
 
 	beforeAll(async () => {
 		for (const key of [
@@ -228,6 +239,9 @@ else {
 		g.document = { createElement: () => new FakeEl(), body: new FakeEl() };
 		coins = await import(RENDER_PATH);
 		touch_pick = await import(join(CLIENT_CORE, 'common', 'js', 'touch_pick.js'));
+		tool = (await import(TOOL_PATH)).tool_numisdata_order_coins;
+		event_manager = (await import(join(CLIENT_CORE, 'common', 'js', 'event_manager.js'))).event_manager;
+		tool_common = (await import(join(CLIENT_CORE, 'tools_common', 'js', 'tool_common.js'))).tool_common;
 	});
 	afterAll(() => {
 		touch_pick?.cancel();
@@ -415,6 +429,71 @@ else {
 			expect(s.self.ordered_coins.row_lock_depth).toBe(0);
 			// only coin 102's tile is used
 			expect(s.drags.map((d) => d.classList.contains('used'))).toEqual([false, true, false]);
+		});
+
+		test('2a. binding is idempotent per wrapper: a direct re-bind of the SAME wrapper does not double the drop', async () => {
+			const s = situation();
+			expect(coins.bind_ordered_coins_drop(s.self, s.wrapper), 'a bound wrapper answers true').toBe(true);
+			fire('drop', s.page1.slots[1] as FakeEl, { data: payload('102') });
+			await settle();
+			expect(s.assigned.length, 'one listener set: one assign').toBe(1);
+		});
+
+		test('2d. the real build() subscriptions re-bind the drop on the portal’s CURRENT wrapper', async () => {
+			const s = situation();
+			const ordered_coins = s.self.ordered_coins;
+			// at build time the portal's node is the wrapper the situation bound
+			Object.assign(ordered_coins, {
+				tipo: 'test80',
+				id: 'zz_order_coins_portal',
+				events_tokens: [],
+				node: s.wrapper,
+			});
+			const coins_instance = Object.assign(s.self.coins, { tipo: 'test81' });
+			Object.assign(s.self, {
+				tool_config: {
+					ddo_map: [
+						{ role: 'coins', tipo: 'test81' },
+						{ role: 'ordered_coins', tipo: 'test80' },
+					],
+				},
+				ar_instances: [coins_instance, ordered_coins],
+			});
+			// the generic tool build (css, ddo_map instances) is outside this leg
+			const common_build = spyOn(tool_common.prototype, 'build').mockImplementation(async () => true);
+			const errors = spyOn(console, 'error').mockImplementation(() => {});
+			try {
+				expect(await tool.prototype.build.call(s.self, false)).toBe(true);
+				expect(s.self.error, 'build() ran its role loop without throwing').toBeUndefined();
+				expect(ordered_coins.events_tokens.length, 'window_blur_ + add_row_').toBe(2);
+
+				// a full portal refresh: a NEW wrapper (page 2) replaces the bound one
+				const page2 = s.make_rows('p2');
+				const fresh = new FakeEl('wrapper_component', 'component_portal');
+				fresh.content_data = page2.content_data;
+				fresh.appendChild(page2.content_data);
+				ordered_coins.node = fresh;
+				ordered_coins.record_windows.rows = page2.record_window;
+				// before the event the fresh wrapper has no listener: the drop is not consumed
+				const unbound = fire('drop', page2.slots[0] as FakeEl, { data: payload('101') });
+				expect(unbound.prevented, 'no listener on the fresh wrapper yet').toBe(false);
+
+				event_manager.publish(`window_blur_${ordered_coins.id}`, {});
+				event_manager.publish(`add_row_${ordered_coins.id}`, {});
+				expect(errors, 'no subscriber threw (event_manager swallows + logs)').not.toHaveBeenCalled();
+
+				const drop = fire('drop', page2.slots[0] as FakeEl, { data: payload('103') });
+				expect(drop.prevented && drop.stopped).toBe(true);
+				await settle();
+				expect(s.assigned.length, 'two publishes, one listener set: one assign').toBe(1);
+				expect((s.assigned[0]?.caller as { id: string }).id).toBe('p2_r0_slot');
+				expect(fresh.listeners.get('drop')?.length, 'fresh wrapper bound once').toBe(1);
+				expect(s.wrapper.listeners.get('drop')?.length, 'old wrapper not re-bound').toBe(1);
+			} finally {
+				for (const token of ordered_coins.events_tokens) event_manager.unsubscribe(token);
+				common_build.mockRestore();
+				errors.mockRestore();
+			}
 		});
 
 		test('2b. a malformed payload assigns nothing (logged)', async () => {

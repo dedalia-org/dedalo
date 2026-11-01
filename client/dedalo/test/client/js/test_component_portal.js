@@ -1,14 +1,11 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*global it, describe, assert, page_globals, DD_TIPOS */
 /*eslint no-undef: "error"*/
-'use strict';
 
-import {get_instance, delete_instance} from '../../../core/common/js/instances.js'
-import {event_manager} from '../../../core/common/js/event_manager.js'
-import {data_manager} from '../../../core/common/js/data_manager.js'
+import {response_data} from '../../../core/common/js/api_error.js'
+import {get_instance} from '../../../core/common/js/instances.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {clone, pause} from '../../../core/common/js/utils/util.js'
-import {response_data} from '../../../core/common/js/api_error.js'
 import {get_buttons_by_permissions} from '../../../core/component_portal/js/render_edit_component_portal.js'
 
 
@@ -21,13 +18,12 @@ import {get_buttons_by_permissions} from '../../../core/component_portal/js/rend
 	const portal_lang		= page_globals?.dedalo_data_nolan ?? 'lg-nolan'
 
 // modes and views to test
-	const ar_modes		= ['edit', 'list', 'search']
 	const ar_views_edit	= ['default', 'line', 'text', 'mosaic', 'tree', 'indexation', 'content']
 	const ar_views_list	= ['default', 'line', 'mini', 'text']
 
 // DOM container
 	const container = document.getElementById('content')
-	const component_container = ui.create_dom_element({
+	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'component_container',
 		parent			: container
@@ -53,7 +49,7 @@ async function get_portal_instance(mode, view, section_id) {
 		mode			: mode,
 		view			: view,
 		lang			: portal_lang,
-		id_variant		: mode + '_' + view + '_' + Math.random()
+		id_variant		: `${mode}_${view}_${Math.random()}`
 	}
 
 	const instance = await get_instance(options)
@@ -185,7 +181,7 @@ async function capture_row_unlink(instance, content, chip_text) {
 	} finally {
 		instance.change_value	= original_change_value
 		window.confirm			= original_confirm
-		document.querySelectorAll('dd-modal').forEach(el => el.remove())
+		document.querySelectorAll('dd-modal').forEach(el => { el.remove() })
 	}
 }//end capture_row_unlink
 
@@ -215,7 +211,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'edit',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'init_edit_' + Math.random()
+				id_variant		: `init_edit_${Math.random()}`
 			}
 
 			const instance = await get_instance(options)
@@ -245,7 +241,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'list',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'init_list_' + Math.random()
+				id_variant		: `init_list_${Math.random()}`
 			}
 
 			const instance = await get_instance(options)
@@ -266,7 +262,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'search',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'init_search_' + Math.random()
+				id_variant		: `init_search_${Math.random()}`
 			}
 
 			const instance = await get_instance(options)
@@ -341,7 +337,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'edit',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'pagination_limit_' + Math.random(),
+				id_variant		: `pagination_limit_${Math.random()}`,
 				context			: clone(source.context),
 				data			: data,
 				datum			: clone(source.datum)
@@ -446,7 +442,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 		it(`${portal_model} destroy without removing DOM`, async function() {
 
 			const instance = await get_portal_instance('edit', 'default')
-			const node = await instance.render()
+			await instance.render()
 
 			const destroy_result = await instance.destroy(
 				true,  // delete_self

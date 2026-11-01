@@ -37,11 +37,11 @@ import '../../../core/common/js/dd-modal.js';
  * @return {HTMLElement}
  */
 const mount_host = function (name) {
-	const previous = document.getElementById('a11y_surface_' + name);
+	const previous = document.getElementById(`a11y_surface_${name}`);
 	if (previous) previous.remove();
 	return ui.create_dom_element({
 		element_type: 'div',
-		id: 'a11y_surface_' + name,
+		id: `a11y_surface_${name}`,
 		class_name: 'a11y_surface',
 		dataset: { a11ySurface: name },
 		parent: document.body,
@@ -738,7 +738,7 @@ const build_row_surface = async function (options) {
 			section_id: i + 1,
 			paginated_key: i,
 		})),
-		build: async (entry, index) => ({
+		build: async (_entry, index) => ({
 			instance: { status: 'built', destroy: async () => {} },
 			node: build_row_node(index, options.text_only === true),
 		}),

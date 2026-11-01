@@ -19,8 +19,8 @@
 *   Coin tiles in the left mosaic carry a JSON-encoded locator in their `dataTransfer`
 *   payload (text/plain). Dropping onto an `ordered_coins` cell calls `assign_element`,
 *   which issues an 'insert' change_value to the target component.  After every drop the
-*   right panel is rebuilt (`get_ordered_coins`) and existing drop-zone listeners are
-*   re-attached via `render_tool_numisdata_order_coins.prototype.drop`.
+*   right panel is rebuilt (`get_ordered_coins`), which binds the delegated drop
+*   listener (`bind_ordered_coins_drop`) on the new portal wrapper.
 *
 * Original / copy workflow:
 *   Each coin tile also shows radio buttons (Original / Copy) rendered by
@@ -38,11 +38,11 @@
 */
 
 // import
+	import {common} from '../../../core/common/js/common.js'
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {get_instance} from '../../../core/common/js/instances.js'
-	import {common} from '../../../core/common/js/common.js'
 	import {tool_common} from '../../../core/tools_common/js/tool_common.js'
-	import {render_tool_numisdata_order_coins} from './render_tool_numisdata_order_coins.js'
+	import {bind_ordered_coins_drop, render_tool_numisdata_order_coins } from './render_tool_numisdata_order_coins.js'
 
 
 
@@ -155,9 +155,10 @@ tool_numisdata_order_coins.prototype.init = async function(options) {
 *
 * For `ordered_coins` two event subscriptions are added to its own `events_tokens` so
 * that drop-zone listeners are re-wired whenever the portal refreshes internally
-* (window_bur_ = blur/scroll refresh) or gains a new row (add_row_):
+* (window_blur_ = external-window close refresh) or gains a new row (add_row_):
 *
-*   'window_bur_<ordered_coins.id>'  → re-calls `render_tool_numisdata_order_coins.prototype.drop`
+*   'window_blur_<ordered_coins.id>' → `bind_ordered_coins_drop` on the portal's current
+*                                      wrapper (idempotent per wrapper)
 *   'add_row_<ordered_coins.id>'     → same as above
 *
 * Roles missing from the Ontology's ddo_map are skipped with a console warning
@@ -192,20 +193,18 @@ tool_numisdata_order_coins.prototype.build = async function(autoload=false) {
 			self[role] = self.ar_instances.find(el => el.tipo===ddo.tipo)
 
 			if(role === 'ordered_coins'){
-				// add events to assign drop event when the portal change or external window close
-				self.ordered_coins.events_tokens.push(
-					event_manager.subscribe('window_blur_'+ self.ordered_coins.id, assing_drop)
-				)
-				self.ordered_coins.events_tokens.push(
-					event_manager.subscribe('add_row_'+ self.ordered_coins.id, assing_drop)
-				)
-
-				function assing_drop(options) {
-
-					render_tool_numisdata_order_coins.prototype.drop({
-						self : self
-					})
+				// the portal refreshes itself (external window close, a new row): a full
+				// refresh replaces its wrapper node, so the delegated drop listener is
+				// bound again on the CURRENT node (idempotent per wrapper)
+				const rebind_drop = () => {
+					bind_ordered_coins_drop(self, self.ordered_coins.node)
 				}
+				self.ordered_coins.events_tokens.push(
+					event_manager.subscribe(`window_blur_${self.ordered_coins.id}`, rebind_drop)
+				)
+				self.ordered_coins.events_tokens.push(
+					event_manager.subscribe(`add_row_${self.ordered_coins.id}`, rebind_drop)
+				)
 			}
 		}
 
@@ -228,7 +227,7 @@ tool_numisdata_order_coins.prototype.build = async function(autoload=false) {
 /**
 * ASSIGN_ELEMENT
 * Inserts a coin locator into the target `ordered_coins` relation component.
-* Called by the drop handler in `render_tool_numisdata_order_coins.prototype.drop`
+* Called by the drop handler bound by `bind_ordered_coins_drop`
 * each time the user drops a coin tile onto a cell in the ordered-coins portal.
 *
 * A single 'insert' change_value action is issued against `caller` (the component

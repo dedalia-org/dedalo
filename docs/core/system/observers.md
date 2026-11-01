@@ -163,8 +163,9 @@ the `observers_registry` gauge and the `observers_*` counters on
 
 ### Edges derived from a copy law
 
-One kind of edge is not declared at all: the registry **derives** it from a
-[copy law](#the-copy-law). A copy reads a component on *another* record, so
+Two kinds of edge are not declared at all. The first the registry **derives**
+from a [copy law](#the-copy-law); the second from a portal's declared order
+([below](#edges-derived-from-a-declared-order)). A copy reads a component on *another* record, so
 when that component changes, the copy is stale — whether or not anyone thought
 to declare the edge. For every node that follows the copy law, the registry
 adds an edge from the copied component to the copy, whose targets are the
@@ -178,9 +179,10 @@ while its type holds three. With it, linking a coin to a type updates
 `numisdata77` on the type, and then `numisdata679` on every term catalogued
 under it.
 
-- Only the copy law derives edges. The inverse-reference law is already
-  reached through its declared chain, and the text-tag law reads its own
-  record, which its declared edge already covers.
+- Among the value laws, only the copy law derives edges. The inverse-reference
+  law is already reached through its declared chain, and the text-tag law reads
+  its own record, which its declared edge already covers. A portal's declared
+  order derives edges of its own ([below](#edges-derived-from-a-declared-order)).
 - **A declared edge always wins.** `numisdata965` declares its own edge from
   `numisdata11`, so nothing is derived for it. Any `observe` entry for the
   same component — a client-only one included — takes precedence; adding a
@@ -188,6 +190,30 @@ under it.
   off, and it is an ontology edit, not code.
 - Derived edges take part in cycle detection like any other edge, and they are
   counted in the registry's diagnostics.
+
+### Edges derived from a declared order
+
+A portal whose `show.ddo_map` declares an `order` stores its locators sorted by
+a value that lives in the **linked** records (see
+[component_portal](../components/component_portal.md#the-order-model)). When
+that value changes, no host is saved, so the registry derives the edges that
+keep the order: for each declared ordering column it follows the column's full
+order path — for a relation column, through every hop to the value it sorts
+on — and adds one edge per hop, from the linked record back to the record that
+links it (`use_inverse_relations` through the hop's own relation). Each edge is
+a [relay](#what-is-computed-the-perform): it finds the records referencing the
+saved one, re-saves the observer there through its own save rules (which
+re-sorts the array) and relays on, until the portal hosts are reached.
+
+- A declared or copy-law edge on the same key wins; two portals ordering
+  through one relation share ONE edge.
+- A column whose order path resolves to nothing derives no edge and is reported
+  as unresolved: nothing can keep that order.
+- When the portal's target sections are data-driven (`hierarchy_types`,
+  `section_model`, `ontology_sections`, `field_value`), a write to those
+  sections rebuilds the registry, so the derived edges follow the data.
+- Their backstop is the `portal_declared_order` reconcile, not the observer
+  reconcile script.
 
 ## What runs: targets × performs
 
@@ -305,7 +331,7 @@ the engine refuses rather than silently retargeting.
 | --- | --- | --- |
 | Info recompute | observer is a `component_info` (or a `component_state` / `component_calculation` alias) with **no** `perform` | Recomputes the widgets on each target and writes **one** `matrix_time_machine` row per target (lang `lg-nolan`). It deliberately never touches the live stored value — live reads compute. Targets equal to the saved record additionally ride the save response, so the open editing panel refreshes. |
 | `set_dato_external` | `perform: {function: "set_dato_external"}`; the targets come from `config` (the table above) | Recomputes the observer's **external mirror** on each target — by the value law its `source` declares (below). |
-| Relay | no `perform`, no `filter`, `config.use_observable_dato: true`, observer is not an info model | A pure **trigger**. It writes nothing at all: no value change, no Time Machine row, no modified stamps. It exists only to re-enter propagation so a dependency chain can continue. |
+| Relay | no `perform`, no `filter`, `config.use_observable_dato: true` or `config.use_inverse_relations: true`, observer is not an info model | A **trigger** that re-enters propagation so a dependency chain can continue. Per target it first re-saves the observer through its own save rules and writes only when they change the stored value — today only a portal declaring an `order` is re-sorted (one write and one Time Machine row). For every other observer it writes nothing at all: no value change, no Time Machine row, no modified stamps, and it does not even read the target. |
 | Terminal no-op | `filter: false`, no `perform`, observer is not an info model | Nothing runs server-side; the client half is the whole point of the entry. |
 
 Measured coverage of the 73 dispatchable edges on this install (re-measured
@@ -769,8 +795,8 @@ Which branches emit a hop is not uniform, and the asymmetry is deliberate:
 
 - a **`set_dato_external`** recompute emits one only when it actually persisted
   something — a refusal, a withheld shrink or a no-drift result ends the branch;
-- a **relay** always emits one. Emitting the hop is the relay's entire purpose;
-  it writes nothing else;
+- a **relay** always emits one. Emitting the hop is the relay's purpose; the
+  only other thing it may write is the re-sort of a declared-order portal;
 - an **info recompute** always emits one, per target.
 
 A hop into an observer that has no subscriptions of its own is a leaf and is
@@ -853,7 +879,7 @@ spec narrates it. Two hops, the deepest chain on this install:
     }
     ```
 
-    The relay writes nothing. It exists so that step 3 fires for **every
+    The relay writes nothing (`numisdata36` declares no `order`). It exists so that step 3 fires for **every
     equivalent type**, not only the one the coin now points at.
 
 3. **`numisdata77`** (the *Coins* mirror above) observes `numisdata36` with

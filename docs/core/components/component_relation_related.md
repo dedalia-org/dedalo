@@ -191,8 +191,8 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 
 ### sort_by_column
 
-- **Values:** `true` | array of column tipos. (Shared with the portal; this component is sortable by default, so it participates in list sorting.)
-- **Effect:** persistently re-orders the stored locator array by the value of a target-section column, saving the new order as a real data change. See [component_portal](component_portal.md#sort_by_column) for the full semantics.
+- **Values:** `true`, set on a column ddo of `source.request_config[].show.ddo_map` (a per-column key, shared with the portal), not a top-level property.
+- **Effect:** the server honours it for the `sort_by_column` save action (re-order the stored locator array by that column, a real data change) and for a temporary [`sqo.view_order`](../sqo.md#view_order) read. The client's header sort arrows are offered only to `component_portal` instances (`ui.allow_column_order` checks the model), so a `component_relation_related` list shows none today. See [component_portal](component_portal.md#column-order-sort_by_column-and-order-per-ddo) for the full semantics.
 
 !!! note "Standard context properties"
     Like every component, `component_relation_related` also honours the generic ontology context blocks carried into the datum `context`: `css` (style stamped on `.wrapper_component`), `request_config` (the RQO, built from `source.request_config`) and `view` (the render view). These are not component-specific options. Any other custom key seen in production should be verified in the ontology.

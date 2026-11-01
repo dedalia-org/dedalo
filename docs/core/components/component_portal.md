@@ -61,7 +61,7 @@
 **When to use it.**
 
 - Link a record to one or more records in another section: *Author*, *Owner*, *Find spot*, *Related objects*, *Bibliography*, *Birth town*.
-- Build a curated, ordered list of references the cataloguer adds by autocomplete and re-orders by hand (or by a target column — see [column sort](#column-sort-sort_by_column-and-order-per-ddo-v7)).
+- Build a curated, ordered list of references the cataloguer adds by autocomplete and re-orders by hand (or by a target column — see [column order](#column-order-sort_by_column-and-order-per-ddo)).
 - Surface calculated / inverse relations read-only via `source.mode: external` (e.g. *all coins of this type*, computed from the inverse side).
 - Expose a thesaurus / hierarchy branch for picking terms (the `tree` and `indexation` views).
 
@@ -198,33 +198,35 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 - **Values:** an object `{relation_type, relation_type_rel}`.
 - **Effect:** read on instantiation. `relation_type` overrides the locator `type` (default `dd151`); `relation_type_rel` sets directionality (locator `type_rel`). See [Directionality](#directionality). Also carries `tag_id` config for indexation portals.
 
-### Column sort: `sort_by_column` and `order` (per-ddo, v7)
+### Column order: `sort_by_column` and `order` (per-ddo)
 
-Portal column-sort directives live **on the column ddo** — an entry of `source.request_config[].show.ddo_map` — not on a separate top-level property. Without them a portal is displayed in its stored locator order. Two independent per-ddo keys:
+Portal order directives live **on the column ddo** — an entry of `source.request_config[].show.ddo_map` — not on a separate top-level property. The stored locator array is the portal's only real order: export, publication and every read see it as stored. Two independent per-ddo keys:
 
 | Per-ddo key | Meaning |
 |---|---|
-| `"sort_by_column": true` | The **user may click this column's header to persistently re-order** the portal by it (a write). |
-| `"order": "asc" \| "desc"` | This column is part of the **default read order** applied on every read (for display; no write). |
+| `"sort_by_column": true` | The column header offers a **temporary** sort of the list by this column (nothing is written); **Save** in the order indicator makes the shown order the stored order. |
+| `"order": "asc" \| "desc"` | This column is part of the portal's **permanent declared order**: the stored array is kept sorted by it on every write. |
 
 ```jsonc
 "source": { "request_config": [ { "show": { "ddo_map": [
   { "tipo": "rsc279", "view": "line" },
-  { "tipo": "rsc85", "sort_by_column": true, "order": "asc" },   // Name: user-sortable + default sort key
+  { "tipo": "rsc85", "sort_by_column": true, "order": "asc" },   // Name: header sort + declared order key
   { "tipo": "rsc86", "sort_by_column": true, "order": "asc" },   // Surname: tie-break
   { "tipo": "rsc89" }                                            // Date of birth: neither
 ] } } ] }
 ```
 
-**`sort_by_column: true`** (write, user-triggered) — clicking the header resolves a new order on the server (a search over the target section restricted to the linked `section_id`s, ordered by the column value) and **saves the re-ordered locator array** (a Time Machine data change). The column must be a `show.ddo_map` entry; `source.mode: external` portals are excluded; the column must also be `sortable` (base true, so any normal column qualifies). Only columns carrying `sort_by_column: true` show a header sort button. Manual drag re-ordering is always available regardless.
+The tipos are real `rsc` nodes of the *People* section (`rsc197`): `rsc85` *Name* and `rsc86` *Surname* (`component_input_text`), `rsc89` *Date of birth* (`component_date`), `rsc279` *Public* (`component_publication`). No node of the ontology this page was verified against declares either key, so the block shows the shape only.
 
-- Client: `ui.allow_column_order` reads the per-column `column.sort_by_column` (stamped by `get_columns_map` from the ddo). Server: `applySortByColumn` (`src/core/relations/save.ts`) gates on the resolved column ddo's `sort_by_column === true`.
+**`sort_by_column: true`** — the header of that column shows sort arrows (`ui.allow_column_order`, asked through the portal's `can_view_sort`; edit mode, read permission, not on a `source.mode: external` portal, and the column must be `sortable`). A click is a **temporary view**: the next read carries [`sqo.view_order`](../sqo.md#view_order) `{tipo, direction}` and the server orders the portal's full locator list by that column before paginating; nothing is written. See [The order model](#the-order-model) for the indicator and the save.
 
-**`order: "asc"|"desc"`** (read, declared default; `true` = asc) — the portal's entries are ordered by the column(s) carrying `order`, **for display**, every read, *without* touching the stored array. Ordering runs over the full locator list **before pagination**, so page 1 holds the top-ranked records. **Priority follows the ddo_map declaration order** (first ordered column = primary sort, next = tie-break). Unresolvable (deleted) targets fall to the end preserving relative order.
+- Client: `ui.allow_column_order` → `component_portal.set_view_order`. Server: `orderLocatorsByViewOrder` (`src/core/relations/order_locators.ts`), applied inside `expandPortal` (`src/core/relations/relation_core.ts`). The persisted save is the `sort_by_column` save action, `applySortByColumn` (`src/core/relations/save.ts`), which gates on the resolved column ddo's `sort_by_column === true` and writes the re-ordered array (a Time Machine data change).
 
-- Server: `orderLocatorsByDeclaredColumns` (`src/core/relations/order_locators.ts`), applied inside `expandPortal` (`src/core/relations/relation_core.ts`) between reading the stored locators and paginating.
+**`order: "asc"|"desc"`** (`true` = asc) — the stored array of a portal declaring `order` is **sorted at write time**: the record-write chokepoint applies the key save rules (`applyKeySaveRules`, `src/core/section_record/record_write.ts`) to every write of the key, through the one ordering function `sortByDeclaredOrder` (`order_locators.ts`). **Priority follows the ddo_map declaration order** (first ordered column = primary sort, next = tie-break). Unresolvable (deleted) targets fall to the end, keeping their relative order. The read serves the stored array as stored.
 
-Both share ONE ranking engine (`rankLocatorsByColumns`). The keys ride the parsed request_config passthrough to both the server and the client — no `ddoSchema` change. Fully opt-in: no fixture declares them, so read-path parity against the frozen store is unchanged.
+- The declared order is read from the component's resolved edit config (its first `request_config` item); for a `component_alias` it is its target's. The context carries it to the client as `context.declared_order` (`[{tipo, direction}]`, absent when none).
+
+Both keys share ONE ranking engine (`rankLocatorsByColumns`): a search over the target section restricted to the linked `section_id`s, ordered by the column value. The keys ride the parsed request_config passthrough to both the server and the client — no `ddoSchema` change.
 
 ### data_limit
 
@@ -235,7 +237,7 @@ Both share ONE ranking engine (`rankLocatorsByColumns`). The keys ride the parse
 ### draggable_to
 
 - **Values:** array of component tipos the entries may be dragged into.
-- **Effect:** enables cross-portal drag-and-drop. `drag_and_drop.js` reads `properties.draggable_to`; a target portal accepts a drop only when its own `tipo` is found in the dragged source's `draggable_to` list. Used to move a linked record from one portal to another (e.g. promote a "candidate" link to a "confirmed" link).
+- **Effect:** makes the portal a source of cross-portal **MOVE**. `drag_and_drop.js` reads `properties.draggable_to`; a target portal accepts a drop only when its own `tipo` is found in the dragged source's `draggable_to` list and the target is writable. The target links the record first and the source unlinks it only once the target accepted it. Used to move a linked record from one portal to another (e.g. promote a "candidate" link to a "confirmed" link). The ontology alone decides: the same drop code serves every view. See [Rows, drag and drop, and order](#rows-drag-and-drop-and-order).
 
 ### with_value
 
@@ -261,7 +263,7 @@ Views are selected from `context.view` (default `default`) and dispatched by the
 
 | View | edit | list / tm | Notes |
 | --- | :---: | :---: | --- |
-| `default` | yes | yes | Full list: label, buttons (add / link / open / autocomplete), `content_data` with one row per linked record; sort buttons in the header when `sort_by_column` is on. |
+| `default` | yes | yes | Full list: label, buttons (add / link / open / autocomplete), a row-box table with one row per linked record and a drag handle per row (edit); temporary header sort on columns declaring `sort_by_column`. |
 | `line` | yes | yes | Compact single-line list; in list mode supports the [`with_value`](#with_value) double-click-to-edit transition. |
 | `text` | yes | yes | Plain joined text of the resolved values, no chrome. (Registered for both edit and list.) |
 | `mini` | — | yes | Minimal inline view, used by the service autocomplete / tight layouts. |
@@ -335,11 +337,144 @@ Two consequences follow, and they are the whole contract of the view:
 
 Modes:
 
-- **edit** — read/write: autocomplete-add, link existing, open target, drag-reorder, remove (`remove_element` with `delete_link` or `delete_all`), `data_limit` cap, `sort_by_column` re-order, and the update-external recompute of an `external` portal.
+- **edit** — read/write: autocomplete-add, link existing, open target, reorder (drag, tap-tap, move-to-position), cross-portal move, remove (`remove_element` with `delete_link` or `delete_all`), `data_limit` cap, temporary header sort and its **Save**, and the update-external recompute of an `external` portal.
 - **list / tm** — read-only listing; `tm` (Time Machine) reuses the list render (list mode `limit` is always 1 per row).
 - **search** — builds the SQO filter input; saves blocked.
 
-DOM (edit / default): `wrapper_component portal <tipo> <mode>` -> `label`, `buttons_container`, `content_data` -> one row (`content_value`) per linked record, each resolving the target's `show.ddo_map` columns.
+## Rows, drag and drop, and order
+
+### The row DOM
+
+Portal rows are placed by the same record window as section lists (see
+[The row box](../sections/section_list.md#the-row-box): the row invariant,
+placeholders above 200 rows, edit safety, the owner row lock, the print notice,
+phone cards). DOM of the default edit view:
+
+```text
+.wrapper_component.component_portal
+  ├─ .label, .buttons_container
+  ├─ .list_body.layout_table                       role=table
+  │    ├─ .header_wrapper_list                       the header row (sort arrows)
+  │    └─ .content_data                              role=rowgroup
+  │         └─ .section_record[data-index=i]         role=row: one row per linked record
+  │              ├─ .column_section_id               id cell: drag handle, open
+  │              ├─ .column …                        the target's show.ddo_map columns
+  │              └─ .column_remove                   the unlink / delete button
+  └─ .list_after                                    order indicator, references, print notice
+```
+
+The table views (`default`, `content`, the mosaic's alternative table) carry
+`layout_table`; the line, mosaic, tree and indexation views are lists
+(`role=list` / `listitem`). Nothing but rows sits in `content_data`: the
+order indicator, `component_relation_related` back-references, the
+indexation "remove filter" footer and the print notice all live in
+`.list_after`. A mosaic tile's hover overlay (`.sr_mosaic_hover`) is built on
+demand by `delegate_row_hover` and flushed before it leaves.
+
+### Drag and drop
+
+All gestures are **delegated** (`client/dedalo/core/component_portal/js/drag_and_drop.js`):
+one listener set per `content_data`, bound to the row window's `AbortSignal`,
+none on a row.
+
+- **Sources.** The `default` view drags by the row's **handle** (`.drag`, in the
+  id cell; rows stay non-draggable so their inputs keep text selection). On a
+  desktop the handle hangs in the left gutter, invisible until the row is
+  hovered or focused (it is never `display:none`, so it stays in the Tab order).
+  On a phone card it sits inside the id cell and is always visible. The
+  `mosaic` and `line` edit views drag the **whole row**.
+- **Drop on a row.** Every row is a target, placeholders included. A row under
+  an accepted drag gets `.dragover`; the dragged row gets `.dragging`; both
+  paint the row's ring. A drop on the wrapper outside any row is a MOVE only
+  (`bind_portal_drop`; an empty portal has no rows).
+- **One decision.** `decide_drop` answers, for every path (mouse, touch,
+  keyboard):
+  - **REORDER** — the payload came from **this** instance (by instance id, not
+    `tipo`: two instances of one tipo are two lists) and `can_reorder` holds:
+    edit mode, a paginator, write permission, no declared order, no temporary
+    view order, and a model whose order is a position in the list
+    (`component_relation_children` is not). It saves with `sort_data`.
+  - **MOVE** — the payload came from **another** portal whose
+    [`draggable_to`](#draggable_to) names this portal's tipo, and this portal is
+    writable. A move source must also hold `can_drag_out` (a `draggable_to`
+    list, no declared order, no view order). The target links first; the
+    source unlinks only when the link landed.
+  - **stale** — the payload was started in a row window that has since been
+    replaced; it is consumed and nothing is sent (a "list changed" warning).
+- **The absolute-key rule.** A reorder sends `source_key` = the dragged entry's
+  `paginated_key` and `target_key` = the target entry's, both read from the
+  window's frozen entries. `paginated_key` is the locator's **index in the
+  stored array** — absolute, valid on every page and under a temporary view
+  order — so the paginator's offset is never added. The server checks the
+  locator against the source position and refuses an out-of-range key.
+- **Foreign drags pass through.** A portal payload travels as
+  `application/x-dedalo-portal-row` (plus a `text/plain` copy). A drag without
+  that type — a file, a thesaurus term, a tool card — is never stopped and
+  reaches its own target.
+- **A reorder whose outcome is unknown** (the save succeeded but the refresh
+  failed) says so and asks for a reload instead of claiming the order was not
+  saved.
+
+**Touch.** A finger cannot drag. Tap a row's source (the handle in the default
+view, the row in mosaic / line) to pick it — a bar names what you carry — then
+tap the target row to place it (`touch_pick.js`); the placement is the same
+decision as a drop. **Cancel** in the bar puts it back.
+
+**Keyboard and double-click: move to position.** Double-click on the handle, or
+**Enter** on a handle reached with **Tab**, opens a small dialog with the row's
+current 1-based position over the whole list; OK sends `sort_data` with
+absolute keys (the typed position clamped to the list). The row is held while
+the dialog is open. Both are offered only while `can_reorder` holds. The
+handle's accessible name is "Change order for *section_id*" (label
+`change_order_for`).
+
+### The order model
+
+The **stored locator array is the only order.** A new link is appended to it,
+unless the portal declares an `order`.
+
+- **A declared `order` is permanent and automatic.** Every write of the
+  portal's key — a save, a link from the autocomplete, an add, a removal, a
+  Time Machine restore, an observer mirror, a new or duplicated record — stores
+  the array sorted by the declared columns (the record-write chokepoint). When
+  a linked record's ordering value changes, every portal that holds it is
+  re-sorted: the observer registry derives the edges from the declaration
+  (see [edges derived from a declared order](../system/observers.md#edges-derived-from-a-declared-order)).
+  Such a portal offers no drag, no move-to-position and no save of a header
+  sort: the server refuses `sort_data` and `sort_by_column` on it
+  (`request.invalid_data`, log reason `declared_order`). An array stored before
+  its order was declared keeps its stored order until it is written again or
+  the `portal_declared_order` reconcile sorts it; the reconcile runs from
+  Maintenance (`reconcile_status`, dry unless applied — see
+  [area_maintenance](../areas/area_maintenance.md#the-widgets)) or
+  `scripts/reconcile.ts`, and is queued automatically after an ontology update
+  or a local ontology edit adds or changes an `order`.
+- **A header click is a temporary view.** On a column declaring
+  `sort_by_column: true`, the click sets the instance's `view_order`
+  `{tipo, direction}` (`set_view_order`), starts again from the first page and
+  stamps `sqo.view_order` on every later read of the portal (pagination, a
+  refresh, the re-read after a link, unlink or add). Nothing is written. While
+  it is active rows cannot be dragged. Read permission is enough. A declared-order
+  portal offers it too.
+- **The order indicator** (`.list_after > .order_indicator`, edit mode) shows
+  "Order: *column* ↑/↓". Under a temporary view order it carries **Reset**
+  (`clear_view_order`, back to the stored order) and, when `can_save_view_order`
+  holds (write permission, no declared order), **Save** (`save_view_order` →
+  the `sort_by_column` save action with the same column and direction; the
+  view order clears on success and stands on a refusal). Without a view order,
+  a declared-order portal with rows shows its permanent order, without buttons.
+- **One change at a time.** An order change, reset or save is refused while
+  another one or another read of the portal is in flight; a refused or failed
+  change restores the previous order and page. A view order the server
+  refuses (a column the user may not read on every hop of its path) re-reads
+  under the previous order.
+
+Gates: `test/unit/portal_order_native.test.ts` (server),
+`test/unit/client_relation_move_native.test.ts` (the drag decision), and the
+browser suites `test_portal_order`, `test_portal_row_drag` and
+`test_row_invariant` (`bun run test:client`). Wire contract:
+`WC-2026-10-31-portal-order-model` and `WC-2026-10-30-section-record-row-box`
+(`engineering/wire_contract/`).
 
 ## Import / export model
 
@@ -372,6 +507,6 @@ With multiple possible target sections, disambiguate by naming the target in the
 - **Remove semantics.** The remove action takes a `remove_mode`: `delete_link` (default — unlink only) or `delete_all`. `delete_all` hard-deletes the **target** section record and therefore requires write/delete permission on the *target* section itself (REL-06) — permission on the host record is not sufficient. Bulk partial-locator removal is `deletePortalLocator` (`src/core/relations/save.ts`, the `dd_component_portal_api.delete_locator` action); `delete_all`'s target-record hard-delete is not yet ported.
 - **Observers / observables.** Portals are a common observer target: e.g. a numismatic *coins* portal observes a *type* field and recomputes its own data from its external source on change. Wiring lives in the ontology `properties` (`observe` / `observers`), not in the component — see the *Observers and observables* section of the [components index](index.md).
 - **Default tools.** The verified model sample exposes `tool_propagate_component_data` and `tool_time_machine`; the toolbar is assembled from the model + ontology, not hardcoded, and narrows further for `external` portals (tools off).
-- **Permissions.** Resolved by the permissions engine (`getPermissions()`, `src/core/security/permissions.ts`; 0 none / 1 read / 2 read+write / 3 admin). Read users (level 1) get the read-only list; add / link / remove / re-order require level >= 2.
+- **Permissions.** Resolved by the permissions engine (`getPermissions()`, `src/core/security/permissions.ts`; 0 none / 1 read / 2 read+write / 3 admin). Read users (level 1) get the read-only list and may still sort it temporarily by a header; add / link / remove / reorder / move and saving a header order require level >= 2.
 - **Behaviour that comes from the shared relations engine.** A portal owns almost none of its own machinery. Locator normalisation and validation on save, de-duplication (locators are compared on a fixed key set by `compareLocators()`, `src/core/concepts/locator.ts`), adding and removing a locator with the dataframe cascade (`src/core/relations/save.ts`), grid/export/diffusion resolution, parent-reference cleanup when a record is deleted, and the relation search builders all live in the shared engine under `src/core/relations/` and are used identically by every relation-column model.
 - **Related components:** [component_check_box](component_check_box.md), [component_dataframe](component_dataframe.md), [component_inverse](component_inverse.md), `component_select`, `component_radio_button`, `component_relation_parent`, `component_relation_children`, `component_relation_related`, `component_publication`, [component_input_text](component_input_text.md) (the literal counterpart for non-relational fields).

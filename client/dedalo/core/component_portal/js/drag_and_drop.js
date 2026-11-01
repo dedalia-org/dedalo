@@ -190,7 +190,7 @@ export const can_reorder = function(self) {
 * @param {Object} column - a columns_map entry
 * @returns {boolean}
 */
-export const can_view_sort = function(self, column) {
+export const can_view_sort = function(_self, column) {
 	return column?.sort_by_column===true
 }//end can_view_sort
 
@@ -284,7 +284,7 @@ const parse_payload = function(text) {
 	}
 	try {
 		return JSON.parse(text)
-	} catch (error) {
+	} catch (_error) {
 		return null
 	}
 }//end parse_payload

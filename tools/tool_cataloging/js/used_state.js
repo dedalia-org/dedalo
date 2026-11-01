@@ -393,9 +393,10 @@ const apply_used_state = async function(tool, locators) {
 
 	// used_keys: the truth decorate reads for every tile built from now on
 		const target_tipos	= get_catalog_target_tipos(tool.area_thesaurus)
-		const used_keys		= (section.used_keys instanceof Set)
-			? section.used_keys
-			: (section.used_keys = new Set())
+		if (!(section.used_keys instanceof Set)) {
+			section.used_keys = new Set()
+		}
+		const used_keys		= section.used_keys
 		for (const key of requested.keys()) {
 			if (is_used(fresh.get(key)?.entries, target_tipos)) {
 				used_keys.add(key)

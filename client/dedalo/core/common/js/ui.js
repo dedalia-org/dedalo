@@ -459,7 +459,7 @@ export const ui = {
 		* @param {Object} [options={}] - Reserved for future configuration; currently unused.
 		* @returns {HTMLElement} content_data - The created <div> element.
 		*/
-		build_content_data : (instance, options={}) => {
+		build_content_data : (instance, _options={}) => {
 
 			// options
 			const type			= instance.type
@@ -540,7 +540,7 @@ export const ui = {
 		*   future per-instance customisation of the container).
 		* @returns {HTMLElement} buttons_container - The created <div class="buttons_container"> element.
 		*/
-		build_buttons_container : (instance) => {
+		build_buttons_container : (_instance) => {
 
 			const buttons_container = ui.create_dom_element({
 				element_type	: 'div',
@@ -583,19 +583,18 @@ export const ui = {
 				const section_tipo	= instance.section_tipo // e.g., 'oh1'
 				const view			= instance.view || instance.context.view || 'default'
 				const element_css	= instance.context.css || {}
-				const mode			= instance.context.mode
 
 			// wrapper
 				const wrapper = document.createElement('div')
 
 				// css
 				const classes_to_add = [
-					'wrapper_' + type,
+					`wrapper_${type}`,
 					model,
 					tipo,
-					section_tipo +'_'+ tipo,
+					`${section_tipo}_${tipo}`,
 					'list',
-					'view_' + view
+					`view_${view}`
 				]
 				// Add custom styles if provided
 			    if (add_styles && Array.isArray(add_styles)) {
@@ -672,7 +671,7 @@ export const ui = {
 				// css
 					const ar_css = [
 						'mini',
-						instance.model + '_mini' // add suffix '_mini'
+						`${instance.model}_mini` // add suffix '_mini'
 					]
 					wrapper.className = ar_css.join(' ')
 
@@ -737,13 +736,13 @@ export const ui = {
 
 					// label: add > symbol to easily identify items with depth (more than one level)
 					const final_label = path.length>1
-						? ('>').repeat(path.length-1) + ' ' + label
+						? `${('>').repeat(path.length-1)} ${label}`
 						: label
 
 					// title : add section depth path for easy location
-					const base_title = tipo + ' ' + model.substring(10) + ' [' + instance.lang.substring(3) + ']'
+					const base_title = `${tipo} ${model.substring(10)} [${instance.lang.substring(3)}]`
 					const title = path.length>0
-						? path.map(el => el.section_tipo).join(' > ') +' : '+ base_title
+						? `${path.map(el => el.section_tipo).join(' > ')} : ${base_title}`
 						: base_title
 
 					const component_label = ui.create_dom_element({
@@ -794,14 +793,14 @@ export const ui = {
 				// css
 					const wrapper_structure_css = typeof element_css.wrapper!=='undefined' ? element_css.wrapper : []
 					const ar_css = [
-						'wrapper_' + type,
+						`wrapper_${type}`,
 						model,
 						tipo,
 						mode,
 						...wrapper_structure_css
 					]
 					if (view) {
-						ar_css.push('view_'+view)
+						ar_css.push(`view_${view}`)
 					}
 					if (mode==='search') {
 						ar_css.push('tooltip_toggle')
@@ -973,7 +972,7 @@ export const ui = {
 						// auto-focus first input
 							if (!already_focus) {
 								// generic try of first input node
-								const first_input = content_data && content_data[0]
+								const first_input = content_data?.[0]
 										? content_data[0].querySelector('input, select')
 										: null;
 								if (first_input) {
@@ -985,7 +984,7 @@ export const ui = {
 											if (component.active && !has_focus_inside()) {
 
 												// check another focus elements like q_operator
-												if (document.activeElement && document.activeElement.classList.contains('q_operator')) {
+												if (document.activeElement?.classList.contains('q_operator')) {
 													return
 												}
 
@@ -3491,17 +3490,17 @@ export const ui = {
 					return [node.data];
 				}
 
-				var txt = [''];
-				var i = 0;
+				const txt = [''];
+				let i = 0;
 
-				if (node == node.firstChild) do {
+				if (node === node.firstChild) do {
 
 					if (node.nodeType === Node.TEXT_NODE) {
 						txt[i] += node.data;
 						continue;
 					}
 
-					var innerText = getText(node);
+					const innerText = getText(node);
 
 					if (typeof innerText[0] === 'string') {
 						// Bridge nested text-node data so that they're
@@ -3514,7 +3513,7 @@ export const ui = {
 						txt[++i] = '';
 					}
 
-				} while (node == node.nextSibling);
+				} while (node === node.nextSibling);
 
 				return txt;
 			}
@@ -4006,8 +4005,8 @@ export const ui = {
 			return
 		}
 
-		const title_asc		= (get_label.sort || 'Sort') + ' ' + (get_label.ascending || 'ascending')
-		const title_desc	= (get_label.sort || 'Sort') + ' ' + (get_label.descending || 'descending')
+		const title_asc		= `${get_label.sort || 'Sort'} ${get_label.ascending || 'ascending'}`
+		const title_desc	= `${get_label.sort || 'Sort'} ${get_label.descending || 'descending'}`
 
 		for (const sort_node of sort_nodes) {
 			sort_node.classList.remove('asc','desc')

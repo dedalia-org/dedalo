@@ -14,7 +14,6 @@
 		// open_window
 	} from '../../common/js/utils/index.js'
 	import {ui} from '../../common/js/ui.js'
-	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {
 		get_picker,
 		render_term_pick_control,

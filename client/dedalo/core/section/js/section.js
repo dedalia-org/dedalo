@@ -179,7 +179,7 @@ const sync_url_record = function(self) {
 		}
 		// absence on the wire, without the delete operator
 		const { id: _stale_id, ...vars_without_id } = url_vars
-		history.replaceState(history.state, '', '?' + object_to_url_vars(vars_without_id))
+		history.replaceState(history.state, '', `?${object_to_url_vars(vars_without_id)}`)
 		return
 	}
 
@@ -187,7 +187,7 @@ const sync_url_record = function(self) {
 		return
 	}
 	url_vars.id = section_id
-	history.replaceState(history.state, '', '?' + object_to_url_vars(url_vars))
+	history.replaceState(history.state, '', `?${object_to_url_vars(url_vars)}`)
 }//end sync_url_record
 
 
@@ -461,7 +461,7 @@ section.prototype.init = async function(options) {
 					const label = self.label || self.section_tipo
 
 					const confirmed = await ui.confirm({
-						header			: (get_label.new || 'New') + ' ' + (get_label.record || 'record'),
+						header			: `${get_label.new || 'New'} ${get_label.record || 'record'}`,
 						note			: label,
 						body			: get_label.sure || 'Are you sure?',
 						accept_class	: 'brand new'
@@ -494,7 +494,7 @@ section.prototype.init = async function(options) {
 				}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('new_section_' + self.id, new_section_handler)
+				event_manager.subscribe(`new_section_${self.id}`, new_section_handler)
 			)
 
 			if(SHOW_DEBUG===true) {
@@ -522,7 +522,7 @@ section.prototype.init = async function(options) {
 					const label = self.label || self.section_tipo
 
 					const confirmed = await ui.confirm({
-						header			: (get_label.duplicate || 'Duplicate') + ` ID: ${section_id}`,
+						header			: `${get_label.duplicate || 'Duplicate'} ID: ${section_id}`,
 						note			: label,
 						body			: get_label.sure || 'Are you sure?',
 						accept_class	: 'brand duplicate'
@@ -553,7 +553,7 @@ section.prototype.init = async function(options) {
 				}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('duplicate_section_' + self.id, duplicate_section_handler)
+				event_manager.subscribe(`duplicate_section_${self.id}`, duplicate_section_handler)
 			)
 
 		// delete_section_ event. (!) Moved to self button delete in render_section_list
@@ -585,7 +585,7 @@ section.prototype.init = async function(options) {
 					})
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('delete_section_' + self.id, delete_section_handler)
+				event_manager.subscribe(`delete_section_${self.id}`, delete_section_handler)
 			)
 
 		// toggle_search_panel event. Triggered by button 'search' placed into section inspector buttons
@@ -617,7 +617,7 @@ section.prototype.init = async function(options) {
 				toggle_search_panel(self.filter)
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('toggle_search_panel_'+self.id, toggle_search_panel_handler)
+				event_manager.subscribe(`toggle_search_panel_${self.id}`, toggle_search_panel_handler)
 			)
 
 		// render_ event
@@ -684,9 +684,7 @@ section.prototype.init = async function(options) {
 							data_manager.get_local_db_data(status_id, status_table, true)
 							.then(async function(ui_status){
 								// (!) Note that ui_status only exists when element is open
-								const is_open = typeof ui_status==='undefined' || ui_status.value===false
-									? false
-									: true
+								const is_open = !(typeof ui_status==='undefined' || ui_status.value===false)
 								if (is_open===true && self.search_container && self.search_container.children.length===0) {
 									// add_to_container(self.search_container, self.filter)
 									await ui.load_item_with_spinner({
@@ -714,7 +712,7 @@ section.prototype.init = async function(options) {
 				}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('render_'+self.id, render_handler)
+				event_manager.subscribe(`render_${self.id}`, render_handler)
 			)
 
 		// quit event
@@ -842,7 +840,7 @@ section.prototype.build = async function(autoload=false) {
 			// render mode, which is retired (WC-2026-08-14-tm-ddo-mode-retired).
 			const add_show	= (self.add_show)
 				? self.add_show
-				: (self.rqo?.sqo?.mode==='tm' || self.request_config_object?.sqo?.mode==='tm') ? true : false
+				: !!(self.rqo?.sqo?.mode==='tm' || self.request_config_object?.sqo?.mode==='tm')
 			self.rqo = self.rqo || await self.build_rqo_show(
 				self.request_config_object, // object request_config_object
 				action,  // string action like 'search'
@@ -1514,7 +1512,7 @@ export const row_edit_safety = Object.freeze({
 	register_uncommitted	: (node) => register_uncommitted_input(node),
 	commit_seq				: (instance) => Number.isInteger(instance?.commit_seq) ? instance.commit_seq : 0,
 	instance_of_node		: (wrapper) => instance_of_wrapper(wrapper),
-	owned_elsewhere			: (node) => typeof node?.closest==='function' && node.closest('.' + HOVER_OVERLAY_CLASS)!==null,
+	owned_elsewhere			: (node) => typeof node?.closest==='function' && node.closest(`.${HOVER_OVERLAY_CLASS}`)!==null,
 	component_active		: () => page_globals.component_active || null,
 	service_autocomplete	: () => {
 		const service = page_globals.service_autocomplete || null
@@ -2534,7 +2532,7 @@ section.prototype.get_total = async function(sqo) {
 		const use_cache = !sqo
 
 	// already calculated case (only the default/unfiltered count is cached)
-		if (use_cache && (self.total || self.total==0)) {
+		if (use_cache && (self.total || self.total===0)) {
 			return self.total
 		}
 

@@ -675,7 +675,7 @@ class DDModal extends HTMLElement {
 	_onChromeKeydown(e) {
 		if (e.key!=='Enter' && e.key!==' ' && e.key!=='Spacebar') return;
 		e.preventDefault();
-		if (e.target && e.target.classList.contains('mini_modal')) {
+		if (e.target?.classList.contains('mini_modal')) {
 			this._miniModal(e);
 		} else {
 			this._hideModal(e);
@@ -746,7 +746,7 @@ class DDModal extends HTMLElement {
 	 * @param {string|null} oldVal - previous attribute value
 	 * @param {string|null} newVal - new attribute value ('big'|'small'|anything else → normal)
 	 */
-	attributeChangedCallback(name, oldVal, newVal) {
+	attributeChangedCallback(name, _oldVal, newVal) {
 		if (name === 'data-size' && this._modal) {
 			if (newVal === 'big') {
 				this._showModalBig();
@@ -938,7 +938,7 @@ class DDModal extends HTMLElement {
 		for (let i = 0; i < minis.length; i++) {
 			const modal = minis[i].shadowRoot?.querySelector('.modal');
 			if (!modal) continue;
-			modal.style.bottom = ((60 * i) + (5 * i + 5)) + "px";
+			modal.style.bottom = `${(60 * i) + (5 * i + 5)}px`;
 		}
 	}
 

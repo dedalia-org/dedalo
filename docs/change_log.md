@@ -39,7 +39,7 @@ Merged since the last release; these ship with the next one.
 
 - **A portal whose ontology declares an order now stores its records in that order.**
 
-    A portal column can declare a fixed order in the ontology (for example, linked records sorted by name). That order used to be applied only on screen, so exports, publication and the edit view could disagree, and dragging records inside such a portal was refused. Now every save keeps the stored list in the declared order, and editing the value a linked record is ordered by re-sorts every portal that holds it. Because the declared order is fixed, those portals cannot be reordered: for now, dragging records in such a portal, using its change-order dialog or clicking its sortable column headers shows an error and changes nothing, until the edit view is updated to offer an on-screen-only header sort (by a column you are allowed to read) instead. Lists saved before their order was declared keep their old order until they are saved again, or until an administrator runs the `portal_declared_order` reconcile (Maintenance › Reconcile). The reconcile also runs by itself once an ontology update has added or changed an order (once, after the whole update), and in the background after an order is edited in the ontology editor; stopping the update, the background process or the server stops it at the next record, and a later reconcile run finishes the job. A record it cannot save is listed in its report and does not stop the others from being sorted.
+    A portal column can declare a fixed order in the ontology (for example, linked records sorted by name). That order used to be applied only on screen, so exports, publication and the edit view could disagree, and dragging records inside such a portal was refused. Now every save keeps the stored list in the declared order, and editing the value a linked record is ordered by re-sorts every portal that holds it. Because the declared order is fixed, those portals cannot be reordered: they offer no drag handle and no change-order dialog, and the order bar above the list names the declared order. Clicking a sortable column header still sorts the list on screen only, with Reset to go back; there is no Save there. Lists saved before their order was declared keep their old order until they are saved again, or until an administrator runs the `portal_declared_order` reconcile (Maintenance › Reconcile). The reconcile also runs by itself once an ontology update has added or changed an order (once, after the whole update), and in the background after an order is edited in the ontology editor; stopping the update, the background process or the server stops it at the next record, and a later reconcile run finishes the job. A record it cannot save is listed in its report and does not stop the others from being sorted.
 
     Wire contract: `WC-2026-10-31-portal-order-model`.
 
@@ -713,9 +713,18 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
-- **The client ships the row-box module the section and portal lists will place their rows with.**
+- **Section lists, portals and the tool mosaics place their rows through one client module, the record window, with a fixed row DOM contract.**
 
-    A new client module, `core/section_record/js/record_window.js`, places the rows of a section list or a portal: exactly one row node per entry, in order, so row *i* is always the *i*-th child of its list. Above 200 rows it keeps only the rows near the screen built and stands the rest in for empty, sized placeholders, and it never discards a row that holds an unsaved or uncommitted edit. It is also part of the files the browser pre-caches. Nothing renders differently yet: the list and portal views adopt it in a later change, which will describe what users see.
+    A new client module, `core/section_record/js/record_window.js`, places the rows of every section list, every portal row view and the two tool mosaics, through one door, `window_section_rows` in `section.js`. Code that renders or reads list rows can rely on this contract (see [The row box](./core/sections/section_list.md#the-row-box)):
+
+    - `content_data.children` holds exactly one `.section_record` per entry, in order: `children[i]` is row *i* with `data-index="i"`, at every page size, 0 included. Nothing else goes into `content_data`. A "no records" node, a footer, back-references, the print notice and a portal's order indicator go into the one `.list_after` sibling (hand it over as `content_data.list_after`; `common.js` `place_list_after` places it).
+    - Table views mark their `list_body` with `layout_table`: header, `content_data` and every row are column subgrids with table roles, so each row is one box.
+    - Above 200 rows only the rows near the screen are built; the rest are childless placeholders (`.section_record.placeholder`). Find a row with `content_data.children[i]` or `row_of()`, and its entry with the window's `entry_of(i)` — never a node map of your own. `caller.ar_instances` holds the built rows only.
+    - Row gestures are delegated: one listener set per `content_data`, bound to the window's `signal` (`bind_row_drag`, `bind_tool_row_drag`, `delegate_row_hover`), never a listener per row.
+    - Any operation that replaces rows takes the owner row lock first (`common.js` `lock_rows`), which commits typed-but-uncommitted values and asks before discarding one.
+    - A portal reorder sends absolute keys: `paginated_key` is the index in the stored array; never add the paginator's offset.
+
+    The module is also part of the files the browser pre-caches.
 
     Wire contract: `WC-2026-10-30-section-record-row-box`.
 

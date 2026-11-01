@@ -200,7 +200,7 @@ const render_edit_view = async function(self, options) {
 			// dynamic try
 				const render_view = self.render_views.find(el => el.view===view && el.mode===self.mode)
 				if (render_view) {
-					const path			= render_view.path || ('./' + render_view.render +'.js')
+					const path			= render_view.path || (`./${render_view.render}.js`)
 					const render_method	= await import (path)
 					return render_method[render_view.render].render(self, options)
 				}
@@ -257,7 +257,7 @@ export const render_column_id = function(options) {
 	// button_edit. component portal caller (link)
 		const button_edit = ui.create_dom_element({
 			element_type	: 'button',
-			class_name		: 'button_edit button_view_' + self.context.view,
+			class_name		: `button_edit button_view_${self.context.view}`,
 			parent			: fragment
 		})
 		button_edit.tabIndex = -1;
@@ -274,17 +274,17 @@ export const render_column_id = function(options) {
 				: null
 
 			// open a new window
-			const url = DEDALO_CORE_URL + '/page/?' + object_to_url_vars({
+			const url = `${DEDALO_CORE_URL}/page/?${object_to_url_vars({
 				tipo			: section_tipo,
 				section_tipo	: section_tipo,
 				id				: section_id,
 				mode			: 'edit',
 				session_save	: false, // prevent to overwrite current section session
 				menu			: true
-			})
+			})}`
 			open_window({
 				url			: url,
-				name		: 'record_view_' + section_id,
+				name		: `record_view_${section_id}`,
 				features	: features,
 				on_blur : () => {
 					// refresh current instance
@@ -298,7 +298,7 @@ export const render_column_id = function(options) {
 			e.stopPropagation()
 
 			// if the user click with right mouse button stop
-				if (e.which == 3 || e.altKey===true) {
+				if (e.which === 3 || e.altKey===true) {
 					return
 				}
 			// handler
@@ -321,7 +321,7 @@ export const render_column_id = function(options) {
 			const small_css = section_id.length>5 ? ' small' : ''
 			ui.create_dom_element({
 				element_type	: 'span',
-				class_name		: 'section_id' + small_css,
+				class_name		: `section_id${small_css}`,
 				text_content	: section_id,
 				parent			: button_edit
 			})
@@ -399,7 +399,7 @@ const render_drag_node = function(options) {
 * @param {Function} options.release - Unholds the row (idempotent).
 * @returns {Object|null} The modal, or null when the entry carries no key.
 */
-export const open_move_to_position = function(self, index, options) {
+export const open_move_to_position = function(self, _index, options) {
 
 	// options
 		const entry		= options.entry
@@ -549,7 +549,7 @@ export const render_column_component_info = function(options) {
 		)
 		if (component_info) {
 
-			const info_value = component_info.value && component_info.value.length
+			const info_value = component_info.value?.length
 				? component_info.value.join(', ')
 				: null
 
@@ -612,7 +612,6 @@ export const render_column_remove = function(options) {
 	// options
 		const self			= options.caller
 		const row_key		= options.row_key
-		const paginated_key	= options.paginated_key
 		const section_id	= options.section_id
 		const section_tipo	= options.section_tipo
 
@@ -655,7 +654,7 @@ export const render_column_remove = function(options) {
 					ui.create_dom_element({
 						element_type	: 'span',
 						class_name		: 'label',
-						inner_html		: (get_label.delete || 'Delete') + ` ID: ${render_value(section_id, 'text')} <span class="note">[${render_value(section_tipo, 'text')}]</span>`,
+						inner_html		: `${get_label.delete || 'Delete'} ID: ${render_value(section_id, 'text')} <span class="note">[${render_value(section_tipo, 'text')}]</span>`,
 						parent			: header
 					})
 
@@ -755,7 +754,7 @@ export const render_column_remove = function(options) {
 							delete_diffusion_records_checkbox.checked	= true
 							self.delete_diffusion_records				= true
 							// change event
-							delete_diffusion_records_checkbox.addEventListener('change', (e) => {
+							delete_diffusion_records_checkbox.addEventListener('change', (_e) => {
 								self.delete_diffusion_records = delete_diffusion_records_checkbox.checked
 							})
 							// append node
@@ -836,7 +835,7 @@ export const render_column_remove = function(options) {
 					when_in_dom(button_unlink_record, focus_the_button)
 
 				// data pagination offset. Check and update self data to allow save API request return the proper paginated data
-					const key = parseInt(row_key)
+					const key = parseInt(row_key, 10)
 					if (key===0 && self.data.pagination?.offset>0) {
 						const next_offset = (self.data.pagination.offset - self.data.pagination.limit)
 						// set before exec API request on Save
@@ -1430,7 +1429,7 @@ export const render_order_indicator = function(self) {
 	// order_indicator
 		const order_indicator = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'order_indicator ' + (view_order ? 'temporary' : 'declared')
+			class_name		: `order_indicator ${view_order ? 'temporary' : 'declared'}`
 		})
 		order_indicator.setAttribute('role', 'group')
 
@@ -1438,7 +1437,7 @@ export const render_order_indicator = function(self) {
 		const text = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'order_text',
-			text_content	: order_label + ': ',
+			text_content	: `${order_label}: `,
 			parent			: order_indicator
 		})
 		const spoken = []
@@ -1451,13 +1450,13 @@ export const render_order_indicator = function(self) {
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'order_column',
-					text_content	: column_label + ' ',
+					text_content	: `${column_label} `,
 					parent			: text
 				})
 			}
 			const direction_node = ui.create_dom_element({
 				element_type	: 'span',
-				class_name		: 'order_direction ' + (entry.direction==='DESC' ? 'desc' : 'asc'),
+				class_name		: `order_direction ${entry.direction==='DESC' ? 'desc' : 'asc'}`,
 				text_content	: entry.direction==='DESC' ? '↓' : '↑',
 				title			: direction_label(entry.direction),
 				parent			: text
@@ -1465,7 +1464,7 @@ export const render_order_indicator = function(self) {
 			direction_node.setAttribute('aria-hidden', 'true')
 			spoken.push( [column_label, direction_label(entry.direction)].filter(Boolean).join(' ') )
 		})
-		const group_name = order_label + ': ' + spoken.join(', ')
+		const group_name = `${order_label}: ${spoken.join(', ')}`
 		order_indicator.setAttribute('aria-label', group_name)
 
 	// actions. Only on a temporary view order
@@ -1477,7 +1476,7 @@ export const render_order_indicator = function(self) {
 						element_type	: 'button',
 						class_name		: 'order_save light',
 						text_content	: get_label.save || 'Save',
-						title			: (get_label.save || 'Save') + ' · ' + group_name,
+						title			: `${get_label.save || 'Save'} · ${group_name}`,
 						parent			: order_indicator
 					})
 					button_save.addEventListener('click', (e) => {
@@ -1491,7 +1490,7 @@ export const render_order_indicator = function(self) {
 					element_type	: 'button',
 					class_name		: 'order_reset ghost',
 					text_content	: get_label.reset || 'Reset',
-					title			: (get_label.reset || 'Reset') + ' · ' + group_name,
+					title			: `${get_label.reset || 'Reset'} · ${group_name}`,
 					parent			: order_indicator
 				})
 				button_reset.addEventListener('click', (e) => {

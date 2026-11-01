@@ -94,6 +94,7 @@ The SQO is the query language, but not every SQO is equally trusted. **A client-
   - **section_tipo** : `string` name of the section to order by **optional**
   - **column_name** : `string` name of the column to order by **optional**
   - **column_values** : `array` array that defines the order of the values **optional**
+- **view_order** : `object || null` a portal read's temporary display order, `{"tipo": <column tipo>, "direction": "ASC" || "DESC"}`; never written; ignored by every non-portal read (see [view_order](#view_order)) **optional**
 - **filter_by_locators** : `array of objects` pins the search to an explicit locator set; every object is a [locator](locator.md). The array ORDER is preserved in the result only when the SQO also carries the `{"mode":"locator_position"}` order entry (see [order](#order)) — without it rows come back in the default `section_id ASC`. Client lists are clamped to 1000 pins (loud server log on truncation). **optional** ex : `[{"section_tipo":"oh1", "section_id":8},{"section_tipo":"oh1", "section_id":3}]`
 - **allow_sub_select_by_id** : `bool` (true || false) create a sub-select in the SQL query that passes the filter and gets the id to select the main section. Default : true **optional** .
 - **children_recursive** : `bool` (true || false) filter the hierarchy term and get all children nodes that depend on the searched term. Default : false  **optional** — see [Recursive children](#recursive-children).
@@ -1613,6 +1614,35 @@ LEFT JOIN (VALUES ('numisdata4',5,1),('numisdata4',3,2),('numisdata4',1,3)) as x
 ORDER BY x.ordering ASC
 LIMIT 10
 ```
+
+### view_order
+
+The temporary display order of a [component_portal](components/component_portal.md#the-order-model)
+read — what a click on a portal column header sends. The server orders the
+portal's **full** locator list by that one column before paginating, and writes
+nothing. Each emitted locator's `paginated_key` stays its index in the stored
+array, so a reorder sent while a view order is shown still addresses the right
+item.
+
+```json
+"sqo": {
+    "section_tipo": ["rsc197"],
+    "limit": 10,
+    "offset": 0,
+    "view_order": { "tipo": "rsc85", "direction": "ASC" }
+}
+```
+
+- **Shape.** A strict object; `direction` is `ASC` or `DESC` (the spelling of the
+  [order](#order) clause). Absent or `null` means no view order; any other shape
+  is refused at the wire.
+- **Column gate.** `tipo` must be a `show.ddo_map` column of the portal's own
+  edit config declaring `sort_by_column: true`, and the user must be able to read
+  every step of the column's order path (for a relation column, each hop to the
+  value it sorts on). Otherwise the read is refused (`request.invalid_data`) —
+  whatever the record holds, an empty portal included.
+- It is honoured on a portal with a declared `order` too; only *saving* it is
+  refused there.
 
 ### filter_by_locators
 

@@ -83,17 +83,17 @@
 
 
 // imports
-	import {window_section_rows, build_section_record_for} from '../../../core/section/js/section.js'
 	import {place_list_after} from '../../../core/common/js/common.js'
-	import {delegate_row_hover} from '../../../core/section_record/js/row_hover.js'
 	import {ui} from '../../../core/common/js/ui.js'
+	import {bind_tool_row_drag} from '../../../core/component_portal/js/drag_and_drop.js'
 	import {
-		render_column_id,
-		get_buttons,
 		activate_autocomplete,
+		get_buttons,
+		render_column_id,
 		render_list_after
 	} from '../../../core/component_portal/js/render_edit_component_portal.js'
-	import {bind_tool_row_drag} from '../../../core/component_portal/js/drag_and_drop.js'
+	import {build_section_record_for, window_section_rows } from '../../../core/section/js/section.js'
+	import {delegate_row_hover} from '../../../core/section_record/js/row_hover.js'
 
 
 

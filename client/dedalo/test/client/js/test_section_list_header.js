@@ -61,8 +61,8 @@
  * Backend-free: a synthetic grid with the real classes and the real stylesheet.
  */
 
-import { create_record_window } from '../../../core/section_record/js/record_window.js';
 import { ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
+import { create_record_window } from '../../../core/section_record/js/record_window.js';
 
 // the compiled stylesheet the suite frame must load, resolved from this module
 // (js/ → client/ → test/ → dedalo/ → core/page/css/main.css)
@@ -125,7 +125,7 @@ const wait_for = async (predicate, timeout_ms = 3000) => {
  */
 const make_header_cell = (doc, label, sub_labels) => {
 	const cell = doc.createElement('div');
-	cell.className = 'head_column' + (sub_labels ? ' with_sub_header' : '');
+	cell.className = `head_column${sub_labels ? ' with_sub_header' : ''}`;
 
 	const name = doc.createElement('span');
 	name.className = 'name';
@@ -219,7 +219,7 @@ const window_placeholder = async (doc) => {
 		generation: 1,
 		container: content_data,
 		rows: Array.from({ length: ROW_WINDOW_MAX_ROWS + 1 }, (_, i) => ({ section_id: i + 1 })),
-		build: async (entry, index) => ({
+		build: async (_entry, index) => ({
 			instance: { status: 'built', destroy: async () => {} },
 			node: make_row(doc, [36, 36, 36], index),
 		}),
@@ -412,7 +412,7 @@ const find_rules = (style_sheets, selector) => {
 		let rules;
 		try {
 			rules = sheet.cssRules;
-		} catch (error) {
+		} catch (_error) {
 			continue; // cross-origin sheet: nothing of ours
 		}
 		if (rules) {
@@ -454,7 +454,7 @@ const find_media_rules = (style_sheets, selector) => {
 		let rules;
 		try {
 			rules = sheet.cssRules;
-		} catch (error) {
+		} catch (_error) {
 			continue; // cross-origin sheet: nothing of ours
 		}
 		if (rules) {
@@ -545,7 +545,7 @@ const hover_ring_sources = (win, element) => {
 						if (element.matches(base)) {
 							found.push(part);
 						}
-					} catch (error) {
+					} catch (_error) {
 						// a selector the element API cannot evaluate is no ring of ours
 					}
 				}
@@ -559,7 +559,7 @@ const hover_ring_sources = (win, element) => {
 		let rules;
 		try {
 			rules = sheet.cssRules;
-		} catch (error) {
+		} catch (_error) {
 			continue; // cross-origin sheet: nothing of ours
 		}
 		if (rules) {
@@ -587,7 +587,7 @@ const open_frame = async (width) => {
 		new_frame.addEventListener('load', resolve, { once: true }),
 	);
 	document.body.appendChild(new_frame);
-	if (!new_frame.contentDocument || new_frame.contentDocument.readyState !== 'complete') {
+	if (new_frame.contentDocument?.readyState !== 'complete') {
 		await Promise.race([frame_loaded, new Promise((resolve) => setTimeout(resolve, 5000))]);
 	}
 
@@ -604,7 +604,7 @@ const open_frame = async (width) => {
 	const ready = await wait_for(() => {
 		try {
 			return doc.styleSheets.length > 0 && doc.styleSheets[0].cssRules.length > 0;
-		} catch (error) {
+		} catch (_error) {
 			return false;
 		}
 	}, 8000);
@@ -694,7 +694,7 @@ const emulate_print = (doc) => {
 		let rules;
 		try {
 			rules = sheet.cssRules;
-		} catch (error) {
+		} catch (_error) {
 			continue; // cross-origin sheet: nothing of ours
 		}
 		for (const rule of Array.from(rules || [])) {
@@ -931,7 +931,7 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 
 		// every built row's cells sit on the header's tracks (1px)
 		const cells = header_cells(grid);
-		built_rows(grid).forEach((row, row_index) => {
+		built_rows(grid).forEach((_row, row_index) => {
 			row_cells(grid, row_index).forEach((cell, i) => {
 				const header_rect = cells[i].getBoundingClientRect();
 				const cell_rect = cell.getBoundingClientRect();

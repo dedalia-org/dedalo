@@ -364,7 +364,7 @@ component_portal.prototype.init = async function(options) {
 					}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('initiator_link_' + self.id, initiator_link_handler)
+				event_manager.subscribe(`initiator_link_${self.id}`, initiator_link_handler)
 			)
 
 		// initiator_unlink. Observes user click over list record to remove from portal
@@ -390,7 +390,7 @@ component_portal.prototype.init = async function(options) {
 					}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('initiator_unlink_' + self.id, initiator_unlink_handler)
+				event_manager.subscribe(`initiator_unlink_${self.id}`, initiator_unlink_handler)
 			)
 
 		// link_terms. Observes the term picker's CONFIRMED selection
@@ -423,7 +423,7 @@ component_portal.prototype.init = async function(options) {
 
 						// empty tag_id is allowed too
 						// add tag_id. Note that 'self.active_tag' is an object with 3 properties (caller, text_editor and tag)
-							const tag_id = self.active_tag && self.active_tag.tag
+							const tag_id = self.active_tag?.tag
 								? self.active_tag.tag.tag_id || null
 								: null
 							if (!tag_id) {
@@ -742,9 +742,6 @@ component_portal.prototype.build = async function(autoload=false) {
 
 	const self = this
 
-	// previous status
-		const previous_status = clone(self.status)
-
 	// status update
 		self.status = 'building'
 
@@ -770,7 +767,7 @@ component_portal.prototype.build = async function(autoload=false) {
 					: {}
 			}else{
 				// Context is available: use the server-resolved request_config from context.
-				self.request_config_object	= self.context && self.context.request_config
+				self.request_config_object	= self.context?.request_config
 					? self.context.request_config.find(el => el.api_engine==='dedalo' && el.type==='main')
 					: {}
 			}
@@ -927,7 +924,7 @@ component_portal.prototype.build = async function(autoload=false) {
 
 						self.rqo.sqo.limit = request_config_item.sqo.limit
 					}
-					else if (request_config_item.show && request_config_item.show.sqo_config &&
+					else if (request_config_item.show?.sqo_config &&
 							(request_config_item.show.sqo_config.limit || request_config_item.show.sqo_config.limit===0)) {
 
 						self.rqo.sqo.limit = request_config_item.show.sqo_config.limit
@@ -991,7 +988,7 @@ component_portal.prototype.build = async function(autoload=false) {
 							})
 						}
 						self.events_tokens.push(
-							event_manager.subscribe('paginator_goto_'+self.paginator.id, paginator_goto_handler)
+							event_manager.subscribe(`paginator_goto_${self.paginator.id}`, paginator_goto_handler)
 						)
 
 

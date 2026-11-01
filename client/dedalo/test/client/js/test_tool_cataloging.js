@@ -1,7 +1,6 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*global it, describe, assert, DD_TIPOS */
 /*eslint no-undef: "error"*/
-'use strict';
 
 /**
  * TEST_TOOL_CATALOGING
@@ -37,9 +36,9 @@ import {event_manager} from '../../../core/common/js/event_manager.js'
 import {section} from '../../../core/section/js/section.js'
 import {tool_cataloging} from '../../../tools/tool_cataloging/js/tool_cataloging.js'
 import {
+	compute_used_keys,
 	get_catalog_target_tipos,
 	is_used,
-	compute_used_keys,
 	locator_key,
 	mark_used_row,
 	refresh_used_state,
@@ -146,13 +145,13 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 		content_data.className = 'content_data'
 		rows.forEach((row, i) => {
 			const tile = document.createElement('div')
-			tile.className = 'section_record' + (i===placeholder_at ? ' placeholder' : '')
+			tile.className = `section_record${i===placeholder_at ? ' placeholder' : ''}`
 			tile.dataset.index = String(i)
 			if (i!==placeholder_at) {
 				const column = document.createElement('div')
 				column.className = 'column column_drag'
 				const dragger = document.createElement('div')
-				dragger.className = 'dragger' + (row.used ? ' used' : '')
+				dragger.className = `dragger${row.used ? ' used' : ''}`
 				column.appendChild(dragger)
 				tile.appendChild(column)
 			}

@@ -289,7 +289,8 @@ const spy_api = (instance) => {
 					return refused('sort_by_column');
 				}
 				const read = json_clone(instance.rqo);
-				delete read.sqo.view_order;
+				const { view_order: _read_view_order, ...read_sqo } = read.sqo;
+				read.sqo = read_sqo;
 				return original.call(data_manager, { ...options, body: read });
 			}
 			spy.writes.push(json_clone(body));
@@ -305,7 +306,8 @@ const spy_api = (instance) => {
 					return refused('view_order read');
 				}
 				const stripped = json_clone(body);
-				delete stripped.sqo.view_order;
+				const { view_order: _stripped_view_order, ...stripped_sqo } = stripped.sqo;
+				stripped.sqo = stripped_sqo;
 				const answer = view_ordered_answer(await original.call(data_manager, { ...options, body: stripped }));
 				spy.view_answers.push(answer);
 				return answer;

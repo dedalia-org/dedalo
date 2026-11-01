@@ -5,23 +5,23 @@
 
 
 // imports
-	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {place_list_after} from '../../../core/common/js/common.js'
-	import {window_section_rows, build_section_record_for} from '../../../core/section/js/section.js'
-	import {delegate_row_hover} from '../../../core/section_record/js/row_hover.js'
-	import {bind_tool_row_drag} from '../../../core/component_portal/js/drag_and_drop.js'
-	import {render_list_after} from '../../../core/section/js/render_common_section.js'
+	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {ui} from '../../../core/common/js/ui.js'
+	import {bind_tool_row_drag} from '../../../core/component_portal/js/drag_and_drop.js'
 	import {set_element_css} from '../../../core/page/js/css.js'
-	import {
-		get_catalog_target_tipos,
-		compute_used_keys,
-		locator_key,
-		mark_used_row
-	} from './used_state.js'
+	import {render_list_after} from '../../../core/section/js/render_common_section.js'
 	import {
 		render_column_id
 	} from '../../../core/section/js/render_list_section.js'
+	import {build_section_record_for, window_section_rows } from '../../../core/section/js/section.js'
+	import {delegate_row_hover} from '../../../core/section_record/js/row_hover.js'
+	import {
+		compute_used_keys,
+		get_catalog_target_tipos,
+		locator_key,
+		mark_used_row
+	} from './used_state.js'
 
 
 
