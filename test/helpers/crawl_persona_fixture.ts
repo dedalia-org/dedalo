@@ -17,13 +17,24 @@
  *   948101 / 948102 matrix_test      CRAWL_EDIT_SECTION records in project A / B
  *
  * Ids explicit, swept by (section_tipo, section_id) as acl_identity_fixture.ts
- * does — no counter touched. Every level the crawler EXPECTS is read back through
- * the real doors (getPermissions, isRecordInScope), never from these constants:
- * the constants only shape the situation.
+ * does. Every level the crawler EXPECTS is read back through the real doors
+ * (getPermissions, isRecordInScope), never from these constants: the constants
+ * only shape the situation.
+ *
+ * (!) WRITTEN THROUGH THE ENGINE'S EXPLICIT-ID DOOR (insertMatrixRecordWithExplicitId),
+ * which RAISES each section's counter to the id (GREATEST, P0-14). A raw INSERT left
+ * the counter below the rows, and a journey's run-created sweep
+ * (run_created_records.ts: "every row ABOVE the counter mark") then deleted the
+ * fixture's own test3 records mid-crawl — invisible on a long-lived suite DB whose
+ * test3 counter already stood above 948102, red on every fresh one (CI). Gate:
+ * feature_crawl_tripwire leg 4b.
  */
 
-import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
-import { deleteMatrixRecord } from '../../src/core/db/matrix_write.ts';
+import type { MatrixJsonbColumn } from '../../src/core/db/matrix.ts';
+import {
+	deleteMatrixRecord,
+	insertMatrixRecordWithExplicitId,
+} from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getSectionRealTipo } from '../../src/core/ontology/resolver.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
@@ -87,24 +98,18 @@ const text = (tipo: string, value: string, lang = 'lg-eng') => ({
 	[tipo]: [{ id: 1, lang, value }],
 });
 
-async function insert(
+/**
+ * The engine's explicit-id door: the row lands at `sectionId` AND the counter rises to it.
+ * Exported so the gate can prove that property on a zero-counter scratch tipo — on a
+ * long-lived suite DB the owned sections' counters already stand past the ids.
+ */
+export async function insert(
 	table: string,
 	sectionTipo: string,
 	sectionId: number,
-	columns: Record<string, unknown>,
+	columns: Partial<Record<MatrixJsonbColumn, unknown>>,
 ): Promise<void> {
-	const names = ['"section_tipo"', '"section_id"'];
-	const marks = ['$1', '$2'];
-	const params: (string | number)[] = [sectionTipo, sectionId];
-	for (const [column, value] of Object.entries(columns)) {
-		names.push(`"${column}"`);
-		marks.push(`$${params.length + 1}::text::jsonb`);
-		params.push(encodeForJsonb(value));
-	}
-	await sql.unsafe(
-		`INSERT INTO "${table}" (${names.join(', ')}) VALUES (${marks.join(', ')})`,
-		params,
-	);
+	await insertMatrixRecordWithExplicitId(table, sectionTipo, sectionId, columns);
 }
 
 /**
@@ -135,6 +140,13 @@ async function ancestorAreas(sectionTipo: string): Promise<string[]> {
 
 type Grant = { tipo: string; section_tipo: string; value: number };
 const grantRows = (grants: Grant[]) => grants.map((g, i) => ({ id: i + 1, ...g }));
+
+/** Every row the fixture owns — the gate checks each survives a run-created sweep. */
+export const CRAWL_FIXTURE_ROWS: readonly {
+	table: string;
+	sectionTipo: string;
+	sectionId: number;
+}[] = OWNED;
 
 export async function installCrawlPersonaFixture(): Promise<void> {
 	await assertTestDatabase('installCrawlPersonaFixture');

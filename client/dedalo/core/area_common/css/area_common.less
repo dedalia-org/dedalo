@@ -197,6 +197,9 @@
 
 		.area_dashboard_chart_switcher {
 			display: inline-flex;
+			// phone width: the segments wrap (Bar/Pie/Treemap/Sunburst in one row is
+			// wider than 360px with Linux font metrics and widened every area page)
+			flex-wrap: wrap;
 			background: var(--bg_input);
 			border: 1px solid var(--border_default);
 			border-radius: 0.375rem;

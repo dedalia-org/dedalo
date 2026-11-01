@@ -153,6 +153,67 @@ describe('crawl personas (suite DB)', () => {
 		expect(await principalCanAccessRecord(s, fixture.CRAWL_RECORD_IN_B, editor)).toBe(false);
 		expect(await principalCanAccessRecord(s, fixture.CRAWL_RECORD_IN_B, admin)).toBe(true);
 	});
+
+	// 4b. A journey arms a run-created sweep (feature_crawl armSweep → "every row ABOVE
+	// the counter mark") on test3 mid-crawl. The fixture's explicit-id rows must lie at
+	// or below every such mark, or the sweep eats them (CI 2026-11-01: fresh suite DB,
+	// test3 counter below 948101 → the editor persona lost both records). Non-vacuous
+	// on a fresh suite DB (CI); a long-lived one whose counter already passed the ids
+	// cannot show the defect.
+	test('an armed run-created sweep never removes a fixture row', async () => {
+		const { armRunCreatedSweep } = await import('../../src/core/test_data/run_created_records.ts');
+		const { sql } = await import('../../src/core/db/postgres.ts');
+		const rows = fixture.CRAWL_FIXTURE_ROWS;
+		expect(rows.length).toBeGreaterThan(0);
+		for (const tipo of new Set(rows.map((r) => r.sectionTipo))) {
+			const table = rows.find((r) => r.sectionTipo === tipo)?.table as string;
+			const sweeper = await armRunCreatedSweep(tipo, table);
+			for (const r of rows.filter((x) => x.sectionTipo === tipo))
+				expect(`${tipo}:${r.sectionId}<=${sweeper.mark}`).toBe(
+					`${tipo}:${r.sectionId}<=${Math.max(sweeper.mark, r.sectionId)}`,
+				);
+			// the outcome on the section the journeys really sweep (test3); the other
+			// sections' marks are asserted above without deleting their stray rows
+			if (tipo === fixture.CRAWL_EDIT_SECTION) await sweeper.sweep();
+		}
+		for (const r of rows) {
+			const found = await sql.unsafe(
+				`SELECT 1 FROM "${r.table}" WHERE section_tipo = $1 AND section_id = $2`,
+				[r.sectionTipo, r.sectionId],
+			);
+			expect(`${r.table}/${r.sectionTipo}/${r.sectionId}:${found.length}`).toBe(
+				`${r.table}/${r.sectionTipo}/${r.sectionId}:1`,
+			);
+		}
+	});
+
+	// 4c. The leg above cannot discriminate once a run raised the owned counters past the
+	// ids (they never come down). The PROPERTY it rests on — the fixture's write door
+	// raises the counter to the row it writes — is proven here on every DB: a scratch tipo
+	// with no counter, one row at a high explicit id, then the sweep armed at its mark.
+	test("the fixture's write door raises the counter to the id it writes (scratch tipo)", async () => {
+		const { armRunCreatedSweep, runCounterMark } = await import(
+			'../../src/core/test_data/run_created_records.ts'
+		);
+		const { cleanScratchTipo } = await import('../helpers/test_data.ts');
+		const { sql } = await import('../../src/core/db/postgres.ts');
+		const tipo = 'zzcrawlfix1';
+		await cleanScratchTipo(tipo);
+		try {
+			expect(await runCounterMark(tipo)).toBe(0);
+			await fixture.insert('matrix_test', tipo, 948777, {});
+			expect(await runCounterMark(tipo)).toBe(948777);
+			const sweeper = await armRunCreatedSweep(tipo, 'matrix_test');
+			await sweeper.sweep();
+			const found = await sql.unsafe(
+				'SELECT 1 FROM matrix_test WHERE section_tipo = $1 AND section_id = 948777',
+				[tipo],
+			);
+			expect(found.length).toBe(1);
+		} finally {
+			await cleanScratchTipo(tipo);
+		}
+	});
 });
 
 describe('one suite run at a time — the suite run lock', () => {

@@ -129,7 +129,7 @@ Merged since the last release; these ship with the next one.
 
 - **Area dashboards, the thesaurus and ontology toolbars, the Maintenance map and the edit inspector fit a phone screen.**
 
-    On a narrow screen (about 360 pixels wide) these pages were wider than the screen, so the whole page, menu included, scrolled sideways. Their toolbars, chart headers and legends now wrap onto a second line, the record title in the inspector is shortened with an ellipsis, and the Maintenance system map scrolls inside its own frame.
+    On a narrow screen (about 360 pixels wide) these pages were wider than the screen, so the whole page, menu included, scrolled sideways. Their toolbars, chart headers, chart-type switchers and legends now wrap onto a second line, the Maintenance tool buttons and forms wrap inside their panel, the record title in the inspector is shortened with an ellipsis, and the Maintenance system map scrolls inside its own frame.
 
 - **A field whose save failed is no longer forgotten — it stays marked unsaved and is saved again.**
 
@@ -562,6 +562,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A code update on an installation without an ontology server no longer stops in "needs a database restore".**
+
+    A release that declares no update steps of its own runs the default ones; its ontology step is skipped, and recorded, when the installation has no ontology server configured (`ONTOLOGY_SERVERS=[]`). The master's update list lost that distinction on the way to the installation, so the installation treated the step as required: after the new code started, the ontology step failed and the update ended asking for a database restore. The installation now receives it and skips the step as intended. An update refused for want of a recent, restorable database backup again says which backup did not verify and why, and is reported as a refusal: make a backup (or waive it) and start again. A refused archive (its checksum does not match the one the code server publishes) is also reported as a refusal with its reason, no longer as a bare "code failed". And a healthy update that crosses the data model no longer logs "NOT CONFIRMED — NEEDS A HUMAN … a migration failed" when it starts that step: the log now says the rollback is disarmed until the update confirms.
+
+    Wire contract: `WC-2026-11-01-update-plan-declared`.
+
 - **The data update refuses a step meant for a newer version than the running code.**
 
     A development or nightly build could already list the data update of the next release and run it. The database then stood at a newer data version than the code serving it, and the health check turned red. "Update data" now refuses such a step before running anything and says which code version it needs. Install a build of that version first.
@@ -778,7 +784,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 42 entries"
+??? note "Wire contract — 43 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -822,6 +828,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-31-transliterate-value-emitted`
     - `WC-2026-10-31-update-rung-above-code`
     - `WC-2026-11-01-menu-dead-area`
+    - `WC-2026-11-01-update-plan-declared`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

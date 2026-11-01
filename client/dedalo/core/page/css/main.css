@@ -13680,6 +13680,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_dashboard .area_dashboard_chart .area_dashboard_chart_switcher {
   display: inline-flex;
+  flex-wrap: wrap;
   background: var(--bg_input);
   border: 1px solid var(--border_default);
   border-radius: 0.375rem;
@@ -15433,6 +15434,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_maintenance > .content_data.maintenance_v2 .map_view_switch {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem 0;
@@ -15791,6 +15793,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-radius: 13px;
   box-shadow: 0 1px 3px var(--shadow_default);
   overflow: visible;
+  contain: inline-size;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_head {
   display: flex;
