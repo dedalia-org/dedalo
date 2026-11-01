@@ -107,20 +107,43 @@ export const TOOL_ROW_SOURCES = Object.freeze(new Map([
 
 
 /**
-* HAS_DECLARED_ORDER
+* DECLARED_ORDER_OF
 * The server emits `context.declared_order` ([{tipo, direction}], absent when none):
 * the ONE authority for "this portal's order is the ontology's". It is read ONLY
-* here: every client caller asks this function, never `declared_order` itself
-* (census in test/unit/client_relation_move_native.test.ts: a read of
+* here: every client caller asks this function (the order indicator, for the
+* columns it names) or `has_declared_order` (the gates), never `declared_order`
+* itself (census in test/unit/client_relation_move_native.test.ts: a read of
 * `declared_order` anywhere else under client/ or tools/ ** /js is red).
+* @param {Object} self - component_portal instance
+* @returns {Array<{tipo:string, direction:string}>} the declared entries, [] when none
+*/
+export const declared_order_of = function(self) {
+	const declared = self?.context?.declared_order
+	if (!Array.isArray(declared)) {
+		// a non-array truthy value still means "declared" (column unknown)
+		return declared
+			? [{tipo: null, direction: null}]
+			: []
+	}
+	return declared
+		.filter(el => el && typeof el==='object')
+		.map(el => ({
+			tipo		: typeof el.tipo==='string' ? el.tipo : null,
+			direction	: el.direction==='DESC' ? 'DESC' : 'ASC'
+		}))
+}//end declared_order_of
+
+
+
+/**
+* HAS_DECLARED_ORDER
+* The gates' question: does the server declare an ontology order on this portal?
+* (`declared_order_of` is the one reader of the server field.)
 * @param {Object} self - component_portal instance
 * @returns {boolean}
 */
 const has_declared_order = function(self) {
-	const declared = self?.context?.declared_order
-	return Array.isArray(declared)
-		? declared.length > 0
-		: Boolean(declared)
+	return declared_order_of(self).length > 0
 }//end has_declared_order
 
 
@@ -812,6 +835,28 @@ const claim_row_binding = function(content_data, record_window, binder) {
 
 
 /**
+* INNERMOST_ROW_BINDING
+* Whether `content_data` is the innermost LIVE row binding around `element`: no other
+* bound content_data (a nested portal's rows, still under a live window) lies between
+* them. A capture-phase listener runs outer-first, so it asks this before acting on a
+* tap that may belong to a nested list.
+* @param {HTMLElement} content_data
+* @param {HTMLElement} element - the event's element (inside content_data)
+* @returns {boolean}
+*/
+const innermost_row_binding = function(content_data, element) {
+	for (let node = element; node && node!==content_data; node = node.parentElement) {
+		const nested = bound_row_windows.get(node)
+		if (nested && !nested.signal?.aborted) {
+			return false
+		}
+	}
+	return true
+}//end innermost_row_binding
+
+
+
+/**
 * BIND_ROW_DRAG
 * Delegated drag/drop for the rows of one portal `content_data`: ONE listener set,
 * registered with the row window's AbortSignal (retire/destroy removes it).
@@ -823,6 +868,13 @@ const claim_row_binding = function(content_data, record_window, binder) {
 * (a view_order set after render turns the source off without a re-stamp).
 *
 * TARGETS: every row, placeholders included (their entry exists in the window).
+*
+* TOUCH (touch_pick): the PICK (a tap on a source) listens in the bubble phase, after
+* the row's own controls; the PLACE (a tap on a row while a pick is held) listens in
+* the CAPTURE phase: a row is mostly cells, and a list-mode component cell swallows
+* its click (it stops propagation to activate itself), so a bubble-phase PLACE never
+* heard the most natural tap on a phone. Capture is outer-first, so the PLACE leaves
+* a tap inside a nested BOUND list to that list (`innermost_row_binding`).
 *
 * @param {Object} self - component_portal instance owning the rows
 * @param {HTMLElement} content_data
@@ -982,33 +1034,41 @@ export const bind_row_drag = function(self, content_data, options={}) {
 			}
 		}, listener_options)
 
-	// touch: tap to pick, tap to place (touch_pick.js)
+	// touch PLACE: a pick is held, a row is tapped (touch_pick.js). CAPTURE phase:
+	// before any cell of the row can swallow the click (see the header)
 		content_data.addEventListener('click', function(event) {
-			if (!touch_pick.is_touch()) {
+			if (!touch_pick.is_touch() || !touch_pick.active()) {
+				return
+			}
+			const element = event_element(event)
+			if (!element || !innermost_row_binding(content_data, element)) {
+				return // a nested bound list decides its own rows
+			}
+			const hit = row_of(content_data, element)
+			if (!hit) {
+				return
+			}
+			// decide on a PEEK: consuming a foreign pick here would cancel it before
+			// it reached its own receiver (coins slot, term)
+			const payload	= parse_payload(touch_pick.peek())
+			const decision	= decide_drop(self, payload, hit.index)
+			if (!decision) {
+				return
+			}
+			event.preventDefault()
+			event.stopPropagation()
+			on_drop(hit.node, touch_pick.as_drop_event(), {caller: self, index: hit.index})
+		}, {...listener_options, capture: true})
+
+	// touch PICK: a tap on a source (bubble phase: after the row's own controls)
+		content_data.addEventListener('click', function(event) {
+			if (!touch_pick.is_touch() || touch_pick.active()) {
 				return
 			}
 			const element = event_element(event)
 			if (!element) {
 				return
 			}
-			// PLACE: a pick is held. Decide on a PEEK: consuming a foreign pick here
-			// would cancel it before it reached its own receiver (coins slot, term).
-			if (touch_pick.active()) {
-				const hit = row_of(content_data, element)
-				if (!hit) {
-					return
-				}
-				const payload	= parse_payload(touch_pick.peek())
-				const decision	= decide_drop(self, payload, hit.index)
-				if (!decision) {
-					return
-				}
-				event.preventDefault()
-				event.stopPropagation()
-				on_drop(hit.node, touch_pick.as_drop_event(), {caller: self, index: hit.index})
-				return
-			}
-			// PICK: a tap on a source
 			const hit = resolve_source_row(content_data, record_window, event, source)
 			if (!hit || (source==='row' && is_tap_on_control(element)) || !source_allowed()) {
 				return

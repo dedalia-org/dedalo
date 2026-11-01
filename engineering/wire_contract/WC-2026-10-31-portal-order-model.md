@@ -169,3 +169,43 @@
   replayed response, and no fixture portal is read under a read order, so
   `paginated_key` is unchanged in every replayed response — the frozen store replays
   byte-identical; no re-harvest needed (none possible).
+
+
+## Addendum 2026-11-01 — client half (stage O2) landed: *Client status* CLOSED
+
+The *Client status (OPEN, 2026-10-31)* paragraph above, and the "until the client half lands" /
+"Server half only — no shipped client sends it yet" sentences of items 3 and 4, describe the
+pre-O2 client and are superseded by this addendum. The SERVER contract (items 1–10) is unchanged.
+
+- **Header click = TEMPORARY `sqo.view_order`, never a write.** `common/js/ui.js` `exec_order`
+  (portal case) calls `component_portal.set_view_order({tipo, direction}, column)`; it no longer
+  sends `sort_by_column`. The offered columns are exactly `can_view_sort` (`sort_by_column: true`
+  on the ddo — a declared-order portal included). The instance property `view_order`
+  (`{tipo, direction: 'ASC'|'DESC'}` or null) is the one source: `sync_view_order_sqo` stamps it
+  as `sqo.view_order` on every EDIT-mode read rqo (the first page, every later page, a destroying
+  refresh) and removes it on clear / save. A new order starts at offset 0. Single flight: an
+  order change / reset / save is refused while another one or any other read of the portal is
+  in flight (`view_order_changing` + status `rendered`); a refused or failed change restores the
+  previous order and offset, and a read the SERVER refuses (item 4's `request.invalid_data`) is
+  re-read under the restored order, so the portal stays usable.
+- **Persist only through "save current order".** The order indicator (`.list_after >
+  .order_indicator`) shows the active view order with a reset (`clear_view_order`) and — iff
+  `can_save_view_order` (view order active, NO declared order, write permission) — a save
+  (`save_view_order` → the existing persisted `sort_by_column`, same column and direction; the
+  view order clears on success, stands on a refusal). Without a view order on a declared-order
+  portal it shows the PERMANENT declared order, no button. No new action, no new label key.
+- **A save echo is never rendered under a view order.** The echo of a link / unlink / add /
+  refused save is read in the STORED order (a save carries no `sqo`): under an edit-mode
+  `view_order` `build()` drops it and re-reads with the stamped rqo (`echo_hides_view_order`).
+- **Drag and the move-to-position (change-order) modal are gated on `can_reorder`**: no drag
+  source and no reorder under a declared order (`declared_order_of`, the ONE reader of
+  `context.declared_order`) or while a `view_order` is active. So item 3's `declared_order`
+  refusal is no longer reachable from the shipped client's header or drag handle (it remains
+  the server's guard for any other caller).
+- **Gate:** `client/dedalo/test/client/js/test_portal_order.js` (`test:client`, registered in
+  `test_registry.js` generic_suites_green): header click reads with `sqo.view_order` (offset 0)
+  and writes nothing; indicator / reset / save; pagination and refresh keep the order; link /
+  unlink re-read under it; refused / server-refused changes; single flight; declared-order
+  portal offers no save and no drag; mosaic alt table adds no second indicator. Server twin:
+  `test/unit/portal_order_native.test.ts`.
+- **Gate reconciliation:** unchanged — no frozen fixture is read under a `view_order`.

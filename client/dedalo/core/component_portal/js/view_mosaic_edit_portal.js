@@ -464,7 +464,8 @@ const open_alt_record = async function(self, index) {
 		body.appendChild(list_body)
 		const list_after = render_list_after(self, {
 			content_data	: content_data,
-			record_window	: alt_window
+			record_window	: alt_window,
+			order_indicator	: false // the main list's slot shows it (one indicator per portal)
 		})
 		if (list_after) {
 			body.appendChild(list_after)

@@ -31,7 +31,8 @@
 *    - `activate_autocomplete`      — lazily instantiates `service_autocomplete` on demand.
 *    - `build_header`               — column-header row (hidden when list is empty).
 *    - `render_references`          — read-only back-reference list for relation-related views.
-*    - `render_list_after`          — the `.list_after` slot (references, footer, error…).
+*    - `render_list_after`          — the `.list_after` slot (order indicator, references, footer, error…).
+*    - `render_order_indicator`     — the portal order indicator (temporary view order / declared order).
 *    - `add_wrapper_events`         — click-to-activate-autocomplete + the wrapper MOVE zone.
 *
 * Rows are placed by the row door (section.js window_section_rows → record_window)
@@ -82,6 +83,8 @@
 	import {
 		can_reorder,
 		can_drag_out,
+		can_save_view_order,
+		declared_order_of,
 		bind_portal_drop,
 		move_to_position_decision
 	} from './drag_and_drop.js'
@@ -130,6 +133,34 @@ render_edit_component_portal.prototype.edit = async function(options) {
 
 	const self = this
 
+	// node. The view's wrapper (full) or content_data (content)
+		const node = await render_edit_view(self, options)
+
+	// header sort arrows. Every edit render (full or content) re-syncs them with
+	// the order the rows were read in (self.view_order): a header click, a clear or
+	// a save from the order indicator alike (portal order model, stage O2)
+		const wrapper = (options?.render_level || 'full')==='content'
+			? self.node
+			: node
+		const header_wrapper = wrapper?.list_body?.querySelector?.(':scope > .header_wrapper_list') || null
+		ui.set_column_order_state(header_wrapper, self.view_order || null)
+
+
+	return node
+}//end edit
+
+
+
+/**
+* RENDER_EDIT_VIEW
+* The view dispatch of `edit`: reads `self.view` / `self.context.view` and delegates
+* to the matching view module.
+* @param {Object} self - The `component_portal` instance
+* @param {Object} options - The render options (render_level…)
+* @returns {Promise<HTMLElement>} wrapper (full) or content_data (content)
+*/
+const render_edit_view = async function(self, options) {
+
 	// view
 		const view = self.view || self.context?.view || null
 
@@ -177,7 +208,7 @@ render_edit_component_portal.prototype.edit = async function(options) {
 			return view_default_edit_portal.render(self, options)
 		}
 	}
-}//end edit
+}//end render_edit_view
 
 
 
@@ -1278,6 +1309,9 @@ export const render_references = function(ar_references) {
 * right after `list_body` (table views) or `content_data` (list views), never
 * inside `content_data` (row invariant) nor inside a `role=table` list_body
 * (WC-2026-10-30-section-record-row-box). Contents, in order:
+*   - the order indicator (`render_order_indicator`: the TEMPORARY view order with
+*     its clear / save actions, else the declared order), edit mode only, unless
+*     `parts.order_indicator===false` (the mosaic alt table: the main list shows it);
 *   - `ul.references` (component_relation_related back-references), unless
 *     `parts.references===false`;
 *   - `parts.list_footer` (indexation "Remove filter");
@@ -1295,6 +1329,7 @@ export const render_references = function(ar_references) {
 * @param {Object} [parts={}]
 * @param {HTMLElement} [parts.content_data] - The rows' container (print notice).
 * @param {Object} [parts.record_window] - Its row window handle (print notice).
+* @param {boolean} [parts.order_indicator] - `false` skips the order indicator.
 * @param {boolean} [parts.references] - `false` skips the references block.
 * @param {Node|null} [parts.list_footer]
 * @param {Node|null} [parts.error]
@@ -1304,6 +1339,14 @@ export const render_references = function(ar_references) {
 export const render_list_after = function(self, parts={}) {
 
 	const nodes = []
+
+	// order indicator. Temporary view order / declared order (edit mode)
+		if (parts.order_indicator!==false) {
+			const order_indicator = render_order_indicator(self)
+			if (order_indicator) {
+				nodes.push(order_indicator)
+			}
+		}
 
 	// references
 		const references = self.data?.references || []
@@ -1340,6 +1383,189 @@ export const render_list_after = function(self, parts={}) {
 
 	return list_after
 }//end render_list_after
+
+
+
+/**
+* RENDER_ORDER_INDICATOR
+* The portal order indicator (portal order model, stage O2 —
+* WC-2026-10-31-portal-order-model). Edit mode only:
+*   - a TEMPORARY `view_order` is active (a header click): "<Order>: <column> ↓"
+*     + a reset button (back to the saved order, = the declared order on a
+*     declared-order portal) + a save button iff `can_save_view_order` (never under a
+*     declared order: the server refuses `sort_by_column` there);
+*   - else, under a declared (ontology) order, on a non-empty list: the PERMANENT
+*     declared order, no button;
+*   - else nothing (the list shows its saved order).
+* Labels are existing keys only (order, save, reset, ascending, descending); the
+* column name is the column's own label. The direction arrow is decorative
+* (aria-hidden): the group's accessible name spells it.
+* @param {Object} self - The `component_portal` instance
+* @returns {HTMLElement|null}
+*/
+export const render_order_indicator = function(self) {
+
+	if (self.mode!=='edit') {
+		return null
+	}
+
+	// entries. The temporary view order wins; else the declared order
+		const view_order	= self.view_order || null
+		const entries		= view_order
+			? [view_order]
+			: declared_order_of(self)
+		if (entries.length===0) {
+			return null
+		}
+		if (!view_order && (self.data?.entries || []).length===0) {
+			return null // a declared order on an empty list orders nothing
+		}
+
+	// labels
+		const order_label = get_label.order || 'Order'
+		const direction_label = (direction) => direction==='DESC'
+			? (get_label.descending || 'descending')
+			: (get_label.ascending || 'ascending')
+
+	// order_indicator
+		const order_indicator = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'order_indicator ' + (view_order ? 'temporary' : 'declared')
+		})
+		order_indicator.setAttribute('role', 'group')
+
+	// text. "<Order>: <column> ↓[, <column> ↑]"
+		const text = ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'order_text',
+			text_content	: order_label + ': ',
+			parent			: order_indicator
+		})
+		const spoken = []
+		entries.forEach((entry, i) => {
+			if (i>0) {
+				text.appendChild( document.createTextNode(', ') )
+			}
+			const column_label = order_column_label(self, entry.tipo)
+			if (column_label) {
+				ui.create_dom_element({
+					element_type	: 'span',
+					class_name		: 'order_column',
+					text_content	: column_label + ' ',
+					parent			: text
+				})
+			}
+			const direction_node = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'order_direction ' + (entry.direction==='DESC' ? 'desc' : 'asc'),
+				text_content	: entry.direction==='DESC' ? '↓' : '↑',
+				title			: direction_label(entry.direction),
+				parent			: text
+			})
+			direction_node.setAttribute('aria-hidden', 'true')
+			spoken.push( [column_label, direction_label(entry.direction)].filter(Boolean).join(' ') )
+		})
+		const group_name = order_label + ': ' + spoken.join(', ')
+		order_indicator.setAttribute('aria-label', group_name)
+
+	// actions. Only on a temporary view order
+		if (view_order) {
+
+			// save current order. Never under a declared order (can_save_view_order)
+				if (can_save_view_order(self)) {
+					const button_save = ui.create_dom_element({
+						element_type	: 'button',
+						class_name		: 'order_save light',
+						text_content	: get_label.save || 'Save',
+						title			: (get_label.save || 'Save') + ' · ' + group_name,
+						parent			: order_indicator
+					})
+					button_save.addEventListener('click', (e) => {
+						e.stopPropagation()
+						run_order_action(button_save, () => self.save_view_order())
+					})
+				}
+
+			// reset. Back to the saved (or declared) order
+				const button_reset = ui.create_dom_element({
+					element_type	: 'button',
+					class_name		: 'order_reset ghost',
+					text_content	: get_label.reset || 'Reset',
+					title			: (get_label.reset || 'Reset') + ' · ' + group_name,
+					parent			: order_indicator
+				})
+				button_reset.addEventListener('click', (e) => {
+					e.stopPropagation()
+					run_order_action(button_reset, () => self.clear_view_order())
+				})
+		}
+
+
+	return order_indicator
+}//end render_order_indicator
+
+
+
+/**
+* ORDER_COLUMN_LABEL
+* The display label of the column `tipo` (its own columns_map label, sub-columns
+* included), or '' when this portal has no such column.
+* @param {Object} self - The `component_portal` instance
+* @param {string|null} tipo
+* @returns {string}
+*/
+const order_column_label = function(self, tipo) {
+
+	if (!tipo) {
+		return ''
+	}
+
+	const find = (columns_map) => {
+		for (const column of (columns_map || [])) {
+			if (column?.tipo===tipo) {
+				return column
+			}
+			const found = find(column?.columns_map)
+			if (found) {
+				return found
+			}
+		}
+		return null
+	}
+	const column = find(self.columns_map)
+	const label = column?.label
+
+	return typeof label==='string' && label.length > 0 && label!==tipo
+		? label
+		: tipo
+}//end order_column_label
+
+
+
+/**
+* RUN_ORDER_ACTION
+* Runs one order indicator action once at a time: the button is disabled and marked
+* `loading` while it runs (its own node is replaced by the re-render on success).
+* @param {HTMLButtonElement} button
+* @param {Function} action - async; its failures are logged, never thrown at the listener
+* @returns {Promise<void>}
+*/
+const run_order_action = async function(button, action) {
+
+	if (button.disabled) {
+		return
+	}
+	button.disabled = true
+	button.classList.add('loading')
+	try {
+		await action()
+	} catch (error) {
+		console.error('Order action failed:', error)
+	} finally {
+		button.disabled = false
+		button.classList.remove('loading')
+	}
+}//end run_order_action
 
 
 

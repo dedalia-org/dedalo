@@ -23,6 +23,14 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Sorting a portal by a column header is now a temporary view; **Save** makes it the stored order.**
+
+    Before, clicking the sort arrow of a portal column header (on columns configured with `sort_by_column`) reordered the linked records and saved that order at once. Now the click only changes how the list is shown: every page follows the chosen column and direction, and nothing is written. A line under the list shows the active order ("Order: <column> ↓") with two buttons: **Save** stores the shown order as the portal's order (recorded in Time Machine, as before), and **Reset** returns to the saved order. While a temporary order is shown, rows cannot be dragged; they can again after Save or Reset. Linking, unlinking or adding a record keeps the temporary order. Users with read-only access can sort the view and reset it, but not save it.
+
+    On a portal whose ontology declares a permanent order, the same line shows that order. A header click there still gives a temporary view with **Reset**, but no **Save**, and rows are never dragged: the declared order is applied automatically on every save.
+
+    Wire contract: `WC-2026-10-31-portal-order-model`.
+
 - **A portal whose ontology declares an order now stores its records in that order.**
 
     A portal column can declare a fixed order in the ontology (for example, linked records sorted by name). That order used to be applied only on screen, so exports, publication and the edit view could disagree, and dragging records inside such a portal was refused. Now every save keeps the stored list in the declared order, and editing the value a linked record is ordered by re-sorts every portal that holds it. Because the declared order is fixed, those portals cannot be reordered: for now, dragging records in such a portal, using its change-order dialog or clicking its sortable column headers shows an error and changes nothing, until the edit view is updated to offer an on-screen-only header sort (by a column you are allowed to read) instead. Lists saved before their order was declared keep their old order until they are saved again, or until an administrator runs the `portal_declared_order` reconcile (Maintenance › Reconcile). The reconcile also runs by itself once an ontology update has added or changed an order (once, after the whole update), and in the background after an order is edited in the ontology editor; stopping the update, the background process or the server stops it at the next record, and a later reconcile run finishes the job. A record it cannot save is listed in its report and does not stop the others from being sorted.

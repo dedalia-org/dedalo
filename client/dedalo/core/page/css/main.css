@@ -25387,6 +25387,35 @@ body.inspector_resizing {
   display: flex;
   align-items: center;
 }
+.component_portal > .list_after > .order_indicator,
+.portal > .list_after > .order_indicator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-left: 0.5rem;
+  font-size: 0.875rem;
+}
+.component_portal > .list_after > .order_indicator > .order_text > .order_column,
+.portal > .list_after > .order_indicator > .order_text > .order_column {
+  font-weight: 600;
+}
+.component_portal > .list_after > .order_indicator > .order_text > .order_direction,
+.portal > .list_after > .order_indicator > .order_text > .order_direction {
+  color: var(--color_orange_dedalo);
+}
+.component_portal > .list_after > .order_indicator.declared,
+.portal > .list_after > .order_indicator.declared {
+  opacity: 0.75;
+}
+.component_portal > .list_after > .order_indicator > button,
+.portal > .list_after > .order_indicator > button {
+  font-size: 0.875rem;
+  margin-right: 0;
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
 .component_portal > .list_after .references,
 .portal > .list_after .references {
   flex: 0 0 100%;

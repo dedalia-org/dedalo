@@ -45,6 +45,38 @@
 	// (WC-2026-10-30-section-record-row-box)
 	>.list_after {
 
+		// order indicator (portal order model, stage O2): the temporary header
+		// order with its reset / save buttons, or the declared ontology order
+		>.order_indicator {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 0.5rem;
+			margin-top: 0.5rem;
+			padding-left: 0.5rem;
+			font-size: 0.875rem;
+
+			>.order_text {
+				>.order_column {
+					font-weight: 600;
+				}
+				>.order_direction {
+					color: @color_orange_dedalo;
+				}
+			}
+
+			&.declared {
+				opacity: 0.75;
+			}
+
+			>button {
+				font-size: 0.875rem;
+				margin-right: 0;
+				padding-top: 0.125rem;
+				padding-bottom: 0.125rem;
+			}
+		}
+
 		// ul
 		.references {
 			flex: 0 0 100%;

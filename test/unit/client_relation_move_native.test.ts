@@ -1406,15 +1406,21 @@ else {
 			const classes = selector.split(',').map((s) => s.replace(':scope >', '').trim().slice(1));
 			return this.children.filter((c) => classes.some((cls) => c.classList.contains(cls)));
 		}
-		addEventListener(type: string, fn: Listener, options?: { signal?: AbortSignal }) {
+		/** A capture listener is kept under `<type>:capture` (dispatch runs those root → target first). */
+		addEventListener(
+			type: string,
+			fn: Listener,
+			options?: { signal?: AbortSignal; capture?: boolean },
+		) {
 			if (options?.signal?.aborted) return;
-			const list = this.listeners.get(type) ?? [];
+			const key = options?.capture === true ? `${type}:capture` : type;
+			const list = this.listeners.get(key) ?? [];
 			list.push(fn);
-			this.listeners.set(type, list);
+			this.listeners.set(key, list);
 			options?.signal?.addEventListener('abort', () => {
 				this.listeners.set(
-					type,
-					(this.listeners.get(type) ?? []).filter((l) => l !== fn),
+					key,
+					(this.listeners.get(key) ?? []).filter((l) => l !== fn),
 				);
 			});
 		}
@@ -1464,8 +1470,14 @@ else {
 			return this.data.get(type) ?? '';
 		}
 	}
-	/** Bubbles from target to the root, as the browser does. */
+	/** Captures root → target, then bubbles target → root, as the browser does. */
 	function dispatch(event: FakeEvent): FakeEvent {
+		const path: FakeEl[] = [];
+		for (let n: FakeEl | null = event.target; n; n = n.parentElement) path.push(n);
+		for (const n of path.reverse()) {
+			if (event.stopped) return event;
+			for (const fn of [...(n.listeners.get(`${event.type}:capture`) ?? [])]) fn(event);
+		}
 		for (let n: FakeEl | null = event.target; n && !event.stopped; n = n.parentElement) {
 			for (const fn of [...(n.listeners.get(event.type) ?? [])]) fn(event);
 		}
@@ -1505,7 +1517,8 @@ else {
 		dragend: 1,
 		dblclick: 1,
 		keydown: 1,
-		click: 1,
+		click: 1, // touch PICK (bubble: after the row's own controls)
+		'click:capture': 1, // touch PLACE (capture: a cell that swallows its click cannot hide the row)
 	};
 
 	/**
@@ -2015,6 +2028,58 @@ else {
 			]);
 		});
 
+		test('PLACE on a cell that swallows its own click still places (capture phase)', async () => {
+			const { self, sort_calls } = page2_portal();
+			const { content_data, rows, handles } = fake_list(self);
+			dnd.bind_row_drag(self, content_data, { source: 'handle' });
+			// a list-mode component cell: its own click stops propagation (activate_edit_in_list)
+			const cell = (rows[2] as FakeEl).appendChild(new FakeEl('div', ['wrapper_component']));
+			const cell_clicks: string[] = [];
+			cell.addEventListener('click', (e) => {
+				cell_clicks.push(e.type);
+				e.stopPropagation();
+			});
+			dispatch(new FakeEvent('click', handles[1] as FakeEl));
+			expect(touch_pick.active()).toBe(true);
+			const place = dispatch(new FakeEvent('click', cell));
+			expect(place.stopped).toBe(true);
+			expect(cell_clicks, 'the placing tap also activated the cell').toEqual([]);
+			expect(touch_pick.active()).toBe(false);
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(sort_calls).toEqual([
+				{ value: { ...(PAGE2_ENTRIES[1] as Locator) }, source_key: 10, target_key: 11 },
+			]);
+			// control: without a pick the cell keeps its own click
+			dispatch(new FakeEvent('click', cell));
+			expect(cell_clicks).toEqual(['click']);
+		});
+
+		test('PLACE inside a nested BOUND list is left to that list (capture runs outer-first)', async () => {
+			const outer = page2_portal();
+			const inner = page2_portal({ id: 'portal_inner' });
+			const { content_data, rows, handles } = fake_list(outer.self);
+			const { inner_content, inner_row } = nest_list(rows[0] as FakeEl);
+			dnd.bind_row_drag(outer.self, content_data, { source: 'handle' });
+			dnd.bind_row_drag(inner.self, inner_content, { source: 'handle' });
+			// an OUTER pick tapped on the inner row: the inner list refuses a foreign
+			// portal row it is not a MOVE target of, the outer must not take it either
+			dispatch(new FakeEvent('click', handles[1] as FakeEl));
+			expect(touch_pick.active()).toBe(true);
+			const tap = dispatch(new FakeEvent('click', inner_row));
+			expect(tap.stopped).toBe(false);
+			expect(touch_pick.active()).toBe(true);
+			await Promise.resolve();
+			expect(outer.sort_calls).toEqual([]);
+			expect(inner.sort_calls).toEqual([]);
+			// control: the same pick placed on an outer row of its own
+			dispatch(new FakeEvent('click', rows[2] as FakeEl));
+			expect(touch_pick.active()).toBe(false);
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(outer.sort_calls.length).toBe(1);
+		});
+
 		test("a tap on a NESTED list's handle never picks the outer row (it bubbles on)", () => {
 			const { self, sort_calls } = page2_portal();
 			const { content_data, rows, handles, ancestor_seen } = fake_list(self);
@@ -2266,6 +2331,7 @@ else {
 		'can_reorder',
 		'can_view_sort',
 		'can_save_view_order',
+		'declared_order_of', // the ONE reader of context.declared_order (gates + O2 order indicator)
 		'can_drag_out',
 		'can_tool_source',
 		'is_portal_payload',
@@ -2298,6 +2364,7 @@ else {
 		'resolve_source_row',
 		'own_handle',
 		'bound_row_windows',
+		'innermost_row_binding',
 		'claim_row_binding',
 		'bound_drop_wrappers',
 		'drop_decision_of',
@@ -2464,11 +2531,11 @@ else {
 	});
 
 	// ── declared order: the server's `context.declared_order` is read in ONE place ──────
-	// drag_and_drop.js `has_declared_order` is the client's one authority for "this
-	// portal's order is the ontology's" (engineering/wire_contract/WC-2026-10-31-portal-order-model.md).
+	// drag_and_drop.js `declared_order_of` (and `has_declared_order` over it) is the client's
+	// one authority for "this portal's order is the ontology's" (engineering/wire_contract/WC-2026-10-31-portal-order-model.md).
 	// Any other read of `declared_order` under client/ or tools/ ** /js is a second,
 	// driftable copy of that predicate: red. Comments are prose, not reads.
-	describe('declared_order is read only by has_declared_order', () => {
+	describe('declared_order is read only by declared_order_of', () => {
 		/** Code lines (comment lines dropped) that mention `declared_order`. */
 		function declared_order_reads(text: string): string[] {
 			return text.split('\n').filter((line) => {
@@ -2483,13 +2550,17 @@ else {
 		 * The ONE named writer outside the module: the browser suite BUILDS the declared-order
 		 * situation by injecting the server field on a live instance's context (no ontology node
 		 * may be created for it — engineering/wire_contract/WC-2026-10-30-section-record-row-box.md,
-		 * stage 5). It never reads the field: has_declared_order still decides. Shrink-only; a
+		 * stage 5). It never reads the field: declared_order_of still decides. Shrink-only; a
 		 * listed file that no longer mentions the field is red.
 		 */
 		const DECLARED_ORDER_SITUATION_WRITERS = new Map([
 			[
 				'client/dedalo/test/client/js/test_portal_row_drag.js',
 				'injects context.declared_order to build the no-source-under-declared-order situation',
+			],
+			[
+				'client/dedalo/test/client/js/test_portal_order.js',
+				'injects context.declared_order to build the declared-order indicator / no-save / no-source situation (stage O2)',
 			],
 		]);
 
@@ -2522,18 +2593,18 @@ else {
 		});
 
 		test('the situation-writer list is shrink-only and every entry is reasoned', () => {
-			expect(DECLARED_ORDER_SITUATION_WRITERS.size, 'shrink-only').toBeLessThanOrEqual(1);
+			expect(DECLARED_ORDER_SITUATION_WRITERS.size, 'shrink-only').toBeLessThanOrEqual(2);
 			for (const reason of DECLARED_ORDER_SITUATION_WRITERS.values())
 				expect(reason.length).toBeGreaterThan(20);
 		});
 
-		test('inside drag_and_drop.js, only the has_declared_order body reads it', () => {
+		test('inside drag_and_drop.js, only the declared_order_of body reads it', () => {
 			const source = readFileSync(
 				join(CLIENT_ROOT, 'dedalo/core/component_portal/js/drag_and_drop.js'),
 				'utf8',
 			);
-			const start = source.indexOf('const has_declared_order = function');
-			const end = source.indexOf('}//end has_declared_order');
+			const start = source.indexOf('export const declared_order_of = function');
+			const end = source.indexOf('}//end declared_order_of');
 			expect(start).toBeGreaterThan(-1);
 			expect(end).toBeGreaterThan(start);
 			// the predicate really reads it…
