@@ -114,9 +114,6 @@
   background-color: var(--color_grey_10);
   opacity: 0.7;
 }
-.wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .hover_body {
-  position: relative;
-}
 .wrapper_tool.tool_cataloging > .content_data .left_container > .wrapper_section.view_tool_cataloging_mosaic > .list_body > .content_data > .section_record:not(:hover, :focus-within) > .sr_mosaic_hover {
   display: none;
 }

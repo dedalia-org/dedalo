@@ -446,3 +446,52 @@ suites named above.
   (`content: ""`, absolute) and paints nothing; a hover arm on a pseudo counts
   as a ring when it paints it (`box-shadow` / `outline` / `border-color`), not
   only when it sets `content`.
+
+## Addendum 2026-11-01 — stage 6: CSS removals, phone portal cards
+
+- **Removals landed** (§5 "Removed"): the `list.less` spacer selector,
+  `.alt_list_body`, `.hilite_row`, the hilite-compensating cell overrides
+  (`box-shadow: none` / radius 0 / `height: auto`) and the invalid `::empty`.
+  KEPT, still matched by live DOM (mosaic tiles, list portals with mosaic/text
+  rows, nested tables on phone): the per-cell edge `::after`, the header
+  border, the `.column` box-shadow and the Id cell's `margin-top: 1px`;
+  `section_record.less` `--box_display`/`--box_width` `::after`;
+  `component_portal.less` `.drop` / `.draggable.dragover` (wrapper class now
+  `.drop_target`); the mosaic `>.hover_body` / dead / `.mosaic_over` rules;
+  `view_indexation_portal.less` `::empty`; the unconditional
+  `view_content_portal.less` header-row rule; the dead `top:0` in
+  `layout.less` / `tool_time_machine.less`; `view_default_list_section_record.js`
+  `hilite_row` + its `when_in_dom` registration. `client_row_dom_tripwire`
+  `LESS_PENDING` is EMPTY, ceiling 0: every LESS leg reds on any violation.
+  The overflow / subgrid / z-index legs judge each complex selector of a list
+  separately (no member hides behind the last), and compounds split on
+  top-level combinators only (`:is(a, b)` stays whole; a name inside
+  `:is()`/`:where()` claims no exemption).
+- **Phone portal cards (owner-approved, §11):** the `list.less` 'PHONE CARDS'
+  rules key on `.list_body.layout_table` (top level only), so a portal table
+  and every portal-aliased model (`component_relation_related` …) render the
+  same labelled cards as a section list. Card labels are attached for every
+  caller (`attach_card_label`), no longer only `caller.model === 'section'`.
+  The label is CSS string text: escaped (`\`, `'`, `"`, control characters)
+  before `ui.make_column_responsive`, since css.js `process_rule` interpolates
+  `content` raw between single quotes (an apostrophe dropped the label; a
+  crafted label added declarations).
+- **Phone handle:** under `.list_body.layout_table` below the breakpoint the
+  default-view `.drag.icon` is in flow inside the Id cell, `opacity: 1` at
+  rest; `.column_section_id` carries no overflow clip there. The card's trash
+  cell keeps its button beside its label (no page wider than the screen).
+- **Gates:** `test_portal_row_drag` 360px legs — handle opacity 1 at rest,
+  static, Id cell `overflow: visible`, `elementFromPoint` at the handle centre
+  is the handle, every card cell child inside the card, every value cell
+  labelled (default portal and `component_relation_related`), and the label
+  escaping leg (apostrophe / backslash+quote / crafted label through the real
+  `render_column_node_callback`).
+- **WebKit header-subgrid probe after pagination (manual, owner ruling §11.9) —
+  DONE 2026-11-01, Safari 26.6.2 (AppleWebKit/605.1.15, macOS).** A
+  `.list_body.layout_table` (header row + `content_data` subgrid, the compiled
+  `main.css`), paginated five times by `content_data.replaceWith(new)` with
+  different cell widths (incl. a 2-row and an all-empty page): every
+  `.head_column` x/width equals its column's cells within 1px (0 misaligned
+  cells) and the header height is stable (26px on every page). Same result in
+  Chrome. Playwright's bundled WebKit could not open a page on the host, so
+  the probe ran in Safari itself (self-running page, verdict read by the owner).

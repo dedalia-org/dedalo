@@ -31,6 +31,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-31-portal-order-model`.
 
+- **On a phone, portal tables now show as labelled cards like section lists, with the drag handle always visible.**
+
+    On a phone-sized screen a portal table (the default and content views, and every field that shows records the same way, such as related records) now shows each linked record as a card, the way section lists already did. Each field in the card carries its name. The drag handle that moves a row sits in the card's Id band and is always visible, because a touch screen has no hover. The delete button stays inside the card, so the page is no longer wider than the screen. Field names containing an apostrophe, such as Catalan "Data d'alta", now show on the cards too.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
+
 - **A portal whose ontology declares an order now stores its records in that order.**
 
     A portal column can declare a fixed order in the ontology (for example, linked records sorted by name). That order used to be applied only on screen, so exports, publication and the edit view could disagree, and dragging records inside such a portal was refused. Now every save keeps the stored list in the declared order, and editing the value a linked record is ordered by re-sorts every portal that holds it. Because the declared order is fixed, those portals cannot be reordered: for now, dragging records in such a portal, using its change-order dialog or clicking its sortable column headers shows an error and changes nothing, until the edit view is updated to offer an on-screen-only header sort (by a column you are allowed to read) instead. Lists saved before their order was declared keep their old order until they are saved again, or until an administrator runs the `portal_declared_order` reconcile (Maintenance › Reconcile). The reconcile also runs by itself once an ontology update has added or changed an order (once, after the whole update), and in the background after an order is edited in the ontology editor; stopping the update, the background process or the server stops it at the next record, and a later reconcile run finishes the job. A record it cannot save is listed in its report and does not stop the others from being sorted.

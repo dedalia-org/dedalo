@@ -8,12 +8,14 @@
  * row-box TABLE layout (`list.less` 'layout_table'; contract:
  * engineering/wire_contract/WC-2026-10-30-section-record-row-box.md) holds.
  *
- * Two shapes, both gated until the legacy CSS is removed:
- *   - LEGACY (no marker) — the shape every live list renders today: ONE grid,
- *     `.list_body` owns the header cells and every row cell because
- *     `.header_wrapper_list`, `.content_data` and each `.section_record.list`
- *     are `display: contents`; the header cells are ROW 1 of that grid.
- *   - TABLE (`.list_body.layout_table`): the list_body owns the column tracks;
+ * Two shapes:
+ *   - LEGACY (no marker) — the marker-less list shape (kept for the non-table
+ *     row views: presets, TM history, mosaic): ONE grid, `.list_body` owns
+ *     the header cells and every row cell because `.header_wrapper_list`,
+ *     `.content_data` and each `.section_record.list` are `display: contents`;
+ *     the header cells are ROW 1 of that grid.
+ *   - TABLE (`.list_body.layout_table`) — every live section list and portal
+ *     table: the list_body owns the column tracks;
  *     its children are full-span (`grid-column: 1 / -1`) column SUBGRIDS —
  *     `.header_wrapper_list` (row 1) and `.content_data`, whose every row box
  *     (`.section_record`, built row or `.placeholder`) is itself a full-span
@@ -53,13 +55,14 @@
  * rows become phone cards), so the suite iframe (narrower than the desktop
  * breakpoint) cannot host the desktop fixture. The desktop fixture lives in its
  * own 1200px iframe loading the REAL main.css; the phone card branch gets a
- * 360px iframe of its own.
+ * 360px iframe of its own: section cards and PORTAL cards (the same card rules,
+ * keyed on the marker; a table nested in a card's cell is no card itself).
  *
  * Backend-free: a synthetic grid with the real classes and the real stylesheet.
  */
 
 import { create_record_window } from '../../../core/section_record/js/record_window.js';
-import { ROW_WINDOW_MAX_ROWS, create_row_window } from '../../../core/common/js/row_window.js';
+import { ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
 
 // the compiled stylesheet the suite frame must load, resolved from this module
 // (js/ → client/ → test/ → dedalo/ → core/page/css/main.css)
@@ -1032,8 +1035,8 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 	});
 
 	it('keeps the LEGACY view_base list flat and its last row clipped (no marker)', () => {
-		// the shape every live base list renders until the views adopt the
-		// marker. What this proves is the OUTCOME — the legacy list stays flat
+		// the marker-less shape (presets, TM history). What this proves is the
+		// OUTCOME — the legacy list stays flat
 		// (the `display: contents` comes from list.less's base `.list_body`
 		// rule, so this does not pin view_base_section.less's own opt-out; its
 		// meaningful half, not flattening the TABLE, is pinned by the test
@@ -1071,64 +1074,6 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 		);
 
 		grid.section.remove();
-	});
-
-	it('rounds and clips the LEGACY last row of a WINDOWED list only once the window ends', async () => {
-		// a live legacy list is filled by the REAL row window (section.js
-		// window_section_rows → create_row_window), which appends its bottom
-		// spacer AFTER the rows: the last row is never :last-child, so its corners
-		// come only from list.less's `:has(+ .row_window_spacer.bottom[hidden])`
-		// arm. The spacer is the module's own (not a hand-made copy), so a class
-		// rename in row_window.js reds here too
-		const legacy_last_row = async (max_rows) => {
-			const grid = make_grid(frame_doc, test_container, [], { layout_table: false });
-			grid.section.className = 'wrapper_section section list view_base';
-			const handle = create_row_window({
-				owner: null,
-				container: grid.content_data,
-				items: FIRST_GENERATION_HEIGHTS,
-				spacer: 'grid',
-				max_rows,
-				materialize: async (heights, index) => make_row(frame_doc, heights, index),
-			});
-			await handle.fill();
-			const spacer = grid.content_data.lastElementChild;
-			const rows = built_rows(grid);
-			const cells = Array.from(rows.at(-1).querySelectorAll(':scope > .column'));
-			const computed = {
-				spacer_is_last: spacer.matches('.row_window_spacer.bottom'),
-				spacer_hidden: spacer.hidden,
-				rows: rows.length,
-				first_overflow: frame_win.getComputedStyle(cells[0]).overflowX,
-				last_overflow: frame_win.getComputedStyle(cells.at(-1)).overflowX,
-				first_radius: frame_win.getComputedStyle(cells[0]).borderBottomLeftRadius,
-				last_radius: frame_win.getComputedStyle(cells.at(-1)).borderBottomRightRadius,
-			};
-			handle.destroy();
-			grid.section.remove();
-
-			return computed;
-		};
-
-		// the window reached the end: the bottom spacer is the last child, hidden
-		const ended = await legacy_last_row(FIRST_GENERATION_HEIGHTS.length);
-		assert.ok(ended.spacer_is_last, 'fixture: the row window bottom spacer is the last child');
-		assert.ok(ended.spacer_hidden, 'fixture: the window reached the end (spacer hidden)');
-		assert.equal(ended.rows, FIRST_GENERATION_HEIGHTS.length, 'fixture: every row built');
-		assert.equal(ended.first_overflow, 'clip', 'windowed legacy last row: first cell clips');
-		assert.equal(ended.last_overflow, 'clip', 'windowed legacy last row: last cell clips');
-		assert.notEqual(ended.first_radius, '0px', 'windowed legacy last row: first cell rounded');
-		assert.notEqual(ended.last_radius, '0px', 'windowed legacy last row: last cell rounded');
-
-		// negative control: rows remain beyond the window (spacer visible), so
-		// the last BUILT row is not the list's last row and must stay square
-		const open = await legacy_last_row(FIRST_GENERATION_HEIGHTS.length - 1);
-		assert.ok(open.spacer_is_last, 'control: the row window bottom spacer is the last child');
-		assert.ok(!open.spacer_hidden, 'control: rows remain beyond the window (spacer visible)');
-		assert.equal(open.rows, FIRST_GENERATION_HEIGHTS.length - 1, 'control: the window holds max_rows rows');
-		assert.equal(open.first_radius, '0px', 'open window: the last built row is not rounded');
-		assert.equal(open.last_radius, '0px', 'open window: the last built row is not rounded (right)');
-		assert.notEqual(open.first_overflow, 'clip', 'open window: the last built row does not clip');
 	});
 
 	it('keeps rows free of stacking contexts and rings them through ::after', () => {
@@ -1407,5 +1352,92 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 		);
 
 		grid.section.remove();
+	});
+	it('makes a top-level PORTAL table phone cards too: plain list_body, the label band displayed, an in-flow handle; a nested table is no card', () => {
+		const grid = make_grid(phone_doc, phone_container, FIRST_GENERATION_HEIGHTS, { with_placeholder: false });
+		// the default-view edit portal: its 0,4,0 `display: grid` list_body
+		// (view_default_portal.less) must yield to the cards
+		grid.section.className = 'wrapper_component component_portal portal edit view_default';
+		grid.header.className = 'header_wrapper_list component_portal';
+		grid.content_data.className = 'content_data component_portal edit';
+		// the Id cell as render_column_id builds it: the edit button, then the
+		// drag handle (render_drag_node: `drag icon`, no hide class)
+		// the CSS half of the labels: id-scoped `::before { content }` rules, the
+		// shape ui.make_column_responsive injects, planted here; the card rule only
+		// DISPLAYS them. That the real rows get them (every caller model) is gated
+		// on built portals in test_portal_row_drag (phone card legs)
+		const label_rules = phone_doc.createElement('style');
+		phone_doc.head.appendChild(label_rules);
+		try {
+			for (const [i, row] of built_rows(grid).entries()) {
+				const value_cell = row.querySelectorAll(':scope > .column')[1];
+				value_cell.id = `col_card_probe_${i}`;
+				label_rules.append(`#col_card_probe_${i}::before { content: 'Title'; }\n`);
+			}
+			for (const row of built_rows(grid)) {
+				const id_cell = row.querySelector(':scope > .column');
+				id_cell.className = 'column column_section_id callback';
+				const button_edit = phone_doc.createElement('button');
+				button_edit.className = 'button_edit button_view_default';
+				id_cell.replaceChildren(button_edit);
+				const handle = phone_doc.createElement('div');
+				handle.className = 'drag icon';
+				handle.tabIndex = 0;
+				id_cell.appendChild(handle);
+			}
+
+			assert.equal(phone_win.getComputedStyle(grid.list_body).display, 'block', 'portal list_body is a block');
+			assert.equal(phone_win.getComputedStyle(grid.header).display, 'none', 'the portal header is hidden');
+			assert.equal(phone_win.getComputedStyle(grid.content_data).display, 'block', 'content_data is a block of cards');
+			for (const [i, row] of built_rows(grid).entries()) {
+				assert.equal(phone_win.getComputedStyle(row).display, 'grid', `portal card ${i} is a one-column grid`);
+				const cells = row_cells(grid, i);
+				assert.equal(
+					phone_win.getComputedStyle(cells[1], '::before').display,
+					'flex',
+					`portal card ${i}: a value cell shows its label band`,
+				);
+				const id_style = phone_win.getComputedStyle(cells[0]);
+				assert.equal(id_style.position, 'sticky', `portal card ${i}: the Id cell is the sticky card header`);
+				assert.equal(id_style.overflowX, 'visible', `portal card ${i}: the Id cell does not clip (x)`);
+				assert.equal(id_style.overflowY, 'visible', `portal card ${i}: the Id cell does not clip (y)`);
+			}
+			const handle = built_rows(grid)[0].querySelector('.drag.icon');
+			const handle_style = phone_win.getComputedStyle(handle);
+			assert.equal(handle_style.position, 'static', 'the handle is in flow inside the Id cell');
+			assert.equal(handle_style.opacity, '1', 'the handle is shown without hover');
+			const box = handle.getBoundingClientRect();
+			assert.equal(box.width > 0 && box.height > 0, true, 'the handle has a box');
+			assert.equal(box.left >= 0 && box.right <= phone_win.innerWidth, true, 'the handle is inside the viewport');
+			const hit = phone_doc.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+			assert.equal(hit === handle || handle.contains(hit), true, 'the point at the handle centre is the handle');
+
+			// a table nested in a card cell keeps flowing inside it: no card in a card
+			const host_cell = row_cells(grid, 0)[1];
+			const nested = make_grid(phone_doc, host_cell, FIRST_GENERATION_HEIGHTS, { with_placeholder: false });
+			nested.section.className = 'wrapper_component component_portal portal list view_default';
+			nested.content_data.className = 'content_data component_portal list';
+			assert.notEqual(
+				phone_win.getComputedStyle(nested.content_data).display,
+				'block',
+				'a nested table is not a block of cards',
+			);
+			for (const [i, row] of built_rows(nested).entries()) {
+				assert.notEqual(phone_win.getComputedStyle(row).display, 'grid', `nested row ${i} is not a card`);
+			}
+			// ... and shows no label band, even with a planted label (the control)
+			const nested_cell = row_cells(nested, 0)[1];
+			nested_cell.id = 'col_card_probe_nested';
+			label_rules.append(`#col_card_probe_nested::before { content: 'Title'; }\n`);
+			assert.equal(
+				phone_win.getComputedStyle(nested_cell, '::before').display,
+				'none',
+				'a nested table cell shows no label band',
+			);
+
+			grid.section.remove();
+		} finally {
+			label_rules.remove();
+		}
 	});
 });

@@ -40,10 +40,10 @@
  *     content_data in view_base_section.less, no `subgrid` / `1 / -1` on a row
  *     chain without the `.layout_table` marker, no overflow clip on rows,
  *     content_data or (under `.layout_table`) `.column_section_id`, and z-index
- *     inside a list_body only on the ring `::after` and the named descendants.
- *     The CSS REMOVALS are a later stage of the same redesign: the rules still
- *     violating are banked in LESS_PENDING with their reason, compared EXACTLY
- *     (a new violation reds, and so does a removal left in the bank).
+ *     inside a list_body only on the ring `::after` and the named descendants
+ *     (the default-view handle `.drag.icon`, the phone card's sticky
+ *     `.column_section_id`). The CSS REMOVALS have landed: LESS_PENDING is
+ *     EMPTY and its ceiling is 0 (shrink-only), so any violation reds.
  *  3b. CSS STATE. The COMPILED main.css: a `.layout_table` row (or a row's
  *     direct child) in a state (`:hover`, `:focus-within`, `.dragover`,
  *     `.dragging`, `.selected`) changes paint only — no `content`, `display`,
@@ -449,7 +449,43 @@ else {
 	// 3. LESS
 	// ────────────────────────────────────────────────────────────────────────────
 
-	type LessRule = { file: string; line: number; chain: string; prop: string; value: string };
+	/**
+	 * One declaration. `chain` is the raw nesting text (at-rule preludes and
+	 * selector lists joined as written — a parent list is NOT distributed, so a
+	 * nested child hangs off its parent list's LAST member). `selectors` is what
+	 * the rule really matches: every complex selector, each parent list member
+	 * distributed over each child list member as LESS compiles it. `atRules` are
+	 * the enclosing at-rule preludes (`@media …`), kept whole (a media query
+	 * list is never a selector list).
+	 */
+	type LessRule = {
+		file: string;
+		line: number;
+		chain: string;
+		selectors: string[];
+		atRules: string[];
+		prop: string;
+		value: string;
+	};
+
+	/** Split a selector list on its TOP-LEVEL commas (`:is(a, b)` stays whole). */
+	const splitSelectorList = (list: string): string[] => {
+		const parts: string[] = [];
+		let depth = 0;
+		let part = '';
+		for (const ch of list) {
+			if (ch === '(') depth++;
+			else if (ch === ')') depth--;
+			if (ch === ',' && depth === 0) {
+				parts.push(part);
+				part = '';
+			} else {
+				part += ch;
+			}
+		}
+		parts.push(part);
+		return parts.map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+	};
 
 	/**
 	 * A minimal LESS walker: comments stripped, nested selectors joined (`&`
@@ -462,7 +498,8 @@ else {
 		const lines = text.split('\n').map((l) => l.replace(/(^|[^:'"])\/\/.*$/, '$1'));
 		const flat = lines.join('\n');
 		const out: LessRule[] = [];
-		const stack: string[] = [];
+		type Frame = { chain: string; selectors: string[]; atRules: string[] };
+		const stack: Frame[] = [];
 		let buf = '';
 		let line = 1;
 		let bufLine = 1;
@@ -470,13 +507,31 @@ else {
 			if (ch === '\n') line++;
 			if (ch === '{') {
 				const sel = buf.trim();
-				const parent = stack[stack.length - 1] ?? '';
+				const parentFrame = stack[stack.length - 1];
+				const parent = parentFrame?.chain ?? '';
 				const joined = sel.includes('&')
 					? sel.replace(/&/g, parent)
 					: parent
 						? `${parent} ${sel}`
 						: sel;
-				stack.push(joined);
+				const parentSelectors = parentFrame?.selectors ?? [];
+				const parentAtRules = parentFrame?.atRules ?? [];
+				if (sel.startsWith('@')) {
+					// an at-rule block: its prelude scopes, it selects nothing
+					stack.push({
+						chain: joined,
+						selectors: parentSelectors,
+						atRules: [...parentAtRules, sel],
+					});
+				} else {
+					const children = splitSelectorList(sel);
+					const selectors = parentSelectors.length
+						? parentSelectors.flatMap((p) =>
+								children.map((c) => (c.includes('&') ? c.replace(/&/g, p) : `${p} ${c}`)),
+							)
+						: children.map((c) => c.replace(/&/g, ''));
+					stack.push({ chain: joined, selectors, atRules: parentAtRules });
+				}
 				buf = '';
 				bufLine = line;
 			} else if (ch === '}') {
@@ -497,10 +552,13 @@ else {
 			const d = decl.trim();
 			const at = d.indexOf(':');
 			if (at <= 0 || d.startsWith('@') || d.startsWith('.') || d.startsWith('&')) return;
+			const frame = stack[stack.length - 1];
 			out.push({
 				file,
 				line: bufLine,
-				chain: (stack[stack.length - 1] ?? '').replace(/\s+/g, ' '),
+				chain: (frame?.chain ?? '').replace(/\s+/g, ' '),
+				selectors: frame?.selectors ?? [],
+				atRules: frame?.atRules ?? [],
 				prop: d.slice(0, at).trim(),
 				value: d.slice(at + 1).trim(),
 			});
@@ -526,13 +584,76 @@ else {
 	const hasLayoutTable = (chain: string) =>
 		/\.layout_table/.test(chain.replace(/:not\(\s*\.layout_table\s*\)/g, ''));
 	const CLIP = /^(?:hidden|clip|auto|scroll)\b/;
-	/** The last compound of a chain (the element the declaration lands on). */
-	const lastCompound = (chain: string) =>
-		(chain.split(',').pop() ?? '')
-			.trim()
-			.split(/\s*>\s*|\s+/)
-			.filter(Boolean)
-			.pop() ?? '';
+	/** The phone tier the cards live under (vars.less tier, list.less 'PHONE CARDS'). */
+	const PHONE_TIER = /@media[^@]*\(\s*max-width\s*:\s*@width_break_point_0\s*\)/;
+	/**
+	 * The phone card's OWN Id cell, as one complex selector: the top-level card
+	 * list_body (the marker, never one nested in a cell), then child steps only —
+	 * its content_data, a row, and the Id cell as that row's direct child. A
+	 * nested table's Id cell (any descendant step, a second list_body) is not it.
+	 */
+	const CARD_ID_CELL =
+		/\.list_body\.layout_table:where\(:not\(\.column \*\)\)\s*>\s*\.content_data[^\s>]*\s*>\s*\.section_record[^\s>]*\s*>\s*[^\s>]*\.column_section_id\b(?![^\s>]*::?(?:before|after))[^\s>]*$/;
+
+	/**
+	 * ONE complex selector's compounds, split on its TOP-LEVEL combinators
+	 * (`>`, `+`, `~`, descendant) only: a pseudo-class argument
+	 * (`:is(:hover, :focus-within)`, `:where(:not(.column *))`) or an attribute
+	 * selector stays inside its compound. Never a selector LIST: every leg below
+	 * judges `r.selectors` one member at a time (a list is as strong as its
+	 * weakest member).
+	 */
+	const compounds = (selector: string): string[] => {
+		const out: string[] = [];
+		let depth = 0;
+		let cur = '';
+		for (const ch of selector) {
+			if (ch === '(' || ch === '[') depth++;
+			else if (ch === ')' || ch === ']') depth--;
+			if (depth === 0 && (ch === '>' || ch === '+' || ch === '~' || /\s/.test(ch))) {
+				if (cur) out.push(cur);
+				cur = '';
+			} else {
+				cur += ch;
+			}
+		}
+		if (cur) out.push(cur);
+		return out;
+	};
+	/** The last compound of one complex selector (the element the declaration lands on). */
+	const lastCompound = (selector: string) => compounds(selector).pop() ?? '';
+	/**
+	 * A compound with the arguments of the named pseudo-classes dropped
+	 * (`.column:is(.x, .drag.icon)` → `.column:is`): what remains is what the
+	 * compound itself IS. `names` = which pseudo-classes lose their argument.
+	 */
+	const dropPseudoArgs = (compound: string, names: RegExp): string => {
+		let out = '';
+		let i = 0;
+		while (i < compound.length) {
+			const m = /^:([\w-]+)\(/.exec(compound.slice(i));
+			if (m && names.test(m[1] ?? '')) {
+				out += `:${m[1]}`;
+				let depth = 0;
+				i += m[0].length - 1;
+				for (; i < compound.length; i++) {
+					if (compound[i] === '(') depth++;
+					else if (compound[i] === ')' && --depth === 0) break;
+				}
+				i++;
+			} else {
+				out += compound[i];
+				i++;
+			}
+		}
+		return out;
+	};
+	/** Every pseudo-class argument dropped: for an EXEMPTION (a name in `:is()` is no claim). */
+	const ownSimple = (compound: string) => dropPseudoArgs(compound, /^[\w-]+$/);
+	/** Only `:not()` arguments dropped: for a DENY leg (`:is(.column_section_id)` still lands there). */
+	const positiveSimple = (compound: string) => dropPseudoArgs(compound, /^not$/);
+	/** The complex selectors a declaration really matches (the chain when the walker has none). */
+	const selectorsOf = (r: LessRule) => (r.selectors.length ? r.selectors : [r.chain]);
 
 	type LessLeg = { id: string; why: string; violates: (r: LessRule) => boolean };
 
@@ -560,80 +681,72 @@ else {
 		{
 			id: 'subgrid_without_marker',
 			why: 'a subgrid / full-span row rule keys on the .layout_table chain, never on generic rows',
+			// judged per complex selector the rule really matches
 			violates: (r) =>
-				ROW_BOX.test(lastCompound(r.chain)) &&
 				((r.prop === 'grid-template-columns' && /\bsubgrid\b/.test(r.value)) ||
 					(r.prop === 'grid-column' && /^1\s*\/\s*-1\b/.test(r.value))) &&
-				!hasLayoutTable(r.chain),
+				selectorsOf(r).some(
+					(sel) => ROW_BOX.test(positiveSimple(lastCompound(sel))) && !hasLayoutTable(sel),
+				),
 		},
 		{
 			id: 'overflow_clip',
 			why: 'table rows and content_data never clip (the gutter handle, the autocomplete panel, the ring); nor does .column_section_id under .layout_table',
 			// the TABLE layout's law (§ ring law): list layouts (mosaic tiles, line,
-			// indexation) keep their own boxes, clip included
+			// indexation) keep their own boxes, clip included. Judged per complex
+			// selector the rule really matches (a selector list is as strong as its
+			// weakest member)
 			violates: (r) => {
 				if (!/^overflow(?:-[xy])?$/.test(r.prop) || !CLIP.test(r.value)) return false;
-				if (!hasLayoutTable(r.chain)) return false;
-				const last = lastCompound(r.chain);
-				return (
-					/^\.(?:section_record|content_data)\b/.test(last) || /\.column_section_id/.test(last)
-				);
+				return selectorsOf(r).some((sel) => {
+					if (!hasLayoutTable(sel)) return false;
+					const last = positiveSimple(lastCompound(sel));
+					return (
+						/^\.(?:section_record|content_data)\b/.test(last) || /\.column_section_id\b/.test(last)
+					);
+				});
 			},
 		},
 		{
 			id: 'z_index_in_list_body',
-			why: 'inside a layout_table list_body only the ring ::after and the named descendants (.drag.icon, the phone sticky .column_section_id) carry a z-index',
+			why: 'inside a layout_table list_body only the row ring ::after and the named descendants (.drag.icon, the phone sticky .column_section_id — phone tier, card chain only) carry a z-index',
+			// judged per complex selector the rule really matches (a selector list
+			// is as strong as its weakest member)
 			violates: (r) => {
 				if (r.prop !== 'z-index' || /^auto\b/.test(r.value)) return false;
-				// the table layout's ring law; a mosaic tile's hover lift is its own box
-				if (!/\.list_body/.test(r.chain) || !ROW_CHAIN.test(r.chain)) return false;
-				if (!hasLayoutTable(r.chain)) return false;
-				const last = lastCompound(r.chain);
-				return !(
-					/::after/.test(last) ||
-					/\.drag\b/.test(last) ||
-					/\.icon\b/.test(last) ||
-					/\.column_section_id\b/.test(last)
-				);
+				const phone = r.atRules.some((a) => PHONE_TIER.test(a));
+				return r.selectors.some((sel) => {
+					// the table layout's ring law; a mosaic tile's hover lift is its own box
+					if (!/\.list_body/.test(sel) || !ROW_CHAIN.test(sel)) return false;
+					if (!hasLayoutTable(sel)) return false;
+					// what the landing compound itself IS: a name inside `:is()` /
+					// `:where()` is no claim to an exemption
+					const last = ownSimple(lastCompound(sel));
+					return !(
+						// the ring: the ROW's own ::after (never a cell's or a control's)
+						/^\.section_record\b.*::after$/.test(last) ||
+						// the default-view handle (component_portal.less)
+						/\.drag\b.*\.icon\b|\.icon\b.*\.drag\b/.test(last) ||
+						// the phone card's sticky Id cell (list.less 'PHONE CARDS'): ONLY
+						// under the phone tier and as the top-level card row's own child —
+						// a desktop or nested Id cell carrying a z-index is a stacking
+						// context the ring law forbids
+						(phone && CARD_ID_CELL.test(sel))
+					);
+				});
 			},
 		},
 	];
 
 	/**
-	 * Violations the CSS-removal stage of the redesign deletes (it needs this
-	 * stage's DOM first). EXACT: a new violation reds, and so does a fixed one
-	 * still banked here. Key = `<leg> <file>:<chain>`.
+	 * Violations still awaiting removal, key = `<leg> <file>:<chain>`. EXACT: a
+	 * new violation reds, and so does a fixed one still banked here. EMPTY since
+	 * the row-box CSS removals landed (WC-2026-10-30-section-record-row-box):
+	 * the ceiling is 0, so nothing can be banked again.
 	 */
-	const STAGE_CSS_REMOVALS =
-		"the row-box CSS removals (they need this stage's DOM first): WC-2026-10-30-section-record-row-box";
 	/** Shrink-only ceiling of LESS_PENDING: lower it with every removal, never raise it. */
-	const LESS_PENDING_CEILING = 6;
-	const LESS_PENDING: ReadonlyMap<string, string> = new Map([
-		[
-			'row_window_spacer client/dedalo/core/page/css/layout/list.less:.list_body:not(.layout_table) >.content_data >.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) >.column:first-child {border-bottom-left-radius}',
-			STAGE_CSS_REMOVALS,
-		],
-		[
-			'row_window_spacer client/dedalo/core/page/css/layout/list.less:.list_body:not(.layout_table) >.content_data >.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) >.column:first-child {overflow}',
-			STAGE_CSS_REMOVALS,
-		],
-		[
-			'row_window_spacer client/dedalo/core/page/css/layout/list.less:.list_body:not(.layout_table) >.content_data >.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) >.column:last-child {border-bottom-right-radius}',
-			STAGE_CSS_REMOVALS,
-		],
-		[
-			'row_window_spacer client/dedalo/core/page/css/layout/list.less:.list_body:not(.layout_table) >.content_data >.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) >.column:last-child {overflow}',
-			STAGE_CSS_REMOVALS,
-		],
-		[
-			'box_width client/dedalo/core/section_record/css/section_record.less:.section_record.list >.column:first-of-type {--box_width}',
-			STAGE_CSS_REMOVALS,
-		],
-		[
-			'box_width client/dedalo/core/section_record/css/section_record.less:.section_record.list >.column:first-of-type:after {width}',
-			STAGE_CSS_REMOVALS,
-		],
-	]);
+	const LESS_PENDING_CEILING = 0;
+	const LESS_PENDING: ReadonlyMap<string, string> = new Map<string, string>([]);
 
 	describe('client_row_dom_tripwire — LESS', () => {
 		test('the row-DOM sheets are derived (floored) and parse', () => {
@@ -749,6 +862,143 @@ else {
 					'.list_body.layout_table > .content_data > .section_record:hover::after { z-index: 1; }',
 				),
 			).toBe(false);
+			// only the NAMED descendants: any other icon, or a cell's pseudo, reds
+			expect(
+				hit(
+					'z_index_in_list_body',
+					'.list_body.layout_table > .content_data > .section_record .button.icon { z-index: 2; }',
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'z_index_in_list_body',
+					'.list_body.layout_table > .content_data > .section_record > .column:first-child::after { z-index: 1; }',
+				),
+			).toBe(true);
+			// the phone card shape (list.less 'PHONE CARDS'): the sticky Id cell
+			// may stack, but never clips (the in-flow drag handle lives in it)
+			const card =
+				'.list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column.column_section_id';
+			const phone = (less: string) =>
+				`@media screen and (max-width: @width_break_point_0) { ${less} }`;
+			expect(hit('z_index_in_list_body', phone(`${card} { z-index: 1; }`))).toBe(false);
+			// ... and ONLY that shape: the same cell outside the phone tier, or a
+			// non-card (desktop / nested) Id cell under the phone tier, reds
+			expect(hit('z_index_in_list_body', `${card} { z-index: 1; }`)).toBe(true);
+			expect(
+				hit(
+					'z_index_in_list_body',
+					'.list_body.layout_table > .content_data > .section_record > .column_section_id { z-index: 5; }',
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'z_index_in_list_body',
+					phone(
+						'.list_body.layout_table > .content_data > .section_record > .column_section_id { z-index: 5; }',
+					),
+				),
+			).toBe(true);
+			// a NESTED table's Id cell inside a card cell is no card Id cell, though
+			// its chain starts with the card prefix; nor is the card cell's pseudo
+			expect(
+				hit(
+					'z_index_in_list_body',
+					phone(
+						`${card} .list_body.layout_table > .content_data > .section_record > .column_section_id { z-index: 3; }`,
+					),
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'z_index_in_list_body',
+					phone(
+						'.list_body.layout_table:where(:not(.column *)) > .content_data > .section_record > .column .list_body.layout_table > .content_data > .section_record > .column_section_id { z-index: 3; }',
+					),
+				),
+			).toBe(true);
+			expect(hit('z_index_in_list_body', phone(`${card}::before { z-index: 1; }`))).toBe(true);
+			// a selector list is as strong as its weakest member: the card cell
+			// listed beside a desktop-table Id cell reds
+			expect(
+				hit(
+					'z_index_in_list_body',
+					phone(
+						`${card}, .list_body.layout_table > .content_data > .section_record > .column_section_id { z-index: 1; }`,
+					),
+				),
+			).toBe(true);
+			// the real nesting shape (a parent LIST distributed over nested children,
+			// list.less 'PHONE CARDS') stays exempt on its card member
+			expect(
+				hit(
+					'z_index_in_list_body',
+					phone(
+						'.list_body.layout_table:where(:not(.column *)) >.content_data, :where(.list_body:not(.layout_table)) >.content_data.list.section { >.section_record:not(.placeholder) { >.column { &.column_section_id { z-index: 1; } } } }',
+					),
+				),
+			).toBe(false);
+			// a pseudo-class LIST stays inside its compound: the ring written with
+			// `:is(a, b)` is still the row's own ::after; a cell naming the handle
+			// only inside `:is()` is still a cell
+			expect(
+				hit(
+					'z_index_in_list_body',
+					'.list_body.layout_table > .content_data > .section_record:is(:hover, :focus-within)::after { z-index: 1; }',
+				),
+			).toBe(false);
+			expect(
+				hit(
+					'z_index_in_list_body',
+					'.list_body.layout_table > .content_data > .section_record > .column:is(.x, .drag.icon) { z-index: 2; }',
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'z_index_in_list_body',
+					'.list_body.layout_table > .content_data > .section_record > .column:is(.x,.drag.icon) { z-index: 2; }',
+				),
+			).toBe(true);
+			expect(hit('overflow_clip', `${card} { overflow: hidden; }`)).toBe(true);
+			// ... in any member of a selector list, top level or nested
+			expect(hit('overflow_clip', `${card}, .x { overflow: hidden; }`)).toBe(true);
+			expect(
+				hit(
+					'overflow_clip',
+					`.list_body.layout_table:where(:not(.column *)) > .content_data { > .section_record:not(.placeholder) { > .column { &.column_section_id, &.column_remove { overflow: hidden; } } } }`,
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'overflow_clip',
+					'.list_body.layout_table > .content_data > .section_record > .column:is(.column_section_id) { overflow: hidden; }',
+				),
+			).toBe(true);
+			// ... but a cell that is NOT the Id cell stays free to clip
+			expect(
+				hit(
+					'overflow_clip',
+					'.list_body.layout_table > .content_data > .section_record > .column:not(.column_section_id) { overflow: hidden; }',
+				),
+			).toBe(false);
+			expect(
+				hit(
+					'subgrid_without_marker',
+					'.list_body.layout_table > .content_data, .list_body > .content_data > .section_record { grid-column: 1 / -1; }',
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'subgrid_without_marker',
+					'.list_body > .content_data { &.x, &.y { grid-template-columns: subgrid; } }',
+				),
+			).toBe(true);
+			expect(
+				hit(
+					'overflow_clip',
+					`.list_body.layout_table:where(:not(.column *)) > .content_data { > .section_record:not(.placeholder) { > .column { &.column_section_id { overflow: hidden; } } } }`,
+				),
+			).toBe(true);
 		});
 	});
 

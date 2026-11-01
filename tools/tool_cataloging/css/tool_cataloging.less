@@ -82,10 +82,11 @@
 
 						// the tool's OWN rows only (child combinator). A descendant
 						// selector also hit the nested portal rows (e.g. the coin images
-						// portal): flex turned each nested row into ONE grid item of the
-						// portal's 1fr 1fr list_body, collapsing both image cells into the
-						// first track so the thumbnails overlapped. Nested rows must keep
-						// the core list display:contents.
+						// portal): flex turned each nested row into ONE item of the
+						// portal's list grid, collapsing both image cells into the first
+						// track so the thumbnails overlapped. Nested rows keep the core
+						// row box: a column subgrid row of a `.layout_table` portal, or
+						// `display: contents` in a marker-less one (list.less).
 						>.section_record {
 							background-color: @color_white;
 							display: flex;
@@ -152,10 +153,6 @@
 									}
 								}
 							}
-						}
-
-						>.hover_body {
-							position: relative;
 						}
 
 						// the lazy hover overlay (row_hover.js) shows only while its tile is

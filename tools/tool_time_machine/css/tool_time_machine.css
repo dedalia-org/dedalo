@@ -73,9 +73,6 @@
 .wrapper_tool.tool_time_machine > .content_data .wrapper_section.dd15 .list_body .wrapper_component::-webkit-scrollbar {
   display: none;
 }
-.wrapper_tool.tool_time_machine > .content_data .header_wrapper_list {
-  top: 0px;
-}
 .wrapper_tool.tool_time_machine > .content_data .button_view {
   height: 100%;
   width: 100%;

@@ -5,7 +5,6 @@
 
 
 // imports
-	import {when_in_dom} from '../../common/js/events.js'
 	import {ui} from '../../common/js/ui.js'
 
 
@@ -21,9 +20,9 @@
 *
 * Main responsibilities:
 *   - Build the outer wrapper <div> for the row with CSS classes derived from
-*     the record's model, tipo, mode, and view.
-*   - Attach mouse-enter/leave row-highlight behaviour for desktop viewports
-*     when the immediate caller is a section (not a nested portal).
+*     the record's model, tipo, mode, and view. The row hover highlight is CSS
+*     only (the row-box ring, list.less 'layout_table'): no listener on the row
+*     (WC-2026-10-30-section-record-row-box).
 *   - Delegate column layout to `get_content_data`, which renders every
 *     `columns_map` entry concurrently (callback columns included) and then
 *     assembles the resulting nodes into a DocumentFragment in columns_map
@@ -68,17 +67,8 @@ export const view_default_list_section_record = function() {
 *
 * The wrapper receives CSS classes: `[model] [tipo] [mode] view_[view]`.
 * It is registered in the DOM by the caller (section.js), not by this function.
-*
-* Conditional row-hilite:
-*   Row-highlight (mouse-enter/leave) is attached only when BOTH conditions hold:
-*     1. `options.add_hilite_row` is true (default).
-*     2. The immediate caller model is 'section' (a time-machine list is one).
-*   This guards against activating highlights inside deeply nested portal rows,
-*   which would interfere with the outer section's own highlight.
-*
-* (!) The `hilite_row` call is deferred via `when_in_dom` so it runs only after
-*   the wrapper is actually inserted into the live document, ensuring that
-*   `getBoundingClientRect()` measurements inside `hilite_row` are valid.
+* No listener is attached to the row for its hover highlight: a row-box table
+* row is ringed by CSS (list.less 'layout_table').
 *
 * Debug mode (SHOW_DEBUG === true):
 *   Alt-clicking the wrapper logs the full section_record instance to the console,
@@ -88,9 +78,6 @@ export const view_default_list_section_record = function() {
 *   Accessed: self.id, self.model, self.tipo, self.mode, self.context.view,
 *             self.caller.model, self.columns_map, self.get_ar_columns_instances_list().
 * @param {Object} options - Rendering options.
-* @param {boolean} [options.add_hilite_row=true] - Whether to attach the
-*   mouse-enter/leave row-highlight handler.  Pass false to suppress highlighting
-*   (e.g. inside print views or when the outer layout manages hover styling itself).
 * @param {boolean} [options.mark_empty_columns=false] - Stamp `empty_column` on
 *   this row's value-less cells (the Time Machine tool list). A row option, not a
 *   pass over the list: a row window builds rows later (placeholder swaps,
@@ -98,11 +85,6 @@ export const view_default_list_section_record = function() {
 * @returns {Promise<HTMLElement>} The populated wrapper <div> for this row.
 */
 view_default_list_section_record.render = async function(self, options) {
-
-	// options
-		const add_hilite_row = options.add_hilite_row!==undefined
-			? options.add_hilite_row
-			: true // default
 
 	// wrapper.  section_record wrapper
 		const wrapper = ui.create_dom_element({
@@ -116,14 +98,6 @@ view_default_list_section_record.render = async function(self, options) {
 			'view_'+self.context.view
 		]
 		wrapper.classList.add(...ar_css)
-
-		// hilite_row. User mouse enter/mouseleave creates an DOM node to hilite current row
-		// Note that only is activated when self.caller is a section to prevent deep portals issues
-			if (add_hilite_row===true && self.caller.model==='section') {
-				when_in_dom(wrapper, function(){
-					hilite_row(wrapper)
-				})
-			}
 
 	// content_data render_columns
 		const fragment = await get_content_data(self)
@@ -188,80 +162,59 @@ const mark_empty_columns = function(row) {
 
 
 /**
-* HILITE_ROW
-* Attach mouseenter / mouseleave handlers to the row wrapper that visually
-* highlight the full row spanning all its columns.
+* ATTACH_CARD_LABEL
+* Give a cell its phone-card label: `ui.make_column_responsive` injects an
+* id-scoped `#col_<id>::before { content }` rule.
 *
-* Implementation detail — CSS custom properties approach:
-*   Dédalo's list grid renders each column as a separate <div> child of the
-*   section <ul>/<div>; there is no single "row" DOM element that can be styled
-*   directly.  The highlight is therefore painted via the `::after` pseudo-element
-*   of the **first column** node, whose width is stretched to cover all columns
-*   using the CSS custom property `--box_width`.
+* Below the desktop breakpoint a row-box table row (`.list_body.layout_table`) is a
+* CARD whose cells show their column label in `::before` (list.less 'PHONE CARDS').
+* Whether a row IS a card is decided by the CSS alone (the `layout_table` marker,
+* top level only), so the label is attached for EVERY caller, never by caller
+* model: a section list, a portal table and every model that renders through the
+* portal views (component_relation_related / _parent / _index, component_dataframe
+* … each `= component_portal` with its own `model`) get the same labelled cards
+* (WC-2026-10-30-section-record-row-box). The rule is inert elsewhere:
+* `.column::before` is `display: none` except under the card rules, so a cell that
+* is not a card cell (a mosaic tile, a nested list) shows nothing.
 *
-*   On mouseenter:
-*     1. Any pre-existing highlight is cleared first (so stale state from rapid
-*        mouse movement cannot persist).
-*     2. The total row width is measured via `getBoundingClientRect()` on the
-*        first and last column nodes.
-*     3. `--box_display: block` and `--box_width: <N>px` are set on the first
-*        column, making the `::after` pseudo-element appear.
-*
-*   On mouseleave:
-*     `--box_display` is set back to `'none'`, hiding the pseudo-element.
-*
-* Small-screen guard:
-*   When the viewport is narrower than 960 px the highlight is skipped because
-*   columns stack vertically in the responsive layout and the computed width
-*   would be incorrect.  The check is performed inside `fn_hilite` (not once at
-*   attach time) so that resizing the window is automatically handled.
-*
-* @param {HTMLElement} wrapper - The section_record root wrapper node (already in
-*   the live DOM when this function is called, because it is invoked via
-*   `when_in_dom`).
-* @returns {boolean} Always true.
+* (!) The label is CSS STRING text, not markup: make_column_responsive strips
+* tags only and css.js `process_rule` interpolates `content` raw between single
+* quotes, so an apostrophe in an ontology label (`Data d'alta`, `Normes
+* d'aplicació`) would end the string and drop the declaration — the card shows
+* no label — and a crafted one would add declarations to the rule. The label
+* is escaped HERE, the only caller of make_column_responsive (css_string_text).
+* @param {string} column_id - The cell's column id (`col_<column_id>`).
+* @param {string} label - The column label.
+* @returns {void}
 */
-const hilite_row = function(wrapper) {
+const attach_card_label = function(column_id, label) {
 
-	// fn_hilite. Add hilite
-		const fn_hilite = function() {
-
-			// remove previous hilite if exist
-				fn_remove_hilite()
-
-			// small screen case. Do not add hilite. (Place here because user can resize the window)
-				const width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
-				if (width<960) {
-					return
-				}
-
-			// row_style
-				const wrapper_first_column	= wrapper.firstChild
-				const wrapper_last_column	= wrapper.lastChild
-				const firstChild_el_rect	= wrapper_first_column.getBoundingClientRect();
-				const lastChild_el_rect		= wrapper_last_column.getBoundingClientRect();
-				const row_style				= {
-					width : parseFloat(lastChild_el_rect.x + lastChild_el_rect.width - firstChild_el_rect.x) + 'px'
-				}
-
-			// hilite_row_node. First column set vars. This affect ::after pseudo element
-				wrapper_first_column.style.setProperty('--box_display', 'block');
-				wrapper_first_column.style.setProperty('--box_width', row_style.width);
-		}
-
-	// fn_remove_hilite (if is set)
-		const fn_remove_hilite = () => {
-			// first column set vars. This affect ::after pseudo element
-			wrapper.firstChild.style.setProperty('--box_display', 'none');
-		}
-
-	// events
-		wrapper.addEventListener('mouseenter', fn_hilite);
-		wrapper.addEventListener('mouseleave', fn_remove_hilite);
+	ui.make_column_responsive({
+		selector	: `#col_${column_id}`,
+		label		: css_string_text(label)
+	})
+}//end attach_card_label
 
 
-	return true
-}//end hilite_row
+
+/**
+* CSS_STRING_TEXT
+* Escape a text for the body of a single-quoted CSS string (CSS Syntax §4.3.5):
+* a backslash and a quote get a backslash, a newline or other control
+* character becomes its hex escape followed by the terminating space. The
+* result renders as the original text, whatever it contains.
+* @param {string} text
+* @returns {string}
+*/
+const css_string_text = function(text) {
+
+	return String(text ?? '').replace(
+		/[\\'"]|[\u0000-\u001f\u007f]/g,
+		(ch) => (ch==='\\' || ch==="'" || ch==='"')
+			? '\\' + ch
+			: '\\' + ch.charCodeAt(0).toString(16) + ' '
+	)
+}//end css_string_text
 
 
 
@@ -454,16 +407,13 @@ const render_column = async function(self, current_column, ar_columns_instances)
 					continue;
 				}
 
-			// ar_sub_columns_map
-				const ar_sub_columns_map = current_instance.columns_map || column_instances
-
 			// column_node. If column already exists, place the component node into the column.
 			// Else, creates a new column and place it into the result list
 				const found_node	= ar_column_nodes.find(el => el.column_id === current_instance.column_id)
 				const column_node	= found_node
 					? found_node
 					: (()=>{
-						const new_column_node = render_column_node(current_instance, self, ar_sub_columns_map)
+						const new_column_node = render_column_node(current_instance, self)
 						// push column in ar_column_nodes
 						ar_column_nodes.push(new_column_node)
 						// add node to result list (the caller appends it to the fragment)
@@ -555,26 +505,17 @@ const render_callback = async function (self, column) {
 *     caller to locate and reuse the node across multiple instances.
 *
 * Responsive mobile add-ons:
-*   When the immediate caller is a plain 'section' (not a portal or TM),
-*   `ui.make_column_responsive` injects a CSS `::before` label so the field name
+*   Every cell gets its phone-card label (attach_card_label: an id-scoped CSS
+*   `::before` rule, shown only where the row is a phone card) so the field name
 *   is visible on small screens where columns stack vertically.
-*
-* Portal multi-instance grid:
-*   When the caller model is 'component_portal' and there are multiple instances
-*   sharing this column, the column's `grid-template-columns` inline style is set
-*   to distribute them evenly using `1fr` per instance.  The instance count comes
-*   from `ar_instances.length` rather than the current DOM child count because the
-*   children have not been appended yet at the time this node is created.
 *
 * @param {Object} component_instance - One of the column's component instances;
 *   its `.column_id` and `.label` are used to configure the node.
 * @param {Object} self - The parent section_record instance.
 *   Accessed: self.caller.model.
-* @param {Array} ar_instances - Array of all instances that share this column
-*   (used to compute the portal grid fraction count).
 * @returns {HTMLElement} The newly created column wrapper <div>.
 */
-const render_column_node = function(component_instance, self, ar_instances){
+const render_column_node = function(component_instance, self){
 
 	const column_id	= component_instance.column_id
 	const model		= self.caller?.model || 'section'
@@ -589,33 +530,7 @@ const render_column_node = function(component_instance, self, ar_instances){
 	column_node.component_instance	= component_instance
 
 	// column_responsive mobile add-ons
-		if (self.caller?.model==='section') {
-			ui.make_column_responsive({
-				selector	: `#col_${column_id}`,
-				label		: component_instance.label
-			})
-		}//end mobile add-ons
-
-	if (model==='component_portal') {
-
-		const children_length = ar_instances.length // column_node.children.length
-		if (children_length>1) {
-
-			const grid_template_columns_ar_value = []
-			for (let i = 0; i < children_length; i++) {
-				const width = '1fr'
-				// get the grid column spaces
-				grid_template_columns_ar_value.push(width)
-			}
-
-			Object.assign(
-				column_node.style,
-				{
-					"grid-template-columns": grid_template_columns_ar_value.join(' ')
-				}
-			)
-		}
-	}
+		attach_card_label(column_id, component_instance.label)
 
 
 	return column_node
@@ -638,8 +553,8 @@ const render_column_node = function(component_instance, self, ar_instances){
 *
 * @param {Object} column_obj - A columns_map entry with a `.callback` function.
 *   Shape: { id, label, callback: Function, … }
-* @param {Object} self - The section_record instance.
-*   Accessed: self.caller.model (to decide whether to attach responsive label).
+* @param {Object} self - The section_record instance (kept in the signature; the
+*   label is attached for every caller, attach_card_label).
 * @returns {HTMLElement} The newly created callback column wrapper <div>.
 */
 export const render_column_node_callback = function(column_obj, self){
@@ -654,12 +569,7 @@ export const render_column_node_callback = function(column_obj, self){
 	})
 
 	// column_responsive mobile add-ons
-		if (self.caller?.model==='section') {
-			ui.make_column_responsive({
-				selector	: `#col_${column_id}`,
-				label		: column_obj.label
-			})
-		}//end mobile add-ons
+		attach_card_label(column_id, column_obj.label)
 
 
 	return column_node
@@ -678,13 +588,13 @@ export const render_column_node_callback = function(column_obj, self){
 * columns remain visually aligned.  It carries the class `'empty'` so that CSS
 * can target it (e.g. to suppress borders or padding on blank cells).
 *
-* Responsive labels are still attached when the caller is a plain section because
-* the header must remain consistent regardless of whether a cell has content.
+* Responsive labels are still attached (attach_card_label) because the card must
+* remain consistent regardless of whether a cell has content.
 *
 * @param {Object} column_obj - The columns_map entry with no matching instances.
 *   Shape: { id, label, … }
-* @param {Object} self - The section_record instance.
-*   Accessed: self.caller.model.
+* @param {Object} self - The section_record instance (kept in the signature; the
+*   label is attached for every caller, attach_card_label).
 * @returns {HTMLElement} The empty placeholder column <div>.
 */
 const render_empty_column_node = function(column_obj, self){
@@ -699,12 +609,7 @@ const render_empty_column_node = function(column_obj, self){
 	})
 
 	// column_responsive mobile add-ons
-		if (self.caller?.model==='section') {
-			ui.make_column_responsive({
-				selector	: `#col_${column_id}`,
-				label		: column_obj.label
-			})
-		}//end mobile add-ons
+		attach_card_label(column_id, column_obj.label)
 
 
 	return column_node

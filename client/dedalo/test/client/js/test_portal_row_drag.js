@@ -11,6 +11,8 @@ import * as touch_pick from '../../../core/common/js/touch_pick.js';
 import { ui } from '../../../core/common/js/ui.js';
 import { PORTAL_ROW_MIME } from '../../../core/component_portal/js/drag_and_drop.js';
 import { component_relation_children } from '../../../core/component_relation_children/js/component_relation_children.js';
+import { prune_rules } from '../../../core/page/js/css.js';
+import { render_column_node_callback } from '../../../core/section_record/js/view_default_list_section_record.js';
 
 /**
  * TEST_PORTAL_ROW_DRAG
@@ -51,7 +53,9 @@ import { component_relation_children } from '../../../core/component_relation_ch
  *   - a portal inside a ts_object node leaves thesaurus drags to the term;
  *   - touch: tap picks a row, tap on another row places it (sort_data); a
  *     foreign pick is not consumed by a portal row.
- * The 360px phone-card handle hit-test is the stage-6 leg of the WC entry.
+ *   - phone (360px): the handle on a portal CARD is shown without hover, in
+ *     flow inside the Id cell, which does not clip it, and the hit point at
+ *     its centre is the handle (the stage-6 leg of the WC entry).
  * (!) The visibility leg reads the served main.css: it needs the CSS build of
  * component_portal.less (bun run css:build), as every CSS-reading suite does.
  */
@@ -141,10 +145,10 @@ let variant_seq = 0;
  * BUILD_PORTAL
  * A fresh portal instance on the host record, page limit forced, rendered and
  * appended.
- * @param {Object} options - {tipo, view, limit}
+ * @param {Object} options - {tipo, view, limit, as_model}
  * @return {Promise<Object>} the instance
  */
-const build_portal = async ({ tipo = SOURCE_TIPO, view = 'default', limit = PAGE_LIMIT } = {}) => {
+const build_portal = async ({ tipo = SOURCE_TIPO, view = 'default', limit = PAGE_LIMIT, as_model = null } = {}) => {
 	const instance = await get_instance({
 		model: 'component_portal',
 		tipo: tipo,
@@ -165,6 +169,11 @@ const build_portal = async ({ tipo = SOURCE_TIPO, view = 'default', limit = PAGE
 			instance.request_config_object.sqo.limit = limit;
 		}
 		await instance.build(true);
+	}
+	if (as_model) {
+		// a portal-aliased model (`export const <model> = component_portal`): the
+		// SAME class and views, its own `model` (common.js: options.model)
+		instance.model = as_model;
 	}
 	const node = await instance.render();
 	test_container.appendChild(node);
@@ -211,6 +220,45 @@ const spy_sort_data = (instance) => {
 };
 
 const stored_ids = (instance) => (instance.data?.entries || []).map((el) => Number(el.section_id));
+
+/**
+ * PRUNE_CARD_LABELS
+ * Drop every phone-card label rule (`#col_<id>::before`) earlier legs injected:
+ * the dynamic stylesheet is page-wide and keyed by column id, so a label left by
+ * another render would make a label assertion pass for a render that attached none.
+ */
+const prune_card_labels = () => {
+	prune_rules((rule) => /^#col_\S+::before$/.test(rule.selectorText ?? ''));
+};
+
+/**
+ * ASSERT_CARD_LABELS
+ * Every value cell of the phone card `row` shows its column label: the card rule
+ * displays its `::before` (list.less 'PHONE CARDS') and the CONTENT is the label
+ * view_default_list_section_record attached (ui.make_column_responsive, every
+ * caller model). The content is what proves the JS half: the display alone comes
+ * from the card rule whatever the content is.
+ * @param {HTMLElement} row - a built phone-card row
+ * @param {string} who - the assertion prefix
+ */
+const assert_card_labels = (row, who) => {
+	const value_cells = [...row.querySelectorAll(':scope > .column')].filter((cell) => cell.component_instance);
+	assert.equal(value_cells.length > 0, true, `${who}: the row has no value cell (the label leg would be vacuous)`);
+	let labelled = 0;
+	for (const cell of value_cells) {
+		const template = document.createElement('template');
+		template.innerHTML = String(cell.component_instance.label ?? '');
+		const label = template.content.textContent;
+		if (!label) {
+			continue;
+		}
+		labelled++;
+		const before = getComputedStyle(cell, '::before');
+		assert.equal(before.display, 'flex', `${who}: ${cell.id} shows no label band`);
+		assert.equal(before.content, JSON.stringify(label), `${who}: ${cell.id} is not labelled '${label}'`);
+	}
+	assert.equal(labelled > 0, true, `${who}: no value cell has a label (the label leg would be vacuous)`);
+};
 
 /** Frames + a delay: transitions (the handle's opacity) settle. */
 const settle_frames = (ms = 0) =>
@@ -548,6 +596,144 @@ describe('PORTAL ROW DRAG', function () {
 			if (frame) {
 				frame.style.width = frame_width;
 			}
+		}
+	});
+
+	it('phone card handle (360px): shown without hover, in flow in the Id cell, and the hit point at its centre is the handle', async () => {
+		// the stage-6 leg (row-box WC entry, phone portal cards): below the desktop
+		// breakpoint a top-level portal table is a card list (list.less 'PHONE
+		// CARDS') whose sticky Id cell holds the handle IN FLOW and never clips it
+		// (component_portal.less). The leg narrows its own frame to the phone floor
+		// for its duration, and proves it got there
+		const frame = window.frameElement;
+		const frame_width = frame ? frame.style.width : null;
+		if (frame) {
+			frame.style.width = '360px';
+		}
+		prune_card_labels();
+		const instance = await build_portal({ view: 'default' });
+		try {
+			await settle_frames();
+			assert.equal(window.matchMedia('(max-width: 1024px)').matches, true, 'the leg could not reach the phone width');
+			if (document.activeElement && document.activeElement !== document.body) {
+				document.activeElement.blur();
+			}
+			const row = row_at(instance, 0);
+			assert.equal(getComputedStyle(row).display, 'grid', 'the portal row is not a phone card');
+			const handle = source_node_of(instance, 0);
+			assert.equal(handle instanceof Element, true, 'the default-view row has its .drag handle');
+			const id_cell = handle.closest('.column_section_id');
+			assert.equal(Boolean(id_cell) && row.contains(id_cell), true, 'the handle is not inside the row Id cell');
+			handle.scrollIntoView({ block: 'center' });
+			await settle_frames(300);
+			assert.equal(row.matches(':hover, :focus-within'), false, 'the leg must measure the row at rest');
+			assert.equal(getComputedStyle(handle).opacity, '1', 'the phone handle is hidden at rest');
+			assert.equal(getComputedStyle(handle).position, 'static', 'the phone handle is not in flow');
+			const id_style = getComputedStyle(id_cell);
+			assert.equal(id_style.overflowX === 'visible' && id_style.overflowY === 'visible', true, 'the Id cell clips the handle');
+			const box = handle.getBoundingClientRect();
+			assert.equal(box.width > 0 && box.height > 0, true, 'the handle has no box');
+			assert.equal(box.left >= 0 && box.right <= window.innerWidth, true, 'the handle is outside the viewport');
+			const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+			assert.equal(hit === handle || handle.contains(hit), true, 'the point at the handle centre is not the handle');
+			// the card holds its cells: the trash button beside its 22% label once
+			// ran 100% wide past the card edge, the phone page was laid out wider
+			// than the screen and scaled down, and a real tap at the handle's
+			// layout centre landed on the next card's trash button (crawl journey
+			// portal_reorder). Every cell child stays inside the card's box
+			// every value cell is labelled (the card's field names)
+			assert_card_labels(row, 'portal card');
+			const remove_button = row.querySelector(':scope > .column_remove > .button_remove');
+			assert.equal(remove_button instanceof HTMLElement, true, 'the default-view row has its trash cell (the containment leg would be vacuous)');
+			const card_right = row.getBoundingClientRect().right;
+			for (const cell_child of row.querySelectorAll(':scope > .column > *')) {
+				const right = cell_child.getBoundingClientRect().right;
+				assert.equal(right <= card_right + 0.5, true, `a card cell child overflows the card (${cell_child.className}: ${right} > ${card_right})`);
+			}
+		} finally {
+			await instance.destroy(true, true, true);
+			if (frame) {
+				frame.style.width = frame_width;
+			}
+		}
+	});
+
+	it('phone card labels (360px): a portal-aliased model (component_relation_related) gets the same labelled cards', async () => {
+		// the cards are decided by the CSS marker (`.list_body.layout_table`), which
+		// every portal-family model carries (view_default_edit_portal); the labels
+		// must follow, never a caller-model name (row-box WC entry, phone portal
+		// cards). The leg narrows its own frame to the phone floor for its duration
+		const frame = window.frameElement;
+		const frame_width = frame ? frame.style.width : null;
+		if (frame) {
+			frame.style.width = '360px';
+		}
+		prune_card_labels();
+		const instance = await build_portal({ view: 'default', as_model: 'component_relation_related' });
+		try {
+			await settle_frames(300);
+			assert.equal(window.matchMedia('(max-width: 1024px)').matches, true, 'the leg could not reach the phone width');
+			assert.equal(instance.model, 'component_relation_related', 'the leg did not render as the aliased model');
+			const row = row_at(instance, 0);
+			// render_column_node stamps `column_<caller model>` on each value cell
+			assert.equal(
+				row.querySelector(':scope > .column.column_component_relation_related') instanceof HTMLElement,
+				true,
+				'the row caller is not the aliased model',
+			);
+			assert.equal(getComputedStyle(row).display, 'grid', 'the aliased-model row is not a phone card');
+			assert_card_labels(row, 'component_relation_related card');
+		} finally {
+			await instance.destroy(true, true, true);
+			if (frame) {
+				frame.style.width = frame_width;
+			}
+		}
+	});
+
+	it('phone card labels: a label is CSS string TEXT (an apostrophe renders; a quote cannot add declarations)', async () => {
+		// the label rides an id-scoped `content:'…'` rule (css.js process_rule
+		// interpolates it between single quotes): unescaped, `Data d'alta` ends
+		// the string and the card loses its label, and a crafted label adds
+		// declarations to the rule. The REAL attach path (render_column_node_*
+		// → attach_card_label) must hand the stylesheet the label as its text
+		const cases = [
+			{ id: 'card_label_probe_apostrophe', label: "Data d'alta" },
+			{ id: 'card_label_probe_backslash', label: 'a\\b "c"' },
+			{ id: 'card_label_probe_crafted', label: "x';visibility:hidden;content:'y" },
+		];
+		const rule_of = (selector) => {
+			for (const sheet of document.styleSheets) {
+				let rules;
+				try {
+					rules = sheet.cssRules;
+				} catch {
+					continue;
+				}
+				for (const rule of rules) {
+					if (rule.selectorText === selector) {
+						return rule;
+					}
+				}
+			}
+			return null;
+		};
+		prune_card_labels();
+		try {
+			for (const { id, label } of cases) {
+				render_column_node_callback({ id, label, callback: () => null }, null);
+			}
+			// css.js queues the rules and flushes them on the next animation frame
+			await settle_frames();
+			for (const { id, label } of cases) {
+				const rule = rule_of(`#col_${id}::before`);
+				assert.equal(rule instanceof CSSStyleRule, true, `${id}: no label rule was attached (the leg would be vacuous)`);
+				assert.equal(rule.style.getPropertyValue('content'), JSON.stringify(label), `${id}: the label is not its own text`);
+				assert.equal(rule.style.getPropertyValue('visibility'), '', `${id}: the label added a declaration`);
+				assert.equal(rule.style.length, 1, `${id}: the label rule carries more than its content`);
+			}
+		} finally {
+			prune_card_labels();
 		}
 	});
 

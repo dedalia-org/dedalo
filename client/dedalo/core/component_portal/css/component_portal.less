@@ -165,17 +165,29 @@
 			opacity: 0.5;
 		}
 
+		// handle on a PHONE card (list.less 'PHONE CARDS'; row-box WC entry). The
+		// card's Id cell is a sticky grid: a gutter handle (left:-2.2rem) would sit
+		// outside the card and off the screen edge, so here it is IN FLOW inside
+		// the Id cell (static, no negative offset) and ALWAYS shown (no hover on
+		// touch; the tap source must be visible). The Id cell carries no overflow
+		// clip under the marker, so the handle stays hit-testable. Same key as
+		// the cards: a table nested in another list's cell is no card
+		@media screen and (max-width: @width_break_point_0) {
+			.list_body.layout_table:where(:not(.column *)) >.content_data >.section_record >.column_section_id .drag.icon {
+				position: static;
+				left: auto;
+				opacity: 1;
+			}
+		}
+
 		// row marks of the delegated binders (drag_and_drop.js bind_row_drag): the
 		// source row is `dragging`, the row under the pointer that the drop would
-		// accept is `dragover`. The line / mosaic views refine them in their own files.
+		// accept is `dragover`. The table row paints both on its ring (list.less
+		// 'layout_table'); the line / mosaic views paint them in their own files.
 		.section_record {
 			&.dragging > .column_section_id .drag.icon {
 				opacity: 1;
 				background-color: @color_hilite_yellow;
-			}
-			&.dragover {
-				outline: 3px dotted @color_orange_dedalo;
-				outline-offset: -3px;
 			}
 		}
 

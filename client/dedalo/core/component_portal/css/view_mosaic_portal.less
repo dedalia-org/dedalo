@@ -38,10 +38,6 @@
 				}
 			}
 
-			>.hover_body {
-				position: relative;
-			}
-
 			// the tile hover overlay (section_record/js/row_hover.js): built on demand,
 			// at most one per list, hidden unless its tile shows it (below)
 			.sr_mosaic_hover {
@@ -272,24 +268,10 @@
 	}
 
 	&.list {
-		>.list_body >.content_data >.component_image {
-			max-height: 5rem;
-		}
-
 		>.list_body {
 
 			@media screen and (max-width: @width_break_point_0) { // 1024px
 				display: flex;
-			}
-
-			>.section_record {
-				// (!) Never use overflow: hidden here !
-
-				>.column {
-					>.wrapper_component {
-						height: 80px;
-					}
-				}
 			}
 		}
 
