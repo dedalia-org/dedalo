@@ -24,9 +24,11 @@
  *   typo in the PHP property name is not significant here).
  * - The menu root order is a FIXED model order (PHP get_ar_root_area_tipos) and
  *   still carries `area_graph` even though the rewrite drops area_graph as a
- *   behavior (dead — user decision): the live menu emits its root, so menu
- *   parity requires it. That is why MENU_ROOT_MODEL_ORDER (menu ordering) and
- *   AREA_MODELS (behavior-carrying set) are DIFFERENT lists.
+ *   behavior (dead — user decision): the walk (and the config_areas catalog)
+ *   keeps PHP's root order, but the menu tree_datalist does NOT emit a
+ *   behaviorless area (WC-2026-11-01-menu-dead-area). That is why
+ *   MENU_ROOT_MODEL_ORDER (walk ordering) and AREA_MODELS (behavior-carrying
+ *   set) are DIFFERENT lists.
  *
  * WHERE THE ENGINE LIVES: this module is the PURE contract (model taxonomy,
  * walk-filter sets, tipo constants, predicates). The I/O-bearing resolvers live
@@ -88,8 +90,8 @@ export function areaBehaviorOf(model: string): AreaBehavior | null {
 
 /**
  * Area root models in the exact MENU order (PHP get_ar_root_area_tipos). Carries
- * area_graph for live menu parity even though the rewrite drops it as a behavior
- * (see module doc). Consumed only by the menu walk.
+ * area_graph for the walk order even though the rewrite drops it as a behavior
+ * and the menu tree_datalist does not emit it (see module doc).
  */
 export const MENU_ROOT_MODEL_ORDER: readonly string[] = [
 	'area_root',

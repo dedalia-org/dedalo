@@ -265,7 +265,10 @@
 
 		// selection_info
 		>.selection_info {
-			contain: content;
+			// inline-size: the nowrap label's text width must not become the
+			// inspector's (and so the page table's) minimum width — at 360px it
+			// widened the whole page; the label ellipsizes instead
+			contain: inline-size layout paint style;
 			display: flex;
 			align-items: center;
 			justify-content: center;

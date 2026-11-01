@@ -750,6 +750,10 @@
 		.map_stage_wrap {
 			padding: 0.4rem 1.15rem 0;
 			overflow-x: auto;
+			// the stage's min-width must scroll HERE, not become the page's minimum
+			// width (a scroll box still reports its content's intrinsic size; the
+			// page table sized itself to it — 1075px at 360px)
+			contain: inline-size;
 			height: 366px;
 		}
 
@@ -913,6 +917,7 @@
 
 			.ctx_head {
 				display: flex;
+				flex-wrap: wrap; // phone width: id/state/sub wrap instead of widening the page
 				align-items: center;
 				gap: 0.6rem;
 				padding: 0.85rem 1.05rem;

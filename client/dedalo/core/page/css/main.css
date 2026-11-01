@@ -7881,7 +7881,7 @@ body:has(.component_av.view_viewer) {
   text-align: center;
 }
 .inspector > .inspector_content_data > .selection_info {
-  contain: content;
+  contain: inline-size layout paint style;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13520,6 +13520,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 */
 .area_dashboard {
   width: 100%;
+  min-width: 0;
   padding: 1.5rem;
 }
 .area_dashboard .area_dashboard_header {
@@ -13540,6 +13541,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_dashboard .area_dashboard_cards_toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
@@ -13667,6 +13669,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_dashboard .area_dashboard_chart .area_dashboard_chart_header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -13988,7 +13991,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   gap: 0.3rem;
   font-size: 0.75rem;
   color: var(--fg_muted);
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .area_dashboard .area_dashboard_activity .area_dashboard_activity_legend .area_dashboard_activity_legend_dot {
   display: inline-block;
@@ -15542,6 +15546,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_stage_wrap {
   padding: 0.4rem 1.15rem 0;
   overflow-x: auto;
+  contain: inline-size;
   height: 366px;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_stage {
@@ -15789,6 +15794,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
   padding: 0.85rem 1.05rem;
@@ -19720,6 +19726,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .area_thesaurus > .buttons_container,
 .area_ontology > .buttons_container {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
 }
 .area_thesaurus > .buttons_container button,

@@ -121,6 +121,16 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The menu no longer offers the retired Graphs area.**
+
+    The Graphs area (`dd630`) was still listed in the menu, but opening it only showed an error: the area was retired and the server refuses to open it. The menu now leaves it out. Nothing else changes: the area still appears in the Maintenance area-visibility settings and in profile permissions.
+
+    Wire contract: `WC-2026-11-01-menu-dead-area`.
+
+- **Area dashboards, the thesaurus and ontology toolbars, the Maintenance map and the edit inspector fit a phone screen.**
+
+    On a narrow screen (about 360 pixels wide) these pages were wider than the screen, so the whole page, menu included, scrolled sideways. Their toolbars, chart headers and legends now wrap onto a second line, the record title in the inspector is shortened with an ellipsis, and the Maintenance system map scrolls inside its own frame.
+
 - **A field whose save failed is no longer forgotten — it stays marked unsaved and is saved again.**
 
     Before, when saving a field failed (a network interruption, a server error, a
@@ -768,7 +778,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 41 entries"
+??? note "Wire contract — 42 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -811,6 +821,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-31-portal-order-model`
     - `WC-2026-10-31-transliterate-value-emitted`
     - `WC-2026-10-31-update-rung-above-code`
+    - `WC-2026-11-01-menu-dead-area`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

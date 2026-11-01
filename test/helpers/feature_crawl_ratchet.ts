@@ -7,12 +7,7 @@
  * `<persona>:<section_tipo>:<mode>:<check>` exactly as the crawl report prints
  * them; `--strict` ignores this list.
  */
-export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string>([
-	[
-		'root:tools@section:tool:tool_identify:api:identify.no_profile',
-		'the suite DB holds no identify profile / image index; tool_identify answers identify.no_profile',
-	],
-]);
+export const KNOWN_FAILING: ReadonlyMap<string, string> = new Map<string, string>([]);
 
 /**
  * INTERMITTENT: real bugs that do not reproduce on every run (a race in the

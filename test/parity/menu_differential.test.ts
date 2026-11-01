@@ -106,7 +106,12 @@ describe.if(hasPhpCredentials())('menu tree_datalist differential (Phase 6 gate)
 		const data = (body.result as { data?: { tree_datalist?: PhpMenuItem[] }[] }).data ?? [];
 		const menu = data.find((entry) => Array.isArray(entry.tree_datalist));
 		const allItems = menu?.tree_datalist ?? [];
-		phpPlain = allItems.filter((item) => item.config === undefined);
+		// WC-2026-11-01-menu-dead-area ADOPTED divergence: PHP emitted the dead
+		// area_graph root (dd630, a read the TS engine refuses); TS does not offer
+		// it. Drop it from the PHP side before diffing.
+		phpPlain = allItems.filter(
+			(item) => item.config === undefined && item.model !== 'area_graph',
+		);
 		phpConfig = allItems.filter((item) => item.config !== undefined);
 
 		const result = await getMenuTreeDatalist();
@@ -157,7 +162,9 @@ describe.if(hasPhpCredentials())('menu tree_datalist differential (Phase 6 gate)
 		// A skipped node is allowed ONLY when PHP also dropped it (a section_tool
 		// whose named tool is not installed — PHP silently omits the entry).
 		const phpTipos = new Set([...phpPlain, ...phpConfig].map((item) => item.tipo));
-		for (const skippedNode of tsSkipped) {
+		for (const skippedNode of tsSkipped.filter(
+			(node) => !node.reason.startsWith("area model 'area_graph'"),
+		)) {
 			expect(phpTipos.has(skippedNode.tipo)).toBe(false);
 		}
 	});

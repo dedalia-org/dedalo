@@ -251,9 +251,8 @@ const get_content_value = (i, current_value, self) => {
 			class_name		: 'input_value' + add_class,
 			value			: current_value.value || '' ,
 			placeholder		: (current_value.value) ? '' : self.data.fallback_value?.[i].value,
-			aria			: {
-				lang: self.lang
-			},
+			// no `aria-lang`: it is not an ARIA attribute (axe aria-valid-attr), and
+			// `lang` takes a BCP 47 tag, not a Dédalo 'lg-spa' code.
 			parent			: content_value
 		})
 		// mousedown event. Capture event propagation

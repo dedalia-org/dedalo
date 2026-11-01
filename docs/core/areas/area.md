@@ -102,9 +102,9 @@ the `areas.deny` list.
 !!! note "The root order and the behavior set are two different lists"
     `MENU_ROOT_MODEL_ORDER` (menu emission order) and `AREA_MODELS` (the
     behavior-carrying set) are deliberately **not** the same list.
-    `area_graph` appears in the root order for menu wire compatibility, but it
-    carries no behavior: it is absent from `AREA_BEHAVIOR`, and a read addressed
-    at it is refused. Do not conflate the two lists when you extend either.
+    `area_graph` appears in the root order of the walk, but it carries no
+    behavior: it is absent from `AREA_BEHAVIOR`, a read addressed at it is
+    refused, and the menu does not emit it. Do not conflate the two lists when you extend either.
 
 ### The deny/allow config
 

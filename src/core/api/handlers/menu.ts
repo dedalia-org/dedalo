@@ -49,6 +49,8 @@ import {
 	AREA_CHILD_EXCLUDE_MODELS,
 	AREA_CHILD_INCLUDE_MODELS,
 	AREA_ONTOLOGY_TIPO,
+	areaBehaviorOf,
+	isAreaModel,
 	MENU_ROOT_MODEL_ORDER,
 } from '../../concepts/area.ts';
 import { sql } from '../../db/postgres.ts';
@@ -79,9 +81,10 @@ export interface MenuTreeResult {
 /**
  * Area root models (menu order) + the child walk-filter sets now live in the
  * area contract (concepts/area.ts) so the taxonomy has one home. Aliased locally
- * to keep this walk readable. MENU_ROOT_MODEL_ORDER still carries area_graph:
- * the live menu emits its root, so menu parity requires it (the rewrite drops
- * area_graph only as a BEHAVIOR, not from the menu ordering).
+ * to keep this walk readable. MENU_ROOT_MODEL_ORDER still carries area_graph
+ * (the PHP walk order, the config_areas catalog), but the tree_datalist does NOT
+ * emit it: a behaviorless area model is a doorway the read refuses
+ * (WC-2026-11-01-menu-dead-area).
  */
 const ROOT_AREA_MODELS = MENU_ROOT_MODEL_ORDER;
 const CHILDREN_INCLUDE_MODELS = AREA_CHILD_INCLUDE_MODELS;
@@ -329,6 +332,16 @@ export async function getMenuTreeDatalist(viewer?: {
 
 	for (const area of areas) {
 		if (skipTipos.has(area.tipo)) continue; // a grouping wrapper — not rendered
+
+		// A doorway the read refuses is not offered: an area model with no behavior
+		// resolver (area_graph — dead, engineering/AREA_SPEC.md) answers every read
+		// with request.invalid_model, so its entry was a dead link for every viewer.
+		// The WALK keeps it (root order, config_areas catalog); only the menu drops
+		// it, recorded (WC-2026-11-01-menu-dead-area).
+		if (isAreaModel(area.model) && areaBehaviorOf(area.model) === null) {
+			skipped.push({ tipo: area.tipo, reason: `area model '${area.model}' has no behavior` });
+			continue;
+		}
 
 		const parent = getVisibleParent(area, skipByTipo);
 
