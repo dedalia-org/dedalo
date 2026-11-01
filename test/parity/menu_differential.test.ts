@@ -109,9 +109,7 @@ describe.if(hasPhpCredentials())('menu tree_datalist differential (Phase 6 gate)
 		// WC-2026-11-01-menu-dead-area ADOPTED divergence: PHP emitted the dead
 		// area_graph root (dd630, a read the TS engine refuses); TS does not offer
 		// it. Drop it from the PHP side before diffing.
-		phpPlain = allItems.filter(
-			(item) => item.config === undefined && item.model !== 'area_graph',
-		);
+		phpPlain = allItems.filter((item) => item.config === undefined && item.model !== 'area_graph');
 		phpConfig = allItems.filter((item) => item.config !== undefined);
 
 		const result = await getMenuTreeDatalist();

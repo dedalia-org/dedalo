@@ -87,6 +87,34 @@ export interface MenuTreeResult {
  * (WC-2026-11-01-menu-dead-area).
  */
 const ROOT_AREA_MODELS = MENU_ROOT_MODEL_ORDER;
+
+/**
+ * A doorway the read refuses: an area model with no behavior resolver
+ * (area_graph — dead, engineering/AREA_SPEC.md) answers every read with
+ * request.invalid_model, so a menu entry for it is a dead link for every viewer.
+ * The WALK keeps it (root order, config_areas catalog, permissions); only the
+ * menu drops it (WC-2026-11-01-menu-dead-area).
+ */
+function isDeadAreaDoorway(model: string): boolean {
+	return isAreaModel(model) && areaBehaviorOf(model) === null;
+}
+
+/**
+ * The areas the menu may render: every dead doorway that is not a skipped
+ * grouping wrapper (those render nothing anyway) is dropped and RECORDED in
+ * `skipped`. Order is preserved.
+ */
+function withoutDeadAreaDoorways(
+	areas: AreaNode[],
+	skipTipos: ReadonlySet<string>,
+	skipped: { tipo: string; reason: string }[],
+): AreaNode[] {
+	return areas.filter((area) => {
+		if (skipTipos.has(area.tipo) || !isDeadAreaDoorway(area.model)) return true;
+		skipped.push({ tipo: area.tipo, reason: `area model '${area.model}' has no behavior` });
+		return false;
+	});
+}
 const CHILDREN_INCLUDE_MODELS = AREA_CHILD_INCLUDE_MODELS;
 const CHILDREN_EXCLUDE_MODELS = AREA_CHILD_EXCLUDE_MODELS;
 
@@ -329,19 +357,11 @@ export async function getMenuTreeDatalist(viewer?: {
 
 	const tree_datalist: MenuTreeItem[] = [];
 	const skipped: { tipo: string; reason: string }[] = [];
+	// A doorway the read refuses is not offered; it is recorded in `skipped`.
+	const offered = withoutDeadAreaDoorways(areas, skipTipos, skipped);
 
-	for (const area of areas) {
+	for (const area of offered) {
 		if (skipTipos.has(area.tipo)) continue; // a grouping wrapper — not rendered
-
-		// A doorway the read refuses is not offered: an area model with no behavior
-		// resolver (area_graph — dead, engineering/AREA_SPEC.md) answers every read
-		// with request.invalid_model, so its entry was a dead link for every viewer.
-		// The WALK keeps it (root order, config_areas catalog); only the menu drops
-		// it, recorded (WC-2026-11-01-menu-dead-area).
-		if (isAreaModel(area.model) && areaBehaviorOf(area.model) === null) {
-			skipped.push({ tipo: area.tipo, reason: `area model '${area.model}' has no behavior` });
-			continue;
-		}
 
 		const parent = getVisibleParent(area, skipByTipo);
 
