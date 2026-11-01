@@ -180,10 +180,17 @@ export function suiteServerEnvironment(options: {
 	socketPath: string;
 	sessionDbPath: string;
 	stateFilePath: string;
+	/**
+	 * Keys a run PINS on its server instead of borrowing them from the machine
+	 * (process env wins over ../private/.env in readEnv). They ADD to the
+	 * environment, never override a key this function sets itself (its repoint
+	 * to the suite database, the run's own paths): such a key is refused, so no
+	 * caller can aim the server elsewhere.
+	 */
+	pinnedEnv?: Readonly<Record<string, string>>;
 }): Record<string, string> {
 	repointProcessToSuiteDatabase(options.suiteDb, options.sessionDbPath);
-	return {
-		...(process.env as Record<string, string>),
+	const owned: Record<string, string> = {
 		DB_NAME: options.suiteDb,
 		DEDALO_DATABASE_CONN: options.suiteDb,
 		DEDALO_SESSION_DB_PATH: options.sessionDbPath,
@@ -216,6 +223,14 @@ export function suiteServerEnvironment(options: {
 		// on /health is dev-mode-only by design.
 		DEDALO_DEV_MODE: 'true',
 	};
+	const pinned = options.pinnedEnv ?? {};
+	const overriding = Object.keys(pinned).filter((key) => key in owned);
+	if (overriding.length > 0) {
+		throw new Error(
+			`pinnedEnv may not override the suite server's own keys: ${overriding.join(', ')}`,
+		);
+	}
+	return { ...(process.env as Record<string, string>), ...pinned, ...owned };
 }
 
 /** Per-run, per-pid paths for the things a second server must not share. */
@@ -368,6 +383,12 @@ export async function startClientTestServer(options: {
 	port: number;
 	bootTimeoutMs?: number;
 	log?: (message: string) => void;
+	/**
+	 * Keys a run PINS on its server instead of borrowing them from the machine
+	 * (test:tools:phone's AI capability, PHONE_RUN_ENV) — see
+	 * suiteServerEnvironment's `pinnedEnv`.
+	 */
+	pinnedEnv?: Readonly<Record<string, string>>;
 }): Promise<ClientTestServer> {
 	const log = options.log ?? (() => {});
 	const { socketPath, sessionDbPath, stateFilePath } = suiteServerPaths();
@@ -377,6 +398,7 @@ export async function startClientTestServer(options: {
 		socketPath,
 		sessionDbPath,
 		stateFilePath,
+		...(options.pinnedEnv === undefined ? {} : { pinnedEnv: options.pinnedEnv }),
 	});
 	log(
 		`Starting the run's OWN server on '${options.suiteDb}' (port ${options.port}, socket ${socketPath}) — the application database is never served.`,

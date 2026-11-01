@@ -18,7 +18,13 @@
  *
  * Verdicts, shrink-only: a PHONE_CASES tool that fails is red; a NOT_YET_PHONE
  * tool whose probe PASSES is red too (move it across). A pending tool that
- * fails is expected and reported. `--shots` writes one PNG per tool.
+ * fails is expected and reported. A HIDDEN_BY_CAPABILITY tool must be OBSERVED
+ * unoffered (its live caller's loaded tool list lacks it); one that renders is
+ * red (move it back), and so is any other probe failure (a broken probe). `--shots`
+ * writes one PNG per tool.
+ *
+ * The run's server gets PHONE_RUN_ENV pinned (the AI capability the assistant
+ * needs), so a verdict never depends on the machine's ../private/.env.
  *
  * Needs `bun run test:db:setup` once (the suite database).
  */
@@ -30,9 +36,11 @@ import { readEnv } from '../src/config/env.ts';
 import { compareLocators, type Locator } from '../src/core/concepts/locator.ts';
 import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import {
+	HIDDEN_BY_CAPABILITY,
 	NOT_YET_PHONE,
 	PHONE_CASES,
 	PHONE_HIT_TARGET_PX,
+	PHONE_RUN_ENV,
 	PHONE_VIEWPORT,
 	type ToolPhoneProbe,
 } from '../test/helpers/tool_phone_ratchet.ts';
@@ -61,10 +69,23 @@ const PHONE_DEVICE = {
 		'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
 };
 
+type Expected = 'pass' | 'pending' | 'hidden';
+
+/**
+ * The prefix of the ONE probe outcome a HIDDEN_BY_CAPABILITY verdict accepts:
+ * the caller is live, its tool list is loaded, and the tool is not in it.
+ */
+const TOOL_NOT_OFFERED = 'tool not offered:';
+
 interface Verdict {
 	tool: string;
-	expected: 'pass' | 'pending';
+	expected: Expected;
 	ok: boolean;
+	/**
+	 * true only for the positive observation a hidden entry needs (TOOL_NOT_OFFERED
+	 * as the sole problem); any other failure — navigation, login, no caller — is not.
+	 */
+	hiddenObserved: boolean;
 	problems: string[];
 	notes: string[];
 }
@@ -110,7 +131,7 @@ const { ensureSuiteLoginPassword, SUITE_LOGIN_PASSWORD } = await import(
 );
 await ensureSuiteLoginPassword('root', SUITE_LOGIN_PASSWORD);
 
-const probes: { tool: string; probe: ToolPhoneProbe; expected: 'pass' | 'pending' }[] = [
+const probes: { tool: string; probe: ToolPhoneProbe; expected: Expected }[] = [
 	...Object.entries(PHONE_CASES).map(([tool, probe]) => ({
 		tool,
 		probe,
@@ -123,6 +144,11 @@ const probes: { tool: string; probe: ToolPhoneProbe; expected: 'pass' | 'pending
 			probe: entry.probe as ToolPhoneProbe,
 			expected: 'pending' as const,
 		})),
+	...Object.entries(HIDDEN_BY_CAPABILITY).map(([tool, entry]) => ({
+		tool,
+		probe: entry.probe,
+		expected: 'hidden' as const,
+	})),
 ].filter((p) => only === undefined || only.split(',').includes(p.tool));
 
 if (probes.length === 0 && !args.includes('--discover') && !args.includes('--overflow')) {
@@ -136,6 +162,7 @@ const server = await startClientTestServer({
 	expectedFingerprint: await localSuiteFingerprint(),
 	port,
 	log: (m) => console.log(m),
+	pinnedEnv: PHONE_RUN_ENV,
 });
 
 const verdicts: Verdict[] = [];
@@ -382,7 +409,16 @@ try {
 			if (asFixture) await asFixture.remove();
 			if (built) await (built as { sweep: () => Promise<unknown> }).sweep();
 		}
-		verdicts.push({ tool, expected, ok: problems.length === 0, problems, notes });
+		verdicts.push({
+			tool,
+			expected,
+			ok: problems.length === 0,
+			hiddenObserved:
+				problems.length === 1 &&
+				problems[0]?.startsWith(`did not render: ${TOOL_NOT_OFFERED}`) === true,
+			problems,
+			notes,
+		});
 	}
 } finally {
 	await browser.close();
@@ -397,9 +433,15 @@ for (const v of verdicts) {
 			? v.ok
 				? 'PASS'
 				: 'FAIL'
-			: v.ok
-				? 'FAIL (pending tool passes — move it to PHONE_CASES)'
-				: 'pending';
+			: v.expected === 'hidden'
+				? v.hiddenObserved
+					? 'hidden'
+					: !v.problems.some((p) => p.startsWith('did not render:'))
+						? 'FAIL (hidden tool renders — its capability was lifted: move it back to PHONE_CASES)'
+						: 'FAIL (hidden tool: probe broken — the caller was not observed without the tool)'
+				: v.ok
+					? 'FAIL (pending tool passes — move it to PHONE_CASES)'
+					: 'pending';
 	if (status.startsWith('FAIL')) red++;
 	console.log(`\n${status.padEnd(8)} ${v.tool}`);
 	for (const p of v.problems.slice(0, 12)) console.log(`    - ${p}`);
@@ -672,7 +714,7 @@ async function openProbe(
 		.map((c) => c.id);
 
 	const opened = await page.evaluate(
-		async (toolName: string, f: typeof find, ids: string[]) => {
+		async (toolName: string, f: typeof find, ids: string[], notOffered: string) => {
 			const instancesSpec = '/dedalo/core/common/js/instances.js';
 			const toolSpec = '/dedalo/core/tools_common/js/tool_common.js';
 			const { get_all_instances } = (await import(instancesSpec)) as {
@@ -712,7 +754,25 @@ async function openProbe(
 					(t: { name: string }) => t.name === toolName,
 				);
 			const instance = all.find((i) => matches(i) && offers(i));
-			if (!instance) return { error: `no live '${f.tipo}' instance offering ${toolName}` };
+			if (!instance) {
+				// Two different facts, two prefixes: 'tool not offered:' is a POSITIVE
+				// observation (the caller is live AND its tool list is loaded — it
+				// offers other tools — AND this tool is not among them), which is what
+				// a HIDDEN_BY_CAPABILITY verdict requires. No caller, or a caller with
+				// no tool list at all, is a broken probe and never counts as hidden.
+				const callers = all.filter(matches);
+				const offered = new Set(
+					callers.flatMap((i) =>
+						[...(i.context?.tools ?? []), ...(i.tools ?? [])].map((t: { name: string }) => t.name),
+					),
+				);
+				if (callers.length === 0) return { error: `no live '${f.tipo}' caller instance` };
+				if (offered.size === 0)
+					return { error: `live '${f.tipo}' carries no tool list (cannot judge ${toolName})` };
+				return {
+					error: `${notOffered} live '${f.tipo}' offers ${offered.size} tools, not ${toolName}`,
+				};
+			}
 			const tool_context = offers(instance);
 			// a user taps the tool icon ON the element: it is on screen, and
 			// elements that build lazily when visible (the JSON editor
@@ -725,6 +785,7 @@ async function openProbe(
 		tool,
 		find,
 		matchIds,
+		TOOL_NOT_OFFERED, // the page realm cannot see Node's constant
 	);
 	if ('error' in opened) throw new Error(opened.error as string);
 	return follow(opened.openAs as string);

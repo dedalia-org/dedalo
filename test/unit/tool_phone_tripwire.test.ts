@@ -11,8 +11,15 @@
  * lister) — a tool or sheet must be tracked (or `git add -N`) to be seen.
  *
  *  1. RATCHET TOTALITY: every tool directory under tools/ is in exactly one of
- *     PHONE_CASES / NOT_YET_PHONE (test/helpers/tool_phone_ratchet.ts); no
- *     stale name. A new tool lands in NOT_YET_PHONE with a reason, never silently.
+ *     PHONE_CASES / NOT_YET_PHONE / HIDDEN_BY_CAPABILITY
+ *     (test/helpers/tool_phone_ratchet.ts); no stale name. A new tool lands in
+ *     NOT_YET_PHONE with a reason, never silently.
+ *  1b. CAPABILITY COHERENCE (src/ai/capabilities.ts, the engine's own
+ *     aiCapabilities() run in a child with PHONE_RUN_ENV in its process env):
+ *     every PHONE_CASES tool is OFFERED under the run's pinned PHONE_RUN_ENV (a probe never depends on
+ *     the machine's .env), every HIDDEN_BY_CAPABILITY tool is gated by its named
+ *     flag and that flag is false — a stale hidden entry is red here, not only
+ *     in the browser run.
  *  2. TOKENS, NOT LITERALS: every width @media in a tool sheet (tools/**\/*.less
  *     and tools_common/css) names a `@width_break_point_*` token (a `+ 1`
  *     complement allowed) — a literal width is a private breakpoint.
@@ -25,12 +32,15 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { type AiCapabilities, toolOfferedByCapabilities } from '../../src/ai/capabilities.ts';
 import { trackedRepoFiles } from '../helpers/css_reference_corpus.ts';
 import { isGrantOnlyTool } from '../helpers/tool_directory_corpus.ts';
 import {
+	HIDDEN_BY_CAPABILITY,
 	NOT_YET_PHONE,
 	PHONE_CASES,
 	PHONE_HIT_TARGET_PX,
+	PHONE_RUN_ENV,
 	PHONE_VIEWPORT,
 } from '../helpers/tool_phone_ratchet.ts';
 
@@ -63,20 +73,79 @@ describe('tool phone ratchet', () => {
 
 	test('every tool is in exactly one list, no stale names', () => {
 		const proven = Object.keys(PHONE_CASES);
-		const pending = Object.keys(NOT_YET_PHONE);
+		const pending = [...Object.keys(NOT_YET_PHONE), ...Object.keys(HIDDEN_BY_CAPABILITY)];
 		// A GRANT-ONLY tool has no surface to open on a phone — DERIVED from its own
 		// register.json (tool_directory_corpus.isGrantOnlyTool), never listed; that it
 		// really ships no client is the grant-only law (tools_register_validate).
 		const grantOnly = toolDirs.filter(isGrantOnlyTool);
 		expect(proven.filter((name) => pending.includes(name))).toEqual([]);
+		expect(new Set(pending).size).toBe(pending.length);
 		expect([...proven, ...pending].filter((name) => grantOnly.includes(name))).toEqual([]);
 		expect([...proven, ...pending, ...grantOnly].sort()).toEqual(toolDirs);
 	});
 
 	test('every pending entry carries a substantive reason', () => {
-		for (const [name, entry] of Object.entries(NOT_YET_PHONE)) {
+		for (const [name, entry] of [
+			...Object.entries(NOT_YET_PHONE),
+			...Object.entries(HIDDEN_BY_CAPABILITY),
+		]) {
 			expect(`${name}: ${entry.reason.trim().length >= 8}`).toBe(`${name}: true`);
 		}
+	});
+});
+
+describe('tool phone ratchet vs AI capabilities', () => {
+	/**
+	 * The ENGINE's own aiCapabilities(), measured in a child whose process env
+	 * carries `env` — exactly how the run's server sees PHONE_RUN_ENV (readEnv:
+	 * process env wins over ../private/.env). No re-implementation of the rule.
+	 */
+	function capabilitiesInChild(env: Readonly<Record<string, string>>): AiCapabilities {
+		const script = `
+			const m = await import(${JSON.stringify(join(REPO_ROOT, 'src', 'ai', 'capabilities.ts'))});
+			console.log(JSON.stringify(m.aiCapabilities()));
+		`;
+		const child = Bun.spawnSync(['bun', '-e', script], {
+			cwd: REPO_ROOT,
+			env: { ...(process.env as Record<string, string>), ...env },
+		});
+		expect(child.exitCode, child.stderr.toString()).toBe(0);
+		const lines = child.stdout.toString().trim().split('\n');
+		return JSON.parse(lines[lines.length - 1] as string);
+	}
+
+	const run = capabilitiesInChild(PHONE_RUN_ENV);
+
+	test('the pin really offers the assistant (the engine accepts its catalog)', () => {
+		expect(run.assistant).toBe(true);
+	});
+
+	test('positive control: the same engine call without a usable pin hides the assistant', () => {
+		const off = capabilitiesInChild({ ...PHONE_RUN_ENV, DEDALO_AGENT_HTTP_ENABLED: 'false' });
+		expect(off.assistant).toBe(false);
+		expect(toolOfferedByCapabilities('tool_assistant', off)).toBe(false);
+		expect(toolOfferedByCapabilities('tool_export', off)).toBe(true);
+	});
+
+	test('every PHONE_CASES tool is offered under the run capabilities', () => {
+		const unoffered = Object.keys(PHONE_CASES).filter(
+			(tool) => !toolOfferedByCapabilities(tool, run),
+		);
+		expect(unoffered).toEqual([]);
+	});
+
+	test('every HIDDEN_BY_CAPABILITY tool is gated by its named flag, and that flag is off in the run', () => {
+		const all: AiCapabilities = { assistant: true, semantic: true, identify: true };
+		const stale: string[] = [];
+		for (const [tool, entry] of Object.entries(HIDDEN_BY_CAPABILITY)) {
+			const gatedByIt =
+				toolOfferedByCapabilities(tool, all) &&
+				!toolOfferedByCapabilities(tool, { ...all, [entry.capability]: false });
+			if (!gatedByIt) stale.push(`${tool}: not gated by '${entry.capability}'`);
+			else if (toolOfferedByCapabilities(tool, run))
+				stale.push(`${tool}: '${entry.capability}' is on — move it back to PHONE_CASES`);
+		}
+		expect(stale).toEqual([]);
 	});
 });
 

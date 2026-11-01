@@ -82,4 +82,6 @@ tool_my_tool: test3('test52', 'component_input_text', 'lg-spa'),
 
 Other probe kinds cover a list button, a `section_tool`, a real tap, and a launcher's own open function; a probe can also build a scratch record, which is swept afterwards. A tool whose screen only exists once a file is queued (`service_upload`) adds `queue_file: true` so the harness puts one scratch file into its upload queue before judging — without it the tool opens empty and its per-file row goes unmeasured. To find which live elements offer your tool: `bun run test:tools:phone --discover test3/1`.
 
-The ratchet only shrinks: a tool in `NOT_YET_PHONE` whose probe starts passing turns the run red until it moves to `PHONE_CASES`. `test/unit/tool_phone_tripwire.test.ts` keeps the list complete — a new tool directory must appear in one of the two lists.
+The ratchet only shrinks: a tool in `NOT_YET_PHONE` whose probe starts passing turns the run red until it moves to `PHONE_CASES`. `test/unit/tool_phone_tripwire.test.ts` keeps the list complete — a new tool directory must appear in one of the lists.
+
+A tool the deployment hides behind an AI capability that no configuration can raise (today `tool_identify`, see `src/ai/capabilities.ts`) is listed in `HIDDEN_BY_CAPABILITY` with its flag and a reason: its probe must *not* render, and the run turns red the day it does, so the entry moves back to `PHONE_CASES`. The assistant needs a configured model; the run pins a stub one (`PHONE_RUN_ENV`, never called) on its own server, so the verdict does not depend on your `../private/.env`.
