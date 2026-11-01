@@ -38,8 +38,8 @@ function textWithLineBreaks(el: cheerio.Cheerio<AnyNode>): string {
 /** "Page 1 of 21" - a direct text scan rather than a selector, confirmed stable across both an
  * open and a closed sale. */
 export function parseNumisbidsTotalPages(html: string): number {
-	const match = html.match(/Page\s+\d+\s+of\s+(\d+)/i);
-	return match ? Number.parseInt(match[1]!, 10) : 1;
+	const totalPages = html.match(/Page\s+\d+\s+of\s+(\d+)/i)?.[1];
+	return totalPages !== undefined ? Number.parseInt(totalPages, 10) : 1;
 }
 
 interface PriceInfo {
@@ -93,7 +93,7 @@ function extractLid(watchEl: cheerio.Cheerio<AnyNode>): string | null {
 	if (dataLotId && /^\d+$/.test(dataLotId)) return dataLotId;
 	const href = watchEl.attr('href');
 	const match = href?.match(/[?&]lid=(\d+)/);
-	return match ? match[1]! : null;
+	return match?.[1] ?? null;
 }
 
 /**
@@ -161,10 +161,12 @@ function parseNumisbidsDates(text: string | null): {
 	if (!text) return { startDate: null, endDate: null };
 
 	const rangeMatch = text.match(/(\d{1,2}\s+[A-Za-z]+)\s*-\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})/);
-	if (rangeMatch) {
-		const year = rangeMatch[2]!.match(/\d{4}/)?.[0] ?? '';
-		const start = new Date(`${rangeMatch[1]} ${year}`);
-		const end = new Date(rangeMatch[2]!);
+	const rangeStart = rangeMatch?.[1];
+	const rangeEnd = rangeMatch?.[2];
+	if (rangeStart !== undefined && rangeEnd !== undefined) {
+		const year = rangeEnd.match(/\d{4}/)?.[0] ?? '';
+		const start = new Date(`${rangeStart} ${year}`);
+		const end = new Date(rangeEnd);
 		return {
 			startDate: Number.isNaN(start.getTime()) ? null : start.toISOString(),
 			endDate: Number.isNaN(end.getTime()) ? null : end.toISOString(),
@@ -202,7 +204,7 @@ function parseNumisbidsLotCard(
 ): ExtractedLot | null {
 	const lotLink = card.find('.browsetext-top .left .lot a').first();
 	const lotNumberMatch = cleanText(lotLink.text())?.match(/Lot\s+(\d+)/i);
-	const lotNumber = lotNumberMatch ? lotNumberMatch[1]! : null;
+	const lotNumber = lotNumberMatch?.[1] ?? null;
 	const lotUrl = absoluteUrl(lotLink.attr('href'), sourceUrl);
 
 	const lid = extractLid(card.find('.watchlot').first());
@@ -281,7 +283,7 @@ export function parseNumisbidsLotDetail(html: string, sourceUrl: string): Extrac
 	const lotNumberMatch = textWithLineBreaks(viewlot.find('.viewlottext .left').first()).match(
 		/Lot\s+(\d+)/i,
 	);
-	const lotNumber = lotNumberMatch ? lotNumberMatch[1]! : null;
+	const lotNumber = lotNumberMatch?.[1] ?? null;
 
 	// The page has two other elements sharing the "description" class (#postbid, #watchnote), both
 	// empty/unrelated to the lot's own text - excluded by id rather than relying on class alone.

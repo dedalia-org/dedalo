@@ -54,18 +54,23 @@ export function parsePrice(text: string | null | undefined): ParsedPrice | null 
 
 	// "1,234.56 EUR" / "1234 GBP"
 	const codeMatch = normalized.match(/([\d.,]+)\s*([A-Z]{3})\b/);
-	if (codeMatch) {
-		const amount = parseAmount(codeMatch[1]!);
+	// both groups are mandatory: a match always carries them
+	const codeAmount = codeMatch?.[1];
+	const codeCurrency = codeMatch?.[2];
+	if (codeAmount !== undefined && codeCurrency !== undefined) {
+		const amount = parseAmount(codeAmount);
 		if (amount === null) return null;
-		return { amount, currency: codeMatch[2]! };
+		return { amount, currency: codeCurrency };
 	}
 
 	// Symbol-prefixed, e.g. "€1,250"
 	const symbolMatch = normalized.match(/(€|\$|£|¥)\s*([\d.,]+)/);
-	if (symbolMatch) {
-		const amount = parseAmount(symbolMatch[2]!);
+	const symbol = symbolMatch?.[1];
+	const symbolAmount = symbolMatch?.[2];
+	if (symbol !== undefined && symbolAmount !== undefined) {
+		const amount = parseAmount(symbolAmount);
 		if (amount === null) return null;
-		return { amount, currency: CURRENCY_SYMBOLS[symbolMatch[1]!] ?? null };
+		return { amount, currency: CURRENCY_SYMBOLS[symbol] ?? null };
 	}
 
 	return null;
@@ -85,11 +90,13 @@ export function parsePriceRange(text: string | null | undefined): ParsedPriceRan
 	const normalized = stripDigitGroupingSpaces(cleaned);
 
 	const rangeMatch = normalized.match(/([\d.,]+)\s*[-–—]\s*([\d.,]+)\s*([A-Z]{3})?/);
-	if (rangeMatch) {
-		const low = parseAmount(rangeMatch[1]!);
-		const high = parseAmount(rangeMatch[2]!);
+	const rawLow = rangeMatch?.[1];
+	const rawHigh = rangeMatch?.[2];
+	if (rawLow !== undefined && rawHigh !== undefined) {
+		const low = parseAmount(rawLow);
+		const high = parseAmount(rawHigh);
 		if (low !== null && high !== null) {
-			return { low, high, currency: rangeMatch[3] ?? null };
+			return { low, high, currency: rangeMatch?.[3] ?? null };
 		}
 	}
 
@@ -115,11 +122,13 @@ export function parseEuropeanPrice(text: string | null | undefined): ParsedPrice
 	if (!cleaned) return null;
 
 	const match = cleaned.match(/([\d.]+(?:,\d+)?)\s*(€|\$|£|¥|CHF)/);
-	if (!match) return null;
+	const rawAmount = match?.[1];
+	const symbol = match?.[2];
+	if (rawAmount === undefined || symbol === undefined) return null;
 
-	const amount = parseEuropeanAmount(match[1]!);
+	const amount = parseEuropeanAmount(rawAmount);
 	if (amount === null) return null;
-	return { amount, currency: CURRENCY_SYMBOLS[match[2]!] ?? null };
+	return { amount, currency: CURRENCY_SYMBOLS[symbol] ?? null };
 }
 
 function parseEuropeanAmount(raw: string): number | null {
@@ -140,14 +149,14 @@ function normalizeDecimalComma(value: string): string {
 
 export function extractWeight(text: string | null | undefined): string | null {
 	if (!text) return null;
-	const match = text.match(/weight[:\s]*([\d.,]+\s*(?:g|gr|grams?|grammes?|kg))\b/i);
-	return match ? normalizeDecimalComma(match[1]!.trim()) : null;
+	const value = text.match(/weight[:\s]*([\d.,]+\s*(?:g|gr|grams?|grammes?|kg))\b/i)?.[1];
+	return value !== undefined ? normalizeDecimalComma(value.trim()) : null;
 }
 
 export function extractDiameter(text: string | null | undefined): string | null {
 	if (!text) return null;
-	const match = text.match(/diameter[:\s]*([\d.,]+\s*mm)\b/i);
-	return match ? normalizeDecimalComma(match[1]!.trim()) : null;
+	const value = text.match(/diameter[:\s]*([\d.,]+\s*mm)\b/i)?.[1];
+	return value !== undefined ? normalizeDecimalComma(value.trim()) : null;
 }
 
 const KNOWN_MATERIALS = [
@@ -176,8 +185,8 @@ export function extractMaterial(text: string | null | undefined): string | null 
 	const labelMatch = text.match(
 		/(?:composition|metal|material)[:\s]*([a-zA-Z][a-zA-Z\s-]*?)[.,\n]/i,
 	);
-	if (labelMatch) {
-		const value = labelMatch[1]!.trim();
+	if (labelMatch?.[1] !== undefined) {
+		const value = labelMatch[1].trim();
 		if (value.length > 0 && value.length < 40) return value;
 	}
 	const lower = text.toLowerCase();
@@ -266,8 +275,10 @@ export function extractRulerAndDate(title: string | null | undefined): {
 		const match = segment.match(
 			/^(.+?),\s*((?:ND|CIRCA|C\.)?\s*\d{1,4}\s*(?:BC|AD)?\s*[-–—]\s*\d{1,4}\s*(?:BC|AD)?|\d{3,4}\s*(?:BC|AD))$/i,
 		);
-		if (match) {
-			return { ruler: match[1]!.trim(), datePeriod: match[2]!.trim() };
+		const ruler = match?.[1];
+		const datePeriod = match?.[2];
+		if (ruler !== undefined && datePeriod !== undefined) {
+			return { ruler: ruler.trim(), datePeriod: datePeriod.trim() };
 		}
 	}
 	return { ruler: null, datePeriod: null };
@@ -286,9 +297,9 @@ export function parseBiddrDateText(text: string | null | undefined): string | nu
 	const match = cleaned.match(
 		/(\d{1,2}\s+[A-Za-z]+\s+\d{4})(?:,?\s*(?:from\s*)?(\d{1,2}:\d{2}\s*[AP]M))?/,
 	);
-	if (match) {
-		const datePart = match[1]!;
-		const timePart = match[2] ?? '';
+	const datePart = match?.[1];
+	if (datePart !== undefined) {
+		const timePart = match?.[2] ?? '';
 		const parsed = new Date(`${datePart} ${timePart}`.trim());
 		if (!Number.isNaN(parsed.getTime())) {
 			return parsed.toISOString();

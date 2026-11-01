@@ -15,7 +15,7 @@ export function parseJesusvicoAuctionNumber(rawUrl: string): string | null {
 	try {
 		const url = new URL(rawUrl);
 		const match = url.pathname.match(/I(\d+)/i);
-		return match ? match[1]! : null;
+		return match?.[1] ?? null;
 	} catch {
 		return null;
 	}
@@ -30,7 +30,7 @@ export function parseJesusvicoLotNumber(rawUrl: string): string | null {
 	try {
 		const url = new URL(rawUrl);
 		const match = url.pathname.match(/\/lote?\/[^/]+\/(\d+)/);
-		return match ? match[1]! : null;
+		return match?.[1] ?? null;
 	} catch {
 		return null;
 	}

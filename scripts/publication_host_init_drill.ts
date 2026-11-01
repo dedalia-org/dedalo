@@ -3009,7 +3009,7 @@ async function agentPost(
 ): Promise<{ status: number; body: string }> {
 	const token = `/etc/dedalo_publication_host/${instance}/credentials/SERVICE_TOKEN`;
 	const headers = [
-		'-H "Authorization: Bearer $(cat ' + token + ')"',
+		`-H "Authorization: Bearer $(cat ${token})"`,
 		"-H 'X-Dedalo-Actor: init_drill'",
 		...(release === null
 			? []

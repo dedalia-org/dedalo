@@ -52,7 +52,12 @@ else {
 		'js',
 		'render_tool_numisdata_order_coins.js',
 	);
-	const TOOL_PATH = join(TOOLS_ROOT, 'tool_numisdata_order_coins', 'js', 'tool_numisdata_order_coins.js');
+	const TOOL_PATH = join(
+		TOOLS_ROOT,
+		'tool_numisdata_order_coins',
+		'js',
+		'tool_numisdata_order_coins.js',
+	);
 
 	// The serving alias (/dedalo/tools/* imports back into /dedalo/core/*), for
 	// importers under tools/ only, and only when plain resolution has no file.
@@ -240,8 +245,10 @@ else {
 		coins = await import(RENDER_PATH);
 		touch_pick = await import(join(CLIENT_CORE, 'common', 'js', 'touch_pick.js'));
 		tool = (await import(TOOL_PATH)).tool_numisdata_order_coins;
-		event_manager = (await import(join(CLIENT_CORE, 'common', 'js', 'event_manager.js'))).event_manager;
-		tool_common = (await import(join(CLIENT_CORE, 'tools_common', 'js', 'tool_common.js'))).tool_common;
+		event_manager = (await import(join(CLIENT_CORE, 'common', 'js', 'event_manager.js')))
+			.event_manager;
+		tool_common = (await import(join(CLIENT_CORE, 'tools_common', 'js', 'tool_common.js')))
+			.tool_common;
 	});
 	afterAll(() => {
 		touch_pick?.cancel();
@@ -433,7 +440,9 @@ else {
 
 		test('2a. binding is idempotent per wrapper: a direct re-bind of the SAME wrapper does not double the drop', async () => {
 			const s = situation();
-			expect(coins.bind_ordered_coins_drop(s.self, s.wrapper), 'a bound wrapper answers true').toBe(true);
+			expect(coins.bind_ordered_coins_drop(s.self, s.wrapper), 'a bound wrapper answers true').toBe(
+				true,
+			);
 			fire('drop', s.page1.slots[1] as FakeEl, { data: payload('102') });
 			await settle();
 			expect(s.assigned.length, 'one listener set: one assign').toBe(1);
@@ -460,7 +469,9 @@ else {
 				ar_instances: [coins_instance, ordered_coins],
 			});
 			// the generic tool build (css, ddo_map instances) is outside this leg
-			const common_build = spyOn(tool_common.prototype, 'build').mockImplementation(async () => true);
+			const common_build = spyOn(tool_common.prototype, 'build').mockImplementation(
+				async () => true,
+			);
 			const errors = spyOn(console, 'error').mockImplementation(() => {});
 			try {
 				expect(await tool.prototype.build.call(s.self, false)).toBe(true);
@@ -480,7 +491,10 @@ else {
 
 				event_manager.publish(`window_blur_${ordered_coins.id}`, {});
 				event_manager.publish(`add_row_${ordered_coins.id}`, {});
-				expect(errors, 'no subscriber threw (event_manager swallows + logs)').not.toHaveBeenCalled();
+				expect(
+					errors,
+					'no subscriber threw (event_manager swallows + logs)',
+				).not.toHaveBeenCalled();
 
 				const drop = fire('drop', page2.slots[0] as FakeEl, { data: payload('103') });
 				expect(drop.prevented && drop.stopped).toBe(true);

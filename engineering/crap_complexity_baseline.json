@@ -4,9 +4,9 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 810,
-		"functions": 13599,
-		"functionsOverCap": 669,
+		"files": 824,
+		"functions": 13989,
+		"functionsOverCap": 666,
 		"filesOverCap": 258
 	},
 	"ledger": [
@@ -159,6 +159,11 @@
 		{
 			"generated": "2026-10-23",
 			"functionsOverCap": 669,
+			"filesOverCap": 258
+		},
+		{
+			"generated": "2026-11-01",
+			"functionsOverCap": 666,
 			"filesOverCap": 258
 		}
 	],
@@ -367,7 +372,7 @@
 		"src/core/section/read_source.ts": 11,
 		"src/core/section/record/delete_record.ts": 25,
 		"src/core/section/record/duplicate_record.ts": 19,
-		"src/core/section/record/observer_reconcile.ts": 16,
+		"src/core/section/record/observer_reconcile.ts": 15,
 		"src/core/section/record/observer_subscriptions.ts": 44,
 		"src/core/section/record/observers.ts": 28,
 		"src/core/section/record/record_defaults.ts": 23,

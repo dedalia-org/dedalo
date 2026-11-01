@@ -753,11 +753,7 @@ export async function recomputeMirrorAndHop(
 	const key = `${observerTipo}|${sectionTipo}|${sectionId}`;
 	const always = hop === 'always';
 	if (guard.recomputed.has(key)) {
-		// The earlier recompute of this slot may have been the strict host no-op:
-		// the same "not this section's value" rule holds for the hop (below).
-		if (always && (await hostsObserver(observerTipo, sectionTipo))) {
-			await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
-		}
+		if (always) await hopRecomputedSlot(guard, observerTipo, sectionTipo, sectionId, userId, now);
 		return undefined;
 	}
 	guard.recomputed.add(key);
@@ -773,7 +769,7 @@ export async function recomputeMirrorAndHop(
 		// in this operation keeps its snapshot's stamps (CascadeGuard.verbatim).
 		{
 			...verbatimStampOptions(guard, sectionTipo, sectionId),
-			...(bound.lockTimeout === undefined ? {} : { lockTimeout: bound.lockTimeout }),
+			...lockTimeoutOption(bound),
 		},
 	);
 	if (outcome.wrote === true) {
@@ -785,7 +781,7 @@ export async function recomputeMirrorAndHop(
 			sectionId,
 			userId,
 			now,
-			outcome.droppedLocators ?? [],
+			droppedLocatorsOf(outcome),
 		);
 		return outcome;
 	}
@@ -798,6 +794,36 @@ export async function recomputeMirrorAndHop(
 		await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
 	}
 	return outcome;
+}
+
+/**
+ * recomputeMirrorAndHop's `hop: 'always'` on a slot this guard ALREADY
+ * recomputed: the earlier recompute may have been the strict host no-op, and
+ * the same "not this section's value" rule holds for the hop — so it hops only
+ * on a host section (and never twice: hopUnlessEmitted).
+ */
+async function hopRecomputedSlot(
+	guard: CascadeGuard,
+	observerTipo: string,
+	sectionTipo: string,
+	sectionId: number,
+	userId: number,
+	now: Date,
+): Promise<void> {
+	if (!(await hostsObserver(observerTipo, sectionTipo))) return;
+	await hopUnlessEmitted(guard, observerTipo, sectionTipo, sectionId, userId, now);
+}
+
+/** The locators a WRITTEN recompute dropped — the hop's removed set (its before-image); none reported = none. */
+function droppedLocatorsOf(
+	outcome: ExternalRecomputeOutcome,
+): NonNullable<ExternalRecomputeOutcome['droppedLocators']> {
+	return outcome.droppedLocators ?? [];
+}
+
+/** The kernel's `lockTimeout` option, present only when the caller bounded the wait. */
+function lockTimeoutOption(bound: { lockTimeout?: string }): { lockTimeout?: string } {
+	return bound.lockTimeout === undefined ? {} : { lockTimeout: bound.lockTimeout };
 }
 
 /** The kernel's host predicate (external_laws/resolvers.ts isObserverHostSection — cached ontology reads). */
@@ -905,17 +931,9 @@ export async function resaveObserverThroughSaveRules(
 	// edge whose observer declares no order) takes no FOR UPDATE transaction and
 	// does no rank work — the relay of such an edge still writes and locks nothing.
 	if (!(await mayDeclareOrder(observerTipo))) return 'no_rule';
-	const table = await getMatrixTableFromTipo(sectionTipo);
-	const model = await getModelByTipo(observerTipo);
-	const column = model === null ? null : getColumnNameByModel(model);
-	if (
-		table === null ||
-		column === null ||
-		!(MATRIX_JSONB_COLUMNS as readonly string[]).includes(column)
-	) {
-		return 'absent';
-	}
-	const jsonbColumn = column as MatrixJsonbColumn;
+	const storage = await observerJsonbStorage(observerTipo, sectionTipo);
+	if (storage === null) return 'absent';
+	const { table, jsonbColumn } = storage;
 	// CONVENTIONS §2 rationale 1 (cycle-breaking at the chokepoint seam):
 	// section_record/ → obligation_ledger → this module, like every other
 	// door this file reaches there.
@@ -946,6 +964,29 @@ export async function resaveObserverThroughSaveRules(
 		);
 		return 'written';
 	});
+}
+
+/**
+ * Where an observer's value is stored on a record of `sectionTipo`: the
+ * section's matrix table and the observer model's JSONB column. `null` = no
+ * table, no model, or a model whose column is not a matrix JSONB column
+ * (nothing stored — the re-save's `absent`).
+ */
+async function observerJsonbStorage(
+	observerTipo: string,
+	sectionTipo: string,
+): Promise<{ table: string; jsonbColumn: MatrixJsonbColumn } | null> {
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	const model = await getModelByTipo(observerTipo);
+	const column = model === null ? null : getColumnNameByModel(model);
+	if (
+		table === null ||
+		column === null ||
+		!(MATRIX_JSONB_COLUMNS as readonly string[]).includes(column)
+	) {
+		return null;
+	}
+	return { table, jsonbColumn: column as MatrixJsonbColumn };
 }
 
 /**
@@ -1692,9 +1733,7 @@ export async function recomputeExternalRelation(
 	return withTransaction(async () => {
 		// THE LOCK-WAIT BOUND (the refresh door's only): the FIRST statement, so
 		// every lock this transaction waits for is bounded (validated above).
-		if (options.lockTimeout !== undefined) {
-			await sql.unsafe(`SET LOCAL lock_timeout = '${options.lockTimeout}'`, []);
-		}
+		await setLocalLockTimeout(options.lockTimeout);
 		// LOCK-HOLD OBSERVABILITY (review 2026-08-02): compute(true) holds the
 		// target row's FOR UPDATE lock through the D3 closure walk + the uncapped
 		// inverse search — on big observers (tchi1/162: 1,023 locators behind a
@@ -1715,13 +1754,7 @@ export async function recomputeExternalRelation(
 			freeze,
 			defects,
 		} = await compute(true);
-		const lockedMs = performance.now() - lockedStart;
-		if (lockedMs > 2000) {
-			console.warn(
-				`observer '${observerTipo}' @ ${targetSection}/${targetId}: locked recompute took ${Math.round(lockedMs)}ms holding FOR UPDATE (counted: observers_recompute_lock_slow)`,
-			);
-			incrementCounter('observers_recompute_lock_slow');
-		}
+		reportSlowLockedCompute(performance.now() - lockedStart, observerTipo, targetSection, targetId);
 		if (!exists) return unchanged; // target record does not exist
 		const replaced = merged;
 		// THE VALUE STAYS AS STORED (no drift, the freeze, a pure withheld shrink):
@@ -1768,7 +1801,7 @@ export async function recomputeExternalRelation(
 		// NOTHING — a counted, logged refusal, adjudicated inside the row lock.
 		// Law (c) only (the law says so — LawComputeResult.freeze): PHP's copy
 		// laws never froze, and a copied bag is bounded by its source's.
-		if (freeze && referenceCount > EXTERNAL_REFERENCES_FREEZE) {
+		if (exceedsReferencesFreeze(freeze, referenceCount)) {
 			console.error(
 				`observer '${observerTipo}' @ ${targetSection}/${targetId}: ${referenceCount} references exceed the ${EXTERNAL_REFERENCES_FREEZE}-reference freeze (PHP parity) — write REFUSED (${existing.length} stored, law wants ${replaced.length})`,
 			);
@@ -1811,18 +1844,10 @@ export async function recomputeExternalRelation(
 		// is the law; the only escapes are the refusals the kernel derives — a
 		// refused law, a target not hosting the observer, the >2000-reference
 		// freeze, the refused reference cap, and this one.
-		const dropped = existing.length - kept.length;
-		const withheld = dropped > 0 && defects.length > 0;
-		if (withheld) {
-			console.error(
-				`observer '${observerTipo}' @ ${targetSection}/${targetId}: shrink REFUSED — DEGRADED SEED [${defects.join(', ')}] — ${dropped} stale entrie(s) kept (${existing.length} stored, law keeps ${kept.length}, +${additions.length} new); fix the peer ontology node, then re-run scripts/observer_reconcile.ts`,
-			);
-			incrementCounter('observers_shrink_refused_degraded_seed');
-			// Legacy alias, kept so dashboards built on the old name do not read
-			// as "suddenly zero" the day this ships. REMOVE after the 2026-08
-			// release; the specific name above is the one to alert on.
-			incrementCounter('observers_shrink_refused');
-		}
+		const withheld = withholdDegradedSeedShrink(
+			{ existing, kept, additions, defects },
+			`observer '${observerTipo}' @ ${targetSection}/${targetId}`,
+		);
 		// What persists: the full law, unless this record's seed was degraded —
 		// then the grow-only merge (every existing entry kept in place + the
 		// additions appended).
@@ -1881,9 +1906,76 @@ export async function recomputeExternalRelation(
 			added: additions.length,
 			wrote: true,
 			droppedLocators: removedLocators(existing, finalData),
-			...(withheld ? { skippedShrink: true, seedDefects: [...defects] } : {}),
+			...withheldShrinkFlags(withheld, defects),
 		};
 	});
+}
+
+/**
+ * THE LOCK-WAIT BOUND (the refresh door's only), set as the transaction's
+ * FIRST statement so every lock it waits for is bounded. The value was
+ * validated before the transaction opened (assertRecomputeLockTimeout: a
+ * `<digits>ms|s` literal), which is what makes the inline literal safe.
+ */
+async function setLocalLockTimeout(lockTimeout: string | undefined): Promise<void> {
+	if (lockTimeout === undefined) return;
+	await sql.unsafe(`SET LOCAL lock_timeout = '${lockTimeout}'`, []);
+}
+
+/** LOCK-HOLD OBSERVABILITY: a locked compute over 2s is logged + counted (observers_recompute_lock_slow). */
+function reportSlowLockedCompute(
+	lockedMs: number,
+	observerTipo: string,
+	targetSection: string,
+	targetId: number,
+): void {
+	if (lockedMs <= 2000) return;
+	console.warn(
+		`observer '${observerTipo}' @ ${targetSection}/${targetId}: locked recompute took ${Math.round(lockedMs)}ms holding FOR UPDATE (counted: observers_recompute_lock_slow)`,
+	);
+	incrementCounter('observers_recompute_lock_slow');
+}
+
+/** The BIG-RESULT FREEZE predicate: a freezing law (c) above EXTERNAL_REFERENCES_FREEZE references. */
+function exceedsReferencesFreeze(freeze: boolean, referenceCount: number): boolean {
+	return freeze && referenceCount > EXTERNAL_REFERENCES_FREEZE;
+}
+
+/**
+ * The DEGRADED-SEED SHRINK REFUSAL decision (see the comment at its call
+ * site): the drop half is withheld exactly when the law drops entries AND this
+ * record's seed reported defects. A withheld shrink is logged and counted
+ * (plus the legacy alias). Returns whether the drops are withheld.
+ */
+function withholdDegradedSeedShrink(
+	merge: {
+		existing: readonly unknown[];
+		kept: readonly unknown[];
+		additions: readonly unknown[];
+		defects: readonly string[];
+	},
+	where: string,
+): boolean {
+	const { existing, kept, additions, defects } = merge;
+	const dropped = existing.length - kept.length;
+	if (dropped <= 0 || defects.length === 0) return false;
+	console.error(
+		`${where}: shrink REFUSED — DEGRADED SEED [${defects.join(', ')}] — ${dropped} stale entrie(s) kept (${existing.length} stored, law keeps ${kept.length}, +${additions.length} new); fix the peer ontology node, then re-run scripts/observer_reconcile.ts`,
+	);
+	incrementCounter('observers_shrink_refused_degraded_seed');
+	// Legacy alias, kept so dashboards built on the old name do not read
+	// as "suddenly zero" the day this ships. REMOVE after the 2026-08
+	// release; the specific name above is the one to alert on.
+	incrementCounter('observers_shrink_refused');
+	return true;
+}
+
+/** The outcome flags of a write whose drops were withheld (none when nothing was). */
+function withheldShrinkFlags(
+	withheld: boolean,
+	defects: readonly string[],
+): { skippedShrink?: true; seedDefects?: string[] } {
+	return withheld ? { skippedShrink: true, seedDefects: [...defects] } : {};
 }
 
 /** The reconcile's legacy-index question (record_write.ts hiIndexDisagrees). */

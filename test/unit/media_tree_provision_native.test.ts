@@ -996,6 +996,12 @@ const DIR_MODE_REGISTER: Readonly<Record<string, DirModeRow>> = Object.freeze({
 		kind: 'not_media',
 		reason: 'writes the migrated ../private/.env; owner-only by design',
 	},
+	'scripts/ci_local.ts': {
+		modes: ['0o755'],
+		kind: 'not_media',
+		reason:
+			"ci:local --docker: the per-tier steps dir inside the run's OS-temp inputs (mounted read-only at /ci-in); 0755 because the container reads it as uid 1001, not as you — NOT under the media root",
+	},
 	'scripts/lib/publication_host_agent_drill_kit.ts': {
 		modes: ['0o700', '0o700'],
 		kind: 'not_media',

@@ -15,7 +15,7 @@ export function parseNumisbidsSaleId(rawUrl: string): string | null {
 		const url = new URL(rawUrl);
 		if (!/numisbids\.com$/i.test(url.hostname)) return null;
 		const match = url.pathname.match(/^\/sale\/(\d+)/);
-		return match ? match[1]! : null;
+		return match?.[1] ?? null;
 	} catch {
 		return null;
 	}
@@ -31,8 +31,10 @@ export function parseNumisbidsLotUrl(rawUrl: string): { saleId: string; lotNumbe
 		const url = new URL(rawUrl);
 		if (!/numisbids\.com$/i.test(url.hostname)) return null;
 		const match = url.pathname.match(/^\/sale\/(\d+)\/lot\/(\d+)/);
-		if (!match) return null;
-		return { saleId: match[1]!, lotNumber: match[2]! };
+		const saleId = match?.[1];
+		const lotNumber = match?.[2];
+		if (saleId === undefined || lotNumber === undefined) return null;
+		return { saleId, lotNumber };
 	} catch {
 		return null;
 	}

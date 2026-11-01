@@ -66,14 +66,14 @@ function extractJesusvicoWeight(text: string | null | undefined): string | null 
 	// A lookahead, not a literal trailing \s: text has been through cleanText
 	// (trimmed), so "... 6,75 g." at the very end of the string has nothing
 	// after the dot, and \s required there matched nothing at all.
-	const match = text.match(/(\d+(?:[.,]\d+)?)\s*g\.?(?=\s|$|[,;)])/i);
-	return match ? `${match[1]!.replace(',', '.')}g` : null;
+	const value = text.match(/(\d+(?:[.,]\d+)?)\s*g\.?(?=\s|$|[,;)])/i)?.[1];
+	return value !== undefined ? `${value.replace(',', '.')}g` : null;
 }
 
 function extractJesusvicoDiameter(text: string | null | undefined): string | null {
 	if (!text) return null;
-	const match = text.match(/(\d+(?:[.,]\d+)?)\s*mm\.?/i);
-	return match ? `${match[1]!.replace(',', '.')}mm` : null;
+	const value = text.match(/(\d+(?:[.,]\d+)?)\s*mm\.?/i)?.[1];
+	return value !== undefined ? `${value.replace(',', '.')}mm` : null;
 }
 
 /**
@@ -89,8 +89,10 @@ function extractJesusvicoRulerAndDate(text: string | null | undefined): {
 	if (!text) return { ruler: null, datePeriod: null };
 	const firstSegment = text.split('.')[0]?.trim() ?? '';
 	const match = firstSegment.match(/^(.+?)\s*\(([^)]+)\)$/);
-	if (!match) return { ruler: null, datePeriod: null };
-	return { ruler: match[1]!.trim(), datePeriod: match[2]!.trim() };
+	const ruler = match?.[1];
+	const datePeriod = match?.[2];
+	if (ruler === undefined || datePeriod === undefined) return { ruler: null, datePeriod: null };
+	return { ruler: ruler.trim(), datePeriod: datePeriod.trim() };
 }
 
 /** Extracts auction-level metadata from a jesusvico.com auction listing page. Single auction-house
@@ -188,7 +190,7 @@ export function parseJesusvicoLots(html: string, sourceUrl: string): ExtractedLo
 		const lotNumberText = cleanText(card.find('.card-lot-title').first().text());
 		// "Lot 215" (English) or "Lote 215" (Spanish) - both matched literally.
 		const lotNumberMatch = lotNumberText?.match(/Lote?\s+(\S+)/i);
-		const lotNumber = lotNumberMatch ? lotNumberMatch[1]! : null;
+		const lotNumber = lotNumberMatch?.[1] ?? null;
 		if (!lotNumber) return;
 
 		const title = cleanText(card.find('.card-title').first().text());
@@ -258,7 +260,7 @@ export function parseJesusvicoLotDetail(html: string, sourceUrl: string): Extrac
 	const images: ExtractedImage[] = [];
 	const seen = new Set<string>();
 	// The "/thumbs/838/" bucket reliably marks just the gallery photos; upgraded to full-res below.
-	$("img[src*='/thumbs/838/']").each((i, el) => {
+	$("img[src*='/thumbs/838/']").each((_i, el) => {
 		const rawSrc = absoluteUrl($(el).attr('src'), sourceUrl);
 		const src = rawSrc ? toFullResolutionUrl(rawSrc) : null;
 		if (src && !seen.has(src)) {

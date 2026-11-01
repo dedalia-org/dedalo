@@ -195,23 +195,39 @@ function desiredFromSource(law: ObservedDataLaw, source: unknown): DesiredLocato
 /** A section tipo safe to inline in a Postgres array literal (a resolved ontology tipo). */
 const ARRAY_SAFE_TIPO = /^[a-z][a-z0-9_]*$/i;
 
+/** The existence key of one record: `section_tipo|section_id`. */
+function recordKey(sectionTipo: unknown, sectionId: unknown): string {
+	return `${String(sectionTipo)}|${Number(sectionId)}`;
+}
+
+/** The section tipos and ids to probe in one matrix table. */
+interface TableProbe {
+	tipos: Set<string>;
+	ids: Set<number>;
+}
+
 /**
- * The GONE-RECORD RULE (see the header): keeps the tag locators whose record
- * exists, in order. One existence query per target table; a section without a
- * matrix table (or an unsafe tipo, which no resolved table can have) makes the
- * whole answer a defect.
+ * The matrix table a tag locator's section lives in; `null` when the tipo is
+ * unsafe to inline in an array literal (no resolved table can have one) or
+ * resolves to no table.
  */
-async function keepExistingRecords(
+async function locatorTable(sectionTipo: string): Promise<string | null> {
+	if (!ARRAY_SAFE_TIPO.test(sectionTipo)) return null;
+	return await getMatrixTableFromTipo(sectionTipo);
+}
+
+/**
+ * Groups the locators by target table (one existence query per table). Every
+ * section whose table does not resolve is a defect, recorded once each.
+ */
+async function groupLocatorsByTable(
 	locators: readonly DesiredLocator[],
-	lock: boolean,
-): Promise<{ kept: DesiredLocator[]; defects: string[] }> {
-	const byTable = new Map<string, { tipos: Set<string>; ids: Set<number> }>();
+): Promise<{ byTable: Map<string, TableProbe>; defects: string[] }> {
+	const byTable = new Map<string, TableProbe>();
 	const defects: string[] = [];
 	for (const locator of locators) {
 		const sectionTipo = String(locator.section_tipo);
-		const table = ARRAY_SAFE_TIPO.test(sectionTipo)
-			? await getMatrixTableFromTipo(sectionTipo)
-			: null;
+		const table = await locatorTable(sectionTipo);
 		if (table === null) {
 			const defect = `observed_data_tag_table_unresolved:${sectionTipo}`;
 			if (!defects.includes(defect)) defects.push(defect);
@@ -222,22 +238,49 @@ async function keepExistingRecords(
 		group.ids.add(Number(locator.section_id));
 		byTable.set(table, group);
 	}
+	return { byTable, defects };
+}
+
+/**
+ * The existence keys (recordKey) of the probed records present in one table.
+ * Non-integer ids can match no row and are left out; `lock` takes FOR SHARE on
+ * the rows found (a concurrent delete waits for the recompute's COMMIT).
+ */
+async function existingKeysInTable(
+	table: string,
+	{ tipos, ids }: TableProbe,
+	lock: boolean,
+): Promise<string[]> {
+	const intIds = [...ids].filter((id) => Number.isSafeInteger(id));
+	if (intIds.length === 0) return [];
+	const rows = (await sql.unsafe(
+		`SELECT section_tipo, section_id FROM "${table}"
+		 WHERE section_tipo = ANY($1::text[]) AND section_id = ANY($2::int[])
+		 ORDER BY section_tipo, section_id${lock ? ' FOR SHARE' : ''}`,
+		[`{${[...tipos].join(',')}}`, `{${intIds.join(',')}}`],
+	)) as { section_tipo: string; section_id: number }[];
+	return rows.map((row) => recordKey(row.section_tipo, row.section_id));
+}
+
+/**
+ * The GONE-RECORD RULE (see the header): keeps the tag locators whose record
+ * exists, in order. One existence query per target table; a section without a
+ * matrix table (or an unsafe tipo, which no resolved table can have) makes the
+ * whole answer a defect.
+ */
+async function keepExistingRecords(
+	locators: readonly DesiredLocator[],
+	lock: boolean,
+): Promise<{ kept: DesiredLocator[]; defects: string[] }> {
+	const { byTable, defects } = await groupLocatorsByTable(locators);
 	if (defects.length > 0) return { kept: [], defects };
 	const existing = new Set<string>();
-	for (const [table, { tipos, ids }] of byTable) {
-		const intIds = [...ids].filter((id) => Number.isSafeInteger(id));
-		if (intIds.length === 0) continue;
-		const rows = (await sql.unsafe(
-			`SELECT section_tipo, section_id FROM "${table}"
-			 WHERE section_tipo = ANY($1::text[]) AND section_id = ANY($2::int[])
-			 ORDER BY section_tipo, section_id${lock ? ' FOR SHARE' : ''}`,
-			[`{${[...tipos].join(',')}}`, `{${intIds.join(',')}}`],
-		)) as { section_tipo: string; section_id: number }[];
-		for (const row of rows) existing.add(`${row.section_tipo}|${Number(row.section_id)}`);
+	for (const [table, probe] of byTable) {
+		for (const key of await existingKeysInTable(table, probe, lock)) existing.add(key);
 	}
 	return {
 		kept: locators.filter((locator) =>
-			existing.has(`${String(locator.section_tipo)}|${Number(locator.section_id)}`),
+			existing.has(recordKey(locator.section_tipo, locator.section_id)),
 		),
 		defects: [],
 	};

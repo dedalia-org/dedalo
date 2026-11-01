@@ -316,10 +316,7 @@ export async function runReconcile(
 	};
 	const controller = new AbortController();
 	inFlightAborts.add(controller);
-	const signal =
-		options.signal === undefined
-			? controller.signal
-			: AbortSignal.any([controller.signal, options.signal]);
+	const signal = runSignal(controller, options.signal);
 	try {
 		const report = await definition.run({ ...options, signal });
 		const record: ReconcileRunRecord = {
@@ -333,20 +330,45 @@ export async function runReconcile(
 		lastRuns.set(name, record);
 		return { report, record };
 	} catch (error) {
-		// The gauge is a wire surface: record the CODE, log the text.
-		console.error(`[reconcile] ${name} (${options.apply ? 'apply' : 'dry'}) failed:`, error);
-		lastRuns.set(name, {
-			...base,
-			durationMs: Date.now() - startedAt,
-			drift: 0,
-			applied: 0,
-			deferred: null,
-			error: error instanceof DedaloError ? error.code : 'internal.unexpected',
-		});
+		recordRunFailure(base, startedAt, error);
 		throw error;
 	} finally {
 		inFlightAborts.delete(controller);
 	}
+}
+
+/**
+ * The signal a run sees: the registry's own controller (abortInFlightReconciles)
+ * joined with the caller's, when the caller passed one.
+ */
+function runSignal(
+	controller: AbortController,
+	callerSignal: AbortSignal | undefined,
+): AbortSignal {
+	return callerSignal === undefined
+		? controller.signal
+		: AbortSignal.any([controller.signal, callerSignal]);
+}
+
+/**
+ * Remember a FAILED run (runReconcile's catch — the caller rethrows). The gauge
+ * is a wire surface: record the CODE (a typed DedaloError's, else
+ * `internal.unexpected`), log the text.
+ */
+function recordRunFailure(
+	base: Pick<ReconcileRunRecord, 'name' | 'apply' | 'scope' | 'ranAt'>,
+	startedAt: number,
+	error: unknown,
+): void {
+	console.error(`[reconcile] ${base.name} (${base.apply ? 'apply' : 'dry'}) failed:`, error);
+	lastRuns.set(base.name, {
+		...base,
+		durationMs: Date.now() - startedAt,
+		drift: 0,
+		applied: 0,
+		deferred: null,
+		error: error instanceof DedaloError ? error.code : 'internal.unexpected',
+	});
 }
 
 /**

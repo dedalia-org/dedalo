@@ -1122,11 +1122,11 @@ function extractCatalogueCitation(
 	const names = [...catalogueIndex.keys()].sort((a, b) => b.length - a.length);
 	for (const name of names) {
 		const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const match = text.match(new RegExp(`\\b${escapedName}[\\s-]+(\\d+(?:[./]\\d+)?)`));
-		if (match) {
+		const code = text.match(new RegExp(`\\b${escapedName}[\\s-]+(\\d+(?:[./]\\d+)?)`))?.[1];
+		if (code !== undefined) {
 			const catalogueSectionId = catalogueIndex.get(name);
 			if (catalogueSectionId !== undefined) {
-				return { catalogueName: name, catalogueSectionId, code: match[1]! };
+				return { catalogueName: name, catalogueSectionId, code };
 			}
 		}
 	}

@@ -15,7 +15,8 @@
  *      assertion below; `tsc` runs in the hermetic tier), so `.sql` on a search
  *      outside the executor is a compile error.
  *  (2) THE ESCAPE DOORS ARE PINNED: the importers of each non-executing door of
- *      search_statement.ts are EXACT sets over src/ tools/ publication/ scripts/
+ *      search_statement.ts are EXACT sets over the shipped trees
+ *      (test/helpers/shipped_text_corpus.ts SHIPPED_TEXT_ROOTS)
  *      (a new importer, or a stale entry, is red); `withSearchBudgetOverride` (a
  *      test seam) has NO production importer; `SearchStatement.open` is called
  *      nowhere else; no production file imports the gate-side text helper.
@@ -62,7 +63,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { isAbsolute, join, posix, relative } from 'node:path';
 import { parse } from '@babel/parser';
 import {
@@ -71,9 +72,9 @@ import {
 	searchStatementText,
 } from '../../src/core/search/search_statement.ts';
 import type { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
+import { shippedTextFiles } from '../helpers/shipped_text_corpus.ts';
 
 const REPO = join(import.meta.dir, '..', '..');
-const CORPUS_ROOTS = ['src', 'tools', 'publication', 'scripts'];
 
 // (1, compile time) the assembler's result IS the opaque statement.
 type Assert<T extends true> = T;
@@ -167,26 +168,16 @@ const REFUSED_MODULES: Readonly<Record<string, string>> = {
 /** The module that defines the capability: its own `.open` calls are the executor. */
 const STATEMENT_FILE = 'src/core/search/search_statement.ts';
 
+/**
+ * The scanned corpus: every TypeScript file of the shipped first-party trees,
+ * from the REGISTERED shared lister (test/helpers/shipped_text_corpus.ts —
+ * client, tools, src, scripts, publication, deploy). The roots are the
+ * lister's, never chosen here (census_derivation_tripwire).
+ */
 function corpusFiles(): string[] {
-	const out: string[] = [];
-	const walk = (dir: string) => {
-		for (const entry of readdirSync(dir)) {
-			if (entry === 'node_modules' || entry.startsWith('.')) continue;
-			const full = join(dir, entry);
-			if (statSync(full).isDirectory()) walk(full);
-			else if (/\.(ts|tsx|mts|cts)$/.test(entry) && !entry.endsWith('.d.ts')) {
-				out.push(relative(REPO, full));
-			}
-		}
-	};
-	for (const root of CORPUS_ROOTS) {
-		try {
-			walk(join(REPO, root));
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-		}
-	}
-	return out.sort();
+	return shippedTextFiles().filter(
+		(file) => /\.(ts|tsx|mts|cts)$/.test(file) && !file.endsWith('.d.ts'),
+	);
 }
 
 // --- the parser-backed scanner ------------------------------------------------

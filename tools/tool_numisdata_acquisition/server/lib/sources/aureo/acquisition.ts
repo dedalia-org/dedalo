@@ -40,7 +40,7 @@ export function parseAureoAuctionId(rawUrl: string): string | null {
 		const url = new URL(rawUrl);
 		if (!/(^|\.)aureo\.com$/i.test(url.hostname)) return null;
 		const match = url.pathname.match(/^\/en\/subasta\/(\d+(?:-\d+)?)\/?$/);
-		return match ? match[1]! : null;
+		return match?.[1] ?? null;
 	} catch {
 		return null;
 	}
@@ -125,16 +125,18 @@ async function fetchAureoAuctionRange(
 	}
 	const tagEnd = page.html.indexOf('>', viewAllIdx);
 	const tag = page.html.slice(viewAllIdx, tagEnd === -1 ? undefined : tagEnd);
-	const fromMatch = tag.match(/data-from="(\d+)"/);
-	const toMatch = tag.match(/data-to="(\d+)"/);
-	if (!fromMatch || !toMatch) {
+	const from = tag.match(/data-from="(\d+)"/)?.[1];
+	const to = tag.match(/data-to="(\d+)"/)?.[1];
+	if (from === undefined || to === undefined) {
 		throw unsupportedPageError();
 	}
-	const badgeMatch = page.html.slice(viewAllIdx, viewAllIdx + 400).match(/badge-light">(\d+)</);
+	const badgeCount = page.html
+		.slice(viewAllIdx, viewAllIdx + 400)
+		.match(/badge-light">(\d+)</)?.[1];
 	return {
-		from: fromMatch[1]!,
-		to: toMatch[1]!,
-		totalLots: badgeMatch ? Number.parseInt(badgeMatch[1]!, 10) : null,
+		from,
+		to,
+		totalLots: badgeCount !== undefined ? Number.parseInt(badgeCount, 10) : null,
 	};
 }
 

@@ -69,6 +69,37 @@ interface Verdict {
 	notes: string[];
 }
 
+/** A tool offer as a live client instance carries it (`context.tools`, `tools`, a button's `tools`). */
+interface LiveToolContext {
+	name: string;
+	properties?: { open_as?: unknown };
+}
+
+/**
+ * A live instance of the untyped client JS, read inside the page through
+ * `get_all_instances()`: only the fields these probes touch are named; the
+ * index signature admits the rest (e.g. a probe's `instance[method]`) as
+ * `unknown`, to be narrowed before use.
+ */
+interface LiveInstance {
+	[key: string]: unknown;
+	id: string | number;
+	model: string;
+	tipo: string;
+	section_tipo: string;
+	section_id: string | number | null;
+	mode: string;
+	lang?: unknown;
+	tools?: LiveToolContext[];
+	context?: {
+		tools?: LiveToolContext[];
+		buttons?: Array<{ tipo: string; tools?: LiveToolContext[] }>;
+	};
+	config?: { tool_context?: LiveToolContext };
+	section_id_selected?: number;
+	node?: { scrollIntoView?: (options: ScrollIntoViewOptions) => void };
+}
+
 // the repoint must precede the first dynamic import that connects
 const { suiteDb } = resolveSuiteDatabase();
 repointProcessToSuiteDatabase(suiteDb);
@@ -208,8 +239,7 @@ try {
 		await new Promise((r) => setTimeout(r, 2000));
 		const found = await page.evaluate(async () => {
 			const spec = '/dedalo/core/common/js/instances.js';
-			// biome-ignore lint/suspicious/noExplicitAny: a live instance of the untyped client JS, read inside the page
-			const mod = (await import(spec)) as { get_all_instances: () => Array<Record<string, any>> };
+			const mod = (await import(spec)) as { get_all_instances: () => LiveInstance[] };
 			const out: Record<string, unknown> = {};
 			for (const inst of mod.get_all_instances()) {
 				for (const tool of [...(inst.context?.tools ?? []), ...(inst.tools ?? [])]) {
@@ -495,7 +525,7 @@ async function openProbe(
 			async (model: string, method: string) => {
 				const spec = '/dedalo/core/common/js/instances.js';
 				const { get_all_instances } = (await import(spec)) as {
-					get_all_instances: () => Array<Record<string, any>>;
+					get_all_instances: () => LiveInstance[];
 				};
 				const instance = get_all_instances().find((i) => i.model === model);
 				if (!instance || typeof instance[method] !== 'function')
@@ -589,7 +619,7 @@ async function openProbe(
 				async (toolName: string, tipo: string) => {
 					const spec = '/dedalo/core/common/js/instances.js';
 					const { get_all_instances } = (await import(spec)) as {
-						get_all_instances: () => Array<Record<string, any>>;
+						get_all_instances: () => LiveInstance[];
 					};
 					return get_all_instances().some(
 						(i) =>
@@ -618,7 +648,7 @@ async function openProbe(
 	const liveIds = await page.evaluate(async (f: typeof find) => {
 		const spec = '/dedalo/core/common/js/instances.js';
 		const { get_all_instances } = (await import(spec)) as {
-			get_all_instances: () => Array<Record<string, any>>;
+			get_all_instances: () => LiveInstance[];
 		};
 		return get_all_instances()
 			.filter((i) => i.tipo === f.tipo && i.section_tipo === f.sectionTipo && i.mode === f.mode)
@@ -646,14 +676,13 @@ async function openProbe(
 			const instancesSpec = '/dedalo/core/common/js/instances.js';
 			const toolSpec = '/dedalo/core/tools_common/js/tool_common.js';
 			const { get_all_instances } = (await import(instancesSpec)) as {
-				get_all_instances: () => Array<Record<string, any>>;
+				get_all_instances: () => LiveInstance[];
 			};
 			const { open_tool } = (await import(toolSpec)) as {
 				open_tool: (o: object) => Promise<unknown>;
 			};
 			const all = get_all_instances();
-			// biome-ignore lint/suspicious/noExplicitAny: a live instance of the untyped client JS, read inside the page
-			const matches = (i: Record<string, any>) => ids.includes(String(i.id));
+			const matches = (i: LiveInstance) => ids.includes(String(i.id));
 			if (f.via === 'button') {
 				const section = all.find((i) => matches(i) && i.model === 'section');
 				const button = (section?.context?.buttons ?? []).find(
@@ -678,7 +707,7 @@ async function openProbe(
 				void open_tool({ tool_context, caller: section });
 				return { openAs: String(tool_context.properties?.open_as ?? 'modal') };
 			}
-			const offers = (i: Record<string, any>) =>
+			const offers = (i: LiveInstance) =>
 				[...(i.context?.tools ?? []), ...(i.tools ?? [])].find(
 					(t: { name: string }) => t.name === toolName,
 				);

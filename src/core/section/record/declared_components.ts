@@ -35,18 +35,33 @@ export interface DeclaredComponent {
 	model: string;
 }
 
-/** Every component a record of `sectionTipo` may store (see the header). */
-export async function declaredSectionComponents(sectionTipo: string): Promise<DeclaredComponent[]> {
+/**
+ * The subtree roots a section's declared components are walked from: its own
+ * tipo (unless it is a TLD ROOT `<tld>0`, see the header) and, when it is
+ * virtual, its real section.
+ */
+async function declarationRoots(sectionTipo: string): Promise<string[]> {
 	const roots = getSectionIdFromTipo(sectionTipo) === '0' ? [] : [sectionTipo];
 	const realTipo = await getSectionRealTipo(sectionTipo);
 	if (realTipo !== sectionTipo) roots.push(realTipo);
+	return roots;
+}
+
+/** A subtree node that is a component (its model names a component family). */
+function isComponentNode(node: { model?: string | null }): boolean {
+	return node.model?.startsWith('component') === true;
+}
+
+/** Every component a record of `sectionTipo` may store (see the header). */
+export async function declaredSectionComponents(sectionTipo: string): Promise<DeclaredComponent[]> {
 	const seen = new Set<string>();
 	const components: DeclaredComponent[] = [];
-	for (const root of roots) {
+	for (const root of await declarationRoots(sectionTipo)) {
 		for (const node of await getOrderedSubtree(root, { crossSections: true })) {
-			if (node.model?.startsWith('component') !== true || seen.has(node.tipo)) continue;
+			// Own subtree first, real second: the first walk to reach a tipo keeps it.
+			if (!isComponentNode(node) || seen.has(node.tipo)) continue;
 			seen.add(node.tipo);
-			components.push({ tipo: node.tipo, model: node.model });
+			components.push({ tipo: node.tipo, model: node.model as string });
 		}
 	}
 	return components;

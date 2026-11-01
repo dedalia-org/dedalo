@@ -135,7 +135,7 @@ export function parseSixbidAuction(rawJson: string, sourceUrl: string): Extracte
 		auctionIdentifier: String(first.auctionId),
 		auctionHouse: cleanText(first.companyName),
 		title: cleanText(first.auctionName),
-		auctionNumber: auctionNumberMatch ? auctionNumberMatch[1]! : null,
+		auctionNumber: auctionNumberMatch?.[1] ?? null,
 		description: cleanText(first.auctionDescription),
 		location: null,
 		startDate,

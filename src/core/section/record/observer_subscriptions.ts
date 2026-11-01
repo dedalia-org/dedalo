@@ -627,25 +627,40 @@ function addOrderDerivedEdges(
 	};
 	for (const column of context.columns) {
 		if (column.path.length === 0) {
-			const unresolved = `${column.portalTipo}:${column.columnTipo}@${column.targetSection}`;
-			if (
-				!touchesScratchObserverNamespace(column.columnTipo, column.portalTipo) &&
-				!diagnostics.orderUnresolved.includes(unresolved)
-			) {
-				diagnostics.orderUnresolved.push(unresolved);
-			}
+			reportUnresolvedOrderColumn(column, diagnostics.orderUnresolved);
 			continue;
 		}
-		const first = column.path[0];
-		if (!isEdgeStep(first)) continue; // ordered by the record's own id — immutable
-		addEdge(first.component_tipo, column.portalTipo);
-		for (let index = 0; index + 1 < column.path.length; index++) {
-			const linking = column.path[index];
-			const next = column.path[index + 1];
-			if (!isEdgeStep(linking) || !isEdgeStep(next)) break; // the chain ends
-			addEdge(next.component_tipo, linking.component_tipo);
-		}
+		for (const [observed, observer] of orderPathEdges(column)) addEdge(observed, observer);
 	}
+}
+
+/**
+ * A declared ordering column whose order path resolved to nothing: listed once
+ * as `portal:column@target_section` (scratch namespaces stay out).
+ */
+function reportUnresolvedOrderColumn(column: OrderDerivedColumn, orderUnresolved: string[]): void {
+	const unresolved = `${column.portalTipo}:${column.columnTipo}@${column.targetSection}`;
+	if (touchesScratchObserverNamespace(column.columnTipo, column.portalTipo)) return;
+	if (!orderUnresolved.includes(unresolved)) orderUnresolved.push(unresolved);
+}
+
+/**
+ * The `[observed, observer]` edge chain of one resolved ordering column, in
+ * path order: s0 → portal, then s(i+1) → s(i) while the next step is a
+ * component. Empty when the first step is no edge step (ordered by the
+ * record's own id — immutable); the chain ends at the first non-edge step.
+ */
+function orderPathEdges(column: OrderDerivedColumn): [string, string][] {
+	const first = column.path[0];
+	if (!isEdgeStep(first)) return [];
+	const edges: [string, string][] = [[first.component_tipo, column.portalTipo]];
+	for (let index = 0; index + 1 < column.path.length; index++) {
+		const linking = column.path[index];
+		const next = column.path[index + 1];
+		if (!isEdgeStep(linking) || !isEdgeStep(next)) break; // the chain ends
+		edges.push([next.component_tipo, linking.component_tipo]);
+	}
+	return edges;
 }
 
 /**
@@ -929,9 +944,12 @@ export function buildSubscriptionIndex(
  * already exclude them).
  */
 export function validateSubscriptionContract(index: SubscriptionIndex): string[] {
-	const errors: string[] = [];
-	const d = index.diagnostics;
+	return [...deadConfigErrors(index.diagnostics), ...authoringErrors(index.diagnostics)];
+}
 
+/** validateSubscriptionContract, first half: dead config and unresolvable hosts. */
+function deadConfigErrors(d: SubscriptionIndex['diagnostics']): string[] {
+	const errors: string[] = [];
 	// A forward spec whose named observer has NO matching observe entry is
 	// dead config: nothing runs on either side. Fix the ontology (add the
 	// observe half, or delete the stale spec) — there is no code pin to hide it.
@@ -954,6 +972,12 @@ export function validateSubscriptionContract(index: SubscriptionIndex): string[]
 			`unresolved host section: SQO-filter edge '${key}' resolves no section to search (no observe-entry section_tipo, no forward-spec section, and the observer's own section does not match the filter path) — add a section scope to the observe entry`,
 		);
 	}
+	return errors;
+}
+
+/** validateSubscriptionContract, second half: authoring errors (malformed, inert order, cycles). */
+function authoringErrors(d: SubscriptionIndex['diagnostics']): string[] {
+	const errors: string[] = [];
 	// A declared server value that is not an object cannot dispatch —
 	// malformed authoring (server:null / a scalar), never silently read as
 	// client-only. Zero instances on either live ontology.
@@ -1052,15 +1076,36 @@ export function orderDataSourceSections(properties: unknown, hostSection: string
 	if (!Array.isArray(requestConfig)) return [];
 	const sections = new Set<string>();
 	for (const item of requestConfig) {
-		const raw = (item as { sqo?: { section_tipo?: unknown } } | null)?.sqo?.section_tipo;
-		for (const entry of Array.isArray(raw) ? raw : [raw]) {
-			const source = (entry as { source?: unknown } | null)?.source;
-			if (typeof source !== 'string') continue;
-			for (const section of DATA_SOURCE_SECTIONS[source] ?? []) sections.add(section);
-			if (source === 'field_value' && hostSection !== '') sections.add(hostSection);
+		for (const source of sqoSectionSources(item)) {
+			for (const section of sourceSections(source, hostSection)) sections.add(section);
 		}
 	}
 	return [...sections].sort();
+}
+
+/**
+ * The data-driven source names one request_config item's `sqo.section_tipo`
+ * declares (its object entries' string `source`; a scalar or plain tipo
+ * entry declares none).
+ */
+function sqoSectionSources(item: unknown): string[] {
+	const raw = (item as { sqo?: { section_tipo?: unknown } } | null)?.sqo?.section_tipo;
+	const sources: string[] = [];
+	for (const entry of Array.isArray(raw) ? raw : [raw]) {
+		const source = (entry as { source?: unknown } | null)?.source;
+		if (typeof source === 'string') sources.push(source);
+	}
+	return sources;
+}
+
+/**
+ * The record sections one data-driven source reads: its DATA_SOURCE_SECTIONS
+ * row, plus the host section for `field_value` (when the host is known).
+ */
+function sourceSections(source: string, hostSection: string): string[] {
+	const sections = [...(DATA_SOURCE_SECTIONS[source] ?? [])];
+	if (source === 'field_value' && hostSection !== '') sections.push(hostSection);
+	return sections;
 }
 
 /**
@@ -1151,6 +1196,26 @@ async function computeHostSectionContext(
  * the registry.
  */
 async function computeOrderDerivedContext(): Promise<OrderDerivedContext> {
+	const declared = await declaredOrderPortals();
+	const hostSections = await plantDeclaredPortalDataSources(declared);
+	if (declared.length === 0) return EMPTY_ORDER_CONTEXT;
+	// CONVENTIONS §2 rationale 3 (rarely hit): only an ontology that declares a
+	// column `order` loads the order-path module here — the same lazy edge
+	// order_locators.ts takes for it (and editConfig takes for the config builder).
+	const { buildOrderPath } = await import('../../search/order_path.ts');
+	const columns: OrderDerivedColumn[] = [];
+	for (const node of declared) {
+		const hostSection = hostSections.get(node.tipo) ?? '';
+		columns.push(...(await portalOrderColumns(node.tipo, hostSection, buildOrderPath)));
+	}
+	return { columns };
+}
+
+/**
+ * computeOrderDerivedContext, step 1: every NON-alias node carrying `source`
+ * whose raw properties declare a per-ddo `order` (the cheap raw gate).
+ */
+async function declaredOrderPortals(): Promise<NodeWithProperties[]> {
 	const declared: NodeWithProperties[] = [];
 	for (const node of await getNodesWithProperty('source')) {
 		if (!hasDeclaredColumnOrder(node.properties)) continue;
@@ -1160,6 +1225,18 @@ async function computeOrderDerivedContext(): Promise<OrderDerivedContext> {
 		if (await isAliasNode(node.tipo)) continue;
 		declared.push(node);
 	}
+	return declared;
+}
+
+/**
+ * computeOrderDerivedContext, step 2: each declared portal's host section
+ * (returned, keyed by portal tipo; '' when none) and the union of the record
+ * sections their request_configs read, PLANTED in ORDER DATA SOURCES — always,
+ * even with no declared portal (an empty widening is harmless).
+ */
+async function plantDeclaredPortalDataSources(
+	declared: readonly NodeWithProperties[],
+): Promise<Map<string, string>> {
 	const hostSections = new Map<string, string>();
 	const dataSources = new Set<string>();
 	for (const node of declared) {
@@ -1175,43 +1252,46 @@ async function computeOrderDerivedContext(): Promise<OrderDerivedContext> {
 	// read uncommitted nodes and roll back, an out-of-tx build may have read the
 	// ontology before a hub clear (an extra clear is free; a missing one is the defect).
 	plantOrderDataSources(dataSources);
-	if (declared.length === 0) return EMPTY_ORDER_CONTEXT;
-	// CONVENTIONS §2 rationale 3 (rarely hit): only an ontology that declares a
-	// column `order` loads the order-path module here — the same lazy edge
-	// order_locators.ts takes for it (and editConfig takes for the config builder).
-	const { buildOrderPath } = await import('../../search/order_path.ts');
+	return hostSections;
+}
+
+/**
+ * computeOrderDerivedContext, step 3, for ONE declared portal: per ordering
+ * column of its edit config, one column per target section with its order
+ * path — or, with no target section, one empty-path column (unresolved, never
+ * silently dropped).
+ */
+async function portalOrderColumns(
+	portalTipo: string,
+	hostSection: string,
+	buildOrderPath: (
+		componentTipo: string,
+		sectionTipo: string,
+	) => Promise<OrderDerivedColumn['path']>,
+): Promise<OrderDerivedColumn[]> {
+	// the SAME config[0] the ranking reads (order_locators.ts editConfig)
+	const config = await editConfig(
+		await getEffectivePropertiesByTipo(portalTipo),
+		portalTipo,
+		hostSection,
+	);
 	const columns: OrderDerivedColumn[] = [];
-	for (const node of declared) {
-		const hostSection = hostSections.get(node.tipo) ?? '';
-		// the SAME config[0] the ranking reads (order_locators.ts editConfig)
-		const config = await editConfig(
-			await getEffectivePropertiesByTipo(node.tipo),
-			node.tipo,
-			hostSection,
-		);
-		const ordered = orderedColumnsFromDdoMap(config.columns);
-		const targets = config.targets;
-		for (const column of ordered) {
-			if (targets.length === 0) {
-				columns.push({
-					portalTipo: node.tipo,
-					columnTipo: column.componentTipo,
-					targetSection: '',
-					path: [],
-				});
-				continue;
-			}
-			for (const targetSection of targets) {
-				columns.push({
-					portalTipo: node.tipo,
-					columnTipo: column.componentTipo,
-					targetSection,
-					path: await buildOrderPath(column.componentTipo, targetSection),
-				});
-			}
+	for (const column of orderedColumnsFromDdoMap(config.columns)) {
+		const columnTipo = column.componentTipo;
+		if (config.targets.length === 0) {
+			columns.push({ portalTipo, columnTipo, targetSection: '', path: [] });
+			continue;
+		}
+		for (const targetSection of config.targets) {
+			columns.push({
+				portalTipo,
+				columnTipo,
+				targetSection,
+				path: await buildOrderPath(columnTipo, targetSection),
+			});
 		}
 	}
-	return { columns };
+	return columns;
 }
 
 /**

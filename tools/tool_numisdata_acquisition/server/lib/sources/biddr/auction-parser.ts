@@ -27,7 +27,7 @@ export function parseAuction({ html, sourceUrl }: AuctionParseInput): ExtractedA
 	const description = cleanText($('.catalog-description').first().text());
 
 	const auctionNumberMatch = title?.match(/(\d+)/);
-	const auctionNumber = auctionNumberMatch ? auctionNumberMatch[1]! : null;
+	const auctionNumber = auctionNumberMatch?.[1] ?? null;
 
 	const lotCountText = $('.all-lots small').first().text();
 	const lotCount = lotCountText ? Number.parseInt(lotCountText.trim(), 10) : null;

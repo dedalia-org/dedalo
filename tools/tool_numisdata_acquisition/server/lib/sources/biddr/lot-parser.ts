@@ -30,9 +30,10 @@ function parseLotNumberAndTitle(rawTitle: string | null): {
 } {
 	if (!rawTitle) return { lotNumber: null, title: null };
 	const match = rawTitle.match(/\blot\s+(\d+)\.\s*/i);
-	if (!match) return { lotNumber: null, title: rawTitle.trim() || null };
+	const lotNumber = match?.[1];
+	if (!match || lotNumber === undefined) return { lotNumber: null, title: rawTitle.trim() || null };
 	const title = rawTitle.slice((match.index ?? 0) + match[0].length).trim();
-	return { lotNumber: match[1]!, title: title.length > 0 ? title : null };
+	return { lotNumber, title: title.length > 0 ? title : null };
 }
 
 /**
@@ -192,7 +193,7 @@ export function parseLotDetail(html: string, sourceUrl: string): ExtractedLot | 
 	const $ = cheerio.load(html);
 
 	const lotIdMatch = sourceUrl.match(/[?&]l=(\d+)/);
-	const lotIdentifier = lotIdMatch ? lotIdMatch[1]! : null;
+	const lotIdentifier = lotIdMatch?.[1] ?? null;
 	if (!lotIdentifier) return null;
 
 	const lotNumberText = cleanText($('.lot-navigation h2').first().text());

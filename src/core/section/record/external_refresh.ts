@@ -275,6 +275,16 @@ export function withheldReasonOf(outcome: unknown): ExternalRefreshWithheldReaso
 	const fields = outcome as Record<string, unknown>;
 	if (fields.refusedLaw !== undefined) return 'law_refused';
 	if (fields.wrote === true) return null;
+	return flaggedWithheldReason(fields);
+}
+
+/**
+ * The first FLAGGED_WITHHELD flag set on an outcome that did not write, in
+ * precedence order; `null` = none set (the refresh found no drift).
+ */
+function flaggedWithheldReason(
+	fields: Record<string, unknown>,
+): ExternalRefreshWithheldReason | null {
 	for (const [field, reason] of FLAGGED_WITHHELD) if (fields[field] === true) return reason;
 	return null;
 }
