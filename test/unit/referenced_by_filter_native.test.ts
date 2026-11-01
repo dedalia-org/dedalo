@@ -1165,7 +1165,7 @@ const HOP_VALUE = 'zzrefbyhop';
  * storing a test3 locator under its DECLARED filter key → TARGET_DECLARED and
  * one under a key that is no node of the section → TARGET_UNDECLARED.
  */
-const UNDECLARED_KEY = 'zzrefbyorphan1';
+const UNDECLARED_RELATION_TIPO = 'zzrefbyorphan1';
 let TARGET_DECLARED: number;
 let TARGET_UNDECLARED: number;
 let SOURCE_CREATE: number;
@@ -1325,7 +1325,7 @@ describe.if(DB_READY)('referenced_by leaf — a project-scoped persona', () => {
 				{ ...loc(CRAWL_CREATE_FILTER, 'dd153', CRAWL_PROJECT_A, 1), type: 'dd675' },
 				loc(CRAWL_CREATE_FILTER, T3, TARGET_DECLARED, 2),
 			],
-			[UNDECLARED_KEY]: [loc(UNDECLARED_KEY, T3, TARGET_UNDECLARED)],
+			[UNDECLARED_RELATION_TIPO]: [loc(UNDECLARED_RELATION_TIPO, T3, TARGET_UNDECLARED)],
 		});
 		editor = await resolvePrincipal(CRAWL_EDITOR_USER_ID);
 		admin = await resolvePrincipal(CRAWL_ADMIN_USER_ID);
