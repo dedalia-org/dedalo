@@ -21,8 +21,11 @@ import { view_text_list_3d } from '../../../core/component_3d/js/view_text_list_
 import { view_text_list_av } from '../../../core/component_av/js/view_text_list_av.js';
 import { view_text_list_image } from '../../../core/component_image/js/view_text_list_image.js';
 import { view_text_list_pdf } from '../../../core/component_pdf/js/view_text_list_pdf.js';
+import { view_line_edit_portal } from '../../../core/component_portal/js/view_line_edit_portal.js';
 import { view_text_list_svg } from '../../../core/component_svg/js/view_text_list_svg.js';
 import { build_node_tag } from '../../../core/component_text_area/js/view_default_edit_text_area.js';
+import { render_column_id } from '../../../core/section/js/render_list_section.js';
+import { view_graph_solved_section } from '../../../core/section/js/view_graph_solved_section.js';
 import { flat_table } from '../../../tools/tool_export/js/flat_table.js';
 import {
 	build_component_edit,
@@ -228,6 +231,55 @@ describe('a11y: the cataloguing surface is operable without a mouse', function (
 				null,
 				'a button with visible text is named by its text, not by a duplicate aria-label',
 			);
+		});
+	});
+
+	describe('every icon-only row button has an accessible name (WCAG 4.1.2, axe button-name)', function () {
+		it('render_list_section.render_column_id: the list delete (trash) button is named by what it deletes', function () {
+			const caller = {
+				id: 'a11y_list',
+				tipo: 'test3',
+				permissions: 2,
+				show_interface: { button_delete: true },
+				context: { buttons: [{ model: 'button_delete' }] },
+				config: {},
+				refresh: () => {},
+			};
+			const fragment = render_column_id({
+				caller,
+				section_id: '7',
+				section_tipo: 'test3',
+				paginated_key: 0,
+			});
+			const button = fragment.querySelector('button.button_delete');
+			assert.isNotNull(button, 'the delete button renders');
+			assert.strictEqual(button.textContent.trim(), '', 'icon-only: aria-label is its only name');
+			assert.strictEqual(button.getAttribute('aria-label'), `${get_label.delete || 'Delete'} 7`);
+		});
+		it('view_line_edit_portal.render_column_id: the line-view edit (pen) button is named', function () {
+			const fragment = view_line_edit_portal.render_column_id({
+				caller: { view: 'line', section_tipo: 'test3', context: { view: 'line' } },
+				section_id: '7',
+				section_tipo: 'test3',
+			});
+			const button = fragment.querySelector('button.button_edit');
+			assert.isNotNull(button, 'the edit button renders');
+			assert.strictEqual(button.textContent.trim(), '', 'icon-only');
+			assert.match(
+				button.getAttribute('aria-label') || '',
+				new RegExp(`^${get_label.open || 'Open'}`),
+			);
+		});
+		it('view_graph_solved_section.render_column_id: the graph edit (pen) button is named', function () {
+			const fragment = view_graph_solved_section.render_column_id({
+				caller: { context: { view: 'graph' } },
+				section_id: '7',
+				section_tipo: 'test3',
+			});
+			const button = fragment.querySelector('button.button_edit');
+			assert.isNotNull(button, 'the edit button renders');
+			assert.strictEqual(button.textContent.trim(), '', 'icon-only');
+			assert.strictEqual(button.getAttribute('aria-label'), `${get_label.open || 'Open'} 7`);
 		});
 	});
 

@@ -1,7 +1,6 @@
 {
 	"rule": "SHRINK-ONLY per-rule budget of pages failing a posture check in the feature crawl (bun run test:crawl): a11y:<axe rule> (critical impact), keyboard (Tab never leaves the body), phone_overflow (sideways scroll at 360px). A rule missing here, or more pages than its budget, is red; `bun run test:crawl --update` after a green FULL run lowers each budget to the observed count and drops a rule no page breaks any more. A budget rises only by a hand edit whose commit says why. Read by scripts/feature_crawl.ts and test/unit/feature_crawl_tripwire.test.ts.",
 	"budgets": {
-		"a11y:button-name": 65,
 		"keyboard": 7
 	}
 }

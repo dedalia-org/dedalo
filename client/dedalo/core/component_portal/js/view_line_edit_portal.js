@@ -411,10 +411,16 @@ view_line_edit_portal.render_column_id = function(options) {
 
 	const fragment = new DocumentFragment()
 
+	// edit icon title, also the icon-only button's accessible name (axe button-name)
+		const pen_title = SHOW_DEBUG
+			? (get_label.open || 'Open') + ` ${section_tipo}-${section_id}`
+			: (get_label.open || 'Open')
+
 	// button_edit
 		const button_edit = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'button_edit button_view_' + (self.view || self.context.view || 'default'),
+			aria			: {label : pen_title},
 			parent			: fragment
 		})
 		// click event
@@ -437,9 +443,6 @@ view_line_edit_portal.render_column_id = function(options) {
 		button_edit.addEventListener('focus', focus_handler)
 
 	// edit icon
-		const pen_title = SHOW_DEBUG
-			? (get_label.open || 'Open') + ` ${section_tipo}-${section_id}`
-			: (get_label.open || 'Open')
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'button pen icon grey',

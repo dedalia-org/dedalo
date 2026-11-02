@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global SHOW_DEBUG */
+/*global SHOW_DEBUG, get_label */
 /*eslint no-undef: "error"*/
 
 
@@ -753,9 +753,13 @@ export const render_column_id = function(options) {
 
 						if (button_delete && self.show_interface.button_delete===true) {
 							// delete_button
+								// icon-only: the name says what it deletes (WCAG 4.1.2, axe button-name)
+								const delete_label = (get_label.delete || 'Delete') + ' ' + section_id
 								const delete_button = ui.create_dom_element({
 									element_type	: 'button',
 									class_name		: 'button_delete',
+									title			: delete_label,
+									aria			: {label : delete_label},
 									parent			: fragment
 								})
 								// delete event

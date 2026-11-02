@@ -1279,6 +1279,8 @@ view_graph_solved_section.render_column_id = function(options) {
 		const button_edit = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'button_edit button_view_' + self.context.view,
+			// icon-only (WCAG 4.1.2, axe button-name)
+			aria			: {label : (get_label.open || 'Open') + ' ' + section_id},
 			parent			: fragment
 		})
 		button_edit.addEventListener('click', function(e) {

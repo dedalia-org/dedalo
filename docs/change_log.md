@@ -121,6 +121,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Screen readers now announce the list delete and edit buttons.**
+
+    The trash-can button on each row of a section list now has an accessible name that says which record it deletes, such as "Delete 7". The pen buttons that open a record from a portal line view and from a graph list are named as well. Before, a screen reader announced these icon-only buttons only as "button".
+
 - **Screen readers now announce the language and dashboard selectors.**
 
     The data-language selector in the menu, and the sort and time-range selectors on area dashboards, now have accessible names. Every language selector built by the client gets a name by default. The interface and data language selectors have different names, so a screen reader can tell them apart.
