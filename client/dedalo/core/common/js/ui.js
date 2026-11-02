@@ -2808,6 +2808,9 @@ export const ui = {
 	*        default: the project lang order is meaningful (main lang first) where it is used
 	*        to pick a working lang; opt in where the list is long and picked by name.
 	* @param {string} [options.class_name='select_lang'] - CSS class for the <select>.
+	* @param {string} [options.aria_label] - The select's accessible name (WCAG 4.1.2, axe
+	*        select-name). Defaults to get_label.language: the factory never emits an unnamed
+	*        <select>. Pass a more specific name where two lang selects share a view.
 	* @returns {HTMLElement} select_lang - The constructed <select> element with <option> children.
 	*/
 	build_select_lang : (options) => {
@@ -2825,6 +2828,7 @@ export const ui = {
 			const action		= options.action || null
 			const sort			= options.sort===true
 			const class_name	= options.class_name || 'select_lang'
+			const aria_label	= options.aria_label || get_label.language || 'Language'
 
 		const fragment = new DocumentFragment()
 
@@ -2870,7 +2874,8 @@ export const ui = {
 				id				: id,
 				name			: name,
 				element_type	: 'select',
-				class_name		: class_name
+				class_name		: class_name,
+				aria			: {label : aria_label}
 			})
 			if (action) {
 				select_lang.addEventListener('change', action)

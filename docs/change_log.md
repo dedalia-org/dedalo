@@ -121,6 +121,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Screen readers now announce the language and dashboard selectors.**
+
+    The data-language selector in the menu, and the sort and time-range selectors on area dashboards, now have accessible names. Every language selector built by the client gets a name by default. The interface and data language selectors have different names, so a screen reader can tell them apart.
+
 - **The menu no longer offers the retired Graphs area.**
 
     The Graphs area (`dd630`) was still listed in the menu, but opening it only showed an error: the area was retired and the server refuses to open it. The menu now leaves it out. Nothing else changes: the area still appears in the Maintenance area-visibility settings and in profile permissions.

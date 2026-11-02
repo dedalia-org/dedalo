@@ -855,3 +855,24 @@ window.dd_a11y_surfaces = {
 	SURFACE_BUILDERS: SURFACE_BUILDERS,
 	build_all_surfaces: build_all_surfaces,
 };
+
+/**
+ * SELECT_ACCESSIBLE_NAME
+ * The name axe's select-name rule accepts for a <select> (WCAG 4.1.2): aria-label,
+ * aria-labelledby (resolved), a wrapping or for= <label>, or a non-empty title.
+ * Its options are NOT a name. Returns '' when the select is unnamed.
+ */
+export const select_accessible_name = function (select) {
+	const aria_label = (select.getAttribute('aria-label') || '').trim();
+	if (aria_label) return aria_label;
+	const labelledby = (select.getAttribute('aria-labelledby') || '')
+		.split(/\s+/)
+		.map((id) => (id ? document.getElementById(id)?.textContent || '' : ''))
+		.join(' ')
+		.trim();
+	if (labelledby) return labelledby;
+	const label =
+		select.labels && select.labels.length > 0 ? select.labels[0].textContent.trim() : '';
+	if (label) return label;
+	return (select.getAttribute('title') || '').trim();
+};

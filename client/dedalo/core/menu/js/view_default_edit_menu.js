@@ -458,7 +458,8 @@ const get_content_data_edit = function(self) {
 				})
 			},
 			selected	: page_globals.dedalo_application_lang,
-			class_name	: 'reset_input dedalo_aplication_langs_selector top_item'
+			class_name	: 'reset_input dedalo_aplication_langs_selector top_item',
+			aria_label	: get_label.interface || 'Interface'
 		})
 		dedalo_aplication_langs_selector.title = get_label.interface || 'Interface'
 		fragment.appendChild(dedalo_aplication_langs_selector)
@@ -489,8 +490,11 @@ const get_content_data_edit = function(self) {
 					})
 				},
 				selected	: page_globals.dedalo_data_lang,
-				class_name	: 'reset_input dedalo_aplication_langs_selector data top_item'
+				class_name	: 'reset_input dedalo_aplication_langs_selector data top_item',
+				// named apart from the interface selector beside it (axe select-name)
+				aria_label	: get_label.data_language || 'Data language'
 			})
+			dedalo_data_langs_selector.title = get_label.data_language || 'Data language'
 			fragment.appendChild(dedalo_data_langs_selector)
 		}
 

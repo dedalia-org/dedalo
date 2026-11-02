@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global describe, it, assert, document, window, KeyboardEvent*/
+/*global describe, it, assert, document, window, KeyboardEvent, get_label*/
 
 /**
  * TEST_A11Y_KEYBOARD
@@ -13,6 +13,7 @@
  * are named, and hand focus back.
  */
 
+import { build_dashboard } from '../../../core/area_common/js/dashboard.js';
 import { a11y } from '../../../core/common/js/a11y.js';
 import { tr } from '../../../core/common/js/tr.js';
 import { ui } from '../../../core/common/js/ui.js';
@@ -33,6 +34,7 @@ import {
 	build_modal_non_blocking,
 	build_toolbar,
 	build_tree_row,
+	select_accessible_name,
 } from './a11y_surfaces.js';
 
 /**
@@ -226,6 +228,53 @@ describe('a11y: the cataloguing surface is operable without a mouse', function (
 				null,
 				'a button with visible text is named by its text, not by a duplicate aria-label',
 			);
+		});
+	});
+
+	describe('every <select> the shared widgets build has an accessible name (WCAG 4.1.2, axe select-name)', function () {
+		it('ui.build_select_lang with no aria_label is named "language", never unnamed', function () {
+			const select = ui.build_select_lang({ langs: [{ label: 'English', value: 'lg-eng' }] });
+			assert.notStrictEqual(select_accessible_name(select), '', 'the factory default names it');
+			assert.strictEqual(select.getAttribute('aria-label'), get_label.language || 'Language');
+		});
+		it('ui.build_select_lang keeps a caller-given aria_label', function () {
+			const select = ui.build_select_lang({
+				langs: [{ label: 'English', value: 'lg-eng' }],
+				aria_label: 'Data language',
+			});
+			assert.strictEqual(select_accessible_name(select), 'Data language');
+		});
+		it('the area dashboard: the cards sort and the activity range selects are named', async function () {
+			this.timeout(10000);
+			const host = document.createElement('div');
+			host.style.width = '800px';
+			document.body.appendChild(host);
+			try {
+				const dashboard = build_dashboard(
+					{},
+					{
+						sections: [{ section_tipo: 'test3', label: 'Test', total: 1 }],
+						activity_30d: {
+							days: [{ date: '2026-10-01', by_section: { test3: 1 }, by_user: {} }],
+							users: [],
+						},
+					},
+				);
+				host.appendChild(dashboard);
+				const sort = dashboard.querySelector('select.area_dashboard_cards_sort');
+				assert.isNotNull(sort, 'the cards toolbar renders its sort select');
+				assert.strictEqual(select_accessible_name(sort), get_label.sort || 'Sort');
+				// the activity timeline is drawn after D3 loads and the host has a width
+				let range = null;
+				for (let i = 0; i < 100 && range === null; i++) {
+					await new Promise((r) => setTimeout(r, 50));
+					range = dashboard.querySelector('select.area_dashboard_activity_range_select');
+				}
+				assert.isNotNull(range, 'the activity timeline renders its range select');
+				assert.strictEqual(select_accessible_name(range), get_label.time_range || 'Time range');
+			} finally {
+				host.remove();
+			}
 		});
 	});
 

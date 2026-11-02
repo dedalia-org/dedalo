@@ -263,6 +263,8 @@ const build_cards = function(self, dashboard_data) {
 
 	const sort_select = document.createElement('select')
 	sort_select.classList.add('area_dashboard_cards_sort')
+	// accessible name (WCAG 4.1.2, axe select-name): the options alone do not name it
+	sort_select.setAttribute('aria-label', (typeof get_label!=='undefined' && get_label.sort) || 'Sort')
 	const sort_options = [
 		{ value: 'total_desc',  label: 'Total ↓'  },
 		{ value: 'total_asc',   label: 'Total ↑'  },
@@ -1464,6 +1466,8 @@ const render_activity_timeline = function(d3, host, dashboard_data) {
 
 	const select = document.createElement('select')
 	select.classList.add('area_dashboard_activity_range_select')
+	// accessible name (WCAG 4.1.2, axe select-name)
+	select.setAttribute('aria-label', (typeof get_label!=='undefined' && get_label.time_range) || 'Time range')
 	for (const r of ranges) {
 		const opt = document.createElement('option')
 		opt.value = r.key
