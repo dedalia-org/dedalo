@@ -697,6 +697,26 @@ class system {
 				}//end foreach ($files as $file)
 		}//end foreach ($ar_folder as $quality)
 
+		// upload tmp dir. Chunks and partial joins left by failed or abandoned chunked uploads
+			if (defined('DEDALO_UPLOAD_TMP_DIR')) {
+				$max_preservation_secs	= 24 * 3600;
+				$tmp_files				= array_merge(
+					glob(DEDALO_UPLOAD_TMP_DIR . '/*/*/*.blob') ?: [],
+					glob(DEDALO_UPLOAD_TMP_DIR . '/*/*/part_*') ?: []
+				);
+				foreach ($tmp_files as $file) {
+					if (is_file($file) && (time() - filemtime($file)) >= $max_preservation_secs) {
+						if (!unlink($file)) {
+							debug_log(__METHOD__
+								. " Error on delete old upload tmp file " . PHP_EOL
+								. ' file: ' .$file
+								, logger::ERROR
+							);
+						}
+					}
+				}
+			}
+
 
 		return true;
 	}//end remove_old_chunk_files
