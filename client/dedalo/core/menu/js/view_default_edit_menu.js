@@ -275,8 +275,8 @@ view_default_edit_menu.render = async function(self, options) {
 *                            render_menu_mobile on first click and subscribes to
 *                            user_navigation to auto-hide the overlay on navigation
 *  5. [ontology_link]      — commented out; preserved for future restoration
-*  6. logged_user_name     — shows current username; for non-root users opens
-*                            tool_user_admin via self.open_tool_user_admin_handler()
+*  6. logged_user_name     — shows current username; opens (every user, root
+*                            included) tool_user_admin via self.open_tool_user_admin_handler()
 *  7. application lang selector — uses ui.build_select_lang; calls change_lang with
 *                            lang_type='dedalo_application_lang'
 *  8. data lang selector   — visible only when page_globals.dedalo_data_lang_selector
@@ -428,20 +428,17 @@ const get_content_data_edit = function(self) {
 			text_content	: username,
 			parent			: fragment
 		})
-		// root user has no personal admin panel; suppress click events entirely
-		if (username==='root') {
-			logged_user_name.classList.add('is_root','noevents')
-		}else{
-			logged_user_name.tabIndex = 0
-			logged_user_name.setAttribute('role', 'button')
-			// click event
-			const tool_user_admin_click_handler = function(e) {
-				e.stopPropagation();
-				self.open_tool_user_admin_handler()
-			}//end fn_open_tool
-			logged_user_name.addEventListener('click', tool_user_admin_click_handler)
-			logged_user_name.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') tool_user_admin_click_handler(e) })
-		}
+		// every user, root included: it is root's self-service panel too
+		// (WC-2026-08-28-root-self-service-write, WC-2026-10-28-own-account-read)
+		logged_user_name.tabIndex = 0
+		logged_user_name.setAttribute('role', 'button')
+		// click event
+		const tool_user_admin_click_handler = function(e) {
+			e.stopPropagation();
+			self.open_tool_user_admin_handler()
+		}//end fn_open_tool
+		logged_user_name.addEventListener('click', tool_user_admin_click_handler)
+		logged_user_name.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') tool_user_admin_click_handler(e) })
 
 	// application lang selector
 		const lang_datalist = page_globals.dedalo_application_langs || []

@@ -41,9 +41,9 @@ There are no settings to configure — the panel simply renders your own account
 | Username | Read-only (context) |
 | Profile | Read-only (context) |
 | Full name | Editable |
-| Password | Editable |
+| Password | Editable; read-only for the root user (a change asks no current password and root has no emailed recovery) |
 | Email | Editable |
-| User image | Editable (with upload) |
+| User image | Editable (with upload); read-only for the root user, whose account record cannot hold media files |
 | Active field style | Editable (saved in your User interface preferences) |
 
 ### Active field style

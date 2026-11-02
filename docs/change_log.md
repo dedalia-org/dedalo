@@ -445,6 +445,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The root user can now open their own account panel by clicking their name in the header.**
+
+    Clicking the username in the header opens the account panel (full name, password, email, image and the active field style). For the root user the name was not clickable, so root had no way to change their name, email or interface preferences from inside Dédalo. It now opens for root as for every other user. Root still sees and changes only their own account. Root's image and password are shown but cannot be changed there: a password change asks for no current password, and root has no emailed recovery, so a session left open could lock the real root out for good. In this panel the user name and profile are now read-only for everyone, administrators included; administrators edit them in the Users section.
+
 - **An interrupted Docker image update now rolls back instead of leaving the stack pinned to an unverified version.**
 
     Stopping `deploy/dedalo-image-update.sh` after it re-pinned `DEDALO_VERSION` now puts the previous version back and reports *interrupted*. If it was killed outright, a `.dedalo-image-update.pin` file blocks later runs until `--recover` (which the host updater runs on its own) rolls back. A request for the version already installed is reported as *same version*, and a cancel can no longer race the host updater's claim.

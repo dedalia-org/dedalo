@@ -231,6 +231,13 @@ tool_user_admin.prototype.get_component = async function(ddo) {
 	// build
 		await component_instance.build(true)
 
+	// ddo permissions override: can only LOWER the server's level (read-only
+	// entries stay read-only for a global admin / root, whose stamp is higher)
+		if (typeof ddo.permissions==='number') {
+			// (a context-less build leaves no level: Number(…)||0 keeps it at 0, never NaN)
+			component_instance.permissions = Math.min(Number(component_instance.permissions) || 0, ddo.permissions)
+		}
+
 
 	return component_instance
 }//end get_component
@@ -355,7 +362,10 @@ tool_user_admin.prototype.get_ddo_map = function() {
 				}
 			}
 		},
-		// password . editable
+		// password . editable (read only for root: a self-change asks no current
+		// password, and root has no emailed recovery — a hijacked root session could
+		// lock the real root out for good. Until a re-authenticated change exists,
+		// root's password is rotated outside this panel)
 		{
 			tipo			: 'dd133',
 			type			: 'component',
@@ -370,7 +380,8 @@ tool_user_admin.prototype.get_ddo_map = function() {
 				show_interface : {
 					tools : false
 				}
-			}
+			},
+			...(page_globals.user_id > 0 ? {} : { permissions : 1 })
 		},
 		// email . editable
 		{
@@ -402,7 +413,8 @@ tool_user_admin.prototype.get_ddo_map = function() {
 		// 	properties		: {css:{}},
 		// 	permissions		: 1
 		// },
-		// user image . editable
+		// user image . editable (read only for root: media files are named by a
+		// positive section_id, and root's record is dd128/-1 — an upload would fail)
 		{
 			tipo			: 'dd522',
 			type			: 'component',
@@ -416,9 +428,10 @@ tool_user_admin.prototype.get_ddo_map = function() {
 				css:{},
 				show_interface : {
 					// allow necessary upload tool here
-					tools : true
+					tools : page_globals.user_id > 0
 				}
-			}
+			},
+			...(page_globals.user_id > 0 ? {} : { permissions : 1 })
 		}
 	]
 

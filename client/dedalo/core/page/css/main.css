@@ -10296,10 +10296,6 @@ body:has(.component_av.view_viewer) {
 .menu > .content_data > .logged_user_name:hover {
   color: var(--menu_link_fg);
 }
-.menu > .content_data > .logged_user_name.is_root {
-  color: var(--color_orange_dedalo);
-  cursor: default;
-}
 .menu > .content_data > .dedalo_aplication_langs_selector {
   display: inline-block;
   background-color: transparent;
