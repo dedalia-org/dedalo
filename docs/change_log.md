@@ -116,6 +116,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Uploading a very large file no longer reports an error while the server is still joining it.**
+
+    After all parts of a large file (several GB) had arrived, the server needed minutes to put them back together. The browser stopped waiting after about half a minute and showed an error, although the file was saved in the end; trying again then failed because the parts were already gone. The browser now keeps waiting (up to 30 minutes, or until you cancel), and asking again for a file that is already joined returns it instead of an error. A part that hits a temporary gateway error (502, 503, 504) is now retried too.
+
 - **Records open when a portal's list layout names a field from an uninstalled ontology.**
 
     A portal's list layout can name fields from optional ontologies (for example `tchi`). On an installation without that ontology, opening the record failed with "The identifier is not a valid ontology tipo". Those fields are now left out of the layout, and the server logs a warning naming each one.

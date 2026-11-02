@@ -1050,9 +1050,7 @@ function openAssemblyOutput(assembled: string): number {
  * (The verification pass is bounded and stays synchronous — see
  * engine/verify_content.ts, which no longer has any whole-file rule.)
  */
-export async function joinChunkedUpload(
-	input: JoinChunkedUploadInput,
-): Promise<UploadReceiveResult> {
+async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<UploadReceiveResult> {
 	const { keyDir, tmpName, totalChunks, userId, uploadId, mediaRoot } = input;
 	const cap = assembledCap(input.maxSizeBytes);
 	const dir = stagingDir(userId, keyDir, mediaRoot);
@@ -1127,6 +1125,11 @@ export async function joinChunkedUpload(
 			// removed at the very end — after assembly AND verification have both
 			// reached a durable outcome.
 		}
+	} catch (error) {
+		// A failed copy (ENOSPC, I/O error) leaves a partial duplicate of parts that are
+		// all still on disk: drop it rather than leave GBs behind.
+		rmSync(assembled, { force: true });
+		throw error;
 	} finally {
 		closeSync(out);
 	}
@@ -1185,18 +1188,7 @@ export async function joinChunkedUpload(
 	// name across the chunk requests, and the artifact dir holding it is removed
 	// three lines below. Without this the name would die with it.
 	recordStagedDisplayName(dir, staged, name);
-	// Everything left in the artifact dir is garbage by definition: the client
-	// declared how many parts the file had, and it has been assembled and
-	// verified. Leaving a surplus part behind is the leak this change exists to
-	// end — and this is also where the consumed parts finally go.
-	rmSync(upDir, { recursive: true, force: true });
-	// Opportunistic GC of OTHER abandoned transfers in the same key_dir.
-	try {
-		sweepStagedOrphans(userId, keyDir, mediaRoot);
-	} catch (error) {
-		console.warn('[upload] staging sweep failed:', (error as Error).message);
-	}
-	return {
+	const result: UploadReceiveResult = {
 		complete: true,
 		tmpName: staged,
 		name,
@@ -1205,6 +1197,75 @@ export async function joinChunkedUpload(
 		totalChunks,
 		uploadId: uploadId ?? undefined,
 	};
+	// Everything left in the artifact dir is garbage by definition: the client
+	// declared how many parts the file had, and it has been assembled and
+	// verified. Leaving a surplus part behind is the leak this change exists to
+	// end — and this is also where the consumed parts finally go. With an
+	// upload_id, the outcome is recorded FIRST and kept, so a resent join
+	// replays it (replayJoinedUpload) instead of finding no parts; the 24 h
+	// sweep and the explicit cancel collect the dir as before.
+	if (uploadId) {
+		writeFileSync(resolve(upDir, JOINED_RECORD), JSON.stringify(result), { mode: 0o640 });
+		for (const entry of readdirSync(upDir)) {
+			if (entry !== JOINED_RECORD) rmSync(resolve(upDir, entry), { recursive: true, force: true });
+		}
+	} else {
+		rmSync(upDir, { recursive: true, force: true });
+	}
+	// Opportunistic GC of OTHER abandoned transfers in the same key_dir.
+	try {
+		sweepStagedOrphans(userId, keyDir, mediaRoot);
+	} catch (error) {
+		console.warn('[upload] staging sweep failed:', (error as Error).message);
+	}
+	return result;
+}
+
+/** The finished-join record kept in a transfer's artifact dir (see assembleChunkedUpload). */
+const JOINED_RECORD = 'joined.json';
+
+/**
+ * The recorded outcome of an already finished join of this upload_id, or null.
+ * Null as well when the staged file is gone (ingested or deleted since): there is
+ * then nothing left to hand back, and the join reports its usual error.
+ */
+function replayJoinedUpload(input: JoinChunkedUploadInput): UploadReceiveResult | null {
+	const { keyDir, userId, uploadId, mediaRoot } = input;
+	if (typeof uploadId !== 'string' || uploadId === '') return null;
+	const upDir = uploadArtifactDir(userId, keyDir, assertUploadId(uploadId), mediaRoot);
+	let record: UploadReceiveResult;
+	try {
+		record = JSON.parse(readFileSync(resolve(upDir, JOINED_RECORD), 'utf8')) as UploadReceiveResult;
+	} catch {
+		return null;
+	}
+	if (typeof record.tmpName !== 'string') return null;
+	const dir = stagingDir(userId, keyDir, mediaRoot);
+	return existsSync(confine(dir, record.tmpName)) ? record : null;
+}
+
+/**
+ * Join a chunked upload, idempotently per upload_id. The client keeps re-sending
+ * the join of a multi-GB file until it gets an answer (a single request cannot
+ * outlast the join), so:
+ * - a join that already finished replays its recorded result;
+ * - a resend while the first join runs gets media.upload_conflict (retryable)
+ *   from openAssemblyOutput;
+ * - a resend that loses the race with the finishing join (its parts vanish
+ *   under it) checks the record again before failing.
+ */
+export async function joinChunkedUpload(
+	input: JoinChunkedUploadInput,
+): Promise<UploadReceiveResult> {
+	const replay = replayJoinedUpload(input);
+	if (replay) return replay;
+	try {
+		return await assembleChunkedUpload(input);
+	} catch (error) {
+		const late = replayJoinedUpload(input);
+		if (late) return late;
+		throw error;
+	}
 }
 
 /** Confine a name inside the staging dir (defense in depth over sanitizeSegment). */

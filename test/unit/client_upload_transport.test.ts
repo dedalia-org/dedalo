@@ -713,6 +713,70 @@ else {
 		});
 	});
 
+	describe('join_chunked_files', () => {
+		const join_options = (extra: Record<string, unknown> = {}) => ({
+			file_data: {
+				key_dir: 'image',
+				tmp_name: 'a.jpg',
+				total_chunks: 3,
+				upload_id: 'up_join_test',
+			},
+			files_chunked: ['a.jpg-0.blob', 'a.jpg-1.blob', 'a.jpg-2.blob'],
+			...extra,
+		});
+		const refusal = (code: string) => ({ ok: false, error: { code, retryable: false } });
+
+		/** Answers each join round from `answers` in turn; returns the call log. */
+		function answer_rounds(answers: unknown[]) {
+			const calls: Record<string, unknown>[] = [];
+			const before = data_manager.request;
+			data_manager.request = async (options: Record<string, unknown>) => {
+				calls.push(options);
+				return answers[Math.min(calls.length, answers.length) - 1];
+			};
+			return { calls, restore: () => (data_manager.request = before) };
+		}
+
+		test('a running join is asked again until it settles, with no own key', async () => {
+			const done = { ok: true, data: true, file_data: { tmp_name: 'a.jpg', complete: true } };
+			const rounds = answer_rounds([refusal('media.upload_conflict'), done]);
+			try {
+				const response = await transport.join_chunked_files(join_options());
+				expect(response).toBe(done);
+				expect(rounds.calls.length).toBe(2);
+				// data_manager mints the key per round (client_idempotency_tripwire)
+				for (const call of rounds.calls) expect(call.idempotency_key).toBeUndefined();
+			} finally {
+				rounds.restore();
+			}
+		}, 15_000);
+
+		test('a real failure is returned at once, not retried', async () => {
+			const failed = refusal('media.action_failed');
+			const rounds = answer_rounds([failed]);
+			try {
+				expect(await transport.join_chunked_files(join_options())).toBe(failed);
+				expect(rounds.calls.length).toBe(1);
+			} finally {
+				rounds.restore();
+			}
+		});
+
+		test('a cancelled transfer stops waiting for the join', async () => {
+			const pending = refusal('idempotency.in_progress');
+			const rounds = answer_rounds([pending]);
+			try {
+				const response = await transport.join_chunked_files(
+					join_options({ is_stopped: () => true }),
+				);
+				expect(response).toBe(pending);
+				expect(rounds.calls.length).toBe(1);
+			} finally {
+				rounds.restore();
+			}
+		});
+	});
+
 	describe('create_connection_pool', () => {
 		test('honours the window and releases on a throwing task', async () => {
 			const pool = transport.create_connection_pool(2);

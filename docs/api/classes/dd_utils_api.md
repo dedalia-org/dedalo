@@ -132,6 +132,8 @@ Reassemble a completed chunked upload (the JSON follow-up to the multipart chunk
 
 Fail-closed: an anonymous caller gets `resource.not_found` (HTTP 404) — the same shape a route miss answers, so the endpoint leaks no existence. A failed join answers `media.action_failed`; the engine's reason names filesystem paths and stays on the log line.
 
+Idempotent per `upload_id`: a large join can outlast the request and proxy timeouts, so the client resends it until it settles. A resend while the first join is still running answers `media.upload_conflict` (retryable); a resend after it finished answers the same `file_data` again, read from a `joined.json` record left in the transfer's `.up_<upload_id>` folder, as long as the staged file still exists. A join without `upload_id` is not replayable. A refusal the engine already classified (`media.upload_conflict`, `media.upload_rejected`, …) is passed through as is rather than turned into `media.action_failed`.
+
 ## list_uploaded_files
 
 ### Purpose
