@@ -81,11 +81,11 @@ they were prose (eight found 2026-08-28, five more 2026-10-02).
 | d3 | `d3` | 7.9.0 | dependency | The version does not appear in the URL. |
 | jsoneditor | `vanilla-jsoneditor` | 3.13.0 | dependency |  |
 | leaflet | `leaflet` | 1.9.4 | dependency |  |
-| geoman | `@geoman-io/leaflet-geoman-free` | 2.20.2 | dependency | Was bundled *inside* leaflet's `dist/`; now its own dep. |
+| geoman | `@geoman-io/leaflet-geoman-free` | 2.20.4 | dependency | Was bundled *inside* leaflet's `dist/`; now its own dep. |
 | turf | `@turf/turf` | 7.4.0 | dependency | Was bundled *inside* leaflet's `dist/`; now its own dep. |
 | split | `split.js` | 1.6.5 | dependency | Used by the indexation tool. |
 | iro | `@jaames/iro` | 5.5.2 | dependency |  |
-| codex-tooltip | `codex-tooltip` | 1.0.6 | dependency |  |
+| codex-tooltip | `codex-tooltip` | 1.1.0 | dependency |  |
 | highlightjs | `@highlightjs/cdn-assets` | 11.12.0 | dependency | Not `highlight.js` — see below. |
 | onnxruntime | `onnxruntime-web` | 1.31.0-dev.20260914-8d85527a0 | dependency | Transformers.js's WASM runtime; the only `onnxruntime-web` the lockfile holds. |
 | qrcode | `easyqrcodejs` | 4.6.2 | dependency | The QR tool. Was a copy committed under its own `lib/` directory with no digest. |
