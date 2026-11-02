@@ -4,11 +4,11 @@
  * bundle or kit installs from (publication_host/api_bundles.ts assertRegistryLockfile).
  * Two copies of a law drift; this is the one copy.
  *
- * A registry tuple is `["<name>@<exact version>", <registry>, <metadata>, "<integrity>"]`.
+ * A registry tuple is `["<name>@<exact version>", "", <metadata>, "<integrity>"]`.
  * Every other resolution bun writes — a URL, git, `file:`/`link:`, a workspace member, a
  * local tarball (`dep@../x.tgz`, which bun normalises `file:x.tgz` to) — carries
  * something other than an exact version after the name, so the rule is POSITIVE: the
- * spec must BE an exact semver, never "not one of the bad prefixes" (a deny-list let the
+ * spec must BE an exact semver in the default-registry slot, never "not one of the bad prefixes" (a deny-list let the
  * local-tarball spelling through). Pure: no I/O, no throw.
  */
 
@@ -24,7 +24,7 @@ export type LockTupleProblem = 'malformed' | 'non_registry' | 'no_integrity';
 export function lockTupleProblems(tuple: unknown): LockTupleProblem[] {
 	if (!Array.isArray(tuple) || typeof tuple[0] !== 'string') return ['malformed'];
 	const problems: LockTupleProblem[] = [];
-	if (!EXACT_VERSION.test(specOf(tuple[0]))) problems.push('non_registry');
+	if (!isRegistryResolution(tuple)) problems.push('non_registry');
 	if (!hasIntegrity(tuple)) problems.push('no_integrity');
 	return problems;
 }
@@ -36,6 +36,17 @@ export function lockTupleProblems(tuple: unknown): LockTupleProblem[] {
 function specOf(resolution: string): string {
 	const at = resolution.indexOf('@', 1);
 	return at <= 0 ? '' : resolution.slice(at + 1);
+}
+
+/**
+ * A registry resolution: an exact version after the name AND bun's default-registry slot
+ * (`""`). The spec alone is not enough — a local tarball NAMED like a version
+ * (`file:1.2.3-x.tgz` → `b@1.2.3-x.tgz`) reads as semver with a prerelease, but bun
+ * writes every non-registry tuple with an object in slot 1. Pinning the slot to `""`
+ * also refuses a tuple fetched from another registry URL.
+ */
+function isRegistryResolution(tuple: readonly unknown[]): boolean {
+	return tuple[1] === '' && EXACT_VERSION.test(specOf(tuple[0] as string));
 }
 
 /** The tuple's last element is a registry integrity hash. */

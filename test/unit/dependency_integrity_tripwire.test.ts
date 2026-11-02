@@ -267,11 +267,13 @@ describe('dependency integrity — installed', () => {
 			'. bun.lock: "zod" (zod@4.4.3) carries NO integrity hash',
 		]);
 		expect(lockProblems('.', 'zod', ['zod@4.4.3', '', {}, 'sha512-abc'])).toEqual([]);
-		// The shapes a deny-list or a last-'@' split missed: userinfo in a URL, a local
+		// The shapes a deny-list, a spec-only or a last-'@' split missed: userinfo in a URL, a local
 		// tarball and a workspace member (each written WITH an integrity), a non-tuple.
 		for (const [name, tuple] of [
 			['t', ['t@https://user@host/t.tgz', {}, 'sha512-abc']],
 			['s', ['s@../ext/s.tgz', {}, 'sha512-abc']],
+			['q', ['q@1.2.3-x.tgz', {}, 'sha512-abc']],
+			['p', ['p@1.0.0', 'https://other.example/p.tgz', {}, 'sha512-abc']],
 			['w', ['w@workspace:pkgs/w', {}, 'sha512-abc']],
 			['u', 'not a tuple'],
 		] as const) {

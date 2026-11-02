@@ -652,11 +652,17 @@ describe('the provenance rule — every bun.lock package is registry-resolved wi
 				t_userinfo: ['t_userinfo@https://user@example.org/t.tgz', {}, INTEGRITY],
 				// A local tarball: bun writes it WITH an integrity, and no prefix names it.
 				s_tarball: ['s_tarball@../ext/s.tgz', {}, INTEGRITY],
+				// …and one NAMED like a version (`file:1.2.3-x.tgz`): the semver spec passes,
+				// the object registry slot does not. Also another registry's URL in that slot.
+				q_semver_tarball: ['q_semver_tarball@1.2.3-x.tgz', {}, INTEGRITY],
+				p_registry: ['p_registry@1.0.0', 'https://other.example/p.tgz', {}, INTEGRITY],
 				r_workspace: ['r_workspace@workspace:pkgs/r', {}, INTEGRITY],
 				v_bare: ['v_bare@1.0.0', '', {}],
 				u_shape: 'not a tuple',
 			}),
 		).toEqual([
+			'bun.lock:p_registry',
+			'bun.lock:q_semver_tarball',
 			'bun.lock:r_workspace',
 			'bun.lock:s_tarball',
 			'bun.lock:t_userinfo',
