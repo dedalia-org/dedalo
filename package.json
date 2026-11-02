@@ -7,7 +7,7 @@
 	"private": true,
 	"license": "AGPL-3.0-only",
 	"engines": {
-		"bun": "1.4.3"
+		"bun": "1.4.4"
 	},
 	"scripts": {
 		"start": "bun run src/server.ts",

@@ -91,13 +91,14 @@ async function systemInfoGetValue(): Promise<WidgetResponse> {
 	const requeriments_list: { name: string; value: boolean | string | null; info: string }[] = [];
 
 	// The actually-verified runtime floor (audit S2-36): postgres.ts, the Bun.sql
-	// mariadb adapter and the jsonb param conventions are verified against 1.4.3
+	// mariadb adapter and the jsonb param conventions are verified against 1.4.4
 	// (re-probed 2026-08-25 on the 1.3.9 -> 1.4.0 bump, and 2026-09-23 on
 	// 1.4.0 -> 1.4.2: the jsonb double-encode trap is UNCHANGED, the mariadb
 	// adapter decodes DATETIME as UTC and JSON columns as objects; and 2026-10-14 on
-	// 1.4.2 -> 1.4.3, same answers — the move is for the spawnSync fix, bun#34069).
+	// 1.4.2 -> 1.4.3, same answers — the move is for the spawnSync fix, bun#34069;
+	// and 2026-11-02 on 1.4.3 -> 1.4.4, same answers — a latest-stable move).
 	// Keep in lockstep with .bun-version + package.json engines.bun.
-	const MIN_BUN = '1.4.3';
+	const MIN_BUN = '1.4.4';
 	requeriments_list.push({
 		name: 'Bun supported version',
 		value: compareSemver(Bun.version, MIN_BUN) >= 0,

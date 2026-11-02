@@ -601,7 +601,7 @@ DEDALO_IMAGE_LICENSES='AGPL-3.0-only'
 
 # dedalo_image_labels CHECKOUT [TREE] — the OCI labels of a local build, one
 # `key=value` per line (campaign 3b N1): without them the image inherits the
-# base image's (`org.opencontainers.image.version=1.4.3-debian`, bun's source and
+# base image's (`org.opencontainers.image.version=1.4.4-debian`, bun's source and
 # revision), and the version label is what the updater and the installer read as
 # "which release is this". version = the RELEASE IDENTITY of TREE (default: the
 # checkout) spelled as an image tag (dedalo_image_tag_of — `7.0.0-beta.7`, or

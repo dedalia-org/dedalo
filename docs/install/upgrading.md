@@ -29,7 +29,7 @@ Two things the panel does not do, because it runs as the instance and they belon
 Never `bun upgrade` a production runtime: the engine is coupled to version-specific runtime behaviour — JSONB parameter inference above all — and a silent drift there corrupts data rather than slowing things down. The server echoes its runtime at boot and warns loudly when it does not match the pin:
 
 ```text
-Dédalo TS server starting on Bun 1.4.3 (pinned: 1.4.3)
+Dédalo TS server starting on Bun 1.4.4 (pinned: 1.4.4)
 ```
 
 ### Developer

@@ -2,7 +2,7 @@
  * THE PER-TEST TIMEOUT THE SUITE ACTUALLY RUNS UNDER — one constant, passed on
  * the command line, because the config file that used to declare it is dead.
  *
- * MEASURED (2026-08-25, Bun 1.4.0, pinned then; re-measured unchanged on 1.4.2 2026-09-23 and 1.4.3 2026-10-14):
+ * MEASURED (2026-08-25, Bun 1.4.0, pinned then; re-measured unchanged on 1.4.2 2026-09-23, 1.4.3 2026-10-14 and 1.4.4 2026-11-02):
  * `bunfig.toml`'s `[test] timeout = 30000` is SILENTLY IGNORED. Proven in a
  * sandbox: a test that sleeps 8 s under that exact bunfig dies at 5001.50 ms
  * with "this test timed out after 5000ms"; the same test run as

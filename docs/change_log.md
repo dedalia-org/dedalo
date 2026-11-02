@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Dédalo now runs on Bun 1.4.4, the latest stable release.
     - Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup.
 
 ### For users
@@ -406,6 +407,24 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
 
 #### Changed
+
+- **Dédalo now runs on Bun 1.4.4, the latest stable release.** *(action needed)*
+
+    The pinned runtime (`.bun-version`) moves from Bun 1.4.3 to 1.4.4. No defect drives the move; the
+    runtime behaviours the engine depends on were re-checked on 1.4.4 and are unchanged. The update
+    panel refuses this release until the server runs Bun 1.4.4.
+
+    **Action needed, before you apply this update:**
+
+    - **Host installation:** as root, install the verified 1.4.4 runtime at `/opt/dedalo/bun/1.4.4/bun`
+      exactly as [the `host_runtime` step](./install/manual_install.md#manual-host_runtime) does (with
+      `PIN=1.4.4`, checked against this release's `.bun-sha256`), point the instance's `ExecStart` at
+      it ([the `host_units` step](./install/manual_install.md#manual-host_units)), run
+      `systemctl daemon-reload`, restart the instance, then apply the update.
+    - **Container installation:** nothing extra; the new image carries Bun 1.4.4
+      ([Upgrading](./install/docker.md#upgrading)).
+    - **Publication hosts:** each site's Bun must move to 1.4.4 as well, or its **Bun version** row
+      turns red ([Upgrading a site's Bun](./install/publication_host.md#upgrading-a-sites-bun)).
 
 - **/health shows only the state of an update run and of the data version, not their identifiers.**
 

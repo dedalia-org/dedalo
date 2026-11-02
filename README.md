@@ -104,7 +104,7 @@ Some projects that use Dédalo to manage their Cultural Heritage and/or Oral Arc
 
 ### Runtime
 
-- [Bun](https://bun.sh) 1.4.3+
+- [Bun](https://bun.sh) 1.4.4+
 - [PostgreSQL](https://www.postgresql.org) 18.1+
 - Apache 2.4.6+ or Nginx (reverse proxy in front of the Bun process)
 - MySQL / MariaDB (optional — only for the diffusion publication target)

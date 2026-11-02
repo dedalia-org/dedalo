@@ -7,7 +7,7 @@ concern; the reference systemd units live in `deploy/`.
 ## 1. Runtime (S2-36)
 
 The Bun runtime is **pinned**: `.bun-version` + `package.json` `engines.bun`
-(currently `1.4.3`). The code is coupled to version-specific Bun behavior —
+(currently `1.4.4`). The code is coupled to version-specific Bun behavior —
 `Bun.sql` jsonb parameter inference (a drift here is the realized S1-07/S1-08
 corruption class), the Bun.sql MariaDB adapter (diffusion), `Bun.serve`
 defaults. The server echoes its runtime at boot and **warns loudly** when it
@@ -62,6 +62,13 @@ the db tier (`statement_ceiling_scope_native`, whose leg caught a 57014 inside
 `withTransaction`; it now lets the error leave the transaction, as production does).
 The rule this enforces was always true: inside `withTransaction`, a caught SQL error
 needs a savepoint, or the error must leave the body.
+
+**Moved to 1.4.4 (2026-11-02, 1.4.3 -> 1.4.4) — latest stable, no defect
+driving it.** Re-probed on 1.4.4, same answers as 1.4.3: a JS string bound as
+`$1::jsonb` lands as a jsonb *string* (`$1::text::jsonb` → object); MariaDB
+`DATETIME` and `TIMESTAMP` decode as UTC (under `TZ=Europe/Madrid`) and `JSON` as
+objects; bunfig's `[test] timeout` is still ignored (5001 ms kill). Operator order
+is unchanged: install 1.4.4, restart onto it, then apply the update.
 
 ## 2. Process supervision (S2-38, S2-17)
 
