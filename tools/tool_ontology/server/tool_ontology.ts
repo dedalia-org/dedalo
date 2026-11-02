@@ -91,7 +91,7 @@ async function matchedIds(
 ): Promise<number[]> {
 	const { getSectionTipos, sanitizeClientSqo } = await import('../../../src/core/concepts/sqo.ts');
 	const { buildSearchSql } = await import('../../../src/core/search/sql_assembler.ts');
-	const { sql } = await import('../../../src/core/db/postgres.ts');
+	const { runSearch } = await import('../../../src/core/search/search_statement.ts');
 
 	const sqo = sanitizeClientSqo(structuredClone(sqoRaw) as Record<string, unknown>);
 	// The sqo's section axis IS the request's section: an sqo over another section
@@ -116,7 +116,7 @@ async function matchedIds(
 	(sqo as { limit?: unknown; offset?: unknown }).offset = 0;
 	(sqo as { full_count?: unknown }).full_count = false;
 	const built = await buildSearchSql(sqo, { principal: context.principal, idsOnly: true });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	return rows.map((row) => Number(row.section_id));

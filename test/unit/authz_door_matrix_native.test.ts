@@ -310,7 +310,7 @@ async function assertSqoPinsAtMostOne(
 	pinned: number,
 ): Promise<void> {
 	const { sanitizeClientSqo } = await import('../../src/core/concepts/sqo.ts');
-	const { buildSearchSql } = await import('../../src/core/search/sql_assembler.ts');
+	const { buildSearchSql } = await import('../helpers/search_sql.ts');
 	const { sql } = await import('../../src/core/db/postgres.ts');
 	const built = await buildSearchSql(sanitizeClientSqo(structuredClone(sqo)), { idsOnly: true });
 	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {

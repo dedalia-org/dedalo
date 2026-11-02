@@ -75,3 +75,32 @@ gate) + DB-backed end-to-end (`rankLocatorsByColumns` re-orders real test3
 locators by `section_id`, unresolved last; the `limit: 'all'` fix is what makes
 the rows non-empty). Save gate: `test/unit/portal_edit_writes_native.test.ts`
 (`sort_by_column` refuses when the column ddo does not opt in).
+
+## Addendum 2026-10-31 — declared `order` becomes WRITE-time; `sort_by_column` refused on a declared-order portal; the header click becomes a temporary `view_order`
+
+Superseded in part by `WC-2026-10-31-portal-order-model` (portal order model, owner ruling):
+
+- **`order`** is no longer a read-time display order. The record-write chokepoint
+  (`record_write.ts` `applyKeySaveRules`) stores every declared-order key SORTED, on every door,
+  through the same ranking engine (`order_locators.ts`). The read-time sort in `expandPortal`
+  is REMOVED: the stored array is served as stored; an array stored before its order was
+  declared is the `portal_declared_order` reconcile's to sort.
+- **`sort_by_column`** keeps its per-ddo gate, but on a portal that ALSO declares `order` (on a
+  column of its resolved edit config — the ONE declared-order predicate the context and the
+  chokepoint share, WC-2026-10-31-portal-order-model item 8) the persisted action is refused
+  (`request.invalid_data`, reason `declared_order`), as is `sort_data`: the chokepoint would
+  re-sort on the same write.
+- The header click on a `sort_by_column` column is a TEMPORARY read (`sqo.view_order`, ordered
+  before paginating, never written; allowed on a declared-order portal; refused for a column
+  the request principal may not read — the column itself or, for a relation column, any hop of
+  its order path down to the sortable leaf — whatever the record holds); its "save current
+  order" is the existing `sort_by_column` action. SERVER half only: the shipped client still
+  persists the header click (so on a declared-order portal it answers the refusal above) and
+  sends no `view_order` yet; the client gating is stage O2, in the same release — WC-2026-10-31-portal-order-model, *Client status* (OPEN).
+- The declared-order predicate is asked by the DATA tipo: a `component_alias` answers as its
+  target (WC-020); an `order` in an alias's own `source` override is ignored and named by the
+  reconcile (WC-2026-10-31-portal-order-model item 8).
+- Under a read order, `paginated_key` is the locator's STORED index.
+- Context gains `declared_order` (`[{tipo, direction}]`) on a declared-order component.
+
+Gate: `test/unit/portal_order_native.test.ts`.

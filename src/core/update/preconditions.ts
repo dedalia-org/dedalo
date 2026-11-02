@@ -167,15 +167,33 @@ export async function requireFreshBackup(
 	backupDir?: string,
 	verify: BackupVerifyOptions = {},
 ): Promise<void> {
-	const freshness = await backupFreshness(backupDir, verify);
-	const finding = staleBackupFinding(freshness);
-	if (finding === null) return;
+	const refusal = freshBackupRefusal(await backupFreshness(backupDir, verify));
+	if (refusal !== null) throw refusal;
+}
+
+/**
+ * THE REFUSAL ITSELF, from a settled verdict — null when the backup is fresh
+ * and proven. ONE builder for every door that refuses on a backup
+ * (`requireFreshBackup`, and the update run's backup step,
+ * run/production.ts): the update run once threw its own generic sentence and
+ * so dropped WHICH dump failed and WHY (P0-13: "naming the artifact and the
+ * reason") and the slow-storage remedy — an operator over a truncated dump was
+ * told only that no backup was fresh.
+ *
+ * A verdict with an age but no proven artifact (`verdict` null) is refused too:
+ * freshness without a restorable dump is not a restore point.
+ */
+export function freshBackupRefusal(freshness: Freshness): DedaloError | null {
+	const finding =
+		staleBackupFinding(freshness) ??
+		(freshness.verdict === null ? 'No proven restorable database backup found' : null);
+	if (finding === null) return null;
 	const remedy =
 		freshness.rejected[0]?.reason === 'unverifiable_timeout'
 			? '; its verification ran out of time — on slow backup storage raise DEDALO_BACKUP_VERIFY_SECONDS_PER_GB'
 			: '';
 	const sentence = `Error. ${finding} (or pass waive_backup to proceed without one)${remedy}`;
-	throw new DedaloError('update.refused', { message: sentence, publicMessage: sentence });
+	return new DedaloError('update.refused', { message: sentence, publicMessage: sentence });
 }
 
 /**

@@ -41,7 +41,7 @@ import { join } from 'node:path';
 import type { MediaTypeSpec } from '../../../src/core/concepts/media.ts';
 import { sanitizeClientSqo } from '../../../src/core/concepts/sqo.ts';
 import { readMatrixRecord } from '../../../src/core/db/matrix.ts';
-import { sql, withTransaction } from '../../../src/core/db/postgres.ts';
+import { withTransaction } from '../../../src/core/db/postgres.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { getMediaFileDate, withDedaloTime } from '../../../src/core/media/file_date.ts';
 import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
@@ -63,6 +63,7 @@ import { buildRequestConfigForElement } from '../../../src/core/relations/reques
 import { extractSqoSectionTipos } from '../../../src/core/relations/request_config/explicit.ts';
 import { readComponentItems } from '../../../src/core/resolve/component_data.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { runSearch } from '../../../src/core/search/search_statement.ts';
 import { buildSearchSql } from '../../../src/core/search/sql_assembler.ts';
 import {
 	bornInCurrentTransaction,
@@ -273,7 +274,7 @@ async function matchFreeName(
 	// No principal → the projects filter is skipped, matching PHP's explicit
 	// skip_projects_filter(true) (imports match records across projects).
 	const query = await buildSearchSql(sqo);
-	const rows = (await sql.unsafe(query.sql, query.params as (string | number | null)[])) as ({
+	const rows = (await runSearch(query)) as ({
 		section_id: number;
 	} & Record<string, unknown>)[];
 

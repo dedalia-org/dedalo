@@ -117,7 +117,11 @@ const DECL_CEILINGS = new Map<string, number>([
 	['src/core/section/indexation_grid.ts', 2],
 	['src/core/section/read_facade.ts', 1],
 	['src/core/section/record/delete_record.ts', 1],
-	['src/core/section/record/observers.ts', 2],
+	// observers.ts drained 2→0 (2026-10-30): its StoredLocator + peerBag moved to
+	// external_laws/, plus the new DesiredLocator (a law's wanted item, copied from a
+	// stored bag) — WC-2026-08-10-section-id-int-canonical § Addendum 2026-10-30 (external laws).
+	['src/core/section/record/external_laws/inverse_search.ts', 1],
+	['src/core/section/record/external_laws/types.ts', 2],
 	['src/core/security/permissions.ts', 2],
 	['src/core/tools/register.ts', 1],
 	['src/core/tools/registry.ts', 2],

@@ -124,6 +124,7 @@ import {
 import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
+import { changedDeclaredOrderTipos, declaredOrderSignature } from '../relations/order_locators.ts';
 import {
 	ONTOLOGY_MAIN_SECTION,
 	ONTOLOGY_TLD,
@@ -732,6 +733,59 @@ async function leftUnprojected(tld: string, options: RebuildOntologyOptions): Pr
 	return options.onlyIfProjected === true && !(await tldHoldsNodes(tld));
 }
 
+/**
+ * The declared portal order of every node of `tld` that carries a `source`
+ * (relations/order_locators.ts declaredOrderSignature — null when it declares
+ * none), read live from dd_ontology: the BEFORE half of the portal-order ontology-change
+ * trigger (queueOrderReconcileOnChange).
+ */
+async function declaredOrdersOfTld(tld: string): Promise<Map<string, string | null>> {
+	const rows = (await sql.unsafe(
+		`SELECT tipo, properties FROM dd_ontology WHERE tld = $1 AND properties ? 'source'`,
+		[tld],
+	)) as { tipo: string; properties: unknown }[];
+	return new Map(rows.map((row) => [row.tipo, declaredOrderSignature(row.properties)]));
+}
+
+/**
+ * THE ONTOLOGY-CHANGE TRIGGER of the portal order model (backfill;
+ * relations/declared_order_reconcile.ts): the portals whose `order` declaration
+ * this rebuild ADDED or CHANGED get their hosts re-sorted by the
+ * `portal_declared_order` reconcile, POST-COMMIT (it must read the committed
+ * declaration; a rolled-back rebuild re-sorts nothing). An unchanged
+ * declaration queues nothing. Runs inside the rebuild's transaction.
+ */
+async function queueOrderReconcileOnChange(
+	before: ReadonlyMap<string, string | null>,
+	nodes: Iterable<DdOntologyNode>,
+): Promise<void> {
+	const after = new Map<string, string | null>();
+	for (const node of nodes) after.set(node.tipo, declaredOrderSignature(node.properties));
+	const changed = changedDeclaredOrderTipos(before, after);
+	if (changed.length === 0) return;
+	// CONVENTIONS §2 rationale 1 (cycle-breaking at the chokepoint seam): the reconcile
+	// writes through save_component → record_write, whose birth lifecycle reaches the
+	// ontology projection doors; a static edge would close that loop.
+	const { queueDeclaredOrderReconcile } = await import('../relations/declared_order_reconcile.ts');
+	await queueDeclaredOrderReconcile(changed);
+}
+
+/**
+ * Run a MULTI-TLD ontology write (`work` — the ontology update's per-tld rebuilds
+ * and its cross-package model pass, ontology_update.ts deriveOntologyPackages)
+ * as ONE portal-order ontology-change batch: the sweeps each committed rebuild
+ * owes (queueOrderReconcileOnChange) are collected and run ONCE, after the last
+ * tld — never between two tlds against a half-applied ontology
+ * (relations/declared_order_reconcile.ts withDeclaredOrderReconcileBatch).
+ */
+export async function withOrderReconcileBatch<T>(work: () => Promise<T>): Promise<T> {
+	// CONVENTIONS §2 rationale 1 — the same cycle-breaking seam as queueOrderReconcileOnChange.
+	const { withDeclaredOrderReconcileBatch } = await import(
+		'../relations/declared_order_reconcile.ts'
+	);
+	return withDeclaredOrderReconcileBatch(work);
+}
+
 export async function rebuildOntology(
 	rawTld: string,
 	userId = -1,
@@ -773,6 +827,9 @@ export async function rebuildOntology(
 			}
 			// Parse BEFORE any delete: a bad record aborts the tx with the live data intact.
 			const { own: parsed, foreign } = await parseMatrixNodes(tld);
+			// The portal order model's ontology-change trigger: the tld's declared portal orders
+			// BEFORE this rebuild rewrites them (read under the projection lock).
+			const ordersBefore = await declaredOrdersOfTld(tld);
 			// Misfiled records are reported, never rebuilt: the delete below is scoped to THIS
 			// tld, so writing a foreign node would plant a row this rebuild could never take
 			// back. A misfiled record does not block the tld's own rebuild — it only keeps the
@@ -787,6 +844,7 @@ export async function rebuildOntology(
 			}
 			applied.push(`rebuilt ${parsed.size} node(s)`);
 			applied.push(await settleMainNode(tld, userId, options.mainNode ?? 'ensure'));
+			await queueOrderReconcileOnChange(ordersBefore, parsed.values());
 		});
 	} catch (error) {
 		errors.push(String(error));

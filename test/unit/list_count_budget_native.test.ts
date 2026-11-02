@@ -32,11 +32,7 @@ import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { runWithQueryTap } from '../../src/core/db/query_tap.ts';
 import { scopedBrowseCount } from '../../src/core/search/bare_count.ts';
-import {
-	browseCountScopeSignature,
-	buildSearchSql,
-	freshValue,
-} from '../../src/core/search/sql_assembler.ts';
+import { browseCountScopeSignature, freshValue } from '../../src/core/search/sql_assembler.ts';
 import {
 	ZZSCALE_SECTION,
 	ZZSCALE_TERM_COMPONENT,
@@ -47,6 +43,7 @@ import {
 	dropZzScaleCorpus,
 	ensureZzScaleCorpus,
 } from '../../src/core/test_data/situations/zzscale_corpus.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** A section that IS project-gated, so a non-admin gets an ACL predicate. */
 const ACL_SECTION = 'test3';

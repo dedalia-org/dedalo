@@ -48,7 +48,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getChildrenRecursiveBatch } from '../../src/core/relations/children.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const SECTION = 'test3';
 const PARENT_TIPO = 'test71';

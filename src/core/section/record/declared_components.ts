@@ -15,9 +15,19 @@
  * walk CROSSING nested section/area nodes (PHP delete_data empties every
  * declared component key of the record). Deduplicated by tipo, own first, in
  * ontology order.
+ *
+ * A TLD ROOT `<tld>0` (section_id part '0' — an ontology main section, whose
+ * records live in matrix_ontology and store the ontology-record components of
+ * its REAL section) contributes ONLY its real section: its own dd_ontology
+ * subtree is the TLD's node tree, not the structure of its records. Without
+ * this, a root that parents a content section (the suite fixture's
+ * `testcoincatalog0` → `testcoincatalog1`) "declared" every component of every
+ * section of the TLD, and the host predicate made ontology records hosts of
+ * content mirrors (the reconciler swept them; the kernel accepted them).
  */
 
 import { getOrderedSubtree, getSectionRealTipo } from '../../ontology/resolver.ts';
+import { getSectionIdFromTipo } from '../../ontology/tld.ts';
 
 /** One declared component: its tipo and model. */
 export interface DeclaredComponent {
@@ -25,18 +35,33 @@ export interface DeclaredComponent {
 	model: string;
 }
 
-/** Every component a record of `sectionTipo` may store (see the header). */
-export async function declaredSectionComponents(sectionTipo: string): Promise<DeclaredComponent[]> {
-	const roots = [sectionTipo];
+/**
+ * The subtree roots a section's declared components are walked from: its own
+ * tipo (unless it is a TLD ROOT `<tld>0`, see the header) and, when it is
+ * virtual, its real section.
+ */
+async function declarationRoots(sectionTipo: string): Promise<string[]> {
+	const roots = getSectionIdFromTipo(sectionTipo) === '0' ? [] : [sectionTipo];
 	const realTipo = await getSectionRealTipo(sectionTipo);
 	if (realTipo !== sectionTipo) roots.push(realTipo);
+	return roots;
+}
+
+/** A subtree node that is a component (its model names a component family). */
+function isComponentNode(node: { model?: string | null }): boolean {
+	return node.model?.startsWith('component') === true;
+}
+
+/** Every component a record of `sectionTipo` may store (see the header). */
+export async function declaredSectionComponents(sectionTipo: string): Promise<DeclaredComponent[]> {
 	const seen = new Set<string>();
 	const components: DeclaredComponent[] = [];
-	for (const root of roots) {
+	for (const root of await declarationRoots(sectionTipo)) {
 		for (const node of await getOrderedSubtree(root, { crossSections: true })) {
-			if (node.model?.startsWith('component') !== true || seen.has(node.tipo)) continue;
+			// Own subtree first, real second: the first walk to reach a tipo keeps it.
+			if (!isComponentNode(node) || seen.has(node.tipo)) continue;
 			seen.add(node.tipo);
-			components.push({ tipo: node.tipo, model: node.model });
+			components.push({ tipo: node.tipo, model: node.model as string });
 		}
 	}
 	return components;

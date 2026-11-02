@@ -152,10 +152,15 @@ export async function saveComponentValue(
 	// renders as a marked fallback in every language, forever, and a later
 	// genuine save leaves the nolan orphan in place. A translatable component
 	// takes the session's data language; a non-translatable one is lg-nolan by
-	// definition, whatever the caller asked for.
-	const { getTranslatableByTipo } = await import('../../../core/ontology/resolver.ts');
-	const translatable = await getTranslatableByTipo(componentTipo);
-	const lang = translatable ? (input.lang ?? currentDataLang()) : 'lg-nolan';
+	// definition, whatever the caller asked for — EXCEPT a TRANSLITERABLE one
+	// (with_lang_versions / component_iri), which keeps an EXPLICIT input.lang
+	// (its per-language version) and defaults to its lg-nolan base. The one
+	// instance-lang rule (resolver.ts elementLang).
+	const { elementLang } = await import('../../../core/ontology/resolver.ts');
+	const lang = await elementLang(componentTipo, (await getModelByTipo(componentTipo)) ?? '', {
+		requested: input.lang ?? null,
+		ambient: currentDataLang(),
+	});
 
 	const { saveComponentData } = await import('../../../core/section/record/save_component.ts');
 	const outcome = await saveComponentData({
@@ -244,7 +249,9 @@ export const RECORDS_WRITE_SPECS: ToolSpec[] = [
 				.optional()
 				.describe(
 					'Language of the value, e.g. "lg-eng". Default: the session\'s data language for a ' +
-						'translatable component, "lg-nolan" for every other.',
+						'translatable component, "lg-nolan" for every other. A non-translatable component ' +
+						'with language versions (with_lang_versions, IRI) keeps an explicit lang; any other ' +
+						'non-translatable one is always "lg-nolan".',
 				),
 			action: z
 				.enum(['update', 'insert', 'remove', 'clear'])

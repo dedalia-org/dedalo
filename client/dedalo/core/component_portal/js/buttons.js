@@ -58,13 +58,27 @@ export const buttons = () => {}
 * This is relevant only when the portal's source.mode is 'external' (the
 * context properties define an external data provider rather than a user-
 * managed relation list).  Clicking the button injects the
-* `get_dato_external: true` flag into rqo.source.build_options before calling
-* self.refresh(), which causes the PHP JSON handler
-* (component_portal_json.php → set_data_external()) to re-fetch and persist
-* the external data.
+* `get_data_external: true` flag into rqo.source.build_options before calling
+* self.refresh(); the server read path then recomputes the observed mirror
+* (the same recompute an observer save runs), persists it only when it drifted,
+* and answers the refreshed value.  The legacy v6 spelling `get_dato_external`
+* is NOT honoured by the server.
+*
+* The flag is SINGLE-USE: `build_options` is deleted once the refresh settles
+* (finally), so later reads of the same rqo (pagination, refresh after an edit)
+* do not re-trigger the recompute.
+*
+* Permission: refresh is a READ-level action (the mirror is a pure function of
+* committed data), so the button is offered at permissions >= 1 too — see
+* get_buttons_by_permissions in render_edit_component_portal.js.
 *
 * Guard: if self.rqo.source is absent the handler logs an error and aborts
 * rather than attempting to write a property on undefined.
+*
+* In flight: the button is DISABLED (class 'loading', aria-disabled) from the
+* click until the refresh settles, and a click while one is in flight is
+* ignored — one refresh at a time per button, so repeated clicks never stack
+* server recomputes behind the same row lock.
 *
 * @param {Object} self - Live component_portal instance.
 * @returns {HTMLElement} Span element with class 'button sync'.
@@ -78,9 +92,16 @@ buttons.render_button_update_data_external = (self) => {
 		class_name		: 'button sync'
 	})
 
+	// in flight: one refresh at a time (see header)
+	let in_flight = false
+
 	// event click
 	const update_data_external_click_handler = async function(e) {
 		e.stopPropagation()
+
+		if (in_flight) {
+			return
+		}
 
 		// Validate source exists before modifying
 		if (!self.rqo?.source) {
@@ -88,16 +109,28 @@ buttons.render_button_update_data_external = (self) => {
 			return;
 		}
 
-		// force server data to calculate external data
+		in_flight = true
+		button_update_data_external.classList.add('loading')
+		button_update_data_external.setAttribute('aria-disabled', 'true')
+
+		// force server data to calculate external data (single use: removed once the
+		// refresh settles, so the flag never rides a later read of this rqo)
 		const source = self.rqo.source
 		source.build_options = {
-			get_dato_external : true
+			get_data_external : true
 		}
 		// refresh
-		self.refresh({
-			build_autoload	: true,
-			render_level	: 'content'
-		})
+		try {
+			await self.refresh({
+				build_autoload	: true,
+				render_level	: 'content'
+			})
+		} finally {
+			Reflect.deleteProperty(source, 'build_options')
+			in_flight = false
+			button_update_data_external.classList.remove('loading')
+			button_update_data_external.removeAttribute('aria-disabled')
+		}
 	}
 	button_update_data_external.addEventListener('click', update_data_external_click_handler)
 
@@ -535,8 +568,9 @@ buttons.render_button_list = (self) => {
 *     caller_section.rqo.sqo), which the dialog scopes per the user's choice.
 *     Cloned here because that object is the parent section's live pagination
 *     state — it must not move behind the user's back.
-*   - caller_tipo / rqo_options: locator information so the dialog can build
-*     the correct raw-read API request for this specific portal component.
+*   - from_component_tipo: this portal's tipo — the dialog narrows the
+*     relation (relation_targets + the opened windows' referenced_by leaf) to
+*     the locators this component owns, and opens every listed target.
 *   - label / total: display strings shown in the dialog body.
 *   - self_caller: the parent section — opener of the spawned windows and the
 *     source of the found-records total.
@@ -563,14 +597,9 @@ buttons.render_list_from_component_data_button = (self) => {
 		}
 
 		const options = {
-			sqo	: clone(caller_section.rqo?.sqo || {}),
-			caller_tipo		: self.tipo,
-			rqo_options		: {
-				type			: 'component',
-				section_tipo	: self.section_tipo,
-				tipo			: self.tipo,
-				model			: self.model
-			},
+			sqo					: clone(caller_section.rqo?.sqo || {}),
+			// only the locators THIS portal owns define the relation
+			from_component_tipo	: self.tipo,
 			label		: self.label,
 			total		: caller_section.total ?? 0,
 			// the parent section: opener of the spawned windows and the source

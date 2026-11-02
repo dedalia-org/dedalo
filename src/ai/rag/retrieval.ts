@@ -18,8 +18,8 @@
  */
 
 import { sanitizeClientSqo } from '../../core/concepts/sqo.ts';
-import { sql } from '../../core/db/postgres.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
+import { runSearch } from '../../core/search/search_statement.ts';
 import { buildSearchSql } from '../../core/search/sql_assembler.ts';
 import { getPermissions, type Principal } from '../../core/security/permissions.ts';
 import { RAG_GROUP_PREFIX } from './config.ts';
@@ -220,10 +220,7 @@ async function recordVisibleToPrincipal(
 	const scopeQuery = await buildSearchSql(scopeSqo, {
 		principal: principal.isGlobalAdmin ? undefined : principal,
 	});
-	const rows = (await sql.unsafe(
-		scopeQuery.sql,
-		scopeQuery.params as (string | number | null)[],
-	)) as unknown[];
+	const rows = (await runSearch(scopeQuery)) as unknown[];
 	return rows.length > 0;
 }
 

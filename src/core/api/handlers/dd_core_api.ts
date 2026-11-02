@@ -45,6 +45,7 @@ import {
 	requirePrincipal,
 } from '../handler_context.ts';
 import type { ApiResult } from '../response.ts';
+import { relationTargetsAction } from './relation_targets.ts';
 import { normalizeTermLocators } from './section_terms.ts';
 
 /** PHP safe_tipo grammar (shared/core_functions.php:2296). */
@@ -520,6 +521,12 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// predicate + effective lang as the write engine itself (isLangSlicedModel
 		// / translatable-or-iri, PHP get_element_lang).
 		const savedLang = source.lang ?? 'lg-nolan';
+		// The lang the echo item is STAMPED with: the slice's own lang (the
+		// instance lang a read of this component would carry — a plain
+		// non-translatable is lg-nolan whatever the request said, a
+		// transliterable keeps its version's lang), so the echo and the read
+		// agree on `lang` (a transliterable item keys its other-lang counterpart on it).
+		let echoItemLang = savedLang;
 		let savedItems = Array.isArray(outcome.data) ? outcome.data : [];
 		{
 			const { getModelByTipo, effectiveSaveLang } = await import('../../ontology/resolver.ts');
@@ -527,6 +534,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			if (echoModel !== null && isLangSlicedModel(echoModel)) {
 				const echoLang = await effectiveSaveLang(source.tipo, echoModel, savedLang);
 				savedItems = filterItemsByLang(savedItems, echoLang);
+				echoItemLang = echoLang;
 			}
 			savedItems = await servedRichTextEcho(echoModel, savedItems);
 		}
@@ -537,7 +545,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			source.section_tipo,
 			sectionId,
 			'edit',
-			source.lang ?? 'lg-nolan',
+			echoItemLang,
 			savedItems,
 		);
 		// The full response data payload: [main item] for scalars; for relation
@@ -565,7 +573,6 @@ export const coreApiActions: Record<string, ActionHandler> = {
 					source.tipo,
 					savedNode?.properties ?? null,
 					source.section_tipo,
-					source.lang ?? 'lg-nolan',
 					savedItems,
 				);
 			}
@@ -699,7 +706,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 						const record =
 							table === null ? null : await readMatrixRecord(table, source.section_tipo, sectionId);
 						if (record !== null) {
-							const lang = source.lang ?? 'lg-nolan';
+							const lang = echoItemLang;
 							await hook.decorateItem(savedDataItem as never, {
 								ddo: {
 									tipo: source.tipo,
@@ -804,6 +811,10 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			}),
 		};
 	},
+	// The "Open relationships" census (TS-only, WC-2026-10-30-search-referenced-by-leaf):
+	// target sections of a source set + exact totals. Read-only; the strict
+	// envelope, the source read gate and the labels live in handlers/relation_targets.ts.
+	relation_targets: (rqo, context) => relationTargetsAction(rqo, context),
 	create: async (rqo, context) => {
 		// Create a new section record (PHP dd_core_api::create → create_record).
 		// State-changing: CSRF enforced by the dispatch gate; permission gate
@@ -1024,13 +1035,11 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			}
 			const { sanitizeClientSqo } = await import('../../concepts/sqo.ts');
 			const { buildSearchSql } = await import('../../search/sql_assembler.ts');
-			const { sql: db } = await import('../../db/postgres.ts');
+			const { runSearch } = await import('../../search/search_statement.ts');
 			const sqo = sanitizeClientSqo(structuredClone(rqo.sqo) as Record<string, unknown>);
-			const { sql: builtSql, params } = await buildSearchSql(sqo, {});
-			const matched = (await db.unsafe(builtSql, params as (string | number | null)[])) as {
-				section_tipo: string;
-				section_id: number;
-			}[];
+			const matched = await runSearch<{ section_tipo: string; section_id: number }>(
+				await buildSearchSql(sqo, {}),
+			);
 			// The SQO must stay within the gated section (no cross-section leaks).
 			targets = matched
 				.filter((row) => row.section_tipo === sectionTipo)
@@ -1593,6 +1602,13 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			sectionTipo,
 			mode,
 			lang,
+			// An explicit source.lang is kept by a TRANSLITERABLE component
+			// (with_lang_versions / component_iri — resolver.ts elementLang); an
+			// omitted one is NOT an ask, so such a component's context — and the
+			// model-less client instance built from it (instances.js copies
+			// context.lang) — runs in its lg-nolan base, never the ambient
+			// default above. Translatable elements and areas keep `lang` either way.
+			requestedLang: typeof source.lang === 'string' && source.lang !== '' ? source.lang : null,
 			permissions,
 			// P1-3 / SEC-13: WITH the principal, so a section context's buttons pass
 			// the per-button grant (buildSectionButtons) — without it the builder

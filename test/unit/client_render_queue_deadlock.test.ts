@@ -60,6 +60,9 @@ else {
 				node.replaced_with = other;
 			},
 			appendChild: () => {},
+			// a real Element has it: common.render asks a node it replaces whether it
+			// is a windowed row (data-index) before the replaceWith
+			hasAttribute: () => false,
 		};
 		return node;
 	}

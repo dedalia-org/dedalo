@@ -329,30 +329,99 @@ function pathConsts(source: string, fileDir: string): Map<string, string> {
 	return consts;
 }
 
-/** The factory object literal's TOP-LEVEL keys (nested stub shapes ignored). */
+/**
+ * Split an object literal's body into its TOP-LEVEL ENTRIES (comments removed).
+ *
+ * A real scanner, not a character regex: it knows string and template literals
+ * (their bytes never open a bracket nor end an entry) and splits only on a comma
+ * at depth 0. An entry is the unit a key can START — never a char that merely
+ * follows whitespace (rebuilt 2026-10-30, re-review finding f).
+ */
+function topLevelEntries(body: string): string[] {
+	const source = stripComments(body);
+	const entries: string[] = [];
+	let depth = 0;
+	let start = 0;
+	let index = 0;
+	/** Skip a quoted literal opening at `index`; returns the offset after its close. */
+	const skipQuoted = (at: number, quote: string): number => {
+		let cursor = at + 1;
+		while (cursor < source.length && source[cursor] !== quote) {
+			if (source[cursor] === '\\') cursor++;
+			else if (quote === '`' && source[cursor] === '$' && source[cursor + 1] === '{') {
+				// `${…}` — walk to its matching brace (literals inside it skipped too).
+				let inner = 1;
+				cursor += 2;
+				while (cursor < source.length && inner > 0) {
+					const c = source[cursor] as string;
+					if (c === "'" || c === '"' || c === '`') cursor = skipQuoted(cursor, c) - 1;
+					else if (c === '{') inner++;
+					else if (c === '}') inner--;
+					cursor++;
+				}
+				continue;
+			}
+			cursor++;
+		}
+		return cursor + 1;
+	};
+	while (index < source.length) {
+		const char = source[index] as string;
+		if (char === "'" || char === '"' || char === '`') {
+			index = skipQuoted(index, char);
+			continue;
+		}
+		if ('([{'.includes(char)) depth++;
+		else if (')]}'.includes(char)) depth--;
+		else if (char === ',' && depth === 0) {
+			entries.push(source.slice(start, index));
+			start = index + 1;
+		}
+		index++;
+	}
+	entries.push(source.slice(start));
+	return entries.map((entry) => entry.trim()).filter((entry) => entry !== '');
+}
+
+/**
+ * The key an object-literal entry DECLARES, or null (a spread, a computed key).
+ * Exactly three shapes count: `name: v` / `'name': v` (property), `name` alone
+ * (shorthand) and `name(…) {…}` (method, incl. `async`/`get`/`set`/`*`).
+ */
+function entryKey(entry: string): string | null {
+	if (entry.startsWith('...')) return null;
+	const shorthand = /^([A-Za-z_$][\w$]*)$/.exec(entry);
+	if (shorthand !== null) return shorthand[1] as string;
+	const property = /^(?:([A-Za-z_$][\w$]*)|'([A-Za-z_$][\w$]*)'|"([A-Za-z_$][\w$]*)")\s*:/.exec(
+		entry,
+	);
+	if (property !== null) return (property[1] ?? property[2] ?? property[3]) as string;
+	const method = /^(?:async\s+)?(?:(?:get|set)\s+)?\*?\s*([A-Za-z_$][\w$]*)\s*\(/.exec(entry);
+	return method === null ? null : (method[1] as string);
+}
+
+/**
+ * The factory object literal's TOP-LEVEL keys — only what an entry DECLARES.
+ *
+ * The previous reader counted any identifier at depth 0 that followed
+ * whitespace/`,`/`{` and preceded `:`/`,`/`(` — so a VALUE (`a: real,`), a call
+ * (`a: new Map()` → `Map`), a string's content (`a: 'x name: 1'`) or a comment
+ * (`// name,`) counted as a key, and an extra key ACQUITS when the real surface
+ * names it: a narrowing mock read as full. That is the false-acquittal
+ * direction, the one a tripwire may never have.
+ */
 function topLevelKeys(body: string): Set<string> {
 	const keys = new Set<string>();
-	let depth = 0;
-	for (let index = 0; index < body.length; index++) {
-		const char = body[index] as string;
-		if ('([{'.includes(char)) {
-			depth++;
-			continue;
-		}
-		if (')]}'.includes(char)) {
-			depth--;
-			continue;
-		}
-		if (depth !== 0) continue;
-		const previous = index === 0 ? ',' : (body[index - 1] as string);
-		if (!/[\s,{]/.test(previous)) continue;
-		const key = /^([A-Za-z_$][\w$]*)\s*[:,(]/.exec(body.slice(index));
-		if (key !== null) {
-			keys.add(key[1] as string);
-			index += (key[1] as string).length;
-		}
+	for (const entry of topLevelEntries(body)) {
+		const key = entryKey(entry);
+		if (key !== null) keys.add(key);
 	}
 	return keys;
+}
+
+/** Does the factory literal SPREAD something at top level (not a `...` in a string or comment)? */
+function spreadsAtTopLevel(body: string): boolean {
+	return topLevelEntries(body).some((entry) => entry.startsWith('...'));
 }
 
 /** Named exports of a real module (const/let/var/function/class + `export {}`). */
@@ -420,7 +489,7 @@ function objectLiteralMockSites(): Site[] {
  * rule, because there is no surface to compare against.
  */
 function narrowsItsModule(site: Site): boolean {
-	if (site.body.includes('...')) return false;
+	if (spreadsAtTopLevel(site.body)) return false;
 	if (site.moduleId === null) return true;
 	const absolute = isAbsolute(site.moduleId) ? site.moduleId : resolve(site.fileDir, site.moduleId);
 	if (!existsSync(absolute)) return true; // virtual id: nothing to spread
@@ -668,6 +737,75 @@ describe('mock isolation — one process, so a mock is everyone’s', () => {
 			"mock.module('../../src/c.ts', () => C);",
 		].join('\n');
 		expect(namespaceRestoresIn(planted)).toEqual(['A', 'B']);
+	});
+
+	test('POSITIVE CONTROL: the key reader counts a `(` right after a name, so a full stub reads full', () => {
+		// A `(` straight after a key (arrow value, method shorthand) must open depth:
+		// skipping it drove depth negative and blinded every later key. A call in a
+		// VALUE (`new Map(`, `f(`) is NOT a key — asserted exactly.
+		expect([...topLevelKeys('a: () => new Map(), b() { return 1 }, c: 1')].sort()).toEqual([
+			'a',
+			'b',
+			'c',
+		]);
+		expect(
+			[...topLevelKeys('m() { return { x: 1 } }, n: f(1), o: [1, { p: 2 }], q')].sort(),
+		).toEqual(['m', 'n', 'o', 'q']);
+		expect(
+			[
+				...topLevelKeys(
+					"async r() {}, get s() { return 1 }, 't': 1, \"u\": 2, ...rest, [k]: 3, v,\n w: `x, ${'y'}`",
+				),
+			].sort(),
+		).toEqual(['r', 's', 't', 'u', 'v', 'w']);
+		// Against a REAL module surface: every export stubbed with `() => new Map()`
+		// is full; drop one and it narrows.
+		const fileDir = join(TEST_DIR, 'unit');
+		const moduleId = join(import.meta.dir, '../../src/core/concepts/locator.ts');
+		const surface = [...moduleExports(moduleId)].sort();
+		expect(surface.length).toBeGreaterThanOrEqual(3);
+		const bodyOf = (names: string[]) => names.map((name) => `${name}: () => new Map()`).join(', ');
+		const site = (body: string): Site => ({ file: 'zz_control.test.ts', fileDir, body, moduleId });
+		expect(narrowsItsModule(site(bodyOf(surface)))).toBe(false);
+		expect(narrowsItsModule(site(bodyOf(surface.slice(0, -1))))).toBe(true);
+		expect(narrowsItsModule(site(bodyOf(surface.slice(1))))).toBe(true);
+	});
+
+	test('NEGATIVE CONTROL: a name that is not a declared key never acquits a narrowing mock', () => {
+		// Each body stubs every export but MISSING, then names MISSING somewhere that
+		// is not a top-level key. The pre-2026-10-30 reader counted every one of
+		// these as a key (identifier after whitespace, before `:`/`,`/`(`) and read
+		// the mock as FULL — the false-acquittal direction.
+		const fileDir = join(TEST_DIR, 'unit');
+		const moduleId = join(import.meta.dir, '../../src/core/concepts/locator.ts');
+		const surface = [...moduleExports(moduleId)].sort();
+		const missing = surface.at(-1) as string;
+		const rest = surface
+			.slice(0, -1)
+			.map((name) => `${name}: () => 1`)
+			.join(', ');
+		const site = (body: string): Site => ({ file: 'zz_control.test.ts', fileDir, body, moduleId });
+		const disguises = {
+			'value identifier': `${rest}, zz: ${missing}, zy: 1`,
+			'value call': `${rest}, zz: ${missing}(1)`,
+			'string literal': `${rest}, zz: 'x ${missing}: 1'`,
+			'template literal': `${rest}, zz: \`x \${${missing}}, y\``,
+			'line comment': `${rest}, // ${missing},\n zz: 1`,
+			'block comment': `${rest}, /* ${missing}: 1 */ zz: 1`,
+			nested: `${rest}, zz: { ${missing}: 1 }`,
+			'spread in a string': `${rest}, zz: '...'`,
+			'spread in a comment': `${rest}, // ...real\n zz: 1`,
+			'nested spread': `${rest}, zz: { ...other }`,
+		};
+		for (const [shape, body] of Object.entries(disguises)) {
+			expect(topLevelKeys(body).has(missing), shape).toBe(false);
+			expect(narrowsItsModule(site(body)), shape).toBe(true);
+		}
+		// …while the same name DECLARED, in each genuine shape, acquits.
+		for (const declared of [`${missing}: 1`, missing, `${missing}() {}`]) {
+			expect(narrowsItsModule(site(`${rest}, ${declared}`)), declared).toBe(false);
+		}
+		expect(narrowsItsModule(site(`${rest}, ...real`))).toBe(false);
 	});
 
 	test('NO NEW partial module mock (shrink-only)', () => {

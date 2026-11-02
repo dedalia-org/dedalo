@@ -30,6 +30,15 @@
  * child then saturates the maintenance pool and drives an UNDECLARED action
  * (counters_status.get_value): it completes on the request pool instead of
  * queueing behind the held maintenance slots (a door-wide wrap would hang it).
+ * THE INSTRUMENT. Each lock holder is a request-pool connection, so it would
+ * carry that same 300ms ceiling: its own lock wait (behind autovacuum on a
+ * store the previous leg rebuilt, on a slow runner) died with a raw 57014 and
+ * crashed the child with no app frame (GitHub run 41336547154 — not an engine
+ * statement: every declared action's statements were traced to the maintenance
+ * pool). Each holder lifts its ceiling for its own transaction and is made to
+ * queue CONTEND_MS behind a conflicting lock every run, so a holder carrying
+ * the ceiling reds on every host; instrument failures and unhandled rejections
+ * are recorded per leg, never a crash.
  * In this process: every declared name is a registered action, EVERY
  * registered action is classified (declared maintenance XOR listed in
  * REQUEST_BOUNDED with its reason — an unclassified action fails), and a
@@ -74,6 +83,17 @@ const MOVE_OLD = 'zzmdu5';
 const MOVE_NEW = 'zzmdu6';
 const MOVE_IDS = [1, 2, 3];
 const MOVE_FILE = 'zz_ops6_move_tld.json';
+
+/** The child's request ceiling: what every declared action must outlive. */
+const CEILING_MS = 300;
+/**
+ * How long each lock holder is kept queued behind a conflicting lock before it
+ * may take its own (the autovacuum stand-in — see takeHolder in the driver).
+ * Above the ceiling by a margin no host's scheduling can close, ~ deadlock_timeout.
+ */
+const CONTEND_MS = 1000;
+/** The lock holders the driver takes (legs 1, 2, 3, 5, 6, 7). */
+const HOLDER_COUNT = 6;
 
 const definitionsDir = mkdtempSync(join(tmpdir(), 'dedalo-perf11-defs-'));
 const driver = childDriver('dedalo-maintenance-door');
@@ -126,6 +146,81 @@ await assertTestDatabase('maintenance_door_unbounded_native');
 const ROOT = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
 /** How long the holder keeps the lock AFTER the action is seen waiting on it (> the 300ms ceiling). */
 const HOLD_AFTER_WAIT_MS = 1000;
+/** This child's request ceiling (DB_STATEMENT_TIMEOUT_MS) — what the SUBJECT must outlive. */
+const CEILING_MS = ${CEILING_MS};
+/** How long the autovacuum stand-in keeps a holder queued (> CEILING_MS, ~ deadlock_timeout). */
+const CONTEND_MS = ${CONTEND_MS};
+
+/**
+ * THE INSTRUMENT IS NEVER THE SUBJECT. Every lock holder below is a reserved
+ * REQUEST-pool connection, so it inherits the 300ms ceiling this child sets to
+ * bound the subject. Its own lock statement QUEUES whenever another session
+ * holds a conflicting lock — on a slow runner, autovacuum/autoanalyze of a
+ * store the previous leg just rebuilt (it yields only after deadlock_timeout,
+ * 1s) — and died there with a raw 57014 (the reserved lane is never typed) that
+ * crashed this child with no app frame (GitHub run 41336547154). So each holder
+ * lifts its ceiling for its own transaction (SET LOCAL), and is MADE to queue
+ * past the ceiling every run: a contender takes a conflicting lock first and
+ * keeps it CONTEND_MS. A holder that still carried the ceiling dies on every
+ * host, not only a slow one; \`holders\` records, per holder, that its own backend was seen queued and its lock wait (non-vacuity).
+ */
+const holders = [];
+/** Every rejection nobody handled — a crash with no app frame becomes a named red. */
+const unhandled = [];
+process.on('unhandledRejection', (e) => { unhandled.push(describe(e)); });
+/** End a reserved connection's transaction and hand it back — released even when the statement fails. */
+async function endTx(connection, statement) {
+	try { await connection.unsafe(statement, []); } finally { connection.release(); }
+}
+async function takeHolder(statement, contend) {
+	const contender = await sql.reserve();
+	try {
+		await contender.unsafe('BEGIN', []);
+		await contender.unsafe('SET LOCAL statement_timeout = 0', []);
+		await contender.unsafe(contend, []);
+	} catch (e) {
+		await endTx(contender, 'ROLLBACK').catch(() => {});
+		throw e;
+	}
+	let contenderOpen = true;
+	let holder;
+	let failure;
+	let sawWaiting = false;
+	let queuedMs = 0;
+	try {
+		holder = await sql.reserve();
+		await holder.unsafe('BEGIN', []);
+		// The fix: the holder's lock wait is not the subject — no ceiling on it.
+		await holder.unsafe('SET LOCAL statement_timeout = 0', []);
+		const [{ pid }] = await holder.unsafe('SELECT pg_backend_pid() AS pid', []);
+		const startedAt = performance.now();
+		const taking = holder.unsafe(statement, []);
+		taking.catch(() => {}); // awaited below
+		// The OUTCOME, not a timer: the holder's own backend seen queued (an
+		// ungranted lock) while the contender still holds.
+		while (performance.now() - startedAt < CONTEND_MS) {
+			if (!sawWaiting) {
+				const rows = await sql.unsafe('SELECT count(*)::int AS n FROM pg_locks WHERE pid = $1 AND NOT granted', [pid]);
+				if (rows[0].n > 0) sawWaiting = true;
+			}
+			await Bun.sleep(10);
+		}
+		contenderOpen = false;
+		await endTx(contender, 'COMMIT');
+		await taking;
+		queuedMs = Math.round(performance.now() - startedAt);
+	} catch (e) {
+		failure = e;
+	} finally {
+		if (contenderOpen) await endTx(contender, 'ROLLBACK').catch(() => {});
+	}
+	if (failure !== undefined) {
+		if (holder !== undefined) await endTx(holder, 'ROLLBACK').catch(() => {});
+		throw failure;
+	}
+	holders.push({ statement, sawWaiting, queuedMs });
+	return holder;
+}
 
 /**
  * Hold \`statement\`'s lock on a SEPARATE connection. The release is keyed to the
@@ -133,24 +228,27 @@ const HOLD_AFTER_WAIT_MS = 1000;
  * queued behind us) it is held HOLD_AFTER_WAIT_MS longer, so the action provably
  * waits past the ceiling. \`done\` resolves (after release) to whether a waiter was seen.
  */
-async function holdLock(statement, table) {
-	const holder = await sql.reserve();
-	await holder.unsafe('BEGIN', []);
-	await holder.unsafe(statement, []);
+async function holdLock(statement, table, contend) {
+	const holder = await takeHolder(statement, contend);
 	let waited = false;
 	const done = (async () => {
-		const deadline = Date.now() + 20000;
-		while (Date.now() < deadline) {
-			const rows = await sql.unsafe(
-				'SELECT count(*)::int AS n FROM pg_locks WHERE relation = to_regclass($1) AND NOT granted', [table]);
-			if (rows[0].n > 0) { waited = true; break; }
-			await Bun.sleep(10);
+		try {
+			const deadline = Date.now() + 20000;
+			while (Date.now() < deadline) {
+				const rows = await sql.unsafe(
+					'SELECT count(*)::int AS n FROM pg_locks WHERE relation = to_regclass($1) AND NOT granted', [table]);
+				if (rows[0].n > 0) { waited = true; break; }
+				await Bun.sleep(10);
+			}
+			await Bun.sleep(HOLD_AFTER_WAIT_MS);
+			await holder.unsafe('COMMIT', []);
+		} finally {
+			holder.release();
 		}
-		await Bun.sleep(HOLD_AFTER_WAIT_MS);
-		await holder.unsafe('COMMIT', []);
-		holder.release();
 		return waited;
 	})();
+	// Awaited by the leg once its action settles; until then a rejection is held, not fatal.
+	done.catch(() => {});
 	// Wrapped: an async function returning the bare promise would be FLATTENED by the
 	// caller's await, which would then wait out the whole hold before acting.
 	return { done };
@@ -190,21 +288,35 @@ function describe(e) {
 		publicMessage: e?.publicMessage };
 }
 const results = {};
+/**
+ * One leg: an instrument failure (a holder, a poll) is recorded on the leg as
+ * \`harness_error\` — it reds that leg and the instrument test by name — instead
+ * of killing the child (and every later leg) with a bare PostgresError.
+ */
+async function leg(name, body) {
+	try {
+		await body();
+	} catch (e) {
+		results[name] = { ...(results[name] ?? {}), ok: false, harness_error: describe(e) };
+	}
+}
 
 // 1. the search-store backfill (TRUNCATE needs ACCESS EXCLUSIVE).
-{
-	const { done: held } = await holdLock('LOCK TABLE matrix_string_search IN ACCESS SHARE MODE', 'matrix_string_search');
+await leg('backfill', async () => {
+	const { done: held } = await holdLock('LOCK TABLE matrix_string_search IN ACCESS SHARE MODE', 'matrix_string_search',
+		'LOCK TABLE matrix_string_search IN ACCESS EXCLUSIVE MODE');
 	try {
 		const response = await dispatchWidgetRequest(ROOT,
 			{ model: 'database_info', action: 'backfill_search_stores' }, {});
 		results.backfill = { ok: true, errors: response.errors ?? [] };
 	} catch (e) { results.backfill = { ok: false, error: describe(e) }; }
 	results.backfill.waited = await held;
-}
+});
 
 // 2. move_to_table: the in-transaction INSERT…SELECT into the target table.
-{
-	const { done: held } = await holdLock('LOCK TABLE ${TARGET} IN SHARE MODE', '${TARGET}');
+await leg('move_to_table', async () => {
+	const { done: held } = await holdLock('LOCK TABLE ${TARGET} IN SHARE MODE', '${TARGET}',
+		'LOCK TABLE ${TARGET} IN SHARE UPDATE EXCLUSIVE MODE');
 	try {
 		const response = await runExecute(
 			{ model: 'move_to_table', action: 'move_to_table' },
@@ -212,22 +324,25 @@ const results = {};
 		results.move_to_table = { ok: true, errors: response.errors ?? [], value: response.msg };
 	} catch (e) { results.move_to_table = { ok: false, error: describe(e) }; }
 	results.move_to_table.waited = await held;
-}
+});
 
 // 3. the data-update engine as a DETACHED background job (the widget's worker shape).
-{
+await leg('background', async () => {
 	const descriptor = {
 		versionMajor: 7, versionMedium: 1, versionMinor: 0,
 		updateFromMajor: 7, updateFromMedium: 0, updateFromMinor: 0,
 		updateData: true,
 		sqlUpdate: ["INSERT INTO \\"${BG_ROWS}\\" (tag) VALUES (current_setting('application_name'))"],
 	};
-	const { done: held } = await holdLock('LOCK TABLE "${BG_ROWS}" IN SHARE MODE', '"${BG_ROWS}"');
+	const { done: held } = await holdLock('LOCK TABLE "${BG_ROWS}" IN SHARE MODE', '"${BG_ROWS}"',
+		'LOCK TABLE "${BG_ROWS}" IN SHARE UPDATE EXCLUSIVE MODE');
 	const record = mediaJobs.submit('update_data', async ({ signal }) => updateVersion(
 		{ SQL_update_0: true },
 		{
 			catalog: { '7.1.0': descriptor },
 			currentVersion: [7, 0, 0],
+			// the fake rung (7.1.0) is above this tree's data version: the code it simulates
+			codeDataVersion: [7, 1, 0],
 			logPath: ${JSON.stringify(BG_LOG_PATH)},
 			writeVersionRow: async (v) => { await sql.unsafe('INSERT INTO "${BG_VER}" (version) VALUES ($1)', [v]); },
 			readVersionInTx: async () => {
@@ -246,12 +361,12 @@ const results = {};
 	}
 	results.background = { ok: status?.status === 'done', value: { status: status?.status, data: status?.data, errors: status?.errors } };
 	results.background.waited = await held;
-}
+});
 
 // 4. an UNDECLARED action with the maintenance pool SATURATED: it runs on the
 // request pool, so it completes (a door-wide wrap would queue it behind the
 // held slots — forever, at this child's acquire timeout of 0).
-{
+await leg('undeclared', async () => {
 	let release;
 	const gate = new Promise((resolve) => { release = resolve; });
 	const max = getPoolStats().maintenance.max;
@@ -266,7 +381,7 @@ const results = {};
 	release();
 	await Promise.allSettled(holders);
 	results.undeclared = { ...outcome, value: { saturated } };
-}
+});
 
 // 5-6. THE LOCK BOUND. Lifting the ceiling must not lift the bound on a LOCK WAIT:
 // a declared action queued for ACCESS EXCLUSIVE behind a long reader would
@@ -280,10 +395,8 @@ const results = {};
 // action does AFTER giving up (leg 5: rebuilding the OTHER store) scales with the
 // lane's data, not with the lock bound.
 const LOCK_HOLD_CAP_MS = 15000;
-async function holdUntilReleased(statement) {
-	const holder = await sql.reserve();
-	await holder.unsafe('BEGIN', []);
-	await holder.unsafe(statement, []);
+async function holdUntilReleased(statement, contend) {
+	const holder = await takeHolder(statement, contend);
 	let released = false;
 	let disarmed = false;
 	let requestRelease;
@@ -295,10 +408,14 @@ async function holdUntilReleased(statement) {
 		.then(() => (disarmed ? new Promise(() => {}) : undefined));
 	const done = (async () => {
 		await Promise.race([requested, capFired]);
-		await holder.unsafe('COMMIT', []);
-		holder.release();
-		released = true;
+		try {
+			await holder.unsafe('COMMIT', []);
+		} finally {
+			holder.release();
+			released = true;
+		}
 	})();
+	done.catch(() => {}); // surfaced by release(); never an unhandled rejection meanwhile
 	return {
 		arm: () => armCap(),
 		/** Keep holding until release(); a no-op once the cap already fired. */
@@ -324,8 +441,10 @@ async function sawWaiter(table, mode) {
 // while the long reader still holds its lock — and within the lock bound — and
 // the action must never re-request the lock (a retry would queue every later
 // reader again) before it settles, still while the long reader holds.
-{
-	const hold = await holdUntilReleased('LOCK TABLE matrix_string_search IN ACCESS SHARE MODE');
+await leg('lock_bound_backfill', async () => {
+	const hold = await holdUntilReleased('LOCK TABLE matrix_string_search IN ACCESS SHARE MODE',
+		'LOCK TABLE matrix_string_search IN ACCESS EXCLUSIVE MODE');
+	try {
 	let settled = false;
 	const action = dispatchWidgetRequest(ROOT, { model: 'database_info', action: 'backfill_search_stores' }, {})
 		.then((response) => ({ ok: true, errors: response.errors ?? [] }), (e) => ({ ok: false, error: describe(e) }))
@@ -360,15 +479,20 @@ async function sawWaiter(table, mode) {
 	}
 	const outcome = await action;
 	const value = { readerDoneWhileHeld, giveUpMs, requeued, heldAtVerdict: hold.isHeld() };
-	await hold.release();
 	results.lock_bound_backfill = { ...outcome, waited, value };
-}
+	} finally {
+		await hold.release();
+	}
+});
 
 // 6. an action that lets the failure escape (relation_integrity_report reads the
 // relation store under a held ACCESS EXCLUSIVE): the bounded wait reaches the
 // wire as the typed, retryable 503 — not a 500 internal.unexpected.
-{
-	const hold = await holdUntilReleased('LOCK TABLE matrix_relation_index IN ACCESS EXCLUSIVE MODE');
+await leg('lock_bound_typed', async () => {
+	// Its contender is autovacuum's own mode: the lock the CI crash queued behind.
+	const hold = await holdUntilReleased('LOCK TABLE matrix_relation_index IN ACCESS EXCLUSIVE MODE',
+		'LOCK TABLE matrix_relation_index IN SHARE UPDATE EXCLUSIVE MODE');
+	try {
 	const startedAt = performance.now();
 	const action = dispatchWidgetRequest(ROOT, { model: 'database_info', action: 'relation_integrity_report' }, {})
 		.then((response) => ({ ok: true, value: response.data }), (e) => ({ ok: false, error: describe(e) }));
@@ -376,9 +500,11 @@ async function sawWaiter(table, mode) {
 	hold.arm();
 	const outcome = await action;
 	const value = { heldAtVerdict: hold.isHeld(), actionMs: performance.now() - startedAt };
-	await hold.release();
 	results.lock_bound_typed = { ...outcome, waited, value };
-}
+	} finally {
+		await hold.release();
+	}
+});
 
 // 7. move_tld is ONE atomic unit per definition file. Its section rename spans
 // every matrix table, the Time Machine tail, and the generation/counter carries;
@@ -386,11 +512,17 @@ async function sawWaiter(table, mode) {
 // lock on the section's TM row, held PAST that bound, must never leave the section
 // split between the old and the new tipo — not while held (a committed half), not
 // after (a half the report calls an error). Sampled from outside, every instant.
-{
+await leg('move_tld_atomic', async () => {
 	const MOVE_HOLD_MS = 6500; // > MAINTENANCE_LOCK_TIMEOUT: the first attempt's wait runs out
-	const holder = await sql.reserve();
-	await holder.unsafe('BEGIN', []);
-	await holder.unsafe("SELECT id FROM matrix_time_machine WHERE section_tipo = '${MOVE_OLD}' FOR UPDATE", []);
+	const TM_ROW = "SELECT id FROM matrix_time_machine WHERE section_tipo = '${MOVE_OLD}' FOR UPDATE";
+	const holder = await takeHolder(TM_ROW, TM_ROW);
+	let released = false;
+	const letGo = async (statement) => {
+		if (released) return;
+		released = true;
+		try { await holder.unsafe(statement, []); } finally { holder.release(); }
+	};
+	try {
 	const splitState = async () => (await sql.unsafe(
 		"SELECT (SELECT count(*)::int FROM matrix_test WHERE section_tipo = '${MOVE_OLD}') AS data_old, " +
 		"(SELECT count(*)::int FROM matrix_test WHERE section_tipo = '${MOVE_NEW}') AS data_new, " +
@@ -414,18 +546,25 @@ async function sawWaiter(table, mode) {
 		samples.push(await splitState());
 		await Bun.sleep(200);
 	}
-	await holder.unsafe('COMMIT', []);
-	holder.release();
+	await letGo('COMMIT');
 	const outcome = await action;
 	results.move_tld_atomic = { ...outcome, waited,
 		value: { samples, final: await splitState(), actionMs: performance.now() - startedAt, holdMs: MOVE_HOLD_MS } };
-}
+	} finally {
+		await letGo('ROLLBACK').catch(() => {});
+	}
+});
 
-console.log('RESULT ' + JSON.stringify(results));
+console.log('RESULT ' + JSON.stringify({ ...results, instrument: { holders, unhandled } }));
 process.exit(0);
 `;
 
-let results: Record<string, DoorResult> = {};
+interface Instrument {
+	holders: { statement: string; sawWaiting: boolean; queuedMs: number }[];
+	unhandled: unknown[];
+}
+let results: Record<string, DoorResult & { harness_error?: unknown }> = {};
+let instrument: Instrument | undefined;
 
 beforeAll(async () => {
 	await assertTestDatabase('maintenance_door_unbounded_native');
@@ -468,12 +607,14 @@ beforeAll(async () => {
 	);
 
 	const { exitCode, stdout, stderr } = await driver.run('maintenance_door_driver.ts', DRIVER, {
-		DB_STATEMENT_TIMEOUT_MS: '300',
+		DB_STATEMENT_TIMEOUT_MS: String(CEILING_MS),
 		DB_POOL_ACQUIRE_TIMEOUT_MS: '0',
 		DEDALO_TRANSFORM_DEFINITIONS_DIR: definitionsDir,
 	});
 	if (exitCode !== 0) throw new Error(`door driver exited ${exitCode}:\n${stderr}`);
-	results = driverResult<Record<string, DoorResult>>(stdout, stderr);
+	const { instrument: recorded, ...legs } = driverResult<Record<string, unknown>>(stdout, stderr);
+	instrument = recorded as Instrument | undefined;
+	results = legs as typeof results;
 }, 180000);
 
 afterAll(async () => {
@@ -498,6 +639,31 @@ afterAll(async () => {
  * removing the door's scope left it green).
  */
 const TIMEOUT_TEXT = /statement timeout|statement ceiling|canceling statement|57014/i;
+
+describe('the instrument never carries the subject ceiling (GitHub run 41336547154)', () => {
+	test('every lock holder queued past the ceiling behind a contender and still took its lock; no leg lost its instrument; nothing rejected unhandled', () => {
+		expect(instrument, 'driver printed no instrument record').toBeDefined();
+		const failed = Object.entries(results)
+			.filter(([, leg]) => leg.harness_error !== undefined)
+			.map(([name, leg]) => ({ name, error: leg.harness_error }));
+		expect(failed, 'a leg lost its instrument (a holder or poll died)').toEqual([]);
+		expect(instrument?.unhandled, 'a rejection nobody handled (a crash with no app frame)').toEqual(
+			[],
+		);
+		const holders = instrument?.holders ?? [];
+		expect(holders.length, JSON.stringify(holders)).toBe(HOLDER_COUNT);
+		// Non-vacuity, by OUTCOME: each holder's own backend was seen queued
+		// behind its contender, and its lock wait alone outlasted the ceiling it
+		// would carry without the SET LOCAL — so a holder that carried it died,
+		// on every host.
+		const neverQueued = holders.filter((holder) => holder.sawWaiting !== true);
+		expect(neverQueued, 'a holder never queued behind its contender (vacuous contention)').toEqual(
+			[],
+		);
+		const short = holders.filter((holder) => holder.queuedMs < CEILING_MS);
+		expect(short, 'a holder lock wait never outlasted the ceiling').toEqual([]);
+	});
+});
 
 describe('admin actions through the widget door run past the request ceiling', () => {
 	test('database_info.backfill_search_stores completes while queued behind a reader', async () => {

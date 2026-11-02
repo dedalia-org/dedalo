@@ -62,15 +62,19 @@
  *        backup. The unwaived update must refuse (`update.refused`, naming
  *        `truncated`) and leave the version, package.json, the code-backup dir
  *        and the sentinel exactly as they were;
- *     7. NEGATIVE: a tampered sha256 must die in the VERIFY phase frame,
- *        leave the live tree byte-identical, no backup dir, no sentinel — this
- *        one is sent WAIVED, so the waiver door is exercised end to end;
+ *     7. NEGATIVE, twice, each leaving the live tree byte-identical, no backup
+ *        dir, no sentinel, and each sent WAIVED (the waiver door end to end):
+ *        a sha256 the master does not publish is refused at the PIN, before
+ *        any download (U-41, code_manifest_pin.ts); bytes that do not match
+ *        the published digest (one byte of the published archive flipped,
+ *        restored after) die in VERIFY ("Release checksum mismatch");
  *     8. then the happy path, UNWAIVED over a complete real archive: {pid,pfile} handle → get_process_status SSE
  *        frames download→…→restart(expected_version) → the process DIES
  *        mid-stream (the designed handoff) → the supervisor respawns the NEW
- *        tree → /health answers the RELEASE version with no .dev tag (both
- *        markers moved — RELEASE.md step 11);
- *     9. disk truth: sentinel status "confirmed" (boot_confirm), exactly one
+ *        tree → /health answers the RELEASE identity (`-dev` on the dev
+ *        channel, where install_digest is the proof — RELEASE.md step 11);
+ *     9. disk truth: the update RUN reached CONFIRMED (its journal) with no
+ *        ontology source reached, the sentinel "confirmed" for the digest, exactly one
  *        dedalo_<from>_* backup carrying package.json+node_modules+.git (the
  *        rollback-bootability contract), the quarantine's fresh node_modules
  *        live, staging swept, and one more status poll answering the terminal
@@ -113,6 +117,7 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	utimesSync,
 	writeFileSync,
 } from 'node:fs';
@@ -124,6 +129,8 @@ import { PLAIN_HTTP_DEV_LISTENER_ENV } from '../src/config/tcp_listener.ts';
 import { DEDALO_ENGINE_VERSION, readReleaseIdentityOf } from '../src/core/update/build_stamp.ts';
 import { UPDATE_CATALOG, type UpdateDescriptor } from '../src/core/update/catalog.ts';
 import { parseReleaseVersion } from '../src/core/update/release_identity.ts';
+import { type RunJournal, readRunJournals } from '../src/core/update/run/journal.ts';
+import { isTerminal } from '../src/core/update/run/states.ts';
 import {
 	compareVersionArrays,
 	DEDALO_DATA_VERSION,
@@ -922,6 +929,8 @@ interface Consumer {
 	backupRoot: string;
 	/** Its DATABASE backups (DEDALO_BACKUP_DIR): what the update precondition judges. */
 	dbBackupDir: string;
+	/** Its OWN private dir (DEDALO_PRIVATE_DIR): its `.env` and its update-run journals. */
+	privateDir: string;
 	supervisor: ManagedProcess;
 }
 
@@ -992,6 +1001,26 @@ async function bootConsumer(options: {
 			DEDALO_CODE_SERVER_GIT_DIR: '',
 			DEDALO_SOURCE_VERSION_LOCAL_DIR: '',
 			DEDALO_SUPERVISED: 'true',
+			// ITS OWN PRIVATE DIR. Without the pointer the copy resolves
+			// `<tree>/../private` — the scratch root, SHARED by every consumer of
+			// one pass — so the `.env` rendered above was never read, and the two
+			// consumers' update-run journals (and an unclosed NEEDS_DB_RESTORE,
+			// which blocks every later run: journal.ts blockingRun) bled into each
+			// other.
+			DEDALO_PRIVATE_DIR: consumerPrivateDir,
+			// NO ONTOLOGY SOURCE. The update run after the swap (run/production.ts)
+			// executes the release's ontology step against ONTOLOGY_SERVERS — the
+			// operator config's, i.e. the OFFICIAL master on a developer box: the
+			// drill downloaded a remote ontology into the suite database, and on a
+			// runner whose config names an unreachable or empty source the phase
+			// failed AFTER the data-model crossing, ending NEEDS_DB_RESTORE. This
+			// drill rehearses the CODE channel; the run's ontology phase has its own
+			// drill (scripts/update_full_drill.ts, scratch TLD). Pinned empty, a
+			// release's DEFAULT ontology step is skipped and journaled
+			// (ontology_phase.ts sourceOptional) — asserted per hop
+			// (awaitConfirmedRun), so a drill that silently grew a source goes red.
+			ONTOLOGY_SERVERS: '[]',
+			IS_AN_ONTOLOGY_SERVER: 'false',
 		},
 	});
 	env.BUN = process.execPath;
@@ -1015,7 +1044,17 @@ async function bootConsumer(options: {
 		label: `${role} boot`,
 	});
 	const auth = await wireLogin(origin, 'root', options.password);
-	return { role, tree, origin, auth, backupRoot, dbBackupDir, supervisor, identity };
+	return {
+		role,
+		tree,
+		origin,
+		auth,
+		backupRoot,
+		dbBackupDir,
+		privateDir: consumerPrivateDir,
+		supervisor,
+		identity,
+	};
 }
 
 /** Maintenance mode ON through the operator's own action (STEP 6c) — idempotent. */
@@ -1032,6 +1071,72 @@ async function maintenanceOn(consumer: Consumer): Promise<void> {
 		consumer.auth,
 	);
 	must(flipped.ok === true, `set_maintenance_mode refused: ${JSON.stringify(flipped.error)}`);
+}
+
+/** How long the update RUN may take, after /health answers the new tree, to reach a terminal state. */
+const RUN_SETTLE_MS = 300_000;
+
+/**
+ * THE UPDATE RUN REACHED CONFIRMED — and only then the sentinel is read.
+ *
+ * The swap is the run's FIRST phase, not the whole update (run/production.ts,
+ * since the 2026-10-29 update audit): the tree that boots resumes the run and
+ * executes the release's remaining steps (ontology → schema → ancillary), then
+ * verifies, and only its CONFIRM flips the sentinel. A release whose catalog
+ * compat is not `compatible` CROSSES the data model, so the executor flips the
+ * sentinel to `needs_restore` BEFORE that phase (executor.ts stepOnce) — a
+ * deliberate transient, until the confirm. Polling the sentinel for a fixed
+ * window after /health therefore read that transient as the verdict. The run's
+ * JOURNAL (the operator's record, `bun run update status`) is the verdict:
+ * wait for its terminal state, require CONFIRMED (anything else fails naming
+ * the run's note and phases), require that no ontology phase reached a source
+ * (bootConsumer pins ONTOLOGY_SERVERS empty), then require the sentinel
+ * confirmed for exactly this archive. Returns the sentinel.
+ */
+async function awaitConfirmedRun(
+	consumer: Consumer,
+	sha: string,
+	/** The target as the run names it: the manifest item's `release ?? version`. */
+	expectedIdentity: string,
+): Promise<Record<string, unknown>> {
+	const root = join(consumer.privateDir, 'update', 'runs');
+	const until = Date.now() + RUN_SETTLE_MS;
+	let run: RunJournal | null = null;
+	while (Date.now() < until) {
+		checkDeadline(`${consumer.role} update run for ${expectedIdentity}`);
+		run =
+			(await readRunJournals(root))
+				.flatMap((read) => (read.ok ? [read.journal] : []))
+				.filter((journal) => journal.to.digest === sha)
+				.at(-1) ?? null;
+		if (run !== null && isTerminal(run.state)) break;
+		await Bun.sleep(700);
+	}
+	must(run !== null, `[${consumer.role}] no update run journal names ${expectedIdentity} / ${sha}`);
+	const phases = run.phases.map((phase) => `${phase.release} ${phase.step.kind}=${phase.outcome}`);
+	must(
+		run.state === 'CONFIRMED',
+		`[${consumer.role}] the update run ${run.run_id} to ${expectedIdentity} ended ${run.state} (note: ${String(run.note)}; phases: ${phases.join(', ')})`,
+	);
+	must(
+		run.to.release === expectedIdentity,
+		`[${consumer.role}] the run ${run.run_id} names ${run.to.release}, not ${expectedIdentity}`,
+	);
+	const reached = run.phases.filter(
+		(phase) => phase.step.kind === 'ontology' && phase.evidence.sources !== undefined,
+	);
+	must(
+		reached.length === 0,
+		`[${consumer.role}] an ontology phase reached a source — the drill pins none: ${JSON.stringify(reached)}`,
+	);
+	console.log(`[drill][${consumer.role}] update run ${run.run_id} CONFIRMED: ${phases.join(', ')}`);
+	const sentinelPath = join(consumer.backupRoot, 'last_code_update.json');
+	const sentinel = JSON.parse(readFileSync(sentinelPath, 'utf8')) as Record<string, unknown>;
+	must(
+		sentinel.status === 'confirmed' && sentinel.installDigest === sha,
+		`[${consumer.role}] sentinel not confirmed for ${expectedIdentity}: ${JSON.stringify(sentinel)}`,
+	);
+	return sentinel;
 }
 
 /**
@@ -1112,22 +1217,7 @@ async function installHop(
 		`[drill][${consumer.role}] /health answers ${expectedIdentity} — the new tree is LIVE`,
 	);
 
-	const sentinelPath = join(consumer.backupRoot, 'last_code_update.json');
-	const sentinelUntil = Date.now() + 30_000;
-	let sentinel: Record<string, unknown> = {};
-	while (Date.now() < sentinelUntil) {
-		try {
-			sentinel = JSON.parse(readFileSync(sentinelPath, 'utf8')) as Record<string, unknown>;
-			if (sentinel.status === 'confirmed' && sentinel.installDigest === sha) break;
-		} catch {
-			/* not written yet */
-		}
-		await Bun.sleep(500);
-	}
-	must(
-		sentinel.status === 'confirmed' && sentinel.installDigest === sha,
-		`[${consumer.role}] sentinel not confirmed for ${expectedIdentity}: ${JSON.stringify(sentinel)}`,
-	);
+	await awaitConfirmedRun(consumer, sha, expectedIdentity);
 	const stamp = JSON.parse(
 		readFileSync(join(consumer.tree, 'src', 'core', 'update', 'install_stamp.json'), 'utf8'),
 	) as Record<string, unknown>;
@@ -1594,6 +1684,13 @@ async function main(): Promise<void> {
 			source: {},
 			options: {
 				version: CURRENT_VERSION,
+				// The panel's exact ask (update_code.js get_code_update_info): the
+				// RELEASE IDENTITY beside the data triple. The master walks the code
+				// ladder and the asker floor from it (audit U-06); an ask without it is
+				// read as the bare stable `X.Y.Z`, above which this consumer's own
+				// `X.Y.Z-dev` nightly ranks as a DOWNGRADE — the dev channel then
+				// offered nothing and this step went red.
+				release: consumerIdentity,
 				code: DRILL_CODE,
 				...(DEV_CHANNEL_MODE ? { channel: 'dev' } : {}),
 			},
@@ -1723,48 +1820,111 @@ async function main(): Promise<void> {
 		plantDatabaseBackup(join(consumerDbBackupDir, 'drill_complete.custom.backup'), archiveBytes, 5);
 
 		// ---------------------------------------------------------------
-		// STEP 7 — NEGATIVE: a tampered digest dies in VERIFY, touches nothing
+		// STEP 7 — NEGATIVE, TWICE: a digest the master does not publish is
+		// refused at the PIN; bytes that do not match the published digest die
+		// in VERIFY. Both touch nothing.
 		// ---------------------------------------------------------------
-		console.log('[drill] submitting the TAMPERED-digest update (must fail in verify)…');
-		const tampered = await apiPost(
-			consumerOrigin,
-			// WAIVED on purpose: the one leg that keeps the waiver door exercised.
+		// Both WAIVED on purpose: the legs that keep the waiver door exercised.
+		const negativeUpdate = async (
+			label: string,
+			body: Record<string, unknown>,
+		): Promise<{ frames: JobFrame[]; last: JobFrame }> => {
+			console.log(`[drill] submitting the ${label} update (must refuse)…`);
+			const submittedNegative = await apiPost(consumerOrigin, body, consumerAuth);
+			must(
+				submittedNegative.ok === true,
+				`${label} submit should still answer ok (background job)`,
+			);
+			const negativePid = typeof submittedNegative.pid === 'number' ? submittedNegative.pid : 0;
+			const negativePfile =
+				typeof submittedNegative.pfile === 'string' ? submittedNegative.pfile : '';
+			must(negativePid !== 0 && negativePfile !== '', `${label}: no pid/pfile handle returned`);
+			const negativeFrames = await followJobStream(
+				consumerOrigin,
+				consumerAuth,
+				negativePid,
+				negativePfile,
+				180_000,
+			);
+			const last = negativeFrames.at(-1);
+			must(last !== undefined && last.is_running === false, `${label} job never ended`);
+			const healthy = await fetchHealth(consumerOrigin);
+			must(healthy.version === consumerIdentity, `${label}: server moved off the old version`);
+			must(
+				readFileSync(join(consumerTree, 'package.json'), 'utf8') === livePackageJsonBefore,
+				`${label}: live tree changed on a refused update`,
+			);
+			must(
+				readdirSync(consumerBackupRoot).filter((n) => n.startsWith('dedalo_')).length === 0,
+				`${label}: a backup dir appeared on a refused update`,
+			);
+			must(
+				!existsSync(join(consumerBackupRoot, 'last_code_update.json')),
+				`${label}: a sentinel appeared on a refused update`,
+			);
+			return { frames: negativeFrames, last };
+		};
+		const streamedPhases = (frames: JobFrame[]): string[] =>
+			frames.map((frame) => frame.data?.phase).filter((p): p is string => typeof p === 'string');
+
+		// 7a — a TAMPERED request digest. Since U-41 (2026-10-30) the consumer
+		// re-reads the master's own manifest and refuses an item whose sha256 the
+		// master does not publish BEFORE anything is downloaded
+		// (code_manifest_pin.ts) — the browser only selects the item.
+		const pinned = await negativeUpdate(
+			'TAMPERED-digest',
 			updateRequestBody({ ...file, sha256: 'a'.repeat(64) }, { waiveBackup: true }),
-			consumerAuth,
-		);
-		must(tampered.ok === true, 'tampered submit should still answer ok (background job)');
-		const tamperedPid = typeof tampered.pid === 'number' ? tampered.pid : 0;
-		const tamperedPfile = typeof tampered.pfile === 'string' ? tampered.pfile : '';
-		must(tamperedPid !== 0 && tamperedPfile !== '', 'no pid/pfile handle returned');
-		const tamperedFrames = await followJobStream(
-			consumerOrigin,
-			consumerAuth,
-			tamperedPid,
-			tamperedPfile,
-			180_000,
-		);
-		const lastTampered = tamperedFrames.at(-1);
-		must(
-			lastTampered !== undefined && lastTampered.is_running === false,
-			'tampered job never ended',
 		);
 		must(
-			JSON.stringify(tamperedFrames.map((frame) => frame.data)).includes('checksum mismatch'),
-			'verify phase did not report the mismatch',
-		);
-		const healthyAfterNegative = await fetchHealth(consumerOrigin);
-		must(healthyAfterNegative.version === consumerIdentity, 'server moved off the old version');
-		must(
-			readFileSync(join(consumerTree, 'package.json'), 'utf8') === livePackageJsonBefore,
-			'live tree changed on a refused update',
+			pinned.last.error?.code === 'update.refused' &&
+				JSON.stringify(pinned.last).includes('does not match the one the code server publishes'),
+			`a tampered digest was not refused at the pin: ${JSON.stringify(pinned.last)}`,
 		);
 		must(
-			readdirSync(consumerBackupRoot).filter((n) => n.startsWith('dedalo_')).length === 0,
-			'a backup dir appeared on a refused update',
+			!streamedPhases(pinned.frames).includes('download'),
+			`a tampered digest reached the download: ${streamedPhases(pinned.frames).join(' -> ')}`,
 		);
+
+		// 7b — CORRUPTED BYTES behind the published digest (a damaged archive on
+		// the master, or one altered in transit): the pin passes — the digest IS
+		// the master's — and the downloaded bytes die in VERIFY. One byte of the
+		// published archive is flipped for this leg only, then the exact bytes and
+		// mtime are put back, proven before step 8 installs the same archive.
+		const releaseTriple = parseReleaseVersion(RELEASE_VERSION)?.triple ?? [];
+		const publishedPath = join(
+			codeFilesDir,
+			String(releaseTriple[0]),
+			`${releaseTriple[0]}.${releaseTriple[1]}`,
+			RELEASE_FILE_NAME,
+		);
+		const publishedBytes = readFileSync(publishedPath);
+		const publishedStat = statSync(publishedPath);
+		const corrupted = Buffer.from(publishedBytes);
+		const middle = Math.floor(corrupted.length / 2);
+		corrupted[middle] = (corrupted[middle] ?? 0) ^ 0xff;
+		writeFileSync(publishedPath, corrupted);
+		let verified: { frames: JobFrame[]; last: JobFrame };
+		try {
+			verified = await negativeUpdate(
+				'CORRUPTED-archive',
+				updateRequestBody(file, { waiveBackup: true }),
+			);
+		} finally {
+			writeFileSync(publishedPath, publishedBytes);
+			utimesSync(publishedPath, publishedStat.atime, publishedStat.mtime);
+		}
 		must(
-			!existsSync(join(consumerBackupRoot, 'last_code_update.json')),
-			'a sentinel appeared on a refused update',
+			readFileSync(publishedPath).equals(publishedBytes),
+			'the published archive was not restored after the corrupted-archive leg',
+		);
+		// The SENTENCE is the proof it died in verify: "Release checksum mismatch"
+		// is thrown by the verify step alone (code_update.ts), after the download.
+		// Not the streamed phase list: the stream is sampled (a fast phase can be
+		// skipped between two polls), so a missing `verify` frame proves nothing.
+		must(
+			verified.last.error?.code === 'update.refused' &&
+				JSON.stringify(verified.last).includes('Release checksum mismatch'),
+			`corrupted bytes did not die in verify: ${streamedPhases(verified.frames).join(' -> ')} / ${JSON.stringify(verified.last)}`,
 		);
 
 		// ---------------------------------------------------------------
@@ -1797,12 +1957,13 @@ async function main(): Promise<void> {
 		// The supervisor brings the NEW tree up; /health must answer the release.
 		//
 		// ON THE DEV CHANNEL THE VERSION CANNOT BE THE PROOF. The installed tree
-		// carries the version it replaced, so the string only gains its `.dev`
-		// tag (install_stamp channel → build_stamp) — and a ROLLED-BACK tree
-		// would answer with a version just as expected-looking. What actually
-		// separates the two is `install_digest`: the sha256 of the archive that
-		// was verified and swapped in.
-		const expectedHealthVersion = DEV_CHANNEL_MODE ? `${RELEASE_VERSION}.dev` : RELEASE_VERSION;
+		// carries the version it replaced, so the identity only gains its `-dev`
+		// suffix (the release-identity grammar since d803117865 — `X.Y.Z-dev`,
+		// the same spelling the manifest ranks a dev row by) — and a ROLLED-BACK
+		// tree would answer with an identity just as expected-looking. What
+		// actually separates the two is `install_digest`: the sha256 of the
+		// archive that was verified and swapped in.
+		const expectedHealthVersion = DEV_CHANNEL_MODE ? `${RELEASE_VERSION}-dev` : RELEASE_VERSION;
 		const healthLanded = (body: HealthBody): boolean =>
 			body.db === 'ok' &&
 			body.version === expectedHealthVersion &&
@@ -1835,20 +1996,12 @@ async function main(): Promise<void> {
 		// ---------------------------------------------------------------
 		// STEP 9 — the disk truth after a successful update
 		// ---------------------------------------------------------------
-		// boot_confirm flips the sentinel once the RUNNING version matches.
-		const sentinelPath = join(consumerBackupRoot, 'last_code_update.json');
-		const sentinelUntil = Date.now() + 30_000;
-		let sentinel: Record<string, unknown> = {};
-		while (Date.now() < sentinelUntil) {
-			try {
-				sentinel = JSON.parse(readFileSync(sentinelPath, 'utf8')) as Record<string, unknown>;
-				if (sentinel.status === 'confirmed') break;
-			} catch {
-				/* not written yet */
-			}
-			await Bun.sleep(500);
-		}
-		must(sentinel.status === 'confirmed', `sentinel not confirmed: ${JSON.stringify(sentinel)}`);
+		// The update RUN confirms the sentinel once every phase of the release
+		// ran and verified (awaitConfirmedRun) — not the first boot. The run names
+		// its target as the manifest item does (`release ?? version`: a developer
+		// item is its bare triple there); the `-dev` identity is proven by /health
+		// above and the sentinel below, the tree by the digest.
+		const sentinel = await awaitConfirmedRun(consumer, builtSha, file.release ?? file.version);
 		// RELEASE IDENTITIES on both ends (U-07): what /health answered for the
 		// new tree, and what the consumer ran before the swap.
 		must(

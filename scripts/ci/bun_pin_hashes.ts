@@ -75,7 +75,7 @@ export const BUN_RELEASE_KEY_FINGERPRINT = 'F3DCC08A8572C0749B3E18888EAB4D40A7B2
  * (test/unit/ops_runtime_pin.test.ts) requires `pin` = `.bun-version` and `floor` =
  * layout.ts BUN_KERNEL_FLOOR, so a bump that does not re-read Bun's requirement is red.
  *
- * `documented` is what Bun's page says, read 2026-10-08 (bun-v1.4.2 current), re-read 2026-10-14 for bun-v1.4.3: unchanged,
+ * `documented` is what Bun's page says, read 2026-10-08 (bun-v1.4.2 current), re-read 2026-10-14 for bun-v1.4.3 and 2026-11-02 for bun-v1.4.4: unchanged,
  * https://bun.com/docs/installation: "We recommend kernel version 5.6 or higher. Bun runs on
  * kernels as old as 3.10 (RHEL 7) with graceful degradation of newer syscalls."
  * (!) `floor` = 5.1 is the spec's reading of Bun's EARLIER wording ("5.1 or later"), which the
@@ -89,7 +89,7 @@ export interface KernelFloorRecord {
 	readonly documented: { readonly minimum: string; readonly recommended: string };
 }
 export const BUN_PIN_KERNEL_FLOOR: KernelFloorRecord = Object.freeze({
-	pin: '1.4.3',
+	pin: '1.4.4',
 	floor: '5.1',
 	documented: Object.freeze({ minimum: '3.10', recommended: '5.6' }),
 });

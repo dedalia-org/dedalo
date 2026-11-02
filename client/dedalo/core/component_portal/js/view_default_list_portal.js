@@ -6,7 +6,10 @@
 
 // imports
 	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
+	import {apply_table_semantics} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
+	import {render_list_after} from './render_edit_component_portal.js'
 	import {set_element_css} from '../../page/js/css.js'
 
 
@@ -122,6 +125,14 @@ view_default_list_portal.render = async function(self, options) {
 	// content_data append
 		list_body.appendChild(content_data)
 
+	// table semantics. A list whose rows render cells is a header-less table
+	// (the window drops role=table again while it holds no row); mosaic and text
+	// rows (inline values, no cells) are a list layout
+		if (rows_layout(self, children_view)==='table') {
+			list_body.classList.add('layout_table')
+			apply_table_semantics(list_body, null)
+		}
+
 	// wrapper
 		const wrapper = ui.component.build_wrapper_list(self, {
 			autoload : true // bool set build autoload param on mode change (close button)
@@ -131,6 +142,8 @@ view_default_list_portal.render = async function(self, options) {
 		// set pointers
 		wrapper.content_data	= content_data
 		wrapper.list_body		= list_body
+		// list_after. The non-row sibling, right after list_body (never inside role=table)
+		place_list_after(wrapper, content_data)
 		// click event capture
 		wrapper.addEventListener('click', function(e) {
 			e.stopPropagation()
@@ -144,16 +157,30 @@ view_default_list_portal.render = async function(self, options) {
 
 
 /**
+* ROWS_LAYOUT
+* The row window layout of this view (record_window roles): 'table' when every
+* row renders `.column` cells, 'list' for the mosaic tiles and for text rows
+* (view_text_section_record joins the values inline: a row with no cell is no
+* table row).
+* @param {Object} self - The `component_portal` instance being rendered.
+* @param {string} children_view - The view each row is rendered with.
+* @returns {string} 'table' | 'list'
+*/
+const rows_layout = function(self, children_view) {
+
+	return (self.view==='mosaic' || children_view==='text') ? 'list' : 'table'
+}//end rows_layout
+
+
+
+/**
 * GET_CONTENT_DATA
-* Builds the `content_data` container and hands the page's rows to a ROW
-* WINDOW (section.js window_section_rows → common/js/row_window.js): a
-* `section_record` is built and rendered only for the rows the viewport can
-* reach — at most ROW_WINDOW_MAX_ROWS at once — and released past the far
-* edge (audit P2-31 / CLI-29: "show all" is the server ceiling, up to 1000
-* rows, and every one used to be built at once). The first window is filled
-* before this resolves.
-*
-* Returns an empty `content_data` immediately when `rows` is empty.
+* Builds the (empty) `content_data` container and hands the page's rows to the ROW
+* DOOR (section.js window_section_rows → section_record/js/record_window.js) on
+* EVERY content render, N=0 included (WC-2026-10-30-section-record-row-box). The
+* window keeps the row invariant and builds at most ROW_WINDOW_MAX_ROWS rows at
+* once (audit P2-31 / CLI-29: "show all" is the server ceiling, up to 1000 rows).
+* The fill is done before this resolves. List mode has no drag source.
 *
 * @param {Object} self          - The `component_portal` instance being rendered.
 * @param {Array}  rows          - The page's locator entries (`self.data.entries`).
@@ -166,19 +193,22 @@ const get_content_data = async function(self, rows, children_view) {
 	const content_data = ui.component.build_content_data(self)
 		  content_data.classList.add(self.mode, self.tipo)
 
-	// empty cases
-	if (!rows || rows.length === 0) {
-		return content_data;
-	}
-
-	// row window
-	await window_section_rows({
+	// rows. The door, always (N=0 included)
+	const record_window = await window_section_rows({
 		caller			: self,
 		container		: content_data,
-		rows			: rows,
+		rows			: rows || [],
 		records_options	: {
 			view : children_view
-		}
+		},
+		layout			: rows_layout(self, children_view)
+	})
+
+	// list_after. Only the print notice can apply here
+	content_data.list_after = render_list_after(self, {
+		content_data	: content_data,
+		record_window	: record_window,
+		references		: false
 	})
 
 

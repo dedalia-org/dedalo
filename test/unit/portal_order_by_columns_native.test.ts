@@ -10,12 +10,22 @@
  *    "not ordered" and the column is skipped (never a malformed ORDER BY);
  *  - a column WITHOUT `order` is skipped; declaration order = sort priority;
  *  - no ordered column → null (caller keeps stored order);
- *  - `hasDeclaredColumnOrder` is the cheap raw-properties gate used by the read
- *    hot-path.
+ *  - `hasDeclaredColumnOrder` is the cheap raw-properties gate used by the write
+ *    chokepoint's per-key rule (and the context's `declared_order`).
+ *
+ * ORDER MODEL (WC-2026-10-31-portal-order-model): these helpers are now the
+ * ONE ordering function of three consumers — the record-write chokepoint, which
+ * stores a declared-order key SORTED (write time; `record_write.ts`
+ * `applyKeySaveRules` → `sortByDeclaredOrder`); the read path's temporary
+ * `view_order` (`orderLocatorsByViewOrder` — the declared order is never applied
+ * at read time); and the `portal_declared_order` reconcile. Their end-to-end
+ * contracts (every write door, the stored array served as stored, view_order
+ * before paginating, stored-index `paginated_key`) are pinned by
+ * `portal_order_native.test.ts`.
  *
  * The DB-backed ranking (`rankLocatorsByColumns`) and the ontology wiring
- * (`orderLocatorsByDeclaredColumns` → expandPortal) are exercised below + by the
- * relation read gates; here we lock the pure resolution.
+ * (`orderLocatorsByDeclaredColumns`) are exercised below + by
+ * `portal_declared_column_order_native`; here we lock the pure resolution.
  */
 // Migrated to the generic `test` TLD 2026-08-19 (AGENTS.md hard rules): every
 // install tipo was rewritten through src/core/test_data/test_tld_tipo_map.json;
@@ -31,6 +41,7 @@ import {
 	normalizeDirection,
 	orderedColumnsFromDdoMap,
 	rankLocatorsByColumns,
+	storedIndexOf,
 } from '../../src/core/relations/order_locators.ts';
 
 /** Seed-shipped ontology, spelled out of the install-TLD census's token grammar. */
@@ -126,6 +137,19 @@ describe('buildOrderEntries (per-model order path, DB)', () => {
 		expect(await buildOrderEntries([{ componentTipo: 'test145', direction: 'ASC' }], '')).toEqual(
 			[],
 		);
+	});
+});
+
+describe('storedIndexOf (paginated_key = the STORED index under any read order)', () => {
+	test('maps each stored locator OBJECT to its stored position, whatever order shows it', () => {
+		const a = { section_tipo: 'test3', section_id: 1 };
+		const b = { section_tipo: 'test3', section_id: 2 };
+		const c = { section_tipo: 'test3', section_id: 3 };
+		const index = storedIndexOf([c, a, b]);
+		// a read order (any permutation) looks its items up by identity
+		expect([a, b, c].map((item) => index.get(item))).toEqual([1, 2, 0]);
+		// an equal-but-distinct object is NOT the stored item (identity, not value)
+		expect(index.get({ section_tipo: 'test3', section_id: 1 })).toBeUndefined();
 	});
 });
 

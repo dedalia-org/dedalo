@@ -86,17 +86,32 @@ const DB_STATEMENT_TIMEOUT_MS = config.ops.dbStatementTimeoutMs;
 const MAINTENANCE_POOL_MAX = config.ops.dbMaintenancePoolMax;
 
 /*
- * NO `idleTimeout` on any pool (measured 2026-10-10, Bun 1.4.2): Bun's SQL
- * `idleTimeout` is NOT an idle-CONNECTION reaper — it fires on a connection
- * that has been silent on the wire for N seconds, a statement STILL RUNNING
- * included, and kills it with ERR_POSTGRES_IDLE_TIMEOUT. The maintenance lanes
- * exist precisely for long statements (CREATE INDEX on matrix_time_machine,
- * REINDEX, VACUUM), so the former 30 s value rolled back every index rebuild
- * longer than 30 s. Idle maintenance sockets are bounded by
- * DB_MAINTENANCE_POOL_MAX instead (connection_budget.ts counts them). Gate:
- * test/unit/sql_idle_timeout_canary.test.ts (goes red when Bun changes the
- * semantics, so the choice can be revisited).
+ * THE MAINTENANCE IDLE REAPER — `idleTimeout` on the two maintenance lanes only
+ * (maintenance is bursty: its sockets should not linger once the burst is over).
+ * Safe ONLY on Bun >= 1.4.4, so it is ARMED only there (maintenanceIdleTimeoutFor —
+ * the runtime is checked where the pool is built, never trusted to the pin: a
+ * source checkout may boot on an older Bun with only a warning). On 1.4.2/1.4.3 Bun's SQL
+ * `idleTimeout` fired on a connection silent on the wire, a statement STILL
+ * RUNNING included, and killed it with ERR_POSTGRES_IDLE_TIMEOUT — the former
+ * 30 s value rolled back every index rebuild of matrix_time_machine longer than
+ * 30 s, so it was removed 2026-10-10. Measured 2026-11-02 on 1.4.4: a running
+ * statement completes (pool and transaction), and so does a transaction or a
+ * RESERVED connection idle between statements; only a pooled connection nobody
+ * holds is closed. The main pool still carries none (request traffic keeps it
+ * warm; DB_POOL_MAX bounds it). Gate: test/unit/sql_idle_timeout_canary.test.ts
+ * — its canary goes red if a Bun release brings the old semantics back.
  */
+const MAINTENANCE_IDLE_TIMEOUT_S = 30;
+
+/** First Bun whose `idleTimeout` spares a running statement (a fact, not the pin). */
+const IDLE_REAPER_SAFE_FROM_BUN = '1.4.4';
+
+/** The maintenance lanes' `idleTimeout` on Bun `version`: the reaper, or none below 1.4.4. */
+export function maintenanceIdleTimeoutFor(version: string): number | undefined {
+	return Bun.semver.order(version, IDLE_REAPER_SAFE_FROM_BUN) >= 0
+		? MAINTENANCE_IDLE_TIMEOUT_S
+		: undefined;
+}
 
 /**
  * The maintenance pool's `application_name`, UNIQUE PER PROCESS BOOT: shutdown
@@ -378,6 +393,7 @@ function getMaintenanceLane(): PoolLane {
 				MAINTENANCE_APPLICATION_NAME,
 				MAINTENANCE_LOCK_TIMEOUT,
 			),
+			idleTimeout: maintenanceIdleTimeoutFor(Bun.version),
 		} as ConstructorParameters<typeof SQL>[0]),
 		gate: makeSlotGate('maintenance', MAINTENANCE_POOL_MAX),
 		ceilingMs: 0,
@@ -412,6 +428,7 @@ function getNonTransactionalLane(): PoolLane {
 		name: 'maintenance',
 		pool: new SQL({
 			...buildSqlOptions(MAINTENANCE_POOL_MAX, 0, NON_TRANSACTIONAL_APPLICATION_NAME),
+			idleTimeout: maintenanceIdleTimeoutFor(Bun.version),
 		} as ConstructorParameters<typeof SQL>[0]),
 		gate: getMaintenanceLane().gate,
 		ceilingMs: 0,
@@ -549,7 +566,7 @@ export function getPoolStats(): {
 /**
  * The `idleTimeout` each pool was actually built with, read back from the Bun
  * pool's own options (undefined = none). Builds the lazy maintenance lanes. The
- * evidence of the no-idleTimeout rule (see the note above the pool constants):
+ * evidence of the maintenance idle-reaper rule (see the note above the pool constants):
  * test/unit/sql_idle_timeout_canary.test.ts. Holds no handle, no identity.
  */
 export function poolIdleTimeouts(): Record<'main' | 'maintenance' | 'nonTransactional', unknown> {
@@ -1832,6 +1849,74 @@ export async function withSavepoint<T>(work: () => Promise<T>): Promise<T> {
 		await undoToSavepoint(name).catch(() => undefined);
 		throw error;
 	}
+}
+
+/**
+ * The `SET LOCAL statement_timeout` value that puts `handle`'s recorded ceiling
+ * (`previousMs`) back. DEFAULT restores the lane's own ceiling without
+ * recording an explicit lift.
+ */
+function statementCeilingRestore(handle: TransactionHandle, previousMs: number): string {
+	return previousMs === handle.laneCeilingMs && !handle.liftedLocally
+		? 'DEFAULT'
+		: String(previousMs);
+}
+
+/**
+ * Run `work` under a STATEMENT BUDGET of `budgetMs` (a whole number of ms ≥ 1),
+ * never above the ceiling already in force (0 = unbounded, so the budget
+ * applies). `work` receives the ceiling actually applied.
+ *
+ *  - Outside a transaction: its own transaction, `SET LOCAL statement_timeout`.
+ *  - Inside a caller's transaction (any lane — a maintenance transaction's 0 is
+ *    tightened too): under a SAVEPOINT, `SET LOCAL` to the tighter value, then
+ *    back to the recorded ceiling before the savepoint is released (a `SET
+ *    LOCAL` survives RELEASE). On a throw the savepoint rollback restores the
+ *    GUC and the recorder's ceiling, and the caller's transaction goes on.
+ *    An UNKNOWN recorded ceiling (null) is refused — there is nothing exact to
+ *    restore.
+ *
+ * Every SET LOCAL goes through the recorder, so a 57014 at the budget is typed
+ * `db.statement_timeout` like any other ceiling. Gates:
+ * statement_ceiling_scope_native (no ambient transaction: the request lane, an
+ * unbounded scope's maintenance lane, the non-transactional lane refused under
+ * it) and referenced_by_filter_native (inside a caller's transaction, via the
+ * search executor).
+ */
+export async function withStatementBudget<T>(
+	budgetMs: number,
+	work: (appliedMs: number) => Promise<T>,
+): Promise<T> {
+	if (!Number.isInteger(budgetMs) || budgetMs < 1) {
+		throw new DedaloError('internal.invariant', {
+			message: `withStatementBudget: budgetMs must be a whole number of ms >= 1 (got ${budgetMs})`,
+		});
+	}
+	const tighter = (ceilingMs: number) => (ceilingMs > 0 ? Math.min(ceilingMs, budgetMs) : budgetMs);
+	const ambient = activeTransaction();
+	if (ambient === undefined) {
+		return withTransaction(async () => {
+			const own = activeTransaction();
+			const appliedMs = tighter(own?.ceilingMs ?? 0);
+			await sql.unsafe(`SET LOCAL statement_timeout = ${appliedMs}`, []);
+			return work(appliedMs);
+		});
+	}
+	const previousMs = ambient.ceilingMs;
+	if (previousMs === null) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				'withStatementBudget: the transaction’s statement ceiling is unknown (an unparsed change) — nothing exact to restore',
+		});
+	}
+	const appliedMs = tighter(previousMs);
+	const restore = statementCeilingRestore(ambient, previousMs);
+	return withSavepoint(async () => {
+		await sql.unsafe(`SET LOCAL statement_timeout = ${appliedMs}`, []);
+		const result = await work(appliedMs);
+		await sql.unsafe(`SET LOCAL statement_timeout = ${restore}`, []);
+		return result;
+	});
 }
 
 /** Undo to `name` and drop it (the work's own error is the one the caller sees). */

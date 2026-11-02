@@ -529,5 +529,64 @@ describe.if(DB_READY)('write door — every tool permission kind, real resolver,
 			expect((writeGrant as unknown as { userId?: unknown }).userId).toBe(ids.control.userId);
 			expect((readGrant as unknown as { userId?: unknown }).userId).toBe(ids.control.userId);
 		});
+
+		// THE EXTERNAL-MIRROR REFRESH DOOR (2026-10-30, owner ruling: READ level
+		// 1). A portal's `get_data_external` read may recompute its derived
+		// mirror; the door asks the READ half — the result is a pure function of
+		// committed data, independent of the requester — so a level-1 reader is
+		// SERVED, the same principal is refused at a write door (contrast), and
+		// a principal outside the record's scope is refused. The grant names the
+		// requester: it is the Time Machine actor of the refresh write.
+		test('the external refresh door: a level-1 READER is served at floor 1, refused at a write door; out-of-scope refused', async () => {
+			const { authorizeRecordAccess } = await import('../../src/core/security/write_door.ts');
+			const { EXTERNAL_REFRESH_DOOR } = await import(
+				'../../src/core/section/record/external_refresh.ts'
+			);
+			expect(EXTERNAL_REFRESH_DOOR).toBe('dd_core_api.read.refresh_external');
+			// The refresh door is NOT a floor-0 door (the closed list above).
+			const { SECTION_FLOOR_ZERO_DOORS } = await import('../../src/core/security/write_door.ts');
+			expect([...SECTION_FLOOR_ZERO_DOORS]).not.toContain(EXTERNAL_REFRESH_DOOR);
+			// The options the door module passes, verbatim (pinned against its source
+			// below, so this leg exercises what production asks).
+			const refresh = {
+				mode: 'read' as const,
+				level: 1 as const,
+				sectionFloor: 1 as const,
+				door: EXTERNAL_REFRESH_DOOR,
+			};
+			const doorSource = await Bun.file(
+				new URL('../../src/core/section/record/external_refresh.ts', import.meta.url),
+			).text();
+			expect(doorSource).toContain(
+				"{ mode: 'read', level: 1, sectionFloor: 1, door: EXTERNAL_REFRESH_DOOR }",
+			);
+			const target = { section_tipo: AUTHZ_SECTION, component_tipo: AUTHZ_AV, section_id: recordP };
+			const codeOf = async (run: Promise<unknown>) =>
+				run.then(
+					() => 'served',
+					(error: unknown) => (error instanceof DedaloError ? error.code : String(error)),
+				);
+			const grant = await authorizeRecordAccess(ids.level1, target, refresh);
+			expect(grant).toMatchObject({
+				sectionTipo: AUTHZ_SECTION,
+				sectionId: recordP,
+				mode: 'read',
+				level: 1,
+			});
+			expect((grant as unknown as { userId?: unknown }).userId).toBe(ids.level1.userId);
+			expect(
+				await codeOf(
+					authorizeRecordAccess(ids.level1, target, {
+						mode: 'write',
+						level: 2,
+						door: 'write_door_native',
+						sectionFloor: 2,
+					}),
+				),
+			).toBe('perm.denied');
+			expect(await codeOf(authorizeRecordAccess(ids.outOfScope, target, refresh))).toBe(
+				'perm.out_of_scope',
+			);
+		});
 	});
 });

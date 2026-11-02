@@ -79,7 +79,7 @@
  *    vector index — a collision this module can report but not fix.
  */
 
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEnv } from '../../src/config/env.ts';
 // DB-free ON PURPOSE (see that module's header): the marker is named through
@@ -87,12 +87,14 @@ import { readEnv } from '../../src/config/env.ts';
 // through the marker module itself (its postgres.ts import connects the pool
 // at module scope — a held session breaks DROP DATABASE).
 import {
+	SHARD_SUFFIX,
 	TEST_MARKER_PURPOSE,
 	TEST_MARKER_TABLE,
 } from '../../src/core/test_data/test_database_marker_constants.ts';
 import { suitePsqlConnArgs, suitePsqlEnv } from '../../test/helpers/suite_pg.ts';
 import {
 	TEST_MEDIA_MARKER,
+	TEST_PROCESSES_MARKER,
 	testMediaBaseDir,
 	testMediaRootPath,
 } from '../../test/helpers/test_media_root.ts';
@@ -112,7 +114,7 @@ import {
 export const SHARD_SUFFIX_RE = /__shard\d+$/;
 
 export function shardDatabaseName(template: string, shard: number): string {
-	return `${template}__shard${shard}`;
+	return `${template}${SHARD_SUFFIX}${shard}`;
 }
 
 /**
@@ -328,6 +330,73 @@ export async function provisionShardDatabase(template: string, shard: number): P
 	return name;
 }
 
+// ── the sealed template ──────────────────────────────────────────────────────
+
+/**
+ * SEAL the template for the length of a multi-bin run: every bin runs on its
+ * OWN clone (the base bin included), so nothing has a legitimate reason to
+ * touch the template — and with `ALLOW_CONNECTIONS false` nothing CAN. A
+ * process that escapes its shard (a spawned grandchild handed a rebuilt env, a
+ * helper that re-derives the suite database) then fails LOUDLY on connect
+ * instead of silently writing a surface its peers read. This is what replaces
+ * pinning spawners to a base bin by source scan: the scan guessed; the seal
+ * enforces. Live template sessions are terminated first (named, as in
+ * provisioning) so the seal is total from the first file on.
+ *
+ * Reversible by design: `unsealTemplate` runs in the runner's finally, on the
+ * entry sweep and under `--sweep`, so a SIGKILLed run cannot leave a serial
+ * `bun test` facing a template that refuses it.
+ */
+export async function sealTemplate(template: string): Promise<string[]> {
+	assertShardableTemplate(template);
+	await psql('postgres', ['-c', `ALTER DATABASE "${template}" WITH ALLOW_CONNECTIONS false`]);
+	return terminateTemplateBackends(template);
+}
+
+/** Lift the seal. Answers whether the template WAS sealed (a dead run's leftover is said out loud). */
+export async function unsealTemplate(template: string): Promise<boolean> {
+	assertShardableTemplate(template);
+	const was = (
+		await psql(
+			'postgres',
+			['-t', '-A', '-v', `db=${template}`, '-f', '-'],
+			"SELECT (NOT datallowconn)::text FROM pg_database WHERE datname = :'db'\n",
+		)
+	).trim();
+	if (was !== 'true') return false;
+	await psql('postgres', ['-c', `ALTER DATABASE "${template}" WITH ALLOW_CONNECTIONS true`]);
+	return true;
+}
+
+/**
+ * The template's media tree as one comparable string — every path with its
+ * size and mtime. The database seal cannot cover the filesystem (a process
+ * that resolves the TEMPLATE's media root writes there without a connection),
+ * so the runner takes this before and after the run and names any difference
+ * as contact. `null` = no tree (a contact would CREATE one — also a difference).
+ */
+export function templateMediaFingerprint(template: string): string | null {
+	return treeFingerprint(testMediaRootPath(template));
+}
+
+/** The fingerprint itself, over any root (pure fs; the tripwire drives it on a scratch tree). */
+export function treeFingerprint(root: string): string | null {
+	if (!existsSync(root)) return null;
+	const lines: string[] = [];
+	const walk = (dir: string): void => {
+		for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+			a.name.localeCompare(b.name),
+		)) {
+			const path = join(dir, entry.name);
+			const stats = statSync(path);
+			lines.push(`${path}\t${entry.isDirectory() ? 'd' : stats.size}\t${stats.mtimeMs}`);
+			if (entry.isDirectory()) walk(path);
+		}
+	};
+	walk(root);
+	return lines.join('\n');
+}
+
 /** DROP one clone — call ONLY after `probeProvenance` answered 'marked'. */
 export async function dropShardDatabase(name: string): Promise<void> {
 	await psql('postgres', ['-c', `DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`]);
@@ -511,14 +580,27 @@ export async function sweepShardClones(template: string): Promise<SweepReport> {
 		}
 	}
 
-	// Media twins: same grammar over the test-media base; the `.dedalo_test_media`
-	// marker — not the name — is what licenses the rm.
+	// Media twins: same grammar over the test-media base, PLUS the two siblings a shard
+	// child's own media root grows (`<twin>.processes` — the job registry — and
+	// `<twin>.export_artifacts` — the export store; test/helpers/test_media_root.ts).
+	// MEASURED 2026-10-31: sweeping only the twin leaked both after every sharded run.
+	// Each kind's OWN marker — not the name — is what licenses the rm. The export
+	// marker is lazy: its module reads the engine config (same reason as below).
+	const { EXPORT_ARTIFACTS_TEST_MARKER } = await import(
+		'../../tools/tool_export/server/artifact_store.ts'
+	);
+	const markerFor: Record<string, string> = {
+		'': TEST_MEDIA_MARKER,
+		'.processes': TEST_PROCESSES_MARKER,
+		'.export_artifacts': EXPORT_ARTIFACTS_TEST_MARKER,
+	};
 	const base = testMediaBaseDir();
 	if (existsSync(base)) {
 		for (const entry of readdirSync(base)) {
-			if (!grammar.test(entry)) continue;
+			const sibling = /\.(processes|export_artifacts)$/.exec(entry)?.[0] ?? '';
+			if (!grammar.test(entry.slice(0, entry.length - sibling.length))) continue;
 			const dir = join(base, entry);
-			if (existsSync(join(dir, TEST_MEDIA_MARKER))) {
+			if (existsSync(join(dir, markerFor[sibling] as string))) {
 				rmSync(dir, { recursive: true, force: true });
 				report.mediaSwept.push(dir);
 			} else {

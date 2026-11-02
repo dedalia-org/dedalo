@@ -39,7 +39,7 @@ export const SHIPPED_TEXT_ROOTS: readonly string[] = [
 ];
 
 /** Extensions that can carry a link or a message a reader ever sees. */
-const TEXT_GLOB = '**/*.{ts,js,mjs,json,md}';
+const TEXT_GLOB = '**/*.{ts,tsx,mts,cts,js,mjs,json,md}';
 
 /**
  * Every shipped text file under those roots, as sorted repo-relative paths.

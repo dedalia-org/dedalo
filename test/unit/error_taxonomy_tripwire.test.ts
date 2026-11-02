@@ -840,6 +840,28 @@ describe('C. vocabulary totality', () => {
 		).toEqual([]);
 	});
 
+	test('C3 — db.statement_timeout is raised only by the enumerated raisers (registry note)', () => {
+		// The registry row names its raisers; a new door that mints the code (its
+		// own budget) must be added here AND to that note, never silently.
+		const RAISERS = [
+			'src/core/db/postgres.ts',
+			'src/core/search/relation_targets.ts',
+			'src/core/search/search_statement.ts',
+			'src/diffusion/export/selection_cursor.ts',
+		];
+		const mints = /new\s+DedaloError\(\s*['"`]db\.statement_timeout['"`]/;
+		const raisers = CORPUS.filter((file) => mints.test(file.code)).map((file) => file.path);
+		expect(raisers).toEqual(RAISERS);
+		// …and the note names every one of them (the registry row is their index).
+		const registry = readFileSync(join(REPO_ROOT, 'src/core/errors/registry.ts'), 'utf8');
+		for (const path of RAISERS) {
+			expect({ path, named: registry.includes(path.replace(/^src\/(core\/)?/, '')) }).toEqual({
+				path,
+				named: true,
+			});
+		}
+	});
+
 	test('C2 — every code the CLIENT speaks resolves to the registry (or is client.*)', () => {
 		const policyCodes = codeLiterals(readRepoFile(CLIENT_POLICY_FILE));
 		expect(policyCodes.length).toBeGreaterThan(5); // non-vacuous: the policy table has entries

@@ -2022,10 +2022,18 @@ export const ERROR_REGISTRY = {
 	// ── db (PERF-11) ────────────────────────────────────────────────────────
 	// The two database ceilings, typed so a fired bound is a 503 the client can
 	// show — not a 500 `internal.unexpected` indistinguishable from an engine
-	// bug. Raised ONLY by core/db/postgres.ts; the numbers (lane, ceiling, pool)
+	// bug. Raised by core/db/postgres.ts; the numbers (lane, ceiling, pool)
 	// ride in operator-only `coordinates`.
 	// A 57014 at or past the lane ceiling (DB_STATEMENT_TIMEOUT_MS, or a recorded SET
 	// LOCAL). An operator cancel, an abort cancel and the reserved lane stay raw.
+	// Also raised by the doors that set their OWN budget via SET LOCAL (re-stated
+	// with `coordinates.door`): search/relation_targets.ts (the census clock, door
+	// `relation_targets`) and search/search_statement.ts (the one search executor:
+	// a statement a referenced_by leaf rendered into, door `referenced_by_search`);
+	// and by diffusion/export/selection_cursor.ts (a 25P04 materializing the export
+	// selection on its reserved connection — re-stated with the search door's
+	// coordinates when the selection carries the leaf). The raiser set is pinned by
+	// test/unit/error_taxonomy_tripwire.test.ts (C3).
 	'db.statement_timeout': {
 		category: 'unavailable',
 		status: 503,
@@ -3067,6 +3075,43 @@ export const ERROR_REGISTRY = {
 		severity: 'warn',
 		disclosure: 'operator',
 		retryable: false,
+	},
+	// --- observers.* — the external-mirror refresh door ----------------------
+	// The portal's "update external data" button asks the read to recompute
+	// the requested component's external mirror first
+	// (section/record/external_refresh.ts maybeRefreshExternal). The read is
+	// ALWAYS served — with the stored mirror when the refresh did not run — so
+	// both codes are NOTICES (ok:true + notices[]), never thrown.
+	'observers.refresh_refused': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_observers_refresh_refused',
+		// The caller may not ask for the refresh on this (section, component,
+		// record): the read-level authorizeRecordAccess refused (pair level,
+		// record scope, grammar), or the section is consultation-only. The
+		// refusal's own code stays in the operator log.
+		message: 'The external data was not refreshed: not permitted here; the stored data is shown',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+	},
+	'observers.refresh_withheld': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_observers_refresh_withheld',
+		// The refresh was asked for and permitted, but nothing was written:
+		// `reason` names why — law_refused (the observer's external value law is
+		// refused by the classifier), target_not_host (the record's section does
+		// not declare the observer), degraded_seed (drops withheld AND nothing
+		// to add — a degraded seed that persisted additions is a done refresh),
+		// frozen (the >2000 freeze), busy (the target row stayed locked past
+		// the refresh's lock_timeout — the ONE reason whose notice is
+		// retryable:true), or error (the recompute failed; logged + counted).
+		message: 'The external data could not be refreshed; the stored data is shown',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['reason'],
 	},
 } as const satisfies Record<string, ErrorSpec>;
 

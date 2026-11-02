@@ -4,12 +4,15 @@
  *
  * Read by two gates:
  *  - test/unit/tool_phone_tripwire.test.ts (static, hermetic): every directory
- *    under tools/ is in EXACTLY one of NOT_YET_PHONE / PHONE_CASES, and no
- *    name is stale.
+ *    under tools/ is in EXACTLY one of PHONE_CASES / NOT_YET_PHONE /
+ *    HIDDEN_BY_CAPABILITY, and no name is stale; every PHONE_CASES tool is
+ *    OFFERED under the run's pinned capabilities (PHONE_RUN_ENV), every
+ *    HIDDEN_BY_CAPABILITY tool is NOT.
  *  - scripts/tool_viewport_check.ts (`bun run test:tools:phone`, browser, suite
  *    DB): opens each case at @min_target_viewport and judges it. A PHONE_CASES
  *    tool that fails is red; a NOT_YET_PHONE tool that has a probe here and
- *    PASSES is red too (shrink-only — move it across).
+ *    PASSES is red too (shrink-only — move it across); a HIDDEN_BY_CAPABILITY
+ *    tool that RENDERS is red (its capability was lifted — move it back).
  *
  * The contract judged (tools_common/css/tool_responsive.less): no page-level
  * horizontal scroll, every visible control inside the viewport and at least
@@ -96,11 +99,40 @@ export type ToolPhoneProbe =
 	/** a launcher's own exported open function, called as its button does */
 	| { kind: 'module'; url: string; module: string; fn: string; root?: string };
 
+/**
+ * The AI capability the run PINS instead of borrowing it from the machine
+ * (src/ai/capabilities.ts: tool_assistant is offered only with
+ * DEDALO_AGENT_HTTP_ENABLED=true AND a non-empty model catalog). A developer's
+ * ../private/.env with a local model offered the assistant and the CI image's
+ * did not, so the same probe was green on one and red on the other.
+ *
+ * The stub model is NEVER called: opening the panel only lists the catalog
+ * (`agent_models`, server-side); a chat would be. Its endpoint is the discard
+ * port on loopback, so a regression that did call it fails closed, locally.
+ * Merged over the suite server's environment (process env wins over .env).
+ */
+export const PHONE_RUN_ENV: Readonly<Record<string, string>> = {
+	DEDALO_AGENT_HTTP_ENABLED: 'true',
+	DEDALO_AGENT_MODELS: JSON.stringify([
+		{
+			id: 'phone_probe_stub',
+			label: 'Phone probe stub (never called)',
+			provider: 'openai_compatible',
+			model: 'phone-probe-stub',
+			endpoint: 'http://127.0.0.1:9/v1/chat/completions',
+			egress: 'local',
+		},
+	]),
+};
+
+/** The default (`context`) probe kind. */
+type ContextProbe = Extract<ToolPhoneProbe, { caller: unknown }>;
+
 /** A caller on the canonical test3/1 record (the suite database's playground). */
-const test3 = (tipo: string, model: string, lang = 'lg-nolan'): ToolPhoneProbe => ({
+const test3 = (tipo: string, model: string, lang = 'lg-nolan'): ContextProbe => ({
 	caller: { tipo, section_tipo: 'test3', section_id: 1, mode: 'edit', model, lang },
 });
-const test3Section = (): ToolPhoneProbe => test3('test3', 'section', 'lg-spa');
+const test3Section = (): ContextProbe => test3('test3', 'section', 'lg-spa');
 
 /** Tools PROVEN on a phone: probe must pass. Grows only by moving a tool out of NOT_YET_PHONE. */
 export const PHONE_CASES: Record<string, ToolPhoneProbe> = {
@@ -154,7 +186,6 @@ export const PHONE_CASES: Record<string, ToolPhoneProbe> = {
 			lang: 'lg-spa',
 		},
 	},
-	tool_identify: test3Section(),
 	tool_image_rotation: test3('test99', 'component_image'),
 	tool_import_dedalo_csv: test3Section(),
 	tool_import_files: {
@@ -321,5 +352,32 @@ export const NOT_YET_PHONE: Record<
 			},
 			build: 'rsc167',
 		},
+	},
+};
+
+/**
+ * Tools the deployment HIDES by an AI capability flag that no configuration
+ * can raise (src/ai/capabilities.ts aiCapabilities — a hard-coded false), so
+ * no door offers them on the suite or anywhere else. Not a phone verdict: the
+ * tool is not reachable. `probe` is the case it had when it was offered; the
+ * harness runs it and the expected outcome is a POSITIVE observation: the live
+ * caller's loaded tool list lacks the tool (any other probe failure is red, a
+ * broken probe). A probe that RENDERS means the flag was lifted, and is red until the entry moves back to
+ * PHONE_CASES (where it must pass again).
+ */
+export const HIDDEN_BY_CAPABILITY: Record<
+	string,
+	{
+		capability: 'assistant' | 'semantic' | 'identify';
+		reason: string;
+		/** `context` only: the one kind whose caller's tool list can be OBSERVED to lack the tool */
+		probe: ContextProbe;
+	}
+> = {
+	tool_identify: {
+		capability: 'identify',
+		reason:
+			'hidden until it is redesigned (ebdf510307: aiCapabilities().identify is false whatever the config) — getUserTools offers it to no caller; proven on a phone 2026-09-28 while it was offered',
+		probe: test3Section(),
 	},
 };

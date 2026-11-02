@@ -377,6 +377,10 @@ async function readSectionScoped(rqo: Rqo, principal?: Principal): Promise<ReadR
 				sectionTipo: ddoSectionTipo,
 				mode: ddo.mode ?? mode,
 				lang: ddo.lang ?? lang,
+				// Only a DECLARED ddo lang is an explicit ask; the section read's
+				// own `lang` is the ambient page data lang, which must never make
+				// the edit form build a transliterable in a version (elementLang).
+				requestedLang: ddo.lang ?? null,
 				// Per-element matrix level (the ddoIsAuthorized drop above guarantees
 				// ≥ 1 for defined principals — the client renders 1 read-only, ≥2 edit).
 				permissions: await elementPermissions(ddoSectionTipo, ddo.tipo),
@@ -710,6 +714,9 @@ async function appendDerivedItemContexts(
 			sectionTipo: String(item.section_tipo),
 			mode: String(item.mode),
 			lang: String(item.lang),
+			// The emitted item lang IS the child's instance lang (emitDdoData,
+			// elementLang) — its context must agree with it.
+			requestedLang: String(item.lang),
 			permissions,
 			parent: parentTipo,
 			view: await ddoViewOf(parentTipo, itemTipo),
@@ -1190,6 +1197,22 @@ export async function readComponentData(rqo: Rqo): Promise<DataItem[]> {
 	return flagRefusedPreview(items, String(rqo.source?.tipo ?? ''), refusal.reason);
 }
 
+/**
+ * A component read's EXPLICITLY requested lang: its own non-empty
+ * `source.lang`, else null — an omitted one leaves the instance-lang rule
+ * (resolver.ts elementLang) to pick the default, never the ambient lang posing
+ * as an ask.
+ */
+function explicitSourceLang(source: { lang?: unknown }): string | null {
+	return typeof source.lang === 'string' && source.lang !== '' ? source.lang : null;
+}
+
+/** The ddo `lang` field of that ask: present only when the caller sent one (explicitSourceLang). */
+function explicitLangField(source: { lang?: unknown }): { lang?: string } {
+	const lang = explicitSourceLang(source);
+	return lang === null ? {} : { lang };
+}
+
 /** readComponentData's body; a refused TM preview row is recorded in `refusal`. */
 async function readComponentDataUnflagged(
 	rqo: Rqo,
@@ -1369,8 +1392,20 @@ async function readComponentDataUnflagged(
 		const literalEmission = literalRoot.emission;
 		const literalData = literalEmission.items;
 		const literalMode = source.mode ?? 'edit';
+		// The ddo carries the lang ONLY when the caller sent one: a component
+		// read's own `source.lang` is an EXPLICIT ask (the tool_lang target
+		// building rsc85-like transliterables in lg-spa — resolver.ts
+		// elementLang), while an omitted one leaves the instance-lang rule to
+		// pick the default (the ambient lang for a translatable, the lg-nolan
+		// base otherwise). Stamping the ambient default here would make every
+		// lang-less read look explicit.
 		await emitDdoData(
-			{ tipo, section_tipo: sectionTipo, mode: literalMode, lang } as Ddo,
+			{
+				tipo,
+				section_tipo: sectionTipo,
+				mode: literalMode,
+				...explicitLangField(source),
+			} as Ddo,
 			[],
 			literalRoot.root,
 			{ section_tipo: sectionTipo, section_id: literalRowId },
@@ -1793,6 +1828,10 @@ async function readComponentDataUnflagged(
 		// without a reload; byte-diffed vs the oracle, 2026-07-09).
 		{
 			offset: sqoOffset,
+			// The TEMPORARY header-click order (sqo.view_order, wire-validated by
+			// sqoSchema — WC-2026-10-31-portal-order-model): the full list ordered
+			// before this page is cut; paginated_key stays the stored index.
+			viewOrder: rqo.sqo?.view_order,
 			childRowFromTarget: true,
 			ownConfig: true,
 			ddinfoBare: true,
@@ -2587,10 +2626,19 @@ export async function emitDdoData(
 		return;
 	}
 	const ddoMode = ddo.mode ?? defaultMode;
-	// Instance lang: non-translatable components are nolan-forced at
-	// instantiation (PHP get_element_lang) when the ddo carries no lang.
-	const { getTranslatableByTipo: isTranslatable } = await import('../ontology/resolver.ts');
-	const ddoLang = ddo.lang ?? ((await isTranslatable(ddo.tipo)) ? defaultLang : 'lg-nolan');
+	// Instance lang — THE one rule (resolver.ts elementLang, PHP
+	// component_common __construct :666-678 + get_element_lang): a translatable
+	// component runs in the ddo's declared lang, else the read's lang; a
+	// TRANSLITERABLE one (with_lang_versions, component_iri) in the ddo's
+	// DECLARED lang (an explicit ask: a component read's own source.lang, an
+	// ontology ddo_map `lang`), else its lg-nolan base; anything else is
+	// nolan-forced, whatever the ddo says. `defaultLang` (the section/portal
+	// read's ambient lang) never counts as an explicit ask.
+	const { elementLang } = await import('../ontology/resolver.ts');
+	const ddoLang = await elementLang(ddo.tipo, model, {
+		requested: ddo.lang ?? null,
+		ambient: defaultLang,
+	});
 
 	// Per-model emit hook (audit S2-24): the descriptor names it as DATA
 	// (emitHook), components/emit_hooks.ts maps it to its implementation in the
@@ -2669,11 +2717,15 @@ export async function emitDdoData(
 	// exactly as PHP's `$this->lang` switch did on the wire.
 	const forcedLang = (await emitHook?.resolveEmitLang?.(hookContext)) ?? null;
 	const effectiveLang = forcedLang ?? ddoLang;
+	// `explicitLang`: effectiveLang IS the instance lang the rule above (or the
+	// hook) settled, so the read shows exactly that slice — a transliterable's
+	// requested version when one was asked for, its base otherwise.
 	let { value, fallbackValue } = await resolveComponentValue(
 		record,
 		ddo.tipo,
 		model,
 		effectiveLang,
+		{ explicitLang: true },
 	);
 	if (emitHook?.transformValue !== undefined) {
 		value = await emitHook.transformValue(value, hookContext);
@@ -2878,6 +2930,8 @@ export async function buildGetDataContext(
 		sectionTipo: string;
 		mode: string;
 		lang: string;
+		/** The EXPLICITLY requested lang (buildStructureContext requestedLang). */
+		requestedLang?: string | null;
 		permissions: number;
 		parent: string | null;
 		view: string | null;
@@ -2888,6 +2942,7 @@ export async function buildGetDataContext(
 			sectionTipo: entry.sectionTipo,
 			mode: entry.mode,
 			lang: entry.lang,
+			requestedLang: entry.requestedLang ?? null,
 			permissions: entry.permissions,
 			parent: entry.parent,
 			view: entry.view,
@@ -2921,6 +2976,10 @@ export async function buildGetDataContext(
 		sectionTipo,
 		mode,
 		lang,
+		// The read's own source.lang is the EXPLICIT ask (the tool_lang target
+		// of a transliterable runs in it); an omitted one is not — `lang` above
+		// is then only the ambient default.
+		requestedLang: explicitSourceLang(source),
 		permissions: mainLevel,
 		parent: sectionTipo,
 		view: requestedView,
@@ -3014,6 +3073,9 @@ export async function buildGetDataContext(
 			sectionTipo: String(item.section_tipo),
 			mode: String(item.mode),
 			lang: String(item.lang),
+			// The emitted item lang IS the child's instance lang (emitDdoData,
+			// elementLang) — its context must agree with it.
+			requestedLang: String(item.lang),
 			// Subdatum inheritance off the MAIN element (PHP get_subdatum
 			// :2567-2575): floor-1 through the authorized caller, cap-1 under a
 			// read-only caller.

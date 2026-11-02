@@ -119,7 +119,11 @@ const NON_PRIMITIVE_EXPORTS: Record<string, string> = {
 	persistModifiedStamp:
 		'DOES write the matrix, but only the modified-by/modified-date audit columns of a record a primitive is already writing. It can never carry a dd131/dd244/dd133 value, so it is not an account transition and adding it to the primitive list would widen the door set to every save path twice over.',
 	prepareBirthColumns:
-		'the NEW-record birth-column law (CLOSURE_PLAN Step 2): drops the covered observer units (mirror + its frames) out of a whole-record column set and re-derives its `_hi` relation_search, IN MEMORY — the create/duplicate primitives persist what it returns; it writes nothing.',
+		'the NEW-record birth-column law (CLOSURE_PLAN Step 2): drops the covered observer units (mirror + its frames) out of a whole-record column set, applies the key save rules (declared-order keys sorted) and re-derives its `_hi` relation_search, IN MEMORY — the create/duplicate primitives persist what it returns; it writes nothing.',
+	applyKeySaveRules:
+		'THE key save rules (portal order model, WC-2026-10-31-portal-order-model): the value a key write will store — a declared-order relation key sorted by its declared columns (a system-scoped rank SEARCH over the linked records, read-only), every other key returned as given. Pure in effect: it writes nothing; writeKeys and the birth law persist what it returns, and the observer re-save compares it with the stored value before taking its own door.',
+	ownDataCoveredSlots:
+		'a section census (the covered copy-law slots it declares — source_overwrite / observed_data), READ-ONLY: the create/duplicate births add it to their selfRecompute; it writes nothing.',
 	dropCoveredObserverUnits:
 		'the covered-unit half of the birth law, IN MEMORY: removes each covered observer mirror AND its own dataframe frames from a column set (the duplicate calls it before its frame-target re-mint); it writes nothing.',
 	requestCoveredSlotRecompute:
@@ -151,6 +155,7 @@ const WRITE_PRIMITIVES = [
 	'persistRelationRemovalKeys(',
 	'persistRestoredKeys(',
 	'persistObserverMirrorKeys(',
+	'persistObserverResaveKeys(',
 	'persistAppendedKeyItems(',
 	'persistRecordBirth(',
 	'duplicateSectionRecordWithVerdict(',
@@ -206,6 +211,11 @@ const CENSUS: Record<string, CensusRow> = {
 		verdict: 'not-dd128',
 		reason:
 			'the thesaurus tree mutators (persistTreeKeys, CLOSURE_PLAN Step 5): every key they write is HARD-BOUND to a section’s component_relation_parent (getParentTipo), its section_map order number, or add_child’s section_map thesaurus defaults — the users section declares no parent component (relation_children_write_through_native asserts getParentTipo(dd128) is null), so no dd128 component is reachable. Their one caller, ts_object/ts_api.ts, gates at the section level (its own row).',
+	},
+	'src/core/relations/declared_order_reconcile.ts': {
+		verdict: 'system',
+		reason:
+			'the portal_declared_order reconcile (portal order model, WC-2026-10-31-portal-order-model) — run by the operator (Maintenance › Reconcile, scripts/reconcile.ts) or a post-COMMIT ontology-change trigger; no request or principal exists, so it saves as userId -1 with a superuser principal. Its keys are portal tipos that DECLARE a column order (request_config show.ddo_map `order`), re-saving the SAME locators re-ranked (set_data; relation gate 0 skips every gate for stored locators) — never a new value, and never a dd128 field the save door would not already accept from the record it holds.',
 	},
 	'src/core/relations/children_orphan_sweep.ts': {
 		verdict: 'system',
@@ -273,7 +283,7 @@ const CENSUS: Record<string, CensusRow> = {
 	'src/core/section/record/observers.ts': {
 		verdict: 'system',
 		reason:
-			'the observer mirror propagation (its recompute writes through persistObserverMirrorKeys). It runs as the engine after a committed save, with no actor to judge; gating it would make a mirror depend on who happened to trigger it.',
+			"the observer propagation: its mirror recompute writes through persistObserverMirrorKeys and its default branch's re-save (an observer whose own save rules change its stored value — a declared-order portal re-sorted) through persistObserverResaveKeys. It runs as the engine after a committed save, with no actor to judge; gating it would make a derived value depend on who happened to trigger it.",
 	},
 	'src/core/update/transform/portalize.ts': {
 		verdict: 'system',
@@ -765,6 +775,7 @@ const PRIMITIVE_REACH: Record<string, 'chokepoint' | 'callee' | 'n/a' | 'caller'
 	'persistRelationRemovalKeys(': 'chokepoint',
 	'persistRestoredKeys(': 'chokepoint',
 	'persistObserverMirrorKeys(': 'chokepoint',
+	'persistObserverResaveKeys(': 'chokepoint',
 	'persistAppendedKeyItems(': 'chokepoint',
 	'persistRecordBirth(': 'chokepoint',
 	// the duplicate's verdict-returning twin: writes a NEW record, like duplicateSectionRecord.

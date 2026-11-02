@@ -237,9 +237,13 @@ describe('AUTHZ-05: inverse-reference scan is principal-scoped at the user-facin
 			kind: 'system',
 			why: 'integrity rewrite: EVERY referencing record must be cleaned, or the delete leaves dangling locators behind for the references the actor could not see',
 		},
-		'src/core/section/record/observers.ts': {
+		'src/core/section/record/external_laws/inverse_search.ts': {
 			kind: 'system',
-			why: 'observer propagation runs under the system identity; a scoped seed would write a mirror truncated to one actor’s grants',
+			why: 'the inverse-reference law (moved out of observers.ts 2026-10-30; propagation runs under the system identity): a mirror computed for one actor would be truncated to that actor’s grants and stored for everyone',
+		},
+		'src/core/section/record/external_laws/resolvers.ts': {
+			kind: 'system',
+			why: 'observer TARGET resolution (inverse resolver through the law pointer): which records hold the mirror is an integrity question, never scoped to the saving actor',
 		},
 		'src/diffusion/resolve/resolver.ts': {
 			kind: 'system',

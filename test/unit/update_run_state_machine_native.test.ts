@@ -26,6 +26,7 @@ import {
 	blockingRun,
 	createRunJournal,
 	finishPhase,
+	newRunId,
 	type RunJournal,
 	readRunJournals,
 	startPhase,
@@ -111,6 +112,10 @@ describe('states: the happy path is the run’s own steps', () => {
 
 	test('side exits: before the swap a run fails clean; after it, rollback or a human', () => {
 		expect(canTransition([...phases], 0, 'PLANNED', 'REFUSED')).toBe(true);
+		// The backup step's refusal: nothing ran, so REFUSED — never after the backup.
+		expect(canTransition([...phases], 0, 'PREFLIGHT_OK', 'REFUSED')).toBe(true);
+		expect(canTransition([...phases], 0, 'BACKED_UP', 'REFUSED')).toBe(false);
+		expect(canTransition([...phases], 1, 'ONTOLOGY_APPLIED', 'REFUSED')).toBe(false);
 		expect(canTransition([...phases], 1, 'ONTOLOGY_APPLIED', 'FAILED_PRE_SWAP')).toBe(true);
 		expect(canTransition([...phases], 1, 'ONTOLOGY_APPLIED', 'ROLLED_BACK_CODE')).toBe(false);
 		expect(canTransition([...phases], 2, 'CODE_SWAPPED', 'FAILED_PRE_SWAP')).toBe(false);
@@ -170,6 +175,28 @@ describe('journal: phases drive the state, and the file is the run’s memory', 
 		// floor: the directory scanned holds the journal (the empty .tmp list is not an empty read)
 		expect(readdirSync(root).length).toBeGreaterThan(0);
 		expect(readdirSync(root).filter((name) => name.includes('.tmp'))).toEqual([]);
+	});
+
+	test('run ids sort by start time within one second — the random suffix never decides "newest"', async () => {
+		// dev drill 2026-11-02: a refused run and the real one started in the same
+		// second; a seconds-only id let the suffix order them. 40 pairs, 1 ms apart,
+		// written in reverse: the read order must still be the start order.
+		const root = scratchRoot();
+		const base = Date.parse('2026-11-02T11:58:56.000Z');
+		const expected: string[] = [];
+		for (let i = 0; i < 40; i++) {
+			const earlier = { ...journalOf([]), run_id: newRunId(new Date(base + 2 * i)) };
+			const later = { ...journalOf([]), run_id: newRunId(new Date(base + 2 * i + 1)) };
+			await writeRunJournal(root, later);
+			await writeRunJournal(root, earlier);
+			expected.push(earlier.run_id, later.run_id);
+		}
+		const read = (await readRunJournals(root)).map((r) => (r.ok ? r.journal.run_id : r.file));
+		expect(read).toEqual([...expected].sort());
+		expect(read).toEqual(expected);
+		expect(newRunId(new Date('2026-11-02T11:58:56.123Z'))).toMatch(
+			/^20261102T115856123Z_[0-9a-f]{8}$/,
+		);
 	});
 
 	test('an unreadable journal blocks too — a torn file is no proof that no run is in flight', async () => {

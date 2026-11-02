@@ -240,8 +240,12 @@
 							}
 						}
 
-						>.hover_body {
-							position: relative;
+						// the lazy hover overlay (row_hover.js) shows only while its tile is
+						// hovered, or holds the focus (a deferred teardown keeps an overlay
+						// with a pending edit alive): the CSS replaces the JS display_none
+						// toggles (WC-2026-10-30-section-record-row-box)
+						>.section_record:not(:hover, :focus-within) >.sr_mosaic_hover {
+							display: none;
 						}
 
 						.sr_mosaic_hover {
@@ -426,7 +430,8 @@
 							}
 						}
 
-						&.mosaic_over {
+						// the hovered tile (was the JS `mosaic_over` toggle)
+						&:hover {
 							outline: 1px solid @color_orange_dedalo;
 							z-index: 2;
 						}

@@ -9,7 +9,13 @@
 
 	&.list{
 
-		>.list_body >.content_data {
+		// legacy list shape only. This 0,5,0 `contents` beat the row-box table
+		// rule (`list.less` 'layout_table': content_data is a column SUBGRID) and
+		// would flatten every row back into the list_body grid, so the marker
+		// opts out of it; the rule itself goes once no base list renders the
+		// legacy shape (the row-box CSS removals, engineering/wire_contract/
+		// WC-2026-10-30-section-record-row-box.md).
+		>.list_body:not(.layout_table) >.content_data {
 			display: contents;
 		}
 	}// end edit

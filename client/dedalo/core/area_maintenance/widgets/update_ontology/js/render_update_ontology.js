@@ -668,6 +668,105 @@ const build_tlds_reference = function (options) {
 
 
 /**
+* BUILD_BACKUP_GATE
+* The update run's database-backup precondition, stated BEFORE the click. The
+* run (core/update/run/start.ts) refuses without a recent, proven-restorable
+* backup; `check` is the server's own `backup_fresh` line (the one the code
+* panel reads), so the panel and the refusal can never disagree.
+*  - ok: one quiet line with the backup's age; no waiver is offered.
+*  - anything else: an amber line saying WHY the update will be refused, the
+*    waiver checkbox (journaled with the operator's user) and its consequence,
+*    and the submit button stays disabled until the operator either makes a
+*    backup (and reloads) or ticks the waiver.
+* A server that sends no `backup` (older engine) gets the waiver with no
+* verdict and no disabled button — the server still decides.
+*
+* @param {object|undefined} check - value.backup: {id, state, detail?, scope?}
+* @param {HTMLElement} form_container
+* @param {HTMLElement|null} button_submit
+* @returns {HTMLInputElement|null} the waiver checkbox (null when not offered)
+*/
+const build_backup_gate = function (check, form_container, button_submit) {
+
+	const gate = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'backup_gate'
+	})
+	form_container.insertBefore(gate, button_submit)
+
+	ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'dd_eyebrow',
+		inner_html		: (get_label.update_ontology_backup_title || 'Database backup'),
+		parent			: gate
+	})
+
+	// the age FACT when the server measured one ('none' / 'verifying' otherwise)
+	const hours = Number(check?.detail)
+	const age = Number.isFinite(hours) ? String(hours) : null
+
+	if (check?.state==='ok') {
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_note backup_state state_ok',
+			text_content	: (get_label.update_code_check_backup_fresh || 'Recent database backup') + (age!==null ? ': ' + age + ' h' : ''),
+			parent			: gate
+		})
+		return null
+	}
+
+	if (check) {
+		const reason = check.detail==='verifying'
+			? (get_label.update_ontology_backup_verifying || 'The newest database backup is still being verified. Reload this panel in a moment.')
+			: (get_label.update_ontology_backup_missing || 'No recent, verified database backup. The update will be refused until you make one in Backups (then reload this panel), or tick the box below.')
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_note backup_state state_warning',
+			text_content	: (age!==null ? reason + ' (' + age + ' h)' : reason),
+			parent			: gate
+		})
+	}
+
+	// label WRAPS the input (the house pattern): the whole line is the click target
+	const waive_label = ui.create_dom_element({
+		element_type	: 'label',
+		class_name		: 'waive_backup_label',
+		parent			: gate
+	})
+	const waive_input = ui.create_dom_element({
+		element_type	: 'input',
+		type			: 'checkbox',
+		class_name		: 'waive_backup_check',
+		name			: 'update_ontology_waive_backup',
+		parent			: waive_label
+	})
+	ui.create_dom_element({
+		element_type	: 'span',
+		text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup',
+		parent			: waive_label
+	})
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'dd_note waive_backup_note',
+		text_content	: get_label.update_code_waive_backup_note || 'The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.',
+		parent			: gate
+	})
+
+	// no verdict from the server: offer the waiver, but leave the decision to it
+	if (check && button_submit) {
+		const sync_submit = () => {
+			button_submit.disabled = waive_input.checked!==true
+		}
+		waive_input.addEventListener('change', sync_submit)
+		sync_submit()
+	}
+
+	return waive_input
+}//end build_backup_gate
+
+
+
+/**
 * BUILD_CLIENT_INFO
 * Admin help for the PULL side: which servers this installation may pull from
 * comes from ONE config key, so the panel names it, reports how many entries it
@@ -757,6 +856,7 @@ const build_client_info = function (servers) {
 *   current_ontology : { version, date, host, entity, entity_label },
 *   servers          : [{ name, url, code, tld?, response_code, result? }],
 *   active_ontology_tlds : string[],
+*   backup           : { id:'backup_fresh', state, detail?, scope? },
 *   confirm_text     : string
 * }
 * ```
@@ -841,23 +941,12 @@ const get_content_data_edit = async function(self) {
 					const input_nodes = nodes.input_nodes || []
 					const tlds_input = input_nodes.find(el => el.name === 'active_ontology_tlds')
 
-					const waive_backup_label = ui.create_dom_element({
-						element_type	: 'label',
-						class_name		: 'waive_backup_label',
-						text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup'
-					})
-					// above the submit button: the caution is read before the click
-					nodes.form_container.insertBefore(
-						waive_backup_label,
+					// above the submit button: the backup state is read before the click
+					waive_backup_input = build_backup_gate(
+						value.backup,
+						nodes.form_container,
 						nodes.form_container.button_submit || null
 					)
-					waive_backup_input = ui.create_dom_element({
-						element_type	: 'input',
-						type			: 'checkbox',
-						class_name		: 'waive_backup_check',
-						name			: 'update_ontology_waive_backup'
-					})
-					waive_backup_label.prepend(waive_backup_input)
 
 					// the operator's line wins over the configured default, and
 					// survives a reload

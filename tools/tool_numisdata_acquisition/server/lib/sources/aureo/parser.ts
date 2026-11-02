@@ -32,8 +32,8 @@ function absoluteUrl(href: string | undefined | null, base: string): string | nu
  */
 function extractAureoWeight(text: string | null): string | null {
 	if (!text) return null;
-	const match = text.match(/(\d+(?:[.,]\d+)?)\s*g\.?(?=\s|$|[,;)])/i);
-	return match ? `${match[1]!.replace(',', '.')}g` : null;
+	const value = text.match(/(\d+(?:[.,]\d+)?)\s*g\.?(?=\s|$|[,;)])/i)?.[1];
+	return value !== undefined ? `${value.replace(',', '.')}g` : null;
 }
 
 /**
@@ -43,8 +43,8 @@ function extractAureoWeight(text: string | null): string | null {
  */
 function extractAureoDiameter(text: string | null): string | null {
 	if (!text) return null;
-	const match = text.match(/Ø\s*(\d+(?:[.,]\d+)?)\s*mm\b/i);
-	return match ? `${match[1]!.replace(',', '.')}mm` : null;
+	const value = text.match(/Ø\s*(\d+(?:[.,]\d+)?)\s*mm\b/i)?.[1];
+	return value !== undefined ? `${value.replace(',', '.')}mm` : null;
 }
 
 /**
@@ -59,7 +59,7 @@ function extractAureoCondition(text: string | null): string | null {
 	const match = text.match(
 		/\b(FDC|SC\+|SC-|SC|EBC\+|EBC-|EBC|MBC\+|MBC-|MBC|BC\+|BC-|BC|RC)(?![A-Za-z0-9])/,
 	);
-	return match ? match[1]! : null;
+	return match?.[1] ?? null;
 }
 
 interface AureoPriceInfo {
@@ -88,12 +88,12 @@ function extractAureoPriceInfo(priceText: string): AureoPriceInfo {
 function parseAureoLotCard(card: cheerio.Cheerio<AnyNode>, pageUrl: string): ExtractedLot | null {
 	const topCols = card.find('.row.my-0.small .col-4');
 	const lotNumberMatch = cleanText(topCols.eq(0).text())?.match(/Lot\s+(\d+)/i);
-	const lotNumber = lotNumberMatch ? lotNumberMatch[1]! : null;
+	const lotNumber = lotNumberMatch?.[1] ?? null;
 	if (!lotNumber) return null;
 
 	const dateText = cleanText(topCols.eq(1).text());
 	const auctionMatch = cleanText(topCols.eq(2).text())?.match(/Auction\s+(\d+)/i);
-	const auctionNumber = auctionMatch ? auctionMatch[1]! : null;
+	const auctionNumber = auctionMatch?.[1] ?? null;
 
 	const thumbLink = card.find('.item-thumb a').first();
 	const auctionIdPadded = thumbLink.attr('data-auction');
@@ -170,9 +170,7 @@ export function parseAureoAuction(html: string, sourceUrl: string): ExtractedAuc
 	const $ = cheerio.load(html);
 	const auctionId = parseAureoAuctionId(sourceUrl) ?? '';
 	const breadcrumbMatch = html.match(/AUCTION\s+(\d+)/i);
-	const auctionNumber = breadcrumbMatch
-		? breadcrumbMatch[1]!
-		: String(Number.parseInt(auctionId, 10) || auctionId);
+	const auctionNumber = breadcrumbMatch?.[1] ?? String(Number.parseInt(auctionId, 10) || auctionId);
 
 	const firstCard = $('.card.lot-item').first();
 	const dateText = cleanText(firstCard.find('.row.my-0.small .col-4').eq(1).text());

@@ -123,6 +123,21 @@ export interface RunStartHooks {
 }
 
 /**
+ * Did the run end on a REFUSAL — the preflight / backup step (REFUSED), or a
+ * gate inside a pre-swap phase that threw `update.refused` (a checksum
+ * mismatch, a refused upgrade path: FAILED_PRE_SWAP, nothing the install runs
+ * changed)? Then the job says `update.refused`, as the gate did (refuse.ts:
+ * never launder a refusal). A failure after the swap is `update.failed`
+ * whatever threw: the run did change the install.
+ */
+function refusedRun(journal: RunJournal): boolean {
+	if (journal.state === 'REFUSED') return true;
+	if (journal.state !== 'FAILED_PRE_SWAP') return false;
+	const failed = [...journal.phases].reverse().find((phase) => phase.outcome === 'failed');
+	return failed?.evidence.code === 'update.refused';
+}
+
+/**
  * A run that ENDED short of a confirm is a failed job, never a quiet success:
  * the panel shows its note (the vetted sentence — journal.ts failureSentence).
  * A run that is restarting, or ended CONFIRMED, answers its journal.
@@ -132,7 +147,7 @@ export function outcomeOrThrow(outcome: DriveOutcome): DriveOutcome {
 	const restartingOn = outcome.state === 'restarting' && state !== 'ROLLED_BACK_CODE';
 	if (restartingOn || state === 'CONFIRMED') return outcome;
 	const said = note ?? 'The update did not complete';
-	throw new DedaloError(state === 'REFUSED' ? 'update.refused' : 'update.failed', {
+	throw new DedaloError(refusedRun(outcome.journal) ? 'update.refused' : 'update.failed', {
 		message: `update run ${run_id} ended ${state}: ${said}`,
 		publicMessage: `${said} (update run ${run_id}: ${state})`,
 		coordinates: { rule: state.toLowerCase() },

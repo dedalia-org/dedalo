@@ -30,7 +30,9 @@ components fire in turn — bounded, and never inside the caller's transaction.
 | Module | Owns |
 |---|---|
 | `src/core/section/record/observer_subscriptions.ts` | Edge discovery: the ontology-wide subscription registry, host-section resolution, the contract validator. |
-| `src/core/section/record/observers.ts` | Dispatch and the recompute laws: relay, `set_dato_external`, info recompute, the safety guards. |
+| `src/core/section/record/observers.ts` | Dispatch and the recompute kernel: relay, `set_dato_external`, info recompute, the safety guards. |
+| `src/core/section/record/external_laws/` | The three value laws an external mirror can obey, the one classifier that picks a node's law, the one merge, and the target-resolver table. |
+| `src/core/section/record/external_refresh.ts` | The portal's *update external* button: an on-demand recompute of one mirror on read. |
 | `src/core/section/record/observer_reconcile.ts` + `scripts/observer_reconcile.ts` | The operator sweep that heals mirrors left stale by bulk doors. |
 
 Propagation is fired from the component-save chokepoint, so it is not
@@ -159,6 +161,60 @@ the `observers_registry` gauge and the `observers_*` counters on
     `dd_ontology` directly in the database, restart the server or the registry
     keeps serving the pre-edit picture.
 
+### Edges derived from a copy law
+
+Two kinds of edge are not declared at all. The first the registry **derives**
+from a [copy law](#the-copy-law); the second from a portal's declared order
+([below](#edges-derived-from-a-declared-order)). A copy reads a component on *another* record, so
+when that component changes, the copy is stale — whether or not anyone thought
+to declare the edge. For every node that follows the copy law, the registry
+adds an edge from the copied component to the copy, whose targets are the
+records whose pointer names the saved record.
+
+Live case: `numisdata679` (*Coins* on a catalog term) declares that it
+watches the term's own pointer, `numisdata656`, but not the type's
+`numisdata77` it copies. Without the derived edge a term's *Coins* went stale
+every time a coin was added to its type — term 2973 above holds two coins
+while its type holds three. With it, linking a coin to a type updates
+`numisdata77` on the type, and then `numisdata679` on every term catalogued
+under it.
+
+- Among the value laws, only the copy law derives edges. The inverse-reference
+  law is already reached through its declared chain, and the text-tag law reads
+  its own record, which its declared edge already covers. A portal's declared
+  order derives edges of its own ([below](#edges-derived-from-a-declared-order)).
+- **A declared edge always wins.** `numisdata965` declares its own edge from
+  `numisdata11`, so nothing is derived for it. Any `observe` entry for the
+  same component — a client-only one included — takes precedence; adding a
+  client-only entry for the copied component is how you switch a derived edge
+  off, and it is an ontology edit, not code.
+- Derived edges take part in cycle detection like any other edge, and they are
+  counted in the registry's diagnostics.
+
+### Edges derived from a declared order
+
+A portal whose `show.ddo_map` declares an `order` stores its locators sorted by
+a value that lives in the **linked** records (see
+[component_portal](../components/component_portal.md#the-order-model)). When
+that value changes, no host is saved, so the registry derives the edges that
+keep the order: for each declared ordering column it follows the column's full
+order path — for a relation column, through every hop to the value it sorts
+on — and adds one edge per hop, from the linked record back to the record that
+links it (`use_inverse_relations` through the hop's own relation). Each edge is
+a [relay](#what-is-computed-the-perform): it finds the records referencing the
+saved one, re-saves the observer there through its own save rules (which
+re-sorts the array) and relays on, until the portal hosts are reached.
+
+- A declared or copy-law edge on the same key wins; two portals ordering
+  through one relation share ONE edge.
+- A column whose order path resolves to nothing derives no edge and is reported
+  as unresolved: nothing can keep that order.
+- When the portal's target sections are data-driven (`hierarchy_types`,
+  `section_model`, `ontology_sections`, `field_value`), a write to those
+  sections rebuilds the registry, so the derived edges follow the data.
+- Their backstop is the `portal_declared_order` reconcile, not the observer
+  reconcile script.
+
 ## What runs: targets × performs
 
 Two orthogonal questions decide what a save does: **which records** an observer
@@ -166,16 +222,31 @@ recomputes on, and **what** is computed on each.
 
 ### Which records (target resolution)
 
+For an info observer (and the relay and no-op shapes) the targets come from
+`server.filter` and `use_observable_dato`:
+
 | Targets | Declared as |
 | --- | --- |
 | The saved record | `server.filter: false`, no `perform` (only an info-model observer recomputes on it; anything else is a no-op — see the perform table) |
 | Everything the just-saved data points at | `server.config.use_observable_dato: true` |
-| Both of the above | `use_observable_dato` **and** `use_self_section` true |
 | Every record referencing the saved one | `server.filter` is an [SQO](../sqo.md) object: a search over the **host section** in which every clause's `q` becomes the saved record's locator, with `from_component_tipo` taken from the first clause's last path step |
+
+For a `set_dato_external` edge one closed table decides, checked top to bottom:
+
+| `server.config` | Targets |
+| --- | --- |
+| `use_observable_dato` and `use_self_section: true` | the saved record **plus** everything the saved data points at |
+| `use_observable_dato` and `use_self_section: false` | everything the saved data points at (a `filter` beside it has no effect) |
+| `use_inverse_relations: true` | every record that **references** the saved one — through the observer's pointer component when its law has one — one visit per record |
+| anything else, no `config` at all included | the saved record |
 
 The observable-data targets are the locators **in the payload the save door just
 handed over**, not a re-read of the record — they are never found by searching a
 section. Only the SQO-filter shape needs a host section.
+
+Whichever row selects a record, an external mirror is only **created** on a
+record whose section declares the observer — see
+[a mirror lives only where it is declared](#a-mirror-lives-only-where-it-is-declared).
 
 #### A save also visits what it stopped pointing at
 
@@ -218,8 +289,12 @@ Edges without a `data_from_field` peer are unaffected and pay nothing extra.
     `false` is the terminal no-op, absent-plus-`use_observable_dato` is the
     relay. One playground edge declares a filter **and** `set_dato_external` —
     `test199` (`component_portal`, section `test183`) observing `test188`, a
-    `box elements` node — and the filter has no effect there. Read it as a
-    demonstration of the rule, not as authoring to copy.
+    `box elements` node, with `use_self_section: false` — and the filter has no
+    effect there. Read it as a demonstration of the rule, not as authoring to
+    copy. A filter next to the rows that *include the saved record* (the first
+    and the last of the table) is refused and counted instead, because
+    ignoring it there would silently narrow what the author asked for; no
+    shipped edge has that shape.
 
 ### Host-section resolution
 
@@ -255,71 +330,68 @@ the engine refuses rather than silently retargeting.
 | Perform | Declared as | Effect |
 | --- | --- | --- |
 | Info recompute | observer is a `component_info` (or a `component_state` / `component_calculation` alias) with **no** `perform` | Recomputes the widgets on each target and writes **one** `matrix_time_machine` row per target (lang `lg-nolan`). It deliberately never touches the live stored value — live reads compute. Targets equal to the saved record additionally ride the save response, so the open editing panel refreshes. |
-| `set_dato_external` | `perform: {function: "set_dato_external"}` **and** `config.use_observable_dato: true` | Recomputes the observer's **external mirror** on each target — the value law below. |
-| Relay | no `perform`, no `filter`, `config.use_observable_dato: true`, observer is not an info model | A pure **trigger**. It writes nothing at all: no value change, no Time Machine row, no modified stamps. It exists only to re-enter propagation so a dependency chain can continue. |
+| `set_dato_external` | `perform: {function: "set_dato_external"}`; the targets come from `config` (the table above) | Recomputes the observer's **external mirror** on each target — by the value law its `source` declares (below). |
+| Relay | no `perform`, no `filter`, `config.use_observable_dato: true` or `config.use_inverse_relations: true`, observer is not an info model | A **trigger** that re-enters propagation so a dependency chain can continue. Per target it first re-saves the observer through its own save rules and writes only when they change the stored value — today only a portal declaring an `order` is re-sorted (one write and one Time Machine row). For every other observer it writes nothing at all: no value change, no Time Machine row, no modified stamps, and it does not even read the target. |
 | Terminal no-op | `filter: false`, no `perform`, observer is not an info model | Nothing runs server-side; the client half is the whole point of the entry. |
 
-Measured coverage of the 73 dispatchable edges on this install:
+Measured coverage of the 73 dispatchable edges on this install (re-measured
+2026-10-30):
 
 | Edges | Shape |
 | ---: | --- |
 | 33 | info / state / calculation recompute on the saved record (`filter: false`) |
-| 20 | `set_dato_external` external-mirror recompute |
+| 27 | `set_dato_external` external-mirror recompute |
 | 7 | info recompute through an SQO filter |
 | 3 | terminal no-op (`filter: false` on a non-info observer) |
 | 2 | relay |
-| 8 | declared but **not covered** — see below |
+| 1 | declared but **not covered** — `refresh_data`, see below |
 
-!!! warning "Eight declared edges are skipped loudly, not run"
-    The engine never guesses an unimplemented shape: it logs
-    `server shape not covered` and does nothing. Seven of the eight declare
-    `perform: set_dato_external` without `config.use_observable_dato`, which is
-    the key that names the targets — so the entry has nothing to recompute on:
+On top of those, the engine derives **one** edge from a law rather than from a
+declaration — see [edges derived from a copy law](#edges-derived-from-a-copy-law).
 
-    - **six** carry no `config` block at all — `numisdata563`, `numisdata574`,
-      `numisdata575`, `numisdata993`, `numisdata1227` and `numisdata1229`, all
-      `component_autocomplete_hi`;
-    - **one** carries a `config` block that sets only the inert
-      `use_inverse_relations`: `numisdata965` (`component_portal`) observing
-      `numisdata11` (`component_portal` — *Ordered coins*).
+Seven of the 27 external edges were skipped until 2026-10-30, because the
+engine only understood the `use_observable_dato` rows of the target table:
 
-    The eighth is different: `rsc1214` (`component_select`) observing `rsc1156`
-    declares a perfectly well-formed target config **and**
-    `perform: {"function": "refresh_data"}`. That perform is **not
-    implemented** — a real, dated gap, stated rather than approximated.
+- the six **legend-symbol** mirrors carry no `config` block at all —
+  `numisdata563`, `numisdata574`, `numisdata575`, `numisdata993`,
+  `numisdata1227` and `numisdata1229`, all `component_autocomplete_hi`. They
+  recompute on the saved record (the last row of the table), which is exactly
+  right: each one derives from a text on its **own** record (see
+  [the text-tag law](#the-text-tag-law));
+- `numisdata965` (`component_portal` — *Ordered coins*) observing
+  `numisdata11` (`component_portal` — *Ordered coins*) declares
+  `use_inverse_relations`, which now resolves the records that point at the
+  saved one.
 
-!!! danger "None of the eight is fixable by adding `use_observable_dato` alone"
-    Adding `"config": {"use_observable_dato": true}` is *necessary* for those
-    seven, but on none of these nodes is it *sufficient* — the edge stays dead
-    and simply fails one step later:
+!!! warning "One declared edge is skipped loudly, not run"
+    `rsc1214` (`component_select`) observing `rsc1156` declares a well-formed
+    target config **and** `perform: {"function": "refresh_data"}`. That
+    perform is **not implemented** — a real, dated gap, stated rather than
+    approximated. The engine names it as a known exemption in the log and
+    counts it (`observers_server_shape_not_covered`); any other unknown
+    `perform` is refused and counted the same way. The engine never calls a
+    function just because the ontology names it.
 
-    - the six `component_autocomplete_hi` nodes have `source.mode: "external"`
-      and a `source.section_to_search`, but **no `source.component_to_search`** —
-      without it the value law is undefined, and the recompute skips with
-      `observers_component_to_search_missing`;
-    - `numisdata965` carries `source.source_overwrite`, so it is refused
-      wholesale by the unrecognized-derivation-rule guard below, before any
-      compute;
-    - `rsc1214` already has the target config; what it needs is the
-      `refresh_data` perform, which is code, not configuration.
-
-    Wire the missing `source` keys first, and treat the `source_overwrite` case
-    as blocked until that rule is ported.
-
-!!! warning "`use_inverse_relations` is INERT"
-    One live entry declares `config: {use_inverse_relations: true}` — the
-    `numisdata965` ← `numisdata11` edge above. **Nothing reads that key**, so it
-    resolves no targets and the edge falls into the not-covered skip. Do not
-    copy it expecting an inverse-reference resolver. (`numisdata965`'s *other*
-    edge, ← `numisdata656`, is a covered `set_dato_external` shape; that one
-    reaches the recompute and is refused there for `source_overwrite`.)
-
-## The value law of `set_dato_external`
+## The value laws of `set_dato_external`
 
 An **external mirror** is a relation component — a `component_portal` (or one of
 its `component_autocomplete` aliases) with `properties.source.mode: "external"` —
-whose stored value is *derived*: the list of every record that references its
-host record. `set_dato_external` is the perform that recomputes it:
+whose stored value is *derived* from other data. `set_dato_external` is the
+perform that recomputes it. **What** it derives depends on the node's
+`properties.source`, and there are exactly three answers:
+
+| `properties.source` declares | Law | The mirror is |
+| --- | --- | --- |
+| `component_to_search` | [inverse reference](#the-inverse-reference-law) | every record that points at this one |
+| `source_overwrite.data_from_field` **and** `component_to_search` | [copy](#the-copy-law) | a copy of a component on the record this one points at |
+| `set_observed_data` | [text tag](#the-text-tag-law) | the locators inside the tags of a text on the same record |
+
+One classifier decides, once per node and per ontology version, and it is
+closed: a node maps to exactly one law or it is **refused** — see
+[ambiguous nodes are refused](#ambiguous-nodes-are-refused). No law ever falls
+back to another.
+
+### The inverse-reference law
 
 > The observer's value becomes every record referencing the target record — **or
 > any equivalent of the target** — through `source.component_to_search`, limited
@@ -440,9 +512,183 @@ the diff for honest reporting but **refuses to persist it**, logged and counted
 as `observers_big_result_refused` — a retained safeguard against very expensive
 saves. It is reachable here: the widest real case holds 4,547 referencers.
 
+The freeze belongs to the inverse-reference law only. A copy and a tag list
+are bounded by their source, so the two laws below never freeze.
+
+### The copy law
+
+> The observer's value becomes a copy of component
+> `source.source_overwrite.data_from_field` on the record named by the first
+> qualifying locator of the observer's own pointer component,
+> `source.component_to_search`.
+
+The live case is the **catalog**. A catalog term carries **numisdata656**
+(`component_autocomplete_hi` — *Term*), the type it is catalogued under; it is
+what `tool_cataloging` saves when you drop a type onto a term. Two mirrors on
+the same term copy that type's coins:
+
+- **numisdata679** (`component_portal` — *Coins*) copies the type's
+  `numisdata77` (*Coins*);
+- **numisdata965** (`component_portal` — *Ordered coins*) copies the type's
+  `numisdata11` (*Ordered coins*).
+
+From `numisdata679`'s `properties.source`, display keys omitted:
+
+```json
+{
+    "mode": "external",
+    "source_overwrite": { "data_from_field": "numisdata77" },
+    "section_to_search": ["numisdata4"],
+    "component_to_search": ["numisdata656"]
+}
+```
+
+Both mirrors are declared in section `numisdata651` (*Catalog*); the terms live
+in its virtual faces `numisdata665` (*MIB catalog*), `numisdata691` (*Pere
+Catalog*) and `numisdatacatalog1` (*Numisdata Catalog*), which all count as
+hosts.
+
+How a recompute resolves:
+
+- **Which locator.** The first locator of the pointer, in stored order, whose
+  section declares the copied component. A term whose first link is a period or
+  a mint therefore still copies from the type that follows it. A malformed
+  locator is skipped and counted (`observers_source_overwrite_pointer_malformed`).
+- **Nothing to copy.** An empty pointer, no qualifying locator, or a pointed
+  record that no longer exists → the mirror becomes **empty**. Unlinking a type
+  from a term empties the term's *Coins*.
+- **Cannot be answered.** The copied component has no ontology node, or the
+  pointed section has no table → the additions apply, every drop is **withheld**
+  and counted — the same rule as a [degraded seed](#removals-are-mirrored-and-the-one-case-where-they-are-not).
+- **Order.** The copy keeps the **source's order** — *Ordered coins* is ordered
+  on the type, and the term shows it in that order.
+
+Term 2973 of `numisdata665` on this install, catalogued under type 17415, is a
+copy that fell behind its source (see
+[edges derived from a copy law](#edges-derived-from-a-copy-law) for why). The
+term's stored `numisdata679`:
+
+```json
+[
+    { "id": 1, "type": "dd151", "section_id": 134743, "section_tipo": "numisdata4", "from_component_tipo": "numisdata679" },
+    { "id": 2, "type": "dd151", "section_id": 134744, "section_tipo": "numisdata4", "from_component_tipo": "numisdata679" }
+]
+```
+
+The type's `numisdata77` holds three coins, `134743`, `181481`, `134744` in that
+order. The next recompute of the term stores the three in the type's order;
+coins already in the mirror keep their item ids and the new one takes the next
+free id:
+
+```json
+[
+    { "id": 1, "type": "dd151", "section_id": 134743, "section_tipo": "numisdata4", "from_component_tipo": "numisdata679" },
+    { "id": 3, "type": "dd151", "section_id": 181481, "section_tipo": "numisdata4", "from_component_tipo": "numisdata679" },
+    { "id": 2, "type": "dd151", "section_id": 134744, "section_tipo": "numisdata4", "from_component_tipo": "numisdata679" }
+]
+```
+
+### The text-tag law
+
+> The observer's value becomes the locators carried by the tags of a text
+> component on the **same record** — the first `source.set_observed_data` entry
+> names the text.
+
+The live case is a coin **legend**. Record 4732 of section `numisdata41`
+(*Legend*) stores its legend in **numisdata195** (`component_text_area` —
+*Legend*), with two symbols placed as svg tags:
+
+```json
+{
+    "string": {
+        "numisdata195": [
+            {
+                "id": 1,
+                "lang": "lg-nolan",
+                "value": "<p>[svg-n-1--data:{'section_tipo':'sclat1','section_id':'86','component_tipo':'hierarchy95'}:data] / ROM[svg-n-2--data:{'section_tipo':'sclat1','section_id':'134','component_tipo':'hierarchy95'}:data]</p>"
+            }
+        ]
+    }
+}
+```
+
+**numisdata563** (`component_autocomplete_hi` — *Epigraphic legend*) lists
+those symbols. Its `source` names the text and the function:
+
+```json
+{
+    "mode": "external",
+    "section_to_search": ["numisdata41"],
+    "set_observed_data": [
+        {
+            "tipo": "numisdata195",
+            "perform": { "function": "get_locators_of_tags", "params": { "ar_tags": ["svg"] } }
+        }
+    ]
+}
+```
+
+and its stored value on that record is the two tag locators, in the order they
+appear in the text:
+
+```json
+{
+    "relation": {
+        "numisdata563": [
+            { "id": 1, "type": "dd151", "section_id": 86, "section_tipo": "sclat1", "component_tipo": "hierarchy95", "from_component_tipo": "numisdata563" },
+            { "id": 2, "type": "dd151", "section_id": 134, "section_tipo": "sclat1", "component_tipo": "hierarchy95", "from_component_tipo": "numisdata563" }
+        ]
+    }
+}
+```
+
+The rules:
+
+- **Which tags.** `params.ar_mark_tag`, else `params.ar_tags`, else `["svg"]`.
+  Allowed tag types: `svg`, `draw`, `geo`, `page`, `note`, `lang` — the tags
+  whose payload is a locator. Anything else is refused. A tag whose payload is
+  not a locator is skipped.
+- **Which languages.** Every stored language of the text, in a fixed order:
+  `lg-nolan`, then the installation's main data language, then the rest
+  alphabetically. Within one text, **the order the tags appear in**. A locator
+  already listed is not listed again. The result does not depend on who saved
+  the text, or in which language they were working.
+- **Deleted records.** A tag that points at a record that no longer exists
+  adds nothing. Deleting a coin removes it from the legend's mirror, and it
+  stays removed when the text is saved again, even though the tag is still in
+  the text. A tag pointing at a section that has no table means the mirror
+  cannot be answered (see below).
+- **No function.** An entry with no `perform` copies the named component's
+  value as it is — allowed only when that component stores locators. No shipped
+  node uses it.
+- **Cannot be answered.** The text's ontology node is missing, it stores the
+  wrong kind of data, or a tag points at a section that has no table → drops withheld, counted
+  `observers_observed_data_unanswerable`. An empty text simply gives an empty
+  mirror.
+
+All six legend-symbol mirrors on this install follow this law: `numisdata563`,
+`numisdata574`, `numisdata575`, `numisdata993`, `numisdata1227` and
+`numisdata1229`.
+
+### One merge for every law
+
+Whatever the law computes, the stored value is merged the same way:
+
+- an entry is identified by `section_tipo` + `section_id`; one already stored
+  **keeps its item id**, a new one takes the next id after the highest stored
+  one — so a dataframe frame paired to an entry stays on it;
+- `from_component_tipo` is always the observer; every other key of the computed
+  locator is kept (the legend symbols keep their `component_tipo`); `section_id`
+  is stored as an integer;
+- a locator pointing at the record itself is dropped;
+- order: the inverse-reference law keeps stored entries in place and appends
+  new ones; the copy and text-tag laws store **their own** order;
+- a recompute that changes nothing writes nothing — no Time Machine row, no
+  modified stamp.
+
 ## Safety laws
 
-All four are unconditional. None of them can be switched off.
+All five are unconditional. None of them can be switched off.
 
 ### Removals are mirrored — and the one case where they are not
 
@@ -456,7 +702,8 @@ There is no setting for this. Nothing a caller passes can grant or deny a
 drop, which is deliberate: a switch that can mean "allow the deletion" is
 always one mistake away from meaning it by accident.
 
-Exactly one situation withholds the drop half — **a degraded seed**. If this
+Exactly one situation withholds the drop half — **a law that cannot be fully
+answered**. For the inverse-reference law that is a degraded seed: if this
 record's own equivalents could not be resolved (a peer named in
 `data_from_field` has no ontology node, an entry there is not a tipo, or a
 peer locator is malformed), the computed reference set is known to be
@@ -464,6 +711,8 @@ incomplete, so removing anything on the strength of it would be a guess. The
 additions still apply; the drops are held, logged, and counted as
 `observers_shrink_refused_degraded_seed`, and the outcome names the defect so
 you know which ontology node to fix. Fix it, then re-run the reconcile script.
+The copy and text-tag laws withhold drops the same way when the component they
+read has no ontology node.
 
 !!! note "This replaced a blanket rule"
     Between 2026-08-02 and 2026-08-06 the engine dropped **nothing**, ever,
@@ -474,23 +723,60 @@ you know which ontology node to fix. Fix it, then re-run the reconcile script.
     Retiring it corrected 1,673 stale references across 22 records on this
     install.
 
-### Unrecognized derivation rules are refused
+### Ambiguous nodes are refused
 
-A node whose `properties.source` carries `source_overwrite` or
-`set_observed_data` follows a derivation rule this engine has **not**
-implemented. Running the default law on such a node is provably wrong — up to
-computing an empty mirror against a large stored one — so the recompute refuses
-these nodes **before any write**, counted as
-`observers_unported_sublaw_refused`.
+A node whose `properties.source` does not name exactly one law is refused
+**before any read or write**, logged with the reason, and counted as
+`observers_law_refused` (the older name `observers_unported_sublaw_refused` is
+counted alongside it, so existing dashboards keep working). The refused shapes:
 
-!!! danger "This refusal is load-bearing"
-    Live instances on this install: `numisdata679` and `numisdata965` (both
-    `component_portal`, in section `numisdata651` — *Catalog*), which carry
-    `source_overwrite`. Dry-run against real records measured stored mirrors of
-    1,077, 959 and 766 entries all recomputing to **zero** under the default
-    law. Between them the two nodes hold **131,806 locators across 4,688
-    records**, and the refusal is what stands between those and a full wipe. Do
-    not "unblock" a node by deleting the key; port the rule.
+| `properties.source` | Why it is refused |
+| --- | --- |
+| both `set_observed_data` and `source_overwrite` | two laws, no way to pick one |
+| `set_observed_data` or `source_overwrite` next to a top-level `data_from_field` | `data_from_field` belongs to the inverse-reference law — ambiguous |
+| `source_overwrite` without `component_to_search` | the copy has no pointer; the inverse-reference law would be the wrong law |
+| `source_overwrite.data_from_field` that is not a single tipo string | malformed |
+| `set_observed_data` whose first entry names no tipo, an unknown `perform.function`, or tags outside the allowed list | malformed |
+
+A node with no `source` object at all, or with no `component_to_search` and no
+other law, is skipped the way it always was, counted as
+`observers_component_to_search_missing`.
+
+!!! danger "The refusal is load-bearing — never route around it"
+    Running the wrong law on a mirror is not a small error. Before the copy law
+    existed, the inverse-reference law run on `numisdata679` and
+    `numisdata965` computed **zero** against stored mirrors of 1,077, 959 and
+    766 entries — between them **131,806 locators across 4,688 records** on
+    this install. A refused node keeps its stored value untouched. Fix the
+    node's `source` so it names one law; do not delete keys until it "works".
+
+### A mirror lives only where it is declared
+
+An external mirror is only **created** on a record whose section declares the
+observer — the observer is one of the section's own components, or its real
+section's when the section is virtual. A target outside those sections is
+skipped and counted as `observers_target_not_host`.
+
+This matters most for the `use_observable_dato` rows of the target table,
+whose targets are whatever the saved data points at. `hierarchy93`
+(`component_autocomplete` — *Library*, in section `hierarchy20`) observes
+`rsc387` (*Descriptors*), and the descriptors of a publication may point at
+records of `numisdata6` or `tchi1`, neither of which has a *Library* field. A
+mirror written there is never shown and never cleaned up with the record.
+
+A record that **already** holds the observer's value outside a declaring
+section — left by an earlier engine, an ontology move, or a Time Machine
+restore — is skipped too: the value is not that section's, so it is never
+grown, shrunk or healed, and a restored one stays as restored. The observer
+reconcile counts such values per section and reports them as left untouched.
+Measured on this install: `hierarchy93` on 45 `numisdata6` and 6 `tchi1`
+records, `numisdata321` on 11 `tchi1` records. They were not repaired.
+
+!!! warning "An observer declared in the wrong section is maintained nowhere"
+    `numisdata321` is declared in sections `numisdata276` and `numisdata5`,
+    but the records its observed component points at are in `tchi1`. Under
+    this rule no new `numisdata321` value is created anywhere. The fix is in
+    the ontology — declare the observer where its targets live.
 
 ### The bounded cascade
 
@@ -509,8 +795,8 @@ Which branches emit a hop is not uniform, and the asymmetry is deliberate:
 
 - a **`set_dato_external`** recompute emits one only when it actually persisted
   something — a refusal, a withheld shrink or a no-drift result ends the branch;
-- a **relay** always emits one. Emitting the hop is the relay's entire purpose;
-  it writes nothing else;
+- a **relay** always emits one. Emitting the hop is the relay's purpose; the
+  only other thing it may write is the re-sort of a declared-order portal;
 - an **info recompute** always emits one, per target.
 
 A hop into an observer that has no subscriptions of its own is a leaf and is
@@ -532,6 +818,42 @@ Measured cost: one external-mirror hop p50 1.3 ms, p90 3.1 ms; the widest
 records — mirrors up to 1,189 entries — p50 10.6 ms; the worst real case, 4,547
 referencers, 22 ms. Cost *per entry* falls as fan-out grows (61.8 ms down to
 5.2 ms per 100 entries), so the recompute is sub-linear in practice.
+
+## Refreshing a mirror by hand
+
+A `source.mode: "external"` portal shows an **update** button in its toolbar.
+Pressing it asks the server to recompute that one mirror, on that one record,
+from the data as it is committed now, and then shows the result. It is the
+fix for a mirror you suspect is stale — for example a copy whose source
+changed before the copy's edge existed.
+
+- **Who may press it.** Anyone who can *read* the record and the portal
+  (permission 1 or more). A mirror is derived data: its value is the same
+  whoever asks, so recomputing it needs no edit permission. If you can edit
+  the portal you see the button in the full toolbar; at permission 1 the
+  toolbar of an external portal is reduced to this button.
+- **What it writes.** Nothing, when the mirror is already right. When it was
+  stale, the corrected value is saved like any recompute — with a Time Machine
+  row naming **you** as the user who asked — and the mirror's own observers
+  fire as after any save.
+- **What it never does.** It never runs from a Time Machine view, and it only
+  recomputes the portal you pressed it on.
+- **When it cannot.** The data is always shown. If the recompute was not
+  allowed or was held back, a notice says why: `observers.refresh_refused` (you
+  cannot read the record or the portal) or `observers.refresh_withheld`, whose
+  reason is one of `law_refused` (the node is
+  [ambiguous](#ambiguous-nodes-are-refused)), `target_not_host`
+  ([not a declaring section](#a-mirror-lives-only-where-it-is-declared)),
+  `degraded_seed` (drops withheld and nothing added), `frozen` (the
+  [2,000-reference freeze](#the-2000-reference-freeze)), `busy` or `error`.
+  `busy` means another save was holding the record: the button waits at most
+  3 seconds, then shows the stored data with this notice, and pressing it again
+  later works. While a refresh is running, the button is disabled.
+
+For an API client the request is an ordinary component `read` whose
+`source.build_options` carries `get_data_external: true`; see the
+[component_portal](../components/component_portal.md#source) page. The older
+spelling `get_dato_external` is ignored.
 
 ## A real chain, end to end
 
@@ -557,7 +879,7 @@ spec narrates it. Two hops, the deepest chain on this install:
     }
     ```
 
-    The relay writes nothing. It exists so that step 3 fires for **every
+    The relay writes nothing (`numisdata36` declares no `order`). It exists so that step 3 fires for **every
     equivalent type**, not only the one the coin now points at.
 
 3. **`numisdata77`** (the *Coins* mirror above) observes `numisdata36` with
@@ -566,6 +888,17 @@ spec narrates it. Two hops, the deepest chain on this install:
 
 The same three-stage shape exists for objects: `tch241` → `tch40`
 (`component_relation_related`) → `tch33` (`component_portal`).
+
+On a catalog the chain continues one hop further, through the
+[derived edge](#edges-derived-from-a-copy-law):
+
+4. **`numisdata679`** (*Coins* on each catalog term whose `numisdata656`
+   names one of those types) copies the type's new `numisdata77`.
+
+Cataloguing a term — `tool_cataloging` saving `numisdata656` — reaches the
+same `numisdata679` and `numisdata965` directly, through their declared
+edges: the term's pointer changed, so both copies are recomputed from the new
+type.
 
 ## Why didn't my observer fire?
 
@@ -581,33 +914,46 @@ Work the list top-down.
    one `observer subscription contract violation: …` line per problem —
    forward-only dead specs, dead wildcards, unresolved host sections, malformed
    `server` values — each naming the exact edge and the fix.
-3. **Is the shape covered?** A `server` block whose `perform` or target config
-   the engine does not implement is skipped with a `server shape not covered`
-   log. The eight live cases are enumerated above; the usual cause is a
-   `set_dato_external` perform with no `config.use_observable_dato`.
-4. **Check the counters.** `GET /api/v1/counters` carries the
+3. **Is the shape covered?** A `server` block whose `perform` the engine does
+   not implement is skipped with a `server shape not covered` log and counted
+   (`observers_server_shape_not_covered`); the one live case is `refresh_data`,
+   above. So is an SQO filter next to a target row that includes the saved
+   record.
+4. **Is the node's law clear?** An external mirror whose `source` names no
+   law, or two, is refused before any write — see
+   [ambiguous nodes are refused](#ambiguous-nodes-are-refused). The log line
+   names the reason.
+5. **Is the record in a section that declares the observer?** If not, nothing
+   is created there (`observers_target_not_host`) — see
+   [a mirror lives only where it is declared](#a-mirror-lives-only-where-it-is-declared).
+6. **Check the counters.** `GET /api/v1/counters` carries the
    `observers_registry` gauge and the refusal counters. Configuration problems:
    `observers_registry_contract_violations`,
    `observers_host_section_unresolved`, `observers_component_to_search_missing`,
-   `observers_unported_sublaw_refused`. Runtime refusals:
+   `observers_law_refused`, `observers_server_shape_not_covered`,
+   `observers_target_not_host`. Runtime refusals:
    `observers_shrink_refused_degraded_seed`, `observers_big_result_refused`,
-   `observers_references_limit_refused`, and the `observers_cascade_*` family.
+   `observers_references_limit_refused`,
+   `observers_observed_data_unanswerable`, the `observers_source_overwrite_*`
+   family and the `observers_cascade_*` family. The update button:
+   `observers_external_refresh_done`, `…_withheld`, `…_refused`, `…_failed`,
+   `…_busy`.
    Volume signals: `observers_removed_targets_visited`,
    `observers_equivalence_class_wide`.
-5. **Mirror short by thousands?** Look at the `data_from_field` peer: it must be
+7. **Mirror short by thousands?** Look at the `data_from_field` peer: it must be
    a `component_relation_related` (no other model computes a closure at all),
    its `relation_type_rel` must be `dd621` for the full closure, and its
    ontology node must exist — a missing one degrades the seed to the stored bag
    and counts `observers_seed_peer_node_missing`.
-6. **Edited the ontology out-of-band?** Restart the server; the registry only
+8. **Edited the ontology out-of-band?** Restart the server; the registry only
    invalidates on writes made through the engine.
-7. **A removal did not propagate?** It should have. Check whether the outcome
+9. **A removal did not propagate?** It should have. Check whether the outcome
    was a degraded-seed refusal (`observers_shrink_refused_degraded_seed` — the
    log names the peer node to fix), and if the stale entry is on a record the
    save never mentioned, confirm the observer really declares the observed
    component in `source.data_from_field` — that is what makes a save an
    equivalence-group event rather than a single-link one.
-8. **Auditing drift across the whole install?** `scripts/observer_reconcile.ts`
+10. **Auditing drift across the whole install?** `scripts/observer_reconcile.ts`
    is a census as well as a repair. `--json` emits one record per drifted
    mirror (`before`, `after`, `dropped`, `added`, plus any refusal and its
    defects) so drop volume can be reviewed by cause; `--budget` compares the

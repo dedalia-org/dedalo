@@ -163,6 +163,7 @@ The API class method to execute. The core action set (`ACTION_REGISTRY['dd_core_
 | `start` | First-load bootstrap. Resolves the URL element (section / section_tool / area_* / tool_* / component_*) to its structure context plus environment. Handles recovery mode and not-logged (login context). | `{context: array, data: []}`; always also `response.environment` |
 | `read` | Fetch context+data for a source element. Sub-dispatches on `source->action` (see below). | `{context: array, data: array}` |
 | `read_raw` | Unrendered JSONB straight from the matrix table, by `options->type` (`section` / `component` / `target_section`). Used by `tool_export`. | `result: array` of raw rows; plus `response.table` |
+| `relation_targets` | Which sections the records of a source set point at, and how many records of each — the census behind "Open relationships". Input in `options.source` (a [`referenced_by` source set](sqo.md#relationship-filter-leaves-referenced_by)). Read-only. | `data: [{tipo, label, total}]` |
 | `create` | Insert an empty record into a section's matrix table (counter service). Requires write (≥ 2). | `result: int` new `section_id`, or `false` |
 | `duplicate` | Deep-copy a record. Two gates: section write (≥ 2) **and** the caller's project/tenant scope over the source record. | `result: int` new `section_id`, or `false` |
 | `delete` | Remove records. Target = `sqo` (preferred, multi-record) or `source->section_id`. Section model only, write (≥ 2). | forwarded result |
@@ -513,6 +514,34 @@ A search-panel filter with several clauses across component paths combined with 
 
 Returns unrendered JSONB straight from the matrix table — `options->type` selects `section` (full rows), `component` (one component's datum per row) or `target_section` (relation locators matching `options->tipo`). Used by `tool_export`.
 
+### Relation targets of a search (relation_targets)
+
+```json
+{
+	"action" : "relation_targets",
+	"dd_api" : "dd_core_api",
+	"options": {
+		"source": {
+			"section_tipo"        : ["oh1"],
+			"filter_by_locators"  : [{"section_tipo":"oh1","section_id":3}],
+			"from_component_tipo" : "oh24"
+		}
+	}
+}
+```
+
+`options.source` is exactly the source set of a [`referenced_by` filter leaf](sqo.md#relationship-filter-leaves-referenced_by) — same keys, same refusals, same nesting limit. The client builds it once and reuses it verbatim as `{"referenced_by": source}` in the filter of each window it opens, so the counts and the windows cannot disagree. The example asks for the records the `Informants` portal ([oh24](https://dedalo.dev/ontology/oh24)) of `Oral History` record 3 ([oh1](https://dedalo.dev/ontology/oh1)) points at; without `from_component_tipo` every component of the source counts.
+
+The response lists one entry per target section, ordered by tipo, with the section label in the request language:
+
+```json
+[ { "tipo": "rsc197", "label": "People", "total": 2 } ]
+```
+
+The locators are read from the source records' own stored `relation` column, as the `referenced_by` leaf reads them (not from the relation index), so any section with a record table can be a source, log sections included. The census reads the source records' locators once, whatever the number of targets: a grouped pass over them finds the candidate target sections (keeping only those that have a record table and that the user can read), then one statement computes every candidate's exact total. Each `total` is exact: it is the count the opened window would show, with the access rules of the target section already applied. Targets with no record left after those rules are omitted; an empty array means there is nothing to open.
+
+Refusals: `perm.denied` without read access on a source section (the source is authorized as a read); `request.invalid_options` for a malformed source; `request.invalid_tipo` for an invalid tipo or a source section with no record table; `db.statement_timeout` (503) when the census runs past its budget. The budget is one deadline for the whole census, 30 seconds (lower if the server's `DB_STATEMENT_TIMEOUT_MS` is lower): before each statement the server allows only the time left, so the statements together never exceed it. The client waits 35 seconds before giving up, longer than the budget plus a response margin, so the typed refusal reaches the dialog first. When the user's component permissions hide some relation components of the source, the response carries a `perm.out_of_scope` notice and those locators are not counted.
+
 ### Batch term labels for a graph (get_section_terms)
 
 ```json
@@ -539,6 +568,7 @@ The envelope is always `{ok, request_id, data | error, notices?, csrf_token}`; o
 | `read` (`search`/`get_data`/...) | `{context: [...], data: [...]}` |
 | `read` (`get_value`) | the plain rendered component value |
 | `read_raw` | `array` of raw JSONB rows (+ `response.table`) |
+| `relation_targets` | `[{tipo, label, total}]` (empty array = no targets) |
 | `count` | `{total: <int>}` (or `0` on permission denial) |
 | `create` / `duplicate` | `<new section_id>` (int) or `false` |
 | `delete` | object forwarded from `sections::delete()` |

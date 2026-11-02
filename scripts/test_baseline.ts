@@ -76,6 +76,18 @@
  *  - JUnit per-case time is bun's measurement, not wall truth; it is the right
  *    yardstick for cap adjacency because the timeout is enforced against the
  *    same clock.
+ *
+ * COMPARE (scripts/test_baseline_compare.ts — its own CLI so the gate importing
+ * THIS library reaches no directory lister): applies the four
+ * acceptance assertions to a candidate's JUnit output — e.g. the per-bin XML of
+ * `bun run test:shard --junit-dir=<dir>` — against a COMPLETE full-suite
+ * campaign recorded at the SAME commit (`--out-dir` names it; default the
+ * committed home). Exit 1 on any violation. A fail → pass is red too: the
+ * README's assertion 4 needs a human ledger line, which a tool cannot verify.
+ * `--expect-fixed` is the STRICT form for a candidate that keeps each file's
+ * test order (the shard runner does): the expectation is the FIXED-order runs
+ * alone and only FLAPPING keys are quarantined — an ORDER_SENSITIVE key moved
+ * by `--randomize` is still a key the candidate must reproduce.
  */
 
 import {
@@ -185,7 +197,9 @@ export function parseJunitCases(xml: string): JunitCase[] {
 				continue;
 			}
 			const name = attr(raw, 'name') ?? '';
-			if (suites.length === 0) currentFile = attr(raw, 'file') ?? name;
+			// A run given EXPLICIT paths (the shard runner passes `./test/…`) must
+			// key exactly like a discovery run, or every key would read as absent.
+			if (suites.length === 0) currentFile = (attr(raw, 'file') ?? name).replace(/^\.\//, '');
 			suites.push(name);
 			continue;
 		}
@@ -674,6 +688,95 @@ export function capAdjacentEntries(
 	return entries;
 }
 
+// ── candidate comparison: the four acceptance assertions ─────────────────────
+// A candidate (a sharded run, a new Bun, a re-ordered suite) EQUALS the
+// baseline iff no non-quarantined key moved. The quarantine is the
+// FLAPPING + ORDER_SENSITIVE set by name; every other baseline key is constant
+// across ALL K+J runs, so its one recorded state is the expectation.
+
+/** Which of the README's four assertions a moved key breaks ('other': fail ↔ skip). */
+export type CompareAssertion = 'key_set' | 'pass_skip' | 'pass_fail' | 'fail_pass' | 'other';
+
+export interface CompareViolation {
+	key: string;
+	assertion: CompareAssertion;
+	/** 'a' when the candidate registered a key the baseline never saw. */
+	baseline: StatusChar;
+	/** 'a' when the candidate did not register a baseline key. */
+	candidate: StatusChar;
+}
+
+export interface CompareResult {
+	/** Baseline keys checked against the candidate (quarantine excluded). */
+	compared: number;
+	quarantined: number;
+	violations: CompareViolation[];
+}
+
+function transition(baseline: StatusChar, candidate: StatusChar): CompareAssertion {
+	if (baseline === 'a' || candidate === 'a') return 'key_set';
+	const pair = new Set([baseline, candidate]);
+	if (pair.has('p') && pair.has('s')) return 'pass_skip';
+	if (baseline === 'p' && candidate === 'f') return 'pass_fail';
+	if (baseline === 'f' && candidate === 'p') return 'fail_pass';
+	return 'other';
+}
+
+/**
+ * Compare a candidate's cases against a recorded campaign. Throws when the
+ * candidate measured nothing, or when a baseline key is NOT constant across the
+ * runs yet missing from the quarantine — the two artifacts disagree, and an
+ * expectation picked from an unstable key would be a coin flip.
+ */
+export function compareCandidate(
+	artifact: Pick<RunsArtifact, 'keys' | 'runs'>,
+	quarantine: ReadonlySet<string>,
+	cases: JunitCase[],
+): CompareResult {
+	if (cases.length === 0) {
+		throw new Error('the candidate reported ZERO test cases — nothing to compare (anti-vacuity)');
+	}
+	const candidate = new Map<string, StatusChar>();
+	for (const c of cases) {
+		candidate.set(
+			makeKey(c.file, c.name),
+			c.status === 'pass' ? 'p' : c.status === 'fail' ? 'f' : 's',
+		);
+	}
+	const result: CompareResult = { compared: 0, quarantined: 0, violations: [] };
+	for (const [i, key] of artifact.keys.entries()) {
+		if (quarantine.has(key)) {
+			result.quarantined += 1;
+			continue;
+		}
+		const seen = new Set(artifact.runs.map((r) => r.statuses[i] as StatusChar));
+		if (seen.size !== 1) {
+			throw new Error(
+				`baseline key is not constant across the recorded runs (${[...seen].join('/')}) but is not quarantined: ${key} — runs.json and order_sensitive.json disagree; re-run the campaign.`,
+			);
+		}
+		const expected = [...seen][0] as StatusChar;
+		const actual = candidate.get(key) ?? 'a';
+		result.compared += 1;
+		if (expected !== actual) {
+			result.violations.push({
+				key,
+				assertion: transition(expected, actual),
+				baseline: expected,
+				candidate: actual,
+			});
+		}
+	}
+	const known = new Set(artifact.keys);
+	for (const [key, actual] of candidate) {
+		if (!known.has(key)) {
+			result.violations.push({ key, assertion: 'key_set', baseline: 'a', candidate: actual });
+		}
+	}
+	result.violations.sort((a, b) => a.key.localeCompare(b.key));
+	return result;
+}
+
 // ── the campaign runner (only under `bun run`, never on import) ──────────────
 
 // Child runs strip the per-run env seams through the census's own childEnv()
@@ -682,7 +785,7 @@ export function capAdjacentEntries(
 // run with phantom reds — so same list, one implementation. See the seam header
 // in scripts/lib/parity_census.ts (2026-08-24) for the measured incident.
 
-function gitHead(): string {
+export function gitHead(): string {
 	const proc = Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: REPO_ROOT });
 	const sha = proc.stdout.toString().trim();
 	if (!/^[0-9a-f]{40}$/.test(sha)) {
@@ -700,7 +803,7 @@ function writeArtifact(path: string, value: unknown): void {
 	renameSync(temp, path);
 }
 
-function readJsonIfExists(path: string): unknown {
+export function readJsonIfExists(path: string): unknown {
 	if (!existsSync(path)) return undefined;
 	return JSON.parse(readFileSync(path, 'utf8'));
 }
@@ -815,6 +918,10 @@ function parseArgs(argv: string[]): CliOptions {
 		else if (arg === '--out-dir') options.outDir = next();
 		else if (arg === '--resume') options.resume = true;
 		else if (arg === '--accept-growth') options.acceptGrowth = next();
+		else if (arg === '--compare' || arg === '--expect-fixed')
+			throw new Error(
+				`${arg} moved to scripts/test_baseline_compare.ts (bun run test:baseline:compare <dir> [--expect-fixed])`,
+			);
 		else throw new Error(`unknown argument: ${arg}`);
 	}
 	if (!Number.isInteger(options.runs) || options.runs < 1) throw new Error('--runs must be >= 1');

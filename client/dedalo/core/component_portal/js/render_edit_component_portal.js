@@ -22,15 +22,22 @@
 *
 * 2. **Shared DOM helpers** (all exported)
 *    These are imported and called by every concrete view module:
-*    - `render_column_id`           — "open record" button + drag handle + drop zone per row.
+*    - `render_column_id`           — "open record" button + drag handle per row.
+*    - `open_move_to_position`      — the move-to-position modal (dblclick / Enter on the handle).
 *    - `render_column_component_info` — optional `ddinfo` overlay for a row.
 *    - `render_column_remove`       — unlink / delete button with confirmation modal.
 *    - `get_buttons`                — toolbar above the list (add, link, tree, fullscreen…).
+*    - `get_buttons_by_permissions` — permission-aware toolbar: full at >1, external refresh only at 1.
 *    - `activate_autocomplete`      — lazily instantiates `service_autocomplete` on demand.
 *    - `build_header`               — column-header row (hidden when list is empty).
 *    - `render_references`          — read-only back-reference list for relation-related views.
-*    - `add_wrapper_events`         — click-to-activate-autocomplete + optional drag/drop on wrapper.
-*    - `add_section_record_drag_and_drop` — marks a row node as draggable (mosaic/line).
+*    - `render_list_after`          — the `.list_after` slot (order indicator, references, footer, error…).
+*    - `render_order_indicator`     — the portal order indicator (temporary view order / declared order).
+*    - `add_wrapper_events`         — click-to-activate-autocomplete + the wrapper MOVE zone.
+*
+* Rows are placed by the row door (section.js window_section_rows → record_window)
+* and their drag/drop is DELEGATED (drag_and_drop.js bind_row_drag / bind_portal_drop):
+* no listener sits on a row node (WC-2026-10-30-section-record-row-box).
 *
 * Key data shapes consumed from the component instance (`self`):
 * - `self.data.entries`      — `Array<Locator>` where each Locator is
@@ -64,7 +71,7 @@
 	import {object_to_url_vars, open_window, get_caller_by_model, same_section_id} from '../../common/js/utils/index.js'
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
-	import {render_relation_list} from '../../section/js/render_common_section.js'
+	import {render_relation_list, render_print_notice} from '../../section/js/render_common_section.js'
 	import {view_default_edit_portal} from './view_default_edit_portal.js'
 	import {view_line_edit_portal} from './view_line_edit_portal.js'
 	import {view_tree_edit_portal} from './view_tree_edit_portal.js'
@@ -72,13 +79,14 @@
 	import {view_indexation_edit_portal} from './view_indexation_edit_portal.js'
 	import {view_content_edit_portal} from './view_content_edit_portal.js'
 	import {view_text_list_portal} from './view_text_list_portal.js'
+	import {a11y} from '../../common/js/a11y.js'
 	import {
-		on_dragstart,
-		on_dragstart_mosaic,
-		on_dragover,
-		on_dragleave,
-		on_dragend,
-		on_drop
+		can_reorder,
+		can_drag_out,
+		can_save_view_order,
+		declared_order_of,
+		bind_portal_drop,
+		move_to_position_decision
 	} from './drag_and_drop.js'
 	import {buttons} from './buttons.js'
 
@@ -125,6 +133,34 @@ render_edit_component_portal.prototype.edit = async function(options) {
 
 	const self = this
 
+	// node. The view's wrapper (full) or content_data (content)
+		const node = await render_edit_view(self, options)
+
+	// header sort arrows. Every edit render (full or content) re-syncs them with
+	// the order the rows were read in (self.view_order): a header click, a clear or
+	// a save from the order indicator alike (portal order model, stage O2)
+		const wrapper = (options?.render_level || 'full')==='content'
+			? self.node
+			: node
+		const header_wrapper = wrapper?.list_body?.querySelector?.(':scope > .header_wrapper_list') || null
+		ui.set_column_order_state(header_wrapper, self.view_order || null)
+
+
+	return node
+}//end edit
+
+
+
+/**
+* RENDER_EDIT_VIEW
+* The view dispatch of `edit`: reads `self.view` / `self.context.view` and delegates
+* to the matching view module.
+* @param {Object} self - The `component_portal` instance
+* @param {Object} options - The render options (render_level…)
+* @returns {Promise<HTMLElement>} wrapper (full) or content_data (content)
+*/
+const render_edit_view = async function(self, options) {
+
 	// view
 		const view = self.view || self.context?.view || null
 
@@ -164,7 +200,7 @@ render_edit_component_portal.prototype.edit = async function(options) {
 			// dynamic try
 				const render_view = self.render_views.find(el => el.view===view && el.mode===self.mode)
 				if (render_view) {
-					const path			= render_view.path || ('./' + render_view.render +'.js')
+					const path			= render_view.path || (`./${render_view.render}.js`)
 					const render_method	= await import (path)
 					return render_method[render_view.render].render(self, options)
 				}
@@ -172,14 +208,14 @@ render_edit_component_portal.prototype.edit = async function(options) {
 			return view_default_edit_portal.render(self, options)
 		}
 	}
-}//end edit
+}//end render_edit_view
 
 
 
 /**
 * RENDER_COLUMN_ID
-* Build the ID-column cell for a single portal row: the "open record" button,
-* the drag handle (edit-permission only), and the drag-drop target zone.
+* Build the ID-column cell for a single portal row: the "open record" button and,
+* when the row may be dragged, the drag handle.
 *
 * The column serves three purposes:
 * 1. **Navigation** — left-click calls `self.edit_record_handler()` to open the linked
@@ -188,22 +224,22 @@ render_edit_component_portal.prototype.edit = async function(options) {
 *    (or a new browser tab when Alt is held). The window is given a stable name so
 *    the browser reuses the same tab on repeated opens. An `on_blur` callback refreshes
 *    the portal after the user returns from editing the target.
-* 3. **Drag-to-reorder** — when permissions ≥ 2 the drag handle is added. The handle is
-*    hidden by default (CSS class `hide`) and revealed on `mouseenter` of the button.
-*    Double-clicking the handle opens a modal that lets the cataloguer type a target
-*    position directly (useful for very long lists where dragging is impractical).
-*
-* The `drop_node` beneath the row is the drop target for reordering via drag-and-drop;
-* it handles `dragover`, `dragleave`, and `drop` events using the shared handlers from
-* `drag_and_drop.js`.
+* 3. **Drag-to-reorder** — the drag handle (render_drag_node) is rendered only when the
+*    portal source rule holds (`can_reorder || can_drag_out`, drag_and_drop.js): never
+*    under a declared (ontology) order, never while a temporary `view_order` is active,
+*    never for `reorderable===false`, never read-only. The handle carries NO listener:
+*    dragstart, dblclick and Enter (move-to-position) are delegated on the rows'
+*    content_data (drag_and_drop.js bind_row_drag), and its visibility is CSS-only
+*    (component_portal.less). There is no per-row drop zone: every row is a target of
+*    the delegated listener set (WC-2026-10-30-section-record-row-box).
 *
 * @param {Object} options - Options bag passed from the view module.
 * @param {Object} options.caller - The `component_portal` instance (`self`).
 * @param {string} options.section_id - The section_id of the linked target record.
 * @param {string} options.section_tipo - The section_tipo of the linked target record.
-* @param {Object} options.locator - The full locator object for this row.
-* @param {number} options.paginated_key - Zero-based position within the current page window.
-* @returns {DocumentFragment} Fragment containing the button, (optional) drag handle, and drop zone.
+* @param {boolean} [options.drag] - `false` never renders the handle (the mosaic hover
+*   overlay and alt table: no drag source there).
+* @returns {DocumentFragment} Fragment containing the button and the (optional) drag handle.
 */
 export const render_column_id = function(options) {
 
@@ -221,7 +257,7 @@ export const render_column_id = function(options) {
 	// button_edit. component portal caller (link)
 		const button_edit = ui.create_dom_element({
 			element_type	: 'button',
-			class_name		: 'button_edit button_view_' + self.context.view,
+			class_name		: `button_edit button_view_${self.context.view}`,
 			parent			: fragment
 		})
 		button_edit.tabIndex = -1;
@@ -238,17 +274,17 @@ export const render_column_id = function(options) {
 				: null
 
 			// open a new window
-			const url = DEDALO_CORE_URL + '/page/?' + object_to_url_vars({
+			const url = `${DEDALO_CORE_URL}/page/?${object_to_url_vars({
 				tipo			: section_tipo,
 				section_tipo	: section_tipo,
 				id				: section_id,
 				mode			: 'edit',
 				session_save	: false, // prevent to overwrite current section session
 				menu			: true
-			})
+			})}`
 			open_window({
 				url			: url,
-				name		: 'record_view_' + section_id,
+				name		: `record_view_${section_id}`,
 				features	: features,
 				on_blur : () => {
 					// refresh current instance
@@ -262,7 +298,7 @@ export const render_column_id = function(options) {
 			e.stopPropagation()
 
 			// if the user click with right mouse button stop
-				if (e.which == 3 || e.altKey===true) {
+				if (e.which === 3 || e.altKey===true) {
 					return
 				}
 			// handler
@@ -272,71 +308,31 @@ export const render_column_id = function(options) {
 				})
 		})
 
-	// drag and drop
-	// permissions control
-	// with read only permissions, stop
-		if(self.permissions < 2){
-			return fragment
+	// drag_node. The portal source rule (never for a read-only, declared-order,
+	// view-ordered or non-reorderable portal). Rendered only when it holds, so the
+	// CSS opacity:0 base state never hides a disallowed control.
+		if (options.drag!==false && (can_reorder(self) || can_drag_out(self))) {
+			fragment.appendChild( render_drag_node(options) )
 		}
 
-	// drag_node. Not for a model whose order is not a position in this list
-	// (`reorderable===false`: component_relation_children — each child holds its
-	// own order value, and the server refuses sort_data there).
-		const drag_node = self.reorderable===false
-			? null
-			: render_drag_node(options)
-		if (drag_node) {
-			fragment.appendChild(drag_node)
-		}
-
-	// button_edit events
-		button_edit.addEventListener('mouseenter', function(e) {
-			e.stopPropagation()
-
-			// permissions control
-			// with read only permissions, stop
-			if ( drag_node && self.permissions >= 2 && drag_node.classList.contains('hide') ) {
-				drag_node.classList.remove('hide')
-			}
-		});
-		button_edit.addEventListener('mouseleave', function(e) {
-			e.stopPropagation()
-
-			// permissions control
-			// with read only permissions, stop
-			if ( drag_node && self.permissions >= 2 && !drag_node.classList.contains('hide') ) {
-				drag_node.classList.add('hide')
-			}
-		});
-
-		// section_id node
-			if(show_interface.show_section_id){
-				// apply smaller font when the ID string is long (> 5 chars)
-				const small_css = section_id.length>5 ? ' small' : ''
-				ui.create_dom_element({
-					element_type	: 'span',
-					class_name		: 'section_id' + small_css,
-					text_content	: section_id,
-					parent			: button_edit
-				})
-			}
-
-		// edit icon
+	// section_id node
+		if(show_interface.show_section_id){
+			// apply smaller font when the ID string is long (> 5 chars)
+			const small_css = section_id.length>5 ? ' small' : ''
 			ui.create_dom_element({
 				element_type	: 'span',
-				class_name		: 'button edit icon',
+				class_name		: `section_id${small_css}`,
+				text_content	: section_id,
 				parent			: button_edit
 			})
+		}
 
-	// drop_node: invisible drop target sitting below each row; reveals on dragover
-		const drop_node = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'drop hide',
-			parent			: fragment
+	// edit icon
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'button edit icon',
+			parent			: button_edit
 		})
-		drop_node.addEventListener('dragover', function(e) { return on_dragover(this, e, options)})
-		drop_node.addEventListener('dragleave', function(e) { return on_dragleave(this, e)})
-		drop_node.addEventListener('drop', function(e) { return on_drop(this, e, options)})
 
 
 	return fragment
@@ -346,175 +342,165 @@ export const render_column_id = function(options) {
 
 /**
 * RENDER_DRAG_NODE
-* Build the drag handle icon element for a single portal row.
+* Build the drag handle of a single portal row: a draggable element with NO
+* listener (WC-2026-10-30-section-record-row-box).
 *
-* The drag node is a small icon div that is hidden by default (`hide` class) and
-* revealed when the user hovers over the parent `button_edit`. It supports:
-*
-* - **Standard drag-and-drop** — `dragstart` / `dragend` events communicate position
-*   data to the drop zone via `DataTransfer` (and the `tmp` object in drag_and_drop.js,
-*   since `dataTransfer` is unavailable in `dragover` for security reasons).
-* - **Double-click to type a position** — Opens a small modal with a numeric input
-*   pre-filled with the row's current 1-based position. The user can type any valid
-*   position; the code clamps input to `[0, total_records - 1]` (0-based array indices)
-*   and calls `self.sort_data()`. This is the primary ordering method for very long lists
-*   where dragging across pages would be impractical.
-*
-* The node's own `mouseenter`/`mouseout` listeners keep it visible while the cursor is
-* on the handle itself (complementing the parent button's enter/leave listeners).
-*
-* (!) The `change_order_modal` inner function relies on `modal` via closure — `modal`
-* is declared after `button_ok` but the function is only called on click/keyup by which
-* time the `modal` binding has been set. This temporal dependency is intentional.
+* - Its gestures are delegated on the rows' content_data (drag_and_drop.js
+*   bind_row_drag, `source:'handle'`): dragstart (the payload is read from the row
+*   window at the event), dblclick (move-to-position, primary) and Enter when the
+*   handle is reached by Tab (secondary) — both open `open_move_to_position`.
+* - It is created WITHOUT the `hide` class (`display:none !important`, which no CSS
+*   reveal can beat and which would take it out of the Tab order): its visibility
+*   is CSS-only, `opacity:0` revealed on row hover / focus (component_portal.less).
+* - `a11y.make_activable` gives it the button role, the tab stop and its accessible
+*   name (`change_order_for`); no activation callback is wired here.
 *
 * @param {Object} options - Options bag from the view module.
-* @param {Object} options.caller - The `component_portal` instance (`self`).
-* @param {string} options.section_id - The target record's section_id (used in modal title).
-* @param {Object} options.locator - The full locator object for this row.
-* @param {number} options.paginated_key - Zero-based position in the current page window;
-*   used as `source_key` when sorting and as the default value in the position input.
-* @returns {HTMLElement} The drag handle div node.
+* @param {string} options.section_id - The target record's section_id (accessible name).
+* @returns {HTMLElement} The drag handle node.
 */
 const render_drag_node = function(options) {
-
-	// options
-		const paginated_key	= options.paginated_key
-		const locator		= options.locator
-		const self			= options.caller
-		const section_id	= options.section_id
-		const total_records	= self.total
 
 	// drag_node
 		const drag_node = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'drag icon hide'
+			class_name		: 'drag icon'
 		})
-		// event mouseenter
-		drag_node.addEventListener('mouseenter', function(e) {
-			e.stopPropagation()
+		drag_node.draggable = true
 
-			if (drag_node.classList.contains('hide')) {
-				drag_node.classList.remove('hide')
-			}
-		});
-		// event mouseout
-		drag_node.addEventListener('mouseout', function(e) {
-			e.stopPropagation()
-
-			// if (!drag_node.classList.contains('hide')) {
-				drag_node.classList.add('hide')
-			// }
-		});
-		// draggable options and events
-		drag_node.draggable	= true
-		drag_node.addEventListener('dragstart', function(e) { return on_dragstart(this, e, options)})
-		drag_node.addEventListener('dragend', function(e) { return on_dragend(this, e, options)})
-		// event dblclick
-		drag_node.addEventListener('dblclick', function(e) {
-			e.stopPropagation()
-
-			// header
-				const header = ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'header'
-				})
-				ui.create_dom_element({
-					element_type	: 'span',
-					class_name		: 'label',
-					text_node		: get_label.change_order_for || 'Change order for '+ section_id,
-					parent			: header
-				})
-
-			// body
-				const body = ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'content body'
-				})
-				const target_key_input = ui.create_dom_element({
-					element_type	: 'input',
-					type			: 'number',
-					value			: options.paginated_key + 1,
-					class_name		: 'target_key',
-					parent			: body
-				})
-
-			// footer
-				const footer = ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'footer content'
-				})
-				// button_ok
-					const button_ok = ui.create_dom_element({
-						element_type	: 'button',
-						class_name		: 'button_sort_order success',
-						text_content	: 'OK',
-						parent			: footer
-					})
-					// CHANGE_ORDER_MODAL
-					// get the user data and check it to be correct before sort data
-					// sort data if the new position is OK.
-					const change_order_modal = function() {
-						// user input data has not the array data order, the user will introduce the natural order 1,2,3,etc
-						// it's necessary subtract one position to get the array position 0,1,2,etc
-						const user_target_key = parseInt(target_key_input.value) -1
-						// fix enter values with data boundaries,
-						// the new position has to be between 0 (first array key of the data) and the last section_records (last key)
-						const last_key = total_records - 1
-						// check the position entered to be correct in boundaries
-						const target_key = user_target_key < 0
-							? 0
-							: (user_target_key > last_key)
-								? last_key
-								: user_target_key
-						// if the user enter the same position didn't nothing and close
-						if(paginated_key===target_key){
-							modal.close()
-							return false
-						}
-						// change the order by the normal way
-						const sort_data = {
-							value		: locator,
-							source_key	: paginated_key,
-							target_key	: target_key
-						}
-						self.sort_data(sort_data)
-
-						modal.close()
-					}
-					// click event
-					button_ok.addEventListener('click', change_order_modal)
-
-			// modal
-				const modal = ui.attach_to_modal({
-					header		: header,
-					body		: body,
-					footer		: footer,
-					size		: 'small', // string size big|normal|small
-					minimizable	: false,
-					callback	: (el) => {
-						// add events to modal options
-						const keyup_handler = (evt) => {
-							// Enter key
-							if (evt.code==='Enter' || evt.code==='NumpadEnter') {
-								change_order_modal()
-							}
-						}
-						target_key_input.addEventListener('keyup', keyup_handler)
-						// focus input
-						dd_request_idle_callback(
-							() => {
-								// set the input field active
-								target_key_input.focus()
-								target_key_input.select()
-							}
-						)
-					}
-				})
-		})//end drag_node.addEventListener('dblclick', function(e)
+	// a11y. Tab stop + name (Enter is handled by the delegated keydown)
+		a11y.make_activable(drag_node, {
+			label : (get_label.change_order_for || 'Change order for ') + options.section_id
+		})
 
 
 	return drag_node
 }//end render_drag_node
+
+
+
+/**
+* OPEN_MOVE_TO_POSITION
+* The move-to-position modal of a portal row: a numeric input pre-filled with the
+* row's current 1-based ABSOLUTE position; OK / Enter sends `sort_data` with the
+* keys of `move_to_position_decision` (both absolute, clamped to
+* `[0, total - 1]`, the paginator offset never added).
+*
+* Opened by the delegated dblclick / Enter on the row's own `.drag` handle
+* (drag_and_drop.js bind_row_drag `open_position`), which resolves the row, holds it
+* while the modal is open, and reads `entry` and `total` WHEN THE EVENT FIRES. The
+* hold is released when the modal closes.
+*
+* @param {Object} self - The `component_portal` instance.
+* @param {number} index - The row's page position (hold anchor).
+* @param {Object} options
+* @param {Object} options.entry - The row's entry (`record_window.entry_of(index)`).
+* @param {number} options.total - The portal's total at the event.
+* @param {Function} options.release - Unholds the row (idempotent).
+* @returns {Object|null} The modal, or null when the entry carries no key.
+*/
+export const open_move_to_position = function(self, _index, options) {
+
+	// options
+		const entry		= options.entry
+		const release	= typeof options.release==='function' ? options.release : () => {}
+
+	if (!entry || !Number.isInteger(entry.paginated_key)) {
+		release()
+		return null
+	}
+
+	// header
+		const header = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'header'
+		})
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'label',
+			text_node		: (get_label.change_order_for || 'Change order for ') + entry.section_id,
+			parent			: header
+		})
+
+	// body
+		const body = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'content body'
+		})
+		const target_key_input = ui.create_dom_element({
+			element_type	: 'input',
+			type			: 'number',
+			value			: entry.paginated_key + 1,
+			class_name		: 'target_key',
+			parent			: body
+		})
+
+	// footer
+		const footer = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'footer content'
+		})
+		const button_ok = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'button_sort_order success',
+			text_content	: 'OK',
+			parent			: footer
+		})
+
+	// modal (declared before the handlers that close it)
+		let modal = null
+
+	// change_order. The typed 1-based position → absolute keys (clamped).
+	// `total` is read now, when the user confirms.
+		const change_order = function() {
+			const decision = move_to_position_decision(self, entry, target_key_input.value)
+			if (modal) {
+				modal.close()
+			}
+			if (!decision) {
+				// same position or unreadable input: nothing to move
+				return false
+			}
+			self.sort_data(decision)
+		}
+		button_ok.addEventListener('click', change_order)
+
+	// modal
+		modal = ui.attach_to_modal({
+			header		: header,
+			body		: body,
+			footer		: footer,
+			size		: 'small', // string size big|normal|small
+			minimizable	: false,
+			callback	: () => {
+				const keyup_handler = (evt) => {
+					// Enter key
+					if (evt.code==='Enter' || evt.code==='NumpadEnter') {
+						change_order()
+					}
+				}
+				target_key_input.addEventListener('keyup', keyup_handler)
+				// focus input
+				dd_request_idle_callback(
+					() => {
+						target_key_input.focus()
+						target_key_input.select()
+					}
+				)
+			}
+		})
+		// the row stays held (never released) while the modal is open
+		if (modal) {
+			modal.on_close = () => {
+				release()
+			}
+		}else{
+			release()
+		}
+
+
+	return modal
+}//end open_move_to_position
 
 
 
@@ -563,7 +549,7 @@ export const render_column_component_info = function(options) {
 		)
 		if (component_info) {
 
-			const info_value = component_info.value && component_info.value.length
+			const info_value = component_info.value?.length
 				? component_info.value.join(', ')
 				: null
 
@@ -626,7 +612,6 @@ export const render_column_remove = function(options) {
 	// options
 		const self			= options.caller
 		const row_key		= options.row_key
-		const paginated_key	= options.paginated_key
 		const section_id	= options.section_id
 		const section_tipo	= options.section_tipo
 
@@ -669,7 +654,7 @@ export const render_column_remove = function(options) {
 					ui.create_dom_element({
 						element_type	: 'span',
 						class_name		: 'label',
-						inner_html		: (get_label.delete || 'Delete') + ` ID: ${render_value(section_id, 'text')} <span class="note">[${render_value(section_tipo, 'text')}]</span>`,
+						inner_html		: `${get_label.delete || 'Delete'} ID: ${render_value(section_id, 'text')} <span class="note">[${render_value(section_tipo, 'text')}]</span>`,
 						parent			: header
 					})
 
@@ -769,7 +754,7 @@ export const render_column_remove = function(options) {
 							delete_diffusion_records_checkbox.checked	= true
 							self.delete_diffusion_records				= true
 							// change event
-							delete_diffusion_records_checkbox.addEventListener('change', (e) => {
+							delete_diffusion_records_checkbox.addEventListener('change', (_e) => {
 								self.delete_diffusion_records = delete_diffusion_records_checkbox.checked
 							})
 							// append node
@@ -850,7 +835,7 @@ export const render_column_remove = function(options) {
 					when_in_dom(button_unlink_record, focus_the_button)
 
 				// data pagination offset. Check and update self data to allow save API request return the proper paginated data
-					const key = parseInt(row_key)
+					const key = parseInt(row_key, 10)
 					if (key===0 && self.data.pagination?.offset>0) {
 						const next_offset = (self.data.pagination.offset - self.data.pagination.limit)
 						// set before exec API request on Save
@@ -1027,6 +1012,53 @@ export const get_buttons = (self) => {
 
 
 /**
+* GET_BUTTONS_BY_PERMISSIONS
+* Permission-aware toolbar entry point for the edit views: the ONE place that
+* decides which toolbar a given permission level gets.
+*
+* - `permissions > 1`  — the full toolbar (`get_buttons`).
+* - `permissions === 1` (read-only) — only the update-external button, and only
+*   when the portal is external (`show_interface.button_external`): refreshing an
+*   external mirror is a READ-level action (the mirror is a pure function of
+*   committed data and the server gates it at record read access), so a reader
+*   may ask for it. Every edit/link/add/tree/tools control stays hidden.
+* - The `print` view (which forces `permissions = 1`) and `permissions < 1`
+*   get no toolbar.
+*
+* @param {Object} self - The `component_portal` instance.
+* @returns {HTMLElement|null} The buttons_container node, or null when no toolbar applies.
+*/
+export const get_buttons_by_permissions = (self) => {
+
+	// full edit toolbar
+		if (self.permissions > 1) {
+			return get_buttons(self)
+		}
+
+	// read-only: external refresh only (never in print context)
+		const view = self.view || self.context?.view || null
+		if (self.permissions===1 && view!=='print' && self.show_interface?.button_external===true) {
+
+			const buttons_container = ui.component.build_buttons_container(self)
+			const buttons_fold = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'buttons_fold',
+				parent			: buttons_container
+			})
+			buttons_fold.appendChild(
+				buttons.render_button_update_data_external(self)
+			)
+
+			return buttons_container
+		}
+
+
+	return null
+}//end get_buttons_by_permissions
+
+
+
+/**
 * ACTIVATE_AUTOCOMPLETE
 * Lazily instantiate and show the `service_autocomplete` overlay when the user clicks
 * inside the portal wrapper.
@@ -1119,6 +1151,10 @@ export const activate_autocomplete = async function(self, wrapper) {
 				}
 			} else {
 				requestAnimationFrame(()=>{
+					// the portal may be destroyed (or re-rendered away) before the frame
+					if (!self.node || self.status==='destroyed') {
+						return
+					}
 					self.node.appendChild(service_node)
 					setTimeout(function(){
 						service_node.classList.add('active')
@@ -1267,32 +1303,292 @@ export const render_references = function(ar_references) {
 
 
 /**
+* RENDER_LIST_AFTER
+* Build the `.list_after` slot of a portal row view: the ONE non-row sibling placed
+* right after `list_body` (table views) or `content_data` (list views), never
+* inside `content_data` (row invariant) nor inside a `role=table` list_body
+* (WC-2026-10-30-section-record-row-box). Contents, in order:
+*   - the order indicator (`render_order_indicator`: the TEMPORARY view order with
+*     its clear / save actions, else the declared order), edit mode only, unless
+*     `parts.order_indicator===false` (the mosaic alt table: the main list shows it);
+*   - `ul.references` (component_relation_related back-references), unless
+*     `parts.references===false`;
+*   - `parts.list_footer` (indexation "Remove filter");
+*   - `parts.error` (a `render_error` node);
+*   - `parts.placeholder` (the iri `span.component_placeholder` of an empty line portal);
+*   - the print notice (render_common_section.js `render_print_notice`, the ONE
+*     implementation shared with the section lists): a `span.print_notice`,
+*     visible only in print, while the window keeps rows unbuilt (placeholders):
+*     unbuilt rows are neither printed nor findable, and the notice says so
+*     instead of narrowing silently.
+* The view hands the result to its content_data as the expando
+* `content_data.list_after` (node or null); the full render places it with
+* common.js `place_list_after`, and `common.render('content')` swaps it.
+* @param {Object} self - The `component_portal` instance.
+* @param {Object} [parts={}]
+* @param {HTMLElement} [parts.content_data] - The rows' container (print notice).
+* @param {Object} [parts.record_window] - Its row window handle (print notice).
+* @param {boolean} [parts.order_indicator] - `false` skips the order indicator.
+* @param {boolean} [parts.references] - `false` skips the references block.
+* @param {Node|null} [parts.list_footer]
+* @param {Node|null} [parts.error]
+* @param {Node|null} [parts.placeholder]
+* @returns {HTMLElement|null} The `.list_after` node, or null when it would be empty.
+*/
+export const render_list_after = function(self, parts={}) {
+
+	const nodes = []
+
+	// order indicator. Temporary view order / declared order (edit mode)
+		if (parts.order_indicator!==false) {
+			const order_indicator = render_order_indicator(self)
+			if (order_indicator) {
+				nodes.push(order_indicator)
+			}
+		}
+
+	// references
+		const references = self.data?.references || []
+		if (parts.references!==false && references.length > 0) {
+			nodes.push( render_references(references) )
+		}
+
+	// list_footer, error, placeholder
+		for (const node of [parts.list_footer, parts.error, parts.placeholder]) {
+			if (node) {
+				nodes.push(node)
+			}
+		}
+
+	// print notice. Only while the window keeps rows unbuilt
+		const print_notice = render_print_notice(parts.content_data, parts.record_window)
+		if (print_notice) {
+			nodes.push(print_notice)
+		}
+
+	if (nodes.length===0) {
+		return null
+	}
+
+	// list_after
+		const list_after = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'list_after'
+		})
+		for (const node of nodes) {
+			list_after.appendChild(node)
+		}
+
+
+	return list_after
+}//end render_list_after
+
+
+
+/**
+* RENDER_ORDER_INDICATOR
+* The portal order indicator (portal order model, stage O2 —
+* WC-2026-10-31-portal-order-model). Edit mode only:
+*   - a TEMPORARY `view_order` is active (a header click): "<Order>: <column> ↓"
+*     + a reset button (back to the saved order, = the declared order on a
+*     declared-order portal) + a save button iff `can_save_view_order` (never under a
+*     declared order: the server refuses `sort_by_column` there);
+*   - else, under a declared (ontology) order, on a non-empty list: the PERMANENT
+*     declared order, no button;
+*   - else nothing (the list shows its saved order).
+* Labels are existing keys only (order, save, reset, ascending, descending); the
+* column name is the column's own label. The direction arrow is decorative
+* (aria-hidden): the group's accessible name spells it.
+* @param {Object} self - The `component_portal` instance
+* @returns {HTMLElement|null}
+*/
+export const render_order_indicator = function(self) {
+
+	if (self.mode!=='edit') {
+		return null
+	}
+
+	// entries. The temporary view order wins; else the declared order
+		const view_order	= self.view_order || null
+		const entries		= view_order
+			? [view_order]
+			: declared_order_of(self)
+		if (entries.length===0) {
+			return null
+		}
+		if (!view_order && (self.data?.entries || []).length===0) {
+			return null // a declared order on an empty list orders nothing
+		}
+
+	// labels
+		const order_label = get_label.order || 'Order'
+		const direction_label = (direction) => direction==='DESC'
+			? (get_label.descending || 'descending')
+			: (get_label.ascending || 'ascending')
+
+	// order_indicator
+		const order_indicator = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: `order_indicator ${view_order ? 'temporary' : 'declared'}`
+		})
+		order_indicator.setAttribute('role', 'group')
+
+	// text. "<Order>: <column> ↓[, <column> ↑]"
+		const text = ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'order_text',
+			text_content	: `${order_label}: `,
+			parent			: order_indicator
+		})
+		const spoken = []
+		entries.forEach((entry, i) => {
+			if (i>0) {
+				text.appendChild( document.createTextNode(', ') )
+			}
+			const column_label = order_column_label(self, entry.tipo)
+			if (column_label) {
+				ui.create_dom_element({
+					element_type	: 'span',
+					class_name		: 'order_column',
+					text_content	: `${column_label} `,
+					parent			: text
+				})
+			}
+			const direction_node = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: `order_direction ${entry.direction==='DESC' ? 'desc' : 'asc'}`,
+				text_content	: entry.direction==='DESC' ? '↓' : '↑',
+				title			: direction_label(entry.direction),
+				parent			: text
+			})
+			direction_node.setAttribute('aria-hidden', 'true')
+			spoken.push( [column_label, direction_label(entry.direction)].filter(Boolean).join(' ') )
+		})
+		const group_name = `${order_label}: ${spoken.join(', ')}`
+		order_indicator.setAttribute('aria-label', group_name)
+
+	// actions. Only on a temporary view order
+		if (view_order) {
+
+			// save current order. Never under a declared order (can_save_view_order)
+				if (can_save_view_order(self)) {
+					const button_save = ui.create_dom_element({
+						element_type	: 'button',
+						class_name		: 'order_save light',
+						text_content	: get_label.save || 'Save',
+						title			: `${get_label.save || 'Save'} · ${group_name}`,
+						parent			: order_indicator
+					})
+					button_save.addEventListener('click', (e) => {
+						e.stopPropagation()
+						run_order_action(button_save, () => self.save_view_order())
+					})
+				}
+
+			// reset. Back to the saved (or declared) order
+				const button_reset = ui.create_dom_element({
+					element_type	: 'button',
+					class_name		: 'order_reset ghost',
+					text_content	: get_label.reset || 'Reset',
+					title			: `${get_label.reset || 'Reset'} · ${group_name}`,
+					parent			: order_indicator
+				})
+				button_reset.addEventListener('click', (e) => {
+					e.stopPropagation()
+					run_order_action(button_reset, () => self.clear_view_order())
+				})
+		}
+
+
+	return order_indicator
+}//end render_order_indicator
+
+
+
+/**
+* ORDER_COLUMN_LABEL
+* The display label of the column `tipo` (its own columns_map label, sub-columns
+* included), or '' when this portal has no such column.
+* @param {Object} self - The `component_portal` instance
+* @param {string|null} tipo
+* @returns {string}
+*/
+const order_column_label = function(self, tipo) {
+
+	if (!tipo) {
+		return ''
+	}
+
+	const find = (columns_map) => {
+		for (const column of (columns_map || [])) {
+			if (column?.tipo===tipo) {
+				return column
+			}
+			const found = find(column?.columns_map)
+			if (found) {
+				return found
+			}
+		}
+		return null
+	}
+	const column = find(self.columns_map)
+	const label = column?.label
+
+	return typeof label==='string' && label.length > 0 && label!==tipo
+		? label
+		: tipo
+}//end order_column_label
+
+
+
+/**
+* RUN_ORDER_ACTION
+* Runs one order indicator action once at a time: the button is disabled and marked
+* `loading` while it runs (its own node is replaced by the re-render on success).
+* @param {HTMLButtonElement} button
+* @param {Function} action - async; its failures are logged, never thrown at the listener
+* @returns {Promise<void>}
+*/
+const run_order_action = async function(button, action) {
+
+	if (button.disabled) {
+		return
+	}
+	button.disabled = true
+	button.classList.add('loading')
+	try {
+		await action()
+	} catch (error) {
+		console.error('Order action failed:', error)
+	} finally {
+		button.disabled = false
+		button.classList.remove('loading')
+	}
+}//end run_order_action
+
+
+
+/**
 * ADD_WRAPPER_EVENTS
 * Attach the common set of event listeners to the portal's top-level wrapper node.
 *
-* Two categories of events are managed:
+* 1. **Click → autocomplete**
+*    A `click` listener calls `activate_autocomplete` (in a microtask) when the
+*    portal is active (`self.active === true`).
 *
-* 1. **Click → autocomplete** (always attached)
-*    A `click` listener deferred via `dd_request_idle_callback` calls
-*    `activate_autocomplete` when the portal is active (`self.active === true`).
-*    The idle-callback deferral ensures the click has fully propagated and any
-*    preceding focus changes have settled before the autocomplete is shown.
-*
-* 2. **Drag-and-drop on the wrapper** (only when `options.drag_drop === true`)
-*    The default and mosaic views set this flag because they render records as a
-*    flat list where the wrapper itself is a valid drop zone (e.g. for dropping a
-*    drag that started from a different portal or from a tree view).  The handler
-*    passes `{ caller: self }` as the minimal options bag required by the shared
-*    drag-and-drop handlers in `drag_and_drop.js`.
+* 2. **The wrapper MOVE zone** (drag_and_drop.js `bind_portal_drop`)
+*    A record dragged from ANOTHER portal may be dropped anywhere on this portal
+*    (an empty portal has no rows). One code path for every edit view: whether this
+*    portal accepts the drop is the SOURCE's ontology (`properties.draggable_to`)
+*    and this portal's permissions, decided by `decide_drop` — never a per-view
+*    switch. A drag that is not a portal row (a thesaurus term, a file, text)
+*    bubbles on untouched (foreign guard).
 *
 * @param {Object} self - The `component_portal` instance.
 * @param {HTMLElement} wrapper - The portal's main wrapper node.
-* @param {Object} [options={}] - Optional configuration.
-* @param {boolean} [options.drag_drop=false] - When `true`, also attaches
-*   `dragover`, `dragleave`, and `drop` listeners to the wrapper.
 * @returns {boolean} Always returns `true`.
 */
-export const add_wrapper_events = function(self, wrapper, options={}) {
+export const add_wrapper_events = function(self, wrapper) {
 
 	// pre-warm the service_autocomplete module during idle time (once per page) so
 	// the first activation click does not pay the dynamic-import cost. This is the
@@ -1321,74 +1617,11 @@ export const add_wrapper_events = function(self, wrapper, options={}) {
 		}
 		wrapper.addEventListener('click', click_handler)
 
-	// drag and drop events on wrapper (optional, used by default and mosaic views)
-		if (options.drag_drop === true) {
-			wrapper.addEventListener('dragover', function(e) {
-				on_dragover(this, e, {
-					caller : self
-				})
-			})
-			wrapper.addEventListener('dragleave', function(e) {
-				on_dragleave(this, e)
-			})
-			wrapper.addEventListener('drop', function(e) {
-				on_drop(this, e, {
-					caller : self
-				})
-			})
-		}
+	// MOVE zone (wrapper-level dragover / drop, MOVE only)
+		bind_portal_drop(self, wrapper)
 
 	return true
 }//end add_wrapper_events
-
-
-
-/**
-* ADD_SECTION_RECORD_DRAG_AND_DROP
-* Make an individual row node draggable and set up the full drag-and-drop event suite.
-*
-* Used by the `line` and `mosaic` views where entire row/card nodes are the draggable
-* units (as opposed to the small drag-icon handle used in the `default` table view).
-* The `dragstart` handler used here is `on_dragstart_mosaic` — a variant that encodes
-* the full row node reference in the transfer data rather than just a locator/key pair.
-*
-* After this call the node:
-* - Has `draggable="true"` set as an attribute.
-* - Has the CSS class `draggable` added (for cursor and visual styling).
-* - Listens for `dragstart`, `dragover`, `dragleave`, and `drop` events using the shared
-*   handlers from `drag_and_drop.js`.
-*
-* @param {Object} options - Options bag from the view module. Must include at minimum:
-* @param {HTMLElement} options.section_record_node - The row/card node to make draggable.
-* @param {Object} options.caller - The `component_portal` instance.
-* @param {Object} options.locator - The locator for this row (forwarded to drag handlers).
-* @param {number} options.paginated_key - The row's position in the current page.
-* @returns {boolean} `true` on success; `false` if `section_record_node` is missing.
-*/
-export const add_section_record_drag_and_drop = function(options) {
-
-	// options
-		const node = options.section_record_node
-		if(!node){
-			console.error('No node is given')
-			return false
-		}
-
-	// not reorderable (component_relation_children): no drag source at all
-		if (options.caller?.reorderable===false) {
-			return false
-		}
-
-	// set properties/events
-		node.draggable = true
-		node.classList.add('draggable')
-		node.addEventListener('dragstart', function(e) { on_dragstart_mosaic(this, e, options) })
-		node.addEventListener('dragover', function(e) { on_dragover(this, e, options) })
-		node.addEventListener('dragleave', function(e) { on_dragleave(this, e) })
-		node.addEventListener('drop', function(e) { on_drop(this, e, options) })
-
-	return true
-}//end add_section_record_drag_and_drop
 
 
 

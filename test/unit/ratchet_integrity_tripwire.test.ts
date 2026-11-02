@@ -853,7 +853,10 @@ describe('GATE-22 — the crap baseline carries its own history, and summary mus
 		}
 		rmSync(CURRENT, { force: true });
 		rmSync(REFERENCE, { force: true });
-	});
+		// ~8 `bun run scripts/crap_baseline.ts` children, each loading the generator cold:
+		// a few seconds on a desk, past the suite's 30 s on a contended hosted runner
+		// (GitHub ci 41327866839 died at 30014 ms). The work is real; the cap is sized to it.
+	}, 120000);
 
 	test('the generator appends on change only, carries the reason into the line, and refuses its own unreasoned growth', () => {
 		const previous = fixture(birth, [{ ...B }]);

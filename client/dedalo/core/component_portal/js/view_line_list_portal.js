@@ -21,9 +21,9 @@
 *
 *   - `view_line_list_portal.render(self, options)` — public entry point;
 *     called by the list render dispatcher in `render_list_component_portal`.
-*   - `get_content_data(self, ar_section_record)` — module-private; builds the
-*     scrollable content area from an array of already-instantiated section_record
-*     objects.
+*   - `get_content_data(self, rows, children_view)` — module-private; hands the
+*     page's locator entries to the row door (section.js window_section_rows) inside
+*     the content area; references go to the `.list_after` slot.
 *   - `rebuild_columns_map(self)` — module-private; augments `self.columns_map`
 *     with callbacks required for special columns (e.g. `ddinfo`), then marks
 *     the map as fixed so successive calls are cheap no-ops.
@@ -55,7 +55,7 @@
 *     enables the auto-load rebuild when the user returns from edit mode via the
 *     close button.
 *   - No toolbar buttons are rendered (list mode is read-display only).
-*   - `get_section_records` is called without an explicit `mode` override, so child
+*   - Rows are built (row door) without an explicit `mode` override, so child
 *     section records inherit the caller's mode rather than being forced to 'list'.
 *
 * @module view_line_list_portal
@@ -68,9 +68,10 @@
 
 
 // imports
-	import {get_section_records} from '../../section/js/section.js'
+	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
 	import {ui} from '../../common/js/ui.js'
-	import {render_references, render_column_component_info} from './render_edit_component_portal.js'
+	import {render_list_after, render_column_component_info} from './render_edit_component_portal.js'
 
 
 
@@ -98,8 +99,8 @@ export const view_line_list_portal = function() {
 *
 * Orchestrates three sequential stages:
 *   1. Build the column map (idempotent after first call — see `rebuild_columns_map`).
-*   2. Fetch and instantiate child section records via `get_section_records`, then
-*      delegate their rendering to `get_content_data`.
+*   2. Hand the page's locator entries to `get_content_data`, whose row door
+*      (section.js window_section_rows) builds and renders the rows.
 *   3. When `render_level !== 'content'`, wrap the content area in a list-mode
 *      component wrapper and attach a dblclick handler that switches the portal to
 *      edit mode if the user has write permissions.
@@ -136,20 +137,12 @@ view_line_list_portal.render = async function(self, options) {
 		// so that section_record instances receive the fully configured map.
 		self.columns_map = await rebuild_columns_map(self)
 
-	// ar_section_record
-		// get_section_records builds one section_record instance per linked entry in
-		// self.data.entries (subject to the active pagination window).
-		const ar_section_record	= await get_section_records({
-			caller	: self,
-			view	: children_view
-		})
-		// store to allow destroy later
-		// Push all child instances into ar_instances so common.destroy() cleans them up
-		// when the portal is torn down or the page navigates away.
-		self.ar_instances.push(...ar_section_record)
+	// rows. The page's locator entries; instances are built by the row door
+		const rows = self.data?.entries || []
+		self.ar_instances = self.ar_instances || []
 
 	// content_data
-		const content_data = await get_content_data(self, ar_section_record)
+		const content_data = await get_content_data(self, rows, children_view)
 		// Short-circuit for in-place refresh: return only the inner content node
 		// so the caller can swap it into the existing wrapper without a full rebuild.
 		if (render_level==='content') {
@@ -165,6 +158,8 @@ view_line_list_portal.render = async function(self, options) {
 		wrapper.appendChild(content_data)
 		// set pointers
 		wrapper.content_data = content_data
+		// list_after. The non-row sibling, right after content_data
+		place_list_after(wrapper, content_data)
 
 	// change_mode
 		// Only attach the dblclick handler when the portal is not in strict read-only
@@ -203,70 +198,49 @@ view_line_list_portal.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Build the scrollable content area containing all rendered child section records.
+* Build the content area and hand the page's locator entries to the ROW DOOR
+* (section.js window_section_rows → section_record/js/record_window.js) on EVERY
+* content render, N=0 included (WC-2026-10-30-section-record-row-box). The window
+* keeps the row invariant (exactly one `.section_record` per entry, in index order)
+* and builds at most ROW_WINDOW_MAX_ROWS rows at once (audit P2-31 / CLI-29); the
+* fill is done before this resolves. List mode has no drag source.
 *
-* All `section_record.render()` calls are fired in parallel via `Promise.all` to
-* avoid sequential waterfall latency.  The resulting nodes are appended to a
-* `DocumentFragment` (a single reflow-friendly insertion) before being moved into
-* the content_data container.
+* Back-references (`self.data.references`, component_relation_related portals) and
+* the print notice go to the `.list_after` slot (expando `content_data.list_after`),
+* never into content_data.
 *
-* Back-references (`self.data.references`) are appended below the record list when
-* present.  These are typically populated by `component_relation_related` portals
-* to show reverse links pointing at the current record.
+* The `autoload: true` option passed to `build_content_data` ensures that a refresh
+* triggered externally (e.g. by a paginator page change) re-enters `render()`
+* instead of serving a stale node.
 *
-* Edge case: when `ar_section_record` is empty the function returns the content_data
-* container immediately without rendering anything.  The `autoload: true` option
-* passed to `build_content_data` ensures that a refresh triggered externally (e.g. by
-* a paginator page change) will re-enter `render()` instead of serving a stale node.
-*
-* @param {Object} self                  - The `component_portal` instance.
-* @param {Array}  ar_section_record     - Array of section_record instances for the
-*   current page window; may be empty.
+* @param {Object} self          - The `component_portal` instance.
+* @param {Array}  rows          - The page's locator entries (`self.data.entries`).
+* @param {string} children_view - The view each row is rendered with.
 * @returns {Promise<HTMLElement>} Resolves to the populated `content_data` container element.
 */
-const get_content_data = async function(self, ar_section_record) {
+const get_content_data = async function(self, rows, children_view) {
 
 	// content_data
 	const content_data = ui.component.build_content_data(self, {
 		autoload : true
 	})
 
-	const section_record_count = ar_section_record.length
+	// rows. The door, always (N=0 included)
+	const record_window = await window_section_rows({
+		caller			: self,
+		container		: content_data,
+		rows			: rows,
+		records_options	: {
+			view : children_view
+		},
+		layout			: 'list'
+	})
 
-	// empty cases
-	// Return the empty container immediately — no DOM work needed for a zero-length list.
-	if (section_record_count === 0) {
-		return content_data;
-	}
-
-	// Render promises
-	// Kick off all renders in parallel; each record.render() returns a Promise<HTMLElement>.
-	const render_promises = ar_section_record.map(record => record.render());
-
-	// fragment
-	const fragment = new DocumentFragment()
-
-	// Add all section_record rendered nodes to the fragment
-	// Guard against null/undefined rendered nodes (can happen if a record failed to init).
-	const rendered_nodes = await Promise.all(render_promises);
-	for (let i = 0; i < section_record_count; i++) {
-		if (rendered_nodes[i]) {
-			fragment.appendChild(rendered_nodes[i])
-		}
-	}
-
-	// Add references if they exist.
-	// References are reverse-link locators; render_references builds a <ul class="references"> node.
-	if(self.data.references?.length > 0){
-		const references_node = render_references(self.data.references)
-		if (references_node) {
-			fragment.appendChild(references_node)
-		}
-	}
-
-	// Append final fragment at end
-	// Single DOM insertion — cheaper than appending each node individually.
-	content_data.appendChild(fragment)
+	// list_after. References + print notice (never inside content_data)
+	content_data.list_after = render_list_after(self, {
+		content_data	: content_data,
+		record_window	: record_window
+	})
 
 
 	return content_data

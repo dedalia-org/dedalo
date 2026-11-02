@@ -259,10 +259,9 @@ has no history rows of its own.
   An unsliced main's history is every row of it, whatever the tag (see above).
   A non-translatable main that keeps language versions (a transliterable name, asked in
   `lg-nolan`) lists its `lg-nolan` rows and the rows of the working data language, so
-  *Αύγουστος* appears while working in Greek; the preview of such a row shows the base
-  form and the frames as of it, not the transliteration itself (the component read does
-  not yet serve transliterations — `transliterate_value`), and restoring it puts the
-  transliteration back. Every row's preview shows the full state at that row —
+  *Αύγουστος* appears while working in Greek; the preview of such a row, viewed in Greek,
+  shows the transliteration and the frames as of it (with the base form beside it as
+  `transliterate_value`), and restoring it puts the transliteration back. Every row's preview shows the full state at that row —
   its language's value as it stood, and its frames as they stood — so an intermediate
   state is visible exactly as it was. The row's own language and the frames are shown
   exactly as a restore would write them (`previewLaneValue()`, sharing

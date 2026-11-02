@@ -110,12 +110,16 @@ export interface RunJournal {
 	restore_closed?: { at: string; note: string };
 }
 
-/** A sortable, collision-free id: the UTC instant + a random suffix. */
+/**
+ * A sortable, collision-free id: the UTC instant TO THE MILLISECOND + a random
+ * suffix (`20261102T115856123Z_0a350b84`). The milliseconds are load-bearing:
+ * readRunJournals sorts by id and `update status` / the drill take the last as
+ * the newest, so with a seconds-only stamp two runs started in the same second
+ * (a refused submission, then the real one) ordered by their RANDOM suffix
+ * (dev drill 2026-11-02: the refused run read as the newest).
+ */
 export function newRunId(now: Date = new Date()): string {
-	const stamp = now
-		.toISOString()
-		.replaceAll(/[-:]/g, '')
-		.replace(/\.\d+Z$/, 'Z');
+	const stamp = now.toISOString().replaceAll(/[-:.]/g, '');
 	return `${stamp}_${crypto.randomUUID().slice(0, 8)}`;
 }
 

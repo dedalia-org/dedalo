@@ -1641,6 +1641,44 @@ describe("rule 6b — the client server's stateful surfaces are the suite databa
 	});
 });
 
+describe("rule 6c — a run's pinnedEnv adds keys, never re-aims the server", () => {
+	/** suiteServerEnvironment with `pinnedEnv` in a child, as startClientTestServer composes it. */
+	function composePinnedInChild(
+		suiteDb: string,
+		pinnedEnv: Record<string, string>,
+	): { ok: true; env: Record<string, string | null> } | { ok: false; error: string } {
+		const script = `
+			const m = await import(${JSON.stringify(join(REPO_ROOT, 'scripts', 'client_test_server.ts'))});
+			try {
+				const out = m.suiteServerEnvironment({ suiteDb: ${JSON.stringify(suiteDb)}, port: 1, ...m.suiteServerPaths(), pinnedEnv: ${JSON.stringify(pinnedEnv)} });
+				const keys = ['DB_NAME', ...${JSON.stringify(Object.keys(pinnedEnv))}];
+				console.log(JSON.stringify({ ok: true, env: Object.fromEntries(keys.map((k) => [k, out[k] ?? null])) }));
+			} catch (error) {
+				console.log(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
+			}
+		`;
+		const child = Bun.spawnSync(['bun', '-e', script], { cwd: REPO_ROOT, env: process.env });
+		expect(child.exitCode, child.stderr.toString()).toBe(0);
+		const lines = child.stdout.toString().trim().split('\n');
+		return JSON.parse(lines[lines.length - 1] as string);
+	}
+
+	test("test:tools:phone's PHONE_RUN_ENV reaches the server; DB_NAME stays the suite database", async () => {
+		const { PHONE_RUN_ENV } = await import('../helpers/tool_phone_ratchet.ts');
+		const suiteDb = await currentDatabaseName();
+		const out = composePinnedInChild(suiteDb, { ...PHONE_RUN_ENV });
+		if (!out.ok) throw new Error(out.error);
+		expect(out.env.DB_NAME).toBe(suiteDb);
+		for (const [key, value] of Object.entries(PHONE_RUN_ENV)) expect(out.env[key], key).toBe(value);
+	});
+
+	test('a pinned key the suite environment owns is refused (DB_NAME)', async () => {
+		const out = composePinnedInChild(await currentDatabaseName(), { DB_NAME: 'x' });
+		expect(out.ok).toBe(false);
+		if (!out.ok) expect(out.error).toContain('DB_NAME');
+	});
+});
+
 // ---------------------------------------------------------------------------
 // RULE 9 — a test process the preload never reached opens no database.
 // ---------------------------------------------------------------------------

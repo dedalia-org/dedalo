@@ -377,9 +377,11 @@ async function dataNodeOf(tipo: string): Promise<ResolvedNode | null> {
  * lang slice, echoes it or cuts the slice it will save back — never a local
  * copy. That covers every SPEAKING door; a DOORLESS history door (lg-nolan
  * request) files by dataframe_slots.ts slicedRowLang (gate:
- * test/unit/history_door_lane_agreement_native.test.ts). (The component
- * READ, resolve/component_data.ts, keeps PHP
- * get_element_lang's nolan-forcing of a non-translatable string component.)
+ * test/unit/history_door_lane_agreement_native.test.ts). (A READ asks a
+ * different question — which lang the INSTANCE runs in — answered by
+ * elementLang below: a transliterable keeps only an EXPLICITLY requested lang
+ * there, never the ambient one, because a save's lang is always explicit and a
+ * display read's usually is not.)
  */
 export async function effectiveSaveLang(
 	tipo: string,
@@ -391,11 +393,60 @@ export async function effectiveSaveLang(
 
 /** Whether a save of `tipo` keeps the request lang (effectiveSaveLang); false = every save is `lg-nolan`. */
 export async function savesInRequestLang(tipo: string, model: string): Promise<boolean> {
-	if (model === 'component_iri') return true;
 	// ONE alias hop for both rules (an alias answers for its target).
+	if ((await dataNodeOf(tipo))?.translatable === true) return true;
+	return hasLangVersions(tipo, model);
+}
+
+/**
+ * Whether `tipo` is TRANSLITERABLE: a non-translatable component whose value
+ * lives in an lg-nolan BASE but may also hold per-language VERSIONS beside it
+ * (PHP `with_lang_versions`, class.component_common.php:666-678 — v6
+ * semantics; the frozen v7 PHP never read the property, see its typed
+ * `bool $with_lang_versions = false` + `isset`). True for every component_iri
+ * (PHP class.component_iri.php:64 hard-sets it, the ontology flag is not
+ * needed) and for any component whose ontology `properties.with_lang_versions`
+ * is `true`. Read on the DATA node (an alias answers for its target — an alias
+ * onto an iri is an iri), from the ontology only: an rqo properties override
+ * never makes a component transliterable (PHP read it in the constructor,
+ * before set_properties).
+ */
+export async function hasLangVersions(tipo: string, model: string): Promise<boolean> {
+	if (model === 'component_iri') return true;
 	const node = await dataNodeOf(tipo);
-	if (node?.translatable === true) return true;
+	if (node?.model === 'component_iri') return true;
 	return (node?.properties as { with_lang_versions?: unknown } | null)?.with_lang_versions === true;
+}
+
+/**
+ * THE LANG AN ELEMENT INSTANCE OF `tipo` RUNS IN (PHP component_common
+ * __construct :666-678 + common::get_element_lang :3684) — the ONE rule of
+ * every door that stamps a component's context `lang` or picks the slice a
+ * read shows:
+ *
+ * - translatable → the lang the caller asked for, else the AMBIENT lang (the
+ *   request data lang / the read's own lang — the caller supplies it);
+ * - transliterable (hasLangVersions: `with_lang_versions`, component_iri) →
+ *   the lang the caller EXPLICITLY asked for (the tool_lang target building
+ *   in lg-spa), else the lg-nolan BASE;
+ * - anything else → `lg-nolan`, whatever was asked.
+ *
+ * "Requested" means EXPLICIT — a component read's own `source.lang`, a ddo's
+ * declared `lang`, an agent's `input.lang` — and NEVER the ambient page data
+ * lang a section/list/portal read carries for its children: were the ambient
+ * lang to count, the normal edit form would build (and save) a transliterable
+ * in lg-spa instead of its base. The save door is a different question
+ * (effectiveSaveLang: a save's lang is always explicit).
+ */
+export async function elementLang(
+	tipo: string,
+	model: string,
+	langs: { requested?: string | null; ambient: string },
+): Promise<string> {
+	const requested = langs.requested || null;
+	if ((await dataNodeOf(tipo))?.translatable === true) return requested ?? langs.ambient;
+	if (requested !== null && (await hasLangVersions(tipo, model))) return requested;
+	return 'lg-nolan';
 }
 
 /** model → matrix jsonb column (PHP section_record_data::get_column_name). */

@@ -49,6 +49,7 @@ import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import {
 	API_BUILD_DIR,
 	ApiBundleError,
+	assertRegistryLockfile,
 	dependencyFiles,
 	installV2DepsReal,
 	publicationReleaseId,
@@ -86,6 +87,7 @@ export type KitBuildReason =
 	| 'not_regular_file'
 	| 'deps_install_failed'
 	| 'deps_symlink'
+	| 'deps_unpinned'
 	| 'dev_dependency'
 	| 'draft_refused'
 	| 'kit_refused'
@@ -258,7 +260,9 @@ async function verifiedFile(
 function mapBundleError(error: unknown): unknown {
 	if (!(error instanceof ApiBundleError)) return error;
 	const reason: KitBuildReason =
-		error.reason === 'deps_symlink' || error.reason === 'not_regular_file'
+		error.reason === 'deps_symlink' ||
+		error.reason === 'deps_unpinned' ||
+		error.reason === 'not_regular_file'
 			? error.reason
 			: 'deps_install_failed';
 	return new KitBuildError(
@@ -366,6 +370,7 @@ async function productionModules(
 		}
 	}
 	try {
+		await assertRegistryLockfile(agentDir);
 		await ctx.installDeps(agentDir);
 	} catch (error) {
 		throw mapBundleError(error);

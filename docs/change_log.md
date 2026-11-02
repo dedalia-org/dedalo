@@ -17,11 +17,26 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Dédalo now runs on Bun 1.4.4, the latest stable release.
     - Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup.
 
 ### For users
 
 #### Changed
+
+- **Sorting a portal by a column header is now a temporary view; **Save** makes it the stored order.**
+
+    Before, clicking the sort arrow of a portal column header (on columns configured with `sort_by_column`) reordered the linked records and saved that order at once. Now the click only changes how the list is shown: every page follows the chosen column and direction, and nothing is written. A line under the list shows the active order ("Order: <column> ↓") with two buttons: **Save** stores the shown order as the portal's order (recorded in Time Machine, as before), and **Reset** returns to the saved order. While a temporary order is shown, rows cannot be dragged; they can again after Save or Reset. Linking, unlinking or adding a record keeps the temporary order. Users with read-only access can sort the view and reset it, but not save it.
+
+    On a portal whose ontology declares a permanent order, the same line shows that order. A header click there still gives a temporary view with **Reset**, but no **Save**, and rows are never dragged: the declared order is applied automatically on every save.
+
+    Wire contract: `WC-2026-10-31-portal-order-model`.
+
+- **On a phone, portal tables now show as labelled cards like section lists, with the drag handle always visible.**
+
+    On a phone-sized screen a portal table (the default and content views, and every field that shows records the same way, such as related records) now shows each linked record as a card, the way section lists already did. Each field in the card carries its name. The drag handle that moves a row sits in the card's Id band and is always visible, because a touch screen has no hover. The delete button stays inside the card, so the page is no longer wider than the screen. Field names containing an apostrophe, such as Catalan "Data d'alta", now show on the cards too.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
 
 - **The field you are editing is now outlined by an orange frame instead of a light orange background.**
 
@@ -33,6 +48,18 @@ Merged since the last release; these ship with the next one.
     never cut short). In relation fields (portals) the search bar is now the frame's bottom edge,
     exactly as wide as the field, and the list of results continues below it. Nothing
     moves on the page when a field becomes active. Works the same in the dark theme and on phones.
+
+- **A portal whose ontology declares an order now stores its records in that order.**
+
+    A portal column can declare a fixed order in the ontology (for example, linked records sorted by name). That order used to be applied only on screen, so exports, publication and the edit view could disagree, and dragging records inside such a portal was refused. Now every save keeps the stored list in the declared order, and editing the value a linked record is ordered by re-sorts every portal that holds it. Because the declared order is fixed, those portals cannot be reordered: they offer no drag handle and no change-order dialog, and the order bar above the list names the declared order. Clicking a sortable column header still sorts the list on screen only, with Reset to go back; there is no Save there. Lists saved before their order was declared keep their old order until they are saved again, or until an administrator runs the `portal_declared_order` reconcile (Maintenance › Reconcile). The reconcile also runs by itself once an ontology update has added or changed an order (once, after the whole update), and in the background after an order is edited in the ontology editor; stopping the update, the background process or the server stops it at the next record, and a later reconcile run finishes the job. A record it cannot save is listed in its report and does not stop the others from being sorted.
+
+    Wire contract: `WC-2026-10-31-portal-order-model`.
+
+- **Section lists and portals now place their rows with the row box. Long lists stay fast, scrolling never loses an edit, and screen readers announce each list as a table or a list.**
+
+    Every section list, every portal view (default, content, line, tree, indexation, mosaic, and the list views) and the two tool mosaics (cataloguing, coin ordering) now draw one row per record, in order, through one shared engine. A page of more than 200 records keeps only the rows near the screen built. The others wait as empty, sized placeholders and are built when you scroll to them, so a "show all" page of 1000 records opens without freezing the browser. A row holding a value you typed but have not saved yet is never thrown away while you scroll. A page change, a filter or a reorder first saves what you typed. When it cannot save it, it asks before discarding, and Cancel leaves the list exactly as it was. When you print a long list, a note says how many rows were not printed (only the rows built on screen are). Use the print or export tool to get the whole list. Screen readers now announce list grids as tables, with a header row, and line, mosaic and tree views as lists. A portal row can be dragged by its handle, by touch with tap-to-pick and tap-to-place, or with the keyboard (Enter on the handle opens move-to-position).
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
 
 - **JSON fields are lighter and faster**
 
@@ -120,9 +147,104 @@ Merged since the last release; these ship with the next one.
 
     After all parts of a large file (several GB) had arrived, the server needed minutes to put them back together. The browser stopped waiting after about half a minute and showed an error, although the file was saved in the end; trying again then failed because the parts were already gone. The browser now keeps waiting (up to 30 minutes, or until you cancel), and asking again for a file that is already joined returns it instead of an error. A part that hits a temporary gateway error (502, 503, 504) is now retried too.
 
+- **Screen readers now announce the list delete and edit buttons.**
+
+    The trash-can button on each row of a section list now has an accessible name that says which record it deletes, such as "Delete 7". The pen buttons that open a record from a portal line view and from a graph list are named as well. Before, a screen reader announced these icon-only buttons only as "button".
+
+- **Screen readers now announce the language and dashboard selectors.**
+
+    The data-language selector in the menu, and the sort and time-range selectors on area dashboards, now have accessible names. Every language selector built by the client gets a name by default. The interface and data language selectors have different names, so a screen reader can tell them apart.
+
+- **The menu no longer offers the retired Graphs area.**
+
+    The Graphs area (`dd630`) was still listed in the menu, but opening it only showed an error: the area was retired and the server refuses to open it. The menu now leaves it out. Nothing else changes: the area still appears in the Maintenance area-visibility settings and in profile permissions.
+
+    Wire contract: `WC-2026-11-01-menu-dead-area`.
+
+- **Area dashboards, the thesaurus and ontology toolbars, the Maintenance map and the edit inspector fit a phone screen.**
+
+    On a narrow screen (about 360 pixels wide) these pages were wider than the screen, so the whole page, menu included, scrolled sideways. Their toolbars, chart headers, chart-type switchers and legends now wrap onto a second line, the Maintenance tool buttons and forms wrap inside their panel, the record title in the inspector is shortened with an ellipsis, and the Maintenance system map scrolls inside its own frame.
+
+- **A field whose save failed is no longer forgotten — it stays marked unsaved and is saved again.**
+
+    Before, when saving a field failed (a network interruption, a server error, a
+    session that changed on re-login), the field showed its orange "modified" bar
+    and nothing else: leaving the page did not warn, the automatic save on
+    navigation did not retry it, and a later successful edit of the same field
+    quietly cleared the warning while the earlier change was still not stored.
+
+    Now a failed save keeps the field marked as unsaved. Leaving the page warns
+    about it, the automatic save on navigation tries it again, and the next save of
+    that field sends the earlier change along with the new one. A field whose row
+    scrolls away or is rebuilt while its change is still unsaved keeps that change
+    until it is saved or you choose to discard it. If you edit the same value of
+    that field again in the rebuilt row, your newer value is the one that is kept;
+    the older, unsaved one is dropped instead of being written over it later.
+    Unsaved changes to OTHER values of the same field (another line of a
+    multi-value field, another linked record) are kept and saved. Typing a value
+    back to what is stored no longer clears the warning while another change of
+    the field is still unsaved. A
+    change refused while an earlier save of the same field was still on its way
+    (the session changed on re-login in the meantime) stays unsaved when that
+    earlier save completes.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
+
+- **Dragging a related record on the second page of a portal now moves it where it is dropped.**
+
+    Reordering the records of a portal by drag and drop counted the page twice from the second page on, so a record dragged on page 2 or later was sent to the wrong position (or refused). It now lands exactly where it is dropped, on every page. A drag that is not a portal record — a file, a thesaurus term, a card from a tool — is no longer swallowed by a portal it passes over and reaches the place it was dropped on. When a reorder cannot be confirmed, the message now says so and asks for a reload instead of claiming the new order was not saved. That message, the one for a reorder that was not saved, and the one for a list that changed during the drag are shown in the user's language. A portal no longer highlights a drop place for a record it would refuse, for example a portal whose order is declared in the ontology, so a drop no longer looks accepted and then does nothing.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
+
+- **Components with language versions show the other version beside the value, and offer the translation tool**
+
+    Some fields are not translated but can keep a version per language beside their
+    base value — a personal name written once and transliterated into Greek or
+    Russian, for example, or any IRI field. These fields are marked with
+    `with_lang_versions` in the ontology.
+
+    Before, such a field behaved like a plain untranslated one. The translation tool
+    was not offered on it, and the version in your working language was not shown
+    next to the value.
+
+    Now:
+
+    - The translation tool appears on these fields and on every IRI field. Inside
+      the tool, the version you edit shows the base value beside it.
+    - In the edit form and in lists, the version in your working data language is
+      shown beside the base value, for example "Augustus (Αύγουστος)".
+    - Opening an IRI field's version in the translation tool no longer fails.
+    - Searching one of these fields also finds the record by any of its language
+      versions, not only by the base value.
+    - The edit form keeps editing the base value even when your working data
+      language is another one; only the translation tool edits a version.
+    - When published, these fields give each language its own version and fall
+      back to the base value when a language has none. IRI fields no longer publish
+      the base and all its versions joined together in every language.
+    - The options of selectors, radio buttons and check boxes are always labelled in
+      your working data language, also right after saving. Before, they could
+      appear in the installation's default language.
+    - In the Time Machine history of one of these fields, a change to a language
+      version shows that version as the row's value, no longer as a greyed
+      missing-translation hint.
+
+    Wire contract: `WC-2026-10-31-transliterate-value-emitted`.
+
 - **Records open when a portal's list layout names a field from an uninstalled ontology.**
 
     A portal's list layout can name fields from optional ontologies (for example `tchi`). On an installation without that ontology, opening the record failed with "The identifier is not a valid ontology tipo". Those fields are now left out of the layout, and the server logs a warning naming each one.
+
+- **Catalog terms show the coins of their type again, and legend symbols follow their legend.**
+
+    Before, cataloguing a term (dropping a type onto it in the cataloging tool) left the term's *Coins* and *Ordered coins* portals empty, and the symbol lists derived from a coin legend never updated when the legend's tags changed. Both kinds of field are calculated, and the server did not know how to calculate them. Now it does: a term's coins are a copy of its type's coins, in the type's order, and they update when a coin is linked to the type as well as when the term is catalogued; a legend's symbol list is the symbols tagged in the legend text, in the order they appear. See [Server-side observers — the value laws](./core/system/observers.md#the-value-laws-of-set_dato_external).
+
+    The **update** button of a calculated portal works again. It recomputes that portal on that record from the current data and shows the result; anyone who can read the record may use it, because the value is the same whoever asks. If nothing changed, nothing is saved. See [Refreshing a mirror by hand](./core/system/observers.md#refreshing-a-mirror-by-hand).
+
+    Existing stored values are not rewritten by the update: they are corrected the next time their source is saved, when the button is pressed, or by an administrator running the observer reconcile (dry run first — on large catalogues review the proposed removals before applying them).
+
+    For developers: the button now sends `source.build_options.get_data_external: true`; the old `get_dato_external` flag is ignored. A calculated value is only created and maintained on records whose section declares the field; a value stored on any other record is left exactly as it is, and the observer reconcile reports such values as left untouched instead of correcting them.
+
+    Wire contract: `WC-2026-10-30-observer-external-value-laws`, `WC-2026-10-30-observer-target-resolvers`, `WC-2026-10-30-observer-target-not-host`, `WC-2026-10-30-observer-law-derived-edges`, `WC-2026-10-30-portal-get-data-external-refresh`.
 
 - **Portals without a configured page size show their paginator again.**
 
@@ -130,9 +252,23 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-30-request-config-default-page-size`.
 
+- **Open relationships now follows every found record, with exact counts per related section.**
+
+    Before, **Open relationships** (the inspector button, and a portal's *List from component data*) used only the first 1000 found records, without saying so, and sent the list of related ids back and forth on every page of the opened window. Now the dialog lists every related section with its exact number of records — the number the opened window shows, with your permissions applied — and says so when nothing is related. The opened window is an ordinary filtered list: it counts and paginates normally however many records are related, and opening relationships again from it follows the chain further. The related records are read from what the found records themselves store, so the answer no longer depends on the relation index being up to date, and the activity log can be a starting point too. Counting has a 30-second limit, and so does each page and count of the opened window; past it a timeout error is shown instead of the server working on indefinitely. One count runs per session: opening the dialog in another tab or window replaces the count still running in the first, which then offers **Reload**. A found set that includes recursive children (the search's *Children* option) is refused with a message instead of being counted without its children. See [inspector — Open relationships](./core/ui/inspector.md#open-relationships).
+
+    For developers: the window's search carries a new `referenced_by` filter leaf, and the counts come from a new read-only `relation_targets` action (one deadline for the whole census, `db.statement_timeout` past it). Every search statement carrying the leaf has the 30-second limit wherever it runs (`read_raw`, the MCP search, tools acting on a search selection, diffusion and export selections), not only the opened window's — see [SQO — relationship filter leaves](./core/sqo.md#relationship-filter-leaves-referenced_by) and [rqo — relation_targets](./core/rqo.md#relation-targets-of-a-search-relation_targets).
+
+    Wire contract: `WC-2026-10-30-search-referenced-by-leaf`.
+
 - **Search panel no longer forced tall by the fields list**
 
     The Fields, Type and Preset columns of the search panel now take the height of their content (up to half the screen, scrolling past that) instead of always reserving half the screen.
+
+- **Reordering a related record to an invalid position no longer removes it.**
+
+    Moving a record inside a portal to a position outside the list (for example a drag on the second page, or a malformed request) used to drop the moved record from the field and still report the save as successful. The server now refuses such a move with an error and leaves the field exactly as it was; moves to a valid position behave as before.
+
+    Wire contract: `WC-2026-10-30-sort-data-key-range`.
 
 - **The export now writes the data language you select in the tool, not always the main one.**
 
@@ -297,6 +433,24 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Dédalo now runs on Bun 1.4.4, the latest stable release.** *(action needed)*
+
+    The pinned runtime (`.bun-version`) moves from Bun 1.4.3 to 1.4.4. No defect drives the move; the
+    runtime behaviours the engine depends on were re-checked on 1.4.4 and are unchanged. The update
+    panel refuses this release until the server runs Bun 1.4.4.
+
+    **Action needed, before you apply this update:**
+
+    - **Host installation:** as root, install the verified 1.4.4 runtime at `/opt/dedalo/bun/1.4.4/bun`
+      exactly as [the `host_runtime` step](./install/manual_install.md#manual-host_runtime) does (with
+      `PIN=1.4.4`, checked against this release's `.bun-sha256`), point the instance's `ExecStart` at
+      it ([the `host_units` step](./install/manual_install.md#manual-host_units)), run
+      `systemctl daemon-reload`, restart the instance, then apply the update.
+    - **Container installation:** nothing extra; the new image carries Bun 1.4.4
+      ([Upgrading](./install/docker.md#upgrading)).
+    - **Publication hosts:** each site's Bun must move to 1.4.4 as well, or its **Bun version** row
+      turns red ([Upgrading a site's Bun](./install/publication_host.md#upgrading-a-sites-bun)).
+
 - **/health shows only the state of an update run and of the data version, not their identifiers.**
 
     `/health` answers without a session, so its `update_run` and `data_version` entries now carry only `state`. The run id, target release and version pair are shown by `bun run update status` and the maintenance panel. The health verdict is unchanged.
@@ -322,6 +476,17 @@ Merged since the last release; these ship with the next one.
     `TOOLS_ENABLE_REGISTRY_IMPORT` no longer exists; a line left in `.env` is ignored. A code update now always reconciles the tools registry from the release's tool packages, so a tool added by the release appears without pressing *Register tools*. Each tool keeps the Active value an administrator set, even one changed while the update runs.
 
     Wire contract: `WC-2026-10-30-tools-registry-import-switch-retired`.
+
+- **Update ontology says whether a database backup is in place before you press the button.**
+
+    An ontology update is refused without a recent, verified database backup. Before, the **Update ontology** panel showed only a checkbox labelled "Update without a recent database backup", out of line with its text, and you learnt about the rule only when the update was refused.
+
+    The panel now has a **Database backup** block above the button:
+
+    - With a recent, verified backup, it shows the backup's age and no checkbox.
+    - Without one, it says the update will be refused and how to fix it: make a backup in **Backups** and reload the panel. The checkbox to update without a backup sits below that, with what it costs: if the update goes wrong, the database cannot be restored, and the waiver is recorded with your user. **Replace selected ontologies** stays disabled until you make a backup or tick the box.
+
+    Wire contract: `WC-2026-10-30-update-ontology-backup-gate`.
 
 - **An ontology update only touches the shared ontologies.**
 
@@ -452,6 +617,22 @@ Merged since the last release; these ship with the next one.
 - **The root user can now open their own account panel by clicking their name in the header.**
 
     Clicking the username in the header opens the account panel (full name, password, email, image and the active field style). For the root user the name was not clickable, so root had no way to change their name, email or interface preferences from inside Dédalo. It now opens for root as for every other user. Root still sees and changes only their own account. Root's image and password are shown but cannot be changed there: a password change asks for no current password, and root has no emailed recovery, so a session left open could lock the real root out for good. In this panel the user name and profile are now read-only for everyone, administrators included; administrators edit them in the Users section.
+
+- **The newest update run is always the one shown as newest.**
+
+    Update run ids now carry the start time to the millisecond. Before, two runs started in the same second (for example a refused submission followed by the real update) could be ordered by the random part of their id, so `bun run update status` could report the older run as the newest one.
+
+- **A code update on an installation without an ontology server no longer stops in "needs a database restore".**
+
+    A release that declares no update steps of its own runs the default ones; its ontology step is skipped, and recorded, when the installation has no ontology server configured (`ONTOLOGY_SERVERS=[]`). The master's update list lost that distinction on the way to the installation, so the installation treated the step as required: after the new code started, the ontology step failed and the update ended asking for a database restore. The installation now receives it and skips the step as intended. An update refused for want of a recent, restorable database backup again says which backup did not verify and why, and is reported as a refusal: make a backup (or waive it) and start again. A refused archive (its checksum does not match the one the code server publishes) is also reported as a refusal with its reason, no longer as a bare "code failed". And a healthy update that crosses the data model no longer logs "NOT CONFIRMED — NEEDS A HUMAN … a migration failed" when it starts that step: the log now says the rollback is disarmed until the update confirms.
+
+    Wire contract: `WC-2026-11-01-update-plan-declared`.
+
+- **The data update refuses a step meant for a newer version than the running code.**
+
+    A development or nightly build could already list the data update of the next release and run it. The database then stood at a newer data version than the code serving it, and the health check turned red. "Update data" now refuses such a step before running anything and says which code version it needs. Install a build of that version first.
+
+    Wire contract: `WC-2026-10-31-update-rung-above-code`.
 
 - **An interrupted Docker image update now rolls back instead of leaving the stack pinned to an unverified version.**
 
@@ -608,6 +789,21 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Section lists, portals and the tool mosaics place their rows through one client module, the record window, with a fixed row DOM contract.**
+
+    A new client module, `core/section_record/js/record_window.js`, places the rows of every section list, every portal row view and the two tool mosaics, through one door, `window_section_rows` in `section.js`. Code that renders or reads list rows can rely on this contract (see [The row box](./core/sections/section_list.md#the-row-box)):
+
+    - `content_data.children` holds exactly one `.section_record` per entry, in order: `children[i]` is row *i* with `data-index="i"`, at every page size, 0 included. Nothing else goes into `content_data`. A "no records" node, a footer, back-references, the print notice and a portal's order indicator go into the one `.list_after` sibling (hand it over as `content_data.list_after`; `common.js` `place_list_after` places it).
+    - Table views mark their `list_body` with `layout_table`: header, `content_data` and every row are column subgrids with table roles, so each row is one box.
+    - Above 200 rows only the rows near the screen are built; the rest are childless placeholders (`.section_record.placeholder`). Find a row with `content_data.children[i]` or `row_of()`, and its entry with the window's `entry_of(i)` — never a node map of your own. `caller.ar_instances` holds the built rows only.
+    - Row gestures are delegated: one listener set per `content_data`, bound to the window's `signal` (`bind_row_drag`, `bind_tool_row_drag`, `delegate_row_hover`), never a listener per row.
+    - Any operation that replaces rows takes the owner row lock first (`common.js` `lock_rows`), which commits typed-but-uncommitted values and asks before discarding one.
+    - A portal reorder sends absolute keys: `paginated_key` is the index in the stored array; never add the paginator's offset.
+
+    The module is also part of the files the browser pre-caches.
+
+    Wire contract: `WC-2026-10-30-section-record-row-box`.
+
 - **The parity test baseline can be re-recorded in the CI image.**
 
     `bun run ci:local --docker --record-parity-baseline` re-records `engineering/parity_baseline.json` inside the CI image, the same way `--record-unit-baseline` does for the unit tests. Recording it on a developer machine froze that machine's own configuration into the baseline. It can be combined with `--record-unit-baseline --new <file>` so a single green run records both.
@@ -648,7 +844,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 30 entries"
+??? note "Wire contract — 44 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -671,14 +867,28 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-29-start-user-default-section`
     - `WC-2026-10-30-health-boot-facts`
     - `WC-2026-10-30-maintenance-door-classes`
+    - `WC-2026-10-30-observer-external-value-laws`
+    - `WC-2026-10-30-observer-law-derived-edges`
+    - `WC-2026-10-30-observer-target-not-host`
+    - `WC-2026-10-30-observer-target-resolvers`
     - `WC-2026-10-30-ontology-file-digests`
     - `WC-2026-10-30-ontology-import-census-restore`
+    - `WC-2026-10-30-portal-get-data-external-refresh`
     - `WC-2026-10-30-request-config-default-page-size`
     - `WC-2026-10-30-restore-point-release-identity`
+    - `WC-2026-10-30-search-referenced-by-leaf`
+    - `WC-2026-10-30-section-record-row-box`
+    - `WC-2026-10-30-sort-data-key-range`
     - `WC-2026-10-30-tools-registry-import-switch-retired`
     - `WC-2026-10-30-update-door-refusals`
+    - `WC-2026-10-30-update-ontology-backup-gate`
     - `WC-2026-10-30-update-run`
     - `WC-2026-10-30-update-sources-server-held`
+    - `WC-2026-10-31-portal-order-model`
+    - `WC-2026-10-31-transliterate-value-emitted`
+    - `WC-2026-10-31-update-rung-above-code`
+    - `WC-2026-11-01-menu-dead-area`
+    - `WC-2026-11-01-update-plan-declared`
     - `WC-2026-11-02-ui-preferences`
 
 ## 7.0.0-beta.7 — 2026-10-25

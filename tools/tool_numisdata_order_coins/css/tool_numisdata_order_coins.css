@@ -175,8 +175,8 @@
   background-color: var(--color_grey_10);
   opacity: 0.7;
 }
-.wrapper_tool.tool_numisdata_order_coins > .content_data .left_container > .wrapper_component.view_coins_mosaic > .list_body > .content_data > .hover_body {
-  position: relative;
+.wrapper_tool.tool_numisdata_order_coins > .content_data .left_container > .wrapper_component.view_coins_mosaic > .list_body > .content_data > .section_record:not(:hover, :focus-within) > .sr_mosaic_hover {
+  display: none;
 }
 .wrapper_tool.tool_numisdata_order_coins > .content_data .left_container > .wrapper_component.view_coins_mosaic > .list_body > .content_data .sr_mosaic_hover {
   position: absolute;
@@ -309,7 +309,7 @@
 .wrapper_tool.tool_numisdata_order_coins > .content_data .left_container > .wrapper_component.view_coins_mosaic.edit > .list_body > .content_data > .section_record .column > .wrapper_component {
   height: inherit;
 }
-.wrapper_tool.tool_numisdata_order_coins > .content_data .left_container > .wrapper_component.view_coins_mosaic.edit > .list_body > .content_data > .section_record.mosaic_over {
+.wrapper_tool.tool_numisdata_order_coins > .content_data .left_container > .wrapper_component.view_coins_mosaic.edit > .list_body > .content_data > .section_record:hover {
   outline: 1px solid var(--color_orange_dedalo);
   z-index: 2;
 }

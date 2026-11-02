@@ -85,6 +85,12 @@ const EXEMPT_SITES: readonly ExemptSite[] = [
 			'the read-activity skip tests the ROW SOURCE, so a history read never appends a dd542 Activity row',
 	},
 	{
+		file: 'src/core/section/record/external_refresh.ts',
+		contains: "return mode === 'tm' || isTimeMachineRead();",
+		reason:
+			'the update-external refresh tests the ROW SOURCE: a history read (sqo.mode tm) must never recompute or write a live mirror (WC-2026-10-30-portal-get-data-external-refresh precondition 3)',
+	},
+	{
 		file: 'tools/tool_time_machine/js/tool_time_machine.js',
 		contains: 'mode',
 		reason:

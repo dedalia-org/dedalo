@@ -356,7 +356,7 @@ async function candidateIds(
 ): Promise<number[]> {
 	const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
 	const { buildSearchSql } = await import('../search/sql_assembler.ts');
-	const { sql } = await import('../db/postgres.ts');
+	const { runSearch } = await import('../search/search_statement.ts');
 	const sqo = sanitizeClientSqo({
 		section_tipo: [target.sectionTipo],
 		filter,
@@ -372,7 +372,7 @@ async function candidateIds(
 	// Server-only (sanitizeClientSqo strips it from a client SQO): set after it.
 	sqo.skip_projects_filter = scope.options.skipProjectsFilter === true;
 	const built = await buildSearchSql(sqo, { principal: scope.principal, idsOnly: true });
-	const rows = (await sql.unsafe(built.sql, built.params as (string | number | null)[])) as {
+	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
 	// TRUNCATION IS NOT AN ANSWER. A full window means the search may have had

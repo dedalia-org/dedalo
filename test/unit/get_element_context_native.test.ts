@@ -50,8 +50,11 @@ const GRANTED_SECTION = 'test3';
 /**
  * dd88 (maintenance) — model `area_maintenance`, granted at 2 to the fixture
  * ADMIN and refused to the non-admin. It is also TRANSLATABLE, so its context
- * entry echoes the request lang: the one element family where the handler's
- * `source.lang` default (the request data lang) is observable on the wire.
+ * entry echoes the request lang: the handler's `source.lang` default (the
+ * request data lang) is observable on the wire here. A TRANSLITERABLE
+ * component (with_lang_versions / component_iri) defaults to its lg-nolan base
+ * instead and keeps only an EXPLICIT lang — gated in
+ * with_lang_versions_native.test.ts.
  */
 const ADMIN_ONLY_AREA = 'dd88';
 /** dd151 — a `relation_type` node: a real tipo the generic builder cannot build. */

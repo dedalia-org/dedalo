@@ -104,12 +104,16 @@ describe('the password hash is the one a museum web server will actually read', 
     // A REAL bcrypt hash, not a prefix on something else: it verifies.
     expect(Bun.password.verifySync('a-preview-password', hash)).toBe(true);
     expect(Bun.password.verifySync('the-wrong-password', hash)).toBe(false);
-  });
+    // Three bcrypt operations at the production cost (12) ON PURPOSE — the real hash is
+    // the point. ~1 s on a desk; GitHub ci 41327866839 measured 5237 ms against Bun's
+    // 5000 ms default on a contended runner. The cap is sized to the work, not widened.
+  }, 30000);
 
   test('two hashes of one password differ — the salt is real', () => {
     const io = hostIo();
     expect(io.hashPassword('same')).not.toBe(io.hashPassword('same'));
-  });
+    // two cost-12 hashes: same reasoning as above
+  }, 30000);
 });
 
 describe('the rest of the seam', () => {

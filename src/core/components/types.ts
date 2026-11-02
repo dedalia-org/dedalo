@@ -59,7 +59,8 @@ export type EmitHookId =
 	| 'filter_records'
 	| 'security_access'
 	| 'external'
-	| 'inverse';
+	| 'inverse'
+	| 'lang_versions';
 
 /**
  * The import-parser IDs a descriptor may name in `importConform`. Adding one =

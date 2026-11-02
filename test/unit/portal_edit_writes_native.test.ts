@@ -73,6 +73,8 @@ import {
 import {
 	applySortData,
 	getRelationTypeByTipo,
+	type SortDataChange,
+	sortDataKeyRefusal,
 	validateRelationInsert,
 } from '../../src/core/relations/save.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
@@ -346,6 +348,71 @@ describe('applySortData (PHP sort_data pins)', () => {
 		});
 		expect(sorted).toEqual(seed());
 	});
+
+	// WC-2026-10-30-sort-data-key-range: a key that cannot address a stored
+	// item is REFUSED (null) — it used to drop the moved locator (the rebuild
+	// loop never met the target) and the save persisted the deletion as ok.
+	// Source 0 + a VALID locator on every case below, so only the key refuses.
+	const badTargets: [string, unknown][] = [
+		['length', 3],
+		['> length', 7],
+		['negative', -1],
+		['NaN', Number.NaN],
+		['fractional', 1.5],
+		['undefined', undefined],
+		['null', null],
+		["'' (Number('') === 0)", ''],
+		["'1' (numeric string)", '1'],
+		['true (Number(true) === 1)', true],
+		['false', false],
+		['Infinity', Number.POSITIVE_INFINITY],
+	];
+	for (const [label, target_key] of badTargets) {
+		test(`target_key ${label} refuses (null)`, () => {
+			const change = { source_key: 0, target_key, value: locatorOf(1, 101) };
+			expect(sortDataKeyRefusal(3, change)).toBe('target_key');
+			expect(applySortData(seed(), change as SortDataChange)).toBeNull();
+		});
+	}
+
+	const badSources: [string, unknown][] = [
+		['negative', -1],
+		['length', 3],
+		["'' (Number('') === 0)", ''],
+		['null (Number(null) === 0)', null],
+		['true (Number(true) === 1)', true],
+		["'0' (numeric string)", '0'],
+	];
+	for (const [label, source_key] of badSources) {
+		// The value is the locator stored at the index the PRE-FIX Number()
+		// coercion would read (true → 1 → 102, ''/null/'0' → 0 → 101), so the
+		// old locator gate PASSES and only the key guard refuses: each coercion
+		// case is red on the pre-fix applySortData. -1 / length have no stored
+		// item at the coerced index (pre-fix also null) — regression pins only.
+		const coercedIndex = Number(source_key);
+		const value = seed()[coercedIndex] ?? locatorOf(1, 101);
+		test(`source_key ${label} refuses (null) — even with the locator at the coerced index as value`, () => {
+			const change = { source_key, target_key: 1, value };
+			expect(sortDataKeyRefusal(3, change)).toBe('source_key');
+			expect(applySortData(seed(), change as SortDataChange)).toBeNull();
+		});
+	}
+
+	test('the previously DESTRUCTIVE case (target = length) leaves the stored array untouched', () => {
+		const items = seed();
+		const snapshot = structuredClone(items);
+		// Pre-fix behaviour: [101, 102] — locator 103 silently deleted.
+		expect(
+			applySortData(items, { source_key: 2, target_key: 3, value: locatorOf(3, 103) }),
+		).toBeNull();
+		expect(items).toEqual(snapshot);
+	});
+
+	test('the edges stay accepted: target 0 and target length-1', () => {
+		expect(sortDataKeyRefusal(3, { source_key: 2, target_key: 0 })).toBeNull();
+		expect(sortDataKeyRefusal(3, { source_key: 0, target_key: 2 })).toBeNull();
+		expect(sortDataKeyRefusal(0, { source_key: 0, target_key: 0 })).toBe('source_key');
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -399,6 +466,37 @@ describe('portal edit writes, TS-native stored end states', () => {
 		expect((response as { ok?: boolean }).ok).toBe(false);
 		expect((response as { error?: { code?: string } }).error?.code).toBe('record.save_failed');
 		expect(await portalDataOf(host)).toEqual(seed);
+	}, 60000);
+
+	test('sort_data out-of-range / malformed key via dispatch: request.invalid_data, stored data untouched', async () => {
+		const seed = [locatorOf(1, 101), locatorOf(2, 102), locatorOf(3, 103)];
+		const host = await seedHost(seed);
+		// The pre-fix destructive request first (target = length: ok:true, 103
+		// gone), then the coercion holes and a page-2 double-offset shape.
+		for (const [source_key, target_key, value] of [
+			[2, 3, locatorOf(3, 103)],
+			[0, 12, locatorOf(1, 101)],
+			[0, -1, locatorOf(1, 101)],
+			[0, 1.5, locatorOf(1, 101)],
+			[0, '1', locatorOf(1, 101)],
+			['', 1, locatorOf(1, 101)],
+			[null, 1, locatorOf(1, 101)],
+			// Number(true) === 1: value = the locator stored at index 1, so the
+			// pre-fix locator gate would pass and the reorder would persist.
+			[true, 0, locatorOf(2, 102)],
+			['0', 1, locatorOf(1, 101)],
+		] as [unknown, unknown, Record<string, unknown>][]) {
+			const response = await tsCall(
+				saveRqo(host, [{ action: 'sort_data', source_key, target_key, value }]),
+			);
+			const label = JSON.stringify([source_key, target_key]);
+			expect([label, (response as { ok?: boolean }).ok]).toEqual([label, false]);
+			expect([label, (response as { error?: { code?: string } }).error?.code]).toEqual([
+				label,
+				'request.invalid_data',
+			]);
+			expect([label, await portalDataOf(host)]).toEqual([label, seed]);
+		}
 	}, 60000);
 
 	test('sort_by_column: property gate refuses (test6157 does not enable it)', async () => {

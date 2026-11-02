@@ -28,6 +28,9 @@
  *     sweep below is TLD-wide): one dd_ontology row whose parent is not a tipo, planted the
  *     way a legacy install carries it (the parent CHECK re-added NOT VALID);
  *     the ontology_identifiers pair (SURF-1). Swept, the CHECK re-VALIDATEd.
+ *   - zzrc8 section (matrix_test) hosting zzrc7, a component_portal over zzrc8
+ *     itself that DECLARES `order: asc` on zzrc9 (its component_input_text) —
+ *     the portal_declared_order pair (stored array vs declared order).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -99,6 +102,10 @@ const RAG_SECTION = `${TLD}3`;
 const RAG_MAP = `${TLD}4`;
 const RAG_TEXT = `${TLD}5`;
 const TABLE = 'matrix_test';
+/** portal_declared_order: host section, its declared-order portal, the ordered column. */
+const ORDER_HOST = `${TLD}8`;
+const ORDER_PORTAL = `${TLD}7`;
+const ORDER_COLUMN = `${TLD}9`;
 /** dd_ontology node of model 'matrix_table' whose term is `matrix_test`. */
 const MATRIX_TEST_RELATION = 'test24';
 
@@ -217,6 +224,7 @@ async function sweepHierarchySituation(): Promise<void> {
 async function sweepMediaSituation(): Promise<void> {
 	await cleanScratchTipo(MEDIA_SECTION, TABLE);
 	await cleanScratchTipo(RAG_SECTION, TABLE);
+	await cleanScratchTipo(ORDER_HOST, TABLE);
 	await deleteTldNodes(TLD);
 	await clearOntologyDerivedCaches();
 	for (const path of planted.splice(0)) rmSync(path, { force: true });
@@ -294,6 +302,43 @@ beforeAll(async () => {
 		properties: {
 			rag: {
 				embed: [{ id: 'body', ddo_map: [{ tipo: RAG_TEXT, section_tipo: 'self', mode: 'list' }] }],
+			},
+		},
+	});
+	// zzrc8/zzrc7: the declared-order portal pair (no holder yet → in sync).
+	await upsertDdOntologyNode({
+		tipo: ORDER_HOST,
+		model: 'section',
+		tld: TLD,
+		term: { 'lg-eng': 'Reconcile declared-order host section' },
+		properties: {},
+		relations: [{ tipo: MATRIX_TEST_RELATION }],
+	});
+	await upsertDdOntologyNode({
+		tipo: ORDER_COLUMN,
+		parent: ORDER_HOST,
+		model: 'component_input_text',
+		tld: TLD,
+		term: { 'lg-eng': 'Name' },
+		is_translatable: true,
+		properties: {},
+	});
+	await upsertDdOntologyNode({
+		tipo: ORDER_PORTAL,
+		parent: ORDER_HOST,
+		model: 'component_portal',
+		tld: TLD,
+		term: { 'lg-eng': 'Ordered portal' },
+		properties: {
+			source: {
+				request_config: [
+					{
+						sqo: { section_tipo: [{ value: [ORDER_HOST], source: 'section' }] },
+						show: {
+							ddo_map: [{ tipo: ORDER_COLUMN, parent: 'self', section_tipo: 'self', order: 'asc' }],
+						},
+					},
+				],
 			},
 		},
 	});
@@ -706,6 +751,40 @@ const PLANTERS: Record<string, Planter> = {
 				...current,
 				hosts: current.hosts.filter((host) => host.name !== PROBE_HOST),
 			}));
+		},
+	},
+	portal_declared_order: {
+		scope: [ORDER_PORTAL],
+		async plant() {
+			// An array stored BEFORE its declared order (or written raw): Bravo before Alpha.
+			const name = (value: string) => ({
+				string: {
+					[ORDER_COLUMN]: [{ id: 1, lang: config.menu.dataLang, value }],
+				},
+			});
+			const bravo = await insertMatrixRecordWithCounter(TABLE, ORDER_HOST, name('Bravo'));
+			const alpha = await insertMatrixRecordWithCounter(TABLE, ORDER_HOST, name('Alpha'));
+			const holder = await insertMatrixRecordWithCounter(TABLE, ORDER_HOST, {});
+			const locator = (sectionId: number, id: number) => ({
+				id,
+				type: 'dd151',
+				section_id: sectionId,
+				section_tipo: ORDER_HOST,
+				from_component_tipo: ORDER_PORTAL,
+			});
+			// Raw, below the record-write chokepoint (which would sort it at write time).
+			await sql.unsafe(
+				`UPDATE "${TABLE}" SET relation = $3::text::jsonb WHERE section_tipo = $1 AND section_id = $2`,
+				[
+					ORDER_HOST,
+					holder,
+					JSON.stringify({ [ORDER_PORTAL]: [locator(bravo, 1), locator(alpha, 2)] }),
+				],
+			);
+			return 1;
+		},
+		async unplant() {
+			await cleanScratchTipo(ORDER_HOST, TABLE);
 		},
 	},
 	hierarchy: {

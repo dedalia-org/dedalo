@@ -26,12 +26,16 @@
  *     is still attempted: `resizeTo` is not on the cross-origin WindowProxy
  *     allow-list, so once an external-engine URL commits its own origin it
  *     throws SecurityError — the same escaping-throw defect in another coat.
- *  E. `open_records_in_window` answers `false` when the window was refused. It
- *     used to answer `true` unconditionally, reporting success for records the
- *     user never saw while the session filter stayed pinned.
+ *  E. `open_filtered_window` (the one filtered-window door; its thin wrapper
+ *     `open_records_in_window` inherits the answer) answers `false` when the
+ *     window was refused, and `true` only when it opened. It used to answer
+ *     `true` unconditionally, reporting success for records the user never saw
+ *     while the session filter stayed pinned.
  *
  * HARNESS. `util.js` is imported REAL. `ui.js` is masked (it reaches for a DOM
- * that does not exist here) and `window.open` is a stub whose answer each test
+ * that does not exist here), `instances.js` is masked (the dummy section that
+ * pins the session filter is a recorder: its options are captured, build and
+ * destroy are counted) and `window.open` is a stub whose answer each test
  * chooses. No DB, no server, no browser.
  */
 
@@ -58,7 +62,12 @@ else {
 
 	type UtilModule = {
 		open_window: (options: Record<string, unknown>) => unknown;
+		open_filtered_window: (options: Record<string, unknown>) => Promise<boolean>;
+		open_records_in_window: (options: Record<string, unknown>) => Promise<boolean>;
 	};
+
+	/** the dummy sections open_filtered_window asked instances.js for */
+	let dummy_sections: { options: Record<string, unknown>; built: number; destroyed: number }[] = [];
 
 	const globals = globalThis as unknown as Record<string, unknown>;
 	const saved: Record<string, unknown> = {};
@@ -101,6 +110,31 @@ else {
 			},
 		}));
 
+		// Every named export is supplied (event_manager imports delete_instance):
+		// only get_instance is exercised, the rest are inert.
+		mock.module(join(CLIENT_COMMON, 'instances.js'), () => ({
+			get_all_instances: () => [],
+			get_instances_custom_map: () => new Map(),
+			add_instance: () => {},
+			get_instance_by_id: () => undefined,
+			find_instances: () => [],
+			delete_instance: () => true,
+			delete_instances: () => 0,
+			key_instances_builder: () => '',
+			get_instance: async (options: Record<string, unknown>) => {
+				const record = { options, built: 0, destroyed: 0 };
+				dummy_sections.push(record);
+				return {
+					build: async () => {
+						record.built++;
+					},
+					destroy: () => {
+						record.destroyed++;
+					},
+				};
+			},
+		}));
+
 		util = (await import(UTIL_PATH)) as unknown as UtilModule;
 		event_manager = (
 			(await import(join(CLIENT_COMMON, 'event_manager.js'))) as {
@@ -122,6 +156,7 @@ else {
 		open_answer = null;
 		open_calls = 0;
 		notifications = [];
+		dummy_sections = [];
 	});
 
 	/** a granted popup; `resize_throws` reproduces the cross-origin WindowProxy refusal */
@@ -191,6 +226,66 @@ else {
 			expect(result).toBe(win as unknown as never);
 			expect(win.calls.resized).toBe(0);
 			expect(win.calls.focused, 'focus() is cross-origin legal and must still run').toBe(1);
+		});
+	});
+
+	describe('open_filtered_window (contract E)', () => {
+		const filter = {
+			$and: [{ referenced_by: { section_tipo: ['test3'], filter: { $and: [] } } }],
+		};
+
+		test('E. a refused window answers false — after the filter was pinned', async () => {
+			open_answer = null;
+
+			const result = await util.open_filtered_window({
+				caller: null,
+				section_tipo: 'test3',
+				filter,
+			});
+
+			expect(result, 'a refused window reported success').toBe(false);
+			expect(open_calls).toBe(1);
+			// the irreversible half really ran: one dummy section, built and destroyed,
+			// carrying the caller's filter verbatim — so false is the only honest answer
+			expect(dummy_sections.length).toBe(1);
+			expect(dummy_sections[0]!.built).toBe(1);
+			expect(dummy_sections[0]!.destroyed).toBe(1);
+			const request_config = dummy_sections[0]!.options.request_config as {
+				sqo: { section_tipo: string[]; filter: unknown };
+			}[];
+			expect(request_config[0]!.sqo.section_tipo).toEqual(['test3']);
+			expect(request_config[0]!.sqo.filter).toBe(filter);
+		});
+
+		test('E. a granted window answers true', async () => {
+			open_answer = fake_window();
+
+			const result = await util.open_filtered_window({
+				caller: null,
+				section_tipo: 'test3',
+				filter,
+			});
+
+			expect(result).toBe(true);
+			expect(notifications.length).toBe(0);
+		});
+
+		test('E. the open_records_in_window wrapper inherits the refusal and pins the id list', async () => {
+			open_answer = null;
+
+			const result = await util.open_records_in_window({
+				caller: null,
+				section_tipo: 'test3',
+				ar_section_id: [1, 2, 3],
+			});
+
+			expect(result, 'the wrapper reported success for a refused window').toBe(false);
+			const request_config = dummy_sections[0]!.options.request_config as {
+				sqo: { filter: { $and: { q: string[]; path: { component_tipo: string }[] }[] } };
+			}[];
+			const leaf = request_config[0]!.sqo.filter.$and[0]!;
+			expect(leaf.q).toEqual(['1,2,3']);
+			expect(leaf.path[0]!.component_tipo).toBe('section_id');
 		});
 	});
 }

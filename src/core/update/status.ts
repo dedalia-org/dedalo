@@ -340,9 +340,9 @@ function operatorChecks(principal: Principal): StatusCheck[] {
  * the next refresh answers from its settled verdict. The verdict itself is still
  * the pipeline's own, computed exactly once.
  */
-function backupFreshnessCheck(
+export function backupFreshnessCheck(
 	principal: Principal,
-	seams: ConsumerStatusSeams,
+	seams: ConsumerStatusSeams = {},
 ): Promise<StatusCheck> {
 	// ONLY THE SUPERUSER'S PANEL ASKS (OPS-1 review). Every ask may start full
 	// archive reads, and the panel is open to any global admin — who cannot run an

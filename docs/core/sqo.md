@@ -94,6 +94,7 @@ The SQO is the query language, but not every SQO is equally trusted. **A client-
   - **section_tipo** : `string` name of the section to order by **optional**
   - **column_name** : `string` name of the column to order by **optional**
   - **column_values** : `array` array that defines the order of the values **optional**
+- **view_order** : `object || null` a portal read's temporary display order, `{"tipo": <column tipo>, "direction": "ASC" || "DESC"}`; never written; ignored by every non-portal read (see [view_order](#view_order)) **optional**
 - **filter_by_locators** : `array of objects` pins the search to an explicit locator set; every object is a [locator](locator.md). The array ORDER is preserved in the result only when the SQO also carries the `{"mode":"locator_position"}` order entry (see [order](#order)) — without it rows come back in the default `section_id ASC`. Client lists are clamped to 1000 pins (loud server log on truncation). **optional** ex : `[{"section_tipo":"oh1", "section_id":8},{"section_tipo":"oh1", "section_id":3}]`
 - **allow_sub_select_by_id** : `bool` (true || false) create a sub-select in the SQL query that passes the filter and gets the id to select the main section. Default : true **optional** .
 - **children_recursive** : `bool` (true || false) filter the hierarchy term and get all children nodes that depend on the searched term. Default : false  **optional** — see [Recursive children](#recursive-children).
@@ -708,6 +709,146 @@ database size, with honest planner statistics from the typed columns. See
 
 AND semantics (records matching EVERY locator) stay in the operator tree:
 separate `format:'relation'` leaves under `$and`.
+
+##### Relationship filter leaves (referenced_by)
+
+A `referenced_by` leaf asks a relational question: *the records of this SQO's
+section that are pointed at by any record of another search*. The other search
+is called the **source set**. The leaf has no `q` and no `path`; the leaf object
+holds exactly one key, `referenced_by`, whose value is the source set:
+
+| key | type | meaning |
+| --- | --- | --- |
+| `section_tipo` | `array of strings`, **required** (at least one) | the source section(s) |
+| `filter` | `object`, optional | the source's own [filter](#filter): same grammar, root `$and` / `$or`; it may itself contain `referenced_by` leaves |
+| `filter_by_locators` | `array of locators`, optional | pins the source to explicit records (at most 1000), as [filter_by_locators](#filter_by_locators) does |
+| `filter_by_locators_op` | `"OR"`, optional | the only accepted value; `"AND"` is refused |
+| `from_component_tipo` | `string`, optional | count only the locators held by this component of the source section |
+
+The source set is always the **whole** found set of the source search. That is
+why `limit`, `offset`, `order` and every other SQO key are refused inside it,
+not silently ignored. Any key that is not in the table, or any key beside
+`referenced_by` on the leaf, fails the request with `request.invalid_options`.
+
+Example: the `People` section [rsc197](https://dedalo.dev/ontology/rsc197)
+records that are `Informants` [oh24](https://dedalo.dev/ontology/oh24) of an
+`Oral History` [oh1](https://dedalo.dev/ontology/oh1) interview whose `Title`
+[oh16](https://dedalo.dev/ontology/oh16) contains "harvest" (the `oh` ontology
+is installed by default):
+
+```json
+{
+  "section_tipo": [ "rsc197" ],
+  "filter": {
+      "$and": [
+          {
+              "referenced_by": {
+                  "section_tipo": [ "oh1" ],
+                  "filter": {
+                      "$and": [
+                          {
+                              "q": "harvest",
+                              "path": [
+                                  { "section_tipo": "oh1", "component_tipo": "oh16", "model": "component_input_text", "name": "Title" }
+                              ]
+                          }
+                      ]
+                  },
+                  "from_component_tipo": "oh24"
+              }
+          }
+      ]
+  }
+}
+```
+
+Without `from_component_tipo` the answer includes the people any component of a
+matching interview points at, not only its informants.
+
+**How it is resolved.** The leaf reads the locators the source records
+*store*: each source row's own `relation` column, the original data. It does
+not use the relation index (`matrix_relation_index`), which is a derived copy
+kept for the inverse lookups ("who points at me"). The answer is therefore the
+same as what `read_raw` with `type: target_section` harvests from those rows:
+every component key of the `relation` object, array values only, locators
+whose `section_tipo` is the main section. It does not depend on the relation
+index being complete or in sync.
+
+The source set becomes a subquery built with the same WHERE the source list
+would use (section, filter, projects and user-records restrictions). Its rows'
+`relation` objects are expanded into locators in SQL, and the main section's
+rows are matched against the distinct targets. Every value rides as a bound
+parameter:
+
+```sql
+SELECT *
+FROM matrix AS rs197
+WHERE (rs197.section_tipo='rsc197') AND rs197.section_id>0 AND (
+   ((rs197.section_tipo, rs197.section_id) IN (
+      SELECT DISTINCT l.target_section_tipo, l.target_section_id
+      FROM ( SELECT r.target_section_tipo, r.target_section_id
+             FROM ( <each locator stored in the relation column of:
+                       SELECT rs1.section_tipo, rs1.section_id, rs1.relation
+                       FROM matrix AS rs1
+                       WHERE (rs1.section_tipo='oh1') AND rs1.section_id>0
+                         AND <oh16 contains 'harvest'> > ) AS r
+             WHERE r.from_component_tipo = 'oh24' ) AS l
+      WHERE l.target_section_tipo IN ('rsc197'))) IS TRUE)
+ORDER BY rs197.section_id ASC
+LIMIT 10
+```
+
+The `IN (SELECT DISTINCT …) IS TRUE` form is deliberate: PostgreSQL runs it
+as one hashed subplan, so the source set is evaluated once and each row of
+the main section only probes the hash. That keeps the cost flat when the
+planner's statistics are stale, and with nested leaves. The main section is
+always scanned in full.
+
+Because the leaf is part of the main filter, `count`, pagination, ordering and
+the access rules of the main section all apply to it normally. The row pair is
+matched on its own `section_tipo`, so a main SQO over several sections is
+answered exactly.
+
+**Nesting.** A source `filter` may contain another `referenced_by` leaf
+("relationships of relationships"). A top-level leaf is depth 1; at most four
+levels are accepted, and a fifth is refused with `request.invalid_options`.
+
+**Time limit.** Every database statement of a search that carries a
+`referenced_by` leaf has a time limit of its own: 30 seconds per statement, or
+the server's general statement limit (`DB_STATEMENT_TIMEOUT_MS`) when that is
+lower. This holds wherever the search runs: a list's page and its `count`,
+`read_raw`, the SQO multi-delete, the MCP search, the tools that act on a
+search selection, the descendant pass of a `children_recursive` search, a
+diffusion selection (per batch of records) and an export (the export's whole
+selection is computed once, and the limit applies to that). A search stopped
+this way fails with `db.statement_timeout`. Searches without the leaf are not
+affected.
+
+**Access rules.** The source is authorized as a read:
+
+- the user needs read access (level ≥ 1) on every source section, otherwise the
+  search fails with `perm.denied`;
+- the source rows are the rows the user could list (project and user-records
+  restrictions apply);
+- a locator counts only when the user may read the component that holds it. A
+  hidden `from_component_tipo` excludes that source section; without
+  `from_component_tipo`, locators of hidden components are left out. In both
+  cases the response carries a `perm.out_of_scope` notice instead of failing.
+  When nothing is visible, the leaf matches no rows.
+
+Any section with a record table can be a source, including log sections such
+as the activity log [dd542](https://dedalo.dev/ontology/dd542): every record
+table stores a `relation` column. A source section with no record table fails
+with `request.invalid_tipo`. Locators whose `section_id` is not an integer (for
+example an external record's remote id) cannot name a record and are skipped.
+
+A `referenced_by` leaf in a Time Machine search is refused with
+`engine.uncovered_scope`, never dropped: dropping it would widen the list.
+
+The "Open relationships" window is built with this leaf. To learn which
+sections a source set points at, and how many records of each, before opening
+a window, use the `relation_targets` action (see
+[rqo — relation_targets](rqo.md#relation-targets-of-a-search-relation_targets)).
 
 ##### use_function
 
@@ -1473,6 +1614,35 @@ LEFT JOIN (VALUES ('numisdata4',5,1),('numisdata4',3,2),('numisdata4',1,3)) as x
 ORDER BY x.ordering ASC
 LIMIT 10
 ```
+
+### view_order
+
+The temporary display order of a [component_portal](components/component_portal.md#the-order-model)
+read — what a click on a portal column header sends. The server orders the
+portal's **full** locator list by that one column before paginating, and writes
+nothing. Each emitted locator's `paginated_key` stays its index in the stored
+array, so a reorder sent while a view order is shown still addresses the right
+item.
+
+```json
+"sqo": {
+    "section_tipo": ["rsc197"],
+    "limit": 10,
+    "offset": 0,
+    "view_order": { "tipo": "rsc85", "direction": "ASC" }
+}
+```
+
+- **Shape.** A strict object; `direction` is `ASC` or `DESC` (the spelling of the
+  [order](#order) clause). Absent or `null` means no view order; any other shape
+  is refused at the wire.
+- **Column gate.** `tipo` must be a `show.ddo_map` column of the portal's own
+  edit config declaring `sort_by_column: true`, and the user must be able to read
+  every step of the column's order path (for a relation column, each hop to the
+  value it sorts on). Otherwise the read is refused (`request.invalid_data`) —
+  whatever the record holds, an empty portal included.
+- It is honoured on a portal with a declared `order` too; only *saving* it is
+  refused there.
 
 ### filter_by_locators
 

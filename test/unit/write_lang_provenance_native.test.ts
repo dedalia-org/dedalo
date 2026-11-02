@@ -307,6 +307,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		},
 	],
 	[
+		'src/core/relations/declared_order_reconcile.ts',
+		{
+			lang: 'nolan',
+			reason:
+				'The portal_declared_order reconcile re-saves a relation component (portal) array re-ranked — relation data is lg-nolan by definition.',
+		},
+	],
+	[
 		'src/core/ontology/data_io.ts',
 		{ lang: 'nolan', reason: 'Ontology data import writes DATA_NOLAN.' },
 	],

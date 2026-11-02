@@ -174,6 +174,7 @@ const TRIPWIRES = [
 	'test/unit/no_install_surface_tripwire.test.ts',
 	'test/unit/xss_csp_tripwire.test.ts',
 	'test/unit/error_report_xss_tripwire.test.ts',
+	'test/unit/orphaned_unsaved_writers_tripwire.test.ts',
 	'test/unit/security_audit_2026_07_23_tripwire.test.ts',
 	'test/unit/human_write_scope_tripwire.test.ts',
 	'test/unit/tool_permission_census_tripwire.test.ts',
@@ -269,6 +270,7 @@ const TRIPWIRES = [
 	'test/unit/site_builder_csp_tripwire.test.ts',
 	'test/unit/client_limit_zero_tripwire.test.ts',
 	'test/unit/client_render_budget_native.test.ts',
+	'test/unit/client_row_dom_tripwire.test.ts',
 	'test/unit/client_prototype_contract_tripwire.test.ts',
 	'test/unit/client_dead_reference_tripwire.test.ts',
 	'test/unit/client_control_naming_tripwire.test.ts',
@@ -290,6 +292,7 @@ const TRIPWIRES = [
 	'test/unit/zzscale_corpus_native.test.ts',
 	'test/unit/read_path_record_reuse_tripwire.test.ts',
 	'test/unit/search_pattern_escape_tripwire.test.ts',
+	'test/unit/search_statement_chokepoint_tripwire.test.ts',
 	'test/unit/closure_openquestions_tripwire.test.ts',
 	'test/unit/client_dashboard_sink_tripwire.test.ts',
 	'test/unit/client_event_manager_dispatch_tripwire.test.ts',
@@ -441,6 +444,7 @@ const TRIPWIRES = [
 	'test/unit/update_door_precondition_class_tripwire.test.ts',
 	'test/unit/update_docs_claims_tripwire.test.ts',
 	'test/unit/media_url_version_tripwire.test.ts',
+	'test/unit/external_law_registry_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

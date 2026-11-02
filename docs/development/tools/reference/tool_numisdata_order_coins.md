@@ -18,11 +18,11 @@ Use it when: you are ordering and grouping numismatic objects and marking origin
 
 - `tool_numisdata_order_coins.js` is the instance (standard `tool_common` lifecycle). On `build()` it resolves two named roles from `self.tool_config.ddo_map`:
   - `coins` — the source portal, rendered as a mosaic (`view_coins_mosaic_portal.js`, view `coins_mosaic`) of every coin in the lot.
-  - `ordered_coins` — the destination relation portal that holds the ordered sequence. It subscribes `ordered_coins` refresh/add-row events so drop zones are re-wired after each internal refresh.
+  - `ordered_coins` — the destination relation portal that holds the ordered sequence.
   A missing role is skipped with a console warning rather than throwing.
-- `render_tool_numisdata_order_coins.js` builds the two-panel layout, the header buttons (**Order by: Weight / Diameter**, **Set Original / Copy**), and an activity strip that shows save notifications. `get_ordered_coins()` (re)builds the right panel and calls `prototype.drop()` to attach the HTML5 drag-and-drop listeners to every `.column_numisdata9` drop cell.
+- `render_tool_numisdata_order_coins.js` builds the two-panel layout, the header buttons (**Order by: Weight / Diameter**, **Set Original / Copy**), and an activity strip that shows save notifications. `get_ordered_coins()` (re)builds the right panel and calls `bind_ordered_coins_drop()`, which puts ONE delegated listener set on the panel's wrapper: the `.column_numisdata9` cells of its rows (`ORDERED_COINS_SLOT`) are the drop targets, resolved per event (`drop_target_of`: the row by `row_of`, its record by the row window's `record_at`).
 - **Sorting** reads `self.coins.datum.data`, filters items by the chosen measurement tipo (`numisdata133` weight, `numisdata135` diameter), sorts them numerically ascending with null values pushed to the end, maps the order back onto the coin locators, and rebuilds the mosaic in place. Toggling a sort button off restores database (`section_id`) order.
-- **Drag-and-drop.** A mosaic tile carries a JSON locator (`{ locator: { section_id, section_tipo } }`) in its `text/plain` `dataTransfer` payload. Dropping onto an `ordered_coins` cell calls `assign_element`, which issues an `insert` `change_value` on that cell's component instance; the right panel is then rebuilt and the dragged tile is marked `used`.
+- **Drag-and-drop.** The mosaic is a tool row source: its rows are placed by the record window (see [The row box](../../../core/sections/section_list.md#the-row-box)), the window stamps every built tile `draggable`, and `bind_tool_row_drag` (`drag_and_drop.js`) puts ONE delegated `dragstart` (plus the touch tap-to-pick) on the mosaic's `content_data`. The payload is the row's entry, as JSON in `text/plain` only — never the portal row type, so every portal treats it as foreign. Dropping (or tap-placing) onto an `ordered_coins` cell calls `assign_element`, which issues an `insert` `change_value` on that cell's component instance; the right panel is then rebuilt and the dragged tile is marked `used`. A tile's hover detail panel is built on demand by `delegate_row_hover`, one at a time.
 - **Original / Copy** (`set_original_copy`) reads the checked radio inputs (`input.input_original` / `input.input_copy`) from the mosaic and, per selected coin, writes:
   - `numisdata157` (discard/status component) — an `update` to `{ section_id: 1, section_tipo: 'numisdata341' }` for an original, or `{ section_id: 2, section_tipo: 'numisdata341' }` for a copy (section_id `1`/`2` of `numisdata341` are the original/copy code values).
   - `numisdata55` (equivalents, `component_relation_related`) — a `set_data` on each **original** with the locators of every selected copy.
@@ -67,19 +67,27 @@ There is no `tool_request` to show (no server actions). The tool is enabled by d
   "tool_config": {
     "tool_numisdata_order_coins": {
       "ddo_map": [
-        { "role": "coins",         "tipo": "numisdata1",  "model": "component_portal",          "typo": "ddo" },
-        { "role": "ordered_coins", "tipo": "numisdata9",  "model": "component_relation_related", "typo": "ddo" }
+        { "role": "coins",         "tipo": "numisdata77", "section_tipo": "numisdata3", "section_id": "self", "mode": "edit" },
+        { "role": "ordered_coins", "tipo": "numisdata11", "section_tipo": "numisdata3", "section_id": "self", "mode": "edit" }
       ]
     }
   }
 }
 ```
 
+This is the declaration of the `section_tool` node `numisdata670` (*Order*) on the numismatic install the page was checked against, trimmed of each entry's `properties` block: `numisdata77` (*Coins*) and `numisdata11` (*Ordered coins*) are both `component_portal` fields of the *Type* section `numisdata3`; the coins themselves are `numisdata4` records.
+
 The drop payload a mosaic tile transfers, consumed by `assign_element`:
 
 ```js
-// dataTransfer 'text/plain' payload set by on_dragstart_mosaic
-{ "locator": { "section_id": 482, "section_tipo": "numisdata1" } }
+// dataTransfer 'text/plain' payload set by bind_tool_row_drag (get_row_transfer_data)
+{
+  "locator"       : { "section_tipo": "numisdata4", "section_id": 1, "paginated_key": 0, … },
+  "paginated_key" : 0,
+  "source_tipo"   : "numisdata77",
+  "source_id"     : "<the coins portal instance id>",
+  "draggable_to"  : []
+}
 ```
 
 ## Related

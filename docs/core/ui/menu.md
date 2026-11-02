@@ -70,7 +70,9 @@ into `buildStructureContext()` / `getMenuTreeDatalist()`):
   roots directly (fixed root order: `area_root`, `area_activity`,
   `area_resource`, `area_tool`, `area_thesaurus`, `area_graph`, `area_admin`,
   `area_maintenance`, `area_development`, `area_ontology`), depth-first,
-  keeping only area/section/section_tool nodes.
+  keeping only area/section/section_tool nodes. An area model with no
+  behavior (`area_graph`) holds its slot in the walk but is never emitted:
+  its read is refused, so its entry would be a dead link.
 - **Permission-filter** — keep only the areas the user may open: global
   admins + developers see everything; everyone else is intersected with the
   caller's authorized-areas set, and the *Maintenance* and *Development* areas

@@ -62,7 +62,6 @@ import {
 } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getDatalist, resolveLocatorLabels } from '../../src/core/relations/datalist.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { resolveSearchData } from '../../src/core/section/read.ts';
 import { hashPasswordForStorage } from '../../src/core/security/password_hash.ts';
 import {
@@ -79,6 +78,7 @@ import {
 	isRecordInScope,
 	principalCanAccessRecord,
 } from '../../src/core/security/record_scope.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const USERS = 'dd128';
 /**

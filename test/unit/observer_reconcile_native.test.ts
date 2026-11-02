@@ -65,6 +65,7 @@ import {
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
+import { isSuiteDatabaseName } from '../../src/core/test_data/test_database_marker_constants.ts';
 
 // --- the situation this file BUILDS (reserved scratch TLD `zzobs`) ---------
 // `situation()` refuses a tld that is not `zz*` (src/core/test_data/situations/
@@ -379,6 +380,7 @@ describe('observer mirror reconcile law (recomputeExternalRelation)', () => {
 			droppedLocators: 1673,
 			degradedSeedRecords: 0,
 			reindexed: 0,
+			notHostSlots: 0,
 		};
 		expect(exceedsShrinkBudget(base, { maxDroppedLocators: 2000, maxDroppedRecords: 40 })).toEqual(
 			[],
@@ -520,6 +522,7 @@ describe('observer mirror reconcile law (recomputeExternalRelation)', () => {
 			droppedLocators: limits.maxDroppedLocators,
 			degradedSeedRecords: 0,
 			reindexed: 0,
+			notHostSlots: 0,
 		};
 		// THE CEILING MUST BE A CEILING (P2-18 / GATE-21).
 		//
@@ -581,8 +584,8 @@ describe('observer mirror reconcile law (recomputeExternalRelation)', () => {
 	test('duplicate STRIPS the covered-observer mirror slot from the copy (empty by construction)', async () => {
 		// Re-grow the term's mirror so there is a non-empty bag to (not) copy —
 		// the pre-fix byte-copy would have handed it to the duplicate wholesale
-		// (for unported-sub-law nodes: ~1,000 phantom locators with no repair
-		// path — review 2026-08-02).
+		// (for the then-unported sub-law nodes: ~1,000 phantom locators with no
+		// repair path — review 2026-08-02).
 		await insertReferencer(REFERENCER_ID2);
 		await recomputeExternalRelation(
 			MIRROR,
@@ -673,7 +676,7 @@ const SCRATCH_NON_CANDIDATE_ID = 91099;
 /** Suite DB only: this fixture writes dd_ontology, and `test` is a REAL tld in
  * production ontologies (the scratch-namespace carve-out is itself suite-DB
  * gated — observer_subscriptions.ts touchesScratchObserverNamespace). */
-const onSuiteDb = config.db.database.endsWith('_test');
+const onSuiteDb = isSuiteDatabaseName(config.db.database);
 
 function skipUnlessSuiteDb(caseName: string): boolean {
 	if (onSuiteDb) return false;
@@ -708,7 +711,7 @@ describe('reconcile sweep: --section / --id narrowing and the degraded-seed cens
 		await sweepScratchObserverFixture();
 		await sql.unsafe(
 			`INSERT INTO dd_ontology (id, tipo, parent, model, tld, properties)
-			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, 'test3', 'component_autocomplete_hi', 'test', $2::text::jsonb)`,
+			 VALUES ((SELECT COALESCE(MAX(id), 0) + 1300 FROM dd_ontology), $1, $3, 'component_autocomplete_hi', 'test', $2::text::jsonb)`,
 			[
 				SCRATCH_OBSERVER,
 				JSON.stringify({
@@ -731,6 +734,9 @@ describe('reconcile sweep: --section / --id narrowing and the degraded-seed cens
 						component_to_search: [INDEXER],
 					},
 				}),
+				// Parented under its host (the strict host precondition: the kernel
+				// computes only where the section DECLARES the observer).
+				SCRATCH_HOST,
 			],
 		);
 		const { clearOntologyDerivedCaches } = await import(

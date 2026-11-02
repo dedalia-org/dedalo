@@ -114,6 +114,8 @@ view_viewer_image.render = function(self, options) {
 		const image = ui.create_dom_element({
 			element_type	: 'img',
 			class_name		: 'viewer_image hidden',
+			// a11y: the viewer window shows the image alone — no label beside it
+			alt				: self.label ?? '',
 			parent			: wrapper
 		})
 		// ui.component.add_image_fallback(image)

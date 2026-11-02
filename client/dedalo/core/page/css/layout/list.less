@@ -5,6 +5,14 @@
 * Shared by section and portal.
 */
 
+// list_after. The one non-row sibling AFTER the list_body (never inside
+// `content_data`: row invariant, WC-2026-10-30-section-record-row-box). Its
+// no_records node is a plain block, so it needs no grid-column span
+	.list_after >.no_records {
+		text-align: center;
+		text-wrap: unset;
+	}
+
 // list_body. Used in sections and portals in list mode
 	.list_body {
 		// 'style' (NOT 'layout') — the same rule already applied to
@@ -35,21 +43,22 @@
 		>.header_wrapper_list {
 			display: contents;
 		}
+		// (!) `display: contents` stays for the non-table row views (mosaic,
+		// presets, autocomplete, graph, TM): the `.layout_table` block below gives
+		// table views their own grid/subgrid
 		>.content_data {
 			display: contents;
+		}
 
-			.no_records {
-				grid-column: 1/-1; // expand across all empty columns
-				text-align: center;
-				text-wrap: unset;
-			}
-
-			// a painted first/last cell (e.g. section_id context.color in dd542/dd15) would square the list corners
-			// row_window.js appends a bottom spacer, `hidden` once the window reaches the end
-			>.section_record:is(:last-child, :has(+ .row_window_spacer.bottom[hidden])) {
-				>.column:first-child { border-bottom-left-radius: .7rem; overflow: clip; }
-				>.column:last-child { border-bottom-right-radius: .7rem; overflow: clip; }
-			}
+		// a painted first/last cell would square the list corners.
+		// NON-TABLE lists only (presets, TM history, mosaic tiles): the row-box
+		// table (`.layout_table`) rounds its last row WITHOUT a clip (see
+		// 'layout_table' below), and scoping this rule out of it means the two
+		// shapes never compete on specificity or source order. Rows are the only
+		// children of content_data (row invariant), so the last row is :last-child
+		&:not(.layout_table) >.content_data >.section_record:last-child {
+			>.column:first-child { border-bottom-left-radius: .7rem; overflow: clip; }
+			>.column:last-child { border-bottom-right-radius: .7rem; overflow: clip; }
 		}
 
 		// list_body columns inside list_body are always flex (!)
@@ -62,66 +71,57 @@
 		}
 	}
 
-	// portal alt_list_body
-	.alt_list_body {
-		display: grid;
-		width: 100%;
-
-		>.header_wrapper_list {
-			display: contents;
-		}
-
-		// list_body columns inside list_body are always flex (!)
-		.alt_list_body {
-			.column {
-				display: flex !important;
-			}
-		}
-		.close_alt_list_body {
-			position: absolute;
-			right: 0px;
-			top: 4px;
-		}
-	}
 	// direct list_body from component in edit/tm mode
 	.wrapper_component.edit >.list_body {
 		padding: 1rem;
 		padding-top: 0.5rem; // padding to label (on top)
 	}
 
-// hilite_row
-	.hilite_row {
-		@line_color : @color_grey_10;
-		background-color: @color_grey_7;
-		display: block;
-		position: absolute;
-		z-index: 1;
-		box-shadow: 0px 2px 4px 0px @color_grey_7;
-		pointer-events: none;
-	}
-
-// section record mobile version
+// section record mobile version — PHONE CARDS
+//
+// Below the desktop breakpoint a list row is a CARD: one column per field, each
+// cell labelled by its `::before` (the label text comes from
+// ui.make_column_responsive, an id-scoped `content` rule; it is `display: none`
+// everywhere but here). The card rules key on the row-box table marker, so a
+// SECTION list and a PORTAL table (default / content view, the mosaic alt
+// table) get the same cards (row-box WC entry; phone portal cards approved).
+// The desktop table block below covers the complementary range, so the two
+// never compete on specificity.
+//
+// Two keys, child combinators only:
+//   - `.list_body.layout_table` not nested in another list's cell: a list
+//     nested in a card keeps flowing inside its cell (`>.column .section_record`
+//     below) instead of becoming a card in a card;
+//   - `.content_data.list.section` of a marker-less list_body — the SECTION
+//     lists still rendered as rows (the search / export user presets, the TM
+//     history panel, which restyles them itself).
+// (!) SPECIFICITY is the legacy key's on purpose (`:where()` adds nothing):
+// content_data 0,3,0, row 0,5,0, cell 0,6,0. The panels that restyle the cards
+// (view_tm_list_section.less, tool_time_machine.less) were written against those
+// numbers and win their ties by source order.
+// A placeholder (an unbuilt row of a window above 200 rows) is never a card:
+// it stays the plain block that holds its slot (`.placeholder` rule below).
 	.column:before {
 		display: none;
 	}
 	@media screen and (max-width: @width_break_point_0) {
 		// hide header
-		.header_wrapper_list.section {
+		.header_wrapper_list.section,
+		.list_body.layout_table:where(:not(.column *)) >.header_wrapper_list {
 			display: none;
 		}
 
-		// set section_record as grid
-		.content_data.list.section {
+		// the content_data becomes a block of cards
+		.list_body.layout_table:where(:not(.column *)) >.content_data,
+		:where(.list_body:not(.layout_table)) >.content_data.list.section {
 			display: block;
 			padding-top: 0.25rem;
 
-			.section_record:first-of-type {
-				.column:first-of-type {
-					margin-top: 0.25rem !important;
-				}
+			>.section_record:first-child:not(.placeholder) >.column:first-child {
+				margin-top: 0.25rem !important;
 			}
 
-			>.section_record.list {
+			>.section_record:not(.placeholder) {
 				display: grid;
 				grid-template-columns: 1fr;
 				width: 100%;
@@ -140,6 +140,7 @@
 						display: contents;
 					}
 
+					// a list nested in a cell flows inside it (no card in a card)
 					.section_record {
 						display: block;
 					}
@@ -162,6 +163,11 @@
 						height: calc(100% + 0.5rem);
 						border-bottom: 1px solid @color_grey_13;
 					}
+					// the card's Id header, pinned while its card scrolls. NO
+					// overflow clip (row-box ring law, also under the marker): the
+					// default-view portal drag handle lives in this cell and the
+					// touch source must stay hit-testable (component_portal.less
+					// places it in flow here)
 					&.column_section_id {
 						position: -webkit-sticky;
 						position: sticky;
@@ -169,7 +175,6 @@
 						z-index: 1;
 						box-shadow: 0px 4px 2px 0px @color_grey_9;
 						font-size: 1.5rem;
-						overflow: hidden;
 						margin-top: 2rem;
 						margin-bottom: 0.25rem;
 						grid-template-columns: 22% 1fr 1fr;
@@ -203,11 +208,24 @@
 							}
 						}
 					}
-				}//end >.column
-			}//end >.section_record.list
-		}//end .content_data.list.section
-	}//end @media screen and (max-width: @width_break_point_0)
+					// a portal card's trash cell: its label BESIDE the button, the
+					// button taking the REST of the card. The table's 100%-wide
+					// button (view_default_portal `flex: 1 1 auto`) beside the 22%
+					// label overflowed the card by the label's width, so the phone
+					// page was laid out wider than the screen and scaled down
+					&.column_remove {
+						flex-direction: row;
 
+						>button.button_remove {
+							width: auto;
+							min-width: 0;
+							flex: 1 1 0;
+						}
+					}
+				}//end >.column
+			}//end >.section_record:not(.placeholder)
+		}//end >.content_data
+	}//end @media screen and (max-width: @width_break_point_0)
 // header_wrapper_list
 	.header_wrapper_list {
 
@@ -218,16 +236,24 @@
 			// border-right: 1px solid @color_grey_13;
 			box-shadow: 0px 1px 0px 0px @color_grey_13;
 			// (!) THE VERTICAL AXIS MUST STAY VISIBLE — WebKit trap.
-			// `.header_wrapper_list` is `display: contents`, so these cells are
-			// direct grid items of `.list_body` (a grid). With `overflow: hidden`
-			// WebKit keeps a WRONG intrinsic height for row 1 after pagination
-			// replaces `content_data` (`common.render` render_level 'content'):
-			// the header row collapses to a sliver and every cell clips its
-			// title to ~2px. Measured in WebKit on oh1: 48.1px → 22.1px on
-			// page 1 and 35.1px on page 2, persisting across every swap;
-			// Chrome/Gecko are unaffected. `overflow-x: clip` keeps the
-			// horizontal clip (the label ellipsis itself lives on `.name` —
-			// see truncate_text below) while leaving the height intrinsic.
+			// Every live header is the row-box shape: `.list_body.layout_table`
+			// (see 'layout_table' below) makes `.header_wrapper_list` a column
+			// SUBGRID spanning `1 / -1`, so the cells are items of the header
+			// subgrid, whose intrinsic block size IS row 1 of `.list_body`: the
+			// header cells' content height decides row 1. With `overflow: hidden`
+			// WebKit kept a WRONG intrinsic height for row 1 after pagination
+			// replaced `content_data` (`common.render` render_level 'content'):
+			// the header row collapsed to a sliver and every cell clipped its
+			// title to ~2px. Measured in WebKit on oh1 in the former
+			// `display: contents` header shape: 48.1px → 22.1px on page 1 and
+			// 35.1px on page 2, persisting across every swap; Chrome/Gecko are
+			// unaffected. The subgrid header keeps the same declarations until
+			// the manual WebKit probe of that shape after pagination has run; its
+			// status (no result is recorded yet) lives ONLY in
+			// engineering/wire_contract/WC-2026-10-30-section-record-row-box.md.
+			// `overflow-x: clip` keeps the horizontal clip (the label
+			// ellipsis itself lives on `.name` — see truncate_text below) while
+			// leaving the height intrinsic.
 			overflow-x: clip;
 			overflow-y: visible;
 			color: @color_grey_5;
@@ -364,6 +390,12 @@
 // A row's edge rides its first/last cell and is painted by ::after, so it costs
 // no layout and may start 1px ABOVE the cell: the id cell carries `margin-top: 1px`
 // and a border would break the line at every row boundary.
+//
+// (!) These two rules are the frame of the MARKER-LESS shapes only in effect:
+// on desktop and print the row-box table draws its frame on the header and
+// content_data subgrids and neutralises the cell edges (see 'layout_table'
+// below). They still reach live DOM — a mosaic tile, a list portal whose rows
+// are mosaic/text, a portal table nested in a phone card — so they stay.
 	.wrapper_component >.list_body >.header_wrapper_list >.head_column {
 		border-top: 1px solid @color_grey_14;
 
@@ -387,13 +419,6 @@
 			width: 1px;
 			background-color: @color_grey_14;
 			pointer-events: none;
-			// (!) the section-record hilite targets this same pseudo-element
-			// (`section_record.less`, `>.column:first-of-type:after`): its blurred
-			// dark shadow, 3px radius and `height: 100%` would fatten the 1px line
-			// and cut it 1px short at the bottom of every row.
-			box-shadow: none;
-			border-radius: 0px;
-			height: auto;
 		}
 
 		&:first-child::after {
@@ -448,13 +473,11 @@
 		}
 
 		&.empty {
-			// keep the grid stretch (NO width:0). The bottom line of a row is each
-			// cell's own 1px box-shadow, so a zero-width cell punches a gap in it.
+			// keep the grid stretch (NO width:0): in a marker-less list the
+			// bottom line of a row is each cell's own 1px box-shadow, so a
+			// zero-width cell punches a gap in it (the row-box table draws one
+			// row rule instead, see 'layout_table' below)
 			padding: 0px;
-		}
-		&::empty {
-			padding: 0px;
-			width: 0px;
 		}
 
 		.mini & {
@@ -765,3 +788,188 @@
 			}
 		}
 	}//end .column_remove
+
+// layout_table — the ROW BOX (contract: engineering/wire_contract/
+// WC-2026-10-30-section-record-row-box.md — row invariant, placeholders, print)
+//
+// A table view marks its `list_body` with `.layout_table`. WHICH views carry the
+// marker is not stated here: it is the WC entry, gated by the browser suite
+// that asserts it on the real views (test_row_invariant). Under that marker the
+// DOM is a real table:
+//
+//   .list_body.layout_table            the grid (inline grid-template-columns)
+//     ├─ .header_wrapper_list           row 1: column SUBGRID, 1 / -1 (optional)
+//     └─ .content_data                  column SUBGRID, 1 / -1, its own rows
+//          └─ .section_record[data-index=i]   one row box: column SUBGRID, 1 / -1
+//               └─ .column …                  the cells, on the shared tracks
+//   .list_after                         sibling AFTER list_body (never inside)
+//
+// so every row is ONE box (hover ring, drop target, placeholder) while every
+// cell still sits on the list's shared column tracks. The `display: contents`
+// wrappers above (`>.header_wrapper_list`, `>.content_data`,
+// `section_record.less` `.section_record.list`) STAY for every list without
+// the marker (mosaic, presets, autocomplete, graph, TM history): the selectors
+// below beat them only where the marker is present. Child combinators
+// only: a nested list never inherits a row rule from an outer one.
+//
+// The block applies to desktop AND print (`not screen`), so print renders the
+// table, not the `display: contents` fallback. Below the desktop breakpoint the
+// phone card rules apply instead (the two ranges partition screen).
+//
+// THE RING LAW. Rows and `content_data` keep `z-index: auto` and carry NO
+// stacking-context property — no background, contain, transform, opacity,
+// filter, will-change, content-visibility, overflow clip — or the autocomplete
+// panel (z-index 6 inside a z-index 3 wrapper, see `.list_body` above), the
+// hover buttons and the field tint would be trapped beneath the next row. The
+// hover/drag ring is a `::after` at `z-index: 1` on the `position: relative`
+// row: above the `position: relative` cells (z-index auto), below the wrapper
+// stacking (3+). Outline/background rings were rejected: both paint beneath
+// positioned cells.
+	@media not screen, screen and (min-width: (@width_break_point_0 + 1)) {
+
+		.list_body.layout_table {
+			// the list_body is `height: 100%`: start-aligned tracks never stretch
+			align-content: start;
+
+			>.header_wrapper_list,
+			>.content_data,
+			>.content_data >.section_record { // built rows AND placeholders
+				grid-column: 1 / -1;
+				display: grid;
+				grid-template-columns: subgrid;
+			}
+
+			// a min-height on content_data must never stretch its row tracks
+			>.content_data {
+				align-content: start;
+
+				>.section_record {
+					// the ring's containing block. z-index stays auto: NO stacking context
+					position: relative;
+					// the row's own bottom rule replaces the per-cell box-shadow
+					// (a zero-width cell punched a gap in the per-cell line)
+					border-block-end: 1px solid @color_grey_13;
+
+					>.column {
+						box-shadow: none;
+
+						// the per-cell edge pseudo of the marker-less portal frame
+						// ('table frame inside a component' above): under the
+						// marker the frame is drawn by header + content_data and
+						// the ring by the row
+						&:first-child::after,
+						&:last-child::after {
+							content: none;
+						}
+					}
+
+					// ring: hover (built rows only) and drop target (placeholders too).
+					// The ring box is generated in EVERY state and the states change
+					// paint only: a generated box appearing inside a subgrid row on
+					// `:hover` makes WebKit re-size that row's tracks alone, so its
+					// cells leave the table's columns (row-box WC entry, WebKit probe).
+					&::after {
+						content: '';
+						position: absolute;
+						inset: 0px;
+						pointer-events: none;
+						z-index: 1;
+						border-radius: 3px;
+						border: 2px dashed transparent;
+						box-shadow: none;
+					}
+					// The hover arm EXCLUDES the drag states instead of being
+					// out-ranked by them: `:not(…)` + `:hover` would outrank the
+					// `.dragover` / `.dragging` overrides below (0,6,1 vs 0,5,1), and
+					// Chrome keeps `:hover` frozen on the drag source, so the source
+					// would paint the grey glow under its dashed ring
+					&:not(.placeholder, .dragover, .dragging):hover::after {
+						box-shadow: 0px 0px 5px 0px @color_grey_7;
+					}
+					// drop target: a distinct colour, never opacity
+					&.dragover::after {
+						box-shadow: inset 0px 0px 0px 2px @color_orange_dedalo;
+					}
+					// drag source: a dashed ring (no opacity: it would make a stacking context)
+					&.dragging::after {
+						border-color: @color_orange_dedalo;
+					}
+
+					// the last row rounds the table's bottom corners. NO overflow clip:
+					// the default-view drag handle hangs in the left gutter
+					// (left:-2.2rem) and autocomplete panels open out of these cells.
+					// The legacy rounded-AND-clipped rule at the top of this file is
+					// scoped `:not(.layout_table)`, so it never reaches these cells
+					// (whatever the order); `overflow: visible` restates the law.
+					// A placeholder is childless: no `.column` to round.
+					&:last-child {
+						>.column:first-child { border-bottom-left-radius: .7rem; overflow: visible; }
+						>.column:last-child { border-bottom-right-radius: .7rem; overflow: visible; }
+					}
+				}
+			}
+		}//end .list_body.layout_table
+
+		// a list nested in a cell draws no row rules of its own (the twin of the
+		// legacy `.column:has(.list_body) .column { box-shadow: none }`)
+		.column:has(.list_body) .list_body.layout_table >.content_data >.section_record {
+			border-block-end: 0px;
+		}
+
+		// the table frame of a portal: ONE left and ONE right rule running the
+		// whole height, drawn by the header and content_data subgrids (both carry
+		// the same inline border, so their cells stay on the same tracks). The
+		// legacy per-cell side borders / edge pseudos are neutralised under the
+		// marker so a rule is never drawn twice.
+		.wrapper_component >.list_body.layout_table {
+			>.header_wrapper_list,
+			>.content_data {
+				border-inline: 1px solid @color_grey_14;
+			}
+			>.header_wrapper_list >.head_column {
+				&:first-child { border-left: 0px; }
+				&:last-child { border-right: 0px; }
+			}
+		}
+	}//end @media layout_table (desktop + print)
+
+// placeholder (row-box WC entry) — an unbuilt row of a window above 200 rows:
+// `<div class="section_record placeholder" data-index="i" aria-hidden="true">`,
+// childless, listener-free. It holds the row's block size so scrolling is
+// shift-free (WebKit has no scroll anchoring): `--row_size` is the measured size
+// of the row it replaced (inline, on release), `--placeholder_size` the running
+// mean of built rows (written by the window on content_data once connected).
+// In the table layout it also takes the row rule above (a full-span subgrid
+// row); in a list layout it is a plain block.
+	.content_data >.section_record.placeholder {
+		block-size: var(--row_size, var(--placeholder_size, 2.5rem));
+
+		// a build that failed keeps its slot (indexes never shift) and shows a
+		// stripe; `reveal(i)` retries it. A box-shadow, not a background: rows
+		// carry no background (ring law above).
+		&[data-failed] {
+			box-shadow: inset 4px 0px 0px 0px @color_danger;
+		}
+	}
+
+// print (row-box WC entry): unbuilt rows are not printed and not findable, and
+// a real notice in `.list_after` says so. Nothing is built on `beforeprint` (it
+// is synchronous and cannot await the builds). The notice exists only while
+// placeholders exist and is visible only in print.
+	.list_after >.print_notice {
+		display: none;
+	}
+	@media print {
+		// (!) `!important`: the hide is a layout-independent print law. Every row
+		// rule that gives a placeholder a box outranks a plain 0,3,0 here — the
+		// table block above (`not screen` = print) sets `display: grid` at 0,4,0
+		// on `.list_body.layout_table >.content_data >.section_record`, and a
+		// placeholder is such a row — so without it every unbuilt row would
+		// print as an empty ruled box while the notice says it was left out.
+		.content_data >.section_record.placeholder {
+			display: none !important;
+		}
+		.list_after >.print_notice {
+			display: block;
+		}
+	}

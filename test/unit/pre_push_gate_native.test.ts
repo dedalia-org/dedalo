@@ -133,6 +133,12 @@ const WORD_COLLISIONS: { entry: string; file: string; line: RegExp; why: string 
 		why: 'the ARIA role',
 	},
 	{
+		entry: 'presentation/',
+		file: 'client/dedalo/core/common/js/ui.js',
+		line: /role\s*:\s*'presentation'/,
+		why: 'the ARIA role (create_dom_element alt doc: a decorative image)',
+	},
+	{
 		entry: 'overrides/',
 		file: 'test/unit/dependency_integrity_tripwire.test.ts',
 		line: /^\s*'overrides',$|`overrides` may nest/,

@@ -600,6 +600,19 @@ async function drillDataPhase(e: Engine, world: World, pause: boolean): Promise<
 			},
 		},
 		currentVersion: current,
+		// The drill cuts a REAL release whose data version IS the rung it simulates, but
+		// it drives THIS tree's engine (DATA = this checkout's): without the seam the
+		// engine's no-rung-above-code refusal (engine.ts refuseRungAboveCode) would refuse
+		// every scratch rung above it. The code the rung's own release would carry.
+		...(descriptor === null
+			? {}
+			: {
+					codeDataVersion: [
+						descriptor.versionMajor,
+						descriptor.versionMedium,
+						descriptor.versionMinor,
+					],
+				}),
 		readVersionInTx: () => readDrillDataVersion(e),
 		writeVersionRow: (version) => writeDrillDataVersion(e, version),
 		logPath: world.logPath,

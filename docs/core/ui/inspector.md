@@ -433,6 +433,42 @@ so each historical change can carry a note.
   node, captured from the `render_component_filter_<section_tipo>` event, letting
   the curator change the record's project assignment from the panel.
 
+### Open relationships
+
+The **Open relationships** button in the top bar answers "which records do these
+records point at?" and opens the answer in a new window.
+
+1. The dialog asks for the scope: the **Current record**, or **All found
+   records** of the list (the whole found set, not only the page on screen).
+2. It then lists the sections those records point at, each with its number of
+   records. The numbers are exact: they are what the opened window will show,
+   with your permissions already applied. Sections you cannot read, and
+   sections with nothing left to show, are not listed. When nothing is related,
+   the dialog says so (*No related sections available*) instead of opening an
+   empty window. Changing the scope refreshes the list.
+3. **Open** opens a window on the chosen section, filtered to the related
+   records. The window is an ordinary list: it counts, paginates and searches
+   normally, however many records are related, and it keeps the filter on
+   every page.
+
+Opening relationships again from that window follows the chain one step
+further ("relationships of relationships"), up to four steps.
+
+A portal's **List from component data** button does the same for one field:
+it counts only the records that field points at, and opens one window per
+target section.
+
+Under the hood the dialog calls the `relation_targets` action and the window's
+search carries a `referenced_by` filter leaf built from the same source set,
+so the counts and the windows cannot disagree. See
+[SQO — relationship filter leaves](../sqo.md#relationship-filter-leaves-referenced_by)
+and [rqo — relation_targets](../rqo.md#relation-targets-of-a-search-relation_targets).
+The related records are read from what the found records store, not from the
+relation index, so the answer does not depend on that index being up to date.
+Locators with a non-integer id (an external record's remote id) are not
+followed. A very large found set can take long to count: after 30 seconds the
+server stops and the dialog shows a timeout error instead of the list.
+
 ### Section coupling
 
 The section orchestrates the client inspector's whole lifecycle: it

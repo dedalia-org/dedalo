@@ -28,8 +28,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import type { Sqo } from '../../src/core/concepts/sqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { fireSaveEvent } from '../../src/core/section_record/save_event.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const LIMIT = 5;
 const threshold = config.ops.searchLateRowLookupOffset;

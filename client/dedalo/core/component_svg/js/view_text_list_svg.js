@@ -82,6 +82,8 @@ view_text_list_svg.render = function(self, options) {
 
 	// image
 		const image	= document.createElement('img')
+		// a11y (WCAG 1.1.1): the text view has no label beside the image — name it
+		image.alt		= self.label ?? ''
 		image.loading	= 'lazy'
 		image.decoding	= 'async'
 		image.className	= 'component_svg media view_' + self.view

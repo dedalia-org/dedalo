@@ -61,13 +61,27 @@
  *          the snapshot's (its ids pair its frames) — never declared, always
  *          recomputed from truth after COMMIT, whose hop tells the slot's own
  *          observers.
- *      The three escape hatches are separate ENTRY FUNCTIONS, not flag values,
+ *      The four escape hatches are separate ENTRY FUNCTIONS, not flag values,
  *      so the write census can see exactly who takes them (write_obligations leg
  *      B4): the removal law (persistRelationRemovalKeys — the three removal
- *      doors), the cascade-owned mirror write (persistObserverMirrorKeys — the
- *      recompute alone) and the component restore (persistRestoredKeys — a
+ *      doors), the two cascade-owned writes (persistObserverMirrorKeys — the
+ *      mirror recompute alone; persistObserverResaveKeys — the observer
+ *      default branch's re-save through its own save rules alone, §3f) and the
+ *      component restore (persistRestoredKeys — a
  *      restored covered slot is recomputed, never propagated). A write with no
  *      observed and no indexed key pays nothing: no transaction, no extra read.
+ *   3f. THE KEY SAVE RULES (portal order model, WC-2026-10-31-portal-order-model) —
+ *      every key a key entry writes passes `applyKeySaveRules` BEFORE it is
+ *      persisted (and before its observed `after` is declared): today ONE rule,
+ *      a relation key whose component declares a per-ddo `order` is written
+ *      SORTED by that order (relations/order_locators.ts sortByDeclaredOrder —
+ *      the one ordering function the read path and the reconcile share);
+ *      identity for every other key. Every door therefore stores the declared
+ *      order: the four key entries, the whole-record restore
+ *      (persistRecordColumns) and every BIRTH (writeBirth, prepareBirthColumns —
+ *      create-with-values and duplicate). The atomic append REFUSES a
+ *      declared-order key (a concatenation cannot sort): save_component routes
+ *      such an insert to the full-array persist under its own row lock.
  *   4. THE COMPONENT_IMAGE SVG ENVELOPE — a `media`-column write persists any
  *      `svg_file_data` its items carry to the .svg overlay file BEFORE the row
  *      write (PHP component_image::save → create_svg_file, which likewise
@@ -97,6 +111,7 @@ import {
 } from '../db/matrix_write.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { componentDeclaresOrder, sortByDeclaredOrder } from '../relations/order_locators.ts';
 import type { RelationSearchLaw } from '../relations/save.ts';
 import { auditDateItem, auditUserLocator } from '../section/record/create_record.ts';
 import {
@@ -143,6 +158,13 @@ export interface WriteDerivation {
 	now?: Date;
 	/** Filled after COMMIT with the same-record observer data (PHP observers_data). */
 	receipt?: WriteReceipt;
+	/**
+	 * Told the savePath AS WRITTEN — after the key save rules (§3f) — once the
+	 * UPDATE landed: a door that echoes the stored value (save_component: a
+	 * declared-order portal comes back sorted) reads it here instead of echoing
+	 * the value it handed in. Key entries only.
+	 */
+	onWritten?: (written: readonly SavePathItem[]) => void;
 }
 
 /**
@@ -259,6 +281,33 @@ export async function persistObserverMirrorKeys(
 ): Promise<void> {
 	await writeKeys(target, savePath, audit, derived, {
 		door: 'persistObserverMirrorKeys',
+		law: 'save',
+		ledger: false,
+		coveredSlots: 'change',
+	});
+}
+
+/**
+ * THE SECOND CASCADE-OWNED entry (§3e/§3f, portal order model —
+ * WC-2026-10-31-portal-order-model + the dated addendum on
+ * WC-2026-08-02-observer-relay-writes-nothing): the observer DEFAULT branch's
+ * RE-SAVE (observers.ts resaveObserverThroughSaveRules) — an observer whose
+ * stored value its OWN save rules (applyKeySaveRules — today: a declared-order
+ * portal is re-sorted) would change, written back as those rules leave it.
+ * The save law applies like any key write (the rules run again inside
+ * writeKeys: idempotent over a value they produced); NO ledger entry: the
+ * relay's own emitCascadeHop re-enters propagation for the observer, and a
+ * ledger entry would dispatch it a second time. Only the re-save may take it
+ * (write_obligations_tripwire leg B4 — the twin of the mirror row above).
+ */
+export async function persistObserverResaveKeys(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+	audit: AuditStamp,
+	derived: WriteDerivation,
+): Promise<void> {
+	await writeKeys(target, savePath, audit, derived, {
+		door: 'persistObserverResaveKeys',
 		law: 'save',
 		ledger: false,
 		coveredSlots: 'change',
@@ -455,19 +504,91 @@ async function persistSvgEnvelopes(
 }
 
 /**
- * THE KEY WRITE shared by the four key entries: the SVG envelope (§4), then —
+ * THE KEY SAVE RULES (§3f) — the ONE function every key write applies to a key
+ * before it persists, exported so the observer re-save (the generalized default
+ * branch) passes a stored value through exactly the rules a save would. Pure in
+ * effect: reads the ontology (and, for a declared-order portal, runs the
+ * system-scoped rank search over the linked records), writes nothing.
+ *
+ * Today ONE rule: a value whose component declares a per-ddo `order` comes back
+ * SORTED by it (relations/order_locators.ts sortByDeclaredOrder); every other
+ * key, a non-array value and a value with fewer than two items come back AS
+ * GIVEN (the same reference — callers may compare by identity). Only relation
+ * values carry locators; a literal component declares no `order`, so the gate
+ * is the declaration itself.
+ */
+export async function applyKeySaveRules(
+	target: RecordWriteTarget,
+	key: string,
+	value: unknown,
+): Promise<unknown> {
+	if (!Array.isArray(value) || value.length < 2) return value;
+	const sorted = await sortByDeclaredOrder(value, key, target.sectionTipo);
+	return sorted ?? value;
+}
+
+/** A savePath through the key save rules (§3f): relation keys only, others untouched. */
+async function applySaveRulesToPath(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+): Promise<readonly SavePathItem[]> {
+	if (!savePath.some((item) => item.column === 'relation')) return savePath;
+	const ruled: SavePathItem[] = [];
+	for (const item of savePath) {
+		if (item.column !== 'relation') {
+			ruled.push(item);
+			continue;
+		}
+		const value = await applyKeySaveRules(target, item.key, item.value);
+		ruled.push(value === item.value ? item : { ...item, value });
+	}
+	return ruled;
+}
+
+/** The relation column of a whole-record write as a keyed bag, or null when it is none. */
+function relationBagOf(values: MatrixWriteValues): Record<string, unknown> | null {
+	const relation = values.relation;
+	if (relation === null || typeof relation !== 'object' || Array.isArray(relation)) return null;
+	return relation as Record<string, unknown>;
+}
+
+/** A whole-record relation bag through the key save rules (§3f), in place. */
+async function applySaveRulesToBag(
+	target: RecordWriteTarget,
+	values: MatrixWriteValues,
+): Promise<void> {
+	const bag = relationBagOf(values);
+	if (bag === null) return;
+	let ruled: Record<string, unknown> | null = null;
+	for (const [key, value] of Object.entries(bag)) {
+		const sorted = await applyKeySaveRules(target, key, value);
+		if (sorted === value) continue;
+		ruled ??= { ...bag };
+		ruled[key] = sorted;
+	}
+	// A fresh bag object: the caller's columns are never mutated through it.
+	if (ruled !== null) values.relation = ruled;
+}
+
+/**
+ * THE KEY WRITE shared by the four key entries: the key save rules (§3f), the
+ * SVG envelope (§4), then —
  * inside ONE transaction when anything derived is owed — the before-image of
  * every observed key under the row lock, ONE UPDATE carrying the values, the
  * derived index keys and the stamps, and the post-write hook with the change.
  */
 async function writeKeys(
 	target: RecordWriteTarget,
-	savePath: readonly SavePathItem[],
+	givenPath: readonly SavePathItem[],
 	audit: AuditStamp,
 	derived: WriteDerivation,
 	mode: KeyWriteMode,
 ): Promise<void> {
-	assertSavePathNotEmpty(target, savePath, mode.door);
+	assertSavePathNotEmpty(target, givenPath, mode.door);
+	// 3f. THE KEY SAVE RULES — before anything reads the values: the envelope,
+	//    the observed `after`, the derived index and the UPDATE all see the key
+	//    as it will be STORED (a declared-order portal: sorted).
+	const savePath = await applySaveRulesToPath(target, givenPath);
 
 	// 4. COMPONENT_IMAGE SVG ENVELOPE (PHP component_image::save :119-133 →
 	//    create_svg_file). The vector editor ships the drawing inside the saved
@@ -507,6 +628,7 @@ async function writeKeys(
 			receipt: derived.receipt,
 		});
 		await requestRestoredSlotRecompute(target, plan.recomputed, audit, derived);
+		derived.onWritten?.(savePath);
 		return;
 	}
 
@@ -552,6 +674,7 @@ async function writeKeys(
 		});
 		await requestRestoredSlotRecompute(target, plan.recomputed, audit, derived);
 	});
+	derived.onWritten?.(savePath);
 }
 
 /**
@@ -591,6 +714,7 @@ export async function persistAppendedKeyItems(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
+	await assertAppendableKey(target, column, key);
 	await withTransaction(async () => {
 		await assertParentLinkKeys(target, [{ column, key, value: inserts }], 'append');
 		const appended = await appendMatrixKeyItems(
@@ -652,6 +776,32 @@ export async function persistAppendedKeyItems(
 			observed: { kind: 'keys', changes, actor: derived.actor, now: derived.now },
 			receipt: derived.receipt,
 		});
+	});
+}
+
+/**
+ * §3f — the atomic append REFUSES a key the save rules would rewrite: a
+ * concatenation inside the UPDATE cannot sort, and an append that skipped the
+ * rule would store a declared-order portal out of order. Not a client fault: the
+ * one caller (save_component's pure-insert branch) routes such a key to the
+ * full-array persist itself, so reaching here is a programming error.
+ */
+async function assertAppendableKey(
+	target: RecordWriteTarget,
+	column: MatrixJsonbColumn,
+	key: string,
+): Promise<void> {
+	if (column !== 'relation') return;
+	if (!(await componentDeclaresOrder(key, target.sectionTipo))) return;
+	throw new DedaloError('internal.invariant', {
+		message: `persistAppendedKeyItems: '${key}' declares an order — a declared-order key is never appended atomically (route it to persistRecordKeys)`,
+		coordinates: {
+			table: target.table,
+			section_tipo: target.sectionTipo,
+			section_id: target.sectionId,
+			tipo: key,
+			reason: 'declared_order',
+		},
 	});
 }
 
@@ -932,10 +1082,13 @@ async function pinCoveredObserverSlots(
 
 /**
  * The COVERED UNITS of a NEW record's birth (create, duplicate) are DROPPED,
- * main and frames: nothing can reference a record that does not exist yet, so
- * its mirror is empty by construction — a duplicate's copy of its source's
- * mirror (and the frames on it) are the SOURCE's referencers', and a create's
- * `dato_default` on a covered slot is a phantom (case 7d). Frames left behind
+ * main and frames: a stored copy is never the new record's truth — an
+ * `inverse_search` mirror is empty by construction (nothing can reference a
+ * record that does not exist yet; a duplicate's copy of it, and the frames on
+ * it, are the SOURCE's referencers'), a copy law's (`source_overwrite`,
+ * `observed_data`) is recomputed from the record's own data after the insert
+ * (ownDataCoveredSlots), and a create's `dato_default` on a covered slot is a
+ * phantom (case 7d). Frames left behind
  * would pair with the ids the first recompute mints (1..N): a frame of the
  * source's referencer landing on the clone's. In place. Returns the dropped
  * mains (each still recomputed after the insert).
@@ -1168,6 +1321,8 @@ export async function persistRecordColumns(
 		const liveColumns = live ?? {};
 		await assertRelationBagAcyclic(target, columns.relation, 'replace');
 		const values: MatrixWriteValues = { ...columns };
+		// §3f — a restored relation bag stores every declared-order key sorted.
+		await applySaveRulesToBag(target, values);
 		const pinned = await pinCoveredObserverSlots(values, bagOf(liveColumns.relation));
 		await rederiveHiIndex(values, liveColumns);
 		await askChangedKeysDoor(door, target, audit, values, liveColumns);
@@ -1255,8 +1410,15 @@ export async function persistRecordBirth(
  * dropping the mirror it indexes stored an index for a value it did not hold,
  * and a broader-term search matched it.
  */
-export async function prepareBirthColumns(values: MatrixWriteValues): Promise<string[]> {
+export async function prepareBirthColumns(
+	values: MatrixWriteValues,
+	sectionTipo?: string,
+): Promise<string[]> {
 	const dropped = await dropCoveredObserverUnits(values);
+	// §3f — a birth stores every declared-order key sorted (create-with-values,
+	// duplicate). The host section, when the caller does not name it, is each
+	// component's ontology ancestor (order_locators.ts sortByDeclaredOrder).
+	await applySaveRulesToBag({ table: '', sectionTipo: sectionTipo ?? '', sectionId: 0 }, values);
 	await rederiveHiIndex(values, null);
 	return dropped;
 }
@@ -1277,6 +1439,28 @@ async function declaredCoveredSlots(sectionTipo: string): Promise<string[]> {
 	const slots: string[] = [];
 	for (const component of await declaredSectionComponents(sectionTipo)) {
 		if (await isCoveredObserverTipo(component.tipo)) slots.push(component.tipo);
+	}
+	return slots;
+}
+
+/**
+ * The COVERED OBSERVER slots a section declares whose value law reads the
+ * RECORD'S OWN DATA (external_laws/: `source_overwrite` — the copy of the bag
+ * its own pointer names; `observed_data` — the locators of its own text's
+ * tags), by declaration. A NEW record born carrying data (a duplicate copies
+ * its source's pointer and text) is NOT empty by construction there: only the
+ * `inverse_search` mirror ("who references me") is — nothing can reference a
+ * record that does not exist yet. So a birth that copies data recomputes these
+ * slots from truth after its insert (its selfRecompute), never inherits the
+ * source's stored copy (dropped with the other covered units). Refused laws are
+ * not covered (isCoveredObserverTipo), so they never reach the list.
+ */
+export async function ownDataCoveredSlots(sectionTipo: string): Promise<string[]> {
+	const { getExternalLaw } = await import('../section/record/external_laws/classify.ts');
+	const slots: string[] = [];
+	for (const slot of await declaredCoveredSlots(sectionTipo)) {
+		const law = await getExternalLaw(slot);
+		if (law.kind === 'source_overwrite' || law.kind === 'observed_data') slots.push(slot);
 	}
 	return slots;
 }
@@ -1331,6 +1515,9 @@ async function writeBirth(
 	door: string,
 ): Promise<MatrixWriteValues | null> {
 	const values: MatrixWriteValues = { ...columns };
+	// §3f — every declared-order key is born sorted (the index below is derived
+	// from the bag as stored).
+	await applySaveRulesToBag(target, values);
 	// The covered units stand as given (see persistRecordBirth); only the index
 	// is re-derived from what the row carries.
 	const kept = await coveredSlotsOf(bagOf(values.relation));

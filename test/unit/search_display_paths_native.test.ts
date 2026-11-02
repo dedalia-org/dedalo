@@ -29,9 +29,9 @@ import type {
 	ProcessedDdo,
 } from '../../src/core/relations/request_config/explicit.ts';
 import { withSearchDisplayPaths } from '../../src/core/relations/request_config/search_display_paths.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const OWNER = 'zzpicker';
 

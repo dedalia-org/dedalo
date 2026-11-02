@@ -22,10 +22,12 @@ import { compareLocators, type Locator } from '../../../core/concepts/locator.ts
 import { readMatrixRecord } from '../../../core/db/matrix.ts';
 import { DedaloError } from '../../../core/errors/dedalo_error.ts';
 import {
+	elementLang,
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
 	getModelByTipo,
 	getTranslatableByTipo,
+	savesInRequestLang,
 } from '../../../core/ontology/resolver.ts';
 import { deletePortalLocator } from '../../../core/relations/save.ts';
 import { currentDataLang } from '../../../core/resolve/request_lang.ts';
@@ -182,7 +184,15 @@ export async function setField(
 	// wrong-language attach was self-consistent and invisible. currentDataLang()
 	// is the request's (the assistant tool runs inside the API dispatch's
 	// language scope) and the installation default outside a request.
-	const lang = translatable ? (input.lang ?? currentDataLang()) : 'lg-nolan';
+	// A TRANSLITERABLE field (with_lang_versions / component_iri) keeps an
+	// EXPLICIT input.lang (its per-language version) and defaults to its
+	// lg-nolan base — the one instance-lang rule (resolver.ts elementLang).
+	const lang = translatable
+		? (input.lang ?? currentDataLang())
+		: await elementLang(fieldTipo, model, {
+				requested: input.lang ?? null,
+				ambient: currentDataLang(),
+			});
 	const mode = input.mode ?? 'append';
 
 	let changedData: { action: string; id?: number | string | null; value: unknown }[];
@@ -206,10 +216,19 @@ export async function setField(
 		if (mode === 'replace') {
 			// Replace ONLY the requested language's item (translations survive);
 			// no existing item in that lang falls through to an insert.
+			// The item to replace lives in the SLICE the save writes: a field whose
+			// value is lang-sliced (translatable, or a transliterable — every
+			// component_iri, any with_lang_versions component; resolver.ts
+			// savesInRequestLang) matches ONLY an item of the requested lang. A
+			// transliterable's lg-nolan base is never the item to replace in its
+			// lg-ell version: the update would carry the base's id into the lg-ell
+			// slice, find no such id there and append — a second version instead of
+			// a replaced one. A plain non-translatable has one slice (lg-nolan):
+			// any stored item is it.
 			const items = await currentItems(sectionTipo, sectionId, fieldTipo, model);
-			const existing = items.find(
-				(entry) =>
-					(entry as { lang?: string } | null)?.lang === lang || (!translatable && entry !== null),
+			const sliced = await savesInRequestLang(fieldTipo, model);
+			const existing = items.find((entry) =>
+				sliced ? (entry as { lang?: string } | null)?.lang === lang : entry !== null,
 			) as { id?: number | string } | undefined;
 			if (existing?.id !== undefined) {
 				changedData = [

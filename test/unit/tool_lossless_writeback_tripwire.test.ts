@@ -1394,8 +1394,15 @@ else {
 		},
 		'tools/tool_ontology/server/tool_ontology.ts :: toolOntologySetRecords': {
 			doors: {
-				// setRecordsInDdOntology (the projection route) is no longer a matrix door:
-				// since ONT-2 it writes dd_ontology only, through the guarded primitive.
+				// setRecordsInDdOntology (the projection route) writes dd_ontology only, through the
+				// guarded primitive (ONT-2). It is a matrix door again ONLY through the portal order
+				// model's ontology-change trigger (2026-10-31, WC-2026-10-31-portal-order-model).
+				setRecordsInDdOntology: {
+					verdict: 'derived-state',
+					sites: 2,
+					reason:
+						"the portal order model's ontology-change trigger (section_record/ontology_projection.ts#queueOrderReconcileOnChange → relations/declared_order_reconcile.ts): a projection that ADDS or CHANGES a portal's declared per-ddo `order` re-sorts that portal's stored arrays POST-COMMIT. The stored order is state DERIVED from the declaration; the re-save writes the SAME locators re-ranked (re-read under the row lock), through saveComponentData and the record-write chokepoint, with a Time Machine row per record — no locator is added, dropped or edited.",
+				},
 				syncOntologyActivation: {
 					verdict: 'derived-state',
 					bypass_reason: BYPASS.ontology,

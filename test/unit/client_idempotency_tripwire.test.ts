@@ -136,8 +136,16 @@ const REPO_ROOT = join(import.meta.dir, '..', '..');
  * silently re-admits the defect.
  */
 const IDEMPOTENT_CEILING: ReadonlySet<string> = new Set([
+	// A read MAY write since 2026-10-30 — the external-mirror refresh
+	// (source.build_options.get_data_external → section/record/external_refresh.ts).
+	// It stays idempotent: the mirror is a pure function of committed data and a
+	// second run finds no drift and writes nothing (dispatch.ts, its
+	// ACTION_IDEMPOTENCY row) — an OUTCOME the refresh gate holds: a second
+	// identical refresh call writes no row and no Time Machine entry.
 	'dd_core_api:read',
 	'dd_core_api:read_raw',
+	// The "Open relationships" census: grouped + per-target COUNTs, no write.
+	'dd_core_api:relation_targets',
 	'dd_core_api:count',
 	'dd_core_api:start',
 	'dd_core_api:get_element_context',

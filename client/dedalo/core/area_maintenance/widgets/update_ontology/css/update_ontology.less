@@ -346,6 +346,52 @@
 	.form_container {
 		padding-top: 0;
 
+		// the run's backup precondition (build_backup_gate), between the TLD
+		// input and the submit: verdict line → waiver → its consequence
+		.backup_gate {
+			display: flex;
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.45rem;
+			margin: 1.1rem 0;
+
+			> .dd_note {
+				margin: 0;
+			}
+			> .backup_state.state_ok {
+				color: var(--fg_default);
+				padding-left: 0.7rem;
+				border-left: 3px solid var(--color_success);
+			}
+
+			> .waive_backup_label {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.5rem;
+				cursor: pointer;
+				font-weight: 600;
+				color: var(--color_danger);
+
+				// the form's blanket `input { width:100% }` would stretch it
+				> .waive_backup_check {
+					width: auto;
+					height: auto;
+					margin: 0;
+					flex: 0 0 auto;
+					accent-color: var(--color_danger);
+					cursor: pointer;
+				}
+			}
+			> .waive_backup_note {
+				padding-left: 1.6rem;
+			}
+		}
+
+		.button_submit:disabled {
+			opacity: 0.45;
+			cursor: not-allowed;
+		}
+
 		.button_submit {
 			color: var(--color_danger);
 			border: 1px solid color-mix(in srgb, var(--color_danger) 45%, transparent);

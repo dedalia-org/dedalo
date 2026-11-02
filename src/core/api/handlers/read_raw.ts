@@ -42,13 +42,13 @@
 import type { Sqo } from '../../concepts/sqo.ts';
 import { sanitizeClientSqo } from '../../concepts/sqo.ts';
 import { MATRIX_JSONB_COLUMNS, readMatrixRecord } from '../../db/matrix.ts';
-import { sql } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/index.ts';
 import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
 	getModelByTipo,
 } from '../../ontology/resolver.ts';
+import { runSearch } from '../../search/search_statement.ts';
 import { buildSearchSql } from '../../search/sql_assembler.ts';
 import type { Principal } from '../../security/permissions.ts';
 import {
@@ -94,11 +94,9 @@ export async function readRaw(input: ReadRawInput, principal?: Principal): Promi
 
 	// Run the search (Phase 3 engine) — the matched record coordinates.
 	const sqo = sanitizeClientSqo(structuredClone(input.sqo) as Record<string, unknown>);
-	const { sql: builtSql, params } = await buildSearchSql(sqo, { principal });
-	const rows = (await sql.unsafe(builtSql, params as (string | number | null)[])) as {
-		section_tipo: string;
-		section_id: number;
-	}[];
+	const rows = await runSearch<{ section_tipo: string; section_id: number }>(
+		await buildSearchSql(sqo, { principal }),
+	);
 
 	if (type === 'component') {
 		const columnName = await resolveComponentColumn(input);

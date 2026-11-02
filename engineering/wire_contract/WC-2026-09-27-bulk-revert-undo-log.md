@@ -1014,10 +1014,14 @@ save-door rule → 2 + 3 red; the old CSV grouping → 1; the old propagate regi
   to add. A NON-translatable main that keeps language versions (`with_lang_versions`, and a
   non-translatable component_iri — `savesInRequestLang`) asked in lg-nolan (the tool's context
   lang) is read in the request's DATA language (`timelineScope`, a copy of the SQO): the base,
-  the frames and the version of the language the curator works in. **Stated limit:** the
+  the frames and the version of the language the curator works in. ~~**Stated limit:** the
   preview of such a version row shows the base as of it and the frames, not the version — the
   live read emits no `transliterate_value`
-  (WC-2026-08-31-client-reads-three-fields-the-engine-never-emits); `apply_value` restores it.
+  (WC-2026-08-31-client-reads-three-fields-the-engine-never-emits); `apply_value` restores it.~~
+  **Closed 2026-10-31:** a read with an EXPLICIT lang serves a transliterable's version
+  (resolver.ts `elementLang`), so the preview of a version row viewed in that language shows
+  the version as of it + the frames, and every item carries its other-lang counterpart as
+  `transliterate_value` (WC-2026-10-31-transliterate-value-emitted).
 - **Preview of an unsliced main's frame row** (`previewLaneValue`): a translatable portal's
   lg-nolan row records no value, so its preview shows the value AS OF the row, never the live
   one.

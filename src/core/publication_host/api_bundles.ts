@@ -71,6 +71,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { envSnapshot, projectRoot } from '../../config/env.ts';
+import { lockTupleProblems, parseLockPackages } from '../security/lockfile_provenance.ts';
 import { resolveCodeBackupRoot } from '../update/code_update.ts';
 import { INSTALLED_DIGEST } from '../update/install_stamp.ts';
 import {
@@ -162,14 +163,20 @@ export type ApiBundleReason =
 	| 'lockfile_missing'
 	| 'deps_install_failed'
 	| 'deps_symlink'
+	| 'deps_unpinned'
 	| 'write_mismatch';
 
 /** A refused build. `paths` names the offending files (tree keys or bundle paths). */
 export class ApiBundleError extends Error {
 	readonly reason: ApiBundleReason;
 	readonly paths: readonly string[];
-	constructor(reason: ApiBundleReason, message: string, paths: readonly string[] = []) {
-		super(message);
+	constructor(
+		reason: ApiBundleReason,
+		message: string,
+		paths: readonly string[] = [],
+		options?: { cause?: unknown },
+	) {
+		super(message, options);
 		this.name = 'ApiBundleError';
 		this.reason = reason;
 		this.paths = Object.freeze([...paths]);
@@ -612,6 +619,7 @@ async function buildV2Deps(
 		const { data } = await readVerifiedSource(ctx.treeRoot, source);
 		await writeFile(join(depsDir, source.rel), data);
 	}
+	await assertRegistryLockfile(depsDir);
 	await ctx.installDeps(depsDir);
 	return walkDeps(depsDir);
 }
@@ -683,6 +691,55 @@ async function visit(base: string, path: string, walk: DepsWalk): Promise<void> 
 		return;
 	}
 	walk.out.push({ path, type: 'file', load: () => readDepFile(base, path) });
+}
+
+/**
+ * THE PROVENANCE RULE, checked on the lockfile BEFORE the install: every package `bun.lock`
+ * pins resolves from the registry (an exact version) AND carries an integrity hash. A
+ * `file:`, `link:`, git, tarball-URL or local-tarball dependency ships bytes from outside
+ * the registry — a `file:` one copies whatever sits at that path outside the verified tree.
+ * Until 2026-11-02 this was caught only by accident: Bun 1.4.3 materialised a `file:`
+ * dependency as symlinks (deps_symlink); Bun 1.4.4 hardlinks its files, which the walk
+ * reads as regular files, and the bundle built. The rule is now about where the bytes come
+ * from, not how Bun lays them out, and refuses before anything is fetched. The law itself
+ * is `security/lockfile_provenance.ts`, the ONE copy the repo's own lockfiles are held to
+ * as well (dependency_integrity_tripwire). Used by the v2 bundle and the publication-host
+ * kit (kit_build.ts), both of which install from a `bun.lock` in `depsDir`. Returns how
+ * many entries it checked, so a caller (and its gate) can floor the census.
+ */
+export async function assertRegistryLockfile(depsDir: string): Promise<number> {
+	const packages = await readLockPackages(join(depsDir, 'bun.lock'));
+	const unpinned: string[] = [];
+	for (const [name, tuple] of Object.entries(packages)) {
+		if (lockTupleProblems(tuple).length > 0) unpinned.push(`bun.lock:${name}`);
+	}
+	if (unpinned.length > 0) throw bundleRefusal('deps_unpinned', unpinned.sort(compareBundlePaths));
+	return Object.keys(packages).length;
+}
+
+/** `bun.lock`'s `packages` map; an unreadable or packages-less lockfile is deps_install_failed. */
+async function readLockPackages(path: string): Promise<Record<string, unknown>> {
+	let text: string;
+	try {
+		text = await Bun.file(path).text();
+	} catch (error) {
+		// The fs error stays on `cause` (logs), never in the message (SEC-18).
+		throw new ApiBundleError(
+			'deps_install_failed',
+			'Publication API bundle refused (deps_install_failed): bun.lock is unreadable',
+			['bun.lock'],
+			{ cause: error },
+		);
+	}
+	const read = parseLockPackages(text);
+	if ('error' in read) {
+		throw new ApiBundleError(
+			'deps_install_failed',
+			`Publication API bundle refused (deps_install_failed): bun.lock ${read.error}`,
+			['bun.lock'],
+		);
+	}
+	return read.packages;
 }
 
 /** The PINNED bun, frozen, in the build dir, minimal env; bounded by V2_DEPS_INSTALL_TIMEOUT_MS. */

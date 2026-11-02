@@ -32,9 +32,12 @@
  * PINNED IS STRONGER THAN BAND C. Any file whose test-side source matches
  * `Bun.spawn` / `process.execPath` is PINNED regardless of its DB
  * classification: a spawned child reaches Postgres with whatever env it
- * inherits and evades every in-process role guard, so such a file runs only in
- * the shard runner's BASE bin — the one whose environment is byte-identical to
- * today's serial run. The spawn scan covers the test file and its `test/`
+ * inherits and evades every in-process role guard, so in an UNSEALED plan
+ * (`--shard=M/N`) such a file runs only in the BASE bin — the one whose
+ * environment is byte-identical to today's serial run. A multi-bin run is
+ * SEALED instead (scripts/test_shard.ts header): every bin on a clone, the
+ * template closed to connections, so an escaping child fails loudly and the
+ * pin is not applied. The spawn scan covers the test file and its `test/`
  * import closure, not `src/`: an engine spawn site executes INSIDE the child's
  * fully-composed environment, while a test-authored spawn is the test choosing
  * its own env — the hazard being censused.

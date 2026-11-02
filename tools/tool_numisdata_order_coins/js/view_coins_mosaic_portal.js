@@ -25,42 +25,40 @@
 * calls `view_coins_mosaic_portal.render(self, options)` when `self.context.view`
 * equals `'coins_mosaic'`.
 *
-* Row window (audit P2-31 / CLI-29 / CLI-30)
-* ------------------------------------------
+* Rows (WC-2026-10-30-section-record-row-box; audit P2-31 / CLI-29 / CLI-30)
+* -------------------------------------------------------------------------
 * This is a `component_portal` in EDIT mode, i.e. behind the paginator's
-* "show all" door, whose page is `max_page_limit()`. Its rows are therefore
-* WINDOWED exactly like every core portal edit view: `get_content_data` hands the
-* page's entries to section.js `window_section_rows`, whose materialize builds the
-* TWO section_records of ONE row (tile + hover overlay) and whose release destroys
-* them again — at most ROW_WINDOW_MAX_ROWS rows exist at once, however many rows
-* "show all" brings.
+* "show all" door, whose page is `max_page_limit()`. Its rows therefore go
+* through the row window door exactly like every core portal edit view:
+* `get_content_data` hands the page's entries to section.js
+* `window_section_rows` — the TILE is the row (`content_data.children[i]` is row
+* i), at most ROW_WINDOW_MAX_ROWS are built at once (placeholders beyond) — on
+* every content render, N=0 included.
 *
-* Two section records are built PER MATERIALIZED ROW:
-*
-*   1. MOSAIC records (in_mosaic === true columns) — the visible draggable tiles.
+*   1. TILE records (in_mosaic === true columns) — the visible draggable tiles.
 *      Each tile renders its coin image plus an "Info" column produced by
 *      `render_column_original_copy`, which exposes:
 *        - Original / Copy radio buttons (wired to tipo numisdata157, the discard
 *          component).  Value '1' = original, '2' = copy (stored in numisdata341).
-*        - Snap checkbox: adds/removes the CSS class `snap` on the tile's row
-*          container, locking the tile's aspect ratio for visual alignment.
-*        - A drag handle div (`div.drag`) that becomes `div.drag.used` once the
+*        - Snap checkbox: adds/removes the CSS class `snap` on the tile,
+*          locking the tile's aspect ratio for visual alignment.
+*        - A drag indicator div (`div.drag`) that becomes `div.drag.used` once the
 *          coin has been assigned to an ordered position.
 *
 *   2. HOVER record (hover === true columns, `id_variant: 'hover'`) — a lightweight
-*      detail panel, prepended into its own tile hidden (`display_none`) and
-*      revealed on `mouseenter`. It is the row's own node: a windowed row must own
-*      everything it built, so the former page-wide parked set and its
-*      `mosaic_hover_*` / `mosaic_mouseleave_*` event_manager bridge are gone (the
-*      shape core's view_mosaic_edit_portal already uses).
+*      detail panel built LAZILY by core's row_hover.js `delegate_row_hover`
+*      (one delegated pointer listener set on the content_data): on hover ONE
+*      overlay record is built through section.js `build_section_record_for`
+*      and prepended into the tile; it leaves with the pointer, flushed first.
 *
 * Drag-and-drop integration
 * -------------------------
-* Each mosaic tile is made draggable via the local `drag_and_drop` helper, which
-* calls `on_dragstart_mosaic` from `core/component_portal/js/drag_and_drop.js`.
-* The dragover/dragleave/drop handlers are intentionally commented out here
-* because the drop target lives in the right-hand ordered-coins portal, not
-* in this mosaic; those events are wired by `render_tool_numisdata_order_coins.drop`.
+* The window stamps every built tile `draggable`; drag_and_drop.js
+* `bind_tool_row_drag` puts ONE delegated dragstart (+ the touch_pick tap) on
+* the content_data, riding the window's signal. Its payload is the row's frozen
+* entry (`get_row_transfer_data`), `text/plain` only — what the ordered-coins
+* slots read (render_tool_numisdata_order_coins: the delegated slot handler) —
+* never the portal MIME type, so every portal drop handler treats it as foreign.
 *
 * Columns map contract
 * --------------------
@@ -79,28 +77,23 @@
 * @module view_coins_mosaic_portal
 * @see render_tool_numisdata_order_coins.js  for the parent tool render layer.
 * @see tool_numisdata_order_coins.js         for the tool constructor and set_original_copy.
-* @see core/component_portal/js/drag_and_drop.js  for on_dragstart_mosaic.
+* @see core/component_portal/js/drag_and_drop.js  for bind_tool_row_drag.
 */
 
 
 
 // imports
-	import {window_section_rows} from '../../../core/section/js/section.js'
+	import {place_list_after} from '../../../core/common/js/common.js'
 	import {ui} from '../../../core/common/js/ui.js'
+	import {bind_tool_row_drag} from '../../../core/component_portal/js/drag_and_drop.js'
 	import {
-		render_column_id,
-		get_buttons,
 		activate_autocomplete,
-		render_references
+		get_buttons,
+		render_column_id,
+		render_list_after
 	} from '../../../core/component_portal/js/render_edit_component_portal.js'
-	import {
-		on_dragstart_mosaic,
-		get_mosaic_transfer_data,
-		on_dragover,
-		on_dragleave,
-		on_drop
-	} from '../../../core/component_portal/js/drag_and_drop.js'
-	import * as touch_pick from '../../../core/common/js/touch_pick.js'
+	import {build_section_record_for, window_section_rows } from '../../../core/section/js/section.js'
+	import {delegate_row_hover} from '../../../core/section_record/js/row_hover.js'
 
 
 
@@ -122,17 +115,18 @@ export const view_coins_mosaic_portal = function() {
 * Manages the component's logic and appearance in client side
 *
 * Entry point called by the `component_portal` render dispatcher when
-* `self.context.view === 'coins_mosaic'`.  Builds two independent sets of
-* section records — one for the hoverable detail panel and one for the
-* draggable mosaic tiles — then assembles and returns the full wrapper node.
+* `self.context.view === 'coins_mosaic'`.  The row window builds the draggable
+* mosaic tiles; the hover controller builds the detail panel of the hovered
+* tile on demand. Assembles and returns the full wrapper node.
 *
 * When `options.render_level === 'content'` (e.g. during a refresh cycle)
 * only the inner `content_data` HTMLElement is returned, skipping the wrapper
 * scaffold so the caller can splice it into an existing DOM tree.
 *
 * Side effects:
-*   - Pushes all created section-record instances onto `self.ar_instances` so
-*     they are destroyed when the portal is rebuilt or destroyed.
+*   - The row window (and the hover controller, for its overlay) pushes the live
+*     section-record instances onto `self.ar_instances` so they are destroyed
+*     when the portal is rebuilt or destroyed.
 *   - Attaches a click listener on the wrapper that lazily activates the
 *     autocomplete service (via `activate_autocomplete`) when `self.active`.
 *
@@ -144,8 +138,7 @@ export const view_coins_mosaic_portal = function() {
 *                           `self.mode` {string}         — current mode string (e.g. 'edit').
 *                           `self.view` {string}         — resolved view name.
 *                           `self.context.view` {string} — context view (echoed onto wrapper class).
-*                           `self.context.css` {Object}  — optional CSS overrides for content_data.
-*                           `self.total` {number}        — total records (used by drag_and_drop).
+*                           `self.total` {number}        — total records.
 *                           `self.active` {boolean}      — whether the component is focused.
 * @param {Object} options - Render options.
 *   @param {string} [options.render_level='full'] - 'full' builds the complete wrapper;
@@ -213,6 +206,9 @@ view_coins_mosaic_portal.render = async function(self, options) {
 		wrapper.list_body		= list_body
 		wrapper.content_data	= content_data
 
+	// list_after. The non-row sibling (print notice), after list_body
+		place_list_after(wrapper, content_data)
+
 	// autocomplete
 		wrapper.addEventListener('click', function(e) {
 			e.stopPropagation()
@@ -232,26 +228,21 @@ view_coins_mosaic_portal.render = async function(self, options) {
 
 /**
 * GET_CONTENT_DATA
-* Build the `content_data` node and hand the page's rows to a ROW WINDOW
-* (section.js window_section_rows → common/js/row_window.js): the TWO
-* section_records of a row (draggable tile + hover detail panel) are built and
-* rendered only for the rows the viewport can reach — at most ROW_WINDOW_MAX_ROWS
-* at once — and released past the far edge (audit P2-31 / CLI-29 / CLI-30: this
-* portal is in EDIT mode, so "show all" can bring a `max_page_limit()` page and
-* every row of it used to be built twice, eagerly).
+* Build the `content_data` node and hand the page's entries to the row window
+* door (section.js window_section_rows; WC-2026-10-30-section-record-row-box):
+* the tile of row i is `content_data.children[i]`, built through the door (one
+* section_record per row, registered in `self.ar_instances`) — at most
+* ROW_WINDOW_MAX_ROWS at once (audit P2-31 / CLI-29 / CLI-30: this portal is in
+* EDIT mode, so "show all" can bring a `max_page_limit()` page). Called on every
+* content render, N=0 included.
 *
-* Per materialized row:
-*   1. Builds the tile and hover records through the window's `build_row` (each
-*      registered in `self.ar_instances`, with the row's page-wide row_key).
-*   2. Renders both and prepends the hover panel into the tile, hidden.
-*   3. Wires drag-and-drop via `drag_and_drop()` so tiles can be dragged onto the
-*      ordered-coins right panel (`paginated_key` = the row's page index).
-*   4. Attaches the `mouseenter` / `mouseleave` listeners that toggle the hover
-*      panel and the `mosaic_over` class on the tile.
-* Per released row: destroys both records.
-*
-* Applies the height CSS from `self.context.css['.content_data'].style.height` if
-* present (legacy per-instance CSS override from the ontology).
+* On the window it installs, once per content_data:
+*   - the tool drag source (drag_and_drop.js bind_tool_row_drag): delegated
+*     dragstart + touch_pick tap, so tiles can be dropped onto the ordered-coins
+*     right panel;
+*   - the lazy hover detail panel (row_hover.js delegate_row_hover).
+* Nothing but rows goes into content_data: the print notice travels in
+* `content_data.list_after` (render_list_after).
 *
 * @param {Object} self - The component_portal instance.
 * @param {Array}  rows - The page's locator entries (`self.data.entries`).
@@ -266,98 +257,37 @@ const get_content_data = async function(self, rows, maps) {
 		const content_data = ui.component.build_content_data(self)
 
 	// row window
-		if (rows.length > 0) {
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			records_options	: {
+				mode		: 'list',
+				columns_map	: maps.columns_map
+			},
+			layout			: 'list',
+			// tool source: today's unconditional stamping (drag_and_drop.js
+			// TOOL_ROW_SOURCES; the ordered-coins slot validates the payload)
+			draggable_rows	: true
+		})
 
-			// index → the row's two instances
-			const companions = new Map()
-
-			await window_section_rows({
+	// delegated drag source + lazy hover panel (both ride the window's signal)
+		if (record_window) {
+			bind_tool_row_drag(self, content_data)
+			delegate_row_hover({
 				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				records_options	: {
-					mode : 'list'
-				},
-				materialize		: async (row, i, build_row) => {
-
-					// the two records of the row, built together
-					const [section_record, hover_section_record] = await Promise.all([
-						build_row({ columns_map: maps.columns_map }),
-						build_row({ columns_map: maps.hover_columns_map, id_variant: 'hover' })
-					])
-					if (!section_record || !hover_section_record) {
-						for (const built of [section_record, hover_section_record]) {
-							if (built && built.status!=='destroyed') {
-								await built.destroy(true, true, true)
-							}
-						}
-						return null
-					}
-
-					// tile + hover panel
-					const [section_record_node, hover_view] = await Promise.all([
-						section_record.render(),
-						render_hover_view(hover_section_record)
-					])
-					section_record_node.prepend(hover_view)
-
-					// drag and drop
-					drag_and_drop({
-						section_record_node	: section_record_node,
-						paginated_key		: i,
-						total_records		: self.total,
-						locator 			: section_record.locator,
-						caller 				: self
-					})
-
-					// mouseenter event
-					section_record_node.addEventListener('mouseenter', function(e){
-						e.stopPropagation()
-						hover_view.classList.remove('display_none')
-						section_record_node.classList.add('mosaic_over')
-					})
-
-					// mouseleave event
-					section_record_node.addEventListener('mouseleave', function(e){
-						e.stopPropagation()
-						hover_view.classList.add('display_none')
-						section_record_node.classList.remove('mosaic_over')
-					})
-
-					companions.set(i, {
-						section_record			: section_record,
-						hover_section_record	: hover_section_record
-					})
-
-					return section_record_node
-				},
-				release			: async (row, i) => {
-					const companion = companions.get(i)
-					companions.delete(i)
-					if (!companion) {
-						return
-					}
-					for (const built of [companion.section_record, companion.hover_section_record]) {
-						if (built && built.status!=='destroyed') {
-							await built.destroy(true, true, true)
-						}
-					}
-				}
+				content_data	: content_data,
+				signal			: record_window.signal,
+				render_hover	: (index) => render_hover_view(self, record_window, index, maps.hover_columns_map)
 			})
-		}//end if (rows.length > 0)
-
-	// css
-		const element_css	= self.context.css || {}
-		const legacy_selector_content_data = '.content_data'
-		if (element_css[legacy_selector_content_data]) {
-			// style
-				if (element_css[legacy_selector_content_data].style) {
-					// height from style
-					if (element_css[legacy_selector_content_data].style.height) {
-						content_data.style.setProperty('height', element_css[legacy_selector_content_data].style.height);
-					}
-				}
 		}
+
+	// list_after. The print notice only: this panel never listed references
+		content_data.list_after = render_list_after(self, {
+			references		: false,
+			content_data	: content_data,
+			record_window	: record_window
+		})
 
 
 	return content_data
@@ -366,177 +296,41 @@ const get_content_data = async function(self, rows, maps) {
 
 
 /**
-* DRAG_AND_DROP
-* Set section_record_node ready to drag and drop
-*
-* Marks the given tile node as an HTML5 drag source by setting `draggable=true`
-* and attaching `dragstart` via `on_dragstart_mosaic`.  This serialises the
-* record's locator and paginated position into `dataTransfer` so the drop
-* target (the ordered-coins portal) can read it.
-*
-* Note: The dragover / dragleave / drop listeners are intentionally left
-* commented out — the drop targets live in the right-hand ordered-coins portal
-* and are wired by `render_tool_numisdata_order_coins.prototype.drop`.
-*
-* @param {Object}      options
-* @param {HTMLElement} options.section_record_node - The tile DOM node to make draggable.
-* @param {number}      options.paginated_key       - Zero-based index of this record in the
-*                                                    current page (passed to on_dragstart_mosaic).
-* @param {number}      options.total_records       - Total matched records for the portal.
-* @param {Object}      options.locator             - Locator object for the dragged record.
-* @param {Object}      options.caller              - The component_portal instance.
-* @returns {boolean} Always true.
-*/
-const drag_and_drop = function(options) {
-
-	// options
-		const drag_node			= options.section_record_node
-
-	drag_node.draggable = true
-	drag_node.classList.add('draggable')
-	drag_node.addEventListener('dragstart',function(e){on_dragstart_mosaic(this, e, options)})
-	// touch: a finger cannot drag — a TAP picks the same payload, a tap on an
-	// ordered-coins slot places it (render_tool_numisdata_order_coins.drop)
-	if (touch_pick.is_touch()) {
-		drag_node.addEventListener('click', function(e){
-			e.stopPropagation()
-			touch_pick.pick(
-				JSON.stringify(get_mosaic_transfer_data(options)),
-				String(options.locator?.section_id ?? '')
-			)
-		})
-	}
-	// drag_node.addEventListener('dragover',function(e){on_dragover(this, e)})
-	// drag_node.addEventListener('dragleave',function(e){on_dragleave(this, e)})
-	// drag_node.addEventListener('drop',function(e){on_drop(this, e, options)})
-
-	return true
-}//end drag_and_drop
-
-
-
-/**
-* RENDER_ALTERNATIVE_TABLE_VIEW
-* Render all received section records and place it into a DocumentFragment
-* @param {Object}      self
-* @param {Array}       ar_section_record
-* @param {HTMLElement} alt_list_body
-*
-* @returns {DocumentFragment}
-*/
-	// const render_alternative_table_view = async function(self, ar_section_record, alt_list_body) {
-
-	// 	// build_values
-	// 		const fragment = new DocumentFragment()
-
-	// 	// add all section_record rendered nodes
-	// 		const ar_section_record_length = ar_section_record.length
-	// 		if (ar_section_record_length>0) {
-
-	// 			for (let i = 0; i < ar_section_record_length; i++) {
-
-	// 				// section_record
-	// 					const section_record		= ar_section_record[i]
-	// 					const section_record_node	= await section_record.render()
-	// 						  section_record_node.classList.add('display_none')
-
-	// 				// event subscribe
-	// 				// On user click button 'alt' trigger a event that we subscribe here to show the
-	// 				// proper table section record and hide the others
-	// 					// const event_id = 'mosaic_show_' + section_record_node.id + '_' + self.section_tipo + '_' + self.section_id
-	// 					const event_id = `mosaic_show_${section_record.id_base}_${section_record.caller.section_tipo}_${section_record.caller.section_id}`
-	// 					// console.log("// subscribe event_id:",event_id);
-	//					const found = event_manager.event_name_exists(event_id)
-	// 					if (!found) {
-	// 						const token = event_manager.subscribe(event_id, fn_mosaic_show_alt)
-	// 						self.events_tokens.push(token)
-	// 					}
-	// 					function fn_mosaic_show_alt() {
-
-	// 						// hide all except the header
-	// 							const ar_child_node	= section_record_node.parentNode.children;
-	// 							const len			= ar_child_node.length
-	// 							for (let i = len - 1; i >= 0; i--) {
-	// 								const node = ar_child_node[i]
-	// 								if(node.classList.contains('header_wrapper_list') || node.classList.contains('close_alt_list_body')){
-	// 									continue
-	// 								}
-	// 								node.classList.add('display_none')
-	// 							}
-	// 						// show list
-	// 							alt_list_body.classList.remove('display_none')
-	// 							section_record_node.classList.remove('display_none')
-
-	// 						// header
-	// 							const header = ui.create_dom_element({
-	// 								element_type	: 'div',
-	// 								// class_name	: 'header label',
-	// 								inner_html		: "Editing inline"
-	// 							})
-
-	// 						// modal way
-	// 							const modal = ui.attach_to_modal({
-	// 								header	: header,
-	// 								body	: alt_list_body,
-	// 								footer	: null,
-	// 								size	: 'normal'
-	// 							})
-	// 							self.modal = modal
-	// 							// modal.on_close = () => {
-	// 							// 	self.refresh()
-	// 							// }
-
-	// 						// user click edit button action close the modal box
-	// 							const token = event_manager.subscribe('button_edit_click', fn_button_edit_click)
-	// 							self.events_tokens.push(token)
-	// 							function fn_button_edit_click() {
-	// 								event_manager.unsubscribe('button_edit_click')
-	// 								modal.close()
-	// 							}
-	// 					}
-
-	// 				// section record append
-	// 					fragment.appendChild(section_record_node)
-	// 			}
-	// 		}//end if (ar_section_record_length===0)
-
-	// 	// build references
-	// 		if(self.data.references && self.data.references.length>0){
-	// 			const references_node = render_references(self.data.references)
-	// 			fragment.appendChild(references_node)
-	// 		}
-
-	// 	return fragment
-	// }//end render_alternative_table_view
-
-
-
-/**
 * RENDER_HOVER_VIEW
-* Render ONE row's hover detail panel.
-*
-* The panel is the row's own hover section_record (built by the window in the same
-* step as its tile), rendered with the classes `sr_mosaic_hover display_none` and
-* prepended into the tile by `get_content_data`; the tile's `mouseenter` /
-* `mouseleave` listeners toggle `display_none`.
-*
-* (Before the row window this was a page-wide parallel set parked in a hidden
-* `hover_body` and teleported into the hovered tile through the event_manager
-* channels `mosaic_hover_*` / `mosaic_mouseleave_*`. A windowed row owns what it
-* built — a released row cannot leave a subscriber behind — so the bridge is gone.)
-*
-* @param {Object} hover_section_record - The row's hover-columns section_record
-*   instance (`id_variant: 'hover'`).
-* @returns {Promise<HTMLElement>} The rendered panel node (initially hidden).
+* The hover controller's `render_hover` (row_hover.js): builds and renders ONE
+* tile's detail panel (hover columns, `id_variant: 'hover'`) through section.js
+* `build_section_record_for` — never get_section_records. The controller
+* prepends the returned node into the tile (marking it `.sr_mosaic_hover`) and
+* registers the instance; it also owns its teardown.
+* @param {Object} self - The component_portal instance.
+* @param {Object} record_window - The tile window (entries come from it).
+* @param {number} index - The hovered row.
+* @param {Array} hover_columns_map - The `hover` columns.
+* @returns {Promise<{instance: Object, node: HTMLElement}|null>}
 */
-const render_hover_view = async function(hover_section_record) {
+const render_hover_view = async function(self, record_window, index, hover_columns_map) {
 
-	// section_record
-		const section_record_node = await hover_section_record.render()
-			  section_record_node.classList.add('sr_mosaic_hover', 'display_none')
+	const entry = record_window.entry_of(index)
+	if (!entry) {
+		return null
+	}
+
+	const instance = await build_section_record_for(self, entry, {
+		mode			: 'list',
+		columns_map		: hover_columns_map,
+		id_variant		: 'hover',
+		row_key_base	: index
+	})
+	if (!instance) {
+		return null
+	}
+	const node = await instance.render()
 
 
-	return section_record_node
+	return {
+		instance	: instance,
+		node		: node || null
+	}
 }//end render_hover_view
 
 

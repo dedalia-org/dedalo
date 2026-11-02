@@ -92,6 +92,7 @@ import { DedaloError } from '../errors/dedalo_error.ts';
 import { ONTOLOGY_OVERWRITE } from '../ontology/ontology_tipos.ts';
 import { parseSectionRecordToOntologyNode } from '../ontology/parser.ts';
 import { buildTipo, LOCAL_ONTOLOGY_SECTION, requiredOntologyTld } from '../ontology/tld.ts';
+import { changedDeclaredOrderTipos, declaredOrderSignature } from '../relations/order_locators.ts';
 import { currentPrincipal } from '../security/request_context.ts';
 
 declare const addressBrand: unique symbol;
@@ -181,9 +182,38 @@ export async function projectOntologyNode(
 		if (node.tld !== address.tld || node.tipo !== address.tipo) {
 			throw new ForeignOntologyNodeRefused(address, node);
 		}
+		// The portal order model's ontology-change trigger: the node's declared portal order
+		// BEFORE the upsert (read live, under the projection lock).
+		const orderBefore = declaredOrderSignature((await readDdOntologyRow(node.tipo))?.properties);
 		await upsertDdOntologyNode(node);
+		await queueOrderReconcileOnChange(node.tipo, orderBefore, node.properties);
 		return { kind: 'projected', tipo: node.tipo } as const;
 	});
+}
+
+/**
+ * THE ONTOLOGY-CHANGE TRIGGER of the portal order model, one-record half (
+ * backfill; the whole-tld half is ontology_state.ts rebuildOntology): a local
+ * `order` edit (tool_ontology, `localontology0`) that ADDED or CHANGED the
+ * node's declared portal order re-sorts its hosts through the
+ * `portal_declared_order` reconcile, POST-COMMIT. An unchanged declaration
+ * queues nothing.
+ */
+async function queueOrderReconcileOnChange(
+	tipo: string,
+	before: string | null,
+	afterProperties: unknown,
+): Promise<void> {
+	const changed = changedDeclaredOrderTipos(
+		new Map([[tipo, before]]),
+		new Map([[tipo, declaredOrderSignature(afterProperties)]]),
+	);
+	if (changed.length === 0) return;
+	// CONVENTIONS §2 rationale 1 (cycle-breaking at the chokepoint seam): the reconcile
+	// writes through save_component → record_write, whose birth lifecycle calls THIS
+	// module (projectOntologyRecordLifecycle); a static edge would close that loop.
+	const { queueDeclaredOrderReconcile } = await import('../relations/declared_order_reconcile.ts');
+	await queueDeclaredOrderReconcile(changed);
 }
 
 /** Remove the node at `address` (its tipo only), under the tld's projection lock. Returns the rows removed (0 or 1). */

@@ -627,6 +627,11 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 		scope:
 			"every tool's identity hue — the `--<tool>` declaration in each `tools/tool_<name>/css/tool_<name>.less`, the input of the GENERATED tool_colors.less; read by tool_color_contrast_tripwire to prove the generated file is fresh",
 	},
+	'test/helpers/vendored_ontology_corpus.ts': {
+		roots: [['install/import/ontology']],
+		scope:
+			'the vendored ontology PACKAGES — every `<tld>.copy.gz` under install/import/ontology/<major.minor>/ (the release the seed compiles from and the ontology-server role serves), read by external_law_registry_tripwire (every shipped set_dato_external node maps to one law)',
+	},
 	'test/helpers/migrations_corpus.ts': {
 		roots: [['install/db/migrations']],
 		scope:
@@ -738,7 +743,13 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 
 	'scripts/lib/test_shard_db.ts': {
 		roots: [],
-		scope: 'NOT a corpus: `readdirSync` lists the suite media base for marked shard twins to sweep',
+		scope:
+			"NOT a corpus: `readdirSync` lists the suite media base for marked shard twins to sweep, and `treeFingerprint` walks the TEMPLATE's suite media root (outside the repo) to witness contact during a sealed shard run",
+	},
+	'scripts/lib/junit_reports.ts': {
+		roots: [],
+		scope:
+			"NOT a corpus: `junitReportsIn` lists a run's OWN JUnit output directory (runTierSharded's mkdtemp dir, or the caller's --junit-dir handed to test_baseline_compare.ts); never a repo directory",
 	},
 	'scripts/lib/release_clone.ts': {
 		roots: [['.']],

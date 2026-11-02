@@ -46,9 +46,22 @@
  *     turns a present column into null; `authorizeComponentRead` throws
  *     `perm.denied`, the registry code. Positive-control offenders are
  *     constructed for each.
+ *
+ *  F. THE HUMAN READ'S WRITE SIDE (2026-10-30, the external-mirror refresh —
+ *     a portal's `get_data_external` read recomputes its derived mirror). The
+ *     read stays a `chokepoint`; its ONE write-capable reach is
+ *     read_facade → maybeRefreshExternal, and the only write inside it runs
+ *     AFTER the one `authorizeRecordAccess` (read level 1, door
+ *     `dd_core_api.read.refresh_external`) and audits as that grant's actor.
+ *     SPELLING PINS, labelled as such: they read comment-stripped source. The
+ *     OUTCOME halves are the closure's B4 rows (write_obligations_tripwire —
+ *     refreshExternalMirror ← runRefresh ← maybeRefreshExternal, exactly) and
+ *     write_door_native (the door's level-1 grant).
  */
 
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TOOL_REGISTRY } from '../../src/ai/mcp/registry.ts';
 import { listRegisteredActions } from '../../src/core/api/dispatch.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
@@ -63,6 +76,7 @@ import {
 	READ_DOOR_POSTURE,
 	type ReadDoorPosture,
 } from '../../src/core/security/read_door.ts';
+import { stripComments } from '../helpers/strip_comments.ts';
 
 const actionKeys = listRegisteredActions().map((p) => `${p.apiClass}:${p.action}`);
 const toolKeys = TOOL_REGISTRY.map((spec) => `mcp:${spec.name}`);
@@ -387,5 +401,52 @@ describe('E — the door predicate, no database', () => {
 				columns,
 			),
 		).toEqual(columns);
+	});
+});
+
+describe('F — the human read’s write side goes through ONE grant', () => {
+	const root = join(import.meta.dir, '..', '..');
+	const codeOf = (rel: string): string => stripComments(readFileSync(join(root, rel), 'utf8'));
+	const facade = codeOf('src/core/section/read_facade.ts');
+	const door = codeOf('src/core/section/record/external_refresh.ts');
+	const count = (text: string, needle: string): number => text.split(needle).length - 1;
+
+	test('dd_core_api:read stays the human-read chokepoint', () => {
+		expect(postureOf('dd_core_api:read').posture).toBe('chokepoint');
+	});
+
+	test('the read facade reaches the write graph ONCE: the refresh door, before the component read', () => {
+		expect(count(facade, "import('./record/external_refresh.ts')")).toBe(1);
+		expect(count(facade, 'maybeRefreshExternal(rqo, principal)')).toBe(1);
+		const refreshAt = facade.indexOf('maybeRefreshExternal(rqo, principal)');
+		const readAt = facade.indexOf('const componentData = await readComponentData(rqo);');
+		expect(readAt).toBeGreaterThan(refreshAt);
+		// no other write door is imported by the read facade
+		for (const writer of ['observers.ts', 'save_component.ts', 'record_write.ts']) {
+			expect(facade, `read_facade imports ${writer}`).not.toContain(writer);
+		}
+	});
+
+	// The AUTHORIZATION DECISION itself (refused at 0 and nothing written; granted at
+	// 1 with the reader as the TM actor) is DRIVEN, not pinned by spelling
+	// (authz_substring_gate_tripwire): external_refresh_native "the portal at 0: the
+	// read is withheld and the door refuses — nothing written" and "a non-admin
+	// reader holding the portal at 1 refreshes; the TM actor is the reader".
+	test('inside the door: the only write takes the runner’s grant (its userId is the TM actor)', () => {
+		expect(door).toContain(
+			"{ mode: 'read', level: 1, sectionFloor: 1, door: EXTERNAL_REFRESH_DOOR }",
+		);
+		expect(door).toContain(
+			"export const EXTERNAL_REFRESH_DOOR = 'dd_core_api.read.refresh_external';",
+		);
+		expect(count(door, 'refreshExternalMirror(')).toBe(1);
+		const runAt = door.indexOf('async function runRefresh(');
+		const writeAt = door.indexOf('refreshExternalMirror(');
+		const runEnd = door.indexOf('\n}\n', runAt);
+		expect(runAt).toBeGreaterThan(-1);
+		expect(writeAt).toBeGreaterThan(runAt);
+		expect(writeAt).toBeLessThan(runEnd);
+		expect(door.slice(runAt, runEnd)).toContain('grant: RecordGrant');
+		expect(door.slice(writeAt, runEnd)).toContain('grant.userId');
 	});
 });

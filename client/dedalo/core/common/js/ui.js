@@ -107,7 +107,10 @@ const CREATE_DOM_ELEMENT_OPTIONS = new Set([
 	// node at the same call that builds it, instead of a setAttribute afterthought
 	// at 200 call sites. Operability (tab stop + activation keys) is NOT one of
 	// these: it needs the callback too, so it goes through a11y.make_activable.
-	'role', 'tabindex', 'aria'
+	'role', 'tabindex', 'aria',
+	// text alternative of an <img> (WCAG 1.1.1). Omitted on an <img> it is ''
+	// (decorative) — see create_dom_element.
+	'alt'
 ])
 
 export const ui = {
@@ -459,7 +462,7 @@ export const ui = {
 		* @param {Object} [options={}] - Reserved for future configuration; currently unused.
 		* @returns {HTMLElement} content_data - The created <div> element.
 		*/
-		build_content_data : (instance, options={}) => {
+		build_content_data : (instance, _options={}) => {
 
 			// options
 			const type			= instance.type
@@ -540,7 +543,7 @@ export const ui = {
 		*   future per-instance customisation of the container).
 		* @returns {HTMLElement} buttons_container - The created <div class="buttons_container"> element.
 		*/
-		build_buttons_container : (instance) => {
+		build_buttons_container : (_instance) => {
 
 			const buttons_container = ui.create_dom_element({
 				element_type	: 'div',
@@ -583,19 +586,18 @@ export const ui = {
 				const section_tipo	= instance.section_tipo // e.g., 'oh1'
 				const view			= instance.view || instance.context.view || 'default'
 				const element_css	= instance.context.css || {}
-				const mode			= instance.context.mode
 
 			// wrapper
 				const wrapper = document.createElement('div')
 
 				// css
 				const classes_to_add = [
-					'wrapper_' + type,
+					`wrapper_${type}`,
 					model,
 					tipo,
-					section_tipo +'_'+ tipo,
+					`${section_tipo}_${tipo}`,
 					'list',
-					'view_' + view
+					`view_${view}`
 				]
 				// Add custom styles if provided
 			    if (add_styles && Array.isArray(add_styles)) {
@@ -672,7 +674,7 @@ export const ui = {
 				// css
 					const ar_css = [
 						'mini',
-						instance.model + '_mini' // add suffix '_mini'
+						`${instance.model}_mini` // add suffix '_mini'
 					]
 					wrapper.className = ar_css.join(' ')
 
@@ -737,13 +739,13 @@ export const ui = {
 
 					// label: add > symbol to easily identify items with depth (more than one level)
 					const final_label = path.length>1
-						? ('>').repeat(path.length-1) + ' ' + label
+						? `${('>').repeat(path.length-1)} ${label}`
 						: label
 
 					// title : add section depth path for easy location
-					const base_title = tipo + ' ' + model.substring(10) + ' [' + instance.lang.substring(3) + ']'
+					const base_title = `${tipo} ${model.substring(10)} [${instance.lang.substring(3)}]`
 					const title = path.length>0
-						? path.map(el => el.section_tipo).join(' > ') +' : '+ base_title
+						? `${path.map(el => el.section_tipo).join(' > ')} : ${base_title}`
 						: base_title
 
 					const component_label = ui.create_dom_element({
@@ -794,14 +796,14 @@ export const ui = {
 				// css
 					const wrapper_structure_css = typeof element_css.wrapper!=='undefined' ? element_css.wrapper : []
 					const ar_css = [
-						'wrapper_' + type,
+						`wrapper_${type}`,
 						model,
 						tipo,
 						mode,
 						...wrapper_structure_css
 					]
 					if (view) {
-						ar_css.push('view_'+view)
+						ar_css.push(`view_${view}`)
 					}
 					if (mode==='search') {
 						ar_css.push('tooltip_toggle')
@@ -1022,7 +1024,7 @@ export const ui = {
 						// auto-focus first input
 							if (!already_focus) {
 								// generic try of first input node
-								const first_input = content_data && content_data[0]
+								const first_input = content_data?.[0]
 										? content_data[0].querySelector('input, select')
 										: null;
 								if (first_input) {
@@ -1034,7 +1036,7 @@ export const ui = {
 											if (component.active && !has_focus_inside()) {
 
 												// check another focus elements like q_operator
-												if (document.activeElement && document.activeElement.classList.contains('q_operator')) {
+												if (document.activeElement?.classList.contains('q_operator')) {
 													return
 												}
 
@@ -1993,6 +1995,16 @@ export const ui = {
 	*   selected     {boolean}     — element.selected (option)
 	*   checked      {boolean}     — element.checked (checkbox/radio)
 	*   parent       {HTMLElement} — when provided, the new element is appended to this node
+	*   alt          {string}      — <img> only: its text alternative (WCAG 1.1.1)
+	*
+	* <img> TEXT ALTERNATIVE (the one default this factory forces): an <img> built
+	* here ALWAYS carries an `alt`. Without one, a screen reader announces the file
+	* name and axe fails the page (`image-alt`, critical). The default is `alt=""`
+	* — DECORATIVE — because most images built here are icons beside a text label
+	* or thumbnails in a cell whose column/label already names them. A CONTENT
+	* image the user must perceive on its own (a record's media in edit, a tag
+	* badge carrying a value) passes `alt` with the name it has at hand (component
+	* label, tag label). An explicit `role:'presentation'` is equally decorative.
 	*
 	* Text-content priority (mutually exclusive; first match wins):
 	*   inner_html > text_node > text_content
@@ -2064,6 +2076,13 @@ export const ui = {
 				} else {
 					element.src = src
 				}
+			}
+
+		// alt. <img> text alternative; '' (decorative) unless the caller names it
+			if (element_type==='img') {
+				element.alt = (options.alt!==undefined && options.alt!==null)
+					? String(options.alt)
+					: ''
 			}
 
 		// role / tabindex / aria-*. Accessibility attributes (audit P1-18).
@@ -2838,6 +2857,9 @@ export const ui = {
 	*        default: the project lang order is meaningful (main lang first) where it is used
 	*        to pick a working lang; opt in where the list is long and picked by name.
 	* @param {string} [options.class_name='select_lang'] - CSS class for the <select>.
+	* @param {string} [options.aria_label] - The select's accessible name (WCAG 4.1.2, axe
+	*        select-name). Defaults to get_label.language: the factory never emits an unnamed
+	*        <select>. Pass a more specific name where two lang selects share a view.
 	* @returns {HTMLElement} select_lang - The constructed <select> element with <option> children.
 	*/
 	build_select_lang : (options) => {
@@ -2855,6 +2877,7 @@ export const ui = {
 			const action		= options.action || null
 			const sort			= options.sort===true
 			const class_name	= options.class_name || 'select_lang'
+			const aria_label	= options.aria_label || get_label.language || 'Language'
 
 		const fragment = new DocumentFragment()
 
@@ -2900,7 +2923,8 @@ export const ui = {
 				id				: id,
 				name			: name,
 				element_type	: 'select',
-				class_name		: class_name
+				class_name		: class_name,
+				aria			: {label : aria_label}
 			})
 			if (action) {
 				select_lang.addEventListener('change', action)
@@ -3540,17 +3564,17 @@ export const ui = {
 					return [node.data];
 				}
 
-				var txt = [''];
-				var i = 0;
+				const txt = [''];
+				let i = 0;
 
-				if (node == node.firstChild) do {
+				if (node === node.firstChild) do {
 
 					if (node.nodeType === Node.TEXT_NODE) {
 						txt[i] += node.data;
 						continue;
 					}
 
-					var innerText = getText(node);
+					const innerText = getText(node);
 
 					if (typeof innerText[0] === 'string') {
 						// Bridge nested text-node data so that they're
@@ -3563,7 +3587,7 @@ export const ui = {
 						txt[++i] = '';
 					}
 
-				} while (node == node.nextSibling);
+				} while (node === node.nextSibling);
 
 				return txt;
 			}
@@ -3739,12 +3763,15 @@ export const ui = {
 	*   Section lists: any column marked sortable=true in the context can be ordered;
 	*     the sort is applied to the SQO (view-time only, not persisted to storage).
 	*
-	*   component_portal: ordering is a persistent server-side reorder of the stored
-	*     locator array. It is gated by three additional guards:
-	*       1. The portal must be in 'edit' mode with write permissions (> 1).
-	*       2. The portal source must not be 'external' (external portals are read-only).
-	*       3. The ontology property sort_by_column must be either true (allow all) or
-	*          an array of column tipos that explicitly includes column.tipo.
+	*   component_portal: a TEMPORARY display order (`view_order`, portal order model
+	*     stage O2 — nothing is written; "save current order" is the portal's order
+	*     indicator). Gated by:
+	*       1. The portal must be in 'edit' mode with at least read permission (a view
+	*          order is a read; the print view, forced to 1, gets no arrows).
+	*       2. The portal source must not be 'external'.
+	*       3. The column's own ddo opts in (`sort_by_column: true`, WC-048): the
+	*          portal's `can_view_sort` (drag_and_drop.js) decides — a declared-order
+	*          portal included.
 	*
 	* @see add_column_order_set
 	* @param {Object} self - The section or component_portal instance.
@@ -3763,16 +3790,18 @@ export const ui = {
 				return true
 			}
 
-		// component_portal case. Edit mode with edit permissions and non external
-		// source only, gated by the COLUMN's own 'sort_by_column' opt-in (v7
-		// per-ddo model, WC-048 — replaces the top-level component property; the
-		// flag is stamped onto the column by get_columns_map from the ddo_map).
+		// component_portal case. Edit mode, readable, non external source only,
+		// gated by the COLUMN's own 'sort_by_column' opt-in (v7 per-ddo model,
+		// WC-048 — stamped onto the column by get_columns_map from the ddo_map),
+		// asked through the portal's one rule (drag_and_drop.js can_view_sort)
 			if (self.model==='component_portal'
 				&& self.mode==='edit'
-				&& self.permissions > 1
+				&& self.permissions >= 1
+				&& (self.view || self.context?.view)!=='print'
 				&& self.context?.properties?.source?.mode!=='external'
+				&& typeof self.can_view_sort==='function'
 				) {
-				return column.sort_by_column===true
+				return self.can_view_sort(column)===true
 			}
 
 
@@ -3785,21 +3814,28 @@ export const ui = {
 	* ADD_COLUMN_ORDER_SET
 	* Creates and returns a sort-arrow <span> for a column header cell.
 	* The span's active direction class ('asc' or 'desc') reflects the current sort
-	* state read from self.column_order_state (portal) or self.rqo.sqo.order (section).
+	* state read from self.view_order (portal) or self.rqo.sqo.order (section).
 	*
 	* Interaction model:
 	*   - mouseenter: if no column in header_wrapper.sort_nodes is active and another
 	*     sort is already applied, the default_direction flips from DESC to ASC (so the
-	*     first click on a new column sorts ascending when another is already descending).
+	*     first click on a new column sorts ascending when another is already descending);
+	*     a portal with no active view order goes back to DESC. The portal's active state
+	*     is read LIVE from self.view_order (live_direction), never from a value this
+	*     closure kept: another column's click, clear and save change it without
+	*     rebuilding the header.
 	*   - click: toggles the direction (ASC↔DESC) and calls exec_order(direction).
-	*     FEJS-01: a 'loading' guard class prevents double-clicks during async portal
-	*     reorders. Errors are caught and surfaced via ui.notification.create if available.
+	*     FEJS-01: a 'loading' guard class prevents double-clicks during the async
+	*     portal re-read. Errors are caught and surfaced via ui.notification.create.
 	*
 	* exec_order (internal closure):
-	*   - Portal: calls self.sort_by_column(column, direction) — server round-trip.
+	*   - Portal: calls self.set_view_order({tipo, direction}, column) — a TEMPORARY
+	*     view order (a re-read, nothing written). The portal's edit render re-syncs
+	*     every arrow from self.view_order (set_column_order_state), so a refused or
+	*     failed change never leaves an arrow the list does not show.
 	*   - Section: builds an SQO order array and calls self.navigate() with a callback
-	*     that updates request_config_object.sqo.order and rqo.sqo.order in sync.
-	*   After either path, resets all sort_nodes styles and applies the new direction class.
+	*     that updates request_config_object.sqo.order and rqo.sqo.order in sync,
+	*     then resets all sort_nodes styles and applies the new direction class.
 	*
 	* @param {Object} self - The section or component_portal instance.
 	* @param {Object} column - The column descriptor; must expose path (section case),
@@ -3821,10 +3857,10 @@ export const ui = {
 
 		// current_direction. default is undefined
 			if (is_portal) {
-				// portal case. Last applied column order (ephemeral, advisory only:
-				// manual drag and drop can change the stored order at any time)
-				if (self.column_order_state && self.column_order_state.tipo===column.tipo) {
-					current_direction = self.column_order_state.direction
+				// portal case. The TEMPORARY view order (read again at click time:
+				// clear / save change it without rebuilding the header)
+				if (self.view_order && self.view_order.tipo===column.tipo) {
+					current_direction = self.view_order.direction
 				}
 			}else{
 				// section case. current order current_direction check from sqo
@@ -3855,15 +3891,18 @@ export const ui = {
 		// exec_order function
 			const exec_order = (direction) => {
 
-				// FEJS-01: capture the portal re-order promise so the click handler
-				// can await it (loading state + error surfacing). undefined for the
+				// FEJS-01: the portal returns its re-read promise so the click handler
+				// can await it (loading state + error surfacing). null for the
 				// section case (navigate handles its own lifecycle).
-				let order_promise = null
 				if (is_portal) {
 
-					// portal case. Persistently re-order the stored locator array
-					// by the column value (the order is resolved and saved in the server)
-						order_promise = self.sort_by_column(column, direction)
+					// portal case. TEMPORARY view order: the server orders the full
+					// list for display, nothing is written. The arrows are re-synced
+					// by the portal's render from self.view_order
+						return self.set_view_order({
+							tipo		: column.tipo,
+							direction	: direction
+						}, column)
 				}else{
 
 					// sample
@@ -3916,7 +3955,7 @@ export const ui = {
 						? title_asc
 						: title_desc
 
-				return order_promise
+				return null
 			}
 
 		// title
@@ -3930,14 +3969,28 @@ export const ui = {
 				class_name		: 'order',
 				title			: title
 			})
+			// column tipo (set_column_order_state matches the arrow by it)
+			sort_node.column_tipo = column.tipo
 			// set current style
 			if (current_direction) {
 				sort_node.classList.add( current_direction.toLowerCase() )
 			}
+			// live_direction. This column's active direction NOW. Portal: always read
+			// from self.view_order — another column's click, clear and save change it
+			// without rebuilding this header, so a value captured in this closure goes
+			// stale. Section: the closure (exec_order updates it on every click here)
+			const live_direction = () => {
+				if (is_portal) {
+					return self.view_order && self.view_order.tipo===column.tipo
+						? self.view_order.direction
+						: undefined
+				}
+				return current_direction
+			}
 			// mouseenter
 			sort_node.addEventListener('mouseenter', function(){
 				// selected is self. Nothing to do
-				if (current_direction) {
+				if (live_direction()) {
 					return
 				}
 
@@ -3945,12 +3998,21 @@ export const ui = {
 				// if true, change default action from desc to asc
 				const sort_nodes		= header_wrapper.sort_nodes
 				const sort_nodes_length	= sort_nodes.length
+				let other_active		= false
 				for (let i = 0; i < sort_nodes_length; i++) {
 					if (sort_nodes[i].classList.contains('asc') || sort_nodes[i].classList.contains('desc')) {
-						default_direction = 'ASC'
-						sort_node.title = title_asc
+						other_active = true
 						break;
 					}
+				}
+				if (other_active) {
+					default_direction	= 'ASC'
+					sort_node.title		= title_asc
+				}else if (is_portal) {
+					// portal: no view order active any more (cleared / saved) — the
+					// first click sorts descending again
+					default_direction	= 'DESC'
+					sort_node.title		= title_desc
 				}
 			})
 			// click
@@ -3964,6 +4026,9 @@ export const ui = {
 					return
 				}
 
+				// the live direction (portal: clear / save / another column may have changed it)
+				current_direction = live_direction()
+
 				const direction = current_direction
 					? current_direction==='ASC' ? 'DESC' : 'ASC' // reverse current value
 					: default_direction // defaults
@@ -3971,6 +4036,12 @@ export const ui = {
 				sort_node.classList.add('loading')
 				try {
 					await exec_order(direction)
+					// portal: this header shows the order the rows were read in, whatever
+					// the outcome (a header outside the portal's own render — the mosaic
+					// alt table — is not re-synced by it)
+					if (is_portal) {
+						ui.set_column_order_state(header_wrapper, self.view_order || null)
+					}
 				} catch (err) {
 					console.error('Error sorting by column', err)
 					if (typeof ui.notification?.create === 'function') {
@@ -3987,6 +4058,41 @@ export const ui = {
 
 		return sort_node
 	},//end add_column_order_set
+
+
+
+	/**
+	* SET_COLUMN_ORDER_STATE
+	* Re-syncs every sort arrow of a list header (`header_wrapper.sort_nodes`, built
+	* by add_column_order_set) with one active order: the arrow of `active.tipo`
+	* gets the direction class, every other arrow none. Used by the portal's edit
+	* render on every render (full and content), so the arrows always show the
+	* order the rows were read in — a header click, a clear or a save alike.
+	* @param {HTMLElement|null} header_wrapper - The list header (may be null: no-op)
+	* @param {Object|null} active - {tipo, direction:'ASC'|'DESC'} or null (none)
+	* @returns {void}
+	*/
+	set_column_order_state(header_wrapper, active) {
+
+		const sort_nodes = header_wrapper?.sort_nodes || []
+		if (sort_nodes.length===0) {
+			return
+		}
+
+		const title_asc		= `${get_label.sort || 'Sort'} ${get_label.ascending || 'ascending'}`
+		const title_desc	= `${get_label.sort || 'Sort'} ${get_label.descending || 'descending'}`
+
+		for (const sort_node of sort_nodes) {
+			sort_node.classList.remove('asc','desc')
+			const is_active = Boolean(active) && sort_node.column_tipo===active.tipo
+			if (is_active) {
+				sort_node.classList.add( active.direction==='DESC' ? 'desc' : 'asc' )
+			}
+			sort_node.title = is_active && active.direction==='DESC'
+				? title_asc
+				: title_desc
+		}
+	},//end set_column_order_state
 
 
 

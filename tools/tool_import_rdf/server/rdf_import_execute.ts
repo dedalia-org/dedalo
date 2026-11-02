@@ -81,7 +81,7 @@ import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
 	getModelByTipo,
-	getTranslatableByTipo,
+	savesInRequestLang,
 } from '../../../src/core/ontology/resolver.ts';
 import { filterItemsByLang, readComponentItems } from '../../../src/core/resolve/component_data.ts';
 import { containsDedaloTag } from '../../../src/core/section/record/append_merge.ts';
@@ -472,11 +472,17 @@ function iriWritePlan(stored: readonly unknown[], items: RdfPlanItem[]): WritePl
 /** Any other literal: written only into an EMPTY language slice. */
 async function literalWritePlan(
 	componentTipo: string,
+	model: string,
 	lang: string,
 	stored: unknown[],
 	items: RdfPlanItem[],
 ): Promise<WritePlan> {
-	const slice = (await getTranslatableByTipo(componentTipo))
+	// The slice the write would land in: a component that saves in the request
+	// lang — translatable, or TRANSLITERABLE (with_lang_versions: an lg-nolan
+	// base beside per-language versions) — is judged on THAT lang's slice only,
+	// so a stored lg-ell version never blocks importing the lg-nolan base (and
+	// vice versa). Every other literal stores one lg-nolan slice: the whole array.
+	const slice = (await savesInRequestLang(componentTipo, model))
 		? filterItemsByLang(stored, lang)
 		: stored;
 	return slice.length > 0
@@ -494,7 +500,7 @@ async function writePlanFor(
 	const stored = await storedItems(record, componentTipo, model);
 	if (getColumnNameByModel(model) === 'relation') return relationWritePlan(model, stored, items);
 	if (model === 'component_iri') return iriWritePlan(stored, items);
-	return literalWritePlan(componentTipo, lang, stored, items);
+	return literalWritePlan(componentTipo, model, lang, stored, items);
 }
 
 /** Why the component cannot take a value at all, or null. */

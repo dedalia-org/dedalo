@@ -103,7 +103,17 @@ if (process.env.DEDALO_TEST_DB_DISABLE !== 'true') {
 			`[test-preload] DEDALO_TEST_DATABASE resolves to the APPLICATION database (${testDb}). Refusing to run: the suite would write to your app. Set DEDALO_TEST_DATABASE to a distinct name, or DEDALO_TEST_DB_DISABLE=true if you mean it.`,
 		);
 	} else {
-		const exists = await databaseExists(testDb);
+		const probe = await probeDatabase(testDb);
+		const exists = probe !== 'absent';
+		if (probe === 'sealed') {
+			// ALLOW_CONNECTIONS false = a multi-bin `test:shard` run sealed it as its
+			// template. A LIVE run holds the suite run lock, so this process is refused
+			// by name a few preloads later (canonical_test3); with no live run the seal
+			// is a SIGKILLed run's leftover.
+			console.warn(
+				`[test-preload] the test database '${testDb}' is SEALED (ALLOW_CONNECTIONS false) by a test:shard run. If that run is still going, wait for it; if it died, lift the seal with:\n    bun run test:shard:sweep`,
+			);
+		}
 		if (exists) {
 			// DB_NAME is the key config reads (its alias is DEDALO_DATABASE_CONN); set BOTH so
 			// no lookup path can resolve back to the application database.
@@ -149,7 +159,8 @@ export function connectionTarget(read: EnvRead = readEnv): ReturnType<typeof sui
 }
 
 /** Cheap existence probe. Any failure (no Postgres at all — the hermetic tier) ⇒ false. */
-async function databaseExists(name: string): Promise<boolean> {
+/** 'sealed' = present but ALLOW_CONNECTIONS false (a dead sealed test:shard run). */
+async function probeDatabase(name: string): Promise<'absent' | 'present' | 'sealed'> {
 	try {
 		const { SQL } = await import('bun');
 		const admin = new SQL({
@@ -166,10 +177,11 @@ async function databaseExists(name: string): Promise<boolean> {
 			database: 'postgres',
 			max: 1,
 		});
-		const rows = await admin`SELECT 1 FROM pg_database WHERE datname = ${name}`;
+		const rows = await admin`SELECT datallowconn FROM pg_database WHERE datname = ${name}`;
 		await admin.end();
-		return rows.length > 0;
+		if (rows.length === 0) return 'absent';
+		return rows[0].datallowconn === false ? 'sealed' : 'present';
 	} catch {
-		return false;
+		return 'absent';
 	}
 }

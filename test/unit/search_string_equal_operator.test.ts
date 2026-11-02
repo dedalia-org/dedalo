@@ -22,11 +22,11 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import {
 	SYNTHETIC_HIERARCHY_A_TLD,
 	SYNTHETIC_PROBE_TERMS,
 } from '../../src/core/test_data/synthetic_hierarchy_constants.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const SECTION = `${SYNTHETIC_HIERARCHY_A_TLD}1`;
 const TERM = 'hierarchy25';

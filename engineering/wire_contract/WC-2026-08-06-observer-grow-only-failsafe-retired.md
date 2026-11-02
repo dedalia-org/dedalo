@@ -109,3 +109,22 @@ in place rather than deleted:
 is the standing check: a corpus dry run exits non-zero if the install ever
 wants to delete more than the declared ceiling, so a future change to the
 value law that would mass-delete fails there instead of at the next save.
+
+## Addendum 2026-10-30 — the sub-law row of the escape table is retired
+
+The first row of the escape table ("unported PHP sub-law … `refusedSublaw` …
+`observers_unported_sublaw_refused`") no longer holds. Both sub-laws are ported behind a
+closed classifier (`WC-2026-10-30-observer-external-value-laws`), so `numisdata679` /
+`numisdata965` now COMPUTE — as a copy of the type's `numisdata77` / `numisdata11`, not
+under the default law whose zero result this row guarded against. The escapes now read:
+
+| Escape | Outcome flag | Counter |
+|---|---|---|
+| refused external law (ambiguous / malformed node) | `refusedLaw: {reason}` | `observers_law_refused` (+ alias `observers_unported_sublaw_refused`) |
+| target section does not declare the observer, no stored slot | `targetNotHost` | `observers_target_not_host` (`WC-2026-10-30-observer-target-not-host`) |
+| >2000-reference freeze — law (c) only | `refusedBigResult` | `observers_big_result_refused` |
+| finite non-zero `references_limit` | `possiblyTruncated` | `observers_references_limit_refused` |
+| degraded seed, or an unanswerable copy law | `skippedShrink` + `seedDefects` | `observers_shrink_refused_degraded_seed` (+ `observers_source_overwrite_*` / `observers_observed_data_unanswerable`) |
+
+All are still derived by the kernel; there is still no caller-supplied shrink switch.
+The `refusedSublaw` outcome key is renamed `refusedLaw`.

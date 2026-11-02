@@ -53,7 +53,6 @@ import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
 import { clearAliasCaches } from '../../src/core/ontology/alias.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -61,6 +60,7 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const TLD = 'zzsink';
 const SECTION = 'zzsink1';
@@ -233,11 +233,13 @@ mock.module(aliasModule, () => ({
 }));
 await import(registryModule);
 const { buildSearchSql } = await import(assemblerModule);
+// The statement is opaque (search_statement.ts): read through the inspection door.
+const { searchStatementText } = await import(assemblerModule.replace('sql_assembler.ts', 'search_statement.ts'));
 const { sanitizeClientSqo } = await import(sqoModule);
 const out = {};
 for (const [name, sqo] of Object.entries(JSON.parse(legsJson))) {
 	try {
-		const built = await buildSearchSql(sanitizeClientSqo(sqo));
+		const built = searchStatementText(await buildSearchSql(sanitizeClientSqo(sqo)));
 		out[name] = { built: true, marker: (built.sql + JSON.stringify(built.params)).includes(marker) };
 	} catch (error) {
 		out[name] = { code: error?.code ?? 'untyped', where: error?.coordinates?.where ?? null, message: String(error?.message ?? error).slice(0, 240) };

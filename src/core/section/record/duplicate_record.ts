@@ -9,8 +9,9 @@
  * - copied columns: every jsonb column except data/meta/relation_search, with
  *   the audit component tipos (dd197/dd199/dd200/dd201) dropped — they get
  *   fresh stamps instead — and covered-observer mirror slots dropped too
- *   (derived "who references me" state; empty by construction on a fresh
- *   record — see isCoveredObserverTipo, Phase-0 disarm 2026-08-02);
+ *   (derived state: an inverse mirror is empty by construction on a fresh
+ *   record, a copy-law slot is recomputed from the copied data after the
+ *   insert — see copyColumnKeys and isCoveredObserverTipo);
  * - audit stamps: created dd200/dd199 AND modified dd197/dd201 all point at the
  *   duplicating user "now" (the per-component re-save loop stamps modification
  *   data on top of the creation stamps);
@@ -147,6 +148,7 @@ import { currentDataLang } from '../../resolve/request_lang.ts';
 import {
 	afterRecordWrite,
 	dropCoveredObserverUnits,
+	ownDataCoveredSlots,
 	prepareBirthColumns,
 } from '../../section_record/record_write.ts';
 import type { Principal } from '../../security/permissions.ts';
@@ -306,7 +308,16 @@ export async function duplicateSectionRecord(
 	//    exists yet (media and history follow the commit), so a reused id
 	//    adopts nothing. Step 3b's re-minted frame targets are already
 	//    committed and stay, unreferenced — as after any failure at this step.
-	const pinned = await prepareBirthColumns(values);
+	//    The clone's COPY-LAW slots (stripped in step 1) are recomputed from its
+	//    copied data after the insert — by declaration, not only the slots the
+	//    source stored (a source whose mirror was never computed stores none):
+	//    the birth's selfRecompute, never declared as edges.
+	const pinned = [
+		...new Set([
+			...(await prepareBirthColumns(values)),
+			...(await ownDataCoveredSlots(sectionTipo)),
+		]),
+	];
 	const newSectionId = await withTransaction(async () => {
 		const id = await insertMatrixRecordWithCounter(table, sectionTipo, values);
 		await assertParentLinkKeysAcyclic(
@@ -355,7 +366,9 @@ export async function duplicateSectionRecord(
 	//    its copied relation locators point at, so those targets' mirrors (the
 	//    hierarchy93 family) recompute — inline here (no transaction), or after
 	//    a wrapping caller's COMMIT. The copy's OWN mirror slots were never
-	//    copied (step 1 — empty by construction for a fresh record).
+	//    copied (step 1): an inverse mirror is empty by construction, a
+	//    copy-law slot recomputes from the copied data as the birth's
+	//    selfRecompute (`pinned`, step 4).
 	//    Load-bearing for dd1324/dd996/dd234, where the duplicate clones a
 	//    tool's name AND active flag into the registry: without this the tool
 	//    is wrong in every user's menu until restart (no TTL since the
@@ -487,15 +500,18 @@ async function copyColumnKeys(
 	const columnCopy: Record<string, unknown> = {};
 	for (const [tipo, items] of Object.entries(columnData)) {
 		if (AUDIT_TIPOS.has(tipo)) continue;
-		// Observer mirror slots are NEVER copied (Phase-0 disarm 2026-08-02):
-		// the source's bag mirrors the SOURCE's referencers, and nothing can
-		// reference a record that does not exist yet — the copy's correct bag
-		// is EMPTY BY CONSTRUCTION (absent slot), no recompute law needed.
-		// The old copy-then-shrink shape relied on recomputeExternalRelation,
-		// which now REFUSES unported-sub-law nodes (numisdata679/965): a
-		// copied bag there would persist ~1,000 phantom, index-fed locators
-		// per duplicate with no repair path until D3. Stripping also keeps
-		// the matrix_relation_index sync trigger from indexing the phantoms.
+		// COVERED observer slots are NEVER copied: a stored mirror is DERIVED
+		// state, and the source's is the SOURCE's truth, never the clone's.
+		//   - an `inverse_search` mirror lists the SOURCE's referencers, and
+		//     nothing can reference a record that does not exist yet — the
+		//     clone's bag is EMPTY BY CONSTRUCTION (absent slot);
+		//   - a copy law (`source_overwrite`, `observed_data` — external_laws/)
+		//     reads the record's OWN data, which IS copied (the pointer, the
+		//     text): its slot is recomputed from that copy after the insert
+		//     (step 4, record_write.ts ownDataCoveredSlots → selfRecompute),
+		//     never inherited — the source's stored copy may be stale.
+		// Stripping also keeps the matrix_relation_index sync trigger from
+		// indexing the source's locators on the clone.
 		if (column === 'relation' && (await isCoveredObserverTipo(tipo))) {
 			copy.coveredMains.push(tipo);
 			continue;

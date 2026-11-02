@@ -150,6 +150,115 @@ async function pageApi(
 	}, rqo);
 }
 
+/**
+ * In-page API call through the client's own transport, answering the response's
+ * DATA (envelope v2 `response_data`); a refusal throws with its code. Setup a user
+ * could also do from the browser console.
+ */
+async function pageApiData(page: Page, rqo: object): Promise<unknown> {
+	return await page.evaluate(async (body: { action?: string }) => {
+		const transport = '/dedalo/core/common/js/data_manager.js'; // the page's own modules
+		const errors = '/dedalo/core/common/js/api_error.js';
+		const { data_manager } = (await import(transport)) as {
+			data_manager: { request: (o: object) => Promise<unknown> };
+		};
+		const { request_failed, response_data } = (await import(errors)) as {
+			request_failed: (a: unknown) => boolean;
+			response_data: (a: unknown) => unknown;
+		};
+		const answer = await data_manager.request({ use_worker: false, body });
+		if (request_failed(answer))
+			throw new Error(
+				`${body.action} refused: ${(answer as { error?: { code?: string } })?.error?.code}`,
+			);
+		return response_data(answer);
+	}, rqo);
+}
+
+/** The test TLD's self-portal (test3 → test3, default view, list column test52). */
+const REORDER_PORTAL = 'test80';
+/** A row's drop / tap point: its test52 cell (text, no control; a phone card row has no box of its own). */
+const REORDER_CELL = '.wrapper_component.test52';
+
+/** Create one record of `sectionTipo` through the create door; its section_id. */
+async function pageCreate(page: Page, sectionTipo: string): Promise<number> {
+	const id = Number(
+		await pageApiData(page, {
+			action: 'create',
+			source: {
+				typo: 'source',
+				type: 'section',
+				model: 'section',
+				tipo: sectionTipo,
+				section_tipo: sectionTipo,
+				section_id: null,
+				mode: 'edit',
+				lang: 'lg-eng',
+			},
+		}),
+	);
+	if (!Number.isInteger(id) || id < 1)
+		throw new Error(`create returned no section_id for ${sectionTipo}`);
+	return id;
+}
+
+/**
+ * Centre of the `index`-th row's element (`part`: '' = the row itself, or a selector
+ * inside it), in the CURRENT scroll position (never scrolls: two points read for one
+ * gesture must share it — scroll first with `scrollRowsIntoView`).
+ */
+async function rowPoint(
+	page: Page,
+	portal: string,
+	index: number,
+	part: string,
+): Promise<{ x: number; y: number }> {
+	const point = await page.evaluate(
+		(selector: string, i: number, inner: string) => {
+			const rows = document.querySelectorAll(selector);
+			const row = rows[i] as HTMLElement | undefined;
+			const el = (inner ? row?.querySelector(inner) : row) as HTMLElement | null | undefined;
+			if (!el) return 'missing';
+			const r = el.getBoundingClientRect();
+			if (r.bottom <= 0 || r.top >= innerHeight || r.width === 0 || r.height === 0)
+				return `off screen (top ${Math.round(r.top)}, height ${Math.round(r.height)}, viewport ${innerHeight})`;
+			return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		},
+		`${portal} > .list_body > .content_data > .section_record`,
+		index,
+		part,
+	);
+	if (typeof point === 'string')
+		throw new Error(`row ${index}${part ? ` ${part}` : ''} of the portal: ${point}`);
+	return point;
+}
+
+/**
+ * Bring the portal's first rows to the middle of the viewport (before reading row
+ * points), then wait until the row has SETTLED — its top is the same two frames apart
+ * (a smooth scroll or a late layout still moving it would hand rowPoint a stale point).
+ */
+async function scrollRowsIntoView(page: Page, portal: string): Promise<void> {
+	const selector = `${portal} > .list_body > .content_data > .section_record:nth-child(2)`;
+	await page.$eval(selector, (el) => el.scrollIntoView({ block: 'center' }));
+	await page.waitForFunction(
+		(sel: string) =>
+			new Promise<boolean>((resolve) => {
+				const el = document.querySelector(sel);
+				if (!el) {
+					resolve(false);
+					return;
+				}
+				const top = el.getBoundingClientRect().top;
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => resolve(el.getBoundingClientRect().top === top)),
+				);
+			}),
+		{ timeout: 10_000 },
+		selector,
+	);
+}
+
 /** Open record A and type `value` into its text component, NOT blurred (no save yet). */
 async function typeIntoText(
 	page: Page,
@@ -822,6 +931,113 @@ export const JOURNEYS: Record<string, Journey> = {
 			if (panel.styles < 2) throw new Error(`active style switcher offers ${panel.styles} styles`);
 		},
 	},
+
+	// portal_reorder: the row box's portal drag (WC-2026-10-30-section-record-row-box)
+	// as a user does it, on BUILT records: a host test3 record with three linked
+	// test3 records in the self-portal test80 (default view). Desktop: a native drag
+	// of row 1's handle onto row 0 (Chrome's own drag, intercepted and replayed by
+	// CDP — the real dragstart / dragover / drop of the page). Phone (360px, touch
+	// emulation, `pointer: coarse`): tap row 2's handle, tap row 0 (touch_pick).
+	// Each move is checked in the STORED array, not on screen.
+	portal_reorder: {
+		personas: ['root'],
+		writes: true,
+		async run({ page, url, fixture, server }) {
+			const section = fixture.editSection; // test3
+			const portal = `.wrapper_component.component_portal.${REORDER_PORTAL}.edit`;
+			const sweep = await server.armSweep(section);
+			try {
+				await page.goto(url(section, 'list'), { waitUntil: 'networkidle0', timeout: 60_000 });
+				const host = await pageCreate(page, section);
+				const linked: number[] = [];
+				for (let i = 0; i < 3; i++) linked.push(await pageCreate(page, section));
+				await pageApiData(page, {
+					action: 'save',
+					source: {
+						tipo: REORDER_PORTAL,
+						section_tipo: section,
+						section_id: host,
+						model: 'component_portal',
+						lang: 'lg-nolan',
+						mode: 'edit',
+					},
+					data: {
+						changed_data: [
+							{
+								action: 'set_data',
+								value: linked.map((id) => ({
+									type: 'dd151',
+									section_tipo: section,
+									section_id: String(id),
+									from_component_tipo: REORDER_PORTAL,
+								})),
+							},
+						],
+					},
+				});
+				const stored = async (): Promise<number[]> => {
+					const value = (await server.readValue(
+						'matrix_test',
+						section,
+						host,
+						'relation',
+						REORDER_PORTAL,
+					)) as { section_id: string | number }[] | null;
+					return (value ?? []).map((locator) => Number(locator.section_id));
+				};
+				// polled to a deadline: `idle` swallows a network-idle timeout, so a save that
+				// starts late or runs long must not read as a wrong stored order
+				const expectStored = async (expected: number[], what: string) => {
+					const deadline = Date.now() + 10_000;
+					let now = await stored();
+					while (JSON.stringify(now) !== JSON.stringify(expected) && Date.now() < deadline) {
+						await new Promise((resolve) => setTimeout(resolve, 100));
+						now = await stored();
+					}
+					if (JSON.stringify(now) !== JSON.stringify(expected))
+						throw new Error(
+							`${what}: stored ${now.join(',')}, expected ${expected.join(',')} (after 10 s)`,
+						);
+				};
+				await expectStored(linked, 'the linked set');
+				const [a, b, c] = linked as [number, number, number];
+
+				// desktop: native drag of row 1's handle onto row 0
+				await page.goto(url(section, 'edit', host), { waitUntil: 'networkidle0', timeout: 60_000 });
+				await scrollTo(page, `${portal} .section_record .drag`);
+				await scrollRowsIntoView(page, portal);
+				await page.setDragInterception(true);
+				try {
+					const from = await rowPoint(page, portal, 1, '.drag');
+					const to = await rowPoint(page, portal, 0, REORDER_CELL);
+					await page.mouse.move(from.x, from.y);
+					await page.mouse.dragAndDrop(from, to);
+				} finally {
+					await page.setDragInterception(false);
+				}
+				await idle(page);
+				await expectStored([b, a, c], 'after the desktop drag');
+
+				// phone: tap the handle of row 2, then tap row 0
+				await page.setViewport({ width: 360, height: 740, isMobile: true, hasTouch: true });
+				await page.goto(url(section, 'edit', host), { waitUntil: 'networkidle0', timeout: 60_000 });
+				const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches);
+				if (!coarse) throw new Error('touch emulation did not make the pointer coarse');
+				await scrollTo(page, `${portal} .section_record .drag`);
+				await scrollRowsIntoView(page, portal);
+				const handle = await rowPoint(page, portal, 2, '.drag');
+				await page.touchscreen.tap(handle.x, handle.y);
+				await page.waitForSelector('.touch_pick_bar', { timeout: 10_000 });
+				await scrollRowsIntoView(page, portal);
+				const place = await rowPoint(page, portal, 0, REORDER_CELL);
+				await page.touchscreen.tap(place.x, place.y);
+				await idle(page);
+				await expectStored([c, b, a], 'after the phone tap-tap');
+			} finally {
+				await sweep();
+			}
+		},
+	},
 };
 
 /** Catalogued journeys not written yet — each a coverage gap, stated. */
@@ -837,7 +1053,6 @@ export const JOURNEYS_PENDING: Record<string, string> = {
 	recover_deleted_record: 'tool_time_machine recovers a deleted record',
 	autocomplete_link_unlink: 'type, pick, save; then remove the link',
 	portal_new_linked_record: 'create a linked record from inside a portal',
-	portal_reorder: 'drag (or phone up/down) reorder of portal rows persists',
 	dataframe_edit: 'edit a dataframe frame paired to its main item',
 	thesaurus_add_move_reorder: 'add a child, move a node, reorder siblings',
 	media_upload_view_download:

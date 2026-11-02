@@ -23,7 +23,7 @@
 import { config } from '../../config/config.ts';
 import { getComponentModel } from '../components/registry.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
-import { getColumnNameByModel, getTranslatableByTipo } from '../ontology/resolver.ts';
+import { elementLang, getColumnNameByModel, getTranslatableByTipo } from '../ontology/resolver.ts';
 import { equivalentLangsOf } from './lang_alias.ts';
 
 /**
@@ -125,13 +125,29 @@ export function maskSecretItems(items: unknown[] | null): unknown[] | null {
 	return items === null ? null : items.map(maskSecretItem);
 }
 
+/**
+ * Options of a component value read.
+ *
+ * `explicitLang`: the caller ASKED for `lang` (a component read's own
+ * `source.lang`, a ddo's declared `lang`) rather than passing the ambient
+ * request data lang. Only then does a TRANSLITERABLE component (ontology
+ * `with_lang_versions` — resolver.ts hasLangVersions) show that lang's version;
+ * every other read of one shows its lg-nolan BASE (PHP get_element_lang). Opt-in
+ * on purpose: the many display reads (labels, list cells, export atoms, user
+ * names…) pass the ambient lang and must keep showing the base.
+ */
+export interface ComponentValueReadOptions {
+	explicitLang?: boolean;
+}
+
 export async function resolveComponentValue(
 	record: MatrixRecord,
 	componentTipo: string,
 	model: string,
 	lang: string,
+	options: ComponentValueReadOptions = {},
 ): Promise<{ value: unknown[] | null; fallbackValue: unknown[] | null }> {
-	const resolved = await resolveStoredComponentValue(record, componentTipo, model, lang);
+	const resolved = await resolveStoredComponentValue(record, componentTipo, model, lang, options);
 	if (getComponentModel(model)?.secretValue !== true) return resolved;
 	return {
 		value: maskSecretItems(resolved.value),
@@ -139,11 +155,34 @@ export async function resolveComponentValue(
 	};
 }
 
+/**
+ * Effective filter lang = the INSTANCE lang: ontology-non-translatable
+ * string-family components are nolan-forced at instantiation (PHP
+ * get_element_lang); component_iri honors the requested lang as-is
+ * (empirically verified against live PHP, 2026-07-02); a TRANSLITERABLE
+ * component (`with_lang_versions`) honors it only when the caller asked
+ * for it explicitly (the tool_lang target) — the one rule, elementLang —
+ * and shows its lg-nolan base otherwise. An empty explicit version falls
+ * through to the fallback chain, whose nolan rung is that base (PHP
+ * get_component_data_fallback).
+ */
+async function readFilterLang(
+	componentTipo: string,
+	model: string,
+	lang: string,
+	options: ComponentValueReadOptions,
+): Promise<string> {
+	if (model === 'component_iri' || (await getTranslatableByTipo(componentTipo))) return lang;
+	if (options.explicitLang !== true) return NOLAN;
+	return elementLang(componentTipo, model, { requested: lang, ambient: lang });
+}
+
 async function resolveStoredComponentValue(
 	record: MatrixRecord,
 	componentTipo: string,
 	model: string,
 	lang: string,
+	options: ComponentValueReadOptions,
 ): Promise<{ value: unknown[] | null; fallbackValue: unknown[] | null }> {
 	// component_alias data key (WC-020): an alias stores NOTHING under its own
 	// tipo — its value lives in the TARGET's column slot.
@@ -157,12 +196,7 @@ async function resolveStoredComponentValue(
 		return { value: items, fallbackValue: null };
 	}
 
-	// Effective filter lang = the INSTANCE lang: ontology-non-translatable
-	// string-family components are nolan-forced at instantiation (PHP
-	// get_element_lang); component_iri honors the requested lang as-is
-	// (empirically verified against live PHP, 2026-07-02).
-	const translatable = await getTranslatableByTipo(componentTipo);
-	const effectiveLang = translatable || model === 'component_iri' ? lang : NOLAN;
+	const effectiveLang = await readFilterLang(componentTipo, model, lang, options);
 	const slice = filterItemsByLang(items, effectiveLang);
 	if (slice.length > 0) {
 		return { value: slice, fallbackValue: null };

@@ -32,6 +32,7 @@ export {
 export {
 	type AuditStamp,
 	afterRecordWrite,
+	applyKeySaveRules,
 	buildModifiedAuditWrites,
 	type ChangedKeysDoor,
 	dropCoveredObserverUnits,
@@ -39,6 +40,7 @@ export {
 	persistAppendedKeyItems,
 	persistModifiedStamp,
 	persistObserverMirrorKeys,
+	persistObserverResaveKeys,
 	persistRecordBirth,
 	persistRecordColumns,
 	persistRecordKeys,

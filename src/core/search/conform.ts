@@ -22,7 +22,7 @@
 
 import { readString } from '../../config/readers.ts';
 import { getSearchBuilderFamily } from '../components/registry.ts';
-import type { SqoFilterLeaf, SqoFilterNode } from '../concepts/sqo.ts';
+import { isReferencedByLeaf, type SqoFilterLeaf, type SqoFilterNode } from '../concepts/sqo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import {
@@ -30,6 +30,7 @@ import {
 	getModelByTipo,
 	getNode,
 	getTranslatableByTipo,
+	savesInRequestLang,
 } from '../ontology/resolver.ts';
 import {
 	frontierComponentAllowed,
@@ -409,7 +410,7 @@ const TIME_MACHINE_TABLES: ReadonlySet<string> = new Set([
  * One relation-leaf locator resolved to matrix_relation_index columns:
  * ordered [column, cast, value] triples ready for tuple-IN emission.
  */
-type RelationLeafLocator = [string, 'text' | 'int', string][];
+export type RelationLeafLocator = [string, 'text' | 'int', string][];
 
 /** format:'relation' q fields → index columns (the locator vocabulary). */
 const RELATION_LEAF_FIELDS: Record<string, [string, 'text' | 'int']> = {
@@ -788,7 +789,7 @@ function isRelationComponentModel(model: unknown): boolean {
 }
 
 /** The per-locator emission state of one relation leaf (bound tokens + a counter). */
-interface RelationLeafSink {
+export interface RelationLeafSink {
 	readonly tokenValues: Record<string, unknown>;
 	readonly nextToken: () => string;
 }
@@ -834,26 +835,50 @@ async function relationLeafComponentKey(
 	return combineSectionConditions(perSection, sink);
 }
 
-/** One section's condition on the locator's from_component_tipo ('' / null / an IN list). */
-async function sectionFromComponentCondition(
+/**
+ * One section's condition on the locator's from_component_tipo ('' / null / an IN list).
+ *
+ * `allowlistAlways` (the referenced_by owner side, builder_referenced_by.ts):
+ * keep the IN list even when nothing is hidden. Those callers expand EVERY key
+ * of the stored `relation` column, so "nothing hidden → unrestricted" would let
+ * a key outside the section's ontology (a removed/moved component, an import's
+ * key) through — and only while no unrelated component happens to be hidden.
+ * read_raw's harvest asks each key its own grant, so such a key is never read
+ * by a non-admin; the allowlist gives the same answer. The global-admin and
+ * globally-visible exemptions are the caller's / unchanged.
+ */
+export async function sectionFromComponentCondition(
 	scope: SqlFrontierScope,
 	sectionTipo: string,
 	table: string,
 	locator: RelationLeafLocator,
 	sink: RelationLeafSink,
+	allowlistAlways = false,
 ): Promise<string | null> {
 	const explicit = locator.find(([column]) => column === 'from_component_tipo');
 	if (explicit !== undefined) return explicitFromKey(scope, sectionTipo, table, explicit[2]);
 	if (frontierSectionIsGloballyVisible(sectionTipo, table)) return '';
 	const all = await relationComponentsOf(sectionTipo);
 	const granted = await grantedComponents(scope, sectionTipo, all, table);
-	if (granted.length === all.length) return ''; // nothing hidden: "any" is unchanged
+	if (granted.length === all.length) {
+		// Nothing hidden: "any" is unchanged — or, keyed, exactly the declared ones.
+		if (!allowlistAlways) return '';
+		return grantedComponentCondition(granted, sink);
+	}
 	noteFrontierRefusal(scope, {
 		surface: scope.surface,
 		door: scope.door,
 		sectionTipo,
 		key: 'component',
 	});
+	return grantedComponentCondition(granted, sink);
+}
+
+/** The granted components as an IN list — or null (matches nothing) when none is granted. */
+function grantedComponentCondition(
+	granted: readonly string[],
+	sink: RelationLeafSink,
+): string | null {
 	return granted.length === 0 ? null : componentInList(granted, sink);
 }
 
@@ -863,7 +888,7 @@ async function sectionFromComponentCondition(
  * on `r.section_tipo` — the owning row's own section — unless all agree on
  * "unrestricted".
  */
-function combineSectionConditions(
+export function combineSectionConditions(
 	perSection: readonly [string, string | null][],
 	sink: RelationLeafSink,
 ): string | null {
@@ -1089,6 +1114,21 @@ async function leafDateMode(model: string, componentTipo: string): Promise<strin
 		: undefined;
 }
 
+/**
+ * A lang-less leaf's scope: 'all' for a translatable component, and for a
+ * TRANSLITERABLE one (with_lang_versions / component_iri: an lg-nolan base
+ * beside per-language versions), whose lg-ell version must match too, as PHP's
+ * 'all' did. Plain non-translatable data is all lg-nolan, where the nolan
+ * scope is observably identical.
+ */
+async function defaultLeafLang(
+	componentTipo: string,
+	model: string,
+	translatable: boolean,
+): Promise<string> {
+	return translatable || (await savesInRequestLang(componentTipo, model)) ? 'all' : 'lg-nolan';
+}
+
 /** The leaf body: (hop chain) → relation / function leaves → model builders / deep clauses. */
 async function conformLeafBody(
 	leaf: SqoFilterLeaf,
@@ -1211,9 +1251,9 @@ async function conformLeafBody(
 	// (class.component_common.php:3683-86) sets lang='all' unconditionally when
 	// the clause carries none. The autocomplete picker relies on it: its free
 	// clauses are lang-less and must match any translation (probed 2026-07-09:
-	// 'roma' matches a mint whose only 'roma' value is lg-eng). Non-translatable
-	// data is all lg-nolan, where the nolan scope is observably identical.
-	const lang = leaf.lang ?? (translatable ? 'all' : 'lg-nolan');
+	// 'roma' matches a mint whose only 'roma' value is lg-eng). Plain
+	// non-translatable data is all lg-nolan (defaultLeafLang).
+	const lang = leaf.lang ?? (await defaultLeafLang(componentTipo, model, translatable));
 
 	const dateMode = await leafDateMode(model, componentTipo); // date leaves only
 	const context: BuilderContext = {
@@ -1464,24 +1504,52 @@ function deepNode(
 	return { kind: 'deep', plan, field, positive, clauses: kept };
 }
 
-/** Recursively conform a filter node ($and/$or trees with leaves). */
+/** One boolean-operator node: its items conformed in order, empty items skipped. */
+async function conformGroup(
+	opKey: string,
+	rawItems: unknown,
+	alias: string,
+	table: string,
+	scope: SqlFrontierScope | undefined,
+	depth: number,
+): Promise<ConformedFilter> {
+	const items: ConformedFilter[] = [];
+	for (const item of Array.isArray(rawItems) ? rawItems : []) {
+		if (item === false || item === null || item === undefined) continue;
+		items.push(await conformFilter(item as Record<string, unknown>, alias, table, scope, depth));
+	}
+	return { kind: 'group', op: opKey, items };
+}
+
+/**
+ * Recursively conform a filter node ($and/$or trees with leaves).
+ *
+ * `depth` = how many `referenced_by` leaves enclose this filter (0 for a main
+ * search; the scoped row set of a leaf conforms its source filter at depth+1),
+ * so a nested leaf is bounded by MAX_REFERENCED_BY_DEPTH.
+ */
 export async function conformFilter(
 	filter: SqoFilterNode | SqoFilterLeaf | Record<string, unknown>,
 	alias: string,
 	table: string,
 	scope?: SqlFrontierScope,
+	depth = 0,
 ): Promise<ConformedFilter> {
 	// A node has exactly one boolean-operator key.
 	const keys = Object.keys(filter);
 	const opKey = keys.find((key) => BOOLEAN_OPERATORS.has(key));
 	if (opKey !== undefined) {
 		const rawItems = (filter as Record<string, unknown>)[opKey];
-		const items: ConformedFilter[] = [];
-		for (const item of Array.isArray(rawItems) ? rawItems : []) {
-			if (item === false || item === null || item === undefined) continue;
-			items.push(await conformFilter(item as Record<string, unknown>, alias, table, scope));
-		}
-		return { kind: 'group', op: opKey, items };
+		return conformGroup(opKey, rawItems, alias, table, scope, depth);
+	}
+	// A `referenced_by` leaf carries NO path: it must be routed BEFORE the path
+	// check, whose pathless-leaf drop ({fragment:false}) would WIDEN the search
+	// to the whole section (WC-2026-10-30-search-referenced-by-leaf). Lazy
+	// (CONVENTIONS §2 rationale 1, cycle-breaking): the builder compiles its
+	// source through sql_assembler.ts, which imports this module statically.
+	if (isReferencedByLeaf(filter)) {
+		const { conformReferencedBy } = await import('./builders/builder_referenced_by.ts');
+		return conformReferencedBy(filter, alias, scope, depth);
 	}
 	// Leaf (has a path).
 	return conformLeaf(filter as SqoFilterLeaf, alias, table, scope);

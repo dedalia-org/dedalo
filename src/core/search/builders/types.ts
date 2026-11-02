@@ -75,6 +75,12 @@ export interface Fragment {
 	sentence: string;
 	/** token → value; insertion order must match token order in the sentence. */
 	tokenValues: Record<string, unknown>;
+	/**
+	 * Set ONLY by builder_referenced_by.ts on a rendered source-set expansion:
+	 * the statement this fragment lands in carries a `referenced_by` leaf, so
+	 * the search executor bounds it (search/search_statement.ts).
+	 */
+	expandsReferencedBy?: true;
 }
 
 /** A boolean grouping of sub-results (resolved recursively by the parser). */

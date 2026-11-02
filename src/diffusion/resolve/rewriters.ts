@@ -190,7 +190,20 @@ function applyChainFilters(
 // ---------------------------------------------------------------------------
 
 /**
- * Term of one chain node in `lang`: exact → main_lang → first PROJECT lang.
+ * Term of one chain node in `lang`: exact → main_lang → lg-nolan BASE →
+ * first PROJECT lang.
+ *
+ * The lg-nolan rung is the TRANSLITERABLE fallback (with_lang_versions /
+ * component_iri term components: an lg-nolan base plus per-language versions,
+ * "Augustus" + lg-ell "Αύγουστος"). v6 resolves the term with a component
+ * instance IN the row lang and, when that is empty, walks
+ * component_common::get_value_with_fallback_from_dato_full (v6
+ * class.component_common.php:3079-3140): direct → main lang → NOLAN → project
+ * langs. Without the rung the project-lang walk handed every row whose lang
+ * has no version the first VERSION in project order (the Greek name in the
+ * Spanish row) instead of the base. Byte-neutral for every other term: a
+ * translatable term holds no lg-nolan key, and a nolan-only term reached the
+ * same value through the last rung.
  *
  * The last rung must walk the PUBLICATION LANGS in their configured order, not
  * whatever order the stored term object happens to enumerate. v6's fallback
@@ -201,7 +214,7 @@ function applyChainFilters(
  * Object.values order handed v7 the Arabic one — visible in informant
  * birthplace, birthplace_municipality, cut_birthplace and search_data.
  */
-function nodeTermForLang(
+export function nodeTermForLang(
 	link: ResolvedLink,
 	lang: string,
 	mainLang: string | null,
@@ -215,6 +228,8 @@ function nodeTermForLang(
 		const main = term[mainLang];
 		if (typeof main === 'string' && main !== '') return main;
 	}
+	const nolan = term['lg-nolan'];
+	if (typeof nolan === 'string' && nolan !== '') return nolan;
 	if (projectLangs !== undefined) {
 		for (const candidate of projectLangs) {
 			const value = term[candidate];

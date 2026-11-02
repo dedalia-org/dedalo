@@ -89,6 +89,10 @@ import {
 	type VendorManifestEntry,
 	verifyVendorTrees,
 } from '../../scripts/vendor_verify.ts';
+import {
+	lockTupleProblems,
+	parseLockPackages,
+} from '../../src/core/security/lockfile_provenance.ts';
 
 const REPO_ROOT = resolve(import.meta.dir, '../..');
 
@@ -139,37 +143,26 @@ function specifiersOf(pkg: PackageJson, label: string): { where: string; value: 
 }
 
 /**
- * bun.lock is JSONC — it carries trailing commas, which `JSON.parse` refuses. The
- * lockfile is machine-written, so the only deviation is that comma; stripping it is
- * enough and keeps this gate free of a JSONC dependency.
+ * The lockfile half is the ONE provenance law (src/core/security/lockfile_provenance.ts),
+ * the same predicate every shipped publication bundle and kit is refused by — never a
+ * second copy here. A lockfile without a `packages` object is a red, not an empty census.
  */
-function parseLockfile(path: string): { packages: Record<string, unknown[]> } {
-	const text = readFileSync(path, 'utf-8').replace(/,(\s*[}\]])/g, '$1');
-	return JSON.parse(text) as { packages: Record<string, unknown[]> };
+function parseLockfile(path: string): Record<string, unknown> {
+	const read = parseLockPackages(readFileSync(path, 'utf-8'));
+	if ('error' in read) throw new Error(`${path}: bun.lock ${read.error}`);
+	return read.packages;
 }
 
-/**
- * The problems in one lockfile tuple, if any. A tuple is
- * `[ "<name>@<resolution>", <registry>, <metadata>, "<integrity>" ]` — the last
- * element is the integrity when there is one, and a URL/git resolution is exactly
- * the case where bun writes a shorter tuple with none.
- */
-function lockProblems(root: string, name: string, tuple: unknown[]): string[] {
-	const problems: string[] = [];
-	const resolution = typeof tuple[0] === 'string' ? tuple[0] : '';
-	// `name@version` for a registry dep; `name@https://…` / `name@github:…` for the
-	// shapes this gate refuses. Split on the LAST '@' so scoped names survive.
-	const at = resolution.lastIndexOf('@');
-	const spec = at <= 0 ? resolution : resolution.slice(at + 1);
-	if (FORBIDDEN_SPECIFIER.test(spec) || spec.includes('://')) {
-		problems.push(`${root} bun.lock: "${name}" resolves to a non-registry source (${resolution})`);
-	}
-	const last = tuple[tuple.length - 1];
-	const integrity = typeof last === 'string' ? last : '';
-	if (!(integrity.startsWith('sha512-') || integrity.startsWith('sha256-'))) {
-		problems.push(`${root} bun.lock: "${name}" (${resolution}) carries NO integrity hash`);
-	}
-	return problems;
+/** The problems in one lockfile tuple, worded for the offender list. */
+function lockProblems(root: string, name: string, tuple: unknown): string[] {
+	const resolution = Array.isArray(tuple) && typeof tuple[0] === 'string' ? tuple[0] : '';
+	return lockTupleProblems(tuple).map((problem) =>
+		problem === 'malformed'
+			? `${root} bun.lock: "${name}" is not a lockfile tuple`
+			: problem === 'non_registry'
+				? `${root} bun.lock: "${name}" resolves to a non-registry source (${resolution})`
+				: `${root} bun.lock: "${name}" (${resolution}) carries NO integrity hash`,
+	);
 }
 
 describe('dependency integrity — installed', () => {
@@ -235,9 +228,9 @@ describe('dependency integrity — installed', () => {
 		const offenders: string[] = [];
 		let entries = 0;
 		for (const root of PACKAGES) {
-			const lock = parseLockfile(join(REPO_ROOT, root, 'bun.lock'));
-			for (const [name, tuple] of Object.entries(lock.packages ?? {})) {
-				if (!Array.isArray(tuple)) continue;
+			for (const [name, tuple] of Object.entries(
+				parseLockfile(join(REPO_ROOT, root, 'bun.lock')),
+			)) {
 				entries++;
 				offenders.push(...lockProblems(root, name, tuple));
 			}
@@ -274,6 +267,18 @@ describe('dependency integrity — installed', () => {
 			'. bun.lock: "zod" (zod@4.4.3) carries NO integrity hash',
 		]);
 		expect(lockProblems('.', 'zod', ['zod@4.4.3', '', {}, 'sha512-abc'])).toEqual([]);
+		// The shapes a deny-list, a spec-only or a last-'@' split missed: userinfo in a URL, a local
+		// tarball and a workspace member (each written WITH an integrity), a non-tuple.
+		for (const [name, tuple] of [
+			['t', ['t@https://user@host/t.tgz', {}, 'sha512-abc']],
+			['s', ['s@../ext/s.tgz', {}, 'sha512-abc']],
+			['q', ['q@1.2.3-x.tgz', {}, 'sha512-abc']],
+			['p', ['p@1.0.0', 'https://other.example/p.tgz', {}, 'sha512-abc']],
+			['w', ['w@workspace:pkgs/w', {}, 'sha512-abc']],
+			['u', 'not a tuple'],
+		] as const) {
+			expect(lockProblems('.', name, tuple), name).toHaveLength(1);
+		}
 	});
 
 	test('every locked package turns Bun auto-install OFF (no by-name fetch around bun.lock)', () => {

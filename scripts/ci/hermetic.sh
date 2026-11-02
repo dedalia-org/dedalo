@@ -217,7 +217,9 @@ HERMETIC_TRIPWIRES=(
 	# --- security tier, added 2026-08-03 (see the coverage-hole note above) ---
 	test/unit/xss_csp_tripwire.test.ts
 	test/unit/error_report_xss_tripwire.test.ts
+	test/unit/orphaned_unsaved_writers_tripwire.test.ts
 	test/unit/security_audit_2026_07_23_tripwire.test.ts
+	test/unit/external_law_registry_tripwire.test.ts
 	test/unit/no_remote_code_tripwire.test.ts
 	test/unit/agent_egress_tripwire.test.ts
 	test/unit/human_write_scope_tripwire.test.ts
@@ -354,6 +356,7 @@ HERMETIC_TRIPWIRES=(
 	test/unit/site_builder_csp_tripwire.test.ts
 	test/unit/client_limit_zero_tripwire.test.ts
 	test/unit/client_render_budget_native.test.ts
+	test/unit/client_row_dom_tripwire.test.ts
 	test/unit/client_prototype_contract_tripwire.test.ts
 	test/unit/client_dead_reference_tripwire.test.ts
 	test/unit/client_control_naming_tripwire.test.ts
@@ -373,6 +376,10 @@ HERMETIC_TRIPWIRES=(
 	test/unit/query_tap_tripwire.test.ts
 	test/unit/read_path_record_reuse_tripwire.test.ts
 	test/unit/search_pattern_escape_tripwire.test.ts
+	# --- 2026-10-30 (WC-2026-10-30-search-referenced-by-leaf): the search-statement chokepoint.
+	#     DB-free: reads src/ tools/ publication/ scripts/ sources, builds one statement in memory
+	#     (no query); verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 41 pass / 0 fail).
+	test/unit/search_statement_chokepoint_tripwire.test.ts
 	test/unit/closure_openquestions_tripwire.test.ts
 	test/unit/client_dashboard_sink_tripwire.test.ts
 	test/unit/client_event_manager_dispatch_tripwire.test.ts

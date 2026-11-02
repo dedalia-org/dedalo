@@ -36,6 +36,11 @@
  *    (measured depth 2 today); a cycle is an authoring error.
  * 6. IMMUTABILITY + LIFECYCLE — deep-frozen index, runtime-hardened Maps,
  *    rebuild-never-patch, S1-14 in-tx memoization.
+ * 7. ORDER-DERIVED EDGES (pass 4, portal order model 2026-10-31) — each
+ *    declared ordering column's FULL order path becomes the edge chain that
+ *    keeps the portal sorted (D → portal via portal; leaf → D via D for a
+ *    relation column), the generalized default branch's inverse entry; empty
+ *    paths RED, declared keys win, shared keys dedup, cycle scan included.
  *
  * The suite-DB ontology is a strict subset of the app ontology (the tch555/
  * tch557 nodes are absent here) — DB-backed gates are written as
@@ -56,13 +61,20 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
 import type { NodeWithProperties } from '../../src/core/ontology/resolver.ts';
+import { isCoveredReconcileEdge } from '../../src/core/section/record/observer_reconcile.ts';
 import {
 	buildSubscriptionIndex,
 	clearObserverSubscriptionRegistry,
 	entryServerBlock,
 	getSubscriptionRegistry,
 	type HostSectionContext,
+	isOrderDataSource,
+	type OrderDerivedColumn,
+	type OrderDerivedContext,
+	orderDataSourceSections,
+	plantOrderDataSources,
 	validateSubscriptionContract,
 } from '../../src/core/section/record/observer_subscriptions.ts';
 import { propagateToObservers } from '../../src/core/section/record/observers.ts';
@@ -423,6 +435,447 @@ describe('acyclicity of the declared graph', () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Law-derived edges (pass 3 — owner ruling 2026-10-30, Q1)
+// ---------------------------------------------------------------------------
+
+/** A covered source_overwrite observer: copies `dff` off the record `ptr` names. */
+function overwriteObserver(
+	tipo: string,
+	dff: string,
+	ptr: string,
+	extra: Record<string, unknown> = {},
+): NodeWithProperties {
+	return node(tipo, {
+		observe: [
+			{
+				component_tipo: ptr,
+				server: {
+					config: { use_observable_dato: true, use_self_section: true },
+					perform: { function: 'set_dato_external' },
+				},
+			},
+			...((extra.observe as unknown[] | undefined) ?? []),
+		],
+		source: { source_overwrite: { data_from_field: dff }, component_to_search: [ptr] },
+	});
+}
+
+describe('law-derived edges (pass 3)', () => {
+	test('a covered source_overwrite observer DERIVES an inverse edge from its data_from_field, through its pointer', () => {
+		const index = buildSubscriptionIndex([overwriteObserver('so1', 'dff1', 'ptr1')]);
+		const derived = index.byObserved.get('dff1') ?? [];
+		expect(derived.length).toBe(1);
+		expect(derived[0]).toMatchObject({
+			observedTipo: 'dff1',
+			observerTipo: 'so1',
+			declaration: 'law-derived',
+			origin: 'law',
+			via: 'ptr1',
+			viaWildcard: false,
+		});
+		// The inverse resolver, set_dato_external, and NO params: the kernel
+		// needs none on this path (no references_limit, no save flag).
+		expect(derived[0]?.entry).toEqual({
+			component_tipo: 'dff1',
+			server: {
+				config: { use_inverse_relations: true },
+				perform: { function: 'set_dato_external' },
+			},
+		});
+		expect(entryServerBlock(derived[0]?.entry)).toBeDefined(); // dispatchable
+		expect(index.diagnostics.lawDerived).toEqual(['dff1->so1']);
+		expect(index.diagnostics.lawShadowed).toEqual([]);
+		// A derived edge carries no authored observe entry — the observe-entry
+		// contract checks do not apply, so the build is contract-clean.
+		expect(validateSubscriptionContract(index)).toEqual([]);
+		// The declared pointer edge is still there, unchanged.
+		expect(index.byObserved.get('ptr1')?.[0]?.declaration).toBe('reverse-only');
+		expect(index.byObserved.get('ptr1')?.[0]?.origin).toBe('declared');
+	});
+
+	test('a DECLARED server edge on the same key wins — the derived one is shadowed, never doubled', () => {
+		const index = buildSubscriptionIndex([
+			overwriteObserver('so2', 'dff2', 'ptr2', {
+				observe: [
+					{
+						component_tipo: 'dff2',
+						server: {
+							config: { use_inverse_relations: true },
+							perform: { function: 'set_dato_external' },
+						},
+					},
+				],
+			}),
+		]);
+		const edges = index.byObserved.get('dff2') ?? [];
+		expect(edges.length).toBe(1);
+		expect(edges[0]?.declaration).toBe('reverse-only');
+		expect(edges[0]?.origin).toBe('declared');
+		expect(index.diagnostics.lawDerived).toEqual([]);
+		expect(index.diagnostics.lawShadowed).toEqual(['dff2->so2']);
+	});
+
+	test('a CLIENT-ONLY observe entry on the dependency is the per-edge kill switch (no server edge at all)', () => {
+		const index = buildSubscriptionIndex([
+			overwriteObserver('so3', 'dff3', 'ptr3', {
+				observe: [{ component_tipo: 'dff3', client: { event: 'update_value' } }],
+			}),
+		]);
+		expect(index.byObserved.get('dff3') ?? []).toEqual([]);
+		expect(index.diagnostics.lawShadowed).toEqual(['dff3->so3']);
+		expect(index.diagnostics.lawDerived).toEqual([]);
+	});
+
+	test('a FORWARD spec on the same key also wins (any declaration shadows the derivation)', () => {
+		const index = buildSubscriptionIndex([
+			node('dff4', { observers: [{ component_tipo: 'so4' }] }),
+			overwriteObserver('so4', 'dff4', 'ptr4'),
+		]);
+		expect((index.byObserved.get('dff4') ?? []).some((sub) => sub.origin === 'law')).toBe(false);
+		expect(index.diagnostics.lawShadowed).toEqual(['dff4->so4']);
+	});
+
+	test('one derived edge per key — a node listed twice does not mint two', () => {
+		const observer = overwriteObserver('so5', 'dff5', 'ptr5');
+		const index = buildSubscriptionIndex([observer, observer]);
+		expect((index.byObserved.get('dff5') ?? []).filter((sub) => sub.origin === 'law').length).toBe(
+			1,
+		);
+		expect(index.diagnostics.lawDerived).toEqual(['dff5->so5']);
+	});
+
+	test('law (c) and observed_data declare NO dependencies — pass 3 never mints an edge per data_from_field node', () => {
+		const index = buildSubscriptionIndex([
+			node('lawc1', {
+				observe: [{ component_tipo: 'ptrc', server: EXTERNAL_SERVER }],
+				source: { component_to_search: ['refc'], data_from_field: ['dffc'] },
+			}),
+			node('od1', {
+				observe: [
+					{ component_tipo: 'txt1', server: { perform: { function: 'set_dato_external' } } },
+				],
+				source: {
+					set_observed_data: [
+						{
+							tipo: 'txt1',
+							perform: { function: 'get_locators_of_tags', params: { ar_tags: ['svg'] } },
+						},
+					],
+				},
+			}),
+		]);
+		expect(index.byObserved.get('dffc') ?? []).toEqual([]);
+		expect(index.edges.every((sub) => sub.origin !== 'law')).toBe(true);
+		expect(index.diagnostics.lawDerived).toEqual([]);
+	});
+
+	test('a law the author never wired to the kernel (no set_dato_external server entry) derives nothing', () => {
+		const index = buildSubscriptionIndex([
+			node('so6', {
+				observe: [{ component_tipo: 'ptr6', client: { event: 'update_value' } }],
+				source: { source_overwrite: { data_from_field: 'dff6' }, component_to_search: ['ptr6'] },
+			}),
+			// and a refused (malformed) sub-law next to a covered entry
+			node('so7', {
+				observe: [{ component_tipo: 'ptr7', server: EXTERNAL_SERVER }],
+				source: { source_overwrite: { data_from_field: 42 }, component_to_search: ['ptr7'] },
+			}),
+		]);
+		expect(index.byObserved.get('dff6') ?? []).toEqual([]);
+		expect(index.edges.every((sub) => sub.origin !== 'law')).toBe(true);
+		expect(index.diagnostics.lawDerived).toEqual([]);
+	});
+
+	test('derived edges take part in the cycle scan (a derived cycle is a real runtime cycle)', () => {
+		const index = buildSubscriptionIndex([
+			overwriteObserver('so8', 'dff8', 'ptr8'),
+			// dff8 observes so8: so8 → dff8 declared, dff8 → so8 derived.
+			node('dff8', { observe: [{ component_tipo: 'so8', server: EXTERNAL_SERVER }] }),
+		]);
+		expect(index.diagnostics.lawDerived).toEqual(['dff8->so8']);
+		expect(index.diagnostics.cycles.length).toBeGreaterThan(0);
+		expect(validateSubscriptionContract(index).some((error) => error.includes('CYCLE'))).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Pass 4 — ORDER-DERIVED edges (portal order model, 2026-10-31). The order facts
+// are INJECTED (the third argument — computeOrderDerivedContext's output
+// shape), so every law below is hermetic: the path is what buildOrderPath
+// would return for that column, planted.
+// ---------------------------------------------------------------------------
+
+/** One planted ordering column: the portal, its `order` column, the target section and the path. */
+function orderColumn(
+	portalTipo: string,
+	columnTipo: string,
+	path: OrderDerivedColumn['path'],
+	targetSection = 'tgt1',
+): OrderDerivedColumn {
+	return { portalTipo, columnTipo, targetSection, path };
+}
+
+function orderCtx(...columns: OrderDerivedColumn[]): OrderDerivedContext {
+	return { columns };
+}
+
+/** The exact entry pass 4 mints: the generalized DEFAULT branch, inverse, no perform/filter. */
+const ORDER_ENTRY = (observed: string) => ({
+	component_tipo: observed,
+	server: { config: { use_inverse_relations: true } },
+});
+
+describe('order-derived edges (pass 4)', () => {
+	test('a LITERAL ordering column derives exactly D → portal, via the portal, default-branch entry', () => {
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(orderColumn('portal1', 'date1', [{ component_tipo: 'date1' }])),
+		);
+		const derived = index.byObserved.get('date1') ?? [];
+		expect(derived.length).toBe(1);
+		expect(derived[0]).toMatchObject({
+			observedTipo: 'date1',
+			observerTipo: 'portal1',
+			declaration: 'order-derived',
+			origin: 'order',
+			via: 'portal1',
+			viaWildcard: false,
+		});
+		// no `perform`, no `filter` — exactly the inverse default branch
+		expect(derived[0]?.entry).toEqual(ORDER_ENTRY('date1'));
+		expect(entryServerBlock(derived[0]?.entry)).toBeDefined(); // dispatchable
+		expect(index.edges.length).toBe(1); // a single-step path derives ONLY D → portal
+		expect(index.diagnostics.orderDerived).toEqual(['date1->portal1']);
+		expect(index.diagnostics.orderShadowed).toEqual([]);
+		expect(index.diagnostics.orderUnresolved).toEqual([]);
+		expect(validateSubscriptionContract(index)).toEqual([]);
+	});
+
+	test('a RELATION ordering column derives the FULL chain: D → portal (via portal) AND leaf → D (via D)', () => {
+		// the autocomplete column D in the target section ranks by the linked
+		// term's label: buildOrderPath = [D@tgt, label@terms]
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(
+				orderColumn('portal2', 'auto2', [
+					{ component_tipo: 'auto2' },
+					{ component_tipo: 'label2' },
+				]),
+			),
+		);
+		expect(index.byObserved.get('auto2')?.[0]).toMatchObject({
+			observerTipo: 'portal2',
+			via: 'portal2',
+			declaration: 'order-derived',
+		});
+		expect(index.byObserved.get('label2')?.[0]).toMatchObject({
+			observerTipo: 'auto2',
+			via: 'auto2',
+			declaration: 'order-derived',
+			origin: 'order',
+		});
+		expect(index.byObserved.get('label2')?.[0]?.entry).toEqual(ORDER_ENTRY('label2'));
+		expect([...(index.diagnostics.orderDerived ?? [])].sort()).toEqual([
+			'auto2->portal2',
+			'label2->auto2',
+		]);
+		// a three-step path walks all the way down (the chain is not "first hop only")
+		const deep = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(
+				orderColumn('portal3', 'a3', [
+					{ component_tipo: 'a3' },
+					{ component_tipo: 'b3' },
+					{ component_tipo: 'c3' },
+				]),
+			),
+		);
+		expect(deep.byObserved.get('c3')?.[0]?.observerTipo).toBe('b3');
+		expect(deep.byObserved.get('b3')?.[0]?.observerTipo).toBe('a3');
+		expect(deep.byObserved.get('a3')?.[0]?.observerTipo).toBe('portal3');
+	});
+
+	test("a `column`-override step ends the chain (the record's own id is immutable)", () => {
+		const ended = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(
+				orderColumn('portal4', 'rel4', [
+					{ component_tipo: 'rel4' },
+					{ component_tipo: 'id4', column: 'section_id' },
+				]),
+			),
+		);
+		expect(ended.edges.map((sub) => `${sub.observedTipo}->${sub.observerTipo}`)).toEqual([
+			'rel4->portal4',
+		]);
+		// a path whose FIRST step is the id derives nothing at all (and is not unresolved)
+		const idOnly = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(
+				orderColumn('portal5', 'id5', [{ component_tipo: 'id5', column: 'section_id' }]),
+				orderColumn('portal5', 'when5', [{ component_tipo: 'section_id' }]),
+			),
+		);
+		expect(idOnly.edges).toEqual([]);
+		expect(idOnly.diagnostics.orderUnresolved).toEqual([]);
+	});
+
+	test('an EMPTY path derives nothing and is RED in diagnostics.orderUnresolved', () => {
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(orderColumn('portal6', 'col6', [], 'tgt6')),
+		);
+		expect(index.edges).toEqual([]);
+		expect(index.diagnostics.orderUnresolved).toEqual(['portal6:col6@tgt6']);
+		expect(
+			validateSubscriptionContract(index).some((error) => error.includes('portal6:col6@tgt6')),
+		).toBe(true);
+	});
+
+	test('without the third argument NOTHING is derived (pure callers unchanged)', () => {
+		const index = buildSubscriptionIndex([node('portal7', { source: { request_config: [] } })]);
+		expect(index.edges).toEqual([]);
+		expect(index.diagnostics.orderDerived).toEqual([]);
+		expect(index.diagnostics.orderUnresolved).toEqual([]);
+	});
+
+	test('identity: an EMPTY order context derives nothing (the no-order filter itself is computeOrderDerivedContext — its live control is portal_order_native FLOOR, the plain portal absent)', () => {
+		const index = buildSubscriptionIndex([], undefined, orderCtx());
+		expect(index.edges).toEqual([]);
+		expect(index.diagnostics.orderDerived).toEqual([]);
+	});
+
+	test('ORDER DATA SOURCES: the record sections a data-driven sqo source reads (the registry clears on a write there)', () => {
+		const portal = (entries: unknown[]) => ({
+			source: {
+				request_config: [{ sqo: { section_tipo: entries } }, { sqo: { section_tipo: [] } }],
+			},
+		});
+		expect(
+			orderDataSourceSections(portal([{ source: 'hierarchy_types', value: [2] }]), 'h1'),
+		).toEqual(['hierarchy1']);
+		expect(orderDataSourceSections(portal([{ source: 'ontology_sections' }]), 'h1')).toEqual([
+			'ontology35',
+		]);
+		expect(orderDataSourceSections(portal([{ source: 'section_model' }]), 'h1')).toEqual([
+			'hierarchy1',
+			'ontology35',
+		]);
+		expect(
+			orderDataSourceSections(portal([{ source: 'field_value', value: ['h9'] }]), 'host5'),
+		).toEqual(['host5']);
+		// a static source reads no record: nothing to listen to
+		expect(
+			orderDataSourceSections(portal([{ source: 'section', value: ['test3'] }, 'test3']), 'h1'),
+		).toEqual([]);
+		expect(orderDataSourceSections(null, 'h1')).toEqual([]);
+	});
+
+	test("ORDER DATA SOURCES: a STALE build planting after a hub clear never replaces a concurrent build's set (every plant unions; only the hub resets)", async () => {
+		// the ontology write's hub clear
+		await clearOntologyDerivedCaches();
+		// B2 (started after the clear) plants the post-write set: hierarchy1 now a source
+		plantOrderDataSources(['hierarchy1', 'ontology35']);
+		// B1 (read the PRE-write nodes, its token wiped) plants its stale set last
+		plantOrderDataSources(['ontology35']);
+		// the registry B2 seeds must still be cleared by a hierarchy1 write
+		expect(isOrderDataSource('hierarchy1')).toBe(true);
+		expect(isOrderDataSource('ontology35')).toBe(true);
+		// only the hub clear shrinks the set
+		await clearOntologyDerivedCaches();
+		expect(isOrderDataSource('hierarchy1')).toBe(false);
+		// WIRING: the builder plants ONLY through the union door — the one cache write is in it
+		const src = readFileSync(
+			fileURLToPath(
+				new URL('../../src/core/section/record/observer_subscriptions.ts', import.meta.url),
+			),
+			'utf8',
+		);
+		expect(src.split('orderDataSourcesCache.set(').length - 1).toBe(1);
+		expect(src).toContain('plantOrderDataSources(dataSources);');
+	});
+
+	test('a DECLARED edge on the same key wins — shadowed, never doubled (the kill switch is an ontology edit)', () => {
+		const declared = buildSubscriptionIndex(
+			[node('portal8', { observe: [{ component_tipo: 'date8', client: { event: 'x' } }] })],
+			undefined,
+			orderCtx(orderColumn('portal8', 'date8', [{ component_tipo: 'date8' }])),
+		);
+		expect(declared.byObserved.get('date8') ?? []).toEqual([]); // client-only kill switch
+		expect(declared.diagnostics.orderShadowed).toEqual(['date8->portal8']);
+		expect(declared.diagnostics.orderDerived).toEqual([]);
+		// a server declaration on the key wins too, and keeps its own entry
+		const server = buildSubscriptionIndex(
+			[
+				node('portal9', {
+					observe: [{ component_tipo: 'date9', server: { config: { use_observable_dato: true } } }],
+				}),
+			],
+			undefined,
+			orderCtx(orderColumn('portal9', 'date9', [{ component_tipo: 'date9' }])),
+		);
+		expect((server.byObserved.get('date9') ?? []).map((sub) => sub.origin)).toEqual(['declared']);
+		expect(server.diagnostics.orderShadowed).toEqual(['date9->portal9']);
+	});
+
+	test('a shared intermediate key (two portals ordering through one relation) is ONE edge', () => {
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(
+				orderColumn('portalA', 'rel', [{ component_tipo: 'rel' }, { component_tipo: 'leaf' }]),
+				orderColumn('portalB', 'rel', [{ component_tipo: 'rel' }, { component_tipo: 'leaf' }]),
+			),
+		);
+		expect((index.byObserved.get('leaf') ?? []).length).toBe(1);
+		expect((index.byObserved.get('rel') ?? []).map((sub) => sub.observerTipo).sort()).toEqual([
+			'portalA',
+			'portalB',
+		]);
+		expect(index.diagnostics.orderShadowed).toEqual([]);
+	});
+
+	test('order-derived edges take part in the cycle scan', () => {
+		// a portal ordered through ITSELF (a self-referencing relation column)
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(orderColumn('loop1', 'loop1', [{ component_tipo: 'loop1' }])),
+		);
+		expect(index.diagnostics.cycles.length).toBeGreaterThan(0);
+		expect(validateSubscriptionContract(index).some((error) => error.includes('CYCLE'))).toBe(true);
+	});
+
+	test('the reconciler never sweeps them (isCoveredReconcileEdge — unchanged — is false)', () => {
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(orderColumn('portal10', 'date10', [{ component_tipo: 'date10' }])),
+		);
+		const derived = index.byObserved.get('date10')?.[0];
+		expect(derived).toBeDefined();
+		expect(isCoveredReconcileEdge(derived as NonNullable<typeof derived>)).toBe(false);
+	});
+
+	test('derived edges are deep-frozen with the rest of the index', () => {
+		const index = buildSubscriptionIndex(
+			[],
+			undefined,
+			orderCtx(orderColumn('portal11', 'date11', [{ component_tipo: 'date11' }])),
+		);
+		expect(Object.isFrozen(index.diagnostics.orderDerived)).toBe(true);
+		expect(Object.isFrozen(index.diagnostics.orderUnresolved)).toBe(true);
+		expect(Object.isFrozen(index.byObserved.get('date11')?.[0]?.entry)).toBe(true);
+	});
+});
+
 describe('index immutability', () => {
 	test('the built index is deep-frozen (rebuild on invalidation, never patch)', () => {
 		const index = buildSubscriptionIndex([
@@ -611,6 +1064,44 @@ describe('live-ontology gates (suite DB)', () => {
 		expect(registry.diagnostics.deadWildcards).toEqual([]);
 		expect(registry.diagnostics.hostUnresolved).toEqual([]);
 		expect(registry.diagnostics.cycles).toEqual([]);
+	});
+
+	test('LAW-DERIVED (pass 3, live): the catalog term copy observer derives its type-side edge; the declared one shadows', async () => {
+		// The suite twins of the reported bug: the catalog term's two
+		// source_overwrite copies of its coin type (pointer testcoincatalog1004).
+		// testcoincatalog1013 copies test6157 and declares NO edge on it — derived;
+		// testcoincatalog1019 copies test6105 and DECLARES the inverse edge — the
+		// declaration wins (no second edge).
+		const registry = await getSubscriptionRegistry();
+		expect(registry.diagnostics.lawDerived).toContain('test6157->testcoincatalog1013');
+		expect(registry.diagnostics.lawShadowed).toContain('test6105->testcoincatalog1019');
+		const derived = (registry.byObserved.get('test6157') ?? []).filter(
+			(sub) => sub.observerTipo === 'testcoincatalog1013',
+		);
+		expect(derived.length).toBe(1);
+		expect(derived[0]).toMatchObject({
+			declaration: 'law-derived',
+			origin: 'law',
+			via: 'testcoincatalog1004',
+		});
+		expect(
+			(registry.byObserved.get('test6105') ?? []).filter(
+				(sub) => sub.observerTipo === 'testcoincatalog1019' && sub.origin === 'law',
+			),
+		).toEqual([]);
+		// The consumers that read getObserverSubscriptions see the derived edge
+		// with no change on their side (critique 11): the write ledger's
+		// observed-tipo gate and the cascade's leaf pre-gate both count it.
+		const { getObserverSubscriptions } = await import(
+			'../../src/core/section/record/observer_subscriptions.ts'
+		);
+		expect(
+			(await getObserverSubscriptions('test6157')).some(
+				(sub) => sub.observerTipo === 'testcoincatalog1013' && sub.origin === 'law',
+			),
+		).toBe(true);
+		const { isObservedTipo } = await import('../../src/core/section_record/obligation_ledger.ts');
+		expect(await isObservedTipo('test6157')).toBe(true);
 	});
 
 	test('SINGLE-DECLARATION (gate a, live): the reported bug edge is dispatchable, host = the observer own section', async () => {

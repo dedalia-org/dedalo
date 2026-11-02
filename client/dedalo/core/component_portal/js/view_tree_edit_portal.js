@@ -43,9 +43,11 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {window_section_rows} from '../../section/js/section.js'
+	import {place_list_after} from '../../common/js/common.js'
 	import {
 		add_wrapper_events,
-		get_buttons
+		get_buttons_by_permissions,
+		render_list_after
 	} from './render_edit_component_portal.js'
 	import {view_line_edit_portal} from './view_line_edit_portal.js'
 
@@ -127,9 +129,7 @@ view_tree_edit_portal.render = async function(self, options) {
 		// view ADDS an input path and removes none, so the autocomplete input a portal
 		// declares (e.g. properties.source.mode 'autocomplete') survives. That was
 		// incidental while this block existed; with the declared toolbar it is intentional.
-		const buttons = (self.permissions > 1)
-			? get_buttons(self)
-			: null
+		const buttons = get_buttons_by_permissions(self) // full toolbar >1; update-external only at 1
 
 	// wrapper. ui build_edit returns component wrapper
 		const wrapper = ui.component.build_wrapper_edit(self, {
@@ -140,6 +140,9 @@ view_tree_edit_portal.render = async function(self, options) {
 		})
 		// set pointers
 		wrapper.content_data = content_data
+
+	// list_after. The non-row sibling, right after content_data
+		place_list_after(wrapper, content_data)
 
 	// (!) NO THESAURUS PANE IS BUILT HERE, and that is the whole point.
 	// tool_indexation — the working reference — renders the area into its own
@@ -177,14 +180,13 @@ export const add_events = function(self, wrapper) {
 
 /**
 * GET_CONTENT_DATA
-* Build the `content_data` container and hand the page's rows to a ROW WINDOW
-* (section.js window_section_rows → common/js/row_window.js): a `section_record`
-* is built and rendered only for the rows the viewport can reach — at most
-* ROW_WINDOW_MAX_ROWS at once — and released past the far edge (audit P2-31 /
-* CLI-29: the picker's page is the portal's, and "show all" is the server
-* ceiling). The first window is filled before this resolves.
-*
-* Empty list handling: when `rows` is empty the container stays blank.
+* Build the (empty) `content_data` container and hand the page's rows to the ROW
+* DOOR (section.js window_section_rows → section_record/js/record_window.js) on
+* EVERY content render, N=0 included (WC-2026-10-30-section-record-row-box). The
+* window keeps the row invariant and builds at most ROW_WINDOW_MAX_ROWS rows at
+* once (audit P2-31 / CLI-29: the picker's page is the portal's, and "show all" is
+* the server ceiling). The fill is done before this resolves. The tree view has no
+* drag source.
 *
 * The `button_close: null` option passed to `build_content_data` suppresses the
 * close-button that some other views add to the content area header.
@@ -198,20 +200,26 @@ const get_content_data = async function(self, rows) {
 	// content_data
 		const content_data = ui.component.build_content_data(self,{button_close: null})
 
-	// row window
-		if (rows.length > 0) {
-			await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				// rows share the line view's design (children/parent portals): the
-				// server's children_view ('text' for the relation family), never 'tree'
-				records_options	: {
-					mode : 'list',
-					view : self.context.children_view || 'text'
-				}
-			})
-		}
+	// rows. The door, always (N=0 included)
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows,
+			// rows share the line view's design (children/parent portals): the
+			// server's children_view ('text' for the relation family), never 'tree'
+			records_options	: {
+				mode : 'list',
+				view : self.context.children_view || 'text'
+			},
+			layout			: 'list'
+		})
+
+	// list_after. Only the print notice can apply here
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window,
+			references		: false
+		})
 
 
 	return content_data

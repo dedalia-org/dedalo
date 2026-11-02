@@ -256,7 +256,7 @@ const render_content_value = function(options) {
 
 				// restore class after time interval
 				setTimeout(function(){
-					[button_activate,button_new].map(el => {
+					[button_activate,button_new].forEach(el => {
 						el.classList.toggle('hide')
 					})
 				}, 5000)
@@ -460,6 +460,13 @@ const open_target_section = async function (self) {
 					callback	: async () => {
 
 						// section. Create the target section instance
+						// caller: the slot. The modal lives outside the list row,
+						// so this link is how the row's record window sees an
+						// edit inside it (its pins walk `caller` to the row,
+						// WC-2026-10-30-section-record-row-box): without it the row
+						// could be released, and this slot destroyed, under an open
+						// modal. Re-asserted after get_instance: `caller` is not
+						// part of the instance key and a cache hit skips init.
 						const section = await get_instance({
 							model			: 'section',
 							mode			: 'edit',
@@ -468,8 +475,10 @@ const open_target_section = async function (self) {
 							section_id		: section_id,
 							inspector		: false,
 							session_save	: false,
-							session_key		: 'section_' + section_tipo + '_' + self.tipo
+							session_key		: `section_${section_tipo}_${self.tipo}`,
+							caller			: self
 						})
+						section.caller = self
 						await section.build(true)
 						const section_node = await section.render()
 

@@ -84,24 +84,37 @@ import {
 	CONTAINER_OUT,
 	CONTAINER_SRC,
 	containerMounts,
+	DEFAULT_UNIT_BINS,
 	DRIVER_SCRIPT,
 	dockerComposeEnv,
 	failFastSkip,
 	finishDockerRun,
 	gitScrubbedEnv,
+	INSTANCE_LANES,
+	instanceLanesEnv,
+	instanceLanesFault,
 	keepRunLogs,
+	LANES_ALONE_MIN_BYTES,
+	LANES_BESIDE_DB_MIN_BYTES,
+	MAX_UNIT_BINS,
 	orphanCiVolumes,
 	parseStages,
+	prefixLines,
 	pruneRunLogs,
 	recordArgsFault,
 	recordCopyFault,
 	recordEnv,
 	recordNewFiles,
 	recordRefFault,
+	runStreaming,
 	type Stage,
 	statRunDir,
+	stepsFileName,
 	TIERS,
 	type TierResult,
+	tierSchedule,
+	unitBinsEnv,
+	unitBinsFault,
 	workingTreeLists,
 } from '../../scripts/ci_local.ts';
 
@@ -579,6 +592,229 @@ describe('--fail-fast — a red tier ends the run, the rest is REPORTED not_run'
 	});
 });
 
+describe('tier schedule — --docker runs the tiers CONCURRENTLY, serial only where it must be', () => {
+	const flags = (...names: string[]) => ({ flags: new Set(names) });
+
+	test('docker, several tiers: concurrent', () => {
+		expect(tierSchedule(flags('--docker'), 3).concurrent).toBe(true);
+		expect(tierSchedule(flags('--docker', '--db', '--instance'), 2).concurrent).toBe(true);
+	});
+
+	test('serial: host mode, --fail-fast, a recording, --serial-tiers, one tier — each says why', () => {
+		const cases: [ReturnType<typeof flags>, number, RegExp][] = [
+			[flags(), 3, /host mode/],
+			[flags('--docker', '--fail-fast'), 3, /fail-fast/],
+			[flags('--docker', '--record-unit-baseline'), 1, /one tier/],
+			[flags('--docker', '--record-parity-baseline'), 2, /recording/],
+			[flags('--docker', '--serial-tiers'), 3, /serial-tiers/],
+			[flags('--docker'), 1, /one tier/],
+		];
+		for (const [args, count, why] of cases) {
+			const schedule = tierSchedule(args, count);
+			expect(schedule.concurrent).toBe(false);
+			expect(schedule.reason).toMatch(why);
+		}
+	});
+
+	test('each tier reads its OWN steps file — the name the driver derives from DEDALO_CI_TIER_SCRIPT', () => {
+		// Concurrent tiers share one /ci-in: a single steps.lst would hand every tier the
+		// last writer's steps. The driver's derivation is run, not re-spelled.
+		const names = TIERS.map((tier) => stepsFileName(tier));
+		expect(new Set(names).size).toBe(TIERS.length);
+		for (const tier of TIERS) {
+			const derived = Bun.spawnSync(['bash', '-c', 'basename "$DEDALO_CI_TIER_SCRIPT" .sh'], {
+				env: { ...process.env, DEDALO_CI_TIER_SCRIPT: tier.script },
+			});
+			expect(`${derived.stdout.toString().trim()}.lst`).toBe(stepsFileName(tier));
+		}
+		expect(DRIVER_SCRIPT).toContain(
+			'done < "/ci-in/steps/$(basename "$DEDALO_CI_TIER_SCRIPT" .sh).lst"',
+		);
+		expect(DRIVER_SCRIPT).not.toContain('/ci-in/steps.lst');
+	});
+
+	test('prefixLines tags every complete line, blank ones included, and adds no line', () => {
+		expect(prefixLines('a\nb\n', '[db] ')).toBe('[db] a\n[db] b\n');
+		expect(prefixLines('\n\nx\n', '[i] ')).toBe('[i] \n[i] \n[i] x\n');
+		expect(prefixLines('', '[i] ')).toBe('');
+	});
+
+	test('a prefixed run still CAPTURES untagged — the stage parser never sees the prefix', async () => {
+		const { code, output } = await runStreaming(
+			['bash', '-c', 'echo "== db_tier: stage"; echo "(fail) x" >&2; printf "tail"'],
+			{ cwd: REPO_ROOT, env: process.env, prefix: '[db] ' },
+		);
+		expect(code).toBe(0);
+		expect(output).not.toContain('[db] ');
+		expect(output).toContain('== db_tier: stage\n');
+		expect(output).toContain('(fail) x\n');
+		expect(output).toContain('tail\n');
+	});
+});
+
+describe('stage durations — each stage is timed from its marker to the next', () => {
+	test('lineTimes give every stage its wall seconds; the last runs to the final line', () => {
+		const output = [
+			'== instance_tier: build',
+			'x',
+			'== instance_tier: client suite',
+			'== instance_tier: RED in the client suite (exit 1)',
+			'== instance_tier: crawl',
+			'y',
+			'',
+		].join('\n');
+		const times = [0, 1_000, 5_000, 65_000, 66_000, 186_000];
+		const stages = parseStages('instance_tier', output, 1, times);
+		expect(stages.map((stage) => [stage.name, stage.duration_s])).toEqual([
+			['build', 5],
+			['client suite', 61],
+			['crawl', 120],
+		]);
+		expect(stages[1]?.verdict).toBe('red');
+		expect(JSON.stringify(stages)).not.toContain('started_ms');
+	});
+
+	test("a stage's own TOOK line wins over arrival time (lane logs print whole at the lane's end)", () => {
+		const output = [
+			'== instance_tier: crawl',
+			'x',
+			'== instance_tier: TOOK 1170s',
+			'== instance_tier: phone',
+			'== instance_tier: RED in the phone contract (exit 1)',
+			'== instance_tier: TOOK 549s',
+			'',
+		].join('\n');
+		const stages = parseStages('instance_tier', output, 1, [0, 1, 2, 3, 4, 5]);
+		expect(stages.map((stage) => [stage.name, stage.duration_s, stage.verdict])).toEqual([
+			['crawl', 1170, 'green'],
+			['phone', 549, 'red'],
+		]);
+		expect(JSON.stringify(stages)).not.toContain('took_s');
+	});
+
+	test('untimed (no lineTimes): no duration_s key at all', () => {
+		const stages = parseStages('db_tier', '== db_tier: a\n== db_tier: b\n', 0);
+		expect(stages.every((stage) => !('duration_s' in stage))).toBe(true);
+	});
+
+	test('runStreaming returns one arrival time per captured line', async () => {
+		const { output, lineTimes } = await runStreaming(
+			['bash', '-c', 'echo a; echo b >&2; printf c'],
+			{
+				cwd: REPO_ROOT,
+				env: process.env,
+			},
+		);
+		expect(lineTimes.length).toBe(output.split('\n').length - 1);
+		expect(lineTimes.length).toBe(3);
+	});
+});
+
+describe('instance lanes — the default follows the Docker VM; the flag decides', () => {
+	const args = (flags: string[], values: Record<string, string> = {}) => ({
+		flags: new Set(flags),
+		values: new Map(Object.entries(values)),
+	});
+
+	test('default by the Docker VM: lanes beside the db tier only with >= 14 GiB, alone with >= 6 GiB', () => {
+		const GiB = 1024 ** 3;
+		const lanes = (
+			flags: string[],
+			vm?: { memBytes: number; besideDbTier: boolean },
+			values = {},
+		) => instanceLanesEnv(args(flags, values), vm).DEDALO_CI_INSTANCE_LANES;
+		const L = String(INSTANCE_LANES);
+		// measured: 7.6 GiB beside the db tier overran (40 → 66 min); 15.6 GiB held it (peak 11.3)
+		expect(lanes(['--docker'], { memBytes: 7.6 * GiB, besideDbTier: true })).toBe('1');
+		expect(lanes(['--docker'], { memBytes: 15.6 * GiB, besideDbTier: true })).toBe(L);
+		expect(
+			lanes(['--docker'], { memBytes: LANES_BESIDE_DB_MIN_BYTES - 1, besideDbTier: true }),
+		).toBe('1');
+		// alone (no db tier beside it): 7.6 GiB held it (peak 3.6 GiB, 40 → 20 min)
+		expect(lanes(['--docker'], { memBytes: 7.6 * GiB, besideDbTier: false })).toBe(L);
+		expect(lanes(['--docker'], { memBytes: LANES_ALONE_MIN_BYTES - 1, besideDbTier: false })).toBe(
+			'1',
+		);
+		// unknown VM (docker info said nothing), host mode: serial
+		expect(lanes(['--docker'])).toBe('1');
+		expect(lanes([], { memBytes: 64 * GiB, besideDbTier: false })).toBe('1');
+		// the flag decides whatever the VM
+		expect(
+			lanes(['--docker'], { memBytes: 7.6 * GiB, besideDbTier: true }, { '--instance-lanes': L }),
+		).toBe(L);
+		expect(
+			lanes(['--docker'], { memBytes: 64 * GiB, besideDbTier: false }, { '--instance-lanes': '1' }),
+		).toBe('1');
+		expect(LANES_BESIDE_DB_MIN_BYTES).toBeGreaterThan(11.3 * GiB);
+	});
+
+	test('--instance-lanes takes 1 or the planned lane count, nothing else', () => {
+		expect(instanceLanesFault(args([]) as never)).toBeNull();
+		expect(instanceLanesFault(args([], { '--instance-lanes': '1' }) as never)).toBeNull();
+		expect(
+			instanceLanesFault(args([], { '--instance-lanes': String(INSTANCE_LANES) }) as never),
+		).toBeNull();
+		for (const bad of ['2', '4', '0', 'x'])
+			expect(instanceLanesFault(args([], { '--instance-lanes': bad }) as never)).toMatch(
+				/takes 1 \(serial\) or/,
+			);
+	});
+
+	test('the planned lane count is the one the provisioner clones and the tier reads', () => {
+		const tier = readFileSync(join(REPO_ROOT, 'scripts/ci/instance_tier.sh'), 'utf8');
+		const lanes = readFileSync(join(REPO_ROOT, 'scripts/ci/instance_lanes.ts'), 'utf8');
+		expect(lanes).toContain(`export const INSTANCE_LANES = ${INSTANCE_LANES};`);
+		// one clone name read per lane, and one background lane per clone
+		expect([...tier.matchAll(/sed -n (\d)p "\$lane_logs\/databases"/g)].map((m) => m[1])).toEqual(
+			Array.from({ length: INSTANCE_LANES }, (_, i) => String(i + 1)),
+		);
+		expect([...tier.matchAll(/\(in_lane "\$\w+" && lane_\w+\) >/g)]).toHaveLength(INSTANCE_LANES);
+		expect(readFileSync(join(REPO_ROOT, 'ci/compose.yml'), 'utf8')).toContain(
+			'DEDALO_CI_INSTANCE_LANES: ${DEDALO_CI_INSTANCE_LANES:-1}',
+		);
+	});
+});
+
+describe('instance lanes — a lane log reaches stdout WHOLE through a non-blocking pipe', () => {
+	test('writeAllToStdout resumes after partial writes and waits out EAGAIN; any other error throws', async () => {
+		const { writeAllToStdout } = await import('../../scripts/ci/instance_lanes.ts');
+		const bytes = new TextEncoder().encode('0123456789');
+		const got: number[] = [];
+		let calls = 0;
+		const flaky = ((_fd: number, buf: Uint8Array, offset: number, length: number) => {
+			calls++;
+			if (calls % 2 === 0) throw Object.assign(new Error('EAGAIN'), { code: 'EAGAIN' });
+			const n = Math.min(3, length); // a full pipe takes a few bytes at a time
+			got.push(...buf.subarray(offset, offset + n));
+			return n;
+		}) as unknown as typeof import('node:fs').writeSync;
+		writeAllToStdout(bytes, flaky);
+		expect(new TextDecoder().decode(new Uint8Array(got))).toBe('0123456789');
+		expect(calls).toBeGreaterThan(4);
+		const broken = (() => {
+			throw Object.assign(new Error('EPIPE'), { code: 'EPIPE' });
+		}) as unknown as typeof import('node:fs').writeSync;
+		expect(() => writeAllToStdout(bytes, broken)).toThrow('EPIPE');
+	});
+
+	test('the tier prints lane logs through it, never cat (cat dies on EAGAIN mid-file)', () => {
+		const tier = readFileSync(join(REPO_ROOT, 'scripts/ci/instance_tier.sh'), 'utf8');
+		expect(tier).toContain(
+			'bun run scripts/ci/instance_lanes.ts print "$lane_logs/$lane.log" || print_rc=$?',
+		);
+		expect(tier).not.toMatch(/^\s*cat "\$lane_logs/m);
+		// the clone names travel in a FILE: the shard helpers log on stdout, and a
+		// captured stdout once handed lane 1 a log line as its database
+		expect(tier).toContain(
+			'bun run scripts/ci/instance_lanes.ts provision "$lane_logs/databases" || lanes_rc=$?',
+		);
+		expect(tier).not.toMatch(/instance_lanes\.ts provision[^\n]*>/);
+		// a fresh lane-log directory per run: the log mount is shared by concurrent tiers
+		expect(tier).toContain('lane_logs="$(mktemp -d "$DEDALO_CI_LOG_DIR/instance_lanes.XXXXXX")"');
+		expect(tier).not.toMatch(/lane_logs="\$DEDALO_CI_LOG_DIR\/instance_lanes"/);
+	});
+});
+
 describe('the REAL tier scripts still speak the protocol parseStages reads', () => {
 	for (const tier of TIERS) {
 		const source = readFileSync(join(REPO_ROOT, tier.script), 'utf8');
@@ -694,7 +930,7 @@ describe('the unit stage is BLOCKING — and the desk skip is retired', () => {
 			'\t[ "$record_rc" -eq 0 ] || { echo "== db_tier: RED in the unit-baseline recording (exit $record_rc) — nothing copied out"; tier_status=1; }',
 			'\t[ "$record_rc" -ne 0 ] || cp engineering/unit_baseline.json "$DEDALO_CI_UNIT_RECORD_OUT/unit_baseline.json"',
 			'else',
-			'\tbun run scripts/unit_baseline.ts --check || unit_rc=$?',
+			'\tbun run scripts/unit_baseline.ts --check --bins="${DEDALO_CI_UNIT_BINS:-1}" || unit_rc=$?',
 			'fi',
 			'[ "$unit_rc" -eq 0 ] || { echo "== db_tier: RED in the unit tier (exit $unit_rc)"; tier_status=1; }',
 		]);
@@ -832,6 +1068,45 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 		expect(recordCopyFault(undefined)).toContain('never ran');
 	});
 
+	test('the unit bin count is ALWAYS set — sharded by default in the image, serial on the host and for a recording', () => {
+		// Explicit, so a shell export never changes what the gate measures.
+		expect(unitBinsEnv(args(['--docker']))).toEqual({
+			DEDALO_CI_UNIT_BINS: String(DEFAULT_UNIT_BINS),
+		});
+		expect(DEFAULT_UNIT_BINS).toBeGreaterThan(1);
+		expect(DEFAULT_UNIT_BINS).toBeLessThanOrEqual(MAX_UNIT_BINS);
+		// The host's cluster is not compose's: serial unless asked.
+		expect(unitBinsEnv(args([]))).toEqual({ DEDALO_CI_UNIT_BINS: '1' });
+		expect(unitBinsEnv(args([], { '--unit-bins': '1' }))).toEqual({ DEDALO_CI_UNIT_BINS: '1' });
+		expect(unitBinsEnv(args([], { '--unit-bins': '6' }))).toEqual({ DEDALO_CI_UNIT_BINS: '6' });
+		// The baseline is DEFINED by the serial run: a recording never shards.
+		expect(unitBinsEnv(args(['--docker', '--record-unit-baseline']))).toEqual({
+			DEDALO_CI_UNIT_BINS: '1',
+		});
+		expect(unitBinsFault(args([]))).toBeNull();
+		expect(unitBinsFault(args([], { '--unit-bins': '4' }))).toBeNull();
+		for (const bad of ['0', '-1', '2.5', 'four', '99', String(MAX_UNIT_BINS + 1)])
+			expect(unitBinsFault(args([], { '--unit-bins': bad })), bad).toContain('--unit-bins');
+		expect(
+			unitBinsFault(args(['--docker', '--record-unit-baseline'], { '--unit-bins': '4' })),
+		).toContain('recorded serially');
+		// …and the docker run hands it to the tier.
+		expect(
+			dockerComposeEnv({
+				image: 'img',
+				inputs: '/in',
+				outputs: '/out',
+				sha: 'a'.repeat(40),
+				branch: 'master',
+				base: undefined,
+				auditBase: '',
+				overlay: false,
+				args: args([], { '--unit-bins': '3' }),
+				mounts: [],
+			}).DEDALO_CI_UNIT_BINS,
+		).toBe('3');
+	});
+
 	test('both record keys are ALWAYS set — off is explicit, so a shell export never turns a check into a write', () => {
 		const NEW_OFF = {
 			DEDALO_CI_UNIT_RECORD_NEW: '',
@@ -948,15 +1223,36 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 				DEDALO_CI_UNIT_RECORD_ALLOW: '0',
 				DEDALO_CI_UNIT_RECORD_NEW: '',
 			};
-			expect(drive(off)).toEqual(['bun run scripts/unit_baseline.ts --check', 'tier_status=0']);
+			// Unset = serial (GitHub's db.yml sets nothing); ci:local hands its bin count through.
+			expect(drive(off)).toEqual([
+				'bun run scripts/unit_baseline.ts --check --bins=1',
+				'tier_status=0',
+			]);
+			expect(drive({ ...off, DEDALO_CI_UNIT_BINS: '4' })).toEqual([
+				'bun run scripts/unit_baseline.ts --check --bins=4',
+				'tier_status=0',
+			]);
+			// A recording ignores the bin count: the writer is serial by definition.
+			expect(
+				drive({
+					DEDALO_CI_UNIT_RECORD_OUT: '/ci-out',
+					DEDALO_CI_UNIT_RECORD_ALLOW: '0',
+					DEDALO_CI_UNIT_RECORD_NEW: '',
+					DEDALO_CI_UNIT_BINS: '4',
+				}),
+			).toEqual([
+				'bun run scripts/unit_baseline.ts',
+				'cp engineering/unit_baseline.json /ci-out/unit_baseline.json',
+				'tier_status=0',
+			]);
 			// BLOCKING: a check that exits 1 raises the tier (the whole script: tier_wiring leg L).
 			expect(drive({ ...off, BUN_RC: '1' })).toEqual([
-				'bun run scripts/unit_baseline.ts --check',
+				'bun run scripts/unit_baseline.ts --check --bins=1',
 				'tier_status=1',
 			]);
 			// ALLOW alone records nothing.
 			expect(drive({ ...off, DEDALO_CI_UNIT_RECORD_ALLOW: '1' })).toEqual([
-				'bun run scripts/unit_baseline.ts --check',
+				'bun run scripts/unit_baseline.ts --check --bins=1',
 				'tier_status=0',
 			]);
 			const rec = {
@@ -976,7 +1272,7 @@ describe('--record-unit-baseline — the unit baseline is recorded IN THE IMAGE,
 			]);
 			// NEW alone records nothing; with OUT it runs --record-new, one argument per file.
 			expect(drive({ ...off, DEDALO_CI_UNIT_RECORD_NEW: 'test/unit/a.test.ts' })).toEqual([
-				'bun run scripts/unit_baseline.ts --check',
+				'bun run scripts/unit_baseline.ts --check --bins=1',
 				'tier_status=0',
 			]);
 			expect(

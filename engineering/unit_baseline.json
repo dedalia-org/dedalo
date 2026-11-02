@@ -2,12 +2,12 @@
 	"generated_by": "bun run scripts/unit_baseline.ts (runs `bun test --timeout=30000 $(bun scripts/lib/test_order.ts test/unit test/integration)` under bun's JUnit reporter and parses it via scripts/lib/parity_census.ts — never a hand-edited list)",
 	"rule": "SHRINK-ONLY red baseline for the test/unit + test/integration tier, keyed per FILE and per TEST NAME (the name is the full describe chain + test name, ' > '-joined, exactly as bun prints it). A failing test that is not listed here is a REGRESSION and fails the gate — that is the whole point: the known reds must never hide the next real one. A LISTED test that now PASSES is ALSO a gate failure. A stale entry is the ratchet quietly stopping; re-freeze so the win is locked in. Likewise a listed test that no longer exists (renamed, deleted, moved file) or is now SKIPPED: it is no longer the red it was frozen as, so the entry is stale. Keying per NAME and not per count is deliberate: a file that stops failing test A and starts failing test B has an unchanged count, and that is exactly the regression a count-only ratchet would miss. The generator REFUSES to add a failing test without --allow-regression, and the commit message MUST then say why the new red is acceptable. `measured` freezes the DEBT (failing_files/failing_tests) exactly; the SIZE counts are advisory here because this tier grows on most commits, and reddening on every added test would train the regenerate-to-green reflex the ratchet exists to prevent. The size is held by the anti-vacuity FLOORS instead, so a tier that silently stopped running is still red. `per_file` is the PER-FILE FLOOR: for every file of the tier, the cases it ran, the cases it skipped and the `expect` calls that EXECUTED (bun's own file-level JUnit attributes). Skips may only shrink; cases and assertions may only rise — a drop, or a skip that appears, is a regression the generator refuses without --allow-regression, because a test that returns before its first assertion is a PASS with assertions=0 and this count is the only thing that notices. An unrecorded file, or a recorded file that no longer reports, is stale: re-freeze. DO NOT hand-edit. Regenerate with: bun run scripts/unit_baseline.ts Why these reds exist — and why, UNLIKE the parity tier, they are NOT permanent. RECORDED IN THE CI IMAGE (2026-10-02, `bun run ci:local --docker --record-unit-baseline` on the sorted tier order; the writer refuses anywhere else): 0 frozen reds. History: 7 reds (2026-08-29) -> 3 (2026-08-30: the RAG gates stopped inheriting the machine's embedding provider; a leaked setTimeout in client_request_coalescing_tripwire stopped killing arbitrary victims) -> 2 (gate_vacuity's banked-budget case passes) -> 0 (2026-10-02: the dd1 install seed re-synced for ontology_parser; info_widget's media_icons golden builds its own term target). The stage is BLOCKING in scripts/ci/db_tier.sh since 2026-10-02 (zero drift on three executed GitHub db runs of 674c1f4f76; the 'loaded runner' leg of the old criterion was not separately exercised — engineering/CI.md): any drift from this file fails the db tier, on the runner and on the desk gate alike. Per-file floors are the image's, and a desk differs from them in BOTH directions: it asserts more where it has what a runner lacks (the sibling v6 tree, audits/, a GeoIP database, translated locales, its own ../private config) and less where the image has what the desk lacks (librsvg: media_svg_thumb skips 7 on a Mac, 0 in the image) — so a desk number is never a floor, either way. Any entry a future recording accepts (--allow-regression --reason) is expected to be FIXED; the list is shrink-only and a listed test that passes is red, so these numbers may only go DOWN.",
 	"ci_image": {
-		"fingerprint": "93116f5828c63f8be59cc0ac289ae93fec53a9fac3178cb46b40b4b6b2ef80c3"
+		"fingerprint": "07e7f372edfa05b80984be48e80768d0a67d77abd21d7c19bed828c9fe37786d"
 	},
 	"measured": {
-		"tier_files": 1310,
-		"tier_tests": 19763,
-		"tier_pass": 19715,
+		"tier_files": 1337,
+		"tier_tests": 20647,
+		"tier_pass": 20599,
 		"tier_skip": 48,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -332,7 +332,7 @@
 		"test/unit/authz_substring_gate_tripwire.test.ts": {
 			"tests": 17,
 			"skipped": 0,
-			"assertions": 200
+			"assertions": 204
 		},
 		"test/unit/backup_freshness_deep_native.test.ts": {
 			"tests": 30,
@@ -380,9 +380,9 @@
 			"assertions": 18
 		},
 		"test/unit/boot_schema_verdict_native.test.ts": {
-			"tests": 20,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 45
+			"assertions": 50
 		},
 		"test/unit/boundary_seam_tripwire.test.ts": {
 			"tests": 4,
@@ -462,7 +462,7 @@
 		"test/unit/census_derivation_tripwire.test.ts": {
 			"tests": 45,
 			"skipped": 0,
-			"assertions": 668
+			"assertions": 673
 		},
 		"test/unit/change_lang.test.ts": {
 			"tests": 15,
@@ -505,19 +505,19 @@
 			"assertions": 102
 		},
 		"test/unit/ci_local_native.test.ts": {
-			"tests": 51,
+			"tests": 66,
 			"skipped": 0,
-			"assertions": 240
+			"assertions": 327
 		},
 		"test/unit/ci_workflow_tripwire.test.ts": {
 			"tests": 45,
 			"skipped": 0,
-			"assertions": 1357
+			"assertions": 1367
 		},
 		"test/unit/client_a11y_budget_tripwire.test.ts": {
 			"tests": 13,
 			"skipped": 0,
-			"assertions": 31
+			"assertions": 36
 		},
 		"test/unit/client_action_outcome_tripwire.test.ts": {
 			"tests": 13,
@@ -540,9 +540,9 @@
 			"assertions": 3
 		},
 		"test/unit/client_control_naming_tripwire.test.ts": {
-			"tests": 8,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 43
+			"assertions": 52
 		},
 		"test/unit/client_dashboard_sink_tripwire.test.ts": {
 			"tests": 4,
@@ -587,7 +587,7 @@
 		"test/unit/client_gate_inventory_tripwire.test.ts": {
 			"tests": 43,
 			"skipped": 0,
-			"assertions": 475
+			"assertions": 479
 		},
 		"test/unit/client_idempotency_tripwire.test.ts": {
 			"tests": 44,
@@ -622,7 +622,7 @@
 		"test/unit/client_limit_zero_tripwire.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 62
+			"assertions": 61
 		},
 		"test/unit/client_local_db_singleton_tripwire.test.ts": {
 			"tests": 8,
@@ -639,10 +639,15 @@
 			"skipped": 0,
 			"assertions": 5
 		},
-		"test/unit/client_open_window_guard.test.ts": {
-			"tests": 4,
+		"test/unit/client_modal_before_close_native.test.ts": {
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 14
+			"assertions": 26
+		},
+		"test/unit/client_open_window_guard.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 26
 		},
 		"test/unit/client_outcome_unknown_native.test.ts": {
 			"tests": 4,
@@ -679,10 +684,15 @@
 			"skipped": 0,
 			"assertions": 17
 		},
-		"test/unit/client_relation_move_native.test.ts": {
-			"tests": 14,
+		"test/unit/client_record_window_native.test.ts": {
+			"tests": 94,
 			"skipped": 0,
-			"assertions": 79
+			"assertions": 1833669
+		},
+		"test/unit/client_relation_move_native.test.ts": {
+			"tests": 70,
+			"skipped": 0,
+			"assertions": 522
 		},
 		"test/unit/client_release_identity.test.ts": {
 			"tests": 17,
@@ -695,9 +705,9 @@
 			"assertions": 116
 		},
 		"test/unit/client_render_budget_native.test.ts": {
-			"tests": 11,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 1341
+			"assertions": 1374
 		},
 		"test/unit/client_render_queue_deadlock.test.ts": {
 			"tests": 1,
@@ -708,6 +718,16 @@
 			"tests": 7,
 			"skipped": 0,
 			"assertions": 22
+		},
+		"test/unit/client_row_dom_tripwire.test.ts": {
+			"tests": 127,
+			"skipped": 0,
+			"assertions": 18661
+		},
+		"test/unit/client_row_lock_hover_native.test.ts": {
+			"tests": 15,
+			"skipped": 0,
+			"assertions": 82
 		},
 		"test/unit/client_section_record_multi_section_rows.test.ts": {
 			"tests": 2,
@@ -750,9 +770,9 @@
 			"assertions": 12
 		},
 		"test/unit/client_tm_list_destroy_race.test.ts": {
-			"tests": 5,
+			"tests": 8,
 			"skipped": 0,
-			"assertions": 13
+			"assertions": 24
 		},
 		"test/unit/client_transport_deadline.test.ts": {
 			"tests": 5,
@@ -810,9 +830,9 @@
 			"assertions": 44
 		},
 		"test/unit/code_manifest.test.ts": {
-			"tests": 47,
+			"tests": 48,
 			"skipped": 0,
-			"assertions": 162
+			"assertions": 165
 		},
 		"test/unit/code_manifest_pin_native.test.ts": {
 			"tests": 6,
@@ -914,6 +934,11 @@
 			"skipped": 0,
 			"assertions": 6
 		},
+		"test/unit/component_settle_native.test.ts": {
+			"tests": 55,
+			"skipped": 0,
+			"assertions": 243
+		},
 		"test/unit/component_teardown_tripwire.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -965,9 +990,9 @@
 			"assertions": 88
 		},
 		"test/unit/config_publication_api_users.test.ts": {
-			"tests": 8,
+			"tests": 10,
 			"skipped": 0,
-			"assertions": 27
+			"assertions": 35
 		},
 		"test/unit/conform_locator_existence_native.test.ts": {
 			"tests": 5,
@@ -1018,6 +1043,11 @@
 			"tests": 8,
 			"skipped": 0,
 			"assertions": 33
+		},
+		"test/unit/covered_slot_consumers_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 23
 		},
 		"test/unit/crap_complexity_ratchet.test.ts": {
 			"tests": 15,
@@ -1192,7 +1222,7 @@
 		"test/unit/dd128_write_census_tripwire.test.ts": {
 			"tests": 24,
 			"skipped": 0,
-			"assertions": 1190
+			"assertions": 1213
 		},
 		"test/unit/dd_mcp_api.test.ts": {
 			"tests": 10,
@@ -1277,7 +1307,7 @@
 		"test/unit/dependency_integrity_tripwire.test.ts": {
 			"tests": 17,
 			"skipped": 0,
-			"assertions": 84
+			"assertions": 90
 		},
 		"test/unit/deploy_env_contract_tripwire.test.ts": {
 			"tests": 12,
@@ -1438,6 +1468,11 @@
 			"tests": 27,
 			"skipped": 0,
 			"assertions": 77
+		},
+		"test/unit/diffusion_lang_versions.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 22
 		},
 		"test/unit/diffusion_map_cache_invalidation.test.ts": {
 			"tests": 2,
@@ -1607,7 +1642,7 @@
 		"test/unit/docs_locator_shape_tripwire.test.ts": {
 			"tests": 11,
 			"skipped": 0,
-			"assertions": 98
+			"assertions": 100
 		},
 		"test/unit/docs_manual_install_tripwire.test.ts": {
 			"tests": 30,
@@ -1672,7 +1707,7 @@
 		"test/unit/error_envelope_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 2871
+			"assertions": 2893
 		},
 		"test/unit/error_registry_native.test.ts": {
 			"tests": 12,
@@ -1700,9 +1735,9 @@
 			"assertions": 24
 		},
 		"test/unit/error_taxonomy_tripwire.test.ts": {
-			"tests": 26,
+			"tests": 27,
 			"skipped": 0,
-			"assertions": 404
+			"assertions": 409
 		},
 		"test/unit/error_throw_ratchet.test.ts": {
 			"tests": 8,
@@ -1722,7 +1757,7 @@
 		"test/unit/export_download_safety_tripwire.test.ts": {
 			"tests": 20,
 			"skipped": 0,
-			"assertions": 474
+			"assertions": 472
 		},
 		"test/unit/export_external_data_lang_native.test.ts": {
 			"tests": 4,
@@ -1834,6 +1869,21 @@
 			"skipped": 0,
 			"assertions": 18
 		},
+		"test/unit/external_law_classify.test.ts": {
+			"tests": 31,
+			"skipped": 0,
+			"assertions": 86
+		},
+		"test/unit/external_law_registry_tripwire.test.ts": {
+			"tests": 16,
+			"skipped": 0,
+			"assertions": 55
+		},
+		"test/unit/external_merge_mirror.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 29
+		},
 		"test/unit/external_multi_source_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -1858,6 +1908,11 @@
 			"tests": 8,
 			"skipped": 0,
 			"assertions": 22
+		},
+		"test/unit/external_refresh_native.test.ts": {
+			"tests": 17,
+			"skipped": 0,
+			"assertions": 81
 		},
 		"test/unit/external_registry_totality_tripwire.test.ts": {
 			"tests": 18,
@@ -1894,6 +1949,11 @@
 			"skipped": 0,
 			"assertions": 75
 		},
+		"test/unit/external_tag_locators.test.ts": {
+			"tests": 15,
+			"skipped": 0,
+			"assertions": 20
+		},
 		"test/unit/external_transport_deadline_native.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -1915,9 +1975,9 @@
 			"assertions": 41
 		},
 		"test/unit/feature_crawl_tripwire.test.ts": {
-			"tests": 19,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 140
+			"assertions": 148
 		},
 		"test/unit/ffmpeg_progress_native.test.ts": {
 			"tests": 13,
@@ -2707,7 +2767,7 @@
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 32277
+			"assertions": 32605
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -2718,6 +2778,11 @@
 			"tests": 16,
 			"skipped": 0,
 			"assertions": 44
+		},
+		"test/unit/lang_versions_emit_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 58
 		},
 		"test/unit/legacy_password_migration.test.ts": {
 			"tests": 6,
@@ -2805,9 +2870,9 @@
 			"assertions": 17
 		},
 		"test/unit/maintenance_door_unbounded_native.test.ts": {
-			"tests": 12,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 71
+			"assertions": 77
 		},
 		"test/unit/maintenance_label_rules_native.test.ts": {
 			"tests": 7,
@@ -3122,7 +3187,7 @@
 		"test/unit/media_job_target_tripwire.test.ts": {
 			"tests": 2,
 			"skipped": 0,
-			"assertions": 8
+			"assertions": 9
 		},
 		"test/unit/media_jobs_reconcile.test.ts": {
 			"tests": 8,
@@ -3300,9 +3365,9 @@
 			"assertions": 18
 		},
 		"test/unit/menu_tree_datalist_native.test.ts": {
-			"tests": 10,
+			"tests": 11,
 			"skipped": 0,
-			"assertions": 42
+			"assertions": 48
 		},
 		"test/unit/migration_content_hash_tripwire.test.ts": {
 			"tests": 7,
@@ -3315,9 +3380,9 @@
 			"assertions": 43
 		},
 		"test/unit/mock_isolation_tripwire.test.ts": {
-			"tests": 12,
+			"tests": 14,
 			"skipped": 0,
-			"assertions": 30
+			"assertions": 61
 		},
 		"test/unit/model_artifact_integrity_native.test.ts": {
 			"tests": 30,
@@ -3370,34 +3435,39 @@
 			"assertions": 8
 		},
 		"test/unit/obligation_ledger_native.test.ts": {
-			"tests": 46,
+			"tests": 47,
 			"skipped": 0,
-			"assertions": 364
+			"assertions": 370
 		},
 		"test/unit/observer_cascade_native.test.ts": {
-			"tests": 15,
+			"tests": 23,
 			"skipped": 0,
-			"assertions": 39
+			"assertions": 73
 		},
 		"test/unit/observer_equivalence_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 27
+			"assertions": 33
 		},
 		"test/unit/observer_failsafe_native.test.ts": {
-			"tests": 14,
+			"tests": 16,
 			"skipped": 0,
-			"assertions": 46
+			"assertions": 61
 		},
 		"test/unit/observer_native.test.ts": {
 			"tests": 9,
 			"skipped": 0,
 			"assertions": 27
 		},
-		"test/unit/observer_reconcile_discovery_native.test.ts": {
-			"tests": 44,
+		"test/unit/observer_observed_data_native.test.ts": {
+			"tests": 8,
 			"skipped": 0,
-			"assertions": 152
+			"assertions": 41
+		},
+		"test/unit/observer_reconcile_discovery_native.test.ts": {
+			"tests": 50,
+			"skipped": 0,
+			"assertions": 161
 		},
 		"test/unit/observer_reconcile_native.test.ts": {
 			"tests": 12,
@@ -3405,19 +3475,24 @@
 			"assertions": 75
 		},
 		"test/unit/observer_reconcile_sweep_native.test.ts": {
-			"tests": 9,
+			"tests": 16,
 			"skipped": 0,
-			"assertions": 91
+			"assertions": 178
 		},
 		"test/unit/observer_seed_native.test.ts": {
 			"tests": 21,
 			"skipped": 0,
 			"assertions": 68
 		},
-		"test/unit/observer_subscriptions_native.test.ts": {
-			"tests": 32,
+		"test/unit/observer_source_overwrite_native.test.ts": {
+			"tests": 17,
 			"skipped": 0,
-			"assertions": 117
+			"assertions": 104
+		},
+		"test/unit/observer_subscriptions_native.test.ts": {
+			"tests": 54,
+			"skipped": 0,
+			"assertions": 207
 		},
 		"test/unit/onnxruntime_alignment_tripwire.test.ts": {
 			"tests": 10,
@@ -3709,6 +3784,11 @@
 			"skipped": 0,
 			"assertions": 28
 		},
+		"test/unit/orphaned_unsaved_writers_tripwire.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 16
+		},
 		"test/unit/outbound_fetch_tripwire.test.ts": {
 			"tests": 21,
 			"skipped": 0,
@@ -3825,9 +3905,9 @@
 			"assertions": 253
 		},
 		"test/unit/portal_edit_writes_native.test.ts": {
-			"tests": 20,
+			"tests": 41,
 			"skipped": 0,
-			"assertions": 41
+			"assertions": 109
 		},
 		"test/unit/portal_list_cell_pagination_native.test.ts": {
 			"tests": 9,
@@ -3845,9 +3925,14 @@
 			"assertions": 23
 		},
 		"test/unit/portal_order_by_columns_native.test.ts": {
-			"tests": 11,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 34
+			"assertions": 36
+		},
+		"test/unit/portal_order_native.test.ts": {
+			"tests": 42,
+			"skipped": 0,
+			"assertions": 272
 		},
 		"test/unit/portalize_plan_native.test.ts": {
 			"tests": 36,
@@ -3857,7 +3942,7 @@
 		"test/unit/pre_push_gate_native.test.ts": {
 			"tests": 62,
 			"skipped": 0,
-			"assertions": 336
+			"assertions": 338
 		},
 		"test/unit/predictable_tmp_tripwire.test.ts": {
 			"tests": 9,
@@ -3940,9 +4025,9 @@
 			"assertions": 7
 		},
 		"test/unit/publication_host_api_bundles_native.test.ts": {
-			"tests": 30,
+			"tests": 34,
 			"skipped": 0,
-			"assertions": 113
+			"assertions": 125
 		},
 		"test/unit/publication_host_api_reconcile.test.ts": {
 			"tests": 38,
@@ -4140,9 +4225,9 @@
 			"assertions": 129
 		},
 		"test/unit/publication_host_setup_native.test.ts": {
-			"tests": 25,
+			"tests": 26,
 			"skipped": 0,
-			"assertions": 195
+			"assertions": 199
 		},
 		"test/unit/publication_host_spec_refs_tripwire.test.ts": {
 			"tests": 4,
@@ -4330,9 +4415,9 @@
 			"assertions": 106
 		},
 		"test/unit/read_door_acl_tripwire.test.ts": {
-			"tests": 26,
+			"tests": 29,
 			"skipped": 0,
-			"assertions": 234
+			"assertions": 250
 		},
 		"test/unit/read_facade_routing.test.ts": {
 			"tests": 8,
@@ -4362,17 +4447,17 @@
 		"test/unit/reconcile_apply_policy_native.test.ts": {
 			"tests": 6,
 			"skipped": 0,
-			"assertions": 56
+			"assertions": 58
 		},
 		"test/unit/reconcile_registry_native.test.ts": {
-			"tests": 19,
+			"tests": 20,
 			"skipped": 0,
-			"assertions": 179
+			"assertions": 189
 		},
 		"test/unit/reconcile_registry_tripwire.test.ts": {
 			"tests": 18,
 			"skipped": 0,
-			"assertions": 290
+			"assertions": 304
 		},
 		"test/unit/reconcile_scheduler_native.test.ts": {
 			"tests": 12,
@@ -4413,6 +4498,11 @@
 			"tests": 6,
 			"skipped": 0,
 			"assertions": 12
+		},
+		"test/unit/referenced_by_filter_native.test.ts": {
+			"tests": 43,
+			"skipped": 0,
+			"assertions": 8821
 		},
 		"test/unit/region_split.test.ts": {
 			"tests": 6,
@@ -4508,6 +4598,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 9
+		},
+		"test/unit/relation_targets_native.test.ts": {
+			"tests": 20,
+			"skipped": 0,
+			"assertions": 141
 		},
 		"test/unit/relation_tree_target_native.test.ts": {
 			"tests": 8,
@@ -4615,9 +4710,9 @@
 			"assertions": 4
 		},
 		"test/unit/request_config_implicit.test.ts": {
-			"tests": 11,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 32
+			"assertions": 37
 		},
 		"test/unit/request_config_permission_gate.test.ts": {
 			"tests": 8,
@@ -4637,12 +4732,12 @@
 		"test/unit/request_config_source_cases.test.ts": {
 			"tests": 11,
 			"skipped": 0,
-			"assertions": 37
+			"assertions": 38
 		},
 		"test/unit/restore_door_native.test.ts": {
 			"tests": 15,
 			"skipped": 0,
-			"assertions": 208
+			"assertions": 215
 		},
 		"test/unit/restore_point_delete_native.test.ts": {
 			"tests": 10,
@@ -4939,6 +5034,11 @@
 			"skipped": 0,
 			"assertions": 11
 		},
+		"test/unit/search_statement_chokepoint_tripwire.test.ts": {
+			"tests": 41,
+			"skipped": 0,
+			"assertions": 95
+		},
 		"test/unit/search_store_decision_native.test.ts": {
 			"tests": 9,
 			"skipped": 0,
@@ -5047,7 +5147,7 @@
 		"test/unit/security_audit_2026_07_23_tripwire.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 65
+			"assertions": 67
 		},
 		"test/unit/security_fail_closed.test.ts": {
 			"tests": 13,
@@ -5145,14 +5245,14 @@
 			"assertions": 8
 		},
 		"test/unit/shard_mariadb_sweep_native.test.ts": {
-			"tests": 7,
+			"tests": 8,
 			"skipped": 0,
-			"assertions": 67
+			"assertions": 73
 		},
 		"test/unit/shard_partition_tripwire.test.ts": {
-			"tests": 21,
+			"tests": 25,
 			"skipped": 0,
-			"assertions": 104
+			"assertions": 144
 		},
 		"test/unit/sibling_order_write_native.test.ts": {
 			"tests": 10,
@@ -5210,9 +5310,9 @@
 			"assertions": 86
 		},
 		"test/unit/sql_idle_timeout_canary.test.ts": {
-			"tests": 4,
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 4
+			"assertions": 15
 		},
 		"test/unit/sqo_client_nulls.test.ts": {
 			"tests": 12,
@@ -5220,9 +5320,9 @@
 			"assertions": 25
 		},
 		"test/unit/sqo_session.test.ts": {
-			"tests": 8,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 20
+			"assertions": 28
 		},
 		"test/unit/ssrf_guard.test.ts": {
 			"tests": 42,
@@ -5250,9 +5350,9 @@
 			"assertions": 40
 		},
 		"test/unit/statement_ceiling_scope_native.test.ts": {
-			"tests": 138,
+			"tests": 143,
 			"skipped": 0,
-			"assertions": 259
+			"assertions": 279
 		},
 		"test/unit/statement_timeout_exemption.test.ts": {
 			"tests": 4,
@@ -5395,9 +5495,9 @@
 			"assertions": 748
 		},
 		"test/unit/test_baseline_tripwire.test.ts": {
-			"tests": 11,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 37
+			"assertions": 44
 		},
 		"test/unit/test_corpus_fixture.test.ts": {
 			"tests": 17,
@@ -5405,9 +5505,9 @@
 			"assertions": 4674
 		},
 		"test/unit/test_db_marker_tripwire.test.ts": {
-			"tests": 49,
+			"tests": 51,
 			"skipped": 0,
-			"assertions": 252
+			"assertions": 259
 		},
 		"test/unit/test_media_root_tripwire.test.ts": {
 			"tests": 62,
@@ -5482,7 +5582,7 @@
 		"test/unit/thesaurus_picker_tripwire.test.ts": {
 			"tests": 13,
 			"skipped": 0,
-			"assertions": 57
+			"assertions": 58
 		},
 		"test/unit/thesaurus_portal_label_lang_native.test.ts": {
 			"tests": 3,
@@ -5517,17 +5617,17 @@
 		"test/unit/tier_execution_tripwire.test.ts": {
 			"tests": 16,
 			"skipped": 0,
-			"assertions": 412
+			"assertions": 417
 		},
 		"test/unit/tier_file_order_tripwire.test.ts": {
-			"tests": 11,
+			"tests": 22,
 			"skipped": 0,
-			"assertions": 42
+			"assertions": 78
 		},
 		"test/unit/tier_wiring_tripwire.test.ts": {
 			"tests": 17,
 			"skipped": 0,
-			"assertions": 204
+			"assertions": 206
 		},
 		"test/unit/time_machine_read.test.ts": {
 			"tests": 3,
@@ -5615,9 +5715,9 @@
 			"assertions": 16
 		},
 		"test/unit/tm_filter.test.ts": {
-			"tests": 12,
+			"tests": 16,
 			"skipped": 0,
-			"assertions": 22
+			"assertions": 31
 		},
 		"test/unit/tm_history_visibility_native.test.ts": {
 			"tests": 15,
@@ -5657,7 +5757,7 @@
 		"test/unit/tm_mode_retired_tripwire.test.ts": {
 			"tests": 4,
 			"skipped": 0,
-			"assertions": 15
+			"assertions": 16
 		},
 		"test/unit/tm_permission_floor_native.test.ts": {
 			"tests": 13,
@@ -5715,9 +5815,9 @@
 			"assertions": 47
 		},
 		"test/unit/tm_two_lanes_native.test.ts": {
-			"tests": 56,
+			"tests": 58,
 			"skipped": 0,
-			"assertions": 507
+			"assertions": 516
 		},
 		"test/unit/tm_undo_log_writers_native.test.ts": {
 			"tests": 11,
@@ -5897,7 +5997,7 @@
 		"test/unit/tool_lossless_writeback_tripwire.test.ts": {
 			"tests": 85,
 			"skipped": 0,
-			"assertions": 499
+			"assertions": 503
 		},
 		"test/unit/tool_numisdata_acquisition_commit_native.test.ts": {
 			"tests": 4,
@@ -5909,6 +6009,11 @@
 			"skipped": 0,
 			"assertions": 44
 		},
+		"test/unit/tool_numisdata_order_coins_drop_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 65
+		},
 		"test/unit/tool_ontology.test.ts": {
 			"tests": 4,
 			"skipped": 0,
@@ -5917,7 +6022,7 @@
 		"test/unit/tool_ontology_parser.test.ts": {
 			"tests": 11,
 			"skipped": 0,
-			"assertions": 128
+			"assertions": 129
 		},
 		"test/unit/tool_ontology_scope.test.ts": {
 			"tests": 11,
@@ -5935,9 +6040,9 @@
 			"assertions": 259
 		},
 		"test/unit/tool_phone_tripwire.test.ts": {
-			"tests": 9,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 19
+			"assertions": 28
 		},
 		"test/unit/tool_picker_wiring_tripwire.test.ts": {
 			"tests": 3,
@@ -6280,9 +6385,9 @@
 			"assertions": 80
 		},
 		"test/unit/update_engine.test.ts": {
-			"tests": 17,
+			"tests": 30,
 			"skipped": 0,
-			"assertions": 68
+			"assertions": 123
 		},
 		"test/unit/update_engine_atomic_native.test.ts": {
 			"tests": 31,
@@ -6340,9 +6445,9 @@
 			"assertions": 41
 		},
 		"test/unit/update_run_data_rung_native.test.ts": {
-			"tests": 16,
+			"tests": 19,
 			"skipped": 0,
-			"assertions": 27
+			"assertions": 42
 		},
 		"test/unit/update_run_ontology_phase_native.test.ts": {
 			"tests": 10,
@@ -6350,19 +6455,19 @@
 			"assertions": 20
 		},
 		"test/unit/update_run_resume_native.test.ts": {
-			"tests": 31,
+			"tests": 34,
 			"skipped": 0,
-			"assertions": 126
+			"assertions": 139
 		},
 		"test/unit/update_run_start_native.test.ts": {
-			"tests": 11,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 48
+			"assertions": 59
 		},
 		"test/unit/update_run_state_machine_native.test.ts": {
-			"tests": 19,
+			"tests": 20,
 			"skipped": 0,
-			"assertions": 84
+			"assertions": 90
 		},
 		"test/unit/update_server_https_native.test.ts": {
 			"tests": 6,
@@ -6450,9 +6555,9 @@
 			"assertions": 34
 		},
 		"test/unit/utils_sqo_console_native.test.ts": {
-			"tests": 16,
+			"tests": 18,
 			"skipped": 0,
-			"assertions": 22
+			"assertions": 27
 		},
 		"test/unit/utils_update_manifest_native.test.ts": {
 			"tests": 90,
@@ -6462,7 +6567,7 @@
 		"test/unit/value_law_agreement_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,
-			"assertions": 836
+			"assertions": 839
 		},
 		"test/unit/value_law_agreement_tripwire.test.ts": {
 			"tests": 15,
@@ -6525,14 +6630,19 @@
 			"assertions": 89
 		},
 		"test/unit/wire_field_agreement_tripwire.test.ts": {
-			"tests": 4,
+			"tests": 5,
 			"skipped": 0,
-			"assertions": 16
+			"assertions": 17
 		},
 		"test/unit/wire_sqo_page_bound_native.test.ts": {
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 14
+		},
+		"test/unit/with_lang_versions_native.test.ts": {
+			"tests": 21,
+			"skipped": 0,
+			"assertions": 119
 		},
 		"test/unit/with_transaction.test.ts": {
 			"tests": 9,
@@ -6540,9 +6650,9 @@
 			"assertions": 19
 		},
 		"test/unit/write_door_native.test.ts": {
-			"tests": 26,
+			"tests": 27,
 			"skipped": 0,
-			"assertions": 145
+			"assertions": 152
 		},
 		"test/unit/write_lang_provenance_native.test.ts": {
 			"tests": 37,
@@ -6555,9 +6665,9 @@
 			"assertions": 54
 		},
 		"test/unit/write_obligations_tripwire.test.ts": {
-			"tests": 35,
+			"tests": 46,
 			"skipped": 0,
-			"assertions": 178
+			"assertions": 224
 		},
 		"test/unit/ws_a_tripwires.test.ts": {
 			"tests": 6,

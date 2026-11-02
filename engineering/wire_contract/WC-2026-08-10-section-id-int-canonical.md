@@ -322,3 +322,18 @@ cases each. `section_id_concept` and `section_id_intify_apply` stay green
   request's principal; a global admin sees all, a principal without the grant sees none of those
   owners. Registered as a `door` in `security_audit_2026_07_23_tripwire`; behaviour leg in
   `component_inverse_emit_native` (mutation-verified).
+
+## Addendum 2026-10-30 — external laws: the observer locator unions move, one read-side union added
+
+- **Surface:** the external-value law registry (`src/core/section/record/external_laws/`,
+  WC-2026-10-30-observer-external-value-laws) took over the mirror compute from
+  `observers.ts`. Its two kept unions moved with it: `StoredLocator.section_id` (a stored bag as
+  read — `types.ts`) and the equivalence `peerBag` (`inverse_search.ts`). `observers.ts` drains
+  2 → 0 and leaves the ceiling list.
+- **One new decl:** `DesiredLocator.section_id` (`types.ts`) — the item a law WANTS in the
+  mirror. The copy laws read it straight out of a stored bag (source_overwrite: the pointed
+  record's bag; observed_data: a tag payload), so the legacy string form can arrive; it is a
+  READ-side union. The merge (`merge.ts` `mergeMirror`) canonicalizes every emitted
+  `section_id` to an int, so no mirror WRITE carries a string — the wire law is unchanged.
+- **Ceilings:** `external_laws/types.ts` 2, `external_laws/inverse_search.ts` 1 (net +1 across
+  the move, the read-side decl above). Gate: `section_id_int_tripwire` DECL_CEILINGS.

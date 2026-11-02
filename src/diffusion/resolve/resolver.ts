@@ -54,6 +54,7 @@ import {
 	getNode,
 	getPropertiesByTipo,
 	getSectionRealTipo,
+	hasLangVersions,
 } from '../../core/ontology/resolver.ts';
 import { getSectionMapValue } from '../../core/ontology/section_map.ts';
 import { getChildren } from '../../core/relations/children.ts';
@@ -1639,6 +1640,43 @@ async function resolveFieldAtoms(
 }
 
 /**
+ * ddo lang pin (component_common :3341-3349): keep the pinned lang's entries
+ * (nolan passes) and emit them lang-neutral.
+ *
+ * PREFER, don't ELIMINATE. v6's component_select_lang::get_valor reads the
+ * lang NAMES resolved in DEDALO_DATA_LANG, but when a language has no name in
+ * that lang it still resolves one (interview/oh1-31 publishes "English").
+ * Filtering to the pinned lang unconditionally emptied the field instead, so
+ * the column published NULL where v6 had a value. Keep the pinned subset only
+ * when there IS one; otherwise the atoms pass unchanged.
+ *
+ * A TRANSLITERABLE component (hasLangVersions: with_lang_versions,
+ * component_iri) pinned to a lang is v6's instance IN that lang: its version
+ * when one exists, the lg-nolan base only when it does not (v6
+ * class.diffusion_sql.php:1727 / component_iri get_diffusion_value). Its
+ * lang-null atoms ARE that base, so letting them pass beside an existing
+ * version would publish base + version joined. Scoped to transliterables: for
+ * every other model a lang-null atom is lang-independent data and keeps
+ * passing as before.
+ *
+ * Exported for the gate (with_lang_versions_native) — the walk calls nothing
+ * else for a pinned terminal, so testing this IS testing the walk's pin.
+ */
+export async function applyDdoLangPin(
+	stepAtoms: MetaValueIR[],
+	pinLang: string,
+	tipo: string,
+	model: string,
+): Promise<MetaValueIR[]> {
+	const exact = stepAtoms.filter((atom) => atom.lang === pinLang);
+	const pinned =
+		exact.length > 0 && (await hasLangVersions(tipo, model))
+			? exact
+			: stepAtoms.filter((atom) => atom.lang === null || atom.lang === pinLang);
+	return pinned.length > 0 ? pinned.map((atom) => ({ ...atom, lang: null })) : stepAtoms;
+}
+
+/**
  * One resolve_chain level: the child ddos of `parentKey` executed against
  * ONE record. `visited` is the path-aware ancestor guard (chain_processor
  * :86-96) — sibling references to the same section still resolve, only a
@@ -1760,19 +1798,7 @@ async function walkChainLevel(
 				});
 			}
 			if (step.pinLang !== undefined) {
-				// ddo lang pin (component_common :3341-3349): keep the pinned lang's
-				// entries (nolan passes) and emit them lang-neutral.
-				//
-				// PREFER, don't ELIMINATE. v6's component_select_lang::get_valor reads
-				// the lang NAMES resolved in DEDALO_DATA_LANG, but when a language has
-				// no name in that lang it still resolves one (interview/oh1-31
-				// publishes "English"). Filtering to the pinned lang unconditionally
-				// emptied the field instead, so the column published NULL where v6 had
-				// a value. Keep the pinned subset only when there IS one.
-				const pinned = stepAtoms.filter((atom) => atom.lang === null || atom.lang === step.pinLang);
-				if (pinned.length > 0) {
-					stepAtoms = pinned.map((atom) => ({ ...atom, lang: null }));
-				}
+				stepAtoms = await applyDdoLangPin(stepAtoms, step.pinLang, step.tipo, step.model);
 			}
 			atoms.push(...stepAtoms);
 			continue;

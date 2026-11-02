@@ -7,38 +7,73 @@
  *
  * Discovery/candidates/loop semantics documented in the CLI header; the one
  * recompute law lives in ./observers.ts recomputeExternalRelation (row-locked,
- * in-lock shrink adjudication).
+ * in-lock shrink adjudication). WHICH law a tuple runs, and which records it
+ * visits, is the law registry's (./external_laws/: the classifier names the
+ * law, the law's own `candidateIds` names the records) — this module only
+ * discovers (observer, section) tuples and adjudicates kernel outcomes.
  */
 
 import { incrementCounter } from '../../api/counters.ts';
 import { sql } from '../../db/postgres.ts';
-import { getMatrixTableFromTipo, getNode } from '../../ontology/resolver.ts';
+import { getMatrixTableFromTipo, getNode, listSectionNodes } from '../../ontology/resolver.ts';
 import type { ReconcileDefinition } from '../../reconcile/registry.ts';
+import { isStoredExternalLaw, resolveExternalLaw } from './external_laws/classify.ts';
+import {
+	classifyObserverServerShape,
+	externalValueLawOf,
+	isObserverHostSection,
+} from './external_laws/resolvers.ts';
+import type { ExternalLaw, ExternalLawRefusalReason } from './external_laws/types.ts';
 import {
 	entryServerBlock,
 	getSubscriptionRegistry,
 	type ObserverSubscription,
 	type SubscriptionIndex,
 } from './observer_subscriptions.ts';
-import { recomputeExternalRelation } from './observers.ts';
+import { type ExternalRecomputeOutcome, recomputeExternalRelation } from './observers.ts';
+
+export type { ExternalRecomputeOutcome } from './observers.ts';
 
 const SYSTEM_USER_ID = -1;
 
-export interface ReconcileTuple {
+/**
+ * Classifier refusals that are NOT a refused tuple: the node defines no law
+ * at all (no node, no source object, law (c) without its component_to_search).
+ * The kernel answers them with its historical plain counted skip, and the
+ * reconciler never surfaced them as tuples either — they stay unswept and
+ * unreported here exactly as before the law registry.
+ */
+const LAWLESS_REASONS: ReadonlySet<ExternalLawRefusalReason> = new Set<ExternalLawRefusalReason>([
+	'node_missing',
+	'source_not_object',
+	'component_to_search_missing',
+]);
+
+/** One discovered (observed → observer @ section) tuple, before host adjudication. */
+export interface ReconcileTupleSeed {
 	observedTipo: string;
 	observerTipo: string;
 	hostSection: string;
-	componentToSearch: string;
-	sectionToSearch: string[] | 'all';
 	/**
-	 * Unported PHP sub-law key (`set_observed_data` / `source_overwrite`) when
-	 * the observer's source carries one — the tuple is surfaced and REFUSED,
-	 * never swept (Phase-0 disarm 2026-08-02): the kernel would refuse each
-	 * candidate anyway (defense-in-depth), but sweeping would print one error
-	 * per candidate (~9,200 for numisdata679/965) and then report the tuple as
-	 * CLEAN — the false-clean that would hide the armed wipe from the operator.
+	 * The observer's law, from THE classifier (external_laws/classify.ts —
+	 * the one the kernel, the dispatch and the refresh door read). A refused
+	 * law (ambiguous / malformed node) surfaces the tuple as REFUSED, never
+	 * swept: sweeping would print one kernel refusal per candidate and then
+	 * report the tuple CLEAN — the false-clean that hides a broken node.
 	 */
-	sublaw: string | null;
+	law: ExternalLaw;
+}
+
+export interface ReconcileTuple extends ReconcileTupleSeed {
+	/**
+	 * Does `hostSection` DECLARE the observer (isObserverHostSection — the one
+	 * census the kernel's host precondition reads)? A non-host tuple (an index
+	 * fan-out face that does not declare the observer) is NEVER swept: the
+	 * kernel's host precondition is strict (owner ruling 2026-10-30), so every
+	 * record there — stored slot or not — is a counted no-op. The sweep only
+	 * COUNTS the slots already stored there (`notHostSlots`) and says so.
+	 */
+	host: boolean;
 }
 
 export interface ReconcileOptions {
@@ -80,7 +115,12 @@ export interface ReconcileSummary {
 	drifted: number;
 	repaired: number;
 	shrinksSkipped: number;
-	/** Tuples refused wholesale: unported PHP sub-law (see ReconcileTuple.sublaw). */
+	/**
+	 * Tuples refused wholesale: the classifier refuses the observer's law
+	 * (see ReconcileTupleSeed.law). The name predates the law registry (it
+	 * counted the then-unported PHP sub-laws); kept because the update
+	 * engine's report and run journal read it under this key.
+	 */
 	sublawRefused: number;
 	/** Records whose persist hit the PHP >2000-reference freeze (computed, not written). */
 	bigResultRefused: number;
@@ -100,6 +140,13 @@ export interface ReconcileSummary {
 	 * (recomputeExternalRelation indexDrift).
 	 */
 	reindexed: number;
+	/**
+	 * Observer slots STORED on records of a non-host face (a section that does
+	 * not declare the observer), left untouched — the kernel's strict host
+	 * precondition never computes there. Reported, never swept: not in
+	 * `candidates` nor `drifted`.
+	 */
+	notHostSlots: number;
 }
 
 /**
@@ -142,10 +189,6 @@ export function exceedsShrinkBudget(summary: ReconcileSummary, budget: ShrinkBud
 	return reasons;
 }
 
-/** The kernel outcome the classifier adjudicates — recomputeExternalRelation's
- * return contract, named so a gate stub can satisfy it structurally. */
-export type ExternalRecomputeOutcome = Awaited<ReturnType<typeof recomputeExternalRelation>>;
-
 /**
  * Every side effect the sweep needs, as ONE injectable seam. The default is
  * `defaultReconcileIO` (the real implementations), so today's callers are
@@ -156,6 +199,10 @@ export interface ReconcileIO {
 	getRegistry(): Promise<SubscriptionIndex>;
 	getNodeProperties(tipo: string): Promise<Record<string, unknown> | null>;
 	indexSectionsFor(componentToSearch: string): Promise<string[]>;
+	/** Every section that declares the observer (the copy laws' tuple sections). */
+	hostSectionsFor(observerTipo: string): Promise<string[]>;
+	/** The kernel's host predicate (isObserverHostSection). */
+	isHostSection(observerTipo: string, sectionTipo: string): Promise<boolean>;
 	matrixTableFor(sectionTipo: string): Promise<string | null>;
 	candidateIds(tuple: ReconcileTuple, hostTable: string, onlyId: number | null): Promise<number[]>;
 	recompute(
@@ -169,26 +216,30 @@ export interface ReconcileIO {
 }
 
 /**
- * Only the covered server shape reconciles — anything else is the cascade's
- * ledgered-skip territory, not silently swept here. Shared by the tuple
- * selector and the source pre-resolution below so the two can never diverge.
+ * The EDGE half of the covered predicate (external_laws/resolvers.ts
+ * isCoveredExternalObserverNode): a set_dato_external server block whose
+ * shape the resolver table can run (classifyObserverServerShape — the same
+ * table the live dispatch reads, so the reconciler heals exactly what the
+ * cascade fires). The NODE half — the observer classifies as a stored law —
+ * is the selector's (selectReconcileTuples). Law-derived registry edges
+ * (origin 'law', `use_inverse_relations`) qualify by construction. Anything
+ * else is the cascade's ledgered-skip territory, not silently swept here.
+ * Shared by the tuple selector and the source pre-resolution below so the
+ * two can never diverge.
  */
 export function isCoveredReconcileEdge(sub: ObserverSubscription): boolean {
 	const server = entryServerBlock(sub.entry);
 	if (server === undefined) return false;
-	if (
-		server.config?.use_observable_dato !== true ||
-		server.perform?.function !== 'set_dato_external'
-	) {
-		return false;
-	}
-	return true;
+	return !('refused' in classifyObserverServerShape(server));
 }
 
 /**
  * PURE tuple selection: every (observed → observer @ host-section) edge with
  * the covered server shape, deduped on `observerTipo|hostSection` (first edge
- * wins). `observerSource` yields the observer node's `properties.source`.
+ * wins). `observerSource` yields the observer node's `properties.source`; the
+ * law is classified from it by THE classifier (resolveExternalLaw — pure).
+ * A law-less node (LAWLESS_REASONS) yields no tuple; any other refusal yields
+ * a tuple carrying the refused law, reported and never swept.
  *
  * Unresolved hosts are RETURNED, never dropped silently (never-narrow law,
  * review 2026-08-02): a covered edge with an unresolved host still DISPATCHES
@@ -200,8 +251,8 @@ export function selectReconcileTuples(
 	edges: readonly ObserverSubscription[],
 	observerSource: (observerTipo: string) => unknown,
 	onlyObserver: string | null,
-): { tuples: ReconcileTuple[]; hostUnresolved: string[] } {
-	const tuples: ReconcileTuple[] = [];
+): { tuples: ReconcileTupleSeed[]; hostUnresolved: string[] } {
+	const tuples: ReconcileTupleSeed[] = [];
 	const hostUnresolved: string[] = [];
 	const seen = new Set<string>();
 	for (const sub of edges) {
@@ -218,37 +269,13 @@ export function selectReconcileTuples(
 		if (onlyObserver !== null && observerTipo !== onlyObserver) continue;
 		const key = `${observerTipo}|${hostSection}`;
 		if (seen.has(key)) continue;
-		const sourceValue: unknown = observerSource(observerTipo);
-		// Unported-sub-law detection FIRST (Phase-0 disarm 2026-08-02) so even
-		// a sub-law node without component_to_search surfaces as a refused
-		// tuple instead of vanishing from the report.
-		let sublaw: string | null = null;
-		if (sourceValue !== null && typeof sourceValue === 'object') {
-			for (const unportedKey of ['set_observed_data', 'source_overwrite']) {
-				if (unportedKey in (sourceValue as Record<string, unknown>)) {
-					sublaw = unportedKey;
-					break;
-				}
-			}
-		}
-		const source = sourceValue as
-			| { section_to_search?: string[]; component_to_search?: string[] | string }
-			| null
-			| undefined;
-		const componentToSearchRaw = source?.component_to_search;
-		const componentToSearch = Array.isArray(componentToSearchRaw)
-			? componentToSearchRaw[0]
-			: componentToSearchRaw;
-		if (sublaw === null && typeof componentToSearch !== 'string') continue;
-		seen.add(key);
-		tuples.push({
-			observedTipo: sub.observedTipo,
-			observerTipo,
-			hostSection,
-			componentToSearch: typeof componentToSearch === 'string' ? componentToSearch : '',
-			sectionToSearch: source?.section_to_search ?? 'all',
-			sublaw,
+		const law = resolveExternalLaw({
+			tipo: observerTipo,
+			properties: { source: observerSource(observerTipo) },
 		});
+		if (law.kind === 'refused' && LAWLESS_REASONS.has(law.reason)) continue;
+		seen.add(key);
+		tuples.push({ observedTipo: sub.observedTipo, observerTipo, hostSection, law });
 	}
 	return { tuples, hostUnresolved };
 }
@@ -264,28 +291,65 @@ export function selectReconcileTuples(
  * This union is ALSO the intended backstop for virtual↔real section faces
  * (review 2026-08-02): a host resolved via the observer's OWN section is the
  * REAL face, while stored records may carry the VIRTUAL face
- * (numisdata282->numisdata321: host numisdata276, yet every numisdata5 record
- * — all 441 — is stored under numisdata5, so the seeded tuple's queries find
- * nothing). The index rows carry the faces the records actually use, so the
- * fan-out seeds tuples at the STORED faces (measured: the numisdata321 sweep
- * discovers its tuples and drift through it). No face normalization is done
- * here on purpose — it would duplicate what the index truth already supplies.
+ * (numisdata148->numisdata322: host numisdata276, yet its targets are stored
+ * under numisdata5, so the seeded tuple's queries find nothing). The index
+ * rows carry the faces the records actually use, so the fan-out seeds tuples
+ * at the STORED faces. No face normalization is done here on purpose — it
+ * would duplicate what the index truth already supplies.
+ *
+ * The index ALSO names faces that do not declare the observer at all (R3
+ * census 2026-10-30: hierarchy93 ← rsc387 reaches numisdata6/numisdata3/tchi1,
+ * numisdata321 ← numisdata282 reaches tchi1). Those tuples are kept — a
+ * PHP-era slot stored there is still converged by the kernel — but they are
+ * adjudicated non-host (ReconcileTuple.host) and visit stored holders only.
+ *
+ * Law (c) only: its tuple sections ARE "where the referenced records live".
+ * The copy laws' are the sections that declare the observer
+ * (expandTuplesByHostSections). Refused tuples are reported once per spec
+ * host — no fan-out (their candidates are never swept anyway).
  *
  * Returns the input tuples FOLLOWED BY the fan-out (only the input list is
  * expanded — an index-seeded tuple is never re-expanded).
  */
-export async function expandTuplesByIndexSections(
-	tuples: readonly ReconcileTuple[],
+export async function expandTuplesByIndexSections<T extends ReconcileTupleSeed>(
+	tuples: readonly T[],
 	indexSectionsFor: (componentToSearch: string) => Promise<string[]>,
-): Promise<ReconcileTuple[]> {
+): Promise<T[]> {
 	const out = [...tuples];
 	const seen = new Set<string>(out.map((t) => `${t.observerTipo}|${t.hostSection}`));
 	for (const tuple of [...tuples]) {
-		// Refused sub-law tuples are reported once per spec host — no index
-		// fan-out (their candidates are never swept anyway).
-		if (tuple.sublaw !== null) continue;
-		const indexSections = await indexSectionsFor(tuple.componentToSearch);
+		if (tuple.law.kind !== 'inverse_search') continue;
+		const indexSections = await indexSectionsFor(tuple.law.componentToSearch);
 		for (const section of indexSections) {
+			const key = `${tuple.observerTipo}|${section}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push({ ...tuple, hostSection: section });
+		}
+	}
+	return out;
+}
+
+/**
+ * The copy laws' (source_overwrite, observed_data) tuple sections: every
+ * section that DECLARES the observer (`hostSectionsFor` — the one census the
+ * kernel's host precondition reads). Their records are the term/coin records
+ * themselves, stored under whatever face declares the observer — typically
+ * VIRTUAL faces of the observer's own section (terms under three virtual
+ * catalog sections of one real one), which neither the registry's host
+ * (the observer's own, real section) nor the index (keyed by what a record
+ * POINTS AT, not where it lives) names. Same append/dedup shape as the index
+ * fan-out.
+ */
+export async function expandTuplesByHostSections<T extends ReconcileTupleSeed>(
+	tuples: readonly T[],
+	hostSectionsFor: (observerTipo: string) => Promise<string[]>,
+): Promise<T[]> {
+	const out = [...tuples];
+	const seen = new Set<string>(out.map((t) => `${t.observerTipo}|${t.hostSection}`));
+	for (const tuple of [...tuples]) {
+		if (tuple.law.kind !== 'source_overwrite' && tuple.law.kind !== 'observed_data') continue;
+		for (const section of await hostSectionsFor(tuple.observerTipo)) {
 			const key = `${tuple.observerTipo}|${section}`;
 			if (seen.has(key)) continue;
 			seen.add(key);
@@ -320,7 +384,7 @@ export interface ReconcileCounts {
  */
 export function classifyReconcileOutcome(
 	outcome: ExternalRecomputeOutcome,
-	tuple: ReconcileTuple,
+	tuple: ReconcileTupleLabel,
 	sectionId: number,
 	apply: boolean,
 ): {
@@ -342,6 +406,9 @@ export function classifyReconcileOutcome(
 
 type ReconcileClassification = ReturnType<typeof classifyReconcileOutcome>;
 
+/** What the adjudication reads of a tuple: its label only. */
+type ReconcileTupleLabel = Pick<ReconcileTuple, 'observerTipo' | 'hostSection'>;
+
 function emptyReconcileCounts(): ReconcileCounts {
 	return {
 		droppedRecords: 0,
@@ -357,11 +424,13 @@ function emptyReconcileCounts(): ReconcileCounts {
 /** An unchanged value: clean, or an index-only drift (its `_hi` ancestor index missing or stale). */
 function classifyAgreeingValue(
 	outcome: ExternalRecomputeOutcome,
-	tuple: ReconcileTuple,
+	tuple: ReconcileTupleLabel,
 	sectionId: number,
 	apply: boolean,
 	counted: ReconcileCounts,
 ): ReconcileClassification {
+	const refusedLine = kernelPrecomputeRefusalLine(outcome, tuple, sectionId);
+	if (refusedLine !== null) return { drifted: false, record: null, counted, log: refusedLine };
 	if (outcome.indexDrift !== true) return { drifted: false, record: null, counted, log: null };
 	counted.reindexed = 1;
 	return {
@@ -370,6 +439,27 @@ function classifyAgreeingValue(
 		counted,
 		log: `  ${tuple.hostSection} §${sectionId} ${tuple.observerTipo}: value agrees, _hi ancestor index ${apply ? 'rewritten' : 'disagrees — an apply would rewrite it'}`,
 	};
+}
+
+/**
+ * A pre-compute kernel refusal on ONE candidate (the tuple was adjudicated
+ * sweepable, so the ontology moved under the run, or a host verdict raced):
+ * nothing was computed, so it is neither clean nor drifted — say so, never
+ * fold it into a silent "agrees". The kernel already counted it.
+ */
+function kernelPrecomputeRefusalLine(
+	outcome: ExternalRecomputeOutcome,
+	tuple: ReconcileTupleLabel,
+	sectionId: number,
+): string | null {
+	const at = `  ${tuple.hostSection} §${sectionId} ${tuple.observerTipo}`;
+	if (outcome.refusedLaw !== undefined) {
+		return `${at}: REFUSED — external value law refused (${outcome.refusedLaw.reason}); not computed`;
+	}
+	if (outcome.targetNotHost === true) {
+		return `${at}: SKIP — the section does not declare the observer (kernel no-op; a host verdict raced the sweep)`;
+	}
+	return null;
 }
 
 /**
@@ -395,7 +485,7 @@ function countDrift(
 
 function reconcileRecordOf(
 	outcome: ExternalRecomputeOutcome,
-	tuple: ReconcileTuple,
+	tuple: ReconcileTupleLabel,
 	sectionId: number,
 	dropped: number,
 	added: number,
@@ -423,7 +513,7 @@ function kernelRefusal(outcome: ExternalRecomputeOutcome): Pick<ReconcileRecord,
 /** The report line of a drifted value; moves the refusal / repaired counters. */
 function driftLog(
 	outcome: ExternalRecomputeOutcome,
-	tuple: ReconcileTuple,
+	tuple: ReconcileTupleLabel,
 	sectionId: number,
 	apply: boolean,
 	counted: ReconcileCounts,
@@ -482,16 +572,7 @@ async function discoverTuples(
 	io: ReconcileIO,
 ): Promise<ReconcileTuple[]> {
 	const registry = await io.getRegistry();
-	// The pure selector reads each covered observer's `properties.source`
-	// synchronously, so resolve them up front. getNode is a cached, side-effect
-	// free ontology read (the registry build already materialised these nodes).
-	const sourceByTipo = new Map<string, unknown>();
-	for (const sub of registry.edges) {
-		if (!isCoveredReconcileEdge(sub)) continue;
-		if (sourceByTipo.has(sub.observerTipo)) continue;
-		const properties = await io.getNodeProperties(sub.observerTipo);
-		sourceByTipo.set(sub.observerTipo, (properties as { source?: unknown } | null)?.source);
-	}
+	const sourceByTipo = await coveredObserverSources(registry.edges, io);
 	const { tuples, hostUnresolved } = selectReconcileTuples(
 		registry.edges,
 		(observerTipo) => sourceByTipo.get(observerTipo),
@@ -505,44 +586,87 @@ async function discoverTuples(
 		);
 		incrementCounter('observers_host_section_unresolved');
 	}
-	const expanded = await expandTuplesByIndexSections(tuples, (componentToSearch) =>
+	const byIndex = await expandTuplesByIndexSections(tuples, (componentToSearch) =>
 		io.indexSectionsFor(componentToSearch),
+	);
+	const expanded = await expandTuplesByHostSections(byIndex, (observerTipo) =>
+		io.hostSectionsFor(observerTipo),
 	);
 	// --section filters LAST: a spec-listed section must still seed the union
 	// (filtering inside the loops starved it — a --section tchi1 run found 0
 	// tuples although tchi1 drift exists through the index truth). The match
 	// is the tuple's host face VERBATIM (no virtual↔real normalization): pass
 	// the face the stored records carry (e.g. numisdata5, not numisdata276).
-	return onlySection === null ? expanded : expanded.filter((t) => t.hostSection === onlySection);
+	const scoped =
+		onlySection === null ? expanded : expanded.filter((t) => t.hostSection === onlySection);
+	const adjudicated: ReconcileTuple[] = [];
+	for (const tuple of scoped) {
+		adjudicated.push({
+			...tuple,
+			host: await io.isHostSection(tuple.observerTipo, tuple.hostSection),
+		});
+	}
+	return adjudicated;
 }
 
-/** Referenced-target ids ∪ stored-mirror-holder ids for one tuple. */
+/**
+ * Each covered observer's `properties.source`, resolved up front: the pure
+ * selector reads them synchronously. getNode is a cached, side-effect free
+ * ontology read (the registry build already materialised these nodes).
+ */
+async function coveredObserverSources(
+	edges: readonly ObserverSubscription[],
+	io: ReconcileIO,
+): Promise<Map<string, unknown>> {
+	const sourceByTipo = new Map<string, unknown>();
+	for (const sub of edges) {
+		if (!isCoveredReconcileEdge(sub)) continue;
+		if (sourceByTipo.has(sub.observerTipo)) continue;
+		const properties = await io.getNodeProperties(sub.observerTipo);
+		sourceByTipo.set(sub.observerTipo, (properties as { source?: unknown } | null)?.source);
+	}
+	return sourceByTipo;
+}
+
+/**
+ * One tuple's candidate records. A host tuple asks its LAW
+ * (ExternalValueLaw.candidateIds — law (c): referenced targets ∪ holders; the
+ * copy laws: records carrying their pointer/ddo ∪ holders). A non-host tuple
+ * answers the stored holders — COUNTED by the sweep, never recomputed (see
+ * ReconcileTuple.host). Never called for
+ * a refused tuple.
+ */
 async function candidateIds(
 	tuple: ReconcileTuple,
 	hostTable: string,
 	onlyId: number | null,
 ): Promise<number[]> {
-	const params: (string | number)[] = [tuple.componentToSearch, tuple.hostSection];
-	let pointingFilter = '';
-	if (tuple.sectionToSearch !== 'all' && Array.isArray(tuple.sectionToSearch)) {
-		params.push(JSON.stringify(tuple.sectionToSearch));
-		pointingFilter = ` AND section_tipo IN (SELECT jsonb_array_elements_text($${params.length}::text::jsonb))`;
+	const law = tuple.law;
+	if (!isStoredExternalLaw(law)) return [];
+	if (tuple.host) {
+		return externalValueLawOf(law).candidateIds(
+			law,
+			{ observerTipo: tuple.observerTipo, hostSection: tuple.hostSection },
+			hostTable,
+			onlyId,
+		);
 	}
-	const referenced = (await sql.unsafe(
-		`SELECT DISTINCT target_section_id AS id FROM matrix_relation_index
-		 WHERE from_component_tipo = $1 AND target_section_tipo = $2${pointingFilter}`,
-		params,
-	)) as { id: number }[];
 	const holders = (await sql.unsafe(
 		`SELECT section_id AS id FROM "${hostTable}" WHERE section_tipo = $1 AND relation ? $2`,
 		[tuple.hostSection, tuple.observerTipo],
 	)) as { id: number }[];
-	const ids = new Set<number>();
-	for (const row of [...referenced, ...holders]) ids.add(Number(row.id));
-	if (onlyId !== null) {
-		return ids.has(onlyId) ? [onlyId] : [];
-	}
+	const ids = new Set(holders.map((row) => Number(row.id)));
+	if (onlyId !== null) return ids.has(onlyId) ? [onlyId] : [];
 	return [...ids].sort((a, b) => a - b);
+}
+
+/** Every census section that declares `observerTipo` (see expandTuplesByHostSections). */
+async function hostSectionsFor(observerTipo: string): Promise<string[]> {
+	const sections: string[] = [];
+	for (const section of await listSectionNodes()) {
+		if (await isObserverHostSection(observerTipo, section.tipo)) sections.push(section.tipo);
+	}
+	return sections;
 }
 
 /** The real side-effect set — what every production caller gets. */
@@ -559,6 +683,8 @@ export const defaultReconcileIO: ReconcileIO = {
 		)) as { s: string }[];
 		return rows.map((row) => row.s);
 	},
+	hostSectionsFor,
+	isHostSection: isObserverHostSection,
 	matrixTableFor: (sectionTipo: string) => getMatrixTableFromTipo(sectionTipo),
 	candidateIds,
 	recompute: recomputeExternalRelation,
@@ -583,6 +709,7 @@ export async function reconcileObserverMirrors(
 		droppedLocators: 0,
 		degradedSeedRecords: 0,
 		reindexed: 0,
+		notHostSlots: 0,
 	};
 	const tuples = await discoverTuples(
 		options.onlyObserver ?? null,
@@ -591,13 +718,13 @@ export async function reconcileObserverMirrors(
 	);
 	summary.tuples = tuples.length;
 	for (const tuple of tuples) {
-		if (tuple.sublaw !== null) {
-			// Honest reporting of the wipe-armed nodes (Phase-0 disarm
-			// 2026-08-02): one REFUSED line + a summary count — never "0 drifted"
-			// for a tuple whose law is not even runnable.
+		if (tuple.law.kind === 'refused') {
+			// Honest reporting of a node the classifier refuses (ambiguous or
+			// malformed law): one REFUSED line + a summary count — never "0
+			// drifted" for a tuple whose law is not even runnable.
 			summary.sublawRefused++;
 			log(
-				`- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}): REFUSED — properties.source.${tuple.sublaw} is an UNPORTED PHP sub-law; candidates not swept, stored mirrors left as-is (see observers.ts Phase-0 disarm)`,
+				`- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}): REFUSED — external value law refused (${tuple.law.reason}): ${tuple.law.detail}; candidates not swept, stored mirrors left as-is`,
 			);
 			continue;
 		}
@@ -609,6 +736,18 @@ export async function reconcileObserverMirrors(
 			continue;
 		}
 		const ids = await io.candidateIds(tuple, hostTable, options.onlyId ?? null);
+		if (!tuple.host) {
+			// STRICT host precondition: the kernel never computes on a face that
+			// does not declare the observer, stored slot or not. Count the stored
+			// slots (candidateIds' non-host branch answers the holders) and say
+			// they stay as they are — never a recompute per holder only to print
+			// one kernel no-op each.
+			summary.notHostSlots += ids.length;
+			log(
+				`- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}) [not a host]: ${ids.length} stored slot(s) left untouched (the section does not declare the observer; never computed)`,
+			);
+			continue;
+		}
 		summary.candidates += ids.length;
 		let drifted = 0;
 		let shrinksSkipped = 0;
@@ -645,11 +784,20 @@ export async function reconcileObserverMirrors(
 		}
 		summary.drifted += drifted;
 		summary.shrinksSkipped += shrinksSkipped;
-		log(
-			`- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}): ${ids.length} candidate(s), ${drifted} drifted${shrinksSkipped > 0 ? ` (${shrinksSkipped} shrink(s) skipped)` : ''}${apply ? ', repaired' : ''}`,
-		);
+		log(tupleLine(tuple, ids.length, drifted, shrinksSkipped, apply));
 	}
 	return summary;
+}
+
+/** The one per-tuple summary line of a sweep. */
+function tupleLine(
+	tuple: ReconcileTuple,
+	candidates: number,
+	drifted: number,
+	shrinksSkipped: number,
+	apply: boolean,
+): string {
+	return `- ${tuple.observerTipo} @ ${tuple.hostSection} (← ${tuple.observedTipo}): ${candidates} candidate(s), ${drifted} drifted${shrinksSkipped > 0 ? ` (${shrinksSkipped} shrink(s) skipped)` : ''}${apply ? ', repaired' : ''}`;
 }
 
 /**
@@ -667,7 +815,7 @@ export const OBSERVER_MIRRORS_RECONCILE: ReconcileDefinition = {
 	description:
 		'Recompute every observer mirror from the records that reference it — heals mirrors left stale by writes that bypassed the save cascade (v6→v7 update, portalize, propagate).',
 	scopeLabel: 'host section tipo',
-	// A whole-corpus recompute; refused tuples (unported sub-laws) are reported, never swept.
+	// A whole-corpus recompute; refused tuples (a law the classifier refuses) are reported, never swept.
 	schedule: 'operator',
 	// Shells: the CLI, and the data update's post-COMMIT heal (update/engine.ts
 	// reconcileAfterCommit — it calls reconcileObserverMirrors with apply:true).
@@ -689,6 +837,7 @@ export const OBSERVER_MIRRORS_RECONCILE: ReconcileDefinition = {
 			droppedLocators: 0,
 			degradedSeedRecords: 0,
 			reindexed: 0,
+			notHostSlots: 0,
 		};
 		const records: ReconcileRecord[] = [];
 		// One sweep per scoped section (the kernel narrows by ONE section), or one

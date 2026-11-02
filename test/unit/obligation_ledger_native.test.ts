@@ -88,11 +88,16 @@
  *       reconcile re-indexes the value as stored; a dry run writes nothing.
  *   16a the component restore of a covered slot on a VIRTUAL section that has a
  *       component of its own is recomputed; 16c one on a section that does not
- *       declare the slot at all is too (the entry queues exactly what it wrote);
+ *       declare the slot at all is NOT — stored as restored (the kernel's strict
+ *       host precondition, owner ruling 2026-10-30);
  *   16b the whole-section recompute on that virtual section lists the real
  *       section's mirror, and the wipe empties the same slot (ONE census —
  *       section/record/declared_components.ts); 16d likewise a mirror declared
  *       under a NESTED section node (the census crosses nested sections).
+ *   16e a COPY-LAW slot is covered too (2026-10-30 external-value law
+ *       registry): the component restore of an `observed_data` slot (S7 —
+ *       test6380, the svg-tag locators of the test6263 legend text) converges
+ *       on the text's tags, never the restored past derivation.
  *   17  THE COVERED UNIT — a mirror and the frames that pair with its items
  *       (`id_key → id`) move together: 17a an undelete keeps every frame on
  *       its referencer (the snapshot unit stands, ids kept), never propagates
@@ -118,6 +123,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { config } from '../../src/config/config.ts';
+import { getCounters } from '../../src/core/api/counters.ts';
 import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { isInTransaction, sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
@@ -134,6 +141,7 @@ import {
 	clearObserverSubscriptionRegistry,
 	getSubscriptionRegistry,
 } from '../../src/core/section/record/observer_subscriptions.ts';
+import { isCoveredObserverTipo } from '../../src/core/section/record/observers.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { enqueueObservedChange } from '../../src/core/section_record/obligation_ledger.ts';
 import {
@@ -178,6 +186,7 @@ import {
 	REF_SECTION,
 	TERM_SECTION,
 } from '../helpers/observer_term_seed.ts';
+import { cleanScratchRecord } from '../helpers/test_data.ts';
 
 const TABLE = 'matrix_test';
 const USER_ID = -1;
@@ -2489,7 +2498,7 @@ describe('one section census: what the wipe empties is what the restore recomput
 		).toEqual([link]);
 	}, 60_000);
 
-	test('16c: the COMPONENT-RESTORE of a covered slot a record’s section does not declare at all — still recomputed: the entry queues exactly the slots it wrote', async () => {
+	test('16c: the COMPONENT-RESTORE of a covered slot a record’s section does not declare at all — STORED AS RESTORED, never recomputed (strict host precondition)', async () => {
 		// A DEF_SECTION record carrying HUB_MIRROR (declared by HUB_SECTION only —
 		// e.g. a key left by an ontology move): no census of DEF_SECTION lists it,
 		// and the write proved it covered (isCoveredObserverTipo) already.
@@ -2500,6 +2509,7 @@ describe('one section census: what the wipe empties is what the restore recomput
 			{ sectionTipo: LINK_SECTION, sectionId: link, componentTipo: LINK },
 			{ sectionTipo: DEF_SECTION, sectionId: record },
 		);
+		const notHostBefore = getCounters().observers_target_not_host ?? 0;
 		await persistRestoredKeys(
 			{ table: TABLE, sectionTipo: DEF_SECTION, sectionId: record },
 			[
@@ -2520,10 +2530,21 @@ describe('one section census: what the wipe empties is what the restore recomput
 			false,
 			{ actor: USER_ID },
 		);
+		// STRICT host precondition (owner ruling 2026-10-30): DEF_SECTION does not
+		// declare HUB_MIRROR, so the slot is not this record's value — the kernel
+		// neither heals it toward `link` nor strips the phantom: the restore's
+		// bytes stand.
 		expect(
 			await listedIn(DEF_SECTION, record, HUB_MIRROR, LINK_SECTION),
-			'the restored slot was dropped from its own recompute by the section census (the `only` list narrowed instead of queued exactly)',
-		).toEqual([link]);
+			'the kernel recomputed a slot the record’s section does not declare (the strict host precondition let a non-host holder through)',
+		).toEqual([phantom]);
+		// …and the restore DID queue the slot: the kernel was reached and refused
+		// it as not-hosted (a restore that never queued it would also leave the
+		// bytes, vacuously).
+		expect(
+			(getCounters().observers_target_not_host ?? 0) - notHostBefore,
+			'the restore never queued the non-host slot to the kernel',
+		).toBeGreaterThanOrEqual(1);
 	}, 60_000);
 
 	test('16b: the whole-section covered-slot recompute on that virtual section lists the REAL section’s mirror, and the wipe empties the same slot', async () => {
@@ -2638,4 +2659,95 @@ describe('the ledger refuses what it cannot honour, and the registry lookup stay
 			second as Awaited<ReturnType<typeof getSubscriptionRegistry>>,
 		);
 	});
+});
+
+// ---------------------------------------------------------------------------
+// 16e — a copy-law slot is a covered slot (the suite's own S7 legend nodes)
+// ---------------------------------------------------------------------------
+
+describe('16e: an observed_data (S7) slot is covered — its restore converges on the text’s tags', () => {
+	const LEGEND_SECTION = 'test6124';
+	const LEGEND_TEXT = 'test6263';
+	const TAG_SLOT = 'test6380';
+	const COIN_SECTION = 'test6100';
+	const S7_TABLE = 'matrix_test';
+	const born: { sectionTipo: string; sectionId: number }[] = [];
+	const create = async (sectionTipo: string): Promise<number> => {
+		const sectionId = await createSectionRecord(sectionTipo, USER_ID);
+		born.push({ sectionTipo, sectionId });
+		return sectionId;
+	};
+	const svgTag = (tagId: number, sectionId: number): string =>
+		`[svg-n-${tagId}--data:{'section_tipo':'${COIN_SECTION}','section_id':'${sectionId}','component_tipo':'test6232'}:data]`;
+	const slotIds = async (sectionId: number): Promise<number[]> => {
+		const rows = (await sql.unsafe(
+			`SELECT relation->$3 AS value FROM "${S7_TABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+			[LEGEND_SECTION, sectionId, TAG_SLOT],
+		)) as { value: unknown }[];
+		const value = rows[0]?.value;
+		return (Array.isArray(value) ? value : []).map((item) =>
+			Number((item as { section_id: unknown }).section_id),
+		);
+	};
+
+	afterAll(async () => {
+		for (const { sectionTipo, sectionId } of born.reverse()) {
+			await cleanScratchRecord(sectionTipo, sectionId, S7_TABLE);
+		}
+	}, 60_000);
+
+	test('16e: the COMPONENT-RESTORE of a phantom tag slot is recomputed to the legend text’s svg locators', async () => {
+		// FLOOR: the slot is covered (else nothing below is asserted).
+		expect(await isCoveredObserverTipo(TAG_SLOT)).toBe(true);
+		expect(await getMatrixTableFromTipo(LEGEND_SECTION)).toBe(S7_TABLE);
+		const coinA = await create(COIN_SECTION);
+		const coinB = await create(COIN_SECTION);
+		const phantom = await create(COIN_SECTION);
+		const legend = await create(LEGEND_SECTION);
+		const lang = config.lang.dataLangDefault;
+		const saved = await saveComponentData({
+			componentTipo: LEGEND_TEXT,
+			sectionTipo: LEGEND_SECTION,
+			sectionId: legend,
+			lang,
+			changedData: [
+				{
+					action: 'set_data',
+					// document order B, A — the slot follows the text, not the ids
+					value: [{ id: 1, lang, value: `<p>${svgTag(1, coinB)} and ${svgTag(2, coinA)}</p>` }],
+				},
+			] as never,
+			userId: USER_ID,
+		});
+		expect(saved.ok, saved.message).toBe(true);
+		expect(await slotIds(legend), 'the text save did not derive its tag slot').toEqual([
+			coinB,
+			coinA,
+		]);
+		// The restore writes a past derivation naming a coin no tag names.
+		await persistRestoredKeys(
+			{ table: S7_TABLE, sectionTipo: LEGEND_SECTION, sectionId: legend },
+			[
+				{
+					column: 'relation',
+					key: TAG_SLOT,
+					value: [
+						{
+							id: 1,
+							type: 'dd151',
+							section_tipo: COIN_SECTION,
+							section_id: phantom,
+							from_component_tipo: TAG_SLOT,
+						},
+					],
+				},
+			],
+			false,
+			{ actor: USER_ID },
+		);
+		expect(
+			await slotIds(legend),
+			'the restored observed_data slot was left as written — a copy-law slot is not treated as covered by the restore’s recompute (the phantom coin stays listed)',
+		).toEqual([coinB, coinA]);
+	}, 120_000);
 });

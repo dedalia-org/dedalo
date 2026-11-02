@@ -27,6 +27,7 @@
  * client input); every comparison VALUE travels as a bound `$N` parameter.
  */
 
+import { isReferencedByLeaf } from '../concepts/sqo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import {
 	type NormalizedDate,
@@ -258,6 +259,58 @@ function emitLeaf(leaf: Record<string, unknown>, sink: ParamSink): string | null
 }
 
 /**
+ * The Time Machine refusal of a `referenced_by` leaf
+ * (WC-2026-10-30-search-referenced-by-leaf). The leaf compiles to a predicate
+ * over T's SCOPED MATRIX ROW SET — `(section_tipo, section_id) IN (<the targets
+ * stored in the source rows' relation column>)`, evaluated against T's matrix
+ * rows under T's own WHERE (sql_assembler buildScopedRowSetSql). The Time
+ * Machine conformer works over the flat matrix_time_machine log, whose rows are
+ * snapshots, not T's record rows: that predicate has no form here. Pathless, the
+ * leaf would fall into the drop below and WIDEN the list — so it refuses loudly
+ * instead. `engine.uncovered_scope`, not
+ * `request.invalid_options`: the leaf is VALID input (sanitizeClientSqo accepts
+ * it for any section); what is missing is engine scope on this table — the same
+ * code as the unmapped-component refusal in emitLeaf.
+ */
+function refuseReferencedBy(): never {
+	throw new DedaloError('engine.uncovered_scope', {
+		message:
+			'time machine search: a referenced_by filter leaf has no matrix_time_machine form (uncovered — ledger, never silently widened)',
+	});
+}
+
+/**
+ * Throw when ANY node of a TM read's sqo.filter is a `referenced_by` leaf.
+ * buildTmWhere calls it FIRST, because its locator and tipo-column surfaces never
+ * reach conformTmFilter — a leaf there would vanish just the same.
+ */
+export function assertNoTmReferencedBy(filter: unknown): void {
+	if (filter === null || typeof filter !== 'object') return;
+	if (isReferencedByLeaf(filter)) refuseReferencedBy();
+	for (const child of filterChildren(filter)) assertNoTmReferencedBy(child);
+}
+
+/** A filter object's child nodes, in walk order: an array's items, else each boolean operator's items. */
+function filterChildren(filter: object): unknown[] {
+	if (Array.isArray(filter)) return filter;
+	const children: unknown[] = [];
+	for (const key of BOOLEAN_OPERATORS) {
+		const items = (filter as Record<string, unknown>)[key];
+		if (Array.isArray(items)) children.push(...items);
+	}
+	return children;
+}
+
+/** One boolean-operator node's conformed parts joined under its operator (null when none). */
+function joinTmGroup(opKey: string, parts: readonly string[]): string | null {
+	if (parts.length === 0) return null;
+	if (opKey === '$or') return `(${parts.join(' OR ')})`;
+	if (opKey === '$not' || opKey === '$nand') return `NOT (${parts.join(' AND ')})`;
+	if (opKey === '$nor') return `NOT (${parts.join(' OR ')})`;
+	return `(${parts.join(' AND ')})`;
+}
+
+/**
  * Conform a dd15 sqo.filter tree into a matrix_time_machine WHERE fragment.
  * Returns null when the filter carries no component clause this conformer models
  * (e.g. only the `tipo` COLUMN filter, handled by buildTmWhere's record-snapshot
@@ -266,6 +319,7 @@ function emitLeaf(leaf: Record<string, unknown>, sink: ParamSink): string | null
  */
 export function conformTmFilter(filter: unknown, sink: ParamSink): string | null {
 	if (filter === null || typeof filter !== 'object') return null;
+	if (isReferencedByLeaf(filter)) refuseReferencedBy();
 	const node = filter as Record<string, unknown>;
 
 	const opKey = Object.keys(node).find((key) => BOOLEAN_OPERATORS.has(key));
@@ -274,11 +328,7 @@ export function conformTmFilter(filter: unknown, sink: ParamSink): string | null
 		const parts = rawItems
 			.map((item) => conformTmFilter(item, sink))
 			.filter((part): part is string => part !== null && part !== '');
-		if (parts.length === 0) return null;
-		if (opKey === '$or') return `(${parts.join(' OR ')})`;
-		if (opKey === '$not' || opKey === '$nand') return `NOT (${parts.join(' AND ')})`;
-		if (opKey === '$nor') return `NOT (${parts.join(' OR ')})`;
-		return `(${parts.join(' AND ')})`;
+		return joinTmGroup(opKey, parts);
 	}
 
 	// A leaf: a component-path clause conforms; a column_name/format clause is

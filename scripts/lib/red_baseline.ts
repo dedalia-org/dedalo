@@ -25,6 +25,7 @@ import { isAbsolute, join } from 'node:path';
 import { ciImageFingerprint } from './ci_image.ts';
 import { type FileCounts, type ParityRun, REPO_ROOT } from './parity_census.ts';
 import { emitRatchetCheck, type RatchetCheck, wantsCheckJson } from './ratchet_check.ts';
+import { TEST_TIMEOUT_FLAG } from './test_flags.ts';
 import { tierFiles } from './test_order.ts';
 import { runTier } from './tier_run.ts';
 
@@ -618,6 +619,35 @@ export function formatDrift(d: TierDrift): string {
 	return lines.join('\n');
 }
 
+/**
+ * RE-RUN ONLY WHAT DRIFTED — the iterate-on-a-red loop. Every regression, stale and
+ * floor line starts with its repo-relative file (`<file>: …`); this collects those
+ * files into ONE serial `bun test` command, so a developer fixing a red re-runs
+ * minutes of tests instead of the whole tier. It is a convenience for ITERATION
+ * only: a fix can move a file it did not touch (the shard proof found order
+ * effects), so the push still needs the full gate — one full run per sha.
+ * `null` when no line names a test file (vacuity and summary drift are tier-wide).
+ */
+export function rerunCommand(d: TierDrift): string | null {
+	const files = new Set<string>();
+	// A recorded file that reported nothing and is GONE from disk was deleted or
+	// renamed — re-running it is `bun test` on a missing path; a present one crashed.
+	const gone = new Set(
+		d.floorsSilent
+			.filter(({ file }) => !existsSync(join(REPO_ROOT, file)))
+			.map(({ file }) => file.replace(/^\.\//, '')),
+	);
+	for (const line of [...d.regressions, ...d.stale, ...d.floors, ...d.floorsStale]) {
+		const match = /^\.?\/?([^\s:]+\.test\.tsx?):/.exec(line);
+		if (match?.[1] !== undefined && !gone.has(match[1])) files.add(`./${match[1]}`);
+	}
+	if (files.size === 0) return null;
+	return [
+		`RE-RUN ONLY THE ${files.size} DRIFTED FILE(S) while you iterate (the push still runs the full gate):`,
+		`  bun test ${TEST_TIMEOUT_FLAG} ${[...files].sort().join(' ')}`,
+	].join('\n');
+}
+
 export function driftCount(d: TierDrift): number {
 	return (
 		d.regressions.length +
@@ -1039,6 +1069,10 @@ export function runBaselineCli(spec: TierSpec, io: BaselineCliIo = realBaselineC
 		const drift = computeDrift(spec, run, loadBaseline(spec));
 		const any = driftCount(drift);
 		io.log(any ? formatDrift(drift) : `${spec.id}_baseline: no drift`);
+		if (any) {
+			const rerun = rerunCommand(drift);
+			if (rerun !== null) io.log(rerun);
+		}
 		io.exit(any ? 1 : 0);
 	}
 

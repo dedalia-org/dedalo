@@ -686,6 +686,10 @@ const LOCAL_ONLY_SCRIPTS: ReadonlyMap<string, string> = new Map([
 	],
 	['test:timings', 'The same generator in timings mode; a measurement, not a gate.'],
 	[
+		'test:baseline:compare',
+		'Compares a candidate run (a shard --junit-dir) to the recorded campaign — an equivalence PROOF a developer runs when changing the runner, at the campaign commit only; its comparator is gated by test_baseline_tripwire.',
+	],
+	[
 		'test:shard',
 		'Plans a shard partition for a developer running the suite in parallel; the plan itself is gated by test_shard_partition_tripwire on the hermetic tier.',
 	],
@@ -822,13 +826,29 @@ interface DrillInvocation {
 interface DrillRun {
 	code: number;
 	invocations: DrillInvocation[];
+	/** The run's last output lines (stdout then stderr): a red drill must say WHY it exited. */
+	tail: string;
 }
+
+/** ` — last output: …` for a fault line, so a red drill names its cause instead of only its code. */
+const drillTail = (run: DrillRun): string =>
+	run.tail === '' ? '' : ` — last output:\n      ${run.tail}`;
 
 const STUBBED_COMMANDS = ['bun', 'bunx', 'git', 'apt-get', 'mkdir'] as const;
 
-/** The stub every STUBBED_COMMANDS name resolves to: record, answer the two reads, do nothing. */
+/**
+ * The stub every STUBBED_COMMANDS name resolves to: record, answer the two reads, do nothing.
+ * ONE RECORD = ONE write(2). The instance tier's lanes run concurrently, so three stubs append
+ * at once; a record written field by field (one printf per field) interleaved with another
+ * lane's and the drill could not find its own kill point — leg J red "(exit -1)" on CI runners,
+ * on every Bun. Measured 2026-11-02: 3 writers × 300 records, 95 corrupted field-by-field,
+ * 0 composed in a private file and appended by one `cat` (an O_APPEND write is atomic).
+ */
 const DRILL_STUB = `#!/bin/sh
-{ printf '%s\\037' "$(basename "$0")" "$PWD"; for a in "$@"; do printf '%s\\037' "$a"; done; printf '\\036'; } >> "$DRILL_LOG"
+rec="$DRILL_LOG.rec.$$"
+{ printf '%s\\037' "$(basename "$0")" "$PWD"; for a in "$@"; do printf '%s\\037' "$a"; done; printf '\\036'; } > "$rec"
+/bin/cat "$rec" >> "$DRILL_LOG"
+/bin/rm -f "$rec"
 case "$(basename "$0")" in
 	bun) [ "$1" = "--version" ] && cat "$DRILL_PIN" ;;
 	git) case "$1" in rev-parse|merge-base) echo 0000000000000000000000000000000000000000 ;; esac ;;
@@ -847,7 +867,12 @@ exit 0
  * invocation, once; `failOn` (likewise) makes every such invocation exit 1 (leg L). The
  * script runs from the repo root, as CI runs it.
  */
-function drillScript(script: string, killOn?: string, failOn?: string): DrillRun {
+function drillScript(
+	script: string,
+	killOn?: string,
+	failOn?: string,
+	extraEnv: Readonly<Record<string, string>> = {},
+): DrillRun {
 	const dir = mkdtempSync(join(tmpdir(), 'tier_wiring_trap_'));
 	try {
 		const bin = join(dir, 'bin');
@@ -877,13 +902,31 @@ function drillScript(script: string, killOn?: string, failOn?: string): DrillRun
 					DEDALO_CI_UNIT_RECORD_NEW: '',
 					DEDALO_CI_PARITY_RECORD_OUT: '',
 					DEDALO_CI_PARITY_RECORD_ALLOW: '0',
+					// …and as GitHub's db.yml runs it (bins unset = serial): inside ci:local's
+					// image the key is exported (4), which must not move this gate's expectation.
+					DEDALO_CI_UNIT_BINS: undefined,
+					// …and never into the run's log mount: under ci:local --docker the tiers run AT
+					// ONCE and share /ci-out/logs, so a drilled root writing there (instance lanes,
+					// hermetic's daemon logs) truncated the REAL tier's live logs — measured
+					// 2026-10-31: a 112 KB lane log left sparse, the lane-name file emptied.
+					DEDALO_CI_LOG_DIR: undefined,
 					...(killOn === undefined ? {} : { DRILL_KILL_ON: killOn }),
 					...(failOn === undefined ? {} : { DRILL_FAIL_ON: failOn }),
+					...extraEnv,
 				},
-				stdout: 'ignore',
-				stderr: 'ignore',
+				stdout: 'pipe',
+				stderr: 'pipe',
 			},
 		);
+		const lastLines = (bytes: Uint8Array | undefined, n: number) =>
+			new TextDecoder()
+				.decode(bytes ?? new Uint8Array())
+				.trimEnd()
+				.split('\n')
+				.slice(-n);
+		const tail = [...lastLines(result.stdout, 6), ...lastLines(result.stderr, 6)]
+			.filter((line) => line !== '')
+			.join('\n      ');
 		const invocations = readFileSync(log, 'utf8')
 			.split('\x1e')
 			.filter((record) => record !== '')
@@ -891,7 +934,7 @@ function drillScript(script: string, killOn?: string, failOn?: string): DrillRun
 				const [command, cwd, ...argv] = record.split('\x1f').slice(0, -1);
 				return { command: command as string, cwd: cwd as string, argv };
 			});
-		return { code: result.exitCode ?? -1, invocations };
+		return { code: result.exitCode ?? -1, invocations, tail };
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -950,6 +993,7 @@ function exitTrapFaults(
 	rel: string,
 	script: string,
 	ctx: StarterContext,
+	extraEnv: Readonly<Record<string, string>> = {},
 ): { starters: string[]; faults: string[] } {
 	const root = realpathSync(ROOT);
 	const starts = (inv: DrillInvocation) =>
@@ -963,10 +1007,10 @@ function exitTrapFaults(
 		})() &&
 		argvStartsSuiteServer(inv.argv, ctx);
 	const faults: string[] = [];
-	const normal = drillScript(script);
+	const normal = drillScript(script, undefined, undefined, extraEnv);
 	if (normal.code !== 0)
 		faults.push(
-			`${rel}: the stubbed run exited ${normal.code} — the drill could not walk its stages, so nothing it starts is proven stopped`,
+			`${rel}: the stubbed run exited ${normal.code} — the drill could not walk its stages, so nothing it starts is proven stopped${drillTail(normal)}`,
 		);
 	const starters = normal.invocations.filter(starts).map((inv) => inv.argv.join(' '));
 	if (starters.length === 0) return { starters, faults };
@@ -977,7 +1021,7 @@ function exitTrapFaults(
 			`${rel}: starts the suite MariaDB (\`bun ${shown(starters[0] as string)}\`) but its run does not END with \`bun run scripts/ci/suite_mariadb.ts stop\` (the last call is \`${last?.command} ${shown(last?.argv.join(' ') ?? '')}\`) — no EXIT trap stops the server, or a later \`trap … EXIT\` REPLACED that stop; chain it instead`,
 		);
 	const killOn = starters[0] as string;
-	const killed = drillScript(script, killOn);
+	const killed = drillScript(script, killOn, undefined, extraEnv);
 	const at = killed.invocations.findIndex(
 		(inv) => inv.command === 'bun' && inv.argv.join(' ') === killOn,
 	);
@@ -1074,7 +1118,9 @@ function baselineCheckFaults(rel: string, script: string): { checks: string[]; f
 	if (clean.code !== 0)
 		return {
 			checks: [],
-			faults: [`${rel}: the clean stubbed run exited ${clean.code} — leg L cannot measure it`],
+			faults: [
+				`${rel}: the clean stubbed run exited ${clean.code} — leg L cannot measure it${drillTail(clean)}`,
+			],
 		};
 	const shape = (run: DrillRun) =>
 		run.invocations.map((inv) => `${inv.command} ${inv.argv.join(' ')}`);
@@ -1668,6 +1714,19 @@ describe('tier wiring — every gate is reached by a workflow that executes', ()
 		).toEqual([]);
 		// The floor: the DB tier starts it (its MariaDB stage and unit tier run acquirers).
 		expect(starting).toContain('scripts/ci/db_tier.sh');
+
+		// THE INSTANCE TIER'S CONCURRENT LANES (DEDALO_CI_INSTANCE_LANES=3, ci:local
+		// --docker): the publication-host lane starts the server in a BACKGROUND subshell
+		// while the tier's own shell waits — the SIGTERM reaches that waiting shell, whose
+		// EXIT trap must still kill the lanes and end on the stop.
+		const lanes = exitTrapFaults(
+			'scripts/ci/instance_tier.sh (3 lanes)',
+			join(ROOT, 'scripts/ci/instance_tier.sh'),
+			ctx,
+			{ DEDALO_CI_INSTANCE_LANES: '3' },
+		);
+		expect(lanes.faults).toEqual([]);
+		expect(lanes.starters).toContain('run scripts/ci/suite_mariadb.ts start');
 	}, 60_000);
 
 	test('K. the MariaDB stage runs LAST in every root that runs it — after the unit and parity baseline checks (executed, stubbed)', () => {
@@ -1815,8 +1874,9 @@ describe('tier wiring — every gate is reached by a workflow that executes', ()
 			`Tier roots whose red-baseline check cannot fail them:\n  ${faults.join('\n  ')}`,
 		).toEqual([]);
 		// The floor: the DB tier runs BOTH checks (the unit one blocking since 2026-10-02).
+		// (unset DEDALO_CI_UNIT_BINS = serial, `--bins=1`: GitHub's db.yml; ci:local shards.)
 		expect(checked.get('scripts/ci/db_tier.sh')).toEqual([
-			'run scripts/unit_baseline.ts --check',
+			'run scripts/unit_baseline.ts --check --bins=1',
 			'run scripts/parity_baseline.ts --check',
 		]);
 	}, 120_000);

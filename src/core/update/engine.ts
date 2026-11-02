@@ -100,6 +100,7 @@ import {
 	descriptorRefusal,
 	getMatchedDescriptor,
 	getUpdateVersion,
+	rungAboveCodeData,
 	UPDATE_CATALOG,
 	type UpdateDescriptor,
 	type UpdateScriptStep,
@@ -110,6 +111,7 @@ import {
 	SCRIPT_REGISTRY,
 	type UpdateScriptFn,
 } from './scripts.ts';
+import { DEDALO_DATA_VERSION } from './version.ts';
 
 export { SCRIPT_REGISTRY, type UpdateScriptFn } from './scripts.ts';
 
@@ -194,6 +196,15 @@ export interface UpdateEngineSeams {
 	lockTimeout?: string;
 	/** Delays before each whole-unit retry on a lock timeout (default 1s/2s/4s/8s). */
 	lockRetryDelaysMs?: readonly number[];
+	/**
+	 * The code's own data version (default DEDALO_DATA_VERSION): a rung whose target
+	 * is above it is REFUSED (rungAboveCodeData). Gates and the full drill drive
+	 * scratch rungs above this tree's data version and pass the version they
+	 * simulate; production callers take the default — every shipped door is driven
+	 * with a rung above the code and must refuse (update_engine.test.ts "no shipped
+	 * door lifts the rung-above-code ceiling", which also pins the door set).
+	 */
+	codeDataVersion?: readonly number[];
 }
 
 /** One run's accumulated lines (reset for each lock-retry attempt). */
@@ -288,6 +299,26 @@ async function readVersionInTransaction(seams: UpdateEngineSeams): Promise<reado
 	if (seams.readVersionInTx !== undefined) return seams.readVersionInTx();
 	const { readInstalledDataVersionStrict } = await import('../area_maintenance/backup.ts');
 	return readInstalledDataVersionStrict();
+}
+
+/**
+ * NO RUNG ABOVE THE CODE'S OWN DATA VERSION. The matcher runs
+ * whatever rung the INSTALLED version stands on; without this a nightly / dev
+ * build (DEDALO_DATA_VERSION still the previous release's) would move the
+ * installed data ABOVE its own code (`ahead`, /health red) and stamp a data
+ * version no build of that version ran. Refused typed, before the preflight, the
+ * log file and the transaction: nothing run, nothing written (order gated in
+ * update_engine.test.ts; WC-2026-10-31-update-rung-above-code).
+ */
+function refuseRungAboveCode(descriptor: DataUpdateDescriptor, seams: UpdateEngineSeams): void {
+	const code = seams.codeDataVersion ?? DEDALO_DATA_VERSION;
+	const target = [descriptor.versionMajor, descriptor.versionMedium, descriptor.versionMinor];
+	if (!rungAboveCodeData(target, code)) return;
+	throw new DedaloError('update.refused', {
+		message: `update refused: rung ${target.join('.')} is above this code's data version ${code.join('.')}`,
+		publicMessage: `This build's data version is ${code.join('.')}: the ${target.join('.')} data update needs a build of that version`,
+		coordinates: { rule: 'rung_above_code', target: target.join('.'), code: code.join('.') },
+	});
 }
 
 /**
@@ -493,7 +524,7 @@ function reconcileSummaryLine(summary: {
 }): string {
 	const sublaw =
 		(summary.sublawRefused ?? 0) > 0
-			? `, ${summary.sublawRefused} observer(s) REFUSED (unported sub-law)`
+			? `, ${summary.sublawRefused} observer(s) REFUSED (ambiguous or malformed value law)`
 			: '';
 	const frozen =
 		(summary.bigResultRefused ?? 0) > 0
@@ -639,6 +670,7 @@ export async function updateVersion(
 	if (descriptor === null) {
 		return failedRun(['Unable to get proper update version. Nothing to update'], []);
 	}
+	refuseRungAboveCode(descriptor, seams);
 	preflight(descriptor, updatesChecked, scripts);
 	const logPath = resolveLogPath(seams);
 	const logUnavailable = ensureLogFile(logPath);

@@ -19,6 +19,7 @@ import type { Sqo } from '../../core/concepts/sqo.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
 import { assertMatrixTable, MATRIX_JSONB_COLUMNS } from '../../core/db/matrix.ts';
 import { sql } from '../../core/db/postgres.ts';
+import { runSearch, wrapSearch } from '../../core/search/search_statement.ts';
 import { buildSearchSql } from '../../core/search/sql_assembler.ts';
 import type { Principal } from '../../core/security/permissions.ts';
 
@@ -119,21 +120,23 @@ export async function* selectRecordBatches(
 	// in-scope records (never records outside their tenant). Global admins /
 	// unresolved system owners select unscoped, exactly as before.
 	const base = await buildSearchSql(selectionSqo, principal ? { principal } : {});
-	// The assembler terminates its statement — a subselect must not.
-	const baseSql = base.sql.trim().replace(/;$/, '');
 
 	let cursor = afterSectionId;
 	for (;;) {
-		const cursorParam = base.params.length + 1;
-		const limitParam = base.params.length + 2;
-		const rows = (await sql.unsafe(
-			`SELECT section_id
+		// Each keyset batch is ONE statement embedding the selection
+		// (search_statement.ts wrapSearch keeps its referenced_by flag), so a
+		// selection carrying the leaf is bounded PER BATCH by the one executor.
+		const batch = wrapSearch(
+			base,
+			(baseSql, next) =>
+				`SELECT section_id
 			 FROM (${baseSql}) diffusion_selection
-			 WHERE section_id > $${cursorParam}
+			 WHERE section_id > $${next}
 			 ORDER BY section_id ASC
-			 LIMIT $${limitParam}`,
-			[...base.params, cursor, batchSize],
-		)) as { section_id: number }[];
+			 LIMIT $${next + 1}`,
+			[cursor, batchSize],
+		);
+		const rows = await runSearch<{ section_id: number }>(batch);
 
 		if (rows.length === 0) return;
 

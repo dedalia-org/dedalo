@@ -14,8 +14,8 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { SYNTHETIC_HIERARCHY_A_TLD } from '../../src/core/test_data/synthetic_hierarchy_constants.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 // The synthetic workhorse hierarchy (src/core/test_data/synthetic_hierarchy_fixture.ts):
 // its terms section carries max(1300, THRESHOLD+300) generated rows, DERIVED from

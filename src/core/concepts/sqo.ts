@@ -156,6 +156,25 @@ export const sqoSchema = z
 		breakdown: z.boolean().nullish(),
 		/** Lifecycle flag: whether the conform pipeline has run. Forced false at the gate. */
 		parsed: z.boolean().nullish(),
+		/**
+		 * A portal get_data's TEMPORARY display order (portal order model,
+		 * WC-2026-10-31-portal-order-model): the column header click on a
+		 * `sort_by_column` column. The server orders the portal's FULL locator
+		 * list by this one column before paginating (relations/order_locators.ts
+		 * assertViewOrder — the column gate: offered, and readable by the request
+		 * principal, checked whatever the record holds); never written,
+		 * `paginated_key` stays the stored index. Shape-validated HERE, at the
+		 * wire, so a malformed one is refused before any door sees it; ignored by
+		 * every non-portal read.
+		 */
+		view_order: z
+			.object({
+				tipo: boundedIdentifier(),
+				// one wire spelling, the sqo `order` clause's (absent or null view_order = none)
+				direction: z.enum(['ASC', 'DESC']),
+			})
+			.strict()
+			.nullish(),
 	})
 	.passthrough();
 
@@ -227,6 +246,146 @@ export const wireSqoSchema = sqoSchema.transform((sqo): Sqo => {
  */
 const MAX_SQO_DEPTH = 64;
 const MAX_SQO_NODES = 10_000;
+
+/**
+ * THE `referenced_by` NESTING BOUND (WC-2026-10-30-search-referenced-by-leaf):
+ * how many `referenced_by` leaves may stand inside one another ("relationships
+ * of relationships" opened from an already-opened window). A top-level leaf is
+ * depth 1; depth MAX+1 is refused with `request.invalid_options`. Each level is
+ * one more scoped row-set subquery, so the bound keeps the statement a size the
+ * planner handles; MAX_SQO_DEPTH / MAX_SQO_NODES still bound the whole object.
+ */
+export const MAX_REFERENCED_BY_DEPTH = 4;
+
+/**
+ * THE `referenced_by` LEAF'S SOURCE SET — strict, no passthrough. The source is
+ * the WHOLE found set of `section_tipo` under `filter` / `filter_by_locators`,
+ * by definition: `limit`, `offset` and `order` (and every other SQO key) are
+ * refused, never silently dropped. `from_component_tipo` optionally narrows
+ * the indexed locators to the ones a given component of the source owns.
+ * `filter_by_locators_op` accepts only 'OR' — the one shape the assembler
+ * renders pins in (an 'AND' over distinct pins would be refused, not narrowed).
+ */
+export const referencedBySourceSchema = z
+	.object({
+		section_tipo: z.array(boundedIdentifier()).min(1),
+		filter: sqoFilterNodeSchema.nullish(),
+		filter_by_locators: z.array(sqoLocatorPinSchema).max(CLIENT_MAX_LOCATOR_PINS).nullish(),
+		filter_by_locators_op: z.literal('OR').nullish(),
+		from_component_tipo: boundedIdentifier().optional(),
+	})
+	.strict();
+export type ReferencedBySource = z.infer<typeof referencedBySourceSchema>;
+
+/** The leaf itself: exactly `{ referenced_by: <source> }` — no q, no path. */
+const referencedByLeafSchema = z.object({ referenced_by: z.unknown() }).strict();
+
+/** Does this filter item name a `referenced_by` leaf (whatever its validity)? */
+export function isReferencedByLeaf(item: unknown): item is { referenced_by: unknown } {
+	return (
+		item !== null &&
+		typeof item === 'object' &&
+		!Array.isArray(item) &&
+		Object.hasOwn(item, 'referenced_by')
+	);
+}
+
+/** The refusal of a malformed leaf — loud, typed, never a silent widening. */
+function invalidReferencedBy(reason: string): never {
+	throw new DedaloError('request.invalid_options', {
+		message: `sqo: invalid referenced_by leaf — ${reason}`,
+		publicMessage: `Invalid referenced_by filter: ${reason}`,
+	});
+}
+
+/** The first zod issue as a short, caller-safe sentence. */
+function firstIssue(error: z.ZodError): string {
+	const issue = error.issues[0];
+	if (issue === undefined) return 'malformed';
+	const where = issue.path.length > 0 ? issue.path.join('.') : 'source';
+	return `${where}: ${issue.message}`.slice(0, 200);
+}
+
+/**
+ * Parse ONE `referenced_by` leaf strictly → its source set. Throws
+ * `request.invalid_options` on any deviation (extra keys beside
+ * `referenced_by`, a missing/empty `section_tipo`, a limit/offset/order, an
+ * unknown key). Does NOT recurse into the source filter (see
+ * {@link assertReferencedByTree}).
+ */
+export function parseReferencedByLeaf(item: unknown): ReferencedBySource {
+	const leaf = referencedByLeafSchema.safeParse(item);
+	if (!leaf.success) invalidReferencedBy('the leaf holds only the referenced_by key');
+	return parseReferencedBySource(leaf.data.referenced_by);
+}
+
+/** Parse a bare source set (the relation_targets door's input) strictly. */
+export function parseReferencedBySource(raw: unknown): ReferencedBySource {
+	// A found set that EXPANDS to recursive children (the search panel's
+	// 'Children' checkbox) is not a source set this leaf can express: the scoped
+	// row set has no descendant pre-pass. Named, never just "unknown key" — the
+	// alternative (dropping the flag) would silently narrow the set to the
+	// matched terms while the caller's list shows their descendants too.
+	if (
+		raw !== null &&
+		typeof raw === 'object' &&
+		((raw as Record<string, unknown>).children_recursive === true ||
+			Object.hasOwn(raw, 'fixed_children_filter'))
+	) {
+		invalidReferencedBy(
+			'a found set that includes recursive children (children_recursive) cannot be a relationships source',
+		);
+	}
+	const source = referencedBySourceSchema.safeParse(raw);
+	if (!source.success) invalidReferencedBy(firstIssue(source.error));
+	return source.data;
+}
+
+/** The items of a filter array, or the children of a boolean node ([] for a leaf). */
+function filterNodeChildren(node: object): unknown[] {
+	if (Array.isArray(node)) return node;
+	for (const key of ['$and', '$or', '$not', '$nand', '$nor']) {
+		const items = (node as Record<string, unknown>)[key];
+		if (Array.isArray(items)) return items;
+	}
+	return [];
+}
+
+/**
+ * Validate every `referenced_by` leaf of a filter tree (strict schema) and the
+ * NESTING BOUND: `depth` is the number of leaves already enclosing `filter`
+ * (0 for a main SQO's filter). Throws `request.invalid_options`.
+ */
+export function assertReferencedByTree(filter: unknown, depth = 0): void {
+	if (filter === null || typeof filter !== 'object') return;
+	if (isReferencedByLeaf(filter)) {
+		assertReferencedByLeafAt(filter, depth + 1);
+		return;
+	}
+	for (const item of filterNodeChildren(filter)) assertReferencedByTree(item, depth);
+}
+
+/** One leaf at its nesting depth: the bound, the schema, then its own source filter. */
+function assertReferencedByLeafAt(leaf: unknown, depth: number): void {
+	if (depth > MAX_REFERENCED_BY_DEPTH) {
+		invalidReferencedBy(`nested deeper than the maximum of ${MAX_REFERENCED_BY_DEPTH}`);
+	}
+	const source = parseReferencedByLeaf(leaf);
+	assertReferencedByTree(source.filter, depth);
+}
+
+/**
+ * THE relation_targets DOOR'S GATE for an untrusted source set: the same
+ * server-only strip (recursive, ceilinged) as {@link sanitizeClientSqo}, then
+ * the strict schema and the nesting bound over its filter (the source itself
+ * counts as depth 1, exactly as when it rides a leaf).
+ */
+export function sanitizeClientReferencedBySource(untrusted: unknown): ReferencedBySource {
+	const stripped = stripServerOnlyKeysRecursive(untrusted, 0, { nodes: 0 });
+	const source = parseReferencedBySource(stripped);
+	assertReferencedByTree(source.filter, 1);
+	return source;
+}
 
 /**
  * Recursively delete server-only keys from a plain JSON value. Mirrors PHP
@@ -482,6 +641,12 @@ export function sanitizeClientSqo(untrustedSqo: Record<string, unknown>): Sqo {
 			stripped.filter_by_locators = pins.slice(0, CLIENT_MAX_LOCATOR_PINS);
 		}
 	}
+
+	// referenced_by leaves: strict shape + nesting bound, refused here at the
+	// client gate (server-only keys inside a nested source were already
+	// stripped above — the strip is recursive over the whole object). The
+	// conform stage re-asserts both for server-built SQOs.
+	assertReferencedByTree(stripped.filter);
 
 	// lifecycle: force re-parse
 	stripped.parsed = false;

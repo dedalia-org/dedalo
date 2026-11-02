@@ -14,14 +14,15 @@
 		// open_window
 	} from '../../common/js/utils/index.js'
 	import {ui} from '../../common/js/ui.js'
-	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {
 		get_picker,
 		render_term_pick_control,
 		term_selectability
 	} from '../../area_thesaurus/js/thesaurus_picker.js'
 	import {set_element_css} from '../../page/js/css.js'
-	import {no_records_node} from './render_common_section.js'
+	import {place_list_after} from '../../common/js/common.js'
+	import {apply_table_semantics} from '../../section_record/js/record_window.js'
+	import {render_list_after} from './render_common_section.js'
 	// // import {
 	// 	render_column_id
 	// } from './render_list_section.js'
@@ -50,7 +51,7 @@
 *   view_thesaurus_list_section.render  — builds the full section DOM (async)
 *
 * Module-private helpers (not exported):
-*   get_content_data    — renders all section_record rows in parallel
+*   get_content_data    — hands the page's rows to the row window door
 *   rebuild_columns_map — prepends the thesaurus section_id column to columns_map
 *   get_buttons         — builds the toolbar (search toggle only)
 *   render_column_id    — builds the id-column fragment for a single row;
@@ -61,13 +62,13 @@
 *     [div.buttons_container]     — optional; only when self.buttons
 *     [div.search_container]      — optional; only when self.filter
 *     [div.paginator_container]   — optional; only when self.paginator
-*     <div.list_body>
-*       <div.list_header>…</div>  — column labels; hidden when 0 records
-*       <div.content_data>
-*         <div.no_records>        — when the page has no rows
-*         | <div>…</div>         — one section_record row per result record
+*     <div.list_body.layout_table role=table>      (WC-2026-10-30-section-record-row-box)
+*       <div.header_wrapper_list role=row>…</div>   — column labels (N=0 included)
+*       <div.content_data role=rowgroup>
+*         <div.section_record data-index=i role=row>… — exactly N rows, nothing else
 *       </div>
 *     </div>
+*     [div.list_after]                              — no_records / print notice
 *   </section>
 *
 * @see view_default_list_section  — generic list view with richer toolbar
@@ -105,9 +106,8 @@ export const view_thesaurus_list_section = function() {
 *
 *   'content':
 *     Rebuilds only the row area (content_data). Used by the pagination handler to
-*     swap rows without tearing down the existing wrapper. Removes the 'hide' class
-*     from list_header_node when new records arrive. Returns content_data directly,
-*     NOT the wrapper.
+*     swap rows without tearing down the existing wrapper. Returns content_data
+*     directly, NOT the wrapper (its `.list_after` is swapped by common.render).
 *
 * CSS grid layout:
 *   ui.flat_column_items() flattens columns_map (including nested sub-columns) into
@@ -125,7 +125,7 @@ export const view_thesaurus_list_section = function() {
 *   pagination renders skip the rebuild.
 *
 * ar_instances:
-*   Holds only the MATERIALIZED rows — the row window (section.js
+*   Holds only the BUILT rows — the row window (section.js
 *   window_section_rows) builds section_record instances on demand and a
 *   released row leaves the array through its own destroy.
 *
@@ -159,15 +159,7 @@ view_thesaurus_list_section.render = async function(self, options) {
 	// content_data
 		const content_data = await get_content_data(self, rows)
 		if (render_level==='content') {
-
-			// list_header_node. Remove possible style 'hide' if not empty
-				if (rows.length>0) {
-					const wrapper = self.node
-					if (wrapper?.list_header_node && wrapper.list_header_node.classList.contains('hide')) {
-						wrapper.list_header_node.classList.remove('hide')
-					}
-				}
-
+			// its `.list_after` travels as content_data.list_after (common.render swaps it)
 			return content_data
 		}
 
@@ -210,9 +202,12 @@ view_thesaurus_list_section.render = async function(self, options) {
 		}
 
 	// list body
+		// `layout_table` marks the row box table (list.less): header, content_data
+		// and every row share the list_body grid through subgrid
+		// (WC-2026-10-30-section-record-row-box)
 		const list_body = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'list_body',
+			class_name		: 'list_body layout_table',
 			parent			: fragment
 		})
 		// fix last list_body (for pagination selection)
@@ -242,15 +237,18 @@ view_thesaurus_list_section.render = async function(self, options) {
 			// use calculated css
 			set_element_css(selector, css_object)
 
-	// list_header_node. Create and append if ar_instances is not empty
+	// list_header_node. Always present, N=0 included: the table keeps its
+	// header row when it has no rows (a role=table owning no row fails
+	// aria-required-children; the window drops only the rowgroup role at N=0)
 		const list_header_node = ui.render_list_header(columns_map, self)
 		list_body.appendChild(list_header_node)
-		if (rows.length<1) {
-			list_header_node.classList.add('hide')
-		}
 
 	// content_data append
 		list_body.appendChild(content_data)
+
+	// a11y. Static table semantics; the dynamic part (rowgroup, row roles,
+	// aria-rowcount) belongs to the window
+		apply_table_semantics(list_body, list_header_node)
 
 	// wrapper
 		const wrapper = ui.create_dom_element({
@@ -264,6 +262,9 @@ view_thesaurus_list_section.render = async function(self, options) {
 		wrapper.list_body			= list_body
 		wrapper.list_header_node	= list_header_node
 
+	// list_after. The non-row sibling, right after list_body
+		place_list_after(wrapper, content_data)
+
 
 	return wrapper
 }//end render
@@ -274,11 +275,13 @@ view_thesaurus_list_section.render = async function(self, options) {
 * GET_CONTENT_DATA
 * Builds the scrollable row area for the thesaurus list view.
 *
-* Hands the page's rows to the row window (at most ROW_WINDOW_MAX_ROWS built at
-* once — audit P2-31 / CLI-29) instead of iterating them; each materialized
-* row is a section_record node in its original server order, and the first
-* window is filled before this resolves. When the array is empty, a localised
-* "No records found" placeholder is rendered instead via no_records_node().
+* Hands the page's rows to the row window door (section.js window_section_rows;
+* at most ROW_WINDOW_MAX_ROWS built at once — audit P2-31 / CLI-29): content_data
+* holds exactly the page's N `.section_record` rows in server order, N=0
+* included, and the window is filled before this resolves. The "No records
+* found" node and the print notice go to the expando `content_data.list_after`
+* (render_list_after), never into content_data
+* (WC-2026-10-30-section-record-row-box).
 *
 * The returned div carries CSS classes 'content_data', self.mode, and self.type
 * so that layout rules can target mode/type combinations without relying on
@@ -288,7 +291,7 @@ view_thesaurus_list_section.render = async function(self, options) {
 *                                     .type class names applied to content_data.
 * @param {Array}  rows - The page's locator entries (`self.data.entries`).
 * @returns {Promise<HTMLElement>} A div.content_data element containing all row
-*   nodes in their original server order, or the no_records placeholder.
+*   nodes in their original server order, with `.list_after` (node|null) attached.
 */
 const get_content_data = async function(self, rows) {
 
@@ -296,24 +299,25 @@ const get_content_data = async function(self, rows) {
 		const content_data = document.createElement('div')
 			  content_data.classList.add('content_data', self.mode, self.type)
 
-	// rows. A row window (section.js window_section_rows) builds and renders
-	// section_record rows on demand, at most ROW_WINDOW_MAX_ROWS at once
-		if (!rows || rows.length===0) {
+	// rows. The row window (section.js window_section_rows) builds and renders
+	// section_record rows on demand, at most ROW_WINDOW_MAX_ROWS at once. Called
+	// at N=0 too: an N>0→N=0 transition retires the previous window. The CSS
+	// ring of `.list_body.layout_table` is the row highlight
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows || [],
+			render_options	: {
+				add_hilite_row : false
+			},
+			layout			: 'table'
+		})
 
-			// no records found case
-			content_data.appendChild(no_records_node())
-
-		}else{
-
-			await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				render_options	: {
-					add_hilite_row : true
-				}
-			})
-		}
+	// list_after. no_records / print notice (never inside content_data)
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window
+		})
 
 
 	return content_data

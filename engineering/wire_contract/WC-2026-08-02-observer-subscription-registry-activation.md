@@ -123,3 +123,17 @@ laws — reverse observer-declared discovery, the `entryServerBlock`
 dispatchability predicate, wildcard compilation, host resolution — are
 unchanged, and the second half of the bound still holds: nothing fires until
 the observed component saves.
+
+## Addendum 2026-10-30 — edges derived from a law (pass 3)
+
+THE DISPATCH RULE above gains one source: a covered `source_overwrite` observer gets a
+synthesized edge from the component it copies (`origin: 'law'`, `declaration:
+'law-derived'`, `via` = its pointer), unless any declared entry for the same key —
+client-only included — shadows it. Only `source_overwrite` derives edges. Live set:
+`numisdata77 → numisdata679` derived, `numisdata11 → numisdata965` shadowed. The
+per-edge kill switch stays an ontology edit: a client-only `observe` entry naming the
+input blocks the derived edge. Full rule: `WC-2026-10-30-observer-law-derived-edges`.
+
+`use_inverse_relations` is now a typed `ObserveEntry.server.config` key with a resolver
+(`WC-2026-10-30-observer-target-resolvers`); the "classification/resolvers/perform
+semantics are unchanged" sentence above no longer holds for `set_dato_external` edges.

@@ -19,7 +19,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { DedaloError, isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import type { ReleasePlan, ReleaseStep } from '../../src/core/update/catalog_file.ts';
 import {
 	type PhaseResult,
@@ -37,6 +37,7 @@ import {
 	writeRunJournal,
 } from '../../src/core/update/run/journal.ts';
 import { ontologyOnlyPlan } from '../../src/core/update/run/plan.ts';
+import { outcomeOrThrow } from '../../src/core/update/run/start.ts';
 
 const roots: string[] = [];
 afterAll(() => {
@@ -388,6 +389,70 @@ describe('failure exits', () => {
 		const ended = await startUpdateRun(INPUT, processOf(w, { fail: '7.1.0 ontology' }).effects);
 		expect(ended.journal.state).toBe('FAILED_PRE_SWAP');
 		expect(w.maintenance).toBe(false);
+	});
+
+	test('a backup step that REFUSES (no fresh, proven dump) ends REFUSED — the job says update.refused, with the step’s sentence', async () => {
+		const w = world(false);
+		const { effects } = processOf(w);
+		const sentence =
+			"Error. No usable database backup found — the newest dump ('cut.backup') did not verify (truncated)";
+		effects.backup = async () => {
+			throw new DedaloError('update.refused', { message: sentence, publicMessage: sentence });
+		};
+		const ended = await startUpdateRun(INPUT, effects);
+		expect(ended.journal.state).toBe('REFUSED');
+		expect(ended.journal.note).toBe(sentence);
+		expect(w.calls).toEqual([]);
+		expect(w.maintenance).toBe(false);
+		const thrown = (() => {
+			try {
+				outcomeOrThrow(ended);
+			} catch (error) {
+				return error;
+			}
+			return null;
+		})();
+		expect(isDedaloError(thrown) && thrown.code).toBe('update.refused');
+		expect(isDedaloError(thrown) && thrown.publicMessage).toContain('truncated');
+	});
+
+	test('a pre-swap phase that THROWS a refusal: its sentence in the note, its code journaled, the job says update.refused', async () => {
+		const w = world(false);
+		const { effects } = processOf(w);
+		const sentence = 'Error. Release checksum mismatch — refusing to install';
+		const ended = await startUpdateRun(INPUT, {
+			...effects,
+			runners: {
+				...effects.runners,
+				code: async () => {
+					throw new DedaloError('update.refused', { message: sentence, publicMessage: sentence });
+				},
+			},
+		});
+		expect(ended.journal.state).toBe('FAILED_PRE_SWAP');
+		expect(ended.journal.note).toContain(sentence);
+		expect(ended.journal.phases.at(-1)?.evidence.code).toBe('update.refused');
+		const thrown = (() => {
+			try {
+				outcomeOrThrow(ended);
+			} catch (error) {
+				return error;
+			}
+			return null;
+		})();
+		expect(isDedaloError(thrown) && thrown.code).toBe('update.refused');
+		expect(isDedaloError(thrown) && thrown.publicMessage).toContain('checksum mismatch');
+	});
+
+	test('a backup step that FAILS (not a refusal) stays FAILED_PRE_SWAP', async () => {
+		const w = world(false);
+		const { effects } = processOf(w);
+		effects.backup = async () => {
+			throw new Error('disk unreadable');
+		};
+		const ended = await startUpdateRun(INPUT, effects);
+		expect(ended.journal.state).toBe('FAILED_PRE_SWAP');
+		expect(w.calls).toEqual([]);
 	});
 
 	test('B4: a NEEDS_DB_RESTORE run blocks every new run until a human closes it', async () => {

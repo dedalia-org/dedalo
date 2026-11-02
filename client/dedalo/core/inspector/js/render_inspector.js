@@ -821,23 +821,16 @@ const get_content_data = function(self) {
 			const button_target_section_mousedown_handler = (e) => {
 				e.stopPropagation()
 
-				const target_sections = self.caller.get_all_target_sections()
-				target_sections.sort((a, b) => a.label.localeCompare(b.label));
-
+				// The target sections and their counts come from the server
+				// (relation_targets), per scope, inside the dialog: no client-side
+				// guess from the portals present in the loaded context.
 				const options ={
-					target_sections	: target_sections,
-					sqo				: clone(self.caller.rqo?.sqo) || {},
-					caller_tipo		: null,
-					rqo_options		: {
-						type			: 'target_section',
-						section_tipo	: null,
-						tipo			: null,
-						model			: 'section'
-					},
+					sqo			: clone(self.caller.rqo?.sqo) || {},
 					label		: self.caller.label,
 					total		: self.caller.total,
-					// the section instance: forwarded as the opener of every window
-					// the dialog spawns, and the source of the found-records total.
+					// the section instance: names the open record ('current'),
+					// computes the found-records total, and is the caller of the
+					// short-lived section that pins each window's filter.
 					self_caller : self.caller
 				}
 				render_open_list_with_direct_relations( options )

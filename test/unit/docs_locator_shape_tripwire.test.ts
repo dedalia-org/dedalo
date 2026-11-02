@@ -136,6 +136,13 @@ const STRING_ADDRESS_ALLOWLIST: Record<string, Entry> = {
 	'docs/core/components/component_text_area.md': {
 		reason: 'in-text mark literal — PersonMarkerLocator.section_id is a string by contract',
 	},
+	// The text-tag law's worked example quotes the legend text AS STORED: an svg tag's
+	// in-text payload is the tag byte-form (component_text_area/tag_grammar.ts), not a
+	// wire locator — the law parses it and the mirror stores the int form. ONE line.
+	'docs/core/system/observers.md': {
+		reason: 'in-text svg tag literal of the text-tag law example — the stored tag byte-form',
+		max: 1,
+	},
 	// The canonical locator page is NOT exempt: it carries exactly ONE legitimate string
 	// address, the dd_relations published sample, because diffusion stringifies on the way
 	// out (resolver.ts relation_list build; rewriters.ts index edge). Frozen at 1 so the page
@@ -491,6 +498,7 @@ describe('docs locator/storage/envelope shape tripwire', () => {
 			'docs/core/importing_data.md',
 			'docs/core/locator.md',
 			'docs/core/system/external_services.md',
+			'docs/core/system/observers.md',
 			'docs/development/tools/reference/tool_error_report.md',
 			'docs/diffusion/diffusion_markdown.md',
 			'docs/diffusion/parsers.md',

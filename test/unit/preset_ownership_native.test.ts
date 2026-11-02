@@ -23,7 +23,6 @@ import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import {
@@ -41,6 +40,7 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { SB_GRANTED_SECTION, scopeBindingSlot } from '../helpers/scope_binding_fixture.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** THIS file's slot for the scope-binding fixture (ids allocated at install). */
 const sb = scopeBindingSlot();

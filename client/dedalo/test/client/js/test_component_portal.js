@@ -1,14 +1,12 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*global it, describe, assert, page_globals, DD_TIPOS */
 /*eslint no-undef: "error"*/
-'use strict';
 
-import {get_instance, delete_instance} from '../../../core/common/js/instances.js'
-import {event_manager} from '../../../core/common/js/event_manager.js'
-import {data_manager} from '../../../core/common/js/data_manager.js'
+import {response_data} from '../../../core/common/js/api_error.js'
+import {get_instance} from '../../../core/common/js/instances.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {clone, pause} from '../../../core/common/js/utils/util.js'
-import {response_data} from '../../../core/common/js/api_error.js'
+import {get_buttons_by_permissions} from '../../../core/component_portal/js/render_edit_component_portal.js'
 
 
 
@@ -20,13 +18,12 @@ import {response_data} from '../../../core/common/js/api_error.js'
 	const portal_lang		= page_globals?.dedalo_data_nolan ?? 'lg-nolan'
 
 // modes and views to test
-	const ar_modes		= ['edit', 'list', 'search']
 	const ar_views_edit	= ['default', 'line', 'text', 'mosaic', 'tree', 'indexation', 'content']
 	const ar_views_list	= ['default', 'line', 'mini', 'text']
 
 // DOM container
 	const container = document.getElementById('content')
-	const component_container = ui.create_dom_element({
+	ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'component_container',
 		parent			: container
@@ -52,7 +49,7 @@ async function get_portal_instance(mode, view, section_id) {
 		mode			: mode,
 		view			: view,
 		lang			: portal_lang,
-		id_variant		: mode + '_' + view + '_' + Math.random()
+		id_variant		: `${mode}_${view}_${Math.random()}`
 	}
 
 	const instance = await get_instance(options)
@@ -110,6 +107,23 @@ function make_index_locator(id, section_id, tag_id) {
 
 
 /**
+* BUILT_ROWS
+* The built rows of a portal row view (WC-2026-10-30-section-record-row-box): the
+* row window keeps EXACTLY the rows as direct `.section_record` children of
+* content_data (placeholders beyond the build bound). A descendant query would
+* also catch nested records (hover overlays, nested portals).
+* @param {HTMLElement} node - The wrapper (render('content') returns it) or the content_data
+* @return {NodeList}
+*/
+function built_rows(node) {
+
+	const content_data = node.content_data || node
+	return content_data.querySelectorAll(':scope > .section_record:not(.placeholder)')
+}//end built_rows
+
+
+
+/**
 * CAPTURE_ROW_UNLINK
 * Drives the indexation row's unlink to the point of the save and captures the
 * payload WITHOUT letting it reach the server: `change_value` is stubbed to record
@@ -127,7 +141,7 @@ function make_index_locator(id, section_id, tag_id) {
 async function capture_row_unlink(instance, content, chip_text) {
 
 	// locate the row by one of its chips
-	const row = [...content.querySelectorAll('.section_record')].find(el =>
+	const row = [...built_rows(content)].find(el =>
 		[...el.querySelectorAll('.tags.index')].some(chip => chip.textContent===chip_text)
 	)
 	assert.notEqual(row, undefined, `a row carrying tag ${chip_text} must be rendered`)
@@ -167,7 +181,7 @@ async function capture_row_unlink(instance, content, chip_text) {
 	} finally {
 		instance.change_value	= original_change_value
 		window.confirm			= original_confirm
-		document.querySelectorAll('dd-modal').forEach(el => el.remove())
+		document.querySelectorAll('dd-modal').forEach(el => { el.remove() })
 	}
 }//end capture_row_unlink
 
@@ -197,7 +211,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'edit',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'init_edit_' + Math.random()
+				id_variant		: `init_edit_${Math.random()}`
 			}
 
 			const instance = await get_instance(options)
@@ -227,7 +241,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'list',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'init_list_' + Math.random()
+				id_variant		: `init_list_${Math.random()}`
 			}
 
 			const instance = await get_instance(options)
@@ -248,7 +262,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'search',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'init_search_' + Math.random()
+				id_variant		: `init_search_${Math.random()}`
 			}
 
 			const instance = await get_instance(options)
@@ -323,7 +337,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 				mode			: 'edit',
 				view			: 'default',
 				lang			: portal_lang,
-				id_variant		: 'pagination_limit_' + Math.random(),
+				id_variant		: `pagination_limit_${Math.random()}`,
 				context			: clone(source.context),
 				data			: data,
 				datum			: clone(source.datum)
@@ -428,7 +442,7 @@ describe(`COMPONENT_PORTAL LIFECYCLE`, async function() {
 		it(`${portal_model} destroy without removing DOM`, async function() {
 
 			const instance = await get_portal_instance('edit', 'default')
-			const node = await instance.render()
+			await instance.render()
 
 			const destroy_result = await instance.destroy(
 				true,  // delete_self
@@ -1006,7 +1020,7 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 
 	describe(`FILTER_DATA_BY_TAG_ID`, function() {
 
-		it(`${portal_model} filter_data_by_tag_id resets status to built`, async function() {
+		it(`${portal_model} filter_data_by_tag_id re-renders the filtered content`, async function() {
 
 			const instance = await get_portal_instance('edit', 'default', portal_section_id)
 			await instance.render()
@@ -1023,20 +1037,17 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 				}
 			}
 
-			// This may not find matching data but should not crash
-			// the re-render promise: settled before destroy, or it renders a destroyed instance
-			let rendered
-			try {
-				rendered = instance.filter_data_by_tag_id(tag_options)
-				// status should be reset to 'built' for re-render
-				assert.equal(instance.status, 'built', 'status must be built after filter_data_by_tag_id')
-			} catch(e) {
-				// filter_data_by_tag_id may fail if no datum data exists
-				// This is acceptable in test context
-				assert.ok(true, 'filter_data_by_tag_id handled gracefully')
-			}
+			// No matching tag locator only empties the filtered entries (a missing
+			// datum entry falls back to {} in the method): nothing here may throw, so
+			// the row-lock / re-render contract is asserted unconditionally.
+			// filter_data_by_tag_id is async (it takes the owner row lock BEFORE it
+			// replaces self.data): awaited, it has re-rendered the content
+			assert.ok(instance.datum, 'the rendered portal holds its datum')
+			const rendered = await instance.filter_data_by_tag_id(tag_options)
+			assert.notEqual(rendered, false, 'nothing pending in the rows: the row lock is granted')
+			assert.equal(instance.active_tag, tag_options, 'active_tag must be the filter options')
+			assert.equal(instance.status, 'rendered', 'status must be rendered after the content re-render')
 
-			await rendered
 			await instance.destroy(true, true, true)
 		})
 	})//end describe FILTER_DATA_BY_TAG_ID
@@ -1055,18 +1066,15 @@ describe(`COMPONENT_PORTAL SPECIFIC METHODS`, async function() {
 			// set an active_tag first
 			instance.active_tag = { tag: { tag_id: '1' } }
 
-			// the re-render promise: settled before destroy, or it renders a destroyed instance
-			let rendered
-			try {
-				rendered = instance.reset_filter_data()
-				assert.equal(instance.active_tag, null, 'active_tag must be null after reset')
-				assert.equal(instance.status, 'built', 'status must be built after reset')
-			} catch(e) {
-				// reset_filter_data may fail if no datum data exists
-				assert.ok(true, 'reset_filter_data handled gracefully')
-			}
+			// reset_filter_data is async (it takes the owner row lock BEFORE it
+			// replaces self.data): awaited, it has re-rendered the content
+			// unconditional, as above (a missing datum entry falls back to {})
+			assert.ok(instance.datum, 'the rendered portal holds its datum')
+			const rendered = await instance.reset_filter_data()
+			assert.notEqual(rendered, false, 'nothing pending in the rows: the row lock is granted')
+			assert.equal(instance.active_tag, null, 'active_tag must be null after reset')
+			assert.equal(instance.status, 'rendered', 'status must be rendered after the content re-render')
 
-			await rendered
 			await instance.destroy(true, true, true)
 		})
 	})//end describe RESET_FILTER_DATA
@@ -1193,7 +1201,7 @@ describe(`COMPONENT_PORTAL INDEXATION VIEW`, async function() {
 
 	/** [['11','12','13'], ['21']] — the chip texts of every rendered row, row-sorted. */
 	function rows_chips(content) {
-		return [...content.querySelectorAll('.section_record')]
+		return [...built_rows(content)]
 			.map(row => [...row.querySelectorAll('.tags.index')].map(chip => chip.textContent).sort())
 			.sort((a,b) => a.length - b.length)
 	}
@@ -1203,7 +1211,7 @@ describe(`COMPONENT_PORTAL INDEXATION VIEW`, async function() {
 
 		const {instance, content} = await get_indexation_instance(index_entries)
 
-		const rows = content.querySelectorAll('.section_record')
+		const rows = built_rows(content)
 
 		// 4 locators, 2 distinct target records
 		assert.equal(rows.length, 2, 'one row per TARGET RECORD, not one per tag locator')
@@ -1246,7 +1254,7 @@ describe(`COMPONENT_PORTAL INDEXATION VIEW`, async function() {
 		const content = await instance.filter_data_by_tag_id({tag:{tag_id:'12'}})
 
 		assert.equal(
-			content.querySelectorAll('.section_record').length,
+			built_rows(content).length,
 			1,
 			'the filtered list must show only the record carrying the selected tag'
 		)
@@ -1439,6 +1447,140 @@ describe(`COMPONENT_PORTAL FULL LIFECYCLE`, async function() {
 	})
 
 })//end describe COMPONENT_PORTAL FULL LIFECYCLE
+
+
+
+/**
+* COMPONENT_PORTAL UPDATE EXTERNAL
+* The update-external button of an external portal (`source.mode:'external'`):
+* - it sends `build_options:{get_data_external:true}` (the v6 spelling
+*   `get_dato_external` is not honoured by the server) and the flag is
+*   SINGLE-USE — gone once the refresh settles, so a later read of the same rqo
+*   does not recompute again;
+* - refresh is READ-level, so a read-only portal (permissions 1) still gets the
+*   button — and nothing else of the toolbar; print and no-access get none.
+* Stub instances: the contract is the client's own (what it sends, what it
+*   renders per permission), not a server round trip.
+*/
+describe(`COMPONENT_PORTAL UPDATE EXTERNAL`, function() {
+
+	const make_stub = (permissions, view='default') => {
+		const sent = []
+		const self = {
+			permissions		: permissions,
+			view			: view,
+			context			: {view: view, properties: {source: {mode: 'external'}}},
+			target_section	: [],
+			show_interface	: {
+				button_external		: true,
+				button_add			: true,
+				button_link			: true,
+				button_tree			: true,
+				button_list			: false,
+				tools				: false,
+				button_fullscreen	: false
+			},
+			rqo		: {source: {tipo: portal_tipo}},
+			refresh	: async function(options) {
+				// capture what the request would carry at send time
+				sent.push({
+					options			: options,
+					build_options	: self.rqo.source.build_options
+						? clone(self.rqo.source.build_options)
+						: undefined
+				})
+				return true
+			}
+		}
+		return {self, sent}
+	}
+
+	it(`read-only (permissions 1) renders ONLY the update-external button`, function() {
+		const {self} = make_stub(1)
+		const node = get_buttons_by_permissions(self)
+		assert.notEqual(node, null, 'a reader of an external portal must get the refresh button')
+		assert.equal(node.querySelectorAll('.button.sync').length, 1)
+		assert.equal(node.querySelector('.button.add'), null, 'no add button for a reader')
+		assert.equal(node.querySelector('.button.link'), null, 'no link button for a reader')
+		assert.equal(node.querySelector('.button.tree'), null, 'no tree button for a reader')
+		assert.equal(node.querySelectorAll('.buttons_fold > *').length, 1, 'nothing but the refresh button')
+	})
+
+	it(`read-only non-external portal, print view and no access get no toolbar`, function() {
+		const non_external = make_stub(1)
+		non_external.self.show_interface.button_external = false
+		assert.equal(get_buttons_by_permissions(non_external.self), null)
+		assert.equal(get_buttons_by_permissions(make_stub(1, 'print').self), null)
+		assert.equal(get_buttons_by_permissions(make_stub(0).self), null)
+	})
+
+	it(`edit (permissions 2) keeps the full toolbar incl. update-external`, function() {
+		const {self} = make_stub(2)
+		// the external switch in component_portal.init turns these off for an external portal
+		self.show_interface.button_add	= false
+		self.show_interface.button_link	= false
+		self.show_interface.button_tree	= false
+		const node = get_buttons_by_permissions(self)
+		assert.notEqual(node, null)
+		assert.equal(node.querySelectorAll('.button.sync').length, 1)
+	})
+
+	it(`click sends get_data_external once and clears build_options after the refresh`, async function() {
+		const {self, sent} = make_stub(1)
+		const node = get_buttons_by_permissions(self)
+		const button = node.querySelector('.button.sync')
+
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+
+		assert.equal(sent.length, 1, 'one refresh per click')
+		assert.deepEqual(sent[0].build_options, {get_data_external: true})
+		assert.equal(sent[0].options.build_autoload, true)
+		assert.equal('build_options' in self.rqo.source, false, 'the flag is single-use')
+
+		// a later refresh of the same rqo carries no flag
+		await self.refresh({build_autoload: true})
+		assert.equal(sent[1].build_options, undefined)
+	})
+
+	it(`one refresh at a time: a click while one is in flight is ignored, the button is disabled until it settles`, async function() {
+		const {self, sent} = make_stub(1)
+		// hold the refresh open until the test releases it
+		let release = null
+		const plain_refresh = self.refresh
+		self.refresh = async function(options) {
+			await plain_refresh(options)
+			await new Promise(resolve => { release = resolve })
+			return true
+		}
+		const node = get_buttons_by_permissions(self)
+		const button = node.querySelector('.button.sync')
+
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+		assert.equal(sent.length, 1, 'the first click refreshes')
+		assert.equal(button.classList.contains('loading'), true, 'in flight: class loading')
+		assert.equal(button.getAttribute('aria-disabled'), 'true', 'in flight: aria-disabled')
+
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+		assert.equal(sent.length, 1, 'clicks while in flight must not stack refreshes')
+
+		release()
+		await pause(20)
+		assert.equal(button.classList.contains('loading'), false, 'settled: loading removed')
+		assert.equal(button.hasAttribute('aria-disabled'), false, 'settled: aria-disabled removed')
+		assert.equal('build_options' in self.rqo.source, false, 'the flag is single-use')
+
+		// settled: the next click refreshes again
+		self.refresh = plain_refresh
+		button.dispatchEvent(new MouseEvent('click', {bubbles: true}))
+		await pause(20)
+		assert.equal(sent.length, 2, 'a click after the refresh settled refreshes again')
+	})
+
+})//end describe COMPONENT_PORTAL UPDATE EXTERNAL
 
 
 

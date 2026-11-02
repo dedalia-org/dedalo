@@ -12,7 +12,9 @@
 	import {a11y} from '../../common/js/a11y.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {set_element_css} from '../../page/js/css.js'
-	import {no_records_node, is_non_tools_section} from './render_common_section.js'
+	import {place_list_after} from '../../common/js/common.js'
+	import {apply_table_semantics} from '../../section_record/js/record_window.js'
+	import {render_list_after, is_non_tools_section} from './render_common_section.js'
 	import {
 		build_semantic_quick_input,
 		build_pinned_chip
@@ -34,7 +36,12 @@
 *
 * Responsibilities:
 *   - Assembles the full section list DOM: search/filter toolbar, paginator,
-*     column header row, and content rows.
+*     column header row, content rows and the `.list_after` sibling — the row
+*     box table of WC-2026-10-30-section-record-row-box:
+*       wrapper > .list_body.layout_table[role=table]
+*                   ├─ .header_wrapper_list[role=row] > .head_column[role=columnheader]…
+*                   └─ .content_data[role=rowgroup] > .section_record[data-index=i][role=row]…
+*                 .list_after   (no_records, print notice — never inside the table)
 *   - Builds (or reuses) the columns_map — the ordered descriptor array that
 *     drives both the CSS grid layout and the per-column render callbacks.
 *   - Delegates per-row rendering to section_record instances built on demand
@@ -76,6 +83,8 @@ export const view_default_list_section = function() {
 *   1. 'content' render_level — only the content rows are (re-)built and returned
 *      as a detached <div class="content_data"> node. Used by pagination to swap
 *      in new rows without rebuilding the chrome (header, buttons, paginator).
+*      Its `.list_after` travels as the expando `content_data.list_after`
+*      (common.render swaps it, common.place_list_after).
 *   2. 'full' render_level (default) — builds the complete DOM: buttons toolbar,
 *      optional search container, optional paginator, list_body (containing the
 *      column header and rows), and the outer <section> wrapper.
@@ -92,6 +101,9 @@ export const view_default_list_section = function() {
 * @param {Object} options - Render options.
 *   @param {string} [options.render_level='full'] - 'full' for initial render;
 *     'content' to regenerate only the data rows (e.g. on pagination).
+*   The row options of get_content_data (records_options, render_options,
+*   layout, decorate) are forwarded from here too, so a view delegating to this
+*   render (view_tm_list_section) can shape its rows.
 * @returns {Promise<HTMLElement>} On 'full': the <section> wrapper element.
 *   On 'content': the <div class="content_data"> element.
 */
@@ -110,21 +122,13 @@ view_default_list_section.render = async function(self, options) {
 		self.ar_instances = self.ar_instances || []
 
 	// content_data
-		const content_data = await this.get_content_data(self, rows)
+		const content_data = await this.get_content_data(self, rows, options)
 		if (render_level==='content') {
 
 			// pinned chip. A content refresh (show_all, the chip's own ✕, a
 			// semantic search) keeps the header, so the SQO-derived chip must be
 			// re-synced here or it outlives the pins it reports.
 				sync_pinned_chip(self)
-
-			// list_header_node. Remove possible style 'hide' if not empty
-				if (rows.length>0) {
-					const wrapper = self.node
-					if (wrapper.list_header_node && wrapper.list_header_node.classList.contains('hide')) {
-						wrapper.list_header_node.classList.remove('hide')
-					}
-				}
 
 			return content_data
 		}
@@ -168,9 +172,11 @@ view_default_list_section.render = async function(self, options) {
 		}
 
 	// list body
+		// `layout_table` marks the row box table (list.less): header, content_data
+		// and every row share the list_body grid through subgrid
 		const list_body = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'list_body',
+			class_name		: 'list_body layout_table',
 			parent			: fragment
 		})
 		// fix last list_body (for pagination selection)
@@ -221,15 +227,18 @@ view_default_list_section.render = async function(self, options) {
 		// Adapt section_id column width/font to the longest ID on this page (first render)
 		view_default_list_section.adapt_section_id_column(list_body, self)
 
-	// list_header_node. Create and append if the page is not empty
+	// list_header_node. Always present, N=0 included: the table keeps its
+	// header row when it has no rows (a role=table owning no row fails
+	// aria-required-children; the window drops only the rowgroup role at N=0)
 		const list_header_node = ui.render_list_header(columns_map, self)
 		list_body.appendChild(list_header_node)
-		if (rows.length<1) {
-			list_header_node.classList.add('hide')
-		}
 
 	// content_data append
 		list_body.appendChild(content_data)
+
+	// a11y. Static table semantics; the dynamic part (rowgroup, row roles,
+	// aria-rowcount) belongs to the window
+		apply_table_semantics(list_body, list_header_node)
 
 	// wrapper
 		const wrapper = ui.create_dom_element({
@@ -243,6 +252,9 @@ view_default_list_section.render = async function(self, options) {
 		wrapper.list_body			= list_body
 		wrapper.list_header_node	= list_header_node
 
+	// list_after. The non-row sibling, right after list_body
+		place_list_after(wrapper, content_data)
+
 
 	return wrapper
 }//end render
@@ -252,49 +264,60 @@ view_default_list_section.render = async function(self, options) {
 /**
 * GET_CONTENT_DATA
 * Builds the <div class="content_data"> element for the current page and hands
-* its rows to a ROW WINDOW (section.js window_section_rows → common/js/
-* row_window.js): only the rows the viewport can reach are built — at most
-* ROW_WINDOW_MAX_ROWS at once — and rows past the far edge are released. The
-* first window is filled before this resolves, so the returned node already
-* holds the first rows (audit P2-31 / CLI-29: the page DEC-07 permits is 1000
-* rows, and every one used to be built synchronously).
+* its rows to the ROW WINDOW door (section.js window_section_rows →
+* section_record/js/record_window.js; WC-2026-10-30-section-record-row-box):
+* `content_data.children` is exactly the page's N `.section_record` rows in
+* index order, at every N, N=0 included. At most ROW_WINDOW_MAX_ROWS rows are
+* built at once (placeholders beyond); the window is filled before this
+* resolves (audit P2-31 / CLI-29: the page DEC-07 permits is 1000 rows).
 *
-* When the rows array is empty a "no records found" placeholder is shown
-* instead of an empty grid (via no_records_node from render_common_section).
+* The door is called on EVERY content render, N=0 included, so an N>0→N=0
+* transition retires the previous window like any other. Nothing but rows goes
+* into content_data: the "no records found" node and the print notice travel
+* in the expando `content_data.list_after` (render_list_after), placed after
+* the list_body by the full render / the common.render 'content' swap.
 *
 * After building the content node, re-runs adapt_section_id_column so that
 * the id column is resized to match the longest ID on the new page (important
 * on pagination, where self.node_body already exists from the first render).
 *
 * @param {Object} self - The section instance. Must expose: mode, type, node_body.
-* @param {Array} rows - The page's locator entries (`self.data.entries`), or
-*   already-built section_record instances (the TM inspector panels).
+* @param {Array} rows - The page's locator entries (`self.data.entries`).
+* @param {Object} [options] - Row shaping for views that delegate here
+*   (view_tm_list_section):
+* @param {Object} [options.records_options] - Forwarded to the row build
+*   (mode, view, id_variant…; get_section_records defaults otherwise).
+* @param {Object} [options.render_options] - Passed to each row's render().
+* @param {string} [options.layout='table'] - 'table' | 'list' (window roles).
+* @param {Function} [options.decorate] - (node, index) → void on every built row.
 * @returns {Promise<HTMLElement>} The populated <div class="content_data"> node.
 */
-view_default_list_section.get_content_data = async function(self, rows) {
+view_default_list_section.get_content_data = async function(self, rows, options={}) {
 
 	// content_data
 		const content_data = document.createElement('div')
 			  content_data.classList.add('content_data', self.mode, self.type)
 
-	// rows
-		if (!rows || rows.length===0) {
+	// rows. The row window builds and renders section_record rows on demand
+	// (the CSS ring of `.list_body.layout_table` is the row highlight)
+		const record_window = await window_section_rows({
+			caller			: self,
+			container		: content_data,
+			rows			: rows || [],
+			records_options	: options.records_options || {},
+			render_options	: {
+				add_hilite_row : false,
+				...(options.render_options || {})
+			},
+			layout			: options.layout || 'table',
+			decorate		: options.decorate
+		})
 
-			// no records found case
-			content_data.appendChild(no_records_node())
-
-		}else{
-
-			// row window: builds and renders section_record rows on demand
-			await window_section_rows({
-				caller			: self,
-				container		: content_data,
-				rows			: rows,
-				render_options	: {
-					add_hilite_row : true
-				}
-			})
-		}
+	// list_after. no_records / print notice (never inside content_data)
+		content_data.list_after = render_list_after(self, {
+			content_data	: content_data,
+			record_window	: record_window
+		})
 
 	// Re-adapt section_id column on every content refresh (pagination).
 	// self.node_body is set on first render; on pagination it is the existing list_body.

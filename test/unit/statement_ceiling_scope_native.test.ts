@@ -307,6 +307,37 @@ await leg('helper_no_guc_mutation', async () => {
 	return { elapsedMs, setting: settings[0]?.setting, source: settings[0]?.source, pooled: await pooledShows() };
 });
 
+// withStatementBudget with NO ambient transaction (postgres.ts): it opens its own
+// on the lane in force — the bounded request pool, or, inside an unbounded scope,
+// the maintenance pool (startup ceiling 0) — and SET LOCALs the budget there. The
+// budget applies on BOTH lanes, never above the ceiling in force; the lane is the
+// scope's (never moved); nothing leaks onto a pooled connection; and the
+// non-transactional lane (runWithoutStatementTimeout) cannot be entered under it.
+const budgetProbe = (appliedMs) => (async () => ({
+	appliedMs,
+	shown: await show(),
+	app: (await sql.unsafe("SELECT current_setting('application_name') AS a", []))[0].a,
+	inTx: pg.isInTransaction(),
+}))();
+await leg('budget_request_lane', async () => ({
+	inside: await pg.withStatementBudget(100, budgetProbe),
+	above: await pg.withStatementBudget(5000, budgetProbe),
+	after: await pooledShows(),
+}));
+await leg('budget_request_lane_cut', () => pg.withStatementBudget(100, async () => { await sql.unsafe(SLEEP, []); return 'NO ERROR'; }));
+await leg('budget_unbounded_lane', async () => ({
+	inside: await scope()(() => pg.withStatementBudget(200, budgetProbe)),
+	scopeAfter: await scope()(() => show()),
+	after: await pooledShows(),
+}));
+await leg('budget_unbounded_lane_cut', () => scope()(() => pg.withStatementBudget(200, async () => { await sql.unsafe(SLEEP, []); return 'NO ERROR'; })));
+await leg('budget_refuses_nontx_lane', () => pg.withStatementBudget(100, async () => { await runWithoutStatementTimeout('SELECT 1'); return 'NO ERROR'; }));
+await leg('nontx_after_budget', async () => {
+	const startedAt = performance.now();
+	await runWithoutStatementTimeout(SLEEP);
+	return { elapsedMs: performance.now() - startedAt, pooled: await pooledShows() };
+});
+
 // LAST: pre-fix these succeed and leak an unbounded GUC onto pooled connections.
 await leg('session_set_pooled', async () => { await sql.unsafe('SET statement_timeout = 0', []); return 'NO ERROR'; });
 await leg('after_session_set_pooled', pooledShows);
@@ -790,6 +821,46 @@ describe('savepoints carry the commit-only queue (W12)', () => {
 			return 'committed';
 		});
 		expect(out).toBe('committed');
+	});
+});
+
+describe('withStatementBudget with no ambient transaction: the bound applies, the lane is respected', () => {
+	type Probe = { appliedMs: number; shown: string; app: string; inTx: boolean };
+	test('request lane: its own transaction, the budget SET LOCAL (never above the ceiling), nothing leaked', () => {
+		const value = legValue('budget_request_lane') as {
+			inside: Probe;
+			above: Probe;
+			after: string[];
+		};
+		expect(value.inside).toMatchObject({ appliedMs: 100, shown: '100ms', inTx: true });
+		expect(value.inside.app.startsWith('dedalo_maintenance')).toBe(false);
+		// A budget above the pool ceiling is clamped to it.
+		expect(value.above).toMatchObject({ appliedMs: CEILING_MS, shown: CEILING, inTx: true });
+		expect(value.after).toEqual(Array(4).fill(CEILING));
+	});
+	test('request lane: a statement past the budget is the typed 503 at the BUDGET', () => {
+		expectTypedTimeout(errorOf('budget_request_lane_cut'), 'transaction', 100);
+	});
+	test('unbounded scope: the bound still applies (tighter than its 0), on the MAINTENANCE lane, and the scope keeps its 0', () => {
+		const value = legValue('budget_unbounded_lane') as {
+			inside: Probe;
+			scopeAfter: string;
+			after: string[];
+		};
+		expect(value.inside).toMatchObject({ appliedMs: 200, shown: '200ms', inTx: true });
+		expect(value.inside.app.startsWith('dedalo_maintenance:')).toBe(true);
+		expect(value.inside.app.includes(':nontx:')).toBe(false);
+		expect(value.scopeAfter).toBe('0');
+		expect(value.after).toEqual(Array(4).fill(CEILING));
+	});
+	test('unbounded scope: a statement past the budget is cut, typed, at the budget', () => {
+		expectTypedTimeout(errorOf('budget_unbounded_lane_cut'), 'transaction', 200);
+	});
+	test('the non-transactional lane is refused under a budget, and stays unbounded after one', () => {
+		expect(errorOf('budget_refuses_nontx_lane').code).toBe('internal.invariant');
+		const after = legValue('nontx_after_budget') as { elapsedMs: number; pooled: string[] };
+		expect(after.elapsedMs).toBeGreaterThanOrEqual(550);
+		expect(after.pooled).toEqual(Array(4).fill(CEILING));
 	});
 });
 

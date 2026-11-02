@@ -32,3 +32,21 @@ export const TEST_MARKER_TABLE = 'dedalo_test_marker';
  */
 export const TEST_MARKER_PURPOSE =
 	'DISPOSABLE DEDALO TEST DATABASE — built by `bun run test:db:setup`, dropped and rebuilt at will. Every test-data writer REFUSES without this row. Never create it on a database holding real records.';
+
+/**
+ * Is this the NAME of a suite database — `<app db>_test` (test/helpers/test_database.ts,
+ * the ONE derivation rule) or one of its shard clones `<…>_test__shard<N>`
+ * (scripts/lib/test_shard_db.ts shardDatabaseName, built on {@link SHARD_SUFFIX})?
+ *
+ * A NAME test, for the few SYNC predicates that cannot ask the database for the marker
+ * row (a boot-frozen carve-out, a module-scope test guard). It is never a write licence
+ * — writers call `assertTestDatabase()`. It exists because the bare `endsWith('_test')`
+ * these predicates used read a shard clone as a NON-suite database: MEASURED 2026-10-31,
+ * observer_reconcile_native skipped 3 cases (75 → 51 assertions) on `…_test__shard4`
+ * and only the per-file floor noticed. Pinned against shardDatabaseName by
+ * shard_partition_tripwire.
+ */
+export const SHARD_SUFFIX = '__shard';
+export function isSuiteDatabaseName(name: string): boolean {
+	return /_test(__shard\d+)?$/.test(name);
+}

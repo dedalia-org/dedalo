@@ -34,11 +34,12 @@ engine and the DOM:
 | server read engine | `readSection` / `readSectionRows` — `src/core/section/read.ts` | run the navigation [SQO](../sqo.md) (via `pickReadSource` → the search engine or the Time Machine source), return the matching `(section_tipo, section_id)` rows |
 | server envelope | built inline in `readSectionRows()` | turn the rows into one `entries` array of locators + a de-duplicated `context[]` (see [`sections`](sections.md#the-sqo-normalization-contract)) |
 | client model | `section` instance in `list` mode (`section.js`) | holds the `datum`, `rqo`/`sqo`, `columns_map`, `paginator` and `filter`; owns navigation/pagination/sort |
-| client render | `render_list_section.list` → `view_*_list_section` | builds the column grid: a header row + one rendered [`section_record`](section_record.md) per entry |
+| client render | `render_list_section.list` → `view_*_list_section` | builds the row-box table: a header row + one [`section_record`](section_record.md) row per entry, placed by the record window (see [The row box](#the-row-box)) |
 
 A list view never reads the database and never resolves a single field itself.
-It asks the API for a page of locators, instantiates one client `section_record`
-per locator, and lets each record render its own columns. Where the
+It asks the API for a page of locators, hands them to a record window that
+instantiates one client `section_record` per locator it builds, and lets each
+record render its own columns. Where the
 [`section` edit mode](section.md) shows **one** record with all its components,
 the list mode shows **many** records, each collapsed to a configured set of
 **columns**.
@@ -53,9 +54,11 @@ section instance (list mode)  ── self.data.entries  +  self.columns_map  +  
         │
 render_list_section.list ──► view_default_list_section.render
         │                         ├─ header row  (ui.render_list_header)
-        │                         └─ one section_record.render() per entry  →  row of column cells
+        │                         └─ window_section_rows → record_window
+        │                              one section_record row per entry (≤ 200 built, placeholders beyond)
         ▼
-DOM:  wrapper_section > list_body > [ header_wrapper_list | content_data > rows ]
+DOM:  wrapper_section > [ list_body.layout_table > [ header_wrapper_list | content_data > section_record × N ]
+                         | list_after ]
 ```
 
 ## Responsibilities
@@ -69,10 +72,11 @@ DOM:  wrapper_section > list_body > [ header_wrapper_list | content_data > rows 
 - **Build the columns model.** Derive `self.columns_map` from the section's
   `request_config` `show.ddo_map` (`common.get_columns_map`, client-side) and
   prepend the fixed `section_id` control column (`rebuild_columns_map`).
-- **Render the grid.** Lay out a CSS-grid `list_body` whose
+- **Render the grid.** Lay out a CSS-grid `list_body.layout_table` whose
   `grid-template-columns` is computed from the columns' widths
-  (`ui.flat_column_items`), draw the header (`ui.render_list_header`), and append
-  one rendered `section_record` row per entry.
+  (`ui.flat_column_items`), draw the header (`ui.render_list_header`), and hand
+  the page's entries to the row door (`window_section_rows`), which places one
+  `section_record` row per entry — see [The row box](#the-row-box).
 - **Render the `section_id` control column.** Per row, draw the id cell with the
   edit / delete / link / tool affordances appropriate to permissions and caller
   (`render_column_id`).
@@ -122,11 +126,12 @@ instance (declared in `section.js`):
 | `self.rqo` / `self.request_config_object` | objects | the request query object and its `sqo` (limit / offset / filter / order); the **source of truth** for pagination |
 | `self.columns_map` | array of column objects | the columns to render per row (see below) |
 | `self.total` | int \| null | cached record count from the `count` action (fed to the paginator) |
-| `self.ar_instances` | array | the built `section_record` instances, one per entry |
+| `self.ar_instances` | array | the **built** `section_record` rows only: a row the window releases leaves it through its own destroy |
+| `self.record_windows` | `{ rows: handle }` | the record window of each row slot (`rows`; a portal mosaic adds `alt` for its alternative table), stored by the row door `window_section_rows` |
 | `self.paginator` | [`paginator`](../ui/paginator.md) | the navigation widget; this section is its `caller` |
 | `self.filter` | [`search`](../sqo.md) instance | the section's search panel (created unless `mode==='tm'`) |
 | `self.view` | `'default'` \| `'base'` \| `'graph'` \| `'thesaurus_list'` \| `'search_user_presets'` \| `'export_user_presets'` | which list view renders |
-| `self.node_body` | HTMLElement | the `.list_body` grid element (kept for in-place pagination refresh) |
+| `self.node_body` | HTMLElement | the `.list_body.layout_table` grid element (kept for in-place pagination refresh) |
 
 ### The `entries` array (the page of rows)
 
@@ -196,6 +201,117 @@ The grid track widths come from `ui.flat_column_items(columns_map)`.
     (e.g. `view: 'text'`/`'line'`). This is what makes a 100-row list cheap
     relative to 100 full edit forms. See [section_record](section_record.md).
 
+### The row box
+
+Every list row is **one box**: the `.section_record` element *is* the row. The
+section list views (`default`, `base`, `thesaurus_list` and the Time Machine
+list), every [portal](../components/component_portal.md#rows-drag-and-drop-and-order)
+row view and the two tool mosaics (cataloguing, coin ordering) place their rows
+through one engine, the **record window**
+(`client/dedalo/core/section_record/js/record_window.js`), reached through one
+door, `window_section_rows` (`section.js`). The graph view, the saved-preset
+lists and the autocomplete results still build their rows directly with
+`get_section_records`.
+
+**The row invariant.** At every moment and for every page size N, N = 0
+included, `content_data.children` holds exactly N `.section_record` elements in
+index order: `children[i]` is row *i* and carries `data-index="i"`. Nothing else
+sits inside `content_data` — no spacer, no "no records" node, no footer. A row is
+therefore always found as `content_data.children[i]`, or from an event target
+with `row_of(content_data, target)`; nothing keeps its own index-to-node map.
+
+**The table DOM.** A table view marks its `list_body` with `layout_table`:
+
+```text
+.list_body.layout_table              role=table; grid-template-columns = the column widths
+  ├─ .header_wrapper_list            role=row: the header, a column subgrid (optional)
+  └─ .content_data                   role=rowgroup: a column subgrid
+       └─ .section_record[data-index=i]   role=row: one row box, a column subgrid
+            └─ .column …                  role=cell: the cells, on the shared column tracks
+.list_after                          the one non-row sibling (never inside the table)
+```
+
+Header, `content_data` and every row span the whole grid (`grid-column: 1 / -1`)
+with `grid-template-columns: subgrid`, so each row is a single box — it carries
+the hover ring, the drop mark and, when unbuilt, the placeholder — while its
+cells still line up on the list's shared columns. The ring is a `::after`
+generated on every row in every state; hover, `.dragover` and `.dragging`
+change only its paint. Rows and `content_data` never clip their overflow and
+never open a stacking context, so an autocomplete panel or a hover button is
+never trapped under the next row. A section list keeps its header row at N = 0.
+A list layout (line, mosaic, tree, indexation and the tool mosaics) has no
+`layout_table` mark; its `content_data` is `role=list` and its rows
+`role=listitem`. `aria-rowcount` / `aria-rowindex` (or `aria-setsize` /
+`aria-posinset` for lists) are set only while placeholders exist; at N = 0 the
+row group role is dropped, and a header-less table drops `role=table`.
+
+**The `.list_after` slot.** Everything that is not a row — the "no records
+found" node, a portal's back-references, a list footer, a render error, the
+print notice and a portal's order indicator — goes into ONE `.list_after`
+element, placed right after `list_body` (table views) or `content_data` (list
+views). A view's `get_content_data` hands it over as `content_data.list_after`;
+the full render places it with `place_list_after` (`common.js`), and a content
+refresh (`render_level: 'content'`) swaps it together with `content_data`.
+
+**A bounded window.** A page may hold up to 1000 rows. The window builds
+`min(N, 200)` rows (`ROW_WINDOW_MAX_ROWS`, `common/js/row_window.js`); above
+200, every other row is a **placeholder**: a childless, listener-free
+`<div class="section_record placeholder" data-index="i" aria-hidden="true">`
+sized by the measured height of the row it replaced (`--row_size`) or by the
+running mean of the built rows (`--placeholder_size`), so scrolling never
+shifts the page. Only above 200 rows does the window create its one
+`IntersectionObserver`: it builds the placeholders that scroll into reach, and
+releases the farthest unpinned rows back down to 160 (`ROW_WINDOW_MARGIN` = 40
+below the bound). Focus moving into a row builds its neighbours on both sides.
+`reveal(i)` resolves once row *i* is built. A row whose build failed stays a
+placeholder with `data-failed` (a red stripe), keeps its index, and is retried
+by `reveal(i)`.
+
+**No edit is ever lost by a release.** A row is never released while it holds
+focus, a hold (a drag in progress, an open move-to-position dialog), the active
+component, an unsaved instance, a typed-but-uncommitted editor value, the live
+autocomplete, a saving or changing instance, the pointer (`:hover`) or the
+`.dragging` mark. Before a row leaves, its uncommitted editor values are
+committed (a synthetic `change` + `blur`), and a value whose component did not
+record the commit stays pending: the row stays built. An instance whose save
+failed is kept alive and registered as unsaved (orphaned), never destroyed, so
+the unsaved-data guard still sees it.
+
+**The owner row lock.** Every operation that replaces a list's rows — `refresh`,
+`navigate` (a page change or a sort), and for a portal also link, unlink, add,
+the tag filter and every reorder — first acquires the owner row lock
+(`lock_rows`, `common.js`). It commits the uncommitted values of every row
+(and of an open mosaic hover overlay), then makes the old rows `inert` until the
+new ones replace them. When a value cannot be committed, the lock asks the user:
+**Cancel** leaves the list exactly as it was (same page, same rows, focus back
+on the value); **OK** discards exactly those values and goes on. `navigate`
+takes the lock before its unsaved-data check, so that check sees only what the
+lock could not commit.
+
+**Delegated listeners.** No row carries a listener of its own. The views that
+need gestures register one listener set on `content_data`, bound to the
+window's `AbortSignal`, so it dies with the window. A mosaic's hover overlay
+(`.sr_mosaic_hover`, the `hover` columns) is built on demand, one at a time, by
+`delegate_row_hover` (`section_record/js/row_hover.js`), and flushed before it
+leaves, so an edit typed in the overlay is never dropped. Portal drag and drop
+is delegated the same way — see
+[component_portal](../components/component_portal.md#rows-drag-and-drop-and-order).
+
+**Print and find-in-page.** Placeholders are neither printed nor findable with
+the browser's search. When a printed list holds placeholders, `.list_after`
+carries a notice, visible in print only:
+"*count* of *total* rows are not printed: only the rows rendered on screen are.
+Use the print or export tool to get the complete list." (label
+`rows_not_rendered_print`). Nothing is built on `beforeprint`; use the print or
+export tool for the complete list.
+
+**Phone cards.** At 1024px wide and below (`@width_break_point_0`), a row of a
+`layout_table` list — a section list or a portal table alike — becomes a
+**card**: the header row is hidden, each cell shows its column name before its
+value (set by `ui.make_column_responsive`), and the card stays within the screen
+width. A placeholder is never a card. A list nested inside a card cell keeps
+flowing inside that cell.
+
 ### Relation-component list cells: which config a cell actually expands
 
 A relation-family component (e.g. a portal) rendered as one **list cell**
@@ -223,17 +339,29 @@ section client module:
 ```text
 client/dedalo/core/section/js/
 ├── section.js                       # the section instance: init/build/render, navigate,
-│                                     #   update_pagination, get_total, create/duplicate/delete_section,
-│                                     #   get_section_records() (one section_record per entry)
+│                                     #   update_pagination, get_total, create/duplicate/delete_section;
+│                                     #   window_section_rows (THE row door), build_section_record_for,
+│                                     #   row_edit_safety, get_section_records (unwindowed views)
 ├── render_list_section.js           # list() view dispatcher + render_column_id (the id cell)
 ├── view_default_list_section.js     # the default grid view: columns, list_body, header, paginator, buttons
 ├── view_base_list_section.js        # a leaner grid view ('base'): caller-supplied columns_map
 ├── view_thesaurus_list_section.js   # 'thesaurus_list' view
+├── view_tm_list_section.js          # the Time Machine list
 ├── view_graph_list_section.js       # 'graph' view
 ├── view_search_user_presets.js      # 'search_user_presets' view
 ├── view_export_user_presets.js      # 'export_user_presets' view
-├── render_common_section.js         # shared bits: no_records_node(), delete dialog
+├── render_common_section.js         # shared bits: no_records_node(), render_list_after, render_print_notice,
+│                                     #   delete dialog
 └── render_solved_section.js         # 'solved' mode (read-only resolved view)
+
+client/dedalo/core/section_record/js/
+├── record_window.js                 # the record window: row invariant, placeholders, pins,
+│                                     #   row_of, apply_table_semantics
+└── row_hover.js                     # delegate_row_hover: the on-demand mosaic hover overlay
+
+client/dedalo/core/common/js/
+├── common.js                        # lock_rows (the owner row lock), place_list_after
+└── row_window.js                    # ROW_WINDOW_MAX_ROWS / ROW_WINDOW_MARGIN / ROW_WINDOW_ROOT_MARGIN
 ```
 
 Server side, the records are produced by the read engine:
@@ -288,7 +416,7 @@ client `section` instance and as functions in the server read engine.
 | `build(autoload=false)` | Build the `rqo` from `request_config` (`build_rqo_show`), create the `search` filter (unless `tm`), load the page via `build_autoload`, set `self.datum` / `self.context` / `self.data`, restore/apply pagination from local DB, create the `paginator`, and compute `self.columns_map` via `get_columns_map`. |
 | `render(options)` | Delegate to `common.prototype.render`, which dispatches to the mode method (`list`). |
 | `list(options)` | (= `render_list_section.list`) The list-mode renderer/dispatcher. `options.render_level` is `'full'` (whole wrapper) or `'content'` (only `content_data`, for pagination refresh). |
-| `navigate(options)` | Refresh the list in place with a new SQO (used by pagination & sort); optionally push browser history; clears stale per-user record locks. |
+| `navigate(options)` | Refresh the list in place with a new SQO (used by pagination & sort); optionally push browser history; clears stale per-user record locks. Takes the owner row lock first, then the unsaved-data check; a refused lock leaves the list untouched. |
 | `update_pagination(offset)` | Paginator-goto handler: write `rqo.sqo.offset`, persist it to local DB, then `navigate()`. |
 | `get_total(sqo?)` | Async record count for the paginator: clone the SQO, strip `limit`/`offset`/`select`/`order`/`generated_time`, call the `count` action; de-duplicated behind `_total_promise`; caches `self.total`. |
 | `create_section()` | `create` API action; returns the new `section_id` (server: `createSectionRecord()`, see [`section`](section.md)). |
@@ -301,19 +429,26 @@ client `section` instance and as functions in the server read engine.
 | `focus_first_input()` | Activate the first component of the first row. |
 | `delete_cache()` | Drop the `section_cache_*` local-DB entries (on `quit` / `change_lang`). |
 
-### `get_section_records(options)` — rows factory (exported from `section.js`)
+### Row door and row builders (exported from `section.js`)
 
-For each entry locator, `get_instance({model:'section_record', …})`, `build()`
-it, and return the array of built `section_record` instances (the rows). Filters
-out failed builds. `options.caller` is required; reads `entries` from
-`caller.data.entries`.
+| member | purpose |
+| --- | --- |
+| `window_section_rows({caller, container, rows, slot?, records_options?, render_options?, layout?, draggable_rows?, decorate?})` | THE row door of every windowed view. Creates a record window over `rows` in the empty `container` (`content_data`), stores it as `caller.record_windows[slot]` (default slot `rows`), and retires the previous window of that slot. Called on **every** content render, N = 0 included. Each window gets the next owner-monotonic `generation` of its slot, so a drag started in a superseded window is recognised as stale. Returns the filled window. |
+| `build_section_record_for(caller, entry, records_options)` | Build one `section_record` for one entry (the window's builder and the hover overlay's). |
+| `get_section_records(options)` | Build a `section_record` for every entry of `caller.data.entries` at once and return the built ones (failed builds filtered out). Used only by the views that do not window their rows (graph, saved presets, autocomplete results, the search-mode and text / mini portal views). |
+
+The window handle (`create_record_window`, `record_window.js`) exposes data and
+instances only, never a node: `size`, `generation`, `signal`, `entry_of(i)`,
+`record_at(i)`, `is_built(i)`, `reveal(i)`, `ensure_built(from, to)`,
+`rebuild(i)`, `hold(i, reason)` / `unhold(i, reason)`, `commit_uncommitted()`,
+`freeze()` / `thaw()`, `flush()`, `retire(next)`, `destroy()` and `idle()`.
 
 ### Default list view (`view_default_list_section.js`)
 
 | member | purpose |
 | --- | --- |
-| `view_default_list_section.render(self, options)` | Build the full list: `rebuild_columns_map`, fetch rows via `get_section_records`, set the grid `grid-template-columns` (`ui.flat_column_items`), render header + `content_data`, mount buttons / search / paginator. Honours `render_level==='content'`. |
-| `get_content_data(self, ar_section_record)` | Render every row in parallel (`section_record.render({add_hilite_row:true})`) preserving order, or `no_records_node()` when empty; returns the `.content_data` element. |
+| `view_default_list_section.render(self, options)` | Build the full list: `rebuild_columns_map`, set the grid `grid-template-columns` (`ui.flat_column_items`), render the header + `content_data` inside `list_body.layout_table`, apply the table roles (`apply_table_semantics`), place `.list_after`, mount buttons / search / paginator. Honours `render_level==='content'`. |
+| `get_content_data(self, rows, options)` | Create an empty `.content_data`, hand `rows` (`self.data.entries`) to `window_section_rows`, and attach the `.list_after` node (no-records node, print notice) as `content_data.list_after`. Returns the filled `.content_data`. |
 | `rebuild_columns_map(self)` | Prepend the synthetic `section_id` control column; idempotent via `self.fixed_columns_map`. |
 | `adapt_section_id_column(list_body_node, self)` | Set `--section_id_font_size` / `--column_id_width` CSS vars to fit the longest id on the page. |
 
@@ -328,7 +463,8 @@ out failed builds. `options.caller` is required; reads `entries` from
 | member | purpose |
 | --- | --- |
 | `render_list_section.list(options)` | View dispatcher (see [How the view is chosen](#how-the-view-is-chosen)). |
-| `no_records_node()` | The "no records found" row when `entries` is empty. |
+| `no_records_node()` | The "no records found" node when `entries` is empty; it is placed in `.list_after`, never in `content_data`. |
+| `render_list_after(self, {content_data, record_window})` / `render_print_notice(content_data, record_window)` (`render_common_section.js`) | Build the section list's `.list_after` node (no-records node, print notice) and the print notice shared with the portal views. |
 
 ### Server-side companions
 
@@ -356,10 +492,11 @@ out failed builds. `options.caller` is required; reads `entries` from
   `section_tipo` in the list; its context (buttons, permissions, CSS) is
   stamped by `stampSectionContext()` and swapped per
   [the list-CSS note above](#the-columns-model) when in list/tm mode.
-- **[section_record](section_record.md)** — one **row**. `get_section_records()`
-  creates one client `section_record` per entry; each renders only the columns in
-  the columns_map (`get_ar_columns_instances_list`). Click handling on the id
-  cell turns a row into an `edit`-mode navigation.
+- **[section_record](section_record.md)** — one **row**. The record window
+  builds one client `section_record` per entry it builds
+  (`build_section_record_for`); each renders only the columns in the
+  columns_map (`get_ar_columns_instances_list`). Click handling on the id cell
+  turns a row into an `edit`-mode navigation.
 - **[Components](../components/index.md)** — the **cells**. Each column resolves
   to a component instance rendered in `list` mode and a collapsed view (`text` /
   `line` / `mini` / `mosaic`).
@@ -424,7 +561,7 @@ const section = await get_instance({
 })
 
 await section.build(true)            // autoload: fetch the first page from the API
-const wrapper = await section.render() // list_body grid: header + one row per entry
+const wrapper = await section.render() // list_body.layout_table: header + one row box per entry
 document.body.appendChild(wrapper)
 ```
 

@@ -44,6 +44,7 @@ import { writeTextFileDurablyAsync as writeFileAtomic } from '../../src/core/fil
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import {
 	confirmBootedCodeUpdate,
+	markCrossingSentinel,
 	markFailedBootSchema,
 } from '../../src/core/update/boot_confirm.ts';
 import { classifyDataVersion } from '../../src/core/update/boot_state.ts';
@@ -199,6 +200,39 @@ describe('boot confirmation follows the verdict', () => {
 			DIGEST,
 		);
 		expect(statusOf(fine)).toBe('pending');
+	});
+
+	test('PRE-CROSSING: markCrossingSentinel flips this tree’s pending sentinel, says it is a precaution, and the run’s confirm lands', async () => {
+		const lines: string[] = [];
+		const originalLog = console.log;
+		const originalError = console.error;
+		console.log = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+		console.error = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+		const path = pendingSentinel();
+		const foreign = pendingSentinel();
+		try {
+			await markCrossingSentinel('run_x', '7.0.1 schema', path, '7.0.1', DIGEST);
+			await markCrossingSentinel('run_x', '7.0.1 schema', foreign, '7.0.1', 'other-digest');
+		} finally {
+			console.log = originalLog;
+			console.error = originalError;
+		}
+		expect(statusOf(path)).toBe('needs_restore');
+		expect(statusOf(foreign)).toBe('pending');
+		// The line names the crossing and the run — never a failure it did not see.
+		expect(lines.some((line) => line.includes('crosses the data model at 7.0.1 schema'))).toBe(
+			true,
+		);
+		expect(lines.some((line) => /NEEDS A HUMAN|migration failed/.test(line))).toBe(false);
+		// The run's confirm (an ok verdict) flips the precaution to confirmed.
+		await confirmBootedCodeUpdate(path, '7.0.1', DIGEST, null, {
+			state: 'ok',
+			applied: [],
+			deferred: [],
+			schemaMoved: false,
+			error: null,
+		});
+		expect(statusOf(path)).toBe('confirmed');
 	});
 
 	test('needs_restore is confirmed by a later OK boot of the same tree (a human fixed forward), never by a failed one', async () => {

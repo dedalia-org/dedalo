@@ -28,8 +28,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { dropTestCorpus, ensureTestCorpus } from '../../src/core/test_data/test_corpus/ensure.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const SECTION = 'test6099';
 const SECTION_TABLE = 'matrix_test';

@@ -7,7 +7,7 @@ concern; the reference systemd units live in `deploy/`.
 ## 1. Runtime (S2-36)
 
 The Bun runtime is **pinned**: `.bun-version` + `package.json` `engines.bun`
-(currently `1.4.3`). The code is coupled to version-specific Bun behavior —
+(currently `1.4.4`). The code is coupled to version-specific Bun behavior —
 `Bun.sql` jsonb parameter inference (a drift here is the realized S1-07/S1-08
 corruption class), the Bun.sql MariaDB adapter (diffusion), `Bun.serve`
 defaults. The server echoes its runtime at boot and **warns loudly** when it
@@ -62,6 +62,13 @@ the db tier (`statement_ceiling_scope_native`, whose leg caught a 57014 inside
 `withTransaction`; it now lets the error leave the transaction, as production does).
 The rule this enforces was always true: inside `withTransaction`, a caught SQL error
 needs a savepoint, or the error must leave the body.
+
+**Moved to 1.4.4 (2026-11-02, 1.4.3 -> 1.4.4) — latest stable, no defect
+driving it.** Re-probed on 1.4.4, same answers as 1.4.3: a JS string bound as
+`$1::jsonb` lands as a jsonb *string* (`$1::text::jsonb` → object); MariaDB
+`DATETIME` and `TIMESTAMP` decode as UTC (under `TZ=Europe/Madrid`) and `JSON` as
+objects; bunfig's `[test] timeout` is still ignored (5001 ms kill). Operator order
+is unchanged: install 1.4.4, restart onto it, then apply the update.
 
 ## 2. Process supervision (S2-38, S2-17)
 
@@ -567,7 +574,7 @@ Census of the legitimately long statements (who is unbounded, and how):
 | Retention scheduler (`src/core/retention/scheduler.ts`, after boot then daily, from a bare timer): `pruneMatrixEventRowsByAge` on `matrix_activity` (an unbatched `count(*)` + one `DELETE … RETURNING`) and the dd1758 ledger prune | PENDING — enter the scope at the retention pass entry, or batch the prune (`DELETE … WHERE id IN (SELECT … LIMIT n)`, each batch well under the ceiling). Under a ceiling an all-or-nothing DELETE over a 33 M-row log rolls back every day and never makes progress. |
 | Diffusion runners | Stay bounded (their containers already run at 60 s); measured separately. |
 | `psql` / `pg_restore` / `pg_dump` children | Never receive the startup GUC. The hierarchy import/reset unit (`src/core/install/hierarchy_import.ts`) bounds itself: after `BEGIN`, `SET LOCAL lock_timeout` = `HIERARCHY_UNIT_LOCK_TIMEOUT` (pinned equal to `MAINTENANCE_LOCK_TIMEOUT` by `hierarchy_import_lock_bound_native`) + `SET LOCAL statement_timeout = 0`; a 55P03 rolls the unit back and it is retried WHOLE (1/2/4/8 s, abortable); an `installHierarchies` `signal` kills it at once and its outcome is READ by `pg_xact_status` (committed / rolled back / unknown), never assumed. No caller passes a signal yet (add_hierarchy is not a stoppable job). |
-| Request traffic, and requests waiting behind a maintenance lock | Bounded — a typed 503 by design. |
+| Request traffic, and requests waiting behind a maintenance lock | Bounded — a typed 503 by design. Two request paths carry their OWN budget under the pool ceiling, so they stay bounded even at its default 0: the `relation_targets` census (one 30 s whole-census deadline) and every search statement a `referenced_by` leaf rendered into (30 s per statement, wherever it runs — all search statements go through the ONE executor `src/core/search/search_statement.ts`, inside a caller's transaction too; the export selection cursor arms it as its `transaction_timeout`) — see WC-2026-10-30-search-referenced-by-leaf. |
 
 **The typed failures.** A 57014 is mapped to `db.statement_timeout` only when
 it IS the ceiling: the lane's ceiling is known and positive and the statement
@@ -643,7 +650,13 @@ install (a large export) exceeds it; measure first with `DEDALO_SLOW_QUERY_MS`.
   `scripts/observer_reconcile.ts` repairs the drift. It should stay at zero;
   the residual deadlock window documented in `observers.ts` lands here. (The
   former `observers_propagation_failed_in_tx` sibling is retired with the
-  in-transaction rethrow lane.) `observers_index_repaired` ticks when the
+  in-transaction rethrow lane.) `observers_resave_failed` counts a relay /
+  order-derived edge's re-save through the save rules (a declared-order host
+  re-sorted after a linked record's ordering value changed) that THREW for one
+  target — isolated per target, so the hop, the other targets and the save's
+  later subscriptions still run; the log line names the observer and the
+  record, and the order left stale is drift the `portal_declared_order`
+  reconcile lists. It should stay at zero. `observers_index_repaired` ticks when the
   observer RECONCILE finds an `_hi` mirror whose value is already right but
   whose ancestor index (`relation_search`) disagreed, and rewrites it
   unstamped — legacy rows written before the recompute indexed its mirror;
@@ -1165,6 +1178,7 @@ and demands it be here):
 | `publication_probe` | registry probe paths + work `.publication/pub` ↔ each publication host's PUBLIC URL answers | every 15 min, **auto-apply** (records only) | an observation, never a repair: the dry run sends two public GETs per configured host (published → 2xx, unpublished → 404) through the public door and writes nothing; apply records each verdict in `runtime.probe` (`applied` always 0); the repair is root's **Apply rules** (`src/core/publication_host/probe.ts`) |
 | `rich_text_images` | matrix text_area `<img src>` values ↔ the image web folder's file names | operator (a LIKE scan of every record table's `string` column) | TODO-069: each `src` that is not the stored form of a file keyed to ITS record (a pre-TODO-066 `pic.jpg`, a v6 prefix) — the file is COPIED to a record-keyed name (one copy per embedding record, the original kept for Time Machine history) and the `src` rewritten through `saveComponentData` (TM row, actor root `-1`, no modified stamp; the html write gate sanitizes the whole text); a referenced file absent from the folder is reported (`detail.missing`) and its text untouched; a slice a save would corrupt — stored under a lang the save does not write (`effectiveSaveLang`), or a component holding lang-less items — is HELD (`detail.held`), never saved; an operator APPLY is root-only (`applyRootOnly`) (`src/core/media/rich_text_image_reconcile.ts`) |
 | `web_image_exposure` | image web folder file names ↔ `.publication/pub` + the keyed record's own text | boot (dry) | web-folder files whose name parses to a PUBLISHED record that does not embed them (rule B serves them for no reason): renamed out of the grammar (`<stem>.legacy[N].<ext>` — a `_lg-xxx` suffix included) and every embedding text repointed (TM row), found by the `_<tipo>_<id>` needle so %-encoded and entity-encoded references are caught; the old name is unlinked only once a re-scan of every string finds nothing resolving to it (otherwise both names stay, `detail.failed`); a store without hardlinks gets an exclusive copy; files younger than 24 h are held (`detail.recent`, the text may not be saved yet); an operator APPLY is root-only (`applyRootOnly`), a dry run admin-level (`src/diffusion/api/reconcile.ts` → the core module) |
+| `portal_declared_order` | each record's stored portal locator array ↔ the portal's DECLARED column order (`show.ddo_map[].order`) | operator (also queued post-COMMIT, through the registry so the gauge shows its outcome, when an ontology rebuild or a local node projection adds or changes an `order`) | re-saves each drifted array re-ranked (the same locators) through the save door — TM row, observer + diffusion obligations as any save; a record whose save is refused or THROWS is isolated (its own transaction rolls back) and the sweep goes on: counted exactly in `detail.failed` / per portal `failedCount`, listed (up to 50) in `failed`; holders are read in keyset pages. STOPPABLE: the SIGTERM drain (`stopReconcileScheduler` → `abortInFlightReconciles`) and, when the ontology write runs inside a background job, that job's stop / deadline end the sweep at the next record — typed `update.failed`, shown as the run's `last_error` on the `reconcile` gauge; records already rewritten stay rewritten. Queued per committing ontology write, and run where the write runs: ONE sweep after a whole ontology update (every tld and the model pass — never between two tlds); awaited in the commit lane inside any other background job; HANDED to a background job (lane `maintenance`, kind `reconcile_portal_declared_order`, visible in the process list, stoppable, the lane deadline) when the write is an HTTP request's (tool_ontology, a TM undelete), so the request never waits on it. A scope entry the ontology refuses to resolve is skipped and named (`detail.skipped`), never fatal to the run. Not durable across a process death: a sweep stopped or cut by SIGTERM or a crash after the ontology commit is NOT re-queued (the declaration is already committed) — run this reconcile dry after any interrupted ontology update; the drift it lists is what is owed. A component_alias is never scanned (no record holds an alias key): one whose own `source` declares an order its target does not is listed in `detail.skipped` — that order is ignored, a declared order is keyed on the data tipo (`src/core/relations/declared_order_reconcile.ts`) |
 
 **After a data restore** the door runs the registry through
 `POST_RESTORE_PLAN` (`src/core/reconcile/post_restore.ts`): EVERY registered
@@ -1177,8 +1191,8 @@ hosts follow the restored `pub/`: a record unpublished in the restored data
 loses its public bytes). The rest run DRY and their drift is
 reported as `held` in the journal and the CLI's exit 2: `files_info`,
 `observer_mirrors`, `rag_index`, `ontology`, `ontology_identifiers`, `hierarchy`,
-`public_tier`, `publication_apis`, `publication_probe`, `rich_text_images`, `web_image_exposure` — each a decision (a shrink, a budgeted recompute, a re-embed, a code push to a public host, a
-destructive re-projection or row delete, an unpublish from a museum site; the probe is an observation whose dry verdict says whether media unpublished since the backup instant is still public; the two rich-text entries copy/rename files and rewrite texts across records) the operator takes with the dry
+`public_tier`, `publication_apis`, `publication_probe`, `rich_text_images`, `web_image_exposure`, `portal_declared_order` — each a decision (a shrink, a budgeted recompute, a re-embed, a code push to a public host, a
+destructive re-projection or row delete, an unpublish from a museum site; the probe is an observation whose dry verdict says whether media unpublished since the backup instant is still public; the two rich-text entries copy/rename files and rewrite texts across records; the portal-order entry re-saves drifted arrays with a Time Machine row each) the operator takes with the dry
 list in view, through the three doors above. A step that throws is recorded by
 its error code and the plan continues.
 

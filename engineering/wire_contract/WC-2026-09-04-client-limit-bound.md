@@ -109,3 +109,31 @@ change; recorded here because the limit contract above is what makes its
 - No frozen read-path fixture carries a `limit: 0` request from the client
   side of a differential (the harvested RQOs are the gates' own), so nothing in
   the fixture store changes.
+
+## Addendum 2026-10-31 — sections and portals render through record_window; row_window is the ts_object tree only
+
+The render half above named `row_window.js` as the module that bounds what the
+client builds from the page, adopted by the section lists, the portal views and
+the thesaurus tree. Since the row-box change
+(`WC-2026-10-30-section-record-row-box.md`) that is no longer so:
+
+- **Sections and portals** — the section lists (default / base /
+  thesaurus_list), the Time Machine views (tool / mini / history), every portal
+  view (edit default / content / line / tree / indexation / mosaic, list
+  default / line) and both tool mosaics — render their rows through ONE door,
+  `client/dedalo/core/section_record/js/record_window.js`
+  (`create_record_window`, reached through the owner's `record_windows[slot]`).
+  It keeps the SAME bound: `min(N, ROW_WINDOW_MAX_ROWS)` built rows, imported
+  from `row_window.js` (still 200, still shrink-only); above it the rest of the
+  page are childless placeholder rows, not a spacer, so `content_data.children`
+  is exactly one row per entry.
+- **`row_window.js`** keeps its constants (the one source of the bound) and its
+  window, used ONLY by the thesaurus tree (`ts_object` `render_children`).
+
+The limit contract is unchanged: the window still bounds what is BUILT from a
+page the server already bounds by the ceiling (N ≤ `max_page_limit()`), so the
+"page ≤ ceiling" premise and every gate above stand. Not a wire change. Gates:
+`test/unit/client_render_budget_native.test.ts` (the bound and its adopters,
+rewritten for the record window), `test/unit/client_row_dom_tripwire.test.ts`
+(the row invariant per adopted view), and the browser suites `test_render_budget`
+and `test_row_invariant`.

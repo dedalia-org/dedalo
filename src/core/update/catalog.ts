@@ -584,6 +584,18 @@ export function getUpdateVersion(
 	return null;
 }
 
+/**
+ * PURE: is a rung's `target` ABOVE the code's own data version `code`? Such a
+ * rung must never run (engine.ts updateVersion refuses it): a build moves the
+ * INSTALLED data only up to the data version it was cut for — an untagged
+ * nightly of the next release (whose DEDALO_DATA_VERSION has not moved,
+ * dataVersionOf) cannot run that release's rung, so an installed data version
+ * ≥ X always means a build whose data version ≥ X ran X's rung.
+ */
+export function rungAboveCodeData(target: readonly number[], code: readonly number[]): boolean {
+	return compareVersionArrays(target, code) > 0;
+}
+
 /** The matched DATA descriptor for the installed version (PHP $updates->{key}). */
 export function getMatchedDescriptor(
 	current: readonly number[],

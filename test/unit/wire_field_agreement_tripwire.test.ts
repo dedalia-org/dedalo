@@ -2,25 +2,27 @@
  * TRIPWIRE — a field the CLIENT consumes is a field the SERVER emits
  * (P2-26 / DEAD-05).
  *
- * `grep -rn transliterate src/ --include=*.ts` returns nothing: the TS engine
- * emits no `transliterate_value` on any data item, while four client modules
- * read it. The parity ledger test lists it among the PHP data-item fields —
- * confirming a PHP-era emission the rewrite DROPPED — and that test never FAILS
- * (it reports), with this field sitting in its known-fields allowlist. So the
- * one place that could have noticed was configured not to.
- *
- * Two consequences, both curator-facing: the sibling-language value hint never
- * renders (a translation aid silently gone from a MULTILINGUAL system), and the
- * cross-language id share is dead code — which matters because that is the
- * guard keeping an empty-but-existing IRI entry out of the clear-all path
- * (P0-8 / DATA-06).
+ * Measured 2026-08-31: three fields the client reads off a data item were
+ * mentioned nowhere in `src/` — PHP-era emissions the rewrite DROPPED. The
+ * consequential one was `transliterate_value` (four client modules: the
+ * sibling-language value hint of a transliterable component, and the
+ * cross-language IRI id share that keeps an empty-but-existing IRI entry out of
+ * the clear-all path, P0-8 / DATA-06). The parity ledger test lists it among the
+ * PHP data-item fields and never FAILS (it reports), so the one place that
+ * could have noticed was configured not to.
  *
  * A dropped emission is a SCOPE NARROWING, which this project's law forbids
  * doing silently. Ledger:
  * engineering/wire_contract/WC-2026-08-31-client-reads-three-fields-the-engine-never-emits.md
  *
- * SHRINK-ONLY: a fourth field is a new narrowing and reds this gate; removing
- * one — by emitting it, or by deciding to delete its readers — is the burn-down.
+ * SHRINK-ONLY: a new field is a new narrowing and reds this gate; removing one
+ * — by emitting it, or by deciding to delete its readers — is the burn-down.
+ * A field burnt down BY EMITTING IT moves to CLOSED, which pins the closure the
+ * other way: still read, still ASSIGNED by the engine (an assignment, not a
+ * mere mention — a comment naming the field would satisfy the generous
+ * not-emitted census but must not satisfy this), and its closing WC entry still
+ * names it. `transliterate_value` closed 2026-10-31
+ * (WC-2026-10-31-transliterate-value-emitted: the `lang_versions` emit hook).
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -38,14 +40,17 @@ const DATA_FIELD_READ = /\bself\.data\.([a-z_][a-z0-9_]*)/g;
  * ENUMERATED and shrink-only — never a category.
  */
 const NOT_EMITTED: Record<string, string> = {
-	transliterate_value:
-		'PHP-era emission the rewrite dropped (4 client modules). The sibling-language value ' +
-		'hint never renders and the cross-language id share is dead code — the guard that keeps ' +
-		'an empty-but-existing IRI entry out of P0-8/DATA-06 clear-all path. Emitting it is ' +
-		'engine work on the component_input_text / component_iri read path.',
 	q_lang: 'A search-language annotation the client is prepared to show and never receives.',
 	permissions_indexation:
 		'An indexation-permission hint the client branches on and never receives.',
+};
+
+/**
+ * Narrowings CLOSED by emitting the field → the wire-contract entry that closed
+ * it. Shrink-only too in spirit: an entry leaves only with its readers.
+ */
+const CLOSED: Record<string, string> = {
+	transliterate_value: 'WC-2026-10-31-transliterate-value-emitted',
 };
 
 /** Every `self.data.<field>` the browser reads, outside comments. */
@@ -120,6 +125,26 @@ describe('a field the client consumes is a field the server emits', () => {
 				new RegExp(`\\b${field}\\b`).test(source),
 				`${field} IS emitted now — the narrowing is closed, DELETE its entry`,
 			).toBe(false);
+		}
+	});
+
+	test('a CLOSED narrowing stays closed: still read, still assigned, still ledgered', () => {
+		expect(Object.keys(CLOSED).length).toBeGreaterThan(0);
+		for (const [field, entry] of Object.entries(CLOSED)) {
+			expect(NOT_EMITTED[field], `${field} is CLOSED — it cannot also be NOT_EMITTED`).toBe(
+				undefined,
+			);
+			expect(
+				reads.has(field),
+				`${field} is no longer read by any client module — DELETE its CLOSED entry`,
+			).toBe(true);
+			// An ASSIGNMENT (`.field =`), not a mention: the closure is an emission.
+			expect(
+				new RegExp(`\\.${field}\\s*=[^=]`).test(source),
+				`${field} is no longer assigned anywhere in src/ — the narrowing REOPENED`,
+			).toBe(true);
+			const text = readFileSync(join(REPO_ROOT, `engineering/wire_contract/${entry}.md`), 'utf8');
+			expect(text, `${entry} does not name ${field}`).toContain(field);
 		}
 	});
 

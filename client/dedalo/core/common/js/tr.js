@@ -314,18 +314,21 @@ export const tr = {
 				.replace(/>/g, '&gt;')
 		}
 
+		// a11y (WCAG 1.1.1): every badge <img> carries alt = its tag token (the
+		// already-escaped id) — the text the badge draws, read out instead of a URL.
+
 		// INDEX IN. captures: 2=type, 3=state, 4=tag_id, 6=label, 7=data
 			const pattern_indexIn = tr.get_mark_pattern('indexIn');
 			text = text.replace(pattern_indexIn, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="34" height="15" loading="lazy" class="index" data-type="indexIn" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="34" height="15" loading="lazy" class="index" data-type="indexIn" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// INDEX OUT
 			const pattern_indexOut = tr.get_mark_pattern('indexOut');
 			text = text.replace(pattern_indexOut, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[/${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="34" height="15" loading="lazy" class="index" data-type="indexOut" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="34" height="15" loading="lazy" class="index" data-type="indexOut" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// REFERENCE IN
@@ -341,35 +344,35 @@ export const tr = {
 		// TC. [TC_00:00:25.091_TC] — captures: 1=full_tag, 2=tc_value (digits/colons only)
 			const pattern_tc = tr.get_mark_pattern('tc');
 			text = text.replace(pattern_tc, (_m, g1, g2) => {
-				return `<img id="${esc(g1)}" src="${badge_src(esc(g1))}" width="82" height="15" loading="lazy" class="tc" data-type="tc" data-tag_id="${esc(g1)}" data-state="n" data-label="${esc(g2)}" data-data="${esc(g2)}">`
+				return `<img id="${esc(g1)}" alt="${esc(g1)}" src="${badge_src(esc(g1))}" width="82" height="15" loading="lazy" class="tc" data-type="tc" data-tag_id="${esc(g1)}" data-state="n" data-label="${esc(g2)}" data-data="${esc(g2)}">`
 			});
 
 		// SVG. captures: 2=type, 3=state, 4=tag_id, 6=label, 7=data
 			const pattern_svg = tr.get_mark_pattern('svg');
 			text = text.replace(pattern_svg, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${tag_url}${esc(g7)}" height="15" loading="lazy" class="svg" data-type="svg" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${tag_url}${esc(g7)}" height="15" loading="lazy" class="svg" data-type="svg" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// DRAW
 			const pattern_draw = tr.get_mark_pattern('draw');
 			text = text.replace(pattern_draw, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" height="15" loading="lazy" class="draw" data-type="draw" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" height="15" loading="lazy" class="draw" data-type="draw" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// GEO
 			const pattern_geo = tr.get_mark_pattern('geo');
 			text = text.replace(pattern_geo, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="38" height="15" loading="lazy" class="geo" data-type="geo" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="38" height="15" loading="lazy" class="geo" data-type="geo" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// PAGE. captures: 2=type, 3=state, 4=tag_id, 5=outer optional, 6=label, 7=data
 			const pattern_page = tr.get_mark_pattern('page');
 			text = text.replace(pattern_page, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="38" height="15" loading="lazy" class="page" data-type="page" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="38" height="15" loading="lazy" class="page" data-type="page" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// PERSON. pattern: /(\[(person)-([a-z])-([0-9]{0,6})-([^-]{0,22})-data:(.*?):data\])/
@@ -377,21 +380,21 @@ export const tr = {
 			const pattern_person = tr.get_mark_pattern('person');
 			text = text.replace(pattern_person, (_m, _g1, g2, g3, g4, g5, g6) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g5)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="72" height="15" loading="lazy" class="person" data-type="person" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g5)}" data-data="${esc(g6)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="72" height="15" loading="lazy" class="person" data-type="person" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g5)}" data-data="${esc(g6)}">`
 			});
 
 		// NOTE
 			const pattern_note = tr.get_mark_pattern('note');
 			text = text.replace(pattern_note, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="22" height="15" loading="lazy" class="note" data-type="note" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="22" height="15" loading="lazy" class="note" data-type="note" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		// LANG
 			const pattern_lang = tr.get_mark_pattern('lang');
 			text = text.replace(pattern_lang, (_m, _g1, g2, g3, g4, _g5, g6, g7) => {
 				const id = `[${esc(g2)}-${esc(g3)}-${esc(g4)}-${esc(g6)}]`
-				return `<img id="${id}" src="${badge_src(id)}" width="50" height="15" loading="lazy" class="lang" data-type="lang" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
+				return `<img id="${id}" alt="${id}" src="${badge_src(id)}" width="50" height="15" loading="lazy" class="lang" data-type="lang" data-tag_id="${esc(g4)}" data-state="${esc(g3)}" data-label="${esc(g6)}" data-data="${esc(g7)}">`
 			});
 
 		return text

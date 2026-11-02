@@ -5,11 +5,11 @@
 
 
 // import
+	import {attach_picker} from '../../../core/area_thesaurus/js/thesaurus_picker.js'
+	import {common} from '../../../core/common/js/common.js'
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {get_instance} from '../../../core/common/js/instances.js'
-	import {common} from '../../../core/common/js/common.js'
 	import {tool_common} from '../../../core/tools_common/js/tool_common.js'
-	import {attach_picker} from '../../../core/area_thesaurus/js/thesaurus_picker.js'
 	import {render_tool_cataloging} from './render_tool_cataloging.js'
 	import {
 		refresh_used_state,
@@ -349,7 +349,7 @@ tool_cataloging.prototype.build = async function(autoload=false) {
 
 /**
 * REFRESH_USED_STATE
-* Re-reads the "used" marker of the given cards (or every materialized card)
+* Re-reads the "used" marker of the given cards (or every card of the page)
 * from the server — see used_state.js.
 * @param {Array<Object>|null} [locators=null] - {section_tipo, section_id} records.
 * @returns {Promise<boolean>}

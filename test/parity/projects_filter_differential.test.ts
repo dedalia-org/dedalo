@@ -35,11 +35,11 @@ import {
 } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getComponentFilterTipo } from '../../src/core/ontology/resolver.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { matrixReadSource } from '../../src/core/section/read_source.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { getUserProjects } from '../../src/core/security/permissions.ts';
 import { dropTestCorpus, ensureTestCorpus } from '../../src/core/test_data/test_corpus/ensure.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 /** Every `test` section stores here (test_corpus/ensure.ts, plan decision 1). */
 const TEST_TABLE = 'matrix_test';

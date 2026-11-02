@@ -48,13 +48,13 @@ import {
 	insertDdOntologyRecord,
 	setRecordsInDdOntology,
 } from '../../src/core/ontology/ontology_write.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { ForeignOntologyNodeRefused } from '../../src/core/section_record/ontology_projection.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { toolOntologySetRecords } from '../../tools/tool_ontology/server/tool_ontology.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 const OWN = 'zzgua';
 const OTHER = 'zzgub';

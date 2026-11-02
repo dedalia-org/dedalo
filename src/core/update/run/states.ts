@@ -82,6 +82,10 @@ export function happyPath(phases: readonly ReleaseStepKind[]): RunState[] {
 /** The side exits of a state — where a failure, or a human, may take it. */
 function sideExits(state: RunState, swapped: boolean): RunState[] {
 	if (state === 'PLANNED') return ['REFUSED'];
+	// The BACKUP step refuses (no fresh, proven dump and no waiver): nothing ran
+	// and nothing changed — the same REFUSED a preflight refusal ends in, so the
+	// job reports the typed refusal (`update.refused`), not a retryable failure.
+	if (state === 'PREFLIGHT_OK') return ['REFUSED', 'FAILED_PRE_SWAP', 'MANUAL', 'ABANDONED'];
 	if (!swapped) return ['FAILED_PRE_SWAP', 'MANUAL', 'ABANDONED'];
 	return ['ROLLED_BACK_CODE', 'NEEDS_DB_RESTORE', 'MANUAL'];
 }

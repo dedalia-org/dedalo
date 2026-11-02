@@ -23,27 +23,13 @@
 	}//end section_record &.edit
 
 	&.list {
+		// (!) STAYS for the marker-less row views (mosaic, presets,
+		// autocomplete, graph, TM history): their cells flow straight into the
+		// list grid. A row-box table row (`.list_body.layout_table`, list.less)
+		// is a column subgrid instead and outranks this; keeping it also stops
+		// the master-ontology descendant CSS from boxing non-table rows.
+		// The row hover is the table row's own ring `::after` (list.less).
 		display: contents;
-
-		>.column:first-of-type {
-			--box_display: 'none';
-			--box_width : 0px;
-
-			&:after {
-				content: " ";
-				display: var(--box_display);
-				position: absolute;
-				left: 0px;
-				top: 0px;
-				z-index: 1;
-				background-color: transparent;
-				box-shadow: 0px 0px 5px 0px @color_grey_7;
-				pointer-events: none;
-				border-radius: 3px;
-				width: var(--box_width);
-				height: 100%;
-			}
-		}
 
 		// last separator hide.
 		// This is a temporal measure to prevent to display last separator

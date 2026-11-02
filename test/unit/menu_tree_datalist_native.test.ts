@@ -42,9 +42,18 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
-import { getMenuTreeDatalist } from '../../src/core/api/handlers/menu.ts';
-import { MENU_ROOT_MODEL_ORDER } from '../../src/core/concepts/area.ts';
+import {
+	collectAreaRows,
+	getAllAreas,
+	getMenuTreeDatalist,
+} from '../../src/core/api/handlers/menu.ts';
+import {
+	areaBehaviorOf,
+	isAreaModel,
+	MENU_ROOT_MODEL_ORDER,
+} from '../../src/core/concepts/area.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
+import { getSecurityAccessDatalist } from '../../src/core/resolve/security_access_datalist.ts';
 import { getServerState, setServerState } from '../../src/core/resolve/server_state.ts';
 import {
 	dropSituation,
@@ -301,6 +310,38 @@ describe('menu tree_datalist — the walk laws (built ontology)', () => {
 		const expected = term('Section A')[appLang as keyof ReturnType<typeof term>];
 		expect(expected, `the fixture declares no term for '${appLang}'`).toBeDefined();
 		expect(section?.label).toBe(expected as string);
+	});
+
+	test('DEAD AREA: a behaviorless area model is walked but never offered (WC-2026-11-01-menu-dead-area)', async () => {
+		// The read refuses an area model with no behavior resolver (area_graph), so
+		// a menu entry for it is a dead link. The walk keeps it; the menu drops and
+		// records it.
+		const dead = (await collectAreaRows())
+			.filter((row) => isAreaModel(row.model) && areaBehaviorOf(row.model) === null)
+			.map((row) => row.tipo);
+		// Not vacuous: the core seed ships area_graph (dd630) as a root.
+		expect(dead.length).toBeGreaterThan(0);
+		const { tree_datalist, skipped } = await getMenuTreeDatalist(SUPERUSER);
+		const offered = new Set(tree_datalist.map((item) => item.tipo));
+		const recorded = new Set(skipped.map((entry) => entry.tipo));
+		for (const tipo of dead) {
+			expect(offered.has(tipo)).toBe(false);
+			expect(recorded.has(tipo)).toBe(true);
+		}
+		expect(
+			tree_datalist.some((item) => isAreaModel(item.model) && areaBehaviorOf(item.model) === null),
+		).toBe(false);
+		// The OTHER half of the contract: only the menu drops it. The area-visibility
+		// catalog (getAllAreas → config_areas / menu_skip_tipos) and the profile
+		// permissions datalist must still list it, so it stays deniable/grantable.
+		const catalog = new Set((await getAllAreas()).map((row) => row.tipo));
+		const permissions = new Set(
+			(await getSecurityAccessDatalist(SUPERUSER)).map((item) => item.tipo),
+		);
+		for (const tipo of dead) {
+			expect(catalog.has(tipo)).toBe(true);
+			expect(permissions.has(tipo)).toBe(true);
+		}
 	});
 
 	test('SHAPE: every item carries exactly {tipo, model, parent, label}', () => {

@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global describe, it, assert, document, window, KeyboardEvent*/
+/*global describe, it, assert, document, window, KeyboardEvent, get_label*/
 
 /**
  * TEST_A11Y_KEYBOARD
@@ -13,7 +13,20 @@
  * are named, and hand focus back.
  */
 
+import { build_dashboard } from '../../../core/area_common/js/dashboard.js';
 import { a11y } from '../../../core/common/js/a11y.js';
+import { tr } from '../../../core/common/js/tr.js';
+import { ui } from '../../../core/common/js/ui.js';
+import { view_text_list_3d } from '../../../core/component_3d/js/view_text_list_3d.js';
+import { view_text_list_av } from '../../../core/component_av/js/view_text_list_av.js';
+import { view_text_list_image } from '../../../core/component_image/js/view_text_list_image.js';
+import { view_text_list_pdf } from '../../../core/component_pdf/js/view_text_list_pdf.js';
+import { view_line_edit_portal } from '../../../core/component_portal/js/view_line_edit_portal.js';
+import { view_text_list_svg } from '../../../core/component_svg/js/view_text_list_svg.js';
+import { build_node_tag } from '../../../core/component_text_area/js/view_default_edit_text_area.js';
+import { render_column_id } from '../../../core/section/js/render_list_section.js';
+import { view_graph_solved_section } from '../../../core/section/js/view_graph_solved_section.js';
+import { flat_table } from '../../../tools/tool_export/js/flat_table.js';
 import {
 	build_component_edit,
 	build_component_group_nested,
@@ -24,6 +37,7 @@ import {
 	build_modal_non_blocking,
 	build_toolbar,
 	build_tree_row,
+	select_accessible_name,
 } from './a11y_surfaces.js';
 
 /**
@@ -217,6 +231,196 @@ describe('a11y: the cataloguing surface is operable without a mouse', function (
 				null,
 				'a button with visible text is named by its text, not by a duplicate aria-label',
 			);
+		});
+	});
+
+	describe('every icon-only row button has an accessible name (WCAG 4.1.2, axe button-name)', function () {
+		it('render_list_section.render_column_id: the list delete (trash) button is named by what it deletes', function () {
+			const caller = {
+				id: 'a11y_list',
+				tipo: 'test3',
+				permissions: 2,
+				show_interface: { button_delete: true },
+				context: { buttons: [{ model: 'button_delete' }] },
+				config: {},
+				refresh: () => {},
+			};
+			const fragment = render_column_id({
+				caller,
+				section_id: '7',
+				section_tipo: 'test3',
+				paginated_key: 0,
+			});
+			const button = fragment.querySelector('button.button_delete');
+			assert.isNotNull(button, 'the delete button renders');
+			assert.strictEqual(button.textContent.trim(), '', 'icon-only: aria-label is its only name');
+			assert.strictEqual(button.getAttribute('aria-label'), `${get_label.delete || 'Delete'} 7`);
+		});
+		it('view_line_edit_portal.render_column_id: the line-view edit (pen) button is named', function () {
+			const fragment = view_line_edit_portal.render_column_id({
+				caller: { view: 'line', section_tipo: 'test3', context: { view: 'line' } },
+				section_id: '7',
+				section_tipo: 'test3',
+			});
+			const button = fragment.querySelector('button.button_edit');
+			assert.isNotNull(button, 'the edit button renders');
+			assert.strictEqual(button.textContent.trim(), '', 'icon-only');
+			assert.match(
+				button.getAttribute('aria-label') || '',
+				new RegExp(`^${get_label.open || 'Open'}`),
+			);
+		});
+		it('view_graph_solved_section.render_column_id: the graph edit (pen) button is named', function () {
+			const fragment = view_graph_solved_section.render_column_id({
+				caller: { context: { view: 'graph' } },
+				section_id: '7',
+				section_tipo: 'test3',
+			});
+			const button = fragment.querySelector('button.button_edit');
+			assert.isNotNull(button, 'the edit button renders');
+			assert.strictEqual(button.textContent.trim(), '', 'icon-only');
+			assert.strictEqual(button.getAttribute('aria-label'), `${get_label.open || 'Open'} 7`);
+		});
+	});
+
+	describe('every <select> the shared widgets build has an accessible name (WCAG 4.1.2, axe select-name)', function () {
+		it('ui.build_select_lang with no aria_label is named "language", never unnamed', function () {
+			const select = ui.build_select_lang({ langs: [{ label: 'English', value: 'lg-eng' }] });
+			assert.notStrictEqual(select_accessible_name(select), '', 'the factory default names it');
+			assert.strictEqual(select.getAttribute('aria-label'), get_label.language || 'Language');
+		});
+		it('ui.build_select_lang keeps a caller-given aria_label', function () {
+			const select = ui.build_select_lang({
+				langs: [{ label: 'English', value: 'lg-eng' }],
+				aria_label: 'Data language',
+			});
+			assert.strictEqual(select_accessible_name(select), 'Data language');
+		});
+		it('the area dashboard: the cards sort and the activity range selects are named', async function () {
+			this.timeout(10000);
+			const host = document.createElement('div');
+			host.style.width = '800px';
+			document.body.appendChild(host);
+			try {
+				const dashboard = build_dashboard(
+					{},
+					{
+						sections: [{ section_tipo: 'test3', label: 'Test', total: 1 }],
+						activity_30d: {
+							days: [{ date: '2026-10-01', by_section: { test3: 1 }, by_user: {} }],
+							users: [],
+						},
+					},
+				);
+				host.appendChild(dashboard);
+				const sort = dashboard.querySelector('select.area_dashboard_cards_sort');
+				assert.isNotNull(sort, 'the cards toolbar renders its sort select');
+				assert.strictEqual(select_accessible_name(sort), get_label.sort || 'Sort');
+				// the activity timeline is drawn after D3 loads and the host has a width
+				let range = null;
+				for (let i = 0; i < 100 && range === null; i++) {
+					await new Promise((r) => setTimeout(r, 50));
+					range = dashboard.querySelector('select.area_dashboard_activity_range_select');
+				}
+				assert.isNotNull(range, 'the activity timeline renders its range select');
+				assert.strictEqual(select_accessible_name(range), get_label.time_range || 'Time range');
+			} finally {
+				host.remove();
+			}
+		});
+	});
+
+	describe('every <img> the DOM factory builds has a text alternative (WCAG 1.1.1, axe image-alt)', function () {
+		it('an <img> with no alt option is DECORATIVE (alt=""), never unnamed', function () {
+			const image = ui.create_dom_element({ element_type: 'img' });
+			assert.strictEqual(image.hasAttribute('alt'), true, 'the attribute is present');
+			assert.strictEqual(image.getAttribute('alt'), '', 'decorative by default');
+		});
+		it('a named <img> keeps its alt; alt never leaks onto a non-img element', function () {
+			const image = ui.create_dom_element({ element_type: 'img', alt: 'Image' });
+			assert.strictEqual(image.getAttribute('alt'), 'Image');
+			const div = ui.create_dom_element({ element_type: 'div', alt: 'Image' });
+			assert.strictEqual(div.hasAttribute('alt'), false);
+		});
+	});
+
+	describe('every <img> built OUTSIDE the factory has a text alternative (WCAG 1.1.1, axe image-alt)', function () {
+		// one token of EACH tag type tr.js turns into a badge <img>, with the alt
+		// it must carry: the tag token the badge draws (its id)
+		const TAG_CASES = [
+			['indexIn', '[index-n-1-zz-data::data]', '[index-n-1-zz]'],
+			['indexOut', '[/index-n-1-zz-data::data]', '[/index-n-1-zz]'],
+			['tc', '[TC_00:00:25.091_TC]', '[TC_00:00:25.091_TC]'],
+			['svg', '[svg-n-2-zz-data:x:data]', '[svg-n-2-zz]'],
+			['draw', '[draw-n-3-zz-data:x:data]', '[draw-n-3-zz]'],
+			['geo', '[geo-n-4-zz-data:x:data]', '[geo-n-4-zz]'],
+			['page', '[page-n-5-zz-data:x:data]', '[page-n-5-zz]'],
+			['person', '[person-n-6-zz-data:x:data]', '[person-n-6-zz]'],
+			['note', '[note-n-7-zz-data:x:data]', '[note-n-7-zz]'],
+			['lang', '[lang-n-8-zz-data:x:data]', '[lang-n-8-zz]'],
+		];
+		for (const [type, token, expected_alt] of TAG_CASES) {
+			it(`tr.add_tag_img_on_the_fly: the ${type} badge <img> is named by its tag token`, function () {
+				const host = document.createElement('div');
+				host.innerHTML = tr.add_tag_img_on_the_fly(`a ${token} b`);
+				const images = host.querySelectorAll('img');
+				assert.strictEqual(images.length, 1, `one badge for ${token}`);
+				assert.strictEqual(images[0].dataset.type, type);
+				assert.strictEqual(images[0].hasAttribute('alt'), true, `${type} badge has an alt`);
+				assert.strictEqual(images[0].getAttribute('alt'), expected_alt);
+			});
+		}
+
+		it('build_node_tag (the editor tag node) is named by its tag token', function () {
+			const node = build_node_tag({
+				src: '',
+				id: '[geo-n-4-zz]',
+				class_name: 'geo',
+				type: 'geo',
+				tag_id: '4',
+				state: 'n',
+				label: 'zz',
+				data: '',
+			});
+			assert.strictEqual(node.tagName, 'IMG');
+			assert.strictEqual(node.getAttribute('alt'), '[geo-n-4-zz]');
+		});
+
+		const TEXT_VIEWS = [
+			['component_image', view_text_list_image],
+			['component_av', view_text_list_av],
+			['component_3d', view_text_list_3d],
+			['component_pdf', view_text_list_pdf],
+			['component_svg', view_text_list_svg],
+		];
+		for (const [model, view] of TEXT_VIEWS) {
+			it(`${model} text view: the lone image is named by the component label`, async function () {
+				const self = {
+					model: model,
+					mode: 'list',
+					view: 'text',
+					label: 'Zz media label',
+					data: { entries: [] },
+					context: { features: { quality: 'zz' } },
+				};
+				const wrapper = await view.render(self, {});
+				const images = wrapper.querySelectorAll('img');
+				assert.strictEqual(images.length, 1, `${model} text view renders one image`);
+				assert.strictEqual(images[0].getAttribute('alt'), 'Zz media label');
+			});
+		}
+
+		it('flat_table media cell: every thumbnail carries an alt (decorative: the header names it)', function () {
+			const table = new flat_table();
+			for (const cell_type of ['img', 'av']) {
+				const td = table._build_cell({ cell_type: cell_type }, '/zz/a.jpg | /zz/b.jpg');
+				const images = td.querySelectorAll('img');
+				assert.strictEqual(images.length, 2, `${cell_type}: one thumbnail per url`);
+				for (const image of images) {
+					assert.strictEqual(image.hasAttribute('alt'), true, `${cell_type} thumbnail has an alt`);
+					assert.strictEqual(image.getAttribute('alt'), '');
+				}
+			}
 		});
 	});
 

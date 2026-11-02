@@ -57,9 +57,12 @@
 		set_context_vars,
 		get_columns_map,
 		build_autoload,
-		create_source
+		create_source,
+		lock_rows,
+		destroy_row_windows,
+		destroy_unwindowed_dependencies
 	} from '../../common/js/common.js'
-	import {component_common, init_events_subscription} from '../../component_common/js/component_common.js'
+	import {component_common, init_events_subscription, check_unsaved_data} from '../../component_common/js/component_common.js'
 	import {DATAFRAME_TYPE} from '../../component_common/js/dataframe.js'
 	import {paginator} from '../../paginator/js/paginator.js'
 	import {render_edit_component_portal} from '../../component_portal/js/render_edit_component_portal.js'
@@ -70,6 +73,7 @@
 	import {PICKER_LINK_CHANNEL_PREFIX, attach_picker} from '../../area_thesaurus/js/thesaurus_picker.js'
 	import {response_data, request_failed} from '../../common/js/api_error.js'
 	import {max_page_limit} from '../../common/js/sqo_limit.js'
+	import {can_view_sort, can_save_view_order} from '../../component_portal/js/drag_and_drop.js'
 
 
 
@@ -120,6 +124,15 @@
 *   @var {boolean|null} fixed_columns_map   - False after each build; true once
 *                                              rebuild_columns_map has run to prevent double
 *                                              application.
+*   @var {Object|null} view_order          - The TEMPORARY header-click display order
+*                                              `{tipo, direction:'ASC'|'DESC'}` or null (the
+*                                              stored order). Sent as the read RQO's
+*                                              `sqo.view_order`; never written. View state:
+*                                              kept across pagination and refresh, cleared
+*                                              by clear_view_order / save_view_order.
+*   @var {boolean} view_order_changing     - True while a set_view_order / save_view_order
+*                                              is in flight: a second one is refused, never
+*                                              run beside it (single flight).
 *   @var {boolean|null} delete_diffusion_records - When true, deleting a linked record also
 *                                              triggers diffusion record deletion (default true
 *                                              in delete_linked_record).
@@ -164,6 +177,11 @@ export const component_portal = function() {
 
 	this.fixed_columns_map		= null
 
+	// view_order. TEMPORARY header-click display order (see set_view_order)
+	this.view_order				= null
+	// view_order_changing. Single-flight guard of set_view_order / save_view_order
+	this.view_order_changing	= false
+
 	// delete_diffusion_records bool (on delete record, check this value)
 	this.delete_diffusion_records = null
 }//end component_portal
@@ -197,10 +215,17 @@ export const component_portal = function() {
 	component_portal.prototype.refresh				= common.prototype.refresh
 	/**
 	* DESTROY
-	* The generic destroy, plus the two things this component owns OUTSIDE its own
-	* DOM: the thesaurus pane node (on document.body — it must never be inside
-	* self.node) and the pane's area (deliberately not in ar_instances, or refresh
-	* would destroy it on every pick). Nothing generic reaches either; this does.
+	* The generic destroy, plus the things this component owns OUTSIDE the generic
+	* cascade: its row windows + hover controllers (window_section_rows /
+	* row_hover.js), and the thesaurus pane node (on document.body — it must never be
+	* inside self.node) and the pane's area (deliberately not in ar_instances, or
+	* refresh would destroy it on every pick). Nothing generic reaches them; this does.
+	*
+	* The row windows are flushed and stopped (common.js destroy_row_windows: hover
+	* overlays first, then every window slot; a still-dirty instance is orphaned,
+	* never destroyed; a pending editor node is logged) BEFORE the common cascade
+	* destroys the rows they hold — on any teardown that reaches the rows (a full
+	* destroy, or a dependencies destroy such as refresh({destroy:true})).
 	*
 	* @param {...*} args - forwarded verbatim to common.prototype.destroy.
 	* @returns {Promise<*>} whatever the generic destroy returns.
@@ -215,10 +240,12 @@ export const component_portal = function() {
 		// closes on the click that just linked a term. The pane's lifetime is the
 		// COMPONENT's, not its refresh cycle.
 		const delete_self = args[0]===true
-		// the list view's row window (section.js window_section_rows) holds the
-		// viewport observer over rows that are dependencies of this portal
-		if (self.row_window && (delete_self || args[1]===true)) {
-			self.row_window.destroy()
+		// row windows + hover controllers: flushed and stopped BEFORE the cascade
+		// destroys the rows they hold. common.destroy defaults delete_self to true,
+		// so a destroy() without arguments reaches the rows too.
+		const delete_dependencies = args[1]===true
+		if (args[0]!==false || delete_dependencies) {
+			await destroy_row_windows(self)
 		}
 		if (delete_self) {
 			if (self.thesaurus_pane_resize_observer) {
@@ -337,7 +364,7 @@ component_portal.prototype.init = async function(options) {
 					}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('initiator_link_' + self.id, initiator_link_handler)
+				event_manager.subscribe(`initiator_link_${self.id}`, initiator_link_handler)
 			)
 
 		// initiator_unlink. Observes user click over list record to remove from portal
@@ -363,7 +390,7 @@ component_portal.prototype.init = async function(options) {
 					}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('initiator_unlink_' + self.id, initiator_unlink_handler)
+				event_manager.subscribe(`initiator_unlink_${self.id}`, initiator_unlink_handler)
 			)
 
 		// link_terms. Observes the term picker's CONFIRMED selection
@@ -396,7 +423,7 @@ component_portal.prototype.init = async function(options) {
 
 						// empty tag_id is allowed too
 						// add tag_id. Note that 'self.active_tag' is an object with 3 properties (caller, text_editor and tag)
-							const tag_id = self.active_tag && self.active_tag.tag
+							const tag_id = self.active_tag?.tag
 								? self.active_tag.tag.tag_id || null
 								: null
 							if (!tag_id) {
@@ -715,9 +742,6 @@ component_portal.prototype.build = async function(autoload=false) {
 
 	const self = this
 
-	// previous status
-		const previous_status = clone(self.status)
-
 	// status update
 		self.status = 'building'
 
@@ -743,7 +767,7 @@ component_portal.prototype.build = async function(autoload=false) {
 					: {}
 			}else{
 				// Context is available: use the server-resolved request_config from context.
-				self.request_config_object	= self.context && self.context.request_config
+				self.request_config_object	= self.context?.request_config
 					? self.context.request_config.find(el => el.api_engine==='dedalo' && el.type==='main')
 					: {}
 			}
@@ -764,6 +788,9 @@ component_portal.prototype.build = async function(autoload=false) {
 				// which records to resolve for the search filter.
 				self.rqo.source.value = self.data.entries || []
 			}
+			// view_order. The instance property is the one source: every read
+			// carries it (or none), whatever rebuilt the rqo
+			sync_view_order_sqo(self)
 		}
 		await generate_rqo()
 
@@ -796,6 +823,16 @@ component_portal.prototype.build = async function(autoload=false) {
 	// load from DDBB
 		if (autoload===true) {
 
+			// view_order vs an injected save echo. A save echo (link / unlink / add /
+			// sort_data … refresh with tmp_api_response) is answered in the STORED order:
+			// a save request carries no sqo, so no view order. Under an active view order
+			// the echo is dropped and the rqo (stamped by sync_view_order_sqo above) is
+			// read instead — the rows, the header arrows and the order indicator always
+			// show the order the rows were READ in. One gate for every echo path.
+				if (self.tmp_api_response && echo_hides_view_order(self)) {
+					delete self.tmp_api_response
+				}
+
 			// build_autoload
 			// Unified loader: sends the RQO to the API, handles login-expired and
 			// network-error cases, and returns the raw api_response or null/false.
@@ -814,13 +851,10 @@ component_portal.prototype.build = async function(autoload=false) {
 
 			// destroy dependencies
 			// Tear down child instances before re-building so stale nodes are removed.
-			// delete_self=false keeps the portal itself alive; remove_dom=false avoids
-			// a flash because the DOM will be repopulated during the upcoming render.
-				await self.destroy(
-					false, // bool delete_self
-					true, // bool delete_dependencies
-					false // bool remove_dom
-				)
+			// The portal itself stays alive and its DOM is kept (no flash: the upcoming
+			// render repopulates it). The rows a record window holds are NOT torn down
+			// here: its next content render retires them, adopting or flushing first.
+				await destroy_unwindowed_dependencies(self)
 
 			// set Context
 				// Context is preserved when it was already set before this build cycle.
@@ -890,7 +924,7 @@ component_portal.prototype.build = async function(autoload=false) {
 
 						self.rqo.sqo.limit = request_config_item.sqo.limit
 					}
-					else if (request_config_item.show && request_config_item.show.sqo_config &&
+					else if (request_config_item.show?.sqo_config &&
 							(request_config_item.show.sqo_config.limit || request_config_item.show.sqo_config.limit===0)) {
 
 						self.rqo.sqo.limit = request_config_item.show.sqo_config.limit
@@ -954,7 +988,7 @@ component_portal.prototype.build = async function(autoload=false) {
 							})
 						}
 						self.events_tokens.push(
-							event_manager.subscribe('paginator_goto_'+self.paginator.id, paginator_goto_handler)
+							event_manager.subscribe(`paginator_goto_${self.paginator.id}`, paginator_goto_handler)
 						)
 
 
@@ -1307,7 +1341,8 @@ component_portal.prototype.link_record = async function(value) {
 *        (`replace_entry_without_id`) and nothing is written: a remove with a null id
 *        clears the whole component in every language.
 * @returns {Promise<Object>} `{linked:[locator], refused:[{locator, reason}], total}`.
-*        `reason` is one of `data_limit`, `duplicate`, `api_error`, `not_stored`,
+*        `reason` is one of `cancelled` (the owner row lock was refused: the user kept a
+*        pending edit in the rows), `data_limit`, `duplicate`, `api_error`, `not_stored`,
 *        `refused_by_server`, `replace_entry_without_id`, or `replace_failed — …` (the
 *        replace removed the stored value and the server refused the new one; the note
 *        says whether the previous value could be restored).
@@ -1315,6 +1350,30 @@ component_portal.prototype.link_record = async function(value) {
 component_portal.prototype.link_records = async function(values, options={}) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return {linked: [], refused: (Array.isArray(values) ? values : []).map(value => ({locator: value, reason: 'cancelled'})), total: self.total ?? null}
+		}
+		try {
+			return await link_records_locked(self, values, options)
+		} finally {
+			release_rows()
+		}
+}//end link_records
+
+
+
+/**
+* LINK_RECORDS_LOCKED
+* The body of `link_records`, run under the owner row lock.
+* `self.link_records` (the restore re-entry) passes the held lock through.
+* @param {Object} self - The `component_portal` instance
+*/
+const link_records_locked = async function(self, values, options={}) {
 
 	// refused. Every locator that does not land is named here
 		const refused = []
@@ -1656,7 +1715,7 @@ component_portal.prototype.link_records = async function(values, options={}) {
 
 
 	return {linked: linked, refused: refused, total: total}
-}//end link_records
+}//end link_records_locked
 
 
 
@@ -1692,6 +1751,29 @@ component_portal.prototype.link_records = async function(values, options={}) {
 component_portal.prototype.add_new_element = async function(target_section_tipo) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await add_new_element_locked(self, target_section_tipo)
+		} finally {
+			release_rows()
+		}
+}//end add_new_element
+
+
+
+/**
+* ADD_NEW_ELEMENT_LOCKED
+* The body of `add_new_element`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const add_new_element_locked = async function(self, target_section_tipo) {
 
 	// created_section_id. Reset before the call so a failed add never leaves the
 	// previous creation's address behind for the button to open.
@@ -1756,7 +1838,7 @@ component_portal.prototype.add_new_element = async function(target_section_tipo)
 
 
 	return true
-}//end add_new_element
+}//end add_new_element_locked
 
 
 
@@ -1949,11 +2031,24 @@ component_portal.prototype.update_pagination_values = function(action) {
 * @param {string} options.tag.state     - Tag state (e.g. 'd' for default).
 * @param {string} options.tag.label     - Display label of the tag.
 * @param {string} options.tag.data      - Additional tag data payload.
-* @returns {Promise<HTMLElement|null>} The result of `self.render({render_level:'content'})`.
+* The owner row lock (common.js lock_rows) is acquired BEFORE `self.data` is
+* replaced: a pending editor value in the current rows refuses the filter (false)
+* with nothing changed (WC-2026-10-30-section-record-row-box).
+*
+* @returns {Promise<HTMLElement|null|false>} The result of
+*   `self.render({render_level:'content'})`, or false when the row lock was refused.
 */
-component_portal.prototype.filter_data_by_tag_id = function(options) {
+component_portal.prototype.filter_data_by_tag_id = async function(options) {
 
 	const self = this
+
+	// owner row lock, before the first mutation
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+
+	try {
 
 	// options
 		const tag = options.tag // object
@@ -1985,9 +2080,13 @@ component_portal.prototype.filter_data_by_tag_id = function(options) {
 		self.status = 'built'
 
 	// re-render always the content
-		return self.render({
+		return await self.render({
 			render_level : 'content'
 		})
+
+	} finally {
+		release_rows()
+	}
 }//end filter_data_by_tag_id
 
 
@@ -2003,11 +2102,24 @@ component_portal.prototype.filter_data_by_tag_id = function(options) {
 * Directly assigns from `self.datum.data` (no clone needed here because there is no
 * partial mutation of the datum — self.data simply points at the matching entry).
 *
-* @returns {Promise<HTMLElement|null>} The result of `self.render({render_level:'content'})`.
+* The owner row lock (common.js lock_rows) is acquired BEFORE `self.data` is
+* replaced: a pending editor value in the current rows refuses the reset (false)
+* with nothing changed (WC-2026-10-30-section-record-row-box).
+*
+* @returns {Promise<HTMLElement|null|false>} The result of
+*   `self.render({render_level:'content'})`, or false when the row lock was refused.
 */
-component_portal.prototype.reset_filter_data = function() {
+component_portal.prototype.reset_filter_data = async function() {
 
 	const self = this
+
+	// owner row lock, before the first mutation
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+
+	try {
 
 	// reset self.active_tag (important)
 	// Clearing self.active_tag tells link_record / unlink_record not to re-apply
@@ -2027,9 +2139,13 @@ component_portal.prototype.reset_filter_data = function() {
 		// }
 
 	// re-render content
-		return self.render({
+		return await self.render({
 			render_level : 'content'
 		})
+
+	} finally {
+		release_rows()
+	}
 }//end reset_filter_data
 
 
@@ -2086,19 +2202,55 @@ component_portal.prototype.get_search_value = function() {
 * indicator.  `destroy:false` is passed to `refresh` to preserve the portal node and
 * allow recovery from login-expiry scenarios without a full re-mount.
 *
+* Order (WC-2026-10-30-section-record-row-box): the owner row lock FIRST (it commits
+* typed-not-committed editor nodes of the current rows, and refuses — returning
+* false with nothing mutated — on a node it cannot commit), THEN the in-page
+* `check_unsaved_data({flush_only:true})` (flush auto-saveable edits; never a prompt,
+* never a page-wide reset: a page turn is an in-page operation), THEN the callback
+* and the refresh. A prompting check before the lock would ask "discard?" for a
+* value the lock commits cleanly.
+*
 * @param {Object} options              - Navigation options.
 * @param {Function} [options.callback] - Async function that updates `self.rqo.sqo`
 *                                        before the refresh.  Called and awaited before
 *                                        fetching new data.
-* @returns {Promise<boolean>} `false` if the container node is not found in the DOM;
-*                             `true` after a successful refresh.
+* @returns {Promise<boolean>} `false` if the row lock was refused or the container node
+*                             is not found in the DOM; `true` after a successful refresh.
 */
 component_portal.prototype.navigate = async function(options) {
 
 	const self = this
 
+	// owner row lock, before the first mutation (the callback)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await navigate_locked(self, options)
+		} finally {
+			release_rows()
+		}
+}//end navigate
+
+
+
+/**
+* NAVIGATE_LOCKED
+* The body of `navigate`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+* @param {Object} options - See navigate
+* @returns {Promise<boolean>}
+*/
+const navigate_locked = async function(self, options) {
+
 	// options
 		const callback = options.callback
+
+	// in-page flush (never prompts, never resets the page registry)
+		await check_unsaved_data({
+			flush_only : true
+		})
 
 	// callback execute
 	// The callback mutates self.rqo.sqo (offset, limit, etc.) before the refresh
@@ -2131,7 +2283,7 @@ component_portal.prototype.navigate = async function(options) {
 
 
 	return true
-}//end navigate
+}//end navigate_locked
 
 
 
@@ -2192,18 +2344,18 @@ component_portal.prototype.delete_locator = function(locator, ar_properties) {
 * SORT_DATA
 * Persists a manual drag-and-drop reorder of portal entries.
 *
-* Called by `on_drop` in `drag_and_drop.js` after the user drops a row at a new
-* position.  Sends a `sort_data` changed_data action to the server, which reorders
+* Called with ABSOLUTE keys by `perform_drop` in `drag_and_drop.js` (a delegated
+* row drop) and by the move-to-position modal (render_edit_component_portal.js
+* `open_move_to_position`).  Sends a `sort_data` changed_data action to the server, which reorders
 * the locator array in storage and returns the updated data.
 *
-* Clears `self.column_order_state` (FEJS-02) because a manual reorder supersedes any
-* previously applied column sort — the advisory sort indicator in the column header
-* would be misleading after a drag reorder.
+* A drag source exists only while no TEMPORARY `view_order` is active (drag_and_drop.js
+* `can_reorder`), so a manual reorder always applies to the stored order on display.
 *
 * Uses `refresh:false` in `change_value` then manually calls `self.refresh` with the
 * API response to avoid an extra round-trip.
 *
-* @see on_drop (drag_and_drop.js)
+* @see perform_drop / move_to_position_decision (drag_and_drop.js)
 * @verified 07-09-2023 Paco
 * @param {Object} options              - Reorder parameters.
 * @param {Object} options.value        - The locator object that was dragged.
@@ -2217,9 +2369,28 @@ component_portal.prototype.sort_data = async function(options) {
 
 	const self = this
 
-	// FEJS-02: a manual drag-and-drop reorder diverges from the last column sort,
-	// so clear the (advisory) column-order indicator state.
-	self.column_order_state = null
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await sort_data_locked(self, options)
+		} finally {
+			release_rows()
+		}
+}//end sort_data
+
+
+
+/**
+* SORT_DATA_LOCKED
+* The body of `sort_data`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const sort_data_locked = async function(self, options) {
 
 	// options
 		const value			= options.value
@@ -2249,40 +2420,69 @@ component_portal.prototype.sort_data = async function(options) {
 
 
 	return api_response
-}//end sort_data
+}//end sort_data_locked
 
 
 
 /**
 * SORT_BY_COLUMN
-* Persistently reorders the **full** portal locator array (all pages) by the resolved
-* value of a target-section component, then saves the new order to the database.
+* PERSISTENTLY reorders the **full** portal locator array (all pages) by the resolved
+* value of a target-section component, then saves the new order to the database —
+* the "save current order" action of the order model (portal order model, stage O2):
+* the column header click is only a TEMPORARY `view_order` (set_view_order), and this
+* is what `save_view_order` sends to make it the stored order.
 *
 * The server sorts the set of linked `section_id`s by querying the target section's
 * matrix for the named `component_tipo` value, ordered ASC/DESC with NULLS LAST, and
 * writes the resulting ordered locator array back to the portal's relation data.  This
-* is a real data change and is recorded by Time Machine.
+* is a real data change and is recorded by Time Machine. The server refuses it on a
+* declared-order portal (reason `declared_order`: the ontology order is enforced at
+* every write, so a save would change nothing).
 *
-* Available only when `properties.sort_by_column` is enabled in the ontology node
-* (see `component_portal.md` for configuration details).
+* Available only on a column whose ddo declares `sort_by_column: true` (WC-048).
 *
-* `self.column_order_state` records the last successfully applied column sort as an
-* advisory indicator so the column header can show a sort arrow.  It is cleared to
-* `null` by `sort_data` when the user does a drag-and-drop reorder that overrides the
-* column order.
+* On success the TEMPORARY `view_order` is cleared: the stored order now IS that
+* order, so the view is no longer temporary (and the drag source comes back).
 *
 * (!) `value: null` in `changed_data` is intentional: the client's `update_data_value`
 * skips null-value items with no id, so only the server performs the actual reorder.
 *
-* @see ui.add_column_order_set (render files) for column-header sort button setup.
+* @see save_view_order (the indicator's button), set_view_order (the header click)
 * @param {Object} column          - A `columns_map` entry (from `get_columns_map`).
 *                                   Only `column.tipo` is used by the server.
 * @param {string} direction       - Sort direction: 'ASC' or 'DESC'.
-* @returns {Promise<Object>} Raw API response from `change_value`.
+* @returns {Promise<Object|false>} Raw API response from `change_value`; false when
+*   the owner row lock was refused (nothing sent).
 */
 component_portal.prototype.sort_by_column = async function(column, direction) {
 
 	const self = this
+
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await sort_by_column_locked(self, column, direction)
+		} finally {
+			release_rows()
+		}
+}//end sort_by_column
+
+
+
+/**
+* SORT_BY_COLUMN_LOCKED
+* The body of `sort_by_column`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+* @param {Object} column - A `columns_map` entry ({tipo})
+* @param {string} direction - 'ASC'|'DESC'
+* @returns {Promise<Object>} Raw API response from `change_value`
+*/
+const sort_by_column_locked = async function(self, column, direction) {
 
 	// sort_by_column changed_data
 	// (!) value must stay null: with null value and no id, the client
@@ -2300,16 +2500,15 @@ component_portal.prototype.sort_by_column = async function(column, direction) {
 			refresh			: false // not refresh here (!)
 		})
 
-	// column_order_state. Ephemeral indicator of the last applied column order
-	// (advisory only: manual drag and drop can change the order at any time)
+	// view_order. Saved: the stored order is now this order, the view is no
+	// longer temporary. A refused save keeps the temporary view as it was.
 		if (api_response && !request_failed(api_response)) {
-			self.column_order_state = {
-				tipo		: column.tipo,
-				direction	: direction
-			}
+			self.view_order = null
 		}
 
-	// refresh self component
+	// refresh self component. Saved: the save's echo IS the order just stored and is
+	// rendered as is. Refused: the view order stands, so build() drops the echo and
+	// re-reads under it (echo_hides_view_order)
 		await self.refresh({
 			destroy				: false,
 			build_autoload		: true,
@@ -2318,7 +2517,344 @@ component_portal.prototype.sort_by_column = async function(column, direction) {
 
 
 	return api_response
-}//end sort_by_column
+}//end sort_by_column_locked
+
+
+
+/**
+* SET_VIEW_ORDER
+* The column header click on a portal: a TEMPORARY display order (portal order
+* model, stage O2 — WC-2026-10-31-portal-order-model). Nothing is written: the
+* read RQO carries `sqo.view_order = {tipo, direction}` and the server orders the
+* FULL locator list by that column before paginating (`paginated_key` stays the
+* STORED index, so a later persisted reorder addresses the right items).
+*
+* While a view order is active (drag_and_drop.js): no drag source (`can_reorder`
+* / `can_drag_out` carry `!view_order`), the order indicator shows it with a clear
+* action, and — never under a declared order — a "save current order" button
+* (`can_save_view_order` → save_view_order → the persisted `sort_by_column`).
+* Allowed on a declared-order portal too, on any `can_view_sort` column.
+*
+* View state, not data: it survives pagination and any later refresh (the build
+* stamps it on every rebuilt rqo, sync_view_order_sqo) until clear_view_order /
+* save_view_order — a link / unlink / add included: their save echo is in the stored
+* order, so build() re-reads instead of rendering it (echo_hides_view_order). A new
+* order starts from the first page.
+*
+* Same discipline as `navigate`: the owner row lock first (a pending editor value in
+* the rows refuses with nothing changed), then the in-page flush, then the change and
+* the content refresh. A refused or failed refresh restores the previous order; a
+* failed READ (the server may refuse a column the client offers: assertViewOrder
+* checks read access on every hop) also re-reads under it, so the portal stays
+* usable (reread_restored_order).
+*
+* @param {Object|null} view_order - {tipo, direction:'ASC'|'DESC'}, or null for the
+*   stored order (clear)
+* @param {Object} [column] - The header's own columns_map entry (the mosaic alt table
+*   has its own map); default: the `self.columns_map` entry of `view_order.tipo`
+* @returns {Promise<boolean>} true when the portal re-read and re-rendered under the
+*   new order; false when refused (row lock, unknown column, another read or order
+*   change in flight) or failed
+*/
+component_portal.prototype.set_view_order = async function(view_order, column=null) {
+
+	const self = this
+
+	// single flight. Refused, with nothing changed, while another order change or any
+	// other read is in flight (another column's arrow, Reset / Save clicked during a
+	// read: the per-control guards do not see each other). Checked and claimed
+	// synchronously, so two clicks can never both pass it
+		if (!view_order_idle(self)) {
+			return false
+		}
+		self.view_order_changing = true
+		try {
+			return await set_view_order_claimed(self, view_order, column)
+		} finally {
+			self.view_order_changing = false
+		}
+}//end set_view_order
+
+
+
+/**
+* SET_VIEW_ORDER_CLAIMED
+* The body of `set_view_order`, run with the single-flight claim held
+* (`view_order_changing`).
+* @param {Object} self - The `component_portal` instance
+* @param {Object|null} view_order - {tipo, direction}, or null (clear)
+* @param {Object|null} column - The header's own columns_map entry
+* @returns {Promise<boolean>}
+*/
+const set_view_order_claimed = async function(self, view_order, column) {
+
+	// normalize. null = the stored order
+		const next = view_order
+			? {
+				tipo		: view_order.tipo,
+				direction	: view_order.direction==='DESC' ? 'DESC' : 'ASC'
+			  }
+			: null
+
+	// gate. Only a column the header offers (can_view_sort)
+		if (next) {
+			const sort_column = column && column.tipo===next.tipo
+				? column
+				: find_column(self.columns_map, next.tipo)
+			if (!sort_column || !can_view_sort(self, sort_column)) {
+				console.warn('set_view_order: not a view-sortable column of this portal:', next.tipo)
+				return false
+			}
+		}
+
+	// owner row lock, before the first mutation
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await set_view_order_locked(self, next)
+		} finally {
+			release_rows()
+		}
+}//end set_view_order_claimed
+
+
+
+/**
+* VIEW_ORDER_IDLE
+* Whether a view order change may start now: the instance is 'rendered' (no read in
+* flight — refresh refuses any other status) and no other order change holds the
+* single-flight claim.
+* @param {Object} self - The `component_portal` instance
+* @returns {boolean}
+*/
+const view_order_idle = function(self) {
+
+	return self.status==='rendered' && self.view_order_changing!==true
+}//end view_order_idle
+
+
+
+/**
+* SET_VIEW_ORDER_LOCKED
+* The body of `set_view_order`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+* @param {Object|null} next - The normalized view order, or null
+* @returns {Promise<boolean>}
+*/
+const set_view_order_locked = async function(self, next) {
+
+	// in-page flush (never prompts, never resets the page registry)
+		await check_unsaved_data({
+			flush_only : true
+		})
+
+	// still idle after the flush (another operation — a paginator navigate, a link —
+	// may have started a read meanwhile). From here to refresh() there is no await,
+	// so refresh's own status check sees this same 'rendered': a false refresh below
+	// is THIS call's failed read, never someone else's read in flight
+		if (self.status!=='rendered') {
+			return false
+		}
+
+	// set. A new order starts from the first page
+		const previous_order	= self.view_order
+		const previous_offset	= self.rqo?.sqo?.offset
+		self.view_order = next
+		if (self.rqo?.sqo) {
+			self.rqo.sqo.offset = 0
+		}
+		sync_view_order_sqo(self)
+
+	// refresh. Content level: the header keeps its nodes (and the focus); the
+	// edit render re-syncs the header arrows and the order indicator
+		const refreshed = await self.refresh({
+			destroy : false
+		})
+		if (refreshed!==true) {
+			// restore: the instance never shows an order it did not read
+			self.view_order = previous_order
+			if (self.rqo?.sqo) {
+				self.rqo.sqo.offset = previous_offset
+			}
+			sync_view_order_sqo(self)
+			// usable again. A FAILED read (e.g. the server refusing the column:
+			// assertViewOrder's per-hop read check, which the client gate cannot see)
+			// aborts build() with status 'initialized' (common.js build_autoload), and
+			// refresh() refuses every later action on a non-'rendered' instance — the
+			// old rows would stay on screen, dead. Re-read under the restored order.
+			if (self.status!=='rendered') {
+				await reread_restored_order(self)
+			}
+			return false
+		}
+
+
+	return true
+}//end set_view_order_locked
+
+
+
+/**
+* REREAD_RESTORED_ORDER
+* After a failed order read: rebuild and re-render the portal under the order
+* `set_view_order_locked` just restored, so it is back in status 'rendered' (the
+* state every refresh-driven action requires). Runs under the caller's owner row
+* lock, so it calls build/render directly (refresh would re-take the lock and
+* refuses a non-'rendered' instance). When this read fails too, the instance stays
+* failed, as after any other failed read.
+* @param {Object} self - The `component_portal` instance
+* @returns {Promise<boolean>} true when the portal is rendered again
+*/
+const reread_restored_order = async function(self) {
+
+	const built = await self.build(true)
+	if (built!==true || self.status!=='built') {
+		console.error('set_view_order: the portal could not be re-read under the restored order:', self.tipo)
+		return false
+	}
+
+	await self.render({
+		render_level : 'content'
+	})
+	if (self.paginator) {
+		self.paginator.refresh()
+	}
+
+
+	return self.status==='rendered'
+}//end reread_restored_order
+
+
+
+/**
+* CLEAR_VIEW_ORDER
+* Back to the saved order (= the declared order on a declared-order portal):
+* `view_order = null` and a re-read.
+* @returns {Promise<boolean>} see set_view_order
+*/
+component_portal.prototype.clear_view_order = async function() {
+
+	return this.set_view_order(null)
+}//end clear_view_order
+
+
+
+/**
+* SAVE_VIEW_ORDER
+* "Save current order": the active TEMPORARY view order becomes the stored order,
+* through the existing persisted server action `sort_by_column` (same column, same
+* direction — no new write path). On success the view order clears (sort_by_column).
+* Offered only when `can_save_view_order` (a view order is active, no declared order,
+* write permission); refused here otherwise, with nothing sent.
+* @returns {Promise<Object|false>} the sort_by_column api_response, or false
+*/
+component_portal.prototype.save_view_order = async function() {
+
+	const self = this
+
+	if (!can_save_view_order(self)) {
+		return false
+	}
+
+	// single flight (see set_view_order): never saved beside a read or an order
+	// change in flight — it would save the order being replaced
+		if (!view_order_idle(self)) {
+			return false
+		}
+
+	const {tipo, direction} = self.view_order
+
+	self.view_order_changing = true
+	try {
+		return await self.sort_by_column({tipo}, direction)
+	} finally {
+		self.view_order_changing = false
+	}
+}//end save_view_order
+
+
+
+/**
+* CAN_VIEW_SORT
+* Whether the list header offers the TEMPORARY sort on `column` (ui.js
+* allow_column_order asks this; the one rule is drag_and_drop.js `can_view_sort`).
+* @param {Object} column - A `columns_map` entry
+* @returns {boolean}
+*/
+component_portal.prototype.can_view_sort = function(column) {
+
+	return can_view_sort(this, column)
+}//end can_view_sort
+
+
+
+/**
+* SYNC_VIEW_ORDER_SQO
+* Stamps `self.view_order` on the read rqo (`sqo.view_order`), or removes it.
+* Edit-mode reads only (the header that sets it lives there); the server validates
+* the column (relations/order_locators.ts assertViewOrder).
+* @param {Object} self - The `component_portal` instance
+* @returns {void}
+*/
+const sync_view_order_sqo = function(self) {
+
+	const sqo = self.rqo?.sqo
+	if (!sqo) {
+		return
+	}
+
+	if (self.view_order && self.mode==='edit') {
+		sqo.view_order = {
+			tipo		: self.view_order.tipo,
+			direction	: self.view_order.direction
+		}
+	}else{
+		delete sqo.view_order
+	}
+}//end sync_view_order_sqo
+
+
+
+/**
+* ECHO_HIDES_VIEW_ORDER
+* Whether an injected save echo (`tmp_api_response`) would show rows in an order other
+* than the active view order: the echo of a save is read in the STORED order (a save
+* request carries no `sqo`), so under an edit-mode view order it must not be rendered —
+* build() re-reads with the rqo instead (sync_view_order_sqo stamps `sqo.view_order`).
+* Gate: test_portal_order.js (link / unlink under a view order re-read with it).
+* @param {Object} self - The `component_portal` instance
+* @returns {boolean}
+*/
+const echo_hides_view_order = function(self) {
+
+	return Boolean(self?.view_order) && self.mode==='edit'
+}//end echo_hides_view_order
+
+
+
+/**
+* FIND_COLUMN
+* The columns_map entry (sub-columns included) whose tipo is `tipo`.
+* @param {Array|null} columns_map
+* @param {string} tipo
+* @returns {Object|null}
+*/
+const find_column = function(columns_map, tipo) {
+
+	for (const column of (columns_map || [])) {
+		if (column?.tipo===tipo) {
+			return column
+		}
+		const found = find_column(column?.columns_map, tipo)
+		if (found) {
+			return found
+		}
+	}
+
+	return null
+}//end find_column
 
 
 
@@ -2402,6 +2938,29 @@ component_portal.prototype.unlink_record = async function(locator) {
 
 	const self = this
 
+	// owner row lock (common.js lock_rows), BEFORE the first mutation: a pending
+	// editor value in this portal's rows refuses the operation here, with nothing
+	// sent or changed (WC-2026-10-30-section-record-row-box)
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			return false
+		}
+		try {
+			return await unlink_record_locked(self, locator)
+		} finally {
+			release_rows()
+		}
+}//end unlink_record
+
+
+
+/**
+* UNLINK_RECORD_LOCKED
+* The body of `unlink_record`, run under the owner row lock.
+* @param {Object} self - The `component_portal` instance
+*/
+const unlink_record_locked = async function(self, locator) {
+
 	// ar_locators. Normalise to an array so single and multi removal share one path
 		const ar_locators = Array.isArray(locator)
 			? locator
@@ -2462,7 +3021,7 @@ component_portal.prototype.unlink_record = async function(locator) {
 
 
 	return true
-}//end unlink_record
+}//end unlink_record_locked
 
 
 

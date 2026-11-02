@@ -630,6 +630,7 @@
 	// ---- view toggle (Map | List) ----
 	.map_view_switch {
 		display: flex;
+		flex-wrap: wrap; // phone width: the search bar wraps under Map | List
 		align-items: center;
 		gap: 0.75rem;
 		padding: 0.75rem 1rem 0;
@@ -750,6 +751,10 @@
 		.map_stage_wrap {
 			padding: 0.4rem 1.15rem 0;
 			overflow-x: auto;
+			// the stage's min-width must scroll HERE, not become the page's minimum
+			// width (a scroll box still reports its content's intrinsic size; the
+			// page table sized itself to it — 1075px at 360px)
+			contain: inline-size;
 			height: 366px;
 		}
 
@@ -910,9 +915,15 @@
 			// clipped by the panel. The header rounds its own top corners below so
 			// the panel radius still reads clean.
 			overflow: visible;
+			// inline-size: the panel takes the map's width, never its content's — the
+			// tool chips and the mounted widget's forms wrap inside it instead of
+			// making the widest chip/button the page table's minimum width (365px at
+			// 360px with Linux font metrics)
+			contain: inline-size;
 
 			.ctx_head {
 				display: flex;
+				flex-wrap: wrap; // phone width: id/state/sub wrap instead of widening the page
 				align-items: center;
 				gap: 0.6rem;
 				padding: 0.85rem 1.05rem;

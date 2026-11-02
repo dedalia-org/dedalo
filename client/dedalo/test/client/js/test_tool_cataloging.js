@@ -1,7 +1,6 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*global it, describe, assert, DD_TIPOS */
 /*eslint no-undef: "error"*/
-'use strict';
 
 /**
  * TEST_TOOL_CATALOGING
@@ -22,8 +21,13 @@
  * drop: a term deleted from the tree left the card "used". The second block gates
  * the recalculation with the data_manager stubbed (no record is read or written):
  * a stale `used` is CLEARED from the server's dd1596 answer, a fresh one is SET,
- * the section datum is spliced, and every removal signal (section_deleted from
- * section.delete_section, a save of the link component, window focus) triggers it.
+ * the section datum is spliced, the section's `used_keys` (what the row window's
+ * decorate reads for a tile built later) follows, and every removal signal
+ * (section_deleted from section.delete_section, a save of the link component,
+ * window focus) triggers it. The tiles are found as the content_data's own rows
+ * mapped through the window's entries (WC-2026-10-30-section-record-row-box):
+ * the fixture is a real row DOM + a window-shaped `{size, entry_of}`, never a node
+ * registry.
  */
 
 import {ApiError} from '../../../core/common/js/api_error.js'
@@ -32,8 +36,11 @@ import {event_manager} from '../../../core/common/js/event_manager.js'
 import {section} from '../../../core/section/js/section.js'
 import {tool_cataloging} from '../../../tools/tool_cataloging/js/tool_cataloging.js'
 import {
+	compute_used_keys,
 	get_catalog_target_tipos,
 	is_used,
+	locator_key,
+	mark_used_row,
 	refresh_used_state,
 	subscribe_used_triggers,
 	USED_FOCUS_DEBOUNCE_MS,
@@ -129,17 +136,31 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 		}))
 	})
 
-	// a tool shaped as the drag column and refresh_used_state read it
-	const make_tool = (rows, datum_items) => {
-		const drag_nodes = new Map()
+	// a tool shaped as the mosaic's row window and refresh_used_state read it:
+	// content_data rows (data-index, the tile's own drag column) + {size, entry_of}.
+	// `placeholder_at` leaves that index unbuilt (a placeholder holds nothing).
+	const make_tool = (rows, datum_items, placeholder_at=null) => {
+		const entries		= rows.map(row => ({section_tipo: CARD_TIPO, section_id: row.section_id}))
+		const content_data	= document.createElement('div')
+		content_data.className = 'content_data'
 		rows.forEach((row, i) => {
-			const node = document.createElement('div')
-			node.className = 'dragger' + (row.used ? ' used' : '')
-			drag_nodes.set(i, {
-				locator	: {section_tipo: CARD_TIPO, section_id: row.section_id},
-				node	: node
-			})
+			const tile = document.createElement('div')
+			tile.className = `section_record${i===placeholder_at ? ' placeholder' : ''}`
+			tile.dataset.index = String(i)
+			if (i!==placeholder_at) {
+				const column = document.createElement('div')
+				column.className = 'column column_drag'
+				const dragger = document.createElement('div')
+				dragger.className = `dragger${row.used ? ' used' : ''}`
+				column.appendChild(dragger)
+				tile.appendChild(column)
+			}
+			content_data.appendChild(tile)
 		})
+		const record_window = {
+			size		: entries.length,
+			entry_of	: (i) => entries[i]
+		}
 		return {
 			status			: 'built',
 			events_tokens	: [],
@@ -163,11 +184,17 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 						{tipo: inverse_tipo(), section_tipo: CARD_TIPO, parent: CARD_TIPO, mode: 'list'}
 					]}
 				},
+				data			: {entries: entries},
 				datum			: {data: datum_items},
-				drag_nodes		: drag_nodes
+				record_windows	: {rows: record_window},
+				node			: {content_data: content_data},
+				used_keys		: new Set(rows.filter(row => row.used).map(row => locator_key({section_tipo: CARD_TIPO, section_id: row.section_id})))
 			}
 		}
 	}
+
+	// the drag indicator of tile i, in its OWN drag column (null for a placeholder)
+	const dragger_of = (tool, i) => tool.section_to_cataloging.node.content_data.children[i].querySelector(':scope > .column_drag .dragger')
 
 	it('is_used / get_catalog_target_tipos read only catalog hierarchies', function() {
 		const tool = make_tool([], [])
@@ -179,6 +206,32 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 		assert.equal(is_used(undefined, tipos), false)
 		assert.equal(is_used(inverse_item(1, [CATALOG_TIPO]).entries, []), false, 'no hierarchy loaded: nothing is used')
 		assert.deepEqual(get_catalog_target_tipos(null), [])
+	})
+
+	it('compute_used_keys reads the page entries against the datum; mark_used_row toggles the tile only', function() {
+		const tool = make_tool(
+			[{section_id: '9'}, {section_id: 10}, {section_id: '11'}],
+			[inverse_item(9, [CATALOG_TIPO]), inverse_item(10, [OTHER_TIPO]), {tipo: 'zz_col', section_tipo: CARD_TIPO, section_id: 11}]
+		)
+		const keys = compute_used_keys(tool.section_to_cataloging, [CATALOG_TIPO])
+		assert.deepEqual([...keys], [locator_key({section_tipo: CARD_TIPO, section_id: 9})], 'only card 9 is used ("9" and 9 are one record)')
+		assert.equal(compute_used_keys(tool.section_to_cataloging, []).size, 0, 'no hierarchy loaded: nothing is used')
+		assert.equal(compute_used_keys({}, [CATALOG_TIPO]).size, 0, 'no entries: empty set')
+
+		// the tile's OWN drag column only: a nested overlay record without one is untouched
+		const tile = tool.section_to_cataloging.node.content_data.children[1]
+		const overlay = document.createElement('div')
+		overlay.className = 'section_record sr_mosaic_hover'
+		const nested = document.createElement('div')
+		nested.className = 'dragger'
+		overlay.appendChild(nested)
+		tile.prepend(overlay)
+		mark_used_row(tile, true)
+		assert.equal(tile.querySelector(':scope > .column_drag .dragger').classList.contains('used'), true, 'own drag column marked')
+		assert.equal(nested.classList.contains('used'), false, 'nested overlay untouched')
+		mark_used_row(tile, false)
+		assert.equal(tile.querySelector(':scope > .column_drag .dragger').classList.contains('used'), false, 'cleared')
+		mark_used_row(null, true) // no throw
 	})
 
 	it('a removed term clears a stale used marker; a new link sets it; datum is spliced', async function() {
@@ -199,9 +252,12 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 			assert.equal(await refresh_used_state(tool), true, 'refresh applied')
 		})
 
-		const nodes = [...tool.section_to_cataloging.drag_nodes.values()].map(row => row.node)
-		assert.equal(nodes[0].classList.contains('used'), false, 'card 9: stale used cleared')
-		assert.equal(nodes[1].classList.contains('used'), true, 'card 10: used set from server')
+		assert.equal(dragger_of(tool, 0).classList.contains('used'), false, 'card 9: stale used cleared')
+		assert.equal(dragger_of(tool, 1).classList.contains('used'), true, 'card 10: used set from server')
+		// the Set decorate reads for a tile built later follows the server
+		const used_keys = tool.section_to_cataloging.used_keys
+		assert.equal(used_keys.has(locator_key({section_tipo: CARD_TIPO, section_id: 9})), false, 'card 9 left used_keys')
+		assert.equal(used_keys.has(locator_key({section_tipo: CARD_TIPO, section_id: 10})), true, 'card 10 entered used_keys')
 
 		// one read: dd1596 only, pinned to the two cards, outside session navigation
 		assert.equal(captured.length, 1)
@@ -234,9 +290,35 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 			await refresh_used_state(tool, [{section_tipo: CARD_TIPO, section_id: 10}])
 		})
 		assert.deepEqual(captured[0].sqo.filter_by_locators, [{section_tipo: CARD_TIPO, section_id: '10'}])
-		const nodes = [...tool.section_to_cataloging.drag_nodes.values()].map(row => row.node)
-		assert.equal(nodes[0].classList.contains('used'), true, 'card 9 untouched')
-		assert.equal(nodes[1].classList.contains('used'), false, 'card 10 cleared')
+		assert.equal(dragger_of(tool, 0).classList.contains('used'), true, 'card 9 untouched')
+		assert.equal(dragger_of(tool, 1).classList.contains('used'), false, 'card 10 cleared')
+	})
+
+	it('an unbuilt tile (placeholder) is still read; used_keys carries its state to the later build', async function() {
+		// card 10 is a placeholder (N > the window bound): no node to toggle, yet its
+		// fresh state must reach the tile the window builds later (decorate)
+		const tool = make_tool([{section_id: '9'}, {section_id: '10'}], [], 1)
+		const captured = await with_stubbed_request(() => ({
+			ok		: true,
+			data	: {context: [], data: [inverse_item(9, []), inverse_item(10, [CATALOG_TIPO])]}
+		}), async () => {
+			assert.equal(await refresh_used_state(tool), true)
+		})
+		assert.deepEqual(captured[0].sqo.filter_by_locators.map(el => String(el.section_id)).sort(), ['10', '9'], 'every entry of the page is read')
+		assert.equal(tool.section_to_cataloging.node.content_data.children[1].children.length, 0, 'the placeholder stays a leaf')
+		assert.equal(tool.section_to_cataloging.used_keys.has(locator_key({section_tipo: CARD_TIPO, section_id: 10})), true, 'used_keys carries it')
+	})
+
+	it('a page change during the read drops the answer (the window was superseded)', async function() {
+		const tool = make_tool([{section_id: '9', used: true}], [])
+		await with_stubbed_request(() => {
+			// the door replaced the window while the read was in flight
+			tool.section_to_cataloging.record_windows = {rows: {size: 1, entry_of: () => ({section_tipo: CARD_TIPO, section_id: '77'})}}
+			return {ok: true, data: {context: [], data: [inverse_item(9, [])]}}
+		}, async () => {
+			assert.equal(await refresh_used_state(tool), false, 'superseded: not applied')
+		})
+		assert.equal(dragger_of(tool, 0).classList.contains('used'), true, 'untouched')
 	})
 
 	it('a failed read leaves the marker as it was', async function() {
@@ -248,8 +330,7 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 		}), async () => {
 			assert.equal(await refresh_used_state(tool), false)
 		})
-		const node = tool.section_to_cataloging.drag_nodes.get(0).node
-		assert.equal(node.classList.contains('used'), true)
+		assert.equal(dragger_of(tool, 0).classList.contains('used'), true)
 	})
 
 	it('refreshes are serialized: the later answer is the one applied', async function() {
@@ -267,8 +348,7 @@ describe('TOOL_CATALOGING USED MARKER', function() {
 			await Promise.all([first, second])
 		})
 		assert.equal(call, 2)
-		const node = tool.section_to_cataloging.drag_nodes.get(0).node
-		assert.equal(node.classList.contains('used'), false, 'the second (newer) answer wins')
+		assert.equal(dragger_of(tool, 0).classList.contains('used'), false, 'the second (newer) answer wins')
 	})
 
 	it('removal signals trigger a refresh; unrelated ones do not', async function() {

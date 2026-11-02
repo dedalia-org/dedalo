@@ -62,7 +62,6 @@ import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { deleteMatrixRecord } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
-import { buildSearchSql } from '../../src/core/search/sql_assembler.ts';
 import { clearUserFilterRecordsCache } from '../../src/core/security/filter_records.ts';
 import {
 	clearPermissionsCache,
@@ -79,6 +78,7 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import { buildSearchSql } from '../helpers/search_sql.ts';
 
 // --- the situation ---------------------------------------------------------
 

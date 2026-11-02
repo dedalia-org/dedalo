@@ -704,6 +704,34 @@ describe('the kit: verified source, the agent judges the draft, deterministic, c
 		expect((error as KitBuildError).reason).toBe('draft_refused');
 	}, 120_000);
 
+	test('an agent lockfile entry outside the registry is deps_unpinned, before any install', async () => {
+		const unpinned = await installedTree(false);
+		const lock = join(unpinned, AGENT_REL, 'bun.lock');
+		writeFileSync(
+			lock,
+			readFileSync(lock, 'utf8').replace(
+				'"packages": {',
+				'"packages": {\n    "zz_local": ["zz_local@file:../zz_local", {}],',
+			),
+		);
+		await writePublicationManifest(unpinned, DIGEST);
+		const installs: string[] = [];
+		const error = await buildPanelKit('museum_org', v2Draft(), {
+			treeRoot: unpinned,
+			backupRoot: mkdtempSync(join(scratch, 'backup_')),
+			digest: DIGEST,
+			version: '7.0.0',
+			installDeps: fakeInstall(installs),
+		}).then(
+			() => null,
+			(e: unknown) => e,
+		);
+		expect(error).toBeInstanceOf(KitBuildError);
+		expect((error as KitBuildError).reason).toBe('deps_unpinned');
+		expect((error as KitBuildError).paths).toEqual(['bun.lock:zz_local']);
+		expect(installs).toEqual([]);
+	}, 120_000);
+
 	test('a file changed after the update, a dev checkout, a manifest without the kit census: refused, no kit', async () => {
 		const backupRoot = mkdtempSync(join(scratch, 'backup_'));
 		const drifted = await installedTree();

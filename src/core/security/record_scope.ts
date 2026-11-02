@@ -32,6 +32,7 @@
 import { CLIENT_MAX_LIMIT, CLIENT_MAX_LOCATOR_PINS, sanitizeClientSqo } from '../concepts/sqo.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { runSearch } from '../search/search_statement.ts';
 import { buildRowsInScopeSql, buildSearchSql } from '../search/sql_assembler.ts';
 import { getPermissions, type Principal } from './permissions.ts';
 
@@ -120,15 +121,13 @@ async function visibleSectionIds(
 			// and a smaller limit would drop survivors as if they were denied.
 			limit: chunk.length,
 		});
-		const scopeQuery = await buildSearchSql(scopeSqo, { principal, idsOnly: true });
-		const rows = (await sql.unsafe(
-			scopeQuery.sql,
-			scopeQuery.params as (string | number | null)[],
-			// `unknown`, not `number | string`: the driver's row type is not a
-			// place to widen the section_id union (WC-2026-08-10-section-id-int-canonical
-			// — section_id_int_tripwire ratchets this file at zero), and every use
-			// below canonicalizes through Number() anyway.
-		)) as Array<{ section_id: unknown }>;
+		// `unknown`, not `number | string`: the driver's row type is not a
+		// place to widen the section_id union (WC-2026-08-10-section-id-int-canonical
+		// — section_id_int_tripwire ratchets this file at zero), and every use
+		// below canonicalizes through Number() anyway.
+		const rows = await runSearch<{ section_id: unknown }>(
+			await buildSearchSql(scopeSqo, { principal, idsOnly: true }),
+		);
 		for (const row of rows) visible.add(Number(row.section_id));
 	}
 	return visible;

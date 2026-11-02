@@ -18,6 +18,16 @@
 			height: fit-content;
 			min-height: var(--content_data_min_height);
 
+			// PHONE: the table becomes cards (list.less 'PHONE CARDS'), so the
+			// list_body is a plain block like every phone list_body — this 0,4,0
+			// grid (and its inline column tracks) would squeeze the cards into
+			// the first track. A table nested in another list's cell keeps its grid
+			&.layout_table:where(:not(.column *)) {
+				@media screen and (max-width: @width_break_point_0) {
+					display: block;
+				}
+			}
+
 			.column_section_id {
 				padding: unset;
 			}
@@ -75,12 +85,6 @@
 				}
 			}
 		}//end >.list_bod
-	}
-
-	&.list {
-		>.list_body {
-
-		}
 	}
 
 }//end .component_portal.view_default, .portal.view_default

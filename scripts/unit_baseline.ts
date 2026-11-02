@@ -5,7 +5,8 @@
  *   bun run scripts/unit_baseline.ts            # rewrite the JSON baseline (default) —
  *                                  # IN THE CI IMAGE ONLY (recordOnlyInCiImage): the door is
  *                                  # `bun run ci:local --docker --record-unit-baseline`
- *   bun run scripts/unit_baseline.ts --check    # print drift, exit 1 if any — REFUSES first
+ *   bun run scripts/unit_baseline.ts --check [--bins=N]  # print drift, exit 1 if any;
+ *                                  # --bins=N measures sharded (runTierSharded) — REFUSES first
  *                                  # (no measure) a baseline whose ci_image stamp is not the
  *                                  # running image's (red_baseline.ts ciImageStampVerdict)
  *   bun run scripts/unit_baseline.ts --report   # failing tests per file
@@ -74,16 +75,19 @@
  */
 
 import type { ParityRun } from './lib/parity_census.ts';
+import { wantsCheckJson } from './lib/ratchet_check.ts';
 import {
+	type BaselineCliIo,
 	buildBaseline as buildBaselineFor,
 	computeDrift as computeDriftFor,
 	loadBaseline as loadBaselineFor,
 	type RedBaseline,
+	realBaselineCliIo,
 	runBaselineCli,
 	type TierDrift,
 	type TierSpec,
 } from './lib/red_baseline.ts';
-import { runTier } from './lib/tier_run.ts';
+import { runTier, runTierSharded } from './lib/tier_run.ts';
 
 export { formatDrift } from './lib/red_baseline.ts';
 
@@ -186,4 +190,42 @@ export function runUnitTier(): ParityRun {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-if (import.meta.main) runBaselineCli(UNIT_TIER);
+/**
+ * `--bins=N` (N >= 2) — measure the tier SHARDED (`runTierSharded`: sealed template,
+ * one clone per bin, serial pool, merged JUnit) instead of one `bun test`. CHECK ONLY:
+ * the baseline is defined by the serial run, and a sharded run is admissible as its
+ * measure because it was proved EQUAL to the serial campaign on every key (tier_run.ts) —
+ * a writer must record the definition, never the stand-in, so `--bins` beside a writing
+ * mode is refused. `--bins=1` (or none) is the serial `runTier`.
+ */
+export function unitCliIo(argv: readonly string[]): BaselineCliIo {
+	const io = realBaselineCliIo();
+	const binsArg = argv.find((arg) => arg.startsWith('--bins='));
+	const rest = argv.filter((arg) => !arg.startsWith('--bins='));
+	if (binsArg === undefined) return { ...io, argv: rest };
+	const bins = Number(binsArg.slice('--bins='.length));
+	if (!Number.isInteger(bins) || bins < 1) {
+		throw new Error(`unit_baseline: --bins must be a positive integer, got '${binsArg}'`);
+	}
+	// Mirrors runBaselineCli's `writing` test: --record-new is dispatched FIRST and
+	// writes whatever read flag stands beside it, so it is never a read here either.
+	const reading =
+		!rest.includes('--record-new') && (rest.includes('--check') || wantsCheckJson(rest));
+	if (bins > 1 && !reading) {
+		throw new Error(
+			'unit_baseline: --bins=N (sharded measure) is a CHECK-only option — the baseline is recorded serially, from the run that defines it.',
+		);
+	}
+	if (bins > 1 && wantsCheckJson(rest)) {
+		throw new Error(
+			'unit_baseline: --check --json promises ONE JSON line on stdout; the sharded measure streams its bins there — run the JSON check serial (no --bins).',
+		);
+	}
+	return {
+		...io,
+		argv: rest,
+		measure: bins > 1 ? (paths) => runTierSharded(paths, bins) : runTier,
+	};
+}
+
+if (import.meta.main) runBaselineCli(UNIT_TIER, unitCliIo(process.argv.slice(2)));

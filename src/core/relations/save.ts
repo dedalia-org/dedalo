@@ -62,6 +62,7 @@ import {
 	resolveDataframeSlotTipos,
 } from './dataframe_slots.ts';
 import { resolveProjectsScope } from './filter_projects.ts';
+import { componentDeclaresOrder } from './order_locators.ts';
 import {
 	inCapScope,
 	isTargetAllowed,
@@ -72,23 +73,76 @@ import {
 
 export interface SortDataChange {
 	value: Record<string, unknown> | null;
-	source_key: number;
-	target_key: number;
+	/** Wire-typed `unknown` on purpose: the server range-checks, never trusts (see sortDataKeyRefusal). */
+	source_key: unknown;
+	target_key: unknown;
+}
+
+/** Can `key` address one of `length` stored items? JSON number, integer, in [0, length-1]. */
+function isItemIndex(key: unknown, length: number): key is number {
+	return typeof key === 'number' && Number.isInteger(key) && key >= 0 && key < length;
 }
 
 /**
- * PHP update_data_value 'sort_data': validate the client's locator against
- * the stored item at source_key (locator law — see the module header), then
- * rebuild the array — the moved locator lands BEFORE the target when moving
- * up, AFTER it when moving down. Returns null on any validation failure (PHP
- * returns false).
+ * Which key of a sort_data change cannot address the `length` stored items —
+ * `'source_key'`, `'target_key'` — or null when both can.
+ *
+ * STRICT on purpose: every client door (drag_and_drop on_drop, the dblclick
+ * position input in render_edit_component_portal, component_portal.sort_data)
+ * sends JSON numbers, so NO coercion is applied — `'2'`, `''`, `null`, `true`
+ * are refused, not read as 2 / 0 / 0 / 1 (Number() coercion let a malformed
+ * payload pass the locator gate at index 0/1). An out-of-range, negative,
+ * fractional or NaN target used to never match in the rebuild loop: the moved
+ * locator was dropped and the relation SILENTLY DELETED with ok:true
+ * (WC-2026-10-30-sort-data-key-range).
+ */
+export function sortDataKeyRefusal(
+	length: number,
+	change: { source_key?: unknown; target_key?: unknown },
+): 'source_key' | 'target_key' | null {
+	if (!isItemIndex(change.source_key, length)) return 'source_key';
+	if (!isItemIndex(change.target_key, length)) return 'target_key';
+	return null;
+}
+
+/**
+ * The save door's typed refusal for a malformed sort_data key: a CALLER fault
+ * (`request.invalid_data`, 400 — the code every malformed `changed_data` change
+ * answers), distinct from the locator-mismatch refusal (stale drag), which
+ * stays the `applySortData` null channel. Called by saveComponentData BEFORE
+ * applySortData; throwing inside the save transaction rolls it back (nothing
+ * absorbed, ERRORS_SPEC §8).
+ */
+export function assertSortDataKeys(
+	length: number,
+	change: { source_key?: unknown; target_key?: unknown },
+	coordinates: { tipo: string; section_tipo: string; section_id: number },
+): void {
+	const refused = sortDataKeyRefusal(length, change);
+	if (refused === null) return;
+	throw new DedaloError('request.invalid_data', {
+		message: `saveComponentData: sort_data ${refused} must be an integer in [0, ${length - 1}] for component '${coordinates.tipo}' (got ${typeof change[refused]})`,
+		coordinates: { ...coordinates, action: 'sort_data', key: refused, items_length: length },
+	});
+}
+
+/**
+ * PHP update_data_value 'sort_data': range-check both keys (sortDataKeyRefusal
+ * — strict JSON integers inside the stored array), validate the client's
+ * locator against the stored item at source_key (locator law — see the module
+ * header), then rebuild the array — the moved locator lands BEFORE the target
+ * when moving up, AFTER it when moving down; source == target is a no-op copy.
+ * Returns null on any validation failure (PHP returns false) and, as
+ * defence-in-depth, when the rebuilt array would not hold exactly as many items
+ * as the stored one — a reorder can never add or drop a locator.
  */
 export function applySortData(items: unknown[], change: SortDataChange): unknown[] | null {
+	if (sortDataKeyRefusal(items.length, change) !== null) return null;
+	const sourceKey = change.source_key as number;
+	const targetKey = change.target_key as number;
 	const value = change.value === null ? null : { ...change.value };
 	// biome-ignore lint/performance/noDelete: PHP unset — paginated_key must be ABSENT in persisted data
 	if (value !== null) delete value.paginated_key;
-	const sourceKey = Number(change.source_key);
-	const targetKey = Number(change.target_key);
 	const source = items[sourceKey] as Record<string, unknown> | undefined;
 	if (source === undefined || source === null || value === null) return null;
 	// PHP :4424: locator::compare_locators($db_value, $client_value,
@@ -123,7 +177,38 @@ export function applySortData(items: unknown[], change: SortDataChange): unknown
 		}
 		rebuilt.push(current);
 	});
-	return rebuilt;
+	return rebuilt.length === items.length ? rebuilt : null;
+}
+
+/**
+ * portal order model (WC-2026-10-31-portal-order-model; WC-048 addendum): a portal
+ * whose columns declare `order` stores THAT order — the record-write chokepoint
+ * sorts it on every write (section_record/record_write.ts applyKeySaveRules), so
+ * a user reorder (`sort_data` drag, `sort_by_column` "save current order") would
+ * answer ok and change nothing. Refused typed instead, BEFORE anything moves:
+ * `request.invalid_data`, reason `declared_order`. A TEMPORARY `view_order`
+ * read stays allowed (order_locators.ts orderLocatorsByViewOrder).
+ *
+ * CLIENT HALF NOT SHIPPED YET (OPEN — WC-2026-10-31-portal-order-model, "Client
+ * status"): the client gating is stage O2, landing in the same release before
+ * any push. Until then the shipped client does not read `context.declared_order`
+ * on these paths — the header sort button still sends the persisted
+ * `sort_by_column`, the drag handle's double-click change-order modal still
+ * sends `sort_data`, and nothing sends `sqo.view_order` — so a header-click save
+ * or a drag-handle double-click on a declared-order portal gets THIS
+ * `declared_order` refusal (an error toast on a control the UI offers; nothing
+ * moves, nothing is lost): the contract, not only a backstop.
+ */
+export async function assertNoDeclaredOrder(
+	componentTipo: string,
+	action: string,
+	coordinates: { tipo: string; section_tipo: string; section_id: number },
+): Promise<void> {
+	if (!(await componentDeclaresOrder(componentTipo, coordinates.section_tipo))) return;
+	throw new DedaloError('request.invalid_data', {
+		message: `saveComponentData: ${action} refused for component '${componentTipo}' — it declares a column order (the stored order is the declared one)`,
+		coordinates: { ...coordinates, action, reason: 'declared_order' },
+	});
 }
 
 export interface SortByColumnChange {

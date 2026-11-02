@@ -5,7 +5,7 @@ Standing spec for the area family, companion to `engineering/REWRITE_SPEC.md` (w
 Scope: **area, area_root, area_activity, area_publication, area_resource, area_tool, area_thesaurus, area_admin, area_development, area_ontology** (+ `area_common`, the PHP base they all extend, as the shared TS core). Out of scope, explicitly ledgered — never silently narrowed:
 
 - **area_maintenance (dd88)** — already ported and differential-gated (widget catalog `resolve/widgets.ts`, execution `resolve/widget_request.ts`, `widgets_differential` + `widget_request_differential`). This rebuild only gives it a clean module boundary (§13 Phase A); its internals do not move semantically.
-- **area_graph (dd630)** — **dead/deprecated, dropped from the rewrite by user decision (2026-07-03).** It stays in the PHP root-area walk behind an ontology guard (`class.area.php:250-258`); the TS canonical model list must NOT include it, and the menu differential must be re-pinned accordingly if the live menu ever emits it.
+- **area_graph (dd630)** — **dead/deprecated, dropped from the rewrite by user decision (2026-07-03).** It stays in the PHP root-area walk behind an ontology guard (`class.area.php:250-258`); the TS canonical model list must NOT include it, and the menu differential must be re-pinned accordingly if the live menu ever emits it. **Done 2026-11-01** (WC-2026-11-01-menu-dead-area): the walk keeps its root slot, the menu `tree_datalist` does not emit it.
 - **dd_ts_api / ts_object tree mutations** — the thesaurus/ontology *tree* subsystem (expand/move/add/order/locks) is a separate port; this spec covers only what the AREA serves (the boot payload and the search seed) and names the boundary (§5.5).
 
 ---

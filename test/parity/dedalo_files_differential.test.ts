@@ -255,6 +255,11 @@ const POST_HARVEST_CLIENT_ADDITIONS: readonly string[] = [
 	// audit P2-31 / CLI-29 / CLI-30)
 	'/dedalo/core/common/js/sqo_limit.js',
 	'/dedalo/core/common/js/row_window.js',
+	// the section/portal row box (WC-2026-10-30-section-record-row-box): the pure
+	// record window that replaces row_window for sections and portals
+	'/dedalo/core/section_record/js/record_window.js',
+	// the lazy mosaic hover controller (WC-2026-10-30-section-record-row-box)
+	'/dedalo/core/section_record/js/row_hover.js',
 	// inverse search render — census-adopted post-harvest addition
 	'/dedalo/core/component_inverse/js/render_search_component_inverse.js',
 	// TM list view replacing the service_time_machine package

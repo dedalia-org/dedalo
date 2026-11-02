@@ -224,6 +224,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			publication_probe: 'src/core/publication_host/probe.ts',
 			rich_text_images: 'src/core/media/rich_text_image_reconcile.ts',
 			web_image_exposure: 'src/diffusion/api/reconcile.ts',
+			portal_declared_order: 'src/core/relations/declared_order_reconcile.ts',
 		};
 		for (const definition of REGISTERED) {
 			const owner = owners[definition.name];
@@ -258,6 +259,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			'hierarchy',
 			'public_tier',
 			'rich_text_images',
+			'portal_declared_order',
 		]) {
 			expect((REGISTERED.find((d) => d.name === name) as ReconcileDefinition).schedule).toBe(
 				'operator',

@@ -59,14 +59,28 @@
 		load_data_debug,
 		get_columns_map,
 		push_browser_history,
-		build_autoload
+		build_autoload,
+		destroy_row_windows,
+		destroy_unwindowed_dependencies,
+		log_pending_rows,
+		lock_rows
 	} from '../../common/js/common.js'
-	import {dd_request_idle_callback} from '../../common/js/events.js'
+	import {
+		dd_request_idle_callback,
+		get_unsaved_instances,
+		uncommitted_nodes_snapshot,
+		register_uncommitted_input
+	} from '../../common/js/events.js'
 	import {ui} from '../../common/js/ui.js'
-	import {check_unsaved_data} from '../../component_common/js/component_common.js'
+	import {
+		component_common,
+		check_unsaved_data,
+		orphan_unsaved_instance
+	} from '../../component_common/js/component_common.js'
 	import {is_time_machine_view} from '../../component_common/js/events_subscription.js'
 	import {paginator} from '../../paginator/js/paginator.js'
-	import {create_row_window} from '../../common/js/row_window.js'
+	import {create_record_window} from '../../section_record/js/record_window.js'
+	import {HOVER_OVERLAY_CLASS} from '../../section_record/js/row_hover.js'
 	import {toggle_search_panel} from '../../search/js/render_search.js'
 	import {is_own_record_pin} from '../../search/js/search_utils.js'
 	import {inspector} from '../../inspector/js/inspector.js'
@@ -165,7 +179,7 @@ const sync_url_record = function(self) {
 		}
 		// absence on the wire, without the delete operator
 		const { id: _stale_id, ...vars_without_id } = url_vars
-		history.replaceState(history.state, '', '?' + object_to_url_vars(vars_without_id))
+		history.replaceState(history.state, '', `?${object_to_url_vars(vars_without_id)}`)
 		return
 	}
 
@@ -173,7 +187,7 @@ const sync_url_record = function(self) {
 		return
 	}
 	url_vars.id = section_id
-	history.replaceState(history.state, '', '?' + object_to_url_vars(url_vars))
+	history.replaceState(history.state, '', `?${object_to_url_vars(url_vars)}`)
 }//end sync_url_record
 
 
@@ -253,10 +267,11 @@ export const section = function() {
 	// the last one.
 	section.prototype.destroy = async function(delete_self=true, delete_dependencies=false, remove_dom=false) {
 		const self = this
-		// the row window (window_section_rows) holds the list's viewport observer;
-		// its rows are dependencies, so any teardown that reaches them stops it
-		if (self.row_window && (delete_self || delete_dependencies)) {
-			self.row_window.destroy()
+		// row windows + hover controllers (window_section_rows): flushed and
+		// stopped BEFORE the cascade destroys the rows they hold; their rows are
+		// dependencies, so any teardown that reaches them releases the windows
+		if (delete_self || delete_dependencies) {
+			await destroy_row_windows(self)
 		}
 		if (typeof self.release_graph==='function') {
 			try {
@@ -446,7 +461,7 @@ section.prototype.init = async function(options) {
 					const label = self.label || self.section_tipo
 
 					const confirmed = await ui.confirm({
-						header			: (get_label.new || 'New') + ' ' + (get_label.record || 'record'),
+						header			: `${get_label.new || 'New'} ${get_label.record || 'record'}`,
 						note			: label,
 						body			: get_label.sure || 'Are you sure?',
 						accept_class	: 'brand new'
@@ -479,7 +494,7 @@ section.prototype.init = async function(options) {
 				}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('new_section_' + self.id, new_section_handler)
+				event_manager.subscribe(`new_section_${self.id}`, new_section_handler)
 			)
 
 			if(SHOW_DEBUG===true) {
@@ -507,7 +522,7 @@ section.prototype.init = async function(options) {
 					const label = self.label || self.section_tipo
 
 					const confirmed = await ui.confirm({
-						header			: (get_label.duplicate || 'Duplicate') + ` ID: ${section_id}`,
+						header			: `${get_label.duplicate || 'Duplicate'} ID: ${section_id}`,
 						note			: label,
 						body			: get_label.sure || 'Are you sure?',
 						accept_class	: 'brand duplicate'
@@ -538,7 +553,7 @@ section.prototype.init = async function(options) {
 				}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('duplicate_section_' + self.id, duplicate_section_handler)
+				event_manager.subscribe(`duplicate_section_${self.id}`, duplicate_section_handler)
 			)
 
 		// delete_section_ event. (!) Moved to self button delete in render_section_list
@@ -570,7 +585,7 @@ section.prototype.init = async function(options) {
 					})
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('delete_section_' + self.id, delete_section_handler)
+				event_manager.subscribe(`delete_section_${self.id}`, delete_section_handler)
 			)
 
 		// toggle_search_panel event. Triggered by button 'search' placed into section inspector buttons
@@ -602,7 +617,7 @@ section.prototype.init = async function(options) {
 				toggle_search_panel(self.filter)
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('toggle_search_panel_'+self.id, toggle_search_panel_handler)
+				event_manager.subscribe(`toggle_search_panel_${self.id}`, toggle_search_panel_handler)
 			)
 
 		// render_ event
@@ -669,9 +684,7 @@ section.prototype.init = async function(options) {
 							data_manager.get_local_db_data(status_id, status_table, true)
 							.then(async function(ui_status){
 								// (!) Note that ui_status only exists when element is open
-								const is_open = typeof ui_status==='undefined' || ui_status.value===false
-									? false
-									: true
+								const is_open = !(typeof ui_status==='undefined' || ui_status.value===false)
 								if (is_open===true && self.search_container && self.search_container.children.length===0) {
 									// add_to_container(self.search_container, self.filter)
 									await ui.load_item_with_spinner({
@@ -699,7 +712,7 @@ section.prototype.init = async function(options) {
 				}
 			}
 			self.events_tokens.push(
-				event_manager.subscribe('render_'+self.id, render_handler)
+				event_manager.subscribe(`render_${self.id}`, render_handler)
 			)
 
 		// quit event
@@ -827,7 +840,7 @@ section.prototype.build = async function(autoload=false) {
 			// render mode, which is retired (WC-2026-08-14-tm-ddo-mode-retired).
 			const add_show	= (self.add_show)
 				? self.add_show
-				: (self.rqo?.sqo?.mode==='tm' || self.request_config_object?.sqo?.mode==='tm') ? true : false
+				: !!(self.rqo?.sqo?.mode==='tm' || self.request_config_object?.sqo?.mode==='tm')
 			self.rqo = self.rqo || await self.build_rqo_show(
 				self.request_config_object, // object request_config_object
 				action,  // string action like 'search'
@@ -962,12 +975,9 @@ section.prototype.build = async function(autoload=false) {
 					return false
 				}
 
-			// destroy dependencies
-				await self.destroy(
-					false, // bool delete_self
-					true, // bool delete_dependencies
-					false // bool remove_dom
-				)
+			// destroy dependencies (never the rows a record window holds: its next
+			// content render retires them, adopting or flushing first)
+				await destroy_unwindowed_dependencies(self)
 
 			// set the result to the datum
 				self.datum = datum
@@ -1467,53 +1477,156 @@ export const get_section_records = async function(options) {
 
 
 /**
+* ROW_EDIT_SAFETY
+* The real edit-safety bindings every row window (record_window.js) and every
+* hover controller (row_hover.js) receive. record_window.js is pure — it
+* imports neither ui.js nor events.js nor component_common.js — so the door
+* binds them here, once (WC-2026-10-30-section-record-row-box):
+*   deactivate           ui.component.deactivate
+*   settle               component_common.prototype.settle (concrete components
+*                        COPY prototype methods, so it is called, never read
+*                        off the instance)
+*   orphan               component_common orphan_unsaved_instance (THE orphan
+*                        operation: out of ar_instances, out of the cache,
+*                        into events.js orphaned_unsaved)
+*   unsaved_instances    events.js get_unsaved_instances (array copy)
+*   uncommitted_nodes    events.js uncommitted_nodes_snapshot (array copy)
+*   register_uncommitted events.js register_uncommitted_input
+*   commit_seq           instance.commit_seq (0 for an instance without one,
+*                        so its node can only read as pending — never as
+*                        committed)
+*   instance_of_node     the instance whose `node` IS the given
+*                        `.wrapper_component` (instance cache lookup)
+*   owned_elsewhere      the node lives inside a mosaic hover overlay: the
+*                        hover controller owns it, never the window
+*   component_active     page_globals.component_active
+*   service_autocomplete page_globals.service_autocomplete while it is alive
+* @type {Object}
+*/
+export const row_edit_safety = Object.freeze({
+	deactivate				: (instance) => ui.component.deactivate(instance),
+	settle					: (instance) => component_common.prototype.settle.call(instance),
+	orphan					: (instance) => orphan_unsaved_instance(instance),
+	unsaved_instances		: () => get_unsaved_instances(),
+	uncommitted_nodes		: () => uncommitted_nodes_snapshot(),
+	register_uncommitted	: (node) => register_uncommitted_input(node),
+	commit_seq				: (instance) => Number.isInteger(instance?.commit_seq) ? instance.commit_seq : 0,
+	instance_of_node		: (wrapper) => instance_of_wrapper(wrapper),
+	owned_elsewhere			: (node) => typeof node?.closest==='function' && node.closest(`.${HOVER_OVERLAY_CLASS}`)!==null,
+	component_active		: () => page_globals.component_active || null,
+	service_autocomplete	: () => {
+		const service = page_globals.service_autocomplete || null
+		return (service && service.status!=='destroyed') ? service : null
+	}
+})
+
+
+
+/**
+* INSTANCE_OF_WRAPPER
+* Resolve a component wrapper node to the live instance that rendered it. The
+* DOM keeps no node → instance pointer, so the instance cache is searched for
+* the one whose `node` is the wrapper. Called only for the few uncommitted
+* editor nodes of a flush, never per row.
+* @param {HTMLElement|null} wrapper - A `.wrapper_component` node
+* @returns {Object|null}
+*/
+const instance_of_wrapper = function(wrapper) {
+
+	if (!wrapper) {
+		return null
+	}
+
+	return get_all_instances().find(instance => instance && instance.node===wrapper) || null
+}//end instance_of_wrapper
+
+
+
+/**
+* BUILD_SECTION_RECORD_FOR
+* THE one way to build ONE row-like section_record for a locator entry outside
+* the row window: the mosaic / tool hover overlay (row_hover.js render_hover),
+* and the door's own row build below. A view never calls get_section_records
+* itself (the render-budget census classifies a view that does as eager).
+* The instance is NOT pushed into `caller.ar_instances`: the door does it for
+* rows, the hover controller for its overlay.
+* @param {Object} caller - The section / portal that owns the row
+* @param {Object} entry - The row's locator entry
+* @param {Object} [records_options] - Forwarded to get_section_records (mode,
+*   view, columns_map, id_variant, row_key_base…); `caller` and `entries` are
+*   set here
+* @returns {Promise<Object|null>} The built section_record, or null
+*/
+export const build_section_record_for = async function(caller, entry, records_options={}) {
+
+	if (!caller || !entry) {
+		console.error('Error: build_section_record_for requires a caller and an entry');
+		return null
+	}
+
+	const built = await get_section_records({
+		...records_options,
+		caller	: caller,
+		entries	: [entry]
+	})
+
+
+	return built[0] || null
+}//end build_section_record_for
+
+
+
+/**
 * WINDOW_SECTION_ROWS
-* THE row-materialization door of every list view (audit P2-31 / CLI-29): the
-* rows of a page are handed to a row window (common/js/row_window.js) that
-* builds section_record instances and their DOM only for the rows the viewport
-* can reach — at most ROW_WINDOW_MAX_ROWS at once — and releases them again
-* past the window's far edge. A list view never loops its rows itself.
+* THE row door of every section-list and portal row view
+* (WC-2026-10-30-section-record-row-box; audit P2-31 / CLI-29): the page's
+* locator entries are handed to a record window (section_record/js/record_window.js)
+* that keeps the ROW INVARIANT — `container.children` holds exactly N
+* `.section_record` rows in index order, at every N, N=0 included — and builds
+* at most ROW_WINDOW_MAX_ROWS rows at once (placeholders beyond).
 *
-* Each row is either a raw locator entry (`{section_tipo, section_id, …}` from
-* `self.data.entries` — built through get_section_records ONE AT A TIME, with
-* its page-wide `row_key`, and destroyed when released) or an already-built
-* section_record instance (the TM inspector panels pre-build theirs; then only
-* the DOM is windowed and the instance survives a release).
+* Called for EVERY content render of a view in scope, N=0 included (a zero-row
+* window: no observer, no placeholder), so an N>0→N=0 transition supersedes and
+* retires the previous window like any other.
 *
-* Materialized instances are pushed into `self.ar_instances` — so it holds only
-* the LIVE rows, never the page — and a released row leaves it through the
-* instance's own destroy (common.prototype.destroy step 8). Emptiness is a
-* question for the row list, not for ar_instances.
-*
-* The window is stored as `self.row_window` (the previous one is destroyed);
-* section.prototype.destroy and component_portal.prototype.destroy release it.
-*
-* A view whose row is MORE than one section_record (the mosaic edit portal
-* builds a tile, a hover overlay and an alternative table row per entry) hands
-* its own `materialize(row, index, build_row)` and `release(row, index, node)`:
-* `build_row(records_options)` builds ONE section_record for that row through
-* get_section_records (page-wide row_key, registered in ar_instances) — the
-* view never calls the factory itself, so the census still sees one door.
+* - Each row is built through build_section_record_for (page-wide `row_key` =
+*   its index), pushed into `caller.ar_instances` (so it holds the LIVE rows
+*   only; a released row leaves it through its own destroy) and rendered with
+*   `render_options`.
+* - The handle is stored as `caller.record_windows[slot]`. Supersession is per
+*   slot: the mosaic alt table (`slot:'alt'`) never retires the tiles
+*   (`slot:'rows'`).
+* - `generation` = `caller.record_window_generation[slot] + 1`: owner-monotonic
+*   per slot, never reset by any destroy path, so a drag payload stamped by any
+*   superseded window (or by a window from before a refresh destroy:true) never
+*   matches the live one.
+* - A previous window in the same slot is found committed and frozen by the
+*   owner row lock (common.lock_rows), acquired by every row-set operation
+*   before its first mutation. A door reached UNLOCKED with a previous window
+*   is a programming error: it commits the previous rows itself and logs the
+*   call site and every pending node (log_pending_rows), then proceeds.
+* - Retire order: the slot's hover controller flushes FIRST (its overlay nodes
+*   are judged against the live hover instance, never the rows), then
+*   `previous.retire(new_window)`, then the old hover controller is torn down
+*   (the view installs a new one on the new content_data).
 *
 * @param {Object} options
 * @param {Object} options.caller - The section / portal instance that owns the rows.
-* @param {HTMLElement} options.container - The content_data node rows go into.
-* @param {Array} options.rows - Locator entries or section_record instances.
-* @param {Object} [options.render_options] - Passed to each row's render().
-* @param {Object} [options.records_options] - Passed to get_section_records
+* @param {string} [options.slot='rows'] - The window slot on the owner.
+* @param {HTMLElement} options.container - The (empty) content_data node rows go into.
+* @param {Array} options.rows - The page's locator entries.
+* @param {Object} [options.records_options] - Forwarded to build_section_record_for
 *   (mode, view, columns_map, id_variant…).
-* @param {Function} [options.materialize] - async (row, index, build_row) → node|null.
-*   Replaces the default one-instance materialization; the caller then owns
-*   what it built and MUST tear it down in `options.release`.
-* @param {Function} [options.release] - async (row, index, node). Required with
-*   a custom materialize; ignored otherwise.
-* @param {number} [options.row_height] - Estimated px per row for the spacers.
-* @param {string} [options.spacer='grid'] - Spacer style, see row_window.
-* @returns {Promise<Object>} The row window handle (already filled).
+* @param {Object} [options.render_options] - Passed to each row's render().
+* @param {string} [options.layout='table'] - 'table' | 'list' (record_window roles).
+* @param {boolean} [options.draggable_rows=false] - Stamp draggable=true on built rows.
+* @param {Function} [options.decorate] - (node, index) → void on every built row.
+* @returns {Promise<Object|null>} The record window handle (already filled).
 */
 export const window_section_rows = async function(options) {
 
 	const self				= options.caller
+	const slot				= options.slot || 'rows'
 	const container			= options.container
 	const rows				= Array.isArray(options.rows) ? options.rows : []
 	const render_options	= options.render_options || {}
@@ -1525,72 +1638,82 @@ export const window_section_rows = async function(options) {
 	}
 	self.ar_instances = self.ar_instances || []
 
-	// index → the instance behind a materialized row
-	const instances = new Map()
-
-	// build_row. ONE section_record for the row at `index`, registered in
-	// ar_instances. The default materialization and a custom one both build
-	// through here.
-	const build_row = async (row, index, override) => {
-		const built = await get_section_records({
-			...records_options,
-			...(override || {}),
-			caller			: self,
-			entries			: [row],
-			row_key_base	: index
-		})
-		const instance = built[0] || null
-		if (instance && !self.ar_instances.includes(instance)) {
-			self.ar_instances.push(instance)
+	// previous window of this slot. Under the owner row lock it is already
+	// committed and frozen; unlocked, commit it here and log (programming error)
+		const previous = self.record_windows?.[slot] || null
+		if (previous && !(self.row_lock_depth > 0)) {
+			const { pending } = previous.commit_uncommitted()
+			console.error('[window_section_rows] door reached without the owner row lock (common.lock_rows)', {
+				model		: self.model,
+				tipo		: self.tipo,
+				slot		: slot,
+				call_site	: new Error().stack
+			});
+			log_pending_rows(self, pending, 'window_section_rows (unlocked door)')
 		}
-		return instance
-	}
 
-	const custom = typeof options.materialize==='function'
-	if (custom && typeof options.release!=='function') {
-		console.error('Error: window_section_rows: a custom materialize needs a release');
-		return null
-	}
+	// generation. Owner-monotonic per slot, never reset
+		self.record_window_generation = self.record_window_generation || {}
+		const generation = (self.record_window_generation[slot] ?? 0) + 1
+		self.record_window_generation[slot] = generation
 
-	const row_window = create_row_window({
-		owner		: self,
-		container	: container,
-		items		: rows,
-		spacer		: options.spacer || 'grid',
-		row_height	: options.row_height,
-		materialize	: custom
-			? (row, index) => options.materialize(row, index, (override) => build_row(row, index, override))
-			: async (row, index) => {
-				let instance = row
-				if (!instance || typeof instance.render!=='function') {
-					instance = await build_row(row, index)
-					if (!instance) {
-						return null
-					}
-				}
-				instances.set(index, instance)
-				return instance.render(render_options)
-			},
-		release		: custom
-			? (row, index, node) => options.release(row, index, node)
-			: async (row, index) => {
-				const instance = instances.get(index)
-				instances.delete(index)
-				// a pre-built instance is the caller's: only its DOM leaves the window
-				const owned = !row || typeof row.render!=='function'
-				if (owned && instance && instance.status!=='destroyed') {
-					await instance.destroy(
-						true, // delete_self
-						true, // delete_dependencies
-						true  // remove_dom
-					)
-				}
+	// build. ONE row: build, register in ar_instances, render
+		const build = async (entry, index) => {
+			const instance = await build_section_record_for(self, entry, {
+				...records_options,
+				row_key_base : index
+			})
+			if (!instance) {
+				return null
 			}
-	})
-	await row_window.fill()
+			if (!self.ar_instances.includes(instance)) {
+				self.ar_instances.push(instance)
+			}
+			const node = await instance.render(render_options)
+			return {
+				instance	: instance,
+				node		: node || null
+			}
+		}
+
+	// window
+		const record_window = await create_record_window({
+			owner			: self,
+			slot			: slot,
+			generation		: generation,
+			container		: container,
+			rows			: rows,
+			build			: build,
+			layout			: options.layout,
+			draggable_rows	: options.draggable_rows===true,
+			decorate		: options.decorate,
+			edit_safety		: row_edit_safety
+		})
+		self.record_windows = self.record_windows || {}
+		self.record_windows[slot] = record_window
+
+	// retire the previous window of this slot (hover controller flushes first)
+		if (previous) {
+			const hover = self.row_hovers?.[slot] || null
+			if (hover) {
+				const hover_flushed = await hover.flush()
+				log_pending_rows(self, hover_flushed.pending, 'window_section_rows (hover flush)')
+			}
+			try {
+				const retired = await previous.retire(record_window)
+				log_pending_rows(self, retired.pending, 'window_section_rows (retire)')
+			} catch (error) {
+				console.error('[window_section_rows] retire failed:', error);
+			}
+			if (hover && self.row_hovers?.[slot]===hover) {
+				// leaves the slot itself; the view installs the next one on the new content_data
+				const hover_destroyed = await hover.destroy()
+				log_pending_rows(self, hover_destroyed.pending, 'window_section_rows (hover teardown)')
+			}
+		}
 
 
-	return row_window
+	return record_window
 }//end window_section_rows
 
 
@@ -1874,7 +1997,17 @@ export const holds_component_locks = function(instance) {
 * the browser history so the back/forward buttons work.
 *
 * Flow:
-*   1. Ask the user to confirm discarding unsaved changes (via check_unsaved_data).
+*   0. Acquire the owner row lock (common.lock_rows) FIRST, before any prompt or
+*      mutation (WC-2026-10-30-section-record-row-box): it commits the
+*      typed-not-committed editor nodes of the current rows (a keyboard page turn
+*      without blur) and refuses with its own confirm only for a node it cannot
+*      commit. Refused → return false with nothing touched. Released in a
+*      `finally` once the new rows are in.
+*   1. Ask the user to confirm discarding unsaved changes (via check_unsaved_data)
+*      — run AFTER the lock, so it sees only what the lock could not commit
+*      (page-wide failed saves / orphans). Run before the lock, its OK
+*      (reset_unsaved_data) would empty the uncommitted registry and the lock
+*      would miss a node whose value then dies with the old rows.
 *   2. Destroy any floating autocomplete widget.
 *   3. Execute an optional pre-navigation callback.
 *   4. Add 'loading' CSS classes to the body and inspector nodes.
@@ -1896,21 +2029,48 @@ export const holds_component_locks = function(instance) {
 * @param {boolean} [options.navigation_history=false] - When true, push an entry to
 *   the browser history API so the user can navigate back
 * @param {Object} [options.sqo] - The SQO that triggered this navigation (used for
-*   the history entry; the actual SQO used for the refresh comes from `self.rqo.sqo`
-*   after update_pagination has already mutated it)
-* @returns {Promise<boolean>} false if the user cancelled the unsaved-data dialog;
-*   true otherwise
+*   the history entry; the actual SQO used for the refresh comes from `self.rqo.sqo`).
+*   Read after the callback, so a callback may set it (update_pagination)
+* @returns {Promise<boolean>} false if the user refused the row lock or cancelled
+*   the unsaved-data dialog; true otherwise
 */
 section.prototype.navigate = async function(options) {
 
 	const self = this
 
-	// options
+	// owner row lock. Before check_unsaved_data and before any mutation
+		const release_rows = await lock_rows(self)
+		if (!release_rows) {
+			// user refused to discard a pending row edit. Nothing changed
+			return false
+		}
+		try {
+			return await navigate_locked(self, options)
+		} finally {
+			release_rows()
+		}
+}//end navigate
+
+
+
+/**
+* NAVIGATE_LOCKED
+* The body of section.prototype.navigate, run under the owner row lock (see
+* there for the flow).
+* @param {Object} self - The section instance
+* @param {Object} options - The navigate options
+* @returns {Promise<boolean>}
+*/
+const navigate_locked = async function(self, options) {
+
+	// options. (!) `options.sqo` is read AFTER the callback (history below): a
+	// callback that applies the change (update_pagination) sets it there
 		const callback				= options.callback
 		const navigation_history	= options.navigation_history ?? false
-		const sqo					= options.sqo
 
-	// check_unsaved_data
+	// check_unsaved_data. AFTER the row lock: it sees only what the lock could
+	// not commit (page-wide failed saves / orphans), which a list replacement
+	// must still guard
 		const result = await check_unsaved_data({
 			confirm_msg : 'section: ' + (get_label.discard_changes || 'Discard unsaved changes?')
 		})
@@ -1977,7 +2137,7 @@ section.prototype.navigate = async function(options) {
 			// browser navigation update
 				push_browser_history({
 					source				: source,
-					sqo					: sqo,
+					sqo					: options.sqo,
 					event_in_history	: false,
 					title				: title,
 					url					: url
@@ -2017,7 +2177,7 @@ section.prototype.navigate = async function(options) {
 
 
 	return true
-}//end navigate
+}//end navigate_locked
 
 
 
@@ -2372,7 +2532,7 @@ section.prototype.get_total = async function(sqo) {
 		const use_cache = !sqo
 
 	// already calculated case (only the default/unfiltered count is cached)
-		if (use_cache && (self.total || self.total==0)) {
+		if (use_cache && (self.total || self.total===0)) {
 			return self.total
 		}
 
@@ -2593,6 +2753,11 @@ const build_sqo_id = function(tipo) {
 * `self.request_config_object.sqo.offset` so both the live rqo and the backing
 * request_config stay in sync before the refresh reads from them.
 *
+* The offset is applied INSIDE the navigate callback, i.e. after navigate has
+* acquired the owner row lock and passed check_unsaved_data: a refused page turn
+* leaves the SQO, the paginator (which reads it) and the stored pagination
+* exactly as they were (WC-2026-10-30-section-record-row-box).
+*
 * When `session_save` is true the new offset is persisted to local DB under the
 * `<tipo>_<mode>` key so it survives a page reload or change_mode transition.
 *
@@ -2604,36 +2769,39 @@ section.prototype.update_pagination = async function (offset) {
 
 	const self = this
 
-	// update section rqo sqo
-		self.rqo.sqo.offset = offset
-	// update section request_config_object sqo
-		if (self.request_config_object?.sqo) {
-			self.request_config_object.sqo.offset = offset
-		}
+	// navigate section rows. The offset is applied by the callback, under the
+	// row lock and after check_unsaved_data (nothing changes on a refusal)
+		const navigate_options = {
+			navigation_history	: true, // bool navigation_history save
+			callback			: async () => {
 
-	// get sqo after modification for proper navigation
-		const sqo = clone(self.rqo.sqo)
-
-	// save pagination
-	// Updates local DB pagination values
-		if (self.session_save===true) {
-			await data_manager.set_local_db_data(
-				{
-					id		: `${self.tipo}_${self.mode}`,
-					value	: {
-						limit	: self.rqo.sqo.limit,
-						offset	: self.rqo.sqo.offset
+				// update section rqo sqo
+					self.rqo.sqo.offset = offset
+				// update section request_config_object sqo
+					if (self.request_config_object?.sqo) {
+						self.request_config_object.sqo.offset = offset
 					}
-				},
-				'pagination'
-			)
-		}
 
-	// navigate section rows
-		self.navigate({
-			sqo					: sqo,
-			navigation_history	: true // bool navigation_history save
-		})
+				// get sqo after modification for proper navigation (history entry)
+					navigate_options.sqo = clone(self.rqo.sqo)
+
+				// save pagination
+				// Updates local DB pagination values
+					if (self.session_save===true) {
+						await data_manager.set_local_db_data(
+							{
+								id		: `${self.tipo}_${self.mode}`,
+								value	: {
+									limit	: self.rqo.sqo.limit,
+									offset	: self.rqo.sqo.offset
+								}
+							},
+							'pagination'
+						)
+					}
+			}
+		}
+		self.navigate(navigate_options)
 
 	return true
 }//end update_pagination
@@ -2721,51 +2889,6 @@ function validate_mode(mode) {
 
 	return mode // It will return to the default mode in the future.
 }//end validate_mode
-
-
-/**
-* GET_ALL_TARGET_SECTIONS
-* Collects all unique section tipos that are reachable from this section through
-* its portal components.
-*
-* Walks `self.datum.context` to find every component_portal whose `section_tipo`
-* matches `self.tipo`, then flattens all `sqo.section_tipo` arrays from their
-* request_config entries and reduces to unique objects by `tipo` key.
-*
-* The result is used (for example) by delete confirmation dialogs that need to
-* know which related sections should also be cleaned up.
-*
-* @returns {Array<Object>} Array of unique section-tipo descriptor objects, each
-*   containing at minimum a `tipo` property corresponding to a reachable section tipo.
-*/
-section.prototype.get_all_target_sections = function() {
-
-	const self = this
-
-	const section_portals = self.datum.context.filter( el =>
-		el.model ==='component_portal'
-		&& el.section_tipo === self.tipo
-	)
-
-	const target_sections = Object.values(
-		section_portals
-			.flatMap(el =>
-				el.request_config.flatMap(rqo =>
-				rqo.sqo.section_tipo // get all objects inside the sqo `section_tipo` as target section_tipo
-			)
-		)
-			// reduce to unique target section tipo as some components can call to the same section
-			.reduce((acc, obj) => {
-				if (!acc[obj.tipo]) {  // Use `tipo` as the unique key
-					acc[obj.tipo] = obj;
-				}
-				return acc;
-			}, {})
-	);
-
-	return target_sections
-}//end get_all_target_sections
-
 
 
 /**

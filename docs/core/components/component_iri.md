@@ -119,7 +119,7 @@ With language versions — the same `id` pairs the language variants of one valu
 ]
 ```
 
-When instantiated, the component reads its data from the section and, by default, returns only the items for the instantiated language (the rest are surfaced as `transliterate_value` so the UI can show the other versions). The search engine queries this column with JSONB path expressions over `$.<component_tipo>[*]`, filtering by `@.lang` and matching `@.iri`.
+When instantiated, the component reads its data from the section and, by default, returns only the items for the instantiated language. Every data item also carries `transliterate_value`: the items of the *other* language of the pair (the version in the current data language beside an `lg-nolan` instance, the `lg-nolan` base beside a version instance), `null` when the component holds no data and `[]` when that language is empty. The edit view shows it under the entry and reuses its `id` for an empty row, so the label dataframe pairs across languages. The search engine queries this column with JSONB path expressions over `$.<component_tipo>[*]`, filtering by `@.lang` and matching `@.iri`.
 
 !!! note "Rendered link"
     In read / list views the value is rendered as an anchor, the title (resolved from the label dataframe) as the link text:

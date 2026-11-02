@@ -22,13 +22,20 @@
  */
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { DEDALO_ENGINE_VERSION } from '../../src/core/update/build_stamp.ts';
 import type { UpdateDescriptor } from '../../src/core/update/catalog.ts';
-import type { Freshness } from '../../src/core/update/preconditions.ts';
+import { type Freshness, freshBackupRefusal } from '../../src/core/update/preconditions.ts';
 import { rungVerdict } from '../../src/core/update/run/data_rung.ts';
-import { createRunJournal, type RunJournal } from '../../src/core/update/run/journal.ts';
+import {
+	createRunJournal,
+	type RunJournal,
+	startPhase,
+	transition,
+} from '../../src/core/update/run/journal.ts';
 import {
 	assertSentinelStatus,
 	dataPhase,
@@ -229,6 +236,60 @@ describe('the REAL production effects, seams injected ((5) #2/#4)', () => {
 		await none.markNeedsRestore(run([])); // no sentinel: nothing to flip
 	});
 
+	/** A PENDING sentinel of the BOOTED tree (no digest: matched by version, as boot_confirm reads it). */
+	const bootedTreeSentinel = () => {
+		const path = join(dir, `booted_${Math.round(performance.now() * 1000)}.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				version: DEDALO_ENGINE_VERSION,
+				previousVersion: '0.0.0',
+				updateMode: 'tree_swap',
+				stamp: 'planted',
+				backupDir: join(dir, 'dedalo_prev'),
+				status: 'pending',
+			}),
+		);
+		return path;
+	};
+	const statusAt = (path: string) =>
+		(JSON.parse(readFileSync(path, 'utf8')) as { status: string }).status;
+	const captured = async (act: () => Promise<void>): Promise<string[]> => {
+		const lines: string[] = [];
+		const { log, error } = console;
+		console.log = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+		console.error = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+		try {
+			await act();
+		} finally {
+			console.log = log;
+			console.error = error;
+		}
+		return lines;
+	};
+
+	test('markNeedsRestore BEFORE a crossing phase: needs_restore, said as a precaution — never "NEEDS A HUMAN"', async () => {
+		const path = bootedTreeSentinel();
+		const effects = productionRunEffects(null, null, undefined, { sentinelPath: path });
+		const entry = { release: '7.1.0', step: { kind: 'data' as const } };
+		const about = startPhase(transition(transition(run([entry]), 'PREFLIGHT_OK'), 'BACKED_UP'));
+		expect(about.state).not.toBe('NEEDS_DB_RESTORE');
+		const lines = await captured(() => effects.markNeedsRestore(about));
+		expect(statusAt(path)).toBe('needs_restore');
+		expect(lines.some((line) => line.includes('crosses the data model at 7.1.0 data'))).toBe(true);
+		expect(lines.some((line) => /NEEDS A HUMAN|migration failed/.test(line))).toBe(false);
+	});
+
+	test('markNeedsRestore of a run that ENDED NEEDS_DB_RESTORE: needs_restore, and the human is told', async () => {
+		const path = bootedTreeSentinel();
+		const effects = productionRunEffects(null, null, undefined, { sentinelPath: path });
+		const ended: RunJournal = { ...run([]), state: 'NEEDS_DB_RESTORE' };
+		const lines = await captured(() => effects.markNeedsRestore(ended));
+		expect(statusAt(path)).toBe('needs_restore');
+		expect(lines.some((line) => line.includes('NOT CONFIRMED — NEEDS A HUMAN'))).toBe(true);
+		expect(lines.some((line) => line.includes('crosses the data model'))).toBe(false);
+	});
+
 	test('confirm rejects when the sentinel did not become confirmed', async () => {
 		const effects = productionRunEffects(null, null, undefined, {
 			sentinelPath: otherTreeSentinel(),
@@ -263,6 +324,40 @@ describe('the REAL production effects, seams injected ((5) #2/#4)', () => {
 			).backup(run([]));
 		await expect(backupWith(freshness({ stale: true }))).rejects.toThrow('backup');
 		await expect(backupWith(freshness({ verdict: null }))).rejects.toThrow('backup');
+		// The refusal NAMES the dump and why (preconditions.ts freshBackupRefusal),
+		// typed update.refused — never a generic sentence.
+		const refusalOf = async (fresh: () => Promise<Freshness>) => {
+			const error = await backupWith(fresh).then(
+				() => null,
+				(caught: unknown) => caught,
+			);
+			if (!isDedaloError(error)) throw new Error(`not a DedaloError: ${String(error)}`);
+			return error;
+		};
+		const cut = { filePath: '/backups/cut.custom.backup', reason: 'truncated' };
+		const truncated = await refusalOf(
+			freshness({
+				hours: null,
+				stale: true,
+				verified: false,
+				verdict: null,
+				rejected: [cut],
+			} as unknown as Partial<Freshness>),
+		);
+		expect(truncated.code).toBe('update.refused');
+		expect(truncated.publicMessage).toContain('cut.custom.backup');
+		expect(truncated.publicMessage).toContain('truncated');
+		const slow = await refusalOf(
+			freshness({
+				hours: null,
+				stale: true,
+				verified: false,
+				verdict: null,
+				rejected: [{ ...cut, reason: 'unverifiable_timeout' }],
+			} as unknown as Partial<Freshness>),
+		);
+		expect(slow.code).toBe('update.refused');
+		expect(slow.publicMessage).toContain('DEDALO_BACKUP_VERIFY_SECONDS_PER_GB');
 		expect(await backupWith(freshness({}))).toEqual({
 			path: '/backups/x.custom.backup',
 			taken: '2026-10-30T00:00:00.000Z',
@@ -276,5 +371,18 @@ describe('the REAL production effects, seams injected ((5) #2/#4)', () => {
 			}, true),
 		).toEqual({ path: null, taken: null, waivedBy: -1 });
 		expect(read).toBe(0);
+	});
+});
+
+describe('freshBackupRefusal — the one refusal builder', () => {
+	test('an age with no proven artifact (verdict null) is refused, typed; fresh and proven is not', () => {
+		const base = { newest: 1, hours: 1, stale: false, verified: false, rejected: [] };
+		const refusal = freshBackupRefusal({ ...base, verdict: null } as Freshness);
+		expect(refusal?.code).toBe('update.refused');
+		expect(refusal?.publicMessage).toContain('No proven restorable database backup');
+		const proven = { filePath: '/b/x.backup', mtimeMs: 1 } as unknown as Freshness['verdict'];
+		expect(
+			freshBackupRefusal({ ...base, verified: true, verdict: proven } as Freshness),
+		).toBeNull();
 	});
 });

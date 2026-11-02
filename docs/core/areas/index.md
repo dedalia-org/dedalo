@@ -98,8 +98,8 @@ dashboard — and they all resolve to the `dashboard` behavior.
     recursively, and the result is filtered against the `areas.deny` list.
 
     That order is **not** the behavior-carrying set. `area_graph` holds a slot in
-    it for menu wire compatibility only; it carries no behavior and a read
-    addressed at it is refused. See
+    it for the walk only; it carries no behavior, a read addressed at it is
+    refused, and the menu does not emit it. See
     [area → the menu roster](area.md#the-menu-roster).
 
 ## See also

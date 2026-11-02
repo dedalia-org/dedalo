@@ -301,6 +301,8 @@ const out = await updateVersion({ run_scripts_0: true }, {
 	},
 	logPath: ${JSON.stringify(join(SCRATCH, 'update.log'))},
 	reconcileMirrors: async () => ({ repaired: 0, shrinksSkipped: 0 }),
+	// the copied tree's data version is this checkout's: the rung's own release is the code it simulates
+	codeDataVersion: ${JSON.stringify(rung)},
 });
 console.log('RESULT ' + JSON.stringify({ identity: DEDALO_ENGINE_VERSION, ok: out.ok }));
 process.exit(0);

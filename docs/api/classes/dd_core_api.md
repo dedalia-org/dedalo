@@ -181,6 +181,58 @@ Read requires level ≥ 1 on every SQO target section. A missing `options.sectio
 }
 ```
 
+## relation_targets
+
+### Purpose
+
+The census behind "Open relationships": which sections the records of a source set point at, and how many records of each.
+
+### Accepts
+
+Like `read_raw`, the input rides in **`options`**; there is no `sqo`, so no page limit applies.
+
+- `options`: object (required), holding exactly:
+  - `source`: object (required) — a [`referenced_by` source set](../../core/sqo.md#relationship-filter-leaves-referenced_by):
+    - `section_tipo`: string[] (required) — the source sections
+    - `filter`: object (optional) — the source search filter (may nest a `referenced_by` leaf, depth ≤ 4)
+    - `filter_by_locators`: object[] (optional) — explicit source records
+    - `filter_by_locators_op`: `"OR"` (optional) — the only accepted value
+    - `from_component_tipo`: string (optional) — count only the locators of this component
+
+### Returns
+
+`{ ok: true, request_id, data: [{ tipo, label, total }, …] }` — one entry per target section, ordered by `tipo`, `label` in the request language. Each `total` is exact (the count the opened window would show, with the target's access rules applied). Unreadable targets and targets with total 0 are omitted; `[]` means nothing to open. A `perm.out_of_scope` notice is added when the user's component permissions hide relation components of a source section.
+
+### Usage
+
+Read requires level ≥ 1 on every source section (`perm.denied`). A malformed source, an unknown `options` key or a `sqo` key refuses with `request.invalid_options`; an invalid tipo or a source section with no record table with `request.invalid_tipo`. The locators are read from the source records' stored `relation` column (the `read_raw` `target_section` reading, not the relation index), so log sections are valid sources. The census (a grouped pass, then one statement for every exact total) has one 30-second deadline across its statements, capped by `DB_STATEMENT_TIMEOUT_MS`; past it the request fails with `db.statement_timeout` (503). The client's own timeout for this call (35 s) is longer, so that refusal arrives first.
+
+### Example Request
+
+```json
+{
+  "dd_api": "dd_core_api",
+  "action": "relation_targets",
+  "options": {
+    "source": {
+      "section_tipo": ["oh1"],
+      "filter_by_locators": [{ "section_tipo": "oh1", "section_id": 3 }],
+      "from_component_tipo": "oh24"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "ok": true,
+  "request_id": "c0ffea03",
+  "data": [ { "tipo": "rsc197", "label": "People", "total": 2 } ]
+}
+```
+
 ## create
 
 ### Purpose
