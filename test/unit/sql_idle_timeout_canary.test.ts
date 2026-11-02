@@ -32,7 +32,12 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
 import { SQL } from 'bun';
-import { poolIdleTimeouts, runWithoutStatementTimeout, sql } from '../../src/core/db/postgres.ts';
+import {
+	maintenanceIdleTimeoutFor,
+	poolIdleTimeouts,
+	runWithoutStatementTimeout,
+	sql,
+} from '../../src/core/db/postgres.ts';
 
 /** The connection fields of the engine's own pool, for the canary's private pool. */
 function engineConnection(): Record<string, unknown> {
@@ -134,6 +139,17 @@ describe('B. rule — the maintenance lanes carry the idle reaper, the main pool
 			maintenance: 30_000,
 			nonTransactional: 30_000,
 		});
+	});
+
+	test('the reaper is armed only on a Bun whose idleTimeout spares a running statement', () => {
+		// The lanes above are built for THIS runtime; an installation booting an older Bun
+		// (a source checkout warns, never refuses) must get no reaper at all.
+		for (const old of ['1.4.3', '1.4.2', '1.3.9', '1.4.4-canary.1']) {
+			expect(maintenanceIdleTimeoutFor(old), old).toBeUndefined();
+		}
+		for (const fixed of ['1.4.4', '1.4.10', '1.5.0', '2.0.0']) {
+			expect(maintenanceIdleTimeoutFor(fixed), fixed).toBe(30);
+		}
 	});
 });
 

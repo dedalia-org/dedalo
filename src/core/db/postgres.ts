@@ -88,7 +88,9 @@ const MAINTENANCE_POOL_MAX = config.ops.dbMaintenancePoolMax;
 /*
  * THE MAINTENANCE IDLE REAPER — `idleTimeout` on the two maintenance lanes only
  * (maintenance is bursty: its sockets should not linger once the burst is over).
- * Safe ONLY on Bun >= 1.4.4 (MIN_BUN, system_info.ts): on 1.4.2/1.4.3 Bun's SQL
+ * Safe ONLY on Bun >= 1.4.4, so it is ARMED only there (maintenanceIdleTimeoutFor —
+ * the runtime is checked where the pool is built, never trusted to the pin: a
+ * source checkout may boot on an older Bun with only a warning). On 1.4.2/1.4.3 Bun's SQL
  * `idleTimeout` fired on a connection silent on the wire, a statement STILL
  * RUNNING included, and killed it with ERR_POSTGRES_IDLE_TIMEOUT — the former
  * 30 s value rolled back every index rebuild of matrix_time_machine longer than
@@ -100,6 +102,16 @@ const MAINTENANCE_POOL_MAX = config.ops.dbMaintenancePoolMax;
  * — its canary goes red if a Bun release brings the old semantics back.
  */
 const MAINTENANCE_IDLE_TIMEOUT_S = 30;
+
+/** First Bun whose `idleTimeout` spares a running statement (a fact, not the pin). */
+const IDLE_REAPER_SAFE_FROM_BUN = '1.4.4';
+
+/** The maintenance lanes' `idleTimeout` on Bun `version`: the reaper, or none below 1.4.4. */
+export function maintenanceIdleTimeoutFor(version: string): number | undefined {
+	return Bun.semver.order(version, IDLE_REAPER_SAFE_FROM_BUN) >= 0
+		? MAINTENANCE_IDLE_TIMEOUT_S
+		: undefined;
+}
 
 /**
  * The maintenance pool's `application_name`, UNIQUE PER PROCESS BOOT: shutdown
@@ -381,7 +393,7 @@ function getMaintenanceLane(): PoolLane {
 				MAINTENANCE_APPLICATION_NAME,
 				MAINTENANCE_LOCK_TIMEOUT,
 			),
-			idleTimeout: MAINTENANCE_IDLE_TIMEOUT_S,
+			idleTimeout: maintenanceIdleTimeoutFor(Bun.version),
 		} as ConstructorParameters<typeof SQL>[0]),
 		gate: makeSlotGate('maintenance', MAINTENANCE_POOL_MAX),
 		ceilingMs: 0,
@@ -416,7 +428,7 @@ function getNonTransactionalLane(): PoolLane {
 		name: 'maintenance',
 		pool: new SQL({
 			...buildSqlOptions(MAINTENANCE_POOL_MAX, 0, NON_TRANSACTIONAL_APPLICATION_NAME),
-			idleTimeout: MAINTENANCE_IDLE_TIMEOUT_S,
+			idleTimeout: maintenanceIdleTimeoutFor(Bun.version),
 		} as ConstructorParameters<typeof SQL>[0]),
 		gate: getMaintenanceLane().gate,
 		ceilingMs: 0,

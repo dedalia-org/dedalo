@@ -100,7 +100,7 @@ const V1_FILES: TreeFiles = {
 };
 const V2_FILES = {
 	'package.json': '{"name":"dedalo-publication-api-v2","version":"2.1.0"}',
-	'bun.lock': '{"lockfileVersion":1}',
+	'bun.lock': '{"lockfileVersion":1,"packages":{}}',
 	'bunfig.toml': '[install]\npeer = false\n',
 	'src/index.ts': 'export {} satisfies TreeFiles;\n',
 };
@@ -650,10 +650,15 @@ describe('the provenance rule — every bun.lock package is registry-resolved wi
 				x_git: ['x_git@github:o/r#abc', {}, 'o-r-abc'],
 				w_url: ['w_url@https://example.org/w.tgz', {}],
 				t_userinfo: ['t_userinfo@https://user@example.org/t.tgz', {}, INTEGRITY],
+				// A local tarball: bun writes it WITH an integrity, and no prefix names it.
+				s_tarball: ['s_tarball@../ext/s.tgz', {}, INTEGRITY],
+				r_workspace: ['r_workspace@workspace:pkgs/r', {}, INTEGRITY],
 				v_bare: ['v_bare@1.0.0', '', {}],
 				u_shape: 'not a tuple',
 			}),
 		).toEqual([
+			'bun.lock:r_workspace',
+			'bun.lock:s_tarball',
 			'bun.lock:t_userinfo',
 			'bun.lock:u_shape',
 			'bun.lock:v_bare',
@@ -664,9 +669,26 @@ describe('the provenance rule — every bun.lock package is registry-resolved wi
 		]);
 	});
 
-	test("the repo's own shipped lockfiles pass (server_api/v2, host_agent)", async () => {
-		for (const dir of ['publication/server_api/v2', 'publication/host_agent']) {
-			await assertRegistryLockfile(join(import.meta.dir, '../..', dir));
+	test('a lockfile with no `packages` object is deps_install_failed, never an empty pass', async () => {
+		for (const body of ['{ "lockfileVersion": 2 }', '{ "packages": [] }', 'not jsonc {']) {
+			const dir = freshDir('lockrule_nopkgs');
+			writeFileSync(join(dir, 'bun.lock'), body);
+			const error = await assertRegistryLockfile(dir).then(
+				() => null,
+				(caught: unknown) => caught as ApiBundleError,
+			);
+			expect(error?.reason, body).toBe('deps_install_failed');
+			expect(error?.paths, body).toEqual(['bun.lock']);
+		}
+	});
+
+	test("the repo's own shipped lockfiles pass (server_api/v2, host_agent) — floored", async () => {
+		// Floored at the corpus: a census that checked nothing would pass anything.
+		const floors = { 'publication/server_api/v2': 100, 'publication/host_agent': 10 };
+		for (const [dir, floor] of Object.entries(floors)) {
+			expect(await assertRegistryLockfile(join(import.meta.dir, '../..', dir))).toBeGreaterThan(
+				floor,
+			);
 		}
 	});
 });
