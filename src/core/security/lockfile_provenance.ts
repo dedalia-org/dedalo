@@ -67,8 +67,10 @@ export function parseLockPackages(
 	let parsed: unknown;
 	try {
 		parsed = Bun.JSONC.parse(text);
-	} catch (error) {
-		return { error: `does not parse: ${(error as Error).message}` };
+	} catch {
+		// A fixed sentence, never the parser's text (SEC-18): this rides a refusal payload.
+		// A committed lockfile that does not parse reproduces locally with `bun install`.
+		return { error: 'does not parse as JSONC' };
 	}
 	const packages = (parsed as { packages?: unknown } | null)?.packages;
 	if (packages === null || typeof packages !== 'object' || Array.isArray(packages)) {

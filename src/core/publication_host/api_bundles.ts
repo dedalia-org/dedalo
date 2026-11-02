@@ -170,8 +170,13 @@ export type ApiBundleReason =
 export class ApiBundleError extends Error {
 	readonly reason: ApiBundleReason;
 	readonly paths: readonly string[];
-	constructor(reason: ApiBundleReason, message: string, paths: readonly string[] = []) {
-		super(message);
+	constructor(
+		reason: ApiBundleReason,
+		message: string,
+		paths: readonly string[] = [],
+		options?: { cause?: unknown },
+	) {
+		super(message, options);
 		this.name = 'ApiBundleError';
 		this.reason = reason;
 		this.paths = Object.freeze([...paths]);
@@ -714,12 +719,19 @@ export async function assertRegistryLockfile(depsDir: string): Promise<number> {
 
 /** `bun.lock`'s `packages` map; an unreadable or packages-less lockfile is deps_install_failed. */
 async function readLockPackages(path: string): Promise<Record<string, unknown>> {
-	let read: ReturnType<typeof parseLockPackages>;
+	let text: string;
 	try {
-		read = parseLockPackages(await Bun.file(path).text());
+		text = await Bun.file(path).text();
 	} catch (error) {
-		read = { error: (error as Error).message };
+		// The fs error stays on `cause` (logs), never in the message (SEC-18).
+		throw new ApiBundleError(
+			'deps_install_failed',
+			'Publication API bundle refused (deps_install_failed): bun.lock is unreadable',
+			['bun.lock'],
+			{ cause: error },
+		);
 	}
+	const read = parseLockPackages(text);
 	if ('error' in read) {
 		throw new ApiBundleError(
 			'deps_install_failed',
