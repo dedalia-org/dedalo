@@ -826,7 +826,13 @@ interface DrillInvocation {
 interface DrillRun {
 	code: number;
 	invocations: DrillInvocation[];
+	/** The run's last output lines (stdout then stderr): a red drill must say WHY it exited. */
+	tail: string;
 }
+
+/** ` — last output: …` for a fault line, so a red drill names its cause instead of only its code. */
+const drillTail = (run: DrillRun): string =>
+	run.tail === '' ? '' : ` — last output:\n      ${run.tail}`;
 
 const STUBBED_COMMANDS = ['bun', 'bunx', 'git', 'apt-get', 'mkdir'] as const;
 
@@ -908,10 +914,19 @@ function drillScript(
 					...(failOn === undefined ? {} : { DRILL_FAIL_ON: failOn }),
 					...extraEnv,
 				},
-				stdout: 'ignore',
-				stderr: 'ignore',
+				stdout: 'pipe',
+				stderr: 'pipe',
 			},
 		);
+		const lastLines = (bytes: Uint8Array | undefined, n: number) =>
+			new TextDecoder()
+				.decode(bytes ?? new Uint8Array())
+				.trimEnd()
+				.split('\n')
+				.slice(-n);
+		const tail = [...lastLines(result.stdout, 6), ...lastLines(result.stderr, 6)]
+			.filter((line) => line !== '')
+			.join('\n      ');
 		const invocations = readFileSync(log, 'utf8')
 			.split('\x1e')
 			.filter((record) => record !== '')
@@ -919,7 +934,7 @@ function drillScript(
 				const [command, cwd, ...argv] = record.split('\x1f').slice(0, -1);
 				return { command: command as string, cwd: cwd as string, argv };
 			});
-		return { code: result.exitCode ?? -1, invocations };
+		return { code: result.exitCode ?? -1, invocations, tail };
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -995,7 +1010,7 @@ function exitTrapFaults(
 	const normal = drillScript(script, undefined, undefined, extraEnv);
 	if (normal.code !== 0)
 		faults.push(
-			`${rel}: the stubbed run exited ${normal.code} — the drill could not walk its stages, so nothing it starts is proven stopped`,
+			`${rel}: the stubbed run exited ${normal.code} — the drill could not walk its stages, so nothing it starts is proven stopped${drillTail(normal)}`,
 		);
 	const starters = normal.invocations.filter(starts).map((inv) => inv.argv.join(' '));
 	if (starters.length === 0) return { starters, faults };
@@ -1103,7 +1118,9 @@ function baselineCheckFaults(rel: string, script: string): { checks: string[]; f
 	if (clean.code !== 0)
 		return {
 			checks: [],
-			faults: [`${rel}: the clean stubbed run exited ${clean.code} — leg L cannot measure it`],
+			faults: [
+				`${rel}: the clean stubbed run exited ${clean.code} — leg L cannot measure it${drillTail(clean)}`,
+			],
 		};
 	const shape = (run: DrillRun) =>
 		run.invocations.map((inv) => `${inv.command} ${inv.argv.join(' ')}`);
