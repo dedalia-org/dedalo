@@ -162,6 +162,7 @@ export type ApiBundleReason =
 	| 'lockfile_missing'
 	| 'deps_install_failed'
 	| 'deps_symlink'
+	| 'deps_unpinned'
 	| 'write_mismatch';
 
 /** A refused build. `paths` names the offending files (tree keys or bundle paths). */
@@ -612,6 +613,7 @@ async function buildV2Deps(
 		const { data } = await readVerifiedSource(ctx.treeRoot, source);
 		await writeFile(join(depsDir, source.rel), data);
 	}
+	await assertRegistryLockfile(depsDir);
 	await ctx.installDeps(depsDir);
 	return walkDeps(depsDir);
 }
@@ -683,6 +685,66 @@ async function visit(base: string, path: string, walk: DepsWalk): Promise<void> 
 		return;
 	}
 	walk.out.push({ path, type: 'file', load: () => readDepFile(base, path) });
+}
+
+/**
+ * THE PROVENANCE RULE, checked on the lockfile BEFORE the install: every package `bun.lock`
+ * pins resolves from the registry AND carries an integrity hash. A `file:`, `link:`, git or
+ * tarball-URL dependency ships bytes no manifest digest and no lockfile hash covers — a
+ * `file:` one copies whatever sits at that path outside the verified tree. Until 2026-11-02
+ * this was caught only by accident: Bun 1.4.3 materialised a `file:` dependency as
+ * symlinks (deps_symlink); Bun 1.4.4 hardlinks its files, which the walk reads as regular
+ * files, and the bundle built. The rule is now about where the bytes come from, not how Bun
+ * lays them out, and refuses before anything is fetched. Same tuple law as the repo's own
+ * lockfiles (test/unit/dependency_integrity_tripwire.test.ts). Used by the v2 bundle and the
+ * publication-host kit (kit_build.ts), both of which install from a `bun.lock` in `depsDir`.
+ */
+export async function assertRegistryLockfile(depsDir: string): Promise<void> {
+	const unpinned: string[] = [];
+	for (const [name, tuple] of Object.entries(await readLockPackages(join(depsDir, 'bun.lock')))) {
+		if (!isRegistryPinned(tuple)) unpinned.push(`bun.lock:${name}`);
+	}
+	if (unpinned.length > 0) throw bundleRefusal('deps_unpinned', unpinned.sort(compareBundlePaths));
+}
+
+/**
+ * `bun.lock`'s `packages` map, parsed as the JSONC it is (Bun.JSONC — a comma-stripping regex
+ * would also rewrite string contents). An unreadable lockfile is
+ * deps_install_failed (the frozen install would refuse it too).
+ */
+async function readLockPackages(path: string): Promise<Record<string, unknown>> {
+	try {
+		const text = await Bun.file(path).text();
+		const packages = (Bun.JSONC.parse(text) as { packages?: unknown }).packages ?? {};
+		if (packages === null || typeof packages !== 'object')
+			throw new Error('packages is not an object');
+		return packages as Record<string, unknown>;
+	} catch (error) {
+		throw new ApiBundleError(
+			'deps_install_failed',
+			`Publication API bundle refused (deps_install_failed): bun.lock is unreadable: ${(error as Error).message}`,
+			['bun.lock'],
+		);
+	}
+}
+
+/** Non-registry resolutions: a URL, git, `file:`, `link:` or a workspace member. */
+const NON_REGISTRY_RESOLUTION = /^(https?:|git|github:|file:|link:|workspace:)/;
+
+/**
+ * One lockfile tuple — `["<name>@<version>", <registry>, <metadata>, "<integrity>"]` for a
+ * registry package; a URL/git/file resolution is exactly the shape bun writes shorter, with
+ * no integrity. Split on the FIRST '@' after the name (index 0 is a scope's own '@'): a
+ * spec may itself hold one (`x@https://user@host/x.tgz`), which a last-'@' split would hide.
+ */
+function isRegistryPinned(tuple: unknown): boolean {
+	if (!Array.isArray(tuple) || typeof tuple[0] !== 'string') return false;
+	const resolution = tuple[0];
+	const at = resolution.indexOf('@', 1);
+	const spec = at <= 0 ? '' : resolution.slice(at + 1);
+	if (spec === '' || NON_REGISTRY_RESOLUTION.test(spec) || spec.includes('://')) return false;
+	const integrity = tuple[tuple.length - 1];
+	return typeof integrity === 'string' && /^sha(512|256)-/.test(integrity);
 }
 
 /** The PINNED bun, frozen, in the build dir, minimal env; bounded by V2_DEPS_INSTALL_TIMEOUT_MS. */

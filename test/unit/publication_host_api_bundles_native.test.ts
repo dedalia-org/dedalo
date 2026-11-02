@@ -54,6 +54,7 @@ import {
 	type ApiBundleSeams,
 	apiBuildPaths,
 	apiTreePrefix,
+	assertRegistryLockfile,
 	buildApiBundle,
 	ENGINE_RESERVED_BUNDLE_PATHS,
 	installV2DepsReal,
@@ -528,13 +529,16 @@ describe('the real installer (pinned Bun, frozen, hoisted, minimal env)', () => 
 		});
 		if (made.exitCode !== 0)
 			throw new Error(`lockfile generation failed: ${made.stderr.toString()}`);
-		const shipped = extraDep
-			? { ...pkg, dependencies: { ...pkg.dependencies, dep2: 'file:../dep' } }
-			: pkg;
+		// extraDep: a lockfile that pins NOTHING (bun writes none for a dependency-free
+		// package, so it is spelled here in bun's own shape) under a package.json that
+		// declares the file: dependency — clean provenance, uncovered manifest.
+		const lockfile = extraDep
+			? '{\n  "lockfileVersion": 2,\n  "configVersion": 1,\n  "workspaces": {\n    "": {\n      "name": "dedalo-publication-api-v2",\n    },\n  },\n  "packages": {}\n}\n'
+			: readFileSync(join(gen, 'bun.lock'), 'utf8');
 		const tree = await makeTree({
 			v2: {
-				'package.json': JSON.stringify(shipped),
-				'bun.lock': readFileSync(join(gen, 'bun.lock'), 'utf8'),
+				'package.json': JSON.stringify(pkg),
+				'bun.lock': lockfile,
 				'src/index.ts': 'export {};\n',
 			},
 		});
@@ -580,20 +584,90 @@ describe('the real installer (pinned Bun, frozen, hoisted, minimal env)', () => 
 		expect(v2DepsInstallEnv(depsDir, {}).PATH).toBe('/usr/local/bin:/usr/bin:/bin');
 	});
 
-	test('runs in the build dir; a file: dependency installs as symlinks and is refused', async () => {
+	test('a file: dependency is refused by PROVENANCE, before the install runs', async () => {
+		// Bun 1.4.3 materialised it as symlinks (deps_symlink caught it by accident); 1.4.4
+		// hardlinks the files and the walk saw regular files. The refusal must not depend on
+		// how Bun lays the bytes out: no installer runs at all.
 		const s = await fileDepTree(false);
-		const err = await refusal(buildApiBundle('v2', s));
-		expect(err.reason).toBe('deps_symlink');
-		// Bun links EVERY file of a file: dependency; the refusal names them all, in bundle
-		// order — not whichever one this filesystem's readdir happened to return first.
-		expect(err.paths).toEqual(['node_modules/dep/index.js', 'node_modules/dep/package.json']);
+		let installed = false;
+		const err = await refusal(
+			buildApiBundle('v2', {
+				...s,
+				installDeps: async () => {
+					installed = true;
+				},
+			}),
+		);
+		expect(err.reason).toBe('deps_unpinned');
+		expect(err.paths).toEqual(['bun.lock:dep']);
+		expect(installed).toBe(false);
 	});
 
 	test('a package.json the lockfile does not cover fails frozen', async () => {
+		// The lockfile is provenance-clean (it pins nothing), so the provenance rule passes
+		// and the FROZEN install is what refuses the dependency package.json adds.
 		const s = await fileDepTree(true);
 		const err = await refusal(buildApiBundle('v2', s));
 		expect(err.reason).toBe('deps_install_failed');
 		expect(err.message).toContain('frozen');
+	});
+});
+
+describe('the provenance rule — every bun.lock package is registry-resolved with an integrity hash', () => {
+	const INTEGRITY = 'sha512-AAAA';
+	async function verdict(packages: Record<string, unknown>): Promise<string[] | 'ok'> {
+		const dir = freshDir('lockrule');
+		// bun's own JSONC shape, trailing commas included: the parse must take them.
+		const body = JSON.stringify({ lockfileVersion: 2, packages }, null, 2).replace(
+			/\n(\s*)([}\]])/g,
+			',\n$1$2',
+		);
+		writeFileSync(join(dir, 'bun.lock'), body);
+		try {
+			await assertRegistryLockfile(dir);
+			return 'ok';
+		} catch (error) {
+			expect((error as ApiBundleError).reason).toBe('deps_unpinned');
+			return [...(error as ApiBundleError).paths];
+		}
+	}
+
+	test('positive control: registry tuples (plain and scoped) with an integrity pass', async () => {
+		expect(
+			await verdict({
+				hono: ['hono@4.6.0', '', {}, INTEGRITY],
+				'@scope/pkg': ['@scope/pkg@1.0.0', '', {}, 'sha256-BBBB'],
+			}),
+		).toBe('ok');
+	});
+
+	test('every non-registry shape, and a registry tuple without integrity, is named — sorted', async () => {
+		expect(
+			await verdict({
+				ok: ['ok@1.0.0', '', {}, INTEGRITY],
+				z_file: ['z_file@file:../dep', {}],
+				y_link: ['y_link@link:y_link', {}],
+				x_git: ['x_git@github:o/r#abc', {}, 'o-r-abc'],
+				w_url: ['w_url@https://example.org/w.tgz', {}],
+				t_userinfo: ['t_userinfo@https://user@example.org/t.tgz', {}, INTEGRITY],
+				v_bare: ['v_bare@1.0.0', '', {}],
+				u_shape: 'not a tuple',
+			}),
+		).toEqual([
+			'bun.lock:t_userinfo',
+			'bun.lock:u_shape',
+			'bun.lock:v_bare',
+			'bun.lock:w_url',
+			'bun.lock:x_git',
+			'bun.lock:y_link',
+			'bun.lock:z_file',
+		]);
+	});
+
+	test("the repo's own shipped lockfiles pass (server_api/v2, host_agent)", async () => {
+		for (const dir of ['publication/server_api/v2', 'publication/host_agent']) {
+			await assertRegistryLockfile(join(import.meta.dir, '../..', dir));
+		}
 	});
 });
 

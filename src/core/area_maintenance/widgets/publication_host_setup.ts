@@ -328,6 +328,8 @@ export const KIT_REASON_SENTENCES: Readonly<Record<string, string>> = Object.fre
 	deps_install_failed:
 		"The agent's production dependencies could not be installed (the package registry is unreachable, or the lockfile does not match).",
 	deps_symlink: "The agent's dependencies hold a symbolic link, which a kit cannot carry.",
+	deps_unpinned:
+		"The agent's lockfile names a dependency that does not come from the package registry with an integrity hash (a file, link, git or URL dependency).",
 	dev_dependency: "The agent's dependencies hold a development dependency.",
 	draft_refused:
 		"The agent's own draft check refused this draft (see the server log): remove it and create it again.",

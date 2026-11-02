@@ -830,9 +830,19 @@ interface DrillRun {
 
 const STUBBED_COMMANDS = ['bun', 'bunx', 'git', 'apt-get', 'mkdir'] as const;
 
-/** The stub every STUBBED_COMMANDS name resolves to: record, answer the two reads, do nothing. */
+/**
+ * The stub every STUBBED_COMMANDS name resolves to: record, answer the two reads, do nothing.
+ * ONE RECORD = ONE write(2). The instance tier's lanes run concurrently, so three stubs append
+ * at once; a record written field by field (one printf per field) interleaved with another
+ * lane's and the drill could not find its own kill point — leg J red "(exit -1)" on CI runners,
+ * on every Bun. Measured 2026-11-02: 3 writers × 300 records, 95 corrupted field-by-field,
+ * 0 composed in a private file and appended by one `cat` (an O_APPEND write is atomic).
+ */
 const DRILL_STUB = `#!/bin/sh
-{ printf '%s\\037' "$(basename "$0")" "$PWD"; for a in "$@"; do printf '%s\\037' "$a"; done; printf '\\036'; } >> "$DRILL_LOG"
+rec="$DRILL_LOG.rec.$$"
+{ printf '%s\\037' "$(basename "$0")" "$PWD"; for a in "$@"; do printf '%s\\037' "$a"; done; printf '\\036'; } > "$rec"
+/bin/cat "$rec" >> "$DRILL_LOG"
+/bin/rm -f "$rec"
 case "$(basename "$0")" in
 	bun) [ "$1" = "--version" ] && cat "$DRILL_PIN" ;;
 	git) case "$1" in rev-parse|merge-base) echo 0000000000000000000000000000000000000000 ;; esac ;;
