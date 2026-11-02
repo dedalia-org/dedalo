@@ -6,8 +6,8 @@
 	},
 	"measured": {
 		"tier_files": 1337,
-		"tier_tests": 20637,
-		"tier_pass": 20589,
+		"tier_tests": 20638,
+		"tier_pass": 20590,
 		"tier_skip": 48,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -1977,7 +1977,7 @@
 		"test/unit/feature_crawl_tripwire.test.ts": {
 			"tests": 21,
 			"skipped": 0,
-			"assertions": 152
+			"assertions": 148
 		},
 		"test/unit/ffmpeg_progress_native.test.ts": {
 			"tests": 13,
@@ -2767,7 +2767,7 @@
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 32533
+			"assertions": 32605
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -2870,9 +2870,9 @@
 			"assertions": 17
 		},
 		"test/unit/maintenance_door_unbounded_native.test.ts": {
-			"tests": 12,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 71
+			"assertions": 77
 		},
 		"test/unit/maintenance_label_rules_native.test.ts": {
 			"tests": 7,
